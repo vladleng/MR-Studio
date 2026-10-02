@@ -194,9 +194,25 @@ Stage 9 → 1.0
 - ready next song;
 - optional continue policy.
 
+## 0.4e — Basic Playback Editing
+
+Базовая подготовка playback непосредственно в Moon River Live:
+
+- регулировка общей громкости playback в dB;
+- неразрушающий `Trim Start`;
+- неразрушающий `Trim End`;
+- визуальные границы обрезки на timeline/waveform;
+- preview/playback с учётом новых границ;
+- duration и End Behavior рассчитываются от отредактированных границ;
+- Reset к исходной длине и уровню;
+- сохранение playback-edit параметров внутри `.moonlive`;
+- playback-edit настройки являются live-owned данными и не стираются при повторной синхронизации со Studio Pro.
+
+Исходный WAV не перезаписывается. После перехода к multitrack глобальные Trim Start/End применяются ко всем stems синхронно; индивидуальные уровни stems относятся к Stage 4.
+
 ### Acceptance Stage 3
 
-Полноценную песню можно сыграть с stereo backing track, видеть синхронные chords/sections и переходить между секциями.
+Полноценную песню можно сыграть с stereo backing track, отрегулировать её playback gain, неразрушающе обрезать начало/конец, видеть синхронные chords/sections и переходить между секциями. Настройки редактирования сохраняются после перезапуска и повторной синхронизации metadata.
 
 ---
 
