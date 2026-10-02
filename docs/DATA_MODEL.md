@@ -201,12 +201,19 @@ Song
 
 На первых этапах clips нужны прежде всего для контекста и будущей интеграции с Arranger Manager.
 
-## 10. Playback Assets
+## 10. Playback Assets и базовое редактирование
+
+Базовый stereo playback:
 
 ```json
 {
   "playback": {
     "mode": "stereo",
+    "masterGainDb": -2.0,
+    "trim": {
+      "startSeconds": 1.25,
+      "endSeconds": 243.40
+    },
     "assets": [
       {
         "id": "backing",
@@ -218,6 +225,19 @@ Song
   }
 }
 ```
+
+### Playback editing rules
+
+`masterGainDb` и `trim` — **неразрушающие live-параметры**. Moon River Live не перезаписывает исходный аудиофайл при изменении громкости или обрезке.
+
+- `masterGainDb` задаёт общий уровень песни;
+- `trim.startSeconds` задаёт фактическую точку начала playback;
+- `trim.endSeconds` задаёт фактическую точку окончания playback;
+- отсутствие `trim` означает использование полной длины исходного файла;
+- Reset удаляет пользовательские значения либо возвращает их к значениям по умолчанию;
+- Timeline Engine, elapsed/remaining time и End Behavior должны учитывать фактические trim-границы.
+
+После появления multitrack глобальные `trim.startSeconds` / `trim.endSeconds` применяются **ко всем stems одновременно**, чтобы сохранить синхронизацию. Индивидуальная громкость stem хранится в `assets[].gainDb`, тогда как `masterGainDb` остаётся общим уровнем песни.
 
 Позже:
 
@@ -354,6 +374,8 @@ Moon River Live должен:
 - patch assignments;
 - live notes;
 - output routing;
+- playback master gain;
+- playback Trim Start / Trim End;
 - setlist-specific settings.
 
 Bridge не должен стирать live-owned данные при повторном импорте.
