@@ -41,8 +41,9 @@ Core run 37101469824; ASIO run 37101469828.
 ## Handoff
 Read START_HERE, current issue and relevant subsystem contracts.
 Stage 1 deferred work remains in #16. Current product stage: #20 MRS DAW Foundation.
-#20 DAW shell and #28 Live prototype can use established shared musical contracts.
-No GUI, actual VST3 host, hardware MIDI, note editor or final asset package yet.
+#20 DAW shell uses established shared musical contracts; #28 can extend the Live view.
+Windows GUI is introduced in #20. Actual VST3 host, hardware MIDI, note editor
+and final asset package are not implemented.
 No seamless reconnect, hot graph swap or production disk streaming.
 
 ## Stage 4 — accepted

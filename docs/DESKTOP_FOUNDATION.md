@@ -48,7 +48,7 @@ Native edit controls retain their normal typing/Undo behavior.
 
 The demo has explicit fixture harmony/sections and a quiet 220 Hz tone. Harmony
 is not inferred from a WAV. Open WAV creates a new audio project with no authored
-chords/sections and preloads/validates PCM/float WAV through the shared decoder.
+chords/sections and preloads/validates PCM/float WAV through the shared decoder. Connect enforces a 512 MiB aggregate decoded preload cap.
 Waveforms, clip editing, recording, resampling and MIDI editing are later stages.
 
 Project documents use the accepted Stage 4 archive. Unknown chunks/state survive
