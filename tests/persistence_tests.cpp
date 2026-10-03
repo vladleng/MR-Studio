@@ -1,6 +1,7 @@
 #include <mrs/persistence.hpp>
 #include <mrs/musical.hpp>
 #include <bit>
+#include <array>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -85,6 +86,21 @@ void roundtrip() {
     // No processor factory/device access: unavailable plugins and device references survive.
     SharedSession reopened(decode_project(bytes)); CHECK(reopened.capture() == d);
     CHECK(reopened.services().transport->state().playback == PlaybackState::stopped);
+    // Capture actual native processor state while quiescent, archive it, explicitly restore.
+    auto native = demo_document();
+    processing::PreparedGraph runtime({std::make_shared<const processing::GraphState>(native.graph),0,false,false},{});
+    CHECK(runtime.enqueue_parameter({"gain"},{0,0,0.375f}));
+    std::array<float,2> audio{1,1}; runtime.process(audio.data(),1);
+    native.graph = runtime.capture(); CHECK(!native.graph.nodes.front().plugin.component.empty());
+    const auto restored = decode_project(encode(native));
+    processing::PreparedGraph engine({std::make_shared<const processing::GraphState>(restored.graph),0,false,false},{});
+    audio = {1,1}; engine.process(audio.data(),1); CHECK(audio[0] == 0.375f && audio[1] == 0.375f);
+    // Internal audio edges and non-default MIDI remapping also survive.
+    auto second = native.graph.nodes.front(); second.id = {"gain-two"};
+    native.graph.nodes.push_back(second); native.graph.edges.push_back({Id{"gain"},second.id,0.75f});
+    native.graph.outputs = {second.id}; native.graph.midi_routes.front().input_channel = 2;
+    native.graph.midi_routes.front().output_channel = 4; native.graph.midi_routes.front().transpose = 12;
+    CHECK(decode_project(encode(native)) == native);
 }
 void migrations() {
     const std::string v1 =

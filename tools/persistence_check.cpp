@@ -15,6 +15,9 @@ int main() {
     try {
         Directory dir; auto path = dir.path / "song.mrsproject"; auto document = demo_document();
         document.extensions = {{"USER","opaque future state"}};
+        processing::PreparedGraph runtime({std::make_shared<const processing::GraphState>(document.graph),0,false,false},{});
+        document.graph = runtime.capture(); // quiescent native component state, no device
+        check(!document.graph.nodes.front().plugin.component.empty(),"captured processor state");
         SharedSession session(document); auto arrange = session.services(), live = session.services();
         arrange.projects->execute(RenameTrack{document.project.tracks.front().id,"Shared saved track"});
         auto graph = *session.graphs()->state().graph; graph.patch_name = "Shared saved patch"; session.graphs()->replace(graph);
