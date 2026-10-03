@@ -37,7 +37,7 @@ void TimeMap::validate() const {
     Tick start_tick = 0;
     MeterPoint previous;
     for (const auto& p : meters) {
-        require(p.bar > last_bar && p.bar <= 1'000'000'000, "invalid meter bar order");
+        require(p.bar > last_bar && p.bar <= max_tick + 1, "invalid meter bar order");
         require(p.numerator >= 1 && p.numerator <= 64, "invalid meter numerator");
         require(p.denominator >= 1 && p.denominator <= 64 &&
                 (p.denominator & (p.denominator - 1)) == 0, "invalid meter denominator");

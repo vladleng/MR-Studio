@@ -91,6 +91,10 @@ void timeline() {
         for (const auto tick : {0LL, 1LL, 1233LL, 1234LL, 1235LL, 5678LL, 1000000LL})
             CHECK(variable.to_ticks(variable.to_samples(tick)) == tick);
     }
+    mrs::TimeMap narrow;
+    narrow.meters = {{1, 1, 64}};
+    const mrs::Timeline narrow_time{narrow, 48000};
+    CHECK(narrow_time.to_ticks(narrow_time.musical_position(mrs::max_tick)) == mrs::max_tick);
     rejects([&] { (void)time.to_samples(-1); });
     rejects([&] { (void)time.to_ticks(mrs::Sample{-1}); });
     rejects([&] { (void)time.to_ticks(mrs::MusicalPosition{0, 1, 0}); });

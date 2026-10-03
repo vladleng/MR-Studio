@@ -78,7 +78,7 @@ MusicalPosition Timeline::musical_position(Tick tick) const {
             static_cast<int>((local % bar_ticks) / beat_ticks) + 1, local % beat_ticks};
 }
 Tick Timeline::to_ticks(MusicalPosition position) const {
-    if (position.bar < 1 || position.bar > 1'000'000'000)
+    if (position.bar < 1 || position.bar > max_tick + 1)
         throw std::invalid_argument("musical bar out of range");
     const auto all = segments(map_);
     auto chosen = all.front();

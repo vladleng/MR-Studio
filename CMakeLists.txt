@@ -1,7 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 project(MoonRiverStudio VERSION 0.1.0 LANGUAGES CXX)
 include(CTest)
-add_library(mrs_core
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+add_library(mrs_core STATIC
   core/src/model.cpp core/src/timeline.cpp core/src/transport.cpp
   core/src/project_store.cpp core/src/serialization.cpp core/src/fixtures.cpp)
 target_include_directories(mrs_core PUBLIC core/include)

@@ -148,7 +148,7 @@ and executable `./build/mrs_core_check`.
 CI builds/tests MSVC and GCC in Debug and Release with warnings as errors.
 CTest runs six suites (model/timeline/transport/commands/serialization/integration)
 and the acceptance tool. The Windows Release artifact contains the console
-checker and test executable. This is a backend check, not a DAW installer.
+checker and test executable, linked with the static MSVC runtime. This is a backend check, not a DAW installer.
 
 ## Next stages
 

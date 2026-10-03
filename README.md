@@ -4,7 +4,7 @@
 
 **Live Mode** — встроенный Performance / Show режим Moon River Studio, по роли близкий к Show Page в Studio Pro. Это не отдельное приложение и не отдельная продуктовая версия.
 
-> Репозиторий исторически называется `Moon-River-Live`, но текущая архитектура охватывает всю Moon River Studio. Переименование репозитория можно выполнить позже отдельным шагом.
+> Репозиторий называется `MR-Studio`; историческое имя — `Moon-River-Live`. Текущая архитектура охватывает всю Moon River Studio.
 
 ## Новый чат / новый разработчик
 
@@ -21,6 +21,19 @@
 - критические вещи, которые нельзя переизобретать или дублировать.
 
 После `START_HERE.md` открыть актуальный Stage issue, над которым продолжается работа.
+
+## Текущая реализация
+
+Первый этап **SHARED Stage 0 / issue #15** реализован в PR #36 и ожидает приёмки.
+Это общий C++20 backend: Project Model v1, Command/Undo, Transport API,
+tempo/meter contracts, подписки, fixtures и versioned snapshot.
+
+- [Core contracts](docs/CORE_CONTRACTS.md) — API, ownership, threading и границы этапа.
+- [Проверка Windows-сборки](docs/SHARED_STAGE_0_CHECKLIST.md) — консольный checker.
+- [Статус реализации](docs/IMPLEMENTATION_STATUS.md) — продолжение работы.
+
+На этом этапе ещё нет GUI и аудиодвижка. MRS 0.1 не считается завершённой
+до DAW Foundation (#20) и Audio Engine / ASIO performance gate (#16).
 
 ## Основная концепция
 
