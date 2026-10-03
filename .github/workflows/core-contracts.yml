@@ -1,0 +1,41 @@
+name: Core contracts
+on:
+  push:
+    branches: [main, 'shared/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        config: [Debug, Release]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+      - name: Build
+        run: cmake --build build --config ${{ matrix.config }} --parallel 2
+      - name: Test
+        run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure
+      - name: Acceptance check (Windows)
+        if: runner.os == 'Windows'
+        run: ./build/${{ matrix.config }}/mrs_core_check.exe
+      - name: Acceptance check (Linux)
+        if: runner.os == 'Linux'
+        run: ./build/mrs_core_check
+      - name: Upload Windows check
+        if: runner.os == 'Windows' && matrix.config == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MR-Studio-SHARED-Stage-0-Windows
+          path: |
+            build/Release/mrs_core_check.exe
+            build/Release/mrs_core_tests.exe
+            docs/CORE_CONTRACTS.md
+            docs/SHARED_STAGE_0_CHECKLIST.md
+          if-no-files-found: error

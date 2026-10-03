@@ -1,0 +1,278 @@
+#pragma once
+#include <cstdint>
+#include <deque>
+#include <functional>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace mrs {
+using Sample = std::int64_t;
+using Tick = std::int64_t;
+inline constexpr Tick ppq = 960;
+inline constexpr Tick max_tick = 1'000'000'000'000;
+inline constexpr Sample max_sample = 4'503'599'627'370'496;
+inline constexpr std::uint32_t schema_version = 1;
+struct Id {
+    std::string value;
+    bool operator==(const Id&) const = default;
+};
+// Generation is off the realtime thread; saved/imported IDs are preserved.
+Id new_id();
+struct MusicalPosition {
+    std::int64_t bar{1};
+    int beat{1}; // denominator-note beat, one-based
+    Tick tick{}; // ticks within this beat
+    bool operator==(const MusicalPosition&) const = default;
+};
+struct TempoPoint {
+    Tick tick{};
+    double bpm{120.0};
+    bool operator==(const TempoPoint&) const = default;
+};
+struct MeterPoint {
+    std::int64_t bar{1}; // changes at bar boundaries
+    int numerator{4};
+    int denominator{4};
+    bool operator==(const MeterPoint&) const = default;
+};
+struct TimeMap {
+    std::vector<TempoPoint> tempos{{}};
+    std::vector<MeterPoint> meters{{}};
+    void validate() const;
+    bool operator==(const TimeMap&) const = default;
+};
+enum class TrackKind { audio, midi };
+enum class MarkerKind { generic, cue, warning, lyric, action, navigation };
+struct Folder {
+    Id id;
+    std::string name;
+    std::optional<Id> parent;
+    bool operator==(const Folder&) const = default;
+};
+struct Track {
+    Id id;
+    std::string name;
+    TrackKind kind{TrackKind::audio};
+    std::optional<Id> folder;
+    bool operator==(const Track&) const = default;
+};
+struct Clip {
+    Id id;
+    Id track;
+    std::string name;
+    Sample start{};
+    Sample length{1};
+    Sample source_offset{};
+    std::string source; // opaque asset reference, Stage 0 does not open it
+    bool operator==(const Clip&) const = default;
+};
+struct Marker {
+    Id id;
+    std::string name;
+    Tick tick{};
+    MarkerKind kind{MarkerKind::generic};
+    bool operator==(const Marker&) const = default;
+};
+struct Project {
+    std::uint32_t version{schema_version};
+    Id id;
+    std::string title;
+    std::string artist;
+    std::uint32_t sample_rate{48'000};
+    TimeMap time;
+    std::vector<Folder> folders;
+    std::vector<Track> tracks;
+    std::vector<Clip> clips;
+    std::vector<Marker> markers;
+    void validate() const;
+    bool operator==(const Project&) const = default;
+};
+class Timeline {
+public:
+    Timeline(TimeMap map, std::uint32_t sample_rate);
+    Sample to_samples(Tick tick) const; // nearest sample
+    Tick to_ticks(Sample sample) const; // nearest tick
+    MusicalPosition musical_position(Tick tick) const;
+    Tick to_ticks(MusicalPosition position) const;
+private:
+    TimeMap map_;
+    std::uint32_t rate_;
+};
+class Connection {
+public:
+    explicit Connection(std::function<void()> disconnect = {});
+    Connection(Connection&& other) noexcept;
+    Connection& operator=(Connection&& other) noexcept;
+    Connection(const Connection&) = delete;
+    Connection& operator=(const Connection&) = delete;
+    ~Connection();
+    void disconnect() noexcept;
+private:
+    std::function<void()> disconnect_;
+};
+// Application-thread only, never invoked from an audio callback.
+// RAII subscriptions; reentrant events are FIFO; listener exceptions are isolated.
+template<class T> class Signal {
+    struct State {
+        std::uint64_t next{1};
+        std::map<std::uint64_t, std::function<void(const T&)>> listeners;
+        std::deque<T> pending;
+        bool dispatching{};
+        std::uint64_t errors{};
+    };
+    std::shared_ptr<State> state_{std::make_shared<State>()};
+public:
+    Signal() = default;
+    Signal(const Signal&) = delete;
+    Signal& operator=(const Signal&) = delete;
+    Connection subscribe(std::function<void(const T&)> callback) {
+        const auto key = state_->next++;
+        state_->listeners.emplace(key, std::move(callback));
+        return Connection{[weak = std::weak_ptr<State>(state_), key] {
+            if (auto state = weak.lock()) state->listeners.erase(key);
+        }};
+    }
+    void publish(T value) {
+        auto state = state_;
+        state->pending.push_back(std::move(value));
+        if (state->dispatching) return;
+        state->dispatching = true;
+        try {
+            while (!state->pending.empty()) {
+                auto event = std::move(state->pending.front());
+                state->pending.pop_front();
+                const auto callbacks = state->listeners;
+                for (const auto& [key, callback] : callbacks) {
+                    if (!state->listeners.contains(key)) continue;
+                    try { callback(event); } catch (...) { ++state->errors; }
+                }
+            }
+        } catch (...) {
+            state->dispatching = false;
+            state->pending.clear();
+            throw;
+        }
+        state->dispatching = false;
+    }
+    std::uint64_t observer_errors() const { return state_->errors; }
+};
+enum class PlaybackState { stopped, paused, playing };
+struct LoopRange {
+    Sample start{};
+    Sample end{1}; // exclusive
+    bool operator==(const LoopRange&) const = default;
+};
+struct TransportState {
+    PlaybackState playback{PlaybackState::stopped};
+    Sample sample{};
+    MusicalPosition musical;
+    std::optional<LoopRange> loop;
+    bool operator==(const TransportState&) const = default;
+};
+class ITransport {
+public:
+    virtual ~ITransport() = default;
+    virtual TransportState state() const = 0;
+    virtual void play() = 0;
+    virtual void pause() = 0;
+    virtual void stop() = 0; // reset to sample zero
+    virtual void seek(Sample sample) = 0;
+    virtual void set_loop(std::optional<LoopRange> loop) = 0;
+    virtual Connection subscribe(std::function<void(const TransportState&)>) = 0;
+};
+class MockTransport final : public ITransport {
+public:
+    explicit MockTransport(Timeline timeline);
+    TransportState state() const override;
+    void play() override;
+    void pause() override;
+    void stop() override;
+    void seek(Sample sample) override;
+    void set_loop(std::optional<LoopRange> loop) override;
+    Connection subscribe(std::function<void(const TransportState&)>) override;
+    void advance(Sample frames); // deterministic fixture clock, not an audio engine
+private:
+    Timeline timeline_;
+    TransportState state_;
+    Signal<TransportState> changes_;
+    void commit(TransportState next);
+};
+class ICommand {
+public:
+    virtual ~ICommand() = default;
+    virtual std::string_view name() const = 0;
+    // A private candidate is validated before committing; rejection is atomic.
+    virtual void apply(Project& candidate) const = 0;
+};
+class AddTrack final : public ICommand {
+public:
+    explicit AddTrack(Track track);
+    std::string_view name() const override;
+    void apply(Project&) const override;
+private:
+    Track track_;
+};
+class RenameTrack final : public ICommand {
+public:
+    RenameTrack(Id track, std::string name);
+    std::string_view name() const override;
+    void apply(Project&) const override;
+private:
+    Id track_;
+    std::string name_;
+};
+struct ProjectState {
+    std::shared_ptr<const Project> project;
+    std::uint64_t revision{};
+    bool can_undo{};
+    bool can_redo{};
+    std::string command;
+};
+class IProjectStore {
+public:
+    virtual ~IProjectStore() = default;
+    virtual ProjectState state() const = 0;
+    virtual void execute(const ICommand&) = 0;
+    virtual bool undo() = 0;
+    virtual bool redo() = 0;
+    virtual Connection subscribe(std::function<void(const ProjectState&)>) = 0;
+};
+class ProjectStore final : public IProjectStore {
+public:
+    explicit ProjectStore(Project project, std::size_t history_limit = 128);
+    ProjectState state() const override;
+    void execute(const ICommand&) override;
+    bool undo() override;
+    bool redo() override;
+    Connection subscribe(std::function<void(const ProjectState&)>) override;
+private:
+    struct Edit {
+        std::shared_ptr<const Project> before;
+        std::shared_ptr<const Project> after;
+        std::string name;
+    };
+    std::shared_ptr<const Project> project_;
+    std::vector<Edit> undo_;
+    std::vector<Edit> redo_;
+    std::uint64_t revision_{};
+    std::size_t history_limit_;
+    std::string command_;
+    Signal<ProjectState> changes_;
+    bool editing_{};
+    void publish();
+};
+// Versioned Stage 0 text snapshot, NOT a final DAW project package.
+// Reject unknown versions/extra data instead of silently discarding it.
+std::string serialize(const Project&);
+Project deserialize(std::string_view);
+Project demo_project();
+struct Services {
+    std::shared_ptr<IProjectStore> projects;
+    std::shared_ptr<ITransport> transport;
+};
+Services demo_services();
+} // namespace mrs
