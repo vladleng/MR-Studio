@@ -6,6 +6,22 @@
 
 > Репозиторий исторически называется `Moon-River-Live`, но текущая архитектура охватывает всю Moon River Studio. Переименование репозитория можно выполнить позже отдельным шагом.
 
+## Новый чат / новый разработчик
+
+Начинать с [`docs/START_HERE.md`](docs/START_HERE.md).
+
+Там зафиксированы:
+
+- краткая архитектурная формула проекта;
+- правило одного SHARED Core / Engine;
+- роль встроенного Live Mode;
+- порядок чтения документации;
+- карта Issues;
+- правила параллельной разработки;
+- критические вещи, которые нельзя переизобретать или дублировать.
+
+После `START_HERE.md` открыть актуальный Stage issue, над которым продолжается работа.
+
 ## Основная концепция
 
 ```text
@@ -165,6 +181,7 @@ Live UI может использовать mock SHARED services до готов
 
 ## Документация
 
+- [`docs/START_HERE.md`](docs/START_HERE.md) — обязательная точка входа для новых чатов/разработчиков.
 - [`docs/MOON_RIVER_STUDIO_VISION.md`](docs/MOON_RIVER_STUDIO_VISION.md) — целевая концепция MRS.
 - [`docs/PROJECT_VISION.md`](docs/PROJECT_VISION.md) — общее видение продукта.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — единый Core и workspaces.
