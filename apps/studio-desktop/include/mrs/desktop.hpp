@@ -52,6 +52,11 @@ public:
     void reorder_track(const Id&, std::size_t index);
     void import_wavs(const std::vector<std::filesystem::path>&);
     bool undo(); bool redo();
+    void move_clip(const Id&, const Id& track, Sample start);
+    void trim_clip(const Id&, Sample start, Sample end);
+    Id split_clip(const Id&, Sample position);
+    void remove_clip(const Id&);
+    Sample source_frames(const Id&);
     void prepare_waveforms();
     const audio::Waveform* waveform(std::string_view source) const;
     void open_project(const std::filesystem::path&);

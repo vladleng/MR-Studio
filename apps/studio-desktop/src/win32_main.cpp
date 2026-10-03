@@ -80,7 +80,7 @@ enum ControlId {
     nav_arrange = 100, nav_edit, nav_mix, nav_live, play = 110, pause, stop,
     previous, next, loop, undo, redo, open, save, save_as, demo, import,
     audio_settings, tracks = 140, rename_edit, rename,
-    new_project_button = 160, import_batch, add_track, delete_track, track_up, track_down, zoom_in, zoom_out, zoom_fit,
+    new_project_button = 160, import_batch, add_track, delete_track, track_up, track_down, zoom_in, zoom_out, zoom_fit, split_clip_button, delete_clip_button, snap_button,
     device_combo = 200, rate_edit, buffer_edit, outputs_edit, input_edit,
     connect_button, disconnect_button, panel_button, refresh_button
 };
@@ -103,7 +103,11 @@ struct UI {
     double visible_seconds{32}, view_start{};
     bool fit_view{true};
     std::size_t first_track{};
-    std::optional<Id> selected_track;
+    std::optional<Id> selected_track, selected_clip;
+    bool snap{};
+    enum class DragMode { move, left, right };
+    struct Drag { Clip original, preview; DragMode mode; Sample anchor{}, frames{}; POINT origin{}; bool changed{}; };
+    std::optional<Drag> drag;
     explicit UI(bool test) : folder(data_folder()), log(folder / L"studio.log"), smoke(test) {
         if (!smoke) {
             try {
@@ -149,6 +153,7 @@ struct UI {
             {new_project_button,L"New"},{import_batch,L"Import WAVs"},{add_track,L"+ Track"},
             {delete_track,L"Delete"},{track_up,L"Up"},{track_down,L"Down"},
             {zoom_in,L"Zoom +"},{zoom_out,L"Zoom -"},{zoom_fit,L"Fit"}}}) button(window,label,id);
+        button(window,L"Split (S)",split_clip_button); button(window,L"Del clip",delete_clip_button); button(window,L"Snap off",snap_button);
         create(window,L"LISTBOX",L"",tracks,WS_TABSTOP | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT);
         create(window,L"EDIT",L"",rename_edit,WS_TABSTOP | ES_AUTOHSCROLL | WS_BORDER);
         SendMessageW(child(rename_edit),EM_SETLIMITTEXT,1024,0); button(window,L"Rename track",rename);
@@ -163,6 +168,7 @@ struct UI {
         for (int i = 0; i < 4; ++i) move(nav_arrange+i,240+i*100,18,92,34);
         move(audio_settings,width-166,18,150,34);
         int x = 20; for (auto id : {play,pause,stop,previous,next,loop}) { int w = id >= previous ? 115 : 76; move(id,x,80,w,34); x += w+8; }
+        move(split_clip_button,700,196,80,32); move(delete_clip_button,788,196,80,32); move(snap_button,876,196,88,32);
         move(undo,20,140,80,32); move(redo,108,140,80,32);
         move(open,20,188,168,32); move(save,20,228,80,32); move(save_as,108,228,80,32);
         move(demo,20,272,80,32); move(import,108,272,80,32);
@@ -189,6 +195,8 @@ struct UI {
             SetWindowTextW(child(rename_edit),wide(found->name).c_str());
         } else { selected_track.reset(); SetWindowTextW(child(rename_edit),L""); }
         first_track = std::min(first_track,project->tracks.empty() ? std::size_t{0} : project->tracks.size()-1);
+        if (selected_clip && std::none_of(project->clips.begin(),project->clips.end(),[&](const auto& c) { return c.id == *selected_clip; })) selected_clip.reset();
+        EnableWindow(child(split_clip_button),selected_clip.has_value()); EnableWindow(child(delete_clip_button),selected_clip.has_value());
         prefs.rate = project->sample_rate;
         if (settings) SetWindowTextW(child(rate_edit,true),std::to_wstring(prefs.rate).c_str());
         EnableWindow(child(undo),app.services().projects->state().can_undo); EnableWindow(child(redo),app.services().projects->state().can_redo);
@@ -213,7 +221,91 @@ struct UI {
         out.write(bytes.data(),static_cast<std::streamsize>(bytes.size()));
         if (!out) throw std::runtime_error("Cannot save desktop preferences");
     }
+    void cancel_drag() {
+        drag.reset(); if (GetCapture() == window) ReleaseCapture(); InvalidateRect(window,nullptr,FALSE);
+    }
+    int audio_top() const {
+        const auto p = app.services().projects->state().project;
+        return canvas.top+s(p->chords.empty() && p->sections.empty() ? 70 : 185);
+    }
+    int sample_x(Sample sample) const {
+        const auto rate = app.services().projects->state().project->sample_rate;
+        return canvas.left+static_cast<int>(std::clamp((static_cast<double>(sample)/rate-view_start)/visible_seconds*(canvas.right-canvas.left),-100000.0,100000.0));
+    }
+    Sample sample_at(int x) const {
+        const auto rate = app.services().projects->state().project->sample_rate;
+        const auto seconds = view_start+static_cast<double>(x-canvas.left)/(canvas.right-canvas.left)*visible_seconds;
+        return static_cast<Sample>(std::clamp(seconds*rate,0.0,static_cast<double>(max_sample)));
+    }
+    std::optional<Id> track_at(int y) const {
+        if (y < audio_top()) return {};
+        const auto index = first_track+static_cast<std::size_t>((y-audio_top())/s(92));
+        const auto p = app.services().projects->state().project;
+        return index < p->tracks.size() ? std::optional<Id>{p->tracks[index].id} : std::nullopt;
+    }
+    std::optional<Clip> hit_clip(POINT point) const {
+        if (!PtInRect(&canvas,point) || point.y < audio_top()) return {};
+        const auto row = (point.y-audio_top())%s(92);
+        if (row < s(26) || row >= s(82)) return {};
+        const auto track = track_at(point.y); if (!track) return {};
+        const auto p = app.services().projects->state().project;
+        for (auto it = p->clips.rbegin(); it != p->clips.rend(); ++it)
+            if (it->track == *track && point.x >= sample_x(it->start) && point.x <= sample_x(it->start+it->length)) return *it;
+        return {};
+    }
+    Sample grid(Sample value) const {
+        value = std::clamp(value,Sample{0},max_sample);
+        return snap && !(GetKeyState(VK_SHIFT)&0x8000) ? snap_to_grid(*app.services().projects->state().project,value) : value;
+    }
+    void mouse_down(POINT point) {
+        if (app.workspace() != Workspace::arrange || !PtInRect(&canvas,point)) return;
+        SetFocus(window);
+        if (auto clip = hit_clip(point)) {
+            selected_clip = clip->id; selected_track = clip->track; refresh_models();
+            if (app.engine()->state().playback == PlaybackState::playing) return; // selection is always available
+            auto mode = DragMode::move;
+            if (std::abs(point.x-sample_x(clip->start)) <= s(7)) mode = DragMode::left;
+            else if (std::abs(point.x-sample_x(clip->start+clip->length)) <= s(7)) mode = DragMode::right;
+            fit_view = false;
+            drag = Drag{*clip,*clip,mode,sample_at(point.x),app.source_frames(clip->id),point,false};
+            SetCapture(window);
+        } else app.seek(grid(sample_at(point.x))); // ruler/empty space keeps clip selection for Split
+    }
+    void mouse_move(POINT point) {
+        if (!drag) return;
+        auto& d = *drag;
+        if (!d.changed && std::abs(point.x-d.origin.x) < s(3) && std::abs(point.y-d.origin.y) < s(3)) return;
+        d.changed = true; d.preview = d.original;
+        const auto delta = sample_at(point.x)-d.anchor;
+        if (d.mode == DragMode::move) {
+            d.preview.start = std::clamp(grid(std::max(Sample{0},d.original.start+delta)),Sample{0},max_sample-d.original.length);
+            if (auto target = track_at(point.y)) {
+                const auto p = app.services().projects->state().project;
+                auto it = std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t) { return t.id == *target; });
+                if (it != p->tracks.end() && it->kind == TrackKind::audio) d.preview.track = *target;
+            }
+        } else if (d.mode == DragMode::left) {
+            const auto finish = d.original.start+d.original.length;
+            const auto lower = std::max(Sample{0},d.original.start-d.original.source_offset);
+            d.preview.start = std::clamp(grid(std::max(Sample{0},d.original.start+delta)),lower,finish-1);
+            d.preview.source_offset += d.preview.start-d.original.start; d.preview.length = finish-d.preview.start;
+        } else {
+            const auto maximum = std::min(max_sample,d.original.start+d.frames-d.original.source_offset);
+            const auto finish = std::clamp(grid(std::max(Sample{0},d.original.start+d.original.length+delta)),d.original.start+1,maximum);
+            d.preview.length = finish-d.original.start;
+        }
+        InvalidateRect(window,nullptr,FALSE);
+    }
+    void mouse_up(POINT point) {
+        if (!drag) return;
+        mouse_move(point); auto d = *drag; cancel_drag();
+        if (!d.changed || d.preview == d.original) return;
+        if (d.mode == DragMode::move) app.move_clip(d.original.id,d.preview.track,d.preview.start);
+        else app.trim_clip(d.original.id,d.preview.start,d.preview.start+d.preview.length);
+        selected_track = d.preview.track; refresh_models();
+    }
     void command(int id, int notification) {
+        if (drag) cancel_drag();
         if (id >= nav_arrange && id <= nav_live) { app.workspace(static_cast<Workspace>(id-nav_arrange)); for (int i = nav_arrange; i <= nav_live; ++i) InvalidateRect(child(i),nullptr,TRUE); InvalidateRect(window,nullptr,FALSE); return; }
         if (id == tracks && notification == LBN_SELCHANGE) {
             const auto selection = SendMessageW(child(tracks),LB_GETCURSEL,0,0);
@@ -263,6 +355,14 @@ struct UI {
             }
             break;
         }
+        case split_clip_button:
+            if (selected_clip) { (void)app.split_clip(*selected_clip,app.services().transport->state().sample); refresh_models(); }
+            break;
+        case delete_clip_button:
+            if (selected_clip) { app.remove_clip(*selected_clip); refresh_models(); }
+            break;
+        case snap_button:
+            snap = !snap; SetWindowTextW(child(snap_button),snap ? L"Snap 1/16" : L"Snap off"); break;
         case zoom_in: fit_view = false; visible_seconds = std::max(0.25,visible_seconds/2); break;
         case zoom_out: fit_view = false; visible_seconds = std::min(86400.0,visible_seconds*2); break;
         case zoom_fit: fit_view = true; view_start = 0; break;
@@ -312,7 +412,7 @@ struct UI {
         };
         fill(dc,rect,panel); const int saved = SaveDC(dc); IntersectClipRect(dc,rect.left,rect.top,rect.right,rect.bottom);
         const int top = rect.top;
-        text(dc,rect.left+s(12),top+s(4),width-s(24),s(30),moving ? L"Chord track — shared transport" : L"Timeline — wheel: tracks / Shift+wheel: time",normal,muted);
+        text(dc,rect.left+s(12),top+s(4),width-s(24),s(30),moving ? L"Chord track — shared transport" : L"Drag body: move / edges: trim / S: split / Del: delete",normal,muted);
         int last_label = rect.left-s(64), last_grid = rect.left-s(8);
         for (int bar = 1; bar <= 256; ++bar) {
             const auto tick = time.to_ticks({bar,1,0}); const int x = x_tick(tick);
@@ -340,7 +440,9 @@ struct UI {
                 if (y+s(30) > rect.bottom) break;
                 if (selected_track && track.id == *selected_track) fill(dc,{rect.left,y,rect.right,y+s(88)},RGB(34,42,62));
                 text(dc,rect.left+s(12),y,width-s(24),s(24),wide(track.name),normal,muted); y += s(26);
-                for (const auto& clip : project->clips) if (clip.track == track.id) {
+                for (const auto& stored_clip : project->clips) {
+                    const auto clip = drag && drag->original.id == stored_clip.id ? drag->preview : stored_clip;
+                    if (clip.track != track.id) continue;
                     RECT block{x_sample(clip.start)+1,y,x_sample(clip.start+clip.length)-1,y+s(56)};
                     if (block.right <= rect.left || block.left >= rect.right) continue;
                     fill(dc,block,RGB(38,66,86));
@@ -362,6 +464,13 @@ struct UI {
                         }
                         SelectObject(dc,previous_pen); DeleteObject(peak_pen);
                     } else text(dc,block.left+s(8),y,block.right-block.left-s(16),s(56),L"Building waveform...",normal,muted);
+                    if (selected_clip && clip.id == *selected_clip) {
+                        line(dc,block.left,block.top,block.right,block.top,amber);
+                        line(dc,block.left,block.bottom-1,block.right,block.bottom-1,amber);
+                        fill(dc,{block.left,block.top,block.left+s(4),block.bottom},amber);
+                        fill(dc,{block.right-s(4),block.top,block.right,block.bottom},amber);
+                    }
+                    text(dc,block.left+s(7),block.top,block.right-block.left-s(14),s(18),wide(clip.name),normal,ink);
                 }
                 y += s(66);
             }
@@ -380,10 +489,10 @@ struct UI {
         std::wostringstream position;
         position << L"Bar " << context.transport.musical.bar << L"  Beat " << context.transport.musical.beat
             << L"    " << std::fixed << std::setprecision(2) << static_cast<double>(context.transport.sample)/context.project->sample_rate << L" s";
-        text(dc,s(220),s(196),s(480),s(35),position.str(),heading,amber);
+        text(dc,s(220),s(196),s(470),s(35),position.str(),heading,amber);
         text(dc,s(20),s(318),s(168),s(28),L"Project tracks",normal,muted);
         auto workspace = app.workspace();
-        for (auto id : {add_track,delete_track,track_up,track_down,zoom_in,zoom_out,zoom_fit}) ShowWindow(child(id),workspace == Workspace::arrange ? SW_SHOW : SW_HIDE);
+        for (auto id : {add_track,delete_track,track_up,track_down,zoom_in,zoom_out,zoom_fit,split_clip_button,delete_clip_button,snap_button}) ShowWindow(child(id),workspace == Workspace::arrange ? SW_SHOW : SW_HIDE);
         if (workspace == Workspace::arrange || workspace == Workspace::live) {
             auto section = context.current_section ? wide(context.current_section->name) : L"No section";
             auto next_section = context.next_section ? wide(context.next_section->name) : L"End";
@@ -588,6 +697,22 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                 ++ui->smoke_step;
                 if (ui->smoke_step <= 4) ui->command(nav_arrange+ui->smoke_step-1,BN_CLICKED);
                 if (ui->smoke_step == 5) {
+                    ui->command(nav_arrange,BN_CLICKED);
+                    const auto revision = ui->app.services().projects->state().revision;
+                    POINT origin{(ui->canvas.left+ui->canvas.right)/2,ui->audio_top()+ui->s(42)};
+                    POINT destination{origin.x+ui->s(30),origin.y};
+                    ui->mouse_down(origin); ui->mouse_move(destination);
+                    if (!ui->drag || ui->app.services().projects->state().revision != revision)
+                        throw std::runtime_error("Drag preview unexpectedly changed project state");
+                    ui->mouse_up(destination);
+                    if (ui->app.services().projects->state().revision != revision+1)
+                        throw std::runtime_error("Drag did not commit exactly one edit");
+                    ui->command(undo,0);
+                    const auto undone = ui->app.services().projects->state().revision;
+                    ui->mouse_down(origin); ui->mouse_move(destination); ui->cancel_drag();
+                    if (ui->app.services().projects->state().revision != undone)
+                        throw std::runtime_error("Cancelled drag changed project state");
+                    ui->command(nav_live,BN_CLICKED);
                     ui->app.rename_track(ui->app.services().projects->state().project->tracks.front().id,"Smoke track"); ui->refresh_models();
                     ui->show_settings(); // offline CI build skips enumeration of physical ASIO
                 }
@@ -622,7 +747,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
             }
             break;
         case WM_MOUSEWHEEL: {
-            if (ui->app.workspace() != Workspace::arrange) break;
+            if (ui->drag || ui->app.workspace() != Workspace::arrange) break;
             POINT point{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd,&point);
             if (!PtInRect(&ui->canvas,point)) break;
             const int direction = GET_WHEEL_DELTA_WPARAM(wparam) > 0 ? -1 : 1;
@@ -635,15 +760,19 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
             }
             InvalidateRect(hwnd,nullptr,FALSE); return 0;
         }
-        case WM_LBUTTONDOWN: {
-            const POINT point{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)};
-            if (ui->app.workspace() == Workspace::arrange && PtInRect(&ui->canvas,point)) {
-                const auto fraction = static_cast<double>(point.x-ui->canvas.left)/(ui->canvas.right-ui->canvas.left);
-                const auto rate = ui->app.services().projects->state().project->sample_rate;
-                ui->app.seek(static_cast<Sample>((ui->view_start+fraction*ui->visible_seconds)*rate));
+        case WM_LBUTTONDOWN: ui->mouse_down({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}); return 0;
+        case WM_MOUSEMOVE: ui->mouse_move({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}); return 0;
+        case WM_LBUTTONUP: ui->mouse_up({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}); return 0;
+        case WM_CAPTURECHANGED: ui->drag.reset(); InvalidateRect(hwnd,nullptr,FALSE); return 0;
+        case WM_SETCURSOR:
+            if (LOWORD(lparam) == HTCLIENT && ui->app.workspace() == Workspace::arrange) {
+                POINT point{}; GetCursorPos(&point); ScreenToClient(hwnd,&point);
+                if (auto clip = ui->hit_clip(point)) {
+                    const bool edge = std::abs(point.x-ui->sample_x(clip->start)) <= ui->s(7) || std::abs(point.x-ui->sample_x(clip->start+clip->length)) <= ui->s(7);
+                    SetCursor(LoadCursorW(nullptr,edge ? IDC_SIZEWE : IDC_SIZEALL)); return TRUE;
+                }
             }
-            return 0;
-        }
+            break;
         case WM_CLOSE:
             if (ui->discard()) { ui->preferences(); DestroyWindow(hwnd); } return 0;
         case WM_DESTROY:
@@ -677,6 +806,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show)
             const auto result = GetMessageW(&msg,nullptr,0,0); if (result < 0) return 1; if (result == 0) break;
             if (msg.message == WM_KEYDOWN && !(ui.settings && IsChild(ui.settings,msg.hwnd))) { try {
                 const bool editing = msg.hwnd == ui.child(rename_edit);
+                if (!editing && msg.wParam == VK_ESCAPE && ui.drag) { ui.cancel_drag(); continue; }
+                if (!editing && ui.app.workspace() == Workspace::arrange && !(GetKeyState(VK_CONTROL)&0x8000)) {
+                    if (msg.wParam == 'S') { ui.command(split_clip_button,0); continue; }
+                    if (msg.wParam == VK_DELETE) { ui.command(delete_clip_button,0); continue; }
+                }
                 if (!editing && msg.wParam == VK_SPACE) { ui.command(ui.app.services().transport->state().playback == PlaybackState::playing ? pause : play,0); continue; }
                 if (GetKeyState(VK_CONTROL) & 0x8000) {
                     int id{}; if (msg.wParam == 'S') id = save; if (!editing && msg.wParam == 'Z') id = undo; if (!editing && msg.wParam == 'Y') id = redo;

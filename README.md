@@ -280,4 +280,7 @@ Streaming and recording are later #21 substages.
 Правила пользователя: 0.1b, 0.1c и далее; upd1/upd2 для небольших обновлений,
 fix1/fix2 для ошибок. Stage IDs сохраняют структуру плана.
 [Правила и текущее соответствие](docs/VERSIONING.md).
-Текущий фикс: **0.1b fix1** — разрешение idle-редактирования на Pause с сохранением позиции.
+**0.1b fix1** принят пользователем и интегрирован через PR #43.
+Текущий подэтап: **0.1c / MRS Stage 1b** — выбор, перемещение, обрезка и разделение клипов,
+удаление отдельного клипа и общий Undo/Redo. UI drag preview, snap 1/16, сохранение позиции Pause.
+[Windows checklist](docs/MRS_STAGE_1B_CHECKLIST.md). Приёмка 0.1c pending.
