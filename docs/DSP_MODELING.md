@@ -2,7 +2,7 @@
 
 ## 1. Цель
 
-Moon River Studio в будущем может включать собственные встроенные эффекты и гитарный processing stack, чтобы базовый live/production workflow не зависел только от сторонних VST3.
+Moon River Studio в будущем может включать собственные встроенные эффекты и гитарный processing stack, чтобы базовый production и Live Mode workflow не зависел только от сторонних VST3.
 
 Возможные категории:
 
@@ -14,6 +14,8 @@ Moon River Studio в будущем может включать собствен
 - cab/room convolution;
 - preamp/amp/pedal models;
 - neural capture player.
+
+Все эти processors подключаются к общему SHARED processor graph и доступны всем workspaces MRS.
 
 ## 2. Cab / Room IR
 
@@ -43,8 +45,6 @@ IR — линейная модель и подходит прежде всего
 
 ### 3.1 Classical DSP
 
-Пример цепочки:
-
 ```text
 Input
  -> preamp stage / waveshaping
@@ -56,28 +56,26 @@ Input
 
 Преимущества:
 
-- контролируемые параметры Gain/Bass/Mid/Treble;
+- контролируемые Gain/Bass/Mid/Treble;
 - малая и предсказуемая latency;
 - возможность оптимизации под realtime;
 - независимость от neural model file.
 
 ### 3.2 Neural capture/model player
 
-MRS может поддерживать формат/engine для воспроизведения заранее обученных моделей усилителей, преампов и педалей.
-
-Концепция:
+MRS может поддерживать engine для воспроизведения заранее обученных моделей усилителей, преампов и педалей.
 
 ```text
 Reference stimulus -> hardware chain -> recorded response -> training -> model
 ```
 
-В runtime:
+Runtime:
 
 ```text
 Guitar -> Neural Model -> Cab IR -> FX
 ```
 
-На первом этапе разумнее интегрировать существующий open neural modeling ecosystem/player, чем разрабатывать собственный training framework с нуля.
+На первом этапе разумнее интегрировать существующий open neural modeling ecosystem/player, чем разрабатывать training framework с нуля.
 
 ## 4. Hybrid processor
 
@@ -99,7 +97,7 @@ Room / Delay / Reverb
 
 ## 5. Factory Content vs User Library
 
-Необходимо жёстко разделять:
+Нужно жёстко разделять:
 
 ### Factory Content
 
@@ -118,7 +116,7 @@ Room / Delay / Reverb
 - собственные captures;
 - сторонний контент, права на использование которого лежат на пользователе.
 
-Лицензия движка/формата не означает автоматического права распространять конкретные модели или IR.
+Лицензия движка/формата не означает автоматического права распространять конкретные models/IR.
 
 ## 6. Собственная библиотека Moon River
 
@@ -142,7 +140,7 @@ Moon River Amp Collection
 
 ## 7. Realtime requirements
 
-Все native processors должны подчиняться общим правилам Audio Engine:
+Все native processors подчиняются общим правилам SHARED Audio Engine:
 
 - no allocation in audio callback;
 - no file I/O in callback;
@@ -150,21 +148,37 @@ Moon River Amp Collection
 - predictable latency;
 - latency reporting;
 - safe preset/patch switching;
-- preload/warmup тяжёлых моделей;
+- preload/warmup тяжёлых models;
 - denormal protection;
 - bounded CPU usage.
 
 ## 8. Live-safe classification
 
-Для MRL полезно классифицировать processors/plugins:
+Для встроенного Live Mode полезно классифицировать processors/plugins:
 
-- `LIVE SAFE` — пригоден для low-latency path;
+- `LIVE SAFE` — пригоден для low-latency monitoring path;
 - `PLAYBACK / MIX` — допустим в process path;
 - `HIGH LATENCY` — требует предупреждения или исключается из live monitoring path.
 
-MRS должен учитывать reported latency, oversampling и собственные ограничения processor при построении live path.
+MRS должна учитывать reported latency, oversampling и собственные ограничения processor при построении low-latency path.
 
-## 9. AI integration
+Классификация является metadata общего processor graph, а не отдельной Live plugin system.
+
+## 9. Patch model
+
+Live patch — state/snapshot того же processor graph, который настраивается в Mix/Arrange.
+
+```text
+MRS Processor Graph
+      |
+      +-> Production state
+      +-> Saved Patch A
+      +-> Saved Patch B
+```
+
+Live Mode переключает подготовленные states через SHARED engine.
+
+## 10. AI integration
 
 AI layer может управлять встроенным DSP через тот же structured Tool API.
 
@@ -182,18 +196,19 @@ set_processor_parameter(track, "MR Amp", "treble", 4.8)
 set_processor_model(track, "MR Cab", "MR 1x12 Warm")
 ```
 
-Все изменения должны быть undoable и не выполняться непосредственно из realtime thread.
+Все изменения undoable и не выполняются непосредственно из realtime thread.
 
-## 10. Порядок реализации
+## 11. Порядок реализации
 
 Не требуется реализовывать всё на ранней версии DAW.
 
 Рациональный порядок:
 
-1. базовый plugin/processor graph;
+1. общий plugin/processor graph;
 2. простые native utility processors;
 3. convolution / Cab IR;
 4. stable preset/state system;
-5. neural model player;
-6. собственные Moon River models/captures;
-7. advanced hybrid amp system.
+5. Live-safe classification and patch snapshots;
+6. neural model player;
+7. собственные Moon River models/captures;
+8. advanced hybrid amp system.
