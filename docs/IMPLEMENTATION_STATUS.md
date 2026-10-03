@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Active: SHARED Stage 3 #18.
+Updated: 2026-10-03. Active: SHARED Stage 4 #19.
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -26,18 +26,27 @@ navigation/loops, musical edits/Undo and snapshot v2 with v1 migration.
 Real EngineTransport integration retains sample clock and control-thread dispatch.
 See MUSICAL_TIMELINE.md and SHARED_STAGE_2_CHECKLIST.md.
 
-## Stage 3 — implementation
+## Stage 3 — accepted
 Branch shared/stage-3-midi-processor-graph. Common MIDI/device/event/route contracts,
 GraphStore patch state/Undo, IProcessor native/VST3 state hooks, prepared audio DAG,
 sample-offset parameters, latency/live-safe report and native gain.
 PreparedGraph integrates into the single shared AudioEngine playback/monitor output.
 Hardware MIDI and actual VST3 hosting are not implemented; graph persistence belongs
 to #19. See MIDI_PROCESSOR_GRAPH.md and SHARED_STAGE_3_CHECKLIST.md.
-Validation authority is the current PR checks; user acceptance pending.
+PR #39 merged and #18 closed. User confirmed all Windows processor checker
+checks passed on 2026-10-03. Tested head 52e46a59732574779a6c4eed6851be022fd95a8f:
+31/31 CTest suites on Windows/Linux Debug/Release and Windows ASIO Debug/Release.
+Core run 37101469824; ASIO run 37101469828.
 
 ## Handoff
 Read START_HERE, current issue and relevant subsystem contracts.
-Stage 1 deferred work remains in #16. Next SHARED stage: #18 MIDI / Plugin Graph.
+Stage 1 deferred work remains in #16. Current SHARED stage: #19 Persistence / State / Recovery.
 #20 DAW shell and #28 Live prototype can use established shared musical contracts.
-No GUI, actual VST3 host, hardware MIDI, note editor or final persistence/recovery yet.
+No GUI, actual VST3 host, hardware MIDI, note editor or final asset package yet.
 No seamless reconnect, hot graph swap or production disk streaming.
+
+## Stage 4 — implementation
+ProjectDocument archive v1 wraps core snapshot v2, shared graph/plugin/MIDI/mixer
+and Live metadata. Show references projects. Legacy migration, unknown chunks,
+safe save/backup, background autosave and read-only stopped recovery.
+See PERSISTENCE.md and SHARED_STAGE_4_CHECKLIST.md. User acceptance pending.

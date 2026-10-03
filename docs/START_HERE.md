@@ -1,14 +1,15 @@
 # Moon River Studio — START HERE
 
 ## Актуальное продолжение — 2026-10-03
-Stage 0 принят, PR #36 слит. Stage 1 PR #37: базовые native ASIO playback и monitor
-при 48k/128 проверены пользователем. Длительные hardware/reconnect тесты и сравнение
-со Studio Pro отложены пользователем и не блокируют разработку; gate не считается пройденным.
-Stage 2 issue #17 / PR #38: читать docs/MUSICAL_TIMELINE.md и
-docs/SHARED_STAGE_2_CHECKLIST.md. Текущая snapshot schema 2 с чтением v1.
-Stage 2 принят пользователем: все четыре PASS Windows-checker подтверждены.
-PR #38 слит в #37; общий код Stage 1/2 интегрируется через PR #37 в main.
-Stage 1 performance gate остаётся отложенным в #16. Следующие направления: #18 или #20/#28.
+Stage 0 принят, PR #36 слит. Stage 1/2 интегрированы через PR #37/#38 в main.
+Базовые ASIO WAV/monitoring при 48k/128 проверены пользователем. Оставшиеся
+hardware/performance тесты отложены пользователем и не блокируют разработку;
+gate остаётся pending в #16.
+Stage 2 #17 принят. Snapshot schema 2 с чтением v1.
+Stage 3 #18 принят после Windows-checker, PR #39 слит, issue закрыт.
+Активная работа: Stage 4 #19, PR #40, shared/stage-4-persistence-recovery.
+Читать docs/PERSISTENCE.md и docs/SHARED_STAGE_4_CHECKLIST.md.
+После приёмки Stage 4 следующий продуктовый этап — #20 MRS DAW Foundation.
 
 
 Этот документ — короткая точка входа для нового чата, разработчика или агента, который подключается к проекту без контекста предыдущих обсуждений.

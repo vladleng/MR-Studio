@@ -71,3 +71,19 @@ jobs:
           name: MR-Studio-SHARED-Stage-3-Windows
           path: processor-package/
           if-no-files-found: error
+      - name: Package persistence checker
+        if: runner.os == 'Windows' && matrix.config == 'Release'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path persistence-package -Force | Out-Null
+          Copy-Item -LiteralPath build/Release/mrs_persistence_check.exe -Destination persistence-package/
+          Copy-Item -LiteralPath tools/Start-Persistence-Test.cmd -Destination persistence-package/
+          Copy-Item -LiteralPath docs/SHARED_STAGE_4_CHECKLIST.md -Destination persistence-package/
+          Copy-Item -LiteralPath docs/PERSISTENCE.md -Destination persistence-package/
+      - name: Upload persistence checker
+        if: runner.os == 'Windows' && matrix.config == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MR-Studio-SHARED-Stage-4-Windows
+          path: persistence-package/
+          if-no-files-found: error

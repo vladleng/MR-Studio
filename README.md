@@ -31,7 +31,7 @@
 Базовые hardware-тесты WAV и input monitoring при 48k/128 пройдены.
 Оставшиеся длительные тесты и Studio Pro benchmark отложены пользователем;
 performance gate остаётся pending и не блокирует дальнейшую разработку.
-Это общий C++20 backend: Project Model v1, Command/Undo, Transport API,
+Это общий C++20 backend: Project Model, Command/Undo, Transport API,
 tempo/meter contracts, подписки, fixtures и versioned snapshot.
 
 - [Core contracts](docs/CORE_CONTRACTS.md) — API, ownership, threading и границы этапа.
@@ -44,9 +44,17 @@ tempo/meter contracts, подписки, fixtures и versioned snapshot.
 общие context/navigation services, snapshot v2 с чтением v1.
 [Musical contracts](docs/MUSICAL_TIMELINE.md) · [Windows checker](docs/SHARED_STAGE_2_CHECKLIST.md).
 
-**SHARED Stage 3 / issue #18**: общая MIDI/processor инфраструктура, native gain,
+**SHARED Stage 3 / issue #18** принят пользователем, PR #39 слит: общая MIDI/processor инфраструктура, native gain,
 подготовленный graph и patch-state. VST3 host и hardware MIDI — будущие adapters.
 [Contracts](docs/MIDI_PROCESSOR_GRAPH.md) · [Windows checker](docs/SHARED_STAGE_3_CHECKLIST.md).
+
+### SHARED Stage 4 — persistence/state/recovery
+Stage 3 was accepted and merged through PR #39. Stage 4 adds one versioned project
+archive for all workspaces, show references, legacy migration, preserved unknown
+chunks, safe save/backup, background autosave and stopped recovery.
+See [persistence contracts](docs/PERSISTENCE.md) and
+[Windows acceptance checklist](docs/SHARED_STAGE_4_CHECKLIST.md).
+Build normally, then run mrs_persistence_check (no audio hardware required).
 
 GUI ещё нет. MRS 0.1 не считается завершённой до DAW Foundation (#20)
 и прохождения Audio Engine / ASIO performance gate (#16).
@@ -246,3 +254,4 @@ Live Mode начинается как UI prototype после базовых SHA
 ## Лицензия
 
 Лицензия проекта пока не определена.
+
