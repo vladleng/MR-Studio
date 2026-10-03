@@ -265,7 +265,11 @@ void streaming() {
     const auto source = audio::open_wav(file);
     CHECK(source.file && source.samples.empty() && source.frames() == frames);
     rejects([&] { (void)audio::load_wav(file); }); // exceeds old decoded preload cap
-    Application app; app.new_project(44100); app.import_wavs({file});
+    Application app; app.new_project(44100);
+    const auto revision = app.services().projects->state().revision;
+    rejects([&] { app.import_wavs(std::vector<std::filesystem::path>(33,file)); });
+    CHECK(app.services().projects->state().revision == revision && app.services().projects->state().project->clips.empty());
+    app.import_wavs({file});
     const auto p = app.services().projects->state().project;
     CHECK(p->clips.size() == 1 && p->clips.front().length == frames);
     app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
