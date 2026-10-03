@@ -89,4 +89,14 @@ Paused editing was incorrectly rejected by a strict stopped-state guard. Idle ed
 now accept paused or stopped at any position; quiescent prepare retains playback
 state/sample/loop and prohibits automatic playing restoration. Shared engine unchanged
 in ownership; same open device is retained. Regression suite nonplaying_edits.
-User-visible version and build artifacts follow VERSIONING.md. CI/acceptance pending.
+User-visible version and build artifacts follow VERSIONING.md. CI passed; user acceptance pending.
+
+### 0.1b fix1 validation
+Validated head: 11d09e53c59d7b7f7f465e56f87ce862c1dbb17e.
+All six CI jobs passed: Linux Debug/Release and Windows ASIO Debug/Release 50/50;
+Windows offline Debug/Release 51/51 including GUI/DPI smoke.
+Core run: https://github.com/vladleng/MR-Studio/actions/runs/37121639359
+ASIO run: https://github.com/vladleng/MR-Studio/actions/runs/37121639376
+Windows ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37121639376/artifacts/11273209676
+Hardware confirmation pending: Play, Pause away from zero, delete/import/Undo,
+then resume from retained position without manual Connect.
