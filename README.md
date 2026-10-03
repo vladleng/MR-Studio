@@ -1,10 +1,10 @@
-# Moon River Studio / Moon River Live
+# Moon River Studio
 
-**Moon River Studio (MRS)** — проект собственной DAW Moon River Studio.
+**Moon River Studio** (`MRS`, рабочее сокращение `MR Studio`) — проект собственной performance-first DAW.
 
-**Moon River Live (MRL)** — встроенный Live / Performance workspace внутри MRS, по смыслу близкий к Show Page в Studio Pro, но использующий тот же Project Model, Transport, Audio Engine, MIDI Engine и plugin graph, что и production-режимы DAW.
+**Live Mode** — встроенный Performance / Show режим Moon River Studio, по роли близкий к Show Page в Studio Pro. Это не отдельное приложение и не отдельная продуктовая версия.
 
-> Текущий репозиторий исторически называется `Moon-River-Live`, но архитектурное направление проекта расширено до Moon River Studio. Переименование/миграция репозитория может быть выполнено отдельным шагом позже.
+> Репозиторий исторически называется `Moon-River-Live`, но текущая архитектура охватывает всю Moon River Studio. Переименование репозитория можно выполнить позже отдельным шагом.
 
 ## Основная концепция
 
@@ -14,10 +14,10 @@ Moon River Studio
 ├── Edit
 ├── Mix
 ├── Project
-└── Live (MRL)
+└── Live
 ```
 
-Один проект используется и для production, и для performance.
+Один project используется и для production, и для performance.
 
 ```text
                     Moon River Studio
@@ -28,7 +28,7 @@ Moon River Studio
         |                  |                  |
         +------------------+------------------+
                            |
-                    Shared Project Model
+                       SHARED CORE
                            |
         +------------------+------------------+
         |                  |                  |
@@ -37,11 +37,12 @@ Moon River Studio
        ASIO            MIDI I/O             VST3
 ```
 
-MRL не имеет отдельного ASIO engine и не требует экспортировать проект в другую программу.
+Live Mode не имеет отдельного ASIO engine, Transport, MIDI engine, plugin host или project copy.
 
-## MRS — основные направления
+## Основные направления MRS
 
 - audio tracks/clips/events;
+- recording/playback;
 - MIDI tracks/editor;
 - mixer, buses and routing;
 - VST3 hosting;
@@ -51,11 +52,11 @@ MRL не имеет отдельного ASIO engine и не требует эк
 - Chord Track;
 - Arranger Track;
 - markers;
-- project save/load;
+- project save/load/recovery;
 - AI / ChatGPT integration;
-- Live workspace.
+- Live Mode.
 
-## MRL — основные направления
+## Live Mode
 
 - setlists;
 - moving Chord Track strip;
@@ -70,19 +71,21 @@ MRL не имеет отдельного ASIO engine и не требует эк
 - preflight/recovery;
 - remote/mobile companion.
 
+Live Mode появляется на определённом этапе развития MRS, а затем может развиваться параллельно с production-функциями на том же SHARED Core.
+
 ## Performance-first
 
-Audio performance является blocking requirement.
+Audio performance — blocking requirement.
 
-На Windows основной live/performance path должен работать напрямую через родной vendor ASIO driver аудиоинтерфейса.
+На Windows основной professional/live path должен поддерживать прямую работу через родной vendor ASIO driver аудиоинтерфейса.
 
 Критические принципы:
 
 - realtime audio thread отделён от UI/network/AI/file I/O;
-- no allocation/file I/O/network in audio callback;
+- no blocking file/network/UI work in audio callback;
 - preload/read-ahead;
 - plugin latency accounting;
-- live-safe processing path;
+- low-latency monitoring path;
 - xrun/dropout diagnostics;
 - benchmark относительно Studio Pro на одинаковой конфигурации.
 
@@ -96,18 +99,18 @@ MRS проектируется так, чтобы AI мог работать с�
 
 - понимать tracks/clips/MIDI/chords/sections;
 - анализировать аранжировку и mixer state;
-- генерировать MIDI партии;
+- генерировать и редактировать MIDI партии;
 - предлагать изменения;
 - после разрешения пользователя выполнять project commands;
 - управлять DAW естественным языком.
 
-AI не является частью realtime audio path и при его недоступности DAW/Live продолжают работать нормально.
+AI не является частью realtime audio path и при его недоступности DAW/Live Mode продолжают работать нормально.
 
 Подробнее: [`docs/AI_INTEGRATION.md`](docs/AI_INTEGRATION.md).
 
 ## Native DSP / IR / Amp modeling
 
-Планируется возможность встроенных MRS processors:
+Планируется возможность встроенных processors:
 
 - EQ/compressor/saturation;
 - convolution/Cab IR;
@@ -119,9 +122,9 @@ Factory Content и User Library должны быть лицензированн
 
 Подробнее: [`docs/DSP_MODELING.md`](docs/DSP_MODELING.md).
 
-## Studio Pro
+## Fender Studio Pro
 
-Fender Studio Pro больше не является обязательным authoring environment.
+Studio Pro больше не является обязательным authoring environment.
 
 Он остаётся:
 
@@ -129,64 +132,70 @@ Fender Studio Pro больше не является обязательным au
 - возможным import/migration source;
 - optional compatibility target для существующих проектов.
 
-Studio Pro Bridge можно развивать отдельным compatibility track, не блокирующим основную разработку MRS/MRL.
+Compatibility/import ведётся отдельно в issue #3 и не блокирует основную разработку MRS.
 
-## Параллельная разработка
+## Организация разработки
 
 Используются три issue track:
 
 ```text
-[MRS]    DAW / production / core implementation
-[MRL]    Live / Performance workspace
-[SHARED] contracts/models/services used by both
+[MRS]    DAW features/workspaces
+[SHARED] common Core / Engine
+[LIVE]   embedded Live Mode
 ```
 
-MRS и MRL имеют независимую нумерацию версий и могут разрабатываться параллельно. MRL может использовать mock services до готовности реального MRS backend.
+Это три потока разработки **одного приложения**, а не три продукта.
+
+Версионируется только Moon River Studio. Live Mode имеет Stage readiness и входит в соответствующие MRS builds.
+
+Live UI может использовать mock SHARED services до готовности real backend, что позволяет вести работу параллельно.
 
 Подробнее: [`docs/DEVELOPMENT_TRACKS.md`](docs/DEVELOPMENT_TRACKS.md).
 
+## GitHub Roadmaps
+
+- #1 — master roadmap;
+- #12 — MRS roadmap;
+- #13 — SHARED Core roadmap;
+- #14 — Live Mode roadmap;
+- #15–#19 — SHARED stages;
+- #20–#27 — MRS stages;
+- #28–#35 — LIVE stages;
+- #3 — Studio Pro compatibility/import.
+
 ## Документация
 
-- [`docs/MOON_RIVER_STUDIO_VISION.md`](docs/MOON_RIVER_STUDIO_VISION.md) — целевая концепция MRS и роль MRL.
+- [`docs/MOON_RIVER_STUDIO_VISION.md`](docs/MOON_RIVER_STUDIO_VISION.md) — целевая концепция MRS.
 - [`docs/PROJECT_VISION.md`](docs/PROJECT_VISION.md) — общее видение продукта.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — архитектура MRS Core и workspaces.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — единый Core и workspaces.
 - [`docs/AUDIO_ENGINE.md`](docs/AUDIO_ENGINE.md) — ASIO, realtime rules и performance benchmark.
 - [`docs/AI_INTEGRATION.md`](docs/AI_INTEGRATION.md) — ChatGPT/OpenAI integration, Context/Tool API и permissions.
 - [`docs/DSP_MODELING.md`](docs/DSP_MODELING.md) — native DSP, Cab IR, amp/preamp/pedal и neural models.
-- [`docs/DEVELOPMENT_TRACKS.md`](docs/DEVELOPMENT_TRACKS.md) — параллельные MRS/MRL issue tracks.
-- [`docs/UI_UX_CONCEPT.md`](docs/UI_UX_CONCEPT.md) — UI/UX-концепция MRL.
-- [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — текущая модель metadata; должна эволюционировать в общий MRS Project Model.
+- [`docs/DEVELOPMENT_TRACKS.md`](docs/DEVELOPMENT_TRACKS.md) — параллельные MRS/SHARED/LIVE issue tracks.
+- [`docs/UI_UX_CONCEPT.md`](docs/UI_UX_CONCEPT.md) — UI/UX-концепция Live Mode.
+- [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — Project Model / musical/live data.
 - [`docs/STUDIO_PRO_INTEGRATION.md`](docs/STUDIO_PRO_INTEGRATION.md) — optional Studio Pro compatibility/import track.
-- [`docs/LIVE_WORKFLOW.md`](docs/LIVE_WORKFLOW.md) — live workflow.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — параллельный roadmap MRS/MRL.
+- [`docs/LIVE_WORKFLOW.md`](docs/LIVE_WORKFLOW.md) — live workflow внутри MRS.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — общий roadmap.
 
 ## Roadmap в одном экране
 
-### MRS
-
-| Stage | Цель |
+| MRS version / stage | Основная цель |
 |---|---|
-| MRS 0.1 | Core Foundation + ASIO Performance Gate |
+| MRS 0.1 | Foundation + Core contracts + ASIO performance gate |
 | MRS 0.2 | Audio Arrangement |
 | MRS 0.3 | Mixer / Routing |
 | MRS 0.4 | VST3 / Native DSP |
 | MRS 0.5 | MIDI |
-| MRS 0.6 | Chord/Arranger/Musical Structure |
+| MRS 0.6 | Chord/Arranger/Musical Structure + first native Live integration |
 | MRS 0.7 | AI Foundation |
 | MRS 0.8+ | Advanced DAW / Reliability |
 
-### MRL
+Live Mode начинается как UI prototype после базовых SHARED contracts и далее развивается параллельно через LIVE Stage 0–7.
 
-| Stage | Цель |
-|---|---|
-| MRL 0.1 | Live UX Foundation |
-| MRL 0.2 | Real Project / Transport Integration |
-| MRL 0.3 | Setlists / Show Workflow |
-| MRL 0.4 | Playback / Click / Cue |
-| MRL 0.5 | Live Inputs / Patches |
-| MRL 0.6 | MIDI Automation / Hardware Control |
-| MRL 0.7 | Remote / Mobile Companion |
-| MRL 1.0 | Concert Reliability |
+## Рабочее название
+
+`Moon River Studio` / `MR Studio` — рабочее название всей DAW. Финальное название может быть изменено на поздней стадии.
 
 ## Лицензия
 
