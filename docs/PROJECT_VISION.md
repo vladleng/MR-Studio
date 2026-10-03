@@ -1,12 +1,14 @@
-# Moon River Studio / Moon River Live — Project Vision
+# Moon River Studio — Project Vision
 
 ## 1. Назначение
 
-**Moon River Studio (MRS)** — собственная DAW Moon River Studio.
+**Moon River Studio** (`MRS`, рабочее сокращение также `MR Studio`) — собственная DAW, объединяющая production и live-performance workflow в одном приложении.
 
-**Moon River Live (MRL)** — встроенный Live / Performance workspace внутри MRS, по смыслу близкий к Show Page в Studio Pro, но работающий на том же Project Model и Audio Engine, что и production-режимы DAW.
+**Live Mode** — встроенный Performance / Show режим Moon River Studio, по роли близкий к Show Page в Studio Pro.
 
-Цель проекта — создать performance-first DAW, в которой создание музыки и живое исполнение являются двумя режимами одного проекта, а не двумя разными приложениями с экспортом между ними.
+Это не отдельное приложение и не отдельный продукт.
+
+Цель проекта — создать performance-first DAW, в которой создание музыки и живое исполнение являются разными режимами одного проекта.
 
 ## 2. Базовая модель продукта
 
@@ -16,65 +18,65 @@ Moon River Studio
 ├── Edit
 ├── Mix
 ├── Project
-└── Live (MRL)
+└── Live
 ```
 
-Все рабочие пространства используют:
+Все режимы используют:
 
 - один Project Model;
-- один transport;
+- один Transport;
 - один Audio Engine;
-- один MIDI Engine;
-- один plugin graph;
+- один MIDI backend;
+- один plugin/native processor graph;
 - один Chord Track;
 - один Arranger Track;
 - одну систему markers/automation;
 - одну систему сохранения проекта.
 
-## 3. Почему MRL является режимом MRS
+## 3. Live Mode как режим DAW
 
-В отдельной live-программе пришлось бы экспортировать:
-
-- chords;
-- arranger sections;
-- markers;
-- tempo;
-- audio;
-- MIDI;
-- plugin/preset state.
-
-В MRS эти данные уже являются частью проекта.
-
-Поэтому переход:
+Переход:
 
 ```text
-Arrange -> Live
+Arrange / Edit / Mix -> Live
 ```
 
-должен менять представление и performance-state, но не создавать вторую копию песни.
+должен менять представление, show-state и доступные performance-команды, но не создавать вторую копию песни и не запускать отдельный engine.
 
-## 4. MRS — DAW
+Live Mode читает тот же открытый проект:
 
-Долгосрочно MRS должна включать:
+- audio/MIDI tracks;
+- tempo/meter;
+- Chord Track;
+- Arranger Track;
+- markers;
+- plugins;
+- routing;
+- automation;
+- live metadata.
+
+## 4. Основные возможности MRS
+
+Долгосрочно DAW должна включать:
 
 - audio recording/playback;
 - audio tracks/clips/events;
 - MIDI tracks/editor;
 - mixer/buses/routing;
 - VST3 hosting;
+- native DSP;
 - automation;
 - tempo/meter map;
 - Chord Track;
 - Arranger Track;
 - markers;
-- native processors;
-- project save/load;
-- AI integration;
-- Live workspace.
+- project save/load/recovery;
+- AI / ChatGPT integration;
+- Live Mode.
 
-## 5. MRL — Live / Performance workspace
+## 5. Возможности Live Mode
 
-MRL использует тот же открытый проект и показывает только информацию/управление, нужные на сцене:
+Live Mode показывает и управляет только тем, что нужно на сцене:
 
 - setlist;
 - moving Chord Track strip;
@@ -82,14 +84,14 @@ MRL использует тот же открытый проект и показ
 - bar/beat/time;
 - cues/markers;
 - transport;
+- click/cue;
 - live patches;
 - MIDI actions;
-- click/cue state;
 - audio/MIDI/device status;
 - preflight/recovery;
 - remote/mobile state.
 
-MRL не владеет отдельным ASIO engine или отдельным plugin host.
+Live Mode не владеет отдельным ASIO engine, transport, MIDI engine или plugin host.
 
 ## 6. Performance-first принцип
 
@@ -107,7 +109,7 @@ MRL не владеет отдельным ASIO engine или отдельным
 
 Подробнее: `AUDIO_ENGINE.md`.
 
-## 7. AI как часть будущей архитектуры
+## 7. AI как системная возможность
 
 MRS должна иметь структурированный Project Context API и Command/Tool API, через которые ChatGPT/OpenAI сможет:
 
@@ -117,7 +119,7 @@ MRS должна иметь структурированный Project Context A
 - предлагать изменения;
 - после подтверждения выполнять разрешённые project commands.
 
-AI не должен работать в realtime thread и не должен быть обязательным для работы DAW/Live.
+AI не должен работать в realtime thread и не должен быть обязательным для работы DAW или Live Mode.
 
 Подробнее: `AI_INTEGRATION.md`.
 
@@ -131,47 +133,53 @@ MRS может включать собственные:
 - neural model player;
 - собственные Moon River captures/models.
 
-Factory content и User Library должны иметь раздельную licensing policy.
+Factory Content и User Library должны иметь раздельную licensing policy.
 
 Подробнее: `DSP_MODELING.md`.
 
 ## 9. Studio Pro
 
-Studio Pro больше не является обязательным authoring environment.
+Fender Studio Pro больше не является обязательным authoring environment.
 
 Он остаётся полезным как:
 
-- референс UX/performance;
+- UX/performance reference;
 - источник идей для Live workflow;
-- возможный import/migration source;
-- Bridge/compatibility target для старых проектов.
+- import/migration source;
+- compatibility target для существующих проектов.
 
-Но целевая схема:
+Целевая схема:
 
 ```text
 Moon River Studio Project
         |
-  +-----+-----+
-  |           |
-Production   Live
+  +-----+------+------+
+  |            |      |
+Arrange/Mix   Edit   Live
 ```
 
-## 10. Разработка двумя потоками
+## 10. Организация разработки
 
-MRS и MRL развиваются параллельно:
+Для параллельной работы используются три issue track:
 
-- `MRS-*` — DAW/core;
-- `MRL-*` — Live workspace;
-- `[SHARED]` — общие интерфейсы и модели.
+- `[MRS]` — пользовательские DAW-функции;
+- `[SHARED]` — общий Core / Engine;
+- `[LIVE]` — встроенный Live Mode.
 
-MRL может разрабатываться на mock/fixture services до готовности реального MRS backend.
+Это не три продукта.
+
+Live Mode может разрабатываться на mock/fixture services после фиксации нужных SHARED contracts, пока realtime backend и остальные функции MRS продолжают развиваться параллельно.
+
+Версионируется только Moon River Studio. Live Mode имеет Stage readiness, но не отдельную product version line.
 
 Подробнее: `DEVELOPMENT_TRACKS.md`.
 
-## 11. Главный принцип разработки
+## 11. Рабочее название
 
-Каждый этап должен завершаться проверяемым пользовательским сценарием, но инфраструктура проектируется так, чтобы новые workspaces не дублировали Core.
+Текущее название DAW — **Moon River Studio / MR Studio**.
 
-Главная архитектурная формула:
+Это рабочий вариант. На поздней стадии проект может получить более короткое или ёмкое финальное имя без изменения архитектуры.
 
-> **MRS и MRL — разные development tracks, но один Project Model и один realtime engine.**
+## 12. Главная архитектурная формула
+
+> **Moon River Studio — одна DAW. Arrange/Edit/Mix/Live — разные режимы. Project Model и realtime engine — одни и те же.**
