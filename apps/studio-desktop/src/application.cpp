@@ -203,7 +203,21 @@ void Application::rebuild_audio() {
     } catch (...) { disconnect(); throw; }
 }
 void Application::edit(const ICommand& command) {
-    require_not_playing(); services_.projects->execute(command); rebuild_audio();
+    require_not_playing();
+    auto candidate = *services_.projects->state().project;
+    command.apply(candidate); candidate.validate();
+    require(candidate.clips.size() <= audio::max_voices,"too many playback clips");
+    std::size_t streamed{}, bytes{};
+    for (const auto& clip : candidate.clips) {
+        const auto data = asset(clip.source);
+        require(data->sample_rate == candidate.sample_rate,"WAV/project sample-rate mismatch");
+        require(clip.source_offset <= data->frames() && clip.length <= data->frames()-clip.source_offset,"clip exceeds source audio");
+        if (data->file) {
+            ++streamed; bytes += 8*8192*static_cast<std::size_t>(data->channels)*sizeof(float);
+        }
+    }
+    require(streamed <= 32 && bytes <= 256*1024*1024,"disk voice budget exceeded (32 voices / 256 MiB)");
+    services_.projects->execute(command); rebuild_audio();
 }
 Id Application::add_audio_track(std::string name) {
     require(!name.empty() && name.size() <= 4096,"enter a track name");
@@ -236,7 +250,8 @@ void Application::import_wavs(const std::vector<std::filesystem::path>& paths) {
     std::map<std::string,std::shared_ptr<const audio::AudioData>> decoded;
     std::size_t bytes{};
     for (const auto& [key,cached] : assets_) { (void)key; bytes += cached.data->samples.size()*sizeof(float); }
-    // Decode/validate the WHOLE batch before committing one shared command.
+    // Inspect/decode the whole batch before committing one shared command.
+    // Long sources validate their headers here; samples validate as worker blocks decode.
     for (const auto& path : paths) {
         const auto source = utf8(std::filesystem::absolute(path).lexically_normal());
         std::shared_ptr<const audio::AudioData> data;

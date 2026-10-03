@@ -1,6 +1,7 @@
 #include <mrs/audio.hpp>
 #include <mrs/device.hpp>
 #include <mrs/read_ahead.hpp>
+#include <mrs/waveform.hpp>
 #include <algorithm>
 #include <bit>
 #include <chrono>
@@ -217,6 +218,11 @@ void streaming() {
     std::array<float,7> decoded{}; asset->file->read(8190,decoded);
     for (std::size_t n = 0; n < decoded.size(); ++n) CHECK(decoded[n] == static_cast<float>((8190+static_cast<Sample>(n))%127)/256.0F);
     rejects([&] { asset->file->read(total-1,decoded); });
+    const Waveform peaks{*asset};
+    const auto peak = peaks.range(0,total,0);
+    CHECK(peak.minimum == 0 && peak.maximum == 126.0F/256.0F);
+    auto cancel = std::make_shared<std::atomic<bool>>(true);
+    rejects([&] { (void)Waveform(*asset,cancel); });
     auto engine = std::make_shared<AudioEngine>();
     RenderGraph graph; graph.voices.push_back({asset,11,8188,100000,{{0,0,1}}});
     engine->prepare({48000,0,1,128},graph);

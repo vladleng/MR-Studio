@@ -14,7 +14,8 @@ MRS Stage 1a #21 принят пользователем 2026-10-03; PR #42 сл
 0.1b fix1 принят пользователем 2026-10-03; PR #43 слит в main.
 MRS Stage 1b / 0.1c принят пользователем 2026-10-03: все функции работают; PR #44 слит в main.
 Следующий подэтап: MRS Stage 1c #21 / версия 0.1d — disk read-ahead и long-file playback.
-Разработка 0.1d ещё не начата; текущая сборка остаётся 0.1c.
+0.1d реализуется в mrs/0.1d-disk-read-ahead / PR #45; приёмка пользователем pending.
+Чек-лист: docs/MRS_STAGE_1C_CHECKLIST.md. Последняя принятая сборка: 0.1c.
 Правила версий: docs/VERSIONING.md. Читать issue #21 и docs/AUDIO_ARRANGEMENT.md.
 Приёмка 0.1c: docs/MRS_STAGE_1B_CHECKLIST.md.
 После 1c: recording foundation и integrated save/load; весь #21 остаётся открытым.

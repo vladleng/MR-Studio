@@ -53,3 +53,32 @@ No source file writes, alternate renderer or second undo stack.
 See MRS_STAGE_1B_CHECKLIST.md. All six CI jobs passed; user confirmed all functions
 working on 2026-10-03. Stage 1b / 0.1c accepted; PR #44 merged into main.
 Next: Stage 1c / 0.1d disk read-ahead and long-file playback; development not started.
+
+## 0.1d — Stage 1c disk read-ahead
+Sources above 8 MiB decoded PCM use shared WAV metadata and bounded per-voice
+ReadAhead cursors in the same AudioEngine. Small WAVs and the demo remain preloaded.
+WAV parsing and bounded block conversion are shared by preload, streaming and waveform.
+Worker fills eight 8192-frame pages; each callback pins published slots once, then
+reads immutable samples without locks, waits, file operations, allocation or ownership changes.
+Control seek/loop prepares pages before publishing the shared transport command.
+Warm seek pages remain protected until the callback consumes the new cursor.
+Loops retain two head pages; unavailable pages become silence and increment disk
+underruns separately from ASIO xruns. Worker media errors increment disk errors.
+Stop is enqueued before optional disk priming and remains available on media failure.
+
+Per-clip cursors preserve split/overlapping source offsets. Edits still stop callbacks,
+prepare and restart the same open ASIO device with paused position/loop retained.
+Candidate clip/source and disk-voice budgets are checked before committing edits.
+Limits: 128 total voices, 32 streamed voices, 256 MiB aggregate page storage;
+stereo cursor uses 512 KiB. Retained preload cache cap is still 512 MiB.
+The 256 MiB per-file preload ceiling no longer limits streamed WAVs. RIFF size
+still limits files to about 4 GiB; RF64, compression and resampling are not implemented.
+External media must remain unchanged during a session.
+
+Waveform workers scan bounded blocks, cap base peak entries at 65536 across channels
+(under 2 MiB per source including pyramid), and use coarser bins for long sources.
+Cancellation stops scans when replacing/exiting projects. Waveform failure appears
+in UI status and does not unwind the application pump or touch callback state.
+
+See MRS_STAGE_1C_CHECKLIST.md. Automated CI and Windows user acceptance pending.
+Whole #21 remains open; Stage 1d recording follows.

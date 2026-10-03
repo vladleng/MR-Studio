@@ -11,6 +11,8 @@ ReadAhead::~ReadAhead() { quit_ = true; if (worker_.joinable()) worker_.join(); 
 void ReadAhead::loop(Sample first) noexcept { loop_.store(first < 0 ? -1 : first/page_frames,std::memory_order_release); }
 void ReadAhead::begin(Sample first) noexcept {
     desired_.store(std::clamp(first,Sample{0},file_->frame_count-1)/page_frames,std::memory_order_release);
+    auto warm = desired_.load(std::memory_order_relaxed);
+    (void)warm_.compare_exchange_strong(warm,-1,std::memory_order_acq_rel);
     missed_ = false;
     for (std::size_t i = 0; i < pages; ++i) {
         int expected = 0;
@@ -48,7 +50,7 @@ void ReadAhead::prime(Sample first) {
             }
             ready = ready && found;
         }
-        if (ready) { desired_ = target; warm_ = -1; return; }
+        if (ready) { desired_ = target; return; }
         if (errors_.load() || std::chrono::steady_clock::now() >= until) {
             warm_ = -1; throw std::runtime_error("disk read-ahead failed: media unavailable, invalid samples or timeout");
         }

@@ -286,3 +286,10 @@ fix1/fix2 для ошибок. Stage IDs сохраняют структуру �
 удаление отдельного клипа и общий Undo/Redo. UI drag preview, snap 1/16, сохранение позиции Pause.
 [Windows checklist](docs/MRS_STAGE_1B_CHECKLIST.md). Пользователь подтвердил все функции 2026-10-03; PR #44 слит в main.
 Следующий подэтап: **0.1d / MRS Stage 1c** — disk read-ahead и воспроизведение длинных WAV.
+
+## MRS Stage 1c — 0.1d disk read-ahead
+Long WAVs use bounded background disk buffers in the same SHARED AudioEngine.
+Per-voice offsets, seek/loop priming and separate disk underrun/error counters;
+waveform peaks build from bounded blocks with cancellation. Small WAVs preload.
+[Contracts](docs/AUDIO_ARRANGEMENT.md) · [Windows checklist](docs/MRS_STAGE_1C_CHECKLIST.md).
+PR #45; user acceptance pending. Whole #21 stays open for recording/save-load acceptance.

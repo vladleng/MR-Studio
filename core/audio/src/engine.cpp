@@ -272,7 +272,10 @@ void EngineTransport::send(Control control) {
 }
 void EngineTransport::play() { send({ControlKind::play}); }
 void EngineTransport::pause() { send({ControlKind::pause}); }
-void EngineTransport::stop() { engine_->prime_streams(0); send({ControlKind::stop}); }
+void EngineTransport::stop() {
+    send({ControlKind::stop}); // stopping must work even when media disappears
+    try { engine_->prime_streams(0); } catch (const std::exception&) {}
+}
 void EngineTransport::seek(Sample sample) {
     if (sample < 0 || sample > max_sample) throw std::invalid_argument("invalid seek");
     (void)timeline_.to_ticks(sample);

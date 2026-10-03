@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Accepted: 0.1c / MRS Stage 1b clip editing #21. Next: 0.1d / Stage 1c disk read-ahead (not started).
+Updated: 2026-10-03. Accepted: 0.1c / MRS Stage 1b clip editing #21. Active: 0.1d / Stage 1c disk read-ahead; PR #45, user acceptance pending.
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -121,3 +121,12 @@ Manual Windows acceptance passed: docs/MRS_STAGE_1B_CHECKLIST.md.
 Stage 1b accepted by user on 2026-10-03; PR #44 merged into main.
 Merge commit: b5a481516e6a588dc0c1ca521d090849055397d3.
 Whole #21 remains open for Stage 1c/1d.
+
+## 0.1d — Stage 1c implementation
+PR #45 / mrs/0.1d-disk-read-ahead. Shared block WAV reader, bounded worker disk
+pages for long sources, seek/loop priming, per-voice source offsets and diagnostics.
+Bounded background waveform peaks with cancellation. Paused edits/Undo preserve
+the same engine, project and ASIO device. Limits/contracts: AUDIO_ARRANGEMENT.md.
+New audio_streaming / desktop_streaming suites cover boundaries, EOF, source loss,
+loop wrap, split continuity, no callback allocations and a >256 MiB decoded source.
+CI and user acceptance pending: MRS_STAGE_1C_CHECKLIST.md. Whole #21 remains open.
