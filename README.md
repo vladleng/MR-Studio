@@ -1,183 +1,192 @@
-# Moon River Live
+# Moon River Studio / Moon River Live
 
-**Moon River Live** — проект концертного приложения Moon River Studio для живых выступлений, тесно связанного с **Fender Studio Pro**.
+**Moon River Studio (MRS)** — проект собственной DAW Moon River Studio.
 
-Главная идея: использовать Studio Pro как среду подготовки песни, а Moon River Live — как специализированную среду исполнения. Приложение должно получать из проекта Studio Pro музыкальные и структурные метаданные, превращать их в устойчивую универсальную модель песни и использовать её для live-навигации, playback, MIDI-автоматизации, патчей и удалённого управления.
+**Moon River Live (MRL)** — встроенный Live / Performance workspace внутри MRS, по смыслу близкий к Show Page в Studio Pro, но использующий тот же Project Model, Transport, Audio Engine, MIDI Engine и plugin graph, что и production-режимы DAW.
 
-> Статус проекта: **проектирование / Stage 0**. Код live-движка ещё не начат.
+> Текущий репозиторий исторически называется `Moon-River-Live`, но архитектурное направление проекта расширено до Moon River Studio. Переименование/миграция репозитория может быть выполнено отдельным шагом позже.
 
 ## Основная концепция
 
 ```text
-Fender Studio Pro
-       │
-       │ Moon River Bridge / Export
-       ▼
-┌──────────────────────────────┐
-│      Song Metadata Model     │
-│                              │
-│ tempo / tempo map            │
-│ time signatures              │
-│ chord track                  │
-│ arranger track               │
-│ markers                      │
-│ tracks / folders             │
-│ clips / events               │
-│ custom Moon River metadata   │
-└──────────────┬───────────────┘
-               │
-               ▼
-        Moon River Live
+Moon River Studio
+├── Arrange
+├── Edit
+├── Mix
+├── Project
+└── Live (MRL)
 ```
 
-Studio Pro остаётся источником музыкальной структуры. Moon River Live не должен зависеть от внутреннего формата Studio Pro сильнее, чем это необходимо.
-
-Основной путь интеграции:
+Один проект используется и для production, и для performance.
 
 ```text
-Studio Pro → Bridge / Extension → универсальные metadata → Moon River Live
+                    Moon River Studio
+                           |
+        +------------------+------------------+
+        |                  |                  |
+     Arrange              Mix               Live
+        |                  |                  |
+        +------------------+------------------+
+                           |
+                    Shared Project Model
+                           |
+        +------------------+------------------+
+        |                  |                  |
+   Audio Engine           MIDI             Plugins
+        |                  |                  |
+       ASIO            MIDI I/O             VST3
 ```
 
-Прямой разбор `.song` может появиться как дополнительный/fallback-механизм, но не должен быть единственным фундаментом проекта.
+MRL не имеет отдельного ASIO engine и не требует экспортировать проект в другую программу.
 
-## Что планируется импортировать из Studio Pro
+## MRS — основные направления
 
-- название и общие данные песни;
-- tempo и tempo map;
-- размер и изменения размера;
+- audio tracks/clips/events;
+- MIDI tracks/editor;
+- mixer, buses and routing;
+- VST3 hosting;
+- native DSP;
+- automation;
+- tempo/meter map;
 - Chord Track;
 - Arranger Track;
-- названия, границы и цвета секций;
 - markers;
-- tracks и folders;
-- clips / events и их расположение;
-- пользовательские метаданные Moon River Studio;
-- в дальнейшем — данные, связанные с live-патчами, MIDI и автоматизацией.
+- project save/load;
+- AI / ChatGPT integration;
+- Live workspace.
 
-## Что должен уметь Moon River Live
+## MRL — основные направления
 
-### Live View
+- setlists;
+- moving Chord Track strip;
+- current/next section;
+- cues/markers;
+- transport;
+- click/cue;
+- live inputs;
+- patches;
+- MIDI automation;
+- foot control;
+- preflight/recovery;
+- remote/mobile companion.
 
-Во время выступления приложение показывает музыканту только действительно нужную информацию:
+## Performance-first
 
-- текущий и следующий аккорд;
-- текущую и следующую секцию;
-- timeline песни;
-- Arranger Sections;
-- markers / cues;
-- текущий bar / beat;
-- tempo и размер;
-- заметки для секции;
-- live-патчи и состояния оборудования.
+Audio performance является blocking requirement.
 
-### Playback
+На Windows основной live/performance path должен работать напрямую через родной vendor ASIO driver аудиоинтерфейса.
 
-Дальнейшие этапы предусматривают:
+Критические принципы:
 
-- stereo backing track;
-- multitrack stems;
-- отдельные click и cue outputs;
-- переход к секции;
-- loop section;
-- stop at end;
-- next / previous song;
-- безопасное переключение песен в setlist.
+- realtime audio thread отделён от UI/network/AI/file I/O;
+- no allocation/file I/O/network in audio callback;
+- preload/read-ahead;
+- plugin latency accounting;
+- live-safe processing path;
+- xrun/dropout diagnostics;
+- benchmark относительно Studio Pro на одинаковой конфигурации.
 
-### Live control
+Подробнее: [`docs/AUDIO_ENGINE.md`](docs/AUDIO_ENGINE.md).
 
-В перспективе:
+## AI / ChatGPT
 
-- MIDI Program Change / Control Change;
-- автоматическое переключение гитарных/клавишных патчей;
-- VST3/live inputs;
-- управление внешним оборудованием;
-- foot controller;
-- remote-интерфейс для телефона или планшета.
+MRS проектируется так, чтобы AI мог работать со структурированным Project Model через Context/Tool API.
 
-## Формат песни
+Будущие возможности:
 
-Проект предусматривает собственный переносимый пакет, рабочее название:
+- понимать tracks/clips/MIDI/chords/sections;
+- анализировать аранжировку и mixer state;
+- генерировать MIDI партии;
+- предлагать изменения;
+- после разрешения пользователя выполнять project commands;
+- управлять DAW естественным языком.
+
+AI не является частью realtime audio path и при его недоступности DAW/Live продолжают работать нормально.
+
+Подробнее: [`docs/AI_INTEGRATION.md`](docs/AI_INTEGRATION.md).
+
+## Native DSP / IR / Amp modeling
+
+Планируется возможность встроенных MRS processors:
+
+- EQ/compressor/saturation;
+- convolution/Cab IR;
+- amp/preamp/pedal DSP;
+- neural model player;
+- собственные Moon River captures/models.
+
+Factory Content и User Library должны быть лицензированно разделены.
+
+Подробнее: [`docs/DSP_MODELING.md`](docs/DSP_MODELING.md).
+
+## Studio Pro
+
+Fender Studio Pro больше не является обязательным authoring environment.
+
+Он остаётся:
+
+- performance/UX reference;
+- возможным import/migration source;
+- optional compatibility target для существующих проектов.
+
+Studio Pro Bridge можно развивать отдельным compatibility track, не блокирующим основную разработку MRS/MRL.
+
+## Параллельная разработка
+
+Используются три issue track:
 
 ```text
-My Song.moonlive
+[MRS]    DAW / production / core implementation
+[MRL]    Live / Performance workspace
+[SHARED] contracts/models/services used by both
 ```
 
-Концептуально пакет может содержать:
+MRS и MRL имеют независимую нумерацию версий и могут разрабатываться параллельно. MRL может использовать mock services до готовности реального MRS backend.
 
-```text
-My Song.moonlive
-├── manifest.json
-├── metadata.json
-├── audio/
-│   ├── backing.wav
-│   ├── drums.wav
-│   ├── bass.wav
-│   └── ...
-├── click/
-│   ├── click.wav
-│   └── cue.wav
-├── midi/
-└── assets/
-```
-
-Формат должен быть версионируемым и не зависеть от UI приложения.
-
-## Архитектурные принципы
-
-1. **Studio Pro — редактор, Moon River Live — исполнитель.**
-2. **Metadata-first:** музыкальная структура отделена от UI и audio engine.
-3. **Не привязывать всё приложение к закрытому внутреннему API Studio Pro.**
-4. **Live-first reliability:** на сцене важнее предсказуемость, чем количество функций.
-5. **Fail-safe playback:** ошибка визуального или metadata-модуля не должна обрывать звук.
-6. **Offline-first:** концерт не должен зависеть от облака или интернета.
-7. **Native audio performance:** на Windows основной live-режим должен работать напрямую через родной vendor ASIO driver аудиоинтерфейса.
-8. **Performance gate:** базовый audio engine должен пройти сравнительный benchmark со Studio Pro до активного наращивания тяжёлых live-host функций.
-9. **Расширяемая модель:** один и тот же Song Metadata слой сможет использоваться Moon River Live, Arranger Manager и будущими инструментами Moon River Studio.
+Подробнее: [`docs/DEVELOPMENT_TRACKS.md`](docs/DEVELOPMENT_TRACKS.md).
 
 ## Документация
 
-- [`docs/PROJECT_VISION.md`](docs/PROJECT_VISION.md) — цели, границы и концепция продукта.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — архитектура приложения и границы модулей.
-- [`docs/AUDIO_ENGINE.md`](docs/AUDIO_ENGINE.md) — audio engine, ASIO, realtime-правила, совместимость с аудиоинтерфейсами и performance benchmark.
-- [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — универсальная модель Song Metadata и `.moonlive`.
-- [`docs/STUDIO_PRO_INTEGRATION.md`](docs/STUDIO_PRO_INTEGRATION.md) — стратегия интеграции с Fender Studio Pro.
-- [`docs/LIVE_WORKFLOW.md`](docs/LIVE_WORKFLOW.md) — предполагаемый концертный workflow.
-- [`docs/UI_UX_CONCEPT.md`](docs/UI_UX_CONCEPT.md) — UX/UI-концепция и базовое визуальное направление.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — этапы разработки от прототипа до стабильного релиза.
+- [`docs/MOON_RIVER_STUDIO_VISION.md`](docs/MOON_RIVER_STUDIO_VISION.md) — целевая концепция MRS и роль MRL.
+- [`docs/PROJECT_VISION.md`](docs/PROJECT_VISION.md) — общее видение продукта.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — архитектура MRS Core и workspaces.
+- [`docs/AUDIO_ENGINE.md`](docs/AUDIO_ENGINE.md) — ASIO, realtime rules и performance benchmark.
+- [`docs/AI_INTEGRATION.md`](docs/AI_INTEGRATION.md) — ChatGPT/OpenAI integration, Context/Tool API и permissions.
+- [`docs/DSP_MODELING.md`](docs/DSP_MODELING.md) — native DSP, Cab IR, amp/preamp/pedal и neural models.
+- [`docs/DEVELOPMENT_TRACKS.md`](docs/DEVELOPMENT_TRACKS.md) — параллельные MRS/MRL issue tracks.
+- [`docs/UI_UX_CONCEPT.md`](docs/UI_UX_CONCEPT.md) — UI/UX-концепция MRL.
+- [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — текущая модель metadata; должна эволюционировать в общий MRS Project Model.
+- [`docs/STUDIO_PRO_INTEGRATION.md`](docs/STUDIO_PRO_INTEGRATION.md) — optional Studio Pro compatibility/import track.
+- [`docs/LIVE_WORKFLOW.md`](docs/LIVE_WORKFLOW.md) — live workflow.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — параллельный roadmap MRS/MRL.
 
 ## Roadmap в одном экране
 
+### MRS
+
 | Stage | Цель |
 |---|---|
-| 0 | Foundation: архитектура, формат, ASIO performance gate и технический прототип |
-| 1 | Studio Pro Bridge и импорт metadata |
-| 2 | Live Timeline: chords, arranger, markers |
-| 3 | Playback и live-навигация |
-| 4 | Multitrack stems, click и cue |
-| 5 | Live inputs, VST3 и patches |
-| 6 | MIDI automation и hardware control |
-| 7 | Setlists и Show workflow |
-| 8 | Remote / mobile companion |
-| 9 | Reliability, recovery и release |
+| MRS 0.1 | Core Foundation + ASIO Performance Gate |
+| MRS 0.2 | Audio Arrangement |
+| MRS 0.3 | Mixer / Routing |
+| MRS 0.4 | VST3 / Native DSP |
+| MRS 0.5 | MIDI |
+| MRS 0.6 | Chord/Arranger/Musical Structure |
+| MRS 0.7 | AI Foundation |
+| MRS 0.8+ | Advanced DAW / Reliability |
 
-Подробные критерии каждого этапа находятся в [`docs/ROADMAP.md`](docs/ROADMAP.md) и GitHub Issues.
+### MRL
 
-## Связь с экосистемой Moon River Studio
-
-Moon River Live задуман не как изолированный плеер, а как один из клиентов общей музыкальной модели:
-
-```text
-                  Fender Studio Pro
-                         │
-                         ▼
-                 Moon River Bridge
-                         │
-          ┌──────────────┼──────────────┐
-          ▼              ▼              ▼
-   Arranger Manager  Moon River Live  future tools
-```
-
-Таким образом, получение Chord Track, Arranger Track, markers, tempo, tracks и clips решается один раз и затем используется несколькими приложениями.
+| Stage | Цель |
+|---|---|
+| MRL 0.1 | Live UX Foundation |
+| MRL 0.2 | Real Project / Transport Integration |
+| MRL 0.3 | Setlists / Show Workflow |
+| MRL 0.4 | Playback / Click / Cue |
+| MRL 0.5 | Live Inputs / Patches |
+| MRL 0.6 | MIDI Automation / Hardware Control |
+| MRL 0.7 | Remote / Mobile Companion |
+| MRL 1.0 | Concert Reliability |
 
 ## Лицензия
 
