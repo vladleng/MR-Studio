@@ -1,35 +1,35 @@
-# Moon River Studio / Moon River Live — Architecture
+# Moon River Studio — Architecture
 
-## 1. Общая схема
+## 1. Продуктовая граница
+
+**Moon River Studio** (`MRS`, рабочее имя `MR Studio`) — единственное desktop-приложение и единственная DAW проекта.
+
+Live Mode — встроенный Performance / Show режим этой же DAW.
 
 ```text
 ┌───────────────────────────────────────────────┐
 │              Moon River Studio               │
 │                                               │
-│ Arrange | Edit | Mix | Project | Live (MRL) │
+│   Arrange | Edit | Mix | Project | Live      │
 └───────────────────────┬───────────────────────┘
                         │
                         ▼
 ┌───────────────────────────────────────────────┐
-│                Shared Project Model           │
-│ tracks / clips / MIDI / chords / arranger    │
-│ markers / tempo / automation / mixer state   │
-└───────────────────────┬───────────────────────┘
-                        │
-        ┌───────────────┼────────────────┐
-        ▼               ▼                ▼
-   Audio Engine      MIDI Engine     Plugin Engine
-        │               │                │
-   ASIO/WASAPI        MIDI I/O           VST3
+│                  SHARED CORE                  │
+│                                               │
+│ Project Model / Commands / Transport          │
+│ Audio / MIDI / Plugins / Musical Timeline     │
+│ Persistence / State / Recovery                │
+└───────────────────────────────────────────────┘
 ```
 
-Moon River Live (MRL) — это workspace внутри Moon River Studio (MRS), а не отдельный realtime engine.
+Live Mode не является отдельным приложением, не открывает отдельный project format и не имеет собственного realtime engine.
 
 ## 2. Главная архитектурная граница
 
-UI/workspace не должен владеть низкоуровневыми engine-компонентами.
+Workspace UI не должен владеть низкоуровневыми engine-компонентами.
 
-Правильная зависимость:
+Правильно:
 
 ```text
 Workspace UI
@@ -44,19 +44,18 @@ Audio / MIDI / Plugins / Storage
 Неправильно:
 
 ```text
-Live UI -> ASIO directly
-Mixer UI -> own transport
-Arrange UI -> separate project state
+Live UI -> own ASIO engine
+Mix UI  -> own transport
+Arrange -> separate project state
 ```
 
-## 3. Core modules
+## 3. Shared Project Model
 
-### 3.1 Project Model
-
-Единый versioned model проекта:
+Единая versioned-модель проекта:
 
 ```text
 Project
+├── identity
 ├── tracks
 ├── folders
 ├── clips/events
@@ -66,137 +65,152 @@ Project
 ├── arranger track
 ├── markers
 ├── automation
-├── mixer state
-├── plugin state
+├── mixer/routing state
+├── plugin/native processor state
 └── live metadata
 ```
 
-Project Model должен иметь stable IDs, serialization/versioning и не зависеть от конкретного workspace.
+Все режимы читают и изменяют одну модель через общие commands/services.
 
-### 3.2 Command / Undo System
+Live Mode строит runtime performance-state из Project Model, но не создаёт копию музыкальной структуры.
 
-Все изменения проекта выполняются через команды:
+## 4. Command / Undo System
+
+Изменения проекта должны проходить через общий Command layer:
 
 ```text
 Command
 ├── validate
 ├── execute
 ├── undo
-└── serialize/audit where useful
+└── optional preview/diff/audit
 ```
 
-Это используется UI, MIDI editing, AI layer и будущими remote/control interfaces.
+Это позволяет одним механизмом обслуживать:
 
-### 3.3 Transport
+- Arrange/Edit/Mix UI;
+- MIDI editing;
+- Live actions там, где они изменяют project/show state;
+- AI Tool API;
+- будущие remote/control operations.
 
-Единый transport для всех workspaces:
+## 5. Transport
 
-- play/pause/stop;
+Один Transport для всей DAW:
+
+- play / pause / stop;
 - seek;
 - sample position;
 - musical position;
 - loop range;
 - tempo/meter sync;
-- section navigation.
+- section/marker navigation.
 
-MRL использует тот же transport, что Arrange/Edit/Mix.
+Переключение `Arrange -> Live` не создаёт новый transport и не перезапускает project engine.
 
-## 4. Audio Engine
+## 6. Audio Engine
 
-Audio Engine — общий MRS Core.
-
-Критические правила:
+Audio Engine — общий SHARED Core.
 
 ```text
 Audio thread != UI thread != file/network/AI thread
 ```
 
-На Windows основным live/performance backend должен быть vendor ASIO driver аудиоинтерфейса.
+На Windows основной professional/live backend должен поддерживать прямую работу через vendor ASIO driver.
 
-В Audio Engine входят:
+Audio Engine включает:
 
 - device layer;
-- ASIO/WASAPI backend;
-- realtime graph;
-- mixer/buses;
+- ASIO/WASAPI backends;
+- realtime processing graph;
+- mixer/buses/routing;
 - disk streaming;
 - monitoring;
-- plugin processing;
+- plugin/native processing;
 - metering;
 - latency accounting;
 - preload/read-ahead;
 - xrun/dropout diagnostics.
 
+Arrange playback, Mix и Live Mode используют **один и тот же engine**.
+
 Подробнее: `AUDIO_ENGINE.md`.
 
-## 5. Live path и process path
+## 7. Low-latency path и process path
 
-Архитектура должна позволять отделять low-latency monitoring от тяжёлой playback/mix обработки.
-
-Концептуально:
+Архитектура должна позволять разделять интерактивный live monitoring и тяжёлую обработку/playback.
 
 ```text
-                  Audio Engine
-                       |
-          +------------+------------+
-          |                         |
-   Low-latency path            Process path
-   live inputs                 playback/mix
-   small buffer                larger processing window
-          |                         |
-          +------------+------------+
-                       |
-                     Mixer
+                    Audio Engine
+                         |
+            +------------+------------+
+            |                         |
+     Low-latency path            Process path
+     live monitoring             playback / mix
+            |                         |
+            +------------+------------+
+                         |
+                       Mixer
 ```
 
-Фактическая реализация определяется Stage MRS Core и performance tests.
+Фактическая реализация определяется техническим spike и performance benchmark.
 
-## 6. MIDI Engine
+Это свойство полезно и в production mode, и в Live Mode: большая сессия не должна автоматически разрушать низкую latency живого входа.
 
-Отвечает за:
+## 8. MIDI Engine
+
+Общий MIDI backend обслуживает:
 
 - MIDI input/output;
 - timestamped events;
-- MIDI clips;
-- note/CC/program data;
-- recording;
-- playback;
+- MIDI tracks/clips;
+- notes/CC/program data;
+- recording/playback;
+- instrument/external routing;
 - hardware mappings;
-- Live actions;
+- Live timeline actions;
 - panic/all-notes-off.
 
-MIDI editing и MRL automation используют один engine/model.
+MIDI editor и Live automation работают с одной event/device model.
 
-## 7. Plugin Engine
+## 9. Plugin / Processor Graph
 
-Первый внешний plugin target — VST3.
+Один processing graph для production и performance.
 
-Функции:
+External target:
 
-- scan/cache;
-- load/unload;
+- VST3.
+
+Native processors также подключаются к этому graph.
+
+Основные функции:
+
+- scan/cache/load/unload;
 - state save/restore;
 - latency reporting;
 - parameter access;
+- automation hooks;
 - safe bypass;
-- crash/isolation strategy;
-- live-safe classification.
+- plugin failure strategy;
+- processor/preset state;
+- preload/warm state hooks.
 
-Native MRS DSP также подключается к общему processing graph.
+Live patch — это state/snapshot общего processor graph, а не отдельная plugin-chain система.
 
-## 8. Native DSP / modeling
+## 10. Native DSP / modeling
 
 MRS может включать:
 
 - utility processors;
-- convolution/Cab IR;
+- EQ/compression/saturation;
+- convolution/Cab/Room IR;
 - amp/preamp/pedal DSP;
 - neural model player;
 - Moon River factory models/captures.
 
 Подробнее: `DSP_MODELING.md`.
 
-## 9. Workspaces
+## 11. Workspaces
 
 ### Arrange
 
@@ -204,19 +218,19 @@ Timeline-oriented production workspace.
 
 ### Edit
 
-Audio/MIDI detailed editing.
+Detailed audio/MIDI/automation editing.
 
 ### Mix
 
 Mixer/routing/plugin workspace.
 
-### Live / MRL
+### Live Mode
 
-Performance-oriented projection того же Project Model:
+Performance-oriented представление того же проекта:
 
 ```text
 LiveState
-├── currentSong/project
+├── currentProject/song
 ├── transportState
 ├── currentPosition
 ├── currentSection
@@ -229,37 +243,39 @@ LiveState
 └── connectedRemotes
 ```
 
-MRL не дублирует project entities, а строит runtime LiveState из них.
+LiveState — runtime projection. Project entities остаются общими.
 
-## 10. Moving Chord Track
+## 12. Moving Chord Track
 
-Live UI использует горизонтальную движущуюся полосу Chord Track:
+Live Mode использует горизонтальную движущуюся Chord Track strip:
 
 ```text
 Dm7 | G7 | [ Gmaj7 ] | Em7 | Am7 | D7
              ^ playhead
 ```
 
-Источник данных — общий Chord Track Project Model, позиция — общий Transport.
+Источник аккордов — SHARED Chord Track model. Позиция — общий Transport.
 
-Подробнее по UI: `UI_UX_CONCEPT.md`.
+Подробнее: `UI_UX_CONCEPT.md`.
 
-## 11. Setlist Engine
+## 13. Setlist / Show State
 
-Setlist является MRL/application-level model и ссылается на проекты/песни MRS.
+Setlist относится к Live Mode/application-level state и ссылается на MRS projects.
 
-Отвечает за:
+Он отвечает за:
 
-- порядок песен;
-- preload следующего проекта/song state;
+- порядок песен/projects;
+- preload следующего project state;
 - next/previous;
 - inter-song policy;
 - preflight;
 - recovery.
 
-## 12. AI Layer
+Show state не должен копировать полный Project Model. Он хранит ссылки и show-specific параметры.
 
-AI работает только через подготовленный Context/Tool API.
+## 14. AI Layer
+
+AI работает через подготовленный Context / Tool API:
 
 ```text
 OpenAI / ChatGPT
@@ -271,11 +287,11 @@ Context + Command API
 Project Model / Application Services
 ```
 
-AI может читать/анализировать проект и формировать commands, но не обращается к ASIO callback напрямую.
+AI может читать/анализировать проект и формировать разрешённые commands, но не обращается к ASIO callback напрямую.
 
 Подробнее: `AI_INTEGRATION.md`.
 
-## 13. Remote API
+## 15. Remote API
 
 Remote/mobile получает подготовленный application/live state:
 
@@ -289,37 +305,38 @@ Remote Client
 
 Remote failure не должен влиять на Audio Engine.
 
-## 14. Studio Pro compatibility
+## 16. Studio Pro compatibility
 
-Studio Pro Bridge становится опциональным import/migration adapter, а не фундаментом MRS.
+Fender Studio Pro — optional import/migration source, а не runtime dependency.
 
 ```text
 Studio Pro project
       |
-optional Bridge/import
-      |
+Bridge / Import adapter
+      v
 MRS Project Model
+      |
+Arrange / Edit / Mix / Live
 ```
 
-Это позволяет переносить старые workflow, не создавая runtime dependency от Studio Pro.
+Подробнее: `STUDIO_PRO_INTEGRATION.md`.
 
-## 15. AI/remote/UI isolation from realtime
+## 17. Thread isolation
 
-Ни один из этих компонентов не должен блокировать audio callback:
+Ни один из этих компонентов не должен блокировать realtime callback:
 
 - UI;
 - waveform generation;
-- project serialization;
-- network;
-- remote;
+- serialization;
+- network/remote;
 - AI;
 - plugin scanning/loading;
 - logging;
-- metadata parsing.
+- import/parsing.
 
-Для realtime state используются bounded/lock-free/atomic mechanisms там, где это требуется.
+Для realtime state используются подходящие bounded / lock-free / atomic механизмы там, где они действительно необходимы.
 
-## 16. Возможная структура monorepo
+## 18. Предлагаемая структура monorepo
 
 ```text
 Moon-River-Studio/
@@ -347,43 +364,37 @@ Moon-River-Studio/
 └── docs/
 ```
 
-## 17. Development tracks
+## 19. Development tracks
 
-Внутри одного monorepo разработка ведётся тремя потоками:
+В одном monorepo Issues разделяются для удобства параллельной работы:
 
 ```text
-[MRS]    DAW/core
-[MRL]    Live workspace
-[SHARED] общие contracts/services
+[MRS]    DAW features/workspaces
+[SHARED] common Core/Engine
+[LIVE]   embedded Live Mode
 ```
 
-MRL может использовать mock implementations общих API, пока MRS backend ещё разрабатывается.
+Это организационные tracks, а не разные приложения.
 
 Подробнее: `DEVELOPMENT_TRACKS.md`.
 
-## 18. Fail-safe модель
+## 20. Fail-safe модель
 
-Особенно в Live mode:
+Особенно для Live Mode:
 
 - UI failure не останавливает звук;
 - AI/network failure не влияет на playback;
 - remote disconnect безопасен;
 - audio device errors диагностируются явно;
 - MIDI actions не дублируются;
-- project/show state сохраняется для recovery;
-- performance-blocking regressions блокируют релиз.
+- project/show state восстанавливается;
+- performance-blocking regressions блокируют live release readiness.
 
-## 19. Технологический выбор
+## 21. Рабочее название
 
-Конкретный framework окончательно выбирается после spike, но критерии уже фиксированы:
+Текущее название всей DAW:
 
-- Windows-first;
-- native low-latency ASIO;
-- realtime-safe C/C++-подход для core audio;
-- VST3 hosting;
-- MIDI;
-- современный high-DPI UI;
-- тестируемые module boundaries;
-- возможность remote/mobile клиента;
-- CI/packaging;
-- отсутствие зависимости realtime engine от UI technology.
+- `Moon River Studio`;
+- сокращённо `MRS` или `MR Studio`.
+
+Название считается рабочим и может быть заменено на более ёмкое ближе к зрелому релизу без изменения архитектурных границ.
