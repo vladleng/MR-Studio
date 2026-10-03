@@ -1,6 +1,12 @@
 # SHARED Stage 1 — audio core
 
-Scope: #16. Native hardware acceptance and Studio Pro comparison remain required.
+Scope: #16. Basic native 48k/128 playback/monitor hardware tests passed.
+Remaining hardware stress/reconnect and Studio Pro comparison tests were deferred
+by the user on 2026-10-03; they do not block development. Performance gate remains pending.
+
+Stage 2 adds control-thread EngineTransport::rebind_timeline for tempo/meter interpretation;
+sample rate must match the prepared device. Audio graph/asset quiescence rules are unchanged.
+See [MUSICAL_TIMELINE.md](MUSICAL_TIMELINE.md).
 
 ## Ownership
 

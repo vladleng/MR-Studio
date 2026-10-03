@@ -1,5 +1,10 @@
 # SHARED Stage 0 — Core contracts
 
+Stage 2 update: the current project schema is 2, with v1 read migration.
+ITransport now exposes control-thread rebind_timeline; MusicalTimeline coordinates
+shared context and musical edits. See [MUSICAL_TIMELINE.md](MUSICAL_TIMELINE.md).
+The text below records the original Stage 0 contract and scope.
+
 Issue: #15. Implementation: C++20, standard library only, CMake 3.20+.
 Public API: `core/include/mrs/core.hpp`.
 
