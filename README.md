@@ -297,6 +297,6 @@ PR #45; базовая 0.1d проверена пользователем. Пе�
 ## 0.1d upd1 fix1 — UI follow-up
 Neutral gray background/buttons; thin Files menu for project/WAV actions;
 Arrange/Edit/Mix navigation without Live button. Mono routes to the selected main pair.
-[Acceptance checklist](docs/MRS_STAGE_1C_UPD1_CHECKLIST.md). CI/user acceptance pending.
+[Acceptance checklist](docs/MRS_STAGE_1C_UPD1_CHECKLIST.md). All six CI jobs passed; UI/mono user acceptance pending.
 Live is a separate show mode with .mrlive documents referencing .mrsproject songs,
 using the same SHARED Core/Engine. Its file commands/screen belong to LIVE stages.

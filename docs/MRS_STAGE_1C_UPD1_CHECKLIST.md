@@ -22,3 +22,6 @@ upd1 — обновление интерфейса; fix1 — центриров�
 Live определён как отдельный show-режим внутри MRS с документом .mrlive, ссылками
 на проекты и тем же SHARED Engine. Создание/открытие .mrlive и show-экран будут
 реализованы в LIVE этапах; текущий Files работает с .mrsproject и WAV.
+
+Все шесть CI jobs пройдены: Linux/ASIO 54/54, Windows offline 55/55 с GUI smoke.
+Сборка для проверки: https://github.com/vladleng/MR-Studio/actions/runs/37128824438/artifacts/11276401042

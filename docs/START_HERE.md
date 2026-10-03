@@ -16,7 +16,7 @@ MRS Stage 1b / 0.1c принят пользователем 2026-10-03: все �
 Активный подэтап: MRS Stage 1c #21 / версия 0.1d — disk read-ahead и long-file playback.
 0.1d реализован в mrs/0.1d-disk-read-ahead / PR #45; все шесть CI jobs пройдены.
 Базовую 0.1d пользователь проверил: всё работает. Перед закрытием добавляются UI upd1 и mono fix1.
-Текущая сборка: 0.1d upd1 fix1; CI и приёмка доработки pending; PR #45 ещё не слит.
+Текущая сборка: 0.1d upd1 fix1; все шесть CI jobs пройдены, приёмка доработки pending; PR #45 ещё не слит.
 Чек-лист доработки: docs/MRS_STAGE_1C_UPD1_CHECKLIST.md; disk checks: docs/MRS_STAGE_1C_CHECKLIST.md. Последняя принятая сборка: 0.1c.
 Правила версий: docs/VERSIONING.md. Читать issue #21 и docs/AUDIO_ARRANGEMENT.md.
 Приёмка 0.1c: docs/MRS_STAGE_1B_CHECKLIST.md.

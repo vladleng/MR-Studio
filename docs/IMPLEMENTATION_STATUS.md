@@ -153,4 +153,17 @@ whole #21 stays open. Deferred sustained ASIO performance gate #16 remains nonbl
 аккордов и секций; верхнее меню Files для всех file/project действий; удаление Live
 из навигационных кнопок production. Mono-only-left исправляется в fix1.
 Объединённая сборка: 0.1d upd1 fix1. Чек-лист: MRS_STAGE_1C_UPD1_CHECKLIST.md.
-CI и приёмка этой доработки pending; PR #45 остаётся открытым.
+Все шесть CI jobs пройдены; приёмка доработки pending; PR #45 остаётся открытым.
+
+
+## 0.1d upd1 fix1 validation — 2026-10-03
+Validated code head: 2177219103682c08bc011b9c5e9baee8f8f00aa5.
+All six CI jobs passed: Linux/Windows ASIO Debug/Release 54/54;
+Windows offline Debug/Release 55/55 including Files-menu/no-Live/DPI GUI smoke.
+Core CI: https://github.com/vladleng/MR-Studio/actions/runs/37128824422
+ASIO CI: https://github.com/vladleng/MR-Studio/actions/runs/37128824438
+ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37128824438/artifacts/11276401042
+mono_route verifies one/two/four output configurations; stereo tests stay unchanged.
+Chord and section drawing/colors are unchanged; gray colors apply to the base chrome/buttons.
+Base 0.1d user verification is recorded. UI/mono follow-up acceptance pending;
+PR #45 and whole #21 remain open. Checklist: MRS_STAGE_1C_UPD1_CHECKLIST.md.
