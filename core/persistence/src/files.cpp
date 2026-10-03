@@ -34,10 +34,11 @@ std::string read(const fs::path& path) {
     throw std::system_error(errno,std::generic_category(),operation);
 #endif
 }
-void synced_file(const fs::path& path, std::string_view bytes) {
+void synced_file(const fs::path& path, std::string_view bytes, bool& created) {
 #ifdef _WIN32
     HANDLE handle = CreateFileW(path.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
     if (handle == INVALID_HANDLE_VALUE) io_error("create temporary archive");
+    created = true;
     try {
         std::size_t done{};
         while (done < bytes.size()) {
@@ -53,6 +54,7 @@ void synced_file(const fs::path& path, std::string_view bytes) {
 #else
     const int handle = ::open(path.c_str(),O_WRONLY | O_CREAT | O_EXCL,0600);
     if (handle < 0) io_error("create temporary archive");
+    created = true;
     try {
         std::size_t done{};
         while (done < bytes.size()) {
@@ -80,18 +82,19 @@ void replace(const fs::path& temp, const fs::path& destination) {
 }
 struct Temporary {
     fs::path path;
+    bool created{};
     explicit Temporary(const fs::path& destination) : path(destination.parent_path() / ("mrs-write-" + new_id().value + ".tmp")) {}
-    ~Temporary() { std::error_code error; fs::remove(path,error); }
+    ~Temporary() { if (created) { std::error_code error; fs::remove(path,error); } }
 };
 void atomic(const fs::path& destination, std::string_view bytes) {
-    Temporary temp(destination); synced_file(temp.path,bytes); replace(temp.path,destination);
+    Temporary temp(destination); synced_file(temp.path,bytes,temp.created); replace(temp.path,destination);
 }
 template<class Validate> void save(const fs::path& path, std::string_view bytes, Validate validate, const SaveHook& hook) {
     if (path.filename().empty()) throw std::invalid_argument("archive path requires a filename");
     // Refuse to overwrite a damaged primary or silently destroy a valid backup.
     std::optional<std::string> previous;
     if (fs::exists(path)) { previous = read(path); validate(*previous); }
-    Temporary temp(path); synced_file(temp.path,bytes);
+    Temporary temp(path); synced_file(temp.path,bytes,temp.created);
     if (hook) hook(SavePoint::temporary_synced);
     if (previous) atomic(sibling(path,".bak"),*previous);
     if (hook) hook(SavePoint::backup_synced);
