@@ -243,13 +243,10 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     prepared_ = std::make_shared<processing::PreparedGraph>(graphs_->state(),config);
     result.processors = prepared_;
     const auto project = services_.projects->state().project;
-    std::size_t decoded_bytes{};
     for (const auto& clip : project->clips) {
         require(result.voices.size() < audio::max_voices,"too many playback voices");
         auto asset_data = asset(clip.source);
         require(asset_data->sample_rate == c.sample_rate,"WAV/project sample-rate mismatch");
-        require(asset_data->samples.size()*sizeof(float) <= 512*1024*1024-decoded_bytes,"project preload exceeds 512 MiB");
-        decoded_bytes += asset_data->samples.size()*sizeof(float);
         audio::Voice voice{asset_data,clip.start,clip.source_offset,clip.length,{}};
         for (std::uint32_t channel = 0; channel < asset_data->channels; ++channel)
             voice.routes.push_back({channel,channel % static_cast<std::uint32_t>(c.outputs.size()),clip.source == "mrs:demo-tone" ? 0.15f : 1.0f});

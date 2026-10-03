@@ -1,13 +1,14 @@
 #include <mrs/waveform.hpp>
 #include <algorithm>
 #include <stdexcept>
+#include <limits>
 namespace mrs::audio {
 Waveform::Waveform(const AudioData& data) : frames_(data.frames()), channels_(data.channels) {
     data.validate();
     const auto count = static_cast<std::size_t>((frames_+255)/256);
     levels_.emplace_back(count*channels_);
     for (std::size_t b = 0; b < count; ++b) for (std::uint32_t c = 0; c < channels_; ++c) {
-        Peak p{1,-1};
+        Peak p{std::numeric_limits<float>::max(),std::numeric_limits<float>::lowest()};
         const auto end = std::min(frames_,static_cast<Sample>((b+1)*256));
         for (Sample f = static_cast<Sample>(b*256); f < end; ++f) {
             const auto v = data.samples[static_cast<std::size_t>(f)*channels_+c];
@@ -35,7 +36,7 @@ Peak Waveform::range(Sample begin, Sample end, std::uint32_t channel) const {
     begin = std::clamp(begin,Sample{0},frames_); end = std::clamp(end,Sample{0},frames_);
     if (end <= begin) return {};
     std::size_t a = static_cast<std::size_t>(begin/256), b = static_cast<std::size_t>((end+255)/256);
-    Peak p{1,-1};
+    Peak p{std::numeric_limits<float>::max(),std::numeric_limits<float>::lowest()};
     // Exact union of base bins, O(log bins); no allocation or PCM scan in paint.
     while (a < b) {
         std::size_t level = 0, block = 1;
