@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Active: 0.1b fix1; next: 0.1c / MRS Stage 1b clip editing #21.
+Updated: 2026-10-03. Active: 0.1c / MRS Stage 1b clip editing #21.
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -84,12 +84,12 @@ User confirmed all checks working on 2026-10-03. PR #42 merged; whole #21 stays 
 Final PR head 21b75189fccbff13d7f0ae00aa9c999c6b27e786 also passed all CI runs.
 Next: 1b — non-destructive move/trim/split with selection and shared Undo/Redo.
 
-## 0.1b fix1 — implementation
+## 0.1b fix1 — accepted
 Paused editing was incorrectly rejected by a strict stopped-state guard. Idle edits
 now accept paused or stopped at any position; quiescent prepare retains playback
 state/sample/loop and prohibits automatic playing restoration. Shared engine unchanged
 in ownership; same open device is retained. Regression suite nonplaying_edits.
-User-visible version and build artifacts follow VERSIONING.md. CI passed; user acceptance pending.
+User-visible version and build artifacts follow VERSIONING.md. CI passed; user accepted fix1 on 2026-10-03; PR #43 merged.
 
 ### 0.1b fix1 validation
 Validated head: 11d09e53c59d7b7f7f465e56f87ce862c1dbb17e.
@@ -100,3 +100,21 @@ ASIO run: https://github.com/vladleng/MR-Studio/actions/runs/37121639376
 Windows ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37121639376/artifacts/11273209676
 Hardware confirmation pending: Play, Pause away from zero, delete/import/Undo,
 then resume from retained position without manual Connect.
+
+## 0.1c — Stage 1b implementation
+Shared non-destructive clip move/trim/split/delete and Application graph synchronization.
+Windows clip selection/drag preview, edge trim, Split/Delete, optional 1/16 snap.
+Same shared Undo, renderer, asset cache and paused/stopped position retention.
+Regression tests cover split-boundary playback, source bounds/offset recovery,
+invalid edit atomicity and save/load. See MRS_STAGE_1B_CHECKLIST.md.
+CI passed; user acceptance pending; #21 remains open; read-ahead/recording follow.
+
+### 0.1c validation
+Validated head: 8b545c2c7f0d048594fb0f836069be0578d50cf5.
+All six CI jobs passed: Linux Debug/Release and Windows ASIO Debug/Release 51/51;
+Windows offline Debug/Release 52/52 including GUI drag preview/commit/cancel and DPI smoke.
+Core CI: https://github.com/vladleng/MR-Studio/actions/runs/37122666526
+ASIO CI: https://github.com/vladleng/MR-Studio/actions/runs/37122666518
+ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37122666518/artifacts/11274196641
+Manual Windows acceptance pending: docs/MRS_STAGE_1B_CHECKLIST.md.
+PR #44 unmerged; Stage 1b and whole #21 remain open.

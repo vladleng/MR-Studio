@@ -18,8 +18,8 @@
 | Подэтап | Пользовательская версия |
 |---|---|
 | Принятый MRS Stage 1a: tracks/import/waveform | 0.1b |
-| Фикс Pause/seek/delete после 1a | 0.1b fix1 |
-| Следующий MRS Stage 1b: clip editing | 0.1c |
+| Принятый фикс Pause/seek/delete после 1a | 0.1b fix1 |
+| Текущий MRS Stage 1b: clip editing | 0.1c |
 
 Эта схема имеет приоритет над прежними номерными примерами roadmap.
 Live Mode входит в ту же сборку и не получает отдельную продуктовую версию.

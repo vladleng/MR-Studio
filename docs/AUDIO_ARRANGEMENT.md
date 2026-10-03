@@ -33,4 +33,21 @@ Next substage 1b: clip selection, move/trim/split and shared Undo/Redo.
 ## 0.1b fix1
 Permit track deletion/import/Undo while paused. Preserve playhead and loop when
 rebuilding the same shared renderer; never resume playback automatically.
-See VERSIONING.md. Acceptance pending.
+See VERSIONING.md. User accepted fix1 on 2026-10-03; PR #43 merged.
+
+## 0.1c — Stage 1b clip editing
+Shared MoveAudioClip/TrimAudioClip/SplitAudioClip/RemoveAudioClip commands preserve
+source references. Move changes time/track; trim recomputes source_offset while
+bounding against the original decoded asset; split preserves total duration and
+source continuity with a new stable right-side ID. Undo/Redo uses the same store.
+Application methods retain stopped/paused clock and hardware as in fix1.
+No schema change is required: existing Clip start/length/source_offset are authoritative.
+
+Windows selection is identified by clip ID. Drag is a UI-only preview until release,
+then exactly one command is committed. Escape/capture loss cancel the preview.
+Body drag moves across audio tracks, edges trim/restore hidden source. Ruler click
+positions the common transport for Split. S splits; Delete removes only the selected
+clip. Optional 1/16 tick-based snap follows tempo map; Shift bypasses it.
+Selection is available during playback; graph edits require Pause or Stop.
+No source file writes, alternate renderer or second undo stack.
+See MRS_STAGE_1B_CHECKLIST.md. CI/user acceptance pending for 0.1c.

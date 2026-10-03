@@ -184,6 +184,57 @@ void nonplaying_edits() {
     rejects([&] { engine.prepare({}, {}, {PlaybackState::stopped,0,LoopRange{400,100}}); });
     CHECK(engine.state().sample == 123 && engine.state().playback == PlaybackState::paused);
 }
+void clip_edits() {
+    Directory dir; auto file = dir.path / "source.wav"; wav(file);
+    Application app; app.new_project(44100); app.import_wavs({file});
+    const auto projects = app.services().projects;
+    const auto original = projects->state().project->clips.front();
+    const auto destination = app.add_audio_track("Destination");
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
+    app.seek(700); std::array<float,256> output{}; app.engine()->process(nullptr,output.data(),128);
+    app.move_clip(original.id,destination,200);
+    auto clip = projects->state().project->clips.front();
+    CHECK(clip.start == 200 && clip.track == destination && clip.source == original.source && clip.source_offset == 0);
+    CHECK(app.engine()->state().sample == 700);
+    app.trim_clip(original.id,300,1000);
+    clip = projects->state().project->clips.front();
+    CHECK(clip.start == 300 && clip.length == 700 && clip.source_offset == 100);
+    auto right = app.split_clip(original.id,600);
+    const auto split = projects->state().project;
+    CHECK(split->clips.size() == 2 && split->clips[0].length == 300);
+    CHECK(split->clips[1].id == right && split->clips[1].start == 600 && split->clips[1].length == 400 && split->clips[1].source_offset == 400);
+    CHECK(split->clips[1].source == original.source && split->clips[1].track == destination);
+    // Boundary playback: no gap/double amplitude at a split, silence outside trim.
+    app.seek(599); app.play(); app.engine()->process(nullptr,output.data(),128);
+    for (auto value : output) CHECK(value == 0.06103515625f);
+    app.pause(); app.engine()->process(nullptr,output.data(),128);
+    const auto position = app.engine()->state().sample;
+    app.remove_clip(right); CHECK(projects->state().project->clips.size() == 1);
+    CHECK(app.engine()->state().playback == PlaybackState::paused && app.engine()->state().sample == position);
+    CHECK(app.undo() && projects->state().project->clips.size() == 2);
+    CHECK(app.undo() && projects->state().project->clips.size() == 1 && projects->state().project->clips.front().length == 700);
+    CHECK(app.redo() && projects->state().project->clips.back().id == right);
+    auto before = *projects->state().project;
+    for (auto sample : {Sample{300},Sample{600},Sample{-1}}) rejects([&] { app.split_clip(original.id,sample); });
+    rejects([&] { app.trim_clip(original.id,0,1000); });
+    rejects([&] { app.trim_clip(original.id,300,5000); });
+    rejects([&] { app.move_clip(original.id,{"missing"},0); });
+    CHECK(*projects->state().project == before);
+    app.trim_clip(right,600,1200); // recover hidden source at right end
+    CHECK(projects->state().project->clips.back().length == 600 && projects->state().project->clips.back().source_offset == 400);
+    app.seek(1199); app.play(); app.engine()->process(nullptr,output.data(),128);
+    CHECK(output[0] == 0.06103515625f && output[2] == 0);
+    app.pause(); app.engine()->process(nullptr,output.data(),128);
+    app.save_project(dir.path / "clips.mrsproject"); auto saved = app.snapshot();
+    app.open_project(dir.path / "clips.mrsproject"); CHECK(app.snapshot().project == saved.project);
+    CHECK(audio::load_wav(file).frames() == 1000);
+    Project p = saved.project; p.time = TimeMap{}; // explicit 120 BPM, not demo's 72 BPM
+    CHECK(snap_to_grid(p,5513) == 5513);
+    CHECK(snap_to_grid(p,5000) == 5513);
+    p.time.tempos = {{0,60},{ppq,120}};
+    CHECK(snap_to_grid(p,10000) == 11025);
+    CHECK(snap_to_grid(p,49000) == 49613);
+}
 void waveform() {
     audio::AudioData data{48000,2,std::vector<float>(2050,0)};
     data.samples[600] = 0.75f; data.samples[601] = -0.9f;
@@ -221,7 +272,7 @@ int main(int argc, char** argv) {
         std::string name = argv[1];
         if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
-        else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else throw std::runtime_error("unknown suite");
+        else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "clip_edits") clip_edits(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
 }

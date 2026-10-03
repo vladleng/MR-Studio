@@ -209,6 +209,21 @@ void Application::remove_track(const Id& id) { edit(RemoveTrack{id}); }
 void Application::reorder_track(const Id& id, std::size_t index) { edit(ReorderTrack{id,index}); }
 bool Application::undo() { require_not_playing(); const auto changed = services_.projects->undo(); if (changed) rebuild_audio(); return changed; }
 bool Application::redo() { require_not_playing(); const auto changed = services_.projects->redo(); if (changed) rebuild_audio(); return changed; }
+Sample Application::source_frames(const Id& id) {
+    const auto p = services_.projects->state().project;
+    const auto it = std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip) { return clip.id == id; });
+    require(it != p->clips.end(),"unknown clip");
+    return asset(it->source)->frames();
+}
+void Application::move_clip(const Id& id, const Id& track, Sample start) { edit(MoveAudioClip{id,track,start}); }
+void Application::trim_clip(const Id& id, Sample start, Sample end) {
+    require_not_playing(); const auto frames = source_frames(id); edit(TrimAudioClip{id,start,end,frames});
+}
+Id Application::split_clip(const Id& id, Sample position) {
+    require(services_.projects->state().project->clips.size() < audio::max_voices,"too many playback clips to split");
+    const auto right = new_id(); edit(SplitAudioClip{id,position,right}); return right;
+}
+void Application::remove_clip(const Id& id) { edit(RemoveAudioClip{id}); }
 void Application::import_wavs(const std::vector<std::filesystem::path>& paths) {
     require_not_playing(); require(!paths.empty() && paths.size() <= audio::max_voices,"select 1..128 WAV files");
     const auto current = services_.projects->state().project;
