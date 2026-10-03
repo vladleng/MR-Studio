@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Active: MRS Stage 0 DAW Foundation #20.
+Updated: 2026-10-03. Next: MRS Stage 1 Audio Arrangement #21.
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -40,7 +40,7 @@ Core run 37101469824; ASIO run 37101469828.
 
 ## Handoff
 Read START_HERE, current issue and relevant subsystem contracts.
-Stage 1 deferred work remains in #16. Current product stage: #20 MRS DAW Foundation.
+Stage 1 deferred work remains in #16. MRS DAW Foundation #20 accepted; next product stage: #21 Audio Arrangement.
 #20 DAW shell uses established shared musical contracts; #28 can extend the Live view.
 Windows GUI is introduced in #20. Actual VST3 host, hardware MIDI, note editor
 and final asset package are not implemented.
@@ -55,9 +55,12 @@ PR #40 merged, #19 closed. Tested head 2a9c0cc781a3ce0035c4af1c78ac45023941b62a:
 41/41 contracts on Windows/Linux Debug/Release and Windows ASIO Debug/Release.
 Core run 37111558216; ASIO run 37111558226.
 
-## MRS Stage 0 — implementation
+## MRS Stage 0 — accepted
 Native Windows shell and portable application/controller: common services,
 four workspaces, timeline/playhead, project/WAV Open, Save/Undo, native ASIO
 settings plus shared offline clock. See DESKTOP_FOUNDATION.md and
-MRS_STAGE_0_CHECKLIST.md. GUI/ASIO hardware acceptance pending; latest PR checks
-are validation authority. Mix/Edit are read-only initial views.
+MRS_STAGE_0_CHECKLIST.md. Accepted by user on 2026-10-03, including saved ASIO
+restoration after WAV replacement and relaunch. PR #41 merged into main.
+Validated code head: 571997b42d3d4b315753421dcc55917e5eaa4266.
+All six CI jobs passed: 47/47 contracts, Windows offline 48/48 including GUI smoke.
+Core run 37119197988; ASIO run 37119197984. Deferred #16 gate remains pending. Mix/Edit are read-only initial views.
