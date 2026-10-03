@@ -148,7 +148,11 @@ void arrangement() {
 }
 void nonplaying_edits() {
     Directory dir; auto file = dir.path / "edit.wav"; wav(file);
-    Application app; app.new_project(44100); app.import_wavs({file});
+    Application app; app.new_project(44100);
+    const auto revision = app.services().projects->state().revision;
+    rejects([&] { app.import_wavs(std::vector<std::filesystem::path>(33,file)); });
+    CHECK(app.services().projects->state().revision == revision && app.services().projects->state().project->clips.empty());
+    app.import_wavs({file});
     app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
     std::array<float,256> output{};
     // Seeking away from zero while stopped must not prevent edits or reset position.

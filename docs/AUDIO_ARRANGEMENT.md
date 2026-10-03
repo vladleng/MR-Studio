@@ -82,3 +82,5 @@ in UI status and does not unwind the application pump or touch callback state.
 
 See MRS_STAGE_1C_CHECKLIST.md. Automated CI and Windows user acceptance pending.
 Whole #21 remains open; Stage 1d recording follows.
+
+At most 128 retained source assets including Undo media; New/Open releases the cache.

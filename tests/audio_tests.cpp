@@ -249,6 +249,9 @@ void streaming() {
         CHECK(output[static_cast<std::size_t>(f)] == static_cast<float>((time-11+8188)%127)/256.0F);
     }
     CHECK(engine->metrics().disk_underruns == 0);
+    transport.seek(60000); engine->process(nullptr,output.data(),128);
+    for (Sample f = 0; f < 128; ++f) CHECK(output[static_cast<std::size_t>(f)] == static_cast<float>((60000+f-11+8188)%127)/256.0F);
+    CHECK(engine->metrics().disk_underruns == 0);
     graph.voices = {{asset,0,8190,6,{{0,0,1}}},{asset,6,8196,10,{{0,0,1}}}};
     engine->prepare({48000,0,1,128},graph); transport.play(); engine->process(nullptr,output.data(),128);
     for (Sample f = 0; f < 16; ++f) CHECK(output[static_cast<std::size_t>(f)] == static_cast<float>((8190+f)%127)/256.0F);

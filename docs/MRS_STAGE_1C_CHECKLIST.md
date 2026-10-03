@@ -36,3 +36,5 @@ Media remains external; changing a source file during a session is unsupported.
 A disk stall may cause diagnosed silence; there is no realtime file fallback.
 
 CI and user acceptance pending. Whole #21 stays open; next is Stage 1d recording.
+
+At most 128 retained source assets including Undo media; New/Open releases the cache.

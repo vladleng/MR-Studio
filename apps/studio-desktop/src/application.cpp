@@ -164,6 +164,7 @@ void Application::new_project(std::uint32_t rate) {
 }
 void Application::cache_asset(std::string source, std::shared_ptr<const audio::AudioData> data) {
     if (assets_.contains(source)) return;
+    require(assets_.size() < 128,"retained source limit reached (128); start a new project to release Undo media");
     std::size_t bytes = data->samples.size()*sizeof(float);
     for (const auto& [key,cached] : assets_) { (void)key; bytes += cached.data->samples.size()*sizeof(float); }
     require(bytes <= 512*1024*1024,"project preload/cache exceeds 512 MiB");
@@ -258,6 +259,7 @@ void Application::import_wavs(const std::vector<std::filesystem::path>& paths) {
         if (assets_.contains(source)) data = assets_.at(source).data;
         else if (decoded.contains(source)) data = decoded.at(source);
         else {
+            require(assets_.size()+decoded.size() < 128,"retained source limit reached (128); start a new project to release Undo media");
             require(bytes < 512*1024*1024,"project preload/cache exceeds 512 MiB");
             data = std::make_shared<const audio::AudioData>(audio::open_wav(path,std::min<std::size_t>(8*1024*1024,512*1024*1024-bytes)));
             bytes += data->samples.size()*sizeof(float); decoded.emplace(source,data);
