@@ -29,6 +29,8 @@ private:
     std::array<Slot,pages> slots_;
     std::array<bool,pages> pinned_{};
     std::atomic<Sample> desired_{-1}, warm_{-1}, loop_{-1};
+    // Control/worker handoff only; the audio callback never touches this gate.
+    std::atomic_flag eviction_gate_ = ATOMIC_FLAG_INIT;
     std::atomic<bool> quit_{};
     std::atomic<std::uint64_t> errors_{};
     std::thread worker_;

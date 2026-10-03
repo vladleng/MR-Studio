@@ -44,8 +44,12 @@ void ReadAhead::prime(Sample first) {
     warm_.store(target,std::memory_order_release);
     const auto until = std::chrono::steady_clock::now()+std::chrono::seconds(5);
     for (;;) {
-        bool ready = true;
-        for (Sample p = target; p < target+4 && p*page_frames < file_->frame_count; ++p) {
+        // Serialize the ready snapshot with worker victim selection. Otherwise
+        // a worker that checked an older warm target could claim a slot just
+        // after this control thread had observed it ready. Never used by RT.
+        const bool inspect = !eviction_gate_.test_and_set(std::memory_order_acquire);
+        bool ready = inspect;
+        if (inspect) for (Sample p = target; p < target+4 && p*page_frames < file_->frame_count; ++p) {
             bool found = false;
             // Tags are published atomically after sample fill. Control only
             // reads tags, so it must not claim callback pins and cause dropouts.
@@ -54,6 +58,7 @@ void ReadAhead::prime(Sample first) {
                     slot.page.load(std::memory_order_acquire) == p) found = true;
             ready = ready && found;
         }
+        if (inspect) eviction_gate_.clear(std::memory_order_release);
         if (ready) return;
         if (errors_.load() || std::chrono::steady_clock::now() >= until) {
             warm_ = -1; throw std::runtime_error("disk read-ahead failed: media unavailable, invalid samples or timeout");
@@ -83,6 +88,7 @@ void ReadAhead::run() noexcept {
             if (exists) continue;
             for (auto& slot : slots_) {
                 if (std::find(wanted.begin(),wanted.begin()+static_cast<std::ptrdiff_t>(count),slot.page.load(std::memory_order_relaxed)) != wanted.begin()+static_cast<std::ptrdiff_t>(count)) continue;
+                if (eviction_gate_.test_and_set(std::memory_order_acquire)) continue;
                 // Do not even temporarily claim protected pages: the callback
                 // cannot wait for a worker to release a failed victim claim.
                 // A stale wanted snapshot must not make a ready seek page busy.
@@ -92,9 +98,13 @@ void ReadAhead::run() noexcept {
                 };
                 if (protected_now(warm_.load(std::memory_order_acquire),4) ||
                     protected_now(desired_.load(std::memory_order_acquire),warm_.load(std::memory_order_acquire) >= 0 ? 2 : 4) ||
-                    protected_now(loop_.load(std::memory_order_acquire),2)) continue;
+                    protected_now(loop_.load(std::memory_order_acquire),2)) {
+                    eviction_gate_.clear(std::memory_order_release); continue;
+                }
                 int expected = 0;
-                if (!slot.owner.compare_exchange_strong(expected,-1,std::memory_order_acquire)) continue;
+                if (!slot.owner.compare_exchange_strong(expected,-1,std::memory_order_acquire)) {
+                    eviction_gate_.clear(std::memory_order_release); continue;
+                }
                 // The control cursor may change after this iteration's snapshot.
                 // Recheck protection while owning the victim: prime cannot observe
                 // this page ready until publication, so stale work cannot evict
@@ -107,8 +117,10 @@ void ReadAhead::run() noexcept {
                     return head >= 0 && tag >= head && tag-head < count;
                 };
                 if (protected_page(latest_warm,4) || protected_page(latest_current,latest_warm >= 0 ? 2 : 4) || protected_page(latest_loop,2)) {
-                    slot.owner.store(0,std::memory_order_release); continue;
+                    slot.owner.store(0,std::memory_order_release);
+                    eviction_gate_.clear(std::memory_order_release); continue;
                 }
+                eviction_gate_.clear(std::memory_order_release);
                 try {
                     const auto first = wanted[p]*page_frames;
                     const auto frames = std::min(page_frames,file_->frame_count-first);
