@@ -35,6 +35,8 @@ Waveform peak storage is capped per source; coarser bins are used for very long 
 Media remains external; changing a source file during a session is unsupported.
 A disk stall may cause diagnosed silence; there is no realtime file fallback.
 
-CI and user acceptance pending. Whole #21 stays open; next is Stage 1d recording.
+All six CI jobs passed (53/53 Linux/ASIO; 54/54 Windows offline). User acceptance pending. Whole #21 stays open; next is Stage 1d recording.
 
 At most 128 retained source assets including Undo media; New/Open releases the cache.
+
+Tested ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37127216892/artifacts/11274837845

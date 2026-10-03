@@ -129,4 +129,19 @@ Bounded background waveform peaks with cancellation. Paused edits/Undo preserve
 the same engine, project and ASIO device. Limits/contracts: AUDIO_ARRANGEMENT.md.
 New audio_streaming / desktop_streaming suites cover boundaries, EOF, source loss,
 loop wrap, split continuity, no callback allocations and a >256 MiB decoded source.
-CI and user acceptance pending: MRS_STAGE_1C_CHECKLIST.md. Whole #21 remains open.
+CI passed; user acceptance pending: MRS_STAGE_1C_CHECKLIST.md. Whole #21 remains open.
+
+
+## 0.1d validation — 2026-10-03
+Validated code head: f9c69bc3fe4871c87f09f49f8f5d4ee2bef07f25.
+All six CI jobs passed: Linux Debug/Release and Windows ASIO Debug/Release 53/53;
+Windows offline Debug/Release 54/54 including GUI/DPI smoke.
+Core CI: https://github.com/vladleng/MR-Studio/actions/runs/37127216901
+ASIO CI: https://github.com/vladleng/MR-Studio/actions/runs/37127216892
+ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37127216892/artifacts/11274837845
+Concurrent callback/control seeks, page and EOF boundaries, loop wrap, independent
+split offsets, zero callback allocations, media loss and atomic disk budget rejection passed.
+Desktop fixture has 40,000,003 stereo PCM16 frames (over 305 MiB decoded),
+uses metadata + bounded pages, and preserves paused edits/Undo and save/load references.
+Windows user acceptance pending: docs/MRS_STAGE_1C_CHECKLIST.md. PR #45 remains unmerged;
+whole #21 stays open. Deferred sustained ASIO performance gate #16 remains nonblocking.

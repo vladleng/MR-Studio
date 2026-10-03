@@ -292,4 +292,4 @@ Long WAVs use bounded background disk buffers in the same SHARED AudioEngine.
 Per-voice offsets, seek/loop priming and separate disk underrun/error counters;
 waveform peaks build from bounded blocks with cancellation. Small WAVs preload.
 [Contracts](docs/AUDIO_ARRANGEMENT.md) · [Windows checklist](docs/MRS_STAGE_1C_CHECKLIST.md).
-PR #45; user acceptance pending. Whole #21 stays open for recording/save-load acceptance.
+PR #45; all six CI jobs passed, user acceptance pending. Whole #21 stays open for recording/save-load acceptance.
