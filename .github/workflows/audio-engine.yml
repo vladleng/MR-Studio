@@ -52,6 +52,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path studio-package -Force | Out-Null
           Copy-Item -LiteralPath build/Release/MoonRiverStudio.exe -Destination studio-package/
+          Copy-Item -LiteralPath docs/MRS_STAGE_1C_UPD1_CHECKLIST.md -Destination studio-package/
+          Copy-Item -LiteralPath docs/MRS_STAGE_1C_CHECKLIST.md -Destination studio-package/
           Copy-Item -LiteralPath docs/MRS_STAGE_1B_CHECKLIST.md -Destination studio-package/
           Copy-Item -LiteralPath docs/MRS_STAGE_1A_CHECKLIST.md -Destination studio-package/
           Copy-Item -LiteralPath docs/MRS_STAGE_0_CHECKLIST.md -Destination studio-package/
@@ -64,6 +66,6 @@ jobs:
         if: matrix.config == 'Release'
         uses: actions/upload-artifact@v4
         with:
-          name: MR-Studio-0.1c-ASIO-Windows
+          name: MR-Studio-0.1d-upd1-fix1-ASIO-Windows
           path: studio-package/
           if-no-files-found: error

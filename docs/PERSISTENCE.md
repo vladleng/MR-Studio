@@ -94,3 +94,10 @@ envelopes, ownership/references, Unicode filenames, backup/fault injection,
 recovery fallback, autosave errors/coalescing/drain and shared workspace capture.
 Existing core/audio/musical/processing suites run unchanged on Windows/Linux,
 Debug/Release; ASIO builds run the same contracts without hardware interaction.
+
+## Document extensions — 2026-10-03 user decision
+Production documents use .mrsproject; Live show documents use .mrlive.
+The existing ShowDocument reference-based archive is the foundation for .mrlive;
+no archive schema change or duplicate audio engine is required by the extension.
+The current production Files menu opens/saves projects and WAVs. Live show file
+commands and the separate show screen remain LIVE stage work.

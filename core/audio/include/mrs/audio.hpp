@@ -15,10 +15,21 @@ namespace mrs::processing { class PreparedGraph; }
 namespace mrs::audio {
 inline constexpr std::size_t max_channels = 64;
 inline constexpr std::size_t max_voices = 128;
+struct WavFile {
+    std::filesystem::path path;
+    std::uint32_t sample_rate{}, channels{}, bits{}, format{};
+    std::uint64_t data_offset{};
+    Sample frame_count{};
+    // Worker/control only: bounded block decode, independent file handle.
+    void read(Sample first, std::span<float> interleaved) const;
+};
+WavFile inspect_wav(const std::filesystem::path&);
+class ReadAhead;
 struct AudioData {
     std::uint32_t sample_rate{48000};
     std::uint32_t channels{2};
     std::vector<float> samples; // interleaved, immutable after preload
+    std::shared_ptr<const WavFile> file{}; // long sources retain metadata only
     Sample frames() const;
     void validate() const;
 };
@@ -27,6 +38,7 @@ struct Voice {
     std::shared_ptr<const AudioData> asset;
     Sample start{}, source_offset{}, length{};
     std::vector<PlaybackRoute> routes;
+    std::shared_ptr<ReadAhead> stream{}; // per-voice cursor, prepared off RT
 };
 struct MonitorRoute { std::uint32_t input_channel{}, output_channel{}; float gain{1}; };
 struct RenderGraph {
@@ -44,6 +56,7 @@ struct Metrics {
     std::uint64_t callbacks{}, input_overflows{}, input_underflows{};
     std::uint64_t output_underflows{}, output_overflows{}, deadline_misses{};
     std::uint64_t invalid_blocks{}, clipped_samples{}, missing_inputs{};
+    std::uint64_t disk_underruns{}, disk_errors{};
     std::uint64_t max_callback_ns{}, measured_callbacks{};
     std::uint32_t min_frames{}, max_frames{};
     double p50_load_percent{}, p95_load_percent{}, p99_load_percent{};
@@ -86,6 +99,8 @@ public:
     // Optional quiescent state retains a stopped/paused position and loop; never autoplay.
     void prepare(RenderConfig, RenderGraph, RealtimeState initial = {});
     bool enqueue(Control) noexcept;
+    void prime_streams(Sample); // control thread, before publishing a seek/play
+    void prime_loop(std::optional<LoopRange>); // control thread
     // RT entry: supplied interleaved buffers have frames * configured channels.
     // No locks/allocations/I/O/listeners/ProjectStore calls in this function.
     void process(const float* input, float* output, std::uint32_t frames) noexcept;
@@ -105,6 +120,7 @@ private:
     std::atomic<std::uint64_t> callbacks_{}, input_overflows_{}, input_underflows_{};
     std::atomic<std::uint64_t> output_underflows_{}, output_overflows_{}, deadlines_{};
     std::atomic<std::uint64_t> invalid_blocks_{}, clipped_{}, missing_inputs_{};
+    std::atomic<std::uint64_t> disk_underruns_{};
     std::atomic<std::uint64_t> max_ns_{}, measured_{};
     std::atomic<std::uint32_t> min_frames_{}, max_frames_{};
     std::array<std::atomic<std::uint64_t>, 101> load_histogram_{};
@@ -130,6 +146,7 @@ private:
     void send(Control);
 };
 AudioData load_wav(const std::filesystem::path&, std::size_t max_decoded_bytes = 256 * 1024 * 1024);
+AudioData open_wav(const std::filesystem::path&, std::size_t preload_bytes = 8 * 1024 * 1024);
 AudioData sine_fixture(std::uint32_t rate, std::uint32_t channels, Sample frames, double frequency);
 } // namespace mrs::audio
 #ifdef _MSC_VER

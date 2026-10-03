@@ -74,7 +74,10 @@ persistence::ProjectDocument foundation_demo() {
     d.validate(); return d;
 }
 Application::Application() : engine_(std::make_shared<audio::AudioEngine>()) { demo(); }
-Application::~Application() { if (device_) device_->close(); }
+Application::~Application() {
+    if (device_) device_->close();
+    for (auto& [key,value] : assets_) { (void)key; *value.cancel = true; }
+}
 void Application::workspace(Workspace w) { (void)workspace_name(w); workspace_ = w; }
 void Application::replace(persistence::ProjectDocument next) {
     next.validate();
@@ -85,7 +88,8 @@ void Application::replace(persistence::ProjectDocument next) {
     engine_->prepare({next.project.sample_rate,0,2,8192},{});
     auto transport = std::make_shared<audio::EngineTransport>(engine_,Timeline(next.project.time,next.project.sample_rate));
     auto musical = std::make_unique<MusicalTimeline>(Services{projects,transport});
-    assets_.clear();
+    for (auto& [key,value] : assets_) { (void)key; *value.cancel = true; }
+    assets_.clear(); waveform_error_.clear();
     document_ = std::move(next);
     services_ = {projects,transport}; graphs_ = std::move(graphs);
     transport_ = std::move(transport); musical_ = std::move(musical);
@@ -106,7 +110,7 @@ void Application::open_project(const std::filesystem::path& path) {
     path_ = path; asset_root_ = path.parent_path(); unsaved_ = false;
 }
 void Application::import_wav(const std::filesystem::path& path) {
-    const auto asset = audio::load_wav(path); // validate before touching the current session
+    const auto asset = audio::open_wav(path); // validate before touching the current session
     auto d = persistence::demo_document(); d.project = Project{};
     d.project.id = new_id(); d.project.title = utf8(path.stem()); d.project.sample_rate = asset.sample_rate;
     const auto track = new_id();
@@ -160,11 +164,12 @@ void Application::new_project(std::uint32_t rate) {
 }
 void Application::cache_asset(std::string source, std::shared_ptr<const audio::AudioData> data) {
     if (assets_.contains(source)) return;
+    require(assets_.size() < 128,"retained source limit reached (128); start a new project to release Undo media");
     std::size_t bytes = data->samples.size()*sizeof(float);
     for (const auto& [key,cached] : assets_) { (void)key; bytes += cached.data->samples.size()*sizeof(float); }
     require(bytes <= 512*1024*1024,"project preload/cache exceeds 512 MiB");
     CachedAsset value; value.data = data;
-    value.pending = std::async(std::launch::async,[data] { return audio::Waveform(*data); });
+    value.pending = std::async(std::launch::async,[data,cancel = value.cancel] { return audio::Waveform(*data,cancel); });
     assets_.emplace(std::move(source),std::move(value));
 }
 std::shared_ptr<const audio::AudioData> Application::asset(const std::string& source) {
@@ -175,7 +180,7 @@ std::shared_ptr<const audio::AudioData> Application::asset(const std::string& so
         require(!source.empty(),"clip has no audio source");
         auto path = std::filesystem::path(std::u8string(source.begin(),source.end()));
         if (path.is_relative()) path = asset_root_ / path;
-        data = audio::load_wav(path);
+        data = audio::open_wav(path);
     }
     auto ptr = std::make_shared<const audio::AudioData>(std::move(data)); cache_asset(source,ptr); return ptr;
 }
@@ -199,7 +204,21 @@ void Application::rebuild_audio() {
     } catch (...) { disconnect(); throw; }
 }
 void Application::edit(const ICommand& command) {
-    require_not_playing(); services_.projects->execute(command); rebuild_audio();
+    require_not_playing();
+    auto candidate = *services_.projects->state().project;
+    command.apply(candidate); candidate.validate();
+    require(candidate.clips.size() <= audio::max_voices,"too many playback clips");
+    std::size_t streamed{}, bytes{};
+    for (const auto& clip : candidate.clips) {
+        const auto data = asset(clip.source);
+        require(data->sample_rate == candidate.sample_rate,"WAV/project sample-rate mismatch");
+        require(clip.source_offset <= data->frames() && clip.length <= data->frames()-clip.source_offset,"clip exceeds source audio");
+        if (data->file) {
+            ++streamed; bytes += 8*8192*static_cast<std::size_t>(data->channels)*sizeof(float);
+        }
+    }
+    require(streamed <= 32 && bytes <= 256*1024*1024,"disk voice budget exceeded (32 voices / 256 MiB)");
+    services_.projects->execute(command); rebuild_audio();
 }
 Id Application::add_audio_track(std::string name) {
     require(!name.empty() && name.size() <= 4096,"enter a track name");
@@ -232,15 +251,17 @@ void Application::import_wavs(const std::vector<std::filesystem::path>& paths) {
     std::map<std::string,std::shared_ptr<const audio::AudioData>> decoded;
     std::size_t bytes{};
     for (const auto& [key,cached] : assets_) { (void)key; bytes += cached.data->samples.size()*sizeof(float); }
-    // Decode/validate the WHOLE batch before committing one shared command.
+    // Inspect/decode the whole batch before committing one shared command.
+    // Long sources validate their headers here; samples validate as worker blocks decode.
     for (const auto& path : paths) {
         const auto source = utf8(std::filesystem::absolute(path).lexically_normal());
         std::shared_ptr<const audio::AudioData> data;
         if (assets_.contains(source)) data = assets_.at(source).data;
         else if (decoded.contains(source)) data = decoded.at(source);
         else {
+            require(assets_.size()+decoded.size() < 128,"retained source limit reached (128); start a new project to release Undo media");
             require(bytes < 512*1024*1024,"project preload/cache exceeds 512 MiB");
-            data = std::make_shared<const audio::AudioData>(audio::load_wav(path,std::min<std::size_t>(256*1024*1024,512*1024*1024-bytes)));
+            data = std::make_shared<const audio::AudioData>(audio::open_wav(path,std::min<std::size_t>(8*1024*1024,512*1024*1024-bytes)));
             bytes += data->samples.size()*sizeof(float); decoded.emplace(source,data);
         }
         require(data->sample_rate == current->sample_rate,"WAV/project sample-rate mismatch; import WAVs at the project rate");
@@ -264,8 +285,14 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
         auto asset_data = asset(clip.source);
         require(asset_data->sample_rate == c.sample_rate,"WAV/project sample-rate mismatch");
         audio::Voice voice{asset_data,clip.start,clip.source_offset,clip.length,{}};
-        for (std::uint32_t channel = 0; channel < asset_data->channels; ++channel)
-            voice.routes.push_back({channel,channel % static_cast<std::uint32_t>(c.outputs.size()),clip.source == "mrs:demo-tone" ? 0.15f : 1.0f});
+        const auto gain = clip.source == "mrs:demo-tone" ? 0.15f : 1.0f;
+        if (asset_data->channels == 1) {
+            // A mono track is centered in the selected main pair, without
+            // spilling into extra click/cue outputs. Single-output remains unity.
+            const auto outputs = std::min<std::size_t>(2,c.outputs.size());
+            for (std::uint32_t output = 0; output < outputs; ++output) voice.routes.push_back({0,output,gain});
+        } else for (std::uint32_t channel = 0; channel < asset_data->channels; ++channel)
+            voice.routes.push_back({channel,channel % static_cast<std::uint32_t>(c.outputs.size()),gain});
         result.voices.push_back(std::move(voice));
     }
     if (!c.inputs.empty()) for (std::uint32_t channel = 0; channel < c.outputs.size(); ++channel) result.monitor.push_back({0,channel,1});
@@ -298,7 +325,7 @@ void Application::poll() {
     for (auto& [key,value] : assets_) {
         (void)key;
         if (value.pending.valid() && value.pending.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-            value.peaks = value.pending.get();
+            try { value.peaks = value.pending.get(); } catch (const std::exception& e) { waveform_error_ = e.what(); }
     }
 }
 audio::DeviceStatus Application::device_status() { return device_ ? device_->status() : audio::DeviceStatus{}; }

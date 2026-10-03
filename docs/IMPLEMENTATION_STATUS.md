@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Accepted: 0.1c / MRS Stage 1b clip editing #21. Next: 0.1d / Stage 1c disk read-ahead (not started).
+Updated: 2026-10-03. Accepted: 0.1c / MRS Stage 1b clip editing #21. Active: 0.1d / Stage 1c disk read-ahead; PR #45, user acceptance pending.
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -121,3 +121,49 @@ Manual Windows acceptance passed: docs/MRS_STAGE_1B_CHECKLIST.md.
 Stage 1b accepted by user on 2026-10-03; PR #44 merged into main.
 Merge commit: b5a481516e6a588dc0c1ca521d090849055397d3.
 Whole #21 remains open for Stage 1c/1d.
+
+## 0.1d — Stage 1c implementation
+PR #45 / mrs/0.1d-disk-read-ahead. Shared block WAV reader, bounded worker disk
+pages for long sources, seek/loop priming, per-voice source offsets and diagnostics.
+Bounded background waveform peaks with cancellation. Paused edits/Undo preserve
+the same engine, project and ASIO device. Limits/contracts: AUDIO_ARRANGEMENT.md.
+New audio_streaming / desktop_streaming suites cover boundaries, EOF, source loss,
+loop wrap, split continuity, no callback allocations and a >256 MiB decoded source.
+CI passed; user acceptance pending: MRS_STAGE_1C_CHECKLIST.md. Whole #21 remains open.
+
+
+## 0.1d validation — 2026-10-03
+Validated code head: f9c69bc3fe4871c87f09f49f8f5d4ee2bef07f25.
+All six CI jobs passed: Linux Debug/Release and Windows ASIO Debug/Release 53/53;
+Windows offline Debug/Release 54/54 including GUI/DPI smoke.
+Core CI: https://github.com/vladleng/MR-Studio/actions/runs/37127216901
+ASIO CI: https://github.com/vladleng/MR-Studio/actions/runs/37127216892
+ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37127216892/artifacts/11274837845
+Concurrent callback/control seeks, page and EOF boundaries, loop wrap, independent
+split offsets, zero callback allocations, media loss and atomic disk budget rejection passed.
+Desktop fixture has 40,000,003 stereo PCM16 frames (over 305 MiB decoded),
+uses metadata + bounded pages, and preserves paused edits/Undo and save/load references.
+Windows user acceptance pending: docs/MRS_STAGE_1C_CHECKLIST.md. PR #45 remains unmerged;
+whole #21 stays open. Deferred sustained ASIO performance gate #16 remains nonblocking.
+
+
+## 2026-10-03 — 0.1d upd1 / fix1
+Пользователь подтвердил работоспособность базовой 0.1d, включая длинные WAV.
+До закрытия Stage 1c запрошено UI обновление: серые фон/кнопки с прежними цветами
+аккордов и секций; верхнее меню Files для всех file/project действий; удаление Live
+из навигационных кнопок production. Mono-only-left исправляется в fix1.
+Объединённая сборка: 0.1d upd1 fix1. Чек-лист: MRS_STAGE_1C_UPD1_CHECKLIST.md.
+Все шесть CI jobs пройдены; приёмка доработки pending; PR #45 остаётся открытым.
+
+
+## 0.1d upd1 fix1 validation — 2026-10-03
+Validated code head: 2177219103682c08bc011b9c5e9baee8f8f00aa5.
+All six CI jobs passed: Linux/Windows ASIO Debug/Release 54/54;
+Windows offline Debug/Release 55/55 including Files-menu/no-Live/DPI GUI smoke.
+Core CI: https://github.com/vladleng/MR-Studio/actions/runs/37128824422
+ASIO CI: https://github.com/vladleng/MR-Studio/actions/runs/37128824438
+ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37128824438/artifacts/11276401042
+mono_route verifies one/two/four output configurations; stereo tests stay unchanged.
+Chord and section drawing/colors are unchanged; gray colors apply to the base chrome/buttons.
+Base 0.1d user verification is recorded. UI/mono follow-up acceptance pending;
+PR #45 and whole #21 remain open. Checklist: MRS_STAGE_1C_UPD1_CHECKLIST.md.

@@ -259,7 +259,7 @@ Live Mode начинается как UI prototype после базовых SHA
 
 
 ## MRS Stage 0 — DAW Foundation
-Native C++20/Win32 desktop shell with Arrange/Edit/Mix/Live navigation, shared
+Native C++20/Win32 desktop shell with Arrange/Edit/Mix navigation, shared
 ProjectStore/EngineTransport/GraphStore, timeline/playhead, Open WAV/project,
 Save/Undo and vendor ASIO settings. Starts in an explicit silent offline mode.
 [Desktop contracts/stack](docs/DESKTOP_FOUNDATION.md) ·
@@ -286,3 +286,17 @@ fix1/fix2 для ошибок. Stage IDs сохраняют структуру �
 удаление отдельного клипа и общий Undo/Redo. UI drag preview, snap 1/16, сохранение позиции Pause.
 [Windows checklist](docs/MRS_STAGE_1B_CHECKLIST.md). Пользователь подтвердил все функции 2026-10-03; PR #44 слит в main.
 Следующий подэтап: **0.1d / MRS Stage 1c** — disk read-ahead и воспроизведение длинных WAV.
+
+## MRS Stage 1c — 0.1d disk read-ahead
+Long WAVs use bounded background disk buffers in the same SHARED AudioEngine.
+Per-voice offsets, seek/loop priming and separate disk underrun/error counters;
+waveform peaks build from bounded blocks with cancellation. Small WAVs preload.
+[Contracts](docs/AUDIO_ARRANGEMENT.md) · [Windows checklist](docs/MRS_STAGE_1C_CHECKLIST.md).
+PR #45; базовая 0.1d проверена пользователем. Перед закрытием: upd1 интерфейса и fix1 моно. Whole #21 stays open for recording/save-load acceptance.
+
+## 0.1d upd1 fix1 — UI follow-up
+Neutral gray background/buttons; thin Files menu for project/WAV actions;
+Arrange/Edit/Mix navigation without Live button. Mono routes to the selected main pair.
+[Acceptance checklist](docs/MRS_STAGE_1C_UPD1_CHECKLIST.md). All six CI jobs passed; UI/mono user acceptance pending.
+Live is a separate show mode with .mrlive documents referencing .mrsproject songs,
+using the same SHARED Core/Engine. Its file commands/screen belong to LIVE stages.

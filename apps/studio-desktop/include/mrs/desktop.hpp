@@ -70,6 +70,7 @@ public:
     void disconnect();
     audio::DeviceStatus device_status();
     bool audio_running();
+    const std::string& waveform_error() const { return waveform_error_; }
     const std::string& audio_name() const { return audio_name_; }
     void play(); void pause(); void stop(); void seek(Sample);
 private:
@@ -84,9 +85,11 @@ private:
     Workspace workspace_{Workspace::arrange};
     std::filesystem::path path_, asset_root_;
     std::string audio_name_{"Offline clock (no sound)"};
+    std::string waveform_error_;
     std::uint64_t saved_project_revision_{}, saved_graph_revision_{};
     bool unsaved_{true};
     struct CachedAsset {
+        std::shared_ptr<std::atomic<bool>> cancel{std::make_shared<std::atomic<bool>>(false)};
         std::shared_ptr<const audio::AudioData> data;
         std::future<audio::Waveform> pending;
         std::optional<audio::Waveform> peaks;

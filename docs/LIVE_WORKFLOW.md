@@ -4,7 +4,12 @@
 
 Live Mode — встроенный performance/show режим Moon River Studio.
 
-Он работает с тем же project, который пользователь редактирует в Arrange/Edit/Mix.
+По уточнению пользователя 2026-10-03, Live — отдельный режим с show-документом
+`.mrlive`, аналогично Show Page. Production-проект хранится в `.mrsproject`.
+Live-show содержит setlist, ссылки на проекты и параметры выступления. Активная
+песня использует тот же Project Model, SHARED Audio Engine/Transport/GraphStore.
+Кнопки Live рядом с Arrange/Edit/Mix нет; вход планируется через создание/открытие
+show-документа в Files в соответствующих LIVE этапах. Это режим одного приложения.
 
 Обычный workflow не требует экспорта песни в отдельное live-приложение.
 
@@ -29,7 +34,7 @@ Live Mode
 - plugins/native processors;
 - live metadata/patch assignments.
 
-Затем переключается в Live Mode.
+Затем создаёт/открывает `.mrlive` и добавляет ссылку на подготовленный проект в setlist.
 
 Studio Pro import #3 может использоваться для переноса существующего проекта в нативный MRS Project Model, но не является частью обычного runtime workflow.
 
@@ -194,7 +199,7 @@ Preload не должен вызывать dropout текущего audio.
 
 ## 12. Setlist
 
-Setlist — show-level state, содержащий ссылки на MRS projects.
+Setlist хранится в `.mrlive` как show-level state со ссылками на MRS projects (`.mrsproject`).
 
 Он не копирует project content.
 
@@ -302,4 +307,4 @@ Live-функция считается готовой только после:
 
 ## 20. Главный принцип
 
-> **Live Mode — это performance-представление и show workflow того же Moon River Studio project, а не отдельное приложение.**
+> **Live — отдельный show-режим с `.mrlive` внутри Moon River Studio. Песни используют общий Project Model и SHARED Engine; show хранит ссылки на проекты.**

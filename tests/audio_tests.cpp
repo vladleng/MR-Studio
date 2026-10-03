@@ -1,5 +1,7 @@
 #include <mrs/audio.hpp>
 #include <mrs/device.hpp>
+#include <mrs/read_ahead.hpp>
+#include <mrs/waveform.hpp>
 #include <algorithm>
 #include <bit>
 #include <chrono>
@@ -205,6 +207,92 @@ void wav() {
     rejects([&] { (void)load_wav(file.path); });
     rejects([&] { (void)load_wav(file.path.string()+".missing"); });
 }
+void streaming() {
+    TempFile file; std::string payload;
+    constexpr Sample total = 160123;
+    for (Sample f = 0; f < total; ++f) put32(payload,std::bit_cast<std::uint32_t>(static_cast<float>(f%127)/256.0F));
+    file.write(wav_bytes(3,32,payload));
+    auto asset = std::make_shared<const AudioData>(open_wav(file.path,0));
+    CHECK(asset->file && asset->samples.empty() && asset->frames() == total);
+    CHECK(open_wav(file.path).samples.size() == static_cast<std::size_t>(total));
+    std::array<float,7> decoded{}; asset->file->read(8190,decoded);
+    for (std::size_t n = 0; n < decoded.size(); ++n) CHECK(decoded[n] == static_cast<float>((8190+static_cast<Sample>(n))%127)/256.0F);
+    rejects([&] { asset->file->read(total-1,decoded); });
+    const Waveform peaks{*asset};
+    const auto peak = peaks.range(0,total,0);
+    CHECK(peak.minimum == 0 && peak.maximum == 126.0F/256.0F);
+    auto cancel = std::make_shared<std::atomic<bool>>(true);
+    rejects([&] { (void)Waveform(*asset,cancel); });
+    auto engine = std::make_shared<AudioEngine>();
+    RenderGraph graph; graph.voices.push_back({asset,11,8188,100000,{{0,0,1}}});
+    engine->prepare({48000,0,1,128},graph);
+    EngineTransport transport{engine,Timeline{TimeMap{},48000}};
+    std::array<float,128> output{}; transport.play();
+    for (int b = 0; b < 300; ++b) {
+        const auto before = allocation_check::count.load(); allocation_check::enabled = true;
+        engine->process(nullptr,output.data(),128); allocation_check::enabled = false;
+        CHECK(allocation_check::count.load() == before);
+        for (Sample f = 0; f < 128; ++f) {
+            const auto time = static_cast<Sample>(b)*128+f;
+            CHECK(output[static_cast<std::size_t>(f)] == (time < 11 ? 0.0F : static_cast<float>((time-11+8188)%127)/256.0F));
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK(engine->metrics().disk_underruns == 0 && engine->metrics().disk_errors == 0);
+    transport.pause(); engine->process(nullptr,output.data(),128);
+    transport.seek(90000); engine->process(nullptr,output.data(),128);
+    CHECK(engine->state().playback == PlaybackState::paused && engine->state().sample == 90000 && output[0] == 0);
+    transport.set_loop(LoopRange{20,90008}); transport.play();
+    engine->process(nullptr,output.data(),128);
+    for (Sample f = 0; f < 128; ++f) {
+        const auto time = f < 8 ? 90000+f : 20+f-8;
+        CHECK(output[static_cast<std::size_t>(f)] == static_cast<float>((time-11+8188)%127)/256.0F);
+    }
+    CHECK(engine->metrics().disk_underruns == 0);
+    transport.seek(60000); engine->process(nullptr,output.data(),128);
+    for (Sample f = 0; f < 128; ++f) CHECK(output[static_cast<std::size_t>(f)] == static_cast<float>((60000+f-11+8188)%127)/256.0F);
+    CHECK(engine->metrics().disk_underruns == 0);
+    graph.voices = {{asset,0,8190,6,{{0,0,1}}},{asset,6,8196,10,{{0,0,1}}}};
+    engine->prepare({48000,0,1,128},graph); transport.play(); engine->process(nullptr,output.data(),128);
+    for (Sample f = 0; f < 16; ++f) CHECK(output[static_cast<std::size_t>(f)] == static_cast<float>((8190+f)%127)/256.0F);
+    CHECK(output[16] == 0);
+    graph.voices = {{asset,100,total-3,3,{{0,0,1}}}};
+    engine->prepare({48000,0,1,128},graph); transport.play(); engine->process(nullptr,output.data(),128);
+    CHECK(output[99] == 0 && output[103] == 0);
+    for (Sample f = 0; f < 3; ++f) CHECK(output[static_cast<std::size_t>(100+f)] == static_cast<float>((total-3+f)%127)/256.0F);
+    graph.voices = {{asset,0,0,total,{{0,0,1}}}};
+    engine->prepare({48000,0,1,128},graph);
+    transport.play();
+    std::atomic<bool> running{true}, correct{true};
+    std::thread callback([&] {
+        std::array<float,128> block{};
+        while (running.load()) {
+            allocation_check::enabled = true;
+            engine->process(nullptr,block.data(),128);
+            allocation_check::enabled = false;
+            const auto first = engine->state().sample-128;
+            for (Sample f = 0; f < 128; ++f)
+                if (block[static_cast<std::size_t>(f)] != (first+f < total ? static_cast<float>((first+f)%127)/256.0F : 0.0F)) correct = false;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    });
+    try {
+        for (const auto target : {120000,50000,130000,1000,140000,70000}) {
+            transport.seek(target);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    } catch (...) { running = false; callback.join(); throw; }
+    running = false; callback.join();
+    CHECK(correct.load() && engine->metrics().disk_underruns == 0 && allocation_check::count.load() == 0);
+    std::filesystem::remove(file.path);
+    rejects([&] { transport.seek(40000); });
+    CHECK(engine->enqueue({ControlKind::seek,40000})); CHECK(engine->enqueue({ControlKind::play}));
+    engine->process(nullptr,output.data(),128);
+    CHECK(std::all_of(output.begin(),output.end(),[](float v) { return v == 0; }));
+    CHECK(engine->metrics().disk_underruns == 1 && engine->state().sample == 40128);
+    rejects([&] { engine->prepare({48000,0,1,128},graph); });
+}
+
 void device() {
     DeviceInfo d{5,"Vendor",{"Input 1","Input 2"},{"Out 1","Out 2"},32,1024,128,-1};
     CHECK(supports_buffer(d,32) && supports_buffer(d,64) && supports_buffer(d,128));
@@ -265,6 +353,7 @@ int main(int argc, char** argv) {
         if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
+        else if (suite=="streaming") streaming();
         else if (suite=="independence") independence(); else throw std::invalid_argument("unknown suite");
         std::cout << "PASS " << suite << ": " << assertions << " checks\n";
         return 0;

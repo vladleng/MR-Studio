@@ -65,17 +65,17 @@ void files() {
     rejects([&] { app.open_project(dir.path / "broken"); }); CHECK(app.services().projects == before);
     app.demo(); CHECK(app.dirty() && app.path().empty());
 }
-void wav(const std::filesystem::path& path) {
+void wav(const std::filesystem::path& path, std::uint16_t channels = 2) {
     // Exact PCM16 stereo RIFF fixture at a non-default sample rate.
     std::ofstream f(path,std::ios::binary);
     auto u16 = [&](std::uint16_t value) { for (int i = 0; i < 2; ++i) f.put(static_cast<char>((value >> (8*i)) & 255)); };
     auto u32 = [&](std::uint32_t value) { for (int i = 0; i < 4; ++i) f.put(static_cast<char>((value >> (8*i)) & 255)); };
-    f.write("RIFF",4); u32(36+4000); f.write("WAVEfmt ",8); u32(16); u16(1); u16(2); u32(44100); u32(176400); u16(4); u16(16);
+    f.write("RIFF",4); u32(36+4000); f.write("WAVEfmt ",8); u32(16); u16(1); u16(channels); u32(44100); u32(44100*channels*2); u16(static_cast<std::uint16_t>(channels*2)); u16(16);
     f.write("data",4); u32(4000); for (int i = 0; i < 2000; ++i) u16(4000);
 }
 class ManualDevice final : public audio::IAudioDevice {
 public:
-    std::vector<audio::DeviceInfo> enumerate() override { return {{0,"Manual render test",{},{"L","R"},32,2048,128,-1}}; }
+    std::vector<audio::DeviceInfo> enumerate() override { return {{0,"Manual render test",{},{"L","R","Cue 1","Cue 2"},32,2048,128,-1}}; }
     void control_panel(int) override {}
     void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>) override { phase_ = audio::DevicePhase::open; }
     void start() override { phase_ = audio::DevicePhase::running; }
@@ -97,6 +97,19 @@ void assets() {
     app.disconnect(); CHECK(app.engine()->state().sample == 0);
     auto services = app.services(); rejects([&] { app.import_wav(dir.path / "absent.wav"); }); CHECK(app.services().projects == services.projects);
 }
+void mono_route() {
+    Directory dir; const auto file = dir.path / "mono.wav"; wav(file,1);
+    Application app; app.import_wav(file);
+    CHECK(audio::inspect_wav(file).channels == 1);
+    for (const auto& outputs : {std::vector<int>{0},std::vector<int>{0,1},std::vector<int>{0,1,2,3}}) {
+        app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{},outputs});
+        app.play(); std::array<float,512> buffer{};
+        app.engine()->process(nullptr,buffer.data(),128);
+        for (std::size_t frame = 0; frame < 128; ++frame) for (std::size_t channel = 0; channel < outputs.size(); ++channel)
+            CHECK(buffer[frame*outputs.size()+channel] == (channel < 2 ? 0.06103515625f : 0.0f));
+    }
+}
+
 void audio_settings() {
     Application app;
     app.connect(audio::make_offline_device(),{0,48000,128,{}, {0,1}}); CHECK(app.audio_running());
@@ -148,7 +161,8 @@ void arrangement() {
 }
 void nonplaying_edits() {
     Directory dir; auto file = dir.path / "edit.wav"; wav(file);
-    Application app; app.new_project(44100); app.import_wavs({file});
+    Application app; app.new_project(44100);
+    app.import_wavs({file});
     app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
     std::array<float,256> output{};
     // Seeking away from zero while stopped must not prevent edits or reset position.
@@ -249,6 +263,48 @@ void waveform() {
     CHECK(peaks.range(-10,99999,1).minimum == -0.9f);
     rejects([&] { (void)peaks.range(0,1,2); });
 }
+void streaming() {
+    Directory dir; const auto file = dir.path / "long.wav";
+    constexpr std::uint32_t frames = 40'000'003;
+    {
+        std::ofstream out(file,std::ios::binary);
+        const auto u16 = [&](std::uint16_t n) { for (int i=0; i<2; ++i) out.put(static_cast<char>((n>>(8*i))&255)); };
+        const auto u32 = [&](std::uint32_t n) { for (int i=0; i<4; ++i) out.put(static_cast<char>((n>>(8*i))&255)); };
+        out.write("RIFF",4); u32(36+frames*4); out.write("WAVEfmt ",8); u32(16);
+        u16(1); u16(2); u32(44100); u32(176400); u16(4); u16(16);
+        out.write("data",4); u32(frames*4);
+        out.seekp(static_cast<std::streamoff>(44)+frames*4-1); out.put(0);
+    }
+    const auto source = audio::open_wav(file);
+    CHECK(source.file && source.samples.empty() && source.frames() == frames);
+    rejects([&] { (void)audio::load_wav(file); }); // exceeds old decoded preload cap
+    Application app; app.new_project(44100);
+    const auto revision = app.services().projects->state().revision;
+    rejects([&] { app.import_wavs(std::vector<std::filesystem::path>(33,file)); });
+    CHECK(app.services().projects->state().revision == revision && app.services().projects->state().project->clips.empty());
+    app.import_wavs({file});
+    const auto p = app.services().projects->state().project;
+    CHECK(p->clips.size() == 1 && p->clips.front().length == frames);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
+    app.seek(frames-1000);
+    std::array<float,256> out{};
+    app.engine()->process(nullptr,out.data(),128);
+    app.play(); app.engine()->process(nullptr,out.data(),128);
+    app.pause(); app.engine()->process(nullptr,out.data(),128);
+    const auto position = app.engine()->state().sample;
+    CHECK(position == frames-872);
+    const auto clip = p->clips.front().id;
+    app.trim_clip(clip,100,frames-100);
+    CHECK(app.engine()->state().sample == position && app.engine()->state().playback == PlaybackState::paused);
+    CHECK(app.undo() && app.source_frames(clip) == frames);
+    const auto saved = dir.path / "long.mrsproject"; app.save_project(saved); app.open_project(saved);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
+    CHECK(app.services().projects->state().project->clips.front().length == frames);
+    CHECK(app.engine()->metrics().disk_underruns == 0);
+    app.new_project(); // cancels the long waveform scan before clearing retained media
+    CHECK(app.services().projects->state().project->clips.empty());
+}
+
 void config() {
     Preferences p; p.workspace = Workspace::live; p.device_name = "Komplete Audio ASIO Driver"; p.reconnect_audio = true;
     CHECK(decode_preferences(encode_preferences(p)) == p);
@@ -272,7 +328,7 @@ int main(int argc, char** argv) {
         std::string name = argv[1];
         if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
-        else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "clip_edits") clip_edits(); else throw std::runtime_error("unknown suite");
+        else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
 }
