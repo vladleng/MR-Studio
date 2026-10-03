@@ -56,8 +56,10 @@ See [persistence contracts](docs/PERSISTENCE.md) and
 [Windows acceptance checklist](docs/SHARED_STAGE_4_CHECKLIST.md).
 Build normally, then run mrs_persistence_check (no audio hardware required).
 
-Первый Windows DAW shell реализуется в MRS Stage 0 / #20. MRS 0.1 не считается завершённой до DAW Foundation (#20)
-и прохождения Audio Engine / ASIO performance gate (#16).
+MRS Stage 0 / #20 принят пользователем 2026-10-03, PR #41 слит в main.
+Подтверждены воспроизведение WAV и восстановление ASIO после смены файла и перезапуска.
+Следующий этап — MRS Stage 1 / #21 Audio Arrangement.
+Полный ASIO performance gate (#16) остаётся pending и не блокирует разработку.
 
 ## Основная концепция
 
