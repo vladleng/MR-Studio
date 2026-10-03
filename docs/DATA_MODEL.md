@@ -1,54 +1,58 @@
-# Moon River Live — Data Model
+# Moon River Studio — Project / Data Model
 
-## 1. Зачем нужна собственная модель
+## 1. Главный принцип
 
-Moon River Live не должен использовать внутренние объекты Fender Studio Pro как runtime-контракт.
+Moon River Studio использует **один Project Model** для Arrange, Edit, Mix и Live Mode.
 
-Bridge преобразует данные Studio Pro в независимую, версионируемую модель **Moon River Song Metadata**.
-
-Это даёт:
-
-- устойчивость к изменениям Studio Pro;
-- возможность импорта из других источников;
-- независимость UI и audio engine от DAW;
-- единый формат для desktop, remote и других инструментов Moon River Studio.
-
-## 2. Основная сущность Song
-
-Концептуальная структура:
+Live Mode не создаёт вторую копию песни и не требует отдельного `.moonlive` package для обычной работы внутри MRS.
 
 ```text
-Song
+MRS Project
+├── production data
+├── musical structure
+├── mixer/plugin/MIDI state
+└── live metadata
+```
+
+Studio Pro и другие внешние источники могут импортироваться в эту модель через adapters.
+
+## 2. Основная сущность Project
+
+Концептуально:
+
+```text
+Project
 ├── identity
 ├── musicalTime
 │   ├── tempoMap
 │   └── meterMap
+├── tracks
+├── folders
+├── clips/events
+├── midi
 ├── chords
 ├── arrangerSections
 ├── markers
-├── tracks
-├── clips
-├── playback
-├── liveActions
-├── notes
-└── source
+├── automation
+├── mixer
+├── processors/plugins
+├── routing
+├── live
+└── importSources
 ```
 
 ## 3. Identity
-
-Минимальный набор:
 
 ```json
 {
   "id": "uuid",
   "title": "Moon River",
   "artist": "Duet Moon River",
-  "version": "live-2026-10",
   "schemaVersion": 1
 }
 ```
 
-`id` должен сохраняться между повторными экспортами одной и той же песни.
+Project IDs должны быть стабильными между save/load и использоваться setlist/show state.
 
 ## 4. Musical Time
 
@@ -63,8 +67,6 @@ Song
 }
 ```
 
-В будущем модель должна поддерживать не только ступенчатые, но и плавные изменения tempo, если источник их предоставляет.
-
 ### Meter Map
 
 ```json
@@ -76,7 +78,9 @@ Song
 }
 ```
 
-## 5. Chord Events
+Project Model должен поддерживать conversion между sample position и musical position через SHARED Musical Timeline.
+
+## 5. Chord Track
 
 ```json
 {
@@ -86,26 +90,20 @@ Song
       "position": { "bar": 1, "beat": 1 },
       "durationBeats": 4,
       "symbol": "Gmaj7"
-    },
-    {
-      "id": "chord-002",
-      "position": { "bar": 2, "beat": 1 },
-      "durationBeats": 4,
-      "symbol": "Em7"
     }
   ]
 }
 ```
 
-На раннем этапе `symbol` считается авторитетным отображаемым значением.
-
-Позже можно добавить структурный разбор:
+Позже структурный chord model может включать:
 
 - root;
 - bass;
 - quality;
 - extensions;
 - alterations.
+
+Arrange/Chord editor и Live moving Chord Track читают одну и ту же коллекцию `chords`.
 
 ## 6. Arranger Sections
 
@@ -123,23 +121,9 @@ Song
 }
 ```
 
-Секция является одной из ключевых сущностей live-приложения.
+Секция является общей сущностью проекта, а Live Mode может хранить связанные performance-настройки по её ID.
 
-К ней в Moon River Live могут добавляться собственные данные:
-
-```json
-{
-  "live": {
-    "notes": "После второй фразы оставить пространство",
-    "patch": "Guitar Clean",
-    "stopAtEnd": false
-  }
-}
-```
-
-Важно: эти дополнительные данные не должны мешать повторной синхронизации базовой структуры из Studio Pro.
-
-## 7. Markers
+## 7. Markers / Cues
 
 ```json
 {
@@ -147,23 +131,23 @@ Song
     {
       "id": "marker-001",
       "position": { "bar": 17, "beat": 1 },
-      "name": "Solo",
+      "name": "Vocal entry",
       "type": "cue"
     }
   ]
 }
 ```
 
-Возможные будущие типы:
+Типы могут включать:
 
+- generic;
 - cue;
 - warning;
 - lyric;
 - action;
-- navigation;
-- generic.
+- navigation.
 
-## 8. Tracks
+## 8. Tracks / Folders
 
 ```json
 {
@@ -172,15 +156,14 @@ Song
       "id": "track-drums",
       "name": "Drums",
       "type": "audio",
-      "parentId": "folder-playback",
-      "color": "#...",
-      "sourceId": "studio-pro-id"
+      "parentId": "folder-rhythm",
+      "color": "#667788"
     }
   ]
 }
 ```
 
-Папки представлены через `parentId`, а не отдельной жёсткой структурой UI.
+Папки и hierarchy являются частью Project Model и не зависят от конкретного workspace.
 
 ## 9. Clips / Events
 
@@ -193,61 +176,110 @@ Song
       "name": "Verse 1",
       "start": { "bar": 9, "beat": 1 },
       "end": { "bar": 17, "beat": 1 },
-      "sourceId": "studio-pro-event-id"
+      "source": "audio/drums.wav"
     }
   ]
 }
 ```
 
-На первых этапах clips нужны прежде всего для контекста и будущей интеграции с Arranger Manager.
+Editing должен быть неразрушающим там, где это возможно.
 
-## 10. Playback Assets и базовое редактирование
+## 10. MIDI
 
-Базовый stereo playback:
+Project Model должен хранить минимум:
+
+- MIDI tracks;
+- clips;
+- note events;
+- velocity;
+- duration;
+- CC;
+- Program Change;
+- routing;
+- articulation/metadata extensions later.
+
+Эта же MIDI model используется AI Tool API и Live automation.
+
+## 11. Mixer / Routing / Processor State
+
+Проект должен хранить:
+
+```text
+Mixer
+├── channel gain/pan
+├── mute/solo
+├── buses
+├── sends
+├── input/output routing
+└── master
+
+Processor Graph
+├── native processors
+├── VST3 instances
+├── parameters/state
+├── latency metadata
+└── presets/patch snapshots
+```
+
+Live patches являются states/snapshots общего processor graph.
+
+## 12. Live Metadata
+
+Live-specific metadata хранится рядом с project entities, но не копирует их.
+
+Пример:
 
 ```json
 {
-  "playback": {
-    "mode": "stereo",
-    "masterGainDb": -2.0,
-    "trim": {
-      "startSeconds": 1.25,
-      "endSeconds": 243.40
-    },
-    "assets": [
-      {
-        "id": "backing",
-        "role": "backing",
-        "path": "audio/backing.wav",
-        "gainDb": 0.0
+  "live": {
+    "sectionSettings": {
+      "section-solo": {
+        "notes": "После второй фразы оставить пространство",
+        "patchId": "guitar-lead",
+        "stopAtEnd": false
       }
-    ]
+    }
   }
 }
 ```
 
-### Playback editing rules
+Возможные Live metadata:
 
-`masterGainDb` и `trim` — **неразрушающие live-параметры**. Moon River Live не перезаписывает исходный аудиофайл при изменении громкости или обрезке.
+- section notes;
+- patch assignments;
+- MIDI actions;
+- cue overrides;
+- playback preparation params;
+- performance warnings;
+- show-related references.
 
-- `masterGainDb` задаёт общий уровень песни;
-- `trim.startSeconds` задаёт фактическую точку начала playback;
-- `trim.endSeconds` задаёт фактическую точку окончания playback;
-- отсутствие `trim` означает использование полной длины исходного файла;
-- Reset удаляет пользовательские значения либо возвращает их к значениям по умолчанию;
-- Timeline Engine, elapsed/remaining time и End Behavior должны учитывать фактические trim-границы.
+## 13. Playback Preparation
 
-После появления multitrack глобальные `trim.startSeconds` / `trim.endSeconds` применяются **ко всем stems одновременно**, чтобы сохранить синхронизацию. Индивидуальная громкость stem хранится в `assets[].gainDb`, тогда как `masterGainDb` остаётся общим уровнем песни.
+Live Mode может иметь неразрушающие playback-настройки поверх project content:
 
-Позже:
-
-```text
-role = drums | bass | keys | backingVocals | click | cue | custom
+```json
+{
+  "live": {
+    "playback": {
+      "masterGainDb": -2.0,
+      "trimStartSeconds": 1.25,
+      "trimEndSeconds": 243.40
+    }
+  }
+}
 ```
 
-## 11. Live Actions
+Правила:
 
-Все автоматизированные live-действия должны иметь общий формат trigger → action.
+- исходные audio files не переписываются;
+- trim/gain являются performance preparation state;
+- global trim применяется синхронно ко всему project playback;
+- Live elapsed/remaining/end behavior учитывают эти границы;
+- Reset возвращает project playback к исходным границам.
+
+## 14. Live Actions
+
+Общий trigger -> action формат:
 
 ```json
 {
@@ -269,94 +301,93 @@ role = drums | bass | keys | backingVocals | click | cue | custom
 }
 ```
 
-Будущие trigger-типы:
+Triggers:
 
-- song-start;
-- song-stop;
+- project/song start;
+- project/song stop;
 - time;
-- bar-beat;
-- section-enter;
-- section-exit;
+- bar/beat;
+- section enter/exit;
 - marker;
 - manual.
 
-Будущие action-типы:
+Actions:
 
-- MIDI PC;
-- MIDI CC;
-- MIDI Note;
+- MIDI PC/CC/Note;
 - patch change;
 - mute/unmute;
-- plugin parameter;
-- external command.
+- plugin/native parameter;
+- future external command.
 
-## 12. Source Metadata
+## 15. Show / Setlist State
 
-Для повторной синхронизации необходимо помнить происхождение данных:
+Setlist не должен копировать проекты.
 
-```json
-{
-  "source": {
-    "type": "fender-studio-pro",
-    "projectPath": "...",
-    "projectId": "...",
-    "exportedAt": "2026-10-02T20:00:00+07:00",
-    "bridgeVersion": "0.1.0"
-  }
-}
-```
-
-Не все поля обязательны: путь проекта может быть недоступен или не переносим между компьютерами.
-
-## 13. `.moonlive` package
-
-Рабочая концепция:
+Концептуально:
 
 ```text
-Song Name.moonlive
-├── manifest.json
-├── metadata.json
-├── audio/
-├── click/
-├── midi/
-└── assets/
+ShowState
+├── id
+├── title
+├── projectRefs[]
+├── order
+├── per-song show overrides
+├── currentProjectId
+├── lastPosition
+└── recovery state
 ```
 
-Технически контейнер может быть каталогом во время разработки и архивным форматом для распространения.
+Каждый item ссылается на стабильный `Project.id` и optional path/location.
 
-### manifest.json
+## 16. Project vs Show ownership
 
-Содержит минимум:
+### Project-owned
+
+- tracks/clips/MIDI;
+- tempo/meter;
+- Chord Track;
+- Arranger Track;
+- markers;
+- automation;
+- mixer/routing;
+- plugins/processors;
+- reusable Live metadata tied to the song/project.
+
+### Show-owned
+
+- setlist order;
+- current/next song;
+- show-specific notes/overrides;
+- last show position;
+- temporary preflight/recovery state.
+
+Это разделение нужно для того, чтобы один project можно было использовать в разных setlists.
+
+## 17. Import Source Metadata
+
+Imported projects may retain provenance:
 
 ```json
 {
-  "format": "moon-river-live-song",
-  "packageVersion": 1,
-  "metadata": "metadata.json"
+  "importSources": [
+    {
+      "type": "fender-studio-pro",
+      "sourceProjectId": "...",
+      "sourcePath": "...",
+      "importedAt": "...",
+      "adapterVersion": "..."
+    }
+  ]
 }
 ```
 
-## 14. Версионирование
+После импорта нативный MRS Project Model становится runtime authority.
 
-Нужны два независимых номера:
+## 18. Studio Pro sync/import ownership
 
-- `packageVersion` — формат контейнера;
-- `schemaVersion` — структура metadata.
+Для optional compatibility track #3 можно различать:
 
-Moon River Live должен:
-
-1. читать текущую schema;
-2. мигрировать поддерживаемые старые schema;
-3. явно сообщать о неподдерживаемой будущей schema;
-4. никогда молча не терять неизвестные live-данные при сохранении.
-
-## 15. Sync ownership
-
-Для безопасной повторной синхронизации поля делятся на две категории.
-
-### Source-owned
-
-Приходят из Studio Pro и могут обновляться Bridge:
+### Imported/source-owned during re-import
 
 - tempo;
 - meter;
@@ -366,29 +397,42 @@ Moon River Live должен:
 - tracks;
 - clips.
 
-### Live-owned
+### MRS-owned
 
-Создаются в Moon River Live:
+- edits, созданные уже внутри MRS;
+- mixer/plugin/MIDI state;
+- Live metadata;
+- show/setlist state.
 
-- MIDI actions;
-- patch assignments;
-- live notes;
-- output routing;
-- playback master gain;
-- playback Trim Start / Trim End;
-- setlist-specific settings.
+Точная conflict policy определяется отдельно, если persistent re-sync со Studio Pro действительно понадобится.
 
-Bridge не должен стирать live-owned данные при повторном импорте.
+## 19. Project format
 
-## 16. ID strategy
+Финальное расширение MRS project пока не фиксируется.
 
-Одна из ключевых задач Stage 1 — определить стабильные идентификаторы объектов.
+На ранней разработке project может быть directory/JSON + assets; позже — versioned package/container.
+
+Критические требования:
+
+- schema versioning;
+- migrations;
+- unknown-data safety;
+- stable IDs;
+- relative asset references where practical;
+- crash-safe save strategy.
+
+Историческая идея `.moonlive` **не является основным project format**. При необходимости такой portable Live package может появиться позднее как export/deployment format, но обычный Live Mode работает напрямую с MRS projects.
+
+## 20. ID strategy
 
 Приоритет:
 
-1. стабильный source ID Studio Pro, если доступен;
-2. сохранённый mapping;
-3. детерминированный fingerprint по типу/позиции/имени;
-4. новый UUID как последний fallback.
+1. persistent native MRS UUID/stable ID;
+2. stable importer source ID для imported objects;
+3. preserved mapping;
+4. deterministic fingerprint for migration fallback;
+5. new UUID as last resort.
 
-Без устойчивых IDs повторная синхронизация будет создавать дубликаты.
+## 21. Главный принцип
+
+> **Project Model один. Production и Live используют одни и те же musical/audio/MIDI entities; Live хранит только дополнительный performance state и policy.**
