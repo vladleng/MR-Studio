@@ -88,6 +88,23 @@ void Project::validate() const {
         require(clip.source_offset >= 0 && clip.source_offset <= max_sample - clip.length,
                 "invalid source offset");
     }
+    const auto lane = [&add_id](const auto& events) {
+        Tick last_end = 0;
+        for (const auto& event : events) {
+            add_id(event.id);
+            require(event.start >= last_end && event.start >= 0, "unordered or overlapping musical lane");
+            require(event.end > event.start && event.end <= max_tick, "invalid musical range");
+            last_end = event.end;
+        }
+    };
+    lane(chords);
+    lane(sections);
+    for (const auto& chord : chords)
+        require(!chord.symbol.empty() && chord.symbol.size() <= 256, "invalid chord symbol");
+    for (const auto& section : sections) {
+        require(!section.name.empty(), "empty section name");
+        require(section.color <= 0xFFFFFF, "invalid section color");
+    }
     for (const auto& marker : markers) {
         add_id(marker.id);
         require(marker.tick >= 0 && marker.tick <= max_tick, "invalid marker position");

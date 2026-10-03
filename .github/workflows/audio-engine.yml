@@ -1,0 +1,48 @@
+name: ASIO audio prototype
+on:
+  push:
+    branches: [main, 'shared/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  asio:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure native vendor ASIO build
+        run: cmake -S . -B build -DMRS_BUILD_ASIO=ON
+      - name: Build
+        run: cmake --build build --config ${{ matrix.config }} --parallel 2
+      - name: Contract and offline render tests (no physical audio device in CI)
+        run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure
+      - name: Offline acceptance
+        run: ./build/${{ matrix.config }}/mrs_audio_check.exe --self-test
+      - name: Prepare developer check package
+        if: matrix.config == 'Release'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path package -Force | Out-Null
+          Copy-Item -LiteralPath build/Release/mrs_audio_check.exe -Destination package/
+          Copy-Item -LiteralPath build/Release/mrs_audio_tests.exe -Destination package/
+          Copy-Item -LiteralPath tools/Start-Audio-Test.cmd -Destination package/
+          Copy-Item -LiteralPath docs/SHARED_STAGE_1_CHECKLIST.md -Destination package/
+          Copy-Item -LiteralPath docs/AUDIO_CORE.md -Destination package/
+          Copy-Item -LiteralPath docs/ASIO_DEPENDENCIES.md -Destination package/
+          Copy-Item -LiteralPath build/_deps/portaudio-src/LICENSE.txt -Destination package/PortAudio-LICENSE.txt
+          Get-ChildItem -LiteralPath build/_deps/portaudio-build -Recurse -File -Filter LICENSE.txt |
+            Where-Object { $_.FullName -match 'asiosdk|ASIOSDK' } |
+            Select-Object -First 1 |
+            ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination package/ASIO-SDK-LICENSE.txt }
+      - name: Upload Windows developer checker
+        if: matrix.config == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MR-Studio-SHARED-Stage-1-ASIO-Windows
+          path: package/
+          if-no-files-found: error

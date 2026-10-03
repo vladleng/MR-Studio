@@ -34,7 +34,7 @@ int main() {
         std::cout << "PASS: Arrange and Live share Project/Transport services\n"
                   << "PASS: subscriptions, play/seek/pause/stop\n"
                   << "PASS: commands and Undo/Redo visible across workspaces\n"
-                  << "PASS: snapshot v1 round-trip preserves stable IDs\n"
+                  << "PASS: snapshot v2 round-trip preserves stable IDs\n"
                   << "SHARED Stage 0 check passed. No audio engine or GUI in this build.\n";
         return 0;
     } catch (const std::exception& error) {

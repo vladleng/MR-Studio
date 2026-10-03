@@ -15,7 +15,7 @@ using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 1;
+inline constexpr std::uint32_t schema_version = 2;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -77,6 +77,22 @@ struct Marker {
     MarkerKind kind{MarkerKind::generic};
     bool operator==(const Marker&) const = default;
 };
+// Single non-overlapping lanes. Ranges are [start, end); gaps mean no chord/section.
+struct Chord {
+    Id id;
+    std::string symbol; // authored spelling, no harmonic inference
+    Tick start{};
+    Tick end{1};
+    bool operator==(const Chord&) const = default;
+};
+struct ArrangerSection {
+    Id id;
+    std::string name;
+    Tick start{};
+    Tick end{1};
+    std::uint32_t color{0x4056D6}; // 0xRRGGBB
+    bool operator==(const ArrangerSection&) const = default;
+};
 struct Project {
     std::uint32_t version{schema_version};
     Id id;
@@ -88,6 +104,8 @@ struct Project {
     std::vector<Track> tracks;
     std::vector<Clip> clips;
     std::vector<Marker> markers;
+    std::vector<Chord> chords;
+    std::vector<ArrangerSection> sections;
     void validate() const;
     bool operator==(const Project&) const = default;
 };
@@ -98,8 +116,12 @@ public:
     Tick to_ticks(Sample sample) const; // nearest tick
     MusicalPosition musical_position(Tick tick) const;
     Tick to_ticks(MusicalPosition position) const;
+    std::uint32_t sample_rate() const { return rate_; }
 private:
-    TimeMap map_;
+    struct TempoSegment { Tick tick; double sample; double samples_per_tick; };
+    struct MeterSegment { Tick tick; MeterPoint meter; };
+    std::vector<TempoSegment> tempos_;
+    std::vector<MeterSegment> meters_;
     std::uint32_t rate_;
 };
 class Connection {
@@ -177,6 +199,8 @@ class ITransport {
 public:
     virtual ~ITransport() = default;
     virtual TransportState state() const = 0;
+    // Control thread only. Rebind musical interpretation, preserving sample clock.
+    virtual void rebind_timeline(Timeline) = 0;
     virtual void play() = 0;
     virtual void pause() = 0;
     virtual void stop() = 0; // reset to sample zero
@@ -188,6 +212,7 @@ class MockTransport final : public ITransport {
 public:
     explicit MockTransport(Timeline timeline);
     TransportState state() const override;
+    void rebind_timeline(Timeline) override;
     void play() override;
     void pause() override;
     void stop() override;

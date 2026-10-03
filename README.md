@@ -24,16 +24,28 @@
 
 ## Текущая реализация
 
-Первый этап **SHARED Stage 0 / issue #15** реализован в PR #36 и ожидает приёмки.
+**SHARED Stage 0 / issue #15** принят после Windows-checker, PR #36 слит в main.
+
+**SHARED Stage 1 / issue #16** интегрирован через PR #37: общий realtime renderer,
+родной vendor ASIO через PortAudio, WAV preload/playback, мониторинг и метрики.
+Базовые hardware-тесты WAV и input monitoring при 48k/128 пройдены.
+Оставшиеся длительные тесты и Studio Pro benchmark отложены пользователем;
+performance gate остаётся pending и не блокирует дальнейшую разработку.
 Это общий C++20 backend: Project Model v1, Command/Undo, Transport API,
 tempo/meter contracts, подписки, fixtures и versioned snapshot.
 
 - [Core contracts](docs/CORE_CONTRACTS.md) — API, ownership, threading и границы этапа.
 - [Проверка Windows-сборки](docs/SHARED_STAGE_0_CHECKLIST.md) — консольный checker.
+- [Audio core](docs/AUDIO_CORE.md) — realtime/device contracts и границы прототипа.
+- [Проверка ASIO](docs/SHARED_STAGE_1_CHECKLIST.md) — guided Windows tester и benchmark.
 - [Статус реализации](docs/IMPLEMENTATION_STATUS.md) — продолжение работы.
 
-На этом этапе ещё нет GUI и аудиодвижка. MRS 0.1 не считается завершённой
-до DAW Foundation (#20) и Audio Engine / ASIO performance gate (#16).
+**SHARED Stage 2 / issue #17** принят пользователем, PR #38 интегрирован: Musical Timeline, Chord/Arranger lanes,
+общие context/navigation services, snapshot v2 с чтением v1.
+[Musical contracts](docs/MUSICAL_TIMELINE.md) · [Windows checker](docs/SHARED_STAGE_2_CHECKLIST.md).
+
+GUI ещё нет. MRS 0.1 не считается завершённой до DAW Foundation (#20)
+и прохождения Audio Engine / ASIO performance gate (#16).
 
 ## Основная концепция
 
