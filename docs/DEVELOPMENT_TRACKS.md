@@ -1,83 +1,194 @@
-# Moon River Studio / Moon River Live — Development Tracks
+# Moon River Studio — Development Tracks
 
-## 1. Зачем разделять MRS и MRL
+## 1. Термины
 
-Moon River Studio (MRS) и Moon River Live (MRL) находятся в одном продукте и используют общий Core, но имеют разные пользовательские цели и могут развиваться параллельно.
+**Moon River Studio** (`MRS`, рабочее имя `MR Studio`) — вся DAW и единственное приложение.
 
-- **MRS** — DAW: audio/MIDI engine, arrange, edit, mixer, plugins, project model.
-- **MRL** — Live / Performance workspace: setlists, moving Chord Track, cues, patches, show workflow.
-- **SHARED** — общая инфраструктура, без которой оба направления зависят друг от друга.
+**Live Mode** — встроенный Performance / Show режим MRS, аналогичный по роли Show Page в Studio Pro. Это не отдельное приложение и не отдельная продуктовая версия.
 
-MRL не является отдельным audio engine.
-
-## 2. Три issue track
-
-Рекомендуемые префиксы issues:
+**SHARED** — единый Core / Engine, который обслуживает все режимы DAW.
 
 ```text
-[MRS]    DAW / production functionality
-[MRL]    Live / performance functionality
-[SHARED] общие core-компоненты
+Moon River Studio
+├── Arrange
+├── Edit
+├── Mix
+└── Live Mode
+       |
+       +---- all use the same SHARED Core
 ```
 
-Примеры:
+## 2. Зачем нужны отдельные issue tracks
+
+Разделение Issues нужно не для создания отдельных продуктов, а чтобы можно было параллельно вести:
+
+- развитие основной DAW;
+- развитие общего backend;
+- развитие Live Mode UI/show workflow.
+
+Префиксы:
 
 ```text
-[MRS 0.1a] ASIO device layer
-[MRS 0.1b] Project Model v1
-[MRS 0.2a] Audio track + clip model
-
-[MRL 0.1a] Live workspace shell
-[MRL 0.1b] Moving Chord Track prototype
-[MRL 0.2a] Setlist model
-
-[SHARED] Transport service
-[SHARED] Chord Track data model
-[SHARED] Command/Undo architecture
+[MRS]    пользовательские DAW-функции
+[SHARED] общий Core / Engine
+[LIVE]   встроенный Live Mode
 ```
 
-## 3. Не использовать одну общую нумерацию версий
+Главные parent issues:
 
-Не рекомендуется делать:
+- #12 — MRS Roadmap;
+- #13 — SHARED Core Roadmap;
+- #14 — LIVE Roadmap;
+- #1 — общий master roadmap.
 
-```text
-0.1 = MRS
-0.2 = MRL
-0.3 = MRS
-```
+## 3. Версионирование
 
-Это создаёт искусственные блокировки.
-
-Лучше:
+Версионируется только Moon River Studio:
 
 ```text
 MRS 0.1
 MRS 0.2
 MRS 0.3
-
-MRL 0.1
-MRL 0.2
-MRL 0.3
+...
 ```
 
-При этом общий релиз приложения может иметь собственную версию:
+Live Mode не получает отдельную линию `MRL 0.x`.
+
+Его готовность обозначается Stage-ами:
 
 ```text
-Moon River Studio 0.5
-├── MRS Core 0.5
-└── MRL 0.3
+LIVE Stage 0
+LIVE Stage 1
+LIVE Stage 2
+...
 ```
 
-## 4. Labels
+Пример состояния общей сборки:
 
-Рекомендуемый минимальный набор labels.
+```text
+Moon River Studio 0.6
+├── Audio/Mixer/Plugins/MIDI ready at current MRS level
+├── Musical Structure ready
+└── Live Mode: Stage 1 complete
+```
+
+## 4. Единый engine — обязательное правило
+
+Внутри MRS не допускаются отдельные backend для Production и Live.
+
+Общие:
+
+- Project Model;
+- Command / Undo;
+- Transport;
+- Audio Engine / ASIO;
+- mixer/routing graph;
+- MIDI backend;
+- plugin/native processor graph;
+- Chord/Arranger/Marker timeline;
+- persistence/versioning/recovery.
+
+```text
+                    SHARED CORE
+                         |
+        +----------------+----------------+
+        |                |                |
+   Arrange/Edit          Mix          Live Mode
+```
+
+Если проблема Live Mode находится в audio/transport/MIDI/plugin backend, исправление вносится в SHARED Core, а не в отдельный Live fork.
+
+## 5. Interface-first development
+
+Общий интерфейс фиксируется раньше конкретного UI/backend implementation.
+
+Пример:
+
+```text
+ITransport
+- play()
+- pause()
+- stop()
+- seek(samples)
+- setLoop(range)
+- getPosition()
+- getState()
+```
+
+После этого параллельно:
+
+```text
+SHARED/MRS workstream -> real realtime backend
+LIVE workstream       -> mock ITransport / fixture Project Model
+                              |
+                              +-> later switch to real backend
+```
+
+Live Mode не должен ждать завершения всей DAW, если нужный контракт уже определён.
+
+## 6. Когда начинается разработка Live Mode
+
+Live Mode не обязан ждать финала MRS.
+
+Рекомендуемый порядок:
+
+1. SHARED Stage 0 (#15) фиксирует Project/Transport contracts.
+2. SHARED Stage 2 (#17) фиксирует musical timeline contracts.
+3. Параллельно можно начинать LIVE Stage 0 (#28) на mocks/fixtures.
+4. MRS продолжает Audio/Mixer/Plugins/MIDI.
+5. После MRS Musical Structure (#25) LIVE Stage 1 (#29) переключается на настоящий открытый MRS project.
+6. Дальше production и Live развиваются параллельно на одном engine.
+
+Таким образом, UI Live Mode можно прорабатывать рано, но реальный Live workflow появляется как часть зрелого MRS project model.
+
+## 7. Current issue tree
+
+### SHARED Core — #13
+
+```text
+#15 Core Contracts
+#16 Audio Engine / ASIO
+#17 Musical Timeline
+#18 MIDI / Plugin Graph
+#19 Persistence / State / Recovery
+```
+
+### MRS — #12
+
+```text
+#20 DAW Foundation
+#21 Audio Arrangement
+#22 Mixer / Routing
+#23 Plugins / Native DSP
+#24 MIDI
+#25 Musical Structure
+#26 AI Foundation
+#27 Advanced DAW / Reliability
+```
+
+### LIVE — #14
+
+```text
+#28 UX Foundation
+#29 Real Project / Transport Integration
+#30 Setlists / Show Workflow
+#31 Playback / Click / Cue
+#32 Live Inputs / Patches
+#33 MIDI Automation / Hardware Control
+#34 Remote / Mobile
+#35 Concert Reliability
+```
+
+## 8. Labels
+
+Рекомендуемая система:
 
 ### Track
 
 ```text
 track:mrs
-track:mrl
 track:shared
+track:live
 ```
 
 ### Area
@@ -109,7 +220,7 @@ type:docs
 type:test
 ```
 
-### Priority / blocking
+### Priority / blockers
 
 ```text
 priority:critical
@@ -119,146 +230,105 @@ blocked
 performance-blocker
 ```
 
-## 5. Parent issues
+## 9. Dependency rule
 
-Для каждого крупного этапа создаётся parent issue.
-
-Например:
-
-```text
-[MRS Stage 0] Core Foundation
-  ├── MRS 0.1a ASIO layer
-  ├── MRS 0.1b transport
-  ├── MRS 0.1c Project Model
-  └── MRS 0.1d Audio Performance Gate
-
-[MRL Stage 0] Live UX Foundation
-  ├── MRL 0.1a workspace shell
-  ├── MRL 0.1b moving Chord Track
-  ├── MRL 0.1c current/next section
-  └── MRL 0.1d cue/notes panel
-```
-
-Parent issue содержит checklist и ссылки на дочерние issues.
-
-## 6. Dependency rule
-
-Каждый MRL issue должен явно указывать зависимости от Core.
+Каждый LIVE issue должен явно указывать нужные SHARED services.
 
 Пример:
 
 ```text
+[LIVE] Moving Chord Track
 Depends on:
-- #123 [SHARED] Transport service
-- #126 [SHARED] Chord Track model
+- SHARED ITransport
+- SHARED Chord Track model
 ```
 
-Если backend ещё не готов, MRL может использовать mock/stub interface.
+Если backend ещё не готов, разрешён mock, но mock должен реализовывать тот же интерфейс.
 
-Это позволяет параллельную работу:
+MRS-specific UI не должен становиться зависимостью Live Mode. Live зависит от Core/API, а не от Arrange/Mixer UI.
 
-```text
-MRS team/workstream -> real Transport
-MRL workstream      -> ITransport mock
-                       |
-                       +-> later replace with real service
-```
+## 10. Branch naming
 
-## 7. Interface-first development
+Постоянные ветки `mrs` и `live` не нужны.
 
-Для общих компонентов сначала фиксируется контракт.
-
-Пример:
+Предпочтительны короткоживущие feature branches:
 
 ```text
-ITransport
-- play()
-- stop()
-- seek(samples)
-- getPosition()
-- getState()
-```
-
-После этого:
-
-- MRS реализует realtime backend;
-- MRL строит UI на mock backend;
-- интеграция происходит после стабилизации интерфейса.
-
-Так MRL не ждёт завершения всей DAW.
-
-## 8. Milestones
-
-Milestones лучше использовать для конкретных интеграционных точек, а не для каждой мелкой версии.
-
-Пример:
-
-```text
-Milestone: MRS Core Prototype
-Milestone: First Audio Project
-Milestone: MRL Interactive Prototype
-Milestone: MRS + MRL Integration 0.1
-Milestone: First Rehearsal Build
-Milestone: First Full Show Build
-```
-
-В один milestone могут входить issues из `track:mrs`, `track:mrl` и `track:shared`.
-
-## 9. Git branches
-
-Не требуется постоянная ветка `mrs` и постоянная ветка `mrl`.
-
-Предпочтительно короткоживущие feature branches:
-
-```text
-mrs/asio-device-layer
-mrs/audio-clips
-mrl/chord-strip
-mrl/setlist-ui
 shared/transport-api
+shared/asio-engine
+mrs/audio-clips
+mrs/mixer-routing
+live/chord-strip
+live/setlist-ui
 ```
 
-`main` остаётся интеграционной веткой и должен быть buildable.
+`main` остаётся интеграционной и buildable веткой.
 
-## 10. Пример параллельной работы
+## 11. Параллельная работа
 
 ```text
-TRACK MRS                  TRACK SHARED             TRACK MRL
+TRACK MRS                TRACK SHARED              TRACK LIVE
 
-ASIO Engine -----------+
-                       +-> Transport API ---------> Live transport UI
-Audio Project Model --->   Chord Model ----------> Moving Chord Strip
-Mixer ----------------->   State API ------------> Patch/status panel
-MIDI Engine ----------->   Command API ----------> Live MIDI actions
+Arrange UI -----------> Project Model <---------- Live UI
+Mixer UI -------------> Audio Graph ------------> Live routing/status
+MIDI Editor ----------> MIDI Model -------------> Live actions
+Chord Editor ---------> Chord Model ------------> Moving Chord Track
+Plugin UI ------------> Processor Graph --------> Live patches
 ```
 
-MRL может опережать MRS визуально, пока использует fixture/mock data. MRS может опережать MRL в engine-функциях без необходимости сразу создавать performance UI.
+Ключевая идея: MRS и Live Mode могут развиваться одновременно, но **backend появляется только один раз**.
 
-## 11. Definition of Done
+## 12. Integration milestones
+
+### Core Prototype
+
+#15 + #16 + #20
+
+### Live UI Prototype
+
+#28 на mocks/fixtures.
+
+### First native Live integration
+
+#17 + #25 + #29.
+
+### First Rehearsal Build
+
+#30 + #31, затем нужные #32/#33.
+
+### First Full Show Build
+
+#35.
+
+## 13. Definition of Done
 
 ### MRS issue
 
-- unit/integration tests где применимо;
-- не нарушает realtime constraints;
-- API документирован;
-- project state serializable, если функция хранится в проекте.
-
-### MRL issue
-
-- работает на mock/real service через один интерфейс;
-- читаем с ноутбука;
-- не блокирует audio thread;
-- keyboard/MIDI control учитывается там, где применимо.
+- использует SHARED APIs для backend;
+- tests где применимо;
+- realtime constraints не нарушены;
+- state serializable, если функция хранится в project;
+- не создаёт скрытый альтернативный Core.
 
 ### SHARED issue
 
-- контракт стабилен;
-- имеет tests;
-- не содержит UI-specific assumptions;
-- учитывает serialization/versioning.
+- contract не зависит от UI;
+- tests/mocks;
+- realtime/threading rules задокументированы;
+- serialization/versioning учтены;
+- пригоден для Arrange/Edit/Mix и Live Mode.
 
-## 12. Главный принцип
+### LIVE issue
 
-**MRS и MRL — разные development tracks, но не разные архитектуры.**
+- является частью MRS app/workspace system;
+- работает через SHARED API;
+- может переключаться mock/real implementation без смены UI architecture;
+- readable/performance-safe UI;
+- не блокирует audio thread;
+- не создаёт отдельный transport/audio/MIDI/plugin backend.
 
-Они должны сходиться через общий Core и стабильные интерфейсы, а не дублировать transport, audio, MIDI, project state или plugin hosting.
+## 14. Главный принцип
+
+> **Moon River Studio — одна DAW. Live Mode — один из её режимов. Engine — один.**
+
+Issue tracks нужны только для параллельной организации разработки, а не для разделения продукта на MRS и MRL.
