@@ -389,7 +389,7 @@ void Application::start_recording(const std::filesystem::path& destination) {
     require(disk < 32 && bytes+8*8192*sizeof(float) <= 256*1024*1024,"no disk voice capacity for a recording");
     device_->stop(); position = engine_->state();
     try {
-        recording_error_.clear(); last_recording_status_ = {};
+        recording_error_.clear(); last_take_.clear(); last_recording_status_ = {};
         recording_ = std::make_shared<audio::Recorder>(destination,p->sample_rate,position.sample);
         engine_->prepare({device_config_->sample_rate,1,static_cast<std::uint32_t>(device_config_->outputs.size()),8192},render(*device_config_),position);
         transport_->play(); device_->start();
@@ -409,21 +409,24 @@ bool Application::stop_recording() {
     if (position.playback == PlaybackState::playing) position.playback = PlaybackState::paused;
     auto session = std::move(recording_); // detach capture before any file/command work
     try {
-        if (device_config_) engine_->prepare({device_config_->sample_rate,1,static_cast<std::uint32_t>(device_config_->outputs.size()),8192},render(*device_config_),position);
-        else engine_->prepare({session->rate(),0,2,8192},{},position);
+        // Detach to a silent paused graph BEFORE drain/asset/file work. A missing
+        // backing source must not leave the old capture graph restartable.
+        engine_->prepare({session->rate(),device_config_ ? 1U : 0U,
+            device_config_ ? static_cast<std::uint32_t>(device_config_->outputs.size()) : 2U,8192},{},position);
         auto result = session->finish(); last_recording_status_ = result.status;
         if (result.status.fault != audio::RecordFault::none) {
             recording_error_ = "Recording ended early (input dropout, disk backpressure, seek or size limit); valid prefix retained";
         } else if (result.status.nonfinite_samples) recording_error_ = "Non-finite input samples replaced with silence";
-        if (!result.frames) { if (device_) device_->start(); return false; }
+        if (!result.frames) { rebuild_audio(); return false; }
         last_take_ = result.path;
         const auto source = utf8(result.path);
         edit(AddRecordedClip{{new_id(),*armed_,utf8(result.path.stem()),session->start(),result.frames,0,source}});
         return true;
     } catch (const std::exception& e) {
         recording_error_ = e.what();
+        if (!last_take_.empty()) recording_error_ += "; recorded file: "+utf8(last_take_);
         // No capture pointer remains; preserve a playable paused session where possible.
-        if (device_ && device_config_) { try { device_->start(); } catch (...) { disconnect(); } }
+        if (device_ && device_config_) { try { rebuild_audio(); } catch (...) { disconnect(); } }
         throw;
     }
 }
