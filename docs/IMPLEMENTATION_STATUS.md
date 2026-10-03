@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Next: MRS Stage 1b clip editing #21.
+Updated: 2026-10-03. Active: 0.1b fix1; next: 0.1c / MRS Stage 1b clip editing #21.
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -83,3 +83,20 @@ ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37120486632/ar
 User confirmed all checks working on 2026-10-03. PR #42 merged; whole #21 stays open.
 Final PR head 21b75189fccbff13d7f0ae00aa9c999c6b27e786 also passed all CI runs.
 Next: 1b — non-destructive move/trim/split with selection and shared Undo/Redo.
+
+## 0.1b fix1 — implementation
+Paused editing was incorrectly rejected by a strict stopped-state guard. Idle edits
+now accept paused or stopped at any position; quiescent prepare retains playback
+state/sample/loop and prohibits automatic playing restoration. Shared engine unchanged
+in ownership; same open device is retained. Regression suite nonplaying_edits.
+User-visible version and build artifacts follow VERSIONING.md. CI passed; user acceptance pending.
+
+### 0.1b fix1 validation
+Validated head: 11d09e53c59d7b7f7f465e56f87ce862c1dbb17e.
+All six CI jobs passed: Linux Debug/Release and Windows ASIO Debug/Release 50/50;
+Windows offline Debug/Release 51/51 including GUI/DPI smoke.
+Core run: https://github.com/vladleng/MR-Studio/actions/runs/37121639359
+ASIO run: https://github.com/vladleng/MR-Studio/actions/runs/37121639376
+Windows ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37121639376/artifacts/11273209676
+Hardware confirmation pending: Play, Pause away from zero, delete/import/Undo,
+then resume from retained position without manual Connect.

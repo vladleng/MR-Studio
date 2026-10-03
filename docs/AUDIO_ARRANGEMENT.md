@@ -5,9 +5,10 @@ its existing Undo/Redo. Delete removes clips atomically. Batch import preserves
 project identity and musical lanes and commits one command after all files validate.
 
 Application owns a capped immutable asset cache reused by the same AudioEngine.
-Stopped track/import/Undo changes stop callbacks, prepare the updated renderer,
+Stopped/paused track/import/Undo changes stop callbacks, prepare the updated renderer,
 then restart the SAME open device. No new engine or hardware fallback.
-Editing while playing/paused is rejected until Stop. Open WAV retains its existing
+Editing while playing is rejected until Pause or Stop. Graph rebuild preserves the
+idle position, paused/stopped state and loop, independently of playhead position. Open WAV retains its existing
 replace-project behavior; Import WAVs adds separate tracks starting at zero.
 New creates an empty project at the current rate. There is no resampler.
 
@@ -28,3 +29,8 @@ Track list selection brings its row into view; wheel scrolls tracks and Shift+wh
 scrolls time. Later substages add move/trim/split and recording/streaming.
 See MRS_STAGE_1A_CHECKLIST.md. Stage 1a accepted by user on 2026-10-03; PR #42 merged. #21 remains open.
 Next substage 1b: clip selection, move/trim/split and shared Undo/Redo.
+
+## 0.1b fix1
+Permit track deletion/import/Undo while paused. Preserve playhead and loop when
+rebuilding the same shared renderer; never resume playback automatically.
+See VERSIONING.md. Acceptance pending.

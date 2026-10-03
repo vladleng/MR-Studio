@@ -4,6 +4,7 @@
 #include <windowsx.h>
 #include <commdlg.h>
 #include <mrs/desktop.hpp>
+#include <mrs/version.hpp>
 #include <mrs/offline_device.hpp>
 #include <algorithm>
 #include <array>
@@ -191,7 +192,7 @@ struct UI {
         prefs.rate = project->sample_rate;
         if (settings) SetWindowTextW(child(rate_edit,true),std::to_wstring(prefs.rate).c_str());
         EnableWindow(child(undo),app.services().projects->state().can_undo); EnableWindow(child(redo),app.services().projects->state().can_redo);
-        std::wstring title = L"Moon River Studio 0.2a — " + wide(project->title) + (app.dirty() ? L" *" : L"");
+        std::wstring title = L"Moon River Studio " + wide(application_version) + L" — " + wide(project->title) + (app.dirty() ? L" *" : L"");
         SetWindowTextW(window,title.c_str()); InvalidateRect(window,nullptr,FALSE);
     }
     bool discard() {

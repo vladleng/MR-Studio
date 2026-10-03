@@ -21,7 +21,12 @@ void AudioData::validate() const {
         if (!std::isfinite(sample)) throw std::invalid_argument("non-finite audio sample");
 }
 AudioEngine::AudioEngine() { prepare(RenderConfig{}, {}); }
-void AudioEngine::prepare(RenderConfig config, RenderGraph graph) {
+void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState initial) {
+    if ((initial.playback != PlaybackState::stopped && initial.playback != PlaybackState::paused) ||
+        initial.sample < 0 || initial.sample > max_sample ||
+        (initial.loop && (initial.loop->start < 0 || initial.loop->start >= initial.loop->end || initial.loop->end > max_sample)))
+        throw std::invalid_argument("invalid quiescent transport state");
+
     if (config.sample_rate < 8000 || config.sample_rate > 768000 ||
         config.input_channels > max_channels || config.output_channels == 0 ||
         config.output_channels > max_channels || config.max_block == 0 || config.max_block > 65536 ||
@@ -56,7 +61,7 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph) {
     graph_ = std::move(graph);
     Control discarded;
     while (controls_.pop(discarded)) {}
-    rt_ = {};
+    rt_ = initial;
     callbacks_ = 0; input_overflows_ = 0; input_underflows_ = 0;
     output_underflows_ = 0; output_overflows_ = 0; deadlines_ = 0;
     invalid_blocks_ = 0; clipped_ = 0; missing_inputs_ = 0;

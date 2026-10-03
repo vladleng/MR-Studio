@@ -146,6 +146,44 @@ void arrangement() {
     Application other; auto p = *other.services().projects->state().project;
     rejects([&] { other.import_wavs({a}); }); CHECK(*other.services().projects->state().project == p); // rate mismatch
 }
+void nonplaying_edits() {
+    Directory dir; auto file = dir.path / "edit.wav"; wav(file);
+    Application app; app.new_project(44100); app.import_wavs({file});
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
+    std::array<float,256> output{};
+    // Seeking away from zero while stopped must not prevent edits or reset position.
+    app.seek(400); app.engine()->process(nullptr,output.data(),128);
+    const auto empty = app.add_audio_track("Remove while stopped");
+    CHECK(app.engine()->state().sample == 400 && app.engine()->state().playback == PlaybackState::stopped);
+    app.remove_track(empty);
+    CHECK(app.engine()->state().sample == 400);
+    CHECK(app.undo() && app.engine()->state().sample == 400);
+    CHECK(app.redo() && app.engine()->state().sample == 400);
+    // Pause is an idle transport at a useful edit position, not a playing session.
+    app.play(); app.engine()->process(nullptr,output.data(),128); app.pause();
+    app.engine()->process(nullptr,output.data(),128);
+    const auto paused = app.engine()->state(); CHECK(paused.playback == PlaybackState::paused && paused.sample == 528);
+    auto track = app.services().projects->state().project->tracks.front().id;
+    app.remove_track(track); CHECK(app.services().projects->state().project->clips.empty());
+    CHECK(app.audio_running() && app.engine()->state().sample == paused.sample && app.engine()->state().playback == PlaybackState::paused);
+    CHECK(app.undo() && app.services().projects->state().project->clips.size() == 1);
+    CHECK(app.engine()->state().sample == paused.sample && app.engine()->state().playback == PlaybackState::paused);
+    app.import_wavs({file}); CHECK(app.engine()->state().sample == paused.sample && app.engine()->state().playback == PlaybackState::paused);
+    app.engine()->process(nullptr,output.data(),128);
+    CHECK(output[0] == 0 && app.engine()->state().sample == paused.sample); // no accidental restart
+    app.play(); app.engine()->process(nullptr,output.data(),128);
+    CHECK(output[0] == 0.1220703125f && app.engine()->state().sample == paused.sample+128);
+    rejects([&] { app.remove_track(track); }); // actual playback remains protected
+    app.disconnect();
+    // Invalid quiescent state is rejected atomically; prepare never restores Play.
+    audio::AudioEngine engine;
+    engine.prepare({}, {}, {PlaybackState::paused,123,LoopRange{100,400}});
+    CHECK(engine.state().sample == 123 && engine.state().loop == std::optional<LoopRange>{{100,400}});
+    rejects([&] { engine.prepare({}, {}, {PlaybackState::playing,100,{}}); });
+    rejects([&] { engine.prepare({}, {}, {PlaybackState::stopped,-1,{}}); });
+    rejects([&] { engine.prepare({}, {}, {PlaybackState::stopped,0,LoopRange{400,100}}); });
+    CHECK(engine.state().sample == 123 && engine.state().playback == PlaybackState::paused);
+}
 void waveform() {
     audio::AudioData data{48000,2,std::vector<float>(2050,0)};
     data.samples[600] = 0.75f; data.samples[601] = -0.9f;
@@ -183,7 +221,7 @@ int main(int argc, char** argv) {
         std::string name = argv[1];
         if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
-        else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else throw std::runtime_error("unknown suite");
+        else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
 }
