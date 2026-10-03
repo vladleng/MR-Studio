@@ -32,3 +32,7 @@ generation runs on workers. Decoding occurs on the application thread in this
 preload substage and never in audio callback or paint. Disk streaming, recording,
 move/trim/split and advanced selection remain later #21 substages.
 User acceptance of 1a does not close the whole #21.
+
+## Acceptance — 2026-10-03
+User confirmed all working. Stage 1a accepted; PR #42 merged into main.
+The whole #21 remains open; next substage is 1b clip editing.

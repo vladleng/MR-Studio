@@ -10,8 +10,8 @@ Stage 3 #18 принят после Windows-checker, PR #39 слит, issue за
 Stage 4 #19 принят пользователем, PR #40 слит в main, issue закрыт.
 MRS Stage 0 #20 принят пользователем 2026-10-03; PR #41 слит в main.
 Пользователь подтвердил фикс восстановления ASIO после открытия другого WAV и перезапуска.
-Активный подэтап: MRS Stage 1a #21 — tracks / batch WAV import / waveform.
-Ветка: mrs/stage-1a-tracks-import-waveform; приёмка 1a pending.
+MRS Stage 1a #21 принят пользователем 2026-10-03; PR #42 слит в main.
+Следующий подэтап: MRS Stage 1b #21 — non-destructive clip move/trim/split, selection и Undo.
 Читать issue #21, docs/AUDIO_ARRANGEMENT.md и docs/MRS_STAGE_1A_CHECKLIST.md.
 Следующие подэтапы #21: clip move/trim/split, disk read-ahead и recording foundation.
 Длительные проверки performance gate #16 остаются отложенными и nonblocking.

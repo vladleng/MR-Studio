@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Active: MRS Stage 1a Audio Arrangement #21.
+Updated: 2026-10-03. Next: MRS Stage 1b clip editing #21.
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -65,12 +65,12 @@ Validated code head: 571997b42d3d4b315753421dcc55917e5eaa4266.
 All six CI jobs passed: 47/47 contracts, Windows offline 48/48 including GUI smoke.
 Core run 37119197988; ASIO run 37119197984. Deferred #16 gate remains pending. Mix/Edit are read-only initial views.
 
-## MRS Stage 1a — implementation
+## MRS Stage 1a — accepted
 Branch mrs/stage-1a-tracks-import-waveform. Shared track remove/reorder/batch import
 commands and Undo. Empty New project, separate multi-WAV Import into current project,
 per-channel waveform workers/cache, zoom/fit and track/time scrolling.
 Stopped edits rebuild the same shared renderer with the same open ASIO device.
-See AUDIO_ARRANGEMENT.md and MRS_STAGE_1A_CHECKLIST.md. User acceptance pending; CI passed (see validation below).
+See AUDIO_ARRANGEMENT.md and MRS_STAGE_1A_CHECKLIST.md. Accepted by user on 2026-10-03; PR #42 merged into main. CI passed (see validation below).
 The whole #21 remains open; clip editing, disk streaming and recording follow.
 
 ## Stage 1a validation — 2026-10-03
@@ -80,4 +80,6 @@ Windows offline Debug/Release 50/50 including GUI/DPI smoke.
 Core CI: https://github.com/vladleng/MR-Studio/actions/runs/37120486657
 ASIO CI: https://github.com/vladleng/MR-Studio/actions/runs/37120486632
 ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37120486632/artifacts/11272584369
-User acceptance pending; PR #42 remains unmerged and whole #21 stays open.
+User confirmed all checks working on 2026-10-03. PR #42 merged; whole #21 stays open.
+Final PR head 21b75189fccbff13d7f0ae00aa9c999c6b27e786 also passed all CI runs.
+Next: 1b — non-destructive move/trim/split with selection and shared Undo/Redo.

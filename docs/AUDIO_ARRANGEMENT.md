@@ -26,4 +26,5 @@ Retained assets for Undo count against the cache cap until project replacement.
 Windows UI: New, Import WAVs, Add Track/Delete/Up/Down, Zoom +/- and Fit.
 Track list selection brings its row into view; wheel scrolls tracks and Shift+wheel
 scrolls time. Later substages add move/trim/split and recording/streaming.
-See MRS_STAGE_1A_CHECKLIST.md. Acceptance pending; #21 remains open.
+See MRS_STAGE_1A_CHECKLIST.md. Stage 1a accepted by user on 2026-10-03; PR #42 merged. #21 remains open.
+Next substage 1b: clip selection, move/trim/split and shared Undo/Redo.

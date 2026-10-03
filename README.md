@@ -272,4 +272,6 @@ First slice of #21: New project, audio track create/delete/reorder, batch WAV im
 into the current project, per-channel waveforms and zoom/scroll. Uses the same
 shared ProjectStore/Undo/AudioEngine and retained ASIO connection for stopped edits.
 [Contracts](docs/AUDIO_ARRANGEMENT.md) · [Windows checklist](docs/MRS_STAGE_1A_CHECKLIST.md).
-Acceptance pending. Clip editing, streaming and recording are later #21 substages.
+Stage 1a accepted by user on 2026-10-03; PR #42 merged into main.
+Next: Stage 1b — non-destructive clip move/trim/split, selection and Undo.
+Streaming and recording are later #21 substages.
