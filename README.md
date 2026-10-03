@@ -339,7 +339,10 @@ Mixdown prepares storage for later export. Mixer/Routing #22 follows after upd1.
 ## Included fix1: concurrent seek read-head protection
 Seek priming previously published the future target as the current read head before
 its queued transport command reached the callback. A worker could then evict the
-still-playing page in that interval. Prime now sets the initial head only once,
+still-playing page in that interval. Prime sets the initial head only once,
 keeps the future target separately warm, and lets the callback move the active head.
+The worker skips protected pages before claiming ownership. A control/worker-only
+atomic gate serializes the ready snapshot with victim selection, closing the stale
+snapshot window without waiting, locking or I/O on the audio callback.
 The concurrent seek exact-sample/zero-underrun/zero-RT-allocation regression is
 repeated eight times in every Debug/Release CI job for this fix.
