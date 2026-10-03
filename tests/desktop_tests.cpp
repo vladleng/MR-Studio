@@ -249,6 +249,44 @@ void waveform() {
     CHECK(peaks.range(-10,99999,1).minimum == -0.9f);
     rejects([&] { (void)peaks.range(0,1,2); });
 }
+void streaming() {
+    Directory dir; const auto file = dir.path / "long.wav";
+    constexpr std::uint32_t frames = 40'000'003;
+    {
+        std::ofstream out(file,std::ios::binary);
+        const auto u16 = [&](std::uint16_t n) { for (int i=0; i<2; ++i) out.put(static_cast<char>((n>>(8*i))&255)); };
+        const auto u32 = [&](std::uint32_t n) { for (int i=0; i<4; ++i) out.put(static_cast<char>((n>>(8*i))&255)); };
+        out.write("RIFF",4); u32(36+frames*4); out.write("WAVEfmt ",8); u32(16);
+        u16(1); u16(2); u32(44100); u32(176400); u16(4); u16(16);
+        out.write("data",4); u32(frames*4);
+        out.seekp(static_cast<std::streamoff>(44)+frames*4-1); out.put(0);
+    }
+    const auto source = audio::open_wav(file);
+    CHECK(source.file && source.samples.empty() && source.frames() == frames);
+    rejects([&] { (void)audio::load_wav(file); }); // exceeds old decoded preload cap
+    Application app; app.new_project(44100); app.import_wavs({file});
+    const auto p = app.services().projects->state().project;
+    CHECK(p->clips.size() == 1 && p->clips.front().length == frames);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
+    app.seek(frames-1000);
+    std::array<float,256> out{};
+    app.engine()->process(nullptr,out.data(),128);
+    app.play(); app.engine()->process(nullptr,out.data(),128);
+    app.pause(); app.engine()->process(nullptr,out.data(),128);
+    const auto position = app.engine()->state().sample;
+    CHECK(position == frames-872);
+    const auto clip = p->clips.front().id;
+    app.trim_clip(clip,100,frames-100);
+    CHECK(app.engine()->state().sample == position && app.engine()->state().playback == PlaybackState::paused);
+    CHECK(app.undo() && app.source_frames(clip) == frames);
+    const auto saved = dir.path / "long.mrsproject"; app.save_project(saved); app.open_project(saved);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
+    CHECK(app.services().projects->state().project->clips.front().length == frames);
+    CHECK(app.engine()->metrics().disk_underruns == 0);
+    app.new_project(); // cancels the long waveform scan before clearing retained media
+    CHECK(app.services().projects->state().project->clips.empty());
+}
+
 void config() {
     Preferences p; p.workspace = Workspace::live; p.device_name = "Komplete Audio ASIO Driver"; p.reconnect_audio = true;
     CHECK(decode_preferences(encode_preferences(p)) == p);
@@ -272,7 +310,7 @@ int main(int argc, char** argv) {
         std::string name = argv[1];
         if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
-        else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "clip_edits") clip_edits(); else throw std::runtime_error("unknown suite");
+        else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
 }

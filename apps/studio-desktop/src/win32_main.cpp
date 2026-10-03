@@ -519,9 +519,11 @@ struct UI {
         }
         const auto status = app.device_status(); const auto metrics = app.engine()->metrics();
         std::wostringstream bottom; bottom << wide(app.audio_name()) << L"  |  " << (context.transport.playback == PlaybackState::playing ? L"Playing" : context.transport.playback == PlaybackState::paused ? L"Paused" : L"Stopped")
-            << L"  |  " << context.project->sample_rate << L" Hz  |  callbacks " << metrics.callbacks << L"  |  underruns " << metrics.output_underflows;
+            << L"  |  " << context.project->sample_rate << L" Hz  |  callbacks " << metrics.callbacks << L"  |  underruns " << metrics.output_underflows
+            << L"  |  disk underruns " << metrics.disk_underruns << L" / errors " << metrics.disk_errors;
+        if (!app.waveform_error().empty()) bottom << L"  |  waveform: " << wide(app.waveform_error());
         line(dc,0,area.bottom-s(48),area.right,area.bottom-s(48));
-        text(dc,s(20),area.bottom-s(44),area.right-s(40),s(36),bottom.str(),normal,status.phase == audio::DevicePhase::error ? RGB(242,100,100) : muted);
+        text(dc,s(20),area.bottom-s(44),area.right-s(40),s(36),bottom.str(),normal,(status.phase == audio::DevicePhase::error || metrics.disk_errors || metrics.disk_underruns) ? RGB(242,100,100) : muted);
     }
     void restore_audio();
     void show_settings();

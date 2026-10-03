@@ -21,7 +21,7 @@ void read_exact(std::istream& in, unsigned char* out, std::size_t bytes) {
         throw std::invalid_argument("truncated WAV");
 }
 }
-AudioData load_wav(const std::filesystem::path& path, std::size_t max_decoded_bytes) {
+WavFile inspect_wav(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) throw std::runtime_error("cannot open WAV asset");
     in.seekg(0, std::ios::end);
@@ -77,26 +77,50 @@ AudioData load_wav(const std::filesystem::path& path, std::size_t max_decoded_by
     }
     if (!have_format || !have_data || data_size == 0 || data_size % block_align != 0)
         throw std::invalid_argument("missing or misaligned WAV data");
-    const auto samples = static_cast<std::size_t>(data_size) / (bits / 8);
-    if (samples > max_decoded_bytes / sizeof(float)) throw std::invalid_argument("WAV preload memory budget exceeded");
-    AudioData result;
-    result.sample_rate = rate; result.channels = channels; result.samples.resize(samples);
-    in.seekg(static_cast<std::streamoff>(data_offset));
-    std::array<unsigned char, 4> word{};
-    for (auto& sample : result.samples) {
-        read_exact(in, word.data(), bits / 8);
-        if (format == 3) sample = std::bit_cast<float>(u32(word.data()));
-        else if (bits == 16) sample = static_cast<float>(std::bit_cast<std::int16_t>(u16(word.data()))) / 32768.0F;
+    return {path,rate,channels,bits,format,data_offset,static_cast<Sample>(data_size/block_align)};
+}
+void WavFile::read(Sample first, std::span<float> output) const {
+    if (first < 0 || first > frame_count || output.size()%channels ||
+        output.size()/channels > static_cast<std::size_t>(frame_count-first))
+        throw std::invalid_argument("invalid WAV read range");
+    std::ifstream in(path,std::ios::binary);
+    if (!in) throw std::runtime_error("cannot open WAV asset");
+    in.seekg(static_cast<std::streamoff>(data_offset+static_cast<std::uint64_t>(first)*channels*(bits/8)));
+    std::vector<unsigned char> bytes(output.size()*(bits/8));
+    read_exact(in,bytes.data(),bytes.size());
+    std::size_t cursor{};
+    for (auto& sample : output) {
+        const auto* word = bytes.data()+cursor; cursor += bits/8;
+        if (format == 3) sample = std::bit_cast<float>(u32(word));
+        else if (bits == 16) sample = static_cast<float>(std::bit_cast<std::int16_t>(u16(word))) / 32768.0F;
         else if (bits == 24) {
             std::int32_t value = static_cast<std::int32_t>(word[0] | (static_cast<std::uint32_t>(word[1]) << 8) |
                                                         (static_cast<std::uint32_t>(word[2]) << 16));
             if (value & 0x800000) value -= 0x1000000;
             sample = static_cast<float>(value) / 8388608.0F;
-        } else sample = static_cast<float>(std::bit_cast<std::int32_t>(u32(word.data()))) / 2147483648.0F;
+        } else sample = static_cast<float>(std::bit_cast<std::int32_t>(u32(word))) / 2147483648.0F;
         if (!std::isfinite(sample)) throw std::invalid_argument("non-finite WAV sample");
     }
-    result.validate();
-    return result;
+}
+AudioData load_wav(const std::filesystem::path& path, std::size_t max_decoded_bytes) {
+    const auto file = inspect_wav(path);
+    const auto samples = static_cast<std::uint64_t>(file.frame_count)*file.channels;
+    if (samples > max_decoded_bytes/sizeof(float)) throw std::invalid_argument("WAV preload memory budget exceeded");
+    AudioData result{file.sample_rate,file.channels,{}};
+    result.samples.resize(static_cast<std::size_t>(samples));
+    // Bounded temporary decode storage even for a full preload.
+    for (Sample first = 0; first < file.frame_count; first += 8192) {
+        const auto count = std::min(Sample{8192},file.frame_count-first);
+        file.read(first,std::span<float>(result.samples).subspan(static_cast<std::size_t>(first)*file.channels,static_cast<std::size_t>(count)*file.channels));
+    }
+    result.validate(); return result;
+}
+AudioData open_wav(const std::filesystem::path& path, std::size_t preload_bytes) {
+    auto file = std::make_shared<const WavFile>(inspect_wav(path));
+    if (static_cast<std::uint64_t>(file->frame_count)*file->channels <= preload_bytes/sizeof(float))
+        return load_wav(path,preload_bytes);
+    AudioData result{file->sample_rate,file->channels,{},file};
+    result.validate(); return result;
 }
 AudioData sine_fixture(std::uint32_t rate, std::uint32_t channels, Sample frames, double frequency) {
     if (rate < 8000 || rate > 768000 || channels == 0 || channels > max_channels ||

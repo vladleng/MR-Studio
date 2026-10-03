@@ -74,7 +74,10 @@ persistence::ProjectDocument foundation_demo() {
     d.validate(); return d;
 }
 Application::Application() : engine_(std::make_shared<audio::AudioEngine>()) { demo(); }
-Application::~Application() { if (device_) device_->close(); }
+Application::~Application() {
+    if (device_) device_->close();
+    for (auto& [key,value] : assets_) { (void)key; *value.cancel = true; }
+}
 void Application::workspace(Workspace w) { (void)workspace_name(w); workspace_ = w; }
 void Application::replace(persistence::ProjectDocument next) {
     next.validate();
@@ -85,7 +88,8 @@ void Application::replace(persistence::ProjectDocument next) {
     engine_->prepare({next.project.sample_rate,0,2,8192},{});
     auto transport = std::make_shared<audio::EngineTransport>(engine_,Timeline(next.project.time,next.project.sample_rate));
     auto musical = std::make_unique<MusicalTimeline>(Services{projects,transport});
-    assets_.clear();
+    for (auto& [key,value] : assets_) { (void)key; *value.cancel = true; }
+    assets_.clear(); waveform_error_.clear();
     document_ = std::move(next);
     services_ = {projects,transport}; graphs_ = std::move(graphs);
     transport_ = std::move(transport); musical_ = std::move(musical);
@@ -106,7 +110,7 @@ void Application::open_project(const std::filesystem::path& path) {
     path_ = path; asset_root_ = path.parent_path(); unsaved_ = false;
 }
 void Application::import_wav(const std::filesystem::path& path) {
-    const auto asset = audio::load_wav(path); // validate before touching the current session
+    const auto asset = audio::open_wav(path); // validate before touching the current session
     auto d = persistence::demo_document(); d.project = Project{};
     d.project.id = new_id(); d.project.title = utf8(path.stem()); d.project.sample_rate = asset.sample_rate;
     const auto track = new_id();
@@ -164,7 +168,7 @@ void Application::cache_asset(std::string source, std::shared_ptr<const audio::A
     for (const auto& [key,cached] : assets_) { (void)key; bytes += cached.data->samples.size()*sizeof(float); }
     require(bytes <= 512*1024*1024,"project preload/cache exceeds 512 MiB");
     CachedAsset value; value.data = data;
-    value.pending = std::async(std::launch::async,[data] { return audio::Waveform(*data); });
+    value.pending = std::async(std::launch::async,[data,cancel = value.cancel] { return audio::Waveform(*data,cancel); });
     assets_.emplace(std::move(source),std::move(value));
 }
 std::shared_ptr<const audio::AudioData> Application::asset(const std::string& source) {
@@ -175,7 +179,7 @@ std::shared_ptr<const audio::AudioData> Application::asset(const std::string& so
         require(!source.empty(),"clip has no audio source");
         auto path = std::filesystem::path(std::u8string(source.begin(),source.end()));
         if (path.is_relative()) path = asset_root_ / path;
-        data = audio::load_wav(path);
+        data = audio::open_wav(path);
     }
     auto ptr = std::make_shared<const audio::AudioData>(std::move(data)); cache_asset(source,ptr); return ptr;
 }
@@ -240,7 +244,7 @@ void Application::import_wavs(const std::vector<std::filesystem::path>& paths) {
         else if (decoded.contains(source)) data = decoded.at(source);
         else {
             require(bytes < 512*1024*1024,"project preload/cache exceeds 512 MiB");
-            data = std::make_shared<const audio::AudioData>(audio::load_wav(path,std::min<std::size_t>(256*1024*1024,512*1024*1024-bytes)));
+            data = std::make_shared<const audio::AudioData>(audio::open_wav(path,std::min<std::size_t>(8*1024*1024,512*1024*1024-bytes)));
             bytes += data->samples.size()*sizeof(float); decoded.emplace(source,data);
         }
         require(data->sample_rate == current->sample_rate,"WAV/project sample-rate mismatch; import WAVs at the project rate");
@@ -298,7 +302,7 @@ void Application::poll() {
     for (auto& [key,value] : assets_) {
         (void)key;
         if (value.pending.valid() && value.pending.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-            value.peaks = value.pending.get();
+            try { value.peaks = value.pending.get(); } catch (const std::exception& e) { waveform_error_ = e.what(); }
     }
 }
 audio::DeviceStatus Application::device_status() { return device_ ? device_->status() : audio::DeviceStatus{}; }
