@@ -49,14 +49,14 @@ tempo/meter contracts, подписки, fixtures и versioned snapshot.
 [Contracts](docs/MIDI_PROCESSOR_GRAPH.md) · [Windows checker](docs/SHARED_STAGE_3_CHECKLIST.md).
 
 ### SHARED Stage 4 — persistence/state/recovery
-Stage 3 was accepted and merged through PR #39. Stage 4 adds one versioned project
+Stage 4 was accepted and merged through PR #40. It adds one versioned project
 archive for all workspaces, show references, legacy migration, preserved unknown
 chunks, safe save/backup, background autosave and stopped recovery.
 See [persistence contracts](docs/PERSISTENCE.md) and
 [Windows acceptance checklist](docs/SHARED_STAGE_4_CHECKLIST.md).
 Build normally, then run mrs_persistence_check (no audio hardware required).
 
-GUI ещё нет. MRS 0.1 не считается завершённой до DAW Foundation (#20)
+Первый Windows DAW shell реализуется в MRS Stage 0 / #20. MRS 0.1 не считается завершённой до DAW Foundation (#20)
 и прохождения Audio Engine / ASIO performance gate (#16).
 
 ## Основная концепция
@@ -255,3 +255,12 @@ Live Mode начинается как UI prototype после базовых SHA
 
 Лицензия проекта пока не определена.
 
+
+## MRS Stage 0 — DAW Foundation
+Native C++20/Win32 desktop shell with Arrange/Edit/Mix/Live navigation, shared
+ProjectStore/EngineTransport/GraphStore, timeline/playhead, Open WAV/project,
+Save/Undo and vendor ASIO settings. Starts in an explicit silent offline mode.
+[Desktop contracts/stack](docs/DESKTOP_FOUNDATION.md) ·
+[Windows acceptance](docs/MRS_STAGE_0_CHECKLIST.md).
+ASIO Actions artifact: MR-Studio-MRS-Stage-0-ASIO-Windows; run MoonRiverStudio.exe.
+Edit/Mix are initial read-only views; detailed editors arrive in their own stages.

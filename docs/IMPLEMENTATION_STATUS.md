@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Active: SHARED Stage 4 #19.
+Updated: 2026-10-03. Active: MRS Stage 0 DAW Foundation #20.
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -40,13 +40,23 @@ Core run 37101469824; ASIO run 37101469828.
 
 ## Handoff
 Read START_HERE, current issue and relevant subsystem contracts.
-Stage 1 deferred work remains in #16. Current SHARED stage: #19 Persistence / State / Recovery.
+Stage 1 deferred work remains in #16. Current product stage: #20 MRS DAW Foundation.
 #20 DAW shell and #28 Live prototype can use established shared musical contracts.
 No GUI, actual VST3 host, hardware MIDI, note editor or final asset package yet.
 No seamless reconnect, hot graph swap or production disk streaming.
 
-## Stage 4 — implementation
+## Stage 4 — accepted
 ProjectDocument archive v1 wraps core snapshot v2, shared graph/plugin/MIDI/mixer
 and Live metadata. Show references projects. Legacy migration, unknown chunks,
 safe save/backup, background autosave and read-only stopped recovery.
-See PERSISTENCE.md and SHARED_STAGE_4_CHECKLIST.md. User acceptance pending.
+See PERSISTENCE.md and SHARED_STAGE_4_CHECKLIST.md. User confirmed all Windows persistence checker checks passed on 2026-10-03.
+PR #40 merged, #19 closed. Tested head 2a9c0cc781a3ce0035c4af1c78ac45023941b62a:
+41/41 contracts on Windows/Linux Debug/Release and Windows ASIO Debug/Release.
+Core run 37111558216; ASIO run 37111558226.
+
+## MRS Stage 0 — implementation
+Native Windows shell and portable application/controller: common services,
+four workspaces, timeline/playhead, project/WAV Open, Save/Undo, native ASIO
+settings plus shared offline clock. See DESKTOP_FOUNDATION.md and
+MRS_STAGE_0_CHECKLIST.md. GUI/ASIO hardware acceptance pending; latest PR checks
+are validation authority. Mix/Edit are read-only initial views.

@@ -1,7 +1,7 @@
 name: Core contracts
 on:
   push:
-    branches: [main, 'shared/**']
+    branches: [main, 'shared/**', 'mrs/**']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -86,4 +86,14 @@ jobs:
         with:
           name: MR-Studio-SHARED-Stage-4-Windows
           path: persistence-package/
+          if-no-files-found: error
+      - name: Upload Windows offline shell
+        if: runner.os == 'Windows' && matrix.config == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MR-Studio-MRS-Stage-0-Offline-Windows
+          path: |
+            build/Release/MoonRiverStudio.exe
+            docs/MRS_STAGE_0_CHECKLIST.md
+            docs/DESKTOP_FOUNDATION.md
           if-no-files-found: error
