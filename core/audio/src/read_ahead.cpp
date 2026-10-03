@@ -10,8 +10,9 @@ ReadAhead::ReadAhead(std::shared_ptr<const WavFile> file) : file_(std::move(file
 ReadAhead::~ReadAhead() { quit_ = true; if (worker_.joinable()) worker_.join(); }
 void ReadAhead::loop(Sample first) noexcept { loop_.store(first < 0 ? -1 : first/page_frames,std::memory_order_release); }
 void ReadAhead::begin(Sample first) noexcept {
-    desired_.store(std::clamp(first,Sample{0},file_->frame_count-1)/page_frames,std::memory_order_release);
-    auto warm = desired_.load(std::memory_order_relaxed);
+    const auto page = std::clamp(first,Sample{0},file_->frame_count-1)/page_frames;
+    desired_.store(page,std::memory_order_release);
+    auto warm = page;
     (void)warm_.compare_exchange_strong(warm,-1,std::memory_order_acq_rel);
     missed_ = false;
     for (std::size_t i = 0; i < pages; ++i) {
@@ -81,6 +82,19 @@ void ReadAhead::run() noexcept {
                 if (std::find(wanted.begin(),wanted.begin()+static_cast<std::ptrdiff_t>(count),slot.page) != wanted.begin()+static_cast<std::ptrdiff_t>(count)) continue;
                 int expected = 0;
                 if (!slot.owner.compare_exchange_strong(expected,-1,std::memory_order_acquire)) continue;
+                // The control cursor may change after this iteration's snapshot.
+                // Recheck protection while owning the victim: prime cannot observe
+                // this page ready until publication, so stale work cannot evict
+                // newly primed seek/loop pages after prime returns.
+                const auto latest_warm = warm_.load(std::memory_order_acquire);
+                const auto latest_current = desired_.load(std::memory_order_acquire);
+                const auto latest_loop = loop_.load(std::memory_order_acquire);
+                const auto protected_page = [&](Sample head, Sample count) {
+                    return head >= 0 && slot.page >= head && slot.page-head < count;
+                };
+                if (protected_page(latest_warm,4) || protected_page(latest_current,2) || protected_page(latest_loop,2)) {
+                    slot.owner.store(0,std::memory_order_release); continue;
+                }
                 try {
                     const auto first = wanted[p]*page_frames;
                     const auto frames = std::min(page_frames,file_->frame_count-first);

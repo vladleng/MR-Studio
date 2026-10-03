@@ -262,6 +262,28 @@ void streaming() {
     for (Sample f = 0; f < 3; ++f) CHECK(output[static_cast<std::size_t>(100+f)] == static_cast<float>((total-3+f)%127)/256.0F);
     graph.voices = {{asset,0,0,total,{{0,0,1}}}};
     engine->prepare({48000,0,1,128},graph);
+    transport.play();
+    std::atomic<bool> running{true}, correct{true};
+    std::thread callback([&] {
+        std::array<float,128> block{};
+        while (running.load()) {
+            allocation_check::enabled = true;
+            engine->process(nullptr,block.data(),128);
+            allocation_check::enabled = false;
+            const auto first = engine->state().sample-128;
+            for (Sample f = 0; f < 128; ++f)
+                if (block[static_cast<std::size_t>(f)] != static_cast<float>((first+f)%127)/256.0F) correct = false;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    });
+    try {
+        for (const auto target : {120000,50000,130000,1000,140000,70000}) {
+            transport.seek(target);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    } catch (...) { running = false; callback.join(); throw; }
+    running = false; callback.join();
+    CHECK(correct.load() && engine->metrics().disk_underruns == 0);
     std::filesystem::remove(file.path);
     rejects([&] { transport.seek(150000); });
     CHECK(engine->enqueue({ControlKind::seek,150000})); CHECK(engine->enqueue({ControlKind::play}));
