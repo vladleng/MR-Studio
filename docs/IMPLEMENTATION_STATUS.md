@@ -107,4 +107,14 @@ Windows clip selection/drag preview, edge trim, Split/Delete, optional 1/16 snap
 Same shared Undo, renderer, asset cache and paused/stopped position retention.
 Regression tests cover split-boundary playback, source bounds/offset recovery,
 invalid edit atomicity and save/load. See MRS_STAGE_1B_CHECKLIST.md.
-CI/user acceptance pending; #21 remains open; read-ahead/recording follow.
+CI passed; user acceptance pending; #21 remains open; read-ahead/recording follow.
+
+### 0.1c validation
+Validated head: 8b545c2c7f0d048594fb0f836069be0578d50cf5.
+All six CI jobs passed: Linux Debug/Release and Windows ASIO Debug/Release 51/51;
+Windows offline Debug/Release 52/52 including GUI drag preview/commit/cancel and DPI smoke.
+Core CI: https://github.com/vladleng/MR-Studio/actions/runs/37122666526
+ASIO CI: https://github.com/vladleng/MR-Studio/actions/runs/37122666518
+ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37122666518/artifacts/11274196641
+Manual Windows acceptance pending: docs/MRS_STAGE_1B_CHECKLIST.md.
+PR #44 unmerged; Stage 1b and whole #21 remain open.
