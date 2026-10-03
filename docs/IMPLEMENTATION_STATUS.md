@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Next: MRS Stage 1 Audio Arrangement #21.
+Updated: 2026-10-03. Active: MRS Stage 1a Audio Arrangement #21.
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -64,3 +64,11 @@ restoration after WAV replacement and relaunch. PR #41 merged into main.
 Validated code head: 571997b42d3d4b315753421dcc55917e5eaa4266.
 All six CI jobs passed: 47/47 contracts, Windows offline 48/48 including GUI smoke.
 Core run 37119197988; ASIO run 37119197984. Deferred #16 gate remains pending. Mix/Edit are read-only initial views.
+
+## MRS Stage 1a — implementation
+Branch mrs/stage-1a-tracks-import-waveform. Shared track remove/reorder/batch import
+commands and Undo. Empty New project, separate multi-WAV Import into current project,
+per-channel waveform workers/cache, zoom/fit and track/time scrolling.
+Stopped edits rebuild the same shared renderer with the same open ASIO device.
+See AUDIO_ARRANGEMENT.md and MRS_STAGE_1A_CHECKLIST.md. CI/user acceptance pending.
+The whole #21 remains open; clip editing, disk streaming and recording follow.
