@@ -8,9 +8,11 @@ gate остаётся pending в #16.
 Stage 2 #17 принят. Snapshot schema 2 с чтением v1.
 Stage 3 #18 принят после Windows-checker, PR #39 слит, issue закрыт.
 Stage 4 #19 принят пользователем, PR #40 слит в main, issue закрыт.
-Активная работа: MRS Stage 0 #20, mrs/stage-0-daw-foundation.
-Читать docs/DESKTOP_FOUNDATION.md и docs/MRS_STAGE_0_CHECKLIST.md.
-Это первый Windows DAW shell поверх общего ядра; следующее направление — #21.
+MRS Stage 0 #20 принят пользователем 2026-10-03; PR #41 слит в main.
+Пользователь подтвердил фикс восстановления ASIO после открытия другого WAV и перезапуска.
+Следующий этап: MRS Stage 1 #21 — Audio Arrangement.
+Читать issue #21, docs/DESKTOP_FOUNDATION.md и docs/AUDIO_ENGINE.md.
+Длительные проверки performance gate #16 остаются отложенными и nonblocking.
 
 
 Этот документ — короткая точка входа для нового чата, разработчика или агента, который подключается к проекту без контекста предыдущих обсуждений.
