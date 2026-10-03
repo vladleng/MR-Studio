@@ -76,11 +76,14 @@ persistence::ProjectDocument foundation_demo() {
 Application::Application() : engine_(std::make_shared<audio::AudioEngine>()) { demo(); }
 Application::~Application() {
     if (device_) device_->close();
+    // Finalize on clean shutdown; a completed file remains recoverable even if
+    // the UI did not attach/save its project reference.
+    if (recording_) try { (void)recording_->finish(); } catch (const std::exception&) {}
     for (auto& [key,value] : assets_) { (void)key; *value.cancel = true; }
 }
 void Application::workspace(Workspace w) { (void)workspace_name(w); workspace_ = w; }
 void Application::replace(persistence::ProjectDocument next) {
-    next.validate();
+    require_not_recording(); next.validate(); armed_.reset();
     // Build application models before releasing the old session.
     auto projects = std::make_shared<ProjectStore>(next.project);
     auto graphs = std::make_shared<processing::GraphStore>(next.graph);
@@ -103,13 +106,16 @@ void Application::start_empty_clock() {
     device->open(c,engine_); device->start(); device_ = std::move(device); device_config_ = c; audio_name_ = "Offline clock (no sound)";
 }
 void Application::demo() {
+    require_not_recording();
     path_.clear(); asset_root_.clear(); replace(foundation_demo());
 }
 void Application::open_project(const std::filesystem::path& path) {
+    require_not_recording();
     auto next = persistence::load_project(path); replace(std::move(next));
     path_ = path; asset_root_ = path.parent_path(); unsaved_ = false;
 }
 void Application::import_wav(const std::filesystem::path& path) {
+    require_not_recording();
     const auto asset = audio::open_wav(path); // validate before touching the current session
     auto d = persistence::demo_document(); d.project = Project{};
     d.project.id = new_id(); d.project.title = utf8(path.stem()); d.project.sample_rate = asset.sample_rate;
@@ -134,6 +140,7 @@ persistence::ProjectDocument Application::snapshot() const {
     result.validate(); return result;
 }
 void Application::save_project(const std::filesystem::path& path) {
+    require_not_recording();
     // No runtime parameter editor yet: GraphStore is authoritative, processor state unchanged.
     auto document = snapshot();
     if (std::filesystem::absolute(path.parent_path().empty() ? "." : path.parent_path()) !=
@@ -150,13 +157,23 @@ bool Application::dirty() const {
     return unsaved_ || services_.projects->state().revision != saved_project_revision_ || graphs_->state().revision != saved_graph_revision_;
 }
 void Application::rename_track(const Id& id, std::string name) {
+    require_not_recording();
     require(!name.empty() && name.size() <= 4096,"enter a track name");
     services_.projects->execute(RenameTrack{id,std::move(name)});
 }
+void Application::require_not_recording() const {
+    require(!recording_,"End recording before changing project, files or device");
+}
+void Application::sync_arm() {
+    const auto p = services_.projects->state().project;
+    if (armed_ && std::none_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t) { return t.id == *armed_; })) armed_.reset();
+}
 void Application::require_not_playing() const {
+    require_not_recording();
     require(engine_->state().playback != PlaybackState::playing,"Pause or stop playback before changing tracks or importing audio");
 }
 void Application::new_project(std::uint32_t rate) {
+    require_not_recording();
     auto d = foundation_demo(); d.project.id = new_id(); d.project.title = "Untitled";
     d.project.sample_rate = rate; d.project.tracks.clear(); d.project.clips.clear();
     d.project.chords.clear(); d.project.sections.clear(); d.project.markers.clear(); d.mixer.clear(); d.live_notes.clear();
@@ -218,7 +235,7 @@ void Application::edit(const ICommand& command) {
         }
     }
     require(streamed <= 32 && bytes <= 256*1024*1024,"disk voice budget exceeded (32 voices / 256 MiB)");
-    services_.projects->execute(command); rebuild_audio();
+    services_.projects->execute(command); sync_arm(); rebuild_audio();
 }
 Id Application::add_audio_track(std::string name) {
     require(!name.empty() && name.size() <= 4096,"enter a track name");
@@ -226,8 +243,8 @@ Id Application::add_audio_track(std::string name) {
 }
 void Application::remove_track(const Id& id) { edit(RemoveTrack{id}); }
 void Application::reorder_track(const Id& id, std::size_t index) { edit(ReorderTrack{id,index}); }
-bool Application::undo() { require_not_playing(); const auto changed = services_.projects->undo(); if (changed) rebuild_audio(); return changed; }
-bool Application::redo() { require_not_playing(); const auto changed = services_.projects->redo(); if (changed) rebuild_audio(); return changed; }
+bool Application::undo() { require_not_playing(); const auto changed = services_.projects->undo(); if (changed) { sync_arm(); rebuild_audio(); } return changed; }
+bool Application::redo() { require_not_playing(); const auto changed = services_.projects->redo(); if (changed) { sync_arm(); rebuild_audio(); } return changed; }
 Sample Application::source_frames(const Id& id) {
     const auto p = services_.projects->state().project;
     const auto it = std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip) { return clip.id == id; });
@@ -276,6 +293,7 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     require(c.sample_rate == services_.projects->state().project->sample_rate,"device/project rate mismatch; choose the project rate (resampling is a later stage)");
     require(!c.outputs.empty() && c.outputs.size() <= audio::max_channels && c.inputs.size() <= 1,"invalid channel selection");
     audio::RenderGraph result;
+    result.recording = recording_; result.monitoring = monitoring_;
     const auto config = processing::ProcessConfig{c.sample_rate,static_cast<std::uint32_t>(c.outputs.size()),8192,c.buffer_frames};
     prepared_ = std::make_shared<processing::PreparedGraph>(graphs_->state(),config);
     result.processors = prepared_;
@@ -295,10 +313,11 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
             voice.routes.push_back({channel,channel % static_cast<std::uint32_t>(c.outputs.size()),gain});
         result.voices.push_back(std::move(voice));
     }
-    if (!c.inputs.empty()) for (std::uint32_t channel = 0; channel < c.outputs.size(); ++channel) result.monitor.push_back({0,channel,1});
+    if (!c.inputs.empty()) for (std::uint32_t channel = 0; channel < std::min<std::size_t>(2,c.outputs.size()); ++channel) result.monitor.push_back({0,channel,1});
     return result;
 }
 void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::DeviceConfig c) {
+    require_not_recording();
     require(static_cast<bool>(device),"missing audio backend");
     auto infos = device->enumerate();
     const auto info = std::find_if(infos.begin(),infos.end(),[&](const auto& v) { return v.index == c.device; });
@@ -316,11 +335,16 @@ void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::De
     }
 }
 void Application::disconnect() {
+    require_not_recording();
     if (device_) { device_->close(); device_.reset(); }
     prepared_.reset(); device_config_.reset(); audio_name_ = "Disconnected";
     if (transport_) { engine_->prepare({engine_->config().sample_rate,0,2,8192},{}); transport_->poll(); }
 }
 void Application::poll() {
+    if (recording_ && (recording_->status().fault != audio::RecordFault::none ||
+        (recording_->status().frames > 0 && engine_->state().playback != PlaybackState::playing))) {
+        try { (void)stop_recording(); } catch (const std::exception& e) { recording_error_ = e.what(); }
+    }
     transport_->poll();
     for (auto& [key,value] : assets_) {
         (void)key;
@@ -331,7 +355,69 @@ void Application::poll() {
 audio::DeviceStatus Application::device_status() { return device_ ? device_->status() : audio::DeviceStatus{}; }
 bool Application::audio_running() { return device_status().phase == audio::DevicePhase::running; }
 void Application::play() { require(audio_running(),"connect audio or choose Offline clock first"); transport_->play(); }
-void Application::pause() { transport_->pause(); }
-void Application::stop() { transport_->stop(); }
-void Application::seek(Sample sample) { transport_->seek(sample); }
+void Application::pause() { if (recording_) (void)stop_recording(); else transport_->pause(); }
+void Application::stop() { if (recording_) (void)stop_recording(); transport_->stop(); }
+void Application::seek(Sample sample) { require_not_recording(); transport_->seek(sample); }
+
+void Application::arm_track(std::optional<Id> id) {
+    require_not_recording();
+    if (id) {
+        const auto p = services_.projects->state().project;
+        require(std::any_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t) { return t.id == *id && t.kind == TrackKind::audio; }),"arm an existing audio track");
+    }
+    armed_ = std::move(id);
+}
+void Application::monitoring(bool enabled) {
+    require(engine_->enqueue({audio::ControlKind::monitor,enabled ? 1 : 0}),"audio command queue full");
+    monitoring_ = enabled;
+}
+audio::RecordStatus Application::recording_status() const { return recording_ ? recording_->status() : last_recording_status_; }
+void Application::start_recording(const std::filesystem::path& destination) {
+    require_not_playing(); sync_arm(); require(armed_.has_value(),"select an audio track and press Arm track");
+    require(audio_running() && device_config_ && device_config_->inputs.size() == 1,"connect one ASIO input in Audio settings");
+    require(audio_name_ != "Offline clock (no sound)","recording needs a hardware input; Offline clock cannot record");
+    auto position = engine_->state();
+    require(!position.loop,"turn off loop before recording");
+    const auto p = services_.projects->state().project;
+    require(p->clips.size() < audio::max_voices && assets_.size() < 128,"no free clip/source capacity for a recording");
+    // Reserve a disk cursor for a long take before opening/writing any media.
+    std::size_t disk{}, bytes{};
+    for (const auto& clip : p->clips) {
+        auto data = asset(clip.source); if (data->file) { ++disk; bytes += 8*8192*static_cast<std::size_t>(data->channels)*sizeof(float); }
+    }
+    require(disk < 32 && bytes+8*8192*sizeof(float) <= 256*1024*1024,"no disk voice capacity for a recording");
+    device_->stop(); position = engine_->state();
+    try {
+        recording_error_.clear(); last_recording_status_ = {};
+        recording_ = std::make_shared<audio::Recorder>(destination,p->sample_rate,position.sample);
+        engine_->prepare({device_config_->sample_rate,1,static_cast<std::uint32_t>(device_config_->outputs.size()),8192},render(*device_config_),position);
+        transport_->play(); device_->start();
+    } catch (...) {
+        recording_.reset(); disconnect(); throw;
+    }
+}
+bool Application::stop_recording() {
+    if (!recording_) return false;
+    device_->stop();
+    auto position = engine_->state();
+    if (position.playback == PlaybackState::playing) position.playback = PlaybackState::paused;
+    auto session = std::move(recording_); // detach capture before any file/command work
+    try {
+        engine_->prepare({device_config_->sample_rate,1,static_cast<std::uint32_t>(device_config_->outputs.size()),8192},render(*device_config_),position);
+        auto result = session->finish(); last_recording_status_ = result.status;
+        if (result.status.fault != audio::RecordFault::none) {
+            recording_error_ = "Recording ended early (input dropout, disk backpressure, seek or size limit); valid prefix retained";
+        } else if (result.status.nonfinite_samples) recording_error_ = "Non-finite input samples replaced with silence";
+        if (!result.frames) { device_->start(); return false; }
+        last_take_ = result.path;
+        const auto source = utf8(result.path);
+        edit(AddRecordedClip{{new_id(),*armed_,utf8(result.path.stem()),session->start(),result.frames,0,source}});
+        return true;
+    } catch (const std::exception& e) {
+        recording_error_ = e.what();
+        // No capture pointer remains; preserve a playable paused session where possible.
+        if (device_ && device_config_) { try { device_->start(); } catch (...) { disconnect(); } }
+        throw;
+    }
+}
 } // namespace mrs::desktop

@@ -53,7 +53,8 @@ Native edit controls retain their normal typing/Undo behavior.
 The demo has explicit fixture harmony/sections and a quiet 220 Hz tone. Harmony
 is not inferred from a WAV. Open WAV creates a new audio project with no authored
 chords/sections and preloads/validates PCM/float WAV through the shared decoder. Connect enforces a 512 MiB aggregate decoded preload cap.
-Waveforms, clip editing, recording, resampling and MIDI editing are later stages.
+Waveforms/clip editing/streaming are implemented in Stage 1a–1c; recording in 1d.
+Resampling and MIDI editing remain later stages.
 
 Project documents use the accepted Stage 4 archive. Unknown chunks/state survive
 Open/Save. The controller replaces a project stopped using the silent offline clock. The shell
@@ -144,3 +145,12 @@ Mono voices route equally to the first two selected outputs (or the sole output)
 with no automatic spill into additional cue outputs. Stereo routing remains L/R.
 Menu placement, removed file/Live buttons and 150% layout are covered by GUI smoke;
 mono_route covers one, two and four output configurations.
+
+## 0.1e — Stage 1d
+Record (R), Arm track/Disarm and Monitor on/off share Application/AudioEngine.
+Input dBFS meter remains independent of monitor. Pause/Space ends the take; Stop
+ends it and returns to zero. Close finalizes before save/discard. Project/device
+edits and file commands are disabled during recording; monitor stays available.
+Recorded WAVs live under Audio beside the saved project, clips use absolute paths;
+Undo leaves media on disk. Input and recorded mono route only to the main pair.
+See RECORDING.md and MRS_STAGE_1D_CHECKLIST.md; physical acceptance is pending.

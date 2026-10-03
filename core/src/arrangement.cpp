@@ -22,6 +22,12 @@ void ImportAudio::apply(Project& p) const {
     p.tracks.insert(p.tracks.end(),tracks_.begin(),tracks_.end());
     p.clips.insert(p.clips.end(),clips_.begin(),clips_.end());
 }
+void AddRecordedClip::apply(Project& p) const {
+    const auto track = std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t) { return t.id == clip_.track; });
+    if (track == p.tracks.end() || track->kind != TrackKind::audio || clip_.source.empty())
+        throw std::invalid_argument("recording needs an existing audio track and source");
+    p.clips.push_back(clip_);
+}
 namespace {
 auto audio_clip(Project& p, const Id& id) {
     auto it = std::find_if(p.clips.begin(),p.clips.end(),[&](const auto& clip) { return clip.id == id; });

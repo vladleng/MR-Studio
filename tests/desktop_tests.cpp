@@ -75,7 +75,7 @@ void wav(const std::filesystem::path& path, std::uint16_t channels = 2) {
 }
 class ManualDevice final : public audio::IAudioDevice {
 public:
-    std::vector<audio::DeviceInfo> enumerate() override { return {{0,"Manual render test",{},{"L","R","Cue 1","Cue 2"},32,2048,128,-1}}; }
+    std::vector<audio::DeviceInfo> enumerate() override { return {{0,"Manual render test",{"Mic"},{"L","R","Cue 1","Cue 2"},32,2048,128,-1}}; }
     void control_panel(int) override {}
     void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>) override { phase_ = audio::DevicePhase::open; }
     void start() override { phase_ = audio::DevicePhase::running; }
@@ -305,6 +305,84 @@ void streaming() {
     CHECK(app.services().projects->state().project->clips.empty());
 }
 
+
+void recording() {
+    Directory dir; Application app; app.new_project(44100);
+    const auto backing = dir.path/"Backing.wav"; wav(backing);
+    app.import_wavs({backing});
+    const auto armed = app.add_audio_track("Vocal");
+    const auto project_file = dir.path/std::filesystem::path(std::u8string(u8"Запись.mrsproject"));
+    app.save_project(project_file);
+    rejects([&] { app.start_recording(dir.path/"No-arm.wav"); });
+    app.arm_track(armed);
+    rejects([&] { app.start_recording(dir.path/"Offline.wav"); });
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1,2,3}});
+    std::array<float,128> input{}; input.fill(0.25f);
+    std::array<float,512> output{};
+    app.seek(500); app.engine()->process(input.data(),output.data(),128);
+    CHECK(output[0] == 0.125f && output[1] == 0.125f && output[2] == 0 && output[3] == 0);
+    const auto project = app.services().projects;
+    const auto revision = project->state().revision;
+    const auto take = dir.path/"Take.wav";
+    app.start_recording(take); CHECK(app.recording());
+    app.engine()->process(input.data(),output.data(),128);
+    CHECK(output[0] == 0.18603515625f && output[1] == 0.18603515625f); // backing + monitor through gain
+    app.monitoring(false); app.engine()->process(input.data(),output.data(),128);
+    CHECK(output[0] == 0.06103515625f); // backing stays audible, input still captured
+    rejects([&] { app.new_project(); }); rejects([&] { app.save_project(project_file); });
+    rejects([&] { app.disconnect(); }); rejects([&] { app.seek(0); });
+    rejects([&] { app.undo(); }); rejects([&] { app.arm_track({}); });
+    rejects([&] { app.remove_track(armed); }); rejects([&] { app.rename_track(armed,"During rec"); });
+    CHECK(project->state().revision == revision && app.recording());
+    CHECK(app.stop_recording() && !app.recording() && app.audio_running());
+    CHECK(project->state().revision == revision+1 && app.dirty());
+    CHECK(project->state().project->tracks.size() == 2 && project->state().project->clips.size() == 2);
+    const auto clip = project->state().project->clips.back();
+    CHECK(clip.track == armed && clip.start == 500 && clip.length == 256 && clip.source_offset == 0);
+    CHECK(app.engine()->state().sample == 756 && app.engine()->state().playback == PlaybackState::paused);
+    const auto raw = audio::load_wav(take); CHECK(raw.channels == 1 && raw.frames() == 256);
+    for (auto value : raw.samples) CHECK(value == 0.25f);
+    CHECK(app.recording_status().frames == 256 && app.recording_error().empty());
+    CHECK(app.undo() && project->state().project->clips.size() == 1 && std::filesystem::exists(take));
+    CHECK(app.redo() && project->state().project->clips.back() == clip);
+    // Integrated import/edit/record/processor state/unknown-chunk save/load.
+    const auto imported = project->state().project->clips.front().id;
+    app.trim_clip(imported,100,900);
+    auto snapshot = app.snapshot(); snapshot.extensions = {{"FUTR","preserve with take"}};
+    persistence::save_project(project_file,snapshot);
+    app.open_project(project_file);
+    CHECK(app.snapshot().project == snapshot.project && app.snapshot().extensions == snapshot.extensions);
+    CHECK(app.snapshot().graph == snapshot.graph);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1,2,3}});
+    app.seek(500); app.engine()->process(input.data(),output.data(),128);
+    app.play(); app.engine()->process(input.data(),output.data(),128);
+    CHECK(output[0] == 0.18603515625f && output[1] == output[0]); // recorded mono centered with backing
+    CHECK(output[2] == 0 && output[3] == 0);
+    app.pause(); app.engine()->process(input.data(),output.data(),128);
+    app.save_project(project_file); CHECK(!app.dirty());
+    app.arm_track(armed); app.start_recording(dir.path/"Dropout.wav");
+    app.engine()->process(input.data(),output.data(),128);
+    app.engine()->process(nullptr,output.data(),128);
+    app.poll();
+    CHECK(!app.recording() && !app.recording_error().empty() && app.audio_running());
+    CHECK(app.recording_status().missing_blocks == 1);
+    // project pointer was replaced by Open, so inspect current store.
+    CHECK(app.services().projects->state().project->clips.back().length == 128);
+    CHECK(audio::load_wav(dir.path/"Dropout.wav").frames() == 128);
+    const auto count = app.services().projects->state().project->clips.size();
+    app.start_recording(dir.path/"Empty.wav"); CHECK(!app.stop_recording());
+    CHECK(app.services().projects->state().project->clips.size() == count && !std::filesystem::exists(dir.path/"Empty.wav"));
+    app.services().transport->set_loop(LoopRange{0,2000});
+    app.engine()->process(input.data(),output.data(),128);
+    rejects([&] { app.start_recording(dir.path/"Loop.wav"); });
+    app.services().transport->set_loop({}); app.engine()->process(input.data(),output.data(),128);
+    app.start_recording(dir.path/"Stop.wav"); app.engine()->process(input.data(),output.data(),128);
+    app.stop(); CHECK(!app.recording() && app.services().projects->state().project->clips.size() == count+1);
+    app.engine()->process(input.data(),output.data(),128); CHECK(app.engine()->state().sample == 0);
+    app.remove_track(armed); CHECK(!app.armed_track()); CHECK(app.undo());
+    app.arm_track(armed); app.redo(); CHECK(!app.armed_track());
+}
+
 void config() {
     Preferences p; p.workspace = Workspace::live; p.device_name = "Komplete Audio ASIO Driver"; p.reconnect_audio = true;
     CHECK(decode_preferences(encode_preferences(p)) == p);
@@ -328,7 +406,7 @@ int main(int argc, char** argv) {
         std::string name = argv[1];
         if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
-        else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else throw std::runtime_error("unknown suite");
+        else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else if (name == "recording") recording(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
 }

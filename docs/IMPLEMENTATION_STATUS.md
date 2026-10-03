@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Accepted: 0.1c / MRS Stage 1b clip editing #21. Next: 0.1e / Stage 1d recording/monitor (not started); Stage 1c accepted, PR #45 merged.
+Updated: 2026-10-03. Accepted: 0.1d upd1 fix1 / MRS Stage 1c #21 (PR #45 merged). Current: 0.1e / Stage 1d recording/monitor; user acceptance pending.
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -175,3 +175,14 @@ User confirmed all base 0.1d and UI/mono follow-up functions work. Stage 1c /
 2177219103682c08bc011b9c5e9baee8f8f00aa5 (all six CI jobs passed; Linux/ASIO 54/54,
 Windows offline 55/55). Whole #21 remains open. Next: Stage 1d / 0.1e recording,
 monitor foundation and integrated save/load acceptance; development not started.
+
+
+## MRS Stage 1d / 0.1e — implementation, acceptance pending
+User requested recording/monitor foundation after accepting Stage 1c UI/mono.
+One armed audio track, selected mono ASIO input, bounded worker WAV writing,
+independent runtime monitoring, dropout prefix retention, common take Undo/Redo,
+recorded/imported/edited clip save/load with graph and unknown archive chunks.
+Recording guards prevent project/seek/loop/device mutation until finalize.
+New suites: audio_recording, desktop_recording; GUI Arm/Disarm/controls smoke.
+Contracts: docs/RECORDING.md; manual acceptance: docs/MRS_STAGE_1D_CHECKLIST.md.
+Last accepted remains 0.1d upd1 fix1; #21 remains open pending user verification.

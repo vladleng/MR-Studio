@@ -1,5 +1,6 @@
 #include <mrs/audio.hpp>
 #include <mrs/read_ahead.hpp>
+#include <mrs/recording.hpp>
 #include <mrs/processing.hpp>
 #include <algorithm>
 #include <cmath>
@@ -11,6 +12,7 @@ static_assert(std::atomic<std::uint64_t>::is_always_lock_free);
 static_assert(std::atomic<std::uint32_t>::is_always_lock_free);
 static_assert(std::atomic<std::size_t>::is_always_lock_free);
 static_assert(std::atomic<Sample>::is_always_lock_free);
+static_assert(std::atomic<float>::is_always_lock_free);
 Sample AudioData::frames() const {
     return file ? file->frame_count : (channels ? static_cast<Sample>(samples.size() / channels) : 0);
 }
@@ -64,6 +66,9 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
             processor.max_block < config.max_block)
             throw std::invalid_argument("processor/audio render configuration mismatch");
     }
+    if (graph.recording && (config.input_channels != 1 || graph.recording->rate() != config.sample_rate ||
+        graph.recording->start() != initial.sample || initial.loop))
+        throw std::invalid_argument("recording needs one input, matching start/rate and no loop");
     std::size_t stream_bytes{}, stream_count{};
     for (auto& voice : graph.voices) if (voice.asset->file) {
         if (config.max_block > static_cast<std::uint32_t>(ReadAhead::page_frames))
@@ -82,6 +87,7 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     }
     config_ = config;
     graph_ = std::move(graph);
+    monitor_enabled_ = graph_.monitoring; input_peak_ = 0;
     Control discarded;
     while (controls_.pop(discarded)) {}
     rt_ = initial;
@@ -128,9 +134,10 @@ RealtimeState AudioEngine::state() const {
     }
     throw std::runtime_error("audio state busy; poll again");
 }
-void AudioEngine::process(const float* input, float* output, std::uint32_t frames) noexcept {
+void AudioEngine::process(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags) noexcept {
     callbacks_.fetch_add(1, std::memory_order_relaxed);
     if (!output || frames == 0 || frames > config_.max_block) {
+        if (graph_.recording) graph_.recording->input_dropout();
         invalid_blocks_.fetch_add(1, std::memory_order_relaxed);
         // Silence an oversized but valid device buffer without indexing assets.
         if (output) std::fill_n(output, static_cast<std::size_t>(frames) * config_.output_channels, 0.0F);
@@ -142,6 +149,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     Control control;
     for (int i = 0; i < 63 && controls_.pop(control); ++i) {
         switch (control.kind) {
+        case ControlKind::monitor: monitor_enabled_ = control.a != 0; break;
         case ControlKind::play: rt_.playback = PlaybackState::playing; break;
         case ControlKind::pause:
             if (rt_.playback == PlaybackState::playing) rt_.playback = PlaybackState::paused;
@@ -151,12 +159,14 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             if (graph_.processors) graph_.processors->panic();
             break;
         case ControlKind::seek:
+            if (graph_.recording) { graph_.recording->input_dropout(); break; }
             if (control.a >= 0 && control.a <= max_sample) {
                 rt_.sample = control.a;
                 if (graph_.processors) graph_.processors->panic();
             }
             break;
         case ControlKind::loop:
+            if (graph_.recording) { graph_.recording->input_dropout(); break; }
             if (control.a >= 0 && control.a < control.b && control.b <= max_sample)
                 rt_.loop = LoopRange{control.a, control.b};
             else if (control.a == 0 && control.b == 0) rt_.loop.reset();
@@ -164,13 +174,21 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         }
     }
     std::fill_n(output, static_cast<std::size_t>(frames) * config_.output_channels, 0.0F);
-    if (!input && !graph_.monitor.empty()) missing_inputs_.fetch_add(1, std::memory_order_relaxed);
+    float peak{};
+    if (input) for (std::size_t n=0; n<static_cast<std::size_t>(frames)*config_.input_channels; ++n)
+        if (std::isfinite(input[n])) peak = std::max(peak,std::abs(input[n]));
+    input_peak_.store(peak,std::memory_order_relaxed);
+    if (graph_.recording && rt_.playback == PlaybackState::playing) {
+        if (input_flags & 3U) graph_.recording->input_dropout();
+        graph_.recording->capture(input,config_.input_channels,frames,rt_.sample);
+    }
+    if (!input && monitor_enabled_ && !graph_.monitor.empty()) missing_inputs_.fetch_add(1, std::memory_order_relaxed);
     for (auto& voice : graph_.voices) if (voice.stream)
         voice.stream->begin(voice.source_offset+std::clamp(rt_.sample-voice.start,Sample{0},voice.length-1));
     for (std::uint32_t frame = 0; frame < frames; ++frame) {
         const auto out = static_cast<std::size_t>(frame) * config_.output_channels;
         // Monitoring is independent of transport and playback source density.
-        if (input) {
+        if (input && monitor_enabled_) {
             const auto in = static_cast<std::size_t>(frame) * config_.input_channels;
             for (const auto& route : graph_.monitor)
                 output[out + route.output_channel] += input[in + route.input_channel] * route.gain;
@@ -230,6 +248,7 @@ void AudioEngine::observe(std::uint64_t ns, std::uint32_t frames, std::uint32_t 
 }
 Metrics AudioEngine::metrics() const {
     Metrics m;
+    m.input_peak = input_peak_.load();
     m.disk_underruns = disk_underruns_.load();
     for (const auto& voice : graph_.voices) if (voice.stream) m.disk_errors += voice.stream->errors();
     m.callbacks = callbacks_.load(); m.input_overflows = input_overflows_.load();

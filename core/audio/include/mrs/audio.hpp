@@ -25,6 +25,7 @@ struct WavFile {
 };
 WavFile inspect_wav(const std::filesystem::path&);
 class ReadAhead;
+class Recorder;
 struct AudioData {
     std::uint32_t sample_rate{48000};
     std::uint32_t channels{2};
@@ -45,6 +46,8 @@ struct RenderGraph {
     std::vector<Voice> voices;
     std::vector<MonitorRoute> monitor;
     std::shared_ptr<processing::PreparedGraph> processors{};
+    std::shared_ptr<Recorder> recording{};
+    bool monitoring{true};
 };
 struct RenderConfig {
     std::uint32_t sample_rate{48000};
@@ -60,6 +63,7 @@ struct Metrics {
     std::uint64_t max_callback_ns{}, measured_callbacks{};
     std::uint32_t min_frames{}, max_frames{};
     double p50_load_percent{}, p95_load_percent{}, p99_load_percent{};
+    float input_peak{};
 };
 // One producer (control thread), one consumer (audio thread), fixed storage.
 template<class T, std::size_t Capacity> class SpscQueue {
@@ -84,7 +88,7 @@ public:
         return true;
     }
 };
-enum class ControlKind { play, pause, stop, seek, loop };
+enum class ControlKind { play, pause, stop, seek, loop, monitor };
 struct Control { ControlKind kind{}; Sample a{}, b{}; };
 struct RealtimeState {
     PlaybackState playback{PlaybackState::stopped};
@@ -103,7 +107,7 @@ public:
     void prime_loop(std::optional<LoopRange>); // control thread
     // RT entry: supplied interleaved buffers have frames * configured channels.
     // No locks/allocations/I/O/listeners/ProjectStore calls in this function.
-    void process(const float* input, float* output, std::uint32_t frames) noexcept;
+    void process(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags = 0) noexcept;
     // Backend passes measured callback body duration, on the same audio thread.
     void observe(std::uint64_t duration_ns, std::uint32_t frames, std::uint32_t flags) noexcept;
     RealtimeState state() const; // control-thread bounded coherent mailbox read
@@ -112,6 +116,8 @@ public:
 private:
     RenderConfig config_;
     RenderGraph graph_;
+    bool monitor_enabled_{true};
+    std::atomic<float> input_peak_{};
     SpscQueue<Control, 64> controls_;
     RealtimeState rt_;
     std::atomic<std::uint64_t> sequence_{};
