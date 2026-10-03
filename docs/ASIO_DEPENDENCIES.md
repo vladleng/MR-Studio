@@ -27,8 +27,11 @@ frames are unspecified, avoiding an additional fixed user-buffer layer.
 Observed callback frames and reported stream latency are recorded. Driver
 fallback is a REVIEW, not an assumed performance pass.
 
-The official ASIO SDK is downloaded into the build directory by PortAudio,
-or supplied with `-DMRS_ASIO_SDK_ZIP=...`. Its checksum is recorded in CI.
+The official ASIO SDK is downloaded into the build directory by MRS CMake,
+or supplied with `-DMRS_ASIO_SDK_ZIP=...`. It is pinned by SHA256:
+`d5ebf0c20dd2c5f43771fd0c1418f4b361bf52434ee670097cfa6b3a335e2eca`.
+A changed upstream archive fails explicitly; review its version/license and
+update the pin deliberately rather than silently compiling a new SDK.
 No SDK source is committed to MRS or included in the checker package.
 PortAudio's license notice and the obtained SDK license notice accompany
 the developer checker.

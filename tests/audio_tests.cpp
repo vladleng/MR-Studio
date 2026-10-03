@@ -165,7 +165,11 @@ std::string wav_bytes(std::uint16_t format, std::uint16_t bits, const std::strin
     return bytes;
 }
 struct TempFile {
-    std::filesystem::path path = std::filesystem::temp_directory_path() / (new_id().value + ".wav");
+    std::filesystem::path path;
+    TempFile() {
+        path = std::filesystem::temp_directory_path() / std::filesystem::path{u8"mrs-аудио-"};
+        path += new_id().value + ".wav";
+    }
     void write(const std::string& bytes) { std::ofstream out(path,std::ios::binary); out.write(bytes.data(),static_cast<std::streamsize>(bytes.size())); }
     ~TempFile() { std::error_code error; std::filesystem::remove(path,error); }
 };

@@ -30,6 +30,12 @@ int number(std::string_view text) {
     if (end != text.size() || n < 0 || n > 1000000) throw std::invalid_argument("invalid numeric argument");
     return static_cast<int>(n);
 }
+std::filesystem::path utf8_path(std::string_view value) {
+    std::u8string encoded;
+    encoded.reserve(value.size());
+    for (const unsigned char c : value) encoded.push_back(static_cast<char8_t>(c));
+    return std::filesystem::path{encoded};
+}
 std::vector<int> channels(std::string_view text) {
     std::vector<int> result;
     std::istringstream in{std::string(text)};
@@ -177,8 +183,8 @@ Options parse(int argc, char** argv) {
         else if (arg == "--voices") o.voices = static_cast<std::uint32_t>(number(value()));
         else if (arg == "--monitor-input") { o.monitor = number(value()) - 1; if (o.monitor < 0) throw std::invalid_argument("input is one-based"); }
         else if (arg == "--outputs") o.outputs = channels(value());
-        else if (arg == "--wav") o.wavs.emplace_back(std::filesystem::u8path(value()));
-        else if (arg == "--report") o.report = std::filesystem::u8path(value());
+        else if (arg == "--wav") o.wavs.emplace_back(utf8_path(value()));
+        else if (arg == "--report") o.report = utf8_path(value());
         else throw std::invalid_argument("unknown option: " + arg);
     }
     if (o.seconds == 0 || o.seconds > 14400 || o.voices == 0 || o.voices > 128)
@@ -214,7 +220,7 @@ Options interactive(Options o, const std::vector<DeviceInfo>& devices) {
     std::cout << "Mode 1=silence, 2=tone, 3=WAV playback, 4=input monitor\n";
     const auto mode = number(prompt("Mode", "1"));
     if (mode == 2) o.tone = true;
-    else if (mode == 3) o.wavs.emplace_back(std::filesystem::u8path(prompt("WAV path without surrounding quotes", "")));
+    else if (mode == 3) o.wavs.emplace_back(utf8_path(prompt("WAV path without surrounding quotes", "")));
     else if (mode == 4) {
         std::cout << "Use headphones for microphone monitoring.\n";
         o.monitor = number(prompt("Physical input (one-based)", "1")) - 1;
