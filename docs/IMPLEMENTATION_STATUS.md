@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Active: 0.1c / MRS Stage 1b clip editing #21.
+Updated: 2026-10-03. Accepted: 0.1c / MRS Stage 1b clip editing #21. Next: 0.1d / Stage 1c disk read-ahead (not started).
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -101,13 +101,14 @@ Windows ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/371216
 Hardware confirmation pending: Play, Pause away from zero, delete/import/Undo,
 then resume from retained position without manual Connect.
 
-## 0.1c — Stage 1b implementation
+## 0.1c — Stage 1b accepted
 Shared non-destructive clip move/trim/split/delete and Application graph synchronization.
 Windows clip selection/drag preview, edge trim, Split/Delete, optional 1/16 snap.
 Same shared Undo, renderer, asset cache and paused/stopped position retention.
 Regression tests cover split-boundary playback, source bounds/offset recovery,
 invalid edit atomicity and save/load. See MRS_STAGE_1B_CHECKLIST.md.
-CI passed; user acceptance pending; #21 remains open; read-ahead/recording follow.
+CI passed; user confirmed all functions working on 2026-10-03; PR #44 merged.
+#21 remains open; next: Stage 1c / 0.1d disk read-ahead, then recording.
 
 ### 0.1c validation
 Validated head: 8b545c2c7f0d048594fb0f836069be0578d50cf5.
@@ -116,5 +117,7 @@ Windows offline Debug/Release 52/52 including GUI drag preview/commit/cancel and
 Core CI: https://github.com/vladleng/MR-Studio/actions/runs/37122666526
 ASIO CI: https://github.com/vladleng/MR-Studio/actions/runs/37122666518
 ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37122666518/artifacts/11274196641
-Manual Windows acceptance pending: docs/MRS_STAGE_1B_CHECKLIST.md.
-PR #44 unmerged; Stage 1b and whole #21 remain open.
+Manual Windows acceptance passed: docs/MRS_STAGE_1B_CHECKLIST.md.
+Stage 1b accepted by user on 2026-10-03; PR #44 merged into main.
+Merge commit: b5a481516e6a588dc0c1ca521d090849055397d3.
+Whole #21 remains open for Stage 1c/1d.

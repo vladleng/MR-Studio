@@ -28,7 +28,7 @@ Windows UI: New, Import WAVs, Add Track/Delete/Up/Down, Zoom +/- and Fit.
 Track list selection brings its row into view; wheel scrolls tracks and Shift+wheel
 scrolls time. Later substages add move/trim/split and recording/streaming.
 See MRS_STAGE_1A_CHECKLIST.md. Stage 1a accepted by user on 2026-10-03; PR #42 merged. #21 remains open.
-Next substage 1b: clip selection, move/trim/split and shared Undo/Redo.
+Stage 1b clip selection, move/trim/split and shared Undo/Redo is accepted below.
 
 ## 0.1b fix1
 Permit track deletion/import/Undo while paused. Preserve playhead and loop when
@@ -50,4 +50,6 @@ positions the common transport for Split. S splits; Delete removes only the sele
 clip. Optional 1/16 tick-based snap follows tempo map; Shift bypasses it.
 Selection is available during playback; graph edits require Pause or Stop.
 No source file writes, alternate renderer or second undo stack.
-See MRS_STAGE_1B_CHECKLIST.md. CI/user acceptance pending for 0.1c.
+See MRS_STAGE_1B_CHECKLIST.md. All six CI jobs passed; user confirmed all functions
+working on 2026-10-03. Stage 1b / 0.1c accepted; PR #44 merged into main.
+Next: Stage 1c / 0.1d disk read-ahead and long-file playback; development not started.

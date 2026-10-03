@@ -30,3 +30,8 @@ WAV PCM/float only; no resampling, disk streaming or recording yet.
 Overlapping clips sum in the existing renderer; no crossfade/overlap editor yet.
 Preload limits still apply; at most 128 clip voices (split consumes one).
 #21 remains open after acceptance of 1b. Next: disk read-ahead (Stage 1c).
+
+## Acceptance — 2026-10-03
+User confirmed all functions working. Stage 1b / 0.1c accepted; PR #44 merged into main.
+All six CI jobs passed: Linux/Windows ASIO 51/51, Windows offline 52/52 including GUI smoke.
+Next: Stage 1c / 0.1d disk read-ahead and long-file playback. Whole #21 remains open.

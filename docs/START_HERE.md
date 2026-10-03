@@ -12,11 +12,12 @@ MRS Stage 0 #20 принят пользователем 2026-10-03; PR #41 сл�
 Пользователь подтвердил фикс восстановления ASIO после открытия другого WAV и перезапуска.
 MRS Stage 1a #21 принят пользователем 2026-10-03; PR #42 слит в main.
 0.1b fix1 принят пользователем 2026-10-03; PR #43 слит в main.
-Активный подэтап: MRS Stage 1b #21 / версия 0.1c — clip move/trim/split, selection и Undo.
-Ветка mrs/0.1c-clip-editing; приёмка 0.1c pending.
-Правила версий: docs/VERSIONING.md. Читать docs/MRS_STAGE_1B_CHECKLIST.md.
-Читать issue #21, docs/AUDIO_ARRANGEMENT.md и docs/MRS_STAGE_1B_CHECKLIST.md.
-Следующие подэтапы #21: disk read-ahead и recording foundation.
+MRS Stage 1b / 0.1c принят пользователем 2026-10-03: все функции работают; PR #44 слит в main.
+Следующий подэтап: MRS Stage 1c #21 / версия 0.1d — disk read-ahead и long-file playback.
+Разработка 0.1d ещё не начата; текущая сборка остаётся 0.1c.
+Правила версий: docs/VERSIONING.md. Читать issue #21 и docs/AUDIO_ARRANGEMENT.md.
+Приёмка 0.1c: docs/MRS_STAGE_1B_CHECKLIST.md.
+После 1c: recording foundation и integrated save/load; весь #21 остаётся открытым.
 Длительные проверки performance gate #16 остаются отложенными и nonblocking.
 
 

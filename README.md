@@ -273,7 +273,8 @@ into the current project, per-channel waveforms and zoom/scroll. Uses the same
 shared ProjectStore/Undo/AudioEngine and retained ASIO connection for stopped edits.
 [Contracts](docs/AUDIO_ARRANGEMENT.md) · [Windows checklist](docs/MRS_STAGE_1A_CHECKLIST.md).
 Stage 1a accepted by user on 2026-10-03; PR #42 merged into main.
-Next: Stage 1b — non-destructive clip move/trim/split, selection and Undo.
+Stage 1b (0.1c) accepted by user on 2026-10-03; PR #44 merged into main.
+Next: Stage 1c (0.1d) — disk read-ahead and long-file playback.
 Streaming and recording are later #21 substages.
 
 ## Версии сборок
@@ -281,6 +282,7 @@ Streaming and recording are later #21 substages.
 fix1/fix2 для ошибок. Stage IDs сохраняют структуру плана.
 [Правила и текущее соответствие](docs/VERSIONING.md).
 **0.1b fix1** принят пользователем и интегрирован через PR #43.
-Текущий подэтап: **0.1c / MRS Stage 1b** — выбор, перемещение, обрезка и разделение клипов,
+Принятый подэтап: **0.1c / MRS Stage 1b** — выбор, перемещение, обрезка и разделение клипов,
 удаление отдельного клипа и общий Undo/Redo. UI drag preview, snap 1/16, сохранение позиции Pause.
-[Windows checklist](docs/MRS_STAGE_1B_CHECKLIST.md). Приёмка 0.1c pending.
+[Windows checklist](docs/MRS_STAGE_1B_CHECKLIST.md). Пользователь подтвердил все функции 2026-10-03; PR #44 слит в main.
+Следующий подэтап: **0.1d / MRS Stage 1c** — disk read-ahead и воспроизведение длинных WAV.
