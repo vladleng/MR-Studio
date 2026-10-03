@@ -1,73 +1,97 @@
-# Moon River Live — Live Workflow
+# Moon River Studio — Live Mode Workflow
 
-## 1. Подготовка песни
+## 1. Что такое Live Mode
 
-Рабочая схема:
+Live Mode — встроенный performance/show режим Moon River Studio.
 
-1. Песня редактируется в Fender Studio Pro.
-2. В проекте оформляются:
-   - tempo;
-   - Chord Track;
-   - Arranger Track;
-   - markers;
-   - tracks/folders;
-   - playback assets.
-3. Пользователь запускает Moon River Bridge.
-4. Bridge экспортирует/обновляет `.moonlive` package.
-5. Moon River Live открывает пакет и проверяет целостность данных.
+Он работает с тем же project, который пользователь редактирует в Arrange/Edit/Mix.
 
-## 2. Подготовка к выступлению
+Обычный workflow не требует экспорта песни в отдельное live-приложение.
+
+```text
+MRS Project
+   |
+Arrange / Edit / Mix
+   |
+Live Mode
+```
+
+## 2. Подготовка песни
+
+В Moon River Studio пользователь подготавливает:
+
+- tempo / tempo map;
+- Chord Track;
+- Arranger Track;
+- markers/cues;
+- audio/MIDI tracks;
+- routing;
+- plugins/native processors;
+- live metadata/patch assignments.
+
+Затем переключается в Live Mode.
+
+Studio Pro import #3 может использоваться для переноса существующего проекта в нативный MRS Project Model, но не является частью обычного runtime workflow.
+
+## 3. Подготовка к выступлению
 
 Перед концертом пользователь:
 
-- собирает setlist;
-- проверяет audio outputs;
+- собирает setlist из MRS projects;
+- проверяет audio interface/ASIO;
+- проверяет sample rate/buffer;
+- проверяет input/output routing;
 - проверяет MIDI devices;
-- проверяет click/cue routing;
-- выполняет preload песен;
-- запускает preflight check.
+- проверяет click/cue outputs;
+- проверяет plugins/patches;
+- выполняет preload;
+- запускает preflight.
 
-Preflight должен сообщать о проблемах до начала выступления:
+Пример:
 
 ```text
-✓ 14 songs loaded
-✓ Audio device connected
-✓ Guitar MIDI connected
+✓ 14 projects available
+✓ ASIO device connected
+✓ Sample rate: 48 kHz
+✓ Guitar input ready
+✓ MIDI controller connected
 ✓ Click output available
-! Song 07: cue.wav missing
+! Song 07: cue asset missing
 ```
 
-## 3. Экран песни
+## 4. Live Mode UI
 
-Минимальный live-view:
+Основной performance экран должен показывать:
+
+- current song/project;
+- moving Chord Track;
+- current/next chord;
+- current/next section;
+- bar/beat/time;
+- upcoming cue/marker;
+- patch state;
+- transport;
+- next song;
+- audio/MIDI/device status.
+
+Визуальный принцип подробно описан в `UI_UX_CONCEPT.md`.
+
+## 5. Moving Chord Track
+
+Вместо больших статичных chord cards используется горизонтальная moving strip:
 
 ```text
-┌───────────────────────────────────────────────┐
-│ MOON RIVER                       112 BPM  4/4 │
-├───────────────────────────────────────────────┤
-│                                               │
-│                    Gmaj7                      │
-│                                               │
-│                  NEXT: Em7                    │
-│                                               │
-├───────────────────────────────────────────────┤
-│ INTRO │ VERSE │ VERSE │ SOLO │ CHORUS │ OUTRO│
-│                         ▲                     │
-├───────────────────────────────────────────────┤
-│ BAR 33 / 64                 02:13 / 04:21     │
-├───────────────────────────────────────────────┤
-│ Current: SOLO                                  │
-│ Next: CHORUS                                   │
-│ Cue: Женя вступает                             │
-│ Guitar: Lead                                   │
-└───────────────────────────────────────────────┘
+Dm7 | G7 | [ Gmaj7 ] | Em7 | Am7 | D7
+             ^ playhead
 ```
 
-Интерфейс должен считываться с расстояния и не требовать мелких точных действий мышью.
+Chord Track берётся из общего Project Model, позиция — из общего Transport.
 
-## 4. Основные live-команды
+Live Mode не вычисляет собственную timeline position.
 
-Первая версия:
+## 6. Основные live-команды
+
+Базовые:
 
 - Play;
 - Pause;
@@ -83,107 +107,149 @@ Preflight должен сообщать о проблемах до начала 
 - Stop at End;
 - Continue to Next;
 - Skip Section;
-- Rehearsal loop;
+- Rehearsal Loop;
 - emergency fade out.
 
-## 5. Поведение секций
+Transport остаётся тем же SHARED Transport, которым пользуется вся DAW.
 
-Arranger Section является основной единицей музыкальной навигации.
+## 7. Секции и performance metadata
 
-Каждая секция может иметь live-настройки:
+Arranger Section является основной единицей performance-навигации.
 
 ```text
 Section: SOLO
 ├── guitar patch: Lead
 ├── keys patch: Rhodes
 ├── note: 8 bars
-├── midi actions
+├── MIDI actions
 ├── loop policy
 └── stop/continue policy
 ```
 
-## 6. Playback modes
+Live metadata привязываются к стабильным IDs sections проекта.
 
-### Stereo mode
+## 8. Playback
 
-Самый ранний и надёжный режим:
+Live Mode использует общий Audio Engine MRS.
+
+### Project playback
+
+Обычные audio/MIDI tracks проекта продолжают воспроизводиться тем же engine.
+
+### Stems / backing workflow
+
+Если show использует подготовленные stems:
 
 ```text
-backing.wav → Main Out
+Drums --------┐
+Bass ---------+-> Main Out
+Percussion ---+
+Back Vocals --┘
+
+Click -> IEM / dedicated out
+Cue   -> IEM / dedicated out
 ```
 
-### Stems mode
+Это routing общего mixer/audio graph, а не отдельный Live playback engine.
+
+## 9. Playback preparation
+
+Для концертной подготовки допускаются неразрушающие параметры Live Mode:
+
+- overall playback gain;
+- Trim Start;
+- Trim End;
+- End Behavior.
+
+Они не должны переписывать исходные clips/audio files.
+
+## 10. Live Inputs / Patches
+
+Live guitar/vocal/keys проходят через общий low-latency Audio/Plugin graph.
+
+Patch — state общего processor graph.
 
 ```text
-Drums ───────┐
-Bass ────────┤→ Main Out
-Percussion ──┤
-Back Vocals ─┘
-
-Click → Phones / IEM
-Cue   → Phones / IEM
+Current Patch -> ACTIVE
+Next Patch    -> PRELOADED / WARM
 ```
 
-## 7. Song transition
+На section boundary выполняется быстрый state switch/crossfade, а не загрузка тяжёлой chain с нуля.
 
-При завершении песни приложение заранее подготавливает следующую.
+## 11. Song / Project transition
 
-Желаемый сценарий:
+Следующий MRS project подготавливается заранее:
 
 ```text
-Song A playing
+Project A playing
       ↓
-Song B preload
+Project B preload
       ↓
-Song A ends
+Project A ends
       ↓
-ready state / optional auto-continue
+Ready / optional continue
 ```
 
-Загрузка следующей песни не должна вызывать dropout текущего playback.
+Preload не должен вызывать dropout текущего audio.
 
-## 8. Foot control
+## 12. Setlist
 
-Будущий pedal workflow:
+Setlist — show-level state, содержащий ссылки на MRS projects.
+
+Он не копирует project content.
 
 ```text
-Button 1 → Play / Pause
-Button 2 → Next Section
-Button 3 → Previous Section
-Button 4 → Next Song
-Long press → Stop
+Setlist
+├── Project A ref
+├── Project B ref
+├── Project C ref
+└── show-specific notes/overrides
 ```
 
-Mapping должен быть настраиваемым.
+## 13. Foot control
 
-## 9. Rehearsal Mode
+Пример:
 
-Отдельный режим, где допустимы действия, опасные на концерте:
+```text
+Button 1 -> Play / Pause
+Button 2 -> Next Section
+Button 3 -> Previous Section
+Button 4 -> Next Song
+Long press -> Stop
+```
 
-- свободный seek;
-- loop section;
+Mapping настраиваемый и работает через общий MIDI/control layer.
+
+## 14. Rehearsal behavior
+
+Внутри Live Mode можно предусмотреть rehearsal state, где доступны:
+
+- free seek;
+- section loop;
 - repeated section;
-- выбор отдельных stems;
-- solo/mute;
-- быстрое редактирование заметок.
+- stems mute/solo;
+- note editing;
+- быстрые навигационные действия.
 
-В Performance Mode интерфейс должен быть строже и защищён от случайных действий.
+Concert/Performance state должен быть строже и защищать опасные действия.
 
-## 10. Performance Mode
+## 15. Performance behavior
 
 Принципы:
 
 - крупные элементы;
-- минимум диалогов;
-- подтверждение опасных действий;
-- отсутствие фоновых обновлений;
+- moving Chord Track;
+- минимум модальных окон;
+- основные controls всегда видимы;
+- destructive/system actions отделены;
 - отсутствие обязательного интернета;
-- сохранение last known show state;
-- предсказуемое поведение transport.
+- UI/AI/network не влияют на audio thread;
+- сохранение last-known show state;
+- predictable transport behavior.
 
-## 11. Recovery
+## 16. Recovery
 
-После перезапуска приложение должно предложить:
+После перезапуска MRS может предложить:
 
 ```text
 Resume last show?
@@ -192,11 +258,11 @@ Song: Moon River
 Last position: bar 33
 ```
 
-Самовосстановление playback позиции во время реального концерта должно быть отдельной, осторожно реализованной функцией. На раннем этапе достаточно восстановить выбранную песню и показать последнюю позицию.
+На раннем этапе безопаснее восстановить show/project selection и показать последнюю позицию, чем автоматически продолжать audio playback.
 
-## 12. Remote workflow
+## 17. Remote workflow
 
-Телефон/планшет на первом этапе remote работает как дополнительный монитор:
+Первый remote/client — дополнительный монитор:
 
 ```text
 CURRENT: Gmaj7
@@ -206,12 +272,34 @@ NEXT SECTION: Chorus
 BAR: 33
 ```
 
-Управление transport с remote добавляется только после того, как desktop transport станет стабильным.
+Transport control добавляется позже с permission/safety model.
 
-## 13. Концертный критерий качества
+Remote работает через prepared application state и не входит в realtime audio path.
 
-Любая новая функция считается готовой только после проверки минимум в трёх сценариях:
+## 18. Preflight
 
-1. обычная репетиция;
-2. длинный непрерывный playback;
-3. стресс-тест с переходами между песнями и секциями.
+Перед show проверяются минимум:
+
+- project files/assets;
+- ASIO device;
+- sample rate/buffer;
+- output routing;
+- live inputs;
+- MIDI devices;
+- plugin availability/state;
+- click/cue routing;
+- next-project preload readiness.
+
+## 19. Концертный критерий качества
+
+Live-функция считается готовой только после:
+
+1. обычной репетиции;
+2. long continuous playback;
+3. stress-test transitions;
+4. проверки failure/recovery paths;
+5. отсутствия regression в SHARED Audio Engine.
+
+## 20. Главный принцип
+
+> **Live Mode — это performance-представление и show workflow того же Moon River Studio project, а не отдельное приложение.**
