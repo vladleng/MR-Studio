@@ -79,11 +79,13 @@ public:
     void control_panel(int) override {}
     void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>) override { phase_ = audio::DevicePhase::open; }
     void start() override { phase_ = audio::DevicePhase::running; }
-    void stop() override { phase_ = audio::DevicePhase::stopped; }
+    void stop() override { if (fail_stop_) throw std::runtime_error("test driver stop failure"); phase_ = audio::DevicePhase::stopped; }
+    void fail_driver() { phase_ = audio::DevicePhase::error; fail_stop_ = true; }
     void close() noexcept override { phase_ = audio::DevicePhase::closed; }
     audio::DeviceStatus status() override { return {phase_,44100,0,0,0,{}}; }
 private:
     audio::DevicePhase phase_{audio::DevicePhase::closed};
+    bool fail_stop_{};
 };
 void assets() {
     Directory dir; auto file = dir.path / "music.wav"; wav(file); Application app; app.import_wav(file);
@@ -381,6 +383,15 @@ void recording() {
     app.engine()->process(input.data(),output.data(),128); CHECK(app.engine()->state().sample == 0);
     app.remove_track(armed); CHECK(!app.armed_track()); CHECK(app.undo());
     app.arm_track(armed); app.redo(); CHECK(!app.armed_track());
+    CHECK(app.undo()); app.arm_track(armed);
+    auto broken = std::make_unique<ManualDevice>(); auto* driver = broken.get();
+    app.connect(std::move(broken),{0,44100,128,{0},{0,1}});
+    app.start_recording(dir.path/"Driver-failure.wav");
+    app.engine()->process(input.data(),output.data(),128);
+    driver->fail_driver(); app.poll();
+    CHECK(!app.recording() && !app.audio_running() && app.audio_name() == "Disconnected");
+    CHECK(!app.recording_error().empty() && audio::load_wav(dir.path/"Driver-failure.wav").frames() == 128);
+    CHECK(app.services().projects->state().project->clips.back().length == 128);
 }
 
 void config() {

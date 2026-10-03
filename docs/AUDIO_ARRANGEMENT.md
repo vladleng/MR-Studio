@@ -100,3 +100,11 @@ ring and background WAV writer, independent monitoring and one-step take attachm
 through the existing ProjectStore/Undo. Same engine/device/transport, archive schema
 unchanged. See [recording contracts](RECORDING.md) and
 [Windows checklist](MRS_STAGE_1D_CHECKLIST.md). Hardware acceptance pending.
+
+
+Read-ahead follow-up: priming now reads atomic published page tags without claiming
+callback pins. The earlier control scan could briefly make a ready page unavailable
+to concurrent render. Streaming regression repeats concurrent seeks and keeps exact
+sample, zero-underrun and zero-allocation assertions. Recording driver Stop failure
+closes the backend before draining/attaching the take, reports disconnection and
+requires an explicit reconnect; simulated driver failure is covered by desktop_recording.

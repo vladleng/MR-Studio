@@ -37,12 +37,13 @@ void Recorder::fail(RecordFault value) noexcept {
     int expected = 0; (void)fault_.compare_exchange_strong(expected,static_cast<int>(value),std::memory_order_relaxed);
 }
 void Recorder::input_dropout() noexcept { missing_.fetch_add(1,std::memory_order_relaxed); fail(RecordFault::missing_input); }
+void Recorder::discontinuity() noexcept { jumps_.fetch_add(1,std::memory_order_relaxed); fail(RecordFault::discontinuity); }
 void Recorder::capture(const float* input, std::uint32_t channels, std::uint32_t frames, Sample position) noexcept {
     if (fault_.load(std::memory_order_relaxed) || quit_.load(std::memory_order_relaxed)) return;
     if (!input || channels == 0) { input_dropout(); return; }
     const auto write = write_.load(std::memory_order_relaxed);
     if (position < start_ || static_cast<std::uint64_t>(position-start_) != write) {
-        jumps_.fetch_add(1,std::memory_order_relaxed); fail(RecordFault::discontinuity); return;
+        discontinuity(); return;
     }
     if (write > maximum_frames || frames > maximum_frames-write ||
         static_cast<std::uint64_t>(max_sample-start_) < write+frames) { fail(RecordFault::size_limit); return; }

@@ -21,6 +21,7 @@ public:
     // One audio producer only. Raw selected mono input, before monitor/processors.
     void capture(const float*, std::uint32_t input_channels, std::uint32_t frames, Sample position) noexcept;
     void input_dropout() noexcept;
+    void discontinuity() noexcept;
     RecordStatus status() const noexcept;
     RecordedFile finish(); // ONLY after callback stops: drain, repair header, publish
 private:

@@ -342,7 +342,8 @@ void Application::disconnect() {
 }
 void Application::poll() {
     if (recording_ && (recording_->status().fault != audio::RecordFault::none ||
-        (recording_->status().frames > 0 && engine_->state().playback != PlaybackState::playing))) {
+        (recording_->status().frames > 0 && engine_->state().playback != PlaybackState::playing) ||
+        device_status().phase != audio::DevicePhase::running)) {
         try { (void)stop_recording(); } catch (const std::exception& e) { recording_error_ = e.what(); }
     }
     transport_->poll();
@@ -398,17 +399,23 @@ void Application::start_recording(const std::filesystem::path& destination) {
 }
 bool Application::stop_recording() {
     if (!recording_) return false;
-    device_->stop();
+    try { device_->stop(); }
+    catch (const std::exception& e) {
+        // Device close guarantees quiescence even if the driver rejected Stop.
+        recording_error_ = std::string("Audio device failed; take retained, device disconnected: ")+e.what();
+        device_->close(); device_.reset(); device_config_.reset(); audio_name_ = "Disconnected";
+    }
     auto position = engine_->state();
     if (position.playback == PlaybackState::playing) position.playback = PlaybackState::paused;
     auto session = std::move(recording_); // detach capture before any file/command work
     try {
-        engine_->prepare({device_config_->sample_rate,1,static_cast<std::uint32_t>(device_config_->outputs.size()),8192},render(*device_config_),position);
+        if (device_config_) engine_->prepare({device_config_->sample_rate,1,static_cast<std::uint32_t>(device_config_->outputs.size()),8192},render(*device_config_),position);
+        else engine_->prepare({session->rate(),0,2,8192},{},position);
         auto result = session->finish(); last_recording_status_ = result.status;
         if (result.status.fault != audio::RecordFault::none) {
             recording_error_ = "Recording ended early (input dropout, disk backpressure, seek or size limit); valid prefix retained";
         } else if (result.status.nonfinite_samples) recording_error_ = "Non-finite input samples replaced with silence";
-        if (!result.frames) { device_->start(); return false; }
+        if (!result.frames) { if (device_) device_->start(); return false; }
         last_take_ = result.path;
         const auto source = utf8(result.path);
         edit(AddRecordedClip{{new_id(),*armed_,utf8(result.path.stem()),session->start(),result.frames,0,source}});

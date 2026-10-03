@@ -22,7 +22,7 @@ void ReadAhead::begin(Sample first) noexcept {
 }
 bool ReadAhead::read(Sample frame, std::uint32_t channel, float& value) noexcept {
     const auto page = frame/page_frames;
-    for (std::size_t i = 0; i < pages; ++i) if (pinned_[i] && slots_[i].page == page) {
+    for (std::size_t i = 0; i < pages; ++i) if (pinned_[i] && slots_[i].page.load(std::memory_order_relaxed) == page) {
         value = slots_[i].samples[static_cast<std::size_t>(frame%page_frames)*file_->channels+channel];
         return true;
     }
@@ -42,13 +42,11 @@ void ReadAhead::prime(Sample first) {
         bool ready = true;
         for (Sample p = target; p < target+4 && p*page_frames < file_->frame_count; ++p) {
             bool found = false;
-            // Control never accesses samples/page without owning the slot.
-            for (auto& slot : slots_) {
-                int expected = 0;
-                if (slot.owner.compare_exchange_strong(expected,1,std::memory_order_acquire)) {
-                    found = found || slot.page == p; slot.owner.store(0,std::memory_order_release);
-                }
-            }
+            // Tags are published atomically after sample fill. Control only
+            // reads tags, so it must not claim callback pins and cause dropouts.
+            for (const auto& slot : slots_)
+                if (slot.owner.load(std::memory_order_acquire) != -1 &&
+                    slot.page.load(std::memory_order_acquire) == p) found = true;
             ready = ready && found;
         }
         if (ready) { desired_ = target; return; }
@@ -76,10 +74,10 @@ void ReadAhead::run() noexcept {
         for (std::size_t p = 0; p < count && !quit_.load(); ++p) {
             bool exists = false;
             // Only worker writes page tags; pinned tags also remain immutable.
-            for (auto& slot : slots_) if (slot.page == wanted[p]) exists = true;
+            for (auto& slot : slots_) if (slot.page.load(std::memory_order_relaxed) == wanted[p]) exists = true;
             if (exists) continue;
             for (auto& slot : slots_) {
-                if (std::find(wanted.begin(),wanted.begin()+static_cast<std::ptrdiff_t>(count),slot.page) != wanted.begin()+static_cast<std::ptrdiff_t>(count)) continue;
+                if (std::find(wanted.begin(),wanted.begin()+static_cast<std::ptrdiff_t>(count),slot.page.load(std::memory_order_relaxed)) != wanted.begin()+static_cast<std::ptrdiff_t>(count)) continue;
                 int expected = 0;
                 if (!slot.owner.compare_exchange_strong(expected,-1,std::memory_order_acquire)) continue;
                 // The control cursor may change after this iteration's snapshot.
@@ -90,7 +88,8 @@ void ReadAhead::run() noexcept {
                 const auto latest_current = desired_.load(std::memory_order_acquire);
                 const auto latest_loop = loop_.load(std::memory_order_acquire);
                 const auto protected_page = [&](Sample head, Sample count) {
-                    return head >= 0 && slot.page >= head && slot.page-head < count;
+                    const auto tag = slot.page.load(std::memory_order_relaxed);
+                    return head >= 0 && tag >= head && tag-head < count;
                 };
                 if (protected_page(latest_warm,4) || protected_page(latest_current,2) || protected_page(latest_loop,2)) {
                     slot.owner.store(0,std::memory_order_release); continue;
@@ -99,8 +98,8 @@ void ReadAhead::run() noexcept {
                     const auto first = wanted[p]*page_frames;
                     const auto frames = std::min(page_frames,file_->frame_count-first);
                     file_->read(first,std::span<float>(slot.samples).first(static_cast<std::size_t>(frames)*file_->channels));
-                    slot.page = wanted[p];
-                } catch (...) { slot.page = -1; errors_.fetch_add(1); quit_ = true; }
+                    slot.page.store(wanted[p],std::memory_order_release);
+                } catch (...) { slot.page.store(-1,std::memory_order_release); errors_.fetch_add(1); quit_ = true; }
                 slot.owner.store(0,std::memory_order_release); break;
             }
         }

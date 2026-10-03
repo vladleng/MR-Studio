@@ -66,3 +66,11 @@ nonzero capture start, Pause/Stop, one-step Undo/Redo, blocked changes, dropout 
 import/edit/record/graph/unknown-chunk project save/load and centered playback.
 Offline Windows GUI smoke covers recording controls and Arm/Disarm alongside menu/DPI.
 Physical ASIO acceptance remains manual: MRS_STAGE_1D_CHECKLIST.md.
+
+
+Read-ahead follow-up: priming now reads atomic published page tags without claiming
+callback pins. The earlier control scan could briefly make a ready page unavailable
+to concurrent render. Streaming regression repeats concurrent seeks and keeps exact
+sample, zero-underrun and zero-allocation assertions. Recording driver Stop failure
+closes the backend before draining/attaching the take, reports disconnection and
+requires an explicit reconnect; simulated driver failure is covered by desktop_recording.

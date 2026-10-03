@@ -159,14 +159,14 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             if (graph_.processors) graph_.processors->panic();
             break;
         case ControlKind::seek:
-            if (graph_.recording) { graph_.recording->input_dropout(); break; }
+            if (graph_.recording) { graph_.recording->discontinuity(); break; }
             if (control.a >= 0 && control.a <= max_sample) {
                 rt_.sample = control.a;
                 if (graph_.processors) graph_.processors->panic();
             }
             break;
         case ControlKind::loop:
-            if (graph_.recording) { graph_.recording->input_dropout(); break; }
+            if (graph_.recording) { graph_.recording->discontinuity(); break; }
             if (control.a >= 0 && control.a < control.b && control.b <= max_sample)
                 rt_.loop = LoopRange{control.a, control.b};
             else if (control.a == 0 && control.b == 0) rt_.loop.reset();
