@@ -323,3 +323,14 @@ MRS Stage 1d / 0.1e принят; PR #46 слит в main. Подтвержде�
 PR CI: все шесть jobs пройдены (56/56 Linux/ASIO, 57/57 Windows offline).
 Следующая работа после паузы: MRS Stage 2 / #22 Mixer / Routing; реализация не начата.
 Пользователь попросил продолжить 2026-10-04 по Asia/Krasnoyarsk. 
+
+
+## 0.1e upd1 — folders and portable projects
+Windows content root: Documents/MR Studio with Projects and Lives.
+Each project owns <name>/<name>.mrsproject, Media and Mixdown. Imported WAVs
+copy into Media; recordings write there. Archives use relative Media/... references.
+Save As copies Media/Mixdown and retains Undo/device continuity; original project
+and source files remain intact. Move the whole folder, then reopen its .mrsproject.
+[Contracts](docs/PROJECT_FOLDERS.md) · [Windows checklist](docs/MRS_PROJECT_FOLDERS_CHECKLIST.md).
+PR #47, acceptance pending. Lives prepares storage for future .mrlive workflow;
+Mixdown prepares storage for later export. Mixer/Routing #22 follows after upd1.

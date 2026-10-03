@@ -154,3 +154,13 @@ edits and file commands are disabled during recording; monitor stays available.
 Recorded WAVs live under Audio beside the saved project, clips use absolute paths;
 Undo leaves media on disk. Input and recorded mono route only to the main pair.
 See RECORDING.md and MRS_STAGE_1D_CHECKLIST.md; physical acceptance is pending.
+
+
+## 0.1e upd1 — project-owned folders
+The requested folder follow-up replaces the GUI recording Audio directory with Media.
+Project folders contain their .mrsproject, Media and Mixdown; the studio root contains
+Projects and Lives. Imported WAVs are copied and archived with portable Media/... refs.
+First save consolidates legacy external/Audio sources without deleting originals.
+Save As copies content and retains source aliases/Undo and the same stopped/paused
+device handle. See PROJECT_FOLDERS.md and MRS_PROJECT_FOLDERS_CHECKLIST.md.
+User acceptance of upd1 pending; base 0.1e remains accepted.

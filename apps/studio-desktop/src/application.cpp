@@ -143,6 +143,12 @@ persistence::ProjectDocument Application::snapshot() const {
     for (auto& clip : result.project.clips) {
         if (const auto found = owned_media_.find(clip.source); found != owned_media_.end())
             clip.source = media_ref(found->second.lexically_relative(asset_root_));
+        else if (!asset_root_.empty()) {
+            const auto source = std::filesystem::path(std::u8string(clip.source.begin(),clip.source.end()));
+            const auto relative = source.lexically_normal().lexically_relative(asset_root_/"Media");
+            if (source.is_absolute() && !relative.empty() && !relative.is_absolute() && *relative.begin() != "..")
+                clip.source = media_ref(std::filesystem::path("Media")/relative);
+        }
     }
     result.validate(); return result;
 }
@@ -167,7 +173,10 @@ void Application::save_project(const std::filesystem::path& requested) {
         return source.is_absolute() ? source : asset_root_/source;
     };
     bool needs_copy = relocating;
-    for (const auto& key : keys) if (resolve(key).parent_path() != root/"Media") needs_copy = true;
+    for (const auto& key : keys) {
+        const auto relative = resolve(key).lexically_normal().lexically_relative(root/"Media");
+        if (relative.empty() || relative.is_absolute() || *relative.begin() == "..") needs_copy = true;
+    }
     if (needs_copy) require_not_playing(); // media/Save As rebuilds need quiescent callbacks
     MediaCopy copies(root);
     if (relocating) { copies.content(asset_root_,"Media"); copies.content(asset_root_,"Mixdown"); }

@@ -4,6 +4,7 @@
 #include <windowsx.h>
 #include <commdlg.h>
 #include <shlobj.h>
+#include <shellapi.h>
 #include <mrs/desktop.hpp>
 #include <mrs/version.hpp>
 #include <mrs/offline_device.hpp>

@@ -31,7 +31,8 @@ fs::path project_folder_file(const fs::path& selected) {
     if (selected.filename().empty() || selected.stem().empty() || selected.stem() == "." || selected.stem() == "..")
         throw std::invalid_argument("choose a project filename");
     auto file = fs::absolute(selected).lexically_normal(); file.replace_extension(".mrsproject");
-    if (file.parent_path().filename() == file.stem()) return file;
+    if (file.parent_path().filename() == file.stem() ||
+        (fs::exists(file) && fs::is_directory(file.parent_path()/"Media") && fs::is_directory(file.parent_path()/"Mixdown"))) return file;
     return file.parent_path()/file.stem()/file.filename();
 }
 void ensure_project_folders(const fs::path& project_file) {
