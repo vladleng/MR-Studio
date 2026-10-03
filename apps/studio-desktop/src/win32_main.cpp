@@ -79,6 +79,7 @@ struct UI {
     HFONT settings_font{};
     bool smoke{};
     int smoke_step{};
+    unsigned error_count{};
     std::vector<audio::DeviceInfo> devices;
     std::string device_error;
     RECT canvas{};
@@ -245,11 +246,14 @@ struct UI {
         fill(dc,rect,panel); const int saved = SaveDC(dc); IntersectClipRect(dc,rect.left,rect.top,rect.right,rect.bottom);
         const int top = rect.top;
         text(dc,rect.left+s(12),top+s(4),width-s(24),s(30),moving ? L"Chord track — shared transport" : L"Timeline — click to seek",normal,muted);
+        int last_label = rect.left-s(64), last_grid = rect.left-s(8);
         for (int bar = 1; bar <= 256; ++bar) {
             const auto tick = time.to_ticks({bar,1,0}); const int x = x_tick(tick);
             if (x > rect.right) break; if (x < rect.left) continue;
-            line(dc,x,top+s(38),x,rect.bottom);
-            text(dc,x+s(6),top+s(36),s(65),s(25),std::to_wstring(bar),normal,muted);
+            if (x-last_grid >= s(8)) { line(dc,x,top+s(38),x,rect.bottom); last_grid = x; }
+            if (x-last_label >= s(64)) {
+                text(dc,x+s(6),top+s(36),s(58),s(25),std::to_wstring(bar),normal,muted); last_label = x;
+            }
         }
         for (const auto& c : project->chords) {
             RECT block{x_tick(c.start)+1,top+s(76),x_tick(c.end)-1,top+s(138)};
@@ -325,7 +329,7 @@ struct UI {
     void settings_command(int);
     void settings_layout();
     void enumerate_devices();
-    void error(const std::exception& e) { log.write(e.what()); if (!smoke) MessageBoxW(window,wide(e.what()).c_str(),L"Moon River Studio",MB_OK | MB_ICONERROR); }
+    void error(const std::exception& e) { ++error_count; log.write(e.what()); if (!smoke) MessageBoxW(window,wide(e.what()).c_str(),L"Moon River Studio",MB_OK | MB_ICONERROR); }
 };
 LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
 LRESULT CALLBACK settings_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
@@ -372,6 +376,8 @@ void UI::settings_layout() {
 void UI::settings_command(int id) {
     if (id == refresh_button) { enumerate_devices(); InvalidateRect(settings,nullptr,FALSE); return; }
     if (id == disconnect_button) { app.disconnect(); InvalidateRect(settings,nullptr,FALSE); return; }
+    // Edit/combo initialization and typing notifications are not device actions.
+    if (id != connect_button && id != panel_button) return;
     const auto selection = SendMessageW(child(device_combo,true),CB_GETCURSEL,0,0);
     if (selection < 0 || static_cast<std::size_t>(selection) > devices.size()) throw std::runtime_error("Select an available audio device");
     if (id == panel_button) {
@@ -475,7 +481,17 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     ui->show_settings(); // offline CI build skips enumeration of physical ASIO
                 }
                 if (ui->smoke_step == 6) {
-                    if (!ui->child(play) || !ui->child(device_combo,true) || ui->app.workspace() != Workspace::live) throw std::runtime_error("GUI smoke failed");
+                    // Editing incomplete values, including an unselected combo, must not
+                    // validate/open a device until the explicit Connect action.
+                    SendMessageW(ui->child(device_combo,true),CB_SETCURSEL,static_cast<WPARAM>(-1),0);
+                    SetWindowTextW(ui->child(rate_edit,true),L"");
+                    SetWindowTextW(ui->child(outputs_edit,true),L"1,");
+                    SendMessageW(ui->settings,WM_COMMAND,MAKEWPARAM(device_combo,CBN_SELCHANGE),reinterpret_cast<LPARAM>(ui->child(device_combo,true)));
+                    SendMessageW(ui->child(device_combo,true),CB_SETCURSEL,0,0);
+                    SetWindowTextW(ui->child(rate_edit,true),L"48000");
+                    SetWindowTextW(ui->child(outputs_edit,true),L"1,2");
+                    if (!ui->child(play) || !ui->child(device_combo,true) || ui->app.workspace() != Workspace::live || ui->error_count != 0)
+                        throw std::runtime_error("GUI initialization/typing produced an unexpected error");
                     // Exercise DPI layout with the same path as a monitor change.
                     ui->dpi = 144; ui->fonts();
                     SetWindowPos(hwnd,nullptr,0,0,ui->s(1000),ui->s(620),SWP_NOMOVE | SWP_NOZORDER);

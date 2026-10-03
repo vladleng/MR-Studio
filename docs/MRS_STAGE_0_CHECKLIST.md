@@ -33,3 +33,8 @@ Send confirmation or describe the failing step/screenshot.
 
 MRS Stage 0 #20 remains open until acceptance. Stage 1 #16 sustained load,
 Studio Pro comparison and reconnect/performance tests remain deferred.
+
+Acceptance fix: open Audio settings from a fresh launch. It must open directly
+without "Select an available audio device". Editing rate/output fields before
+choosing a device must not show a popup; validation happens when pressing Connect.
+Long-WAV ruler labels are spaced rather than printing every bar number.

@@ -105,3 +105,15 @@ cmake -S . -B build -DMRS_BUILD_ASIO=ON
 cmake --build build --config Release
 Run build/Release/MoonRiverStudio.exe. Without MRS_BUILD_ASIO only the explicit
 offline adapter is available. Linux builds the controller/contracts, not a GUI.
+
+## 2026-10-03 acceptance fix
+User confirmed their WAV plays through Komplete Audio ASIO Driver. Screenshots
+show actual 48000 Hz and zero output underruns at the captured paused state.
+This is basic shell hardware acceptance, not the deferred sustained performance gate.
+
+Audio settings initialization was incorrectly validating device selection on edit
+notifications before device enumeration. Device validation now runs only for
+explicit Connect / ASIO panel actions. Field/combo initialization and incomplete
+typing do not open devices or show errors. GUI smoke asserts zero unexpected errors
+and exercises typing while combo selection is temporarily absent.
+Ruler label spacing is adaptive to avoid overlapping bar numbers in long WAV projects.
