@@ -266,3 +266,10 @@ Save/Undo and vendor ASIO settings. Starts in an explicit silent offline mode.
 [Windows acceptance](docs/MRS_STAGE_0_CHECKLIST.md).
 ASIO Actions artifact: MR-Studio-MRS-Stage-0-ASIO-Windows; run MoonRiverStudio.exe.
 Edit/Mix are initial read-only views; detailed editors arrive in their own stages.
+
+## MRS Stage 1a — Audio Arrangement
+First slice of #21: New project, audio track create/delete/reorder, batch WAV import
+into the current project, per-channel waveforms and zoom/scroll. Uses the same
+shared ProjectStore/Undo/AudioEngine and retained ASIO connection for stopped edits.
+[Contracts](docs/AUDIO_ARRANGEMENT.md) · [Windows checklist](docs/MRS_STAGE_1A_CHECKLIST.md).
+Acceptance pending. Clip editing, streaming and recording are later #21 substages.

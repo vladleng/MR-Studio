@@ -107,6 +107,59 @@ void audio_settings() {
     app.connect(audio::make_offline_device(),{0,48000,128,{}, {0,1}}); CHECK(app.audio_running());
     app.disconnect(); CHECK(!app.audio_running() && app.engine()->state().sample == 0);
 }
+void arrangement() {
+    Directory dir; auto a = dir.path / "one.wav", b = dir.path / "two.wav"; wav(a); wav(b);
+    Application app; app.new_project(44100);
+    const auto service = app.services().projects; const auto graph = app.graphs(); const auto id = service->state().project->id;
+    app.import_wavs({a,b});
+    CHECK(service == app.services().projects && graph == app.graphs());
+    CHECK(service->state().project->id == id && service->state().project->tracks.size() == 2);
+    CHECK(service->state().project->clips.size() == 2);
+    CHECK(app.undo() && service->state().project->tracks.empty());
+    CHECK(app.redo() && service->state().project->tracks.size() == 2);
+    auto before = *service->state().project;
+    rejects([&] { app.import_wavs({a,dir.path / "missing.wav"}); });
+    CHECK(*service->state().project == before);
+    app.reorder_track(before.tracks.front().id,1);
+    CHECK(service->state().project->tracks.back().id == before.tracks.front().id);
+    app.remove_track(before.tracks.front().id);
+    CHECK(service->state().project->tracks.size() == 1 && service->state().project->clips.size() == 1);
+    auto saved = dir.path / "arrange.mrsproject"; app.save_project(saved);
+    CHECK(persistence::load_project(saved).project.tracks.size() == 1);
+    CHECK(app.undo() && service->state().project->tracks.size() == 2);
+    CHECK(app.snapshot().mixer.size() == 2);
+    auto third = app.add_audio_track("Empty"); CHECK(service->state().project->tracks.back().id == third);
+    app.prepare_waveforms();
+    const auto source = service->state().project->clips.front().source;
+    eventually([&] { app.poll(); return app.waveform(source) != nullptr; });
+    CHECK(app.waveform(source)->frames() == 1000);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
+    app.remove_track(third); // same opened backend, rebuilt renderer
+    CHECK(app.audio_running());
+    app.play(); std::array<float,256> output{}; app.engine()->process(nullptr,output.data(),128);
+    CHECK(output[0] == 0.1220703125f); // BOTH imported tracks, shared gain 0.5
+    rejects([&] { app.add_audio_track("While playing"); });
+    rejects([&] { app.undo(); });
+    app.stop(); app.engine()->process(nullptr,output.data(),128); app.poll();
+    app.save_project(saved); auto snapshot = app.snapshot(); app.open_project(saved);
+    CHECK(app.snapshot().project == snapshot.project);
+    Application other; auto p = *other.services().projects->state().project;
+    rejects([&] { other.import_wavs({a}); }); CHECK(*other.services().projects->state().project == p); // rate mismatch
+}
+void waveform() {
+    audio::AudioData data{48000,2,std::vector<float>(2050,0)};
+    data.samples[600] = 0.75f; data.samples[601] = -0.9f;
+    data.samples[2048] = -0.4f; data.samples[2049] = 0.3f;
+    audio::Waveform peaks(data);
+    CHECK(peaks.channels() == 2 && peaks.frames() == 1025);
+    auto l = peaks.range(0,1025,0), r = peaks.range(0,1025,1);
+    CHECK(l.maximum == 0.75f && l.minimum == -0.4f);
+    CHECK(r.minimum == -0.9f && r.maximum == 0.3f);
+    CHECK(peaks.range(1024,1025,0).minimum == -0.4f);
+    CHECK(peaks.range(0,0,0).maximum == 0);
+    CHECK(peaks.range(-10,99999,1).minimum == -0.9f);
+    rejects([&] { (void)peaks.range(0,1,2); });
+}
 void config() {
     Preferences p; p.workspace = Workspace::live; p.device_name = "Komplete Audio ASIO Driver"; p.reconnect_audio = true;
     CHECK(decode_preferences(encode_preferences(p)) == p);
@@ -130,7 +183,7 @@ int main(int argc, char** argv) {
         std::string name = argv[1];
         if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
-        else if (name == "audio") audio_settings(); else if (name == "config") config(); else throw std::runtime_error("unknown suite");
+        else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
 }

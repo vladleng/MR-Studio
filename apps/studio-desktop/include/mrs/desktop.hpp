@@ -3,6 +3,9 @@
 #include <mrs/musical.hpp>
 #include <mrs/device.hpp>
 #include <fstream>
+#include <mrs/arrangement.hpp>
+#include <mrs/waveform.hpp>
+#include <future>
 namespace mrs::desktop {
 enum class Workspace { arrange, edit, mix, live };
 std::string_view workspace_name(Workspace);
@@ -43,6 +46,14 @@ public:
     void workspace(Workspace);
     void poll();
     void demo();
+    void new_project(std::uint32_t rate = 48000);
+    Id add_audio_track(std::string name);
+    void remove_track(const Id&);
+    void reorder_track(const Id&, std::size_t index);
+    void import_wavs(const std::vector<std::filesystem::path>&);
+    bool undo(); bool redo();
+    void prepare_waveforms();
+    const audio::Waveform* waveform(std::string_view source) const;
     void open_project(const std::filesystem::path&);
     void import_wav(const std::filesystem::path&);
     void save_project(const std::filesystem::path&);
@@ -70,6 +81,18 @@ private:
     std::string audio_name_{"Offline clock (no sound)"};
     std::uint64_t saved_project_revision_{}, saved_graph_revision_{};
     bool unsaved_{true};
+    struct CachedAsset {
+        std::shared_ptr<const audio::AudioData> data;
+        std::future<audio::Waveform> pending;
+        std::optional<audio::Waveform> peaks;
+    };
+    std::map<std::string,CachedAsset> assets_;
+    std::optional<audio::DeviceConfig> device_config_;
+    std::shared_ptr<const audio::AudioData> asset(const std::string&);
+    void cache_asset(std::string, std::shared_ptr<const audio::AudioData>);
+    void edit(const ICommand&);
+    void require_stopped() const;
+    void rebuild_audio();
     void replace(persistence::ProjectDocument);
     audio::RenderGraph render(const audio::DeviceConfig&);
     void start_empty_clock();

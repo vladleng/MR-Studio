@@ -60,10 +60,26 @@ std::filesystem::path pick(HWND owner, bool save, bool wav = false) {
     }
     return std::filesystem::path(path.data());
 }
+std::vector<std::filesystem::path> pick_wavs(HWND owner) {
+    std::array<wchar_t,65536> paths{};
+    OPENFILENAMEW ofn{}; ofn.lStructSize = sizeof(ofn); ofn.hwndOwner = owner;
+    ofn.lpstrFile = paths.data(); ofn.nMaxFile = static_cast<DWORD>(paths.size());
+    ofn.lpstrFilter = L"WAV audio\0*.wav\0\0";
+    ofn.Flags = OFN_EXPLORER | OFN_ALLOWMULTISELECT | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+    if (!GetOpenFileNameW(&ofn)) {
+        if (CommDlgExtendedError() != 0) throw std::runtime_error("WAV selection failed"); return {};
+    }
+    std::filesystem::path first(paths.data()); auto p = paths.data()+wcslen(paths.data())+1;
+    if (*p == 0) return {first};
+    std::vector<std::filesystem::path> result;
+    while (*p != 0) { result.push_back(first / p); p += wcslen(p)+1; }
+    return result;
+}
 enum ControlId {
     nav_arrange = 100, nav_edit, nav_mix, nav_live, play = 110, pause, stop,
     previous, next, loop, undo, redo, open, save, save_as, demo, import,
     audio_settings, tracks = 140, rename_edit, rename,
+    new_project_button = 160, import_batch, add_track, delete_track, track_up, track_down, zoom_in, zoom_out, zoom_fit,
     device_combo = 200, rate_edit, buffer_edit, outputs_edit, input_edit,
     connect_button, disconnect_button, panel_button, refresh_button
 };
@@ -83,7 +99,10 @@ struct UI {
     std::vector<audio::DeviceInfo> devices;
     std::string device_error;
     RECT canvas{};
-    double visible_seconds{32};
+    double visible_seconds{32}, view_start{};
+    bool fit_view{true};
+    std::size_t first_track{};
+    std::optional<Id> selected_track;
     explicit UI(bool test) : folder(data_folder()), log(folder / L"studio.log"), smoke(test) {
         if (!smoke) {
             try {
@@ -125,6 +144,10 @@ struct UI {
             {play,L"Play"},{pause,L"Pause"},{stop,L"Stop"},{previous,L"< Section"},{next,L"Section >"},
             {loop,L"Loop section"},{undo,L"Undo"},{redo,L"Redo"},{open,L"Open project"},
             {save,L"Save"},{save_as,L"Save as"},{demo,L"Demo"},{import,L"Open WAV"},{audio_settings,L"Audio settings"}}}) button(window,label,id);
+        for (auto [id,label] : std::array<std::pair<int,const wchar_t*>,9>{{
+            {new_project_button,L"New"},{import_batch,L"Import WAVs"},{add_track,L"+ Track"},
+            {delete_track,L"Delete"},{track_up,L"Up"},{track_down,L"Down"},
+            {zoom_in,L"Zoom +"},{zoom_out,L"Zoom -"},{zoom_fit,L"Fit"}}}) button(window,label,id);
         create(window,L"LISTBOX",L"",tracks,WS_TABSTOP | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT);
         create(window,L"EDIT",L"",rename_edit,WS_TABSTOP | ES_AUTOHSCROLL | WS_BORDER);
         SendMessageW(child(rename_edit),EM_SETLIMITTEXT,1024,0); button(window,L"Rename track",rename);
@@ -142,6 +165,9 @@ struct UI {
         move(undo,20,140,80,32); move(redo,108,140,80,32);
         move(open,20,188,168,32); move(save,20,228,80,32); move(save_as,108,228,80,32);
         move(demo,20,272,80,32); move(import,108,272,80,32);
+        move(new_project_button,20,312,80,32); move(import_batch,108,312,80,32);
+        int ax = 220;
+        for (auto id : {add_track,delete_track,track_up,track_down,zoom_in,zoom_out,zoom_fit}) { move(id,ax,244,84,32); ax += 92; }
         move(tracks,20,354,168,std::max(70,height-514));
         move(rename_edit,20,height-148,168,32); move(rename,20,height-108,168,32);
         canvas = {s(220),s(290),area.right-s(20),area.bottom-s(68)};
@@ -149,15 +175,23 @@ struct UI {
     }
     void refresh_models() {
         const auto project = app.services().projects->state().project;
+        app.prepare_waveforms();
         SendMessageW(child(tracks),LB_RESETCONTENT,0,0);
         for (const auto& t : project->tracks) {
             auto name = wide(t.name); SendMessageW(child(tracks),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(name.c_str()));
         }
-        if (!project->tracks.empty()) { SendMessageW(child(tracks),LB_SETCURSEL,0,0); SetWindowTextW(child(rename_edit),wide(project->tracks.front().name).c_str()); }
+        if (!project->tracks.empty()) {
+            auto found = std::find_if(project->tracks.begin(),project->tracks.end(),[&](const auto& t) { return selected_track && t.id == *selected_track; });
+            if (found == project->tracks.end()) found = project->tracks.begin();
+            selected_track = found->id;
+            SendMessageW(child(tracks),LB_SETCURSEL,static_cast<WPARAM>(found-project->tracks.begin()),0);
+            SetWindowTextW(child(rename_edit),wide(found->name).c_str());
+        } else { selected_track.reset(); SetWindowTextW(child(rename_edit),L""); }
+        first_track = std::min(first_track,project->tracks.empty() ? std::size_t{0} : project->tracks.size()-1);
         prefs.rate = project->sample_rate;
         if (settings) SetWindowTextW(child(rate_edit,true),std::to_wstring(prefs.rate).c_str());
         EnableWindow(child(undo),app.services().projects->state().can_undo); EnableWindow(child(redo),app.services().projects->state().can_redo);
-        std::wstring title = L"Moon River Studio 0.1 — " + wide(project->title) + (app.dirty() ? L" *" : L"");
+        std::wstring title = L"Moon River Studio 0.2a — " + wide(project->title) + (app.dirty() ? L" *" : L"");
         SetWindowTextW(window,title.c_str()); InvalidateRect(window,nullptr,FALSE);
     }
     bool discard() {
@@ -183,7 +217,12 @@ struct UI {
         if (id == tracks && notification == LBN_SELCHANGE) {
             const auto selection = SendMessageW(child(tracks),LB_GETCURSEL,0,0);
             const auto project = app.services().projects->state().project;
-            if (selection >= 0 && static_cast<std::size_t>(selection) < project->tracks.size()) SetWindowTextW(child(rename_edit),wide(project->tracks[static_cast<std::size_t>(selection)].name).c_str());
+            if (selection >= 0 && static_cast<std::size_t>(selection) < project->tracks.size()) {
+                selected_track = project->tracks[static_cast<std::size_t>(selection)].id;
+                first_track = static_cast<std::size_t>(selection);
+                SetWindowTextW(child(rename_edit),wide(project->tracks[static_cast<std::size_t>(selection)].name).c_str());
+                InvalidateRect(window,nullptr,FALSE);
+            }
             return;
         }
         switch (id) {
@@ -193,13 +232,39 @@ struct UI {
             if (app.services().transport->state().loop) app.musical().clear_loop();
             else if (auto section = app.musical().state().current_section) app.musical().loop_section(section->id);
             break;
-        case undo: app.services().projects->undo(); refresh_models(); break;
-        case redo: app.services().projects->redo(); refresh_models(); break;
+        case undo: app.undo(); refresh_models(); break;
+        case redo: app.redo(); refresh_models(); break;
         case rename: {
             const auto selection = SendMessageW(child(tracks),LB_GETCURSEL,0,0); const auto project = app.services().projects->state().project;
             if (selection >= 0 && static_cast<std::size_t>(selection) < project->tracks.size()) app.rename_track(project->tracks[static_cast<std::size_t>(selection)].id,narrow(control_text(child(rename_edit))));
             refresh_models(); break;
         }
+        case new_project_button: if (discard()) { app.new_project(prefs.rate); fit_view = true; view_start = 0; first_track = 0; refresh_models(); restore_audio(); } break;
+        case import_batch: {
+            auto paths = pick_wavs(window);
+            if (!paths.empty()) { app.import_wavs(paths); fit_view = true; refresh_models(); }
+            break;
+        }
+        case add_track: selected_track = app.add_audio_track("Audio "+std::to_string(app.services().projects->state().project->tracks.size()+1)); first_track = app.services().projects->state().project->tracks.size()-1; refresh_models(); break;
+        case delete_track:
+            if (selected_track && MessageBoxW(window,L"Delete the selected track and its clips? Undo restores them.",L"Moon River Studio",MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                app.remove_track(*selected_track); refresh_models();
+            }
+            break;
+        case track_up: case track_down: {
+            const auto p = app.services().projects->state().project;
+            auto it = std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t) { return selected_track && t.id == *selected_track; });
+            if (it != p->tracks.end()) {
+                auto index = static_cast<std::size_t>(it-p->tracks.begin());
+                if (id == track_up && index > 0) --index;
+                else if (id == track_down && index+1 < p->tracks.size()) ++index;
+                app.reorder_track(it->id,index); first_track = index; refresh_models();
+            }
+            break;
+        }
+        case zoom_in: fit_view = false; visible_seconds = std::max(0.25,visible_seconds/2); break;
+        case zoom_out: fit_view = false; visible_seconds = std::min(86400.0,visible_seconds*2); break;
+        case zoom_fit: fit_view = true; view_start = 0; break;
         case open: if (discard()) { auto path = pick(window,false); if (!path.empty()) { app.open_project(path); refresh_models(); restore_audio(); } } break;
         case import: if (discard()) { auto path = pick(window,false,true); if (!path.empty()) { app.import_wav(path); refresh_models(); restore_audio(); } } break;
         case demo: if (discard()) { app.demo(); refresh_models(); restore_audio(); } break;
@@ -235,18 +300,18 @@ struct UI {
         Sample end = 32*static_cast<Sample>(project->sample_rate);
         for (const auto& c : project->clips) end = std::max(end,c.start+c.length);
         for (const auto& section : project->sections) end = std::max(end,time.to_samples(section.end));
-        visible_seconds = static_cast<double>(end)/project->sample_rate;
+        if (fit_view) { visible_seconds = static_cast<double>(end)/project->sample_rate; view_start = 0; }
         const int width = rect.right-rect.left;
         const auto start_tick = std::max<Tick>(0,context.tick-8*ppq);
         const auto pixel = [](double x) { return static_cast<int>(std::clamp(x,-100000.0,100000.0)); };
-        const auto x_sample = [&](Sample sample) { return rect.left + pixel((static_cast<double>(sample)/project->sample_rate)/visible_seconds*width); };
+        const auto x_sample = [&](Sample sample) { return rect.left + pixel((static_cast<double>(sample)/project->sample_rate-view_start)/visible_seconds*width); };
         const auto x_tick = [&](Tick tick) {
             if (moving) return rect.left + pixel(static_cast<double>(tick-start_tick)/(16*ppq)*width);
             return x_sample(time.to_samples(tick));
         };
         fill(dc,rect,panel); const int saved = SaveDC(dc); IntersectClipRect(dc,rect.left,rect.top,rect.right,rect.bottom);
         const int top = rect.top;
-        text(dc,rect.left+s(12),top+s(4),width-s(24),s(30),moving ? L"Chord track — shared transport" : L"Timeline — click to seek",normal,muted);
+        text(dc,rect.left+s(12),top+s(4),width-s(24),s(30),moving ? L"Chord track — shared transport" : L"Timeline — wheel: tracks / Shift+wheel: time",normal,muted);
         int last_label = rect.left-s(64), last_grid = rect.left-s(8);
         for (int bar = 1; bar <= 256; ++bar) {
             const auto tick = time.to_ticks({bar,1,0}); const int x = x_tick(tick);
@@ -268,15 +333,36 @@ struct UI {
             text(dc,block.left+s(8),block.top,block.right-block.left-s(16),block.bottom-block.top,wide(section.name));
         }
         if (!moving) {
-            int y = top+s(185);
-            for (const auto& track : project->tracks) {
-                if (y+s(70) > rect.bottom) break;
-                text(dc,rect.left+s(12),y,width-s(24),s(25),wide(track.name),normal,muted); y += s(30);
+            int y = top+s(project->chords.empty() && project->sections.empty() ? 70 : 185);
+            for (std::size_t ti = first_track; ti < project->tracks.size(); ++ti) {
+                const auto& track = project->tracks[ti];
+                if (y+s(30) > rect.bottom) break;
+                if (selected_track && track.id == *selected_track) fill(dc,{rect.left,y,rect.right,y+s(88)},RGB(34,42,62));
+                text(dc,rect.left+s(12),y,width-s(24),s(24),wide(track.name),normal,muted); y += s(26);
                 for (const auto& clip : project->clips) if (clip.track == track.id) {
-                    RECT block{x_sample(clip.start)+1,y,x_sample(clip.start+clip.length)-1,y+s(40)};
-                    fill(dc,block,RGB(46,87,110)); text(dc,block.left+s(8),y,block.right-block.left-s(16),s(40),wide(clip.name));
+                    RECT block{x_sample(clip.start)+1,y,x_sample(clip.start+clip.length)-1,y+s(56)};
+                    if (block.right <= rect.left || block.left >= rect.right) continue;
+                    fill(dc,block,RGB(38,66,86));
+                    const auto peaks = app.waveform(clip.source);
+                    if (peaks) {
+                        const auto channel_count = std::min<std::uint32_t>(peaks->channels(),2);
+                        const int left = std::max(block.left,rect.left), right = std::min(block.right,rect.right);
+                        auto peak_pen = CreatePen(PS_SOLID,1,RGB(116,190,214)); auto previous_pen = SelectObject(dc,peak_pen);
+                        for (std::uint32_t c = 0; c < channel_count; ++c) {
+                            const int ch = s(56)/static_cast<int>(channel_count), mid = y+static_cast<int>(c)*ch+ch/2;
+                            line(dc,left,mid,right,mid,RGB(60,89,106));
+                            for (int x = left; x < right; ++x) {
+                                const auto begin = clip.source_offset+static_cast<Sample>((view_start+static_cast<double>(x-rect.left)/width*visible_seconds)*project->sample_rate)-clip.start;
+                                const auto finish = clip.source_offset+static_cast<Sample>((view_start+static_cast<double>(x+1-rect.left)/width*visible_seconds)*project->sample_rate)-clip.start;
+                                const auto peak = peaks->range(begin,std::max(begin+1,finish),c);
+                                MoveToEx(dc,x,mid-static_cast<int>(std::clamp(peak.maximum,-1.0f,1.0f)*(ch/2-2)),nullptr);
+                                LineTo(dc,x,mid-static_cast<int>(std::clamp(peak.minimum,-1.0f,1.0f)*(ch/2-2))+1);
+                            }
+                        }
+                        SelectObject(dc,previous_pen); DeleteObject(peak_pen);
+                    } else text(dc,block.left+s(8),y,block.right-block.left-s(16),s(56),L"Building waveform...",normal,muted);
                 }
-                y += s(60);
+                y += s(66);
             }
         }
         const auto position = moving ? x_tick(context.tick) : x_sample(context.transport.sample);
@@ -296,10 +382,11 @@ struct UI {
         text(dc,s(220),s(196),s(480),s(35),position.str(),heading,amber);
         text(dc,s(20),s(318),s(168),s(28),L"Project tracks",normal,muted);
         auto workspace = app.workspace();
+        for (auto id : {add_track,delete_track,track_up,track_down,zoom_in,zoom_out,zoom_fit}) ShowWindow(child(id),workspace == Workspace::arrange ? SW_SHOW : SW_HIDE);
         if (workspace == Workspace::arrange || workspace == Workspace::live) {
             auto section = context.current_section ? wide(context.current_section->name) : L"No section";
             auto next_section = context.next_section ? wide(context.next_section->name) : L"End";
-            text(dc,s(220),s(240),area.right-s(240),s(30),section + L"   →   " + next_section,normal,muted);
+            if (workspace == Workspace::live) text(dc,s(220),s(240),area.right-s(240),s(30),section + L"   →   " + next_section,normal,muted);
             timeline(dc,canvas,workspace == Workspace::live);
         } else {
             fill(dc,canvas,panel); int y = canvas.top+s(14);
@@ -533,12 +620,26 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                 return 0;
             }
             break;
+        case WM_MOUSEWHEEL: {
+            if (ui->app.workspace() != Workspace::arrange) break;
+            POINT point{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd,&point);
+            if (!PtInRect(&ui->canvas,point)) break;
+            const int direction = GET_WHEEL_DELTA_WPARAM(wparam) > 0 ? -1 : 1;
+            if (GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT) {
+                ui->fit_view = false; ui->view_start = std::max(0.0,ui->view_start+direction*ui->visible_seconds/5);
+            } else {
+                const auto count = ui->app.services().projects->state().project->tracks.size();
+                if (direction < 0 && ui->first_track > 0) --ui->first_track;
+                if (direction > 0 && ui->first_track+1 < count) ++ui->first_track;
+            }
+            InvalidateRect(hwnd,nullptr,FALSE); return 0;
+        }
         case WM_LBUTTONDOWN: {
             const POINT point{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)};
             if (ui->app.workspace() == Workspace::arrange && PtInRect(&ui->canvas,point)) {
                 const auto fraction = static_cast<double>(point.x-ui->canvas.left)/(ui->canvas.right-ui->canvas.left);
                 const auto rate = ui->app.services().projects->state().project->sample_rate;
-                ui->app.seek(static_cast<Sample>(fraction*ui->visible_seconds*rate));
+                ui->app.seek(static_cast<Sample>((ui->view_start+fraction*ui->visible_seconds)*rate));
             }
             return 0;
         }

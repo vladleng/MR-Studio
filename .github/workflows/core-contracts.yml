@@ -91,9 +91,10 @@ jobs:
         if: runner.os == 'Windows' && matrix.config == 'Release'
         uses: actions/upload-artifact@v4
         with:
-          name: MR-Studio-MRS-Stage-0-Offline-Windows
+          name: MR-Studio-MRS-Stage-1a-Offline-Windows
           path: |
             build/Release/MoonRiverStudio.exe
             docs/MRS_STAGE_0_CHECKLIST.md
+            docs/MRS_STAGE_1A_CHECKLIST.md
             docs/DESKTOP_FOUNDATION.md
           if-no-files-found: error
