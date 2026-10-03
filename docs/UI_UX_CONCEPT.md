@@ -1,119 +1,56 @@
-# Moon River Live — UI / UX Concept
+# Moon River Studio — Live Mode UI / UX Concept
 
-## 1. Цель интерфейса
+## 1. Назначение
 
-Moon River Live — это live-performance приложение. Интерфейс должен в первую очередь помогать выступлению: быстро считываться на экране ноутбука, не перегружать музыканта и держать все критически важные данные и органы управления на виду.
+Live Mode — встроенный performance/show workspace Moon River Studio.
+
+Он должен быстро считываться на ноутбуке, держать ключевую musical/performance information на виду и не ощущаться как перегруженная production DAW.
 
 Ключевой принцип: **performance-first UI**.
 
-Главные требования:
+## 2. Базовый визуальный референс
 
-- высокая читаемость на 13–16" ноутбуках;
-- крупная и ясная визуальная иерархия;
-- current/next информация всегда на виду;
-- основные live-controls доступны без поиска по меню;
-- edit-режим и perform-режим чётко разведены;
-- безопасное поведение: случайный клик не должен ломать концертный сценарий;
-- современный, аккуратный и узнаваемый визуальный стиль;
-- интерфейс не должен ощущаться как перегруженная DAW.
+Зафиксированное направление:
 
----
+- flat UI;
+- без выпуклых/глянцевых/3D-card эффектов;
+- deep graphite / dark navy base;
+- restrained blue-violet accent;
+- amber for cues/playback;
+- green for ready/connected;
+- red only for danger/error;
+- крупная типографика;
+- тонкие разделители и спокойные flat panels;
+- минимум decorative glow;
+- readable на 14–16" laptop.
 
-## 2. Основные режимы
+Второй созданный концепт интерфейса считается базовым визуальным reference для дальнейшего wireframing и реализации.
 
-### 2.1. Show Mode
+## 3. Главная особенность — Moving Chord Track
 
-Главный режим для концерта.
+Chord Track не должен состоять из больших статичных карточек current/next chord.
 
-На виду должны быть:
+Основная форма — **горизонтальная движущаяся полоса**, по принципу Show Page:
 
-- текущая песня;
-- current chord;
-- next chord;
-- current section;
-- next section;
-- bar / beat;
-- elapsed / remaining time;
-- upcoming cue / marker;
-- playback state;
-- transport;
-- next song.
+```text
+... | Dm7 | G7 | [ Gmaj7 ] | Em7 | Am7 | D7 | ...
+                    ^
+                 playhead
+```
 
-Это основной режим во время выступления.
+Во время playback:
 
-### 2.2. Song Mode
+- playhead может оставаться в фиксированной зоне;
+- chord strip движется относительно playhead;
+- current chord выделяется;
+- previous/next chords остаются видимыми;
+- длина visual segment может отражать duration chord event;
+- bar/beat/time находятся рядом;
+- движение должно быть плавным, но не влиять на realtime audio.
 
-Работа с одной песней:
+Источник chord data — SHARED Project Model, позиция — SHARED Transport.
 
-- timeline;
-- song notes;
-- section notes;
-- playback settings;
-- patches;
-- MIDI actions;
-- song-level settings.
-
-### 2.3. Edit Mode
-
-Подготовка песни:
-
-- trim start / trim end;
-- playback gain;
-- preview;
-- marker inspection;
-- section behavior;
-- playback-edit controls.
-
-### 2.4. Setup Mode
-
-Технический режим:
-
-- audio devices;
-- MIDI devices;
-- routing;
-- VST3;
-- diagnostics;
-- remote.
-
----
-
-## 3. Приоритет информации
-
-### Уровень 1 — критически важное
-
-- **Current Chord**
-- **Next Chord**
-- **Current Section**
-- **Bar / Beat**
-- **Playback State**
-
-### Уровень 2 — очень важное
-
-- Song Title
-- Elapsed / Remaining Time
-- Upcoming Cue / Marker
-- Next Section
-- Next Song
-
-### Уровень 3 — вспомогательное
-
-- BPM / Meter
-- Patch Status
-- MIDI Status
-- Audio Device Status
-- Routing Indicators
-
-### Уровень 4 — служебное
-
-- project/source information;
-- schema/package version;
-- logs;
-- diagnostics;
-- detailed metadata.
-
----
-
-## 4. Предлагаемая структура главного окна
+## 4. Основной Performance layout
 
 ```text
 ┌────────────────────────────────────────────────────────────────────┐
@@ -122,265 +59,281 @@ Moon River Live — это live-performance приложение. Интерфе
 ├───────────────┬───────────────────────────────────────┬────────────┤
 │ Left Rail     │ Main Performance Area                 │ Right Rail │
 │               │                                       │            │
-│ Setlist       │ Current Chord                         │ Cue /      │
-│ Songs         │ Next Chord                            │ Marker     │
-│ Notes         │ Current Section                       │ Section    │
-│               │ Next Section                          │ Notes      │
-│               │ Bar / Beat / Time                     │ Patch /    │
-│               │                                       │ Actions    │
+│ Setlist       │ Bar / Beat / Time                     │ Cue        │
+│ Current/Next  │                                       │ Notes      │
+│ Songs         │ Moving Chord Track                    │ Patch      │
+│               │                                       │ Warnings   │
+│               │ Current / Next Section                │ Actions    │
 ├───────────────┴───────────────────────────────────────┴────────────┤
-│ Bottom Timeline / Playback Bar                                    │
-│ Timeline | Sections | Markers | Trim | Transport | Loop | Volume  │
+│ Arranger Timeline / Transport / Loop / Volume                     │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.1. Top Bar
+## 5. Top Bar
 
-Глобальный контекст и системные статусы:
+Глобальный context/status:
 
-- название песни;
-- название setlist;
-- tempo / meter;
-- audio status;
+- current project/song;
+- setlist/show;
+- tempo;
+- meter;
+- audio device status;
 - MIDI status;
 - remote status;
-- sync/save state;
+- save/preflight state;
 - settings.
 
-### 4.2. Left Rail
+Служебная информация не должна конкурировать с musical context.
 
-Навигация по шоу:
+## 6. Left Rail
 
-- список песен;
-- current / next song;
-- быстрый переход между песнями;
-- song notes.
+Show navigation:
 
-В Show Mode панель может быть компактной или сворачиваемой.
+- setlist;
+- current song;
+- next song;
+- quick song selection;
+- optional notes.
 
-### 4.3. Main Performance Area
+В concert use панель может иметь compact state.
 
-Главный визуальный фокус приложения.
+## 7. Main Performance Area
 
-Здесь должны быть:
+Приоритет:
 
-- current chord — самый крупный элемент;
-- next chord — крупный, но вторичный;
-- current section — второй по значимости блок;
-- next section;
-- bar / beat / time.
+1. moving Chord Track;
+2. current musical position;
+3. current section;
+4. next section;
+5. playback state.
 
-Этот блок должен считываться даже быстрым боковым взглядом.
+Current chord должен быть самым заметным элементом **внутри chord strip**, а не отдельной декоративной card.
 
-### 4.4. Right Rail
+Section blocks могут быть flat labels/panels под chord strip.
 
-Контекстные live-подсказки:
+## 8. Right Rail
 
-- upcoming marker;
-- cue;
+Контекстные live-данные:
+
+- upcoming cue;
+- marker;
 - section notes;
-- patch preview;
-- MIDI action preview;
+- patch;
+- upcoming MIDI action;
 - warnings.
 
-### 4.5. Bottom Timeline / Playback Bar
+Right Rail вторичен по отношению к chord/section context.
 
-- transport;
-- timeline;
-- section overview;
+## 9. Bottom Arranger / Transport Bar
+
+Всегда доступны:
+
+- arranger timeline;
+- sections;
 - markers;
-- loop;
-- volume;
-- trim handles в Song/Edit Mode;
-- progress.
+- playhead;
+- Play/Pause/Stop;
+- Previous/Next Section;
+- Loop;
+- volume/status.
 
----
+В rehearsal/edit state могут появляться дополнительные preparation controls.
 
-## 5. Playback Editing UX
+## 10. Информационная иерархия
 
-Так как в roadmap уже входит базовое редактирование playback, интерфейс должен поддерживать:
+### Level 1
+
+- current chord at chord-strip playhead;
+- nearby next chord(s);
+- current section;
+- bar/beat;
+- playback state.
+
+### Level 2
+
+- project/song title;
+- next section;
+- elapsed/remaining;
+- upcoming cue;
+- next song.
+
+### Level 3
+
+- BPM/meter;
+- patch state;
+- MIDI status;
+- audio status;
+- routing indicators.
+
+### Level 4
+
+- diagnostics;
+- internal IDs/schema/source information;
+- detailed device/plugin metadata.
+
+## 11. Live Mode states
+
+Live Mode может иметь несколько states без превращения их в отдельные приложения.
+
+### Performance
+
+Read-mostly concert state:
+
+- chord strip;
+- sections;
+- cues;
+- setlist;
+- safe transport;
+- device status.
+
+### Rehearsal
+
+Дополнительно:
+
+- free seek;
+- section loop;
+- mute/solo helpers;
+- expanded timeline;
+- quick notes.
+
+### Preparation / Inspector
+
+Для live-specific settings:
+
+- patch assignments;
+- MIDI actions;
+- cue properties;
+- playback preparation;
+- preflight/routing checks.
+
+General DAW editing остаётся в Arrange/Edit/Mix workspaces MRS.
+
+## 12. Playback Preparation UX
+
+Для Live-specific non-destructive preparation:
 
 - master playback gain;
-- trim start;
-- trim end;
-- reset;
-- preview / audition.
+- Trim Start;
+- Trim End;
+- Reset;
+- Preview/Audition.
 
 Требования:
 
-- редактирование неразрушающее;
-- визуальные trim-handles;
-- видны исходные и отредактированные границы;
-- numeric fields для точной подстройки;
-- в Show Mode trim-инструменты скрыты или сильно упрощены;
-- в Edit Mode доступен полный контроль через перетаскивание и точные значения.
+- исходные clips/audio не переписываются;
+- trim boundaries clearly visible;
+- exact numeric input available;
+- controls скрыты в normal Performance state;
+- global trim synchronously affects project playback/stems.
 
----
+## 13. Визуальный стиль
 
-## 6. Визуальный стиль
+### Base
 
-### 6.1. Характер
+- deep graphite/dark navy;
+- flat surfaces;
+- subtle separators;
+- moderate rounding only where useful;
+- no bevels;
+- no glassy/skeuomorphic controls;
+- no heavy neon glow.
 
-Интерфейс должен быть:
+### Accent
 
-- современным;
-- аккуратным;
-- сценическим;
-- технологичным;
-- визуально спокойным;
-- не перегруженным как DAW.
+- blue-violet — main MRS accent;
+- amber — cue/playback attention;
+- green — ready/connected;
+- red — danger/error.
 
-Образ: **ночной концертный интерфейс с чистой типографикой и мягкими световыми акцентами**.
+Arranger section colors are musical data and must remain distinguishable from system-state colors.
 
-### 6.2. Цветовая идея
+## 14. Typography
 
-Базовая тема — тёмная.
+- modern neutral sans-serif;
+- large chord symbols;
+- clear section names;
+- minimum tiny text in Performance state;
+- short labels;
+- stable numerical position display.
 
-База:
+## 15. Laptop target
 
-- глубокий графит / тёмно-синий фон;
-- очень тёмные панели;
-- мягкое разделение поверхностей.
+Primary target:
 
-Акценты:
+- 14" FHD;
+- 15–16" FHD/2K;
+- 100/125/150% scale;
+- fullscreen Live Mode;
+- viewing distance greater than normal DAW editing.
 
-- сине-фиолетовый — основной фирменный акцент;
-- янтарный — playback / cue;
-- зелёный — ready / connected;
-- красный — stop / warning / danger.
+Everything critical must be readable without leaning toward the display.
 
-Важно: цвета секций Arranger Track не должны конфликтовать с цветами системных статусов.
+## 16. Safety
 
-### 6.3. Формы и плотность
+Basic transport like Play/Stop must remain immediate and predictable.
 
-- умеренные скругления;
-- достаточно воздуха;
-- минимум декоративных линий;
-- крупные читаемые блоки вместо плотных таблиц;
-- второстепенные панели могут сворачиваться.
+Extra protection is appropriate for:
 
-### 6.4. Типографика
-
-- нейтральный modern sans-serif;
-- очень крупный current chord;
-- короткие подписи;
-- минимум мелкого текста на главном экране.
-
-Иерархия:
-
-- XXL — current chord;
-- XL — current section;
-- L — next chord / next section;
-- M — song title / timer / status;
-- S — secondary details.
-
----
-
-## 7. Ноутбучный сценарий
-
-Основной целевой сценарий:
-
-- 14" Full HD;
-- 15–16" Full HD / 2K;
-- расстояние до экрана больше, чем при обычной DAW-работе.
-
-Интерфейс должен:
-
-- хорошо масштабироваться;
-- работать при 100–125–150% UI scale;
-- иметь полноэкранный Performance Mode;
-- избегать слишком мелких иконок;
-- избегать плотных таблиц в Show Mode.
-
----
-
-## 8. Поведенческие принципы
-
-### 8.1. Show Mode — read-mostly
-
-Во время концерта интерфейс ориентирован прежде всего на чтение и подтверждённые действия, а не на редактирование.
-
-### 8.2. Edit Mode — explicit editing
-
-Пользователь должен ясно понимать, что находится в режиме редактирования. Edit-controls, save/apply/reset и визуальный акцент должны это подчёркивать.
-
-### 8.3. Минимум модальных окон
-
-Во время live-работы нежелательны модальные окна, перекрывающие основной контент.
-
-Предпочтительно использовать:
-
-- side panels;
-- drawers;
-- right inspector;
-- bottom panels;
-- fullscreen-friendly overlays только для действительно опасных действий.
-
-### 8.4. Безопасность
-
-Опасные действия нужно защищать от случайного нажатия:
-
-- stop all;
-- next song;
+- Stop All / Panic;
+- routing/device change during playback;
 - destructive reset;
-- device/routing changes;
-- критические MIDI-команды.
+- dangerous MIDI command;
+- project/song switching where current playback could be lost unexpectedly.
 
-Live-кнопки должны быть достаточно крупными, а destructive controls визуально отделены.
+Avoid modal dialogs during performance. Prefer drawers/side panels/non-blocking warnings.
 
----
+## 17. UI Components
 
-## 9. Базовые UI-компоненты
+Shared MRS design system should provide reusable:
 
-Нужно предусмотреть единую библиотеку компонентов:
-
-- top app bar;
-- left rail;
-- right inspector;
-- transport buttons;
-- large chord card;
-- section badge;
+- app/top bar;
+- rails/inspectors;
+- transport controls;
+- moving chord strip;
+- arranger timeline;
+- section labels;
 - cue banner;
-- timeline strip;
-- trim handles;
 - status pills;
 - device indicators;
-- danger buttons;
-- collapsible info blocks.
+- trim handles;
+- meters/sliders;
+- warning/danger states.
 
----
+Live Mode should reuse the same design language as the rest of MRS, but with larger spacing/type and lower information density.
 
-## 10. Что нужно зафиксировать до старта реализации UI
+## 18. Implementation isolation
 
-UI/UX-дизайн считается частью **Stage 0**.
+Moving chord animation and all Live UI rendering run outside the realtime audio callback.
 
-### 0.1e — UI / UX Concept & Wireframes
+Conceptually:
 
-- определить основные режимы: Show / Song / Edit / Setup;
-- зафиксировать layout главного окна;
-- спроектировать Show Mode;
-- спроектировать Song/Edit Mode;
-- описать playback-edit UX;
-- определить design tokens: цвета, типографика, spacing, states;
-- определить safe/danger interaction patterns;
-- утвердить базовый визуальный стиль Moon River Live.
+```text
+Audio Engine -> atomic/state snapshot -> UI model -> chord strip rendering
+```
 
-### Acceptance
+A UI stall must not interrupt audio.
 
-- есть согласованный UX-концепт;
-- есть базовые wireframes;
-- есть набор ключевых UI-компонентов;
-- есть зафиксированный визуальный стиль, достаточный для старта реализации интерфейса.
+## 19. Roadmap mapping
 
----
+Current Issues:
 
-## 11. Ключевая формула проекта
+- #28 — LIVE Stage 0: UX Foundation;
+- #29 — LIVE Stage 1: real Project/Transport integration;
+- #30+ — show workflow and advanced Live capabilities.
 
-Интерфейс Moon River Live должен ощущаться как **live-performance utility / musical confidence monitor**, но с собственной айдентикой Moon River Studio и упором на:
+Live Mode has no separate product version; UI readiness is part of MRS builds.
 
-- chords;
-- arranger sections;
-- live readability;
-- performance safety;
-- быстрый доступ к ключевым действиям;
-- понятность на небольшом экране ноутбука.
+## 20. Branding
+
+The application is currently called **Moon River Studio / MR Studio**.
+
+The Live screen should be branded as a mode of that application, e.g.:
+
+```text
+Moon River Studio
+LIVE
+```
+
+rather than presenting `Moon River Live` as a separate installed product.
+
+Final DAW name may change later; UI architecture should not depend on the current working brand.
