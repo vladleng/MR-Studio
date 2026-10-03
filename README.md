@@ -28,7 +28,9 @@
 
 **SHARED Stage 1 / issue #16** разрабатывается в PR #37: общий realtime renderer,
 родной vendor ASIO через PortAudio, WAV preload/playback, мониторинг и метрики.
-Hardware acceptance и Studio Pro performance benchmark пока не пройдены.
+Базовые hardware-тесты WAV и input monitoring при 48k/128 пройдены.
+Оставшиеся длительные тесты и Studio Pro benchmark отложены пользователем;
+performance gate остаётся pending и не блокирует дальнейшую разработку.
 Это общий C++20 backend: Project Model v1, Command/Undo, Transport API,
 tempo/meter contracts, подписки, fixtures и versioned snapshot.
 
@@ -37,6 +39,10 @@ tempo/meter contracts, подписки, fixtures и versioned snapshot.
 - [Audio core](docs/AUDIO_CORE.md) — realtime/device contracts и границы прототипа.
 - [Проверка ASIO](docs/SHARED_STAGE_1_CHECKLIST.md) — guided Windows tester и benchmark.
 - [Статус реализации](docs/IMPLEMENTATION_STATUS.md) — продолжение работы.
+
+**SHARED Stage 2 / issue #17**: Musical Timeline, Chord/Arranger lanes,
+общие context/navigation services, snapshot v2 с чтением v1.
+[Musical contracts](docs/MUSICAL_TIMELINE.md) · [Windows checker](docs/SHARED_STAGE_2_CHECKLIST.md).
 
 GUI ещё нет. MRS 0.1 не считается завершённой до DAW Foundation (#20)
 и прохождения Audio Engine / ASIO performance gate (#16).

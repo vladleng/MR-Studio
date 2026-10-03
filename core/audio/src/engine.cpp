@@ -192,6 +192,13 @@ TransportState EngineTransport::state() const {
     const auto s = engine_->state();
     return {s.playback, s.sample, timeline_.musical_position(timeline_.to_ticks(s.sample)), s.loop};
 }
+void EngineTransport::rebind_timeline(Timeline timeline) {
+    if (timeline.sample_rate() != engine_->config().sample_rate)
+        throw std::invalid_argument("timeline sample rate must match audio device");
+    (void)timeline.to_ticks(engine_->state().sample);
+    timeline_ = std::move(timeline);
+    poll();
+}
 void EngineTransport::send(Control control) {
     if (!engine_->enqueue(control)) throw std::runtime_error("audio command queue full; retry on control thread");
 }

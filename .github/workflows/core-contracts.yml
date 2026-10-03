@@ -39,3 +39,19 @@ jobs:
             docs/CORE_CONTRACTS.md
             docs/SHARED_STAGE_0_CHECKLIST.md
           if-no-files-found: error
+      - name: Package musical timeline checker
+        if: runner.os == 'Windows' && matrix.config == 'Release'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path timeline-package -Force | Out-Null
+          Copy-Item -LiteralPath build/Release/mrs_timeline_check.exe -Destination timeline-package/
+          Copy-Item -LiteralPath tools/Start-Timeline-Test.cmd -Destination timeline-package/
+          Copy-Item -LiteralPath docs/SHARED_STAGE_2_CHECKLIST.md -Destination timeline-package/
+          Copy-Item -LiteralPath docs/MUSICAL_TIMELINE.md -Destination timeline-package/
+      - name: Upload musical timeline checker
+        if: runner.os == 'Windows' && matrix.config == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MR-Studio-SHARED-Stage-2-Windows
+          path: timeline-package/
+          if-no-files-found: error

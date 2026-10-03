@@ -4,6 +4,11 @@
 
 namespace mrs {
 MockTransport::MockTransport(Timeline timeline) : timeline_(std::move(timeline)) {}
+void MockTransport::rebind_timeline(Timeline timeline) {
+    (void)timeline.to_ticks(state_.sample);
+    timeline_ = std::move(timeline);
+    commit(state_);
+}
 TransportState MockTransport::state() const { return state_; }
 void MockTransport::commit(TransportState next) {
     next.musical = timeline_.musical_position(timeline_.to_ticks(next.sample));

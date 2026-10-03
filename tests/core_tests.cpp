@@ -27,11 +27,11 @@ template<class F> void invalid_project(F edit) {
 void model() {
     auto p = mrs::demo_project();
     p.validate();
-    CHECK(p.version == 1 && p.tracks.size() == 4 && p.clips.size() == 2);
+    CHECK(p.version == mrs::schema_version && p.tracks.size() == 4 && p.clips.size() == 2);
     CHECK(p.tracks.front().folder == mrs::Id{"folder-rhythm"});
     CHECK(mrs::new_id() != mrs::new_id());
     invalid_project([](auto& q) { q.id.value.clear(); });
-    invalid_project([](auto& q) { q.version = 2; });
+    invalid_project([](auto& q) { q.version = 99; });
     invalid_project([](auto& q) { q.sample_rate = 0; });
     invalid_project([](auto& q) { q.tracks[1].id = q.tracks[0].id; });
     invalid_project([](auto& q) { q.markers[0].id = q.id; });
@@ -234,7 +234,7 @@ void serialization() {
     CHECK(mrs::deserialize(bytes) == project);
     CHECK(mrs::serialize(mrs::deserialize(bytes)) == bytes); // canonical, locale independent
     rejects([] { (void)mrs::deserialize(""); });
-    rejects([] { (void)mrs::deserialize("MRS_CORE_SNAPSHOT 2\n"); });
+    rejects([] { (void)mrs::deserialize("MRS_CORE_SNAPSHOT 99\n"); });
     rejects([&] { (void)mrs::deserialize(bytes + "UNKNOWN\n"); });
     rejects([&] { (void)mrs::deserialize(bytes.substr(0, bytes.size() / 2)); });
     for (const auto& replacement : {"TEMPOS -1", "TEMPOS 100001", "TEMPOS abc"}) {

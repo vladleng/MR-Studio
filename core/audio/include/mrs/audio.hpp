@@ -110,6 +110,7 @@ class EngineTransport final : public ITransport {
 public:
     EngineTransport(std::shared_ptr<AudioEngine>, Timeline);
     TransportState state() const override;
+    void rebind_timeline(Timeline) override;
     void play() override;
     void pause() override;
     void stop() override;

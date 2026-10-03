@@ -68,6 +68,14 @@ std::string serialize(const Project& p) {
     for (const auto& marker : p.markers)
         out << std::quoted(marker.id.value) << ' ' << std::quoted(marker.name) << ' '
             << marker.tick << ' ' << static_cast<int>(marker.kind) << '\n';
+    section(out, "CHORDS", p.chords);
+    for (const auto& chord : p.chords)
+        out << std::quoted(chord.id.value) << ' ' << std::quoted(chord.symbol) << ' '
+            << chord.start << ' ' << chord.end << '\n';
+    section(out, "SECTIONS", p.sections);
+    for (const auto& part : p.sections)
+        out << std::quoted(part.id.value) << ' ' << std::quoted(part.name) << ' '
+            << part.start << ' ' << part.end << ' ' << part.color << '\n';
     out << "END\n";
     auto result = out.str();
     if (result.size() > max_bytes) throw std::invalid_argument("snapshot byte limit exceeded");
@@ -81,7 +89,11 @@ Project deserialize(std::string_view bytes) {
     tag(in, "MRS_CORE_SNAPSHOT");
     in >> p.version;
     check_stream(in);
-    if (p.version != schema_version) throw std::invalid_argument("unsupported snapshot version");
+    const auto input_version = p.version;
+    if (input_version != 1 && input_version != schema_version)
+        throw std::invalid_argument("unsupported snapshot version");
+    p.version = schema_version; // migrate v1 with empty musical lanes
+
     tag(in, "PROJECT");
     p.id = {quoted(in)};
     p.title = quoted(in);
@@ -153,6 +165,26 @@ Project deserialize(std::string_view bytes) {
         if (kind < 0 || kind > 5) throw std::invalid_argument("invalid marker enum");
         marker.kind = static_cast<MarkerKind>(kind);
         p.markers.push_back(std::move(marker));
+    }
+    if (input_version >= 2) {
+        tag(in, "CHORDS");
+        n = count(in);
+        for (std::size_t i = 0; i < n; ++i) {
+            Chord chord;
+            chord.id = {quoted(in)}; chord.symbol = quoted(in);
+            in >> chord.start >> chord.end;
+            check_stream(in);
+            p.chords.push_back(std::move(chord));
+        }
+        tag(in, "SECTIONS");
+        n = count(in);
+        for (std::size_t i = 0; i < n; ++i) {
+            ArrangerSection part;
+            part.id = {quoted(in)}; part.name = quoted(in);
+            in >> part.start >> part.end >> part.color;
+            check_stream(in);
+            p.sections.push_back(std::move(part));
+        }
     }
     tag(in, "END");
     in >> std::ws;
