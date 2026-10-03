@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Accepted: 0.1d upd1 fix1 / MRS Stage 1c #21 (PR #45 merged). Current: 0.1e / Stage 1d recording/monitor; user acceptance pending.
+Updated: 2026-10-03. Accepted: 0.1e / MRS Stage 1d; whole Audio Arrangement #21 accepted. Next: MRS Stage 2 / #22 Mixer / Routing (not started).
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -186,3 +186,14 @@ Recording guards prevent project/seek/loop/device mutation until finalize.
 New suites: audio_recording, desktop_recording; GUI Arm/Disarm/controls smoke.
 Contracts: docs/RECORDING.md; manual acceptance: docs/MRS_STAGE_1D_CHECKLIST.md.
 Last accepted remains 0.1d upd1 fix1; #21 remains open pending user verification.
+
+
+## Приёмка 0.1e — 2026-10-03
+Пользователь подтвердил: «Все работает, записал на несколько каналов».
+MRS Stage 1d / 0.1e принят; PR #46 слит в main. Подтверждение относится к текущему foundation workflow;
+одновременная запись нескольких ASIO inputs не добавлялась (один выбранный input
+и одна вооружённая дорожка за дубль). Весь MRS Stage 1 / #21 принят.
+Проверенный code head: f78e0123cc7651f3418f0a42f8bc9fce861dfed7.
+PR CI: все шесть jobs пройдены (56/56 Linux/ASIO, 57/57 Windows offline).
+Следующая работа после паузы: MRS Stage 2 / #22 Mixer / Routing; реализация не начата.
+Пользователь попросил продолжить 2026-10-04 по Asia/Krasnoyarsk. 

@@ -301,7 +301,7 @@ Live is a separate show mode with .mrlive documents referencing .mrsproject song
 using the same SHARED Core/Engine. Its file commands/screen belong to LIVE stages.
 
 Следующий подэтап: **Stage 1d / 0.1e** — запись, мониторинг и итоговая приёмка save/load.
-Stage 1c завершён; общий #21 остаётся открытым. 0.1e реализуется; ручная ASIO приёмка ожидается.
+Stage 1c завершён; общий #21 остаётся открытым. 0.1e принят пользователем; PR #46 слит в main.
 
 ## MRS Stage 1d — 0.1e recording/monitor
 Один вход ASIO, одна вооружённая audio track, raw mono float32 WAV через bounded
@@ -310,5 +310,16 @@ Undo/Redo и сохранение/открытие проекта с внешн�
 во время записи; файл содержит только вход. При dropout сохраняется валидная часть
 с предупреждением. Без loop recording и компенсации задержки в этой версии.
 [Контракты](docs/RECORDING.md) · [Windows checklist](docs/MRS_STAGE_1D_CHECKLIST.md).
-Тестовая ASIO сборка: MR-Studio-0.1e-ASIO-Windows. Ручная приёмка ожидается;
-весь #21 остаётся открытым до подтверждения пользователя.
+Принятая ASIO сборка: MR-Studio-0.1e-ASIO-Windows. Пользователь подтвердил работу;
+Stage 1 / #21 завершён. Далее Mixer / Routing #22.
+
+
+## Приёмка 0.1e — 2026-10-03
+Пользователь подтвердил: «Все работает, записал на несколько каналов».
+MRS Stage 1d / 0.1e принят; PR #46 слит в main. Подтверждение относится к текущему foundation workflow;
+одновременная запись нескольких ASIO inputs не добавлялась (один выбранный input
+и одна вооружённая дорожка за дубль). Весь MRS Stage 1 / #21 принят.
+Проверенный code head: f78e0123cc7651f3418f0a42f8bc9fce861dfed7.
+PR CI: все шесть jobs пройдены (56/56 Linux/ASIO, 57/57 Windows offline).
+Следующая работа после паузы: MRS Stage 2 / #22 Mixer / Routing; реализация не начата.
+Пользователь попросил продолжить 2026-10-04 по Asia/Krasnoyarsk. 

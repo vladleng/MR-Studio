@@ -23,9 +23,10 @@
 | Принятый MRS Stage 1c: disk read-ahead | 0.1d |
 | Принятое UI обновление: gray / Files / no Live button | 0.1d upd1 |
 | Принятое исправление моно L/R, включено в UI сборку | 0.1d fix1 |
-| MRS Stage 1d: record/monitor + save/load, приёмка ожидается | 0.1e |
+| Принятый MRS Stage 1d: record/monitor + save/load | 0.1e |
 
-Текущий подэтап: Stage 1d — recording/monitor, версия `0.1e` (реализация/приёмка).
+Принятая версия: `0.1e` / Stage 1d. Весь MRS Stage 1 завершён.
+Далее MRS Stage 2 / #22 Mixer / Routing; имя следующей сборки определить при выборе подэтапа.
 
 Эта схема имеет приоритет над прежними номерными примерами roadmap.
 Live Mode входит в ту же сборку и не получает отдельную продуктовую версию.

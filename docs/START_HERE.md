@@ -16,15 +16,18 @@ MRS Stage 1b / 0.1c принят пользователем 2026-10-03: все �
 MRS Stage 1c / 0.1d upd1 fix1 принят пользователем 2026-10-03; PR #45 слит в main.
 Приняты длинные WAV/disk read-ahead, серый интерфейс/меню Files, удаление кнопки Live
 и центрирование моно. Все шесть CI jobs пройдены.
-Следующий подэтап: MRS Stage 1d #21 / 0.1e — recording/monitor foundation
-и integrated save/load acceptance. Разработка 0.1e выполняется по запросу пользователя; ручная ASIO приёмка ожидается.
-Последняя принятая сборка: 0.1d upd1 fix1. Новая тестовая сборка: 0.1e.
-Контракты записи: docs/RECORDING.md; приёмка: docs/MRS_STAGE_1D_CHECKLIST.md.
-Чек-листы: docs/MRS_STAGE_1C_CHECKLIST.md и docs/MRS_STAGE_1C_UPD1_CHECKLIST.md.
-Правила версий: docs/VERSIONING.md. Читать issue #21 и docs/AUDIO_ARRANGEMENT.md.
-Приёмка 0.1c: docs/MRS_STAGE_1B_CHECKLIST.md.
-После 1c: recording foundation и integrated save/load; весь #21 остаётся открытым.
-Длительные проверки performance gate #16 остаются отложенными и nonblocking.
+MRS Stage 1d / 0.1e принят пользователем 2026-10-03: «Все работает, записал на несколько каналов».
+Весь MRS Stage 1 / Audio Arrangement #21 завершён. PR #46 принят и слит в main.
+Последняя принятая сборка: 0.1e. Code head f78e0123cc7651f3418f0a42f8bc9fce861dfed7.
+Контракты: docs/RECORDING.md; приёмка: docs/MRS_STAGE_1D_CHECKLIST.md.
+Следующий этап: MRS Stage 2 / #22 — Mixer / Routing. Разработка ещё не начата.
+При возобновлении сначала прочитать issue #22; выбрать первый подэтап микшера:
+track gain/pan, mute/solo, meters и master bus на том же SHARED engine.
+Запись 0.1e: один выбранный mono ASIO input и одна вооружённая дорожка за дубль;
+последовательные дубли на разных дорожках поддерживаются. Multi-input recording остаётся будущей работой.
+Правила версий: docs/VERSIONING.md. Длительные performance проверки #16 остаются
+отложенными и nonblocking. Продолжить по запросу пользователя 2026-10-04 (Asia/Krasnoyarsk).
+
 
 
 Этот документ — короткая точка входа для нового чата, разработчика или агента, который подключается к проекту без контекста предыдущих обсуждений.
