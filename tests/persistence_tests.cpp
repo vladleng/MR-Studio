@@ -73,6 +73,8 @@ void model() {
     bad([](auto& c) { c.midi.front().output = false; });
     bad([](auto& c) { c.extensions.front().tag = "PROJ"; });
     bad([](auto& c) { c.extensions.front().tag = "BAD"; });
+    bad([](auto& c) { c.project.title.assign(1024*1024+1,'x'); });
+    bad([](auto& c) { c.patches.push_back(c.patches.front()); });
     auto s = show(d); s.validate();
     s.selected = Id{"missing"}; rejects([&] { s.validate(); });
 }
@@ -131,6 +133,11 @@ void atomic_files() {
     auto next = d; ++next.generation; next.project.title = "Next"; save_project(path,next);
     auto backup = path; backup += ".bak"; CHECK(load_project(backup) == d);
     const auto original = read(path);
+    auto other = next; other.project.id = {"other-project"};
+    rejects([&] { save_project(path,other); });
+    rejects([&] { save_autosave(path,other); });
+    rejects([&] { save_project(path,d); });
+    CHECK(read(path) == original);
     for (const auto point : {SavePoint::temporary_synced,SavePoint::backup_synced,SavePoint::before_replace}) {
         auto third = next; ++third.generation;
         rejects([&] { save_project(path,third,[&](SavePoint p) { if (p == point) throw std::runtime_error("injected failure"); }); });
@@ -160,7 +167,12 @@ void recovery() {
     write(dir.path / "mrs-write-orphan.tmp",encode(autosave)); CHECK(recover_project(path).document == d);
     write(fs::path(path.string()+".bak"),"broken"); rejects([&] { (void)recover_project(path); });
     rejects([&] { (void)recover_project(dir.path / "missing"); });
+    // A valid but unrelated autosave is rejected against a valid primary.
+    write(path,encode(d)); auto other = d; other.project.id = {"other-project"}; ++other.generation;
+    write(fs::path(path.string()+".autosave"),encode(other));
+    r = recover_project(path); CHECK(r.document == d && r.warnings.size() == 2);
     // Ties prefer the explicit primary.
+    std::error_code ignored; fs::remove(fs::path(path.string()+".autosave"),ignored);
     write(path,encode(d)); save_autosave(path,d); CHECK(recover_project(path).source == path);
 }
 void autosave() {

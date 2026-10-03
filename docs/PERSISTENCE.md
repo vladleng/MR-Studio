@@ -66,7 +66,7 @@ pending work, serializes/writes .autosave on one background thread and records
 errors. wait(ticket) reports the latest completed write covering that ticket;
 coalesced older snapshots can be skipped. Destruction drains pending work and
 joins off RT. No timer is implemented: the shell will schedule submit.
-A valid autosave cannot be replaced by a different project or lower generation;
+A valid primary/autosave prevents saving an autosave with a different project ID or lower generation;
 a corrupt autosave can be repaired by a new valid snapshot.
 
 Recovery validates primary, .autosave and .bak, picks the greatest generation

@@ -115,9 +115,10 @@ ProjectDocument load_project(const fs::path& path) { return decode_project(read(
 ShowDocument load_show(const fs::path& path) { return decode_show(read(path)); }
 void save_autosave(const fs::path& project_path, const ProjectDocument& d) {
     auto bytes = encode(d); const auto target = sibling(project_path,".autosave");
-    if (fs::exists(target)) {
+    for (const auto& candidate : {project_path,target}) {
+        if (!fs::exists(candidate)) continue;
         std::optional<ProjectDocument> old;
-        try { old = decode_project(read(target)); } catch (const std::invalid_argument&) { /* corrupt autosave can be repaired */ }
+        try { old = decode_project(read(candidate)); } catch (const std::invalid_argument&) { /* corrupt autosave can be repaired */ }
         if (old && (old->project.id != d.project.id || old->generation > d.generation)) throw std::invalid_argument("autosave identity/generation mismatch");
     }
     atomic(target,bytes);

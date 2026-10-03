@@ -161,6 +161,15 @@ Archive envelope(std::string_view bytes, std::uint32_t kind) {
 } // namespace
 void ProjectDocument::validate() const {
     project.validate(); graph.validate(); text_ok(live_notes); extensions_ok(extensions,false);
+    text_ok(project.title); text_ok(project.artist);
+    require(project.time.tempos.size() <= count_limit && project.time.meters.size() <= count_limit &&
+        project.folders.size() <= count_limit && project.tracks.size() <= count_limit && project.clips.size() <= count_limit &&
+        project.markers.size() <= count_limit && project.chords.size() <= count_limit && project.sections.size() <= count_limit, "too many core items");
+    for (const auto& f : project.folders) text_ok(f.name);
+    for (const auto& t : project.tracks) text_ok(t.name);
+    for (const auto& c : project.clips) { text_ok(c.name); text_ok(c.source); }
+    for (const auto& m : project.markers) text_ok(m.name);
+    for (const auto& s : project.sections) text_ok(s.name);
     require(mixer.size() <= count_limit && midi.size() <= count_limit && patches.size() <= count_limit && section_patches.size() <= count_limit && actions.size() <= count_limit, "too many document items");
     std::set<std::string> tracks, ports, patch_ids, section_ids, action_ids;
     for (const auto& m : mixer) {
@@ -169,6 +178,8 @@ void ProjectDocument::validate() const {
     }
     for (const auto& m : midi) { identifier(m.port); text_ok(m.device_key); text_ok(m.name); require(ports.insert(m.port.value).second && (m.input || m.output), "invalid MIDI binding"); }
     auto routes = [&](const GraphState& g) {
+        text_ok(g.patch_name);
+        for (const auto& n : g.nodes) { text_ok(n.processor_id); text_ok(n.plugin.class_id); }
         for (const auto& route : g.midi_routes) {
             auto port = std::find_if(midi.begin(),midi.end(),[&](const auto& m) { return m.port == route.source_port; });
             require(port != midi.end() && port->input, "MIDI route has no input binding");
