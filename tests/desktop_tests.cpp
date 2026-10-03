@@ -65,17 +65,17 @@ void files() {
     rejects([&] { app.open_project(dir.path / "broken"); }); CHECK(app.services().projects == before);
     app.demo(); CHECK(app.dirty() && app.path().empty());
 }
-void wav(const std::filesystem::path& path) {
+void wav(const std::filesystem::path& path, std::uint16_t channels = 2) {
     // Exact PCM16 stereo RIFF fixture at a non-default sample rate.
     std::ofstream f(path,std::ios::binary);
     auto u16 = [&](std::uint16_t value) { for (int i = 0; i < 2; ++i) f.put(static_cast<char>((value >> (8*i)) & 255)); };
     auto u32 = [&](std::uint32_t value) { for (int i = 0; i < 4; ++i) f.put(static_cast<char>((value >> (8*i)) & 255)); };
-    f.write("RIFF",4); u32(36+4000); f.write("WAVEfmt ",8); u32(16); u16(1); u16(2); u32(44100); u32(176400); u16(4); u16(16);
+    f.write("RIFF",4); u32(36+4000); f.write("WAVEfmt ",8); u32(16); u16(1); u16(channels); u32(44100); u32(44100*channels*2); u16(static_cast<std::uint16_t>(channels*2)); u16(16);
     f.write("data",4); u32(4000); for (int i = 0; i < 2000; ++i) u16(4000);
 }
 class ManualDevice final : public audio::IAudioDevice {
 public:
-    std::vector<audio::DeviceInfo> enumerate() override { return {{0,"Manual render test",{},{"L","R"},32,2048,128,-1}}; }
+    std::vector<audio::DeviceInfo> enumerate() override { return {{0,"Manual render test",{},{"L","R","Cue 1","Cue 2"},32,2048,128,-1}}; }
     void control_panel(int) override {}
     void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>) override { phase_ = audio::DevicePhase::open; }
     void start() override { phase_ = audio::DevicePhase::running; }
@@ -97,6 +97,19 @@ void assets() {
     app.disconnect(); CHECK(app.engine()->state().sample == 0);
     auto services = app.services(); rejects([&] { app.import_wav(dir.path / "absent.wav"); }); CHECK(app.services().projects == services.projects);
 }
+void mono_route() {
+    Directory dir; const auto file = dir.path / "mono.wav"; wav(file,1);
+    Application app; app.import_wav(file);
+    CHECK(audio::inspect_wav(file).channels == 1);
+    for (const auto& outputs : {std::vector<int>{0},std::vector<int>{0,1},std::vector<int>{0,1,2,3}}) {
+        app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{},outputs});
+        app.play(); std::array<float,512> buffer{};
+        app.engine()->process(nullptr,buffer.data(),128);
+        for (std::size_t frame = 0; frame < 128; ++frame) for (std::size_t channel = 0; channel < outputs.size(); ++channel)
+            CHECK(buffer[frame*outputs.size()+channel] == (channel < 2 ? 0.06103515625f : 0.0f));
+    }
+}
+
 void audio_settings() {
     Application app;
     app.connect(audio::make_offline_device(),{0,48000,128,{}, {0,1}}); CHECK(app.audio_running());
@@ -315,7 +328,7 @@ int main(int argc, char** argv) {
         std::string name = argv[1];
         if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
-        else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else throw std::runtime_error("unknown suite");
+        else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
 }

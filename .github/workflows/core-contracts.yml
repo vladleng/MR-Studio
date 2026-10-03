@@ -91,10 +91,11 @@ jobs:
         if: runner.os == 'Windows' && matrix.config == 'Release'
         uses: actions/upload-artifact@v4
         with:
-          name: MR-Studio-0.1d-Offline-Windows
+          name: MR-Studio-0.1d-upd1-fix1-Offline-Windows
           path: |
             build/Release/MoonRiverStudio.exe
             docs/MRS_STAGE_0_CHECKLIST.md
+            docs/MRS_STAGE_1C_UPD1_CHECKLIST.md
             docs/MRS_STAGE_1C_CHECKLIST.md
             docs/MRS_STAGE_1B_CHECKLIST.md
             docs/MRS_STAGE_1A_CHECKLIST.md

@@ -17,7 +17,7 @@
 namespace {
 using namespace mrs;
 using namespace mrs::desktop;
-constexpr COLORREF background = RGB(19,23,33), panel = RGB(29,35,49), border = RGB(51,60,78);
+constexpr COLORREF background = RGB(32,32,32), panel = RGB(44,44,44), border = RGB(65,65,65);
 constexpr COLORREF ink = RGB(229,233,245), muted = RGB(154,167,190), accent = RGB(118,104,237), amber = RGB(246,193,97);
 std::wstring wide(std::string_view text) {
     if (text.empty()) return {};
@@ -81,6 +81,7 @@ enum ControlId {
     previous, next, loop, undo, redo, open, save, save_as, demo, import,
     audio_settings, tracks = 140, rename_edit, rename,
     new_project_button = 160, import_batch, add_track, delete_track, track_up, track_down, zoom_in, zoom_out, zoom_fit, split_clip_button, delete_clip_button, snap_button,
+    files_exit = 180,
     device_combo = 200, rate_edit, buffer_edit, outputs_edit, input_edit,
     connect_button, disconnect_button, panel_button, refresh_button
 };
@@ -119,6 +120,7 @@ struct UI {
                 }
             } catch (const std::exception& e) { log.write(e.what()); }
         }
+        if (prefs.workspace == Workspace::live) prefs.workspace = Workspace::arrange;
         app.workspace(prefs.workspace); log.write("Studio shell started");
     }
     ~UI() { if (normal) DeleteObject(normal); if (heading) DeleteObject(heading); if (big) DeleteObject(big); if (settings_font) DeleteObject(settings_font); DeleteObject(panel_brush); }
@@ -143,15 +145,33 @@ struct UI {
         for (HWND parent : {window}) if (parent)
             for (auto control = GetWindow(parent,GW_CHILD); control; control = GetWindow(control,GW_HWNDNEXT)) SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(normal),TRUE);
     }
+    void file_menu() {
+        const auto bar = CreateMenu(), files = CreatePopupMenu();
+        if (!bar || !files) {
+            if (bar) DestroyMenu(bar); if (files) DestroyMenu(files);
+            throw std::runtime_error("Cannot create Files menu");
+        }
+        bool ok = true;
+        const auto item = [&](UINT id, const wchar_t* label) { ok = AppendMenuW(files,MF_STRING,id,label) != FALSE && ok; };
+        const auto separator = [&] { ok = AppendMenuW(files,MF_SEPARATOR,0,nullptr) != FALSE && ok; };
+        item(new_project_button,L"&New project\tCtrl+N"); item(open,L"&Open project...\tCtrl+O");
+        separator(); item(save,L"&Save\tCtrl+S"); item(save_as,L"Save &as...\tCtrl+Shift+S");
+        separator(); item(import_batch,L"&Import WAVs...\tCtrl+I"); item(import,L"Open &WAV as new project...");
+        item(demo,L"Open &demo project"); separator(); item(files_exit,L"E&xit");
+        if (!ok || !AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(files),L"&Files")) {
+            DestroyMenu(files); DestroyMenu(bar); throw std::runtime_error("Cannot populate Files menu");
+        }
+        if (!SetMenu(window,bar)) { DestroyMenu(bar); throw std::runtime_error("Cannot attach Files menu"); }
+        DrawMenuBar(window); // native thin row: keyboard navigation and DPI handling
+    }
     void initialize() {
-        for (auto [id,label] : std::array<std::pair<int,const wchar_t*>,18>{{
-            {nav_arrange,L"Arrange"},{nav_edit,L"Edit"},{nav_mix,L"Mix"},{nav_live,L"Live"},
+        file_menu();
+        for (auto [id,label] : std::array<std::pair<int,const wchar_t*>,12>{{
+            {nav_arrange,L"Arrange"},{nav_edit,L"Edit"},{nav_mix,L"Mix"},
             {play,L"Play"},{pause,L"Pause"},{stop,L"Stop"},{previous,L"< Section"},{next,L"Section >"},
-            {loop,L"Loop section"},{undo,L"Undo"},{redo,L"Redo"},{open,L"Open project"},
-            {save,L"Save"},{save_as,L"Save as"},{demo,L"Demo"},{import,L"Open WAV"},{audio_settings,L"Audio settings"}}}) button(window,label,id);
-        for (auto [id,label] : std::array<std::pair<int,const wchar_t*>,9>{{
-            {new_project_button,L"New"},{import_batch,L"Import WAVs"},{add_track,L"+ Track"},
-            {delete_track,L"Delete"},{track_up,L"Up"},{track_down,L"Down"},
+            {loop,L"Loop section"},{undo,L"Undo"},{redo,L"Redo"},{audio_settings,L"Audio settings"}}}) button(window,label,id);
+        for (auto [id,label] : std::array<std::pair<int,const wchar_t*>,7>{{
+            {add_track,L"+ Track"},{delete_track,L"Delete"},{track_up,L"Up"},{track_down,L"Down"},
             {zoom_in,L"Zoom +"},{zoom_out,L"Zoom -"},{zoom_fit,L"Fit"}}}) button(window,label,id);
         button(window,L"Split (S)",split_clip_button); button(window,L"Del clip",delete_clip_button); button(window,L"Snap off",snap_button);
         create(window,L"LISTBOX",L"",tracks,WS_TABSTOP | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT);
@@ -165,17 +185,14 @@ struct UI {
     void layout() {
         RECT area{}; GetClientRect(window,&area); const int width = MulDiv(area.right,96,static_cast<int>(dpi));
         const int height = MulDiv(area.bottom,96,static_cast<int>(dpi));
-        for (int i = 0; i < 4; ++i) move(nav_arrange+i,240+i*100,18,92,34);
+        for (int i = 0; i < 3; ++i) move(nav_arrange+i,240+i*100,18,92,34);
         move(audio_settings,width-166,18,150,34);
         int x = 20; for (auto id : {play,pause,stop,previous,next,loop}) { int w = id >= previous ? 115 : 76; move(id,x,80,w,34); x += w+8; }
         move(split_clip_button,700,196,80,32); move(delete_clip_button,788,196,80,32); move(snap_button,876,196,88,32);
         move(undo,20,140,80,32); move(redo,108,140,80,32);
-        move(open,20,188,168,32); move(save,20,228,80,32); move(save_as,108,228,80,32);
-        move(demo,20,272,80,32); move(import,108,272,80,32);
-        move(new_project_button,20,312,80,32); move(import_batch,108,312,80,32);
         int ax = 220;
         for (auto id : {add_track,delete_track,track_up,track_down,zoom_in,zoom_out,zoom_fit}) { move(id,ax,244,84,32); ax += 92; }
-        move(tracks,20,354,168,std::max(70,height-514));
+        move(tracks,20,228,168,std::max(70,height-388));
         move(rename_edit,20,height-148,168,32); move(rename,20,height-108,168,32);
         canvas = {s(220),s(290),area.right-s(20),area.bottom-s(68)};
         InvalidateRect(window,nullptr,FALSE);
@@ -306,7 +323,7 @@ struct UI {
     }
     void command(int id, int notification) {
         if (drag) cancel_drag();
-        if (id >= nav_arrange && id <= nav_live) { app.workspace(static_cast<Workspace>(id-nav_arrange)); for (int i = nav_arrange; i <= nav_live; ++i) InvalidateRect(child(i),nullptr,TRUE); InvalidateRect(window,nullptr,FALSE); return; }
+        if (id >= nav_arrange && id <= nav_mix) { app.workspace(static_cast<Workspace>(id-nav_arrange)); for (int i = nav_arrange; i <= nav_mix; ++i) InvalidateRect(child(i),nullptr,TRUE); InvalidateRect(window,nullptr,FALSE); return; }
         if (id == tracks && notification == LBN_SELCHANGE) {
             const auto selection = SendMessageW(child(tracks),LB_GETCURSEL,0,0);
             const auto project = app.services().projects->state().project;
@@ -371,6 +388,7 @@ struct UI {
         case demo: if (discard()) { app.demo(); refresh_models(); restore_audio(); } break;
         case save: (void)save_current(false); break; case save_as: (void)save_current(true); break;
         case audio_settings: show_settings(); break;
+        case files_exit: PostMessageW(window,WM_CLOSE,0,0); break;
         }
         InvalidateRect(window,nullptr,FALSE);
     }
@@ -387,8 +405,8 @@ struct UI {
         MoveToEx(dc,x1,y1,nullptr); LineTo(dc,x2,y2); SelectObject(dc,old); DeleteObject(pen);
     }
     void draw_button(const DRAWITEMSTRUCT& item) {
-        bool selected = item.CtlID >= nav_arrange && item.CtlID <= nav_live && item.CtlID-nav_arrange == static_cast<UINT>(app.workspace());
-        fill(item.hDC,item.rcItem,selected ? accent : (item.itemState & ODS_SELECTED) ? border : panel);
+        bool selected = item.CtlID >= nav_arrange && item.CtlID <= nav_mix && item.CtlID-nav_arrange == static_cast<UINT>(app.workspace());
+        fill(item.hDC,item.rcItem,selected ? RGB(88,88,88) : (item.itemState & ODS_SELECTED) ? border : panel);
         auto label = control_text(item.hwndItem); auto old = SelectObject(item.hDC,GetParent(item.hwndItem) == settings ? settings_font : normal);
         SetBkMode(item.hDC,TRANSPARENT); SetTextColor(item.hDC,(item.itemState & ODS_DISABLED) ? muted : ink);
         RECT rect = item.rcItem; DrawTextW(item.hDC,label.c_str(),static_cast<int>(label.size()),&rect,DT_CENTER | DT_VCENTER | DT_SINGLELINE);
@@ -481,7 +499,7 @@ struct UI {
     }
     void paint(HDC dc) {
         RECT area{}; GetClientRect(window,&area); fill(dc,area,background);
-        fill(dc,{0,s(126),s(204),area.bottom},RGB(23,29,41));
+        fill(dc,{0,s(126),s(204),area.bottom},RGB(36,36,36));
         text(dc,s(20),s(16),s(214),s(38),L"Moon River Studio",heading);
         line(dc,0,s(64),area.right,s(64));
         text(dc,s(220),s(146),area.right-s(240),s(40),wide(app.services().projects->state().project->title),heading);
@@ -490,14 +508,11 @@ struct UI {
         position << L"Bar " << context.transport.musical.bar << L"  Beat " << context.transport.musical.beat
             << L"    " << std::fixed << std::setprecision(2) << static_cast<double>(context.transport.sample)/context.project->sample_rate << L" s";
         text(dc,s(220),s(196),s(470),s(35),position.str(),heading,amber);
-        text(dc,s(20),s(318),s(168),s(28),L"Project tracks",normal,muted);
+        text(dc,s(20),s(194),s(168),s(28),L"Project tracks",normal,muted);
         auto workspace = app.workspace();
         for (auto id : {add_track,delete_track,track_up,track_down,zoom_in,zoom_out,zoom_fit,split_clip_button,delete_clip_button,snap_button}) ShowWindow(child(id),workspace == Workspace::arrange ? SW_SHOW : SW_HIDE);
-        if (workspace == Workspace::arrange || workspace == Workspace::live) {
-            auto section = context.current_section ? wide(context.current_section->name) : L"No section";
-            auto next_section = context.next_section ? wide(context.next_section->name) : L"End";
-            if (workspace == Workspace::live) text(dc,s(220),s(240),area.right-s(240),s(30),section + L"   →   " + next_section,normal,muted);
-            timeline(dc,canvas,workspace == Workspace::live);
+        if (workspace == Workspace::arrange) {
+            timeline(dc,canvas,false);
         } else {
             fill(dc,canvas,panel); int y = canvas.top+s(14);
             text(dc,canvas.left+s(16),y,canvas.right-canvas.left-s(32),s(36),workspace == Workspace::mix ? L"Shared processor graph" : L"Clip inspector",heading); y += s(52);
@@ -697,7 +712,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
             }
             if (wparam == 2 && ui->smoke) {
                 ++ui->smoke_step;
-                if (ui->smoke_step <= 4) ui->command(nav_arrange+ui->smoke_step-1,BN_CLICKED);
+                if (ui->smoke_step <= 3) ui->command(nav_arrange+ui->smoke_step-1,BN_CLICKED);
                 if (ui->smoke_step == 5) {
                     ui->command(nav_arrange,BN_CLICKED);
                     const auto revision = ui->app.services().projects->state().revision;
@@ -714,7 +729,12 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     ui->mouse_down(origin); ui->mouse_move(destination); ui->cancel_drag();
                     if (ui->app.services().projects->state().revision != undone)
                         throw std::runtime_error("Cancelled drag changed project state");
-                    ui->command(nav_live,BN_CLICKED);
+                    ui->command(nav_mix,BN_CLICKED);
+                    const auto bar = GetMenu(hwnd), files = GetSubMenu(bar,0);
+                    if (!bar || !files || GetMenuItemID(files,0) != new_project_button || GetMenuItemID(files,3) != save)
+                        throw std::runtime_error("Files menu did not retain project commands");
+                    for (auto id : {nav_live,open,save,save_as,demo,import,new_project_button,import_batch})
+                        if (ui->child(id)) throw std::runtime_error("File/Live controls still occupy the workspace");
                     ui->app.rename_track(ui->app.services().projects->state().project->tracks.front().id,"Smoke track"); ui->refresh_models();
                     ui->show_settings(); // offline CI build skips enumeration of physical ASIO
                 }
@@ -728,7 +748,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     SendMessageW(ui->child(device_combo,true),CB_SETCURSEL,0,0);
                     SetWindowTextW(ui->child(rate_edit,true),L"48000");
                     SetWindowTextW(ui->child(outputs_edit,true),L"1,2");
-                    if (!ui->child(play) || !ui->child(device_combo,true) || ui->app.workspace() != Workspace::live || ui->error_count != 0)
+                    if (!ui->child(play) || !ui->child(device_combo,true) || ui->app.workspace() != Workspace::mix || ui->error_count != 0)
                         throw std::runtime_error("GUI initialization/typing produced an unexpected error");
                     // Exercise DPI layout with the same path as a monitor change.
                     ui->dpi = 144; ui->fonts();
@@ -815,7 +835,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show)
                 }
                 if (!editing && msg.wParam == VK_SPACE) { ui.command(ui.app.services().transport->state().playback == PlaybackState::playing ? pause : play,0); continue; }
                 if (GetKeyState(VK_CONTROL) & 0x8000) {
-                    int id{}; if (msg.wParam == 'S') id = save; if (!editing && msg.wParam == 'Z') id = undo; if (!editing && msg.wParam == 'Y') id = redo;
+                    int id{}; if (msg.wParam == 'S') id = (GetKeyState(VK_SHIFT)&0x8000) ? save_as : save;
+                    if (!editing && msg.wParam == 'N') id = new_project_button;
+                    if (!editing && msg.wParam == 'O') id = open;
+                    if (!editing && msg.wParam == 'I') id = import_batch; if (!editing && msg.wParam == 'Z') id = undo; if (!editing && msg.wParam == 'Y') id = redo;
                     if (id) { ui.command(id,0); continue; }
                 }
             } catch (const std::exception& e) { ui.error(e); continue; } }

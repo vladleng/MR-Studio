@@ -285,8 +285,14 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
         auto asset_data = asset(clip.source);
         require(asset_data->sample_rate == c.sample_rate,"WAV/project sample-rate mismatch");
         audio::Voice voice{asset_data,clip.start,clip.source_offset,clip.length,{}};
-        for (std::uint32_t channel = 0; channel < asset_data->channels; ++channel)
-            voice.routes.push_back({channel,channel % static_cast<std::uint32_t>(c.outputs.size()),clip.source == "mrs:demo-tone" ? 0.15f : 1.0f});
+        const auto gain = clip.source == "mrs:demo-tone" ? 0.15f : 1.0f;
+        if (asset_data->channels == 1) {
+            // A mono track is centered in the selected main pair, without
+            // spilling into extra click/cue outputs. Single-output remains unity.
+            const auto outputs = std::min<std::size_t>(2,c.outputs.size());
+            for (std::uint32_t output = 0; output < outputs; ++output) voice.routes.push_back({0,output,gain});
+        } else for (std::uint32_t channel = 0; channel < asset_data->channels; ++channel)
+            voice.routes.push_back({channel,channel % static_cast<std::uint32_t>(c.outputs.size()),gain});
         result.voices.push_back(std::move(voice));
     }
     if (!c.inputs.empty()) for (std::uint32_t channel = 0; channel < c.outputs.size(); ++channel) result.monitor.push_back({0,channel,1});

@@ -145,3 +145,12 @@ Desktop fixture has 40,000,003 stereo PCM16 frames (over 305 MiB decoded),
 uses metadata + bounded pages, and preserves paused edits/Undo and save/load references.
 Windows user acceptance pending: docs/MRS_STAGE_1C_CHECKLIST.md. PR #45 remains unmerged;
 whole #21 stays open. Deferred sustained ASIO performance gate #16 remains nonblocking.
+
+
+## 2026-10-03 — 0.1d upd1 / fix1
+Пользователь подтвердил работоспособность базовой 0.1d, включая длинные WAV.
+До закрытия Stage 1c запрошено UI обновление: серые фон/кнопки с прежними цветами
+аккордов и секций; верхнее меню Files для всех file/project действий; удаление Live
+из навигационных кнопок production. Mono-only-left исправляется в fix1.
+Объединённая сборка: 0.1d upd1 fix1. Чек-лист: MRS_STAGE_1C_UPD1_CHECKLIST.md.
+CI и приёмка этой доработки pending; PR #45 остаётся открытым.

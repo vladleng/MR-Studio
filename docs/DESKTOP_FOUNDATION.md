@@ -6,7 +6,7 @@ GDI double-buffered drawing provides the initial flat dark timeline; native
 controls supply keyboard focus, text editing, file pickers and ASIO settings.
 No browser/web server, new audio engine, GUI DLL distribution or additional
 GUI package download is needed. The executable statically links existing libraries.
-The foundation uses Segoe UI, graphite panels, blue/violet workspace selection and
+The foundation uses Segoe UI, graphite panels, neutral gray workspace selection and
 amber playhead, following UI_UX_CONCEPT.md.
 
 This stage proves UI integration, not the final drawing framework. Win32 currently
@@ -39,11 +39,15 @@ and is not a timing/performance benchmark.
 
 ## Current UI
 Arrange: core clips/sections/chords, moving playhead, click to seek.
-Live: moving shared chord strip, sections and common transport; no setlist editor.
+Live is a separate show mode with .mrlive documents, planned in LIVE stages.
+The production shell has no Live navigation button; saved legacy Live preference opens Arrange.
 Edit: read-only clip inspector. Mix: read-only processor/parameter state.
 These are workspace views, not completed arrangement/mixer/MIDI/plugin editors.
-Tracks/rename/Undo/Redo, project Open/Save/Save As, Demo and Open WAV are common.
-Space = Play/Pause, Ctrl+S = Save, Ctrl+Z/Y = project Undo/Redo outside name editing.
+Tracks/rename/Undo/Redo remain in the workspace. A thin native menu row holds Files:
+New project, Open project, Save, Save as, Import WAVs, Open WAV as new project,
+Open demo project and Exit. File/project buttons are removed from the workspace.
+Space = Play/Pause, Ctrl+N/O/S = New/Open/Save, Ctrl+Shift+S = Save as,
+Ctrl+I = Import WAVs, Ctrl+Z/Y = project Undo/Redo outside name editing.
 Native edit controls retain their normal typing/Undo behavior.
 
 The demo has explicit fixture harmony/sections and a quiet 220 Hz tone. Harmony
@@ -131,3 +135,12 @@ to Offline, requiring repeated Connect. The shell now restores enabled saved ASI
 settings after project replacement and on startup. Missing devices/unsupported rates/
 media failures produce one explicit error, keep the project open and do not substitute
 another hardware driver. Automatic hardware recovery during playback remains deferred.
+
+## 0.1d upd1 / fix1
+Primary background, panels, buttons and active workspace selection are neutral gray.
+Chord/section/clip/waveform/playhead colors stay unchanged. Files menu uses native
+Win32 menu keyboard/DPI handling; its row is outside the workspace client rectangle.
+Mono voices route equally to the first two selected outputs (or the sole output),
+with no automatic spill into additional cue outputs. Stereo routing remains L/R.
+Menu placement, removed file/Live buttons and 150% layout are covered by GUI smoke;
+mono_route covers one, two and four output configurations.

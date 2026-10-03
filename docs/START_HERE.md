@@ -15,8 +15,9 @@ MRS Stage 1a #21 принят пользователем 2026-10-03; PR #42 сл
 MRS Stage 1b / 0.1c принят пользователем 2026-10-03: все функции работают; PR #44 слит в main.
 Активный подэтап: MRS Stage 1c #21 / версия 0.1d — disk read-ahead и long-file playback.
 0.1d реализован в mrs/0.1d-disk-read-ahead / PR #45; все шесть CI jobs пройдены.
-Приёмка пользователем pending; PR #45 ещё не слит.
-Чек-лист: docs/MRS_STAGE_1C_CHECKLIST.md. Последняя принятая сборка: 0.1c.
+Базовую 0.1d пользователь проверил: всё работает. Перед закрытием добавляются UI upd1 и mono fix1.
+Текущая сборка: 0.1d upd1 fix1; CI и приёмка доработки pending; PR #45 ещё не слит.
+Чек-лист доработки: docs/MRS_STAGE_1C_UPD1_CHECKLIST.md; disk checks: docs/MRS_STAGE_1C_CHECKLIST.md. Последняя принятая сборка: 0.1c.
 Правила версий: docs/VERSIONING.md. Читать issue #21 и docs/AUDIO_ARRANGEMENT.md.
 Приёмка 0.1c: docs/MRS_STAGE_1B_CHECKLIST.md.
 После 1c: recording foundation и integrated save/load; весь #21 остаётся открытым.
@@ -32,6 +33,10 @@ MRS Stage 1b / 0.1c принят пользователем 2026-10-03: все �
 Рабочее название не является окончательным и может быть изменено ближе к зрелой стадии проекта без изменения архитектуры.
 
 **Live Mode** — встроенный Performance / Show режим Moon River Studio, по роли близкий к Show Page в Fender Studio Pro.
+
+По уточнению пользователя 2026-10-03: Live — отдельный show-режим внутри MRS
+с документом `.mrlive`, ссылающимся на `.mrsproject`. Это не кнопка workspace
+рядом с Arrange/Edit/Mix. Show-экран и Files New/Open Live появятся в LIVE этапах.
 
 Live Mode:
 
