@@ -20,11 +20,11 @@ MRS Stage 1d / 0.1e принят пользователем 2026-10-03: «Все
 Весь MRS Stage 1 / Audio Arrangement #21 завершён. PR #46 принят и слит в main.
 Последняя принятая сборка: 0.1e. Code head f78e0123cc7651f3418f0a42f8bc9fce861dfed7.
 Контракты: docs/RECORDING.md; приёмка: docs/MRS_STAGE_1D_CHECKLIST.md.
-Текущая небольшая доработка по запросу пользователя: 0.1e upd1, PR #47.
+Текущая небольшая доработка по запросу пользователя: 0.1e upd1 fix1, PR #47.
 MR Studio/Projects/<имя>/<имя>.mrsproject + Media/Mixdown; MR Studio/Lives для будущих show.
 Импорт и запись принадлежат Media; relative media refs, перенос папки и Save As с копиями.
 Контракты: docs/PROJECT_FOLDERS.md; приёмка: docs/MRS_PROJECT_FOLDERS_CHECKLIST.md.
-upd1 ещё не принят пользователем. Последняя принятая версия: 0.1e.
+upd1 fix1 ещё не принят пользователем. Последняя принятая версия: 0.1e.
 После upd1: MRS Stage 2 / #22 — Mixer / Routing. Разработка микшера ещё не начата.
 При возобновлении сначала прочитать issue #22; выбрать первый подэтап микшера:
 track gain/pan, mute/solo, meters и master bus на том же SHARED engine.
@@ -360,3 +360,12 @@ docs/ROADMAP.md и GitHub Issues #1, #12, #13, #14.
 5. специализированный документ соответствующей подсистемы.
 
 Если обнаружено противоречие между актуальными документами, сначала исправить документацию и только затем продолжать реализацию.
+
+
+## Included fix1: concurrent seek read-head protection
+Seek priming previously published the future target as the current read head before
+its queued transport command reached the callback. A worker could then evict the
+still-playing page in that interval. Prime now sets the initial head only once,
+keeps the future target separately warm, and lets the callback move the active head.
+The concurrent seek exact-sample/zero-underrun/zero-RT-allocation regression is
+repeated eight times in every Debug/Release CI job for this fix.

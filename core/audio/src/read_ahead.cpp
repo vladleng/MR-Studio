@@ -36,6 +36,11 @@ bool ReadAhead::end() noexcept {
 }
 void ReadAhead::prime(Sample first) {
     const auto target = std::clamp(first,Sample{0},file_->frame_count-1)/page_frames;
+    // First quiescent preparation establishes the initial read head. During
+    // playback only begin/read (the callback) may move it; the seek target stays
+    // protected separately until the audio thread actually applies the command.
+    Sample unprepared = -1;
+    (void)desired_.compare_exchange_strong(unprepared,target,std::memory_order_acq_rel);
     warm_.store(target,std::memory_order_release);
     const auto until = std::chrono::steady_clock::now()+std::chrono::seconds(5);
     for (;;) {
@@ -49,7 +54,7 @@ void ReadAhead::prime(Sample first) {
                     slot.page.load(std::memory_order_acquire) == p) found = true;
             ready = ready && found;
         }
-        if (ready) { desired_ = target; return; }
+        if (ready) return;
         if (errors_.load() || std::chrono::steady_clock::now() >= until) {
             warm_ = -1; throw std::runtime_error("disk read-ahead failed: media unavailable, invalid samples or timeout");
         }
@@ -69,7 +74,7 @@ void ReadAhead::run() noexcept {
         const auto current = desired_.load(std::memory_order_acquire);
         const auto loop = loop_.load(std::memory_order_acquire);
         if (warm >= 0) for (Sample n = 0; n < 4; ++n) add(warm+n);
-        for (Sample n = 0; n < (warm >= 0 ? 2 : 4); ++n) add(current+n);
+        if (current >= 0) for (Sample n = 0; n < (warm >= 0 ? 2 : 4); ++n) add(current+n);
         if (loop >= 0) { add(loop); add(loop+1); }
         for (std::size_t p = 0; p < count && !quit_.load(); ++p) {
             bool exists = false;

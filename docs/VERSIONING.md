@@ -35,9 +35,18 @@ Live Mode входит в ту же сборку и не получает отд
 Имя артефакта: `MR-Studio-0.1d-upd1-fix1-ASIO-Windows`.
 
 
-## 0.1e upd1 — requested folder follow-up
+## 0.1e upd1 fix1 — requested folder follow-up
 User requested project-owned content folders on 2026-10-03 after accepting 0.1e.
-Small update keeps base 0.1e: UI version 0.1e upd1;
-artifact MR-Studio-0.1e-upd1-ASIO-Windows. PR #47, user acceptance pending.
+Small update keeps base 0.1e: UI version 0.1e upd1 fix1;
+artifact MR-Studio-0.1e-upd1-fix1-ASIO-Windows. PR #47, user acceptance pending.
 See PROJECT_FOLDERS.md and MRS_PROJECT_FOLDERS_CHECKLIST.md. Next Mixer/Routing
 substage/version is still to be planned after this update.
+
+
+## Included fix1: concurrent seek read-head protection
+Seek priming previously published the future target as the current read head before
+its queued transport command reached the callback. A worker could then evict the
+still-playing page in that interval. Prime now sets the initial head only once,
+keeps the future target separately warm, and lets the callback move the active head.
+The concurrent seek exact-sample/zero-underrun/zero-RT-allocation regression is
+repeated eight times in every Debug/Release CI job for this fix.

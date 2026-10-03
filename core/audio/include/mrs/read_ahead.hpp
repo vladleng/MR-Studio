@@ -28,7 +28,7 @@ private:
     std::shared_ptr<const WavFile> file_;
     std::array<Slot,pages> slots_;
     std::array<bool,pages> pinned_{};
-    std::atomic<Sample> desired_{}, warm_{-1}, loop_{-1};
+    std::atomic<Sample> desired_{-1}, warm_{-1}, loop_{-1};
     std::atomic<bool> quit_{};
     std::atomic<std::uint64_t> errors_{};
     std::thread worker_;

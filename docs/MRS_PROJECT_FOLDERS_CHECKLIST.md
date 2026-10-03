@@ -1,6 +1,6 @@
-# 0.1e upd1 — папки студии и проектов
+# 0.1e upd1 fix1 — папки студии и проектов
 
-Windows ASIO сборка MR-Studio-0.1e-upd1-ASIO-Windows. Распаковать, запустить
+Windows ASIO сборка MR-Studio-0.1e-upd1-fix1-ASIO-Windows. Распаковать, запустить
 MoonRiverStudio.exe. Предыдущая принятая 0.1e сохраняется для сравнения.
 
 1. Files → Open studio folder: откроется Документы/MR Studio с Projects и Lives.
@@ -32,3 +32,12 @@ MoonRiverStudio.exe. Предыдущая принятая 0.1e сохраняе
 
 Итоговая структура: MR Studio/Projects/<имя>/<имя>.mrsproject + Media/ + Mixdown/.
 Переносить всю папку проекта целиком; .mrsproject отдельно не содержит WAV.
+
+
+## Included fix1: concurrent seek read-head protection
+Seek priming previously published the future target as the current read head before
+its queued transport command reached the callback. A worker could then evict the
+still-playing page in that interval. Prime now sets the initial head only once,
+keeps the future target separately warm, and lets the callback move the active head.
+The concurrent seek exact-sample/zero-underrun/zero-RT-allocation regression is
+repeated eight times in every Debug/Release CI job for this fix.

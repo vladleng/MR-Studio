@@ -1,4 +1,4 @@
-# 0.1e upd1 — Studio/project content folders
+# 0.1e upd1 fix1 — Studio/project content folders
 
 Windows default content root: the Windows Known Folder Documents / MR Studio.
 Known Folder lookup respects redirected Documents/OneDrive. Root contains Projects
@@ -53,3 +53,12 @@ including unused Media/Mixdown, Undo/Redo, moved-folder reopen/playback, ordinar
 save during Play, identity protection and long legacy source rebinding without its
 original. GUI smoke checks the folder menu and root directories. Physical ASIO,
 dialog behavior and recording remain manual acceptance.
+
+
+## Included fix1: concurrent seek read-head protection
+Seek priming previously published the future target as the current read head before
+its queued transport command reached the callback. A worker could then evict the
+still-playing page in that interval. Prime now sets the initial head only once,
+keeps the future target separately warm, and lets the callback move the active head.
+The concurrent seek exact-sample/zero-underrun/zero-RT-allocation regression is
+repeated eight times in every Debug/Release CI job for this fix.

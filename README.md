@@ -325,7 +325,7 @@ PR CI: все шесть jobs пройдены (56/56 Linux/ASIO, 57/57 Windows 
 Пользователь попросил продолжить 2026-10-04 по Asia/Krasnoyarsk. 
 
 
-## 0.1e upd1 — folders and portable projects
+## 0.1e upd1 fix1 — folders and portable projects
 Windows content root: Documents/MR Studio with Projects and Lives.
 Each project owns <name>/<name>.mrsproject, Media and Mixdown. Imported WAVs
 copy into Media; recordings write there. Archives use relative Media/... references.
@@ -334,3 +334,12 @@ and source files remain intact. Move the whole folder, then reopen its .mrsproje
 [Contracts](docs/PROJECT_FOLDERS.md) · [Windows checklist](docs/MRS_PROJECT_FOLDERS_CHECKLIST.md).
 PR #47, acceptance pending. Lives prepares storage for future .mrlive workflow;
 Mixdown prepares storage for later export. Mixer/Routing #22 follows after upd1.
+
+
+## Included fix1: concurrent seek read-head protection
+Seek priming previously published the future target as the current read head before
+its queued transport command reached the callback. A worker could then evict the
+still-playing page in that interval. Prime now sets the initial head only once,
+keeps the future target separately warm, and lets the callback move the active head.
+The concurrent seek exact-sample/zero-underrun/zero-RT-allocation regression is
+repeated eight times in every Debug/Release CI job for this fix.

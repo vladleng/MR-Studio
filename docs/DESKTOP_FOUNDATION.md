@@ -156,7 +156,7 @@ Undo leaves media on disk. Input and recorded mono route only to the main pair.
 See RECORDING.md and MRS_STAGE_1D_CHECKLIST.md; physical acceptance is pending.
 
 
-## 0.1e upd1 — project-owned folders
+## 0.1e upd1 fix1 — project-owned folders
 The requested folder follow-up replaces the GUI recording Audio directory with Media.
 Project folders contain their .mrsproject, Media and Mixdown; the studio root contains
 Projects and Lives. Imported WAVs are copied and archived with portable Media/... refs.
@@ -164,3 +164,12 @@ First save consolidates legacy external/Audio sources without deleting originals
 Save As copies content and retains source aliases/Undo and the same stopped/paused
 device handle. See PROJECT_FOLDERS.md and MRS_PROJECT_FOLDERS_CHECKLIST.md.
 User acceptance of upd1 pending; base 0.1e remains accepted.
+
+
+## Included fix1: concurrent seek read-head protection
+Seek priming previously published the future target as the current read head before
+its queued transport command reached the callback. A worker could then evict the
+still-playing page in that interval. Prime now sets the initial head only once,
+keeps the future target separately warm, and lets the callback move the active head.
+The concurrent seek exact-sample/zero-underrun/zero-RT-allocation regression is
+repeated eight times in every Debug/Release CI job for this fix.
