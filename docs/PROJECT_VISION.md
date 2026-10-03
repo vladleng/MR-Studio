@@ -1,137 +1,177 @@
-# Moon River Live — Project Vision
+# Moon River Studio / Moon River Live — Project Vision
 
 ## 1. Назначение
 
-Moon River Live — специализированное приложение для живых выступлений, которое использует подготовленный проект Fender Studio Pro как источник структуры песни, но не требует держать саму DAW центром концертного workflow.
+**Moon River Studio (MRS)** — собственная DAW Moon River Studio.
 
-Цель проекта — сократить разрыв между аранжировкой в DAW и исполнением на сцене.
+**Moon River Live (MRL)** — встроенный Live / Performance workspace внутри MRS, по смыслу близкий к Show Page в Studio Pro, но работающий на том же Project Model и Audio Engine, что и production-режимы DAW.
 
-## 2. Проблема
+Цель проекта — создать performance-first DAW, в которой создание музыки и живое исполнение являются двумя режимами одного проекта, а не двумя разными приложениями с экспортом между ними.
 
-В обычном live-workflow музыкальная структура песни распределена между несколькими местами:
+## 2. Базовая модель продукта
 
-- DAW-проект;
+```text
+Moon River Studio
+├── Arrange
+├── Edit
+├── Mix
+├── Project
+└── Live (MRL)
+```
+
+Все рабочие пространства используют:
+
+- один Project Model;
+- один transport;
+- один Audio Engine;
+- один MIDI Engine;
+- один plugin graph;
+- один Chord Track;
+- один Arranger Track;
+- одну систему markers/automation;
+- одну систему сохранения проекта.
+
+## 3. Почему MRL является режимом MRS
+
+В отдельной live-программе пришлось бы экспортировать:
+
+- chords;
+- arranger sections;
+- markers;
+- tempo;
+- audio;
+- MIDI;
+- plugin/preset state.
+
+В MRS эти данные уже являются частью проекта.
+
+Поэтому переход:
+
+```text
+Arrange -> Live
+```
+
+должен менять представление и performance-state, но не создавать вторую копию песни.
+
+## 4. MRS — DAW
+
+Долгосрочно MRS должна включать:
+
+- audio recording/playback;
+- audio tracks/clips/events;
+- MIDI tracks/editor;
+- mixer/buses/routing;
+- VST3 hosting;
+- automation;
+- tempo/meter map;
 - Chord Track;
 - Arranger Track;
 - markers;
-- notes;
-- отдельный playback;
-- MIDI-пресеты;
+- native processors;
+- project save/load;
+- AI integration;
+- Live workspace.
+
+## 5. MRL — Live / Performance workspace
+
+MRL использует тот же открытый проект и показывает только информацию/управление, нужные на сцене:
+
 - setlist;
-- ручные заметки музыканта.
+- moving Chord Track strip;
+- current/next section;
+- bar/beat/time;
+- cues/markers;
+- transport;
+- live patches;
+- MIDI actions;
+- click/cue state;
+- audio/MIDI/device status;
+- preflight/recovery;
+- remote/mobile state.
 
-Из-за этого одни и те же данные приходится дублировать, а изменения в аранжировке не всегда попадают в концертную систему.
+MRL не владеет отдельным ASIO engine или отдельным plugin host.
 
-Moon River Live должен сделать Studio Pro единственным авторитетным источником музыкальной структуры и переносить эту структуру в оптимизированное для сцены приложение.
+## 6. Performance-first принцип
 
-## 3. Продуктовая идея
+Надёжность audio path важнее количества функций.
+
+Критические требования:
+
+- direct vendor ASIO support на Windows;
+- realtime-safe callback;
+- audio thread отделён от UI/network/AI/file I/O;
+- preload/read-ahead;
+- predictable patch switching;
+- no systematic xruns/dropouts;
+- performance benchmark относительно Studio Pro на одинаковом hardware/setup.
+
+Подробнее: `AUDIO_ENGINE.md`.
+
+## 7. AI как часть будущей архитектуры
+
+MRS должна иметь структурированный Project Context API и Command/Tool API, через которые ChatGPT/OpenAI сможет:
+
+- понимать tracks/clips/MIDI/chords/sections;
+- анализировать аранжировку и mixer state;
+- генерировать MIDI;
+- предлагать изменения;
+- после подтверждения выполнять разрешённые project commands.
+
+AI не должен работать в realtime thread и не должен быть обязательным для работы DAW/Live.
+
+Подробнее: `AI_INTEGRATION.md`.
+
+## 8. Native DSP / Amp / Cab
+
+MRS может включать собственные:
+
+- utility DSP;
+- Cab/Room IR convolution;
+- amp/preamp/pedal models;
+- neural model player;
+- собственные Moon River captures/models.
+
+Factory content и User Library должны иметь раздельную licensing policy.
+
+Подробнее: `DSP_MODELING.md`.
+
+## 9. Studio Pro
+
+Studio Pro больше не является обязательным authoring environment.
+
+Он остаётся полезным как:
+
+- референс UX/performance;
+- источник идей для Live workflow;
+- возможный import/migration source;
+- Bridge/compatibility target для старых проектов.
+
+Но целевая схема:
 
 ```text
-Studio Pro = authoring
-Moon River Live = performance
+Moon River Studio Project
+        |
+  +-----+-----+
+  |           |
+Production   Live
 ```
 
-В Studio Pro музыкант:
+## 10. Разработка двумя потоками
 
-- записывает и редактирует музыку;
-- размечает секции Arranger Track;
-- создаёт Chord Track;
-- ставит markers;
-- задаёт tempo / tempo map;
-- организует tracks и clips.
+MRS и MRL развиваются параллельно:
 
-Moon River Live получает эту информацию и превращает её в концертную модель песни.
+- `MRS-*` — DAW/core;
+- `MRL-*` — Live workspace;
+- `[SHARED]` — общие интерфейсы и модели.
 
-## 4. Первая полезная версия
+MRL может разрабатываться на mock/fixture services до готовности реального MRS backend.
 
-Первый практически ценный релиз не обязан быть полноценной заменой Studio Pro Show.
+Подробнее: `DEVELOPMENT_TRACKS.md`.
 
-Минимальный live-сценарий:
+## 11. Главный принцип разработки
 
-1. Песня подготовлена в Studio Pro.
-2. Bridge экспортирует её metadata.
-3. Moon River Live открывает песню.
-4. На экране отображаются:
-   - текущая секция;
-   - следующая секция;
-   - текущий аккорд;
-   - следующий аккорд;
-   - markers;
-   - tempo;
-   - bar/beat;
-   - timeline.
-5. Одновременно проигрывается stereo backing track.
+Каждый этап должен завершаться проверяемым пользовательским сценарием, но инфраструктура проектируется так, чтобы новые workspaces не дублировали Core.
 
-Даже такой вариант уже является самостоятельным концертным инструментом.
+Главная архитектурная формула:
 
-## 5. Долгосрочная цель
-
-В перспективе приложение должно объединить:
-
-- live playback;
-- multitrack stems;
-- click/cue routing;
-- live inputs;
-- VST3 processing;
-- patches;
-- MIDI automation;
-- foot control;
-- setlists;
-- remote/mobile view;
-- заметки и cues;
-- связь с другими приложениями Moon River Studio.
-
-## 6. Что не является целью на раннем этапе
-
-На первых этапах проект не должен пытаться стать:
-
-- полноценной DAW;
-- аудиоредактором;
-- заменой Studio Pro для аранжировки;
-- нотным редактором;
-- облачной платформой;
-- универсальным музыкальным хостом уровня Ableton Live.
-
-Сначала необходимо доказать жизнеспособность узкого сценария:
-
-**Studio Pro metadata → Moon River Live → надёжное live-исполнение.**
-
-## 7. Ключевые свойства продукта
-
-### 7.1 Надёжность
-
-Live-система должна работать часами без деградации и зависаний.
-
-### 7.2 Быстрое восстановление
-
-После падения приложение должно уметь быстро вернуться к текущей песне и позиции.
-
-### 7.3 Offline-first
-
-Все необходимые для концерта данные должны храниться локально.
-
-### 7.4 Минимум действий на сцене
-
-Большинство переключений должно быть автоматизировано по timeline/sections.
-
-### 7.5 Единая музыкальная модель
-
-UI, playback, MIDI и remote используют одну и ту же модель Song Metadata.
-
-## 8. Главный принцип разработки
-
-Каждый новый Stage должен завершаться рабочим сценарием, который можно реально проверить на репетиции.
-
-Не накапливать большое количество невидимой инфраструктуры без пользовательского результата.
-
-## 9. Критерий успеха первой крупной версии
-
-Moon River Live можно считать состоявшимся продуктом, когда можно:
-
-1. подготовить песню в Studio Pro;
-2. синхронизировать её с Moon River Live;
-3. добавить песню в setlist;
-4. запустить playback;
-5. видеть музыкальный контекст во время исполнения;
-6. переключать секции и песни без возвращения в DAW;
-7. завершить полноценный концертный сет без необходимости открывать Studio Pro.
+> **MRS и MRL — разные development tracks, но один Project Model и один realtime engine.**
