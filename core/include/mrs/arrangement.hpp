@@ -23,6 +23,13 @@ public:
     void apply(Project&) const override;
 private: std::vector<Track> tracks_; std::vector<Clip> clips_;
 };
+class AddRecordedClip final : public ICommand {
+public:
+    explicit AddRecordedClip(Clip clip) : clip_(std::move(clip)) {}
+    std::string_view name() const override { return "Record audio take"; }
+    void apply(Project&) const override;
+private: Clip clip_;
+};
 // Audio clip commands change references/ranges only; never modify source files.
 class MoveAudioClip final : public ICommand {
 public:

@@ -17,7 +17,8 @@ class AsioDevice final : public IAudioDevice {
                         const PaStreamCallbackTimeInfo*, PaStreamCallbackFlags flags, void* user) noexcept {
         auto& self = *static_cast<AsioDevice*>(user);
         const auto begin = std::chrono::steady_clock::now();
-        self.engine_->process(static_cast<const float*>(input), static_cast<float*>(output), static_cast<std::uint32_t>(frames));
+        self.engine_->process(static_cast<const float*>(input), static_cast<float*>(output), static_cast<std::uint32_t>(frames),
+            ((flags & paInputUnderflow) ? 1U : 0U) | ((flags & paInputOverflow) ? 2U : 0U));
         const auto elapsed = std::chrono::steady_clock::now() - begin;
         const auto ns = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
         std::uint32_t diagnostics = 0;

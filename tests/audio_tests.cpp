@@ -1,6 +1,7 @@
 #include <mrs/audio.hpp>
 #include <mrs/device.hpp>
 #include <mrs/read_ahead.hpp>
+#include <mrs/recording.hpp>
 #include <mrs/waveform.hpp>
 #include <algorithm>
 #include <bit>
@@ -277,13 +278,13 @@ void streaming() {
         }
     });
     try {
-        for (const auto target : {120000,50000,130000,1000,140000,70000}) {
+        for (int cycle=0; cycle<3; ++cycle) for (const auto target : {120000,50000,130000,1000,140000,70000}) {
             transport.seek(target);
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
     } catch (...) { running = false; callback.join(); throw; }
     running = false; callback.join();
-    CHECK(correct.load() && engine->metrics().disk_underruns == 0 && allocation_check::count.load() == 0);
+    CHECK(correct.load()); CHECK(engine->metrics().disk_underruns == 0); CHECK(allocation_check::count.load() == 0);
     std::filesystem::remove(file.path);
     rejects([&] { transport.seek(40000); });
     CHECK(engine->enqueue({ControlKind::seek,40000})); CHECK(engine->enqueue({ControlKind::play}));
@@ -291,6 +292,115 @@ void streaming() {
     CHECK(std::all_of(output.begin(),output.end(),[](float v) { return v == 0; }));
     CHECK(engine->metrics().disk_underruns == 1 && engine->state().sample == 40128);
     rejects([&] { engine->prepare({48000,0,1,128},graph); });
+}
+
+
+void recording() {
+    TempFile file;
+    auto recorder = std::make_shared<Recorder>(file.path,48000,100);
+    auto engine = std::make_shared<AudioEngine>();
+    auto graph = basic(); graph.voices.front().start = 100; graph.recording = recorder;
+    engine->prepare({48000,1,2,8},graph,{PlaybackState::paused,100,{}});
+    EngineTransport transport{engine,Timeline{TimeMap{},48000}};
+    std::array<float,4> input{0.25f,-0.5f,0.75f,0.125f};
+    std::array<float,8> output{};
+    engine->process(input.data(),output.data(),4);
+    CHECK(recorder->status().frames == 0 && output[0] == 0.125f && engine->metrics().input_peak == 0.75f);
+    transport.play();
+    const auto before = allocation_check::count.load();
+    allocation_check::enabled = true;
+    engine->process(input.data(),output.data(),4);
+    allocation_check::enabled = false;
+    CHECK(allocation_check::count.load() == before);
+    CHECK(std::abs(output[0]-0.225f) < 1e-6f && recorder->status().frames == 4);
+    CHECK(engine->enqueue({ControlKind::monitor,0}));
+    engine->process(input.data(),output.data(),4);
+    CHECK(std::all_of(output.begin(),output.end(),[](float value) { return value == 0; }));
+    CHECK(recorder->status().frames == 8);
+    CHECK(engine->enqueue({ControlKind::pause}));
+    engine->process(input.data(),output.data(),4);
+    CHECK(recorder->status().frames == 8);
+    graph.recording.reset();
+    engine->prepare({48000,1,2,8},graph);
+    auto result = recorder->finish();
+    CHECK(result.frames == 8 && result.status.fault == RecordFault::none && !result.path.empty());
+    const auto data = load_wav(file.path);
+    CHECK(data.channels == 1 && data.sample_rate == 48000 && data.frames() == 8);
+    for (std::size_t n=0; n<data.samples.size(); ++n) CHECK(data.samples[n] == input[n%4]); // raw, not monitor/backing mix
+    rejects([&] { (void)recorder->finish(); });
+    rejects([&] { Recorder existing(file.path,48000,0); });
+    CHECK(load_wav(file.path).samples == data.samples);
+    for (const auto flag : {1U,2U}) {
+        TempFile prefix; auto take = std::make_shared<Recorder>(prefix.path,48000,0);
+        RenderGraph capture; capture.recording = take;
+        engine->prepare({48000,1,2,8},capture); transport.play();
+        engine->process(input.data(),output.data(),4);
+        engine->process(input.data(),output.data(),4,flag);
+        CHECK(take->status().frames == 4 && take->status().missing_blocks == 1 && take->status().fault == RecordFault::missing_input);
+        engine->process(input.data(),output.data(),4);
+        engine->prepare({48000,0,2,8},{});
+        CHECK(take->finish().frames == 4 && load_wav(prefix.path).frames() == 4);
+    }
+
+    for (const auto change : {Control{ControlKind::seek,50},Control{ControlKind::loop,0,100}}) {
+        TempFile jump; auto take = std::make_shared<Recorder>(jump.path,48000,0);
+        RenderGraph capture; capture.recording = take;
+        engine->prepare({48000,1,2,8},capture); transport.play();
+        engine->process(input.data(),output.data(),4);
+        CHECK(engine->enqueue(change)); engine->process(input.data(),output.data(),4);
+        CHECK(take->status().fault == RecordFault::discontinuity && take->status().discontinuities == 1);
+        CHECK(engine->state().sample == 8 && !engine->state().loop);
+        engine->prepare({48000,0,2,8},{});
+        CHECK(take->finish().frames == 4);
+    }
+    {
+        TempFile missing; Recorder take(missing.path,48000,0);
+        take.capture(input.data(),1,4,0); take.capture(nullptr,1,4,4); take.capture(input.data(),1,4,8);
+        CHECK(take.status().fault == RecordFault::missing_input && take.status().frames == 4);
+        CHECK(take.finish().frames == 4);
+    }
+    {
+        TempFile jump; Recorder take(jump.path,48000,0);
+        take.capture(input.data(),1,4,0); take.capture(input.data(),1,4,10);
+        CHECK(take.status().fault == RecordFault::discontinuity && take.status().discontinuities == 1);
+        CHECK(take.finish().frames == 4);
+    }
+    {
+        TempFile over; Recorder take(over.path,48000,0);
+        take.capture(input.data(),1,static_cast<std::uint32_t>(Recorder::capacity+1),0);
+        CHECK(take.status().fault == RecordFault::overflow && take.status().dropped_blocks == 1);
+        CHECK(take.finish().frames == 0 && !std::filesystem::exists(over.path));
+    }
+    {
+        TempFile finite; Recorder take(finite.path,48000,0);
+        std::array<float,4> samples{std::numeric_limits<float>::infinity(),0.25f,std::numeric_limits<float>::quiet_NaN(),-0.5f};
+        take.capture(samples.data(),1,4,0);
+        CHECK(take.finish().status.nonfinite_samples == 2);
+        CHECK(load_wav(finite.path).samples == std::vector<float>({0,0.25f,0,-0.5f}));
+    }
+    {
+        TempFile limit; Recorder take(limit.path,48000,max_sample-2);
+        take.capture(input.data(),1,4,max_sample-2);
+        CHECK(take.status().fault == RecordFault::size_limit && take.finish().frames == 0);
+    }
+    {
+        // More than one ring revolution: drain concurrently, preserve order.
+        TempFile wrap; Recorder take(wrap.path,48000,0);
+        std::array<float,8192> block{};
+        Sample position{};
+        for (int n=0; n<40; ++n) {
+            std::fill(block.begin(),block.end(),static_cast<float>(n)/64);
+            take.capture(block.data(),1,static_cast<std::uint32_t>(block.size()),position);
+            position += static_cast<Sample>(block.size());
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        auto saved = take.finish(); CHECK(saved.status.fault == RecordFault::none && saved.frames == position);
+        const auto roundtrip = load_wav(wrap.path);
+        for (int n=0; n<40; ++n) {
+            CHECK(roundtrip.samples[static_cast<std::size_t>(n)*8192] == static_cast<float>(n)/64);
+            CHECK(roundtrip.samples[static_cast<std::size_t>(n+1)*8192-1] == static_cast<float>(n)/64);
+        }
+    }
 }
 
 void device() {
@@ -353,7 +463,7 @@ int main(int argc, char** argv) {
         if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
-        else if (suite=="streaming") streaming();
+        else if (suite=="streaming") streaming(); else if (suite=="recording") recording();
         else if (suite=="independence") independence(); else throw std::invalid_argument("unknown suite");
         std::cout << "PASS " << suite << ": " << assertions << " checks\n";
         return 0;

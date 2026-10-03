@@ -92,3 +92,19 @@ User confirmed all base 0.1d and UI/mono follow-up functions work. Stage 1c /
 2177219103682c08bc011b9c5e9baee8f8f00aa5 (all six CI jobs passed; Linux/ASIO 54/54,
 Windows offline 55/55). Whole #21 remains open. Next: Stage 1d / 0.1e recording,
 monitor foundation and integrated save/load acceptance; development not started.
+
+
+## Stage 1d / 0.1e recording foundation
+The existing SHARED AudioEngine now supports raw mono ASIO capture through a fixed
+ring and background WAV writer, independent monitoring and one-step take attachment
+through the existing ProjectStore/Undo. Same engine/device/transport, archive schema
+unchanged. See [recording contracts](RECORDING.md) and
+[Windows checklist](MRS_STAGE_1D_CHECKLIST.md). Hardware acceptance pending.
+
+
+Read-ahead follow-up: priming now reads atomic published page tags without claiming
+callback pins. The earlier control scan could briefly make a ready page unavailable
+to concurrent render. Streaming regression repeats concurrent seeks and keeps exact
+sample, zero-underrun and zero-allocation assertions. Recording driver Stop failure
+closes the backend before draining/attaching the take, reports disconnection and
+requires an explicit reconnect; simulated driver failure is covered by desktop_recording.

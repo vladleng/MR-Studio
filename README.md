@@ -274,8 +274,7 @@ shared ProjectStore/Undo/AudioEngine and retained ASIO connection for stopped ed
 [Contracts](docs/AUDIO_ARRANGEMENT.md) · [Windows checklist](docs/MRS_STAGE_1A_CHECKLIST.md).
 Stage 1a accepted by user on 2026-10-03; PR #42 merged into main.
 Stage 1b (0.1c) accepted by user on 2026-10-03; PR #44 merged into main.
-Next: Stage 1c (0.1d) — disk read-ahead and long-file playback.
-Streaming and recording are later #21 substages.
+Stage 1c (0.1d upd1 fix1) accepted; recording is Stage 1d / 0.1e.
 
 ## Версии сборок
 Правила пользователя: 0.1b, 0.1c и далее; upd1/upd2 для небольших обновлений,
@@ -285,7 +284,7 @@ fix1/fix2 для ошибок. Stage IDs сохраняют структуру �
 Принятый подэтап: **0.1c / MRS Stage 1b** — выбор, перемещение, обрезка и разделение клипов,
 удаление отдельного клипа и общий Undo/Redo. UI drag preview, snap 1/16, сохранение позиции Pause.
 [Windows checklist](docs/MRS_STAGE_1B_CHECKLIST.md). Пользователь подтвердил все функции 2026-10-03; PR #44 слит в main.
-Следующий подэтап: **0.1d / MRS Stage 1c** — disk read-ahead и воспроизведение длинных WAV.
+Принят **0.1d upd1 fix1 / MRS Stage 1c** — disk read-ahead, UI follow-up и моно L/R.
 
 ## MRS Stage 1c — 0.1d disk read-ahead
 Long WAVs use bounded background disk buffers in the same SHARED AudioEngine.
@@ -302,4 +301,14 @@ Live is a separate show mode with .mrlive documents referencing .mrsproject song
 using the same SHARED Core/Engine. Its file commands/screen belong to LIVE stages.
 
 Следующий подэтап: **Stage 1d / 0.1e** — запись, мониторинг и итоговая приёмка save/load.
-Stage 1c завершён; общий #21 остаётся открытым. Разработка 0.1e ещё не начата.
+Stage 1c завершён; общий #21 остаётся открытым. 0.1e реализуется; ручная ASIO приёмка ожидается.
+
+## MRS Stage 1d — 0.1e recording/monitor
+Один вход ASIO, одна вооружённая audio track, raw mono float32 WAV через bounded
+фоновой писатель. Record/Arm track/Monitor в общем транспорте; завершение дубля,
+Undo/Redo и сохранение/открытие проекта с внешним WAV. Существующие клипы слышны
+во время записи; файл содержит только вход. При dropout сохраняется валидная часть
+с предупреждением. Без loop recording и компенсации задержки в этой версии.
+[Контракты](docs/RECORDING.md) · [Windows checklist](docs/MRS_STAGE_1D_CHECKLIST.md).
+Тестовая ASIO сборка: MR-Studio-0.1e-ASIO-Windows. Ручная приёмка ожидается;
+весь #21 остаётся открытым до подтверждения пользователя.

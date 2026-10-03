@@ -6,6 +6,7 @@
 #include <mrs/arrangement.hpp>
 #include <mrs/waveform.hpp>
 #include <future>
+#include <mrs/recording.hpp>
 namespace mrs::desktop {
 enum class Workspace { arrange, edit, mix, live };
 std::string_view workspace_name(Workspace);
@@ -73,6 +74,18 @@ public:
     const std::string& waveform_error() const { return waveform_error_; }
     const std::string& audio_name() const { return audio_name_; }
     void play(); void pause(); void stop(); void seek(Sample);
+    void arm_track(std::optional<Id>);
+    const std::optional<Id>& armed_track() const { return armed_; }
+    void start_recording(const std::filesystem::path& destination);
+    bool stop_recording();
+    bool recording() const { return static_cast<bool>(recording_); }
+    audio::RecordStatus recording_status() const;
+    Sample recording_start() const { return recording_ ? recording_->start() : 0; }
+    const std::string& recording_error() const { return recording_error_; }
+    const std::filesystem::path& last_take() const { return last_take_; }
+    void monitoring(bool);
+    bool monitoring() const { return monitoring_; }
+    bool has_input() const { return device_config_ && !device_config_->inputs.empty(); }
 private:
     persistence::ProjectDocument document_;
     Services services_;
@@ -83,6 +96,14 @@ private:
     std::unique_ptr<audio::IAudioDevice> device_;
     std::shared_ptr<processing::PreparedGraph> prepared_;
     Workspace workspace_{Workspace::arrange};
+    std::shared_ptr<audio::Recorder> recording_;
+    std::optional<Id> armed_;
+    std::string recording_error_;
+    std::filesystem::path last_take_;
+    audio::RecordStatus last_recording_status_{};
+    bool monitoring_{true};
+    void sync_arm();
+    void require_not_recording() const;
     std::filesystem::path path_, asset_root_;
     std::string audio_name_{"Offline clock (no sound)"};
     std::string waveform_error_;

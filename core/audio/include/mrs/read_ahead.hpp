@@ -22,7 +22,7 @@ public:
 private:
     struct Slot {
         std::atomic<int> owner{}; // 0 free, -1 worker, +1 callback
-        Sample page{-1};
+        std::atomic<Sample> page{-1}; // published tag; control reads without pinning callback data
         std::vector<float> samples;
     };
     std::shared_ptr<const WavFile> file_;

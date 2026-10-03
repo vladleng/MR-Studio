@@ -81,7 +81,7 @@ enum ControlId {
     previous, next, loop, undo, redo, open, save, save_as, demo, import,
     audio_settings, tracks = 140, rename_edit, rename,
     new_project_button = 160, import_batch, add_track, delete_track, track_up, track_down, zoom_in, zoom_out, zoom_fit, split_clip_button, delete_clip_button, snap_button,
-    files_exit = 180,
+    record_button = 172, arm_button, monitor_button, files_exit = 180,
     device_combo = 200, rate_edit, buffer_edit, outputs_edit, input_edit,
     connect_button, disconnect_button, panel_button, refresh_button
 };
@@ -173,6 +173,7 @@ struct UI {
         for (auto [id,label] : std::array<std::pair<int,const wchar_t*>,7>{{
             {add_track,L"+ Track"},{delete_track,L"Delete"},{track_up,L"Up"},{track_down,L"Down"},
             {zoom_in,L"Zoom +"},{zoom_out,L"Zoom -"},{zoom_fit,L"Fit"}}}) button(window,label,id);
+        button(window,L"Record (R)",record_button); button(window,L"Arm track",arm_button); button(window,L"Monitor on",monitor_button);
         button(window,L"Split (S)",split_clip_button); button(window,L"Del clip",delete_clip_button); button(window,L"Snap off",snap_button);
         create(window,L"LISTBOX",L"",tracks,WS_TABSTOP | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT);
         create(window,L"EDIT",L"",rename_edit,WS_TABSTOP | ES_AUTOHSCROLL | WS_BORDER);
@@ -188,6 +189,7 @@ struct UI {
         for (int i = 0; i < 3; ++i) move(nav_arrange+i,240+i*100,18,92,34);
         move(audio_settings,width-166,18,150,34);
         int x = 20; for (auto id : {play,pause,stop,previous,next,loop}) { int w = id >= previous ? 115 : 76; move(id,x,80,w,34); x += w+8; }
+        move(record_button,650,80,90,34); move(arm_button,748,80,100,34); move(monitor_button,856,80,108,34);
         move(split_clip_button,700,196,80,32); move(delete_clip_button,788,196,80,32); move(snap_button,876,196,88,32);
         move(undo,20,140,80,32); move(redo,108,140,80,32);
         int ax = 220;
@@ -202,7 +204,7 @@ struct UI {
         app.prepare_waveforms();
         SendMessageW(child(tracks),LB_RESETCONTENT,0,0);
         for (const auto& t : project->tracks) {
-            auto name = wide(t.name); SendMessageW(child(tracks),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(name.c_str()));
+            auto name = (app.armed_track() && t.id == *app.armed_track() ? L"[R] " : L"") + wide(t.name); SendMessageW(child(tracks),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(name.c_str()));
         }
         if (!project->tracks.empty()) {
             auto found = std::find_if(project->tracks.begin(),project->tracks.end(),[&](const auto& t) { return selected_track && t.id == *selected_track; });
@@ -213,10 +215,22 @@ struct UI {
         } else { selected_track.reset(); SetWindowTextW(child(rename_edit),L""); }
         first_track = std::min(first_track,project->tracks.empty() ? std::size_t{0} : project->tracks.size()-1);
         if (selected_clip && std::none_of(project->clips.begin(),project->clips.end(),[&](const auto& c) { return c.id == *selected_clip; })) selected_clip.reset();
-        EnableWindow(child(split_clip_button),selected_clip.has_value()); EnableWindow(child(delete_clip_button),selected_clip.has_value());
+        EnableWindow(child(split_clip_button),selected_clip.has_value() && !app.recording()); EnableWindow(child(delete_clip_button),selected_clip.has_value() && !app.recording());
         prefs.rate = project->sample_rate;
         if (settings) SetWindowTextW(child(rate_edit,true),std::to_wstring(prefs.rate).c_str());
-        EnableWindow(child(undo),app.services().projects->state().can_undo); EnableWindow(child(redo),app.services().projects->state().can_redo);
+        EnableWindow(child(undo),app.services().projects->state().can_undo && !app.recording()); EnableWindow(child(redo),app.services().projects->state().can_redo && !app.recording());
+        for (auto id : {play,previous,next,loop,add_track,delete_track,track_up,track_down,rename,rename_edit,audio_settings}) EnableWindow(child(id),!app.recording());
+        EnableWindow(child(arm_button),selected_track.has_value() && !app.recording());
+        EnableWindow(child(record_button),app.recording() || (app.armed_track().has_value() && app.has_input() && app.audio_running()));
+        EnableWindow(child(monitor_button),app.has_input() && app.audio_running());
+        SetWindowTextW(child(record_button),app.recording() ? L"End rec (R)" : L"Record (R)");
+        const bool armed = selected_track && app.armed_track() && *selected_track == *app.armed_track();
+        SetWindowTextW(child(arm_button),armed ? L"Disarm" : L"Arm track");
+        SetWindowTextW(child(monitor_button),app.monitoring() ? L"Monitor on" : L"Monitor off");
+        const auto files = GetSubMenu(GetMenu(window),0);
+        for (auto id : {new_project_button,open,save,save_as,import_batch,import,demo})
+            EnableMenuItem(files,static_cast<UINT>(id),MF_BYCOMMAND | (app.recording() ? MF_GRAYED : MF_ENABLED));
+        DrawMenuBar(window);
         std::wstring title = L"Moon River Studio " + wide(application_version) + L" — " + wide(project->title) + (app.dirty() ? L" *" : L"");
         SetWindowTextW(window,title.c_str()); InvalidateRect(window,nullptr,FALSE);
     }
@@ -275,7 +289,7 @@ struct UI {
         return snap && !(GetKeyState(VK_SHIFT)&0x8000) ? snap_to_grid(*app.services().projects->state().project,value) : value;
     }
     void mouse_down(POINT point) {
-        if (app.workspace() != Workspace::arrange || !PtInRect(&canvas,point)) return;
+        if (app.recording() || app.workspace() != Workspace::arrange || !PtInRect(&canvas,point)) return;
         SetFocus(window);
         if (auto clip = hit_clip(point)) {
             selected_clip = clip->id; selected_track = clip->track; refresh_models();
@@ -322,6 +336,10 @@ struct UI {
         selected_track = d.preview.track; refresh_models();
     }
     void command(int id, int notification) {
+        if (app.recording()) {
+            for (auto blocked : {play,previous,next,loop,undo,redo,rename,new_project_button,import_batch,add_track,delete_track,track_up,track_down,split_clip_button,delete_clip_button,open,import,demo,save,save_as,audio_settings,arm_button})
+                if (id == blocked) return;
+        }
         if (drag) cancel_drag();
         if (id >= nav_arrange && id <= nav_mix) { app.workspace(static_cast<Workspace>(id-nav_arrange)); for (int i = nav_arrange; i <= nav_mix; ++i) InvalidateRect(child(i),nullptr,TRUE); InvalidateRect(window,nullptr,FALSE); return; }
         if (id == tracks && notification == LBN_SELCHANGE) {
@@ -330,13 +348,28 @@ struct UI {
             if (selection >= 0 && static_cast<std::size_t>(selection) < project->tracks.size()) {
                 selected_track = project->tracks[static_cast<std::size_t>(selection)].id;
                 first_track = static_cast<std::size_t>(selection);
+                const bool armed = app.armed_track() && *selected_track == *app.armed_track();
+                SetWindowTextW(child(arm_button),armed ? L"Disarm" : L"Arm track");
                 SetWindowTextW(child(rename_edit),wide(project->tracks[static_cast<std::size_t>(selection)].name).c_str());
                 InvalidateRect(window,nullptr,FALSE);
             }
             return;
         }
         switch (id) {
-        case play: app.play(); break; case pause: app.pause(); break; case stop: app.stop(); break;
+        case play: app.play(); break; case pause: app.pause(); refresh_models(); break; case stop: app.stop(); refresh_models(); break;
+        case arm_button:
+            if (selected_track) app.arm_track(app.armed_track() == selected_track ? std::nullopt : selected_track);
+            refresh_models(); break;
+        case monitor_button: app.monitoring(!app.monitoring()); refresh_models(); break;
+        case record_button:
+            if (app.recording()) (void)app.stop_recording();
+            else {
+                if (app.path().empty() && !save_current(false)) break;
+                auto audio_folder = std::filesystem::absolute(app.path()).parent_path()/L"Audio";
+                std::filesystem::create_directories(audio_folder);
+                app.start_recording(audio_folder/("Take-"+new_id().value+".wav"));
+            }
+            refresh_models(); break;
         case previous: app.musical().previous_section(); break; case next: app.musical().next_section(); break;
         case loop:
             if (app.services().transport->state().loop) app.musical().clear_loop();
@@ -406,7 +439,8 @@ struct UI {
     }
     void draw_button(const DRAWITEMSTRUCT& item) {
         bool selected = item.CtlID >= nav_arrange && item.CtlID <= nav_mix && item.CtlID-nav_arrange == static_cast<UINT>(app.workspace());
-        fill(item.hDC,item.rcItem,selected ? RGB(88,88,88) : (item.itemState & ODS_SELECTED) ? border : panel);
+        const bool rec = item.CtlID == record_button && app.recording();
+        fill(item.hDC,item.rcItem,rec ? RGB(148,46,46) : selected ? RGB(88,88,88) : (item.itemState & ODS_SELECTED) ? border : panel);
         auto label = control_text(item.hwndItem); auto old = SelectObject(item.hDC,GetParent(item.hwndItem) == settings ? settings_font : normal);
         SetBkMode(item.hDC,TRANSPARENT); SetTextColor(item.hDC,(item.itemState & ODS_DISABLED) ? muted : ink);
         RECT rect = item.rcItem; DrawTextW(item.hDC,label.c_str(),static_cast<int>(label.size()),&rect,DT_CENTER | DT_VCENTER | DT_SINGLELINE);
@@ -457,7 +491,7 @@ struct UI {
                 const auto& track = project->tracks[ti];
                 if (y+s(30) > rect.bottom) break;
                 if (selected_track && track.id == *selected_track) fill(dc,{rect.left,y,rect.right,y+s(88)},RGB(34,42,62));
-                text(dc,rect.left+s(12),y,width-s(24),s(24),wide(track.name),normal,muted); y += s(26);
+                text(dc,rect.left+s(12),y,width-s(24),s(24),(app.armed_track() && track.id == *app.armed_track() ? L"[R] " : L"") + wide(track.name),normal,muted); y += s(26);
                 for (const auto& stored_clip : project->clips) {
                     const auto clip = drag && drag->original.id == stored_clip.id ? drag->preview : stored_clip;
                     if (clip.track != track.id) continue;
@@ -491,6 +525,17 @@ struct UI {
                     text(dc,block.left+s(7),block.top,block.right-block.left-s(14),s(18),wide(clip.name),normal,ink);
                 }
                 y += s(66);
+            }
+        }
+        if (!moving && app.recording() && app.armed_track()) {
+            const auto track = std::find_if(project->tracks.begin(),project->tracks.end(),[&](const auto& t) { return t.id == *app.armed_track(); });
+            const auto row = static_cast<std::size_t>(track-project->tracks.begin());
+            if (track != project->tracks.end() && row >= first_track) {
+                const auto frames = static_cast<Sample>(app.recording_status().frames);
+                const auto start = app.recording_start();
+                const int y = audio_top()+static_cast<int>(row-first_track)*s(92)+s(26);
+                RECT take{x_sample(start),y,x_sample(start+frames),y+s(56)};
+                if (take.right > take.left) { fill(dc,take,RGB(112,43,43)); text(dc,take.left+s(8),y,take.right-take.left-s(16),s(24),L"Recording..."); }
             }
         }
         const auto position = moving ? x_tick(context.tick) : x_sample(context.transport.sample);
@@ -536,6 +581,11 @@ struct UI {
         std::wostringstream bottom; bottom << wide(app.audio_name()) << L"  |  " << (context.transport.playback == PlaybackState::playing ? L"Playing" : context.transport.playback == PlaybackState::paused ? L"Paused" : L"Stopped")
             << L"  |  " << context.project->sample_rate << L" Hz  |  callbacks " << metrics.callbacks << L"  |  underruns " << metrics.output_underflows
             << L"  |  disk underruns " << metrics.disk_underruns << L" / errors " << metrics.disk_errors;
+        std::wostringstream input_status;
+        input_status << L"Input " << std::fixed << std::setprecision(1) << (metrics.input_peak > 0 ? 20*std::log10(metrics.input_peak) : -120.0f) << L" dBFS";
+        if (app.recording()) input_status << L"  |  Recording " << static_cast<double>(app.recording_status().frames)/context.project->sample_rate << L" s";
+        if (!app.recording_error().empty()) input_status << L"  |  " << wide(app.recording_error());
+        text(dc,s(650),s(117),area.right-s(670),s(24),input_status.str(),normal,app.recording_error().empty() ? muted : RGB(242,100,100));
         if (!app.waveform_error().empty()) bottom << L"  |  waveform: " << wide(app.waveform_error());
         line(dc,0,area.bottom-s(48),area.right,area.bottom-s(48));
         text(dc,s(20),area.bottom-s(44),area.right-s(40),s(36),bottom.str(),normal,(status.phase == audio::DevicePhase::error || metrics.disk_errors || metrics.disk_underruns) ? RGB(242,100,100) : muted);
@@ -560,7 +610,7 @@ void UI::restore_audio() {
     audio::DeviceConfig config{found->index,app.services().projects->state().project->sample_rate,prefs.buffer,{},prefs.outputs};
     if (prefs.monitor_input >= 0) config.inputs = {prefs.monitor_input};
     app.connect(std::move(device),config); prefs.rate = config.sample_rate; preferences();
-    log.write("Saved ASIO connection restored; transport stopped");
+    refresh_models(); log.write("Saved ASIO connection restored; transport stopped");
     if (settings) {
         SetWindowTextW(child(rate_edit,true),std::to_wstring(prefs.rate).c_str());
         InvalidateRect(settings,nullptr,FALSE);
@@ -610,8 +660,9 @@ void UI::settings_layout() {
     InvalidateRect(settings,nullptr,FALSE);
 }
 void UI::settings_command(int id) {
+    if (app.recording()) return;
     if (id == refresh_button) { enumerate_devices(); InvalidateRect(settings,nullptr,FALSE); return; }
-    if (id == disconnect_button) { app.disconnect(); prefs.reconnect_audio = false; preferences(); InvalidateRect(settings,nullptr,FALSE); return; }
+    if (id == disconnect_button) { app.disconnect(); prefs.reconnect_audio = false; preferences(); refresh_models(); InvalidateRect(settings,nullptr,FALSE); return; }
     // Edit/combo initialization and typing notifications are not device actions.
     if (id != connect_button && id != panel_button) return;
     const auto selection = SendMessageW(child(device_combo,true),CB_GETCURSEL,0,0);
@@ -639,7 +690,7 @@ void UI::settings_command(int id) {
 #ifdef MRS_HAS_ASIO
     else device = audio::make_asio_device();
 #endif
-    app.connect(std::move(device),config); prefs = std::move(next_prefs); preferences(); log.write("Audio connected");
+    app.connect(std::move(device),config); prefs = std::move(next_prefs); preferences(); refresh_models(); log.write("Audio connected");
     InvalidateRect(settings,nullptr,FALSE);
 }
 LRESULT CALLBACK settings_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -707,7 +758,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
         }
         case WM_TIMER:
             if (wparam == 1) {
-                try { ui->app.poll(); } catch (const std::runtime_error&) { return 0; } // bounded mailbox can be busy
+                try { const bool recording = ui->app.recording(); ui->app.poll(); if (recording != ui->app.recording()) ui->refresh_models(); } catch (const std::runtime_error&) { return 0; } // bounded mailbox can be busy
                 InvalidateRect(hwnd,nullptr,FALSE); if (ui->settings) InvalidateRect(ui->settings,nullptr,FALSE); return 0;
             }
             if (wparam == 2 && ui->smoke) {
@@ -733,6 +784,11 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     const auto bar = GetMenu(hwnd), files = GetSubMenu(bar,0);
                     if (!bar || !files || GetMenuItemID(files,0) != new_project_button || GetMenuItemID(files,3) != save)
                         throw std::runtime_error("Files menu did not retain project commands");
+                    for (auto id : {record_button,arm_button,monitor_button}) if (!ui->child(id)) throw std::runtime_error("Recording controls missing");
+                    ui->command(arm_button,0);
+                    if (!ui->app.armed_track()) throw std::runtime_error("Arm track did not use shared application");
+                    ui->command(arm_button,0);
+                    if (ui->app.armed_track()) throw std::runtime_error("Disarm did not clear shared application");
                     for (auto id : {nav_live,open,save,save_as,demo,import,new_project_button,import_batch})
                         if (ui->child(id)) throw std::runtime_error("File/Live controls still occupy the workspace");
                     ui->app.rename_track(ui->app.services().projects->state().project->tracks.front().id,"Smoke track"); ui->refresh_models();
@@ -796,6 +852,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
             }
             break;
         case WM_CLOSE:
+            if (ui->app.recording()) { (void)ui->app.stop_recording(); ui->refresh_models(); }
             if (ui->discard()) { ui->preferences(); DestroyWindow(hwnd); } return 0;
         case WM_DESTROY:
             KillTimer(hwnd,1); KillTimer(hwnd,2); if (ui->settings) DestroyWindow(ui->settings);
@@ -830,6 +887,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show)
                 const bool editing = msg.hwnd == ui.child(rename_edit);
                 if (!editing && msg.wParam == VK_ESCAPE && ui.drag) { ui.cancel_drag(); continue; }
                 if (!editing && ui.app.workspace() == Workspace::arrange && !(GetKeyState(VK_CONTROL)&0x8000)) {
+                    if (msg.wParam == 'R') { ui.command(record_button,0); continue; }
                     if (msg.wParam == 'S') { ui.command(split_clip_button,0); continue; }
                     if (msg.wParam == VK_DELETE) { ui.command(delete_clip_button,0); continue; }
                 }

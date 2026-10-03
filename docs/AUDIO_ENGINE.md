@@ -393,3 +393,11 @@ Live Mode использует тот же engine, но может включа�
 Перед публичным распространением необходимо отдельно проверять актуальные лицензионные условия ASIO SDK, VST3 и выбранного framework/toolchain.
 
 Это release/legal задача и не должна оставаться неявной.
+
+
+## Stage 1d / 0.1e recording foundation
+The existing SHARED AudioEngine now supports raw mono ASIO capture through a fixed
+ring and background WAV writer, independent monitoring and one-step take attachment
+through the existing ProjectStore/Undo. Same engine/device/transport, archive schema
+unchanged. See [recording contracts](RECORDING.md) and
+[Windows checklist](MRS_STAGE_1D_CHECKLIST.md). Hardware acceptance pending.

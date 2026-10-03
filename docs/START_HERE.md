@@ -17,8 +17,9 @@ MRS Stage 1c / 0.1d upd1 fix1 принят пользователем 2026-10-03
 Приняты длинные WAV/disk read-ahead, серый интерфейс/меню Files, удаление кнопки Live
 и центрирование моно. Все шесть CI jobs пройдены.
 Следующий подэтап: MRS Stage 1d #21 / 0.1e — recording/monitor foundation
-и integrated save/load acceptance. Разработка 0.1e ещё не начата.
-Последняя принятая сборка: 0.1d upd1 fix1.
+и integrated save/load acceptance. Разработка 0.1e выполняется по запросу пользователя; ручная ASIO приёмка ожидается.
+Последняя принятая сборка: 0.1d upd1 fix1. Новая тестовая сборка: 0.1e.
+Контракты записи: docs/RECORDING.md; приёмка: docs/MRS_STAGE_1D_CHECKLIST.md.
 Чек-листы: docs/MRS_STAGE_1C_CHECKLIST.md и docs/MRS_STAGE_1C_UPD1_CHECKLIST.md.
 Правила версий: docs/VERSIONING.md. Читать issue #21 и docs/AUDIO_ARRANGEMENT.md.
 Приёмка 0.1c: docs/MRS_STAGE_1B_CHECKLIST.md.
