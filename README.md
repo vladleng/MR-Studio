@@ -130,22 +130,26 @@ My Song.moonlive
 4. **Live-first reliability:** на сцене важнее предсказуемость, чем количество функций.
 5. **Fail-safe playback:** ошибка визуального или metadata-модуля не должна обрывать звук.
 6. **Offline-first:** концерт не должен зависеть от облака или интернета.
-7. **Расширяемая модель:** один и тот же Song Metadata слой сможет использоваться Moon River Live, Arranger Manager и будущими инструментами Moon River Studio.
+7. **Native audio performance:** на Windows основной live-режим должен работать напрямую через родной vendor ASIO driver аудиоинтерфейса.
+8. **Performance gate:** базовый audio engine должен пройти сравнительный benchmark со Studio Pro до активного наращивания тяжёлых live-host функций.
+9. **Расширяемая модель:** один и тот же Song Metadata слой сможет использоваться Moon River Live, Arranger Manager и будущими инструментами Moon River Studio.
 
 ## Документация
 
 - [`docs/PROJECT_VISION.md`](docs/PROJECT_VISION.md) — цели, границы и концепция продукта.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — архитектура приложения и границы модулей.
+- [`docs/AUDIO_ENGINE.md`](docs/AUDIO_ENGINE.md) — audio engine, ASIO, realtime-правила, совместимость с аудиоинтерфейсами и performance benchmark.
 - [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — универсальная модель Song Metadata и `.moonlive`.
 - [`docs/STUDIO_PRO_INTEGRATION.md`](docs/STUDIO_PRO_INTEGRATION.md) — стратегия интеграции с Fender Studio Pro.
 - [`docs/LIVE_WORKFLOW.md`](docs/LIVE_WORKFLOW.md) — предполагаемый концертный workflow.
+- [`docs/UI_UX_CONCEPT.md`](docs/UI_UX_CONCEPT.md) — UX/UI-концепция и базовое визуальное направление.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — этапы разработки от прототипа до стабильного релиза.
 
 ## Roadmap в одном экране
 
 | Stage | Цель |
 |---|---|
-| 0 | Foundation: архитектура, формат и технический прототип |
+| 0 | Foundation: архитектура, формат, ASIO performance gate и технический прототип |
 | 1 | Studio Pro Bridge и импорт metadata |
 | 2 | Live Timeline: chords, arranger, markers |
 | 3 | Playback и live-навигация |
