@@ -55,3 +55,19 @@ jobs:
           name: MR-Studio-SHARED-Stage-2-Windows
           path: timeline-package/
           if-no-files-found: error
+      - name: Package MIDI processor checker
+        if: runner.os == 'Windows' && matrix.config == 'Release'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path processor-package -Force | Out-Null
+          Copy-Item -LiteralPath build/Release/mrs_processor_check.exe -Destination processor-package/
+          Copy-Item -LiteralPath tools/Start-Processor-Test.cmd -Destination processor-package/
+          Copy-Item -LiteralPath docs/SHARED_STAGE_3_CHECKLIST.md -Destination processor-package/
+          Copy-Item -LiteralPath docs/MIDI_PROCESSOR_GRAPH.md -Destination processor-package/
+      - name: Upload MIDI processor checker
+        if: runner.os == 'Windows' && matrix.config == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MR-Studio-SHARED-Stage-3-Windows
+          path: processor-package/
+          if-no-files-found: error

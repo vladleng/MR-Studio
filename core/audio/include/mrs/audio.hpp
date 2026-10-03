@@ -10,6 +10,8 @@
 #pragma warning(disable: 4324) // intentional cache-line padding of SPSC indices
 #endif
 
+namespace mrs::processing { class PreparedGraph; }
+
 namespace mrs::audio {
 inline constexpr std::size_t max_channels = 64;
 inline constexpr std::size_t max_voices = 128;
@@ -30,6 +32,7 @@ struct MonitorRoute { std::uint32_t input_channel{}, output_channel{}; float gai
 struct RenderGraph {
     std::vector<Voice> voices;
     std::vector<MonitorRoute> monitor;
+    std::shared_ptr<processing::PreparedGraph> processors{};
 };
 struct RenderConfig {
     std::uint32_t sample_rate{48000};

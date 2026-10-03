@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. SHARED Stage 2 accepted.
+Updated: 2026-10-03. Active: SHARED Stage 3 #18.
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -26,9 +26,18 @@ navigation/loops, musical edits/Undo and snapshot v2 with v1 migration.
 Real EngineTransport integration retains sample clock and control-thread dispatch.
 See MUSICAL_TIMELINE.md and SHARED_STAGE_2_CHECKLIST.md.
 
+## Stage 3 — implementation
+Branch shared/stage-3-midi-processor-graph. Common MIDI/device/event/route contracts,
+GraphStore patch state/Undo, IProcessor native/VST3 state hooks, prepared audio DAG,
+sample-offset parameters, latency/live-safe report and native gain.
+PreparedGraph integrates into the single shared AudioEngine playback/monitor output.
+Hardware MIDI and actual VST3 hosting are not implemented; graph persistence belongs
+to #19. See MIDI_PROCESSOR_GRAPH.md and SHARED_STAGE_3_CHECKLIST.md.
+Validation authority is the current PR checks; user acceptance pending.
+
 ## Handoff
 Read START_HERE, current issue and relevant subsystem contracts.
 Stage 1 deferred work remains in #16. Next SHARED stage: #18 MIDI / Plugin Graph.
 #20 DAW shell and #28 Live prototype can use established shared musical contracts.
-No GUI, plugins, MIDI notes/editor or final persistence/recovery yet.
+No GUI, actual VST3 host, hardware MIDI, note editor or final persistence/recovery yet.
 No seamless reconnect, hot graph swap or production disk streaming.

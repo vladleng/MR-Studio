@@ -44,6 +44,10 @@ tempo/meter contracts, подписки, fixtures и versioned snapshot.
 общие context/navigation services, snapshot v2 с чтением v1.
 [Musical contracts](docs/MUSICAL_TIMELINE.md) · [Windows checker](docs/SHARED_STAGE_2_CHECKLIST.md).
 
+**SHARED Stage 3 / issue #18**: общая MIDI/processor инфраструктура, native gain,
+подготовленный graph и patch-state. VST3 host и hardware MIDI — будущие adapters.
+[Contracts](docs/MIDI_PROCESSOR_GRAPH.md) · [Windows checker](docs/SHARED_STAGE_3_CHECKLIST.md).
+
 GUI ещё нет. MRS 0.1 не считается завершённой до DAW Foundation (#20)
 и прохождения Audio Engine / ASIO performance gate (#16).
 
