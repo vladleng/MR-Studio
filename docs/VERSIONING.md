@@ -20,9 +20,11 @@
 | Принятый MRS Stage 1a: tracks/import/waveform | 0.1b |
 | Принятый фикс Pause/seek/delete после 1a | 0.1b fix1 |
 | Принятый MRS Stage 1b: clip editing | 0.1c |
-| Проверенная база MRS Stage 1c: disk read-ahead | 0.1d |
-| Текущее UI обновление: gray / Files / no Live button | 0.1d upd1 |
-| Исправление моно L/R, включено в UI сборку | 0.1d fix1 |
+| Принятый MRS Stage 1c: disk read-ahead | 0.1d |
+| Принятое UI обновление: gray / Files / no Live button | 0.1d upd1 |
+| Принятое исправление моно L/R, включено в UI сборку | 0.1d fix1 |
+
+Следующий подэтап: Stage 1d — recording/monitor, версия `0.1e` (разработка не начата).
 
 Эта схема имеет приоритет над прежними номерными примерами roadmap.
 Live Mode входит в ту же сборку и не получает отдельную продуктовую версию.

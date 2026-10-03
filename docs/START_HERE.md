@@ -13,11 +13,13 @@ MRS Stage 0 #20 принят пользователем 2026-10-03; PR #41 сл�
 MRS Stage 1a #21 принят пользователем 2026-10-03; PR #42 слит в main.
 0.1b fix1 принят пользователем 2026-10-03; PR #43 слит в main.
 MRS Stage 1b / 0.1c принят пользователем 2026-10-03: все функции работают; PR #44 слит в main.
-Активный подэтап: MRS Stage 1c #21 / версия 0.1d — disk read-ahead и long-file playback.
-0.1d реализован в mrs/0.1d-disk-read-ahead / PR #45; все шесть CI jobs пройдены.
-Базовую 0.1d пользователь проверил: всё работает. Перед закрытием добавляются UI upd1 и mono fix1.
-Текущая сборка: 0.1d upd1 fix1; все шесть CI jobs пройдены, приёмка доработки pending; PR #45 ещё не слит.
-Чек-лист доработки: docs/MRS_STAGE_1C_UPD1_CHECKLIST.md; disk checks: docs/MRS_STAGE_1C_CHECKLIST.md. Последняя принятая сборка: 0.1c.
+MRS Stage 1c / 0.1d upd1 fix1 принят пользователем 2026-10-03; PR #45 слит в main.
+Приняты длинные WAV/disk read-ahead, серый интерфейс/меню Files, удаление кнопки Live
+и центрирование моно. Все шесть CI jobs пройдены.
+Следующий подэтап: MRS Stage 1d #21 / 0.1e — recording/monitor foundation
+и integrated save/load acceptance. Разработка 0.1e ещё не начата.
+Последняя принятая сборка: 0.1d upd1 fix1.
+Чек-листы: docs/MRS_STAGE_1C_CHECKLIST.md и docs/MRS_STAGE_1C_UPD1_CHECKLIST.md.
 Правила версий: docs/VERSIONING.md. Читать issue #21 и docs/AUDIO_ARRANGEMENT.md.
 Приёмка 0.1c: docs/MRS_STAGE_1B_CHECKLIST.md.
 После 1c: recording foundation и integrated save/load; весь #21 остаётся открытым.

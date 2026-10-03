@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Accepted: 0.1c / MRS Stage 1b clip editing #21. Active: 0.1d / Stage 1c disk read-ahead; PR #45, user acceptance pending.
+Updated: 2026-10-03. Accepted: 0.1c / MRS Stage 1b clip editing #21. Next: 0.1e / Stage 1d recording/monitor (not started); Stage 1c accepted, PR #45 merged.
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -129,7 +129,7 @@ Bounded background waveform peaks with cancellation. Paused edits/Undo preserve
 the same engine, project and ASIO device. Limits/contracts: AUDIO_ARRANGEMENT.md.
 New audio_streaming / desktop_streaming suites cover boundaries, EOF, source loss,
 loop wrap, split continuity, no callback allocations and a >256 MiB decoded source.
-CI passed; user acceptance pending: MRS_STAGE_1C_CHECKLIST.md. Whole #21 remains open.
+CI passed; user accepted Stage 1c on 2026-10-03: MRS_STAGE_1C_CHECKLIST.md. Whole #21 remains open.
 
 
 ## 0.1d validation — 2026-10-03
@@ -165,5 +165,13 @@ ASIO CI: https://github.com/vladleng/MR-Studio/actions/runs/37128824438
 ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37128824438/artifacts/11276401042
 mono_route verifies one/two/four output configurations; stereo tests stay unchanged.
 Chord and section drawing/colors are unchanged; gray colors apply to the base chrome/buttons.
-Base 0.1d user verification is recorded. UI/mono follow-up acceptance pending;
-PR #45 and whole #21 remain open. Checklist: MRS_STAGE_1C_UPD1_CHECKLIST.md.
+Base 0.1d user verification is recorded. UI/mono follow-up accepted by user on 2026-10-03;
+PR #45 merged; whole #21 remains open. Checklist: MRS_STAGE_1C_UPD1_CHECKLIST.md.
+
+
+## Acceptance — 2026-10-03
+User confirmed all base 0.1d and UI/mono follow-up functions work. Stage 1c /
+0.1d upd1 fix1 accepted; PR #45 merged into main. Validated code:
+2177219103682c08bc011b9c5e9baee8f8f00aa5 (all six CI jobs passed; Linux/ASIO 54/54,
+Windows offline 55/55). Whole #21 remains open. Next: Stage 1d / 0.1e recording,
+monitor foundation and integrated save/load acceptance; development not started.

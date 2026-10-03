@@ -292,11 +292,14 @@ Long WAVs use bounded background disk buffers in the same SHARED AudioEngine.
 Per-voice offsets, seek/loop priming and separate disk underrun/error counters;
 waveform peaks build from bounded blocks with cancellation. Small WAVs preload.
 [Contracts](docs/AUDIO_ARRANGEMENT.md) · [Windows checklist](docs/MRS_STAGE_1C_CHECKLIST.md).
-PR #45; базовая 0.1d проверена пользователем. Перед закрытием: upd1 интерфейса и fix1 моно. Whole #21 stays open for recording/save-load acceptance.
+PR #45; базовая 0.1d проверена пользователем. upd1 интерфейса и fix1 моно также приняты, PR #45 слит в main. Whole #21 stays open for recording/save-load acceptance.
 
 ## 0.1d upd1 fix1 — UI follow-up
 Neutral gray background/buttons; thin Files menu for project/WAV actions;
 Arrange/Edit/Mix navigation without Live button. Mono routes to the selected main pair.
-[Acceptance checklist](docs/MRS_STAGE_1C_UPD1_CHECKLIST.md). All six CI jobs passed; UI/mono user acceptance pending.
+[Acceptance checklist](docs/MRS_STAGE_1C_UPD1_CHECKLIST.md). All six CI jobs passed; user accepted UI/mono follow-up on 2026-10-03; PR #45 merged.
 Live is a separate show mode with .mrlive documents referencing .mrsproject songs,
 using the same SHARED Core/Engine. Its file commands/screen belong to LIVE stages.
+
+Следующий подэтап: **Stage 1d / 0.1e** — запись, мониторинг и итоговая приёмка save/load.
+Stage 1c завершён; общий #21 остаётся открытым. Разработка 0.1e ещё не начата.

@@ -80,7 +80,15 @@ Waveform workers scan bounded blocks, cap base peak entries at 65536 across chan
 Cancellation stops scans when replacing/exiting projects. Waveform failure appears
 in UI status and does not unwind the application pump or touch callback state.
 
-See MRS_STAGE_1C_CHECKLIST.md. All six automated CI jobs passed; Windows user acceptance pending.
+See MRS_STAGE_1C_CHECKLIST.md. All six automated CI jobs passed; Windows user acceptance passed on 2026-10-03.
 Whole #21 remains open; Stage 1d recording follows.
 
 At most 128 retained source assets including Undo media; New/Open releases the cache.
+
+
+## Acceptance — 2026-10-03
+User confirmed all base 0.1d and UI/mono follow-up functions work. Stage 1c /
+0.1d upd1 fix1 accepted; PR #45 merged into main. Validated code:
+2177219103682c08bc011b9c5e9baee8f8f00aa5 (all six CI jobs passed; Linux/ASIO 54/54,
+Windows offline 55/55). Whole #21 remains open. Next: Stage 1d / 0.1e recording,
+monitor foundation and integrated save/load acceptance; development not started.

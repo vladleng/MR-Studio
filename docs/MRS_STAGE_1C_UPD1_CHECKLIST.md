@@ -18,10 +18,18 @@
    длинных WAV, сохранение проекта. Resize и масштаб Windows 100–150%.
 
 upd1 — обновление интерфейса; fix1 — центрирование моно, объединены в одну сборку.
-Базовая 0.1d проверена пользователем. Эту доработку ещё нужно принять перед merge PR #45.
+Базовая 0.1d проверена пользователем. Пользователь принял доработку 2026-10-03; PR #45 слит в main.
 Live определён как отдельный show-режим внутри MRS с документом .mrlive, ссылками
 на проекты и тем же SHARED Engine. Создание/открытие .mrlive и show-экран будут
 реализованы в LIVE этапах; текущий Files работает с .mrsproject и WAV.
 
 Все шесть CI jobs пройдены: Linux/ASIO 54/54, Windows offline 55/55 с GUI smoke.
 Сборка для проверки: https://github.com/vladleng/MR-Studio/actions/runs/37128824438/artifacts/11276401042
+
+
+## Acceptance — 2026-10-03
+User confirmed all base 0.1d and UI/mono follow-up functions work. Stage 1c /
+0.1d upd1 fix1 accepted; PR #45 merged into main. Validated code:
+2177219103682c08bc011b9c5e9baee8f8f00aa5 (all six CI jobs passed; Linux/ASIO 54/54,
+Windows offline 55/55). Whole #21 remains open. Next: Stage 1d / 0.1e recording,
+monitor foundation and integrated save/load acceptance; development not started.
