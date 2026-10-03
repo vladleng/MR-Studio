@@ -1,4 +1,5 @@
 #include <mrs/audio.hpp>
+#include <mrs/processing.hpp>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -45,6 +46,12 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph) {
         if (route.input_channel >= config.input_channels || route.output_channel >= config.output_channels ||
             !std::isfinite(route.gain) || std::abs(route.gain) > 16)
             throw std::invalid_argument("invalid monitoring route");
+    if (graph.processors) {
+        const auto processor = graph.processors->config();
+        if (processor.sample_rate != config.sample_rate || processor.channels != config.output_channels ||
+            processor.max_block < config.max_block)
+            throw std::invalid_argument("processor/audio render configuration mismatch");
+    }
     config_ = config;
     graph_ = std::move(graph);
     Control discarded;
@@ -99,9 +106,15 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         case ControlKind::pause:
             if (rt_.playback == PlaybackState::playing) rt_.playback = PlaybackState::paused;
             break;
-        case ControlKind::stop: rt_.playback = PlaybackState::stopped; rt_.sample = 0; break;
+        case ControlKind::stop:
+            rt_.playback = PlaybackState::stopped; rt_.sample = 0;
+            if (graph_.processors) graph_.processors->panic();
+            break;
         case ControlKind::seek:
-            if (control.a >= 0 && control.a <= max_sample) rt_.sample = control.a;
+            if (control.a >= 0 && control.a <= max_sample) {
+                rt_.sample = control.a;
+                if (graph_.processors) graph_.processors->panic();
+            }
             break;
         case ControlKind::loop:
             if (control.a >= 0 && control.a < control.b && control.b <= max_sample)
@@ -133,13 +146,18 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             if (rt_.sample < max_sample) ++rt_.sample;
             else rt_.playback = PlaybackState::stopped;
         }
-        for (std::uint32_t ch = 0; ch < config_.output_channels; ++ch) {
-            auto& sample = output[out + ch];
-            if (!std::isfinite(sample)) sample = 0;
-            if (sample > 1 || sample < -1) {
-                clipped_.fetch_add(1, std::memory_order_relaxed);
-                sample = std::clamp(sample, -1.0F, 1.0F);
-            }
+
+    }
+    const auto output_samples = static_cast<std::size_t>(frames) * config_.output_channels;
+    for (std::size_t i = 0; i < output_samples; ++i)
+        if (!std::isfinite(output[i])) output[i] = 0;
+    if (graph_.processors) graph_.processors->process(output,frames);
+    for (std::size_t i = 0; i < output_samples; ++i) {
+        auto& sample = output[i];
+        if (!std::isfinite(sample)) sample = 0;
+        if (sample > 1 || sample < -1) {
+            clipped_.fetch_add(1,std::memory_order_relaxed);
+            sample = std::clamp(sample,-1.0F,1.0F);
         }
     }
     // Normalize at an exact block boundary for coherent displayed loop position.
