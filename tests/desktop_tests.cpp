@@ -73,17 +73,28 @@ void wav(const std::filesystem::path& path) {
     f.write("RIFF",4); u32(36+4000); f.write("WAVEfmt ",8); u32(16); u16(1); u16(2); u32(44100); u32(176400); u16(4); u16(16);
     f.write("data",4); u32(4000); for (int i = 0; i < 2000; ++i) u16(4000);
 }
+class ManualDevice final : public audio::IAudioDevice {
+public:
+    std::vector<audio::DeviceInfo> enumerate() override { return {{0,"Manual render test",{},{"L","R"},32,2048,128,-1}}; }
+    void control_panel(int) override {}
+    void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>) override { phase_ = audio::DevicePhase::open; }
+    void start() override { phase_ = audio::DevicePhase::running; }
+    void stop() override { phase_ = audio::DevicePhase::stopped; }
+    void close() noexcept override { phase_ = audio::DevicePhase::closed; }
+    audio::DeviceStatus status() override { return {phase_,44100,0,0,0,{}}; }
+private:
+    audio::DevicePhase phase_{audio::DevicePhase::closed};
+};
 void assets() {
     Directory dir; auto file = dir.path / "music.wav"; wav(file); Application app; app.import_wav(file);
     const auto p = app.services().projects->state().project;
     CHECK(p->sample_rate == 44100 && p->clips.front().length == 1000 && p->chords.empty() && p->sections.empty());
-    app.connect(audio::make_offline_device(),{0,44100,128,{}, {0,1}});
-    app.play(); eventually([&] { return app.engine()->state().sample >= 128; }); app.pause();
-    app.disconnect(); CHECK(app.engine()->state().sample == 0); // now quiescent, manual shared render verification
-    auto data = std::make_shared<const audio::AudioData>(audio::load_wav(file));
-    app.engine()->prepare({44100,0,2,128},{{{data,0,0,1000,{{0,0,1},{1,1,1}}}},{},{}});
-    app.engine()->enqueue({audio::ControlKind::play}); std::array<float,256> output{}; app.engine()->process(nullptr,output.data(),128);
-    CHECK(output[0] > 0.1f && output[1] > 0.1f);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
+    app.play(); std::array<float,256> output{};
+    app.engine()->process(nullptr,output.data(),128); // manual device has no concurrent consumer
+    CHECK(output[0] == 0.06103515625f && output[1] == 0.06103515625f); // PCM16 4000/32768 through shared native gain 0.5
+    app.poll(); CHECK(app.musical().state().transport.sample == 128);
+    app.disconnect(); CHECK(app.engine()->state().sample == 0);
     auto services = app.services(); rejects([&] { app.import_wav(dir.path / "absent.wav"); }); CHECK(app.services().projects == services.projects);
 }
 void audio_settings() {

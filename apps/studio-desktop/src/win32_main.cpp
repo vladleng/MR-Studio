@@ -379,10 +379,10 @@ void UI::settings_command(int id) {
         if (selection == 0) throw std::runtime_error("Offline clock has no ASIO panel");
         // Panel/reconfigure is quiescent; user reconnects after driver changes.
         app.disconnect(); auto device = audio::make_asio_device(); device->control_panel(devices[static_cast<std::size_t>(selection)-1].index);
+        InvalidateRect(settings,nullptr,FALSE); return;
 #else
         throw std::runtime_error("This build has no ASIO backend");
 #endif
-        InvalidateRect(settings,nullptr,FALSE); return;
     }
     if (id != connect_button) return;
     auto next_prefs = prefs; next_prefs.rate = number(child(rate_edit,true)); next_prefs.buffer = number(child(buffer_edit,true));
@@ -477,7 +477,18 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                 if (ui->smoke_step == 6) {
                     if (!ui->child(play) || !ui->child(device_combo,true) || ui->app.workspace() != Workspace::live) throw std::runtime_error("GUI smoke failed");
                     // Exercise DPI layout with the same path as a monitor change.
-                    ui->dpi = 144; ui->fonts(); ui->layout(); ui->settings_layout();
+                    ui->dpi = 144; ui->fonts();
+                    SetWindowPos(hwnd,nullptr,0,0,ui->s(1000),ui->s(620),SWP_NOMOVE | SWP_NOZORDER);
+                    ui->layout(); ui->settings_dpi = 144; ui->settings_fonts();
+                    SetWindowPos(ui->settings,nullptr,0,0,ui->ss(600),ui->ss(475),SWP_NOMOVE | SWP_NOZORDER); ui->settings_layout();
+                    for (auto parent : {hwnd,ui->settings}) {
+                        RECT area{}; GetClientRect(parent,&area);
+                        for (auto control = GetWindow(parent,GW_CHILD); control; control = GetWindow(control,GW_HWNDNEXT)) {
+                            RECT rect{}; GetWindowRect(control,&rect); MapWindowPoints(nullptr,parent,reinterpret_cast<POINT*>(&rect),2);
+                            if (rect.left < 0 || rect.top < 0 || rect.right > area.right || rect.bottom > area.bottom)
+                                throw std::runtime_error("DPI layout extends outside the client area");
+                        }
+                    }
                     DestroyWindow(hwnd);
                 }
                 return 0;
