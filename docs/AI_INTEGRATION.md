@@ -2,9 +2,9 @@
 
 ## 1. Цель
 
-Moon River Studio должен в будущем поддерживать AI-слой, который понимает структуру DAW-проекта и может анализировать или изменять проект через строго определённый API.
+Moon River Studio в будущем должен поддерживать AI-слой, который понимает структуру DAW-проекта и может анализировать или изменять проект через строго определённый API.
 
-AI — не часть realtime audio engine и не должен влиять на стабильность playback/monitoring.
+AI — не часть realtime Audio Engine и не должен влиять на стабильность playback/monitoring ни в production workspaces, ни в Live Mode.
 
 ## 2. Архитектура
 
@@ -44,7 +44,8 @@ Project Model   MIDI Model  Mixer   Analysis
 - plugin parameters, когда это разрешено;
 - automation;
 - basic audio-analysis summaries;
-- current selection/context пользователя.
+- current selection/context пользователя;
+- Live Mode context, если он активен: current section/chord/cue/setlist state.
 
 ## 4. Пример Tool API
 
@@ -57,6 +58,7 @@ get_midi_clip(clipId)
 get_chord_track()
 get_arranger_sections()
 get_mixer_state()
+get_live_state()
 
 create_midi_clip(...)
 insert_midi_notes(...)
@@ -75,7 +77,7 @@ create_section(...)
 move_clip(...)
 ```
 
-Все команды должны проходить через MRS command/undo system, а не менять внутренние объекты напрямую.
+Все команды должны проходить через MRS Command/Undo system, а не менять внутренние объекты напрямую.
 
 ## 5. MIDI generation
 
@@ -106,7 +108,7 @@ Density
 Humanization
 ```
 
-Результат должен быть структурированным набором MIDI events, который MRS валидирует перед применением.
+Результат — структурированный набор MIDI events, который MRS валидирует перед применением.
 
 ## 6. Анализ аранжировки и микса
 
@@ -121,24 +123,20 @@ Humanization
 - plugin chains;
 - spectral/statistical summaries, подготовленные самой DAW.
 
-AI не должен получать бесконтрольный raw realtime audio stream без необходимости. Лучше передавать подготовленные features/snapshots или выбранные offline-render fragments.
+Предпочтительно передавать подготовленные features/snapshots или выбранные offline-render fragments, а не неконтролируемый raw realtime stream.
 
 ## 7. Уровни разрешений
 
 ### READ
-
 AI только читает контекст и отвечает.
 
 ### SUGGEST
-
 AI предлагает изменения, но ничего не применяет.
 
 ### EDIT
-
 AI формирует команды, которые пользователь подтверждает.
 
 ### AUTO
-
 Разрешённый набор безопасных операций может выполняться автоматически.
 
 Рекомендуемый старт: **READ + SUGGEST**.
@@ -147,11 +145,11 @@ AI формирует команды, которые пользователь п
 
 Любое AI-изменение проекта должно:
 
-- быть представлено как обычная MRS command;
+- быть обычной MRS command;
 - попадать в Undo/Redo;
 - иметь diff/preview для сложных операций;
 - не выполнять destructive file operations без явного подтверждения;
-- не менять audio device/routing во время performance без специальных разрешений;
+- не менять audio device/routing во время Live Mode без специальных разрешений;
 - не влиять на realtime thread напрямую.
 
 ## 9. Realtime isolation
@@ -176,7 +174,7 @@ Application Core
 AI Worker / Network
 ```
 
-Если AI недоступен, MRS и MRL должны продолжать работать без деградации audio path.
+Если AI недоступен, Moon River Studio и Live Mode продолжают работать без деградации audio path.
 
 ## 10. Voice control
 
@@ -187,11 +185,27 @@ AI Worker / Network
 - "покажи только guitar tracks";
 - "сделай копию этой MIDI-партии на октаву выше".
 
-Такие команды также должны преобразовываться в структурированные MRS commands.
+Такие команды также преобразуются в структурированные MRS commands.
 
-## 11. Архитектурное требование уже сейчас
+В Live Mode набор разрешённых голосовых действий должен быть особенно ограниченным и предсказуемым.
 
-Даже если AI появится значительно позже, Project Model и command architecture должны изначально иметь:
+## 11. Live Mode
+
+AI может быть доступен и в Live Mode, но только как надстройка над тем же Project Context API.
+
+Возможные безопасные use cases:
+
+- показать/объяснить upcoming cue;
+- найти нужную песню/setlist item;
+- прочитать заметку;
+- подготовить изменение во время rehearsal;
+- диагностировать non-realtime issue.
+
+Критические transport/routing/device действия в performance state требуют отдельной permission/safety policy.
+
+## 12. Архитектурное требование уже сейчас
+
+Даже если AI появится значительно позже, Project Model и Command architecture должны изначально иметь:
 
 - stable object IDs;
 - serializable project snapshots;
@@ -202,4 +216,4 @@ AI Worker / Network
 - permissions/capabilities;
 - понятные semantic names для track/clip/section/chord entities.
 
-Это позволит добавить AI без переписывания DAW core.
+Это позволит добавить AI без переписывания DAW Core.
