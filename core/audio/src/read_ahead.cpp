@@ -83,6 +83,16 @@ void ReadAhead::run() noexcept {
             if (exists) continue;
             for (auto& slot : slots_) {
                 if (std::find(wanted.begin(),wanted.begin()+static_cast<std::ptrdiff_t>(count),slot.page.load(std::memory_order_relaxed)) != wanted.begin()+static_cast<std::ptrdiff_t>(count)) continue;
+                // Do not even temporarily claim protected pages: the callback
+                // cannot wait for a worker to release a failed victim claim.
+                // A stale wanted snapshot must not make a ready seek page busy.
+                const auto protected_now = [&](Sample head, Sample length) {
+                    const auto tag = slot.page.load(std::memory_order_relaxed);
+                    return head >= 0 && tag >= head && tag-head < length;
+                };
+                if (protected_now(warm_.load(std::memory_order_acquire),4) ||
+                    protected_now(desired_.load(std::memory_order_acquire),warm_.load(std::memory_order_acquire) >= 0 ? 2 : 4) ||
+                    protected_now(loop_.load(std::memory_order_acquire),2)) continue;
                 int expected = 0;
                 if (!slot.owner.compare_exchange_strong(expected,-1,std::memory_order_acquire)) continue;
                 // The control cursor may change after this iteration's snapshot.
@@ -96,7 +106,7 @@ void ReadAhead::run() noexcept {
                     const auto tag = slot.page.load(std::memory_order_relaxed);
                     return head >= 0 && tag >= head && tag-head < count;
                 };
-                if (protected_page(latest_warm,4) || protected_page(latest_current,2) || protected_page(latest_loop,2)) {
+                if (protected_page(latest_warm,4) || protected_page(latest_current,latest_warm >= 0 ? 2 : 4) || protected_page(latest_loop,2)) {
                     slot.owner.store(0,std::memory_order_release); continue;
                 }
                 try {
