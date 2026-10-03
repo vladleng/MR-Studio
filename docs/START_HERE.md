@@ -332,3 +332,8 @@ docs/ROADMAP.md и GitHub Issues #1, #12, #13, #14.
 5. специализированный документ соответствующей подсистемы.
 
 Если обнаружено противоречие между актуальными документами, сначала исправить документацию и только затем продолжать реализацию.
+
+## 2026-10-03 handoff
+Stage 3 accepted: PR #39 merged, #18 closed. Active Stage 4 #19 on
+shared/stage-4-persistence-recovery. Read PERSISTENCE.md and its acceptance checklist.
+Deferred Stage 1 hardware/performance checks stay in #16 and do not block progress.

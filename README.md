@@ -246,3 +246,11 @@ Live Mode начинается как UI prototype после базовых SHA
 ## Лицензия
 
 Лицензия проекта пока не определена.
+
+### SHARED Stage 4 — persistence/state/recovery
+Stage 3 was accepted and merged through PR #39. Stage 4 adds one versioned project
+archive for all workspaces, show references, legacy migration, preserved unknown
+chunks, safe save/backup, background autosave and stopped recovery.
+See [persistence contracts](docs/PERSISTENCE.md) and
+[Windows acceptance checklist](docs/SHARED_STAGE_4_CHECKLIST.md).
+Build normally, then run mrs_persistence_check (no audio hardware required).
