@@ -1,464 +1,456 @@
-# Moon River Live — Roadmap
+# Moon River Studio / Moon River Live — Roadmap
 
-## Общий принцип версий
+## 1. Принцип roadmap
 
-Разработка идёт по Stage. Каждый Stage должен завершаться проверяемым пользовательским результатом.
-
-Рекомендуемая схема:
+Проект развивается двумя параллельными продуктовыми потоками и одним общим core-потоком:
 
 ```text
-Stage 0 → 0.1
-Stage 1 → 0.2
-Stage 2 → 0.3
-...
-Stage 9 → 1.0
+MRS    = DAW / production / core implementation
+MRL    = Live / Performance workspace
+SHARED = contracts, models and services used by both
 ```
 
-Внутри этапа можно использовать промежуточные версии `0.1a`, `0.1b`, `0.1c` и т. д.
+MRS и MRL не используют одну последовательную нумерацию версий.
+
+```text
+MRS 0.1 -> MRS 0.2 -> MRS 0.3 ...
+MRL 0.1 -> MRL 0.2 -> MRL 0.3 ...
+```
+
+Общий build Moon River Studio может содержать разные версии готовности подсистем.
+
+Подробнее: `DEVELOPMENT_TRACKS.md`.
 
 ---
 
-# Stage 0 — Foundation / технический фундамент
+# TRACK MRS — Moon River Studio DAW
 
-Цель: подтвердить архитектуру и технические риски до разработки большого приложения.
+## MRS Stage 0 -> MRS 0.1 — Core Foundation
 
-## 0.1a — Project bootstrap
+Цель: доказать жизнеспособность realtime audio architecture и базовой модели DAW до наращивания функций.
 
-- структура репозитория;
-- базовый desktop shell;
-- CI для Windows;
-- логирование;
-- конфигурация;
-- тестовый запуск приложения.
+### MRS 0.1a — Project bootstrap
 
-## 0.1b — Technology spike
+- monorepo structure;
+- desktop shell;
+- Windows CI;
+- logging/config;
+- tests infrastructure;
+- basic app launch.
 
-Сравнить и зафиксировать стек по критериям:
+### MRS 0.1b — Technology spike
 
-- Windows desktop;
-- audio I/O;
+Проверить/зафиксировать:
+
+- desktop framework;
+- native C/C++ realtime core approach;
+- ASIO integration;
 - MIDI I/O;
-- VST3 hosting;
-- современный UI;
-- packaging;
-- будущий remote/mobile.
+- VST3 hosting path;
+- high-DPI UI;
+- build/packaging;
+- module boundaries.
 
-## 0.1c — Song Metadata prototype
+### MRS 0.1c — Project Model v1
 
-- реализовать schema v1;
-- JSON validation;
-- тестовый song fixture;
-- loader;
+- stable IDs;
+- tracks/folders;
+- clips/events abstraction;
+- tempo/meter map;
+- markers;
+- serialization/versioning;
 - migration placeholder.
 
-## 0.1d — Timeline prototype
+### MRS 0.1d — Command / Undo + Transport contracts
 
-На искусственном JSON:
+- command architecture;
+- Undo/Redo;
+- transport interface;
+- sample position;
+- musical position;
+- loop/seek;
+- mock implementation for UI/MRL.
 
-- tempo;
-- bars/beats;
-- chords;
-- sections;
-- markers;
-- вычисление current/next.
+### MRS 0.1e — ASIO Audio Performance Gate
 
-### Acceptance Stage 0
+- enumerate vendor ASIO drivers;
+- open selected native device;
+- sample rate/buffer handling;
+- input/output channels and vendor names;
+- open vendor control panel;
+- stereo playback prototype;
+- low-latency input passthrough;
+- realtime thread isolation;
+- xrun/dropout metrics;
+- benchmark against Studio Pro on identical setup.
 
-Приложение открывает тестовую song metadata и корректно показывает текущий bar, section и chord по движущемуся timeline.
+**Blocking acceptance:** если MRS заметно уступает Studio Pro по live-stability на той же машине/interface/driver/sample-rate/buffer configuration, Stage 0 не считается закрытым до анализа причины.
 
 ---
 
-# Stage 1 — Studio Pro Bridge / импорт metadata
+## MRS Stage 1 -> MRS 0.2 — Audio Arrangement
 
-Цель: получить реальные данные из Fender Studio Pro.
+Цель: первый рабочий audio project.
 
-## 0.2a — Integration research spike
+### MRS 0.2a — Audio tracks
 
-Проверить доступность:
+- create/delete/reorder tracks;
+- channel format;
+- arm/monitor state;
+- basic track metadata.
 
-- project identity;
-- tempo / tempo map;
-- meter;
+### MRS 0.2b — Audio clips/events
+
+- import WAV;
+- clip position/length;
+- move;
+- trim start/end;
+- split;
+- non-destructive edits.
+
+### MRS 0.2c — Timeline / waveform
+
+- horizontal timeline;
+- waveform cache/render;
+- zoom/scroll;
+- playhead;
+- selection.
+
+### MRS 0.2d — Disk streaming
+
+- read-ahead;
+- preload;
+- long-file playback;
+- stress test.
+
+Acceptance: открыть проект, импортировать audio, расположить clips и стабильно проиграть их через native ASIO.
+
+---
+
+## MRS Stage 2 -> MRS 0.3 — Mixer / Routing
+
+- gain/pan;
+- meters;
+- buses;
+- sends;
+- input/output routing;
+- mute/solo;
+- master bus;
+- multi-output support;
+- save/restore mixer state.
+
+Acceptance: полноценный небольшой audio project можно свести и маршрутизировать на несколько outputs.
+
+---
+
+## MRS Stage 3 -> MRS 0.4 — Plugins / Native DSP
+
+### VST3
+
+- scanning/cache;
+- load/bypass;
+- state save/restore;
+- latency reporting;
+- plugin parameter access;
+- crash/isolation strategy.
+
+### Native processors
+
+- utility gain/filter/EQ foundation;
+- processor graph integration;
+- preset/state model;
+- later Cab IR convolution.
+
+Подробнее: `DSP_MODELING.md`.
+
+---
+
+## MRS Stage 4 -> MRS 0.5 — MIDI
+
+- MIDI devices;
+- MIDI tracks/clips;
+- note events;
+- velocity/duration;
+- CC/program data;
+- MIDI playback;
+- recording;
+- piano roll foundation;
+- quantize/transpose/basic editing.
+
+Acceptance: записать/создать MIDI clip, отредактировать и воспроизвести его через instrument/plugin or MIDI output.
+
+---
+
+## MRS Stage 5 -> MRS 0.6 — Musical Structure
+
 - Chord Track;
 - Arranger Track;
+- section colors/bounds;
 - markers;
-- tracks/folders;
-- clips/events;
-- stable IDs.
+- tempo/meter map editing;
+- current/next musical context services;
+- stable APIs for MRL.
 
-Результат — документированная compatibility matrix.
-
-## 0.2b — Bridge export v1
-
-- read-only export;
-- mapping Studio Pro → Moon River schema;
-- export report;
-- warnings вместо падения при неподдерживаемых данных.
-
-## 0.2c — `.moonlive` package
-
-- manifest;
-- metadata;
-- source information;
-- integrity validation.
-
-## 0.2d — Re-sync
-
-- стабильные IDs;
-- source-owned/live-owned fields;
-- повторный импорт без дубликатов;
-- сохранение live metadata.
-
-### Acceptance Stage 1
-
-Реальный проект Studio Pro экспортируется в `.moonlive`, повторная синхронизация обновляет музыкальную структуру без потери live-owned данных.
+Acceptance: проект MRS сам содержит всю структуру, ранее импортируемую из Studio Pro.
 
 ---
 
-# Stage 2 — Live Timeline / musical context
+## MRS Stage 6 -> MRS 0.7 — AI Foundation
 
-Цель: получить первый действительно полезный live-интерфейс.
+Цель: подготовить DAW к глубокой ChatGPT/OpenAI integration без связи с realtime thread.
 
-## 0.3a — Song screen
+- Project Context API;
+- query API;
+- Command/Tool API;
+- permissions: READ/SUGGEST/EDIT/AUTO;
+- AI operation preview/diff;
+- Undo/Redo integration;
+- MIDI generation contract;
+- project snapshot serialization for AI;
+- optional OpenAI integration prototype.
 
-- название;
-- tempo;
-- meter;
-- bar/beat;
-- elapsed/remaining time.
+Подробнее: `AI_INTEGRATION.md`.
 
-## 0.3b — Chord view
+---
 
-- current chord;
-- next chord;
-- крупное live-отображение;
-- корректная работа при пустых участках.
+## MRS Stage 7 -> MRS 0.8+ — Advanced DAW / Reliability
 
-## 0.3c — Arranger timeline
+Дальнейшее развитие:
 
-- sections;
-- colors;
+- audio recording refinement;
+- automation editor;
+- comping/takes;
+- advanced MIDI;
+- native DSP expansion;
+- neural amp/model player;
+- project recovery/autosave;
+- plugin sandboxing/refinement;
+- compatibility matrix;
+- installer/signing;
+- long-session stress testing.
+
+---
+
+# TRACK MRL — Moon River Live workspace
+
+MRL разрабатывается параллельно и использует SHARED interfaces. До готовности реального backend допустимы mocks/fixtures.
+
+## MRL Stage 0 -> MRL 0.1 — Live UX Foundation
+
+Цель: получить рабочий Performance UI ещё до полного DAW backend.
+
+### MRL 0.1a — Workspace shell
+
+- fullscreen/performance layout;
+- setlist rail;
+- central performance area;
+- cue/notes panel;
+- transport/timeline area.
+
+### MRL 0.1b — Moving Chord Track
+
+- горизонтальная движущаяся chord strip;
+- current chord at playhead;
+- previous/next chord visibility;
+- bar/beat/time;
+- fixture/mock chord data.
+
+### MRL 0.1c — Section context
+
 - current section;
 - next section;
-- progress inside section.
+- section colors;
+- progress.
 
-## 0.3d — Markers / cues
+### MRL 0.1d — UI/UX design system
 
-- marker list;
-- upcoming cue;
-- визуальное предупреждение;
-- marker filtering.
-
-## 0.3e — Performance UI
-
-- полноэкранный режим;
-- крупная типографика;
+- flat visual language;
+- typography;
+- laptop readability;
 - high-DPI;
-- keyboard shortcuts;
-- защита от случайных кликов.
+- safe/danger states;
+- keyboard navigation.
 
-### Acceptance Stage 2
-
-Пользователь может открыть реальную экспортированную песню и использовать Moon River Live как экран музыкального контекста во время репетиции.
+Acceptance: MRL prototype полностью работает на mock Project/Transport API и соответствует `UI_UX_CONCEPT.md`.
 
 ---
 
-# Stage 3 — Playback / transport / navigation
+## MRL Stage 1 -> MRL 0.2 — Real Project / Transport Integration
 
-Цель: Moon River Live становится самостоятельным live-player.
+- connect real MRS Transport;
+- connect real Chord Track;
+- connect Arranger Track;
+- markers/cues;
+- elapsed/remaining;
+- section navigation;
+- loop section.
 
-## 0.4a — Stereo audio playback
-
-- WAV playback;
-- audio device selection;
-- play/pause/stop;
-- seek;
-- position sync с Timeline Engine.
-
-## 0.4b — Section navigation
-
-- jump to section;
-- previous/next section;
-- restart song;
-- quantized переходы как отдельная опция.
-
-## 0.4c — Section loop
-
-- loop current section;
-- rehearsal loop;
-- clear visual indication.
-
-## 0.4d — End behavior
-
-- stop at end;
-- ready next song;
-- optional continue policy.
-
-## 0.4e — Basic Playback Editing
-
-Базовая подготовка playback непосредственно в Moon River Live:
-
-- регулировка общей громкости playback в dB;
-- неразрушающий `Trim Start`;
-- неразрушающий `Trim End`;
-- визуальные границы обрезки на timeline/waveform;
-- preview/playback с учётом новых границ;
-- duration и End Behavior рассчитываются от отредактированных границ;
-- Reset к исходной длине и уровню;
-- сохранение playback-edit параметров внутри `.moonlive`;
-- playback-edit настройки являются live-owned данными и не стираются при повторной синхронизации со Studio Pro.
-
-Исходный WAV не перезаписывается. После перехода к multitrack глобальные Trim Start/End применяются ко всем stems синхронно; индивидуальные уровни stems относятся к Stage 4.
-
-### Acceptance Stage 3
-
-Полноценную песню можно сыграть с stereo backing track, отрегулировать её playback gain, неразрушающе обрезать начало/конец, видеть синхронные chords/sections и переходить между секциями. Настройки редактирования сохраняются после перезапуска и повторной синхронизации metadata.
+Acceptance: MRL показывает live context из настоящего открытого MRS project без экспорта.
 
 ---
 
-# Stage 4 — Multitrack / click / cue
+## MRL Stage 2 -> MRL 0.3 — Setlists / Show Workflow
 
-Цель: перейти от stereo backing к профессиональному концертному playback.
+- setlist model/editor;
+- previous/current/next project/song;
+- preload next;
+- per-song start/end behavior;
+- notes;
+- preflight;
+- recovery state.
 
-## 0.5a — Multi-stem engine
+Acceptance: можно провести репетицию из нескольких MRS projects через один Live workspace.
 
-- несколько синхронных audio files;
+---
+
+## MRL Stage 3 -> MRL 0.4 — Playback / Click / Cue
+
+Использует общий MRS Audio Engine:
+
+- multitrack/stems where needed;
 - sample-locked playback;
-- per-stem gain;
-- mute/solo.
+- click;
+- cue;
+- dedicated output routing;
+- global trim/gain live preparation;
+- next-song preload;
+- no dropout on transitions.
 
-## 0.5b — Output routing
-
-- audio output buses;
-- main out;
-- click out;
-- cue out;
-- сохранение routing preset.
-
-## 0.5c — Click engine
-
-- click from tempo/meter map;
-- accents;
-- count-in;
-- independent output.
-
-## 0.5d — Cue track
-
-- prerecorded cues;
-- future generated cues;
-- independent level/routing.
-
-## 0.5e — Preload
-
-- preload current/next song;
-- отсутствие dropout при переключении.
-
-### Acceptance Stage 4
-
-Приложение способно надёжно проигрывать stems + click/cue на разных выходах в течение полного setlist.
+Acceptance: stems + click/cue надёжно работают на разных outputs в полном setlist.
 
 ---
 
-# Stage 5 — Live Inputs / VST3 / Patches
+## MRL Stage 4 -> MRL 0.5 — Live Inputs / Patches
 
-Цель: перенести обработку живых инструментов в live-среду.
+- low-latency input monitoring;
+- live-safe plugin/native processor chains;
+- guitar/keys/vocal patch model;
+- patch per song/section;
+- preload/warm next patch;
+- safe switching/crossfade where appropriate;
+- plugin latency warnings.
 
-## 0.6a — Live audio inputs
-
-- input device/channel selection;
-- monitoring;
-- low latency;
-- input meter.
-
-## 0.6b — VST3 hosting
-
-- scan;
-- load;
-- bypass;
-- save state;
-- crash isolation strategy.
-
-## 0.6c — Patch model
-
-- guitar patch;
-- keys patch;
-- vocal patch;
-- patch per song/section.
-
-## 0.6d — Patch switching
-
-- section-triggered patches;
-- manual override;
-- safe transitions.
-
-### Acceptance Stage 5
-
-Во время playback можно обрабатывать live-input через VST3 и автоматически переключать patch при смене секции.
+Acceptance: live instruments обрабатываются общим MRS engine и безопасно меняют patches по секциям.
 
 ---
 
-# Stage 6 — MIDI Automation / Hardware Control
+## MRL Stage 5 -> MRL 0.6 — MIDI Automation / Hardware Control
 
-Цель: автоматизировать внешнее оборудование и foot control.
-
-## 0.7a — MIDI I/O
-
-- enumerate ports;
-- input/output selection;
-- reconnect;
-- diagnostics.
-
-## 0.7b — Timeline actions
-
+- timeline MIDI actions;
 - Program Change;
 - Control Change;
-- Note;
-- triggers by bar/section/marker.
-
-## 0.7c — Foot controller mapping
-
+- Note triggers;
+- foot controller mapping;
 - learn mode;
-- configurable commands;
-- per-device profile.
-
-## 0.7d — Safety
-
-- no accidental duplicate actions;
-- reset policy;
-- reconnect state;
-- panic/all-notes-off.
-
-### Acceptance Stage 6
-
-Песня может автоматически управлять внешним MIDI-оборудованием, а основные live-команды доступны с педального контроллера.
+- no duplicate actions;
+- panic/all-notes-off;
+- reconnect state.
 
 ---
 
-# Stage 7 — Setlists / Show Workflow
+## MRL Stage 6 -> MRL 0.7 — Remote / Mobile Companion
 
-Цель: управлять не отдельной песней, а полноценным выступлением.
-
-## 0.8a — Setlist editor
-
-- создать setlist;
-- reorder;
-- add/remove song;
-- notes.
-
-## 0.8b — Show mode
-
-- previous/current/next song;
-- preload next;
-- per-song start behavior;
-- inter-song pause.
-
-## 0.8c — Preflight
-
-- missing files;
-- audio device;
-- MIDI devices;
-- output routing;
-- incompatible song schema.
-
-## 0.8d — Recovery
-
-- save current show state;
-- recover setlist/current song;
-- last-known position;
-- safe restart workflow.
-
-### Acceptance Stage 7
-
-Можно провести полный концертный setlist без открытия Studio Pro.
-
----
-
-# Stage 8 — Remote / Mobile Companion
-
-Цель: дать второму экрану доступ к live-state.
-
-## 0.9a — Local Remote API
-
-- local network discovery;
-- session pairing;
+- local state API;
+- pairing;
 - WebSocket/live state;
-- read-only first.
-
-## 0.9b — Mobile/tablet view
-
+- read-only phone/tablet view first;
 - current/next chord;
 - section;
 - bar;
 - cue;
-- setlist status.
-
-## 0.9c — Remote controls
-
-После стабилизации read-only:
-
-- play/pause;
-- section navigation;
-- next song;
-- permission model.
-
-### Acceptance Stage 8
-
-Телефон или планшет работает как дополнительный концертный экран и при разрешении может управлять ограниченным набором live-команд.
+- setlist;
+- later limited transport controls.
 
 ---
 
-# Stage 9 — Reliability / Release 1.0
-
-Цель: превратить функциональный прототип в концертно надёжное приложение.
-
-## 1.0a — Stress testing
+## MRL Stage 7 -> MRL 1.0 — Concert Reliability
 
 - multi-hour playback;
-- repeated song switching;
-- device reconnect;
-- network disconnect;
-- corrupted song package.
+- repeated project/song switching;
+- audio device recovery;
+- MIDI reconnect;
+- network/remote disconnect;
+- problematic plugin handling;
+- autosave show state;
+- crash recovery;
+- full preflight;
+- performance regression suite;
+- real rehearsal/full-show acceptance.
 
-## 1.0b — Crash recovery
-
-- autosave state;
-- crash logs;
-- safe mode;
-- problematic plugin isolation.
-
-## 1.0c — Compatibility matrix
-
-- Windows versions;
-- audio drivers;
-- Studio Pro versions;
-- Bridge versions;
-- schema versions.
-
-## 1.0d — Release packaging
-
-- installer;
-- signed build if possible;
-- migration policy;
-- release notes;
-- backup/restore.
-
-### Acceptance Stage 9 / 1.0
-
-Moon River Live выдерживает полный концертный сценарий, длительный stress-test и имеет понятный recovery workflow при отказе второстепенных компонентов.
+Acceptance: полный концертный set выполняется внутри MRS Live workspace без необходимости переходить в production UI.
 
 ---
 
-# После 1.0 — возможные направления
+# SHARED — общие блоки
 
-Не входят в текущий обязательный roadmap:
+Общие components оформляются отдельными `[SHARED]` issues и не принадлежат только MRS или MRL:
 
-- lighting / DMX;
-- lyrics/prompter;
-- generated voice cues;
-- deeper Arranger Manager integration;
-- shared metadata service между приложениями Moon River Studio;
-- write-back в Studio Pro;
-- macOS;
-- полноценный mobile app;
-- cloud backup/setlist sync;
-- collaboration.
+- Project Model contracts;
+- Transport API;
+- Chord Track model;
+- Arranger model;
+- Command/Undo;
+- device abstraction;
+- plugin state model;
+- MIDI event model;
+- serialization/versioning;
+- state/event bus;
+- test fixtures.
+
+---
+
+# Integration Milestones
+
+## Milestone A — MRS Core Prototype
+
+- app shell;
+- Project Model;
+- Transport contract;
+- ASIO prototype;
+- performance benchmark.
+
+## Milestone B — MRL Interactive Prototype
+
+- Live workspace;
+- moving Chord Track;
+- sections/cues;
+- mock transport/project data.
+
+MRS and MRL work on A/B can proceed in parallel.
+
+## Milestone C — First MRS + MRL Integration
+
+- real transport;
+- real Chord/Arranger data;
+- MRL driven by open MRS project.
+
+## Milestone D — First Rehearsal Build
+
+- audio project;
+- setlist;
+- click/cue;
+- stable ASIO;
+- basic patches/MIDI where needed.
+
+## Milestone E — First Full Show Build
+
+- complete setlist workflow;
+- preflight;
+- recovery;
+- long-duration stress-test passed.
+
+---
+
+# Studio Pro compatibility track
+
+Studio Pro Bridge больше не является обязательным Stage основной архитектуры.
+
+Его можно вести отдельным optional issue track:
+
+```text
+[COMPAT:StudioPro] Import/Bridge research
+[COMPAT:StudioPro] Chord/Arranger migration
+[COMPAT:StudioPro] Project conversion tools
+```
+
+Это позволяет сохранить ценность существующих Studio Pro проектов, не связывая развитие MRS/MRL с закрытым форматом другой DAW.
