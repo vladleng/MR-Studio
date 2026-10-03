@@ -272,7 +272,7 @@ void streaming() {
             allocation_check::enabled = false;
             const auto first = engine->state().sample-128;
             for (Sample f = 0; f < 128; ++f)
-                if (block[static_cast<std::size_t>(f)] != static_cast<float>((first+f)%127)/256.0F) correct = false;
+                if (block[static_cast<std::size_t>(f)] != (first+f < total ? static_cast<float>((first+f)%127)/256.0F : 0.0F)) correct = false;
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
     });
@@ -283,13 +283,13 @@ void streaming() {
         }
     } catch (...) { running = false; callback.join(); throw; }
     running = false; callback.join();
-    CHECK(correct.load() && engine->metrics().disk_underruns == 0);
+    CHECK(correct.load() && engine->metrics().disk_underruns == 0 && allocation_check::count.load() == 0);
     std::filesystem::remove(file.path);
-    rejects([&] { transport.seek(150000); });
-    CHECK(engine->enqueue({ControlKind::seek,150000})); CHECK(engine->enqueue({ControlKind::play}));
+    rejects([&] { transport.seek(40000); });
+    CHECK(engine->enqueue({ControlKind::seek,40000})); CHECK(engine->enqueue({ControlKind::play}));
     engine->process(nullptr,output.data(),128);
     CHECK(std::all_of(output.begin(),output.end(),[](float v) { return v == 0; }));
-    CHECK(engine->metrics().disk_underruns == 1 && engine->state().sample == 150128);
+    CHECK(engine->metrics().disk_underruns == 1 && engine->state().sample == 40128);
     rejects([&] { engine->prepare({48000,0,1,128},graph); });
 }
 
