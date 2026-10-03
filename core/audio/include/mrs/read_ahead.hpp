@@ -3,7 +3,7 @@
 #include <thread>
 namespace mrs::audio {
 // Eight 8192-frame pages per voice. Worker writes only unpinned slots.
-// Callback pins once per block; no waiting, allocation, I/O or ownership changes.
+// Callback pins once per block; no waiting, allocation or I/O.
 class ReadAhead {
 public:
     static constexpr Sample page_frames = 8192;

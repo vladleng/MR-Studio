@@ -289,6 +289,15 @@ void streaming() {
     running = false; callback.join();
     if (!correct.load()) std::cerr << "stream mismatch: frame=" << mismatch_frame << " actual=" << mismatch_actual << " expected=" << mismatch_expected << " underruns=" << engine->metrics().disk_underruns << '\n';
     CHECK(correct.load()); CHECK(engine->metrics().disk_underruns == 0); CHECK(allocation_check::count.load() == 0);
+    // With the callback quiescent, queued UI seeks coalesce to the last ready
+    // target. Do not allow a retry implementation to silently ignore seeks.
+    for (const auto target : {120000,50000,130000,1000,140000,70000}) transport.seek(target);
+    engine->process(nullptr,output.data(),128);
+    CHECK(engine->state().sample == 70128);
+    for (Sample f=0; f<128; ++f) CHECK(output[static_cast<std::size_t>(f)] == static_cast<float>((70000+f)%127)/256.0F);
+    CHECK(engine->metrics().disk_underruns == 0);
+    transport.seek(1000); transport.stop(); engine->process(nullptr,output.data(),128);
+    CHECK(engine->state().sample == 0 && engine->state().playback == PlaybackState::stopped);
     std::filesystem::remove(file.path);
     rejects([&] { transport.seek(40000); });
     CHECK(engine->enqueue({ControlKind::seek,40000})); CHECK(engine->enqueue({ControlKind::play}));

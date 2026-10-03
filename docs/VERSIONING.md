@@ -51,5 +51,9 @@ keeps the future target separately warm, and lets the callback move the active h
 The worker skips protected pages before claiming ownership. A control/worker-only
 atomic gate serializes the ready snapshot with victim selection, closing the stale
 snapshot window without waiting, locking or I/O on the audio callback.
+Prepared UI seeks are coalesced and applied only after the callback pins all needed
+target pages. If a later prime displaced an earlier target, the callback continues
+the current position and retries on its next block; worker retry pages remain
+protected. This closes the queued-command handoff race without blocking RT.
 The concurrent seek exact-sample/zero-underrun/zero-RT-allocation regression is
 repeated eight times in every Debug/Release CI job for this fix.
