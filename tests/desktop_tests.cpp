@@ -228,9 +228,12 @@ void clip_edits() {
     app.save_project(dir.path / "clips.mrsproject"); auto saved = app.snapshot();
     app.open_project(dir.path / "clips.mrsproject"); CHECK(app.snapshot().project == saved.project);
     CHECK(audio::load_wav(file).frames() == 1000);
-    Project p = saved.project;
+    Project p = saved.project; p.time = TimeMap{}; // explicit 120 BPM, not demo's 72 BPM
     CHECK(snap_to_grid(p,5513) == 5513);
     CHECK(snap_to_grid(p,5000) == 5513);
+    p.time.tempos = {{0,60},{ppq,120}};
+    CHECK(snap_to_grid(p,10000) == 11025);
+    CHECK(snap_to_grid(p,49000) == 49613);
 }
 void waveform() {
     audio::AudioData data{48000,2,std::vector<float>(2050,0)};
