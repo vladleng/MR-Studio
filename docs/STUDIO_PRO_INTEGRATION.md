@@ -1,208 +1,194 @@
-# Moon River Live — Fender Studio Pro Integration
+# Moon River Studio — Fender Studio Pro Compatibility / Import
 
-## 1. Цель интеграции
+## 1. Роль Studio Pro
 
-Получать из Fender Studio Pro музыкальную структуру проекта и переносить её в Moon River Live без ручного дублирования данных.
+Fender Studio Pro больше не является обязательным authoring environment или runtime dependency.
 
-Минимальный целевой набор:
+Moon River Studio должна быть самодостаточной DAW.
 
-- song title / project identity;
+Studio Pro остаётся полезным как:
+
+- import/migration source для существующих проектов;
+- compatibility target;
+- performance/UX benchmark;
+- reference для Live/Show workflow.
+
+Issue: #3.
+
+## 2. Целевая схема
+
+```text
+Fender Studio Pro project
+          |
+ Bridge / Export / Parser adapter
+          v
+Moon River Studio Project Model
+          |
+   +------+------+------+
+   |             |      |
+Arrange/Edit    Mix    Live Mode
+```
+
+После импорта Live Mode не зависит от Studio Pro и не требует отдельного `.moonlive` package.
+
+## 3. Что желательно импортировать
+
+- project identity;
 - tempo / tempo map;
 - time signatures;
 - Chord Track;
 - Arranger Track;
+- section names/bounds/colors;
 - markers;
-- tracks / folders;
-- clips / events;
-- source metadata для повторной синхронизации.
+- tracks/folders;
+- clips/events;
+- по возможности audio asset references;
+- stable source IDs;
+- позднее, если реалистично: mixer/plugin/routing metadata.
 
-## 2. Основная стратегия
+## 4. Adapter boundary
 
-Предпочтительная архитектура:
-
-```text
-Studio Pro
-   ↓
-Moon River Bridge / Extension
-   ↓
-Moon River Song Metadata
-   ↓
-.moonlive package
-   ↓
-Moon River Live
-```
-
-Bridge является адаптером. Live-приложение не должно знать, каким именно способом Bridge добыл данные.
-
-## 3. Почему не стоит строить всё на прямом доступе к Studio Pro
-
-Возможные способы интеграции могут зависеть от внутренних/неполностью документированных механизмов Studio Pro.
-
-Поэтому необходимо:
-
-- минимизировать область зависимости;
-- держать Studio Pro-specific код внутри `bridge/`;
-- покрывать adapter интеграционными тестами;
-- версионировать экспортированный контракт;
-- иметь fallback-путь.
-
-Если Studio Pro изменит внутренний API, должен ломаться Bridge, а не весь Moon River Live.
-
-## 4. Режимы интеграции
-
-### 4.1 Export
-
-Пользователь вручную запускает:
+Studio Pro-specific код должен быть изолирован:
 
 ```text
-Export to Moon River Live
+Studio Pro internals
+      ↓
+Compatibility Adapter
+      ↓
+MRS Import DTO / Mapping
+      ↓
+Native Project Model
 ```
 
-Bridge создаёт/обновляет `.moonlive`.
+Изменение Studio Pro API/format не должно ломать Audio Engine, Live Mode или остальную DAW.
 
-Это первый целевой вариант, потому что он максимально предсказуем.
+## 5. Возможные способы получения данных
 
-### 4.2 Sync
+### A. Extension / Script / Bridge
 
-В будущем:
+Предпочтительный вариант, если доступно достаточно metadata.
+
+### B. Export intermediary
+
+JSON/MIDI/other export, который затем импортирует MRS.
+
+### C. Direct `.song` parser
+
+Дополнительный путь, только если формат достаточно понятен и покрывается compatibility tests.
+
+### D. Manual/fallback import
+
+Для данных, недоступных автоматически.
+
+## 6. Первый technical spike
+
+- [ ] project identity;
+- [ ] tempo events/map;
+- [ ] time signatures;
+- [ ] Chord Track events;
+- [ ] Arranger Track sections;
+- [ ] section name/start/end/color;
+- [ ] markers;
+- [ ] tracks;
+- [ ] folder hierarchy;
+- [ ] clips/events;
+- [ ] stable source IDs;
+- [ ] behavior after source project edits;
+- [ ] compatibility matrix `supported / workaround / unavailable`.
+
+## 7. Import semantics
+
+Первый целевой workflow — **import into MRS**, а не синхронизация отдельного Live-приложения.
 
 ```text
-Sync with Moon River Live
+Import Studio Pro Project...
+        ↓
+Create / Update MRS Project
 ```
 
-Обновляются source-owned данные, но сохраняются live-owned настройки.
+После успешного импорта native MRS Project Model становится основой production и Live Mode.
 
-### 4.3 Direct open / parser
+## 8. Re-import / sync — optional
 
-Возможный дополнительный режим:
+Если позднее понадобится повторный import из Studio Pro, нужны:
 
-```text
-Open Studio Pro project
-```
-
-Moon River Live или отдельный importer читает `.song` напрямую.
-
-Этот путь считается fallback/advanced до тех пор, пока не доказана стабильность формата.
-
-## 5. Матрица данных
-
-| Тип данных | Stage 1 цель | Комментарий |
-|---|---:|---|
-| Project identity | Да | Нужен стабильный source link |
-| Tempo | Да | Базовый BPM обязателен |
-| Tempo map | Да/если доступно | Поддержать модель сразу |
-| Meter | Да | 4/4 не должен быть предположением |
-| Meter map | Да/если доступно | Для сложных песен |
-| Chord Track | Да | Ключевая live-функция |
-| Arranger Track | Да | Ключевая навигация |
-| Section colors | Да | Полезны для быстрого считывания |
-| Markers | Да | Cues и будущая автоматизация |
-| Tracks | Да | Для контекста и stems mapping |
-| Folders | Да | Сохранять иерархию |
-| Clips/events | Да | Для будущих интеграций |
-| Plugin state | Нет, позднее | Не блокирует MVP |
-| Mixer routing | Нет, позднее | Будущий advanced import |
-
-## 6. Повторная синхронизация
-
-Главная проблема не первый импорт, а второй.
+- stable source IDs;
+- source mapping;
+- conflict rules;
+- protection MRS-owned data;
+- preview/diff перед применением изменений.
 
 Пример:
 
-1. Пользователь экспортировал песню.
-2. В Moon River Live назначил MIDI patch на `Solo`.
-3. В Studio Pro изменил длину Verse и передвинул Solo.
-4. Повторно синхронизировал.
+1. Project imported from Studio Pro.
+2. В MRS назначены Live patches и сделан mixer state.
+3. В Studio Pro изменён Arranger Track.
+4. Re-import должен обновить структурные данные без молчаливой потери MRS-owned state.
 
-Ожидаемое поведение:
+Но persistent bidirectional sync **не является обязательным фундаментом проекта**.
 
-- границы `Solo` обновились;
-- назначенный live patch остался привязан к той же секции;
-- другие live-owned настройки не потерялись;
-- удалённые source-объекты помечены корректно;
-- новые source-объекты добавлены без дублей.
+## 9. Ownership
 
-Для этого нужны стабильные IDs и явная ownership-модель.
+### Source/import fields
 
-## 7. Конфликты
+Могут обновляться при explicit re-import:
 
-На раннем этапе source-owned данные всегда выигрывают для полей структуры.
+- imported tempo/meter;
+- chords;
+- arranger sections;
+- markers;
+- imported tracks/clips.
 
-Например, имя и границы Arranger Section приходят из Studio Pro.
+### MRS-owned fields
 
-Moon River Live хранит рядом дополнительные данные:
+Не должны молча стираться importer-ом:
 
-```text
-Studio Pro section
-├── name
-├── start/end
-├── color
-└── live extension
-    ├── notes
-    ├── patch
-    └── actions
-```
+- native edits MRS;
+- mixer/routing;
+- plugin/native processor states;
+- MIDI edits/actions;
+- Live metadata/patches/notes;
+- show/setlist state.
 
-Если пользователь хочет изменить музыкальную структуру, он делает это в Studio Pro и синхронизирует снова.
+## 10. Graceful degradation
 
-## 8. Первый технический spike
-
-До разработки полноценного Bridge необходимо подтвердить реальную доступность каждого типа данных.
-
-### Spike checklist
-
-- [ ] Получить project/song identity.
-- [ ] Получить текущий tempo.
-- [ ] Получить tempo events/map.
-- [ ] Получить time signature.
-- [ ] Получить Chord Track events.
-- [ ] Получить Arranger Track sections.
-- [ ] Получить section name/start/end/color.
-- [ ] Получить markers.
-- [ ] Получить tracks.
-- [ ] Получить folder hierarchy.
-- [ ] Получить clips/events.
-- [ ] Проверить наличие стабильных source IDs.
-- [ ] Проверить поведение после редактирования и повторного чтения.
-
-Результаты spike должны быть задокументированы таблицей `supported / workaround / unavailable`.
-
-## 9. Graceful degradation
-
-Если какой-либо тип metadata недоступен, экспорт всей песни не должен падать.
-
-Например:
+Недоступный тип metadata не должен ломать весь import.
 
 ```text
 Chord Track: available
 Arranger Track: available
 Markers: available
-Tempo map: unavailable → exported fixed tempo
-Clips: unavailable → skipped with warning
+Tempo map: unavailable -> fixed tempo fallback
+Clips: unavailable -> warning / skip
 ```
 
-Bridge должен возвращать отчёт об экспорте.
+Importer возвращает report.
 
-## 10. Диагностика
+## 11. Diagnostics
 
-Каждый экспорт должен иметь debug report:
+Import report должен содержать:
 
-- версия Studio Pro;
-- версия Bridge;
-- schema version;
-- количество sections;
-- количество chord events;
-- количество markers;
-- количество tracks/clips;
+- Studio Pro version, если определяется;
+- adapter/importer version;
+- MRS schema version;
+- sections/chords/markers/tracks/clips counts;
 - warnings;
-- unsupported fields.
+- skipped/unsupported data.
 
-Это критично для поддержки разных версий Studio Pro.
+## 12. Safety
 
-## 11. Безопасность
+Первый importer должен быть read-only относительно Studio Pro project.
 
-Bridge не должен модифицировать Studio Pro project без явного действия пользователя.
+Write-back, если когда-либо понадобится, требует отдельного Stage/issue и не должен появляться неявно.
 
-Первая версия интеграции должна быть read-only относительно проекта Studio Pro.
+## 13. Live Mode
 
-Любые будущие write-back функции требуют отдельного этапа и отдельного подтверждения архитектуры.
+Live Mode не читает Studio Pro project напрямую.
+
+Правильная граница:
+
+```text
+Studio Pro -> Import Adapter -> MRS Project Model -> Live Mode
+```
+
+Это гарантирует, что концертный режим работает на том же project/runtime state, что Arrange/Edit/Mix, и не получает второй engine/data model.
