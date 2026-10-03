@@ -1,7 +1,7 @@
 name: ASIO audio prototype
 on:
   push:
-    branches: [main, 'shared/**']
+    branches: [main, 'shared/**', 'mrs/**']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -45,4 +45,23 @@ jobs:
         with:
           name: MR-Studio-SHARED-Stage-1-ASIO-Windows
           path: package/
+          if-no-files-found: error
+      - name: Prepare DAW shell package
+        if: matrix.config == 'Release'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path studio-package -Force | Out-Null
+          Copy-Item -LiteralPath build/Release/MoonRiverStudio.exe -Destination studio-package/
+          Copy-Item -LiteralPath docs/MRS_STAGE_0_CHECKLIST.md -Destination studio-package/
+          Copy-Item -LiteralPath docs/DESKTOP_FOUNDATION.md -Destination studio-package/
+          Copy-Item -LiteralPath package/PortAudio-LICENSE.txt -Destination studio-package/
+          if (Test-Path -LiteralPath package/ASIO-SDK-LICENSE.txt) {
+            Copy-Item -LiteralPath package/ASIO-SDK-LICENSE.txt -Destination studio-package/
+          }
+      - name: Upload Windows DAW shell with native ASIO
+        if: matrix.config == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MR-Studio-MRS-Stage-0-ASIO-Windows
+          path: studio-package/
           if-no-files-found: error
