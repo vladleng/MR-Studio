@@ -70,5 +70,14 @@ Branch mrs/stage-1a-tracks-import-waveform. Shared track remove/reorder/batch im
 commands and Undo. Empty New project, separate multi-WAV Import into current project,
 per-channel waveform workers/cache, zoom/fit and track/time scrolling.
 Stopped edits rebuild the same shared renderer with the same open ASIO device.
-See AUDIO_ARRANGEMENT.md and MRS_STAGE_1A_CHECKLIST.md. CI/user acceptance pending.
+See AUDIO_ARRANGEMENT.md and MRS_STAGE_1A_CHECKLIST.md. User acceptance pending; CI passed (see validation below).
 The whole #21 remains open; clip editing, disk streaming and recording follow.
+
+## Stage 1a validation — 2026-10-03
+Validated code head: 1de29ee4ebc87fcdb118db24c7988d30fd1bc0dd.
+All six CI jobs passed: Linux Debug/Release and Windows ASIO Debug/Release 49/49;
+Windows offline Debug/Release 50/50 including GUI/DPI smoke.
+Core CI: https://github.com/vladleng/MR-Studio/actions/runs/37120486657
+ASIO CI: https://github.com/vladleng/MR-Studio/actions/runs/37120486632
+ASIO artifact: https://github.com/vladleng/MR-Studio/actions/runs/37120486632/artifacts/11272584369
+User acceptance pending; PR #42 remains unmerged and whole #21 stays open.
