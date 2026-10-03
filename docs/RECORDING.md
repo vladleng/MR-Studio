@@ -73,4 +73,6 @@ callback pins. The earlier control scan could briefly make a ready page unavaila
 to concurrent render. Streaming regression repeats concurrent seeks and keeps exact
 sample, zero-underrun and zero-allocation assertions. Recording driver Stop failure
 closes the backend before draining/attaching the take, reports disconnection and
-requires an explicit reconnect; simulated driver failure is covered by desktop_recording.
+requires an explicit reconnect; simulated driver failure is covered by desktop_recording. A lost streamed backing
+source at End rec is tested: capture is detached and the WAV finalized before
+playback rebuild can fail; the saved take/reference survives with an error.

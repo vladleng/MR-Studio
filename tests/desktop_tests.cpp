@@ -392,6 +392,33 @@ void recording() {
     CHECK(!app.recording() && !app.audio_running() && app.audio_name() == "Disconnected");
     CHECK(!app.recording_error().empty() && audio::load_wav(dir.path/"Driver-failure.wav").frames() == 128);
     CHECK(app.services().projects->state().project->clips.back().length == 128);
+    {
+        // Lost streamed backing must not prevent finalization of the captured take.
+        const auto missing = dir.path/"Streamed-backing.wav";
+        constexpr std::uint32_t frames = 3'000'000;
+        {
+            std::ofstream out(missing,std::ios::binary);
+            const auto u16 = [&](std::uint16_t n) { for (int i=0; i<2; ++i) out.put(static_cast<char>((n>>(8*i))&255)); };
+            const auto u32 = [&](std::uint32_t n) { for (int i=0; i<4; ++i) out.put(static_cast<char>((n>>(8*i))&255)); };
+            out.write("RIFF",4); u32(36+frames*4); out.write("WAVEfmt ",8); u32(16);
+            u16(3); u16(1); u32(44100); u32(176400); u16(4); u16(32);
+            out.write("data",4); u32(frames*4);
+            out.seekp(static_cast<std::streamoff>(44)+frames*4-1); out.put(0);
+        }
+        Application failure; failure.new_project(44100); failure.import_wavs({missing});
+        const auto source = failure.services().projects->state().project->clips.front().source;
+        eventually([&] { failure.poll(); return failure.waveform(source) != nullptr; });
+        const auto target = failure.add_audio_track("Captured");
+        failure.arm_track(target);
+        failure.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});
+        const auto final = dir.path/"Preserved-take.wav";
+        failure.start_recording(final); failure.engine()->process(input.data(),output.data(),128);
+        CHECK(std::filesystem::remove(missing));
+        rejects([&] { (void)failure.stop_recording(); });
+        CHECK(!failure.recording() && !failure.audio_running() && !failure.recording_error().empty());
+        CHECK(failure.last_take() == std::filesystem::absolute(final) && audio::load_wav(final).frames() == 128);
+        CHECK(failure.services().projects->state().project->clips.back().track == target);
+    }
 }
 
 void config() {
