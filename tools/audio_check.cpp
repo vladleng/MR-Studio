@@ -8,6 +8,10 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#ifdef MRS_HAS_ASIO
+#define NOMINMAX
+#include <windows.h>
+#endif
 
 namespace {
 using namespace mrs;
@@ -173,8 +177,8 @@ Options parse(int argc, char** argv) {
         else if (arg == "--voices") o.voices = static_cast<std::uint32_t>(number(value()));
         else if (arg == "--monitor-input") { o.monitor = number(value()) - 1; if (o.monitor < 0) throw std::invalid_argument("input is one-based"); }
         else if (arg == "--outputs") o.outputs = channels(value());
-        else if (arg == "--wav") o.wavs.emplace_back(value());
-        else if (arg == "--report") o.report = value();
+        else if (arg == "--wav") o.wavs.emplace_back(std::filesystem::u8path(value()));
+        else if (arg == "--report") o.report = std::filesystem::u8path(value());
         else throw std::invalid_argument("unknown option: " + arg);
     }
     if (o.seconds == 0 || o.seconds > 14400 || o.voices == 0 || o.voices > 128)
@@ -210,7 +214,7 @@ Options interactive(Options o, const std::vector<DeviceInfo>& devices) {
     std::cout << "Mode 1=silence, 2=tone, 3=WAV playback, 4=input monitor\n";
     const auto mode = number(prompt("Mode", "1"));
     if (mode == 2) o.tone = true;
-    else if (mode == 3) o.wavs.emplace_back(prompt("WAV path without surrounding quotes", ""));
+    else if (mode == 3) o.wavs.emplace_back(std::filesystem::u8path(prompt("WAV path without surrounding quotes", "")));
     else if (mode == 4) {
         std::cout << "Use headphones for microphone monitoring.\n";
         o.monitor = number(prompt("Physical input (one-based)", "1")) - 1;
@@ -286,7 +290,7 @@ int hardware(Options o) {
 }
 #endif
 }
-int main(int argc, char** argv) {
+int run_main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string(argv[1]) == "--help") { help(); return 0; }
         auto options = parse(argc, argv);
@@ -304,3 +308,23 @@ int main(int argc, char** argv) {
         return 1;
     }
 }
+
+#ifdef MRS_HAS_ASIO
+int wmain(int argc, wchar_t** argv) {
+    SetConsoleCP(CP_UTF8); SetConsoleOutputCP(CP_UTF8);
+    std::vector<std::string> utf8;
+    std::vector<char*> args;
+    utf8.reserve(static_cast<std::size_t>(argc));
+    for (int i = 0; i < argc; ++i) {
+        const auto size = WideCharToMultiByte(CP_UTF8, 0, argv[i], -1, nullptr, 0, nullptr, nullptr);
+        if (size <= 0) { std::cerr << "ERROR: invalid command-line encoding\n"; return 1; }
+        std::string value(static_cast<std::size_t>(size), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, argv[i], -1, value.data(), size, nullptr, nullptr);
+        value.pop_back(); utf8.push_back(std::move(value));
+    }
+    for (auto& value : utf8) args.push_back(value.data());
+    return run_main(argc, args.data());
+}
+#else
+int main(int argc, char** argv) { return run_main(argc, argv); }
+#endif

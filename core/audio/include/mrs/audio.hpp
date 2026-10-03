@@ -5,6 +5,11 @@
 #include <filesystem>
 #include <span>
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4324) // intentional cache-line padding of SPSC indices
+#endif
+
 namespace mrs::audio {
 inline constexpr std::size_t max_channels = 64;
 inline constexpr std::size_t max_voices = 128;
@@ -122,3 +127,6 @@ private:
 AudioData load_wav(const std::filesystem::path&, std::size_t max_decoded_bytes = 256 * 1024 * 1024);
 AudioData sine_fixture(std::uint32_t rate, std::uint32_t channels, Sample frames, double frequency);
 } // namespace mrs::audio
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
