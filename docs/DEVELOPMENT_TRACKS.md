@@ -43,14 +43,17 @@ Moon River Studio
 
 ## 3. Версионирование
 
-Версионируется только Moon River Studio:
+Версионируется только Moon River Studio. Пользовательские версии подэтапов:
 
 ```text
-MRS 0.1
-MRS 0.2
-MRS 0.3
-...
+0.1b -> 0.1c -> ...
+0.1b upd1 / upd2 — небольшие обновления
+0.1b fix1 / fix2 — исправления ошибок
 ```
+
+Счётчики upd/fix независимы и относятся к базовой версии.
+Stage IDs остаются идентификаторами плана, а не версиями сборки.
+Актуальные правила и соответствие: [VERSIONING.md](VERSIONING.md).
 
 Live Mode не получает отдельную линию `MRL 0.x`.
 
@@ -66,7 +69,7 @@ LIVE Stage 2
 Пример состояния общей сборки:
 
 ```text
-Moon River Studio 0.6
+Moon River Studio <build version>
 ├── Audio/Mixer/Plugins/MIDI ready at current MRS level
 ├── Musical Structure ready
 └── Live Mode: Stage 1 complete

@@ -91,7 +91,7 @@ private:
     std::shared_ptr<const audio::AudioData> asset(const std::string&);
     void cache_asset(std::string, std::shared_ptr<const audio::AudioData>);
     void edit(const ICommand&);
-    void require_stopped() const;
+    void require_not_playing() const;
     void rebuild_audio();
     void replace(persistence::ProjectDocument);
     audio::RenderGraph render(const audio::DeviceConfig&);

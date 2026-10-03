@@ -83,7 +83,8 @@ public:
     AudioEngine();
     // Control thread, ONLY while callback/device is stopped; graph/assets stay
     // alive until callback is stopped again. No RT ownership/deallocation.
-    void prepare(RenderConfig, RenderGraph);
+    // Optional quiescent state retains a stopped/paused position and loop; never autoplay.
+    void prepare(RenderConfig, RenderGraph, RealtimeState initial = {});
     bool enqueue(Control) noexcept;
     // RT entry: supplied interleaved buffers have frames * configured channels.
     // No locks/allocations/I/O/listeners/ProjectStore calls in this function.

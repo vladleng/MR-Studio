@@ -63,6 +63,6 @@ jobs:
         if: matrix.config == 'Release'
         uses: actions/upload-artifact@v4
         with:
-          name: MR-Studio-MRS-Stage-1a-ASIO-Windows
+          name: MR-Studio-0.1b-fix1-ASIO-Windows
           path: studio-package/
           if-no-files-found: error

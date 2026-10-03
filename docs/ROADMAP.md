@@ -380,3 +380,10 @@ Arrange / Edit / Mix / Live Mode
 ```
 
 This preserves existing Studio Pro projects while keeping Moon River Studio self-contained.
+
+## Версии сборок — уточнение 2026-10-03
+Пользовательские версии подэтапов и суффиксы определяются VERSIONING.md:
+0.1b, 0.1c; updN для небольших обновлений, fixN для ошибок.
+Номерные MRS version targets выше — прежние ориентиры функциональных milestones;
+они не задают имя текущего артефакта. Текущий tracks/import/waveform — 0.1b,
+clip editing — следующая 0.1c. Stage IDs не перенумеровываются.

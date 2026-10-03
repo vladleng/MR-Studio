@@ -149,8 +149,8 @@ void Application::rename_track(const Id& id, std::string name) {
     require(!name.empty() && name.size() <= 4096,"enter a track name");
     services_.projects->execute(RenameTrack{id,std::move(name)});
 }
-void Application::require_stopped() const {
-    require(engine_->state().playback == PlaybackState::stopped,"Stop playback before changing tracks or importing audio");
+void Application::require_not_playing() const {
+    require(engine_->state().playback != PlaybackState::playing,"Pause or stop playback before changing tracks or importing audio");
 }
 void Application::new_project(std::uint32_t rate) {
     auto d = foundation_demo(); d.project.id = new_id(); d.project.title = "Untitled";
@@ -192,13 +192,14 @@ void Application::rebuild_audio() {
     // Retain the same open hardware handle; rebuild ONLY after callbacks stop.
     device_->stop();
     try {
+        const auto position = engine_->state();
         auto graph = render(c);
-        engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192},std::move(graph));
+        engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192},std::move(graph),position);
         device_->start(); poll();
     } catch (...) { disconnect(); throw; }
 }
 void Application::edit(const ICommand& command) {
-    require_stopped(); services_.projects->execute(command); rebuild_audio();
+    require_not_playing(); services_.projects->execute(command); rebuild_audio();
 }
 Id Application::add_audio_track(std::string name) {
     require(!name.empty() && name.size() <= 4096,"enter a track name");
@@ -206,10 +207,10 @@ Id Application::add_audio_track(std::string name) {
 }
 void Application::remove_track(const Id& id) { edit(RemoveTrack{id}); }
 void Application::reorder_track(const Id& id, std::size_t index) { edit(ReorderTrack{id,index}); }
-bool Application::undo() { require_stopped(); const auto changed = services_.projects->undo(); if (changed) rebuild_audio(); return changed; }
-bool Application::redo() { require_stopped(); const auto changed = services_.projects->redo(); if (changed) rebuild_audio(); return changed; }
+bool Application::undo() { require_not_playing(); const auto changed = services_.projects->undo(); if (changed) rebuild_audio(); return changed; }
+bool Application::redo() { require_not_playing(); const auto changed = services_.projects->redo(); if (changed) rebuild_audio(); return changed; }
 void Application::import_wavs(const std::vector<std::filesystem::path>& paths) {
-    require_stopped(); require(!paths.empty() && paths.size() <= audio::max_voices,"select 1..128 WAV files");
+    require_not_playing(); require(!paths.empty() && paths.size() <= audio::max_voices,"select 1..128 WAV files");
     const auto current = services_.projects->state().project;
     require(current->clips.size()+paths.size() <= audio::max_voices,"too many playback clips");
     std::vector<Track> tracks; std::vector<Clip> clips;
