@@ -108,8 +108,14 @@ void audio_settings() {
     app.disconnect(); CHECK(!app.audio_running() && app.engine()->state().sample == 0);
 }
 void config() {
-    Preferences p; p.workspace = Workspace::live; p.device_name = "Komplete Audio ASIO Driver";
+    Preferences p; p.workspace = Workspace::live; p.device_name = "Komplete Audio ASIO Driver"; p.reconnect_audio = true;
     CHECK(decode_preferences(encode_preferences(p)) == p);
+    auto disabled = p; disabled.reconnect_audio = false;
+    CHECK(decode_preferences(encode_preferences(disabled)) == disabled);
+    const auto legacy = decode_preferences("MRS_DESKTOP_CONFIG 1\n0 48000 128 -1 \"Komplete Audio ASIO Driver\" 2 0 1\n");
+    CHECK(legacy.reconnect_audio && legacy.device_name == p.device_name);
+    CHECK(!decode_preferences("MRS_DESKTOP_CONFIG 1\n0 48000 128 -1 \"\" 2 0 1\n").reconnect_audio);
+    rejects([&] { (void)decode_preferences("MRS_DESKTOP_CONFIG 2\n0 48000 128 -1 \"\" 2 0 1 2\n"); });
     CHECK(parse_outputs("1, 2,6") == std::vector<int>({0,1,5}));
     for (auto text : {"","1,","0","1,1","65","x","1,,2","-1"}) rejects([&] { (void)parse_outputs(text); });
     rejects([&] { (void)decode_preferences("MRS_DESKTOP_CONFIG 2"); });

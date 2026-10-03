@@ -130,6 +130,7 @@ struct UI {
         SendMessageW(child(rename_edit),EM_SETLIMITTEXT,1024,0); button(window,L"Rename track",rename);
         dpi = GetDpiForWindow(window); fonts(); refresh_models(); layout();
         SetTimer(window,1,33,nullptr); if (smoke) SetTimer(window,2,100,nullptr);
+        else PostMessageW(window,WM_APP+1,0,0);
     }
     void move(int id, int x, int y, int width, int height) { MoveWindow(child(id),s(x),s(y),s(width),s(height),TRUE); }
     void layout() {
@@ -199,9 +200,9 @@ struct UI {
             if (selection >= 0 && static_cast<std::size_t>(selection) < project->tracks.size()) app.rename_track(project->tracks[static_cast<std::size_t>(selection)].id,narrow(control_text(child(rename_edit))));
             refresh_models(); break;
         }
-        case open: if (discard()) { auto path = pick(window,false); if (!path.empty()) { app.open_project(path); refresh_models(); } } break;
-        case import: if (discard()) { auto path = pick(window,false,true); if (!path.empty()) { app.import_wav(path); refresh_models(); } } break;
-        case demo: if (discard()) { app.demo(); refresh_models(); } break;
+        case open: if (discard()) { auto path = pick(window,false); if (!path.empty()) { app.open_project(path); refresh_models(); restore_audio(); } } break;
+        case import: if (discard()) { auto path = pick(window,false,true); if (!path.empty()) { app.import_wav(path); refresh_models(); restore_audio(); } } break;
+        case demo: if (discard()) { app.demo(); refresh_models(); restore_audio(); } break;
         case save: (void)save_current(false); break; case save_as: (void)save_current(true); break;
         case audio_settings: show_settings(); break;
         }
@@ -325,6 +326,7 @@ struct UI {
         line(dc,0,area.bottom-s(48),area.right,area.bottom-s(48));
         text(dc,s(20),area.bottom-s(44),area.right-s(40),s(36),bottom.str(),normal,status.phase == audio::DevicePhase::error ? RGB(242,100,100) : muted);
     }
+    void restore_audio();
     void show_settings();
     void settings_command(int);
     void settings_layout();
@@ -333,6 +335,26 @@ struct UI {
 };
 LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
 LRESULT CALLBACK settings_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
+void UI::restore_audio() {
+    if (!prefs.reconnect_audio || prefs.device_name.empty()) return;
+#ifdef MRS_HAS_ASIO
+    auto device = audio::make_asio_device();
+    const auto available = device->enumerate();
+    const auto found = std::find_if(available.begin(),available.end(),[&](const auto& info) { return info.name == prefs.device_name; });
+    if (found == available.end()) throw std::runtime_error("Saved ASIO device is unavailable. Choose a device in Audio settings.");
+    // Resolve the saved name afresh: enumeration indices may change between sessions.
+    audio::DeviceConfig config{found->index,app.services().projects->state().project->sample_rate,prefs.buffer,{},prefs.outputs};
+    if (prefs.monitor_input >= 0) config.inputs = {prefs.monitor_input};
+    app.connect(std::move(device),config); prefs.rate = config.sample_rate; preferences();
+    log.write("Saved ASIO connection restored; transport stopped");
+    if (settings) {
+        SetWindowTextW(child(rate_edit,true),std::to_wstring(prefs.rate).c_str());
+        InvalidateRect(settings,nullptr,FALSE);
+    }
+#else
+    throw std::runtime_error("Saved ASIO connection requires the ASIO build.");
+#endif
+}
 void UI::enumerate_devices() {
     devices.clear(); device_error.clear();
     SendMessageW(child(device_combo,true),CB_RESETCONTENT,0,0);
@@ -375,7 +397,7 @@ void UI::settings_layout() {
 }
 void UI::settings_command(int id) {
     if (id == refresh_button) { enumerate_devices(); InvalidateRect(settings,nullptr,FALSE); return; }
-    if (id == disconnect_button) { app.disconnect(); InvalidateRect(settings,nullptr,FALSE); return; }
+    if (id == disconnect_button) { app.disconnect(); prefs.reconnect_audio = false; preferences(); InvalidateRect(settings,nullptr,FALSE); return; }
     // Edit/combo initialization and typing notifications are not device actions.
     if (id != connect_button && id != panel_button) return;
     const auto selection = SendMessageW(child(device_combo,true),CB_GETCURSEL,0,0);
@@ -395,7 +417,7 @@ void UI::settings_command(int id) {
     next_prefs.outputs = parse_outputs(narrow(control_text(child(outputs_edit,true))));
     const auto input = number(child(input_edit,true)); if (input > 64) throw std::invalid_argument("Input must be 0 (off) or a channel 1..64");
     next_prefs.monitor_input = static_cast<int>(input)-1;
-    next_prefs.device_name = selection == 0 ? "" : devices[static_cast<std::size_t>(selection)-1].name; next_prefs.validate();
+    next_prefs.device_name = selection == 0 ? "" : devices[static_cast<std::size_t>(selection)-1].name; next_prefs.reconnect_audio = selection != 0; next_prefs.validate();
     audio::DeviceConfig config{selection == 0 ? 0 : devices[static_cast<std::size_t>(selection)-1].index,next_prefs.rate,next_prefs.buffer,{},next_prefs.outputs};
     if (next_prefs.monitor_input >= 0) config.inputs = {next_prefs.monitor_input};
     std::unique_ptr<audio::IAudioDevice> device;
@@ -448,6 +470,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
     try {
         switch (message) {
         case WM_CREATE: ui->initialize(); return 0;
+        case WM_APP+1: ui->restore_audio(); InvalidateRect(hwnd,nullptr,FALSE); return 0;
         case WM_SIZE: if (ui->normal) ui->layout(); return 0;
         case WM_GETMINMAXINFO: {
             auto info = reinterpret_cast<MINMAXINFO*>(lparam); info->ptMinTrackSize = {ui->s(1000),ui->s(620)}; return 0;

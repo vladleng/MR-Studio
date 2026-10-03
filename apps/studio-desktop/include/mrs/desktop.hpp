@@ -12,6 +12,7 @@ struct Preferences {
     std::vector<int> outputs{0,1};
     int monitor_input{-1}; // -1 disabled; other values are zero-based
     std::string device_name;
+    bool reconnect_audio{};
     bool operator==(const Preferences&) const = default;
     void validate() const;
 };

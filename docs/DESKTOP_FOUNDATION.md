@@ -52,8 +52,9 @@ chords/sections and preloads/validates PCM/float WAV through the shared decoder.
 Waveforms, clip editing, recording, resampling and MIDI editing are later stages.
 
 Project documents use the accepted Stage 4 archive. Unknown chunks/state survive
-Open/Save. Open starts stopped using the silent offline clock; it never auto-connects
-ASIO or a plugin. Explicit Connect prepares the shared graph and preloads audio.
+Open/Save. The controller replaces a project stopped using the silent offline clock. The shell
+then restores the user's enabled ASIO connection, prepares the shared graph and
+preloads audio. Playback never starts automatically; unavailable processors still fail explicitly.
 Missing media or unavailable processors produce an error and leave audio disconnected
 rather than silently omitting assets or substituting processors. The project remains
 open and can be saved without losing unavailable plugin state.
@@ -64,7 +65,12 @@ relative media would be broken; same-folder Save/Save As works. No asset copying
 consolidation yet. Dirty project replacement/close prompts to save or discard.
 
 ## Audio settings
-Desktop starts in Offline clock (no sound). The ASIO artifact also enumerates the
+On first launch Desktop starts in Offline clock (no sound). Subsequent launches
+restore an enabled saved ASIO connection by device name, resolving the current index.
+Open WAV, Open project and Demo also restore it after replacing the project, using
+the new project's sample rate and saved buffer/output/input selectors. Connect enables
+restoration; explicit Disconnect or choosing Offline disables it and persists that choice.
+Opening ASIO panel remains a temporary disconnect until explicit Connect. The ASIO artifact also enumerates the
 same native vendor ASIO backend as Stage 1. User selects device, rate, buffer,
 one-based physical output selectors (e.g. 1,2) and optional monitor input
 (0 disabled, 1..64 physical channel). Connect validates configuration then stops
@@ -80,7 +86,8 @@ Driver failures are reported; seamless reconnect/recovery remains deferred #16.
 
 Preferences live in %LOCALAPPDATA%/MoonRiverStudio/desktop.cfg (versioned, bounded
 reader), logs in studio.log. Workspace, requested device/rate/buffer/channel settings
-are retained; device handles and playback state are never restored.
+are retained together with connection intent (config v2, with v1 migration).
+Device handles are reopened, never serialized; playback state is never restored.
 Preferences failures are reported and a damaged config falls back to defaults.
 Config is convenience state, not crash-safe project storage. No audio callback logs.
 Project autosave scheduling/recovery chooser UI is not included yet; accepted shared
@@ -117,3 +124,10 @@ explicit Connect / ASIO panel actions. Field/combo initialization and incomplete
 typing do not open devices or show errors. GUI smoke asserts zero unexpected errors
 and exercises typing while combo selection is temporarily absent.
 Ruler label spacing is adaptive to avoid overlapping bar numbers in long WAV projects.
+
+## ASIO connection continuity fix
+User confirmed the settings popup is gone. Replacing a project had reset the backend
+to Offline, requiring repeated Connect. The shell now restores enabled saved ASIO
+settings after project replacement and on startup. Missing devices/unsupported rates/
+media failures produce one explicit error, keep the project open and do not substitute
+another hardware driver. Automatic hardware recovery during playback remains deferred.

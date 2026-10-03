@@ -27,18 +27,22 @@ void Preferences::validate() const {
 }
 std::string encode_preferences(const Preferences& p) {
     p.validate(); std::ostringstream out;
-    out << "MRS_DESKTOP_CONFIG 1\n" << static_cast<int>(p.workspace) << ' ' << p.rate << ' ' << p.buffer << ' ' << p.monitor_input
+    out << "MRS_DESKTOP_CONFIG 2\n" << static_cast<int>(p.workspace) << ' ' << p.rate << ' ' << p.buffer << ' ' << p.monitor_input
         << ' ' << std::quoted(p.device_name) << ' ' << p.outputs.size();
     for (auto o : p.outputs) out << ' ' << o;
-    out << "\n"; return out.str();
+    out << ' ' << p.reconnect_audio << "\n"; return out.str();
 }
 Preferences decode_preferences(std::string_view bytes) {
     require(bytes.size() <= 16384,"config too large"); std::istringstream in{std::string(bytes)};
     std::string magic; int version{},workspace{}; std::size_t count{}; Preferences p;
-    require(static_cast<bool>(in >> magic >> version) && magic == "MRS_DESKTOP_CONFIG" && version == 1,"unsupported config");
+    require(static_cast<bool>(in >> magic >> version) && magic == "MRS_DESKTOP_CONFIG" && (version == 1 || version == 2),"unsupported config");
     require(static_cast<bool>(in >> workspace >> p.rate >> p.buffer >> p.monitor_input >> std::quoted(p.device_name) >> count) && workspace >= 0 && workspace <= 3 && count > 0 && count <= 64,"invalid config");
     p.workspace = static_cast<Workspace>(workspace); p.outputs.clear();
     for (std::size_t i = 0; i < count; ++i) { int o{}; require(static_cast<bool>(in >> o),"truncated config"); p.outputs.push_back(o); }
+    if (version == 2) {
+        int enabled{}; require(static_cast<bool>(in >> enabled) && (enabled == 0 || enabled == 1),"invalid reconnect preference");
+        p.reconnect_audio = enabled != 0;
+    } else p.reconnect_audio = !p.device_name.empty();
     in >> std::ws; require(in.eof(),"extra config data"); p.validate(); return p;
 }
 std::vector<int> parse_outputs(std::string_view bytes) {
