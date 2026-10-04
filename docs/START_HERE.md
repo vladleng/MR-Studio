@@ -1,5 +1,18 @@
 # Moon River Studio — START HERE
 
+## Локальная 0.1h fix1 — мигание кнопок — 2026-10-04
+Пользователь проверил функции 0.1h («Все работает»), но сообщил о мигании кнопок
+при движении фейдеров и открытии меню. В fix1 отрисовка больше не перемещает
+и не переключает native controls: layout/visibility/enabled меняются только
+при изменении состояния/размера, вне paint. Повторный выбор текущего канала
+не перестраивает sidebar. GUI regression воспроизвёл native layout events до
+исправления и прошёл после; локальная ASIO сборка, CTest 65/65 и GUI smoke пройдены.
+Локальный код ed2cebeed6863a77060584353844242e3a561ffb; пакет
+MR-Studio-0.1h-fix1-ASIO-Windows-local в Builds. Проверка fix1 пользователем ожидается.
+[Описание и проверка](MRS_0_1H_FIX1.md). GitHub: только issues/docs;
+код не pushed, PR не создан/не слит, GitHub Actions не использовались.
+
+
 ## Локальная 0.1h / MRS Stage 2c готова к проверке — 2026-10-04
 Реализованы посылы/возвраты (до 8 sends на канал, pre/post, уровни, nested buses,
 cycle rejection, Undo и persistence), Files → Open recent project,
