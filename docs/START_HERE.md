@@ -1,5 +1,8 @@
 # Moon River Studio — START HERE
 
+Selected UI direction: [JUCE migration](JUCE_MIGRATION.md), Windows-only active scope.
+Plan recorded; integration not started. Preferred working UI remains 0.1m upd1 fix1.
+
 Future idea (not started, separate from the current build): [Acoustic space prototype](ACOUSTIC_SPACE_PROTOTYPE.md).
 
 ## 0.1m / Stage 3c — local build ready, 2026-10-04
