@@ -1,5 +1,14 @@
 # Moon River Studio — START HERE
 
+## 0.1i upd1 принята — 2026-10-04
+Пользователь: «Все работает». Последняя принятая локальная сборка — 0.1i upd1,
+код 1f9a89568e50a83bb44d6f4ec3e7df8aac9032a8. Приёмка интерфейса/зумирования закрыта.
+В #22 остался broader input routing: сейчас один mono input/одна armed track за дубль.
+Предлагаемая следующая часть — mono/stereo input routing и simultaneous multitrack
+capture; реализация ещё не начата. После Mixer/Routing следующий roadmap stage —
+#23 Plugins / Native DSP. #22 открыт, #16 matrix отложена. GitHub issues/docs only;
+код и сборки локально. Исторические pending-user записи ниже заменены этой.
+
 ## Локальная 0.1i upd1 готова к проверке — 2026-10-04
 Пользователь принял 0.1i: «Все работает!» и запросил интерфейс по скриншоту Studio Pro.
 Upd1: компактная верхняя панель, широкие track headers, аранжировка сверху,

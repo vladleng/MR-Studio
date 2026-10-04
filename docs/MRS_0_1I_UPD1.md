@@ -1,6 +1,6 @@
 # 0.1i upd1 — arrangement/mixer layout and wheel navigation
 
-Local update ready for user review, 2026-10-04. The user accepted local 0.1i
+Local update accepted by the user, 2026-10-04: “Все работает”. The user accepted local 0.1i
 (“Все работает!”) and requested a starting UI direction based on their Studio
 Pro screenshot. This update uses existing working commands and mixer controls.
 
@@ -50,7 +50,7 @@ remain available; Fit resets horizontal framing. View state is session-local.
 - Actual application rendering exported with --smoke-test --render-preview and
   reviewed visually; no user's saved preferences or physical stream are used
   for the preview. Local package includes UI-preview.png.
-- User review of the new layout/wheel navigation is pending.
+- User review of the new layout/wheel navigation passed (2026-10-04).
 
 Package: MR-Studio-0.1i-upd1-ASIO-Windows-local. Branch:
 mrs/0.1i-upd1-layout-local. Earlier 0.1i package is retained.

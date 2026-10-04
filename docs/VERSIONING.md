@@ -2,7 +2,7 @@
 
 Текущая локальная сборка: **0.1i upd1** — UI по референсу и wheel navigation/track zoom.
 Пакет MR-Studio-0.1i-upd1-ASIO-Windows-local. Build, 69/69 CTest и GUI smoke пройдены;
-приёмка интерфейса ожидается. Базовая **0.1i принята** пользователем 2026-10-04.
+**0.1i upd1 принята** пользователем 2026-10-04: «Все работает».
 Ниже — исторические записи; счётчики upd/fix независимы. GitHub issues/docs only.
 
 Текущая локальная сборка: **0.1i**, hardware outputs / multi-output / device profiles.
