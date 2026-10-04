@@ -63,6 +63,7 @@ std::string serialize(const Project& p) {
         out << std::quoted(track.output ? track.output->value : "") << '\n';
         out << track.input << ' ' << track.sends.size() << '\n';
         for (const auto& send : track.sends) out << std::quoted(send.bus.value) << ' ' << send.gain << ' ' << send.pre_fader << '\n';
+        out << track.hardware_outputs.size(); for (const auto channel : track.hardware_outputs) out << ' ' << channel; out << '\n';
     }
     section(out, "CLIPS", p.clips);
     for (const auto& clip : p.clips)
@@ -81,7 +82,9 @@ std::string serialize(const Project& p) {
     for (const auto& part : p.sections)
         out << std::quoted(part.id.value) << ' ' << std::quoted(part.name) << ' '
             << part.start << ' ' << part.end << ' ' << part.color << '\n';
-    out << "MASTER " << p.master_gain << "\nEND\n";
+    out << "MASTER " << p.master_gain << '\n' << "HARDWARE " << p.master_outputs.size();
+    for (const auto channel : p.master_outputs) out << ' ' << channel;
+    out << "\nEND\n";
     auto result = out.str();
     if (result.size() > max_bytes) throw std::invalid_argument("snapshot byte limit exceeded");
     return result;
@@ -163,6 +166,10 @@ Project deserialize(std::string_view bytes) {
                 send.pre_fader = pre != 0; track.sends.push_back(std::move(send));
             }
         }
+        if (input_version >= 6) {
+            const auto outputs = count(in); if (outputs > 2) throw std::invalid_argument("hardware output count");
+            for (std::size_t j=0; j<outputs; ++j) { int channel{}; in >> channel; check_stream(in); track.hardware_outputs.push_back(channel); }
+        }
         p.tracks.push_back(std::move(track));
     }
     tag(in, "CLIPS");
@@ -211,6 +218,10 @@ Project deserialize(std::string_view bytes) {
         }
     }
     if (input_version >= 3) { tag(in, "MASTER"); in >> p.master_gain; check_stream(in); }
+    if (input_version >= 6) {
+        tag(in,"HARDWARE"); const auto outputs = count(in); if (outputs > 2) throw std::invalid_argument("master output count");
+        for (std::size_t j=0; j<outputs; ++j) { int channel{}; in >> channel; check_stream(in); p.master_outputs.push_back(channel); }
+    }
     tag(in, "END");
     in >> std::ws;
     if (!in.eof()) throw std::invalid_argument("unknown trailing snapshot data");

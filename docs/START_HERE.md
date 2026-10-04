@@ -1,5 +1,22 @@
 # Moon River Studio — START HERE
 
+## Локальная 0.1i / Stage 2d готова к проверке — 2026-10-04
+Аппаратные mono/stereo outputs для дорожек, шин и Master; несколько выходов
+на общем engine, независимые Main/Monitor/Click/Cue через именованные шины.
+Профили устройства: имя, rate/buffer, outputs, mono monitor input и channel labels;
+Save/Load/Delete в Audio settings, Load заполняет поля, Connect применяет.
+Missing outputs проверяются до закрытия соединения; offline clock сохраняет routes.
+Core v6 читает v1–v5; config v4 читает v1–v3. Общие commands/Undo/persistence.
+Локальные Windows x64 ASIO Release configure/build с кешем, 69/69 CTest и GUI smoke
+пройдены, включая profiles и прежние flicker regressions. Physical ASIO/user
+acceptance ожидается; последняя принятая сборка — 0.1h fix3. Полный #22 открыт.
+Пакет MR-Studio-0.1i-ASIO-Windows-local в Builds, ветка mrs/0.1i-hardware-profiles-local.
+Код/сборки локально; GitHub issues/docs only. Нет code push/new PR/merge/Actions.
+Контракты: [HARDWARE_OUTPUTS.md](HARDWARE_OUTPUTS.md);
+приёмка: [MRS_STAGE_2D_CHECKLIST.md](MRS_STAGE_2D_CHECKLIST.md).
+Click generator/show cues, simultaneous multi-input recording и #16 benchmark
+не отмечаются выполненными. Исторические pending записи ниже имеют меньший приоритет.
+
 ## Принята локальная 0.1h fix3 — 2026-10-04
 Пользователь подтвердил: «теперь ничего не мигает. Все работает».
 Stage 2c: sends/returns, recent projects, mixer overlay, vertical faders/meters,

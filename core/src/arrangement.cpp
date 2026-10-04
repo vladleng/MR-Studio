@@ -6,9 +6,9 @@ namespace mrs {
 void RemoveTrack::apply(Project& p) const {
     const auto it = std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t) { return t.id == id_; });
     if (it == p.tracks.end()) throw std::invalid_argument("unknown track");
-    const auto destination = it->output;
+    const auto destination = it->output; const auto hardware = it->hardware_outputs;
     for (auto& track : p.tracks) {
-        if (track.output == id_) track.output = destination;
+        if (track.output == id_) { track.output = destination; track.hardware_outputs = hardware; }
         std::erase_if(track.sends,[&](const auto& send) { return send.bus == id_; });
     }
     p.tracks.erase(it);

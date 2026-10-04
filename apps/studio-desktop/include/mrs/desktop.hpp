@@ -11,6 +11,18 @@
 namespace mrs::desktop {
 enum class Workspace { arrange, edit, mix, live };
 std::string_view workspace_name(Workspace);
+struct DeviceProfile {
+    std::string name, device_name;
+    std::uint32_t rate{48000}, buffer{128};
+    std::vector<int> outputs{0,1};
+    int monitor_input{-1};
+    std::vector<std::string> output_labels{};
+    std::string input_label;
+    bool operator==(const DeviceProfile&) const = default;
+    void validate() const;
+};
+DeviceProfile capture_profile(std::string, const audio::DeviceInfo&, const audio::DeviceConfig&);
+audio::DeviceConfig resolve_profile(const DeviceProfile&, const audio::DeviceInfo&);
 struct Preferences {
     Workspace workspace{Workspace::arrange};
     std::uint32_t rate{48000}, buffer{128};
@@ -19,6 +31,7 @@ struct Preferences {
     std::string device_name;
     bool reconnect_audio{};
     std::vector<std::string> recent_projects{};
+    std::vector<DeviceProfile> profiles{};
     bool operator==(const Preferences&) const = default;
     void validate() const;
 };
@@ -59,6 +72,9 @@ public:
     void set_send_gain(const Id&, std::size_t, float);
     void set_track_input(const Id&, int);
     std::vector<std::string> input_names();
+    std::vector<std::string> output_names() const;
+    std::vector<int> active_outputs() const;
+    void set_hardware_output(std::optional<Id>, std::vector<int>);
     void remove_track(const Id&);
     void reorder_track(const Id&, std::size_t index);
     void import_wavs(const std::vector<std::filesystem::path>&);
@@ -139,6 +155,8 @@ private:
     std::map<std::string,std::filesystem::path> owned_media_;
     std::optional<audio::DeviceConfig> device_config_;
     std::vector<int> default_inputs_;
+    std::optional<audio::DeviceInfo> device_info_;
+    void validate_hardware(const Project&, const audio::DeviceConfig&) const;
     std::vector<int> selected_inputs(const Project&) const;
     std::shared_ptr<const audio::AudioData> asset(const std::string&);
     void cache_asset(std::string, std::shared_ptr<const audio::AudioData>);

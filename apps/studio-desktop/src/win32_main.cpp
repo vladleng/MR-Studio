@@ -94,7 +94,7 @@ enum ControlId {
     new_project_button = 160, import_batch, add_track, delete_track, track_up, track_down, zoom_in, zoom_out, zoom_fit, split_clip_button, delete_clip_button, snap_button,
     record_button = 172, arm_button, monitor_button, add_bus_button, files_exit = 180, studio_folder_button,
     device_combo = 200, rate_edit, buffer_edit, outputs_edit, input_edit,
-    connect_button, disconnect_button, panel_button, refresh_button
+    connect_button, disconnect_button, panel_button, refresh_button, profile_combo = 220, profile_name, profile_save, profile_load, profile_delete
 };
 struct UI {
     Application app;
@@ -108,6 +108,7 @@ struct UI {
     UINT dpi{96}, settings_dpi{96};
     HFONT settings_font{};
     std::array<std::wstring,3> settings_status_text{};
+    std::optional<DeviceProfile> staged_profile{};
     ULONGLONG settings_status_tick{};
     bool smoke{};
     int smoke_step{};
@@ -137,8 +138,8 @@ struct UI {
             try {
                 std::ifstream file(folder / L"desktop.cfg",std::ios::binary);
                 if (file) {
-                    std::string bytes; std::array<char,65537> data{}; file.read(data.data(),static_cast<std::streamsize>(data.size()));
-                    if (file.gcount() > 65536) throw std::runtime_error("config too large");
+                    std::string bytes; std::vector<char> data(524289); file.read(data.data(),static_cast<std::streamsize>(data.size()));
+                    if (file.gcount() > 524288) throw std::runtime_error("config too large");
                     bytes.assign(data.data(),static_cast<std::size_t>(file.gcount())); prefs = decode_preferences(bytes);
                 }
             } catch (const std::exception& e) { log.write(e.what()); }
@@ -730,11 +731,21 @@ struct UI {
             if (track) {
                 std::wstring destination = L"Master";
                 for (const auto& bus : all) if (track->output == bus.id) destination = wide(bus.name);
+                if (!track->hardware_outputs.empty()) {
+                    destination = L"HW "; for (const auto c : track->hardware_outputs) { if (destination != L"HW ") destination += L"/"; destination += std::to_wstring(c+1); }
+                }
                 const auto route = output_control(r,track->kind == TrackKind::bus); fill(dc,route,border);
                 text(dc,route.left,route.top,route.right-route.left,route.bottom-route.top,L"Out: "+destination);
                 if (track->kind == TrackKind::bus) { auto remove = remove_bus_control(r); fill(dc,remove,border); text(dc,remove.left,remove.top,remove.right-remove.left,remove.bottom-remove.top,L"Del"); }
                 const auto sends = mix_control(r,220); fill(dc,sends,border);
                 text(dc,sends.left,sends.top,sends.right-sends.left,sends.bottom-sends.top,L"Sends ("+std::to_wstring(track->sends.size())+L")...");
+            } else {
+                const auto route = output_control(r,false); fill(dc,route,border);
+                std::wstring label = L"Out: Default";
+                if (!app.services().projects->state().project->master_outputs.empty()) {
+                    label = L"Out: "; for (auto c : app.services().projects->state().project->master_outputs) { if (label != L"Out: ") label += L"/"; label += std::to_wstring(c+1); }
+                }
+                text(dc,route.left,route.top,route.right-route.left,route.bottom-route.top,label);
             }
         };
         for (std::size_t i=first_mix_track; i<all.size(); ++i) { const auto strip = mix_strip(i-first_mix_track); if (strip.right > area.right-s(154)) break; draw(strip,&all[i],mix_meters.tracks[i]); }
@@ -835,23 +846,44 @@ struct UI {
         }
         return false;
     }
-    void choose_bus(const Track& track, POINT point) {
+    void choose_bus(const Track* track, POINT point) {
         if (app.recording() || app.engine()->state().playback == PlaybackState::playing) return;
         const auto project = app.services().projects->state().project;
         const auto menu = CreatePopupMenu(); if (!menu) throw std::runtime_error("Cannot create output menu");
         std::vector<std::optional<Id>> destinations{std::nullopt};
-        AppendMenuW(menu,MF_STRING | (!track.output ? MF_CHECKED : 0),1,L"Master");
-        for (const auto& bus : project->tracks) if (bus.kind == TrackKind::bus) {
+        const auto& current = track ? track->hardware_outputs : project->master_outputs;
+        AppendMenuW(menu,MF_STRING | (current.empty() && (!track || !track->output) ? MF_CHECKED : 0),1,track ? L"Master" : L"Default output pair");
+        if (track) for (const auto& bus : project->tracks) if (bus.kind == TrackKind::bus) {
             auto candidate = *project; bool valid = true;
-            try { SetTrackOutput{track.id,bus.id}.apply(candidate); candidate.validate(); } catch (const std::invalid_argument&) { valid = false; }
+            try { SetTrackOutput{track->id,bus.id}.apply(candidate); candidate.validate(); } catch (const std::invalid_argument&) { valid = false; }
             destinations.push_back(bus.id);
-            const auto flags = MF_STRING | (valid ? 0 : MF_GRAYED) | (track.output == bus.id ? MF_CHECKED : 0);
-            AppendMenuW(menu,flags,static_cast<UINT_PTR>(destinations.size()),wide(bus.name).c_str());
+            AppendMenuW(menu,MF_STRING | (valid ? 0 : MF_GRAYED) | (track->output == bus.id ? MF_CHECKED : 0),static_cast<UINT_PTR>(destinations.size()),wide(bus.name).c_str());
         }
+        AppendMenuW(menu,MF_SEPARATOR,0,nullptr);
+        const auto names = app.output_names(); const auto active = app.active_outputs();
+        std::vector<std::vector<int>> hardware;
+        const auto add = [&](std::vector<int> channels, std::wstring label) {
+            const bool available = std::all_of(channels.begin(),channels.end(),[&](int c) { return std::find(active.begin(),active.end(),c) != active.end(); });
+            hardware.push_back(channels);
+            AppendMenuW(menu,MF_STRING | (available ? 0 : MF_GRAYED) | (current == channels ? MF_CHECKED : 0),1000+hardware.size(),label.c_str());
+        };
+        for (std::size_t i=0; i<names.size(); ++i) {
+            add({static_cast<int>(i)},L"Mono "+std::to_wstring(i+1)+L": "+wide(names[i]));
+            if (i+1<names.size()) add({static_cast<int>(i),static_cast<int>(i+1)},L"Stereo "+std::to_wstring(i+1)+L"/"+std::to_wstring(i+2)+L": "+wide(names[i])+L" / "+wide(names[i+1]));
+        }
+        // Non-adjacent or reversed selected pairs retain the physical order
+        // chosen in Audio settings, rather than depending on stream indices.
+        for (std::size_t i=0; i+1<active.size(); i+=2) if (active[i+1] != active[i]+1)
+            add({active[i],active[i+1]},L"Selected stereo "+std::to_wstring(active[i]+1)+L"/"+std::to_wstring(active[i+1]+1));
+        if (names.empty()) AppendMenuW(menu,MF_STRING | MF_GRAYED,0,L"Connect an audio device for physical outputs");
         ClientToScreen(window,&point);
-        const auto choice = TrackPopupMenu(menu,TPM_RETURNCMD | TPM_NONOTIFY,point.x,point.y,0,window,nullptr);
-        DestroyMenu(menu);
-        if (choice && choice <= destinations.size()) { app.set_track_output(track.id,destinations[choice-1]); refresh_models(); }
+        const auto choice = TrackPopupMenu(menu,TPM_RETURNCMD | TPM_NONOTIFY,point.x,point.y,0,window,nullptr); DestroyMenu(menu);
+        if (choice && choice <= destinations.size()) {
+            if (track) app.set_track_output(track->id,destinations[choice-1]); else app.set_hardware_output(std::nullopt,{});
+            refresh_models();
+        } else if (choice > 1000 && choice <= 1000+hardware.size()) {
+            app.set_hardware_output(track ? std::optional<Id>{track->id} : std::nullopt,hardware[choice-1001]); refresh_models();
+        }
     }
     void mixer_down(POINT point, bool reset = false) {
         const auto all = mix_tracks();
@@ -865,7 +897,7 @@ struct UI {
             auto mix = t ? t->mix : Track::Mix{};
             if (t && selected_track != t->id) { selected_track = t->id; refresh_models(); }
             const auto route = output_control(r,t && t->kind == TrackKind::bus), remove = remove_bus_control(r);
-            if (t && PtInRect(&route,point)) { choose_bus(*t,point); return; }
+            if (PtInRect(&route,point)) { choose_bus(t,point); return; }
             if (t && t->kind == TrackKind::bus && PtInRect(&remove,point)) {
                 if (!app.recording() && app.engine()->state().playback != PlaybackState::playing &&
                     MessageBoxW(window,L"Delete this bus? Its inputs will use its output. Undo restores routing.",L"Moon River Studio",MB_YESNO | MB_ICONQUESTION) == IDYES) { app.remove_track(t->id); refresh_models(); }
@@ -950,6 +982,7 @@ struct UI {
     void restore_audio();
     void show_settings();
     void settings_command(int);
+    void refresh_profiles();
     void settings_layout();
     void refresh_settings_status(bool force = false);
     void paint_settings(HDC);
@@ -970,7 +1003,7 @@ void UI::refresh_settings_status(bool force) {
     if (next == settings_status_text) return;
     settings_status_text = next;
     RECT client{}; GetClientRect(settings,&client);
-    const RECT status_area{0,ss(300),client.right,client.bottom};
+    const RECT status_area{0,ss(390),client.right,client.bottom};
     InvalidateRect(settings,&status_area,FALSE);
 }
 void UI::paint_settings(HDC dc) {
@@ -978,8 +1011,10 @@ void UI::paint_settings(HDC dc) {
     const std::array<const wchar_t*,5> labels{L"Audio backend",L"Sample rate (Hz)",L"Buffer (frames)",L"Physical outputs",L"Monitor input"};
     const std::array<int,5> ys{24,76,118,160,202};
     for (std::size_t i=0; i<labels.size(); ++i) text(dc,ss(20),ss(ys[i]),ss(166),ss(30),labels[i],settings_font);
+    text(dc,ss(20),ss(300),ss(160),ss(30),L"Device profile",settings_font);
+    text(dc,ss(20),ss(342),ss(160),ss(30),L"Profile name",settings_font);
     for (std::size_t i=0; i<settings_status_text.size(); ++i)
-        text(dc,ss(20),ss(305+static_cast<int>(i)*32),ss(540),ss(30),settings_status_text[i],settings_font,muted);
+        text(dc,ss(20),ss(395+static_cast<int>(i)*32),ss(540),ss(30),settings_status_text[i],settings_font,muted);
 }
 LRESULT CALLBACK settings_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
 void UI::restore_audio() {
@@ -1022,7 +1057,7 @@ void UI::enumerate_devices() {
 void UI::show_settings() {
     if (settings) { ShowWindow(settings,SW_SHOW); SetForegroundWindow(settings); return; }
     settings = CreateWindowExW(WS_EX_CONTROLPARENT,L"MRStudioAudio",L"Audio settings",WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN,
-        CW_USEDEFAULT,CW_USEDEFAULT,s(600),s(475),window,nullptr,GetModuleHandleW(nullptr),this);
+        CW_USEDEFAULT,CW_USEDEFAULT,s(600),s(565),window,nullptr,GetModuleHandleW(nullptr),this);
     if (!settings) throw std::runtime_error("Cannot open audio settings");
     settings_dpi = GetDpiForWindow(settings);
     create(settings,L"COMBOBOX",L"",device_combo,WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL);
@@ -1031,8 +1066,11 @@ void UI::show_settings() {
     SetWindowTextW(child(rate_edit,true),std::to_wstring(prefs.rate).c_str()); SetWindowTextW(child(buffer_edit,true),std::to_wstring(prefs.buffer).c_str());
     std::wstring outputs; for (auto o : prefs.outputs) { if (!outputs.empty()) outputs += L","; outputs += std::to_wstring(o+1); }
     SetWindowTextW(child(outputs_edit,true),outputs.c_str()); SetWindowTextW(child(input_edit,true),std::to_wstring(prefs.monitor_input+1).c_str());
-    settings_fonts(); enumerate_devices(); settings_layout();
-    SetWindowPos(settings,nullptr,0,0,ss(600),ss(475),SWP_NOMOVE | SWP_NOZORDER);
+    create(settings,L"COMBOBOX",L"",profile_combo,WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL);
+    create(settings,L"EDIT",L"",profile_name,WS_TABSTOP | ES_AUTOHSCROLL | WS_BORDER); SendMessageW(child(profile_name,true),EM_SETLIMITTEXT,128,0);
+    button(settings,L"Save",profile_save); button(settings,L"Load",profile_load); button(settings,L"Delete",profile_delete);
+    settings_fonts(); enumerate_devices(); refresh_profiles(); settings_layout();
+    SetWindowPos(settings,nullptr,0,0,ss(600),ss(565),SWP_NOMOVE | SWP_NOZORDER);
     refresh_settings_status(true); ShowWindow(settings,SW_SHOW);
 }
 void UI::settings_layout() {
@@ -1040,12 +1078,47 @@ void UI::settings_layout() {
     move(device_combo,190,24,355,250); move(rate_edit,190,76,150,30); move(buffer_edit,190,118,150,30);
     move(outputs_edit,190,160,150,30); move(input_edit,190,202,150,30);
     move(connect_button,20,252,110,34); move(disconnect_button,140,252,120,34); move(panel_button,270,252,120,34); move(refresh_button,400,252,110,34);
+    move(profile_combo,190,300,225,180); move(profile_load,425,300,90,30);
+    move(profile_name,190,342,225,30); move(profile_save,425,342,70,30); move(profile_delete,500,342,70,30);
     InvalidateRect(settings,nullptr,FALSE);
+}
+void UI::refresh_profiles() {
+    SendMessageW(child(profile_combo,true),CB_RESETCONTENT,0,0);
+    for (const auto& profile : prefs.profiles) { const auto label = wide(profile.name); SendMessageW(child(profile_combo,true),CB_ADDSTRING,0,reinterpret_cast<LPARAM>(label.c_str())); }
+    if (!prefs.profiles.empty()) SendMessageW(child(profile_combo,true),CB_SETCURSEL,0,0);
 }
 void UI::settings_command(int id) {
     if (app.recording()) return;
     if (id == refresh_button) { enumerate_devices(); InvalidateRect(settings,nullptr,FALSE); return; }
     if (id == disconnect_button) { app.disconnect(); prefs.reconnect_audio = false; preferences(); refresh_models(); InvalidateRect(settings,nullptr,FALSE); return; }
+    if (id == profile_load || id == profile_delete) {
+        const auto index = SendMessageW(child(profile_combo,true),CB_GETCURSEL,0,0);
+        if (index < 0 || static_cast<std::size_t>(index) >= prefs.profiles.size()) throw std::invalid_argument("Select a device profile");
+        const auto profile = prefs.profiles[static_cast<std::size_t>(index)];
+        if (id == profile_delete) { prefs.profiles.erase(prefs.profiles.begin()+index); if (!smoke) preferences(); refresh_profiles(); return; }
+        const auto info = std::find_if(devices.begin(),devices.end(),[&](const auto& v) { return v.name == profile.device_name; });
+        if (info == devices.end()) throw std::invalid_argument("Profile device is unavailable; connect it and Refresh");
+        const auto config = resolve_profile(profile,*info);
+        if (config.sample_rate != app.services().projects->state().project->sample_rate) throw std::invalid_argument("Profile rate differs from the project; resampling is not available");
+        SendMessageW(child(device_combo,true),CB_SETCURSEL,static_cast<WPARAM>(info-devices.begin()+1),0);
+        const auto assign = [&](int control, const std::wstring& value) { SetWindowTextW(child(control,true),value.c_str()); };
+        assign(rate_edit,std::to_wstring(config.sample_rate)); assign(buffer_edit,std::to_wstring(config.buffer_frames)); assign(input_edit,std::to_wstring(profile.monitor_input+1));
+        std::wstring outputs; for (const auto c : config.outputs) { if (!outputs.empty()) outputs += L","; outputs += std::to_wstring(c+1); }
+        assign(outputs_edit,outputs); assign(profile_name,wide(profile.name)); staged_profile = profile; return;
+    }
+    if (id == profile_save) {
+        const auto selection = SendMessageW(child(device_combo,true),CB_GETCURSEL,0,0);
+        if (selection <= 0 || static_cast<std::size_t>(selection) > devices.size()) throw std::invalid_argument("Select an ASIO device before saving its profile");
+        const auto& info = devices[static_cast<std::size_t>(selection)-1];
+        audio::DeviceConfig config{info.index,number(child(rate_edit,true)),number(child(buffer_edit,true)),{},parse_outputs(narrow(control_text(child(outputs_edit,true))))};
+        const auto input = number(child(input_edit,true)); if (input > 64) throw std::invalid_argument("Input must be 0..64"); if (input) config.inputs = {static_cast<int>(input)-1};
+        auto profile = capture_profile(narrow(control_text(child(profile_name,true))),info,config);
+        auto next = prefs; const auto found = std::find_if(next.profiles.begin(),next.profiles.end(),[&](const auto& p) { return p.name == profile.name; });
+        if (found == next.profiles.end()) next.profiles.push_back(profile); else *found = profile;
+        next.validate(); prefs = std::move(next); if (!smoke) preferences(); refresh_profiles();
+        const auto saved = std::find_if(prefs.profiles.begin(),prefs.profiles.end(),[&](const auto& p) { return p.name == profile.name; });
+        SendMessageW(child(profile_combo,true),CB_SETCURSEL,static_cast<WPARAM>(saved-prefs.profiles.begin()),0); return;
+    }
     // Edit/combo initialization and typing notifications are not device actions.
     if (id != connect_button && id != panel_button) return;
     const auto selection = SendMessageW(child(device_combo,true),CB_GETCURSEL,0,0);
@@ -1073,7 +1146,13 @@ void UI::settings_command(int id) {
 #ifdef MRS_HAS_ASIO
     else device = audio::make_asio_device();
 #endif
-    app.connect(std::move(device),config); prefs = std::move(next_prefs); preferences(); refresh_models(); log.write("Audio connected");
+    if (staged_profile && next_prefs.device_name == staged_profile->device_name && config.sample_rate == staged_profile->rate && config.buffer_frames == staged_profile->buffer && config.outputs == staged_profile->outputs && next_prefs.monitor_input == staged_profile->monitor_input) {
+        const auto fresh = device->enumerate();
+        const auto found = std::find_if(fresh.begin(),fresh.end(),[&](const auto& info) { return info.name == staged_profile->device_name; });
+        if (found == fresh.end()) throw std::invalid_argument("Profile device is unavailable");
+        const auto resolved = resolve_profile(*staged_profile,*found); config.device = resolved.device;
+    }
+    app.connect(std::move(device),config); prefs = std::move(next_prefs); if (!smoke) preferences(); refresh_models(); log.write("Audio connected");
     InvalidateRect(settings,nullptr,FALSE);
 }
 LRESULT CALLBACK settings_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -1272,6 +1351,26 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     ui->show_settings(); // offline CI build skips enumeration of physical ASIO
                 }
                 if (ui->smoke_step == 6) {
+                    // Exercise real profile controls without opening physical hardware
+                    // or touching the user's stored preferences.
+                    const auto saved_devices = ui->devices;
+                    ui->devices = {{7,"Profile smoke",{"Mic"},{"Main L","Main R","Cue L","Cue R"},32,2048,128,-1}};
+                    const auto label = L"Profile smoke";
+                    SendMessageW(ui->child(device_combo,true),CB_RESETCONTENT,0,0);
+                    SendMessageW(ui->child(device_combo,true),CB_ADDSTRING,0,reinterpret_cast<LPARAM>(L"Offline"));
+                    SendMessageW(ui->child(device_combo,true),CB_ADDSTRING,0,reinterpret_cast<LPARAM>(label));
+                    SendMessageW(ui->child(device_combo,true),CB_SETCURSEL,1,0);
+                    SetWindowTextW(ui->child(profile_name,true),L"Smoke profile");
+                    SetWindowTextW(ui->child(rate_edit,true),std::to_wstring(ui->app.services().projects->state().project->sample_rate).c_str());
+                    SetWindowTextW(ui->child(buffer_edit,true),L"128"); SetWindowTextW(ui->child(input_edit,true),L"1");
+                    SetWindowTextW(ui->child(outputs_edit,true),L"1,2,3,4");
+                    ui->settings_command(profile_save);
+                    if (ui->prefs.profiles.size() != 1) throw std::runtime_error("Profile Save did not store its configuration");
+                    SetWindowTextW(ui->child(outputs_edit,true),L"1,2"); ui->settings_command(profile_load);
+                    if (control_text(ui->child(outputs_edit,true)) != L"1,2,3,4" || control_text(ui->child(input_edit,true)) != L"1") throw std::runtime_error("Profile Load did not restore channels");
+                    ui->settings_command(profile_delete);
+                    if (!ui->prefs.profiles.empty()) throw std::runtime_error("Profile Delete retained the profile");
+                    ui->staged_profile.reset(); ui->devices = saved_devices;
                     // Editing incomplete values, including an unselected combo, must not
                     // validate/open a device until the explicit Connect action.
                     SendMessageW(ui->child(device_combo,true),CB_SETCURSEL,static_cast<WPARAM>(-1),0);
@@ -1285,7 +1384,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     ui->settings_status_text[1] = L"stale status"; ui->settings_status_tick = 0;
                     SendMessageW(hwnd,WM_TIMER,1,0);
                     RECT settings_update{};
-                    if (GetUpdateRect(ui->settings,&settings_update,FALSE) && settings_update.top < ui->ss(300))
+                    if (GetUpdateRect(ui->settings,&settings_update,FALSE) && settings_update.top < ui->ss(390))
                         throw std::runtime_error("Audio settings timer invalidated static labels/input controls");
                     if (!GetUpdateRect(ui->settings,&settings_update,FALSE) || ui->settings_status_text[1] == L"stale status") throw std::runtime_error("Audio settings status did not refresh");
                     ValidateRect(ui->settings,nullptr); ui->refresh_settings_status(true);

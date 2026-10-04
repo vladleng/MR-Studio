@@ -25,6 +25,28 @@ template<class F> void invalid_project(F edit) {
     edit(project);
     rejects([&] { project.validate(); });
 }
+void hardware() {
+    using namespace mrs;
+    auto p = demo_project(); const auto id = p.tracks.front().id;
+    p.tracks.push_back({{"cue"},"Cue",TrackKind::bus,{}}); ProjectStore store{p};
+    store.execute(SetTrackOutput{id,Id{"cue"}}); store.execute(SetHardwareOutput{Id{"cue"},{4,5}});
+    store.execute(SetHardwareOutput{std::nullopt,{2,3}});
+    CHECK(deserialize(serialize(*store.state().project)) == *store.state().project);
+    store.execute(RemoveTrack{Id{"cue"}}); CHECK(store.state().project->tracks.front().hardware_outputs == std::vector<int>{4,5});
+    CHECK(store.undo() && store.state().project->tracks.front().output == Id{"cue"});
+    store.execute(SetHardwareOutput{id,{7}}); CHECK(!store.state().project->tracks.front().output);
+    CHECK(store.undo() && store.state().project->tracks.front().hardware_outputs.empty()); CHECK(store.redo());
+    const auto before = store.state();
+    rejects([&] { store.execute(SetHardwareOutput{id,{1,1}}); });
+    rejects([&] { store.execute(SetHardwareOutput{id,{-1}}); });
+    rejects([&] { store.execute(SetHardwareOutput{std::nullopt,{64}}); });
+    rejects([&] { store.execute(SetHardwareOutput{id,{0,1,2}}); });
+    rejects([&] { store.execute(SetHardwareOutput{Id{"missing"},{0}}); });
+    CHECK(store.state().revision == before.revision);
+    store.execute(SetTrackOutput{id,Id{"cue"}}); CHECK(store.state().project->tracks.front().hardware_outputs.empty());
+    const std::string old = "MRS_CORE_SNAPSHOT 5\nPROJECT \"old\" \"Old\" \"\" 48000\nTEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n\"a\" \"Audio\" 0 \"\"\n1 0 0 0\n\"\"\n-2 0\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nMASTER 1\nEND\n";
+    const auto migrated = deserialize(old); CHECK(migrated.master_outputs.empty() && migrated.tracks.front().hardware_outputs.empty());
+}
 void sends() {
     using namespace mrs;
     auto p = demo_project(); const auto id = p.tracks.front().id;
@@ -47,7 +69,7 @@ void sends() {
     store.execute(RemoveTrack{Id{"r1"}});
     CHECK(store.state().project->tracks.front().sends.size() == 1);
     CHECK(store.undo() && store.state().project->tracks.front().sends.size() == 2);
-    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT 5"); CHECK(head == 0);
+    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT 6"); CHECK(head == 0);
     const std::string old = "MRS_CORE_SNAPSHOT 4\nPROJECT \"old\" \"Old\" \"\" 48000\nTEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n\"a\" \"Audio\" 0 \"\"\n1 0 0 0\n\"\"\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nMASTER 1\nEND\n";
     const auto migrated = deserialize(old); CHECK(migrated.tracks.front().sends.empty() && migrated.tracks.front().input == -2);
 }
@@ -337,7 +359,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected test suite");
         const std::string suite = argv[1];
-        if (suite == "sends") sends();
+        if (suite == "hardware") hardware(); else if (suite == "sends") sends();
         else if (suite == "buses") buses();
         else if (suite == "model") model();
         else if (suite == "timeline") timeline();

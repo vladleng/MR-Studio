@@ -16,7 +16,7 @@ using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 5;
+inline constexpr std::uint32_t schema_version = 6;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -74,6 +74,7 @@ struct Track {
     };
     std::vector<Send> sends{}; // up to eight independent sends to shared buses/returns
     int input{-2}; // audio only: -2 default device input, -1 off, otherwise physical index
+    std::vector<int> hardware_outputs{}; // mono or stereo physical channels; exclusive with output bus
     bool operator==(const Track&) const = default;
 };
 struct Clip {
@@ -123,6 +124,7 @@ struct Project {
     std::vector<Chord> chords;
     std::vector<ArrangerSection> sections;
     float master_gain{1};
+    std::vector<int> master_outputs{}; // empty = first selected mono/stereo hardware outputs
     void validate() const;
     bool operator==(const Project&) const = default;
 };
@@ -282,6 +284,14 @@ public:
     void apply(Project&) const override;
 private:
     Id track_; int input_;
+};
+class SetHardwareOutput final : public ICommand {
+public:
+    SetHardwareOutput(std::optional<Id> track, std::vector<int> outputs) : track_(std::move(track)), outputs_(std::move(outputs)) {}
+    std::string_view name() const override { return "Set hardware output"; }
+    void apply(Project&) const override;
+private:
+    std::optional<Id> track_; std::vector<int> outputs_;
 };
 class SetTrackOutput final : public ICommand {
 public:

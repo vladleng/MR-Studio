@@ -1,8 +1,16 @@
 # Moon River Studio
 
+Локальная **0.1i** готова к проверке: physical outputs на дорожках/шинах/Master,
+multi-output и профили аудиоустройства. Configure/build, **69/69 CTest** и GUI smoke
+пройдены локально с кешем зависимостей. Физическая ASIO-приёмка ожидается.
+Последняя принятая версия — **0.1h fix3**. Код и пакеты остаются локальными;
+GitHub используется только для issues/docs, без Actions и автоматического push/merge.
+См. [контракты](docs/HARDWARE_OUTPUTS.md) и [проверку 0.1i](docs/MRS_STAGE_2D_CHECKLIST.md).
+Исторические статусы ниже не заменяют эту запись.
+
 Последняя принятая локальная сборка: **0.1h fix3**, 2026-10-04.
 Пользователь подтвердил отсутствие мигания и работу всех функций Stage 2c.
-Далее в #22 — hardware output routing/multi-output/device profiles.
+Hardware output routing/multi-output/device profiles реализованы локально в 0.1i; приёмка ожидается.
 
 Локальная **0.1h fix3** устраняет постоянное мигание Audio settings. Fix2 проверен
 пользователем; проверка fix3 ожидается. См. [MRS_0_1H_FIX3.md](docs/MRS_0_1H_FIX3.md).

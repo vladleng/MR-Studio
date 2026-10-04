@@ -51,6 +51,17 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
         throw std::invalid_argument("mixer routing size mismatch");
     if (graph.sends.empty()) graph.sends.resize(graph.mixer.size());
     if (graph.sends.size() != graph.mixer.size()) throw std::invalid_argument("send routing size mismatch");
+    if (graph.hardware_outputs.empty()) graph.hardware_outputs.resize(graph.mixer.size());
+    if (graph.hardware_outputs.size() != graph.mixer.size()) throw std::invalid_argument("hardware routing size mismatch");
+    const auto physical = [&](const std::vector<std::size_t>& outputs) {
+        if (outputs.size() > 2 || (outputs.size() == 2 && outputs[0] == outputs[1])) throw std::invalid_argument("invalid mono/stereo hardware route");
+        for (const auto c : outputs) if (c >= config.output_channels) throw std::invalid_argument("missing hardware output");
+    };
+    physical(graph.master_outputs);
+    for (std::size_t i=0; i<graph.hardware_outputs.size(); ++i) {
+        physical(graph.hardware_outputs[i]);
+        if (!graph.hardware_outputs[i].empty() && graph.outputs[i] != no_mixer_track) throw std::invalid_argument("bus/hardware route conflict");
+    }
     std::vector<std::size_t> order, incoming(graph.mixer.size());
     const auto edge = [&](std::size_t destination) {
         if (destination == no_mixer_track) return;
@@ -125,6 +136,7 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     }
     config_ = config;
     master_envelope_.resize(config.max_block);
+    direct_output_.resize(static_cast<std::size_t>(config.max_block)*config.output_channels);
     graph_ = std::move(graph);
     mix_order_ = std::move(order);
     MixerUpdate mix; mix.count = graph_.mixer.size(); mix.master_gain = graph_.master_gain;
@@ -240,6 +252,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         if (output) std::fill_n(output, static_cast<std::size_t>(frames) * config_.output_channels, 0.0F);
         return;
     }
+    std::fill_n(direct_output_.data(),static_cast<std::size_t>(frames)*config_.output_channels,0.0f);
     auto minimum = min_frames_.load(std::memory_order_relaxed);
     if (minimum == 0 || frames < minimum) min_frames_.store(frames, std::memory_order_relaxed);
     if (frames > max_frames_.load(std::memory_order_relaxed)) max_frames_.store(frames, std::memory_order_relaxed);
@@ -345,7 +358,12 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             for (std::uint32_t c=0; c<config_.output_channels; ++c) {
                 const float sample = track_frame_[t][c]*mix_gain_[t][c%2];
                 const auto destination = graph_.outputs[t];
-                if (destination == no_mixer_track) output[out+c] += sample;
+                const auto& hardware = graph_.hardware_outputs[t];
+                if (!hardware.empty()) {
+                    if (hardware.size() == 1 && c < 2) direct_output_[out+hardware[0]] += sample*(config_.output_channels == 1 ? 1.0f : 0.5f);
+                    else if (hardware.size() == 2 && c < 2) direct_output_[out+hardware[c]] += sample;
+                }
+                else if (destination == no_mixer_track) output[out+c] += sample;
                 else track_frame_[destination][c] += sample;
                 for (std::size_t j=0; j<graph_.sends[t].size(); ++j) {
                     const auto& send = graph_.sends[t][j];
@@ -371,15 +389,26 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     for (std::size_t i = 0; i < output_samples; ++i)
         if (!std::isfinite(output[i])) output[i] = 0;
     if (graph_.processors) graph_.processors->process(output,frames);
-    for (std::size_t i = 0; i < output_samples; ++i) {
-        auto& sample = output[i];
-        sample *= master_envelope_[i/config_.output_channels];
-        if (!std::isfinite(sample)) sample = 0;
-        const auto c = i%config_.output_channels;
-        if (c<2) block_peaks[max_mixer_tracks][c] = std::max(block_peaks[max_mixer_tracks][c],std::abs(sample));
-        if (sample > 1 || sample < -1) {
-            clipped_.fetch_add(1,std::memory_order_relaxed);
-            sample = std::clamp(sample,-1.0F,1.0F);
+    for (std::uint32_t frame=0; frame<frames; ++frame) {
+        const auto offset = static_cast<std::size_t>(frame)*config_.output_channels;
+        std::array<float,max_channels> master{};
+        for (std::uint32_t c=0; c<config_.output_channels; ++c) {
+            auto sample = output[offset+c]*master_envelope_[frame];
+            if (!std::isfinite(sample)) sample = 0;
+            master[c] = sample;
+            if (c<2) block_peaks[max_mixer_tracks][c] = std::max(block_peaks[max_mixer_tracks][c],std::abs(sample));
+            output[offset+c] = direct_output_[offset+c];
+        }
+        if (graph_.master_outputs.empty()) {
+            for (std::uint32_t c=0; c<config_.output_channels; ++c) output[offset+c] += master[c];
+        } else if (graph_.master_outputs.size() == 1) {
+            output[offset+graph_.master_outputs[0]] += config_.output_channels == 1 ? master[0] : (master[0]+master[1])*0.5f;
+        } else {
+            output[offset+graph_.master_outputs[0]] += master[0]; output[offset+graph_.master_outputs[1]] += master[1];
+        }
+        for (std::uint32_t c=0; c<config_.output_channels; ++c) {
+            auto& sample = output[offset+c]; if (!std::isfinite(sample)) sample = 0;
+            if (sample > 1 || sample < -1) { clipped_.fetch_add(1,std::memory_order_relaxed); sample = std::clamp(sample,-1.0f,1.0f); }
         }
     }
     for (std::size_t t=0; t<=max_mixer_tracks; ++t) for (std::size_t c=0; c<2; ++c)

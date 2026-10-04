@@ -67,6 +67,8 @@ struct RenderGraph {
     float master_gain{1};
     std::size_t monitor_track{no_mixer_track};
     std::vector<std::size_t> outputs{}; // channel destinations, no_mixer_track -> master
+    std::vector<std::vector<std::size_t>> hardware_outputs{}; // explicit routes bypass master processor/gain
+    std::vector<std::size_t> master_outputs{}; // empty preserves legacy interleaved renderer
     std::vector<std::vector<SendRoute>> sends{};
     std::vector<bool> buses{}; // same indices as mixer; no clips/input directly on buses
 };
@@ -149,6 +151,7 @@ private:
     std::array<float,max_mixer_tracks> gate_{}, gate_target_{}, gate_step_{};
     float master_gain_{1}, master_target_{1}, master_step_{};
     std::vector<float> master_envelope_;
+    std::vector<float> direct_output_; // prepared, never resized in callback
     std::uint32_t mix_ramp_{};
     std::vector<std::size_t> mix_order_; // source before destination, prepared off RT
     std::array<std::array<std::atomic<float>,2>,max_mixer_tracks+1> meter_peaks_{};

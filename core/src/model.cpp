@@ -58,6 +58,12 @@ void Project::validate() const {
     require(sample_rate >= 8000 && sample_rate <= 768000, "invalid sample rate");
     time.validate();
     require(std::isfinite(master_gain) && master_gain >= 0 && master_gain <= 16, "invalid master gain");
+    const auto physical = [](const std::vector<int>& outputs) {
+        require(outputs.size() <= 2,"output route must be mono/stereo");
+        for (const auto index : outputs) require(index >= 0 && index < 64,"invalid physical output index");
+        require(outputs.size() != 2 || outputs[0] != outputs[1],"duplicate physical output");
+    };
+    physical(master_outputs);
     std::unordered_set<std::string> ids;
     const auto add_id = [&ids](const Id& entity) {
         require(!entity.value.empty() && entity.value.size() <= 128, "invalid entity ID");
@@ -80,7 +86,8 @@ void Project::validate() const {
     }
     std::unordered_set<std::string> track_ids;
     for (const auto& track : tracks) {
-        track.mix.validate();
+        track.mix.validate(); physical(track.hardware_outputs);
+        require(track.hardware_outputs.empty() || (!track.output && track.kind != TrackKind::midi),"hardware output conflicts with bus/MIDI routing");
         add_id(track.id);
         require(track.kind == TrackKind::audio || track.kind == TrackKind::midi || track.kind == TrackKind::bus, "invalid track kind");
         require(!track.folder || folder_by_id.contains(track.folder->value), "missing track folder");

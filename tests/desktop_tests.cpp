@@ -75,7 +75,7 @@ void wav(const std::filesystem::path& path, std::uint16_t channels = 2) {
 }
 class ManualDevice final : public audio::IAudioDevice {
 public:
-    std::vector<audio::DeviceInfo> enumerate() override { return {{0,"Manual render test",{"Mic","Line"},{"L","R","Cue 1","Cue 2"},32,2048,128,-1}}; }
+    std::vector<audio::DeviceInfo> enumerate() override { if (phase_ != audio::DevicePhase::closed) throw std::runtime_error("driver cannot enumerate an open stream"); return {{0,"Manual render test",{"Mic","Line"},{"L","R","Cue 1","Cue 2"},32,2048,128,-1}}; }
     void control_panel(int) override {}
     audio::DeviceConfig last_config{};
     unsigned opens{};
@@ -112,6 +112,42 @@ void mono_route() {
         for (std::size_t frame = 0; frame < 128; ++frame) for (std::size_t channel = 0; channel < outputs.size(); ++channel)
             CHECK(buffer[frame*outputs.size()+channel] == (channel < 2 ? 0.06103515625f : 0.0f));
     }
+}
+void hardware() {
+    Directory dir; const auto file = dir.path/"hardware.wav"; wav(file);
+    Application app; app.import_wav(file); const auto id = app.services().projects->state().project->tracks.front().id;
+    const auto bus=app.add_bus("Cue"); app.set_track_output(id,bus); app.set_hardware_output(bus,{2,3}); app.set_hardware_output(std::nullopt,{0,1});
+    // Offline clock remains running while unavailable hardware routes are edited/saved.
+    CHECK(app.audio_running()); app.rename_track(bus,"Monitor"); CHECK(app.audio_running());
+    app.save_project(dir.path/"routes.mrsproject"); app.open_project(dir.path/"routes.mrsproject"); CHECK(app.audio_running());
+    auto device=std::make_unique<ManualDevice>(); const auto driver=device.get(); app.connect(std::move(device),{0,44100,128,{}, {3,1,0,2}});
+    CHECK(app.input_names().size() == 2 && app.output_names().size() == 4);
+    app.play(); std::array<float,512> out{}; app.engine()->process(nullptr,out.data(),128);
+    CHECK(out[0] == 0.1220703125f && out[1] == 0 && out[2] == 0 && out[3] == 0.1220703125f); // selected physical order, bypass master FX
+    app.pause(); app.engine()->process(nullptr,out.data(),128); const auto position=app.engine()->state().sample;
+    app.set_hardware_output(bus,{3}); CHECK(app.engine()->state().sample == position && driver->opens == 1);
+    CHECK(app.undo() && app.redo() && app.engine()->state().sample == position);
+    const auto before=app.services().projects->state().revision; rejects([&] { app.set_hardware_output(id,{4}); }); CHECK(app.services().projects->state().revision == before && app.audio_running());
+    rejects([&] { app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}}); }); CHECK(app.audio_running() && app.active_outputs() == std::vector<int>{3,1,0,2});
+    rejects([&] { app.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1,2,3}}); }); CHECK(app.audio_running());
+    app.remove_track(bus); CHECK(app.services().projects->state().project->tracks.front().hardware_outputs == std::vector<int>{3}); CHECK(app.undo());
+    app.set_hardware_output(bus,{}); app.set_track_output(id,std::nullopt); app.set_hardware_output(std::nullopt,{2,3});
+    app.seek(0); app.play(); app.engine()->process(nullptr,out.data(),128); CHECK(out[0] == 0.06103515625f && out[3] == 0.06103515625f && out[1] == 0 && out[2] == 0);
+    rejects([&] { app.set_hardware_output(id,{0}); });
+}
+void profiles() {
+    ManualDevice driver; auto info=driver.enumerate().front(); auto profile=capture_profile("Stage",info,{0,44100,128,{1},{2,3,0,1}});
+    info.index=7; CHECK(resolve_profile(profile,info).device == 7 && resolve_profile(profile,info).inputs == std::vector<int>{1});
+    Preferences prefs; prefs.profiles={profile}; CHECK(decode_preferences(encode_preferences(prefs)) == prefs);
+    CHECK(decode_preferences("MRS_DESKTOP_CONFIG 3\n0 48000 128 -1 \"\" 2 0 1 0\n0\n").profiles.empty());
+    auto bad=info; bad.name="Another interface"; rejects([&] { (void)resolve_profile(profile,bad); });
+    bad=info; bad.outputs.resize(2); rejects([&] { (void)resolve_profile(profile,bad); });
+    bad=info; std::swap(bad.outputs[2],bad.outputs[3]); rejects([&] { (void)resolve_profile(profile,bad); });
+    bad=info; bad.inputs[1]="Renamed"; rejects([&] { (void)resolve_profile(profile,bad); });
+    bad=info; bad.max_buffer=64; rejects([&] { (void)resolve_profile(profile,bad); });
+    prefs.profiles.push_back(profile); rejects([&] { (void)encode_preferences(prefs); });
+    rejects([&] { (void)capture_profile("",info,{7,44100,128,{}, {0,1}}); });
+    rejects([&] { (void)decode_preferences("MRS_DESKTOP_CONFIG 4\n0 48000 128 -1 \"\" 2 0 1 0\n0\n17\n"); });
 }
 void sends() {
     Directory dir; Application app; app.new_project(44100);
@@ -232,8 +268,8 @@ void audio_settings() {
     app.connect(audio::make_offline_device(),{0,48000,128,{}, {0,1}}); CHECK(app.audio_running());
     app.connect(audio::make_offline_device(),{0,48000,64,{0}, {0,1}}); CHECK(app.audio_running() && app.engine()->config().input_channels == 1);
     rejects([&] { app.connect(audio::make_offline_device(),{0,48000,63,{}, {0,1}}); }); CHECK(app.audio_running()); // validate before closing
-    rejects([&] { app.connect(audio::make_offline_device(),{0,44100,128,{}, {0,1}}); }); CHECK(!app.audio_running());
-    rejects([&] { app.play(); });
+    rejects([&] { app.connect(audio::make_offline_device(),{0,44100,128,{}, {0,1}}); });
+    CHECK(app.audio_running() && app.engine()->config().sample_rate == 48000 && app.engine()->config().input_channels == 1);
     app.connect(audio::make_offline_device(),{0,48000,128,{}, {0,1}}); CHECK(app.audio_running());
     app.disconnect(); CHECK(!app.audio_running() && app.engine()->state().sample == 0);
 }
@@ -646,7 +682,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected suite");
         std::string name = argv[1];
-        if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
+        if (name == "hardware") hardware(); else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
         else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else if (name == "recording") recording(); else if (name == "project_folders") project_folders(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;

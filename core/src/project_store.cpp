@@ -30,10 +30,16 @@ void SetTrackInput::apply(Project& project) const {
     if (track == project.tracks.end() || track->kind != TrackKind::audio) throw std::invalid_argument("input requires an audio track");
     track->input = input_;
 }
+void SetHardwareOutput::apply(Project& project) const {
+    if (!track_) { project.master_outputs = outputs_; return; }
+    auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == *track_; });
+    if (track == project.tracks.end() || track->kind == TrackKind::midi) throw std::invalid_argument("unknown audio mixer channel");
+    track->output.reset(); track->hardware_outputs = outputs_;
+}
 void SetTrackOutput::apply(Project& project) const {
     auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
     if (track == project.tracks.end() || track->kind == TrackKind::midi) throw std::invalid_argument("unknown audio mixer channel");
-    track->output = output_; // candidate validation checks type, references and cycles atomically
+    track->hardware_outputs.clear(); track->output = output_; // candidate validation checks type, references and cycles atomically
 }
 std::string_view AddTrack::name() const { return "Add track"; }
 void AddTrack::apply(Project& project) const { project.tracks.push_back(track_); }
