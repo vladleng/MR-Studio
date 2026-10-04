@@ -16,7 +16,7 @@ using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 7;
+inline constexpr std::uint32_t schema_version = 8;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -54,6 +54,15 @@ struct Folder {
     std::optional<Id> parent;
     bool operator==(const Folder&) const = default;
 };
+enum class InsertKind { gain, highpass, lowpass, eq };
+struct NativeInsert {
+    Id id;
+    InsertKind kind{InsertKind::gain};
+    float gain{1}, frequency{1000}, q{0.70710678f}; // gain: linear trim or EQ dB
+    bool bypass{};
+    void validate() const;
+    bool operator==(const NativeInsert&) const = default;
+};
 struct Track {
     Id id;
     std::string name;
@@ -77,6 +86,7 @@ struct Track {
     bool input_stereo{};
     bool input_monitor{};
     std::vector<int> hardware_outputs{}; // mono or stereo physical channels; exclusive with output bus
+    std::vector<NativeInsert> inserts{}; // pre-fader; at most eight, 32 total in project
     bool operator==(const Track&) const = default;
 };
 struct Clip {
@@ -127,6 +137,7 @@ struct Project {
     std::vector<ArrangerSection> sections;
     float master_gain{1};
     std::vector<int> master_outputs{}; // empty = first selected mono/stereo hardware outputs
+    std::vector<NativeInsert> master_inserts{};
     void validate() const;
     bool operator==(const Project&) const = default;
 };
@@ -278,6 +289,14 @@ public:
     void apply(Project&) const override;
 private:
     Id track_; std::vector<Track::Send> sends_;
+};
+class SetInserts final : public ICommand {
+public:
+    SetInserts(std::optional<Id> track, std::vector<NativeInsert> inserts) : track_(std::move(track)), inserts_(std::move(inserts)) {}
+    std::string_view name() const override { return "Set insert chain"; }
+    void apply(Project&) const override;
+private:
+    std::optional<Id> track_; std::vector<NativeInsert> inserts_;
 };
 class SetTrackInput final : public ICommand {
 public:

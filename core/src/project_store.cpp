@@ -25,6 +25,12 @@ void SetTrackSends::apply(Project& project) const {
     if (track == project.tracks.end() || track->kind == TrackKind::midi) throw std::invalid_argument("unknown audio mixer channel");
     track->sends = sends_;
 }
+void SetInserts::apply(Project& project) const {
+    if (!track_) { project.master_inserts=inserts_; return; }
+    const auto track=std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == *track_; });
+    if (track == project.tracks.end() || track->kind == TrackKind::midi) throw std::invalid_argument("inserts require an existing audio track or bus");
+    track->inserts=inserts_;
+}
 void SetTrackInput::apply(Project& project) const {
     auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
     if (track == project.tracks.end() || track->kind != TrackKind::audio) throw std::invalid_argument("input requires an audio track");

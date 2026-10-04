@@ -120,6 +120,19 @@ bool GraphStore::redo() {
 Connection GraphStore::subscribe(std::function<void(const GraphSnapshot&)> callback) {
     return changes_.subscribe(std::move(callback));
 }
+GraphState insert_graph(std::span<const NativeInsert> inserts) {
+    GraphState graph; graph.id={"native-chain"}; graph.patch_name="Inserts";
+    std::optional<Id> previous;
+    for (const auto& fx : inserts) {
+        fx.validate(); NodeState node; node.id=fx.id; node.bypass=fx.bypass;
+        if (fx.kind == InsertKind::gain) { node.processor_id="mrs.gain"; node.parameters={{0,fx.gain}}; }
+        else { node.processor_id=fx.kind == InsertKind::highpass ? "mrs.highpass" : fx.kind == InsertKind::lowpass ? "mrs.lowpass" : "mrs.eq";
+            node.parameters={{0,fx.frequency},{1,fx.q}}; if (fx.kind == InsertKind::eq) node.parameters.push_back({2,fx.gain}); }
+        graph.edges.push_back({previous,node.id,1}); previous=node.id; graph.nodes.push_back(std::move(node));
+    }
+    if (previous) graph.outputs.push_back(*previous);
+    graph.validate(); return graph;
+}
 GraphState demo_graph() {
     GraphState g;
     g.id = {"shared-graph"}; g.patch_name = "Clean";

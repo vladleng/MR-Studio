@@ -191,5 +191,6 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+GraphState insert_graph(std::span<const NativeInsert>);
 GraphState demo_graph();
 } // namespace mrs::processing

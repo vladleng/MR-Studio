@@ -1,6 +1,7 @@
 #include <mrs/desktop.hpp>
 #include <mrs/offline_device.hpp>
 #include <chrono>
+#include <cmath>
 #include <thread>
 #include <fstream>
 #include <iostream>
@@ -679,6 +680,30 @@ void config() {
     Directory dir; Logger log(dir.path / "app.log"); log.write("control-thread log");
 }
 
+
+void inserts() {
+    Directory dir; Application app; app.new_project(44100);
+    const auto track=app.add_audio_track("Mic"), bus=app.add_bus("Bus"); app.set_track_output(track,bus);
+    NativeInsert a{new_id(),InsertKind::gain,.5f}, b{new_id(),InsertKind::gain,.25f}, c{new_id(),InsertKind::gain,.5f};
+    app.set_inserts(track,{a,b}); CHECK(app.undo() && app.services().projects->state().project->tracks.front().inserts.empty()); CHECK(app.redo());
+    app.set_inserts(track,{b,a}); CHECK(app.services().projects->state().project->tracks.front().inserts.front().id==b.id);
+    app.set_inserts(bus,{c}); app.set_inserts(std::nullopt,{NativeInsert{new_id(),InsertKind::gain,.5f}});
+    app.arm_track(track); app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});
+    std::array<float,128> in{}; in.fill(.8f); std::array<float,256> out{};
+    app.engine()->process(in.data(),out.data(),128); CHECK(std::abs(out[0]-.0125f)<1e-6f && out[0]==out[1]);
+    app.seek(500); app.engine()->process(in.data(),out.data(),128);
+    a.bypass=true; app.set_inserts(track,{b,a}); CHECK(app.engine()->state().sample==500);
+    app.engine()->process(in.data(),out.data(),128); CHECK(std::abs(out[0]-.025f)<1e-6f);
+    app.start_recording(dir.path/"Raw.wav"); app.engine()->process(in.data(),out.data(),128);
+    rejects([&] { app.set_inserts(bus,{}); }); app.stop(); app.engine()->process(in.data(),out.data(),128);
+    CHECK(app.engine()->state().sample==500 && audio::load_wav(dir.path/"Raw.wav").samples.front()==.8f);
+    app.play(); app.engine()->process(in.data(),out.data(),128); rejects([&] { app.set_inserts(track,{}); });
+    app.pause(); app.engine()->process(in.data(),out.data(),128);
+    app.save_project(dir.path/"FX.mrsproject"); const auto saved=app.snapshot(); app.open_project(dir.path/"FX.mrsproject");
+    CHECK(app.snapshot().project==saved.project && app.snapshot().graph==saved.graph);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}}); app.engine()->process(in.data(),out.data(),128); CHECK(std::abs(out[0]-.025f)<1e-6f);
+}
+
 void multi_input() {
     Directory dir; Application app; app.new_project(44100);
     const auto mono=app.add_audio_track("Mic"), stereo=app.add_audio_track("Keys");
@@ -720,7 +745,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected suite");
         std::string name = argv[1];
-        if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
+        if (name == "inserts") inserts(); else if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
         else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else if (name == "recording") recording(); else if (name == "project_folders") project_folders(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;

@@ -374,6 +374,7 @@ void Application::validate_hardware(const Project& p, const audio::DeviceConfig&
     route(p.master_outputs,"Master"); for (const auto& track : p.tracks) route(track.hardware_outputs,track.name);
 }
 void Application::set_hardware_output(std::optional<Id> track, std::vector<int> outputs) { edit(SetHardwareOutput{std::move(track),std::move(outputs)}); }
+void Application::set_inserts(std::optional<Id> track, std::vector<NativeInsert> inserts) { edit(SetInserts{std::move(track),std::move(inserts)}); }
 void Application::set_track_input(const Id& id, int input, bool stereo) {
     require_not_playing();
     const auto names = input_names();
@@ -603,6 +604,13 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     result.processors = prepared_;
     const auto project = services_.projects->state().project;
     prepare_mixer(result);
+    const auto chain=[&](const std::vector<NativeInsert>& effects,std::uint32_t block) -> std::shared_ptr<processing::PreparedGraph> {
+        if (effects.empty()) return {};
+        auto saved=std::make_shared<const processing::GraphState>(processing::insert_graph(effects));
+        return std::make_shared<processing::PreparedGraph>(processing::GraphSnapshot{saved,0,false,false},processing::ProcessConfig{c.sample_rate,static_cast<std::uint32_t>(c.outputs.size()),block,c.buffer_frames});
+    };
+    for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) result.inserts.push_back(chain(t.inserts,1));
+    result.master_inserts=chain(project->master_inserts,8192);
     const auto mapped = [&](const std::vector<int>& outputs) {
         std::vector<std::size_t> result;
         for (const auto channel : outputs) {

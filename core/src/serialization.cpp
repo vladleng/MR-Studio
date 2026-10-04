@@ -37,6 +37,21 @@ template<class T> void section(std::ostream& out, std::string_view name, const s
     if (values.size() > max_entities) throw std::invalid_argument("snapshot entity limit exceeded");
     out << name << ' ' << values.size() << '\n';
 }
+void write_inserts(std::ostream& out, const std::vector<NativeInsert>& inserts) {
+    out << "INSERTS " << inserts.size() << '\n';
+    for (const auto& fx : inserts) out << std::quoted(fx.id.value) << ' ' << static_cast<int>(fx.kind) << ' ' << fx.gain << ' ' << fx.frequency << ' ' << fx.q << ' ' << fx.bypass << '\n';
+}
+std::vector<NativeInsert> read_inserts(std::istream& in) {
+    tag(in,"INSERTS"); const auto n=count(in); if (n>8) throw std::invalid_argument("too many inserts");
+    std::vector<NativeInsert> result;
+    for (std::size_t i=0;i<n;++i) {
+        NativeInsert fx; fx.id={quoted(in)}; int kind{},bypass{};
+        in >> kind >> fx.gain >> fx.frequency >> fx.q >> bypass; check_stream(in);
+        if (kind<0 || kind>3 || (bypass!=0 && bypass!=1)) throw std::invalid_argument("invalid insert kind/bypass");
+        fx.kind=static_cast<InsertKind>(kind); fx.bypass=bypass!=0; result.push_back(std::move(fx));
+    }
+    return result;
+}
 }
 std::string serialize(const Project& p) {
     p.validate();
@@ -65,6 +80,7 @@ std::string serialize(const Project& p) {
         for (const auto& send : track.sends) out << std::quoted(send.bus.value) << ' ' << send.gain << ' ' << send.pre_fader << '\n';
         out << track.input_stereo << ' ' << track.input_monitor << '\n';
         out << track.hardware_outputs.size(); for (const auto channel : track.hardware_outputs) out << ' ' << channel; out << '\n';
+        write_inserts(out,track.inserts);
     }
     section(out, "CLIPS", p.clips);
     for (const auto& clip : p.clips)
@@ -85,7 +101,7 @@ std::string serialize(const Project& p) {
             << part.start << ' ' << part.end << ' ' << part.color << '\n';
     out << "MASTER " << p.master_gain << '\n' << "HARDWARE " << p.master_outputs.size();
     for (const auto channel : p.master_outputs) out << ' ' << channel;
-    out << "\nEND\n";
+    out << '\n'; write_inserts(out,p.master_inserts); out << "END\n";
     auto result = out.str();
     if (result.size() > max_bytes) throw std::invalid_argument("snapshot byte limit exceeded");
     return result;
@@ -176,6 +192,7 @@ Project deserialize(std::string_view bytes) {
             const auto outputs = count(in); if (outputs > 2) throw std::invalid_argument("hardware output count");
             for (std::size_t j=0; j<outputs; ++j) { int channel{}; in >> channel; check_stream(in); track.hardware_outputs.push_back(channel); }
         }
+        if (input_version >= 8) track.inserts=read_inserts(in);
         p.tracks.push_back(std::move(track));
     }
     tag(in, "CLIPS");
@@ -228,6 +245,7 @@ Project deserialize(std::string_view bytes) {
         tag(in,"HARDWARE"); const auto outputs = count(in); if (outputs > 2) throw std::invalid_argument("master output count");
         for (std::size_t j=0; j<outputs; ++j) { int channel{}; in >> channel; check_stream(in); p.master_outputs.push_back(channel); }
     }
+    if (input_version >= 8) p.master_inserts=read_inserts(in);
     tag(in, "END");
     in >> std::ws;
     if (!in.eof()) throw std::invalid_argument("unknown trailing snapshot data");

@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <cstdlib>
+#include <cmath>
 #include <iostream>
 #include <limits>
 #include <new>
@@ -216,12 +217,37 @@ void realtime() {
     for (int i = 0; i < 140; ++i) { graph.panic(); graph.process(audio.data(),128); }
     CHECK(graph.metrics().output_overflows > 0);
 }
+
+void filters() {
+    using namespace mrs;
+    const auto response=[](InsertKind kind,float db,double hz) {
+        NativeInsert fx{new_id(),kind,db,1000,0.70710678f};
+        PreparedGraph graph{snapshot(insert_graph(std::array{fx})),{48000,2,128}};
+        std::array<float,256> audio{}; double sum{},reference{};
+        for (int block=0;block<96;++block) {
+            for (int f=0;f<128;++f) { const auto value=static_cast<float>(0.1*std::sin(2*3.141592653589793*hz*(block*128+f)/48000)); audio[static_cast<std::size_t>(f)*2]=value; audio[static_cast<std::size_t>(f)*2+1]=0; if (block>=32) reference+=value*value; }
+            const auto before=allocations.load(); probing=true; graph.process(audio.data(),128); probing=false; CHECK(allocations.load()==before);
+            for (int f=0;f<128;++f) { CHECK(std::isfinite(audio[static_cast<std::size_t>(f)*2]) && audio[static_cast<std::size_t>(f)*2+1]==0); if (block>=32) sum+=audio[static_cast<std::size_t>(f)*2]*audio[static_cast<std::size_t>(f)*2]; }
+        }
+        PreparedGraph restored{snapshot(graph.capture()),{48000,2,128}}; // opaque native state restore
+        return std::sqrt(sum/reference);
+    };
+    CHECK(std::abs(response(InsertKind::lowpass,1,100)-1)<0.03); CHECK(response(InsertKind::lowpass,1,8000)<0.03);
+    CHECK(response(InsertKind::highpass,1,100)<0.03); CHECK(response(InsertKind::highpass,1,8000)>0.95);
+    CHECK(std::abs(response(InsertKind::eq,6,1000)-std::pow(10.0,6.0/20))<0.03);
+    CHECK(std::abs(response(InsertKind::eq,0,1000)-1)<0.001);
+    NativeInsert bypass{new_id(),InsertKind::lowpass,1,20,10,true}; PreparedGraph wire{snapshot(insert_graph(std::array{bypass})),{8000,2,128}};
+    std::array<float,256> audio{}; audio[0]=.25f; audio[1]=-.75f; const auto exact=audio; wire.process(audio.data(),128); CHECK(audio==exact);
+    bypass.bypass=false; bypass.frequency=20000; PreparedGraph low_rate{snapshot(insert_graph(std::array{bypass})),{8000,2,128}};
+    for (int n=0;n<8;++n) { low_rate.process(audio.data(),128); for (auto sample:audio) CHECK(std::isfinite(sample)); }
+}
+
 }
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected suite");
         const std::string suite = argv[1];
-        if (suite == "midi") midi(); else if (suite == "model") model();
+        if (suite == "filters") filters(); else if (suite == "midi") midi(); else if (suite == "model") model();
         else if (suite == "graph") graph(); else if (suite == "parameters") parameters();
         else if (suite == "state") state(); else if (suite == "latency") latency();
         else if (suite == "engine") engine(); else if (suite == "realtime") realtime();

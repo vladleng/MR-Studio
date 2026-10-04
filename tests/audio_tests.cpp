@@ -1,4 +1,5 @@
 #include <mrs/audio.hpp>
+#include <mrs/processing.hpp>
 #include <mrs/device.hpp>
 #include <mrs/read_ahead.hpp>
 #include <mrs/recording.hpp>
@@ -595,6 +596,24 @@ void mixer() {
     graph.monitor_track = 2; rejects([&] { engine.prepare({48000,1,2,512},graph); });
 }
 
+
+void inserts() {
+    using namespace mrs::processing;
+    const auto prepared=[](float gain,std::uint32_t block) {
+        const std::array<NativeInsert,1> fx{{{new_id(),InsertKind::gain,gain}}};
+        auto saved=std::make_shared<const GraphState>(insert_graph(fx));
+        return std::make_shared<PreparedGraph>(GraphSnapshot{saved,0,false,false},ProcessConfig{48000,2,block});
+    };
+    RenderGraph graph; graph.mixer={{1,0,false,false},{1,0,false,false}}; graph.buses={false,true}; graph.outputs={1,no_mixer_track};
+    graph.monitor={{0,0,1,0},{0,1,1,0}}; graph.input_monitoring={true,false}; graph.inserts={prepared(.5f,1),prepared(.5f,1)}; graph.master_inserts=prepared(.5f,128);
+    AudioEngine engine; engine.prepare({48000,1,2,128},graph); std::array<float,128> in{}; in.fill(.4f); std::array<float,256> out{};
+    const auto before=allocation_check::count.load(); allocation_check::enabled=true; engine.process(in.data(),out.data(),128); allocation_check::enabled=false;
+    CHECK(allocation_check::count.load()==before); CHECK(std::abs(out[0]-.05f)<1e-6f && out[0]==out[1]);
+    graph.hardware_outputs={{},{1}}; engine.prepare({48000,1,2,128},graph); engine.process(in.data(),out.data(),128);
+    CHECK(out[0]==0 && std::abs(out[1]-.1f)<1e-6f); // direct bus bypasses Master inserts
+    graph.inserts.pop_back(); rejects([&] { engine.prepare({48000,1,2,128},graph); });
+}
+
 void multi_input() {
     TempFile mono, stereo;
     auto first=std::make_shared<Recorder>(mono.path,48000,100,std::vector<std::uint32_t>{2});
@@ -657,7 +676,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
-        if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if (suite=="inserts") inserts(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();

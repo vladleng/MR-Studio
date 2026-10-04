@@ -53,6 +53,11 @@ void Track::Mix::validate() const {
     require(std::isfinite(gain) && gain >= 0 && gain <= 16 &&
         std::isfinite(pan) && pan >= -1 && pan <= 1, "invalid track mix");
 }
+void NativeInsert::validate() const {
+    require(kind >= InsertKind::gain && kind <= InsertKind::eq,"invalid insert kind");
+    require(std::isfinite(gain) && (kind == InsertKind::eq ? gain >= -24 && gain <= 24 : gain >= 0 && gain <= 4),"invalid insert gain");
+    require(std::isfinite(frequency) && frequency >= 20 && frequency <= 20000 && std::isfinite(q) && q >= 0.1f && q <= 10,"invalid filter frequency/Q");
+}
 void Project::validate() const {
     require(version == schema_version, "unsupported project schema");
     require(sample_rate >= 8000 && sample_rate <= 768000, "invalid sample rate");
@@ -69,6 +74,13 @@ void Project::validate() const {
         require(!entity.value.empty() && entity.value.size() <= 128, "invalid entity ID");
         require(ids.insert(entity.value).second, "duplicate entity ID");
     };
+    std::size_t insert_count{};
+    const auto inserts = [&](const std::vector<NativeInsert>& chain) {
+        require(chain.size() <= 8,"insert chain supports up to eight effects"); insert_count += chain.size();
+        require(insert_count <= 32,"project supports up to 32 native inserts");
+        for (const auto& effect : chain) { effect.validate(); add_id(effect.id); }
+    };
+    inserts(master_inserts);
     add_id(id);
     std::unordered_map<std::string, const Folder*> folder_by_id;
     for (const auto& folder : folders) {
@@ -86,7 +98,8 @@ void Project::validate() const {
     }
     std::unordered_set<std::string> track_ids;
     for (const auto& track : tracks) {
-        track.mix.validate(); physical(track.hardware_outputs);
+        track.mix.validate(); physical(track.hardware_outputs); inserts(track.inserts);
+        require(track.kind != TrackKind::midi || track.inserts.empty(),"audio inserts require an audio track or bus");
         require(track.hardware_outputs.empty() || (!track.output && track.kind != TrackKind::midi),"hardware output conflicts with bus/MIDI routing");
         add_id(track.id);
         require(track.kind == TrackKind::audio || track.kind == TrackKind::midi || track.kind == TrackKind::bus, "invalid track kind");

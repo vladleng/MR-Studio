@@ -94,7 +94,20 @@ enum ControlId {
     new_project_button = 160, import_batch, add_track, delete_track, track_up, track_down, zoom_in, zoom_out, zoom_fit, split_clip_button, delete_clip_button, snap_button,
     record_button = 172, arm_button, monitor_button, add_bus_button, files_exit = 180, studio_folder_button,
     device_combo = 200, rate_edit, buffer_edit, outputs_edit, input_edit,
-    connect_button, disconnect_button, panel_button, refresh_button, profile_combo = 220, profile_name, profile_save, profile_load, profile_delete
+    connect_button, disconnect_button, panel_button, refresh_button, profile_combo = 220, profile_name, profile_save, profile_load, profile_delete,
+    fx_list=300, fx_kind, fx_add, fx_remove, fx_up, fx_down, fx_bypass, fx_value, fx_frequency, fx_q, fx_apply
+};
+// Hidden smoke transport has one explicit callback consumer: the test steps.
+class SmokeDevice final : public audio::IAudioDevice {
+    audio::DevicePhase phase_{audio::DevicePhase::closed};
+public:
+    std::vector<audio::DeviceInfo> enumerate() override { return {{0,"Smoke",{},{"L","R"},32,2048,128,-1}}; }
+    void control_panel(int) override {}
+    void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>) override { phase_=audio::DevicePhase::open; }
+    void start() override { phase_=audio::DevicePhase::running; }
+    void stop() override { phase_=audio::DevicePhase::stopped; }
+    void close() noexcept override { phase_=audio::DevicePhase::closed; }
+    audio::DeviceStatus status() override { return {phase_,48000,0,0,0,{}}; }
 };
 struct UI {
     Application app;
@@ -102,7 +115,12 @@ struct UI {
     std::filesystem::path folder;
     Logger log;
     StudioFolders studio;
-    HWND window{}, settings{};
+    HWND window{}, settings{}, fx_window{};
+    std::optional<Id> fx_target{};
+    std::size_t fx_selection{};
+    bool fx_editable{};
+    void open_fx(std::optional<Id>);
+    void fx_create(); void fx_refresh(); void fx_command(int);
     HFONT normal{}, heading{}, big{};
     HBRUSH panel_brush{CreateSolidBrush(panel)};
     UINT dpi{96}, settings_dpi{96};
@@ -126,6 +144,7 @@ struct UI {
     std::array<int,4> wheel_remainder{};
     bool fit_view{true};
     std::size_t first_track{};
+    double track_offset{}; // logical pixels inside the first visible row
     std::optional<Id> selected_track, selected_clip;
     bool snap{};
     enum class DragMode { move, left, right };
@@ -281,6 +300,7 @@ struct UI {
     }
     void refresh_mix_controls() {
         const auto state = app.services().projects->state();
+        if (fx_window) fx_refresh();
         enable_changed(undo,state.can_undo && !app.recording());
         enable_changed(redo,state.can_redo && !app.recording());
         const auto title = L"Moon River Studio " + wide(application_version) + L" — " + wide(state.project->title) + (app.dirty() ? L" *" : L"");
@@ -303,6 +323,7 @@ struct UI {
             text_changed(child(rename_edit),wide(found->name));
         } else { selected_track.reset(); text_changed(child(rename_edit),L""); }
         first_track = std::min(first_track,project->tracks.empty() ? std::size_t{0} : project->tracks.size()-1);
+        scroll_tracks(0);
         if (selected_clip && std::none_of(project->clips.begin(),project->clips.end(),[&](const auto& c) { return c.id == *selected_clip; })) selected_clip.reset();
         enable_changed(split_clip_button,selected_clip.has_value() && !app.recording()); enable_changed(delete_clip_button,selected_clip.has_value() && !app.recording());
         prefs.rate = project->sample_rate;
@@ -364,6 +385,15 @@ struct UI {
     int row_height() const { return s(track_height); }
     int clip_height() const { return row_height()-s(36); }
     int arrangement_bottom() const { return app.workspace() == Workspace::mix ? mix_area().top : canvas.bottom; }
+    int track_offset_pixels() const { return s(static_cast<int>(std::round(track_offset))); }
+    void scroll_tracks(double pixels) {
+        const auto count=app.services().projects->state().project->tracks.size();
+        const double visible=static_cast<double>(std::max(0,arrangement_bottom()-audio_top()))*96/dpi;
+        const double maximum=std::max(0.0,static_cast<double>(count)*track_height-visible);
+        const double position=std::clamp(static_cast<double>(first_track)*track_height+track_offset+pixels,0.0,maximum);
+        first_track=static_cast<std::size_t>(position/track_height); track_offset=position-static_cast<double>(first_track)*track_height;
+    }
+    void space_action() { command(app.engine()->state().playback == PlaybackState::playing ? stop : play,0); }
     void wheel(POINT point, int delta, unsigned keys) {
         if (drag || mix_drag || (app.workspace() != Workspace::arrange && app.workspace() != Workspace::mix)) return;
         RECT region{s(8),canvas.top,canvas.right,arrangement_bottom()};
@@ -371,6 +401,7 @@ struct UI {
         if (!PtInRect(&region,point) && !in_mixer) return;
         const bool control=(keys & MK_CONTROL) != 0, shift=(keys & MK_SHIFT) != 0;
         const std::size_t action=control ? (shift ? 0 : 1) : (shift ? 2 : 3);
+        if (action == 3) { scroll_tracks(-static_cast<double>(delta)*32/WHEEL_DELTA); InvalidateRect(window,nullptr,FALSE); return; }
         auto& remainder=wheel_remainder[action]; remainder+=delta; const int steps=remainder/WHEEL_DELTA; remainder%=WHEEL_DELTA;
         if (!steps) return;
         if (in_mixer && shift && !control) {
@@ -383,10 +414,7 @@ struct UI {
             view_start=std::max(0.0,anchor-fraction*visible_seconds);
         } else if (action == 1) track_height=static_cast<int>(std::clamp(std::round(track_height*std::pow(1.2,steps)),92.0,320.0));
         else if (action == 2) { fit_view=false; view_start=std::max(0.0,view_start-steps*visible_seconds/10); }
-        else {
-            const auto count=app.services().projects->state().project->tracks.size(); const auto next=static_cast<long long>(first_track)-steps;
-            first_track=count ? static_cast<std::size_t>(std::clamp(next,0LL,static_cast<long long>(count-1))) : 0;
-        }
+        scroll_tracks(0);
         InvalidateRect(window,nullptr,FALSE);
     }
     int sample_x(Sample sample) const {
@@ -399,14 +427,14 @@ struct UI {
         return static_cast<Sample>(std::clamp(seconds*rate,0.0,static_cast<double>(max_sample)));
     }
     std::optional<Id> track_at(int y) const {
-        if (y < audio_top()) return {};
-        const auto index = first_track+static_cast<std::size_t>((y-audio_top())/row_height());
+        if (y < audio_top() || y >= arrangement_bottom()) return {};
+        const auto index = first_track+static_cast<std::size_t>((y-audio_top()+track_offset_pixels())/row_height());
         const auto p = app.services().projects->state().project;
         return index < p->tracks.size() ? std::optional<Id>{p->tracks[index].id} : std::nullopt;
     }
     std::optional<Clip> hit_clip(POINT point) const {
         if (!PtInRect(&canvas,point) || point.y < audio_top() || point.y >= arrangement_bottom()) return {};
-        const auto row = (point.y-audio_top())%row_height();
+        const auto row = (point.y-audio_top()+track_offset_pixels())%row_height();
         if (row < s(26) || row >= row_height()-s(10)) return {};
         const auto track = track_at(point.y); if (!track) return {};
         const auto p = app.services().projects->state().project;
@@ -485,7 +513,7 @@ struct UI {
             if (app.recording() || index >= prefs.recent_projects.size() || !discard()) return;
             const auto name = prefs.recent_projects[index];
             app.open_project(std::filesystem::path(std::u8string(name.begin(),name.end())));
-            recent_project(); fit_view = true; view_start = 0; first_track = 0; refresh_models(); restore_audio(); return;
+            recent_project(); fit_view = true; view_start = 0; first_track = 0; track_offset=0; refresh_models(); restore_audio(); return;
         }
         if (id >= nav_arrange && id <= nav_mix) { app.workspace(id == nav_mix && app.workspace() == Workspace::mix ? Workspace::arrange : static_cast<Workspace>(id-nav_arrange)); sync_workspace_controls(); for (int i = nav_arrange; i <= nav_mix; ++i) InvalidateRect(child(i),nullptr,FALSE); InvalidateRect(window,nullptr,FALSE); return; }
         if (id == tracks && notification == LBN_SELCHANGE) {
@@ -493,7 +521,7 @@ struct UI {
             const auto project = app.services().projects->state().project;
             if (selection >= 0 && static_cast<std::size_t>(selection) < project->tracks.size()) {
                 selected_track = project->tracks[static_cast<std::size_t>(selection)].id;
-                first_track = static_cast<std::size_t>(selection);
+                first_track = static_cast<std::size_t>(selection); track_offset=0;
                 const bool armed = app.armed_track() && *selected_track == *app.armed_track();
                 SetWindowTextW(child(arm_button),armed ? L"Disarm" : L"Arm track");
                 EnableWindow(child(arm_button),project->tracks[static_cast<std::size_t>(selection)].kind == TrackKind::audio && !app.recording());
@@ -535,7 +563,7 @@ struct UI {
                 const auto path = project_folder_file(selected);
                 if (std::filesystem::exists(path)) throw std::runtime_error("This project already exists. Choose a new name.");
                 app.new_project(prefs.rate,narrow(path.stem().wstring())); app.save_project(path); recent_project();
-                fit_view = true; view_start = 0; first_track = 0; refresh_models(); restore_audio();
+                fit_view = true; view_start = 0; first_track = 0; track_offset=0; refresh_models(); restore_audio();
             }
         } break;
         case import_batch: {
@@ -558,7 +586,7 @@ struct UI {
                 auto index = static_cast<std::size_t>(it-p->tracks.begin());
                 if (id == track_up && index > 0) --index;
                 else if (id == track_down && index+1 < p->tracks.size()) ++index;
-                app.reorder_track(it->id,index); first_track = index; refresh_models();
+                app.reorder_track(it->id,index); first_track = index; track_offset=0; refresh_models();
             }
             break;
         }
@@ -654,8 +682,10 @@ struct UI {
             RECT block{x_tick(section.start)+1,top+s(compact ? 58 : 148),x_tick(section.end)-1,top+s(compact ? 80 : 183)}; fill(dc,block,color);
             text(dc,block.left+s(8),block.top,block.right-block.left-s(16),block.bottom-block.top,wide(section.name));
         }
+        const auto row_clip=SaveDC(dc);
+        if (!moving) IntersectClipRect(dc,rect.left,audio_top(),rect.right,arrangement_bottom());
         if (!moving) {
-            int y = audio_top();
+            int y = audio_top()-track_offset_pixels();
             for (std::size_t ti = first_track; ti < project->tracks.size(); ++ti) {
                 const auto& track = project->tracks[ti];
                 if (y+s(30) > arrangement_bottom()) break;
@@ -704,11 +734,12 @@ struct UI {
             if (track != project->tracks.end() && row >= first_track) {
                 const auto frames = static_cast<Sample>(app.recording_status().frames);
                 const auto start = app.recording_start();
-                const int y = audio_top()+static_cast<int>(row-first_track)*row_height()+s(26);
+                const int y = audio_top()+static_cast<int>(row-first_track)*row_height()+s(26)-track_offset_pixels();
                 RECT take{x_sample(start),y,x_sample(start+frames),y+clip_height()};
                 if (take.right > take.left) { fill(dc,take,RGB(112,43,43)); text(dc,take.left+s(8),y,take.right-take.left-s(16),s(24),L"Recording..."); }
             }
         }
+        RestoreDC(dc,row_clip);
         const auto position = moving ? x_tick(context.tick) : x_sample(context.transport.sample);
         line(dc,position,top+s(32),position,arrangement_bottom(),RGB(206,218,230));
         RestoreDC(dc,saved);
@@ -729,12 +760,13 @@ struct UI {
         return {x,area.top+s(44),x+s(112),area.bottom-s(8)};
     }
     RECT mix_control(RECT r, int row) const {
-        if (row == 34) return {r.left+s(12),r.top+s(34),r.left+s(48),r.bottom-s(78)};
-        if (row == 68) return {r.left+s(60),r.top+s(34),r.right-s(8),r.top+s(56)};
+        if (row == 34) return {r.left+s(12),r.top+s(60),r.left+s(48),r.bottom-s(78)};
+        if (row == 68) return {r.left+s(60),r.top+s(56),r.right-s(8),r.top+s(78)};
         if (row == 164) return {r.left+s(8),r.bottom-s(54),r.right-s(8),r.bottom-s(30)};
         if (row == 220) return {r.left+s(8),r.bottom-s(28),r.right-s(8),r.bottom-s(4)};
         return {r.left+s(10),r.top+s(row),r.right-s(10),r.top+s(row+22)};
     }
+    RECT insert_control(RECT r) const { return {r.left+s(8),r.top+s(28),r.right-s(8),r.top+s(52)}; }
     RECT output_control(RECT r, bool bus) const { auto result = mix_control(r,164); if (bus) result.right -= s(36); return result; }
     RECT remove_bus_control(RECT r) const { auto result = mix_control(r,164); result.left = result.right-s(32); return result; }
     static float fader_position(float gain) { return gain <= 0 ? 0 : std::clamp((20*std::log10(gain)+60)/72,0.0f,1.0f); }
@@ -755,6 +787,8 @@ struct UI {
             float gain = track ? mix.gain : app.services().projects->state().project->master_gain;
             if (mix_drag && ((track && mix_drag->track == track->id) || (!track && !mix_drag->track))) { mix = mix_drag->mix; gain = track ? mix.gain : mix_drag->master; }
             text(dc,r.left+s(8),r.top,r.right-r.left-s(16),s(28),track ? (track->kind == TrackKind::bus ? L"[BUS] " : L"")+wide(track->name) : L"MASTER",normal,track && track->kind != TrackKind::bus ? ink : amber);
+            const auto effects=track ? track->inserts.size() : app.services().projects->state().project->master_inserts.size();
+            const auto insert=insert_control(r); fill(dc,insert,border); text(dc,insert.left,insert.top,insert.right-insert.left,insert.bottom-insert.top,L"Inserts ("+std::to_wstring(effects)+L")...");
             const auto g = mix_control(r,34); fill(dc,g,RGB(26,26,26));
             const int gy = g.bottom-static_cast<int>(fader_position(gain)*(g.bottom-g.top));
             line(dc,(g.left+g.right)/2,g.top+s(3),(g.left+g.right)/2,g.bottom-s(3),border);
@@ -764,13 +798,13 @@ struct UI {
             if (track) {
                 const auto p = mix_control(r,68); fill(dc,p,border);
                 text(dc,p.left,p.top,p.right-p.left,p.bottom-p.top,mix.pan == 0 ? L"Center" : (mix.pan < 0 ? L"L " : L"R ")+std::to_wstring(static_cast<int>(std::abs(mix.pan)*100)));
-                RECT m{r.left+s(60),r.top+s(68),r.right-s(8),r.top+s(88)}, solo{m.left,r.top+s(86),m.right,r.top+s(108)};
+                RECT m{r.left+s(60),r.top+s(82),r.right-s(8),r.top+s(102)}, solo{m.left,r.top+s(104),m.right,r.top+s(126)};
                 fill(dc,m,mix.mute ? RGB(143,67,56) : border); fill(dc,solo,mix.solo ? RGB(132,105,44) : border);
                 text(dc,m.left,m.top,m.right-m.left,m.bottom-m.top,L"Mute"); text(dc,solo.left,solo.top,solo.right-solo.left,solo.bottom-solo.top,L"Solo");
             }
             for (int c=0; c<2; ++c) {
                 const float v = c == 0 ? peak.left : peak.right;
-                RECT meter{r.left+s(64+c*18),r.top+s(112),r.left+s(74+c*18),r.bottom-s(80)}; fill(dc,meter,RGB(22,22,22));
+                RECT meter{r.left+s(64+c*18),r.top+s(130),r.left+s(74+c*18),r.bottom-s(80)}; fill(dc,meter,RGB(22,22,22));
                 const float fraction = v > 0 ? std::clamp((20*std::log10(v)+60)/60,0.0f,1.0f) : 0;
                 fill(dc,{meter.left,meter.bottom-static_cast<int>(fraction*(meter.bottom-meter.top)),meter.right,meter.bottom},v >= 1 ? RGB(230,70,60) : v > 0.7f ? amber : RGB(100,178,126));
             }
@@ -837,7 +871,7 @@ struct UI {
         }
         refresh_models();
     }
-    RECT mini_rect(std::size_t index) const { const int y = audio_top()+static_cast<int>(index-first_track)*row_height(); return {s(8),y,canvas.left-s(4),y+row_height()-s(4)}; }
+    RECT mini_rect(std::size_t index) const { const int y = audio_top()+(static_cast<int>(index)-static_cast<int>(first_track))*row_height()-track_offset_pixels(); return {s(8),y,canvas.left-s(4),y+row_height()-s(4)}; }
     void paint_minis(HDC dc) {
         const auto project = app.services().projects->state().project;
         std::size_t channel{};
@@ -882,6 +916,7 @@ struct UI {
         RestoreDC(dc,saved);
     }
     bool mini_down(POINT point, bool reset=false) {
+        if (point.y<audio_top() || point.y>=arrangement_bottom()) return false;
         const auto project = app.services().projects->state().project;
         for (std::size_t i=first_track; i<project->tracks.size(); ++i) {
             const auto r = mini_rect(i); if (point.y >= arrangement_bottom() || !PtInRect(&r,point)) continue;
@@ -973,6 +1008,7 @@ struct UI {
             const auto t = master ? nullptr : &all[slot];
             auto mix = t ? t->mix : Track::Mix{};
             if (t && selected_track != t->id) { selected_track = t->id; refresh_models(); }
+            const auto insert=insert_control(r); if (PtInRect(&insert,point)) { open_fx(t ? std::optional<Id>{t->id} : std::nullopt); return; }
             const auto route = output_control(r,t && t->kind == TrackKind::bus), remove = remove_bus_control(r);
             if (PtInRect(&route,point)) { choose_bus(t,point); return; }
             if (t && t->kind == TrackKind::bus && PtInRect(&remove,point)) {
@@ -993,8 +1029,8 @@ struct UI {
                 mix_drag = MixDrag{t ? std::optional<Id>{t->id} : std::nullopt,mix,app.services().projects->state().project->master_gain,pan,pan ? p : g,!pan};
                 SetCapture(window); mixer_move(point); return;
             }
-            if (t && point.x >= r.left+s(60) && point.y >= r.top+s(60) && point.y < r.top+s(108)) {
-                if (point.y < r.top+s(84)) mix.mute = !mix.mute; else mix.solo = !mix.solo;
+            if (t && point.x >= r.left+s(60) && point.y >= r.top+s(82) && point.y < r.top+s(126)) {
+                if (point.y < r.top+s(103)) mix.mute = !mix.mute; else mix.solo = !mix.solo;
                 app.set_track_mix(t->id,mix); refresh_models();
             }
             return;
@@ -1052,18 +1088,19 @@ struct UI {
         line(dc,0,area.bottom-s(76),area.right,area.bottom-s(76));
         text(dc,s(20),area.bottom-s(30),area.right-s(40),s(24),bottom.str(),normal,(status.phase == audio::DevicePhase::error || metrics.disk_errors || metrics.disk_underruns) ? RGB(242,100,100) : muted);
     }
-    void export_preview() {
-        RECT area{}; GetClientRect(window,&area);
-        const auto dc=GetDC(window), buffer=CreateCompatibleDC(dc);
+    void export_preview(HWND target=nullptr) {
+        if (!target) target=window;
+        RECT area{}; GetClientRect(target,&area);
+        const auto dc=GetDC(target), buffer=CreateCompatibleDC(dc);
         const auto bitmap=CreateCompatibleBitmap(dc,area.right,area.bottom); const auto old=SelectObject(buffer,bitmap);
-        paint(buffer);
-        for (auto control=GetWindow(window,GW_CHILD); control; control=GetWindow(control,GW_HWNDNEXT)) {
+        if (target==window) paint(buffer); else fill(buffer,area,panel);
+        for (auto control=GetWindow(target,GW_CHILD); control; control=GetWindow(control,GW_HWNDNEXT)) {
             if (!(GetWindowLongPtrW(control,GWL_STYLE) & WS_VISIBLE)) continue;
-            RECT r{}; GetWindowRect(control,&r); MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&r),2);
+            RECT r{}; GetWindowRect(control,&r); MapWindowPoints(nullptr,target,reinterpret_cast<POINT*>(&r),2);
             const int saved=SaveDC(buffer); IntersectClipRect(buffer,r.left,r.top,r.right,r.bottom);
             fill(buffer,r,panel);
             wchar_t class_name[32]{}; GetClassNameW(control,class_name,32);
-            if (std::wstring_view(class_name) == L"Edit") {
+            if (std::wstring_view(class_name) == L"Edit" || std::wstring_view(class_name) == L"ComboBox") {
                 const auto edge=CreateSolidBrush(border); FrameRect(buffer,&r,edge); DeleteObject(edge);
                 text(buffer,r.left+s(6),r.top,r.right-r.left-s(12),r.bottom-r.top,control_text(control));
             } else {
@@ -1078,9 +1115,9 @@ struct UI {
         std::vector<char> pixels(static_cast<std::size_t>(area.right)*area.bottom*4);
         if (!GetDIBits(dc,bitmap,0,static_cast<UINT>(area.bottom),pixels.data(),&info,DIB_RGB_COLORS)) throw std::runtime_error("Cannot capture UI preview");
         BITMAPFILEHEADER header{}; header.bfType=0x4d42; header.bfOffBits=sizeof(header)+sizeof(BITMAPINFOHEADER); header.bfSize=header.bfOffBits+static_cast<DWORD>(pixels.size());
-        std::ofstream out(folder/L"0.1j-preview.bmp",std::ios::binary);
+        std::ofstream out(folder/(target==window ? L"0.1k-preview.bmp" : L"0.1k-inserts-preview.bmp"),std::ios::binary);
         out.write(reinterpret_cast<const char*>(&header),sizeof(header)); out.write(reinterpret_cast<const char*>(&info.bmiHeader),sizeof(BITMAPINFOHEADER)); out.write(pixels.data(),static_cast<std::streamsize>(pixels.size()));
-        DeleteObject(bitmap); DeleteDC(buffer); ReleaseDC(window,dc);
+        DeleteObject(bitmap); DeleteDC(buffer); ReleaseDC(target,dc);
         if (!out) throw std::runtime_error("Cannot write UI preview");
     }
     void restore_audio();
@@ -1121,6 +1158,115 @@ void UI::paint_settings(HDC dc) {
         text(dc,ss(20),ss(395+static_cast<int>(i)*32),ss(540),ss(30),settings_status_text[i],settings_font,muted);
 }
 LRESULT CALLBACK settings_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
+LRESULT CALLBACK fx_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
+
+std::vector<NativeInsert> fx_chain(const UI& ui) {
+    const auto project=ui.app.services().projects->state().project;
+    if (!ui.fx_target) return project->master_inserts;
+    for (const auto& track : project->tracks) if (track.id==ui.fx_target) return track.inserts;
+    throw std::invalid_argument("Insert channel was removed; reopen its editor");
+}
+std::wstring fx_name(InsertKind kind) {
+    return kind==InsertKind::gain ? L"Gain" : kind==InsertKind::highpass ? L"High-pass" : kind==InsertKind::lowpass ? L"Low-pass" : L"Parametric EQ";
+}
+void UI::open_fx(std::optional<Id> target) {
+    if (fx_window) DestroyWindow(fx_window); fx_target=std::move(target); fx_selection=0;
+    std::wstring name=L"Master"; const auto project=app.services().projects->state().project;
+    if (fx_target) for (const auto& track : project->tracks) if (track.id==fx_target) name=wide(track.name);
+    fx_window=CreateWindowExW(WS_EX_CONTROLPARENT | WS_EX_TOOLWINDOW,L"MRStudioInserts",(L"Inserts — "+name).c_str(),
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,s(560),s(540),window,nullptr,GetModuleHandleW(nullptr),this);
+    if (!fx_window) throw std::runtime_error("Cannot open insert editor");
+    if (!smoke) { ShowWindow(fx_window,SW_SHOW); SetForegroundWindow(fx_window); }
+}
+void UI::fx_create() {
+    const auto make=[&](const wchar_t* cls,const wchar_t* label,int id,int x,int y,int w,int h,DWORD style) {
+        const auto control=CreateWindowExW(cls==std::wstring_view(L"EDIT") ? WS_EX_CLIENTEDGE : 0,cls,label,
+            WS_CHILD | WS_VISIBLE | style,s(x),s(y),s(w),s(h),fx_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);
+        if (!control) throw std::runtime_error("Cannot create insert editor control");
+        SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(normal),TRUE); return control;
+    };
+    make(L"LISTBOX",L"",fx_list,20,20,500,170,LBS_NOTIFY | WS_BORDER | WS_VSCROLL | WS_TABSTOP);
+    const auto kinds=make(L"COMBOBOX",L"",fx_kind,20,200,300,180,CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL);
+    for (const auto kind : {InsertKind::gain,InsertKind::highpass,InsertKind::lowpass,InsertKind::eq}) SendMessageW(kinds,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(fx_name(kind).c_str()));
+    SendMessageW(kinds,CB_SETCURSEL,0,0);
+    make(L"BUTTON",L"Add",fx_add,340,200,180,28,BS_OWNERDRAW | WS_TABSTOP);
+    const std::array<std::pair<int,const wchar_t*>,4> buttons{{{fx_remove,L"Remove"},{fx_up,L"Move up"},{fx_down,L"Move down"},{fx_bypass,L"Bypass"}}};
+    for (std::size_t n=0;n<buttons.size();++n) make(L"BUTTON",buttons[n].second,buttons[n].first,20+static_cast<int>(n)*126,240,120,28,BS_OWNERDRAW | WS_TABSTOP);
+    make(L"STATIC",L"Gain (dB)",0,20,290,240,28,0); make(L"EDIT",L"0",fx_value,280,290,240,28,WS_TABSTOP | ES_AUTOHSCROLL);
+    make(L"STATIC",L"Frequency (20–20000 Hz)",0,20,330,240,28,0); make(L"EDIT",L"1000",fx_frequency,280,330,240,28,WS_TABSTOP | ES_AUTOHSCROLL);
+    make(L"STATIC",L"Q (0.1–10)",0,20,370,240,28,0); make(L"EDIT",L"0.7071",fx_q,280,370,240,28,WS_TABSTOP | ES_AUTOHSCROLL);
+    make(L"BUTTON",L"Apply parameters",fx_apply,280,415,240,30,BS_OWNERDRAW | WS_TABSTOP);
+    make(L"STATIC",L"Pause/Stop to edit. Native effects: zero sample latency.",0,20,458,500,28,0);
+    fx_refresh();
+}
+void UI::fx_refresh() {
+    if (!fx_window) return;
+    const auto project=app.services().projects->state().project;
+    if (fx_target && std::none_of(project->tracks.begin(),project->tracks.end(),[&](const auto& t) { return t.id==fx_target; })) { DestroyWindow(fx_window); return; }
+    const auto chain=fx_chain(*this); const auto child=[&](int id) { return GetDlgItem(fx_window,id); };
+    fx_selection=chain.empty() ? 0 : std::min(fx_selection,chain.size()-1);
+    SendMessageW(child(fx_list),LB_RESETCONTENT,0,0);
+    for (std::size_t n=0;n<chain.size();++n) {
+        const auto label=std::to_wstring(n+1)+L". "+fx_name(chain[n].kind)+(chain[n].bypass ? L" [bypass]" : L"");
+        SendMessageW(child(fx_list),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(label.c_str()));
+    }
+    SendMessageW(child(fx_list),LB_SETCURSEL,fx_selection,0);
+    const bool editable=!app.recording() && app.engine()->state().playback!=PlaybackState::playing, selected=!chain.empty();
+    fx_editable=editable;
+    const auto enable=[&](int id,bool active) { if ((IsWindowEnabled(child(id))!=FALSE)!=active) EnableWindow(child(id),active); };
+    enable(fx_add,editable && chain.size()<8); enable(fx_remove,editable && selected); enable(fx_up,editable && selected && fx_selection>0);
+    enable(fx_down,editable && selected && fx_selection+1<chain.size()); enable(fx_bypass,editable && selected); enable(fx_apply,editable && selected);
+    if (!selected) { enable(fx_value,false); enable(fx_frequency,false); enable(fx_q,false); return; }
+    const auto& effect=chain[fx_selection]; const bool filter=effect.kind!=InsertKind::gain, eq=effect.kind==InsertKind::eq;
+    enable(fx_value,editable && (!filter || eq)); enable(fx_frequency,editable && filter); enable(fx_q,editable && filter);
+    const auto formatted=[](float value) { std::wostringstream s; s << std::setprecision(7) << value; return s.str(); };
+    text_changed(child(fx_value),eq ? formatted(effect.gain) : effect.gain==0 ? L"-inf" : formatted(20*std::log10(effect.gain)));
+    text_changed(child(fx_frequency),formatted(effect.frequency)); text_changed(child(fx_q),formatted(effect.q));
+    text_changed(child(fx_bypass),effect.bypass ? L"Enable" : L"Bypass");
+}
+void UI::fx_command(int id) {
+    if (id==fx_list) { const auto index=SendMessageW(GetDlgItem(fx_window,fx_list),LB_GETCURSEL,0,0); if (index>=0) fx_selection=static_cast<std::size_t>(index); fx_refresh(); return; }
+    if (id==fx_kind || (id>=fx_value && id<=fx_q)) return;
+    auto chain=fx_chain(*this); const auto index=fx_selection;
+    if (id==fx_add) {
+        const auto kind=SendMessageW(GetDlgItem(fx_window,fx_kind),CB_GETCURSEL,0,0); if (kind<0 || kind>3) return;
+        NativeInsert effect; effect.id=new_id(); effect.kind=static_cast<InsertKind>(kind); if (effect.kind==InsertKind::eq) effect.gain=0;
+        chain.push_back(effect); fx_selection=chain.size()-1;
+    } else {
+        if (index>=chain.size()) return;
+        if (id==fx_remove) chain.erase(chain.begin()+static_cast<std::ptrdiff_t>(index));
+        else if (id==fx_up && index>0) { std::swap(chain[index],chain[index-1]); --fx_selection; }
+        else if (id==fx_down && index+1<chain.size()) { std::swap(chain[index],chain[index+1]); ++fx_selection; }
+        else if (id==fx_bypass) chain[index].bypass=!chain[index].bypass;
+        else if (id==fx_apply) {
+            const auto parse=[&](int control) { const auto text=narrow(control_text(GetDlgItem(fx_window,control))); std::size_t consumed{}; const auto value=std::stof(text,&consumed); if (consumed!=text.size() || !std::isfinite(value)) throw std::invalid_argument("Enter a finite number; use a dot for decimals"); return value; };
+            auto& effect=chain[index];
+            if (effect.kind==InsertKind::gain) {
+                if (control_text(GetDlgItem(fx_window,fx_value))==L"-inf") effect.gain=0;
+                else { const auto db=parse(fx_value); if (db < -60 || db > 12) throw std::invalid_argument("Gain range: -60 to +12 dB, or -inf"); effect.gain=std::pow(10.0f,db/20); }
+            } else { effect.frequency=parse(fx_frequency); effect.q=parse(fx_q); if (effect.kind==InsertKind::eq) effect.gain=parse(fx_value); }
+        } else return;
+    }
+    app.set_inserts(fx_target,std::move(chain)); fx_refresh(); refresh_mix_controls();
+}
+LRESULT CALLBACK fx_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+    auto ui=reinterpret_cast<UI*>(GetWindowLongPtrW(hwnd,GWLP_USERDATA));
+    if (message==WM_NCCREATE) { ui=static_cast<UI*>(reinterpret_cast<CREATESTRUCTW*>(lparam)->lpCreateParams); ui->fx_window=hwnd; SetWindowLongPtrW(hwnd,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(ui)); }
+    if (!ui) return DefWindowProcW(hwnd,message,wparam,lparam);
+    try {
+        switch (message) {
+        case WM_CREATE: ui->fx_create(); return 0;
+        case WM_COMMAND: if (HIWORD(wparam)==BN_CLICKED || (LOWORD(wparam)==fx_list && HIWORD(wparam)==LBN_SELCHANGE)) ui->fx_command(LOWORD(wparam)); return 0;
+        case WM_DRAWITEM: ui->draw_button(*reinterpret_cast<DRAWITEMSTRUCT*>(lparam)); return TRUE;
+        case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX:
+            SetTextColor(reinterpret_cast<HDC>(wparam),ink); SetBkColor(reinterpret_cast<HDC>(wparam),panel); return reinterpret_cast<LRESULT>(ui->panel_brush);
+        case WM_CLOSE: DestroyWindow(hwnd); return 0;
+        case WM_DESTROY: ui->fx_window=nullptr; return 0;
+        }
+    } catch (const std::exception& e) { ui->error(e); if (ui->smoke) PostQuitMessage(1); }
+    return DefWindowProcW(hwnd,message,wparam,lparam);
+}
+
 void UI::restore_audio() {
     if (!prefs.reconnect_audio || prefs.device_name.empty()) return;
 #ifdef MRS_HAS_ASIO
@@ -1329,7 +1475,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                 for (std::size_t i=0; i<audio::max_mixer_tracks; ++i) decay(ui->mix_meters.tracks[i],peaks.tracks[i]);
                 decay(ui->mix_meters.master,peaks.master);
                 if (ui->mix_drag) (void)ui->app.preview_mix(ui->mix_drag->track,ui->mix_drag->mix,ui->mix_drag->master);
-                try { const bool recording = ui->app.recording(); ui->app.poll(); if (recording != ui->app.recording()) ui->refresh_models(); ui->sync_workspace_controls(); } catch (const std::runtime_error&) { return 0; } // bounded mailbox can be busy
+                try { const bool recording = ui->app.recording(); ui->app.poll(); if (recording != ui->app.recording()) ui->refresh_models(); ui->sync_workspace_controls(); if (ui->fx_window && ui->fx_editable!=(!ui->app.recording() && ui->app.engine()->state().playback!=PlaybackState::playing)) ui->fx_refresh(); } catch (const std::runtime_error&) { return 0; } // bounded mailbox can be busy
                 InvalidateRect(hwnd,nullptr,FALSE); ui->refresh_settings_status(); return 0;
             }
             if (wparam == 2 && ui->smoke) {
@@ -1518,18 +1664,20 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     if (ui->app.services().projects->state().revision != project_revision) throw std::runtime_error("View changes modified project history");
                     for (int n=0; n<6; ++n) (void)ui->app.add_audio_track("Track "+std::to_string(n+2));
                     ui->first_track=0; const auto scroll_start=ui->view_start;
-                    scroll(0,-WHEEL_DELTA/2); if (ui->first_track) throw std::runtime_error("Partial wheel delta scrolled a full track");
-                    scroll(0,-WHEEL_DELTA/2); if (ui->first_track != 1 || ui->view_start != scroll_start) throw std::runtime_error("Plain wheel did not scroll tracks independently");
+                    scroll(0,-WHEEL_DELTA/2); if (ui->first_track || ui->track_offset != 16) throw std::runtime_error("Partial wheel delta did not scroll sixteen pixels");
+                    scroll(0,-WHEEL_DELTA/2); if (ui->first_track || ui->track_offset != 32 || ui->view_start != scroll_start) throw std::runtime_error("Plain wheel did not scroll thirty-two pixels independently");
+                    scroll(0,-1); if (ui->track_offset<=32 || ui->track_offset>=33) throw std::runtime_error("High resolution wheel lost its fractional movement");
+                    scroll(0,1); if (std::abs(ui->track_offset-32)>0.001) throw std::runtime_error("Fine wheel scroll did not reverse precisely");
                     const auto hit=ui->track_at(ui->audio_top()+ui->row_height()+ui->s(30));
-                    if (!hit || *hit != ui->app.services().projects->state().project->tracks[2].id || ui->mini_rect(2).top != ui->audio_top()+ui->row_height()) throw std::runtime_error("Zoomed track hit test and header geometry disagree");
+                    if (!hit || *hit != ui->app.services().projects->state().project->tracks[1].id || ui->mini_rect(1).top != ui->audio_top()+ui->row_height()-ui->track_offset_pixels()) throw std::runtime_error("Zoomed track hit test and header geometry disagree");
                     scroll(MK_CONTROL,-WHEEL_DELTA*100); if (ui->track_height != 92) throw std::runtime_error("Track zoom minimum failed");
                     scroll(MK_CONTROL,WHEEL_DELTA*100); if (ui->track_height != 320) throw std::runtime_error("Track zoom maximum failed");
                     const auto mixer_region=ui->mix_area(); const POINT mixer_point{mixer_region.left+ui->s(150),mixer_region.top+ui->s(100)};
-                    ui->first_mix_track=0; ui->first_track=0; ui->wheel(mixer_point,-WHEEL_DELTA,MK_SHIFT);
+                    ui->first_mix_track=0; ui->first_track=0; ui->track_offset=0; ui->wheel(mixer_point,-WHEEL_DELTA,MK_SHIFT);
                     if (ui->first_mix_track != 1 || ui->first_track) throw std::runtime_error("Shift wheel did not scroll mixer channels");
                     ui->wheel(mixer_point,-WHEEL_DELTA,0);
-                    if (ui->first_track != 1 || ui->first_mix_track != 1) throw std::runtime_error("Plain wheel changed mixer horizontal position");
-                    ui->track_height=112; ui->first_track=0; ui->fit_view=true; ui->refresh_models();
+                    if (ui->first_track || ui->track_offset != 32 || ui->first_mix_track != 1) throw std::runtime_error("Plain wheel changed mixer horizontal position");
+                    ui->track_height=112; ui->first_track=0; ui->track_offset=0; ui->fit_view=true; ui->refresh_models();
                     const auto tracks=ui->app.services().projects->state().project->tracks;
                     if (GetWindowLongPtrW(ui->child(arm_button),GWL_STYLE) & WS_VISIBLE || GetWindowLongPtrW(ui->child(monitor_button),GWL_STYLE) & WS_VISIBLE)
                         throw std::runtime_error("Global Arm/Monitor controls remain visible");
@@ -1557,6 +1705,30 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     const auto right_pixel=GetPixel(meter_dc,first_header.left+ui->s(40),first_header.top+ui->s(60));
                     SelectObject(meter_dc,old_bitmap); DeleteObject(bitmap); DeleteDC(meter_dc); ReleaseDC(hwnd,screen); ui->mix_meters=saved_peaks;
                     if (left_pixel != RGB(230,70,60) || right_pixel != RGB(22,22,22)) throw std::runtime_error("Stereo L/R track meters did not draw independently");
+
+                    ui->first_mix_track=0;
+                    const auto insert_button=ui->insert_control(ui->mix_strip(0));
+                    ui->mixer_down({insert_button.left+ui->s(20),insert_button.top+ui->s(10)});
+                    if (!ui->fx_window || ui->fx_target!=tracks[0].id) throw std::runtime_error("Track Inserts click did not open its chain");
+                    const auto fx_command=[&](int id) { SendMessageW(ui->fx_window,WM_COMMAND,MAKEWPARAM(id,BN_CLICKED),reinterpret_cast<LPARAM>(GetDlgItem(ui->fx_window,id))); };
+                    fx_command(fx_add); SetWindowTextW(GetDlgItem(ui->fx_window,fx_value),L"-6"); fx_command(fx_apply);
+                    if (std::abs(fx_chain(*ui).front().gain-std::pow(10.0f,-6.0f/20))>0.00001f) throw std::runtime_error("Native Gain parameter Apply failed");
+                    SendMessageW(GetDlgItem(ui->fx_window,fx_kind),CB_SETCURSEL,3,0); fx_command(fx_add);
+                    SetWindowTextW(GetDlgItem(ui->fx_window,fx_value),L"3"); SetWindowTextW(GetDlgItem(ui->fx_window,fx_frequency),L"1500"); fx_command(fx_apply);
+                    fx_command(fx_up); if (fx_chain(*ui).front().kind!=InsertKind::eq) throw std::runtime_error("Insert reorder failed");
+                    fx_command(fx_bypass); if (!fx_chain(*ui).front().bypass) throw std::runtime_error("Insert bypass failed");
+                    ui->command(undo,0); if (fx_chain(*ui).front().bypass) throw std::runtime_error("Insert Undo failed");
+                    fx_command(fx_down); fx_command(fx_remove); if (fx_chain(*ui).size()!=1) throw std::runtime_error("Insert remove failed");
+                    ui->command(undo,0); if (fx_chain(*ui).size()!=2) throw std::runtime_error("Insert remove Undo failed");
+                    if (ui->render_preview) ui->export_preview(ui->fx_window);
+                    for (auto control=GetWindow(ui->fx_window,GW_CHILD);control;control=GetWindow(control,GW_HWNDNEXT)) {
+                        RECT fx_client{},bounds{}; GetClientRect(ui->fx_window,&fx_client); GetWindowRect(control,&bounds); MapWindowPoints(nullptr,ui->fx_window,reinterpret_cast<POINT*>(&bounds),2);
+                        if (bounds.bottom>fx_client.bottom || bounds.right>fx_client.right) throw std::runtime_error("Insert editor control clipped");
+                    }
+                    ui->open_fx(std::nullopt); fx_command(fx_add);
+                    if (ui->app.services().projects->state().project->master_inserts.size()!=1 || ui->app.services().projects->state().project->tracks[0].inserts.size()!=2) throw std::runtime_error("Master Inserts changed the track chain");
+                    DestroyWindow(ui->fx_window);
+
                     if (ui->render_preview) { ui->first_mix_track=0; ui->export_preview(); }
                     // Exercise DPI layout with the same path as a monitor change.
                     ui->dpi = 144; ui->fonts();
@@ -1573,6 +1745,23 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                                 throw std::runtime_error("DPI layout extends outside the client area");
                         }
                     }
+                    ui->app.connect(std::make_unique<SmokeDevice>(),{0,48000,128,{},{0,1}});
+                    ui->app.seek(500); std::array<float,256> idle_output{}; ui->app.engine()->process(nullptr,idle_output.data(),128);
+                    PostMessageW(hwnd,WM_KEYDOWN,VK_SPACE,0);
+                }
+                if (ui->smoke_step == 7) {
+                    std::array<float,256> output{}; ui->app.engine()->process(nullptr,output.data(),128);
+                    if (ui->app.engine()->state().playback!=PlaybackState::playing || ui->app.engine()->state().sample!=628) throw std::runtime_error("Space did not start playback");
+                    PostMessageW(hwnd,WM_KEYDOWN,VK_SPACE,static_cast<LPARAM>(1LL<<30));
+                }
+                if (ui->smoke_step == 8) {
+                    std::array<float,256> output{}; ui->app.engine()->process(nullptr,output.data(),128);
+                    if (ui->app.engine()->state().playback!=PlaybackState::playing) throw std::runtime_error("Held Space toggled transport");
+                    PostMessageW(hwnd,WM_KEYDOWN,VK_SPACE,0);
+                }
+                if (ui->smoke_step == 9) {
+                    std::array<float,256> output{}; ui->app.engine()->process(nullptr,output.data(),128);
+                    if (ui->app.engine()->state().playback!=PlaybackState::stopped || ui->app.engine()->state().sample!=500) throw std::runtime_error("Space did not Stop/return to start");
                     DestroyWindow(hwnd);
                 }
                 return 0;
@@ -1600,7 +1789,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
             if (ui->app.recording()) { (void)ui->app.stop_recording(); ui->refresh_models(); }
             if (ui->discard()) { ui->preferences(); DestroyWindow(hwnd); } return 0;
         case WM_DESTROY:
-            KillTimer(hwnd,1); KillTimer(hwnd,2); if (ui->settings) DestroyWindow(ui->settings);
+            KillTimer(hwnd,1); KillTimer(hwnd,2); if (ui->settings) DestroyWindow(ui->settings); if (ui->fx_window) DestroyWindow(ui->fx_window);
             ui->app.disconnect(); PostQuitMessage(0); return 0;
         }
     } catch (const std::exception& e) {
@@ -1620,6 +1809,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show)
         if (!RegisterClassW(&main)) throw std::runtime_error("Cannot register main window");
         WNDCLASSW settings = main; settings.lpfnWndProc = settings_proc; settings.lpszClassName = L"MRStudioAudio";
         if (!RegisterClassW(&settings)) throw std::runtime_error("Cannot register settings window");
+        WNDCLASSW effects=main; effects.lpfnWndProc=fx_proc; effects.lpszClassName=L"MRStudioInserts"; effects.hbrBackground=ui.panel_brush;
+        if (!RegisterClassW(&effects)) throw std::runtime_error("Cannot register insert window");
         const auto window = CreateWindowExW(WS_EX_CONTROLPARENT,main.lpszClassName,L"Moon River Studio",WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,CW_USEDEFAULT,1280,980,nullptr,nullptr,instance,&ui);
         if (!window) throw std::runtime_error("Cannot create Studio window");
@@ -1629,7 +1820,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show)
         MSG msg{};
         for (;;) {
             const auto result = GetMessageW(&msg,nullptr,0,0); if (result < 0) return 1; if (result == 0) break;
-            if (msg.message == WM_KEYDOWN && !(ui.settings && IsChild(ui.settings,msg.hwnd))) { try {
+            if (msg.message == WM_KEYDOWN && !(ui.settings && IsChild(ui.settings,msg.hwnd)) && !(ui.fx_window && (msg.hwnd==ui.fx_window || IsChild(ui.fx_window,msg.hwnd)))) { try {
                 const bool editing = msg.hwnd == ui.child(rename_edit);
                 if (!editing && msg.wParam == VK_ESCAPE && ui.drag) { ui.cancel_drag(); continue; }
                 if (!editing && msg.wParam == VK_ESCAPE && ui.mix_drag) { ui.cancel_mix_drag(); continue; }
@@ -1638,7 +1829,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show)
                     if (msg.wParam == 'S') { ui.command(split_clip_button,0); continue; }
                     if (msg.wParam == VK_DELETE) { ui.command(delete_clip_button,0); continue; }
                 }
-                if (!editing && msg.wParam == VK_SPACE) { ui.command(ui.app.services().transport->state().playback == PlaybackState::playing ? pause : play,0); continue; }
+                if (!editing && msg.wParam == VK_SPACE) { if (!(msg.lParam & (1LL<<30))) ui.space_action(); continue; }
                 if (GetKeyState(VK_CONTROL) & 0x8000) {
                     int id{}; if (msg.wParam == 'S') id = (GetKeyState(VK_SHIFT)&0x8000) ? save_as : save;
                     if (!editing && msg.wParam == 'N') id = new_project_button;
@@ -1648,6 +1839,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show)
                 }
             } catch (const std::exception& e) { ui.error(e); continue; } }
             if (ui.settings && IsDialogMessageW(ui.settings,&msg)) continue;
+            if (ui.fx_window && IsDialogMessageW(ui.fx_window,&msg)) continue;
             if (IsDialogMessageW(window,&msg)) continue;
             TranslateMessage(&msg); DispatchMessageW(&msg);
         }

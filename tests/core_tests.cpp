@@ -26,6 +26,27 @@ template<class F> void invalid_project(F edit) {
     rejects([&] { project.validate(); });
 }
 
+
+void inserts() {
+    using namespace mrs;
+    auto p=demo_project(); const auto track=p.tracks.front().id; ProjectStore store{p};
+    NativeInsert gain{new_id(),InsertKind::gain,0.5f}, eq{new_id(),InsertKind::eq,6,1000,1};
+    store.execute(SetInserts{track,{gain,eq}}); store.execute(SetInserts{std::nullopt,{NativeInsert{new_id(),InsertKind::highpass}}});
+    const auto saved=*store.state().project; CHECK(deserialize(serialize(saved)) == saved);
+    CHECK(store.undo() && store.state().project->master_inserts.empty()); CHECK(store.undo() && *store.state().project == p);
+    CHECK(store.redo() && store.redo() && *store.state().project == saved);
+    auto invalid=gain; invalid.gain=5; rejects([&] { store.execute(SetInserts{track,{invalid}}); });
+    invalid=eq; invalid.frequency=0; rejects([&] { store.execute(SetInserts{track,{invalid}}); });
+    rejects([&] { store.execute(SetInserts{track,{gain,gain}}); });
+    rejects([&] { store.execute(SetInserts{Id{"absent"},{gain}}); });
+    CHECK(*store.state().project == saved);
+    p.tracks.push_back({new_id(),"MIDI",TrackKind::midi,{}}); ProjectStore midi{p}; rejects([&] { midi.execute(SetInserts{p.tracks.back().id,{gain}}); });
+    std::vector<NativeInsert> excess; for (int n=0;n<9;++n) excess.push_back({new_id()}); rejects([&] { store.execute(SetInserts{track,excess}); });
+    auto legacy=serialize(demo_project()); legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 8").size(),"MRS_CORE_SNAPSHOT 7");
+    const std::string line="INSERTS 0\n"; for (auto pos=legacy.find(line);pos!=std::string::npos;pos=legacy.find(line)) legacy.erase(pos,line.size());
+    CHECK(deserialize(legacy) == demo_project());
+}
+
 void inputs() {
     using namespace mrs;
     auto p=demo_project(); const auto id=p.tracks.front().id; ProjectStore store{p};
@@ -89,7 +110,7 @@ void sends() {
     store.execute(RemoveTrack{Id{"r1"}});
     CHECK(store.state().project->tracks.front().sends.size() == 1);
     CHECK(store.undo() && store.state().project->tracks.front().sends.size() == 2);
-    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT 7"); CHECK(head == 0);
+    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT 8"); CHECK(head == 0);
     const std::string old = "MRS_CORE_SNAPSHOT 4\nPROJECT \"old\" \"Old\" \"\" 48000\nTEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n\"a\" \"Audio\" 0 \"\"\n1 0 0 0\n\"\"\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nMASTER 1\nEND\n";
     const auto migrated = deserialize(old); CHECK(migrated.tracks.front().sends.empty() && migrated.tracks.front().input == -2);
 }
@@ -379,7 +400,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected test suite");
         const std::string suite = argv[1];
-        if (suite == "inputs") inputs(); else if (suite == "hardware") hardware(); else if (suite == "sends") sends();
+        if (suite == "inserts") inserts(); else if (suite == "inputs") inputs(); else if (suite == "hardware") hardware(); else if (suite == "sends") sends();
         else if (suite == "buses") buses();
         else if (suite == "model") model();
         else if (suite == "timeline") timeline();

@@ -73,6 +73,8 @@ struct RenderGraph {
     std::vector<std::vector<SendRoute>> sends{};
     std::vector<std::shared_ptr<Recorder>> recordings{};
     std::vector<bool> input_monitoring{};
+    std::vector<std::shared_ptr<processing::PreparedGraph>> inserts{};
+    std::shared_ptr<processing::PreparedGraph> master_inserts{};
     std::vector<bool> buses{}; // same indices as mixer; no clips/input directly on buses
 };
 struct RenderConfig {
