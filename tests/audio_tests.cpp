@@ -19,16 +19,24 @@ namespace allocation_check {
 thread_local bool enabled = false;
 std::atomic<std::uint64_t> count{};
 }
-void* operator new(std::size_t bytes) {
+#ifdef _MSC_VER
+#define MRS_TEST_NOINLINE __declspec(noinline)
+#else
+#define MRS_TEST_NOINLINE __attribute__((noinline))
+#endif
+// Keep deliberate malloc/free-backed allocation probes out of GCC's inlined
+// mismatched-new-delete analysis; production allocations are still counted.
+MRS_TEST_NOINLINE void* operator new(std::size_t bytes) {
     if (allocation_check::enabled) allocation_check::count.fetch_add(1);
     if (auto p = std::malloc(bytes ? bytes : 1)) return p;
     throw std::bad_alloc();
 }
-void* operator new[](std::size_t bytes) { return ::operator new(bytes); }
-void operator delete(void* p) noexcept { std::free(p); }
-void operator delete[](void* p) noexcept { std::free(p); }
-void operator delete(void* p, std::size_t) noexcept { std::free(p); }
-void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+MRS_TEST_NOINLINE void* operator new[](std::size_t bytes) { return ::operator new(bytes); }
+MRS_TEST_NOINLINE void operator delete(void* p) noexcept { std::free(p); }
+MRS_TEST_NOINLINE void operator delete[](void* p) noexcept { std::free(p); }
+MRS_TEST_NOINLINE void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+MRS_TEST_NOINLINE void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+#undef MRS_TEST_NOINLINE
 namespace {
 using namespace mrs;
 using namespace mrs::audio;

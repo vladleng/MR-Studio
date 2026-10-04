@@ -26,14 +26,13 @@ MRS Stage 1d / 0.1e принят пользователем 2026-10-03: «Все
 Весь MRS Stage 1 / Audio Arrangement #21 завершён. PR #46 принят и слит в main.
 Последняя принятая сборка: 0.1e. Code head f78e0123cc7651f3418f0a42f8bc9fce861dfed7.
 Контракты: docs/RECORDING.md; приёмка: docs/MRS_STAGE_1D_CHECKLIST.md.
-Текущая небольшая доработка по запросу пользователя: 0.1e upd1 fix1, PR #47.
+Предыдущая небольшая доработка: 0.1e upd1 fix1, открытый PR #47; включена в 0.1f.
 MR Studio/Projects/<имя>/<имя>.mrsproject + Media/Mixdown; MR Studio/Lives для будущих show.
 Импорт и запись принадлежат Media; relative media refs, перенос папки и Save As с копиями.
 Контракты: docs/PROJECT_FOLDERS.md; приёмка: docs/MRS_PROJECT_FOLDERS_CHECKLIST.md.
 upd1 fix1 ещё не принят пользователем. Последняя принятая версия: 0.1e.
-После upd1: MRS Stage 2 / #22 — Mixer / Routing. Разработка микшера ещё не начата.
-При возобновлении сначала прочитать issue #22; выбрать первый подэтап микшера:
-track gain/pan, mute/solo, meters и master bus на том же SHARED engine.
+Сейчас: MRS Stage 2a / #22 / 0.1f — track gain/pan, mute/solo, meters и master bus
+на том же SHARED engine. PR #48; автоматические проверки и физическая приёмка.
 Запись 0.1e: один выбранный mono ASIO input и одна вооружённая дорожка за дубль;
 последовательные дубли на разных дорожках поддерживаются. Multi-input recording остаётся будущей работой.
 Правила версий: docs/VERSIONING.md. Длительные performance проверки #16 остаются
