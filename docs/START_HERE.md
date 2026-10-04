@@ -1,62 +1,85 @@
 # Moon River Studio — START HERE
 
-## Принята локальная 0.1h fix3 / Stage 2c — 2026-10-04
-Пользователь: «теперь ничего не мигает. Все работает». Sends/returns, recent projects,
-mixer overlay, vertical faders/meters, track mini panels/input selection и исправления
-мигания приняты. Принятый локальный код 0911855dce7d179e03df33f05a120684e4637d37.
-Следующая часть #22 — hardware output routing, multi-output interfaces/device profiles.
-Полный #22 остаётся открыт; benchmark #16 остаётся отложенным. Код и сборки локально;
-GitHub issues/docs only, push/PR/merge по отдельной просьбе. Исторические pending
-записи ниже заменены этой приёмкой.
+## Локальная 0.1i / Stage 2d готова к проверке — 2026-10-04
+Аппаратные mono/stereo outputs для дорожек, шин и Master; несколько выходов
+на общем engine, независимые Main/Monitor/Click/Cue через именованные шины.
+Профили устройства: имя, rate/buffer, outputs, mono monitor input и channel labels;
+Save/Load/Delete в Audio settings, Load заполняет поля, Connect применяет.
+Missing outputs проверяются до закрытия соединения; offline clock сохраняет routes.
+Core v6 читает v1–v5; config v4 читает v1–v3. Общие commands/Undo/persistence.
+Локальные Windows x64 ASIO Release configure/build с кешем, 69/69 CTest и GUI smoke
+пройдены, включая profiles и прежние flicker regressions. Physical ASIO/user
+acceptance ожидается; последняя принятая сборка — 0.1h fix3. Полный #22 открыт.
+Пакет MR-Studio-0.1i-ASIO-Windows-local в Builds, ветка mrs/0.1i-hardware-profiles-local.
+Код/сборки локально; GitHub issues/docs only. Нет code push/new PR/merge/Actions.
+Контракты: [HARDWARE_OUTPUTS.md](HARDWARE_OUTPUTS.md);
+приёмка: [MRS_STAGE_2D_CHECKLIST.md](MRS_STAGE_2D_CHECKLIST.md).
+Click generator/show cues, simultaneous multi-input recording и #16 benchmark
+не отмечаются выполненными. Исторические pending записи ниже имеют меньший приоритет.
 
+## Принята локальная 0.1h fix3 — 2026-10-04
+Пользователь подтвердил: «теперь ничего не мигает. Все работает».
+Stage 2c: sends/returns, recent projects, mixer overlay, vertical faders/meters,
+track mini panels/input selection и исправления мигания приняты в локальной сборке.
+Принятый код: 0911855dce7d179e03df33f05a120684e4637d37.
+Следующая часть #22: hardware output routing, multi-output interfaces и device profiles.
+Полный #22 остаётся открыт. Код/сборки локально; GitHub issues/docs only,
+code push/PR/merge по отдельной просьбе. Исторические pending записи ниже заменены этой.
+
+## Локальная 0.1h fix3 — Audio settings
+Пользователь подтвердил устранение release-мигания в fix2. Fix3 устраняет постоянную
+полную перерисовку Audio settings: double buffer/WS_CLIPCHILDREN, обновление только
+изменённого статуса не чаще 250 ms. GUI regression воспроизведён до исправления и
+прошёл после; пользовательская проверка fix3 ожидается. См. MRS_0_1H_FIX3.md.
+Код и сборка остаются локальными; GitHub — только issues/docs.
+
+## Локальная 0.1h fix2 — мигание при отпускании фейдера
+Fix1 устранён во время движения; пользователь сообщил остаточное мигание при release.
+Fix2 заменяет полный refresh на обновление Undo/Redo, dirty title и canvas;
+неизменённые подписи/доступность кнопок и меню повторно не задаются.
+Release regression воспроизведён до исправления и прошёл после. Проверка пользователем
+ожидается. См. MRS_0_1H_FIX2.md. Код остаётся локальным, GitHub — только issues/docs.
 
 ## Локальная 0.1h fix1 — мигание кнопок — 2026-10-04
-Пользователь проверил функции 0.1h («Все работает»), но сообщил о мигании кнопок
-при движении фейдеров и открытии меню. В fix1 отрисовка больше не перемещает
-и не переключает native controls: layout/visibility/enabled меняются только
-при изменении состояния/размера, вне paint. Повторный выбор текущего канала
-не перестраивает sidebar. GUI regression воспроизвёл native layout events до
-исправления и прошёл после; локальная ASIO сборка, CTest 65/65 и GUI smoke пройдены.
-Локальный код ed2cebeed6863a77060584353844242e3a561ffb; пакет
-MR-Studio-0.1h-fix1-ASIO-Windows-local в Builds. Проверка fix1 пользователем ожидается.
-[Описание и проверка](MRS_0_1H_FIX1.md). GitHub: только issues/docs;
-код не pushed, PR не создан/не слит, GitHub Actions не использовались.
-
+Пользователь проверил функции 0.1h: «Все работает», но сообщил о мигании кнопок
+при движении фейдеров/открытии меню. Fix1 переносит MoveWindow/ShowWindow/EnableWindow
+из paint в синхронизацию состояния и layout, применяет изменения только при необходимости.
+GUI regression воспроизвёл лишние native layout events до исправления и прошёл после.
+Проверка fix1 пользователем ожидается. См. MRS_0_1H_FIX1.md. Код остаётся локальным;
+GitHub — только issues/docs, без Actions, push кода, новых PR и слияния.
 
 ## Локальная 0.1h / MRS Stage 2c готова к проверке — 2026-10-04
-Реализованы посылы/возвраты (до 8 sends на канал, pre/post, уровни, nested buses,
-cycle rejection, Undo и persistence), Files → Open recent project,
-вертикальные фейдеры/стереометры, нижний Mix поверх аранжировки в том же окне,
-мини-панели дорожек с horizontal gain/meters, pan knob и physical mono input.
-Core snapshot v5 читает v1–v4; desktop config v3 читает v1/v2.
-Локальный код: cce4a4e0071090227aef58cd84d2823a49094da2,
-ветка mrs/0.1h-sends-ui-local. Код не отправлен; PR не создан/не слит.
-Windows x64 ASIO Release configure/build с cached offline dependencies,
-CTest 65/65 и expanded GUI smoke пройдены; GitHub Actions не использовались.
-Пакет MR-Studio-0.1h-ASIO-Windows-local в локальной папке Builds.
-Пользовательская/физическая ASIO приёмка 0.1h ожидается; последняя принятая — 0.1g.
-Контракты: [SENDS.md](SENDS.md); проверка: [MRS_STAGE_2C_CHECKLIST.md](MRS_STAGE_2C_CHECKLIST.md).
-Далее hardware multi-output/device profiles. #22 и отложенный #16 остаются открытыми.
-GitHub: только issues/docs; публикация кода/PR/слияние — по отдельной просьбе.
+Посылы/возвраты (до 8 на канал, pre/post-fader, уровни, nested buses, cycle rejection),
+вертикальные фейдеры/стереометры, Mix поверх аранжировки, мини-панели дорожек
+(горизонтальные gain/meters, колесо pan, mono input selection), Files → Open recent project.
+Core snapshot v5 читает v1–v4; desktop config v3 читает v1/v2. Undo и сохранение общие.
+Локальные Windows x64 ASIO Release configure/build, 65/65 CTest и расширенный GUI smoke
+пройдены; зависимости использованы из кеша, GitHub Actions не использовались.
+Контракты: SENDS.md; пользовательская проверка: MRS_STAGE_2C_CHECKLIST.md.
+Пользовательская/физическая ASIO приёмка 0.1h ожидается; последняя принятая версия — 0.1g.
+Ветка mrs/0.1h-sends-ui-local остаётся локальной. На GitHub — только issues/docs;
+код push/PR/merge исключительно по отдельной просьбе. #22 и отложенный #16 остаются открыты.
+Далее в #22: hardware multi-output и device profiles. Multi-input recording — будущая работа.
 
 
-## Актуальное состояние — 2026-10-04: локальная 0.1g принята
-Пользователь подтвердил: «Все работает!». MRS Stage 2a / 0.1f и Stage 2b / 0.1g приняты.
-В 0.1g добавлены шины/подгруппы, track/bus outputs, защита от циклов,
-controls/meters, Undo и persistence на том же SHARED engine.
-Локальные Windows ASIO Release configure/build, 62/62 CTest и GUI smoke пройдены.
-Проверенный локальный код: 99d9b7be5537281a956bd8fadddaa95071d381f4.
-PR #48/#47 слиты ранее; PR #49 уже открыт, но не слит. Код main пока соответствует 0.1f.
+## Принята локальная 0.1g / MRS Stage 2b / #22 — 2026-10-04
+Пользователь принял локальную 0.1f: «Я проверил, всё работает отлично».
+PR #48 слит в main; включённый PR #47 также отмечен GitHub как merged.
+0.1f — принятая базовая версия с gain/pan, mute/solo, meters, master и portable folders.
+0.1g: локальные Windows ASIO Release configure/build, 62/62 tests и GUI smoke пройдены.
+Проверены вложенные шины, Solo/Mute, cycle rejection, Undo, сохранение, raw recording,
+zero RT allocations и GUI bus fader/minimum DPI bounds. Пользователь подтвердил: «Все работает!».
+Для принятой 0.1f фактически пройдены 59/59 ASIO tests + GUI smoke и 60/60 offline tests.
+Пользователь подтвердил следующий подэтап: шины/подгруппы, выходы track/bus,
+защита от циклов, bus controls/meters, Undo и persistence. Контракты: BUSES.md.
+Вся разработка, configure/build/tests и пакеты выполняются локально, без GitHub Actions.
+На GitHub обновляются только issues и документация. Код разрабатывается локально.
+Отправка изменений кода, создание PR и слияние — только по отдельной просьбе пользователя.
+Принятие локальной сборки не разрешает автоматическое слияние; открытый PR #49 не сливается.
+Код main пока соответствует 0.1f; принятый локальный код 0.1g — 99d9b7be5537281a956bd8fadddaa95071d381f4.
 Sends/returns реализованы локально в 0.1h; далее hardware multi-output и profiles.
-Полный #22 остаётся открытым; длительный benchmark #16 остаётся отложенным.
-
-## Порядок работы по инструкции пользователя
-Код, configure/build/tests и пакеты разрабатываются и выполняются локально.
-На GitHub обновляются только issues и документация. Отправка новых изменений
-кода, создание PR и слияние выполняются только по отдельной просьбе пользователя.
-Приёмка локальной сборки не разрешает автоматическое слияние. Уже открытый PR #49
-остаётся без слияния. GitHub Actions не используются; документационные коммиты — skip ci.
-Исторические статусы ниже относятся к прежним сессиям; эта запись имеет приоритет.
+Полный #22 остаётся открыт; 0.1h ожидает приёмку, hardware multi-output и profiles впереди.
+Исторические статусы pending/0.1e ниже заменены этой актуальной записью.
 
 ## Актуальное продолжение — 2026-10-03
 Stage 0 принят, PR #36 слит. Stage 1/2 интегрированы через PR #37/#38 в main.
