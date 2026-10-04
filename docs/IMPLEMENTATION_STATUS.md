@@ -1,5 +1,23 @@
 # MR Studio — implementation status
 
+## 0.1m / Stage 3c — local build ready, 2026-10-04
+
+Cab IR: mono/stereo WAV import, embedded kernel, live Mix/Gain/low-high cuts/polarity,
+Neutral/Warm/Bright control presets, zero additional algorithmic convolution latency.
+Right VST3 tab: vendor folders, drag/drop to mixer tracks/buses/Master and single-click
+insert native editor. Native insert workflow retained; structure edits after Pause/Stop.
+Core v10 reads v1–v9; keep a project backup before saving. Code
+`c505128089916350950bc7bdc36ce7a36152f6d4`, local branch `mrs/0.1m-cab-ir-browser-local`.
+Offline-dependency local ASIO configure/build and 87/87 CTest passed; hidden GUI tests
+cover actual tree drag notifications, invalid/cancelled drops, track/bus/Master targets,
+Undo, single-click editor/reuse, Cab controls/presets and existing DPI/flicker regressions.
+Package `MR-Studio-0.1m-ASIO-Windows-local` includes owned synthetic test WAVs.
+Celestion WAV is obtained separately via user email subscription; no signup or redistribution
+performed and no Celestion-specific audition claimed. Physical user check of 0.1m pending.
+Latest accepted: 0.1l / 3b. Whole #23 open; 3d/3e planned, #16 deferred.
+Code/builds local; GitHub issues/docs only; no code push/PR/merge/Actions/install.
+See [Cab IR](CAB_IR.md), [3c checklist](MRS_STAGE_3C_CHECKLIST.md).
+
 ## 0.1l / Stage 3b — локальная сборка готова, 2026-10-04
 
 VST3 effects: scan/cache в отдельном процессе с timeout, загрузка/удаление/bypass,

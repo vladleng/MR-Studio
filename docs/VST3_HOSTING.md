@@ -1,6 +1,6 @@
 # Windows VST3 effect hosting — 0.1l / Stage 3b
 
-Local source `95c719fcd0893652f92a93beb9b20cb538cd84b9`. User acceptance pending. Code/builds remain local;
+Local source `95c719fcd0893652f92a93beb9b20cb538cd84b9`. 0.1l was accepted by the user on 2026-10-04. Code/builds remain local;
 GitHub issues/docs only. Native inserts and hardware routing use the same shared
 processing contract; no separate Live engine is introduced.
 
@@ -79,3 +79,19 @@ GUI smoke passed. Installed Blue Cat Gain 3 Stereo additionally passed actual
 processing, gain automation, opaque-state reopen and native editor attachment;
 2099 declared parameters handled; reported latency 0 samples. This is software
 render validation; intended ASIO hardware and further plugins await user acceptance.
+## 0.1m browser update
+
+The right VST3 tab uses the existing scan cache grouped by vendor (Unknown vendor
+for empty metadata). Scan VST3 works from the sidebar even without an open insert
+window. Drag a plugin leaf onto a mixer track, bus or Master to append one effect;
+Pause/Stop is required for structural edits. Invalid drop/Escape/capture loss does
+not mutate the project. A successful drop creates one shared Undo command.
+
+Mixer strips show up to three insert slots (one at compact height); Inserts opens
+the complete chain. A single click on a VST3 slot or selection in the chain list
+opens the plugin's native editor immediately. Repeated clicks focus the existing
+window. If no native editor/prepared instance is available, the chain/generic
+parameters remain available with an explicit status. Connect audio to prepare the
+plugin instance. Native Gain/EQ/Cab IR still open through the native insert window.
+Mono/stereo audio effect, state, structural-edit and in-process runtime boundaries
+from 0.1l remain applicable. Full runtime isolation/PDC belongs to 3e.

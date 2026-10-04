@@ -1,6 +1,6 @@
 # MRS Stage 3b / 0.1l — local acceptance checklist
 
-Local implementation ready, 2026-10-04. Last accepted: 0.1k / 3a.
+Accepted by the user on 2026-10-04: local 0.1l / 3b.
 Source `95c719fcd0893652f92a93beb9b20cb538cd84b9`; branch `mrs/0.1l-vst3-eq-local`.
 
 - [x] Timed child-process VST3 scan, metadata/cache/change reconciliation and failed-module rejection cache.
@@ -12,7 +12,7 @@ Source `95c719fcd0893652f92a93beb9b20cb538cd84b9`; branch `mrs/0.1l-vst3-eq-loca
 - [x] Core v9 reads v1–v8; plugin/native parameter persistence.
 - [x] Local offline-dependency Windows x64 ASIO configure/build, 85/85 CTest, hidden GUI smoke and reviewed previews.
 - [x] Installed Blue Cat Gain 3 Stereo: software processing/automation/state/editor check.
-- [ ] User acceptance of local 0.1l / Stage 3b on intended projects/audio hardware.
+- [x] User acceptance of local 0.1l / Stage 3b, confirmed 2026-10-04.
 
 1. Copy a project and open it with 0.1l. Start playback; add/reorder effects after Pause/Stop.
 2. In a track Inserts add Channel EQ. Enable HP/LP as needed, drag three bell points
