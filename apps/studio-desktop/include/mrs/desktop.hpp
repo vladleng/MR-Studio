@@ -67,6 +67,9 @@ public:
     const std::filesystem::path& path() const { return path_; }
     persistence::ProjectDocument snapshot() const;
     void rename_track(const Id&, std::string);
+    void set_track_mix(const Id&, Track::Mix);
+    void set_master_gain(float);
+    bool preview_mix(std::optional<Id>, Track::Mix, float master_gain);
     void connect(std::unique_ptr<audio::IAudioDevice>, audio::DeviceConfig);
     void disconnect();
     audio::DeviceStatus device_status();
@@ -102,6 +105,10 @@ private:
     std::filesystem::path last_take_;
     audio::RecordStatus last_recording_status_{};
     bool monitoring_{true};
+    std::vector<Id> mixer_tracks_;
+    std::uint64_t applied_mix_revision_{};
+    void publish_mix();
+    bool history(bool redo);
     void sync_arm();
     void require_not_recording() const;
     std::filesystem::path path_, asset_root_;

@@ -1,5 +1,12 @@
 # Moon River Studio
 
+## В разработке: 0.1f / MRS Stage 2a — Mixer
+
+Первый подэтап #22: track gain/pan, mute/solo, stereo meters, master gain,
+общий Undo/Redo и сохранение настроек. Параметры меняются во время playback
+на том же SHARED engine без переподключения ASIO. Последняя принятая сборка — 0.1e.
+[Контракты](docs/MIXER.md) · [Приёмка Windows](docs/MRS_STAGE_2A_CHECKLIST.md).
+
 **Moon River Studio** (`MRS`, рабочее сокращение `MR Studio`) — проект собственной performance-first DAW.
 
 **Live Mode** — встроенный Performance / Show режим Moon River Studio, по роли близкий к Show Page в Studio Pro. Это не отдельное приложение и не отдельная продуктовая версия.

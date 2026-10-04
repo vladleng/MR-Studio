@@ -56,9 +56,11 @@ std::string serialize(const Project& p) {
         out << std::quoted(folder.id.value) << ' ' << std::quoted(folder.name) << ' '
             << std::quoted(folder.parent ? folder.parent->value : "") << '\n';
     section(out, "TRACKS", p.tracks);
-    for (const auto& track : p.tracks)
+    for (const auto& track : p.tracks) {
         out << std::quoted(track.id.value) << ' ' << std::quoted(track.name) << ' '
             << static_cast<int>(track.kind) << ' ' << std::quoted(track.folder ? track.folder->value : "") << '\n';
+        out << track.mix.gain << ' ' << track.mix.pan << ' ' << track.mix.mute << ' ' << track.mix.solo << '\n';
+    }
     section(out, "CLIPS", p.clips);
     for (const auto& clip : p.clips)
         out << std::quoted(clip.id.value) << ' ' << std::quoted(clip.track.value) << ' '
@@ -76,7 +78,7 @@ std::string serialize(const Project& p) {
     for (const auto& part : p.sections)
         out << std::quoted(part.id.value) << ' ' << std::quoted(part.name) << ' '
             << part.start << ' ' << part.end << ' ' << part.color << '\n';
-    out << "END\n";
+    out << "MASTER " << p.master_gain << "\nEND\n";
     auto result = out.str();
     if (result.size() > max_bytes) throw std::invalid_argument("snapshot byte limit exceeded");
     return result;
@@ -90,7 +92,7 @@ Project deserialize(std::string_view bytes) {
     in >> p.version;
     check_stream(in);
     const auto input_version = p.version;
-    if (input_version != 1 && input_version != schema_version)
+    if (input_version < 1 || input_version > schema_version)
         throw std::invalid_argument("unsupported snapshot version");
     p.version = schema_version; // migrate v1 with empty musical lanes
 
@@ -139,6 +141,13 @@ Project deserialize(std::string_view bytes) {
         if (kind < 0 || kind > 1) throw std::invalid_argument("invalid track enum");
         track.kind = static_cast<TrackKind>(kind);
         track.folder = parent(in);
+        if (input_version >= 3) {
+            int mute{}, solo{};
+            in >> track.mix.gain >> track.mix.pan >> mute >> solo;
+            check_stream(in);
+            if ((mute != 0 && mute != 1) || (solo != 0 && solo != 1)) throw std::invalid_argument("invalid mixer flags");
+            track.mix.mute = mute != 0; track.mix.solo = solo != 0;
+        }
         p.tracks.push_back(std::move(track));
     }
     tag(in, "CLIPS");
@@ -186,6 +195,7 @@ Project deserialize(std::string_view bytes) {
             p.sections.push_back(std::move(part));
         }
     }
+    if (input_version >= 3) { tag(in, "MASTER"); in >> p.master_gain; check_stream(in); }
     tag(in, "END");
     in >> std::ws;
     if (!in.eof()) throw std::invalid_argument("unknown trailing snapshot data");

@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <utility>
 
 namespace mrs {
 using Sample = std::int64_t;
@@ -15,7 +16,7 @@ using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 2;
+inline constexpr std::uint32_t schema_version = 3;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -58,6 +59,12 @@ struct Track {
     std::string name;
     TrackKind kind{TrackKind::audio};
     std::optional<Id> folder;
+    struct Mix {
+        float gain{1}, pan{};
+        bool mute{}, solo{};
+        bool operator==(const Mix&) const = default;
+        void validate() const;
+    } mix{};
     bool operator==(const Track&) const = default;
 };
 struct Clip {
@@ -106,6 +113,7 @@ struct Project {
     std::vector<Marker> markers;
     std::vector<Chord> chords;
     std::vector<ArrangerSection> sections;
+    float master_gain{1};
     void validate() const;
     bool operator==(const Project&) const = default;
 };
@@ -233,6 +241,23 @@ public:
     // A private candidate is validated before committing; rejection is atomic.
     virtual void apply(Project& candidate) const = 0;
 };
+class SetTrackMix final : public ICommand {
+public:
+    SetTrackMix(Id track, Track::Mix mix) : track_(std::move(track)), mix_(mix) {}
+    std::string_view name() const override { return "Track mix"; }
+    void apply(Project&) const override;
+private:
+    Id track_;
+    Track::Mix mix_;
+};
+class SetMasterGain final : public ICommand {
+public:
+    explicit SetMasterGain(float gain) : gain_(gain) {}
+    std::string_view name() const override { return "Master gain"; }
+    void apply(Project& p) const override { p.master_gain = gain_; }
+private:
+    float gain_;
+};
 class AddTrack final : public ICommand {
 public:
     explicit AddTrack(Track track);
@@ -264,6 +289,7 @@ public:
     virtual void execute(const ICommand&) = 0;
     virtual bool undo() = 0;
     virtual bool redo() = 0;
+    virtual std::shared_ptr<const Project> history_target(bool) const { return {}; }
     virtual Connection subscribe(std::function<void(const ProjectState&)>) = 0;
 };
 class ProjectStore final : public IProjectStore {
@@ -273,6 +299,7 @@ public:
     void execute(const ICommand&) override;
     bool undo() override;
     bool redo() override;
+    std::shared_ptr<const Project> history_target(bool redo) const override;
     Connection subscribe(std::function<void(const ProjectState&)>) override;
 private:
     struct Edit {

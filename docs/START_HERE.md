@@ -1,5 +1,11 @@
 # Moon River Studio — START HERE
 
+## В работе 2026-10-04: 0.1f / MRS Stage 2a / #22
+Пользователь поручил начать 0.1f. Первый slice микшера: gain/pan, mute/solo,
+meters, master, persistence и Undo/Redo. Контракты: MIXER.md.
+Проверка: MRS_STAGE_2A_CHECKLIST.md. Приёмка 0.1f пока pending; #22 остаётся открыт.
+Предыдущие строки «разработка ещё не начата» ниже относятся к передаче после 0.1e.
+
 ## Актуальное продолжение — 2026-10-03
 Stage 0 принят, PR #36 слит. Stage 1/2 интегрированы через PR #37/#38 в main.
 Базовые ASIO WAV/monitoring при 48k/128 проверены пользователем. Оставшиеся

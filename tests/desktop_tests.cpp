@@ -111,6 +111,32 @@ void mono_route() {
             CHECK(buffer[frame*outputs.size()+channel] == (channel < 2 ? 0.06103515625f : 0.0f));
     }
 }
+void mixer() {
+    Directory dir; const auto file = dir.path / "mix.wav"; wav(file,1);
+    Application app; app.import_wav(file);
+    const auto track = app.services().projects->state().project->tracks.front().id;
+    app.save_project(dir.path / "mix.mrsproject");
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
+    const auto engine = app.engine(); app.play(); std::array<float,1024> output{};
+    engine->process(nullptr,output.data(),128);
+    const auto callbacks = engine->metrics().callbacks;
+    app.set_track_mix(track,{0.5f,1,false,false}); app.set_master_gain(0.5f);
+    CHECK(app.dirty() && app.engine() == engine && engine->metrics().callbacks == callbacks);
+    engine->process(nullptr,output.data(),512);
+    CHECK(output[1022] == 0 && output[1023] == 0.0152587890625f);
+    CHECK(app.undo()); engine->process(nullptr,output.data(),128);
+    CHECK(app.services().projects->state().project->master_gain == 1);
+    CHECK(app.redo()); engine->process(nullptr,output.data(),128);
+    app.stop(); engine->process(nullptr,output.data(),128); app.save_project(dir.path / "mix.mrsproject");
+    app.open_project(dir.path / "mix.mrsproject");
+    CHECK(!app.dirty()); const auto p = app.services().projects->state().project;
+    CHECK(p->tracks.front().mix.gain == 0.5f && p->tracks.front().mix.pan == 1 && p->master_gain == 0.5f);
+    const auto revision = app.services().projects->state().revision;
+    rejects([&] { app.set_track_mix(track,{1,2,false,false}); });
+    rejects([&] { app.set_master_gain(-1); });
+    CHECK(app.services().projects->state().revision == revision);
+    app.remove_track(track); CHECK(app.undo() && app.services().projects->state().project->tracks.front().mix.gain == 0.5f);
+}
 
 void audio_settings() {
     Application app;
@@ -442,7 +468,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected suite");
         std::string name = argv[1];
-        if (name == "workspaces") workspaces(); else if (name == "transport") transport();
+        if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
         else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else if (name == "recording") recording(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;

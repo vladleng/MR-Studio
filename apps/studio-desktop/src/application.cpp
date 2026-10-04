@@ -84,6 +84,9 @@ Application::~Application() {
 void Application::workspace(Workspace w) { (void)workspace_name(w); workspace_ = w; }
 void Application::replace(persistence::ProjectDocument next) {
     require_not_recording(); next.validate(); armed_.reset();
+    // Existing MIXR channels hydrate the shared command model, including legacy archives.
+    for (const auto& m : next.mixer) for (auto& t : next.project.tracks) if (t.id == m.track)
+        t.mix = {m.gain,m.pan,m.mute,m.solo};
     // Build application models before releasing the old session.
     auto projects = std::make_shared<ProjectStore>(next.project);
     auto graphs = std::make_shared<processing::GraphStore>(next.graph);
@@ -94,6 +97,7 @@ void Application::replace(persistence::ProjectDocument next) {
     for (auto& [key,value] : assets_) { (void)key; *value.cancel = true; }
     assets_.clear(); waveform_error_.clear();
     document_ = std::move(next);
+    mixer_tracks_.clear(); applied_mix_revision_ = 0;
     services_ = {projects,transport}; graphs_ = std::move(graphs);
     transport_ = std::move(transport); musical_ = std::move(musical);
     saved_project_revision_ = saved_graph_revision_ = 0; unsaved_ = true;
@@ -103,6 +107,14 @@ void Application::replace(persistence::ProjectDocument next) {
 void Application::start_empty_clock() {
     auto device = audio::make_offline_device();
     audio::DeviceConfig c{0,document_.project.sample_rate,128,{}, {0,1}};
+    audio::RenderGraph graph;
+    const auto p = services_.projects->state().project;
+    for (const auto& t : p->tracks) if (t.kind == TrackKind::audio) {
+        require(mixer_tracks_.size() < audio::max_mixer_tracks,"mixer supports up to 128 audio tracks");
+        mixer_tracks_.push_back(t.id); graph.mixer.push_back(t.mix);
+    }
+    graph.master_gain = p->master_gain;
+    engine_->prepare({p->sample_rate,0,2,8192},std::move(graph));
     device->open(c,engine_); device->start(); device_ = std::move(device); device_config_ = c; audio_name_ = "Offline clock (no sound)";
 }
 void Application::demo() {
@@ -131,12 +143,9 @@ persistence::ProjectDocument Application::snapshot() const {
     result.generation += p.revision;
     require(g.revision <= std::numeric_limits<std::uint64_t>::max()-result.generation,"generation overflow");
     result.generation += g.revision; result.project = *p.project; result.graph = *g.graph;
-    // Base channel state stays available for Undo; only extant tracks serialize.
-    std::erase_if(result.mixer,[&](const auto& m) {
-        return std::none_of(result.project.tracks.begin(),result.project.tracks.end(),[&](const auto& t) { return t.id == m.track; });
-    });
-    for (const auto& t : result.project.tracks) if (std::none_of(result.mixer.begin(),result.mixer.end(),[&](const auto& m) { return m.track == t.id; }))
-        result.mixer.push_back({t.id,1,0,false,false});
+    result.mixer.clear();
+    for (const auto& t : result.project.tracks)
+        result.mixer.push_back({t.id,t.mix.gain,t.mix.pan,t.mix.mute,t.mix.solo});
     result.validate(); return result;
 }
 void Application::save_project(const std::filesystem::path& path) {
@@ -225,6 +234,7 @@ void Application::edit(const ICommand& command) {
     auto candidate = *services_.projects->state().project;
     command.apply(candidate); candidate.validate();
     require(candidate.clips.size() <= audio::max_voices,"too many playback clips");
+    require(std::count_if(candidate.tracks.begin(),candidate.tracks.end(),[](const auto& t) { return t.kind == TrackKind::audio; }) <= static_cast<std::ptrdiff_t>(audio::max_mixer_tracks),"mixer supports up to 128 audio tracks");
     std::size_t streamed{}, bytes{};
     for (const auto& clip : candidate.clips) {
         const auto data = asset(clip.source);
@@ -243,8 +253,50 @@ Id Application::add_audio_track(std::string name) {
 }
 void Application::remove_track(const Id& id) { edit(RemoveTrack{id}); }
 void Application::reorder_track(const Id& id, std::size_t index) { edit(ReorderTrack{id,index}); }
-bool Application::undo() { require_not_playing(); const auto changed = services_.projects->undo(); if (changed) { sync_arm(); rebuild_audio(); } return changed; }
-bool Application::redo() { require_not_playing(); const auto changed = services_.projects->redo(); if (changed) { sync_arm(); rebuild_audio(); } return changed; }
+bool Application::history(bool redo) {
+    require_not_recording();
+    const auto target = services_.projects->history_target(redo);
+    if (!target) return false;
+    auto before = *services_.projects->state().project, after = *target;
+    before.master_gain = after.master_gain = 1;
+    for (auto& t : before.tracks) t.mix = {};
+    for (auto& t : after.tracks) t.mix = {};
+    const bool mix_only = before == after;
+    if (!mix_only) require_not_playing();
+    const bool changed = redo ? services_.projects->redo() : services_.projects->undo();
+    if (changed) { sync_arm(); if (mix_only) publish_mix(); else rebuild_audio(); }
+    return changed;
+}
+bool Application::undo() { return history(false); }
+bool Application::redo() { return history(true); }
+void Application::set_track_mix(const Id& id, Track::Mix mix) {
+    services_.projects->execute(SetTrackMix{id,mix}); publish_mix();
+}
+void Application::set_master_gain(float gain) {
+    services_.projects->execute(SetMasterGain{gain}); publish_mix();
+}
+void Application::publish_mix() {
+    const auto state = services_.projects->state();
+    if (state.revision == applied_mix_revision_) return;
+    audio::MixerUpdate update; update.master_gain = state.project->master_gain;
+    for (const auto& t : state.project->tracks) if (t.kind == TrackKind::audio) {
+        if (update.count >= mixer_tracks_.size() || mixer_tracks_[update.count] != t.id) return;
+        update.tracks[update.count++] = t.mix;
+    }
+    if (update.count != mixer_tracks_.size()) return;
+    // A full queue keeps this revision pending; the next UI poll retries without blocking RT.
+    if (engine_->enqueue_mix(update)) applied_mix_revision_ = state.revision;
+}
+bool Application::preview_mix(std::optional<Id> id, Track::Mix mix, float master) {
+    mix.validate();
+    audio::MixerUpdate update; update.master_gain = master;
+    const auto p = services_.projects->state().project;
+    for (const auto& t : p->tracks) if (t.kind == TrackKind::audio) {
+        if (update.count >= mixer_tracks_.size() || mixer_tracks_[update.count] != t.id) return false;
+        update.tracks[update.count++] = id && t.id == *id ? mix : t.mix;
+    }
+    return engine_->enqueue_mix(update);
+}
 Sample Application::source_frames(const Id& id) {
     const auto p = services_.projects->state().project;
     const auto it = std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip) { return clip.id == id; });
@@ -298,11 +350,21 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     prepared_ = std::make_shared<processing::PreparedGraph>(graphs_->state(),config);
     result.processors = prepared_;
     const auto project = services_.projects->state().project;
+    mixer_tracks_.clear();
+    for (const auto& t : project->tracks) if (t.kind == TrackKind::audio) {
+        require(mixer_tracks_.size() < audio::max_mixer_tracks,"mixer supports up to 128 audio tracks");
+        mixer_tracks_.push_back(t.id); result.mixer.push_back(t.mix);
+    }
+    result.master_gain = project->master_gain;
+    applied_mix_revision_ = services_.projects->state().revision;
     for (const auto& clip : project->clips) {
         require(result.voices.size() < audio::max_voices,"too many playback voices");
         auto asset_data = asset(clip.source);
         require(asset_data->sample_rate == c.sample_rate,"WAV/project sample-rate mismatch");
         audio::Voice voice{asset_data,clip.start,clip.source_offset,clip.length,{}};
+        const auto track = std::find(mixer_tracks_.begin(),mixer_tracks_.end(),clip.track);
+        require(track != mixer_tracks_.end(),"audio clip requires an audio track");
+        voice.mixer_track = static_cast<std::size_t>(track-mixer_tracks_.begin());
         const auto gain = clip.source == "mrs:demo-tone" ? 0.15f : 1.0f;
         if (asset_data->channels == 1) {
             // A mono track is centered in the selected main pair, without
@@ -314,6 +376,10 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
         result.voices.push_back(std::move(voice));
     }
     if (!c.inputs.empty()) for (std::uint32_t channel = 0; channel < std::min<std::size_t>(2,c.outputs.size()); ++channel) result.monitor.push_back({0,channel,1});
+    if (armed_) {
+        const auto track = std::find(mixer_tracks_.begin(),mixer_tracks_.end(),*armed_);
+        if (track != mixer_tracks_.end()) result.monitor_track = static_cast<std::size_t>(track-mixer_tracks_.begin());
+    }
     return result;
 }
 void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::DeviceConfig c) {
@@ -341,6 +407,7 @@ void Application::disconnect() {
     if (transport_) { engine_->prepare({engine_->config().sample_rate,0,2,8192},{}); transport_->poll(); }
 }
 void Application::poll() {
+    publish_mix();
     if (recording_ && (recording_->status().fault != audio::RecordFault::none ||
         (recording_->status().frames > 0 && engine_->state().playback != PlaybackState::playing) ||
         device_status().phase != audio::DevicePhase::running)) {
@@ -361,12 +428,13 @@ void Application::stop() { if (recording_) (void)stop_recording(); transport_->s
 void Application::seek(Sample sample) { require_not_recording(); transport_->seek(sample); }
 
 void Application::arm_track(std::optional<Id> id) {
-    require_not_recording();
+    require_not_playing();
     if (id) {
         const auto p = services_.projects->state().project;
         require(std::any_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t) { return t.id == *id && t.kind == TrackKind::audio; }),"arm an existing audio track");
     }
     armed_ = std::move(id);
+    rebuild_audio();
 }
 void Application::monitoring(bool enabled) {
     require(engine_->enqueue({audio::ControlKind::monitor,enabled ? 1 : 0}),"audio command queue full");

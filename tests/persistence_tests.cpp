@@ -107,7 +107,7 @@ void migrations() {
         "MRS_CORE_SNAPSHOT 1\nPROJECT \"old-id\" \"Old\" \"Artist\" 48000\n"
         "TEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 0\nCLIPS 0\n"
         "MARKERS 1\n\"old-cue\" \"Cue\" 960 1\nEND\n";
-    auto d = decode_project(v1); CHECK(d.project.version == 2 && d.project.id == Id{"old-id"});
+    auto d = decode_project(v1); CHECK(d.project.version == schema_version && d.project.id == Id{"old-id"});
     CHECK(d.project.markers.front().id == Id{"old-cue"} && d.project.chords.empty() && d.graph.nodes.empty());
     CHECK(decode_project(encode(d)) == d);
     auto v2 = musical_demo_project(); auto migrated = decode_project(serialize(v2));

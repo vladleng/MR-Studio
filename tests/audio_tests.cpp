@@ -456,11 +456,45 @@ void independence() {
     CHECK(control.state().playback == PlaybackState::playing);
 }
 }
+void mixer() {
+    using namespace mrs; using namespace mrs::audio;
+    auto data = std::make_shared<AudioData>(); data->channels = 2; data->samples.assign(4096*2,0.25f);
+    RenderGraph graph;
+    graph.voices = {{data,0,0,4096,{{0,0,1},{1,1,1}}},{data,0,0,4096,{{0,0,1},{1,1,1}}}};
+    graph.voices[0].mixer_track = 0; graph.voices[1].mixer_track = 1;
+    graph.mixer = {{1,-1,false,false},{2,1,false,false}}; graph.master_gain = 0.5f;
+    AudioEngine engine; engine.prepare({48000,1,2,512},graph);
+    std::array<float,1024> out{}; CHECK(engine.enqueue({ControlKind::play}));
+    allocation_check::enabled = true; engine.process(nullptr,out.data(),512); allocation_check::enabled = false;
+    CHECK(out[0] == 0.125f && out[1] == 0.25f);
+    auto meters = engine.take_meters(); CHECK(meters.tracks[0].left == 0.25f && meters.tracks[0].right == 0);
+    CHECK(meters.master.right == 0.25f && engine.take_meters().master.right == 0);
+    MixerUpdate update; update.count = 2; update.tracks[0] = {1,0,false,true}; update.tracks[1] = {1,0,false,false};
+    CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512);
+    CHECK(out[1022] == 0.25f && out[1023] == 0.25f); // exclusive solo after ramp
+    update.tracks[0].mute = true; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512);
+    CHECK(out[1022] == 0 && out[1023] == 0); // mute wins over solo
+    update.tracks[0] = {}; update.tracks[1] = {}; update.master_gain = 4;
+    CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512);
+    CHECK(out[1022] == 1 && engine.metrics().clipped_samples > 0 && engine.take_meters().master.left >= 2);
+    update.count = max_mixer_tracks+1; CHECK(!engine.enqueue_mix(update)); update.count = 2;
+    update.master_gain = std::numeric_limits<float>::quiet_NaN(); CHECK(!engine.enqueue_mix(update));
+    update.master_gain = 1; update.tracks[0].pan = 2; CHECK(!engine.enqueue_mix(update)); update.tracks[0].pan = 0;
+    for (int n=0; n<7; ++n) CHECK(engine.enqueue_mix(update)); CHECK(!engine.enqueue_mix(update));
+    allocation_check::count = 0; allocation_check::enabled = true;
+    engine.process(nullptr,out.data(),512); allocation_check::enabled = false; CHECK(allocation_check::count == 0);
+    // Monitoring routes through a channel even when stopped; raw input is independent.
+    graph.voices.clear(); graph.monitor = {{0,0,1},{0,1,1}}; graph.monitor_track = 0;
+    graph.mixer = {{0.5f,-1,false,false}}; graph.master_gain = 0.5f;
+    std::array<float,512> input{}; input.fill(0.4f); engine.prepare({48000,1,2,512},graph);
+    engine.process(input.data(),out.data(),512); CHECK(std::abs(out[0]-0.1f)<0.00001f && out[1] == 0);
+    graph.monitor_track = 2; rejects([&] { engine.prepare({48000,1,2,512},graph); });
+}
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
-        if (suite=="render") render(); else if (suite=="transport") transport();
+        if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();

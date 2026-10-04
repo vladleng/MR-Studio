@@ -15,6 +15,18 @@ namespace mrs::processing { class PreparedGraph; }
 namespace mrs::audio {
 inline constexpr std::size_t max_channels = 64;
 inline constexpr std::size_t max_voices = 128;
+inline constexpr std::size_t max_mixer_tracks = 128;
+inline constexpr std::size_t no_mixer_track = max_mixer_tracks;
+struct MixerUpdate {
+    std::array<Track::Mix,max_mixer_tracks> tracks{};
+    std::size_t count{};
+    float master_gain{1};
+};
+struct StereoPeak { float left{}, right{}; };
+struct MixerMeters {
+    std::array<StereoPeak,max_mixer_tracks> tracks{};
+    StereoPeak master{};
+};
 struct WavFile {
     std::filesystem::path path;
     std::uint32_t sample_rate{}, channels{}, bits{}, format{};
@@ -40,6 +52,7 @@ struct Voice {
     Sample start{}, source_offset{}, length{};
     std::vector<PlaybackRoute> routes;
     std::shared_ptr<ReadAhead> stream{}; // per-voice cursor, prepared off RT
+    std::size_t mixer_track{no_mixer_track};
 };
 struct MonitorRoute { std::uint32_t input_channel{}, output_channel{}; float gain{1}; };
 struct RenderGraph {
@@ -48,6 +61,9 @@ struct RenderGraph {
     std::shared_ptr<processing::PreparedGraph> processors{};
     std::shared_ptr<Recorder> recording{};
     bool monitoring{true};
+    std::vector<Track::Mix> mixer{};
+    float master_gain{1};
+    std::size_t monitor_track{no_mixer_track};
 };
 struct RenderConfig {
     std::uint32_t sample_rate{48000};
@@ -103,6 +119,8 @@ public:
     // Optional quiescent state retains a stopped/paused position and loop; never autoplay.
     void prepare(RenderConfig, RenderGraph, RealtimeState initial = {});
     bool enqueue(Control) noexcept;
+    bool enqueue_mix(const MixerUpdate&) noexcept;
+    MixerMeters take_meters() noexcept; // one UI consumer; peak hold since previous read
     void prime_streams(Sample); // control thread, before publishing a seek/play
     void prime_loop(std::optional<LoopRange>); // control thread
     // RT entry: supplied interleaved buffers have frames * configured channels.
@@ -119,6 +137,14 @@ private:
     bool monitor_enabled_{true};
     std::atomic<float> input_peak_{};
     SpscQueue<Control, 64> controls_;
+    SpscQueue<MixerUpdate,8> mixer_controls_;
+    std::array<std::array<float,max_channels>,max_mixer_tracks> track_frame_{};
+    std::array<std::array<float,2>,max_mixer_tracks> mix_gain_{}, mix_target_{}, mix_step_{};
+    float master_gain_{1}, master_target_{1}, master_step_{};
+    std::vector<float> master_envelope_;
+    std::uint32_t mix_ramp_{};
+    std::array<std::array<std::atomic<float>,2>,max_mixer_tracks+1> meter_peaks_{};
+    void set_mix(const MixerUpdate&, bool ramp) noexcept;
     RealtimeState rt_;
     std::atomic<std::uint64_t> sequence_{};
     std::atomic<Sample> published_sample_{}, published_loop_start_{}, published_loop_end_{};

@@ -147,7 +147,7 @@ void persistence() {
         "TEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 0\nCLIPS 0\n"
         "MARKERS 1\n\"old-cue\" \"Cue\" 960 1\nEND\n";
     const auto migrated = mrs::deserialize(v1);
-    CHECK(migrated.version == 2 && migrated.id == mrs::Id{"old-id"});
+    CHECK(migrated.version == mrs::schema_version && migrated.id == mrs::Id{"old-id"});
     CHECK(migrated.chords.empty() && migrated.sections.empty());
     CHECK(migrated.markers[0].id == mrs::Id{"old-cue"});
     CHECK(mrs::deserialize(mrs::serialize(migrated)) == migrated);
