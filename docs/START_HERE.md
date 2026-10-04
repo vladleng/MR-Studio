@@ -1,5 +1,21 @@
 # Moon River Studio — START HERE
 
+## Локальная 0.1i upd1 готова к проверке — 2026-10-04
+Пользователь принял 0.1i: «Все работает!» и запросил интерфейс по скриншоту Studio Pro.
+Upd1: компактная верхняя панель, широкие track headers, аранжировка сверху,
+нижний микшер/Master справа, транспорт снизу, серые панели/синие акценты.
+Только рабочие команды; header M/S используют общий mixer Undo.
+Ctrl+Shift+wheel — horizontal zoom, Ctrl+wheel — track height,
+Shift+wheel — horizontal scroll, wheel — vertical scroll. Над микшером
+Shift+wheel прокручивает каналы; обычное колесо прокручивает дорожки аранжировки.
+Local ASIO Release build, CTest 69/69, expanded GUI smoke и visual preview пройдены.
+Пользовательская приёмка upd1 ожидается. Последняя принятая локальная — 0.1i.
+См. [MRS_0_1I_UPD1.md](MRS_0_1I_UPD1.md). Пакет MR-Studio-0.1i-upd1-ASIO-Windows-local;
+ветка mrs/0.1i-upd1-layout-local. Старый пакет 0.1i сохранён.
+Код и пакеты локально; GitHub только issues/docs, без code push/new PR/merge/Actions.
+Исторические pending записи ниже заменены этой приёмкой базовой 0.1i.
+Полный #22 остаётся открыт; detailed physical/performance matrix #16 не отмечена пройденной.
+
 ## Локальная 0.1i / Stage 2d готова к проверке — 2026-10-04
 Аппаратные mono/stereo outputs для дорожек, шин и Master; несколько выходов
 на общем engine, независимые Main/Monitor/Click/Cue через именованные шины.
