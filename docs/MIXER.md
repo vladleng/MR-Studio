@@ -78,3 +78,7 @@ Software GUI checks do not replace user audition of their TH-U preset.
 Code 6b937cc6284c75481a28efe4e6f150fe7c830c86, local branch mrs/0.1m-upd2-skin-local.
 Package MR-Studio-0.1m-upd2-fix1-ASIO-Windows-local. No schema or audio processing change.
 Code/builds local; GitHub issues/docs only, no push/PR/merge/Actions or installations.
+
+## UI choice — 2026-10-04
+
+User preferred the previous interface over the approximate reference skin. Working branch and local development build returned to mrs/0.1m-upd1-fix1-local; GUI exit 0 after rebuilding. Use MR-Studio-0.1m-upd1-fix1-ASIO-Windows-local. The upd2 skin remains a separate experimental branch/package and is not the current UI direction. Full custom UI design/renderer migration is under discussion only; nothing installed or migrated.
