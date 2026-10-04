@@ -1,5 +1,39 @@
 # Shared recording / Stage 1d (0.1e)
 
+## Current contract: 0.1j / Stage 2e
+This section supersedes the historical Stage 1d single-mono contract below.
+The shared AudioEngine now captures up to 32 armed tracks simultaneously, each with
+one mono or two stereo stream selectors, a preallocated ring and worker. No callback
+allocation/locks/file access. All sinks share one start; capture stays raw regardless
+of track mute/gain/pan/Monitor. Each stereo WAV has interleaved L/R and correct frame
+counts. Physical selectors map to the ordered selected input stream.
+
+Start validates every selector/destination before creating files. One track keeps
+the requested filename; multiple tracks use stem-1.wav, stem-2.wav in arm order.
+Stop/Pause finalize all sinks and attach successful takes with one batch Undo command;
+Undo retains files, Redo restores the batch. Individual failed sinks do not discard
+other valid takes. Prefix/dropout/finalization protection remains as described below.
+Limits remain 32 shared disk voices, 256 MiB pages and 128 sources/clips; start reserves
+eventual playback pages per sink (mono 256 KiB, stereo 512 KiB), plus one fixed 1 MiB
+capture ring and 32 KiB worker staging buffer. RIFF bound applies per file.
+
+R and I are on each track beside M/S; global Arm/Monitor are hidden. Arm is session
+state; Monitor and mono/stereo input routes persist in snapshot v7 (reads v1-v6).
+Monitor toggles live for open inputs; a new hardware input needs Pause/Stop.
+Stop returns to the latest Play/Record start, including after loop playback and graph
+rebuild. Pause stays at its current position; Play after Pause establishes a new
+anchor. Repeated Play retains the anchor; prepared seek/Play uses the applied target.
+The anchor is runtime transport state. Offline clock cannot record physical inputs.
+No RF64, resampling, loop/punch capture or automatic input latency compensation.
+
+New suites core_inputs, audio_multi_input, audio_stop_anchor, desktop_multi_input
+cover persistence/Undo, simultaneous raw mono/stereo WAVs, independent L/R peaks,
+zero RT allocation, input remapping, Monitor-off capture, batch Undo and Stop anchor.
+Local CTest 73/73 and expanded GUI smoke passed. Physical ASIO acceptance pending:
+[inputs](INPUT_ROUTING.md), [Stage 2e checklist](MRS_STAGE_2E_CHECKLIST.md).
+
+## Historical Stage 1d contract (superseded where noted above)
+
 One Recorder belongs to the existing RenderGraph / AudioEngine; no second transport,
 audio device, project store or recording-specific playback backend. The desktop
 arms one existing audio track and selects one hardware ASIO input through DeviceConfig.
@@ -102,3 +136,4 @@ the current position and retries on its next block; worker retry pages remain
 protected. This closes the queued-command handoff race without blocking RT.
 The concurrent seek exact-sample/zero-underrun/zero-RT-allocation regression is
 repeated eight times in every Debug/Release CI job for this fix.
+
