@@ -1,5 +1,7 @@
 # Moon River Studio — START HERE
 
+Future idea (not started, separate from the current build): [Acoustic space prototype](ACOUSTIC_SPACE_PROTOTYPE.md).
+
 ## 0.1m / Stage 3c — local build ready, 2026-10-04
 
 Cab IR: mono/stereo WAV import, embedded kernel, live Mix/Gain/low-high cuts/polarity,
