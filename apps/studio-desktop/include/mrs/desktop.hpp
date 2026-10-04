@@ -103,6 +103,7 @@ public:
     void set_inserts(std::optional<Id>, std::vector<NativeInsert>);
     void preview_inserts(std::optional<Id>, const std::vector<NativeInsert>&);
     void cancel_insert_preview();
+    std::uint64_t insert_generation() const {return insert_generation_;}
     bool open_plugin_editor(std::optional<Id>,const Id&,void*,int&,int&);
     void close_plugin_editors();
     bool plugin_failed() const;
@@ -142,6 +143,7 @@ private:
     std::shared_ptr<processing::PreparedGraph> prepared_;
     struct InsertRuntime {std::shared_ptr<processing::PreparedGraph> graph;std::optional<processing::GraphState> pending;};
     std::map<std::string,InsertRuntime> insert_runtime_;
+    std::uint64_t insert_generation_{};
     void publish_inserts();
     void capture_insert_state(Project&);
     Workspace workspace_{Workspace::arrange};

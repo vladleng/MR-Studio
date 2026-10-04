@@ -674,7 +674,7 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     const auto project = services_.projects->state().project;
     prepare_mixer(result);
     const Timeline timeline(project->time,project->sample_rate);for(const auto& tempo:project->time.tempos)result.tempos.push_back({timeline.to_samples(tempo.tick),tempo.bpm,static_cast<double>(tempo.tick)/ppq});
-    insert_runtime_.clear();
+    ++insert_generation_;insert_runtime_.clear();
     const auto chain=[&](const std::vector<NativeInsert>& effects,std::uint32_t block) -> std::shared_ptr<processing::PreparedGraph> {
         if (effects.empty()) return {};
         auto saved=std::make_shared<const processing::GraphState>(processing::insert_graph(effects));
@@ -756,7 +756,7 @@ void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::De
 void Application::disconnect() {
     require_not_recording();
     if (device_) { device_->close(); device_.reset(); }
-    insert_runtime_.clear(); prepared_.reset(); device_config_.reset(); device_info_.reset(); audio_name_ = "Disconnected";
+    ++insert_generation_;insert_runtime_.clear(); prepared_.reset(); device_config_.reset(); device_info_.reset(); audio_name_ = "Disconnected";
     if (transport_) { engine_->prepare({engine_->config().sample_rate,0,2,8192},{}); transport_->poll(); }
 }
 void Application::poll() {

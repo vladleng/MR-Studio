@@ -125,6 +125,7 @@ struct UI {
     bool fx_editable{};
     HWND eq_window{},vst_editor{};
     std::optional<Id> editor_target;Id editor_slot;
+    std::uint64_t editor_generation{};
     std::size_t eq_band{2},vst_parameter{};
     std::optional<std::vector<NativeInsert>> fx_preview;
     POINT eq_origin{};EqBand eq_original{};bool eq_dragging{};
@@ -341,6 +342,7 @@ struct UI {
         text_changed(window,title); InvalidateRect(window,nullptr,FALSE);
     }
     void refresh_models(bool mix_only = false) {
+        if(vst_editor&&editor_generation!=app.insert_generation())close_vst_editor();
         if (mix_only) { refresh_mix_controls(); return; }
         sync_workspace_controls();
         const auto project = app.services().projects->state().project;
@@ -1257,7 +1259,7 @@ void UI::open_vst(std::optional<Id> target,const Id& slot,const std::string& nam
     if(vst_editor&&editor_target==target&&editor_slot==slot){if(!smoke){ShowWindow(vst_editor,SW_SHOW);SetForegroundWindow(vst_editor);}return;}close_vst_editor();WNDCLASSW cls{};cls.hInstance=GetModuleHandleW(nullptr);cls.lpfnWndProc=plugin_editor_proc;cls.lpszClassName=L"MRStudioPluginEditor";cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&cls);
     vst_editor=CreateWindowExW(WS_EX_TOOLWINDOW,cls.lpszClassName,wide(name).c_str(),WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,CW_USEDEFAULT,CW_USEDEFAULT,s(600),s(400),window,nullptr,cls.hInstance,this);if(!vst_editor)throw std::runtime_error("Cannot create plugin editor");int w{},h{};
     if(!app.open_plugin_editor(target,slot,vst_editor,w,h)){close_vst_editor();if(!fx_window||fx_target!=target)open_fx(target);const auto chain=fx_chain(*this);for(std::size_t i=0;i<chain.size();++i)if(chain[i].id==slot)fx_selection=i;fx_refresh();text_changed(GetDlgItem(fx_window,fx_status),L"No native editor available · Connect audio to prepare the plugin / use generic parameters");return;}
-    editor_target=target;editor_slot=slot;RECT rect{0,0,w,h};AdjustWindowRect(&rect,WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,FALSE);SetWindowPos(vst_editor,nullptr,0,0,rect.right-rect.left,rect.bottom-rect.top,SWP_NOMOVE|SWP_NOZORDER);if(!smoke){ShowWindow(vst_editor,SW_SHOW);SetForegroundWindow(vst_editor);}
+    editor_target=target;editor_slot=slot;editor_generation=app.insert_generation();RECT rect{0,0,w,h};AdjustWindowRect(&rect,WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,FALSE);SetWindowPos(vst_editor,nullptr,0,0,rect.right-rect.left,rect.bottom-rect.top,SWP_NOMOVE|SWP_NOZORDER);if(!smoke){ShowWindow(vst_editor,SW_SHOW);SetForegroundWindow(vst_editor);}
 }
 void UI::open_fx(std::optional<Id> target) {
     if(fx_window)DestroyWindow(fx_window);fx_target=std::move(target);fx_selection=0;eq_band=2;fx_preview.reset();
@@ -1618,6 +1620,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
         case WM_TIMER:
             if (wparam == 1) {
                 ui->browser_scan_poll();
+                if(ui->vst_editor&&ui->editor_generation!=ui->app.insert_generation())ui->close_vst_editor();
                 const auto peaks = ui->app.engine()->take_meters();
                 const auto decay = [](audio::StereoPeak& value, audio::StereoPeak next) { value.left = std::max(next.left,value.left*0.86f); value.right = std::max(next.right,value.right*0.86f); };
                 for (std::size_t i=0; i<audio::max_mixer_tracks; ++i) decay(ui->mix_meters.tracks[i],peaks.tracks[i]);
@@ -1907,7 +1910,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                         SendMessageW(hwnd,WM_NOTIFY,browser_tree,reinterpret_cast<LPARAM>(&event));ui->browser_cancel();if(ui->app.services().projects->state().revision!=initial_revision)throw std::runtime_error("Cancelled drag changed project");
                         auto strip=ui->mix_strip(0);POINT drop{strip.left+ui->s(40),strip.top+ui->s(60)};SendMessageW(hwnd,WM_NOTIFY,browser_tree,reinterpret_cast<LPARAM>(&event));SendMessageW(hwnd,WM_MOUSEMOVE,MK_LBUTTON,MAKELPARAM(drop.x,drop.y));SendMessageW(hwnd,WM_LBUTTONUP,0,MAKELPARAM(drop.x,drop.y));
                         if(ui->app.services().projects->state().project->tracks[0].inserts.size()!=2||ui->app.services().projects->state().revision!=initial_revision+1)throw std::runtime_error("Plugin drop did not append one Undo command");
-                        const auto slot=ui->insert_slot(strip,1);ui->mixer_down({slot.left+ui->s(4),slot.top+ui->s(4)});if(!ui->vst_editor)throw std::runtime_error("Single insert click did not open native VST3 editor");auto editor=ui->vst_editor;ui->mixer_down({slot.left+ui->s(4),slot.top+ui->s(4)});if(ui->vst_editor!=editor)throw std::runtime_error("Repeated click recreated plugin editor");ui->close_vst_editor();
+                        const auto slot=ui->insert_slot(strip,1);ui->mixer_down({slot.left+ui->s(4),slot.top+ui->s(4)});if(!ui->vst_editor)throw std::runtime_error("Single insert click did not open native VST3 editor");auto editor=ui->vst_editor;ui->mixer_down({slot.left+ui->s(4),slot.top+ui->s(4)});if(ui->vst_editor!=editor)throw std::runtime_error("Repeated click recreated plugin editor");ui->command(undo,0);if(ui->vst_editor)throw std::runtime_error("Undo left an obsolete plugin window open");ui->command(redo,0);ui->mixer_down({slot.left+ui->s(4),slot.top+ui->s(4)});if(!ui->vst_editor)throw std::runtime_error("Redo did not permit reopening plugin editor");ui->close_vst_editor();
                         ui->open_fx(tracks[0].id);SendMessageW(GetDlgItem(ui->fx_window,fx_list),LB_SETCURSEL,1,0);SendMessageW(ui->fx_window,WM_COMMAND,MAKEWPARAM(fx_list,LBN_SELCHANGE),0);if(!ui->vst_editor)throw std::runtime_error("Insert list click did not open VST editor");DestroyWindow(ui->fx_window);
                         strip=ui->mix_strip(0,true);drop={strip.left+ui->s(20),strip.top+ui->s(65)};SendMessageW(hwnd,WM_NOTIFY,browser_tree,reinterpret_cast<LPARAM>(&event));ui->browser_up(drop);if(ui->app.services().projects->state().project->master_inserts.size()!=2)throw std::runtime_error("Master plugin drop failed");if(!ui->app.undo()||ui->app.services().projects->state().project->master_inserts.size()!=1)throw std::runtime_error("Drop Undo failed");
                         const auto bus=ui->app.add_bus("Browser bus");ui->first_mix_track=ui->mix_tracks().size()-1;strip=ui->mix_strip(0);drop={strip.left+ui->s(20),strip.top+ui->s(60)};SendMessageW(hwnd,WM_NOTIFY,browser_tree,reinterpret_cast<LPARAM>(&event));ui->browser_up(drop);bool found=false;for(const auto& t:ui->app.services().projects->state().project->tracks)if(t.id==bus)found=t.inserts.size()==1;if(!found)throw std::runtime_error("Bus plugin drop failed");ui->first_mix_track=0;ui->app.disconnect();ui->refresh_models();
