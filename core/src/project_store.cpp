@@ -15,6 +15,11 @@ struct EditGuard {
 };
 }
 AddTrack::AddTrack(Track track) : track_(std::move(track)) {}
+void SetTrackMix::apply(Project& project) const {
+    auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
+    if (track == project.tracks.end() || track->kind != TrackKind::audio) throw std::invalid_argument("unknown audio mixer track");
+    mix_.validate(); track->mix = mix_;
+}
 std::string_view AddTrack::name() const { return "Add track"; }
 void AddTrack::apply(Project& project) const { project.tracks.push_back(track_); }
 RenameTrack::RenameTrack(Id track, std::string name) : track_(std::move(track)), name_(std::move(name)) {}
@@ -34,6 +39,10 @@ ProjectStore::ProjectStore(Project project, std::size_t history_limit) : history
 }
 ProjectState ProjectStore::state() const {
     return {project_, revision_, !undo_.empty(), !redo_.empty(), command_};
+}
+std::shared_ptr<const Project> ProjectStore::history_target(bool redo) const {
+    if (redo) return redo_.empty() ? nullptr : redo_.back().after;
+    return undo_.empty() ? nullptr : undo_.back().before;
 }
 void ProjectStore::publish() { changes_.publish(state()); }
 void ProjectStore::execute(const ICommand& command) {

@@ -147,10 +147,18 @@ void persistence() {
         "TEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 0\nCLIPS 0\n"
         "MARKERS 1\n\"old-cue\" \"Cue\" 960 1\nEND\n";
     const auto migrated = mrs::deserialize(v1);
-    CHECK(migrated.version == 2 && migrated.id == mrs::Id{"old-id"});
+    CHECK(migrated.version == mrs::schema_version && migrated.id == mrs::Id{"old-id"});
     CHECK(migrated.chords.empty() && migrated.sections.empty());
     CHECK(migrated.markers[0].id == mrs::Id{"old-cue"});
     CHECK(mrs::deserialize(mrs::serialize(migrated)) == migrated);
+    const std::string v2 =
+        "MRS_CORE_SNAPSHOT 2\nPROJECT \"v2-id\" \"Old mix\" \"\" 48000\n"
+        "TEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n"
+        "\"track-old\" \"Audio\" 0 \"\"\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nEND\n";
+    const auto old_mix = mrs::deserialize(v2);
+    CHECK(old_mix.tracks.front().mix == mrs::Track::Mix{} && old_mix.master_gain == 1);
+    auto mixed = old_mix; mixed.tracks.front().mix = {0.625f,-0.75f,true,true}; mixed.master_gain = 0.375f;
+    CHECK(mrs::deserialize(mrs::serialize(mixed)) == mixed);
     rejects([&] { (void)mrs::deserialize(bytes + "EXTRA"); });
     rejects([&] { (void)mrs::deserialize(bytes.substr(0, bytes.find("SECTIONS"))); });
 }

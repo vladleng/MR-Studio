@@ -41,7 +41,12 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
         config.output_channels > max_channels || config.max_block == 0 || config.max_block > 65536 ||
         graph.voices.size() > max_voices || graph.monitor.size() > max_channels * max_channels)
         throw std::invalid_argument("invalid render configuration");
+    if (graph.mixer.size() > max_mixer_tracks || !std::isfinite(graph.master_gain) || graph.master_gain < 0 || graph.master_gain > 16 ||
+        (graph.monitor_track != no_mixer_track && graph.monitor_track >= graph.mixer.size()))
+        throw std::invalid_argument("invalid mixer configuration");
+    for (const auto& mix : graph.mixer) mix.validate();
     for (const auto& voice : graph.voices) {
+        if (voice.mixer_track != no_mixer_track && voice.mixer_track >= graph.mixer.size()) throw std::invalid_argument("invalid voice mixer track");
         if (!voice.asset) throw std::invalid_argument("missing asset");
         voice.asset->validate();
         if (voice.asset->sample_rate != config.sample_rate)
@@ -86,11 +91,17 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
         }
     }
     config_ = config;
+    master_envelope_.resize(config.max_block);
     graph_ = std::move(graph);
+    MixerUpdate mix; mix.count = graph_.mixer.size(); mix.master_gain = graph_.master_gain;
+    std::copy(graph_.mixer.begin(),graph_.mixer.end(),mix.tracks.begin());
+    MixerUpdate discarded_mix; while (mixer_controls_.pop(discarded_mix)) {}
+    set_mix(mix,false);
+    for (auto& channel : meter_peaks_) for (auto& p : channel) p.store(0,std::memory_order_relaxed);
     monitor_enabled_ = graph_.monitoring; input_peak_ = 0;
     Control discarded;
     while (controls_.pop(discarded)) {}
-    rt_ = initial;
+    rt_ = initial; pending_seek_.reset();
     callbacks_ = 0; input_overflows_ = 0; input_underflows_ = 0;
     output_underflows_ = 0; output_overflows_ = 0; deadlines_ = 0;
     invalid_blocks_ = 0; clipped_ = 0; missing_inputs_ = 0; disk_underruns_ = 0;
@@ -111,6 +122,36 @@ void AudioEngine::prime_loop(std::optional<LoopRange> loop) {
     }
 }
 bool AudioEngine::enqueue(Control control) noexcept { return controls_.push(control); }
+bool AudioEngine::enqueue_mix(const MixerUpdate& update) noexcept {
+    if (update.count != graph_.mixer.size() || !std::isfinite(update.master_gain) || update.master_gain < 0 || update.master_gain > 16) return false;
+    for (std::size_t i=0; i<update.count; ++i) {
+        const auto& m = update.tracks[i];
+        if (!std::isfinite(m.gain) || m.gain < 0 || m.gain > 16 || !std::isfinite(m.pan) || m.pan < -1 || m.pan > 1) return false;
+    }
+    return mixer_controls_.push(update);
+}
+void AudioEngine::set_mix(const MixerUpdate& update, bool ramp) noexcept {
+    bool solo{}; for (std::size_t i=0; i<update.count; ++i) solo = solo || update.tracks[i].solo;
+    mix_ramp_ = ramp ? std::max(1U,config_.sample_rate/200) : 0;
+    for (std::size_t i=0; i<update.count; ++i) {
+        const auto& m = update.tracks[i];
+        const float gain = m.mute || (solo && !m.solo) ? 0 : m.gain;
+        // Unity center preserves 0.1e levels; stereo balance and mono main-pair pan.
+        mix_target_[i] = {gain*(m.pan > 0 ? 1-m.pan : 1),gain*(m.pan < 0 ? 1+m.pan : 1)};
+        if (config_.output_channels == 1) mix_target_[i] = {gain,gain};
+        if (!ramp) mix_gain_[i] = mix_target_[i];
+        for (std::size_t c=0; c<2; ++c) mix_step_[i][c] = ramp ? (mix_target_[i][c]-mix_gain_[i][c])/static_cast<float>(mix_ramp_) : 0;
+    }
+    master_target_ = update.master_gain;
+    if (!ramp) master_gain_ = master_target_;
+    master_step_ = ramp ? (master_target_-master_gain_)/static_cast<float>(mix_ramp_) : 0;
+}
+MixerMeters AudioEngine::take_meters() noexcept {
+    MixerMeters result;
+    for (std::size_t i=0; i<max_mixer_tracks; ++i) result.tracks[i] = {meter_peaks_[i][0].exchange(0),meter_peaks_[i][1].exchange(0)};
+    result.master = {meter_peaks_[max_mixer_tracks][0].exchange(0),meter_peaks_[max_mixer_tracks][1].exchange(0)};
+    return result;
+}
 void AudioEngine::publish() noexcept {
     sequence_.fetch_add(1, std::memory_order_acq_rel);
     published_sample_.store(rt_.sample, std::memory_order_relaxed);
@@ -155,10 +196,15 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             if (rt_.playback == PlaybackState::playing) rt_.playback = PlaybackState::paused;
             break;
         case ControlKind::stop:
-            rt_.playback = PlaybackState::stopped; rt_.sample = 0;
+            pending_seek_.reset(); rt_.playback = PlaybackState::stopped; rt_.sample = 0;
             if (graph_.processors) graph_.processors->panic();
             break;
+        case ControlKind::prepared_seek:
+            if (graph_.recording) { graph_.recording->discontinuity(); break; }
+            if (control.a >= 0 && control.a <= max_sample) pending_seek_ = control.a;
+            break;
         case ControlKind::seek:
+            pending_seek_.reset();
             if (graph_.recording) { graph_.recording->discontinuity(); break; }
             if (control.a >= 0 && control.a <= max_sample) {
                 rt_.sample = control.a;
@@ -173,7 +219,29 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             break;
         }
     }
+    // A later control prime can replace an earlier queued seek's warm target.
+    // Pin/verify the candidate before changing RT position. If unavailable, keep
+    // rendering the current head and retry next block; callback never waits.
+    bool seek_pinned = false;
+    if (pending_seek_) {
+        bool ready = true;
+        for (auto& voice : graph_.voices) if (voice.stream) {
+            const auto source = voice.source_offset+std::clamp(*pending_seek_-voice.start,Sample{0},voice.length-1);
+            if (!voice.stream->try_begin(source,frames)) ready = false;
+        }
+        if (ready) {
+            rt_.sample = *pending_seek_; pending_seek_.reset(); seek_pinned = true;
+            for (auto& voice : graph_.voices) if (voice.stream)
+                voice.stream->accept_seek(voice.source_offset+std::clamp(rt_.sample-voice.start,Sample{0},voice.length-1));
+            if (graph_.processors) graph_.processors->panic();
+        } else {
+            for (auto& voice : graph_.voices) if (voice.stream) (void)voice.stream->end();
+        }
+    }
     std::fill_n(output, static_cast<std::size_t>(frames) * config_.output_channels, 0.0F);
+    MixerUpdate mix;
+    for (int n=0; n<7 && mixer_controls_.pop(mix); ++n) set_mix(mix,true);
+    std::array<std::array<float,2>,max_mixer_tracks+1> block_peaks{};
     float peak{};
     if (input) for (std::size_t n=0; n<static_cast<std::size_t>(frames)*config_.input_channels; ++n)
         if (std::isfinite(input[n])) peak = std::max(peak,std::abs(input[n]));
@@ -183,15 +251,21 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         graph_.recording->capture(input,config_.input_channels,frames,rt_.sample);
     }
     if (!input && monitor_enabled_ && !graph_.monitor.empty()) missing_inputs_.fetch_add(1, std::memory_order_relaxed);
-    for (auto& voice : graph_.voices) if (voice.stream)
+    if (!seek_pinned) for (auto& voice : graph_.voices) if (voice.stream) {
+        if (!pending_seek_) voice.stream->cancel_seek();
         voice.stream->begin(voice.source_offset+std::clamp(rt_.sample-voice.start,Sample{0},voice.length-1));
+    }
     for (std::uint32_t frame = 0; frame < frames; ++frame) {
         const auto out = static_cast<std::size_t>(frame) * config_.output_channels;
+        for (std::size_t t=0; t<graph_.mixer.size(); ++t) std::fill_n(track_frame_[t].begin(),config_.output_channels,0.0F);
         // Monitoring is independent of transport and playback source density.
         if (input && monitor_enabled_) {
             const auto in = static_cast<std::size_t>(frame) * config_.input_channels;
-            for (const auto& route : graph_.monitor)
-                output[out + route.output_channel] += input[in + route.input_channel] * route.gain;
+            for (const auto& route : graph_.monitor) {
+                const float sample = std::isfinite(input[in+route.input_channel]) ? input[in+route.input_channel]*route.gain : 0;
+                if (graph_.monitor_track == no_mixer_track) output[out+route.output_channel] += sample;
+                else track_frame_[graph_.monitor_track][route.output_channel] += sample;
+            }
         }
         if (rt_.playback == PlaybackState::playing) {
             if (rt_.loop && rt_.sample >= rt_.loop->end)
@@ -204,13 +278,26 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
                     float sample{};
                     if (voice.stream) (void)voice.stream->read(source_frame,route.source_channel,sample);
                     else sample = voice.asset->samples[source+route.source_channel];
-                    output[out+route.output_channel] += sample*route.gain;
+                    if (voice.mixer_track == no_mixer_track) output[out+route.output_channel] += sample*route.gain;
+                    else track_frame_[voice.mixer_track][route.output_channel] += sample*route.gain;
                 }
             }
             if (rt_.sample < max_sample) ++rt_.sample;
             else rt_.playback = PlaybackState::stopped;
         }
-
+        for (std::size_t t=0; t<graph_.mixer.size(); ++t) {
+            for (std::uint32_t c=0; c<config_.output_channels; ++c) {
+                const float sample = track_frame_[t][c]*mix_gain_[t][c%2];
+                output[out+c] += sample;
+                if (c<2) block_peaks[t][c] = std::max(block_peaks[t][c],std::abs(sample));
+            }
+            if (mix_ramp_) for (std::size_t c=0; c<2; ++c) mix_gain_[t][c] += mix_step_[t][c];
+        }
+        master_envelope_[frame] = master_gain_;
+        if (mix_ramp_) {
+            master_gain_ += master_step_;
+            if (--mix_ramp_ == 0) { master_gain_ = master_target_; mix_gain_ = mix_target_; }
+        }
     }
     for (auto& voice : graph_.voices) if (voice.stream && voice.stream->end())
         disk_underruns_.fetch_add(1,std::memory_order_relaxed);
@@ -220,12 +307,17 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     if (graph_.processors) graph_.processors->process(output,frames);
     for (std::size_t i = 0; i < output_samples; ++i) {
         auto& sample = output[i];
+        sample *= master_envelope_[i/config_.output_channels];
         if (!std::isfinite(sample)) sample = 0;
+        const auto c = i%config_.output_channels;
+        if (c<2) block_peaks[max_mixer_tracks][c] = std::max(block_peaks[max_mixer_tracks][c],std::abs(sample));
         if (sample > 1 || sample < -1) {
             clipped_.fetch_add(1,std::memory_order_relaxed);
             sample = std::clamp(sample,-1.0F,1.0F);
         }
     }
+    for (std::size_t t=0; t<=max_mixer_tracks; ++t) for (std::size_t c=0; c<2; ++c)
+        meter_peaks_[t][c].store(std::max(block_peaks[t][c],meter_peaks_[t][c].load(std::memory_order_relaxed)),std::memory_order_relaxed);
     // Normalize at an exact block boundary for coherent displayed loop position.
     if (rt_.loop && rt_.playback == PlaybackState::playing && rt_.sample >= rt_.loop->end)
         rt_.sample = rt_.loop->start + (rt_.sample - rt_.loop->start) % (rt_.loop->end - rt_.loop->start);
@@ -299,7 +391,7 @@ void EngineTransport::seek(Sample sample) {
     if (sample < 0 || sample > max_sample) throw std::invalid_argument("invalid seek");
     (void)timeline_.to_ticks(sample);
     engine_->prime_streams(sample);
-    send({ControlKind::seek, sample});
+    send({ControlKind::prepared_seek, sample});
 }
 void EngineTransport::set_loop(std::optional<LoopRange> loop) {
     if (loop && (loop->start < 0 || loop->end > max_sample || loop->start >= loop->end))

@@ -7,6 +7,7 @@
 #include <mrs/waveform.hpp>
 #include <future>
 #include <mrs/recording.hpp>
+#include <mrs/project_folders.hpp>
 namespace mrs::desktop {
 enum class Workspace { arrange, edit, mix, live };
 std::string_view workspace_name(Workspace);
@@ -47,7 +48,7 @@ public:
     void workspace(Workspace);
     void poll();
     void demo();
-    void new_project(std::uint32_t rate = 48000);
+    void new_project(std::uint32_t rate = 48000, std::string title = "Untitled");
     Id add_audio_track(std::string name);
     void remove_track(const Id&);
     void reorder_track(const Id&, std::size_t index);
@@ -67,6 +68,10 @@ public:
     const std::filesystem::path& path() const { return path_; }
     persistence::ProjectDocument snapshot() const;
     void rename_track(const Id&, std::string);
+    void set_track_mix(const Id&, Track::Mix);
+    void set_master_gain(float);
+    bool preview_mix(std::optional<Id>, Track::Mix, float master_gain);
+    void cancel_mix_preview();
     void connect(std::unique_ptr<audio::IAudioDevice>, audio::DeviceConfig);
     void disconnect();
     audio::DeviceStatus device_status();
@@ -102,6 +107,10 @@ private:
     std::filesystem::path last_take_;
     audio::RecordStatus last_recording_status_{};
     bool monitoring_{true};
+    std::vector<Id> mixer_tracks_;
+    std::uint64_t applied_mix_revision_{};
+    void publish_mix();
+    bool history(bool redo);
     void sync_arm();
     void require_not_recording() const;
     std::filesystem::path path_, asset_root_;
@@ -116,6 +125,8 @@ private:
         std::optional<audio::Waveform> peaks;
     };
     std::map<std::string,CachedAsset> assets_;
+    // Runtime source aliases preserve ProjectStore Undo while archives use Media/... paths.
+    std::map<std::string,std::filesystem::path> owned_media_;
     std::optional<audio::DeviceConfig> device_config_;
     std::shared_ptr<const audio::AudioData> asset(const std::string&);
     void cache_asset(std::string, std::shared_ptr<const audio::AudioData>);

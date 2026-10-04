@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <commdlg.h>
+#include <shlobj.h>
+#include <shellapi.h>
 #include <mrs/desktop.hpp>
 #include <mrs/version.hpp>
 #include <mrs/offline_device.hpp>
@@ -49,12 +51,21 @@ std::filesystem::path data_folder() {
     if (n == 0 || n >= buffer.size()) throw std::runtime_error("LOCALAPPDATA is unavailable");
     auto path = std::filesystem::path(buffer.data()) / L"MoonRiverStudio"; std::filesystem::create_directories(path); return path;
 }
-std::filesystem::path pick(HWND owner, bool save, bool wav = false) {
+std::filesystem::path studio_folder() {
+    PWSTR documents{};
+    const auto result = SHGetKnownFolderPath(FOLDERID_Documents,KF_FLAG_CREATE,nullptr,&documents);
+    if (FAILED(result)) throw std::runtime_error("Windows Documents folder is unavailable");
+    auto path = std::filesystem::path(documents)/L"MR Studio"; CoTaskMemFree(documents); return path;
+}
+std::filesystem::path pick(HWND owner, bool save, bool wav = false, const std::filesystem::path& initial = {}, std::wstring_view suggested = {}) {
     std::array<wchar_t,32768> path{};
+    if (suggested.size() >= path.size()) throw std::invalid_argument("project filename too long");
+    std::copy(suggested.begin(),suggested.end(),path.begin());
     OPENFILENAMEW ofn{}; ofn.lStructSize = sizeof(ofn); ofn.hwndOwner = owner;
     ofn.lpstrFile = path.data(); ofn.nMaxFile = static_cast<DWORD>(path.size());
     ofn.lpstrFilter = wav ? L"WAV audio\0*.wav\0\0" : L"Moon River project\0*.mrsproject\0All files\0*.*\0\0";
     ofn.lpstrDefExt = wav ? L"wav" : L"mrsproject";
+    ofn.lpstrInitialDir = initial.empty() ? nullptr : initial.c_str();
     ofn.Flags = OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST | (save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
     if (!(save ? GetSaveFileNameW(&ofn) : GetOpenFileNameW(&ofn))) {
         if (CommDlgExtendedError() != 0) throw std::runtime_error("File dialog failed"); return {};
@@ -81,7 +92,7 @@ enum ControlId {
     previous, next, loop, undo, redo, open, save, save_as, demo, import,
     audio_settings, tracks = 140, rename_edit, rename,
     new_project_button = 160, import_batch, add_track, delete_track, track_up, track_down, zoom_in, zoom_out, zoom_fit, split_clip_button, delete_clip_button, snap_button,
-    record_button = 172, arm_button, monitor_button, files_exit = 180,
+    record_button = 172, arm_button, monitor_button, files_exit = 180, studio_folder_button,
     device_combo = 200, rate_edit, buffer_edit, outputs_edit, input_edit,
     connect_button, disconnect_button, panel_button, refresh_button
 };
@@ -90,6 +101,7 @@ struct UI {
     Preferences prefs;
     std::filesystem::path folder;
     Logger log;
+    StudioFolders studio;
     HWND window{}, settings{};
     HFONT normal{}, heading{}, big{};
     HBRUSH panel_brush{CreateSolidBrush(panel)};
@@ -109,7 +121,12 @@ struct UI {
     enum class DragMode { move, left, right };
     struct Drag { Clip original, preview; DragMode mode; Sample anchor{}, frames{}; POINT origin{}; bool changed{}; };
     std::optional<Drag> drag;
-    explicit UI(bool test) : folder(data_folder()), log(folder / L"studio.log"), smoke(test) {
+    audio::MixerMeters mix_meters{};
+    std::size_t first_mix_track{};
+    struct MixDrag { std::optional<Id> track; Track::Mix mix; float master{1}; bool pan{}; RECT rect{}; };
+    std::optional<MixDrag> mix_drag;
+    explicit UI(bool test) : folder(data_folder()), log(folder / L"studio.log"), studio{studio_folder()}, smoke(test) {
+        studio.ensure();
         if (!smoke) {
             try {
                 std::ifstream file(folder / L"desktop.cfg",std::ios::binary);
@@ -157,7 +174,7 @@ struct UI {
         item(new_project_button,L"&New project\tCtrl+N"); item(open,L"&Open project...\tCtrl+O");
         separator(); item(save,L"&Save\tCtrl+S"); item(save_as,L"Save &as...\tCtrl+Shift+S");
         separator(); item(import_batch,L"&Import WAVs...\tCtrl+I"); item(import,L"Open &WAV as new project...");
-        item(demo,L"Open &demo project"); separator(); item(files_exit,L"E&xit");
+        item(demo,L"Open &demo project"); separator(); item(studio_folder_button,L"Open studio &folder"); item(files_exit,L"E&xit");
         if (!ok || !AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(files),L"&Files")) {
             DestroyMenu(files); DestroyMenu(bar); throw std::runtime_error("Cannot populate Files menu");
         }
@@ -241,8 +258,15 @@ struct UI {
         if (answer == IDYES) return save_current(false); return true;
     }
     bool save_current(bool as) {
-        auto path = as || app.path().empty() ? pick(window,true) : app.path(); if (path.empty()) return false;
-        app.save_project(path); log.write("Project saved"); refresh_models(); return true;
+        auto path = as || app.path().empty() ? pick(window,true,false,studio.projects(),
+            app.path().empty() ? wide(app.services().projects->state().project->title)+L".mrsproject" : app.path().filename().wstring()) : app.path();
+        if (path.empty()) return false;
+        const bool managed = !app.path().empty() &&
+            (app.path().parent_path().filename() == app.path().stem() ||
+             (std::filesystem::is_directory(app.path().parent_path()/"Media") && std::filesystem::is_directory(app.path().parent_path()/"Mixdown")));
+        if (as || !managed) path = project_folder_file(path);
+        if (path != app.path() && std::filesystem::exists(path)) throw std::runtime_error("This project folder already exists. Choose a new project name.");
+        app.save_project(path); log.write("Project and Media saved"); refresh_models(); return true;
     }
     void preferences() {
         prefs.workspace = app.workspace();
@@ -289,6 +313,7 @@ struct UI {
         return snap && !(GetKeyState(VK_SHIFT)&0x8000) ? snap_to_grid(*app.services().projects->state().project,value) : value;
     }
     void mouse_down(POINT point) {
+        if (app.workspace() == Workspace::mix) { mixer_down(point); return; }
         if (app.recording() || app.workspace() != Workspace::arrange || !PtInRect(&canvas,point)) return;
         SetFocus(window);
         if (auto clip = hit_clip(point)) {
@@ -303,6 +328,7 @@ struct UI {
         } else app.seek(grid(sample_at(point.x))); // ruler/empty space keeps clip selection for Split
     }
     void mouse_move(POINT point) {
+        if (mix_drag) { mixer_move(point); return; }
         if (!drag) return;
         auto& d = *drag;
         if (!d.changed && std::abs(point.x-d.origin.x) < s(3) && std::abs(point.y-d.origin.y) < s(3)) return;
@@ -328,6 +354,11 @@ struct UI {
         InvalidateRect(window,nullptr,FALSE);
     }
     void mouse_up(POINT point) {
+        if (mix_drag) {
+            mixer_move(point); const auto d = *mix_drag; mix_drag.reset(); ReleaseCapture();
+            if (d.track) app.set_track_mix(*d.track,d.mix); else app.set_master_gain(d.master);
+            refresh_models(); return;
+        }
         if (!drag) return;
         mouse_move(point); auto d = *drag; cancel_drag();
         if (!d.changed || d.preview == d.original) return;
@@ -336,6 +367,7 @@ struct UI {
         selected_track = d.preview.track; refresh_models();
     }
     void command(int id, int notification) {
+        if (mix_drag) cancel_mix_drag();
         if (app.recording()) {
             for (auto blocked : {play,previous,next,loop,undo,redo,rename,new_project_button,import_batch,add_track,delete_track,track_up,track_down,split_clip_button,delete_clip_button,open,import,demo,save,save_as,audio_settings,arm_button})
                 if (id == blocked) return;
@@ -365,7 +397,7 @@ struct UI {
             if (app.recording()) (void)app.stop_recording();
             else {
                 if (app.path().empty() && !save_current(false)) break;
-                auto audio_folder = std::filesystem::absolute(app.path()).parent_path()/L"Audio";
+                auto audio_folder = std::filesystem::absolute(app.path()).parent_path()/L"Media";
                 std::filesystem::create_directories(audio_folder);
                 app.start_recording(audio_folder/("Take-"+new_id().value+".wav"));
             }
@@ -382,8 +414,17 @@ struct UI {
             if (selection >= 0 && static_cast<std::size_t>(selection) < project->tracks.size()) app.rename_track(project->tracks[static_cast<std::size_t>(selection)].id,narrow(control_text(child(rename_edit))));
             refresh_models(); break;
         }
-        case new_project_button: if (discard()) { app.new_project(prefs.rate); fit_view = true; view_start = 0; first_track = 0; refresh_models(); restore_audio(); } break;
+        case new_project_button: if (discard()) {
+            const auto selected = pick(window,true,false,studio.projects(),L"Untitled.mrsproject");
+            if (!selected.empty()) {
+                const auto path = project_folder_file(selected);
+                if (std::filesystem::exists(path)) throw std::runtime_error("This project already exists. Choose a new name.");
+                app.new_project(prefs.rate,narrow(path.stem().wstring())); app.save_project(path);
+                fit_view = true; view_start = 0; first_track = 0; refresh_models(); restore_audio();
+            }
+        } break;
         case import_batch: {
+            if (app.path().empty() && !save_current(false)) break;
             auto paths = pick_wavs(window);
             if (!paths.empty()) { app.import_wavs(paths); fit_view = true; refresh_models(); }
             break;
@@ -416,11 +457,15 @@ struct UI {
         case zoom_in: fit_view = false; visible_seconds = std::max(0.25,visible_seconds/2); break;
         case zoom_out: fit_view = false; visible_seconds = std::min(86400.0,visible_seconds*2); break;
         case zoom_fit: fit_view = true; view_start = 0; break;
-        case open: if (discard()) { auto path = pick(window,false); if (!path.empty()) { app.open_project(path); refresh_models(); restore_audio(); } } break;
-        case import: if (discard()) { auto path = pick(window,false,true); if (!path.empty()) { app.import_wav(path); refresh_models(); restore_audio(); } } break;
+        case open: if (discard()) { auto path = pick(window,false,false,studio.projects()); if (!path.empty()) { app.open_project(path); refresh_models(); restore_audio(); } } break;
+        case import: if (discard()) { auto path = pick(window,false,true); if (!path.empty()) { app.import_wav(path); refresh_models(); restore_audio(); (void)save_current(false); } } break;
         case demo: if (discard()) { app.demo(); refresh_models(); restore_audio(); } break;
         case save: (void)save_current(false); break; case save_as: (void)save_current(true); break;
         case audio_settings: show_settings(); break;
+        case studio_folder_button:
+            if (reinterpret_cast<INT_PTR>(ShellExecuteW(window,L"open",studio.root.c_str(),nullptr,nullptr,SW_SHOWNORMAL)) <= 32)
+                throw std::runtime_error("Cannot open studio folder");
+            break;
         case files_exit: PostMessageW(window,WM_CLOSE,0,0); break;
         }
         InvalidateRect(window,nullptr,FALSE);
@@ -542,6 +587,108 @@ struct UI {
         line(dc,position,top+s(62),position,rect.bottom,amber);
         RestoreDC(dc,saved);
     }
+    RECT mix_area() const { return {canvas.left,canvas.top-s(46),canvas.right,canvas.bottom}; }
+    std::vector<Track> mix_tracks() const {
+        std::vector<Track> result;
+        for (const auto& t : app.services().projects->state().project->tracks) if (t.kind == TrackKind::audio) result.push_back(t);
+        return result;
+    }
+    RECT mix_strip(std::size_t index, bool master = false) const {
+        const auto area = mix_area();
+        const int x = master ? area.right-s(146) : area.left+s(8)+static_cast<int>(index)*s(144);
+        return {x,area.top+s(44),x+s(136),area.bottom-s(8)};
+    }
+    RECT mix_control(RECT r, int row) const { return {r.left+s(10),r.top+s(row),r.right-s(10),r.top+s(row+22)}; }
+    static float fader_position(float gain) { return gain <= 0 ? 0 : std::clamp((20*std::log10(gain)+60)/72,0.0f,1.0f); }
+    static float fader_gain(float position) { return position <= 0 ? 0 : std::pow(10.0f,(-60+72*position)/20); }
+    std::wstring gain_text(float gain) const {
+        if (gain <= 0) return L"-inf dB";
+        std::wostringstream out; out << std::fixed << std::setprecision(1) << 20*std::log10(gain) << L" dB"; return out.str();
+    }
+    void paint_mixer(HDC dc) {
+        const auto area = mix_area(); fill(dc,area,panel);
+        text(dc,area.left+s(12),area.top+s(4),area.right-area.left-s(24),s(30),L"Mixer  |  drag gain / pan  |  double-click to reset  |  wheel to scroll",normal,muted);
+        const auto all = mix_tracks();
+        if (!all.empty()) first_mix_track = std::min(first_mix_track,all.size()-1); else first_mix_track = 0;
+        const int saved = SaveDC(dc); IntersectClipRect(dc,area.left,area.top,area.right,area.bottom);
+        const auto draw = [&](RECT r, const Track* track, audio::StereoPeak peak) {
+            fill(dc,r,track && selected_track == track->id ? RGB(51,51,58) : RGB(37,37,37));
+            auto mix = track ? track->mix : Track::Mix{};
+            float gain = track ? mix.gain : app.services().projects->state().project->master_gain;
+            if (mix_drag && ((track && mix_drag->track == track->id) || (!track && !mix_drag->track))) {
+                mix = mix_drag->mix; gain = track ? mix.gain : mix_drag->master;
+            }
+            text(dc,r.left+s(8),r.top,r.right-r.left-s(16),s(28),track ? wide(track->name) : L"MASTER",normal,track ? ink : amber);
+            auto g = mix_control(r,34); fill(dc,g,border);
+            const int gx = g.left+static_cast<int>(fader_position(gain)*(g.right-g.left));
+            fill(dc,{g.left,g.top,gx,g.bottom},RGB(72,76,82)); line(dc,gx,g.top,gx,g.bottom,amber);
+            text(dc,g.left,g.top,g.right-g.left,g.bottom-g.top,gain_text(gain));
+            if (track) {
+                auto p = mix_control(r,68); fill(dc,p,border);
+                const int px = p.left+static_cast<int>((mix.pan+1)*0.5f*(p.right-p.left)); line(dc,px,p.top,px,p.bottom,accent);
+                const auto label = mix.pan == 0 ? L"Center" : (mix.pan < 0 ? L"L " : L"R ")+std::to_wstring(static_cast<int>(std::abs(mix.pan)*100));
+                text(dc,p.left,p.top,p.right-p.left,p.bottom-p.top,label);
+                RECT m{r.left+s(10),r.top+s(102),r.left+s(62),r.top+s(126)}, solo{r.left+s(74),m.top,r.right-s(10),m.bottom};
+                fill(dc,m,mix.mute ? RGB(143,67,56) : border); fill(dc,solo,mix.solo ? RGB(132,105,44) : border);
+                text(dc,m.left,m.top,m.right-m.left,m.bottom-m.top,L"Mute"); text(dc,solo.left,solo.top,solo.right-solo.left,solo.bottom-solo.top,L"Solo");
+            } else text(dc,r.left+s(10),r.top+s(68),r.right-r.left-s(20),s(52),L"Main output",normal,muted);
+            for (int c=0; c<2; ++c) {
+                const float v = c == 0 ? peak.left : peak.right;
+                RECT meter{r.left+s(10),r.top+s(140+c*12),r.right-s(10),r.top+s(148+c*12)}; fill(dc,meter,RGB(22,22,22));
+                const float fraction = v > 0 ? std::clamp((20*std::log10(v)+60)/60,0.0f,1.0f) : 0;
+                fill(dc,{meter.left,meter.top,meter.left+static_cast<int>(fraction*(meter.right-meter.left)),meter.bottom},v >= 1 ? RGB(230,70,60) : v > 0.7f ? amber : RGB(100,178,126));
+            }
+            text(dc,r.left+s(10),r.top+s(164),r.right-r.left-s(20),s(24),gain_text(std::max(peak.left,peak.right)),normal,muted);
+        };
+        for (std::size_t i=first_mix_track; i<all.size(); ++i) {
+            auto r = mix_strip(i-first_mix_track); if (r.right > area.right-s(154)) break;
+            draw(r,&all[i],mix_meters.tracks[i]);
+        }
+        draw(mix_strip(0,true),nullptr,mix_meters.master); RestoreDC(dc,saved);
+    }
+    void mixer_down(POINT point, bool reset = false) {
+        const auto all = mix_tracks();
+        for (std::size_t slot=0; slot<=all.size(); ++slot) {
+            const bool master = slot == all.size();
+            if (!master && slot < first_mix_track) continue;
+            const auto r = mix_strip(master ? 0 : slot-first_mix_track,master);
+            if (!master && r.right > mix_area().right-s(154)) continue;
+            if (!PtInRect(&r,point)) continue;
+            const auto t = master ? nullptr : &all[slot];
+            auto mix = t ? t->mix : Track::Mix{};
+            if (t) { selected_track = t->id; refresh_models(); }
+            const auto g = mix_control(r,34), p = mix_control(r,68);
+            if (PtInRect(&g,point) || (t && PtInRect(&p,point))) {
+                const bool pan = t && PtInRect(&p,point);
+                if (reset) {
+                    if (t) { if (pan) mix.pan = 0; else mix.gain = 1; app.set_track_mix(t->id,mix); }
+                    else app.set_master_gain(1);
+                    refresh_models(); return;
+                }
+                mix_drag = MixDrag{t ? std::optional<Id>{t->id} : std::nullopt,mix,app.services().projects->state().project->master_gain,pan,pan ? p : g};
+                SetCapture(window); mixer_move(point); return;
+            }
+            if (t && point.y >= r.top+s(102) && point.y < r.top+s(126)) {
+                if (point.x < r.left+s(68)) mix.mute = !mix.mute; else mix.solo = !mix.solo;
+                app.set_track_mix(t->id,mix); refresh_models();
+            }
+            return;
+        }
+    }
+    void mixer_move(POINT point) {
+        if (!mix_drag) return;
+        auto& d = *mix_drag;
+        const float position = std::clamp(static_cast<float>(point.x-d.rect.left)/static_cast<float>(d.rect.right-d.rect.left),0.0f,1.0f);
+        if (d.pan) d.mix.pan = position*2-1;
+        else if (d.track) d.mix.gain = fader_gain(position); else d.master = fader_gain(position);
+        (void)app.preview_mix(d.track,d.mix,d.master); InvalidateRect(window,nullptr,FALSE);
+    }
+    void cancel_mix_drag() {
+        if (!mix_drag) return;
+        mix_drag.reset();
+        app.cancel_mix_preview();
+        ReleaseCapture(); InvalidateRect(window,nullptr,FALSE);
+    }
     void paint(HDC dc) {
         RECT area{}; GetClientRect(window,&area); fill(dc,area,background);
         fill(dc,{0,s(126),s(204),area.bottom},RGB(36,36,36));
@@ -560,15 +707,9 @@ struct UI {
             timeline(dc,canvas,false);
         } else {
             fill(dc,canvas,panel); int y = canvas.top+s(14);
-            text(dc,canvas.left+s(16),y,canvas.right-canvas.left-s(32),s(36),workspace == Workspace::mix ? L"Shared processor graph" : L"Clip inspector",heading); y += s(52);
+            text(dc,canvas.left+s(16),y,canvas.right-canvas.left-s(32),s(36),workspace == Workspace::mix ? L"Mixer" : L"Clip inspector",heading); y += s(52);
             if (workspace == Workspace::mix) {
-                const auto graph = app.graphs()->state().graph;
-                text(dc,canvas.left+s(16),y,canvas.right-canvas.left-s(32),s(30),wide(graph->patch_name)); y += s(44);
-                for (const auto& n : graph->nodes) {
-                    text(dc,canvas.left+s(16),y,canvas.right-canvas.left-s(32),s(30),wide(n.processor_id)+(n.bypass ? L"  [bypass]" : L""),heading); y += s(36);
-                    for (const auto& p : n.parameters) { text(dc,canvas.left+s(16),y,canvas.right-canvas.left-s(32),s(25),L"Parameter "+std::to_wstring(p.id)+L" = "+std::to_wstring(p.value),normal,muted); y += s(28); }
-                }
-                text(dc,canvas.left+s(16),y+s(20),canvas.right-canvas.left-s(32),s(30),L"Processor and mixer state view. Editing follows in the Mix stage.",normal,muted);
+                paint_mixer(dc);
             } else {
                 for (const auto& c : context.project->clips) {
                     text(dc,canvas.left+s(16),y,canvas.right-canvas.left-s(32),s(32),wide(c.name),heading); y += s(34);
@@ -758,6 +899,11 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
         }
         case WM_TIMER:
             if (wparam == 1) {
+                const auto peaks = ui->app.engine()->take_meters();
+                const auto decay = [](audio::StereoPeak& value, audio::StereoPeak next) { value.left = std::max(next.left,value.left*0.86f); value.right = std::max(next.right,value.right*0.86f); };
+                for (std::size_t i=0; i<audio::max_mixer_tracks; ++i) decay(ui->mix_meters.tracks[i],peaks.tracks[i]);
+                decay(ui->mix_meters.master,peaks.master);
+                if (ui->mix_drag) (void)ui->app.preview_mix(ui->mix_drag->track,ui->mix_drag->mix,ui->mix_drag->master);
                 try { const bool recording = ui->app.recording(); ui->app.poll(); if (recording != ui->app.recording()) ui->refresh_models(); } catch (const std::runtime_error&) { return 0; } // bounded mailbox can be busy
                 InvalidateRect(hwnd,nullptr,FALSE); if (ui->settings) InvalidateRect(ui->settings,nullptr,FALSE); return 0;
             }
@@ -781,9 +927,24 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     if (ui->app.services().projects->state().revision != undone)
                         throw std::runtime_error("Cancelled drag changed project state");
                     ui->command(nav_mix,BN_CLICKED);
+                    const auto mix_before = ui->app.services().projects->state();
+                    const auto strip = ui->mix_strip(0), fader = ui->mix_control(strip,34);
+                    const POINT gain_point{fader.left+(fader.right-fader.left)/2,(fader.top+fader.bottom)/2};
+                    ui->mouse_down(gain_point);
+                    if (!ui->mix_drag || ui->app.services().projects->state().revision != mix_before.revision)
+                        throw std::runtime_error("Mixer preview changed project state");
+                    ui->mouse_up(gain_point);
+                    if (ui->app.services().projects->state().revision != mix_before.revision+1)
+                        throw std::runtime_error("Mixer gesture did not commit one shared command");
+                    ui->command(undo,0);
+                    ui->mouse_down(gain_point); ui->cancel_mix_drag();
+                    if (ui->app.services().projects->state().project->tracks.front().mix != mix_before.project->tracks.front().mix)
+                        throw std::runtime_error("Mixer cancellation changed saved parameters");
                     const auto bar = GetMenu(hwnd), files = GetSubMenu(bar,0);
                     if (!bar || !files || GetMenuItemID(files,0) != new_project_button || GetMenuItemID(files,3) != save)
                         throw std::runtime_error("Files menu did not retain project commands");
+                    if (GetMenuItemID(files,10) != studio_folder_button || !std::filesystem::is_directory(ui->studio.projects()) || !std::filesystem::is_directory(ui->studio.lives()))
+                        throw std::runtime_error("Studio content folders/menu missing");
                     for (auto id : {record_button,arm_button,monitor_button}) if (!ui->child(id)) throw std::runtime_error("Recording controls missing");
                     ui->command(arm_button,0);
                     if (!ui->app.armed_track()) throw std::runtime_error("Arm track did not use shared application");
@@ -825,6 +986,14 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
             }
             break;
         case WM_MOUSEWHEEL: {
+            if (ui->app.workspace() == Workspace::mix && !ui->mix_drag) {
+                POINT point{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd,&point);
+                const auto area = ui->mix_area(); if (!PtInRect(&area,point)) break;
+                const auto count = ui->mix_tracks().size();
+                if (GET_WHEEL_DELTA_WPARAM(wparam) > 0 && ui->first_mix_track) --ui->first_mix_track;
+                else if (GET_WHEEL_DELTA_WPARAM(wparam) < 0 && ui->first_mix_track+1 < count) ++ui->first_mix_track;
+                InvalidateRect(hwnd,nullptr,FALSE); return 0;
+            }
             if (ui->drag || ui->app.workspace() != Workspace::arrange) break;
             POINT point{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd,&point);
             if (!PtInRect(&ui->canvas,point)) break;
@@ -839,9 +1008,10 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
             InvalidateRect(hwnd,nullptr,FALSE); return 0;
         }
         case WM_LBUTTONDOWN: ui->mouse_down({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}); return 0;
+        case WM_LBUTTONDBLCLK: if (ui->app.workspace() == Workspace::mix) { ui->mixer_down({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)},true); return 0; } break;
         case WM_MOUSEMOVE: ui->mouse_move({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}); return 0;
         case WM_LBUTTONUP: ui->mouse_up({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}); return 0;
-        case WM_CAPTURECHANGED: ui->drag.reset(); InvalidateRect(hwnd,nullptr,FALSE); return 0;
+        case WM_CAPTURECHANGED: ui->drag.reset(); ui->cancel_mix_drag(); InvalidateRect(hwnd,nullptr,FALSE); return 0;
         case WM_SETCURSOR:
             if (LOWORD(lparam) == HTCLIENT && ui->app.workspace() == Workspace::arrange) {
                 POINT point{}; GetCursorPos(&point); ScreenToClient(hwnd,&point);
@@ -870,6 +1040,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show)
         const bool smoke = std::wstring_view(command_line).find(L"--smoke-test") != std::wstring_view::npos;
         UI ui(smoke);
         WNDCLASSW main{}; main.lpfnWndProc = main_proc; main.hInstance = instance; main.lpszClassName = L"MRStudioDesktop";
+        main.style = CS_DBLCLKS;
         main.hCursor = LoadCursorW(nullptr,IDC_ARROW);
         if (!RegisterClassW(&main)) throw std::runtime_error("Cannot register main window");
         WNDCLASSW settings = main; settings.lpfnWndProc = settings_proc; settings.lpszClassName = L"MRStudioAudio";
@@ -886,6 +1057,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show)
             if (msg.message == WM_KEYDOWN && !(ui.settings && IsChild(ui.settings,msg.hwnd))) { try {
                 const bool editing = msg.hwnd == ui.child(rename_edit);
                 if (!editing && msg.wParam == VK_ESCAPE && ui.drag) { ui.cancel_drag(); continue; }
+                if (!editing && msg.wParam == VK_ESCAPE && ui.mix_drag) { ui.cancel_mix_drag(); continue; }
                 if (!editing && ui.app.workspace() == Workspace::arrange && !(GetKeyState(VK_CONTROL)&0x8000)) {
                     if (msg.wParam == 'R') { ui.command(record_button,0); continue; }
                     if (msg.wParam == 'S') { ui.command(split_clip_button,0); continue; }

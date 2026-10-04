@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Accepted: 0.1e / MRS Stage 1d; whole Audio Arrangement #21 accepted. Next: MRS Stage 2 / #22 Mixer / Routing (not started).
+Updated: 2026-10-04. Accepted: 0.1e / MRS Stage 1d; whole Audio Arrangement #21 accepted. In development: 0.1f / MRS Stage 2a / #22 Mixer / Routing, PR #48; physical acceptance pending. Includes portable folders/concurrent seek fix from open PR #47.
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.
@@ -197,3 +197,9 @@ MRS Stage 1d / 0.1e принят; PR #46 слит в main. Подтвержде�
 PR CI: все шесть jobs пройдены (56/56 Linux/ASIO, 57/57 Windows offline).
 Следующая работа после паузы: MRS Stage 2 / #22 Mixer / Routing; реализация не начата.
 Пользователь попросил продолжить 2026-10-04 по Asia/Krasnoyarsk. 
+# 0.1f / MRS Stage 2a — in development (2026-10-04)
+
+User authorized 0.1f. First #22 slice: shared track mixer, gain/pan/mute/solo,
+stereo track/master meters, master gain, live parameter updates, persistence,
+shared Undo/Redo. See MIXER.md and MRS_STAGE_2A_CHECKLIST.md.
+0.1e remains the accepted baseline; #22 is not completed by this slice.

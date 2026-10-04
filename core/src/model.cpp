@@ -49,10 +49,15 @@ void TimeMap::validate() const {
         last_bar = p.bar;
     }
 }
+void Track::Mix::validate() const {
+    require(std::isfinite(gain) && gain >= 0 && gain <= 16 &&
+        std::isfinite(pan) && pan >= -1 && pan <= 1, "invalid track mix");
+}
 void Project::validate() const {
     require(version == schema_version, "unsupported project schema");
     require(sample_rate >= 8000 && sample_rate <= 768000, "invalid sample rate");
     time.validate();
+    require(std::isfinite(master_gain) && master_gain >= 0 && master_gain <= 16, "invalid master gain");
     std::unordered_set<std::string> ids;
     const auto add_id = [&ids](const Id& entity) {
         require(!entity.value.empty() && entity.value.size() <= 128, "invalid entity ID");
@@ -75,6 +80,7 @@ void Project::validate() const {
     }
     std::unordered_set<std::string> track_ids;
     for (const auto& track : tracks) {
+        track.mix.validate();
         add_id(track.id);
         require(track.kind == TrackKind::audio || track.kind == TrackKind::midi, "invalid track kind");
         require(!track.folder || folder_by_id.contains(track.folder->value), "missing track folder");

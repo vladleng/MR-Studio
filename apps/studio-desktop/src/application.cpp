@@ -13,6 +13,9 @@ void require(bool ok, const char* message) { if (!ok) throw std::invalid_argumen
 std::string utf8(const std::filesystem::path& path) {
     auto value = path.u8string(); return {reinterpret_cast<const char*>(value.data()),value.size()};
 }
+std::string media_ref(const std::filesystem::path& path) {
+    const auto value = path.generic_u8string(); return {reinterpret_cast<const char*>(value.data()),value.size()};
+}
 }
 std::string_view workspace_name(Workspace w) {
     switch (w) { case Workspace::arrange: return "Arrange"; case Workspace::edit: return "Edit";
@@ -84,6 +87,9 @@ Application::~Application() {
 void Application::workspace(Workspace w) { (void)workspace_name(w); workspace_ = w; }
 void Application::replace(persistence::ProjectDocument next) {
     require_not_recording(); next.validate(); armed_.reset();
+    // Existing MIXR channels hydrate the shared command model, including legacy archives.
+    for (const auto& m : next.mixer) for (auto& t : next.project.tracks) if (t.id == m.track)
+        t.mix = {m.gain,m.pan,m.mute,m.solo};
     // Build application models before releasing the old session.
     auto projects = std::make_shared<ProjectStore>(next.project);
     auto graphs = std::make_shared<processing::GraphStore>(next.graph);
@@ -92,8 +98,9 @@ void Application::replace(persistence::ProjectDocument next) {
     auto transport = std::make_shared<audio::EngineTransport>(engine_,Timeline(next.project.time,next.project.sample_rate));
     auto musical = std::make_unique<MusicalTimeline>(Services{projects,transport});
     for (auto& [key,value] : assets_) { (void)key; *value.cancel = true; }
-    assets_.clear(); waveform_error_.clear();
+    assets_.clear(); owned_media_.clear(); waveform_error_.clear();
     document_ = std::move(next);
+    mixer_tracks_.clear(); applied_mix_revision_ = 0;
     services_ = {projects,transport}; graphs_ = std::move(graphs);
     transport_ = std::move(transport); musical_ = std::move(musical);
     saved_project_revision_ = saved_graph_revision_ = 0; unsaved_ = true;
@@ -103,6 +110,14 @@ void Application::replace(persistence::ProjectDocument next) {
 void Application::start_empty_clock() {
     auto device = audio::make_offline_device();
     audio::DeviceConfig c{0,document_.project.sample_rate,128,{}, {0,1}};
+    audio::RenderGraph graph;
+    const auto p = services_.projects->state().project;
+    for (const auto& t : p->tracks) if (t.kind == TrackKind::audio) {
+        require(mixer_tracks_.size() < audio::max_mixer_tracks,"mixer supports up to 128 audio tracks");
+        mixer_tracks_.push_back(t.id); graph.mixer.push_back(t.mix);
+    }
+    graph.master_gain = p->master_gain;
+    engine_->prepare({p->sample_rate,0,2,8192},std::move(graph));
     device->open(c,engine_); device->start(); device_ = std::move(device); device_config_ = c; audio_name_ = "Offline clock (no sound)";
 }
 void Application::demo() {
@@ -112,7 +127,7 @@ void Application::demo() {
 void Application::open_project(const std::filesystem::path& path) {
     require_not_recording();
     auto next = persistence::load_project(path); replace(std::move(next));
-    path_ = path; asset_root_ = path.parent_path(); unsaved_ = false;
+    path_ = std::filesystem::absolute(path).lexically_normal(); asset_root_ = path_.parent_path(); unsaved_ = false;
 }
 void Application::import_wav(const std::filesystem::path& path) {
     require_not_recording();
@@ -131,25 +146,75 @@ persistence::ProjectDocument Application::snapshot() const {
     result.generation += p.revision;
     require(g.revision <= std::numeric_limits<std::uint64_t>::max()-result.generation,"generation overflow");
     result.generation += g.revision; result.project = *p.project; result.graph = *g.graph;
-    // Base channel state stays available for Undo; only extant tracks serialize.
-    std::erase_if(result.mixer,[&](const auto& m) {
-        return std::none_of(result.project.tracks.begin(),result.project.tracks.end(),[&](const auto& t) { return t.id == m.track; });
-    });
-    for (const auto& t : result.project.tracks) if (std::none_of(result.mixer.begin(),result.mixer.end(),[&](const auto& m) { return m.track == t.id; }))
-        result.mixer.push_back({t.id,1,0,false,false});
+    result.mixer.clear();
+    for (const auto& t : result.project.tracks)
+        result.mixer.push_back({t.id,t.mix.gain,t.mix.pan,t.mix.mute,t.mix.solo});
+    for (auto& clip : result.project.clips) {
+        if (const auto found = owned_media_.find(clip.source); found != owned_media_.end())
+            clip.source = media_ref(found->second.lexically_relative(asset_root_));
+        else if (!asset_root_.empty()) {
+            const auto source = std::filesystem::path(std::u8string(clip.source.begin(),clip.source.end()));
+            const auto relative = source.lexically_normal().lexically_relative(asset_root_/"Media");
+            if (source.is_absolute() && !relative.empty() && !relative.is_absolute() && *relative.begin() != "..")
+                clip.source = media_ref(std::filesystem::path("Media")/relative);
+        }
+    }
     result.validate(); return result;
 }
-void Application::save_project(const std::filesystem::path& path) {
+void Application::save_project(const std::filesystem::path& requested) {
     require_not_recording();
-    // No runtime parameter editor yet: GraphStore is authoritative, processor state unchanged.
+    const auto path = std::filesystem::absolute(requested).lexically_normal();
+    require(!path.filename().empty(),"choose a project filename");
     auto document = snapshot();
-    if (std::filesystem::absolute(path.parent_path().empty() ? "." : path.parent_path()) !=
-        std::filesystem::absolute(asset_root_.empty() ? "." : asset_root_)) {
-        for (const auto& clip : document.project.clips) if (clip.source != "mrs:demo-tone" &&
-            std::filesystem::path(std::u8string(clip.source.begin(),clip.source.end())).is_relative())
-            throw std::invalid_argument("Save As with relative media requires the original project folder in this foundation build");
+    // Validate identity BEFORE adding content to an existing project directory.
+    if (std::filesystem::exists(path)) {
+        const auto previous = persistence::load_project(path);
+        require(previous.project.id == document.project.id && previous.generation <= document.generation,"project identity/generation mismatch");
     }
-    persistence::save_project(path,document); path_ = path;
+    const auto root = path.parent_path();
+    const bool relocating = !asset_root_.empty() && root != asset_root_;
+    std::set<std::string> keys, current;
+    for (const auto& clip : services_.projects->state().project->clips) if (clip.source != "mrs:demo-tone") { keys.insert(clip.source); current.insert(clip.source); }
+    for (const auto& [key,value] : assets_) { (void)value; if (key != "mrs:demo-tone") keys.insert(key); }
+    const auto resolve = [&](const std::string& key) {
+        if (const auto found = owned_media_.find(key); found != owned_media_.end()) return found->second;
+        auto source = std::filesystem::path(std::u8string(key.begin(),key.end()));
+        return source.is_absolute() ? source : asset_root_/source;
+    };
+    bool needs_copy = relocating;
+    for (const auto& key : keys) {
+        const auto relative = resolve(key).lexically_normal().lexically_relative(root/"Media");
+        if (relative.empty() || relative.is_absolute() || *relative.begin() == "..") needs_copy = true;
+    }
+    if (needs_copy) require_not_playing(); // media/Save As rebuilds need quiescent callbacks
+    MediaCopy copies(root);
+    if (relocating) { copies.content(asset_root_,"Media"); copies.content(asset_root_,"Mixdown"); }
+    std::map<std::string,std::filesystem::path> owned;
+    for (const auto& key : keys) {
+        const auto source = resolve(key);
+        if (!std::filesystem::exists(source) && !current.contains(key)) continue; // already-missing Undo media stays a missing reference
+        owned[key] = copies.media(source);
+    }
+    for (std::size_t i=0; i<document.project.clips.size(); ++i) {
+        const auto& original = services_.projects->state().project->clips[i].source;
+        if (original != "mrs:demo-tone") document.project.clips[i].source = media_ref(owned.at(original).lexically_relative(root));
+    }
+    document.validate();
+    if (copies.copied()) require_not_playing();
+    persistence::save_project(path,document); copies.commit();
+    path_ = path; asset_root_ = root; owned_media_ = std::move(owned);
+    // Runtime keys/Undo are stable; move only their physical disk backing.
+    if (copies.copied()) {
+        for (auto& [key,cached] : assets_) if (cached.data->file) {
+            const auto found = owned_media_.find(key); if (found == owned_media_.end()) continue;
+            auto data = *cached.data; auto file = std::make_shared<audio::WavFile>(*data.file); file->path = found->second; data.file = std::move(file);
+            *cached.cancel = true; cached.pending = {}; // cancelled worker stops before the old source can be retired
+            cached.cancel = std::make_shared<std::atomic<bool>>(false);
+            cached.data = std::make_shared<const audio::AudioData>(std::move(data));
+            if (!cached.peaks) cached.pending = std::async(std::launch::async,[data=cached.data,cancel=cached.cancel] { return audio::Waveform(*data,cancel); });
+        }
+        rebuild_audio(); // same device handle, paused/stopped position and loop
+    }
     saved_project_revision_ = services_.projects->state().revision;
     saved_graph_revision_ = graphs_->state().revision; unsaved_ = false;
 }
@@ -172,9 +237,9 @@ void Application::require_not_playing() const {
     require_not_recording();
     require(engine_->state().playback != PlaybackState::playing,"Pause or stop playback before changing tracks or importing audio");
 }
-void Application::new_project(std::uint32_t rate) {
+void Application::new_project(std::uint32_t rate, std::string title) {
     require_not_recording();
-    auto d = foundation_demo(); d.project.id = new_id(); d.project.title = "Untitled";
+    auto d = foundation_demo(); d.project.id = new_id(); d.project.title = std::move(title);
     d.project.sample_rate = rate; d.project.tracks.clear(); d.project.clips.clear();
     d.project.chords.clear(); d.project.sections.clear(); d.project.markers.clear(); d.mixer.clear(); d.live_notes.clear();
     d.validate(); replace(std::move(d)); path_.clear(); asset_root_.clear();
@@ -196,7 +261,8 @@ std::shared_ptr<const audio::AudioData> Application::asset(const std::string& so
     else {
         require(!source.empty(),"clip has no audio source");
         auto path = std::filesystem::path(std::u8string(source.begin(),source.end()));
-        if (path.is_relative()) path = asset_root_ / path;
+        if (const auto owned = owned_media_.find(source); owned != owned_media_.end()) path = owned->second;
+        else if (path.is_relative()) path = asset_root_ / path;
         data = audio::open_wav(path);
     }
     auto ptr = std::make_shared<const audio::AudioData>(std::move(data)); cache_asset(source,ptr); return ptr;
@@ -225,6 +291,7 @@ void Application::edit(const ICommand& command) {
     auto candidate = *services_.projects->state().project;
     command.apply(candidate); candidate.validate();
     require(candidate.clips.size() <= audio::max_voices,"too many playback clips");
+    require(std::count_if(candidate.tracks.begin(),candidate.tracks.end(),[](const auto& t) { return t.kind == TrackKind::audio; }) <= static_cast<std::ptrdiff_t>(audio::max_mixer_tracks),"mixer supports up to 128 audio tracks");
     std::size_t streamed{}, bytes{};
     for (const auto& clip : candidate.clips) {
         const auto data = asset(clip.source);
@@ -243,8 +310,53 @@ Id Application::add_audio_track(std::string name) {
 }
 void Application::remove_track(const Id& id) { edit(RemoveTrack{id}); }
 void Application::reorder_track(const Id& id, std::size_t index) { edit(ReorderTrack{id,index}); }
-bool Application::undo() { require_not_playing(); const auto changed = services_.projects->undo(); if (changed) { sync_arm(); rebuild_audio(); } return changed; }
-bool Application::redo() { require_not_playing(); const auto changed = services_.projects->redo(); if (changed) { sync_arm(); rebuild_audio(); } return changed; }
+bool Application::history(bool redo) {
+    require_not_recording();
+    const auto target = services_.projects->history_target(redo);
+    if (!target) return false;
+    auto before = *services_.projects->state().project, after = *target;
+    before.master_gain = after.master_gain = 1;
+    for (auto& t : before.tracks) t.mix = {};
+    for (auto& t : after.tracks) t.mix = {};
+    const bool mix_only = before == after;
+    if (!mix_only) require_not_playing();
+    const bool changed = redo ? services_.projects->redo() : services_.projects->undo();
+    if (changed) { sync_arm(); if (mix_only) publish_mix(); else rebuild_audio(); }
+    return changed;
+}
+bool Application::undo() { return history(false); }
+bool Application::redo() { return history(true); }
+void Application::set_track_mix(const Id& id, Track::Mix mix) {
+    services_.projects->execute(SetTrackMix{id,mix}); cancel_mix_preview();
+}
+void Application::set_master_gain(float gain) {
+    services_.projects->execute(SetMasterGain{gain}); cancel_mix_preview();
+}
+void Application::cancel_mix_preview() {
+    applied_mix_revision_ = std::numeric_limits<std::uint64_t>::max(); publish_mix();
+}
+void Application::publish_mix() {
+    const auto state = services_.projects->state();
+    if (state.revision == applied_mix_revision_) return;
+    audio::MixerUpdate update; update.master_gain = state.project->master_gain;
+    for (const auto& t : state.project->tracks) if (t.kind == TrackKind::audio) {
+        if (update.count >= mixer_tracks_.size() || mixer_tracks_[update.count] != t.id) return;
+        update.tracks[update.count++] = t.mix;
+    }
+    if (update.count != mixer_tracks_.size()) return;
+    // A full queue keeps this revision pending; the next UI poll retries without blocking RT.
+    if (engine_->enqueue_mix(update)) applied_mix_revision_ = state.revision;
+}
+bool Application::preview_mix(std::optional<Id> id, Track::Mix mix, float master) {
+    mix.validate();
+    audio::MixerUpdate update; update.master_gain = master;
+    const auto p = services_.projects->state().project;
+    for (const auto& t : p->tracks) if (t.kind == TrackKind::audio) {
+        if (update.count >= mixer_tracks_.size() || mixer_tracks_[update.count] != t.id) return false;
+        update.tracks[update.count++] = id && t.id == *id ? mix : t.mix;
+    }
+    return engine_->enqueue_mix(update);
+}
 Sample Application::source_frames(const Id& id) {
     const auto p = services_.projects->state().project;
     const auto it = std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip) { return clip.id == id; });
@@ -264,14 +376,17 @@ void Application::import_wavs(const std::vector<std::filesystem::path>& paths) {
     require_not_playing(); require(!paths.empty() && paths.size() <= audio::max_voices,"select 1..128 WAV files");
     const auto current = services_.projects->state().project;
     require(current->clips.size()+paths.size() <= audio::max_voices,"too many playback clips");
+    // Inspect the entire source batch before copying content.
+    for (const auto& path : paths) require(audio::inspect_wav(path).sample_rate == current->sample_rate,"WAV/project sample-rate mismatch; import WAVs at the project rate");
+    std::unique_ptr<MediaCopy> copies;
+    if (!path_.empty()) copies = std::make_unique<MediaCopy>(asset_root_);
     std::vector<Track> tracks; std::vector<Clip> clips;
     std::map<std::string,std::shared_ptr<const audio::AudioData>> decoded;
     std::size_t bytes{};
     for (const auto& [key,cached] : assets_) { (void)key; bytes += cached.data->samples.size()*sizeof(float); }
-    // Inspect/decode the whole batch before committing one shared command.
-    // Long sources validate their headers here; samples validate as worker blocks decode.
-    for (const auto& path : paths) {
-        const auto source = utf8(std::filesystem::absolute(path).lexically_normal());
+    for (const auto& original : paths) {
+        const auto path = copies ? copies->media(original) : std::filesystem::absolute(original).lexically_normal();
+        const auto source = (copies ? media_ref(path.lexically_relative(asset_root_)) : utf8(path));
         std::shared_ptr<const audio::AudioData> data;
         if (assets_.contains(source)) data = assets_.at(source).data;
         else if (decoded.contains(source)) data = decoded.at(source);
@@ -281,13 +396,21 @@ void Application::import_wavs(const std::vector<std::filesystem::path>& paths) {
             data = std::make_shared<const audio::AudioData>(audio::open_wav(path,std::min<std::size_t>(8*1024*1024,512*1024*1024-bytes)));
             bytes += data->samples.size()*sizeof(float); decoded.emplace(source,data);
         }
-        require(data->sample_rate == current->sample_rate,"WAV/project sample-rate mismatch; import WAVs at the project rate");
         const auto id = new_id();
-        tracks.push_back({id,utf8(path.stem()),TrackKind::audio,{}});
-        clips.push_back({new_id(),id,utf8(path.filename()),0,data->frames(),0,source});
+        tracks.push_back({id,utf8(original.stem()),TrackKind::audio,{}});
+        clips.push_back({new_id(),id,utf8(original.filename()),0,data->frames(),0,source});
     }
-    for (auto& [source,data] : decoded) cache_asset(source,std::move(data));
-    edit(ImportAudio{std::move(tracks),std::move(clips)});
+    const auto revision = services_.projects->state().revision;
+    std::vector<std::string> cached;
+    try {
+        for (auto& [source,data] : decoded) { cache_asset(source,std::move(data)); cached.push_back(source); }
+        edit(ImportAudio{std::move(tracks),std::move(clips)});
+        if (copies) copies->commit();
+    } catch (...) {
+        if (services_.projects->state().revision != revision) { if (copies) copies->commit(); } // committed clips must retain their media
+        else for (const auto& source : cached) { *assets_.at(source).cancel = true; assets_.erase(source); }
+        throw;
+    }
 }
 audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     require(c.sample_rate == services_.projects->state().project->sample_rate,"device/project rate mismatch; choose the project rate (resampling is a later stage)");
@@ -298,11 +421,21 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     prepared_ = std::make_shared<processing::PreparedGraph>(graphs_->state(),config);
     result.processors = prepared_;
     const auto project = services_.projects->state().project;
+    mixer_tracks_.clear();
+    for (const auto& t : project->tracks) if (t.kind == TrackKind::audio) {
+        require(mixer_tracks_.size() < audio::max_mixer_tracks,"mixer supports up to 128 audio tracks");
+        mixer_tracks_.push_back(t.id); result.mixer.push_back(t.mix);
+    }
+    result.master_gain = project->master_gain;
+    applied_mix_revision_ = services_.projects->state().revision;
     for (const auto& clip : project->clips) {
         require(result.voices.size() < audio::max_voices,"too many playback voices");
         auto asset_data = asset(clip.source);
         require(asset_data->sample_rate == c.sample_rate,"WAV/project sample-rate mismatch");
         audio::Voice voice{asset_data,clip.start,clip.source_offset,clip.length,{}};
+        const auto track = std::find(mixer_tracks_.begin(),mixer_tracks_.end(),clip.track);
+        require(track != mixer_tracks_.end(),"audio clip requires an audio track");
+        voice.mixer_track = static_cast<std::size_t>(track-mixer_tracks_.begin());
         const auto gain = clip.source == "mrs:demo-tone" ? 0.15f : 1.0f;
         if (asset_data->channels == 1) {
             // A mono track is centered in the selected main pair, without
@@ -314,6 +447,10 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
         result.voices.push_back(std::move(voice));
     }
     if (!c.inputs.empty()) for (std::uint32_t channel = 0; channel < std::min<std::size_t>(2,c.outputs.size()); ++channel) result.monitor.push_back({0,channel,1});
+    if (armed_) {
+        const auto track = std::find(mixer_tracks_.begin(),mixer_tracks_.end(),*armed_);
+        if (track != mixer_tracks_.end()) result.monitor_track = static_cast<std::size_t>(track-mixer_tracks_.begin());
+    }
     return result;
 }
 void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::DeviceConfig c) {
@@ -341,6 +478,7 @@ void Application::disconnect() {
     if (transport_) { engine_->prepare({engine_->config().sample_rate,0,2,8192},{}); transport_->poll(); }
 }
 void Application::poll() {
+    publish_mix();
     if (recording_ && (recording_->status().fault != audio::RecordFault::none ||
         (recording_->status().frames > 0 && engine_->state().playback != PlaybackState::playing) ||
         device_status().phase != audio::DevicePhase::running)) {
@@ -361,12 +499,13 @@ void Application::stop() { if (recording_) (void)stop_recording(); transport_->s
 void Application::seek(Sample sample) { require_not_recording(); transport_->seek(sample); }
 
 void Application::arm_track(std::optional<Id> id) {
-    require_not_recording();
+    require_not_playing();
     if (id) {
         const auto p = services_.projects->state().project;
         require(std::any_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t) { return t.id == *id && t.kind == TrackKind::audio; }),"arm an existing audio track");
     }
     armed_ = std::move(id);
+    rebuild_audio();
 }
 void Application::monitoring(bool enabled) {
     require(engine_->enqueue({audio::ControlKind::monitor,enabled ? 1 : 0}),"audio command queue full");

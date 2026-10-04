@@ -284,6 +284,8 @@ ProjectDocument demo_document() {
 }
 SharedSession::SharedSession(ProjectDocument document) : base_(std::move(document)) {
     base_.validate();
+    for (const auto& m : base_.mixer) for (auto& t : base_.project.tracks) if (t.id == m.track)
+        t.mix = {m.gain,m.pan,m.mute,m.solo};
     services_.projects = std::make_shared<ProjectStore>(base_.project);
     services_.transport = std::make_shared<MockTransport>(Timeline(base_.project.time,base_.project.sample_rate));
     graphs_ = std::make_shared<processing::GraphStore>(base_.graph);
@@ -294,6 +296,8 @@ ProjectDocument SharedSession::capture() const {
     auto generation = base_.generation + project.revision;
     require(graph_state.revision <= std::numeric_limits<std::uint64_t>::max() - generation, "generation overflow");
     auto result = base_; result.project = *project.project; result.graph = *graph_state.graph;
+    result.mixer.clear();
+    for (const auto& t : result.project.tracks) result.mixer.push_back({t.id,t.mix.gain,t.mix.pan,t.mix.mute,t.mix.solo});
     result.generation = generation + graph_state.revision; result.validate(); return result;
 }
 } // namespace mrs::persistence

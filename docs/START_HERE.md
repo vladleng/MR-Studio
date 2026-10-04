@@ -1,5 +1,11 @@
 # Moon River Studio — START HERE
 
+## В работе 2026-10-04: 0.1f / MRS Stage 2a / #22
+Пользователь поручил начать 0.1f. Первый slice микшера: gain/pan, mute/solo,
+meters, master, persistence и Undo/Redo. Контракты: MIXER.md.
+Проверка: MRS_STAGE_2A_CHECKLIST.md. Приёмка 0.1f пока pending; #22 остаётся открыт.
+Предыдущие строки «разработка ещё не начата» ниже относятся к передаче после 0.1e.
+
 ## Актуальное продолжение — 2026-10-03
 Stage 0 принят, PR #36 слит. Stage 1/2 интегрированы через PR #37/#38 в main.
 Базовые ASIO WAV/monitoring при 48k/128 проверены пользователем. Оставшиеся
@@ -20,9 +26,13 @@ MRS Stage 1d / 0.1e принят пользователем 2026-10-03: «Все
 Весь MRS Stage 1 / Audio Arrangement #21 завершён. PR #46 принят и слит в main.
 Последняя принятая сборка: 0.1e. Code head f78e0123cc7651f3418f0a42f8bc9fce861dfed7.
 Контракты: docs/RECORDING.md; приёмка: docs/MRS_STAGE_1D_CHECKLIST.md.
-Следующий этап: MRS Stage 2 / #22 — Mixer / Routing. Разработка ещё не начата.
-При возобновлении сначала прочитать issue #22; выбрать первый подэтап микшера:
-track gain/pan, mute/solo, meters и master bus на том же SHARED engine.
+Предыдущая небольшая доработка: 0.1e upd1 fix1, открытый PR #47; включена в 0.1f.
+MR Studio/Projects/<имя>/<имя>.mrsproject + Media/Mixdown; MR Studio/Lives для будущих show.
+Импорт и запись принадлежат Media; relative media refs, перенос папки и Save As с копиями.
+Контракты: docs/PROJECT_FOLDERS.md; приёмка: docs/MRS_PROJECT_FOLDERS_CHECKLIST.md.
+upd1 fix1 ещё не принят пользователем. Последняя принятая версия: 0.1e.
+Сейчас: MRS Stage 2a / #22 / 0.1f — track gain/pan, mute/solo, meters и master bus
+на том же SHARED engine. PR #48; автоматические проверки и физическая приёмка.
 Запись 0.1e: один выбранный mono ASIO input и одна вооружённая дорожка за дубль;
 последовательные дубли на разных дорожках поддерживаются. Multi-input recording остаётся будущей работой.
 Правила версий: docs/VERSIONING.md. Длительные performance проверки #16 остаются
@@ -355,3 +365,19 @@ docs/ROADMAP.md и GitHub Issues #1, #12, #13, #14.
 5. специализированный документ соответствующей подсистемы.
 
 Если обнаружено противоречие между актуальными документами, сначала исправить документацию и только затем продолжать реализацию.
+
+
+## Included fix1: concurrent seek read-head protection
+Seek priming previously published the future target as the current read head before
+its queued transport command reached the callback. A worker could then evict the
+still-playing page in that interval. Prime sets the initial head only once,
+keeps the future target separately warm, and lets the callback move the active head.
+The worker skips protected pages before claiming ownership. A control/worker-only
+atomic gate serializes the ready snapshot with victim selection, closing the stale
+snapshot window without waiting, locking or I/O on the audio callback.
+Prepared UI seeks are coalesced and applied only after the callback pins all needed
+target pages. If a later prime displaced an earlier target, the callback continues
+the current position and retries on its next block; worker retry pages remain
+protected. This closes the queued-command handoff race without blocking RT.
+The concurrent seek exact-sample/zero-underrun/zero-RT-allocation regression is
+repeated eight times in every Debug/Release CI job for this fix.
