@@ -49,3 +49,32 @@ levels; red indicates overload. Files/ASIO/transport controls remain shared.
 
 Buses, sends/returns, arbitrary routing, device profiles and multi-input
 recording are subsequent work. #22 remains open until its full scope is accepted.
+
+## 0.1m upd2 fix1 — dark reference skin
+
+The user supplied a dark studio/mixer reference and requested the last build's footer
+Arrange / Edit / Mix / BROWS placement to remain. The local update applies graphite/navy
+rounded panels and buttons, subtle vertical gradients, cyan highlights and blue clips,
+metallic faders, green/yellow/red level scales and familiar Play/Pause/Stop/Record symbols.
+Control window labels remain present for keyboard/accessibility behavior.
+
+Mixer strips are wider; L/R meters sit to the left, faders to the right and M/S below.
+Pointer handlers use the same shared rectangles as painting. Handle-only relative
+regulator movement, fine Ctrl drag, routing/sends, native plugin editors, browser drag/drop
+and footer BROWS arrangement resizing remain functional. Vendor groups remain collapsed
+at initial load. The skin paints without moving, enabling or rewriting native controls
+inside paint; inherited clipping and DPI-scaled rectangles are retained.
+
+AI Assist (Reserved) is disabled. Effects*, Loops* and Samples* are visual reservations
+alongside the working VST3 tab, with an explicit Reserved legend; their click area performs
+no navigation/function. There is no assistant, loop/sample browser or native-effect tab
+implementation in this build. Native Win32 menus, edit fields and plugin windows retain
+their operating-system/plugin behavior. No decorative plugin list or fake signal is added.
+
+Local offline configure/build, 87/87 CTest, GUI exit 0 and inspected software preview.
+GUI includes DPI/minimum-window bounds, stereo meter independence, handle/rail/Undo,
+flicker regressions, browser default/BROWS resize, plugin drop/editor/reuse coverage.
+Software GUI checks do not replace user audition of their TH-U preset.
+Code 6b937cc6284c75481a28efe4e6f150fe7c830c86, local branch mrs/0.1m-upd2-skin-local.
+Package MR-Studio-0.1m-upd2-fix1-ASIO-Windows-local. No schema or audio processing change.
+Code/builds local; GitHub issues/docs only, no push/PR/merge/Actions or installations.
