@@ -477,6 +477,39 @@ void independence() {
     CHECK(control.state().playback == PlaybackState::playing);
 }
 }
+void buses() {
+    using namespace mrs; using namespace mrs::audio;
+    auto a = std::make_shared<AudioData>(); a->channels = 1; a->samples.assign(8192,0.25f);
+    auto b = std::make_shared<AudioData>(*a); b->samples.assign(8192,0.125f);
+    RenderGraph graph;
+    graph.mixer = {{0.5f,0,false,false},{0.5f,0,false,false},{},{},{}};
+    graph.buses = {true,true,false,false,false};
+    graph.outputs = {no_mixer_track,0,1,1,no_mixer_track};
+    graph.voices = {{a,0,0,8192,{{0,0,1},{0,1,1}}},{b,0,0,8192,{{0,0,1},{0,1,1}}},{b,0,0,8192,{{0,0,1},{0,1,1}}}};
+    for (std::size_t i=0; i<3; ++i) graph.voices[i].mixer_track = i+2;
+    AudioEngine engine; engine.prepare({48000,1,2,512},graph); CHECK(engine.enqueue({ControlKind::play}));
+    std::array<float,1024> output{};
+    allocation_check::count = 0; allocation_check::enabled = true; engine.process(nullptr,output.data(),512); allocation_check::enabled = false;
+    CHECK(allocation_check::count == 0 && output[0] == 0.21875f && output[1] == output[0]);
+    const auto meters = engine.take_meters(); CHECK(meters.tracks[1].left == 0.1875f && meters.tracks[0].left == 0.09375f);
+    MixerUpdate update; update.count = graph.mixer.size(); std::copy(graph.mixer.begin(),graph.mixer.end(),update.tracks.begin());
+    update.tracks[1].solo = true; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,output.data(),512);
+    CHECK(output[1022] == 0.09375f); // bus solo admits all its inputs and output chain
+    update.tracks[1].solo = false; update.tracks[2].solo = true; CHECK(engine.enqueue_mix(update));
+    allocation_check::count = 0; allocation_check::enabled = true; engine.process(nullptr,output.data(),512); allocation_check::enabled = false;
+    CHECK(allocation_check::count == 0 && output[1022] == 0.0625f); // track solo admits its buses, no siblings
+    update.tracks[0].mute = true; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,output.data(),512); CHECK(output[1022] == 0);
+    update.tracks[0].mute = false; update.tracks[2].solo = false; update.tracks[1].pan = -1;
+    CHECK(engine.enqueue_mix(update)); engine.process(nullptr,output.data(),512); CHECK(output[1022] == 0.21875f && output[1023] == 0.125f);
+    auto invalid = graph; invalid.outputs[0] = 1; rejects([&] { engine.prepare({48000,1,2,512},invalid); });
+    invalid = graph; invalid.outputs[1] = 2; rejects([&] { engine.prepare({48000,1,2,512},invalid); });
+    invalid = graph; invalid.outputs.pop_back(); rejects([&] { engine.prepare({48000,1,2,512},invalid); });
+    invalid = graph; invalid.voices[0].mixer_track = 0; rejects([&] { engine.prepare({48000,1,2,512},invalid); });
+    // Stopped monitor also reaches the same subgroup chain.
+    graph.voices.clear(); graph.monitor = {{0,0,1},{0,1,1}}; graph.monitor_track = 2;
+    engine.prepare({48000,1,2,512},graph); std::array<float,512> input{}; input.fill(0.25f);
+    engine.process(input.data(),output.data(),512); CHECK(output[0] == 0.0625f && output[1] == 0.0625f);
+}
 void mixer() {
     using namespace mrs; using namespace mrs::audio;
     auto data = std::make_shared<AudioData>(); data->channels = 2; data->samples.assign(4096*2,0.25f);
@@ -516,7 +549,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
-        if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();

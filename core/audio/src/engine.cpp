@@ -45,8 +45,27 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
         (graph.monitor_track != no_mixer_track && graph.monitor_track >= graph.mixer.size()))
         throw std::invalid_argument("invalid mixer configuration");
     for (const auto& mix : graph.mixer) mix.validate();
+    if (graph.outputs.empty()) graph.outputs.assign(graph.mixer.size(),no_mixer_track);
+    if (graph.buses.empty()) graph.buses.assign(graph.mixer.size(),false);
+    if (graph.outputs.size() != graph.mixer.size() || graph.buses.size() != graph.mixer.size())
+        throw std::invalid_argument("mixer routing size mismatch");
+    std::vector<std::size_t> order, incoming(graph.mixer.size());
+    for (std::size_t i=0; i<graph.mixer.size(); ++i) {
+        const auto destination = graph.outputs[i];
+        if (destination == no_mixer_track) continue;
+        if (destination >= graph.mixer.size() || !graph.buses[destination]) throw std::invalid_argument("invalid output bus");
+        ++incoming[destination];
+    }
+    for (std::size_t i=0; i<incoming.size(); ++i) if (!incoming[i]) order.push_back(i);
+    for (std::size_t i=0; i<order.size(); ++i) {
+        const auto destination = graph.outputs[order[i]];
+        if (destination != no_mixer_track && --incoming[destination] == 0) order.push_back(destination);
+    }
+    if (order.size() != graph.mixer.size()) throw std::invalid_argument("audio routing cycle");
+    if (graph.monitor_track != no_mixer_track && graph.buses[graph.monitor_track]) throw std::invalid_argument("input requires an audio track");
     for (const auto& voice : graph.voices) {
         if (voice.mixer_track != no_mixer_track && voice.mixer_track >= graph.mixer.size()) throw std::invalid_argument("invalid voice mixer track");
+        if (voice.mixer_track != no_mixer_track && graph.buses[voice.mixer_track]) throw std::invalid_argument("voice requires an audio track");
         if (!voice.asset) throw std::invalid_argument("missing asset");
         voice.asset->validate();
         if (voice.asset->sample_rate != config.sample_rate)
@@ -93,6 +112,7 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     config_ = config;
     master_envelope_.resize(config.max_block);
     graph_ = std::move(graph);
+    mix_order_ = std::move(order);
     MixerUpdate mix; mix.count = graph_.mixer.size(); mix.master_gain = graph_.master_gain;
     std::copy(graph_.mixer.begin(),graph_.mixer.end(),mix.tracks.begin());
     MixerUpdate discarded_mix; while (mixer_controls_.pop(discarded_mix)) {}
@@ -132,10 +152,18 @@ bool AudioEngine::enqueue_mix(const MixerUpdate& update) noexcept {
 }
 void AudioEngine::set_mix(const MixerUpdate& update, bool ramp) noexcept {
     bool solo{}; for (std::size_t i=0; i<update.count; ++i) solo = solo || update.tracks[i].solo;
+    // A solo bus admits its descendants; a solo track admits its downstream buses.
+    std::array<bool,max_mixer_tracks> admitted{};
+    for (std::size_t i=0; i<update.count; ++i) admitted[i] = update.tracks[i].solo;
+    for (auto it = mix_order_.rbegin(); it != mix_order_.rend(); ++it) {
+        const auto destination = graph_.outputs[*it];
+        if (destination != no_mixer_track) admitted[*it] = admitted[*it] || admitted[destination];
+    }
+    for (const auto i : mix_order_) if (admitted[i] && graph_.outputs[i] != no_mixer_track) admitted[graph_.outputs[i]] = true;
     mix_ramp_ = ramp ? std::max(1U,config_.sample_rate/200) : 0;
     for (std::size_t i=0; i<update.count; ++i) {
         const auto& m = update.tracks[i];
-        const float gain = m.mute || (solo && !m.solo) ? 0 : m.gain;
+        const float gain = m.mute || (solo && !admitted[i]) ? 0 : m.gain;
         // Unity center preserves 0.1e levels; stereo balance and mono main-pair pan.
         mix_target_[i] = {gain*(m.pan > 0 ? 1-m.pan : 1),gain*(m.pan < 0 ? 1+m.pan : 1)};
         if (config_.output_channels == 1) mix_target_[i] = {gain,gain};
@@ -285,10 +313,12 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             if (rt_.sample < max_sample) ++rt_.sample;
             else rt_.playback = PlaybackState::stopped;
         }
-        for (std::size_t t=0; t<graph_.mixer.size(); ++t) {
+        for (const auto t : mix_order_) {
             for (std::uint32_t c=0; c<config_.output_channels; ++c) {
                 const float sample = track_frame_[t][c]*mix_gain_[t][c%2];
-                output[out+c] += sample;
+                const auto destination = graph_.outputs[t];
+                if (destination == no_mixer_track) output[out+c] += sample;
+                else track_frame_[destination][c] += sample;
                 if (c<2) block_peaks[t][c] = std::max(block_peaks[t][c],std::abs(sample));
             }
             if (mix_ramp_) for (std::size_t c=0; c<2; ++c) mix_gain_[t][c] += mix_step_[t][c];

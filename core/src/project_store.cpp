@@ -17,8 +17,13 @@ struct EditGuard {
 AddTrack::AddTrack(Track track) : track_(std::move(track)) {}
 void SetTrackMix::apply(Project& project) const {
     auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
-    if (track == project.tracks.end() || track->kind != TrackKind::audio) throw std::invalid_argument("unknown audio mixer track");
+    if (track == project.tracks.end() || track->kind == TrackKind::midi) throw std::invalid_argument("unknown audio mixer channel");
     mix_.validate(); track->mix = mix_;
+}
+void SetTrackOutput::apply(Project& project) const {
+    auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
+    if (track == project.tracks.end() || track->kind == TrackKind::midi) throw std::invalid_argument("unknown audio mixer channel");
+    track->output = output_; // candidate validation checks type, references and cycles atomically
 }
 std::string_view AddTrack::name() const { return "Add track"; }
 void AddTrack::apply(Project& project) const { project.tracks.push_back(track_); }

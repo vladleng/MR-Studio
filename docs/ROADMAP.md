@@ -387,3 +387,12 @@ This preserves existing Studio Pro projects while keeping Moon River Studio self
 Номерные MRS version targets выше — прежние ориентиры функциональных milestones;
 они не задают имя текущего артефакта. Текущий tracks/import/waveform — 0.1b,
 clip editing — следующая 0.1c. Stage IDs не перенумеровываются.
+
+## Актуальное продолжение — 2026-10-04
+Пользователь принял локальную 0.1f / Stage 2a; PR #48/#47 интегрированы в main.
+Следующий подтверждённый подэтап: 0.1g / Stage 2b — buses/subgroups,
+track/bus outputs, cycle-safe shared routing, bus controls/meters, Undo/persistence.
+Локальные ASIO Release configure/build, 62/62 CTest и GUI smoke пройдены.
+Пользовательская приёмка 0.1g остаётся pending. Сборки/пакеты выполняются локально,
+без GitHub Actions; GitHub хранит исходный код, PR и планы.
+Sends/returns, hardware multi-output и profiles — последующие slices #22.

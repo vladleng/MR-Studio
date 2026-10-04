@@ -82,13 +82,28 @@ void Project::validate() const {
     for (const auto& track : tracks) {
         track.mix.validate();
         add_id(track.id);
-        require(track.kind == TrackKind::audio || track.kind == TrackKind::midi, "invalid track kind");
+        require(track.kind == TrackKind::audio || track.kind == TrackKind::midi || track.kind == TrackKind::bus, "invalid track kind");
         require(!track.folder || folder_by_id.contains(track.folder->value), "missing track folder");
         track_ids.insert(track.id.value);
+    }
+    std::unordered_map<std::string, const Track*> channels;
+    for (const auto& track : tracks) channels.emplace(track.id.value,&track);
+    for (const auto& track : tracks) {
+        require(track.kind != TrackKind::midi || !track.output, "MIDI audio output is not supported");
+        std::unordered_set<std::string> visited{track.id.value};
+        auto destination = track.output;
+        while (destination) {
+            require(channels.contains(destination->value), "missing output bus");
+            const auto* bus = channels.at(destination->value);
+            require(bus->kind == TrackKind::bus, "output destination must be a bus");
+            require(visited.insert(destination->value).second, "audio routing cycle");
+            destination = bus->output;
+        }
     }
     for (const auto& clip : clips) {
         add_id(clip.id);
         require(track_ids.contains(clip.track.value), "missing clip track");
+        require(channels.at(clip.track.value)->kind != TrackKind::bus, "bus cannot contain clips");
         require(clip.start >= 0 && clip.start <= max_sample, "invalid clip start");
         require(clip.length > 0 && clip.length <= max_sample - clip.start, "invalid clip length");
         require(clip.source_offset >= 0 && clip.source_offset <= max_sample - clip.length,

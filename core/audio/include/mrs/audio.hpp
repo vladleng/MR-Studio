@@ -64,6 +64,8 @@ struct RenderGraph {
     std::vector<Track::Mix> mixer{};
     float master_gain{1};
     std::size_t monitor_track{no_mixer_track};
+    std::vector<std::size_t> outputs{}; // channel destinations, no_mixer_track -> master
+    std::vector<bool> buses{}; // same indices as mixer; no clips/input directly on buses
 };
 struct RenderConfig {
     std::uint32_t sample_rate{48000};
@@ -143,6 +145,7 @@ private:
     float master_gain_{1}, master_target_{1}, master_step_{};
     std::vector<float> master_envelope_;
     std::uint32_t mix_ramp_{};
+    std::vector<std::size_t> mix_order_; // source before destination, prepared off RT
     std::array<std::array<std::atomic<float>,2>,max_mixer_tracks+1> meter_peaks_{};
     void set_mix(const MixerUpdate&, bool ramp) noexcept;
     RealtimeState rt_;

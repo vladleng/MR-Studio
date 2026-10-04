@@ -111,6 +111,44 @@ void mono_route() {
             CHECK(buffer[frame*outputs.size()+channel] == (channel < 2 ? 0.06103515625f : 0.0f));
     }
 }
+void buses() {
+    Directory dir; const auto file = dir.path / "bus.wav"; wav(file,1);
+    Application app; app.import_wav(file);
+    const auto track = app.services().projects->state().project->tracks.front().id;
+    const auto bus = app.add_bus("Drums"), parent = app.add_bus("Band");
+    app.set_track_output(track,bus); app.set_track_output(bus,parent);
+    app.set_track_mix(bus,{0.5f,0,false,false}); app.set_track_mix(parent,{0.5f,0,false,false});
+    auto before = app.services().projects->state();
+    rejects([&] { app.set_track_output(parent,bus); });
+    rejects([&] { app.arm_track(bus); });
+    CHECK(app.services().projects->state().revision == before.revision);
+    app.save_project(dir.path / "bus.mrsproject");
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
+    const auto engine = app.engine(); app.play(); std::array<float,1024> output{}; engine->process(nullptr,output.data(),512);
+    CHECK(output[0] == 0.0152587890625f);
+    rejects([&] { app.set_track_output(track,std::nullopt); }); rejects([&] { (void)app.add_bus("Blocked"); });
+    app.set_track_mix(bus,{0.5f,0,true,false}); engine->process(nullptr,output.data(),512); CHECK(output[1022] == 0);
+    CHECK(app.undo()); engine->process(nullptr,output.data(),512); CHECK(output[1022] == 0.0152587890625f);
+    app.pause(); engine->process(nullptr,output.data(),128); const auto position = engine->state().sample;
+    app.remove_track(bus); CHECK(app.engine() == engine && engine->state().sample == position);
+    CHECK(app.services().projects->state().project->tracks.front().output == parent);
+    CHECK(app.undo()); CHECK(app.services().projects->state().project->tracks.front().output == bus);
+    app.save_project(dir.path / "bus.mrsproject"); const auto snapshot = app.snapshot();
+    app.open_project(dir.path / "bus.mrsproject"); CHECK(app.snapshot().project == snapshot.project);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}}); app.play(); engine->process(nullptr,output.data(),512);
+    CHECK(output[0] == 0.0152587890625f);
+    app.stop(); engine->process(nullptr,output.data(),128); app.new_project(44100);
+    const auto vocal = app.add_audio_track("Raw"), monitor_bus = app.add_bus("Monitor");
+    app.set_track_output(vocal,monitor_bus); app.arm_track(vocal);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});
+    const auto take = dir.path / "raw-bus.wav"; app.start_recording(take);
+    std::array<float,512> input{}; input.fill(0.25f); engine->process(input.data(),output.data(),512);
+    CHECK(output[0] == 0.125f); // existing demo master processor has gain 0.5
+    app.set_track_mix(monitor_bus,{0,1,true,true}); engine->process(input.data(),output.data(),512);
+    CHECK(output[1022] == 0 && output[1023] == 0);
+    CHECK(app.stop_recording()); const auto raw = audio::load_wav(take);
+    CHECK(raw.frames() == 1024); for (const auto value : raw.samples) CHECK(value == 0.25f);
+}
 void mixer() {
     Directory dir; const auto file = dir.path / "mix.wav"; wav(file,1);
     Application app; app.import_wav(file);
@@ -573,7 +611,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected suite");
         std::string name = argv[1];
-        if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
+        if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
         else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else if (name == "recording") recording(); else if (name == "project_folders") project_folders(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;

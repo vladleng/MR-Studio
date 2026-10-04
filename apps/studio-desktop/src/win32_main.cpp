@@ -92,7 +92,7 @@ enum ControlId {
     previous, next, loop, undo, redo, open, save, save_as, demo, import,
     audio_settings, tracks = 140, rename_edit, rename,
     new_project_button = 160, import_batch, add_track, delete_track, track_up, track_down, zoom_in, zoom_out, zoom_fit, split_clip_button, delete_clip_button, snap_button,
-    record_button = 172, arm_button, monitor_button, files_exit = 180, studio_folder_button,
+    record_button = 172, arm_button, monitor_button, add_bus_button, files_exit = 180, studio_folder_button,
     device_combo = 200, rate_edit, buffer_edit, outputs_edit, input_edit,
     connect_button, disconnect_button, panel_button, refresh_button
 };
@@ -191,6 +191,7 @@ struct UI {
             {add_track,L"+ Track"},{delete_track,L"Delete"},{track_up,L"Up"},{track_down,L"Down"},
             {zoom_in,L"Zoom +"},{zoom_out,L"Zoom -"},{zoom_fit,L"Fit"}}}) button(window,label,id);
         button(window,L"Record (R)",record_button); button(window,L"Arm track",arm_button); button(window,L"Monitor on",monitor_button);
+        button(window,L"+ Bus",add_bus_button);
         button(window,L"Split (S)",split_clip_button); button(window,L"Del clip",delete_clip_button); button(window,L"Snap off",snap_button);
         create(window,L"LISTBOX",L"",tracks,WS_TABSTOP | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT);
         create(window,L"EDIT",L"",rename_edit,WS_TABSTOP | ES_AUTOHSCROLL | WS_BORDER);
@@ -211,6 +212,7 @@ struct UI {
         move(undo,20,140,80,32); move(redo,108,140,80,32);
         int ax = 220;
         for (auto id : {add_track,delete_track,track_up,track_down,zoom_in,zoom_out,zoom_fit}) { move(id,ax,244,84,32); ax += 92; }
+        move(add_bus_button,220,244,96,30);
         move(tracks,20,228,168,std::max(70,height-388));
         move(rename_edit,20,height-148,168,32); move(rename,20,height-108,168,32);
         canvas = {s(220),s(290),area.right-s(20),area.bottom-s(68)};
@@ -221,7 +223,7 @@ struct UI {
         app.prepare_waveforms();
         SendMessageW(child(tracks),LB_RESETCONTENT,0,0);
         for (const auto& t : project->tracks) {
-            auto name = (app.armed_track() && t.id == *app.armed_track() ? L"[R] " : L"") + wide(t.name); SendMessageW(child(tracks),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(name.c_str()));
+            auto name = (t.kind == TrackKind::bus ? L"[BUS] " : app.armed_track() && t.id == *app.armed_track() ? L"[R] " : L"") + wide(t.name); SendMessageW(child(tracks),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(name.c_str()));
         }
         if (!project->tracks.empty()) {
             auto found = std::find_if(project->tracks.begin(),project->tracks.end(),[&](const auto& t) { return selected_track && t.id == *selected_track; });
@@ -237,7 +239,9 @@ struct UI {
         if (settings) SetWindowTextW(child(rate_edit,true),std::to_wstring(prefs.rate).c_str());
         EnableWindow(child(undo),app.services().projects->state().can_undo && !app.recording()); EnableWindow(child(redo),app.services().projects->state().can_redo && !app.recording());
         for (auto id : {play,previous,next,loop,add_track,delete_track,track_up,track_down,rename,rename_edit,audio_settings}) EnableWindow(child(id),!app.recording());
-        EnableWindow(child(arm_button),selected_track.has_value() && !app.recording());
+        const bool audio_selected = std::any_of(project->tracks.begin(),project->tracks.end(),[&](const auto& t) { return selected_track && t.id == *selected_track && t.kind == TrackKind::audio; });
+        EnableWindow(child(arm_button),audio_selected && !app.recording());
+        EnableWindow(child(add_bus_button),!app.recording() && app.engine()->state().playback != PlaybackState::playing);
         EnableWindow(child(record_button),app.recording() || (app.armed_track().has_value() && app.has_input() && app.audio_running()));
         EnableWindow(child(monitor_button),app.has_input() && app.audio_running());
         SetWindowTextW(child(record_button),app.recording() ? L"End rec (R)" : L"Record (R)");
@@ -369,7 +373,7 @@ struct UI {
     void command(int id, int notification) {
         if (mix_drag) cancel_mix_drag();
         if (app.recording()) {
-            for (auto blocked : {play,previous,next,loop,undo,redo,rename,new_project_button,import_batch,add_track,delete_track,track_up,track_down,split_clip_button,delete_clip_button,open,import,demo,save,save_as,audio_settings,arm_button})
+            for (auto blocked : {play,previous,next,loop,undo,redo,rename,new_project_button,import_batch,add_track,add_bus_button,delete_track,track_up,track_down,split_clip_button,delete_clip_button,open,import,demo,save,save_as,audio_settings,arm_button})
                 if (id == blocked) return;
         }
         if (drag) cancel_drag();
@@ -382,6 +386,7 @@ struct UI {
                 first_track = static_cast<std::size_t>(selection);
                 const bool armed = app.armed_track() && *selected_track == *app.armed_track();
                 SetWindowTextW(child(arm_button),armed ? L"Disarm" : L"Arm track");
+                EnableWindow(child(arm_button),project->tracks[static_cast<std::size_t>(selection)].kind == TrackKind::audio && !app.recording());
                 SetWindowTextW(child(rename_edit),wide(project->tracks[static_cast<std::size_t>(selection)].name).c_str());
                 InvalidateRect(window,nullptr,FALSE);
             }
@@ -430,6 +435,7 @@ struct UI {
             break;
         }
         case add_track: selected_track = app.add_audio_track("Audio "+std::to_string(app.services().projects->state().project->tracks.size()+1)); first_track = app.services().projects->state().project->tracks.size()-1; refresh_models(); break;
+        case add_bus_button: selected_track = app.add_bus("Bus "+std::to_string(mix_tracks().size()+1)); first_mix_track = mix_tracks().size()-1; refresh_models(); break;
         case delete_track:
             if (selected_track && MessageBoxW(window,L"Delete the selected track and its clips? Undo restores them.",L"Moon River Studio",MB_YESNO | MB_ICONQUESTION) == IDYES) {
                 app.remove_track(*selected_track); refresh_models();
@@ -590,7 +596,7 @@ struct UI {
     RECT mix_area() const { return {canvas.left,canvas.top-s(46),canvas.right,canvas.bottom}; }
     std::vector<Track> mix_tracks() const {
         std::vector<Track> result;
-        for (const auto& t : app.services().projects->state().project->tracks) if (t.kind == TrackKind::audio) result.push_back(t);
+        for (const auto& t : app.services().projects->state().project->tracks) if (t.kind != TrackKind::midi) result.push_back(t);
         return result;
     }
     RECT mix_strip(std::size_t index, bool master = false) const {
@@ -599,6 +605,8 @@ struct UI {
         return {x,area.top+s(44),x+s(136),area.bottom-s(8)};
     }
     RECT mix_control(RECT r, int row) const { return {r.left+s(10),r.top+s(row),r.right-s(10),r.top+s(row+22)}; }
+    RECT output_control(RECT r, bool bus) const { auto result = mix_control(r,164); if (bus) result.right -= s(36); return result; }
+    RECT remove_bus_control(RECT r) const { auto result = mix_control(r,164); result.left = result.right-s(32); return result; }
     static float fader_position(float gain) { return gain <= 0 ? 0 : std::clamp((20*std::log10(gain)+60)/72,0.0f,1.0f); }
     static float fader_gain(float position) { return position <= 0 ? 0 : std::pow(10.0f,(-60+72*position)/20); }
     std::wstring gain_text(float gain) const {
@@ -607,7 +615,7 @@ struct UI {
     }
     void paint_mixer(HDC dc) {
         const auto area = mix_area(); fill(dc,area,panel);
-        text(dc,area.left+s(12),area.top+s(4),area.right-area.left-s(24),s(30),L"Mixer  |  drag gain / pan  |  double-click to reset  |  wheel to scroll",normal,muted);
+        text(dc,area.left+s(110),area.top+s(4),area.right-area.left-s(122),s(30),L"Mixer  |  drag gain / pan  |  Out: select bus  |  wheel to scroll",normal,muted);
         const auto all = mix_tracks();
         if (!all.empty()) first_mix_track = std::min(first_mix_track,all.size()-1); else first_mix_track = 0;
         const int saved = SaveDC(dc); IntersectClipRect(dc,area.left,area.top,area.right,area.bottom);
@@ -618,7 +626,7 @@ struct UI {
             if (mix_drag && ((track && mix_drag->track == track->id) || (!track && !mix_drag->track))) {
                 mix = mix_drag->mix; gain = track ? mix.gain : mix_drag->master;
             }
-            text(dc,r.left+s(8),r.top,r.right-r.left-s(16),s(28),track ? wide(track->name) : L"MASTER",normal,track ? ink : amber);
+            text(dc,r.left+s(8),r.top,r.right-r.left-s(16),s(28),track ? (track->kind == TrackKind::bus ? L"[BUS] " : L"")+wide(track->name) : L"MASTER",normal,track && track->kind != TrackKind::bus ? ink : amber);
             auto g = mix_control(r,34); fill(dc,g,border);
             const int gx = g.left+static_cast<int>(fader_position(gain)*(g.right-g.left));
             fill(dc,{g.left,g.top,gx,g.bottom},RGB(72,76,82)); line(dc,gx,g.top,gx,g.bottom,amber);
@@ -638,13 +646,42 @@ struct UI {
                 const float fraction = v > 0 ? std::clamp((20*std::log10(v)+60)/60,0.0f,1.0f) : 0;
                 fill(dc,{meter.left,meter.top,meter.left+static_cast<int>(fraction*(meter.right-meter.left)),meter.bottom},v >= 1 ? RGB(230,70,60) : v > 0.7f ? amber : RGB(100,178,126));
             }
-            text(dc,r.left+s(10),r.top+s(164),r.right-r.left-s(20),s(24),gain_text(std::max(peak.left,peak.right)),normal,muted);
+            text(dc,r.left+s(10),r.top+s(track ? 190 : 164),r.right-r.left-s(20),s(24),gain_text(std::max(peak.left,peak.right)),normal,muted);
+            if (track) {
+                std::wstring destination = L"Master";
+                for (const auto& bus : all) if (track->output == bus.id) destination = wide(bus.name);
+                const bool editable = !app.recording() && app.engine()->state().playback != PlaybackState::playing;
+                auto route = output_control(r,track->kind == TrackKind::bus); fill(dc,route,border);
+                text(dc,route.left,route.top,route.right-route.left,route.bottom-route.top,L"Out: "+destination,normal,editable ? ink : muted);
+                if (track->kind == TrackKind::bus) {
+                    auto remove = remove_bus_control(r); fill(dc,remove,border);
+                    text(dc,remove.left,remove.top,remove.right-remove.left,remove.bottom-remove.top,L"Del",normal,editable ? ink : muted);
+                }
+            }
         };
         for (std::size_t i=first_mix_track; i<all.size(); ++i) {
             auto r = mix_strip(i-first_mix_track); if (r.right > area.right-s(154)) break;
             draw(r,&all[i],mix_meters.tracks[i]);
         }
         draw(mix_strip(0,true),nullptr,mix_meters.master); RestoreDC(dc,saved);
+    }
+    void choose_bus(const Track& track, POINT point) {
+        if (app.recording() || app.engine()->state().playback == PlaybackState::playing) return;
+        const auto project = app.services().projects->state().project;
+        const auto menu = CreatePopupMenu(); if (!menu) throw std::runtime_error("Cannot create output menu");
+        std::vector<std::optional<Id>> destinations{std::nullopt};
+        AppendMenuW(menu,MF_STRING | (!track.output ? MF_CHECKED : 0),1,L"Master");
+        for (const auto& bus : project->tracks) if (bus.kind == TrackKind::bus) {
+            auto candidate = *project; bool valid = true;
+            try { SetTrackOutput{track.id,bus.id}.apply(candidate); candidate.validate(); } catch (const std::invalid_argument&) { valid = false; }
+            destinations.push_back(bus.id);
+            const auto flags = MF_STRING | (valid ? 0 : MF_GRAYED) | (track.output == bus.id ? MF_CHECKED : 0);
+            AppendMenuW(menu,flags,static_cast<UINT_PTR>(destinations.size()),wide(bus.name).c_str());
+        }
+        ClientToScreen(window,&point);
+        const auto choice = TrackPopupMenu(menu,TPM_RETURNCMD | TPM_NONOTIFY,point.x,point.y,0,window,nullptr);
+        DestroyMenu(menu);
+        if (choice && choice <= destinations.size()) { app.set_track_output(track.id,destinations[choice-1]); refresh_models(); }
     }
     void mixer_down(POINT point, bool reset = false) {
         const auto all = mix_tracks();
@@ -657,6 +694,13 @@ struct UI {
             const auto t = master ? nullptr : &all[slot];
             auto mix = t ? t->mix : Track::Mix{};
             if (t) { selected_track = t->id; refresh_models(); }
+            const auto route = output_control(r,t && t->kind == TrackKind::bus), remove = remove_bus_control(r);
+            if (t && PtInRect(&route,point)) { choose_bus(*t,point); return; }
+            if (t && t->kind == TrackKind::bus && PtInRect(&remove,point)) {
+                if (!app.recording() && app.engine()->state().playback != PlaybackState::playing &&
+                    MessageBoxW(window,L"Delete this bus? Its inputs will use its output. Undo restores routing.",L"Moon River Studio",MB_YESNO | MB_ICONQUESTION) == IDYES) { app.remove_track(t->id); refresh_models(); }
+                return;
+            }
             const auto g = mix_control(r,34), p = mix_control(r,68);
             if (PtInRect(&g,point) || (t && PtInRect(&p,point))) {
                 const bool pan = t && PtInRect(&p,point);
@@ -703,6 +747,8 @@ struct UI {
         text(dc,s(20),s(194),s(168),s(28),L"Project tracks",normal,muted);
         auto workspace = app.workspace();
         for (auto id : {add_track,delete_track,track_up,track_down,zoom_in,zoom_out,zoom_fit,split_clip_button,delete_clip_button,snap_button}) ShowWindow(child(id),workspace == Workspace::arrange ? SW_SHOW : SW_HIDE);
+        ShowWindow(child(add_bus_button),workspace == Workspace::mix ? SW_SHOW : SW_HIDE);
+        EnableWindow(child(add_bus_button),!app.recording() && app.engine()->state().playback != PlaybackState::playing);
         if (workspace == Workspace::arrange) {
             timeline(dc,canvas,false);
         } else {
@@ -950,6 +996,17 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     if (!ui->app.armed_track()) throw std::runtime_error("Arm track did not use shared application");
                     ui->command(arm_button,0);
                     if (ui->app.armed_track()) throw std::runtime_error("Disarm did not clear shared application");
+                    ui->command(add_bus_button,0);
+                    const auto bus_id = *ui->selected_track;
+                    const auto audio_id = ui->app.services().projects->state().project->tracks.front().id;
+                    ui->app.set_track_output(audio_id,bus_id); ui->refresh_models();
+                    if (IsWindowEnabled(ui->child(arm_button))) throw std::runtime_error("Bus can be armed for recording");
+                    const auto bus_strip = ui->mix_strip(0), bus_gain = ui->mix_control(bus_strip,34);
+                    const POINT bus_point{bus_gain.left+(bus_gain.right-bus_gain.left)/2,(bus_gain.top+bus_gain.bottom)/2};
+                    ui->mouse_down(bus_point); ui->mouse_up(bus_point);
+                    if (ui->app.services().projects->state().project->tracks.back().mix.gain == 1) throw std::runtime_error("Bus fader did not change shared mix");
+                    ui->command(undo,0); ui->app.remove_track(bus_id); ui->refresh_models();
+                    if (ui->app.services().projects->state().project->tracks.front().output) throw std::runtime_error("Deleted bus retained a dangling route");
                     for (auto id : {nav_live,open,save,save_as,demo,import,new_project_button,import_batch})
                         if (ui->child(id)) throw std::runtime_error("File/Live controls still occupy the workspace");
                     ui->app.rename_track(ui->app.services().projects->state().project->tracks.front().id,"Smoke track"); ui->refresh_models();
@@ -971,6 +1028,8 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     ui->dpi = 144; ui->fonts();
                     SetWindowPos(hwnd,nullptr,0,0,ui->s(1000),ui->s(620),SWP_NOMOVE | SWP_NOZORDER);
                     ui->layout(); ui->settings_dpi = 144; ui->settings_fonts();
+                    const auto route_bounds = ui->output_control(ui->mix_strip(0),true), remove_bounds = ui->remove_bus_control(ui->mix_strip(0));
+                    if (route_bounds.bottom > ui->mix_strip(0).bottom || remove_bounds.bottom > ui->mix_strip(0).bottom) throw std::runtime_error("Routing controls clipped at minimum DPI layout");
                     SetWindowPos(ui->settings,nullptr,0,0,ui->ss(600),ui->ss(475),SWP_NOMOVE | SWP_NOZORDER); ui->settings_layout();
                     for (auto parent : {hwnd,ui->settings}) {
                         RECT area{}; GetClientRect(parent,&area);

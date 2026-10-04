@@ -60,6 +60,7 @@ std::string serialize(const Project& p) {
         out << std::quoted(track.id.value) << ' ' << std::quoted(track.name) << ' '
             << static_cast<int>(track.kind) << ' ' << std::quoted(track.folder ? track.folder->value : "") << '\n';
         out << track.mix.gain << ' ' << track.mix.pan << ' ' << track.mix.mute << ' ' << track.mix.solo << '\n';
+        out << std::quoted(track.output ? track.output->value : "") << '\n';
     }
     section(out, "CLIPS", p.clips);
     for (const auto& clip : p.clips)
@@ -138,7 +139,7 @@ Project deserialize(std::string_view bytes) {
         int kind{};
         in >> kind;
         check_stream(in);
-        if (kind < 0 || kind > 1) throw std::invalid_argument("invalid track enum");
+        if (kind < 0 || kind > (input_version >= 4 ? 2 : 1)) throw std::invalid_argument("invalid track enum");
         track.kind = static_cast<TrackKind>(kind);
         track.folder = parent(in);
         if (input_version >= 3) {
@@ -148,6 +149,7 @@ Project deserialize(std::string_view bytes) {
             if ((mute != 0 && mute != 1) || (solo != 0 && solo != 1)) throw std::invalid_argument("invalid mixer flags");
             track.mix.mute = mute != 0; track.mix.solo = solo != 0;
         }
+        if (input_version >= 4) track.output = parent(in);
         p.tracks.push_back(std::move(track));
     }
     tag(in, "CLIPS");

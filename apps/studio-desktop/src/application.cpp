@@ -112,11 +112,7 @@ void Application::start_empty_clock() {
     audio::DeviceConfig c{0,document_.project.sample_rate,128,{}, {0,1}};
     audio::RenderGraph graph;
     const auto p = services_.projects->state().project;
-    for (const auto& t : p->tracks) if (t.kind == TrackKind::audio) {
-        require(mixer_tracks_.size() < audio::max_mixer_tracks,"mixer supports up to 128 audio tracks");
-        mixer_tracks_.push_back(t.id); graph.mixer.push_back(t.mix);
-    }
-    graph.master_gain = p->master_gain;
+    prepare_mixer(graph);
     engine_->prepare({p->sample_rate,0,2,8192},std::move(graph));
     device->open(c,engine_); device->start(); device_ = std::move(device); device_config_ = c; audio_name_ = "Offline clock (no sound)";
 }
@@ -291,7 +287,7 @@ void Application::edit(const ICommand& command) {
     auto candidate = *services_.projects->state().project;
     command.apply(candidate); candidate.validate();
     require(candidate.clips.size() <= audio::max_voices,"too many playback clips");
-    require(std::count_if(candidate.tracks.begin(),candidate.tracks.end(),[](const auto& t) { return t.kind == TrackKind::audio; }) <= static_cast<std::ptrdiff_t>(audio::max_mixer_tracks),"mixer supports up to 128 audio tracks");
+    require(std::count_if(candidate.tracks.begin(),candidate.tracks.end(),[](const auto& t) { return t.kind != TrackKind::midi; }) <= static_cast<std::ptrdiff_t>(audio::max_mixer_tracks),"mixer supports up to 128 audio tracks and buses");
     std::size_t streamed{}, bytes{};
     for (const auto& clip : candidate.clips) {
         const auto data = asset(clip.source);
@@ -308,6 +304,11 @@ Id Application::add_audio_track(std::string name) {
     require(!name.empty() && name.size() <= 4096,"enter a track name");
     auto id = new_id(); edit(AddTrack{{id,std::move(name),TrackKind::audio,{}}}); return id;
 }
+Id Application::add_bus(std::string name) {
+    require(!name.empty() && name.size() <= 4096,"enter a bus name");
+    auto id = new_id(); edit(AddTrack{{id,std::move(name),TrackKind::bus,{}}}); return id;
+}
+void Application::set_track_output(const Id& id, std::optional<Id> output) { edit(SetTrackOutput{id,std::move(output)}); }
 void Application::remove_track(const Id& id) { edit(RemoveTrack{id}); }
 void Application::reorder_track(const Id& id, std::size_t index) { edit(ReorderTrack{id,index}); }
 bool Application::history(bool redo) {
@@ -339,7 +340,7 @@ void Application::publish_mix() {
     const auto state = services_.projects->state();
     if (state.revision == applied_mix_revision_) return;
     audio::MixerUpdate update; update.master_gain = state.project->master_gain;
-    for (const auto& t : state.project->tracks) if (t.kind == TrackKind::audio) {
+    for (const auto& t : state.project->tracks) if (t.kind != TrackKind::midi) {
         if (update.count >= mixer_tracks_.size() || mixer_tracks_[update.count] != t.id) return;
         update.tracks[update.count++] = t.mix;
     }
@@ -351,7 +352,7 @@ bool Application::preview_mix(std::optional<Id> id, Track::Mix mix, float master
     mix.validate();
     audio::MixerUpdate update; update.master_gain = master;
     const auto p = services_.projects->state().project;
-    for (const auto& t : p->tracks) if (t.kind == TrackKind::audio) {
+    for (const auto& t : p->tracks) if (t.kind != TrackKind::midi) {
         if (update.count >= mixer_tracks_.size() || mixer_tracks_[update.count] != t.id) return false;
         update.tracks[update.count++] = id && t.id == *id ? mix : t.mix;
     }
@@ -412,6 +413,21 @@ void Application::import_wavs(const std::vector<std::filesystem::path>& paths) {
         throw;
     }
 }
+void Application::prepare_mixer(audio::RenderGraph& result) {
+    const auto project = services_.projects->state().project;
+    mixer_tracks_.clear();
+    for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {
+        require(mixer_tracks_.size() < audio::max_mixer_tracks,"mixer supports up to 128 audio tracks and buses");
+        mixer_tracks_.push_back(t.id); result.mixer.push_back(t.mix); result.buses.push_back(t.kind == TrackKind::bus);
+    }
+    for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {
+        const auto destination = t.output ? std::find(mixer_tracks_.begin(),mixer_tracks_.end(),*t.output) : mixer_tracks_.end();
+        require(!t.output || destination != mixer_tracks_.end(),"missing output bus");
+        result.outputs.push_back(destination == mixer_tracks_.end() ? audio::no_mixer_track : static_cast<std::size_t>(destination-mixer_tracks_.begin()));
+    }
+    result.master_gain = project->master_gain;
+    applied_mix_revision_ = services_.projects->state().revision;
+}
 audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     require(c.sample_rate == services_.projects->state().project->sample_rate,"device/project rate mismatch; choose the project rate (resampling is a later stage)");
     require(!c.outputs.empty() && c.outputs.size() <= audio::max_channels && c.inputs.size() <= 1,"invalid channel selection");
@@ -421,13 +437,7 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     prepared_ = std::make_shared<processing::PreparedGraph>(graphs_->state(),config);
     result.processors = prepared_;
     const auto project = services_.projects->state().project;
-    mixer_tracks_.clear();
-    for (const auto& t : project->tracks) if (t.kind == TrackKind::audio) {
-        require(mixer_tracks_.size() < audio::max_mixer_tracks,"mixer supports up to 128 audio tracks");
-        mixer_tracks_.push_back(t.id); result.mixer.push_back(t.mix);
-    }
-    result.master_gain = project->master_gain;
-    applied_mix_revision_ = services_.projects->state().revision;
+    prepare_mixer(result);
     for (const auto& clip : project->clips) {
         require(result.voices.size() < audio::max_voices,"too many playback voices");
         auto asset_data = asset(clip.source);

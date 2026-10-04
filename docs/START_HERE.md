@@ -1,10 +1,19 @@
 # Moon River Studio — START HERE
 
-## В работе 2026-10-04: 0.1f / MRS Stage 2a / #22
-Пользователь поручил начать 0.1f. Первый slice микшера: gain/pan, mute/solo,
-meters, master, persistence и Undo/Redo. Контракты: MIXER.md.
-Проверка: MRS_STAGE_2A_CHECKLIST.md. Приёмка 0.1f пока pending; #22 остаётся открыт.
-Предыдущие строки «разработка ещё не начата» ниже относятся к передаче после 0.1e.
+## В работе 2026-10-04: 0.1g / MRS Stage 2b / #22
+Пользователь принял локальную 0.1f: «Я проверил, всё работает отлично».
+PR #48 слит в main; включённый PR #47 также отмечен GitHub как merged.
+0.1f — принятая базовая версия с gain/pan, mute/solo, meters, master и portable folders.
+0.1g: локальные Windows ASIO Release configure/build, 62/62 tests и GUI smoke пройдены.
+Проверены вложенные шины, Solo/Mute, cycle rejection, Undo, сохранение, raw recording,
+zero RT allocations и GUI bus fader/minimum DPI bounds. Приёмка 0.1g пользователем pending.
+Для принятой 0.1f фактически пройдены 59/59 ASIO tests + GUI smoke и 60/60 offline tests.
+Пользователь подтвердил следующий подэтап: шины/подгруппы, выходы track/bus,
+защита от циклов, bus controls/meters, Undo и persistence. Контракты: BUSES.md.
+Вся разработка, configure/build/tests и пакеты выполняются локально, без GitHub Actions.
+GitHub используется для исходников, PR и планов; новые коммиты помечаются skip ci.
+Полный #22 остаётся открыт: sends/returns, hardware multi-output и profiles ещё впереди.
+Исторические статусы pending/0.1e ниже заменены этой актуальной записью.
 
 ## Актуальное продолжение — 2026-10-03
 Stage 0 принят, PR #36 слит. Stage 1/2 интегрированы через PR #37/#38 в main.

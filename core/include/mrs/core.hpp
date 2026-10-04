@@ -16,7 +16,7 @@ using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 3;
+inline constexpr std::uint32_t schema_version = 4;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -46,7 +46,7 @@ struct TimeMap {
     void validate() const;
     bool operator==(const TimeMap&) const = default;
 };
-enum class TrackKind { audio, midi };
+enum class TrackKind { audio, midi, bus };
 enum class MarkerKind { generic, cue, warning, lyric, action, navigation };
 struct Folder {
     Id id;
@@ -65,6 +65,7 @@ struct Track {
         bool operator==(const Mix&) const = default;
         void validate() const;
     } mix{};
+    std::optional<Id> output{}; // no destination means master; otherwise a shared bus
     bool operator==(const Track&) const = default;
 };
 struct Clip {
@@ -257,6 +258,15 @@ public:
     void apply(Project& p) const override { p.master_gain = gain_; }
 private:
     float gain_;
+};
+class SetTrackOutput final : public ICommand {
+public:
+    SetTrackOutput(Id track, std::optional<Id> output) : track_(std::move(track)), output_(std::move(output)) {}
+    std::string_view name() const override { return "Channel output"; }
+    void apply(Project&) const override;
+private:
+    Id track_;
+    std::optional<Id> output_;
 };
 class AddTrack final : public ICommand {
 public:

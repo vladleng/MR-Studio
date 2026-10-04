@@ -50,6 +50,8 @@ public:
     void demo();
     void new_project(std::uint32_t rate = 48000, std::string title = "Untitled");
     Id add_audio_track(std::string name);
+    Id add_bus(std::string name);
+    void set_track_output(const Id&, std::optional<Id>);
     void remove_track(const Id&);
     void reorder_track(const Id&, std::size_t index);
     void import_wavs(const std::vector<std::filesystem::path>&);
@@ -110,6 +112,7 @@ private:
     std::vector<Id> mixer_tracks_;
     std::uint64_t applied_mix_revision_{};
     void publish_mix();
+    void prepare_mixer(audio::RenderGraph&);
     bool history(bool redo);
     void sync_arm();
     void require_not_recording() const;

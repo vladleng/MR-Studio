@@ -47,5 +47,7 @@ shared contracts accept gain 0..16. Mute and Solo toggle independently.
 Mouse wheel scrolls channel strips. The two bars and dBFS readout show output
 levels; red indicates overload. Files/ASIO/transport controls remain shared.
 
-Buses, sends/returns, arbitrary routing, device profiles and multi-input
-recording are subsequent work. #22 remains open until its full scope is accepted.
+Buses and track/bus outputs are implemented by the subsequent 0.1g slice;
+see BUSES.md for snapshot v4, routing and solo semantics. Sends/returns,
+hardware output routing, device profiles and multi-input recording remain future
+work. #22 remains open until its full scope is accepted.

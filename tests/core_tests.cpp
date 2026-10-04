@@ -1,4 +1,5 @@
 #include <mrs/core.hpp>
+#include <mrs/arrangement.hpp>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -23,6 +24,32 @@ template<class F> void invalid_project(F edit) {
     auto project = mrs::demo_project();
     edit(project);
     rejects([&] { project.validate(); });
+}
+void buses() {
+    using namespace mrs;
+    auto p = demo_project();
+    const auto track = p.tracks.front().id;
+    p.tracks.push_back({{"sub"},"Subgroup",TrackKind::bus,{}});
+    p.tracks.push_back({{"sum"},"Sum",TrackKind::bus,{}});
+    ProjectStore store{p};
+    store.execute(SetTrackOutput{track,Id{"sub"}});
+    store.execute(SetTrackOutput{Id{"sub"},Id{"sum"}});
+    const auto before = store.state();
+    rejects([&] { store.execute(SetTrackOutput{Id{"sum"},Id{"sub"}}); });
+    rejects([&] { store.execute(SetTrackOutput{Id{"sub"},Id{"sub"}}); });
+    rejects([&] { store.execute(SetTrackOutput{track,Id{"absent"}}); });
+    rejects([&] { store.execute(SetTrackOutput{Id{"sub"},track}); });
+    CHECK(store.state().revision == before.revision && store.state().project == before.project);
+    store.execute(SetTrackMix{Id{"sub"},{0.5f,-0.5f,true,true}});
+    CHECK(deserialize(serialize(*store.state().project)) == *store.state().project);
+    const auto routed = *store.state().project;
+    store.execute(RemoveTrack{Id{"sub"}});
+    CHECK(store.state().project->tracks.front().output == Id{"sum"});
+    CHECK(store.undo() && *store.state().project == routed);
+    auto bad = routed; bad.clips.front().track = {"sub"}; rejects([&] { bad.validate(); });
+    const std::string v3 = "MRS_CORE_SNAPSHOT 3\nPROJECT \"old\" \"Old\" \"\" 48000\nTEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n\"a\" \"Audio\" 0 \"\"\n0.5 -0.25 1 0\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nMASTER 0.75\nEND\n";
+    const auto migrated = deserialize(v3);
+    CHECK(!migrated.tracks.front().output && migrated.tracks.front().mix.gain == 0.5f && migrated.master_gain == 0.75f);
 }
 void model() {
     auto p = mrs::demo_project();
@@ -284,7 +311,8 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected test suite");
         const std::string suite = argv[1];
-        if (suite == "model") model();
+        if (suite == "buses") buses();
+        else if (suite == "model") model();
         else if (suite == "timeline") timeline();
         else if (suite == "transport") transport();
         else if (suite == "commands") commands();
