@@ -60,4 +60,4 @@ Expanded hidden GUI smoke covers actual insert commands, parameter Apply, reorde
 bypass/remove/Undo, Master isolation, editor bounds, fractional wheel geometry,
 actual Space messages and auto-repeat, plus earlier DPI/flicker regressions.
 Main/insert editor preview images were exported and reviewed.
-User/physical audio acceptance pending: MRS_STAGE_3A_CHECKLIST.md.
+Local 0.1k / Stage 3a accepted by the user on 2026-10-04: MRS_STAGE_3A_CHECKLIST.md.

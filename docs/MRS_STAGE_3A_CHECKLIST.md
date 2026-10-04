@@ -1,7 +1,7 @@
 # MRS Stage 3a / 0.1k — native inserts
 
-Local implementation ready, 2026-10-04. User acceptance pending.
-Accepted baseline 0.1j. Stage #23 stays open; see MRS_STAGE_3_PLAN.md.
+Local 0.1k accepted by the user, 2026-10-04. Stage 3a completed.
+Accepted baseline 0.1k. Stage #23 stays open; see MRS_STAGE_3_PLAN.md.
 
 - [x] Ordered chains on audio tracks/buses/Master through shared processor graph.
 - [x] Gain, high-pass, low-pass and one-band parametric EQ; parameter editor.
@@ -12,7 +12,7 @@ Accepted baseline 0.1j. Stage #23 stays open; see MRS_STAGE_3_PLAN.md.
 - [x] Space: Play/Stop and return to start, ignore held-key repeats.
 - [x] Local offline-dependency ASIO configure/build, 77/77 CTest, expanded GUI smoke.
 - [x] Main and insert editor visual previews reviewed.
-- [ ] User acceptance of local 0.1k / Stage 3a.
+- [x] User acceptance of local 0.1k / Stage 3a: «Проверил, вроде все работает, закрывай под-этап.»
 
 1. Copy a project, open 0.1k and connect your interface at the project rate.
 2. Mix -> track Inserts. Add Gain, High-pass, Low-pass and EQ. Verify audible
