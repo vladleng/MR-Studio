@@ -1,7 +1,7 @@
 # MRS Stage 3c / 0.1m — acceptance checklist
 
 Local ready 2026-10-04; last accepted 0.1l / 3b.
-Source `c505128089916350950bc7bdc36ce7a36152f6d4`; local branch `mrs/0.1m-cab-ir-browser-local`.
+Source `8c805259541c39f2eee59ebba2c38e87cdeae706`; local branch `mrs/0.1m-cab-ir-browser-local`.
 
 - [x] Cab IR mono/stereo WAV import and embedded project state, v10 reading v1–v9.
 - [x] Direct-head / partitioned-tail convolution, measured 0 additional algorithmic latency.
@@ -20,7 +20,8 @@ Source `c505128089916350950bc7bdc36ce7a36152f6d4`; local branch `mrs/0.1m-cab-ir
    destination, appended insert, Undo/Redo. Drop outside or press Escape: no change.
 4. Click a VST3 insert once: native editor opens. Click again: existing window focuses.
    The strip shows up to three slots (one at compact height); Inserts opens the whole
-   chain, where each VST3 selection also opens its editor. Native effects stay native.
+   chain, where each VST3 selection also opens its editor. Native effects stay native. Undo/rebuild closes obsolete editors;
+   after Redo click again to open the restored plugin instance.
 5. Add Cab IR and load Impulses/MRS-Test-Flat-Mono.wav, then Stereo-Echoes/Colour.
    Verify L/R, live Mix/Gain/cuts/polarity and Neutral/Warm/Bright presets during playback.
 6. Save/reopen a copied project; move the external WAV and verify embedded IR still works.
