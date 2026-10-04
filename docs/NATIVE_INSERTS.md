@@ -1,64 +1,50 @@
-# Native inserts / MRS 0.1k / Stage 3a
+# Native inserts — 0.1l
 
-## Model and signal path
-Core snapshot v8 adds ordered insert chains to audio tracks, buses and Master.
-Each insert has a stable ID, kind, parameters and bypass. Up to eight inserts per
-chain, 32 total. SetInserts uses the shared ProjectStore command/Undo history;
-add/remove/reorder/bypass/parameter edits and save/reopen preserve order and state.
-MIDI audio inserts, duplicate IDs, unsupported types and out-of-range values are rejected.
-v8 reads v1-v7 with empty chains. Keep a project copy: old builds cannot read v8.
-Archive container and legacy shared graph formats are unchanged.
+Stage 3a / 0.1k was accepted. Stage 3b / 0.1l adds a combined graphical Channel EQ
+and live native parameter editing; acceptance of 0.1l is pending.
 
-Each native chain is converted into the existing shared GraphState/PreparedGraph,
-not a separate audio engine. Track inserts process playback + input monitoring
-before channel gain/pan/mute and pre/post-fader sends. Bus inserts process the sum
-before its controls/routes. Direct hardware outputs use their channel inserts and
-bypass Master inserts. Legacy master processor graph is retained; the new Master
-chain follows it and precedes Master gain and physical output mapping/limiting.
-Raw recorded WAVs are captured before all monitoring/mixer/insert processing.
+## Channel EQ
+One slot contains HP (low cut), three parametric bell bands and LP (high cut).
+Each bell: 20–20000 Hz, gain −24..+24 dB, Q 0.1..10. HP/LP are second-order filters
+with adjustable cutoff and Q. Filters start disabled; the three bells start flat.
+Gray HP/LP points mean disabled: select one and click Band disabled to enable it.
 
-## Effects and parameters
-- Gain: linear 0–4 internally; UI -60 to +12 dB, or -inf for silence.
-- High-pass and low-pass: second-order biquad, frequency 20–20000 Hz, Q 0.1–10.
-- Parametric EQ: one peaking band, frequency/Q as above, gain -24 to +24 dB.
+The logarithmic curve shows the combined response at the current project rate.
+Drag a bell point horizontally for frequency, vertically for gain. Drag HP/LP
+horizontally for cutoff. Wheel over a point changes its Q; wheel in the plot changes
+the selected band's Q. High-resolution wheel deltas are retained. Ctrl gives finer
+drag/wheel control. Select a band to type exact values or enable/disable it.
+Escape/capture loss cancels the drag. A drag commits one Undo entry on release.
 
-Filters use the [W3C Audio EQ Cookbook](https://www.w3.org/TR/audio-eq-cookbook/)
-coefficient equations, normalized transposed direct form II with double state.
-Frequency is limited to 0.45 * sample rate at preparation/update for low rates.
-Each channel has separate state; nonfinite/very small state is sanitized.
-These processors report zero sample latency; frequency-dependent phase remains.
-Stop/Seek resets filter state through the existing panic/reset path.
+Parameters, band enables and native bypass work during playback (also during raw
+capture), without closing/stopping the device or replacing the graph. UI changes
+enter the shared prepared graph via bounded complete parameter transactions;
+a full mailbox retains the newest target for the next UI poll. EQ frequency/Q/gain
+and wet transitions use 20 ms smoothing, per-channel filter state, finite sample
+sanitization and denormal cleanup. The drawn response is the settled target curve.
+Filters clamp their effective cutoff to 0.45 × sample rate. Native EQ/gain/filter
+processors report zero algorithmic sample latency.
 
-Runtime storage/coefficients are prepared off callback. Chains have fixed, bounded
-scratch and event queues. The callback does no allocations, locks or file I/O.
-Track/bus chains process in topological routing order per frame; Master processes
-the mixed block. This simple native slice does not provide plugin latency compensation,
-IR convolution, continuous parameter automation/crossfade or arbitrary plugin hosting.
-The deferred physical performance matrix is not claimed measured.
+## Chains and compatibility
+Track/bus inserts are pre-fader and precede pre/post sends; Master inserts follow
+the shared legacy master graph and precede Master gain/physical routing. Explicit
+direct hardware outputs bypass Master inserts. Monitoring is processed; WAV
+recording stays raw. Up to eight slots/channel, 32 slots/project.
+Add/remove/reorder and VST3 bypass require Pause/Stop. Native parameter Undo/Redo
+works during playback. Core snapshot v9 preserves all five band states and VST3
+state, reads v1–v8, and retains legacy separate HP/LP/one-band EQ effects unchanged.
+Keep a project copy: older 0.1k cannot read a newly saved v9 project.
 
-## UI and changes
-Mix: Inserts (N) on every audio/bus strip and Master opens its owned editor.
-Choose effect kind, Add, select the slot, edit applicable parameters and Apply.
-Move up/down, Bypass/Enable and Remove work through one shared command per action.
-Structural and parameter edits require Pause/Stop and preserve the open device,
-play position and Stop anchor. Playback/recording disables editor changes.
-Typing in the editor/settings does not trigger main transport shortcuts.
-
-Plain wheel scrolls 32 logical pixels per notch, including fractional wheel deltas,
-with partial rows, synchronized headers/clips/waveforms/hit tests and bounds.
-Ctrl+wheel still changes track height, Ctrl+Shift+wheel horizontal zoom,
-Shift+wheel horizontal scroll (mixer channels over Mix).
-Space toggles Play/Stop, returning to the start; held-key auto-repeat is ignored.
-Pause remains a separate command/button.
+Mixer/track/Master gain and pan gestures begin on their visible handle/knob.
+Rail clicks do not jump the value. Dragging is relative to the press position;
+Ctrl reduces sensitivity. Cancel restores the audio preview; release saves one
+command. Clicking a handle without moving adds no Undo command.
 
 ## Validation
-Local cached offline-dependency Windows x64 ASIO configure/build passed.
-CTest 77/77: insert model/archive/Undo/migration/rejection, filter pass/stop response,
-EQ boost/identity, stereo-state separation, bypass/low-rate stability, native capture,
-track/bus/Master/direct outputs, raw recording, position retention and zero RT allocations.
-Expanded hidden GUI smoke covers actual insert commands, parameter Apply, reorder,
-bypass/remove/Undo, Master isolation, editor bounds, fractional wheel geometry,
-actual Space messages and auto-repeat, plus earlier DPI/flicker regressions.
-Main/insert editor preview images were exported and reviewed.
-Local 0.1k / Stage 3a accepted by the user on 2026-10-04: MRS_STAGE_3A_CHECKLIST.md.
-
+Local Windows x64 ASIO configure/build; 85/85 CTest; hidden GUI smoke and exported
+main/editor previews. EQ tests cover response, three-band/filter persistence,
+stereo separation, bypass, low-rate/extreme settings, queue saturation and zero
+host realtime allocations. Desktop tests cover live preview/commit/Undo/Redo with
+unchanged device opens and advancing transport. GUI exercises actual point drag,
+Q wheel, cancellation, handle-only faders/pan and existing flicker/DPI regressions.
+Physical/user acceptance: MRS_STAGE_3B_CHECKLIST.md. #16 remains deferred.
