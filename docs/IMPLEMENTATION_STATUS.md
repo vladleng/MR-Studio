@@ -1,5 +1,22 @@
 # MR Studio — implementation status
 
+## 0.1k / Stage 3a готова локально — 2026-10-04
+Stage 3 разделён по запросу пользователя: 3a Native Inserts; 3b VST3;
+3c Cab IR; 3d Amp/Preamp/model foundation; 3e Processing Reliability.
+Отдельная локальная сборка и приёмка для каждого подэтапа; следующий ещё не начат.
+0.1k: insert chains на дорожках/шинах/Master, Gain/High-pass/Low-pass/one-band EQ,
+add/remove/reorder/bypass, параметры, Undo/Redo и сохранение. Plain wheel: 32 logical
+pixels/notch с fractional deltas; Space: Play/Stop с возвратом к старту, без autorepeat.
+Core v8 читает v1–v7. Изменение эффектов после Pause/Stop; запись остаётся raw.
+Local cached offline-dependency ASIO configure/build, 77/77 CTest, expanded GUI smoke
+и UI/editor previews пройдены. Пользовательская/physical приёмка 0.1k ожидается.
+Код 2393797e41f093219f957e7f1a67271b7579917a; ветка mrs/0.1k-native-inserts-local,
+пакет MR-Studio-0.1k-ASIO-Windows-local. Последняя принятая — 0.1j; #22 завершён.
+План: [Stage 3](MRS_STAGE_3_PLAN.md), [inserts](NATIVE_INSERTS.md),
+[приёмка](MRS_STAGE_3A_CHECKLIST.md). #23 открыт; #16 matrix остаётся отложенной.
+Код/пакеты локально; GitHub только issues/docs. Без code push/new PR/merge/Actions.
+Исторические статусы ниже заменены этой записью.
+
 ## 0.1j принята; Mixer / Routing завершён — 2026-10-04
 Пользователь: «Все проверил, все работает!». Последняя принятая локальная сборка —
 0.1j / Stage 2e; код 43fe2b510f14e77453a5e5f68e0659621f0c80bf,
