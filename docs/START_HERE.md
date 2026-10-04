@@ -1,18 +1,36 @@
 # Moon River Studio — START HERE
 
-## В работе 2026-10-04: 0.1g / MRS Stage 2b / #22
+## Локальная 0.1h / MRS Stage 2c готова к проверке — 2026-10-04
+Посылы/возвраты (до 8 на канал, pre/post-fader, уровни, nested buses, cycle rejection),
+вертикальные фейдеры/стереометры, Mix поверх аранжировки, мини-панели дорожек
+(горизонтальные gain/meters, колесо pan, mono input selection), Files → Open recent project.
+Core snapshot v5 читает v1–v4; desktop config v3 читает v1/v2. Undo и сохранение общие.
+Локальные Windows x64 ASIO Release configure/build, 65/65 CTest и расширенный GUI smoke
+пройдены; зависимости использованы из кеша, GitHub Actions не использовались.
+Контракты: SENDS.md; пользовательская проверка: MRS_STAGE_2C_CHECKLIST.md.
+Пользовательская/физическая ASIO приёмка 0.1h ожидается; последняя принятая версия — 0.1g.
+Ветка mrs/0.1h-sends-ui-local остаётся локальной. На GitHub — только issues/docs;
+код push/PR/merge исключительно по отдельной просьбе. #22 и отложенный #16 остаются открыты.
+Далее в #22: hardware multi-output и device profiles. Multi-input recording — будущая работа.
+
+
+## Принята локальная 0.1g / MRS Stage 2b / #22 — 2026-10-04
 Пользователь принял локальную 0.1f: «Я проверил, всё работает отлично».
 PR #48 слит в main; включённый PR #47 также отмечен GitHub как merged.
 0.1f — принятая базовая версия с gain/pan, mute/solo, meters, master и portable folders.
 0.1g: локальные Windows ASIO Release configure/build, 62/62 tests и GUI smoke пройдены.
 Проверены вложенные шины, Solo/Mute, cycle rejection, Undo, сохранение, raw recording,
-zero RT allocations и GUI bus fader/minimum DPI bounds. Приёмка 0.1g пользователем pending.
+zero RT allocations и GUI bus fader/minimum DPI bounds. Пользователь подтвердил: «Все работает!».
 Для принятой 0.1f фактически пройдены 59/59 ASIO tests + GUI smoke и 60/60 offline tests.
 Пользователь подтвердил следующий подэтап: шины/подгруппы, выходы track/bus,
 защита от циклов, bus controls/meters, Undo и persistence. Контракты: BUSES.md.
 Вся разработка, configure/build/tests и пакеты выполняются локально, без GitHub Actions.
-GitHub используется для исходников, PR и планов; новые коммиты помечаются skip ci.
-Полный #22 остаётся открыт: sends/returns, hardware multi-output и profiles ещё впереди.
+На GitHub обновляются только issues и документация. Код разрабатывается локально.
+Отправка изменений кода, создание PR и слияние — только по отдельной просьбе пользователя.
+Принятие локальной сборки не разрешает автоматическое слияние; открытый PR #49 не сливается.
+Код main пока соответствует 0.1f; принятый локальный код 0.1g — 99d9b7be5537281a956bd8fadddaa95071d381f4.
+Sends/returns реализованы локально в 0.1h; далее hardware multi-output и profiles.
+Полный #22 остаётся открыт; 0.1h ожидает приёмку, hardware multi-output и profiles впереди.
 Исторические статусы pending/0.1e ниже заменены этой актуальной записью.
 
 ## Актуальное продолжение — 2026-10-03

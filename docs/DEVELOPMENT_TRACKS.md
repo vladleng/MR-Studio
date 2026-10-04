@@ -1,5 +1,14 @@
 # Moon River Studio — Development Tracks
 
+## Текущий порядок работы — 2026-10-04
+
+По инструкции пользователя код, configure/build/tests и пакеты ведутся локально.
+На GitHub обновляются только issues и документация. Отправка новых изменений кода,
+создание PR и слияние — только по отдельной просьбе пользователя. Приёмка локальной
+сборки сама по себе не разрешает слияние. GitHub Actions не используются.
+Локальная 0.1g принята; уже открытый PR #49 остаётся без слияния.
+Этот порядок имеет приоритет над общими рекомендациями workflow ниже.
+
 ## 1. Термины
 
 **Moon River Studio** (`MRS`, рабочее имя `MR Studio`) — вся DAW и единственное приложение.
@@ -335,3 +344,17 @@ Plugin UI ------------> Processor Graph --------> Live patches
 > **Moon River Studio — одна DAW. Live Mode — один из её режимов. Engine — один.**
 
 Issue tracks нужны только для параллельной организации разработки, а не для разделения продукта на MRS и MRL.
+
+
+## Локальная 0.1h / MRS Stage 2c готова к проверке — 2026-10-04
+Посылы/возвраты (до 8 на канал, pre/post-fader, уровни, nested buses, cycle rejection),
+вертикальные фейдеры/стереометры, Mix поверх аранжировки, мини-панели дорожек
+(горизонтальные gain/meters, колесо pan, mono input selection), Files → Open recent project.
+Core snapshot v5 читает v1–v4; desktop config v3 читает v1/v2. Undo и сохранение общие.
+Локальные Windows x64 ASIO Release configure/build, 65/65 CTest и расширенный GUI smoke
+пройдены; зависимости использованы из кеша, GitHub Actions не использовались.
+Контракты: SENDS.md; пользовательская проверка: MRS_STAGE_2C_CHECKLIST.md.
+Пользовательская/физическая ASIO приёмка 0.1h ожидается; последняя принятая версия — 0.1g.
+Ветка mrs/0.1h-sends-ui-local остаётся локальной. На GitHub — только issues/docs;
+код push/PR/merge исключительно по отдельной просьбе. #22 и отложенный #16 остаются открыты.
+Далее в #22: hardware multi-output и device profiles. Multi-input recording — будущая работа.

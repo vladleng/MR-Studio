@@ -16,7 +16,7 @@ using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 4;
+inline constexpr std::uint32_t schema_version = 5;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -66,6 +66,14 @@ struct Track {
         void validate() const;
     } mix{};
     std::optional<Id> output{}; // no destination means master; otherwise a shared bus
+    struct Send {
+        Id bus;
+        float gain{1};
+        bool pre_fader{};
+        bool operator==(const Send&) const = default;
+    };
+    std::vector<Send> sends{}; // up to eight independent sends to shared buses/returns
+    int input{-2}; // audio only: -2 default device input, -1 off, otherwise physical index
     bool operator==(const Track&) const = default;
 };
 struct Clip {
@@ -258,6 +266,22 @@ public:
     void apply(Project& p) const override { p.master_gain = gain_; }
 private:
     float gain_;
+};
+class SetTrackSends final : public ICommand {
+public:
+    SetTrackSends(Id track, std::vector<Track::Send> sends) : track_(std::move(track)), sends_(std::move(sends)) {}
+    std::string_view name() const override { return "Set track sends"; }
+    void apply(Project&) const override;
+private:
+    Id track_; std::vector<Track::Send> sends_;
+};
+class SetTrackInput final : public ICommand {
+public:
+    SetTrackInput(Id track, int input) : track_(std::move(track)), input_(input) {}
+    std::string_view name() const override { return "Set track input"; }
+    void apply(Project&) const override;
+private:
+    Id track_; int input_;
 };
 class SetTrackOutput final : public ICommand {
 public:

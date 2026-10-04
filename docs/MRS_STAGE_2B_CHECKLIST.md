@@ -1,6 +1,8 @@
 # 0.1g / MRS Stage 2b — Windows acceptance
 
-Run the locally built MoonRiverStudio.exe. This build awaits user acceptance.
+Run the locally built MoonRiverStudio.exe. User accepted this local build on
+2026-10-04: everything works. Code publication/merge now requires a separate user
+request; the existing bus PR remains unmerged. GitHub updates are issues/docs only.
 Local Windows x64 ASIO Release configure/build and CTest 62/62 passed, together
 with GUI smoke covering bus create/fader/Undo, deletion and 150% layout bounds.
 Dependencies reused from the local cache; GitHub Actions not used.

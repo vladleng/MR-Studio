@@ -21,6 +21,7 @@ struct MixerUpdate {
     std::array<Track::Mix,max_mixer_tracks> tracks{};
     std::size_t count{};
     float master_gain{1};
+    std::array<std::array<float,8>,max_mixer_tracks> send_gains{};
 };
 struct StereoPeak { float left{}, right{}; };
 struct MixerMeters {
@@ -55,6 +56,7 @@ struct Voice {
     std::size_t mixer_track{no_mixer_track};
 };
 struct MonitorRoute { std::uint32_t input_channel{}, output_channel{}; float gain{1}; };
+struct SendRoute { std::size_t destination{}; float gain{1}; bool pre_fader{}; };
 struct RenderGraph {
     std::vector<Voice> voices;
     std::vector<MonitorRoute> monitor;
@@ -65,6 +67,7 @@ struct RenderGraph {
     float master_gain{1};
     std::size_t monitor_track{no_mixer_track};
     std::vector<std::size_t> outputs{}; // channel destinations, no_mixer_track -> master
+    std::vector<std::vector<SendRoute>> sends{};
     std::vector<bool> buses{}; // same indices as mixer; no clips/input directly on buses
 };
 struct RenderConfig {
@@ -142,6 +145,8 @@ private:
     SpscQueue<MixerUpdate,8> mixer_controls_;
     std::array<std::array<float,max_channels>,max_mixer_tracks> track_frame_{};
     std::array<std::array<float,2>,max_mixer_tracks> mix_gain_{}, mix_target_{}, mix_step_{};
+    std::array<std::array<float,8>,max_mixer_tracks> send_gain_{}, send_target_{}, send_step_{};
+    std::array<float,max_mixer_tracks> gate_{}, gate_target_{}, gate_step_{};
     float master_gain_{1}, master_target_{1}, master_step_{};
     std::vector<float> master_envelope_;
     std::uint32_t mix_ramp_{};

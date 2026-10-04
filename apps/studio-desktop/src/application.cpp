@@ -26,27 +26,48 @@ void Preferences::validate() const {
     (void)workspace_name(workspace); require(rate >= 8000 && rate <= 768000,"invalid sample rate");
     require(buffer >= 8 && buffer <= 8192,"invalid buffer"); require(monitor_input >= -1 && monitor_input < 64,"invalid monitor input");
     require(!outputs.empty() && outputs.size() <= 64 && device_name.size() <= 4096,"invalid device preferences");
+    require(recent_projects.size() <= 10,"too many recent projects");
+    std::set<std::string> paths;
+    for (const auto& path : recent_projects) require(!path.empty() && path.size() <= 4096 && paths.insert(path).second,"invalid recent project");
     std::set<int> seen; for (auto o : outputs) require(o >= 0 && o < 64 && seen.insert(o).second,"invalid/duplicate output");
 }
 std::string encode_preferences(const Preferences& p) {
     p.validate(); std::ostringstream out;
-    out << "MRS_DESKTOP_CONFIG 2\n" << static_cast<int>(p.workspace) << ' ' << p.rate << ' ' << p.buffer << ' ' << p.monitor_input
+    out << "MRS_DESKTOP_CONFIG 3\n" << static_cast<int>(p.workspace) << ' ' << p.rate << ' ' << p.buffer << ' ' << p.monitor_input
         << ' ' << std::quoted(p.device_name) << ' ' << p.outputs.size();
     for (auto o : p.outputs) out << ' ' << o;
-    out << ' ' << p.reconnect_audio << "\n"; return out.str();
+    out << ' ' << p.reconnect_audio << "\n" << p.recent_projects.size() << '\n';
+    for (const auto& path : p.recent_projects) out << std::quoted(path) << '\n';
+    return out.str();
 }
 Preferences decode_preferences(std::string_view bytes) {
-    require(bytes.size() <= 16384,"config too large"); std::istringstream in{std::string(bytes)};
+    require(bytes.size() <= 65536,"config too large"); std::istringstream in{std::string(bytes)};
     std::string magic; int version{},workspace{}; std::size_t count{}; Preferences p;
-    require(static_cast<bool>(in >> magic >> version) && magic == "MRS_DESKTOP_CONFIG" && (version == 1 || version == 2),"unsupported config");
+    require(static_cast<bool>(in >> magic >> version) && magic == "MRS_DESKTOP_CONFIG" && (version >= 1 && version <= 3),"unsupported config");
     require(static_cast<bool>(in >> workspace >> p.rate >> p.buffer >> p.monitor_input >> std::quoted(p.device_name) >> count) && workspace >= 0 && workspace <= 3 && count > 0 && count <= 64,"invalid config");
     p.workspace = static_cast<Workspace>(workspace); p.outputs.clear();
     for (std::size_t i = 0; i < count; ++i) { int o{}; require(static_cast<bool>(in >> o),"truncated config"); p.outputs.push_back(o); }
-    if (version == 2) {
+    if (version >= 2) {
         int enabled{}; require(static_cast<bool>(in >> enabled) && (enabled == 0 || enabled == 1),"invalid reconnect preference");
         p.reconnect_audio = enabled != 0;
     } else p.reconnect_audio = !p.device_name.empty();
+    if (version >= 3) {
+        require(static_cast<bool>(in >> count) && count <= 10,"invalid recent project count");
+        for (std::size_t i=0; i<count; ++i) {
+            std::string path; in >> std::ws;
+            require(in.peek() == '"' && static_cast<bool>(in >> std::quoted(path)),"invalid recent project path");
+            p.recent_projects.push_back(std::move(path));
+        }
+    }
     in >> std::ws; require(in.eof(),"extra config data"); p.validate(); return p;
+}
+void remember_project(Preferences& p, const std::filesystem::path& path) {
+    const auto name = utf8(std::filesystem::absolute(path).lexically_normal());
+    require(!name.empty() && name.size() <= 4096,"recent project path too long");
+    auto next = p;
+    std::erase(next.recent_projects,name); next.recent_projects.insert(next.recent_projects.begin(),name);
+    if (next.recent_projects.size() > 10) next.recent_projects.resize(10);
+    next.validate(); p = std::move(next);
 }
 std::vector<int> parse_outputs(std::string_view bytes) {
     require(!bytes.empty() && bytes.size() <= 256,"enter output numbers, e.g. 1,2");
@@ -114,7 +135,7 @@ void Application::start_empty_clock() {
     const auto p = services_.projects->state().project;
     prepare_mixer(graph);
     engine_->prepare({p->sample_rate,0,2,8192},std::move(graph));
-    device->open(c,engine_); device->start(); device_ = std::move(device); device_config_ = c; audio_name_ = "Offline clock (no sound)";
+    device->open(c,engine_); device->start(); device_ = std::move(device); device_config_ = c; default_inputs_.clear(); audio_name_ = "Offline clock (no sound)";
 }
 void Application::demo() {
     require_not_recording();
@@ -270,22 +291,62 @@ const audio::Waveform* Application::waveform(std::string_view source) const {
     const auto it = assets_.find(std::string(source));
     return it != assets_.end() && it->second.peaks ? &*it->second.peaks : nullptr;
 }
+std::vector<int> Application::selected_inputs(const Project& p) const {
+    if (armed_) for (const auto& track : p.tracks) if (track.id == *armed_) {
+        if (track.input == -1) return {};
+        if (track.input >= 0) return {track.input};
+    }
+    return default_inputs_;
+}
+std::vector<std::string> Application::input_names() {
+    if (device_ && device_config_) for (const auto& info : device_->enumerate()) if (info.index == device_config_->device) return info.inputs;
+    return {};
+}
+void Application::set_track_input(const Id& id, int input) {
+    require_not_playing();
+    const auto names = input_names();
+    require(input < 0 || static_cast<std::size_t>(input) < names.size(),"physical input is unavailable; connect the intended device first");
+    edit(SetTrackInput{id,input});
+}
+void Application::set_track_sends(const Id& id, std::vector<Track::Send> sends) { edit(SetTrackSends{id,std::move(sends)}); }
+void Application::set_send_gain(const Id& id, std::size_t index, float gain) {
+    const auto p = services_.projects->state().project;
+    const auto t = std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& track) { return track.id == id; });
+    require(t != p->tracks.end() && index < t->sends.size(),"unknown send");
+    auto sends = t->sends; sends[index].gain = gain;
+    services_.projects->execute(SetTrackSends{id,std::move(sends)}); cancel_mix_preview();
+}
 void Application::rebuild_audio() {
     if (!device_ || !device_config_) return;
-    const auto c = *device_config_;
+    auto c = *device_config_;
+    c.inputs = selected_inputs(*services_.projects->state().project);
+    const bool reopen = c.inputs != device_config_->inputs;
+    if (reopen) {
+        const auto infos = device_->enumerate();
+        const auto info = std::find_if(infos.begin(),infos.end(),[&](const auto& v) { return v.index == c.device; });
+        require(info != infos.end(),"audio device unavailable"); audio::validate_device_config(*info,c);
+    }
     // Retain the same open hardware handle; rebuild ONLY after callbacks stop.
     device_->stop();
     try {
         const auto position = engine_->state();
+        if (reopen) device_->close();
         auto graph = render(c);
         engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192},std::move(graph),position);
-        device_->start(); poll();
+        if (reopen) device_->open(c,engine_);
+        device_config_ = c; device_->start(); poll();
     } catch (...) { disconnect(); throw; }
 }
 void Application::edit(const ICommand& command) {
     require_not_playing();
     auto candidate = *services_.projects->state().project;
     command.apply(candidate); candidate.validate();
+    if (device_ && device_config_ && armed_) {
+        auto c = *device_config_; c.inputs = selected_inputs(candidate);
+        const auto infos = device_->enumerate();
+        const auto info = std::find_if(infos.begin(),infos.end(),[&](const auto& v) { return v.index == c.device; });
+        require(info != infos.end(),"audio device unavailable"); audio::validate_device_config(*info,c);
+    }
     require(candidate.clips.size() <= audio::max_voices,"too many playback clips");
     require(std::count_if(candidate.tracks.begin(),candidate.tracks.end(),[](const auto& t) { return t.kind != TrackKind::midi; }) <= static_cast<std::ptrdiff_t>(audio::max_mixer_tracks),"mixer supports up to 128 audio tracks and buses");
     std::size_t streamed{}, bytes{};
@@ -309,6 +370,21 @@ Id Application::add_bus(std::string name) {
     auto id = new_id(); edit(AddTrack{{id,std::move(name),TrackKind::bus,{}}}); return id;
 }
 void Application::set_track_output(const Id& id, std::optional<Id> output) { edit(SetTrackOutput{id,std::move(output)}); }
+Id Application::add_return_send(const Id& source, std::string name) {
+    require(!name.empty() && name.size() <= 4096,"enter a return name");
+    class CreateReturn final : public ICommand {
+    public:
+        Id source; Track bus;
+        CreateReturn(Id from, Track destination) : source(std::move(from)), bus(std::move(destination)) {}
+        std::string_view name() const override { return "Create return and send"; }
+        void apply(Project& p) const override {
+            auto t = std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& track) { return track.id == source; });
+            require(t != p.tracks.end() && t->kind != TrackKind::midi,"send requires an audio channel");
+            t->sends.push_back({bus.id,1,false}); p.tracks.push_back(bus);
+        }
+    };
+    const auto id = new_id(); edit(CreateReturn{source,{id,std::move(name),TrackKind::bus,{}}}); return id;
+}
 void Application::remove_track(const Id& id) { edit(RemoveTrack{id}); }
 void Application::reorder_track(const Id& id, std::size_t index) { edit(ReorderTrack{id,index}); }
 bool Application::history(bool redo) {
@@ -317,10 +393,18 @@ bool Application::history(bool redo) {
     if (!target) return false;
     auto before = *services_.projects->state().project, after = *target;
     before.master_gain = after.master_gain = 1;
-    for (auto& t : before.tracks) t.mix = {};
-    for (auto& t : after.tracks) t.mix = {};
+    for (auto& t : before.tracks) { t.mix = {}; for (auto& send : t.sends) send.gain = 1; }
+    for (auto& t : after.tracks) { t.mix = {}; for (auto& send : t.sends) send.gain = 1; }
     const bool mix_only = before == after;
-    if (!mix_only) require_not_playing();
+    if (!mix_only) {
+        require_not_playing();
+        if (device_ && device_config_ && armed_) {
+            auto c = *device_config_; c.inputs = selected_inputs(*target);
+            const auto infos = device_->enumerate();
+            const auto info = std::find_if(infos.begin(),infos.end(),[&](const auto& v) { return v.index == c.device; });
+            require(info != infos.end(),"audio device unavailable"); audio::validate_device_config(*info,c);
+        }
+    }
     const bool changed = redo ? services_.projects->redo() : services_.projects->undo();
     if (changed) { sync_arm(); if (mix_only) publish_mix(); else rebuild_audio(); }
     return changed;
@@ -342,6 +426,7 @@ void Application::publish_mix() {
     audio::MixerUpdate update; update.master_gain = state.project->master_gain;
     for (const auto& t : state.project->tracks) if (t.kind != TrackKind::midi) {
         if (update.count >= mixer_tracks_.size() || mixer_tracks_[update.count] != t.id) return;
+        for (std::size_t j=0; j<t.sends.size(); ++j) update.send_gains[update.count][j] = t.sends[j].gain;
         update.tracks[update.count++] = t.mix;
     }
     if (update.count != mixer_tracks_.size()) return;
@@ -354,6 +439,7 @@ bool Application::preview_mix(std::optional<Id> id, Track::Mix mix, float master
     const auto p = services_.projects->state().project;
     for (const auto& t : p->tracks) if (t.kind != TrackKind::midi) {
         if (update.count >= mixer_tracks_.size() || mixer_tracks_[update.count] != t.id) return false;
+        for (std::size_t j=0; j<t.sends.size(); ++j) update.send_gains[update.count][j] = t.sends[j].gain;
         update.tracks[update.count++] = id && t.id == *id ? mix : t.mix;
     }
     return engine_->enqueue_mix(update);
@@ -423,6 +509,12 @@ void Application::prepare_mixer(audio::RenderGraph& result) {
     for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {
         const auto destination = t.output ? std::find(mixer_tracks_.begin(),mixer_tracks_.end(),*t.output) : mixer_tracks_.end();
         require(!t.output || destination != mixer_tracks_.end(),"missing output bus");
+        result.sends.emplace_back();
+        for (const auto& send : t.sends) {
+            const auto bus = std::find(mixer_tracks_.begin(),mixer_tracks_.end(),send.bus);
+            require(bus != mixer_tracks_.end(),"missing send bus");
+            result.sends.back().push_back({static_cast<std::size_t>(bus-mixer_tracks_.begin()),send.gain,send.pre_fader});
+        }
         result.outputs.push_back(destination == mixer_tracks_.end() ? audio::no_mixer_track : static_cast<std::size_t>(destination-mixer_tracks_.begin()));
     }
     result.master_gain = project->master_gain;
@@ -466,6 +558,7 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
 void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::DeviceConfig c) {
     require_not_recording();
     require(static_cast<bool>(device),"missing audio backend");
+    default_inputs_ = c.inputs; c.inputs = selected_inputs(*services_.projects->state().project);
     auto infos = device->enumerate();
     const auto info = std::find_if(infos.begin(),infos.end(),[&](const auto& v) { return v.index == c.device; });
     require(info != infos.end(),"audio device no longer available"); audio::validate_device_config(*info,c);
@@ -513,6 +606,12 @@ void Application::arm_track(std::optional<Id> id) {
     if (id) {
         const auto p = services_.projects->state().project;
         require(std::any_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t) { return t.id == *id && t.kind == TrackKind::audio; }),"arm an existing audio track");
+    }
+    if (id && device_config_) {
+        const auto p = services_.projects->state().project;
+        const auto t = std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& track) { return track.id == *id; });
+        const auto names = input_names();
+        require(t->input < 0 || static_cast<std::size_t>(t->input) < names.size(),"saved track input is unavailable on this device");
     }
     armed_ = std::move(id);
     rebuild_audio();

@@ -25,10 +25,12 @@
 | Принятое исправление моно L/R, включено в UI сборку | 0.1d fix1 |
 | Принятый MRS Stage 1d: record/monitor + save/load | 0.1e |
 
-Принятая версия: `0.1f` / Stage 2a, локальная ASIO сборка принята 2026-10-04.
+Принятая локальная версия: `0.1g` / Stage 2b, ASIO сборка принята 2026-10-04.
 PR #48 и включённый #47 слиты в main. Весь MRS Stage 1 завершён.
-В разработке: `0.1g` / MRS Stage 2b / #22 — buses/subgroups и track/bus outputs.
-Полный Stage 2 ещё не завершён. Новая 0.1g требует отдельной пользовательской приёмки.
+MRS Stage 2b / #22 — buses/subgroups и track/bus outputs принят пользователем.
+Полный Stage 2 ещё не завершён. Следующая часть — sends/returns; ещё не начата.
+Код и сборки остаются локальными; GitHub — только issues и документация.
+Публикация кода/PR/слияние — только по отдельной просьбе пользователя; PR #49 не слит.
 
 Эта схема имеет приоритет над прежними номерными примерами roadmap.
 Live Mode входит в ту же сборку и не получает отдельную продуктовую версию.
@@ -59,3 +61,17 @@ the current position and retries on its next block; worker retry pages remain
 protected. This closes the queued-command handoff race without blocking RT.
 The concurrent seek exact-sample/zero-underrun/zero-RT-allocation regression is
 repeated eight times in every Debug/Release CI job for this fix.
+
+
+## Локальная 0.1h / MRS Stage 2c готова к проверке — 2026-10-04
+Посылы/возвраты (до 8 на канал, pre/post-fader, уровни, nested buses, cycle rejection),
+вертикальные фейдеры/стереометры, Mix поверх аранжировки, мини-панели дорожек
+(горизонтальные gain/meters, колесо pan, mono input selection), Files → Open recent project.
+Core snapshot v5 читает v1–v4; desktop config v3 читает v1/v2. Undo и сохранение общие.
+Локальные Windows x64 ASIO Release configure/build, 65/65 CTest и расширенный GUI smoke
+пройдены; зависимости использованы из кеша, GitHub Actions не использовались.
+Контракты: SENDS.md; пользовательская проверка: MRS_STAGE_2C_CHECKLIST.md.
+Пользовательская/физическая ASIO приёмка 0.1h ожидается; последняя принятая версия — 0.1g.
+Ветка mrs/0.1h-sends-ui-local остаётся локальной. На GitHub — только issues/docs;
+код push/PR/merge исключительно по отдельной просьбе. #22 и отложенный #16 остаются открыты.
+Далее в #22: hardware multi-output и device profiles. Multi-input recording — будущая работа.

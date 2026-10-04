@@ -49,17 +49,31 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     if (graph.buses.empty()) graph.buses.assign(graph.mixer.size(),false);
     if (graph.outputs.size() != graph.mixer.size() || graph.buses.size() != graph.mixer.size())
         throw std::invalid_argument("mixer routing size mismatch");
+    if (graph.sends.empty()) graph.sends.resize(graph.mixer.size());
+    if (graph.sends.size() != graph.mixer.size()) throw std::invalid_argument("send routing size mismatch");
     std::vector<std::size_t> order, incoming(graph.mixer.size());
-    for (std::size_t i=0; i<graph.mixer.size(); ++i) {
-        const auto destination = graph.outputs[i];
-        if (destination == no_mixer_track) continue;
-        if (destination >= graph.mixer.size() || !graph.buses[destination]) throw std::invalid_argument("invalid output bus");
+    const auto edge = [&](std::size_t destination) {
+        if (destination == no_mixer_track) return;
+        if (destination >= graph.mixer.size() || !graph.buses[destination]) throw std::invalid_argument("invalid output/send bus");
         ++incoming[destination];
+    };
+    for (std::size_t i=0; i<graph.mixer.size(); ++i) {
+        edge(graph.outputs[i]);
+        if (graph.sends[i].size() > 8) throw std::invalid_argument("send limit exceeded");
+        for (std::size_t j=0; j<graph.sends[i].size(); ++j) {
+            const auto& send = graph.sends[i][j];
+            if (send.destination == no_mixer_track || !std::isfinite(send.gain) || send.gain < 0 || send.gain > 16) throw std::invalid_argument("invalid send");
+            for (std::size_t k=0; k<j; ++k) if (graph.sends[i][k].destination == send.destination) throw std::invalid_argument("duplicate send destination");
+            edge(send.destination);
+        }
     }
     for (std::size_t i=0; i<incoming.size(); ++i) if (!incoming[i]) order.push_back(i);
-    for (std::size_t i=0; i<order.size(); ++i) {
-        const auto destination = graph.outputs[order[i]];
+    const auto release = [&](std::size_t destination) {
         if (destination != no_mixer_track && --incoming[destination] == 0) order.push_back(destination);
+    };
+    for (std::size_t i=0; i<order.size(); ++i) {
+        release(graph.outputs[order[i]]);
+        for (const auto& send : graph.sends[order[i]]) release(send.destination);
     }
     if (order.size() != graph.mixer.size()) throw std::invalid_argument("audio routing cycle");
     if (graph.monitor_track != no_mixer_track && graph.buses[graph.monitor_track]) throw std::invalid_argument("input requires an audio track");
@@ -116,6 +130,7 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     MixerUpdate mix; mix.count = graph_.mixer.size(); mix.master_gain = graph_.master_gain;
     std::copy(graph_.mixer.begin(),graph_.mixer.end(),mix.tracks.begin());
     MixerUpdate discarded_mix; while (mixer_controls_.pop(discarded_mix)) {}
+    for (std::size_t i=0; i<graph_.sends.size(); ++i) for (std::size_t j=0; j<graph_.sends[i].size(); ++j) mix.send_gains[i][j] = graph_.sends[i][j].gain;
     set_mix(mix,false);
     for (auto& channel : meter_peaks_) for (auto& p : channel) p.store(0,std::memory_order_relaxed);
     monitor_enabled_ = graph_.monitoring; input_peak_ = 0;
@@ -146,6 +161,7 @@ bool AudioEngine::enqueue_mix(const MixerUpdate& update) noexcept {
     if (update.count != graph_.mixer.size() || !std::isfinite(update.master_gain) || update.master_gain < 0 || update.master_gain > 16) return false;
     for (std::size_t i=0; i<update.count; ++i) {
         const auto& m = update.tracks[i];
+        for (std::size_t j=0; j<graph_.sends[i].size(); ++j) if (!std::isfinite(update.send_gains[i][j]) || update.send_gains[i][j] < 0 || update.send_gains[i][j] > 16) return false;
         if (!std::isfinite(m.gain) || m.gain < 0 || m.gain > 16 || !std::isfinite(m.pan) || m.pan < -1 || m.pan > 1) return false;
     }
     return mixer_controls_.push(update);
@@ -158,12 +174,24 @@ void AudioEngine::set_mix(const MixerUpdate& update, bool ramp) noexcept {
     for (auto it = mix_order_.rbegin(); it != mix_order_.rend(); ++it) {
         const auto destination = graph_.outputs[*it];
         if (destination != no_mixer_track) admitted[*it] = admitted[*it] || admitted[destination];
+        for (const auto& send : graph_.sends[*it]) admitted[*it] = admitted[*it] || admitted[send.destination];
     }
-    for (const auto i : mix_order_) if (admitted[i] && graph_.outputs[i] != no_mixer_track) admitted[graph_.outputs[i]] = true;
+    for (const auto i : mix_order_) if (admitted[i]) {
+        if (graph_.outputs[i] != no_mixer_track) admitted[graph_.outputs[i]] = true;
+        for (const auto& send : graph_.sends[i]) admitted[send.destination] = true;
+    }
     mix_ramp_ = ramp ? std::max(1U,config_.sample_rate/200) : 0;
     for (std::size_t i=0; i<update.count; ++i) {
         const auto& m = update.tracks[i];
-        const float gain = m.mute || (solo && !admitted[i]) ? 0 : m.gain;
+        gate_target_[i] = m.mute || (solo && !admitted[i]) ? 0.0f : 1.0f;
+        if (!ramp) gate_[i] = gate_target_[i];
+        gate_step_[i] = ramp ? (gate_target_[i]-gate_[i])/static_cast<float>(mix_ramp_) : 0;
+        for (std::size_t j=0; j<graph_.sends[i].size(); ++j) {
+            send_target_[i][j] = update.send_gains[i][j];
+            if (!ramp) send_gain_[i][j] = send_target_[i][j];
+            send_step_[i][j] = ramp ? (send_target_[i][j]-send_gain_[i][j])/static_cast<float>(mix_ramp_) : 0;
+        }
+        const float gain = gate_target_[i]*m.gain;
         // Unity center preserves 0.1e levels; stereo balance and mono main-pair pan.
         mix_target_[i] = {gain*(m.pan > 0 ? 1-m.pan : 1),gain*(m.pan < 0 ? 1+m.pan : 1)};
         if (config_.output_channels == 1) mix_target_[i] = {gain,gain};
@@ -319,14 +347,22 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
                 const auto destination = graph_.outputs[t];
                 if (destination == no_mixer_track) output[out+c] += sample;
                 else track_frame_[destination][c] += sample;
+                for (std::size_t j=0; j<graph_.sends[t].size(); ++j) {
+                    const auto& send = graph_.sends[t][j];
+                    track_frame_[send.destination][c] += (send.pre_fader ? track_frame_[t][c]*gate_[t] : sample)*send_gain_[t][j];
+                }
                 if (c<2) block_peaks[t][c] = std::max(block_peaks[t][c],std::abs(sample));
             }
-            if (mix_ramp_) for (std::size_t c=0; c<2; ++c) mix_gain_[t][c] += mix_step_[t][c];
+            if (mix_ramp_) {
+                for (std::size_t c=0; c<2; ++c) mix_gain_[t][c] += mix_step_[t][c];
+                gate_[t] += gate_step_[t];
+                for (std::size_t j=0; j<graph_.sends[t].size(); ++j) send_gain_[t][j] += send_step_[t][j];
+            }
         }
         master_envelope_[frame] = master_gain_;
         if (mix_ramp_) {
             master_gain_ += master_step_;
-            if (--mix_ramp_ == 0) { master_gain_ = master_target_; mix_gain_ = mix_target_; }
+            if (--mix_ramp_ == 0) { master_gain_ = master_target_; mix_gain_ = mix_target_; gate_ = gate_target_; send_gain_ = send_target_; }
         }
     }
     for (auto& voice : graph_.voices) if (voice.stream && voice.stream->end())

@@ -477,6 +477,31 @@ void independence() {
     CHECK(control.state().playback == PlaybackState::playing);
 }
 }
+void sends() {
+    auto asset = std::make_shared<AudioData>(); asset->channels = 1; asset->samples.assign(16384,0.25f);
+    RenderGraph graph; graph.mixer = {{0.5f,0,false,false},{0.5f,0,false,false},{},{}};
+    graph.buses = {false,true,true,false}; graph.outputs = {no_mixer_track,no_mixer_track,1,no_mixer_track};
+    graph.sends = {{{1,0.5f,true},{2,0.25f,false}},{},{},{}};
+    graph.voices = {{asset,0,0,16384,{{0,0,1},{0,1,1}}}}; graph.voices.front().mixer_track = 0;
+    AudioEngine engine; engine.prepare({48000,0,2,512},graph); CHECK(engine.enqueue({ControlKind::play}));
+    std::array<float,1024> out{};
+    allocation_check::count = 0; allocation_check::enabled = true; engine.process(nullptr,out.data(),512); allocation_check::enabled = false;
+    CHECK(allocation_check::count == 0 && out[0] == 0.203125f); // dry .125 + return (.125 + .03125)*.5
+    MixerUpdate update; update.count=4; std::copy(graph.mixer.begin(),graph.mixer.end(),update.tracks.begin());
+    update.send_gains[0] = {0.5f,0.25f}; update.tracks[0].gain=0; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512);
+    CHECK(out[1022] == 0.0625f); // pre remains; post and dry follow zero fader
+    update.tracks[0].mute=true; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512); CHECK(out[1022] == 0);
+    update.tracks[0].mute=false; update.tracks[0].gain=0.5f; update.tracks[1].solo=true;
+    CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512); CHECK(out[1022] == 0.203125f);
+    update.tracks[1].mute=true; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512); CHECK(out[1022] == 0.125f);
+    update.tracks[1].mute=false; update.send_gains[0][0]=0; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512); CHECK(out[1022] == 0.140625f);
+    update.send_gains[0][0]=std::numeric_limits<float>::quiet_NaN(); CHECK(!engine.enqueue_mix(update));
+    auto bad=graph; bad.sends[1]={{2,1,false}}; rejects([&] { engine.prepare({48000,0,2,512},bad); });
+    bad=graph; bad.sends[0][0].destination=0; rejects([&] { engine.prepare({48000,0,2,512},bad); });
+    bad=graph; bad.sends[0].push_back(bad.sends[0][0]); rejects([&] { engine.prepare({48000,0,2,512},bad); });
+    graph.voices.clear(); graph.monitor={{0,0,1},{0,1,1}}; graph.monitor_track=0;
+    engine.prepare({48000,1,2,512},graph); std::array<float,512> input{}; input.fill(0.25f); engine.process(input.data(),out.data(),512); CHECK(out[0] == 0.203125f);
+}
 void buses() {
     using namespace mrs; using namespace mrs::audio;
     auto a = std::make_shared<AudioData>(); a->channels = 1; a->samples.assign(8192,0.25f);
@@ -549,7 +574,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
-        if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();

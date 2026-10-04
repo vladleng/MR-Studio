@@ -123,7 +123,7 @@ struct UI {
     std::optional<Drag> drag;
     audio::MixerMeters mix_meters{};
     std::size_t first_mix_track{};
-    struct MixDrag { std::optional<Id> track; Track::Mix mix; float master{1}; bool pan{}; RECT rect{}; };
+    struct MixDrag { std::optional<Id> track; Track::Mix mix; float master{1}; bool pan{}; RECT rect{}; bool vertical{}; };
     std::optional<MixDrag> mix_drag;
     explicit UI(bool test) : folder(data_folder()), log(folder / L"studio.log"), studio{studio_folder()}, smoke(test) {
         studio.ensure();
@@ -131,8 +131,8 @@ struct UI {
             try {
                 std::ifstream file(folder / L"desktop.cfg",std::ios::binary);
                 if (file) {
-                    std::string bytes; std::array<char,16385> data{}; file.read(data.data(),static_cast<std::streamsize>(data.size()));
-                    if (file.gcount() > 16384) throw std::runtime_error("config too large");
+                    std::string bytes; std::array<char,65537> data{}; file.read(data.data(),static_cast<std::streamsize>(data.size()));
+                    if (file.gcount() > 65536) throw std::runtime_error("config too large");
                     bytes.assign(data.data(),static_cast<std::size_t>(file.gcount())); prefs = decode_preferences(bytes);
                 }
             } catch (const std::exception& e) { log.write(e.what()); }
@@ -172,13 +172,20 @@ struct UI {
         const auto item = [&](UINT id, const wchar_t* label) { ok = AppendMenuW(files,MF_STRING,id,label) != FALSE && ok; };
         const auto separator = [&] { ok = AppendMenuW(files,MF_SEPARATOR,0,nullptr) != FALSE && ok; };
         item(new_project_button,L"&New project\tCtrl+N"); item(open,L"&Open project...\tCtrl+O");
+        const auto recent = CreatePopupMenu();
+        if (!recent) { DestroyMenu(files); DestroyMenu(bar); throw std::runtime_error("Cannot create recent projects menu"); }
+        if (prefs.recent_projects.empty()) AppendMenuW(recent,MF_STRING | MF_GRAYED,0,L"No recent projects");
+        for (std::size_t i=0; i<prefs.recent_projects.size(); ++i) AppendMenuW(recent,MF_STRING,3000+i,wide(prefs.recent_projects[i]).c_str());
+        ok = AppendMenuW(files,MF_POPUP,reinterpret_cast<UINT_PTR>(recent),L"Open &recent project") != FALSE && ok;
         separator(); item(save,L"&Save\tCtrl+S"); item(save_as,L"Save &as...\tCtrl+Shift+S");
         separator(); item(import_batch,L"&Import WAVs...\tCtrl+I"); item(import,L"Open &WAV as new project...");
         item(demo,L"Open &demo project"); separator(); item(studio_folder_button,L"Open studio &folder"); item(files_exit,L"E&xit");
         if (!ok || !AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(files),L"&Files")) {
             DestroyMenu(files); DestroyMenu(bar); throw std::runtime_error("Cannot populate Files menu");
         }
+        const auto previous_menu = GetMenu(window);
         if (!SetMenu(window,bar)) { DestroyMenu(bar); throw std::runtime_error("Cannot attach Files menu"); }
+        if (previous_menu) DestroyMenu(previous_menu);
         DrawMenuBar(window); // native thin row: keyboard navigation and DPI handling
     }
     void initialize() {
@@ -215,7 +222,7 @@ struct UI {
         move(add_bus_button,220,244,96,30);
         move(tracks,20,228,168,std::max(70,height-388));
         move(rename_edit,20,height-148,168,32); move(rename,20,height-108,168,32);
-        canvas = {s(220),s(290),area.right-s(20),area.bottom-s(68)};
+        canvas = {s(400),s(290),area.right-s(20),area.bottom-s(68)};
         InvalidateRect(window,nullptr,FALSE);
     }
     void refresh_models() {
@@ -251,6 +258,7 @@ struct UI {
         const auto files = GetSubMenu(GetMenu(window),0);
         for (auto id : {new_project_button,open,save,save_as,import_batch,import,demo})
             EnableMenuItem(files,static_cast<UINT>(id),MF_BYCOMMAND | (app.recording() ? MF_GRAYED : MF_ENABLED));
+
         DrawMenuBar(window);
         std::wstring title = L"Moon River Studio " + wide(application_version) + L" — " + wide(project->title) + (app.dirty() ? L" *" : L"");
         SetWindowTextW(window,title.c_str()); InvalidateRect(window,nullptr,FALSE);
@@ -270,7 +278,11 @@ struct UI {
              (std::filesystem::is_directory(app.path().parent_path()/"Media") && std::filesystem::is_directory(app.path().parent_path()/"Mixdown")));
         if (as || !managed) path = project_folder_file(path);
         if (path != app.path() && std::filesystem::exists(path)) throw std::runtime_error("This project folder already exists. Choose a new project name.");
-        app.save_project(path); log.write("Project and Media saved"); refresh_models(); return true;
+        app.save_project(path); recent_project(); log.write("Project and Media saved"); refresh_models(); return true;
+    }
+    void recent_project() {
+        if (app.path().empty()) return;
+        remember_project(prefs,app.path()); file_menu(); if (!smoke) preferences();
     }
     void preferences() {
         prefs.workspace = app.workspace();
@@ -285,7 +297,7 @@ struct UI {
     }
     int audio_top() const {
         const auto p = app.services().projects->state().project;
-        return canvas.top+s(p->chords.empty() && p->sections.empty() ? 70 : 185);
+        return canvas.top+s(p->chords.empty() && p->sections.empty() ? 70 : app.workspace() == Workspace::mix ? 96 : 185);
     }
     int sample_x(Sample sample) const {
         const auto rate = app.services().projects->state().project->sample_rate;
@@ -317,8 +329,9 @@ struct UI {
         return snap && !(GetKeyState(VK_SHIFT)&0x8000) ? snap_to_grid(*app.services().projects->state().project,value) : value;
     }
     void mouse_down(POINT point) {
-        if (app.workspace() == Workspace::mix) { mixer_down(point); return; }
-        if (app.recording() || app.workspace() != Workspace::arrange || !PtInRect(&canvas,point)) return;
+        if (app.workspace() == Workspace::mix) { const auto area = mix_area(); if (PtInRect(&area,point)) { mixer_down(point); return; } }
+        if ((app.workspace() == Workspace::arrange || app.workspace() == Workspace::mix) && mini_down(point)) return;
+        if (app.recording() || (app.workspace() != Workspace::arrange && app.workspace() != Workspace::mix) || !PtInRect(&canvas,point)) return;
         SetFocus(window);
         if (auto clip = hit_clip(point)) {
             selected_clip = clip->id; selected_track = clip->track; refresh_models();
@@ -377,7 +390,14 @@ struct UI {
                 if (id == blocked) return;
         }
         if (drag) cancel_drag();
-        if (id >= nav_arrange && id <= nav_mix) { app.workspace(static_cast<Workspace>(id-nav_arrange)); for (int i = nav_arrange; i <= nav_mix; ++i) InvalidateRect(child(i),nullptr,TRUE); InvalidateRect(window,nullptr,FALSE); return; }
+        if (id >= 3000 && id < 3010) {
+            const auto index = static_cast<std::size_t>(id-3000);
+            if (app.recording() || index >= prefs.recent_projects.size() || !discard()) return;
+            const auto name = prefs.recent_projects[index];
+            app.open_project(std::filesystem::path(std::u8string(name.begin(),name.end())));
+            recent_project(); fit_view = true; view_start = 0; first_track = 0; refresh_models(); restore_audio(); return;
+        }
+        if (id >= nav_arrange && id <= nav_mix) { app.workspace(id == nav_mix && app.workspace() == Workspace::mix ? Workspace::arrange : static_cast<Workspace>(id-nav_arrange)); for (int i = nav_arrange; i <= nav_mix; ++i) InvalidateRect(child(i),nullptr,TRUE); InvalidateRect(window,nullptr,FALSE); return; }
         if (id == tracks && notification == LBN_SELCHANGE) {
             const auto selection = SendMessageW(child(tracks),LB_GETCURSEL,0,0);
             const auto project = app.services().projects->state().project;
@@ -424,7 +444,7 @@ struct UI {
             if (!selected.empty()) {
                 const auto path = project_folder_file(selected);
                 if (std::filesystem::exists(path)) throw std::runtime_error("This project already exists. Choose a new name.");
-                app.new_project(prefs.rate,narrow(path.stem().wstring())); app.save_project(path);
+                app.new_project(prefs.rate,narrow(path.stem().wstring())); app.save_project(path); recent_project();
                 fit_view = true; view_start = 0; first_track = 0; refresh_models(); restore_audio();
             }
         } break;
@@ -463,7 +483,7 @@ struct UI {
         case zoom_in: fit_view = false; visible_seconds = std::max(0.25,visible_seconds/2); break;
         case zoom_out: fit_view = false; visible_seconds = std::min(86400.0,visible_seconds*2); break;
         case zoom_fit: fit_view = true; view_start = 0; break;
-        case open: if (discard()) { auto path = pick(window,false,false,studio.projects()); if (!path.empty()) { app.open_project(path); refresh_models(); restore_audio(); } } break;
+        case open: if (discard()) { auto path = pick(window,false,false,studio.projects()); if (!path.empty()) { app.open_project(path); recent_project(); refresh_models(); restore_audio(); } } break;
         case import: if (discard()) { auto path = pick(window,false,true); if (!path.empty()) { app.import_wav(path); refresh_models(); restore_audio(); (void)save_current(false); } } break;
         case demo: if (discard()) { app.demo(); refresh_models(); restore_audio(); } break;
         case save: (void)save_current(false); break; case save_as: (void)save_current(true); break;
@@ -526,18 +546,20 @@ struct UI {
             }
         }
         for (const auto& c : project->chords) {
-            RECT block{x_tick(c.start)+1,top+s(76),x_tick(c.end)-1,top+s(138)};
+            const bool compact = !moving && app.workspace() == Workspace::mix;
+            RECT block{x_tick(c.start)+1,top+s(compact ? 62 : 76),x_tick(c.end)-1,top+s(compact ? 78 : 138)};
             if (block.right <= rect.left || block.left >= rect.right) continue;
             fill(dc,block,context.current_chord && context.current_chord->id == c.id ? accent : RGB(46,48,75));
-            text(dc,block.left+s(8),block.top,block.right-block.left-s(16),block.bottom-block.top,wide(c.symbol),moving ? big : heading);
+            text(dc,block.left+s(8),block.top,block.right-block.left-s(16),block.bottom-block.top,wide(c.symbol),moving ? big : compact ? normal : heading);
         }
         for (const auto& section : project->sections) {
             const auto color = RGB((section.color >> 16)&255,(section.color >> 8)&255,section.color&255);
-            RECT block{x_tick(section.start)+1,top+s(148),x_tick(section.end)-1,top+s(183)}; fill(dc,block,color);
+            const bool compact = !moving && app.workspace() == Workspace::mix;
+            RECT block{x_tick(section.start)+1,top+s(compact ? 80 : 148),x_tick(section.end)-1,top+s(compact ? 94 : 183)}; fill(dc,block,color);
             text(dc,block.left+s(8),block.top,block.right-block.left-s(16),block.bottom-block.top,wide(section.name));
         }
         if (!moving) {
-            int y = top+s(project->chords.empty() && project->sections.empty() ? 70 : 185);
+            int y = audio_top();
             for (std::size_t ti = first_track; ti < project->tracks.size(); ++ti) {
                 const auto& track = project->tracks[ti];
                 if (y+s(30) > rect.bottom) break;
@@ -593,7 +615,7 @@ struct UI {
         line(dc,position,top+s(62),position,rect.bottom,amber);
         RestoreDC(dc,saved);
     }
-    RECT mix_area() const { return {canvas.left,canvas.top-s(46),canvas.right,canvas.bottom}; }
+    RECT mix_area() const { return {s(220),std::max<LONG>(s(244),canvas.bottom-s(310)),canvas.right,canvas.bottom}; }
     std::vector<Track> mix_tracks() const {
         std::vector<Track> result;
         for (const auto& t : app.services().projects->state().project->tracks) if (t.kind != TrackKind::midi) result.push_back(t);
@@ -604,7 +626,13 @@ struct UI {
         const int x = master ? area.right-s(146) : area.left+s(8)+static_cast<int>(index)*s(144);
         return {x,area.top+s(44),x+s(136),area.bottom-s(8)};
     }
-    RECT mix_control(RECT r, int row) const { return {r.left+s(10),r.top+s(row),r.right-s(10),r.top+s(row+22)}; }
+    RECT mix_control(RECT r, int row) const {
+        if (row == 34) return {r.left+s(16),r.top+s(34),r.left+s(60),r.bottom-s(78)};
+        if (row == 68) return {r.left+s(68),r.top+s(34),r.right-s(8),r.top+s(56)};
+        if (row == 164) return {r.left+s(8),r.bottom-s(54),r.right-s(8),r.bottom-s(30)};
+        if (row == 220) return {r.left+s(8),r.bottom-s(28),r.right-s(8),r.bottom-s(4)};
+        return {r.left+s(10),r.top+s(row),r.right-s(10),r.top+s(row+22)};
+    }
     RECT output_control(RECT r, bool bus) const { auto result = mix_control(r,164); if (bus) result.right -= s(36); return result; }
     RECT remove_bus_control(RECT r) const { auto result = mix_control(r,164); result.left = result.right-s(32); return result; }
     static float fader_position(float gain) { return gain <= 0 ? 0 : std::clamp((20*std::log10(gain)+60)/72,0.0f,1.0f); }
@@ -614,56 +642,142 @@ struct UI {
         std::wostringstream out; out << std::fixed << std::setprecision(1) << 20*std::log10(gain) << L" dB"; return out.str();
     }
     void paint_mixer(HDC dc) {
-        const auto area = mix_area(); fill(dc,area,panel);
-        text(dc,area.left+s(110),area.top+s(4),area.right-area.left-s(122),s(30),L"Mixer  |  drag gain / pan  |  Out: select bus  |  wheel to scroll",normal,muted);
+        const auto area = mix_area(); fill(dc,area,panel); line(dc,area.left,area.top,area.right,area.top,accent);
+        MoveWindow(child(add_bus_button),area.left+s(8),area.top+s(5),s(96),s(30),TRUE);
+        text(dc,area.left+s(112),area.top+s(4),area.right-area.left-s(120),s(30),L"Mixer  |  Mix: show / hide  |  Sends: pre / post, level, return  |  wheel: channels",normal,muted);
         const auto all = mix_tracks();
-        if (!all.empty()) first_mix_track = std::min(first_mix_track,all.size()-1); else first_mix_track = 0;
+        first_mix_track = all.empty() ? 0 : std::min(first_mix_track,all.size()-1);
         const int saved = SaveDC(dc); IntersectClipRect(dc,area.left,area.top,area.right,area.bottom);
         const auto draw = [&](RECT r, const Track* track, audio::StereoPeak peak) {
             fill(dc,r,track && selected_track == track->id ? RGB(51,51,58) : RGB(37,37,37));
             auto mix = track ? track->mix : Track::Mix{};
             float gain = track ? mix.gain : app.services().projects->state().project->master_gain;
-            if (mix_drag && ((track && mix_drag->track == track->id) || (!track && !mix_drag->track))) {
-                mix = mix_drag->mix; gain = track ? mix.gain : mix_drag->master;
-            }
+            if (mix_drag && ((track && mix_drag->track == track->id) || (!track && !mix_drag->track))) { mix = mix_drag->mix; gain = track ? mix.gain : mix_drag->master; }
             text(dc,r.left+s(8),r.top,r.right-r.left-s(16),s(28),track ? (track->kind == TrackKind::bus ? L"[BUS] " : L"")+wide(track->name) : L"MASTER",normal,track && track->kind != TrackKind::bus ? ink : amber);
-            auto g = mix_control(r,34); fill(dc,g,border);
-            const int gx = g.left+static_cast<int>(fader_position(gain)*(g.right-g.left));
-            fill(dc,{g.left,g.top,gx,g.bottom},RGB(72,76,82)); line(dc,gx,g.top,gx,g.bottom,amber);
-            text(dc,g.left,g.top,g.right-g.left,g.bottom-g.top,gain_text(gain));
+            const auto g = mix_control(r,34); fill(dc,g,RGB(26,26,26));
+            const int gy = g.bottom-static_cast<int>(fader_position(gain)*(g.bottom-g.top));
+            line(dc,(g.left+g.right)/2,g.top+s(3),(g.left+g.right)/2,g.bottom-s(3),border);
+            fill(dc,{g.left,gy-s(4),g.right,gy+s(4)},amber);
+            text(dc,r.left+s(8),r.bottom-s(78),r.right-r.left-s(16),s(22),gain_text(gain));
             if (track) {
-                auto p = mix_control(r,68); fill(dc,p,border);
-                const int px = p.left+static_cast<int>((mix.pan+1)*0.5f*(p.right-p.left)); line(dc,px,p.top,px,p.bottom,accent);
-                const auto label = mix.pan == 0 ? L"Center" : (mix.pan < 0 ? L"L " : L"R ")+std::to_wstring(static_cast<int>(std::abs(mix.pan)*100));
-                text(dc,p.left,p.top,p.right-p.left,p.bottom-p.top,label);
-                RECT m{r.left+s(10),r.top+s(102),r.left+s(62),r.top+s(126)}, solo{r.left+s(74),m.top,r.right-s(10),m.bottom};
+                const auto p = mix_control(r,68); fill(dc,p,border);
+                text(dc,p.left,p.top,p.right-p.left,p.bottom-p.top,mix.pan == 0 ? L"Center" : (mix.pan < 0 ? L"L " : L"R ")+std::to_wstring(static_cast<int>(std::abs(mix.pan)*100)));
+                RECT m{r.left+s(68),r.top+s(60),r.right-s(8),r.top+s(82)}, solo{m.left,r.top+s(86),m.right,r.top+s(108)};
                 fill(dc,m,mix.mute ? RGB(143,67,56) : border); fill(dc,solo,mix.solo ? RGB(132,105,44) : border);
                 text(dc,m.left,m.top,m.right-m.left,m.bottom-m.top,L"Mute"); text(dc,solo.left,solo.top,solo.right-solo.left,solo.bottom-solo.top,L"Solo");
-            } else text(dc,r.left+s(10),r.top+s(68),r.right-r.left-s(20),s(52),L"Main output",normal,muted);
+            }
             for (int c=0; c<2; ++c) {
                 const float v = c == 0 ? peak.left : peak.right;
-                RECT meter{r.left+s(10),r.top+s(140+c*12),r.right-s(10),r.top+s(148+c*12)}; fill(dc,meter,RGB(22,22,22));
+                RECT meter{r.left+s(76+c*20),r.top+s(112),r.left+s(88+c*20),r.bottom-s(80)}; fill(dc,meter,RGB(22,22,22));
                 const float fraction = v > 0 ? std::clamp((20*std::log10(v)+60)/60,0.0f,1.0f) : 0;
-                fill(dc,{meter.left,meter.top,meter.left+static_cast<int>(fraction*(meter.right-meter.left)),meter.bottom},v >= 1 ? RGB(230,70,60) : v > 0.7f ? amber : RGB(100,178,126));
+                fill(dc,{meter.left,meter.bottom-static_cast<int>(fraction*(meter.bottom-meter.top)),meter.right,meter.bottom},v >= 1 ? RGB(230,70,60) : v > 0.7f ? amber : RGB(100,178,126));
             }
-            text(dc,r.left+s(10),r.top+s(track ? 190 : 164),r.right-r.left-s(20),s(24),gain_text(std::max(peak.left,peak.right)),normal,muted);
             if (track) {
                 std::wstring destination = L"Master";
                 for (const auto& bus : all) if (track->output == bus.id) destination = wide(bus.name);
-                const bool editable = !app.recording() && app.engine()->state().playback != PlaybackState::playing;
-                auto route = output_control(r,track->kind == TrackKind::bus); fill(dc,route,border);
-                text(dc,route.left,route.top,route.right-route.left,route.bottom-route.top,L"Out: "+destination,normal,editable ? ink : muted);
-                if (track->kind == TrackKind::bus) {
-                    auto remove = remove_bus_control(r); fill(dc,remove,border);
-                    text(dc,remove.left,remove.top,remove.right-remove.left,remove.bottom-remove.top,L"Del",normal,editable ? ink : muted);
-                }
+                const auto route = output_control(r,track->kind == TrackKind::bus); fill(dc,route,border);
+                text(dc,route.left,route.top,route.right-route.left,route.bottom-route.top,L"Out: "+destination);
+                if (track->kind == TrackKind::bus) { auto remove = remove_bus_control(r); fill(dc,remove,border); text(dc,remove.left,remove.top,remove.right-remove.left,remove.bottom-remove.top,L"Del"); }
+                const auto sends = mix_control(r,220); fill(dc,sends,border);
+                text(dc,sends.left,sends.top,sends.right-sends.left,sends.bottom-sends.top,L"Sends ("+std::to_wstring(track->sends.size())+L")...");
             }
         };
-        for (std::size_t i=first_mix_track; i<all.size(); ++i) {
-            auto r = mix_strip(i-first_mix_track); if (r.right > area.right-s(154)) break;
-            draw(r,&all[i],mix_meters.tracks[i]);
-        }
+        for (std::size_t i=first_mix_track; i<all.size(); ++i) { const auto strip = mix_strip(i-first_mix_track); if (strip.right > area.right-s(154)) break; draw(strip,&all[i],mix_meters.tracks[i]); }
         draw(mix_strip(0,true),nullptr,mix_meters.master); RestoreDC(dc,saved);
+    }
+    void choose_sends(const Track& track, POINT point) {
+        const bool editable = !app.recording() && app.engine()->state().playback != PlaybackState::playing;
+        const auto project = app.services().projects->state().project;
+        const auto menu = CreatePopupMenu(); if (!menu) throw std::runtime_error("Cannot create sends menu");
+        struct Action { int kind; std::size_t index; float gain; std::optional<Id> bus; };
+        std::vector<Action> actions;
+        const auto item = [&](HMENU target, const wchar_t* label, Action action, bool enabled=true, bool checked=false) {
+            actions.push_back(std::move(action)); AppendMenuW(target,MF_STRING | (enabled ? 0 : MF_GRAYED) | (checked ? MF_CHECKED : 0),actions.size(),label);
+        };
+        for (std::size_t i=0; i<track.sends.size(); ++i) {
+            const auto& send = track.sends[i]; const auto sub = CreatePopupMenu();
+            std::wstring name = L"Return"; for (const auto& bus : project->tracks) if (bus.id == send.bus) name = wide(bus.name);
+            const auto label = name+L" | "+(send.pre_fader ? L"Pre " : L"Post ")+gain_text(send.gain);
+            AppendMenuW(menu,MF_POPUP,reinterpret_cast<UINT_PTR>(sub),label.c_str());
+            item(sub,L"Pre-fader",{1,i,0,{}},editable,send.pre_fader); item(sub,L"Post-fader",{2,i,0,{}},editable,!send.pre_fader);
+            for (const int db : {-60,-24,-18,-12,-6,0,6,12}) { const auto level = std::pow(10.0f,static_cast<float>(db)/20); const auto value = std::to_wstring(db)+L" dB"; item(sub,value.c_str(),{0,i,level,{}},true,std::abs(level-send.gain)<0.00001f); }
+            item(sub,L"Off (-inf)",{0,i,0,{}},true,send.gain == 0); item(sub,L"Remove send",{3,i,0,{}},editable);
+        }
+        const auto add = CreatePopupMenu(); AppendMenuW(menu,MF_POPUP,reinterpret_cast<UINT_PTR>(add),L"Add send to bus / return");
+        bool available{};
+        for (const auto& bus : project->tracks) if (bus.kind == TrackKind::bus) {
+            auto candidate = *project; auto sends = track.sends; sends.push_back({bus.id,1,false}); bool valid=true;
+            try { SetTrackSends{track.id,sends}.apply(candidate); candidate.validate(); } catch (const std::invalid_argument&) { valid=false; }
+            item(add,wide(bus.name).c_str(),{4,0,1,bus.id},editable && valid); available=true;
+        }
+        if (!available) AppendMenuW(add,MF_STRING | MF_GRAYED,0,L"Create a bus / return first");
+        item(menu,L"Create return and send",{5,0,1,{}},editable && track.sends.size()<8);
+        ClientToScreen(window,&point); const auto choice = TrackPopupMenu(menu,TPM_RETURNCMD | TPM_NONOTIFY,point.x,point.y,0,window,nullptr); DestroyMenu(menu);
+        if (!choice || choice>actions.size()) return;
+        const auto action = actions[choice-1]; auto sends = track.sends;
+        if (action.kind == 0) app.set_send_gain(track.id,action.index,action.gain);
+        else {
+            if (action.kind == 1 || action.kind == 2) sends[action.index].pre_fader = action.kind == 1;
+            if (action.kind == 3) sends.erase(sends.begin()+static_cast<std::ptrdiff_t>(action.index));
+            if (action.kind == 4) sends.push_back({*action.bus,1,false});
+            if (action.kind == 5) (void)app.add_return_send(track.id,"Return "+std::to_string(mix_tracks().size()+1));
+            else app.set_track_sends(track.id,std::move(sends));
+        }
+        refresh_models();
+    }
+    RECT mini_rect(std::size_t index) const { const int y = audio_top()+static_cast<int>(index-first_track)*s(92); return {s(220),y,canvas.left-s(8),y+s(88)}; }
+    void paint_minis(HDC dc) {
+        const auto project = app.services().projects->state().project;
+        std::size_t channel{};
+        const int saved = SaveDC(dc); IntersectClipRect(dc,s(220),canvas.top,canvas.left,canvas.bottom);
+        for (std::size_t i=0; i<project->tracks.size(); ++i) {
+            const auto& track = project->tracks[i]; const auto meter_index = channel;
+            if (track.kind != TrackKind::midi) ++channel;
+            if (i<first_track) continue; const auto r = mini_rect(i); if (r.top>=canvas.bottom) break;
+            fill(dc,r,selected_track == track.id ? RGB(51,51,58) : panel);
+            auto mix = track.mix; if (mix_drag && mix_drag->track == track.id) mix = mix_drag->mix;
+            text(dc,r.left+s(6),r.top,r.right-r.left-s(12),s(22),wide(track.name));
+            if (track.kind == TrackKind::midi) continue;
+            const RECT gain{r.left+s(8),r.top+s(26),r.right-s(44),r.top+s(44)}; fill(dc,gain,border);
+            const int x = gain.left+static_cast<int>(fader_position(mix.gain)*(gain.right-gain.left)); line(dc,x,gain.top,x,gain.bottom,amber);
+            text(dc,gain.left,gain.top,gain.right-gain.left,gain.bottom-gain.top,gain_text(mix.gain));
+            const auto peak = mix_meters.tracks[meter_index]; const float v = std::max(peak.left,peak.right);
+            RECT meter{gain.left,r.top+s(48),gain.right,r.top+s(54)}; fill(dc,meter,RGB(22,22,22));
+            const float fraction = v > 0 ? std::clamp((20*std::log10(v)+60)/60,0.0f,1.0f) : 0;
+            fill(dc,{meter.left,meter.top,meter.left+static_cast<int>(fraction*(meter.right-meter.left)),meter.bottom},v>=1 ? RGB(230,70,60) : RGB(100,178,126));
+            const int cx = r.right-s(23), cy = r.top+s(41), radius=s(15);
+            const auto brush = CreateSolidBrush(border); const auto old = SelectObject(dc,brush); Ellipse(dc,cx-radius,cy-radius,cx+radius,cy+radius); SelectObject(dc,old); DeleteObject(brush);
+            const double angle = static_cast<double>(mix.pan)*2.2; line(dc,cx,cy,cx+static_cast<int>(std::sin(angle)*radius),cy-static_cast<int>(std::cos(angle)*radius),accent);
+            if (track.kind == TrackKind::audio) {
+                RECT input{r.left+s(8),r.top+s(60),r.right-s(8),r.top+s(82)}; fill(dc,input,border);
+                text(dc,input.left,input.top,input.right-input.left,input.bottom-input.top,track.input == -2 ? L"Input: default" : track.input == -1 ? L"Input: off" : L"Input: "+std::to_wstring(track.input+1));
+            }
+        }
+        RestoreDC(dc,saved);
+    }
+    bool mini_down(POINT point, bool reset=false) {
+        const auto project = app.services().projects->state().project;
+        for (std::size_t i=first_track; i<project->tracks.size(); ++i) {
+            const auto r = mini_rect(i); if (!PtInRect(&r,point)) continue;
+            const auto track = project->tracks[i]; selected_track = track.id; refresh_models();
+            if (track.kind == TrackKind::midi) return true;
+            const RECT g{r.left+s(8),r.top+s(26),r.right-s(44),r.top+s(44)}, p{r.right-s(40),r.top+s(24),r.right-s(6),r.top+s(57)};
+            if (PtInRect(&g,point) || PtInRect(&p,point)) {
+                const bool pan = PtInRect(&p,point); auto mix = track.mix;
+                if (reset) { if (pan) mix.pan=0; else mix.gain=1; app.set_track_mix(track.id,mix); return true; }
+                mix_drag = MixDrag{track.id,mix,project->master_gain,pan,pan ? p : g,false}; SetCapture(window); mixer_move(point); return true;
+            }
+            if (track.kind == TrackKind::audio && point.y>=r.top+s(60) && !app.recording() && app.engine()->state().playback != PlaybackState::playing) {
+                const auto names = app.input_names(); const auto menu = CreatePopupMenu();
+                AppendMenuW(menu,MF_STRING | (track.input == -2 ? MF_CHECKED : 0),1,L"Default input from Audio settings");
+                AppendMenuW(menu,MF_STRING | (track.input == -1 ? MF_CHECKED : 0),2,L"Off");
+                for (std::size_t n=0; n<names.size(); ++n) AppendMenuW(menu,MF_STRING | (track.input == static_cast<int>(n) ? MF_CHECKED : 0),n+3,wide(names[n]).c_str());
+                ClientToScreen(window,&point); const auto choice=TrackPopupMenu(menu,TPM_RETURNCMD | TPM_NONOTIFY,point.x,point.y,0,window,nullptr); DestroyMenu(menu);
+                if (choice) app.set_track_input(track.id,static_cast<int>(choice)-3); refresh_models();
+            }
+            return true;
+        }
+        return false;
     }
     void choose_bus(const Track& track, POINT point) {
         if (app.recording() || app.engine()->state().playback == PlaybackState::playing) return;
@@ -701,6 +815,8 @@ struct UI {
                     MessageBoxW(window,L"Delete this bus? Its inputs will use its output. Undo restores routing.",L"Moon River Studio",MB_YESNO | MB_ICONQUESTION) == IDYES) { app.remove_track(t->id); refresh_models(); }
                 return;
             }
+            const auto sends = mix_control(r,220);
+            if (t && PtInRect(&sends,point)) { choose_sends(*t,point); return; }
             const auto g = mix_control(r,34), p = mix_control(r,68);
             if (PtInRect(&g,point) || (t && PtInRect(&p,point))) {
                 const bool pan = t && PtInRect(&p,point);
@@ -709,11 +825,11 @@ struct UI {
                     else app.set_master_gain(1);
                     refresh_models(); return;
                 }
-                mix_drag = MixDrag{t ? std::optional<Id>{t->id} : std::nullopt,mix,app.services().projects->state().project->master_gain,pan,pan ? p : g};
+                mix_drag = MixDrag{t ? std::optional<Id>{t->id} : std::nullopt,mix,app.services().projects->state().project->master_gain,pan,pan ? p : g,!pan};
                 SetCapture(window); mixer_move(point); return;
             }
-            if (t && point.y >= r.top+s(102) && point.y < r.top+s(126)) {
-                if (point.x < r.left+s(68)) mix.mute = !mix.mute; else mix.solo = !mix.solo;
+            if (t && point.x >= r.left+s(68) && point.y >= r.top+s(60) && point.y < r.top+s(108)) {
+                if (point.y < r.top+s(84)) mix.mute = !mix.mute; else mix.solo = !mix.solo;
                 app.set_track_mix(t->id,mix); refresh_models();
             }
             return;
@@ -722,7 +838,7 @@ struct UI {
     void mixer_move(POINT point) {
         if (!mix_drag) return;
         auto& d = *mix_drag;
-        const float position = std::clamp(static_cast<float>(point.x-d.rect.left)/static_cast<float>(d.rect.right-d.rect.left),0.0f,1.0f);
+        const float position = std::clamp(d.vertical ? static_cast<float>(d.rect.bottom-point.y)/static_cast<float>(d.rect.bottom-d.rect.top) : static_cast<float>(point.x-d.rect.left)/static_cast<float>(d.rect.right-d.rect.left),0.0f,1.0f);
         if (d.pan) d.mix.pan = position*2-1;
         else if (d.track) d.mix.gain = fader_gain(position); else d.master = fader_gain(position);
         (void)app.preview_mix(d.track,d.mix,d.master); InvalidateRect(window,nullptr,FALSE);
@@ -746,11 +862,12 @@ struct UI {
         text(dc,s(220),s(196),s(470),s(35),position.str(),heading,amber);
         text(dc,s(20),s(194),s(168),s(28),L"Project tracks",normal,muted);
         auto workspace = app.workspace();
-        for (auto id : {add_track,delete_track,track_up,track_down,zoom_in,zoom_out,zoom_fit,split_clip_button,delete_clip_button,snap_button}) ShowWindow(child(id),workspace == Workspace::arrange ? SW_SHOW : SW_HIDE);
+        for (auto id : {add_track,delete_track,track_up,track_down,zoom_in,zoom_out,zoom_fit,split_clip_button,delete_clip_button,snap_button}) ShowWindow(child(id),(workspace == Workspace::arrange || workspace == Workspace::mix) ? SW_SHOW : SW_HIDE);
         ShowWindow(child(add_bus_button),workspace == Workspace::mix ? SW_SHOW : SW_HIDE);
         EnableWindow(child(add_bus_button),!app.recording() && app.engine()->state().playback != PlaybackState::playing);
-        if (workspace == Workspace::arrange) {
-            timeline(dc,canvas,false);
+        if (workspace == Workspace::arrange || workspace == Workspace::mix) {
+            timeline(dc,canvas,false); paint_minis(dc);
+            if (workspace == Workspace::mix) paint_mixer(dc);
         } else {
             fill(dc,canvas,panel); int y = canvas.top+s(14);
             text(dc,canvas.left+s(16),y,canvas.right-canvas.left-s(32),s(36),workspace == Workspace::mix ? L"Mixer" : L"Clip inspector",heading); y += s(52);
@@ -986,11 +1103,35 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     ui->mouse_down(gain_point); ui->cancel_mix_drag();
                     if (ui->app.services().projects->state().project->tracks.front().mix != mix_before.project->tracks.front().mix)
                         throw std::runtime_error("Mixer cancellation changed saved parameters");
+                    ui->mouse_down(gain_point);
+                    const auto initial_gain = ui->mix_drag->mix.gain;
+                    ui->mouse_move({gain_point.x,gain_point.y-ui->s(10)});
+                    if (!ui->mix_drag->vertical || ui->mix_drag->mix.gain <= initial_gain)
+                        throw std::runtime_error("Vertical fader did not follow vertical movement");
+                    ui->cancel_mix_drag();
+                    ui->command(nav_mix,BN_CLICKED);
+                    if (ui->app.workspace() != Workspace::arrange) throw std::runtime_error("Mix toggle did not reveal arrangement");
+                    const auto header = ui->mini_rect(0);
+                    const POINT mini_gain{header.left+ui->s(55),header.top+ui->s(35)};
+                    const auto mini_revision = ui->app.services().projects->state().revision;
+                    ui->mouse_down(mini_gain); ui->mouse_move({mini_gain.x+ui->s(10),mini_gain.y});
+                    if (!ui->mix_drag || ui->mix_drag->vertical || ui->mix_drag->pan) throw std::runtime_error("Track header gain did not use horizontal preview");
+                    ui->mouse_up({mini_gain.x+ui->s(10),mini_gain.y});
+                    if (ui->app.services().projects->state().revision != mini_revision+1) throw std::runtime_error("Mini fader did not commit one edit");
+                    ui->command(undo,0);
+                    const POINT knob{header.right-ui->s(14),header.top+ui->s(40)};
+                    ui->mouse_down(knob); ui->mouse_up(knob);
+                    if (ui->app.services().projects->state().project->tracks.front().mix.pan <= 0) throw std::runtime_error("Track pan knob did not update shared pan");
+                    ui->command(undo,0); ui->command(nav_mix,BN_CLICKED);
+                    const auto overlay = ui->mix_area();
+                    if (overlay.top <= ui->canvas.top || GetParent(hwnd) != nullptr) throw std::runtime_error("Mixer did not overlay the main arrangement");
                     const auto bar = GetMenu(hwnd), files = GetSubMenu(bar,0);
-                    if (!bar || !files || GetMenuItemID(files,0) != new_project_button || GetMenuItemID(files,3) != save)
+                    if (!bar || !files || GetMenuItemID(files,0) != new_project_button || GetMenuItemID(files,4) != save || !GetSubMenu(files,2))
                         throw std::runtime_error("Files menu did not retain project commands");
-                    if (GetMenuItemID(files,10) != studio_folder_button || !std::filesystem::is_directory(ui->studio.projects()) || !std::filesystem::is_directory(ui->studio.lives()))
+                    if (GetMenuItemID(files,11) != studio_folder_button || !std::filesystem::is_directory(ui->studio.projects()) || !std::filesystem::is_directory(ui->studio.lives()))
                         throw std::runtime_error("Studio content folders/menu missing");
+                    const auto recent_menu = GetSubMenu(files,2);
+                    if (!recent_menu || GetMenuItemCount(recent_menu) < 1) throw std::runtime_error("Recent project submenu missing");
                     for (auto id : {record_button,arm_button,monitor_button}) if (!ui->child(id)) throw std::runtime_error("Recording controls missing");
                     ui->command(arm_button,0);
                     if (!ui->app.armed_track()) throw std::runtime_error("Arm track did not use shared application");
@@ -1000,6 +1141,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     const auto bus_id = *ui->selected_track;
                     const auto audio_id = ui->app.services().projects->state().project->tracks.front().id;
                     ui->app.set_track_output(audio_id,bus_id); ui->refresh_models();
+                    ui->app.set_track_sends(audio_id,{{bus_id,0.5f,true}});
                     if (IsWindowEnabled(ui->child(arm_button))) throw std::runtime_error("Bus can be armed for recording");
                     const auto bus_strip = ui->mix_strip(0), bus_gain = ui->mix_control(bus_strip,34);
                     const POINT bus_point{bus_gain.left+(bus_gain.right-bus_gain.left)/2,(bus_gain.top+bus_gain.bottom)/2};
@@ -1007,6 +1149,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     if (ui->app.services().projects->state().project->tracks.back().mix.gain == 1) throw std::runtime_error("Bus fader did not change shared mix");
                     ui->command(undo,0); ui->app.remove_track(bus_id); ui->refresh_models();
                     if (ui->app.services().projects->state().project->tracks.front().output) throw std::runtime_error("Deleted bus retained a dangling route");
+                    if (!ui->app.services().projects->state().project->tracks.front().sends.empty()) throw std::runtime_error("Deleted return retained a dangling send");
                     for (auto id : {nav_live,open,save,save_as,demo,import,new_project_button,import_batch})
                         if (ui->child(id)) throw std::runtime_error("File/Live controls still occupy the workspace");
                     ui->app.rename_track(ui->app.services().projects->state().project->tracks.front().id,"Smoke track"); ui->refresh_models();
@@ -1047,13 +1190,13 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
         case WM_MOUSEWHEEL: {
             if (ui->app.workspace() == Workspace::mix && !ui->mix_drag) {
                 POINT point{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd,&point);
-                const auto area = ui->mix_area(); if (!PtInRect(&area,point)) break;
+                const auto area = ui->mix_area(); if (PtInRect(&area,point)) {
                 const auto count = ui->mix_tracks().size();
                 if (GET_WHEEL_DELTA_WPARAM(wparam) > 0 && ui->first_mix_track) --ui->first_mix_track;
                 else if (GET_WHEEL_DELTA_WPARAM(wparam) < 0 && ui->first_mix_track+1 < count) ++ui->first_mix_track;
-                InvalidateRect(hwnd,nullptr,FALSE); return 0;
+                InvalidateRect(hwnd,nullptr,FALSE); return 0; }
             }
-            if (ui->drag || ui->app.workspace() != Workspace::arrange) break;
+            if (ui->drag || (ui->app.workspace() != Workspace::arrange && ui->app.workspace() != Workspace::mix)) break;
             POINT point{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd,&point);
             if (!PtInRect(&ui->canvas,point)) break;
             const int direction = GET_WHEEL_DELTA_WPARAM(wparam) > 0 ? -1 : 1;
@@ -1067,7 +1210,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
             InvalidateRect(hwnd,nullptr,FALSE); return 0;
         }
         case WM_LBUTTONDOWN: ui->mouse_down({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}); return 0;
-        case WM_LBUTTONDBLCLK: if (ui->app.workspace() == Workspace::mix) { ui->mixer_down({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)},true); return 0; } break;
+        case WM_LBUTTONDBLCLK: { POINT point{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}; const auto area = ui->mix_area(); if (ui->app.workspace() == Workspace::mix && PtInRect(&area,point)) ui->mixer_down(point,true); else if (ui->app.workspace() == Workspace::arrange || ui->app.workspace() == Workspace::mix) (void)ui->mini_down(point,true); return 0; }
         case WM_MOUSEMOVE: ui->mouse_move({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}); return 0;
         case WM_LBUTTONUP: ui->mouse_up({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}); return 0;
         case WM_CAPTURECHANGED: ui->drag.reset(); ui->cancel_mix_drag(); InvalidateRect(hwnd,nullptr,FALSE); return 0;
@@ -1105,10 +1248,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show)
         WNDCLASSW settings = main; settings.lpfnWndProc = settings_proc; settings.lpszClassName = L"MRStudioAudio";
         if (!RegisterClassW(&settings)) throw std::runtime_error("Cannot register settings window");
         const auto window = CreateWindowExW(WS_EX_CONTROLPARENT,main.lpszClassName,L"Moon River Studio",WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-            CW_USEDEFAULT,CW_USEDEFAULT,1280,850,nullptr,nullptr,instance,&ui);
+            CW_USEDEFAULT,CW_USEDEFAULT,1280,980,nullptr,nullptr,instance,&ui);
         if (!window) throw std::runtime_error("Cannot create Studio window");
         MONITORINFO monitor{}; monitor.cbSize = sizeof(monitor); GetMonitorInfoW(MonitorFromWindow(window,MONITOR_DEFAULTTONEAREST),&monitor);
-        SetWindowPos(window,nullptr,monitor.rcWork.left,monitor.rcWork.top,std::min<LONG>(ui.s(1280),monitor.rcWork.right-monitor.rcWork.left),std::min<LONG>(ui.s(850),monitor.rcWork.bottom-monitor.rcWork.top),SWP_NOZORDER);
+        SetWindowPos(window,nullptr,monitor.rcWork.left,monitor.rcWork.top,std::min<LONG>(ui.s(1280),monitor.rcWork.right-monitor.rcWork.left),std::min<LONG>(ui.s(980),monitor.rcWork.bottom-monitor.rcWork.top),SWP_NOZORDER);
         ShowWindow(window,show); UpdateWindow(window);
         MSG msg{};
         for (;;) {

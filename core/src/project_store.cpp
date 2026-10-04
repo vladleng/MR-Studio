@@ -20,6 +20,16 @@ void SetTrackMix::apply(Project& project) const {
     if (track == project.tracks.end() || track->kind == TrackKind::midi) throw std::invalid_argument("unknown audio mixer channel");
     mix_.validate(); track->mix = mix_;
 }
+void SetTrackSends::apply(Project& project) const {
+    auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
+    if (track == project.tracks.end() || track->kind == TrackKind::midi) throw std::invalid_argument("unknown audio mixer channel");
+    track->sends = sends_;
+}
+void SetTrackInput::apply(Project& project) const {
+    auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
+    if (track == project.tracks.end() || track->kind != TrackKind::audio) throw std::invalid_argument("input requires an audio track");
+    track->input = input_;
+}
 void SetTrackOutput::apply(Project& project) const {
     auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
     if (track == project.tracks.end() || track->kind == TrackKind::midi) throw std::invalid_argument("unknown audio mixer channel");

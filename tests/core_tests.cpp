@@ -25,6 +25,32 @@ template<class F> void invalid_project(F edit) {
     edit(project);
     rejects([&] { project.validate(); });
 }
+void sends() {
+    using namespace mrs;
+    auto p = demo_project(); const auto id = p.tracks.front().id;
+    p.tracks.push_back({{"r1"},"Return 1",TrackKind::bus,{}});
+    p.tracks.push_back({{"r2"},"Return 2",TrackKind::bus,{}});
+    ProjectStore store{p};
+    store.execute(SetTrackSends{id,{{{"r1"},0.5f,true},{{"r2"},0.25f,false}}});
+    store.execute(SetTrackInput{id,3});
+    const auto saved = *store.state().project;
+    CHECK(deserialize(serialize(saved)) == saved);
+    store.execute(SetTrackOutput{Id{"r1"},Id{"r2"}});
+    const auto before = store.state();
+    rejects([&] { store.execute(SetTrackSends{Id{"r2"},{{{"r1"},0,false}}}); });
+    rejects([&] { store.execute(SetTrackSends{id,{{{"r1"},1,false},{{"r1"},1,true}}}); });
+    rejects([&] { store.execute(SetTrackSends{id,{{id,1,false}}}); });
+    rejects([&] { store.execute(SetTrackSends{id,{{{"absent"},1,false}}}); });
+    rejects([&] { store.execute(SetTrackSends{id,{{{"r1"},-1,false}}}); });
+    rejects([&] { store.execute(SetTrackInput{Id{"r1"},0}); });
+    CHECK(store.state().revision == before.revision && store.state().project == before.project);
+    store.execute(RemoveTrack{Id{"r1"}});
+    CHECK(store.state().project->tracks.front().sends.size() == 1);
+    CHECK(store.undo() && store.state().project->tracks.front().sends.size() == 2);
+    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT 5"); CHECK(head == 0);
+    const std::string old = "MRS_CORE_SNAPSHOT 4\nPROJECT \"old\" \"Old\" \"\" 48000\nTEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n\"a\" \"Audio\" 0 \"\"\n1 0 0 0\n\"\"\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nMASTER 1\nEND\n";
+    const auto migrated = deserialize(old); CHECK(migrated.tracks.front().sends.empty() && migrated.tracks.front().input == -2);
+}
 void buses() {
     using namespace mrs;
     auto p = demo_project();
@@ -311,7 +337,8 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected test suite");
         const std::string suite = argv[1];
-        if (suite == "buses") buses();
+        if (suite == "sends") sends();
+        else if (suite == "buses") buses();
         else if (suite == "model") model();
         else if (suite == "timeline") timeline();
         else if (suite == "transport") transport();

@@ -88,16 +88,34 @@ void Project::validate() const {
     }
     std::unordered_map<std::string, const Track*> channels;
     for (const auto& track : tracks) channels.emplace(track.id.value,&track);
+    std::unordered_map<std::string,int> color;
     for (const auto& track : tracks) {
-        require(track.kind != TrackKind::midi || !track.output, "MIDI audio output is not supported");
-        std::unordered_set<std::string> visited{track.id.value};
-        auto destination = track.output;
-        while (destination) {
-            require(channels.contains(destination->value), "missing output bus");
+        require(track.kind != TrackKind::midi || (!track.output && track.sends.empty()), "MIDI audio routing is not supported");
+        require(track.input >= -2 && track.input < 64 && (track.kind == TrackKind::audio || track.input == -2), "invalid track input");
+        require(track.sends.size() <= 8, "at most eight sends per channel");
+        std::unordered_set<std::string> destinations;
+        for (const auto& send : track.sends) {
+            require(std::isfinite(send.gain) && send.gain >= 0 && send.gain <= 16, "invalid send gain");
+            require(destinations.insert(send.bus.value).second, "duplicate send destination");
+        }
+    }
+    // Iterative DFS avoids recursion limits for imported projects. Main output and
+    // sends participate in the same DAG, including disabled/zero-level sends.
+    for (const auto& root : tracks) {
+        std::vector<std::pair<const Track*,std::size_t>> stack;
+        if (color[root.id.value] == 2) continue;
+        color[root.id.value] = 1; stack.emplace_back(&root,0);
+        while (!stack.empty()) {
+            auto& [track,index] = stack.back();
+            if (index == track->sends.size()+1) { color[track->id.value] = 2; stack.pop_back(); continue; }
+            const auto edge_index = index++;
+            const auto destination = edge_index == 0 ? track->output : std::optional<Id>{track->sends[edge_index-1].bus};
+            if (!destination) continue;
+            require(channels.contains(destination->value), "missing output/send bus");
             const auto* bus = channels.at(destination->value);
-            require(bus->kind == TrackKind::bus, "output destination must be a bus");
-            require(visited.insert(destination->value).second, "audio routing cycle");
-            destination = bus->output;
+            require(bus->kind == TrackKind::bus, "output/send destination must be a bus");
+            require(color[bus->id.value] != 1, "audio routing cycle");
+            if (color[bus->id.value] == 0) { color[bus->id.value] = 1; stack.emplace_back(bus,0); }
         }
     }
     for (const auto& clip : clips) {

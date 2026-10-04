@@ -41,7 +41,7 @@ the captured WAV stays raw. Undo/Redo and saving remain disabled while recording
 
 ## UI
 
-Mix shows channel strips and a fixed master strip. Drag horizontal gain/pan
+Mix shows channel strips and a fixed master strip. In the original 0.1f UI, drag horizontal gain/pan
 controls; double-click resets to 0 dB/center. Gain covers silence to +12 dB;
 shared contracts accept gain 0..16. Mute and Solo toggle independently.
 Mouse wheel scrolls channel strips. The two bars and dBFS readout show output
@@ -51,3 +51,11 @@ Buses and track/bus outputs are implemented by the subsequent 0.1g slice;
 see BUSES.md for snapshot v4, routing and solo semantics. Sends/returns,
 hardware output routing, device profiles and multi-input recording remain future
 work. #22 remains open until its full scope is accepted.
+
+
+## Current local 0.1h
+
+Mix overlays the arrangement, with vertical gain/master faders and stereo meters.
+Track mini panels expose horizontal gain/meters, a pan knob and a mono input menu.
+Sends/returns, pre/post levels, snapshot v5 and recent projects are implemented;
+see SENDS.md and MRS_STAGE_2C_CHECKLIST.md. User acceptance is pending.

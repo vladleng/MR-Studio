@@ -38,3 +38,9 @@ Bus channels also appear in the project list for rename/reorder, without clips.
 Sends/returns, arbitrary physical outputs, multi-input capture, routing/device
 profiles and individual bus plugin inserts remain subsequent work in #22/#23.
 All build/test/package validation is local, using cached ASIO/PortAudio sources.
+
+
+## Local 0.1h continuation
+Sends/returns and per-track mono input selection are now implemented locally;
+see SENDS.md. Snapshot v5 reads v4 and older. Hardware multi-output/device
+profiles and multi-input capture remain future work. User acceptance is pending.

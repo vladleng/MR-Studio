@@ -18,11 +18,13 @@ struct Preferences {
     int monitor_input{-1}; // -1 disabled; other values are zero-based
     std::string device_name;
     bool reconnect_audio{};
+    std::vector<std::string> recent_projects{};
     bool operator==(const Preferences&) const = default;
     void validate() const;
 };
 std::string encode_preferences(const Preferences&);
 Preferences decode_preferences(std::string_view);
+void remember_project(Preferences&, const std::filesystem::path&);
 std::vector<int> parse_outputs(std::string_view); // one-based comma list -> zero-based
 class Logger {
 public:
@@ -51,7 +53,12 @@ public:
     void new_project(std::uint32_t rate = 48000, std::string title = "Untitled");
     Id add_audio_track(std::string name);
     Id add_bus(std::string name);
+    Id add_return_send(const Id& source, std::string name);
     void set_track_output(const Id&, std::optional<Id>);
+    void set_track_sends(const Id&, std::vector<Track::Send>);
+    void set_send_gain(const Id&, std::size_t, float);
+    void set_track_input(const Id&, int);
+    std::vector<std::string> input_names();
     void remove_track(const Id&);
     void reorder_track(const Id&, std::size_t index);
     void import_wavs(const std::vector<std::filesystem::path>&);
@@ -131,6 +138,8 @@ private:
     // Runtime source aliases preserve ProjectStore Undo while archives use Media/... paths.
     std::map<std::string,std::filesystem::path> owned_media_;
     std::optional<audio::DeviceConfig> device_config_;
+    std::vector<int> default_inputs_;
+    std::vector<int> selected_inputs(const Project&) const;
     std::shared_ptr<const audio::AudioData> asset(const std::string&);
     void cache_asset(std::string, std::shared_ptr<const audio::AudioData>);
     void edit(const ICommand&);

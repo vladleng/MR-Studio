@@ -61,6 +61,8 @@ std::string serialize(const Project& p) {
             << static_cast<int>(track.kind) << ' ' << std::quoted(track.folder ? track.folder->value : "") << '\n';
         out << track.mix.gain << ' ' << track.mix.pan << ' ' << track.mix.mute << ' ' << track.mix.solo << '\n';
         out << std::quoted(track.output ? track.output->value : "") << '\n';
+        out << track.input << ' ' << track.sends.size() << '\n';
+        for (const auto& send : track.sends) out << std::quoted(send.bus.value) << ' ' << send.gain << ' ' << send.pre_fader << '\n';
     }
     section(out, "CLIPS", p.clips);
     for (const auto& clip : p.clips)
@@ -150,6 +152,17 @@ Project deserialize(std::string_view bytes) {
             track.mix.mute = mute != 0; track.mix.solo = solo != 0;
         }
         if (input_version >= 4) track.output = parent(in);
+        if (input_version >= 5) {
+            in >> track.input; check_stream(in);
+            const auto sends = count(in);
+            if (sends > 8) throw std::invalid_argument("send limit exceeded");
+            for (std::size_t j=0; j<sends; ++j) {
+                Track::Send send; send.bus = {quoted(in)}; int pre{};
+                in >> send.gain >> pre; check_stream(in);
+                if (pre != 0 && pre != 1) throw std::invalid_argument("invalid send mode");
+                send.pre_fader = pre != 0; track.sends.push_back(std::move(send));
+            }
+        }
         p.tracks.push_back(std::move(track));
     }
     tag(in, "CLIPS");

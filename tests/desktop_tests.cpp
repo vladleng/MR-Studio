@@ -75,9 +75,11 @@ void wav(const std::filesystem::path& path, std::uint16_t channels = 2) {
 }
 class ManualDevice final : public audio::IAudioDevice {
 public:
-    std::vector<audio::DeviceInfo> enumerate() override { return {{0,"Manual render test",{"Mic"},{"L","R","Cue 1","Cue 2"},32,2048,128,-1}}; }
+    std::vector<audio::DeviceInfo> enumerate() override { return {{0,"Manual render test",{"Mic","Line"},{"L","R","Cue 1","Cue 2"},32,2048,128,-1}}; }
     void control_panel(int) override {}
-    void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>) override { phase_ = audio::DevicePhase::open; }
+    audio::DeviceConfig last_config{};
+    unsigned opens{};
+    void open(const audio::DeviceConfig& c,std::shared_ptr<audio::AudioEngine>) override { last_config=c; ++opens; phase_ = audio::DevicePhase::open; }
     void start() override { phase_ = audio::DevicePhase::running; }
     void stop() override { if (fail_stop_) throw std::runtime_error("test driver stop failure"); phase_ = audio::DevicePhase::stopped; }
     void fail_driver() { phase_ = audio::DevicePhase::error; fail_stop_ = true; }
@@ -110,6 +112,39 @@ void mono_route() {
         for (std::size_t frame = 0; frame < 128; ++frame) for (std::size_t channel = 0; channel < outputs.size(); ++channel)
             CHECK(buffer[frame*outputs.size()+channel] == (channel < 2 ? 0.06103515625f : 0.0f));
     }
+}
+void sends() {
+    Directory dir; Application app; app.new_project(44100);
+    const auto id = app.add_audio_track("Audio"), bus=app.add_bus("Return"), second=app.add_bus("Return 2");
+    auto device=std::make_unique<ManualDevice>(); const auto driver=device.get();
+    app.connect(std::move(device),{0,44100,128,{0},{0,1}});
+    app.set_track_input(id,1); CHECK(driver->last_config.inputs == std::vector<int>{0});
+    app.arm_track(id); CHECK(driver->last_config.inputs == std::vector<int>{1} && driver->opens == 2);
+    app.set_track_sends(id,{{bus,0.5f,true},{second,0.25f,false}}); CHECK(driver->opens == 2);
+    const auto return_count=app.services().projects->state().project->tracks.size();
+    (void)app.add_return_send(id,"Atomic return");
+    CHECK(app.services().projects->state().project->tracks.size() == return_count+1);
+    CHECK(app.undo() && app.services().projects->state().project->tracks.size() == return_count && app.services().projects->state().project->tracks.front().sends.size() == 2);
+    const auto position=app.engine()->state().sample; app.set_track_input(id,-1);
+    CHECK(!app.has_input() && driver->last_config.inputs.empty() && app.engine()->state().sample == position);
+    CHECK(app.undo() && app.has_input() && driver->last_config.inputs == std::vector<int>{1});
+    const auto revision=app.services().projects->state().revision;
+    rejects([&] { app.set_track_input(id,7); }); CHECK(app.services().projects->state().revision == revision);
+    app.play(); std::array<float,256> output{}; app.engine()->process(nullptr,output.data(),128);
+    app.set_send_gain(id,0,0.75f); CHECK(app.undo() && app.redo());
+    rejects([&] { app.set_track_sends(id,{}); }); rejects([&] { app.set_track_input(id,0); });
+    app.pause(); app.engine()->process(nullptr,output.data(),128);
+    const auto file=dir.path/"sends.mrsproject"; app.save_project(file);
+    const auto saved=*app.services().projects->state().project; app.open_project(file); CHECK(*app.services().projects->state().project == saved);
+    CHECK(saved.tracks.front().input == 1 && saved.tracks.front().sends.front().gain == 0.75f);
+    app.remove_track(bus); CHECK(app.services().projects->state().project->tracks.front().sends.size() == 1);
+    CHECK(app.undo() && app.services().projects->state().project->tracks.front().sends.size() == 2);
+    Preferences p; for (int n=0; n<12; ++n) remember_project(p,dir.path/(std::to_string(n)+".mrsproject"));
+    CHECK(p.recent_projects.size() == 10); const auto last=p.recent_projects.front();
+    remember_project(p,dir.path/"11.mrsproject"); CHECK(p.recent_projects.front() == last && p.recent_projects.size() == 10);
+    CHECK(decode_preferences(encode_preferences(p)) == p);
+    CHECK(decode_preferences("MRS_DESKTOP_CONFIG 2\n0 48000 128 -1 \"\" 2 0 1 0\n").recent_projects.empty());
+    rejects([&] { (void)decode_preferences("MRS_DESKTOP_CONFIG 3\n0 48000 128 -1 \"\" 2 0 1 0\n11\n"); });
 }
 void buses() {
     Directory dir; const auto file = dir.path / "bus.wav"; wav(file,1);
@@ -611,7 +646,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected suite");
         std::string name = argv[1];
-        if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
+        if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
         else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else if (name == "recording") recording(); else if (name == "project_folders") project_folders(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;
