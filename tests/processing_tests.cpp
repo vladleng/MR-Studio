@@ -258,12 +258,35 @@ void channel_eq(){
     CHECK(runtime.enqueue_parameters(changed));for(int n=0;n<62;++n)CHECK(runtime.enqueue_parameters(changed));CHECK(!runtime.enqueue_parameters(changed));runtime.process(buffer.data(),128);CHECK(runtime.enqueue_parameters(changed));
 }
 
+void cab_ir(){
+    using namespace mrs;NativeInsert fx;fx.id={"cab"};fx.kind=InsertKind::cab_ir;fx.ir.name="Known stereo kernel";fx.ir.channels=2;fx.ir.samples.assign(1400,0.f);
+    fx.ir.samples[0]=.5f;fx.ir.samples[1]=-.25f;fx.ir.samples[2*127]=.125f;fx.ir.samples[2*128]=.25f;fx.ir.samples[2*255+1]=.5f;fx.ir.samples[2*256]=-.125f;fx.ir.samples[2*699]=.1f;
+    auto state=insert_graph(std::array{fx});PreparedGraph graph{snapshot(state),{48000,2,257}};CHECK(graph.latency().output==0);
+    std::vector<float> actual(2200);actual[0]=actual[1]=1;allocations=0;probing=true;
+    for(std::size_t first=0;first<1100;){const auto count=std::min<std::size_t>(first%3==0?17:257,1100-first);graph.process(actual.data()+first*2,static_cast<std::uint32_t>(count));first+=count;}
+    probing=false;CHECK(allocations==0);for(std::size_t i=0;i<actual.size();++i)CHECK(std::abs(actual[i]-(i<fx.ir.samples.size()?fx.ir.samples[i]:0.f))<2e-6f);
+    // Dense reference convolution across partition boundaries, no L/R crosstalk.
+    fx.ir.channels=1;fx.ir.samples.resize(531);for(std::size_t j=0;j<fx.ir.samples.size();++j)fx.ir.samples[j]=static_cast<float>(.02*std::cos(j*.13)*std::exp(-static_cast<double>(j)/100.));
+    PreparedGraph dense{snapshot(insert_graph(std::array{fx})),{48000,2,113}};std::vector<float> input(1700),expected(1700);for(std::size_t f=0;f<400;++f)input[f*2]=static_cast<float>(.2*std::sin(f*.37));
+    for(std::size_t f=0;f<850;++f){double value{};for(std::size_t j=0;j<fx.ir.samples.size()&&j<=f;++j)value+=fx.ir.samples[j]*input[(f-j)*2];expected[f*2]=static_cast<float>(value);}
+    for(std::size_t f=0;f<850;f+=113)dense.process(input.data()+f*2,static_cast<std::uint32_t>(std::min<std::size_t>(113,850-f)));for(std::size_t j=0;j<input.size();++j)CHECK(std::abs(input[j]-expected[j])<2e-6f);
+    auto captured=dense.capture();PreparedGraph restored{snapshot(captured),{48000,2,128}};CHECK(restored.latency().output==0);
+    fx.ir.mix=0;PreparedGraph dry{snapshot(insert_graph(std::array{fx})),{48000,2,128}};std::array<float,256> buffer{};buffer.fill(.25f);dry.process(buffer.data(),128);for(auto v:buffer)CHECK(v==.25f);
+    fx.ir.mix=1;fx.ir.invert=true;fx.gain=2;fx.ir.samples={.5f};PreparedGraph inverted{snapshot(insert_graph(std::array{fx})),{48000,2,128}};buffer.fill(.25f);inverted.process(buffer.data(),128);for(auto v:buffer)CHECK(std::abs(v+.25f)<1e-6f);
+    fx.ir.invert=false;fx.gain=1;fx.ir.samples={1};auto wire=insert_graph(std::array{fx});PreparedGraph live{snapshot(wire),{48000,2,128}};fx.ir.mix=.3f;fx.ir.low_cut=100;fx.ir.high_cut=6000;fx.gain=.5f;CHECK(live.enqueue_parameters(insert_graph(std::array{fx})));allocations=0;probing=true;for(int n=0;n<100;++n){buffer.fill(.1f);live.process(buffer.data(),128);}probing=false;CHECK(allocations==0);for(float v:buffer)CHECK(std::isfinite(v));
+    auto project=demo_project();project.tracks.front().inserts={fx};CHECK(deserialize(serialize(project))==project);
+    fx.ir.sample_rate=24000;fx.ir.samples.assign(500,0.f);fx.ir.samples[200]=1;fx.ir.low_cut=20;fx.ir.high_cut=20000;fx.ir.mix=1;fx.gain=1;PreparedGraph resample{snapshot(insert_graph(std::array{fx})),{48000,1,128}};std::array<float,128> mono{};double integral{};std::size_t maximum{};float peak{};for(int n=0;n<10;++n){mono.fill(0);if(n==0)mono[0]=1;resample.process(mono.data(),128);for(std::size_t f=0;f<128;++f){integral+=mono[f];if(mono[f]>peak){peak=mono[f];maximum=n*128+f;}}}CHECK(maximum==400&&std::abs(integral-1)<.003);
+    const auto response=[](float low,float high,double hz){NativeInsert filter;filter.id={"cab-filter"};filter.kind=InsertKind::cab_ir;filter.ir.samples={1};filter.ir.low_cut=low;filter.ir.high_cut=high;PreparedGraph runtime{snapshot(insert_graph(std::array{filter})),{48000,1,128}};std::array<float,128> wave{};double output{},reference{};for(int n=0;n<100;++n){for(std::size_t j=0;j<128;++j){wave[j]=static_cast<float>(.1*std::sin(2*3.141592653589793*hz*(n*128+j)/48000));if(n>32)reference+=wave[j]*wave[j];}runtime.process(wave.data(),128);if(n>32)for(float v:wave)output+=v*v;}return std::sqrt(output/reference);};CHECK(response(500,20000,50)<.12&&response(20,1000,10000)<.12&&response(20,20000,1000)>.99);
+    auto invalid=fx;invalid.ir.samples.clear();rejects([&]{invalid.validate();});invalid=fx;invalid.ir.channels=3;rejects([&]{invalid.validate();});invalid=fx;invalid.ir.samples[0]=std::numeric_limits<float>::quiet_NaN();rejects([&]{invalid.validate();});invalid=fx;invalid.ir.low_cut=10000;invalid.ir.high_cut=5000;rejects([&]{invalid.validate();});
+    auto truncated=cab_ir_state(fx.ir);truncated.component.pop_back();auto processor=cab_ir_factory();processor->prepare({48000,2,128});rejects([&]{processor->restore(truncated);});rejects([&]{PreparedGraph unsupported{snapshot(insert_graph(std::array{fx})),{384000,2,128}};});
+}
+
 }
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected suite");
         const std::string suite = argv[1];
-        if (suite == "channel_eq") channel_eq(); else if (suite == "filters") filters(); else if (suite == "midi") midi(); else if (suite == "model") model();
+        if(suite=="cab_ir")cab_ir();else if (suite == "channel_eq") channel_eq(); else if (suite == "filters") filters(); else if (suite == "midi") midi(); else if (suite == "model") model();
         else if (suite == "graph") graph(); else if (suite == "parameters") parameters();
         else if (suite == "state") state(); else if (suite == "latency") latency();
         else if (suite == "engine") engine(); else if (suite == "realtime") realtime();

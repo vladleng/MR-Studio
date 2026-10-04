@@ -381,7 +381,7 @@ void Application::set_hardware_output(std::optional<Id> track, std::vector<int> 
 namespace {
 bool parameter_only(const std::vector<NativeInsert>& before,const std::vector<NativeInsert>& after){
     if(before.size()!=after.size())return false;
-    for(std::size_t i=0;i<before.size();++i){auto a=before[i],b=after[i];a.gain=b.gain;a.frequency=b.frequency;a.q=b.q;a.bands=b.bands;
+    for(std::size_t i=0;i<before.size();++i){auto a=before[i],b=after[i];a.gain=b.gain;a.frequency=b.frequency;a.q=b.q;a.bands=b.bands;a.ir.mix=b.ir.mix;a.ir.low_cut=b.ir.low_cut;a.ir.high_cut=b.ir.high_cut;a.ir.invert=b.ir.invert;
         // Native EQ/gain/filter parameters and bypass may change without rebuilding.
         if(a.kind!=InsertKind::vst3)a.bypass=b.bypass;else a.parameters=b.parameters;
         if(a!=b)return false;
@@ -400,6 +400,7 @@ void Application::set_inserts(std::optional<Id> track, std::vector<NativeInsert>
     if(parameter_only(insert_chain(*p,track),inserts)){auto candidate=*p;SetInserts{track,inserts}.apply(candidate);candidate.validate();preview_inserts(track,inserts);services_.projects->execute(SetInserts{track,std::move(inserts)});}
     else {
         require_not_playing();
+        for(const auto& fx:inserts)if(fx.kind==InsertKind::cab_ir){auto state=processing::insert_graph(std::array{fx});const auto channels=device_config_?static_cast<std::uint32_t>(device_config_->outputs.size()):2;processing::PreparedGraph checked{{std::make_shared<const processing::GraphState>(state),0,false,false},{p->sample_rate,channels,64}};}
 #ifdef MRS_HAS_VST3
         const auto& current=insert_chain(*p,track);
         for(const auto& fx:inserts)if(fx.kind==InsertKind::vst3 && std::none_of(current.begin(),current.end(),[&](const auto& old){return old.id==fx.id&&old.plugin_path==fx.plugin_path&&old.class_id==fx.class_id;})){

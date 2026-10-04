@@ -53,14 +53,21 @@ void Track::Mix::validate() const {
     require(std::isfinite(gain) && gain >= 0 && gain <= 16 &&
         std::isfinite(pan) && pan >= -1 && pan <= 1, "invalid track mix");
 }
+void CabIr::validate() const {
+    require(name.size()<=4096 && sample_rate>=8000 && sample_rate<=192000 && (channels==1 || channels==2), "Cab IR requires mono/stereo at 8–192 kHz");
+    require(!samples.empty() && samples.size()%channels==0 && samples.size()/channels<=sample_rate, "Cab IR length must be greater than zero and at most one second");
+    bool nonzero=false; for(float v:samples){require(std::isfinite(v) && std::abs(v)<=16,"invalid Cab IR sample");nonzero|=v!=0;}require(nonzero,"Cab IR is silent");
+    require(std::isfinite(mix)&&mix>=0&&mix<=1&&std::isfinite(low_cut)&&low_cut>=20&&low_cut<=20000&&std::isfinite(high_cut)&&high_cut>=20&&high_cut<=20000&&low_cut<high_cut,"invalid Cab IR controls");
+}
 void NativeInsert::validate() const {
+    if(kind==InsertKind::cab_ir)ir.validate();
     for (const auto& b : bands) require(std::isfinite(b.frequency) && b.frequency>=20 && b.frequency<=20000 && std::isfinite(b.gain) && b.gain>=-24 && b.gain<=24 && std::isfinite(b.q) && b.q>=0.1f && b.q<=10,"invalid EQ band");
     require(component_state.size()<=1024*1024 && controller_state.size()<=1024*1024 && parameters.size()<=4096,"plugin state budget exceeded");
     if (kind==InsertKind::vst3) {
         require(!plugin_path.empty() && plugin_path.size()<=32768 && plugin_name.size()<=4096 && class_id.size()==32 && class_id.find_first_not_of("0123456789abcdefABCDEF")==std::string::npos,"invalid VST3 identity");
         for (std::size_t i=0;i<parameters.size();++i) { const auto& p=parameters[i]; require(std::isfinite(p.value) && p.value>=0 && p.value<=1,"invalid VST3 parameter"); for(std::size_t j=0;j<i;++j) require(p.id!=parameters[j].id,"duplicate VST3 parameter"); }
     }
-    require(kind >= InsertKind::gain && kind <= InsertKind::vst3,"invalid insert kind");
+    require(kind >= InsertKind::gain && kind <= InsertKind::cab_ir,"invalid insert kind");
     require(std::isfinite(gain) && (kind == InsertKind::eq ? gain >= -24 && gain <= 24 : gain >= 0 && gain <= 4),"invalid insert gain");
     require(std::isfinite(frequency) && frequency >= 20 && frequency <= 20000 && std::isfinite(q) && q >= 0.1f && q <= 10,"invalid filter frequency/Q");
 }

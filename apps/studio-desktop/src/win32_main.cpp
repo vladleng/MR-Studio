@@ -5,6 +5,7 @@
 #include <commdlg.h>
 #include <shlobj.h>
 #include <shellapi.h>
+#include <commctrl.h>
 #include <mrs/desktop.hpp>
 #include <mrs/vst3.hpp>
 #include <mrs/version.hpp>
@@ -73,6 +74,7 @@ std::filesystem::path pick(HWND owner, bool save, bool wav = false, const std::f
     }
     return std::filesystem::path(path.data());
 }
+std::filesystem::path impulse_folder(){wchar_t exe[32768]{};GetModuleFileNameW(nullptr,exe,32768);return std::filesystem::path(exe).parent_path()/L"Impulses";}
 std::vector<std::filesystem::path> pick_wavs(HWND owner) {
     std::array<wchar_t,65536> paths{};
     OPENFILENAMEW ofn{}; ofn.lStructSize = sizeof(ofn); ofn.hwndOwner = owner;
@@ -96,7 +98,8 @@ enum ControlId {
     record_button = 172, arm_button, monitor_button, add_bus_button, files_exit = 180, studio_folder_button,
     device_combo = 200, rate_edit, buffer_edit, outputs_edit, input_edit,
     connect_button, disconnect_button, panel_button, refresh_button, profile_combo = 220, profile_name, profile_save, profile_load, profile_delete,
-    fx_list=300, fx_kind, fx_add, fx_remove, fx_up, fx_down, fx_bypass, fx_value, fx_frequency, fx_q, fx_apply, fx_band, fx_band_enable, fx_scan, fx_editor, fx_status
+    fx_list=300, fx_kind, fx_add, fx_remove, fx_up, fx_down, fx_bypass, fx_value, fx_frequency, fx_q, fx_apply, fx_band, fx_band_enable, fx_scan, fx_editor, fx_status,
+    browser_tab=340, browser_tree, browser_scan, ir_load, ir_mix, ir_low, ir_high, ir_polarity, ir_preset, ir_name, fx_hint, fx_gain_label, fx_frequency_label, fx_q_label
 };
 // Hidden smoke transport has one explicit callback consumer: the test steps.
 class SmokeDevice final : public audio::IAudioDevice {
@@ -121,10 +124,19 @@ struct UI {
     std::size_t fx_selection{};
     bool fx_editable{};
     HWND eq_window{},vst_editor{};
+    std::optional<Id> editor_target;Id editor_slot;
     std::size_t eq_band{2},vst_parameter{};
     std::optional<std::vector<NativeInsert>> fx_preview;
     POINT eq_origin{};EqBand eq_original{};bool eq_dragging{};
     std::vector<processing::VstPlugin> vst_catalog;
+    RECT browser_area{};
+    std::optional<std::size_t> plugin_drag;
+    std::optional<Id> plugin_drop_track;
+    bool plugin_drop_valid{};
+    POINT plugin_drag_point{};
+    static LRESULT CALLBACK tab_proc(HWND,UINT,WPARAM,LPARAM,UINT_PTR,DWORD_PTR);
+    void browser_refresh();void browser_notify(NMHDR*);void browser_move(POINT);void browser_up(POINT);void browser_cancel();void browser_scan_poll();
+    void open_insert(std::optional<Id>,std::size_t);void open_vst(std::optional<Id>,const Id&,const std::string&);
     std::vector<processing::ParameterInfo> fx_parameters;
     std::future<std::vector<processing::VstPlugin>> vst_scan;
     std::shared_ptr<std::atomic<bool>> vst_scan_cancel{std::make_shared<std::atomic<bool>>(false)};
@@ -255,6 +267,13 @@ struct UI {
             {zoom_in,L"Zoom +"},{zoom_out,L"Zoom -"},{zoom_fit,L"Fit"}}}) button(window,label,id);
         button(window,L"Record (R)",record_button); button(window,L"Arm track",arm_button); button(window,L"Monitor on",monitor_button);
         button(window,L"+ Bus",add_bus_button);
+        create(window,WC_TABCONTROLW,L"",browser_tab,WS_TABSTOP);TCITEMW item{};item.mask=TCIF_TEXT;wchar_t label[]=L"VST3";item.pszText=label;TabCtrl_InsertItem(child(browser_tab),0,&item);SetWindowSubclass(child(browser_tab),tab_proc,1,reinterpret_cast<DWORD_PTR>(this));
+        create(window,WC_TREEVIEWW,L"",browser_tree,WS_TABSTOP|WS_BORDER|TVS_HASBUTTONS|TVS_HASLINES|TVS_LINESATROOT|TVS_SHOWSELALWAYS);
+        TreeView_SetBkColor(child(browser_tree),background);TreeView_SetTextColor(child(browser_tree),ink);TreeView_SetLineColor(child(browser_tree),border);button(window,L"Scan VST3…",browser_scan);
+#ifdef MRS_HAS_VST3
+        if(!smoke&&vst_catalog.empty())try{vst_catalog=processing::load_vst3_cache(folder/L"vst3.cache");}catch(const std::exception& e){log.write(e.what());}
+#endif
+        browser_refresh();
         button(window,L"Split (S)",split_clip_button); button(window,L"Del clip",delete_clip_button); button(window,L"Snap off",snap_button);
         create(window,L"LISTBOX",L"",tracks,WS_TABSTOP | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT);
         create(window,L"EDIT",L"",rename_edit,WS_TABSTOP | ES_AUTOHSCROLL | WS_BORDER);
@@ -278,7 +297,9 @@ struct UI {
         int x=12; for (auto id : {play,pause,stop,previous,next,loop}) { const int w=id >= previous ? 94 : 60; move(id,x,height-66,w,30); x+=w+6; }
         move(record_button,x,height-66,86,30);
         move(tracks,12,100,272,std::max(70,height-200));
-        canvas={s(300),s(84),area.right-s(12),area.bottom-s(84)};
+        const int sidebar=width<1200?210:260;browser_area={area.right-s(sidebar+12),s(84),area.right-s(12),area.bottom-s(84)};
+        canvas={s(300),s(84),browser_area.left-s(10),area.bottom-s(84)};
+        move(browser_tab,width-sidebar-12,84,sidebar,30);move(browser_scan,width-sidebar-4,124,sidebar-16,28);move(browser_tree,width-sidebar-4,162,sidebar-16,std::max(60,height-278));
         sync_workspace_controls();
         InvalidateRect(window,nullptr,FALSE);
     }
@@ -763,7 +784,7 @@ struct UI {
     }
     RECT mix_area() const {
         const auto h=canvas.bottom-canvas.top;
-        const int mixer_height=std::clamp(static_cast<int>(h/2),s(250),s(400));
+        const int mixer_height=std::clamp(static_cast<int>(h*0.65),s(380),s(460));
         return {s(8),std::max<LONG>(canvas.top+s(120),canvas.bottom-mixer_height),canvas.right,canvas.bottom};
     }
     std::vector<Track> mix_tracks() const {
@@ -776,14 +797,18 @@ struct UI {
         const int x = master ? area.right-s(146) : area.left+s(8)+static_cast<int>(index)*s(120);
         return {x,area.top+s(44),x+s(112),area.bottom-s(8)};
     }
+    std::size_t visible_insert_slots(RECT r) const {return r.bottom-r.top>=s(320)?3:1;}
+    int mix_controls_top(RECT r) const {return s(63+static_cast<int>(visible_insert_slots(r))*23);}
     RECT mix_control(RECT r, int row) const {
-        if (row == 34) return {r.left+s(12),r.top+s(60),r.left+s(48),r.bottom-s(78)};
-        if (row == 68) return {r.left+s(60),r.top+s(56),r.right-s(8),r.top+s(78)};
+        const auto top=mix_controls_top(r);
+        if (row == 34) return {r.left+s(12),r.top+top,r.left+s(48),r.bottom-s(78)};
+        if (row == 68) return {r.left+s(60),r.top+top-s(2),r.right-s(8),r.top+top+s(20)};
         if (row == 164) return {r.left+s(8),r.bottom-s(54),r.right-s(8),r.bottom-s(30)};
         if (row == 220) return {r.left+s(8),r.bottom-s(28),r.right-s(8),r.bottom-s(4)};
         return {r.left+s(10),r.top+s(row),r.right-s(10),r.top+s(row+22)};
     }
     RECT insert_control(RECT r) const { return {r.left+s(8),r.top+s(28),r.right-s(8),r.top+s(52)}; }
+    RECT insert_slot(RECT r,std::size_t index) const {return {r.left+s(8),r.top+s(54+static_cast<int>(index)*23),r.right-s(8),r.top+s(75+static_cast<int>(index)*23)};}
     RECT output_control(RECT r, bool bus) const { auto result = mix_control(r,164); if (bus) result.right -= s(36); return result; }
     RECT remove_bus_control(RECT r) const { auto result = mix_control(r,164); result.left = result.right-s(32); return result; }
     RECT regulator_handle(RECT r,float value,bool vertical,bool pan) const {
@@ -811,6 +836,9 @@ struct UI {
             text(dc,r.left+s(8),r.top,r.right-r.left-s(16),s(28),track ? (track->kind == TrackKind::bus ? L"[BUS] " : L"")+wide(track->name) : L"MASTER",normal,track && track->kind != TrackKind::bus ? ink : amber);
             const auto effects=track ? track->inserts.size() : app.services().projects->state().project->master_inserts.size();
             const auto insert=insert_control(r); fill(dc,insert,border); text(dc,insert.left,insert.top,insert.right-insert.left,insert.bottom-insert.top,L"Inserts ("+std::to_wstring(effects)+L")...");
+            const auto& chain=track?track->inserts:app.services().projects->state().project->master_inserts;
+            for(std::size_t i=0;i<std::min(visible_insert_slots(r),chain.size());++i){auto slot=insert_slot(r,i);fill(dc,slot,RGB(29,33,38));text(dc,slot.left+s(3),slot.top,slot.right-slot.left-s(6),slot.bottom-slot.top,chain[i].kind==InsertKind::vst3?wide(chain[i].plugin_name):chain[i].kind==InsertKind::cab_ir?L"Cab IR":chain[i].kind==InsertKind::channel_eq?L"Channel EQ":L"Gain",normal,chain[i].bypass?muted:ink);}
+            if(plugin_drag&&plugin_drop_valid&&((track&&plugin_drop_track==track->id)||(!track&&!plugin_drop_track))){line(dc,r.left,r.top,r.right,r.top,accent);line(dc,r.left,r.top,r.left,r.bottom,accent);line(dc,r.right-1,r.top,r.right-1,r.bottom,accent);}
             const auto g = mix_control(r,34); fill(dc,g,RGB(26,26,26));
             const int gy = g.bottom-static_cast<int>(fader_position(gain)*(g.bottom-g.top));
             line(dc,(g.left+g.right)/2,g.top+s(3),(g.left+g.right)/2,g.bottom-s(3),border);
@@ -821,13 +849,13 @@ struct UI {
                 const auto p = mix_control(r,68); fill(dc,p,border);
                 line(dc,p.left,(p.top+p.bottom)/2,p.right,(p.top+p.bottom)/2,muted);
                 fill(dc,regulator_handle(p,mix.pan,false,true),accent);
-                RECT m{r.left+s(60),r.top+s(82),r.right-s(8),r.top+s(102)}, solo{m.left,r.top+s(104),m.right,r.top+s(126)};
+                const auto top=mix_controls_top(r);RECT m{r.left+s(60),r.top+top+s(24),r.right-s(8),r.top+top+s(44)}, solo{m.left,r.top+top+s(46),m.right,r.top+top+s(68)};
                 fill(dc,m,mix.mute ? RGB(143,67,56) : border); fill(dc,solo,mix.solo ? RGB(132,105,44) : border);
                 text(dc,m.left,m.top,m.right-m.left,m.bottom-m.top,L"Mute"); text(dc,solo.left,solo.top,solo.right-solo.left,solo.bottom-solo.top,L"Solo");
             }
             for (int c=0; c<2; ++c) {
                 const float v = c == 0 ? peak.left : peak.right;
-                RECT meter{r.left+s(64+c*18),r.top+s(130),r.left+s(74+c*18),r.bottom-s(80)}; fill(dc,meter,RGB(22,22,22));
+                RECT meter{r.left+s(64+c*18),std::min(r.top+mix_controls_top(r)+s(72),r.bottom-s(86)),r.left+s(74+c*18),r.bottom-s(80)}; fill(dc,meter,RGB(22,22,22));
                 const float fraction = v > 0 ? std::clamp((20*std::log10(v)+60)/60,0.0f,1.0f) : 0;
                 fill(dc,{meter.left,meter.bottom-static_cast<int>(fraction*(meter.bottom-meter.top)),meter.right,meter.bottom},v >= 1 ? RGB(230,70,60) : v > 0.7f ? amber : RGB(100,178,126));
             }
@@ -1034,6 +1062,7 @@ struct UI {
             auto mix = t ? t->mix : Track::Mix{};
             if (t && selected_track != t->id) { selected_track = t->id; refresh_models(); }
             const auto insert=insert_control(r); if (PtInRect(&insert,point)) { open_fx(t ? std::optional<Id>{t->id} : std::nullopt); return; }
+            const auto& chain=t?t->inserts:app.services().projects->state().project->master_inserts;for(std::size_t i=0;i<std::min(visible_insert_slots(r),chain.size());++i){const auto hit=insert_slot(r,i);if(PtInRect(&hit,point)){open_insert(t?std::optional<Id>{t->id}:std::nullopt,i);return;}}
             const auto route = output_control(r,t && t->kind == TrackKind::bus), remove = remove_bus_control(r);
             if (PtInRect(&route,point)) { choose_bus(t,point); return; }
             if (t && t->kind == TrackKind::bus && PtInRect(&remove,point)) {
@@ -1058,8 +1087,8 @@ struct UI {
                 if(!PtInRect(&handle,point)){mix_drag.reset();return;}
                 mix_drag->origin=point;mix_drag->initial=pan?(mix.pan+1)*0.5f:fader_position(t?mix.gain:mix_drag->master);SetCapture(window);return;
             }
-            if (t && point.x >= r.left+s(60) && point.y >= r.top+s(82) && point.y < r.top+s(126)) {
-                if (point.y < r.top+s(103)) mix.mute = !mix.mute; else mix.solo = !mix.solo;
+            if (t && point.x >= r.left+s(60) && point.y >= r.top+mix_controls_top(r)+s(24) && point.y < r.top+mix_controls_top(r)+s(68)) {
+                if (point.y < r.top+mix_controls_top(r)+s(45)) mix.mute = !mix.mute; else mix.solo = !mix.solo;
                 app.set_track_mix(t->id,mix); refresh_models();
             }
             return;
@@ -1084,6 +1113,7 @@ struct UI {
     }
     void paint(HDC dc) {
         RECT area{}; GetClientRect(window,&area); fill(dc,area,background);
+        fill(dc,browser_area,panel);text(dc,browser_area.left+s(8),browser_area.bottom-s(26),browser_area.right-browser_area.left-s(16),s(24),vst_scan.valid()?L"Scanning…":vst_catalog.empty()?L"Scan a folder to find VST3":L"Drag an effect onto a mixer channel",normal,muted);
         fill(dc,{0,0,area.right,s(78)},panel); line(dc,0,s(78),area.right,s(78));
         const auto& context=app.musical().state();
         std::wostringstream position; position << L"Bar " << context.transport.musical.bar << L" : " << context.transport.musical.beat
@@ -1147,7 +1177,7 @@ struct UI {
         std::vector<char> pixels(static_cast<std::size_t>(area.right)*area.bottom*4);
         if (!GetDIBits(dc,bitmap,0,static_cast<UINT>(area.bottom),pixels.data(),&info,DIB_RGB_COLORS)) throw std::runtime_error("Cannot capture UI preview");
         BITMAPFILEHEADER header{}; header.bfType=0x4d42; header.bfOffBits=sizeof(header)+sizeof(BITMAPINFOHEADER); header.bfSize=header.bfOffBits+static_cast<DWORD>(pixels.size());
-        std::ofstream out(folder/(target==window ? L"0.1l-preview.bmp" : L"0.1l-inserts-preview.bmp"),std::ios::binary);
+        std::ofstream out(folder/(target==window ? L"0.1m-preview.bmp" : L"0.1m-inserts-preview.bmp"),std::ios::binary);
         out.write(reinterpret_cast<const char*>(&header),sizeof(header)); out.write(reinterpret_cast<const char*>(&info.bmiHeader),sizeof(BITMAPINFOHEADER)); out.write(pixels.data(),static_cast<std::streamsize>(pixels.size()));
         DeleteObject(bitmap); DeleteDC(buffer); ReleaseDC(target,dc);
         if (!out) throw std::runtime_error("Cannot write UI preview");
@@ -1201,7 +1231,33 @@ std::vector<NativeInsert> fx_chain(const UI& ui) {
 LRESULT CALLBACK eq_proc(HWND hwnd,UINT message,WPARAM wparam,LPARAM lparam);
 LRESULT CALLBACK plugin_editor_proc(HWND hwnd,UINT message,WPARAM wparam,LPARAM lparam);
 std::wstring fx_name(InsertKind kind) {
-    switch(kind){case InsertKind::gain:return L"Gain";case InsertKind::highpass:return L"High-pass (legacy)";case InsertKind::lowpass:return L"Low-pass (legacy)";case InsertKind::eq:return L"EQ (legacy)";case InsertKind::channel_eq:return L"Channel EQ · 3 bands + HP / LP";default:return L"VST3";}
+    switch(kind){case InsertKind::gain:return L"Gain";case InsertKind::highpass:return L"High-pass (legacy)";case InsertKind::lowpass:return L"Low-pass (legacy)";case InsertKind::eq:return L"EQ (legacy)";case InsertKind::channel_eq:return L"Channel EQ · 3 bands + HP / LP";case InsertKind::cab_ir:return L"Cab IR";default:return L"VST3";}
+}
+LRESULT CALLBACK UI::tab_proc(HWND hwnd,UINT message,WPARAM wparam,LPARAM lparam,UINT_PTR,DWORD_PTR reference){auto ui=reinterpret_cast<UI*>(reference);if(message==WM_ERASEBKGND)return 1;if(message==WM_PAINT||message==WM_PRINTCLIENT){PAINTSTRUCT ps{};auto dc=message==WM_PAINT?BeginPaint(hwnd,&ps):reinterpret_cast<HDC>(wparam);RECT r{};GetClientRect(hwnd,&r);ui->fill(dc,r,panel);ui->fill(dc,{0,0,ui->s(70),r.bottom},background);ui->text(dc,ui->s(8),0,ui->s(60),r.bottom,L"VST3",ui->normal,ink);ui->line(dc,0,r.bottom-1,ui->s(70),r.bottom-1,accent);if(message==WM_PAINT)EndPaint(hwnd,&ps);return 0;}return DefSubclassProc(hwnd,message,wparam,lparam);}
+void UI::browser_refresh(){
+    browser_cancel();auto tree=child(browser_tree);if(!tree)return;SendMessageW(tree,WM_SETREDRAW,FALSE,0);TreeView_DeleteAllItems(tree);
+    std::map<std::wstring,std::vector<std::size_t>> vendors;for(std::size_t i=0;i<vst_catalog.size();++i)vendors[vst_catalog[i].vendor.empty()?L"Unknown vendor":wide(vst_catalog[i].vendor)].push_back(i);
+    for(auto& [vendor,plugins]:vendors){TVINSERTSTRUCTW item{};item.hParent=TVI_ROOT;item.hInsertAfter=TVI_LAST;item.item.mask=TVIF_TEXT|TVIF_PARAM;auto vendor_label=vendor;item.item.pszText=vendor_label.data();auto parent=TreeView_InsertItem(tree,&item);
+        std::sort(plugins.begin(),plugins.end(),[&](auto a,auto b){return vst_catalog[a].name<vst_catalog[b].name;});for(auto index:plugins){auto name=wide(vst_catalog[index].name);item.hParent=parent;item.item.pszText=name.data();item.item.lParam=static_cast<LPARAM>(index+1);TreeView_InsertItem(tree,&item);}TreeView_Expand(tree,parent,TVE_EXPAND);}
+    SendMessageW(tree,WM_SETREDRAW,TRUE,0);InvalidateRect(tree,nullptr,FALSE);InvalidateRect(window,&browser_area,FALSE);
+}
+void UI::browser_notify(NMHDR* header){if(header->idFrom!=browser_tree||header->code!=TVN_BEGINDRAGW)return;const auto event=reinterpret_cast<NMTREEVIEWW*>(header);if(event->itemNew.lParam<=0)return;const auto index=static_cast<std::size_t>(event->itemNew.lParam-1);if(index>=vst_catalog.size())return;
+    if(app.workspace()!=Workspace::mix){command(nav_mix,0);}if(app.recording()||app.engine()->state().playback==PlaybackState::playing)throw std::invalid_argument("Pause/Stop before adding a plugin");plugin_drag=index;SetCapture(window);POINT point=event->ptDrag;MapWindowPoints(child(browser_tree),window,&point,1);browser_move(point);
+}
+void UI::browser_move(POINT point){if(!plugin_drag)return;plugin_drag_point=point;plugin_drop_valid=false;plugin_drop_track.reset();const auto all=mix_tracks();const auto area=mix_area();if(PtInRect(&area,point))for(std::size_t slot=0;slot<=all.size();++slot){const bool master=slot==all.size();if(!master&&slot<first_mix_track)continue;const auto rect=mix_strip(master?0:slot-first_mix_track,master);if(!master&&rect.right>area.right-s(154))continue;if(PtInRect(&rect,point)){plugin_drop_valid=true;if(!master)plugin_drop_track=all[slot].id;break;}}
+    SetCursor(LoadCursorW(nullptr,plugin_drop_valid?IDC_CROSS:IDC_NO));InvalidateRect(window,&area,FALSE);
+}
+void UI::browser_cancel(){if(!plugin_drag)return;plugin_drag.reset();plugin_drop_valid=false;plugin_drop_track.reset();if(GetCapture()==window)ReleaseCapture();const auto area=mix_area();InvalidateRect(window,&area,FALSE);}
+void UI::browser_up(POINT point){if(!plugin_drag)return;browser_move(point);const auto index=*plugin_drag;const auto target=plugin_drop_track;const bool valid=plugin_drop_valid;browser_cancel();if(!valid||index>=vst_catalog.size())return;
+    const auto project=app.services().projects->state().project;auto chain=project->master_inserts;if(target)for(const auto& track:project->tracks)if(track.id==target)chain=track.inserts;const auto& plugin=vst_catalog[index];NativeInsert fx;fx.id=new_id();fx.kind=InsertKind::vst3;fx.plugin_path=plugin.path;fx.class_id=plugin.class_id;fx.plugin_name=plugin.name;chain.push_back(std::move(fx));close_vst_editor();app.set_inserts(target,std::move(chain));refresh_models();
+}
+void UI::browser_scan_poll(){if(!vst_scan.valid()||vst_scan.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;vst_catalog=vst_scan.get();browser_refresh();fx_catalog_refresh();fx_refresh();enable_changed(browser_scan,true);}
+void UI::open_insert(std::optional<Id> target,std::size_t index){const auto project=app.services().projects->state().project;const std::vector<NativeInsert>* chain=&project->master_inserts;if(target)for(const auto& track:project->tracks)if(track.id==target)chain=&track.inserts;if(index>=chain->size())return;const auto effect=(*chain)[index];if(effect.kind==InsertKind::vst3)open_vst(target,effect.id,effect.plugin_name);else{open_fx(target);fx_selection=index;fx_refresh();}}
+void UI::open_vst(std::optional<Id> target,const Id& slot,const std::string& name){
+    if(vst_editor&&editor_target==target&&editor_slot==slot){if(!smoke){ShowWindow(vst_editor,SW_SHOW);SetForegroundWindow(vst_editor);}return;}close_vst_editor();WNDCLASSW cls{};cls.hInstance=GetModuleHandleW(nullptr);cls.lpfnWndProc=plugin_editor_proc;cls.lpszClassName=L"MRStudioPluginEditor";cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&cls);
+    vst_editor=CreateWindowExW(WS_EX_TOOLWINDOW,cls.lpszClassName,wide(name).c_str(),WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,CW_USEDEFAULT,CW_USEDEFAULT,s(600),s(400),window,nullptr,cls.hInstance,this);if(!vst_editor)throw std::runtime_error("Cannot create plugin editor");int w{},h{};
+    if(!app.open_plugin_editor(target,slot,vst_editor,w,h)){close_vst_editor();if(!fx_window||fx_target!=target)open_fx(target);const auto chain=fx_chain(*this);for(std::size_t i=0;i<chain.size();++i)if(chain[i].id==slot)fx_selection=i;fx_refresh();text_changed(GetDlgItem(fx_window,fx_status),L"No native editor available · Connect audio to prepare the plugin / use generic parameters");return;}
+    editor_target=target;editor_slot=slot;RECT rect{0,0,w,h};AdjustWindowRect(&rect,WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,FALSE);SetWindowPos(vst_editor,nullptr,0,0,rect.right-rect.left,rect.bottom-rect.top,SWP_NOMOVE|SWP_NOZORDER);if(!smoke){ShowWindow(vst_editor,SW_SHOW);SetForegroundWindow(vst_editor);}
 }
 void UI::open_fx(std::optional<Id> target) {
     if(fx_window)DestroyWindow(fx_window);fx_target=std::move(target);fx_selection=0;eq_band=2;fx_preview.reset();
@@ -1219,23 +1275,27 @@ void UI::fx_create(){
     make(L"BUTTON",L"Plugin editor…",fx_editor,540,188,180,28,BS_OWNERDRAW|WS_TABSTOP);
     WNDCLASSW cls{};cls.lpfnWndProc=eq_proc;cls.hInstance=GetModuleHandleW(nullptr);cls.lpszClassName=L"MRStudioEqCurve";cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);if(!RegisterClassW(&cls)&&GetLastError()!=ERROR_CLASS_ALREADY_EXISTS)throw std::runtime_error("Cannot register EQ curve");
     eq_window=CreateWindowExW(0,cls.lpszClassName,L"",WS_CHILD|WS_VISIBLE,s(20),s(230),s(700),s(270),fx_window,nullptr,cls.hInstance,this);
-    make(L"STATIC",L"Drag a point: frequency / gain · Wheel: Q · Ctrl: fine adjustment",0,20,510,700,26,0);
+    make(L"STATIC",L"Drag a point: frequency / gain · Wheel: Q · Ctrl: fine adjustment",fx_hint,20,510,700,26,0);
     make(L"COMBOBOX",L"",fx_band,20,542,350,200,CBS_DROPDOWNLIST|WS_TABSTOP|WS_VSCROLL);
     make(L"BUTTON",L"Band enabled",fx_band_enable,400,542,180,28,BS_OWNERDRAW|WS_TABSTOP);
-    make(L"STATIC",L"Gain (dB) / VST value (0–1)",0,20,580,230,24,0);make(L"EDIT",L"0",fx_value,20,606,220,28,WS_TABSTOP|ES_AUTOHSCROLL);
-    make(L"STATIC",L"Frequency (Hz)",0,260,580,220,24,0);make(L"EDIT",L"1000",fx_frequency,260,606,220,28,WS_TABSTOP|ES_AUTOHSCROLL);
-    make(L"STATIC",L"Q (0.1–10)",0,500,580,220,24,0);make(L"EDIT",L"0.7071",fx_q,500,606,220,28,WS_TABSTOP|ES_AUTOHSCROLL);
+    make(L"STATIC",L"Gain (dB) / VST value (0–1)",fx_gain_label,20,580,230,24,0);make(L"EDIT",L"0",fx_value,20,606,220,28,WS_TABSTOP|ES_AUTOHSCROLL);
+    make(L"STATIC",L"Frequency (Hz)",fx_frequency_label,260,580,220,24,0);make(L"EDIT",L"1000",fx_frequency,260,606,220,28,WS_TABSTOP|ES_AUTOHSCROLL);
+    make(L"STATIC",L"Q (0.1–10)",fx_q_label,500,580,220,24,0);make(L"EDIT",L"0.7071",fx_q,500,606,220,28,WS_TABSTOP|ES_AUTOHSCROLL);
+    make(L"EDIT",L"1",ir_mix,20,542,100,28,WS_TABSTOP|ES_AUTOHSCROLL);
+    make(L"BUTTON",L"Polarity +",ir_polarity,140,542,160,28,BS_OWNERDRAW|WS_TABSTOP);
+    auto presets=make(L"COMBOBOX",L"",ir_preset,320,542,160,160,CBS_DROPDOWNLIST|WS_TABSTOP);for(auto label:{L"Preset…",L"Neutral",L"Warm",L"Bright"})SendMessageW(presets,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(label));SendMessageW(presets,CB_SETCURSEL,0,0);
+    make(L"BUTTON",L"Load IR WAV…",ir_load,500,542,220,28,BS_OWNERDRAW|WS_TABSTOP);
     make(L"BUTTON",L"Apply parameters",fx_apply,500,650,220,30,BS_OWNERDRAW|WS_TABSTOP);
     make(L"STATIC",L"",fx_status,20,694,700,28,0);
 #ifdef MRS_HAS_VST3
-    try{vst_catalog=processing::load_vst3_cache(folder/L"vst3.cache");}catch(const std::exception& e){log.write(e.what());}
+    if(!smoke&&vst_catalog.empty())try{vst_catalog=processing::load_vst3_cache(folder/L"vst3.cache");}catch(const std::exception& e){log.write(e.what());}
 #endif
     if(vst_scan.valid())SetTimer(fx_window,3,100,nullptr);
     fx_catalog_refresh();fx_refresh();
 }
 void UI::fx_catalog_refresh(){
     if(!fx_window)return;const auto combo=GetDlgItem(fx_window,fx_kind);SendMessageW(combo,CB_RESETCONTENT,0,0);
-    for(auto kind:{InsertKind::gain,InsertKind::channel_eq})SendMessageW(combo,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(fx_name(kind).c_str()));
+    for(auto kind:{InsertKind::gain,InsertKind::channel_eq,InsertKind::cab_ir})SendMessageW(combo,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(fx_name(kind).c_str()));
 #ifdef MRS_HAS_VST3
     for(const auto& p:vst_catalog){const auto label=L"VST3 · "+wide(p.name)+L"  ["+wide(p.vendor)+L"]";SendMessageW(combo,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(label.c_str()));}
 #endif
@@ -1249,44 +1309,51 @@ void UI::fx_refresh(){
     const auto enable=[&](int id,bool active){if((IsWindowEnabled(child(id))!=FALSE)!=active)EnableWindow(child(id),active);};
     const auto show=[&](int id,bool active){ShowWindow(child(id),active?SW_SHOW:SW_HIDE);};
     enable(fx_add,fx_editable&&chain.size()<8);enable(fx_remove,fx_editable&&selected);enable(fx_up,fx_editable&&selected&&fx_selection>0);enable(fx_down,fx_editable&&selected&&fx_selection+1<chain.size());
-    const bool eq=selected&&chain[fx_selection].kind==InsertKind::channel_eq,vst=selected&&chain[fx_selection].kind==InsertKind::vst3;
+    const bool eq=selected&&chain[fx_selection].kind==InsertKind::channel_eq,vst=selected&&chain[fx_selection].kind==InsertKind::vst3;const bool cab=selected&&chain[fx_selection].kind==InsertKind::cab_ir;
+    for(auto id:{ir_mix,ir_polarity,ir_preset,ir_load})show(id,cab);enable(ir_load,fx_editable);
+    text_changed(child(fx_hint),cab?L"Mix (0–1) · Mono / independent L-R · Embedded in project · Live controls":L"Drag a point: frequency / gain · Wheel: Q · Ctrl: fine adjustment");
+    text_changed(child(fx_gain_label),cab?L"Gain (dB)":L"Gain (dB) / VST value (0–1)");text_changed(child(fx_frequency_label),cab?L"Low cut (Hz; 20 = off)":L"Frequency (Hz)");text_changed(child(fx_q_label),cab?L"High cut (Hz; 20000 = off)":L"Q (0.1–10)");
     enable(fx_bypass,selected&&(!vst||fx_editable));show(fx_editor,vst);show(fx_band,eq||vst);show(fx_band_enable,eq);enable(fx_apply,selected);enable(fx_scan,!vst_scan.valid());
     SendMessageW(child(fx_band),CB_RESETCONTENT,0,0);
     if(eq){for(const auto label:{L"HP · Low cut",L"Band 1 · Low",L"Band 2 · Mid",L"Band 3 · High",L"LP · High cut"})SendMessageW(child(fx_band),CB_ADDSTRING,0,reinterpret_cast<LPARAM>(label));SendMessageW(child(fx_band),CB_SETCURSEL,eq_band,0);text_changed(child(fx_band_enable),chain[fx_selection].bands[eq_band].enabled?L"Band enabled":L"Band disabled");}
     if(vst){fx_parameters=app.plugin_parameters(fx_target,chain[fx_selection].id);std::erase_if(fx_parameters,[](const auto& p){return p.hidden;});for(const auto& p:fx_parameters){const auto label=p.name.empty()?L"Parameter "+std::to_wstring(p.id):wide(p.name);SendMessageW(child(fx_band),CB_ADDSTRING,0,reinterpret_cast<LPARAM>(label.c_str()));}vst_parameter=fx_parameters.empty()?0:std::min(vst_parameter,fx_parameters.size()-1);SendMessageW(child(fx_band),CB_SETCURSEL,vst_parameter,0);enable(fx_apply,!fx_parameters.empty()&&fx_parameters[vst_parameter].automatable);}
     const auto format=[](float v){std::wostringstream out;out<<std::setprecision(7)<<v;return out.str();};
     if(selected){const auto& effect=chain[fx_selection];const auto& band=effect.bands[eq_band];const bool filter=effect.kind!=InsertKind::gain;
-        enable(fx_value,(!filter || effect.kind==InsertKind::eq || (eq&&eq_band>0&&eq_band<4) || (vst&&!fx_parameters.empty()&&fx_parameters[vst_parameter].automatable)));
+        enable(fx_value,(cab || !filter || effect.kind==InsertKind::eq || (eq&&eq_band>0&&eq_band<4) || (vst&&!fx_parameters.empty()&&fx_parameters[vst_parameter].automatable)));
         enable(fx_frequency,filter&&!vst);enable(fx_q,filter&&!vst);
         float value=eq?band.gain:effect.gain;
         if(vst&&!fx_parameters.empty()){value=fx_parameters[vst_parameter].initial;for(const auto& p:effect.parameters)if(p.id==fx_parameters[vst_parameter].id)value=p.value;}
-        text_changed(child(fx_value),effect.kind==InsertKind::gain?(effect.gain==0?L"-inf":format(20*std::log10(effect.gain))):format(value));text_changed(child(fx_frequency),format(eq?band.frequency:effect.frequency));text_changed(child(fx_q),format(eq?band.q:effect.q));text_changed(child(fx_bypass),effect.bypass?L"Enable":L"Bypass");
+        text_changed(child(fx_value),(effect.kind==InsertKind::gain||cab)?(effect.gain==0?L"-inf":format(20*std::log10(effect.gain))):format(value));text_changed(child(fx_frequency),format(cab?effect.ir.low_cut:eq?band.frequency:effect.frequency));text_changed(child(fx_q),format(cab?effect.ir.high_cut:eq?band.q:effect.q));text_changed(child(fx_bypass),effect.bypass?L"Enable":L"Bypass");
     }else for(auto id:{fx_value,fx_frequency,fx_q})enable(id,false);
     std::wstring status=L"Parameters work during playback · Add/remove/reorder after Pause/Stop";
+    if(cab){const auto& ir=chain[fx_selection].ir;text_changed(child(ir_mix),format(ir.mix));text_changed(child(ir_polarity),ir.invert?L"Polarity −":L"Polarity +");status=L"Cab IR · "+wide(ir.name)+L" · algorithmic latency: 0 samples";}
     if(vst)status=L"VST3 latency: "+std::to_wstring(app.plugin_latency(fx_target,chain[fx_selection].id))+L" samples · Save after Pause/Stop";
     if(vst_scan.valid())status=L"Scanning VST3 folder in separate processes…";
     if(app.plugin_failed())status=L"A VST3 process call failed; effect bypassed. Pause/Stop, remove and reload it.";
     text_changed(child(fx_status),status);InvalidateRect(eq_window,nullptr,FALSE);
 }
 void UI::fx_command(int id){
-    if(id==fx_list){auto n=SendMessageW(GetDlgItem(fx_window,fx_list),LB_GETCURSEL,0,0);if(n>=0)fx_selection=static_cast<std::size_t>(n);fx_refresh();return;}
+    if(id==fx_list){auto n=SendMessageW(GetDlgItem(fx_window,fx_list),LB_GETCURSEL,0,0);if(n>=0)fx_selection=static_cast<std::size_t>(n);fx_refresh();auto chain=fx_chain(*this);if(fx_selection<chain.size()&&chain[fx_selection].kind==InsertKind::vst3)open_vst(fx_target,chain[fx_selection].id,chain[fx_selection].plugin_name);return;}
     if(id==fx_band){auto n=SendMessageW(GetDlgItem(fx_window,fx_band),CB_GETCURSEL,0,0);if(n>=0){auto chain=fx_chain(*this);if(fx_selection<chain.size()&&chain[fx_selection].kind==InsertKind::vst3)vst_parameter=static_cast<std::size_t>(n);else eq_band=static_cast<std::size_t>(n);}fx_refresh();return;}
     if(id==fx_scan){
 #ifdef MRS_HAS_VST3
         if(vst_scan.valid())return;IFileOpenDialog* dialog{};if(FAILED(CoCreateInstance(CLSID_FileOpenDialog,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&dialog))))throw std::runtime_error("Cannot open scan folder selector");dialog->SetOptions(FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM|FOS_PATHMUSTEXIST);dialog->SetTitle(L"Select a VST3 folder or .vst3 bundle to scan");std::filesystem::path root;
-        if(SUCCEEDED(dialog->Show(fx_window))){IShellItem* item{};if(SUCCEEDED(dialog->GetResult(&item))){PWSTR path{};if(SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH,&path))){root=path;CoTaskMemFree(path);}item->Release();}}dialog->Release();if(root.empty())return;
+        if(SUCCEEDED(dialog->Show(window))){IShellItem* item{};if(SUCCEEDED(dialog->GetResult(&item))){PWSTR path{};if(SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH,&path))){root=path;CoTaskMemFree(path);}item->Release();}}dialog->Release();if(root.empty())return;
         wchar_t exe[32768]{};GetModuleFileNameW(nullptr,exe,32768);const auto helper=std::filesystem::path(exe).parent_path()/L"mrs_vst3_scan.exe";const auto cache=folder/L"vst3.cache";
-        *vst_scan_cancel=false;const auto cancel=vst_scan_cancel;vst_scan=std::async(std::launch::async,[root,helper,cache,cancel]{return processing::scan_vst3(root,helper,cache,cancel);});SetTimer(fx_window,3,100,nullptr);fx_refresh();
+        *vst_scan_cancel=false;const auto cancel=vst_scan_cancel;vst_scan=std::async(std::launch::async,[root,helper,cache,cancel]{return processing::scan_vst3(root,helper,cache,cancel);});enable_changed(browser_scan,false);InvalidateRect(window,&browser_area,FALSE);fx_refresh();
 #endif
         return;
     }
-    if(id==fx_editor){auto chain=fx_chain(*this);if(fx_selection>=chain.size())return;close_vst_editor();WNDCLASSW cls{};cls.hInstance=GetModuleHandleW(nullptr);cls.lpfnWndProc=plugin_editor_proc;cls.lpszClassName=L"MRStudioPluginEditor";cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&cls);vst_editor=CreateWindowExW(WS_EX_TOOLWINDOW,cls.lpszClassName,wide(chain[fx_selection].plugin_name).c_str(),WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,CW_USEDEFAULT,CW_USEDEFAULT,s(600),s(400),window,nullptr,cls.hInstance,this);int w{},h{};if(!app.open_plugin_editor(fx_target,chain[fx_selection].id,vst_editor,w,h)){close_vst_editor();throw std::runtime_error("This VST3 has no native editor. Use its parameters below.");}RECT rect{0,0,w,h};AdjustWindowRect(&rect,WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,FALSE);SetWindowPos(vst_editor,nullptr,0,0,rect.right-rect.left,rect.bottom-rect.top,SWP_NOMOVE|SWP_NOZORDER);if(!smoke)ShowWindow(vst_editor,SW_SHOW);return;}
+    if(id==fx_editor){auto chain=fx_chain(*this);if(fx_selection<chain.size())open_vst(fx_target,chain[fx_selection].id,chain[fx_selection].plugin_name);return;}
+    if(id==ir_load){auto path=pick(fx_window,false,true,impulse_folder());if(path.empty())return;auto chain=fx_chain(*this);if(fx_selection>=chain.size())return;chain[fx_selection].ir=audio::load_cab_ir(path);close_vst_editor();app.set_inserts(fx_target,std::move(chain));fx_refresh();refresh_models();return;}
+    if(id==ir_polarity||id==ir_preset){auto chain=fx_chain(*this);if(fx_selection>=chain.size())return;auto& ir=chain[fx_selection].ir;if(id==ir_polarity)ir.invert=!ir.invert;else{auto preset=SendMessageW(GetDlgItem(fx_window,ir_preset),CB_GETCURSEL,0,0);if(preset<=0)return;ir.mix=1;ir.invert=false;chain[fx_selection].gain=1;ir.low_cut=preset==2?80.f:preset==3?50.f:20.f;ir.high_cut=preset==2?5000.f:preset==3?10000.f:20000.f;}app.set_inserts(fx_target,std::move(chain));fx_refresh();refresh_mix_controls();return;}
     if(id==fx_kind || (id>=fx_value&&id<=fx_q))return;
     auto chain=fx_chain(*this);const auto index=fx_selection;
     if(id==fx_add){auto kind=SendMessageW(GetDlgItem(fx_window,fx_kind),CB_GETCURSEL,0,0);if(kind<0)return;NativeInsert effect;effect.id=new_id();effect.kind=kind==0?InsertKind::gain:InsertKind::channel_eq;
 #ifdef MRS_HAS_VST3
-        if(kind>=2){auto at=static_cast<std::size_t>(kind-2);if(at>=vst_catalog.size())return;const auto& p=vst_catalog[at];effect.kind=InsertKind::vst3;effect.plugin_path=p.path;effect.class_id=p.class_id;effect.plugin_name=p.name;}
+        if(kind>=3){auto at=static_cast<std::size_t>(kind-3);if(at>=vst_catalog.size())return;const auto& p=vst_catalog[at];effect.kind=InsertKind::vst3;effect.plugin_path=p.path;effect.class_id=p.class_id;effect.plugin_name=p.name;}
 #endif
+        if(kind==2){auto path=pick(fx_window,false,true,impulse_folder());if(path.empty())return;effect.kind=InsertKind::cab_ir;effect.ir=audio::load_cab_ir(path);}
         chain.push_back(effect);fx_selection=chain.size()-1;
     }else{if(index>=chain.size())return;
         if(id==fx_remove){close_vst_editor();chain.erase(chain.begin()+static_cast<std::ptrdiff_t>(index));}
@@ -1296,6 +1363,7 @@ void UI::fx_command(int id){
         else if(id==fx_band_enable)chain[index].bands[eq_band].enabled=!chain[index].bands[eq_band].enabled;
         else if(id==fx_apply){const auto parse=[&](int control){auto text=narrow(control_text(GetDlgItem(fx_window,control)));std::size_t n{};auto v=std::stof(text,&n);if(n!=text.size()||!std::isfinite(v))throw std::invalid_argument("Enter a finite number with a dot for decimals");return v;};auto& effect=chain[index];
             if(effect.kind==InsertKind::gain){if(control_text(GetDlgItem(fx_window,fx_value))==L"-inf")effect.gain=0;else{auto db=parse(fx_value);if(db<-60||db>12)throw std::invalid_argument("Gain range: -60 to +12 dB, or -inf");effect.gain=std::pow(10.f,db/20);}}
+            else if(effect.kind==InsertKind::cab_ir){const auto db=parse(fx_value);if(db<-60||db>12)throw std::invalid_argument("Cab IR gain range: -60 to +12 dB");effect.gain=std::pow(10.f,db/20);effect.ir.mix=parse(ir_mix);effect.ir.low_cut=parse(fx_frequency);effect.ir.high_cut=parse(fx_q);}
             else if(effect.kind==InsertKind::channel_eq){auto& band=effect.bands[eq_band];band.frequency=parse(fx_frequency);band.q=parse(fx_q);if(eq_band>0&&eq_band<4)band.gain=parse(fx_value);}
             else if(effect.kind==InsertKind::vst3){if(fx_parameters.empty())return;app.set_plugin_parameter(fx_target,effect.id,fx_parameters[vst_parameter].id,parse(fx_value));fx_refresh();refresh_mix_controls();return;}
             else{effect.frequency=parse(fx_frequency);effect.q=parse(fx_q);if(effect.kind==InsertKind::eq)effect.gain=parse(fx_value);}
@@ -1304,11 +1372,12 @@ void UI::fx_command(int id){
     if(id==fx_add||id==fx_remove||id==fx_up||id==fx_down)close_vst_editor();
     app.set_inserts(fx_target,std::move(chain));fx_refresh();refresh_mix_controls();
 }
-void UI::close_vst_editor(){app.close_plugin_editors();if(vst_editor){auto h=vst_editor;vst_editor=nullptr;DestroyWindow(h);}}
+void UI::close_vst_editor(){editor_target.reset();editor_slot={};app.close_plugin_editors();if(vst_editor){auto h=vst_editor;vst_editor=nullptr;DestroyWindow(h);}}
 RECT UI::eq_plot() const {RECT r{};GetClientRect(eq_window,&r);return {s(42),s(18),r.right-s(18),r.bottom-s(32)};}
 POINT UI::eq_point(const NativeInsert& fx,std::size_t band) const{auto r=eq_plot();const auto& b=fx.bands[band];return {r.left+static_cast<int>(std::log(b.frequency/20.f)/std::log(1000.f)*(r.right-r.left)),(r.top+r.bottom)/2-static_cast<int>((band>0&&band<4?b.gain:0.f)/48.f*(r.bottom-r.top))};}
 std::optional<std::size_t> UI::eq_hit(POINT p) const{const auto chain=fx_preview?*fx_preview:fx_chain(*this);if(fx_selection>=chain.size()||chain[fx_selection].kind!=InsertKind::channel_eq)return {};std::optional<std::size_t> best;long distance=s(13)*s(13);for(std::size_t i=0;i<5;++i){auto at=eq_point(chain[fx_selection],i);auto d=(at.x-p.x)*(at.x-p.x)+(at.y-p.y)*(at.y-p.y);if(d<=distance){best=i;distance=d;}}return best;}
 void UI::eq_paint(HDC dc){RECT area{};GetClientRect(eq_window,&area);fill(dc,area,RGB(25,28,32));const auto r=eq_plot();const auto chain=fx_preview?*fx_preview:fx_chain(*this);const bool eq=fx_selection<chain.size()&&chain[fx_selection].kind==InsertKind::channel_eq;
+    if(fx_selection<chain.size()&&chain[fx_selection].kind==InsertKind::cab_ir){const auto& ir=chain[fx_selection].ir;text(dc,r.left,r.top,r.right-r.left,s(28),wide(ir.name),heading,ink);const auto frames=ir.samples.size()/ir.channels;for(std::size_t ch=0;ch<ir.channels;++ch){const int center=r.top+s(70)+static_cast<int>(ch)*s(90);line(dc,r.left,center,r.right,center,border);for(int x=r.left;x<r.right;++x){const auto first=static_cast<std::size_t>(x-r.left)*frames/(r.right-r.left),last=std::max(first+1,static_cast<std::size_t>(x+1-r.left)*frames/(r.right-r.left));float peak{};for(auto f=first;f<std::min(last,frames);++f)peak=std::max(peak,std::abs(ir.samples[f*ir.channels+ch]));const int h=static_cast<int>(std::min(1.f,peak)*s(38));line(dc,x,center-h,x,center+h,ch?amber:accent);}}text(dc,r.left,r.bottom-s(28),r.right-r.left,s(28),std::to_wstring(ir.sample_rate)+L" Hz · "+std::to_wstring(ir.channels)+L" ch · "+std::to_wstring(frames)+L" samples · filters apply to wet signal",normal,muted);return;}
     for(int db=-24;db<=24;db+=6){const auto y=(r.top+r.bottom)/2-db*(r.bottom-r.top)/48;line(dc,r.left,y,r.right,y,db==0?border:RGB(42,46,52));text(dc,0,y-s(9),s(36),s(18),std::to_wstring(db),normal,muted);}
     for(int hz:{20,50,100,200,500,1000,2000,5000,10000,20000}){const auto x=r.left+static_cast<int>(std::log(hz/20.)/std::log(1000.)*(r.right-r.left));line(dc,x,r.top,x,r.bottom,RGB(42,46,52));text(dc,x-s(23),r.bottom+s(4),s(46),s(22),hz>=1000?std::to_wstring(hz/1000)+L"k":std::to_wstring(hz),normal,muted);}
     if(!eq){text(dc,r.left,r.top+s(65),r.right-r.left,s(80),L"Select Channel EQ to edit three bands and HP / LP filters",normal,muted);return;}
@@ -1332,8 +1401,8 @@ LRESULT CALLBACK fx_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) 
         switch (message) {
         case WM_CREATE: ui->fx_create(); return 0;
         case WM_TIMER:
-            if(wparam==3 && ui->vst_scan.valid() && ui->vst_scan.wait_for(std::chrono::seconds(0))==std::future_status::ready){KillTimer(hwnd,3);ui->vst_catalog=ui->vst_scan.get();ui->fx_catalog_refresh();ui->fx_refresh();}return 0;
-        case WM_COMMAND: if (HIWORD(wparam)==BN_CLICKED || ((LOWORD(wparam)==fx_list && HIWORD(wparam)==LBN_SELCHANGE)||(LOWORD(wparam)==fx_band && HIWORD(wparam)==CBN_SELCHANGE))) ui->fx_command(LOWORD(wparam)); return 0;
+            if(wparam==3)ui->browser_scan_poll();return 0;
+        case WM_COMMAND: if (HIWORD(wparam)==BN_CLICKED || ((LOWORD(wparam)==fx_list && HIWORD(wparam)==LBN_SELCHANGE)||((LOWORD(wparam)==fx_band||LOWORD(wparam)==ir_preset) && HIWORD(wparam)==CBN_SELCHANGE))) ui->fx_command(LOWORD(wparam)); return 0;
         case WM_DRAWITEM: ui->draw_button(*reinterpret_cast<DRAWITEMSTRUCT*>(lparam)); return TRUE;
         case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX:
             SetTextColor(reinterpret_cast<HDC>(wparam),ink); SetBkColor(reinterpret_cast<HDC>(wparam),panel); return reinterpret_cast<LRESULT>(ui->panel_brush);
@@ -1533,7 +1602,8 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
             SetWindowPos(hwnd,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOZORDER | SWP_NOACTIVATE);
             ui->fonts(); ui->layout(); if (ui->settings) ui->settings_layout(); return 0;
         }
-        case WM_COMMAND: ui->command(LOWORD(wparam),HIWORD(wparam)); return 0;
+        case WM_NOTIFY:ui->browser_notify(reinterpret_cast<NMHDR*>(lparam));return 0;
+        case WM_COMMAND: if(LOWORD(wparam)==browser_scan)ui->fx_command(fx_scan);else ui->command(LOWORD(wparam),HIWORD(wparam)); return 0;
         case WM_DRAWITEM: ui->draw_button(*reinterpret_cast<DRAWITEMSTRUCT*>(lparam)); return TRUE;
         case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX:
             SetTextColor(reinterpret_cast<HDC>(wparam),ink); SetBkColor(reinterpret_cast<HDC>(wparam),panel); return reinterpret_cast<LRESULT>(ui->panel_brush);
@@ -1547,6 +1617,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
         }
         case WM_TIMER:
             if (wparam == 1) {
+                ui->browser_scan_poll();
                 const auto peaks = ui->app.engine()->take_meters();
                 const auto decay = [](audio::StereoPeak& value, audio::StereoPeak next) { value.left = std::max(next.left,value.left*0.86f); value.right = std::max(next.right,value.right*0.86f); };
                 for (std::size_t i=0; i<audio::max_mixer_tracks; ++i) decay(ui->mix_meters.tracks[i],peaks.tracks[i]);
@@ -1821,6 +1892,27 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     if (ui->app.services().projects->state().project->master_inserts.size()!=1 || ui->app.services().projects->state().project->tracks[0].inserts.size()!=2) throw std::runtime_error("Master Inserts changed the track chain");
                     DestroyWindow(ui->fx_window);
 
+                    NativeInsert cab;cab.id=new_id();cab.kind=InsertKind::cab_ir;cab.ir.name="MRS test stereo impulse";cab.ir.channels=2;cab.ir.samples.assign(1024,0.f);cab.ir.samples[0]=1;cab.ir.samples[1]=.5f;cab.ir.samples[256]=.2f;
+                    ui->app.set_inserts(tracks[0].id,{cab});ui->open_insert(tracks[0].id,0);if(!ui->fx_window||!(GetWindowLongPtrW(GetDlgItem(ui->fx_window,ir_mix),GWL_STYLE)&WS_VISIBLE))throw std::runtime_error("Cab IR did not open its native editor");
+                    SetWindowTextW(GetDlgItem(ui->fx_window,ir_mix),L"0.6");SetWindowTextW(GetDlgItem(ui->fx_window,fx_value),L"-3");fx_command(fx_apply);fx_command(ir_polarity);if(std::abs(fx_chain(*ui)[0].ir.mix-.6f)>1e-6f||!fx_chain(*ui)[0].ir.invert)throw std::runtime_error("Cab controls failed");
+                    SendMessageW(GetDlgItem(ui->fx_window,ir_preset),CB_SETCURSEL,2,0);fx_command(ir_preset);if(fx_chain(*ui)[0].ir.low_cut!=80||fx_chain(*ui)[0].ir.high_cut!=5000)throw std::runtime_error("Cab preset failed");
+                    if(ui->render_preview){ui->export_preview(ui->fx_window);std::filesystem::copy_file(ui->folder/L"0.1m-inserts-preview.bmp",ui->folder/L"0.1m-cab-ir-preview.bmp",std::filesystem::copy_options::overwrite_existing);}DestroyWindow(ui->fx_window);
+#ifdef MRS_HAS_VST3
+                    wchar_t module[32768]{};GetModuleFileNameW(nullptr,module,32768);const auto fixture=std::filesystem::path(module).parent_path()/L"mrs_vst3_fixture.vst3";
+                    if(std::filesystem::exists(fixture)){
+                        ui->vst_catalog=processing::probe_vst3(narrow(fixture.wstring()));if(ui->vst_catalog.empty())throw std::runtime_error("Browser fixture missing");ui->browser_refresh();auto tree=ui->child(browser_tree);auto vendor=TreeView_GetRoot(tree);if(!vendor||!TreeView_GetChild(tree,vendor))throw std::runtime_error("Browser vendor grouping failed");
+                        ui->app.connect(std::make_unique<SmokeDevice>(),{0,48000,128,{}, {0,1}});const auto initial_revision=ui->app.services().projects->state().revision;
+                        NMTREEVIEWW event{};event.hdr.hwndFrom=tree;event.hdr.idFrom=browser_tree;event.hdr.code=TVN_BEGINDRAGW;event.itemNew.lParam=1;SendMessageW(hwnd,WM_NOTIFY,browser_tree,reinterpret_cast<LPARAM>(&event));
+                        if(!ui->plugin_drag||GetCapture()!=hwnd)throw std::runtime_error("Tree drag notification failed");ui->browser_up({-5,-5});if(ui->app.services().projects->state().revision!=initial_revision)throw std::runtime_error("Invalid drop changed project");
+                        SendMessageW(hwnd,WM_NOTIFY,browser_tree,reinterpret_cast<LPARAM>(&event));ui->browser_cancel();if(ui->app.services().projects->state().revision!=initial_revision)throw std::runtime_error("Cancelled drag changed project");
+                        auto strip=ui->mix_strip(0);POINT drop{strip.left+ui->s(40),strip.top+ui->s(60)};SendMessageW(hwnd,WM_NOTIFY,browser_tree,reinterpret_cast<LPARAM>(&event));SendMessageW(hwnd,WM_MOUSEMOVE,MK_LBUTTON,MAKELPARAM(drop.x,drop.y));SendMessageW(hwnd,WM_LBUTTONUP,0,MAKELPARAM(drop.x,drop.y));
+                        if(ui->app.services().projects->state().project->tracks[0].inserts.size()!=2||ui->app.services().projects->state().revision!=initial_revision+1)throw std::runtime_error("Plugin drop did not append one Undo command");
+                        const auto slot=ui->insert_slot(strip,1);ui->mixer_down({slot.left+ui->s(4),slot.top+ui->s(4)});if(!ui->vst_editor)throw std::runtime_error("Single insert click did not open native VST3 editor");auto editor=ui->vst_editor;ui->mixer_down({slot.left+ui->s(4),slot.top+ui->s(4)});if(ui->vst_editor!=editor)throw std::runtime_error("Repeated click recreated plugin editor");ui->close_vst_editor();
+                        ui->open_fx(tracks[0].id);SendMessageW(GetDlgItem(ui->fx_window,fx_list),LB_SETCURSEL,1,0);SendMessageW(ui->fx_window,WM_COMMAND,MAKEWPARAM(fx_list,LBN_SELCHANGE),0);if(!ui->vst_editor)throw std::runtime_error("Insert list click did not open VST editor");DestroyWindow(ui->fx_window);
+                        strip=ui->mix_strip(0,true);drop={strip.left+ui->s(20),strip.top+ui->s(65)};SendMessageW(hwnd,WM_NOTIFY,browser_tree,reinterpret_cast<LPARAM>(&event));ui->browser_up(drop);if(ui->app.services().projects->state().project->master_inserts.size()!=2)throw std::runtime_error("Master plugin drop failed");if(!ui->app.undo()||ui->app.services().projects->state().project->master_inserts.size()!=1)throw std::runtime_error("Drop Undo failed");
+                        const auto bus=ui->app.add_bus("Browser bus");ui->first_mix_track=ui->mix_tracks().size()-1;strip=ui->mix_strip(0);drop={strip.left+ui->s(20),strip.top+ui->s(60)};SendMessageW(hwnd,WM_NOTIFY,browser_tree,reinterpret_cast<LPARAM>(&event));ui->browser_up(drop);bool found=false;for(const auto& t:ui->app.services().projects->state().project->tracks)if(t.id==bus)found=t.inserts.size()==1;if(!found)throw std::runtime_error("Bus plugin drop failed");ui->first_mix_track=0;ui->app.disconnect();ui->refresh_models();
+                    }
+#endif
                     if (ui->render_preview) { ui->first_mix_track=0; ui->export_preview(); }
                     // Exercise DPI layout with the same path as a monitor change.
                     ui->dpi = 144; ui->fonts();
@@ -1865,9 +1957,9 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
         }
         case WM_LBUTTONDOWN: ui->mouse_down({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}); return 0;
         case WM_LBUTTONDBLCLK: { POINT point{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}; const auto area = ui->mix_area(); if (ui->app.workspace() == Workspace::mix && PtInRect(&area,point)) ui->mixer_down(point,true); else if (ui->app.workspace() == Workspace::arrange || ui->app.workspace() == Workspace::mix) (void)ui->mini_down(point,true); return 0; }
-        case WM_MOUSEMOVE: ui->mouse_move({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}); return 0;
-        case WM_LBUTTONUP: ui->mouse_up({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}); return 0;
-        case WM_CAPTURECHANGED: ui->drag.reset(); ui->cancel_mix_drag(); InvalidateRect(hwnd,nullptr,FALSE); return 0;
+        case WM_MOUSEMOVE: if(ui->plugin_drag)ui->browser_move({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)});else ui->mouse_move({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}); return 0;
+        case WM_LBUTTONUP: if(ui->plugin_drag)ui->browser_up({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)});else ui->mouse_up({GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}); return 0;
+        case WM_CAPTURECHANGED: ui->browser_cancel();ui->drag.reset(); ui->cancel_mix_drag(); InvalidateRect(hwnd,nullptr,FALSE); return 0;
         case WM_SETCURSOR:
             if (LOWORD(lparam) == HTCLIENT && ui->app.workspace() == Workspace::arrange) {
                 POINT point{}; GetCursorPos(&point); ScreenToClient(hwnd,&point);
@@ -1882,7 +1974,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
             if (ui->discard()) { ui->preferences(); DestroyWindow(hwnd); } return 0;
         case WM_DESTROY:
             KillTimer(hwnd,1); KillTimer(hwnd,2); if (ui->settings) DestroyWindow(ui->settings); if (ui->fx_window) DestroyWindow(ui->fx_window);
-            ui->app.disconnect(); PostQuitMessage(0); return 0;
+            ui->close_vst_editor();ui->app.disconnect(); PostQuitMessage(0); return 0;
         }
     } catch (const std::exception& e) {
         ui->error(e);
@@ -1894,6 +1986,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show) {
     try {
         struct ComScope{HRESULT result=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);ComScope(){if(FAILED(result))throw std::runtime_error("Cannot initialize Windows COM for VST3/dialogs");}~ComScope(){CoUninitialize();}} com;
+        INITCOMMONCONTROLSEX controls{sizeof(controls),ICC_TREEVIEW_CLASSES|ICC_TAB_CLASSES};if(!InitCommonControlsEx(&controls))throw std::runtime_error("Cannot initialize plugin browser controls");
         const bool smoke = std::wstring_view(command_line).find(L"--smoke-test") != std::wstring_view::npos;
         UI ui(smoke); ui.render_preview=std::wstring_view(command_line).find(L"--render-preview") != std::wstring_view::npos;
         WNDCLASSW main{}; main.lpfnWndProc = main_proc; main.hInstance = instance; main.lpszClassName = L"MRStudioDesktop";
@@ -1914,6 +2007,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show)
         for (;;) {
             const auto result = GetMessageW(&msg,nullptr,0,0); if (result < 0) return 1; if (result == 0) break;
 
+            if(msg.message==WM_KEYDOWN&&msg.wParam==VK_ESCAPE&&ui.plugin_drag){ui.browser_cancel();continue;}
             if(ui.eq_window&&msg.message==WM_MOUSEWHEEL){POINT p{GET_X_LPARAM(msg.lParam),GET_Y_LPARAM(msg.lParam)};ScreenToClient(ui.eq_window,&p);RECT r{};GetClientRect(ui.eq_window,&r);if(PtInRect(&r,p)){SendMessageW(ui.eq_window,msg.message,msg.wParam,msg.lParam);continue;}}
             if(ui.vst_editor&&(msg.hwnd==ui.vst_editor||IsChild(ui.vst_editor,msg.hwnd))){TranslateMessage(&msg);DispatchMessageW(&msg);continue;}
             if(msg.message==WM_KEYDOWN&&msg.wParam==VK_ESCAPE&&ui.eq_dragging){ui.eq_cancel();continue;}

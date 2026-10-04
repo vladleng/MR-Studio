@@ -38,6 +38,7 @@ struct WavFile {
     void read(Sample first, std::span<float> interleaved) const;
 };
 WavFile inspect_wav(const std::filesystem::path&);
+CabIr load_cab_ir(const std::filesystem::path&);
 class ReadAhead;
 class Recorder;
 struct AudioData {

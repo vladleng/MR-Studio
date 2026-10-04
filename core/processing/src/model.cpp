@@ -126,6 +126,7 @@ GraphState insert_graph(std::span<const NativeInsert> inserts) {
     for (const auto& fx : inserts) {
         fx.validate(); NodeState node; node.id=fx.id; node.bypass=fx.bypass;
         if(fx.kind==InsertKind::vst3) {node.format=ProcessorFormat::vst3;node.processor_id=fx.plugin_path;node.plugin={fx.class_id,fx.component_state,fx.controller_state};for(const auto& p:fx.parameters)node.parameters.push_back({p.id,p.value});}
+        else if(fx.kind==InsertKind::cab_ir){node.processor_id="mrs.cab-ir";node.plugin=cab_ir_state(fx.ir);node.parameters={{0,fx.gain},{1,fx.ir.mix},{2,fx.ir.low_cut},{3,fx.ir.high_cut},{4,fx.ir.invert?1.f:0.f}};}
         else if(fx.kind==InsertKind::channel_eq) {node.processor_id="mrs.channel-eq";for(std::uint32_t i=0;i<5;++i){const auto& b=fx.bands[i];node.parameters.push_back({i*4,b.frequency});node.parameters.push_back({i*4+1,b.q});node.parameters.push_back({i*4+2,b.gain});node.parameters.push_back({i*4+3,b.enabled ? 1.f : 0.f});}}
         else if (fx.kind == InsertKind::gain) { node.processor_id="mrs.gain"; node.parameters={{0,fx.gain}}; }
         else { node.processor_id=fx.kind == InsertKind::highpass ? "mrs.highpass" : fx.kind == InsertKind::lowpass ? "mrs.lowpass" : "mrs.eq";

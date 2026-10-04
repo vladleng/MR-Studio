@@ -44,6 +44,7 @@ void write_inserts(std::ostream& out, const std::vector<NativeInsert>& inserts) 
         out << std::quoted(fx.id.value) << ' ' << static_cast<int>(fx.kind) << ' ' << fx.gain << ' ' << fx.frequency << ' ' << fx.q << ' ' << fx.bypass << '\n';
         for(const auto& b:fx.bands) out<<b.frequency<<' '<<b.gain<<' '<<b.q<<' '<<b.enabled<<' '; out<<'\n';
         out<<std::quoted(fx.plugin_path)<<' '<<std::quoted(fx.class_id)<<' '<<std::quoted(fx.plugin_name)<<' ';blob(fx.component_state);blob(fx.controller_state);out<<fx.parameters.size();for(const auto& p:fx.parameters) out<<' '<<p.id<<' '<<p.value;out<<'\n';
+        const auto& ir=fx.ir;out<<std::quoted(ir.name)<<' '<<ir.sample_rate<<' '<<ir.channels<<' '<<ir.mix<<' '<<ir.low_cut<<' '<<ir.high_cut<<' '<<ir.invert<<' '<<ir.samples.size();for(float v:ir.samples)out<<' '<<v;out<<'\n';
     }
 }
 std::vector<NativeInsert> read_inserts(std::istream& in, std::uint32_t version) {
@@ -52,7 +53,7 @@ std::vector<NativeInsert> read_inserts(std::istream& in, std::uint32_t version) 
     for (std::size_t i=0;i<n;++i) {
         NativeInsert fx; fx.id={quoted(in)}; int kind{},bypass{};
         in >> kind >> fx.gain >> fx.frequency >> fx.q >> bypass; check_stream(in);
-        if (kind<0 || kind>(version>=9 ? 5 : 3) || (bypass!=0 && bypass!=1)) throw std::invalid_argument("invalid insert kind/bypass");
+        if (kind<0 || kind>(version>=10 ? 6 : version>=9 ? 5 : 3) || (bypass!=0 && bypass!=1)) throw std::invalid_argument("invalid insert kind/bypass");
         fx.kind=static_cast<InsertKind>(kind); fx.bypass=bypass!=0;
         if(version>=9) {
             for(auto& b:fx.bands) {int enabled{};in>>b.frequency>>b.gain>>b.q>>enabled;check_stream(in);if(enabled!=0 && enabled!=1) throw std::invalid_argument("invalid EQ enable");b.enabled=enabled!=0;}
@@ -60,6 +61,7 @@ std::vector<NativeInsert> read_inserts(std::istream& in, std::uint32_t version) 
             const auto blob=[&]() { auto s=quoted(in);if(s.size()>2*1024*1024 || s.size()%2) throw std::invalid_argument("invalid plugin blob");std::vector<std::byte> data;const auto digit=[](char c)->unsigned {if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return c-'a'+10;throw std::invalid_argument("invalid plugin hex");};for(std::size_t j=0;j<s.size();j+=2)data.push_back(static_cast<std::byte>(digit(s[j])*16+digit(s[j+1])));return data;};
             fx.component_state=blob();fx.controller_state=blob();auto nparams=count(in);if(nparams>4096)throw std::invalid_argument("too many plugin parameters");for(std::size_t j=0;j<nparams;++j){InsertParameter p;in>>p.id>>p.value;check_stream(in);fx.parameters.push_back(p);}
         }
+        if(version>=10){auto& ir=fx.ir;ir.name=quoted(in);int invert{};std::int64_t samples{};in>>ir.sample_rate>>ir.channels>>ir.mix>>ir.low_cut>>ir.high_cut>>invert>>samples;check_stream(in);if((invert!=0&&invert!=1)||samples<0||samples>384000)throw std::invalid_argument("invalid Cab IR snapshot");ir.invert=invert!=0;ir.samples.resize(static_cast<std::size_t>(samples));for(float& v:ir.samples)in>>v;check_stream(in);}
         result.push_back(std::move(fx));
     }
     return result;

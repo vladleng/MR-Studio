@@ -161,6 +161,8 @@ public:
 };
 using ProcessorFactory = std::function<std::unique_ptr<IProcessor>(const NodeState&)>;
 std::unique_ptr<IProcessor> native_factory(const NodeState&);
+std::unique_ptr<IProcessor> cab_ir_factory();
+PluginState cab_ir_state(const CabIr&);
 struct NodeLatency {
     Id id;
     std::uint32_t own{};

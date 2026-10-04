@@ -743,12 +743,21 @@ void multi_input() {
     rejects([&] { app.start_recording(dir.path/"Off.wav"); }); CHECK(!std::filesystem::exists(dir.path/"Off.wav"));
 }
 
+void cab_ir(){
+    Directory dir;const auto path=dir.path/"Test.wav";wav(path,2);auto ir=audio::load_cab_ir(path);CHECK(ir.channels==2&&!ir.samples.empty());
+    Application app;app.new_project(44100);const auto track=app.add_audio_track("IR"),bus=app.add_bus("Cab bus");app.set_track_output(track,bus);NativeInsert fx;fx.id=new_id();fx.kind=InsertKind::cab_ir;fx.ir=ir;app.set_inserts(track,{fx});auto busfx=fx;busfx.id=new_id();app.set_inserts(bus,{busfx});auto masterfx=fx;masterfx.id=new_id();app.set_inserts(std::nullopt,{masterfx});
+    auto device=std::make_unique<ManualDevice>();auto* driver=device.get();app.connect(std::move(device),{0,44100,128,{}, {0,1}});app.play();std::array<float,256> out{};app.engine()->process(nullptr,out.data(),128);const auto at=app.engine()->state().sample;fx.ir.mix=.25f;fx.ir.low_cut=80;fx.ir.high_cut=5000;fx.ir.invert=true;app.set_inserts(track,{fx});app.engine()->process(nullptr,out.data(),128);CHECK(driver->opens==1&&app.engine()->state().sample==at+128&&app.engine()->state().playback==PlaybackState::playing);CHECK(app.undo());app.engine()->process(nullptr,out.data(),128);CHECK(app.redo());app.engine()->process(nullptr,out.data(),128);CHECK(driver->opens==1);rejects([&]{auto changed=fx;changed.ir.samples[0]+=.1f;app.set_inserts(track,{changed});});app.stop();app.engine()->process(nullptr,out.data(),128);app.save_project(dir.path/"Cab.mrsproject");std::filesystem::remove(path);app.open_project(dir.path/"Cab.mrsproject");CHECK(app.services().projects->state().project->tracks.front().inserts.front().ir==fx.ir);
+    rejects([&]{audio::load_cab_ir(path);});
+    Application record;record.new_project(44100);const auto mic=record.add_audio_track("Mic");record.set_track_input(mic,0);record.set_track_monitoring(mic,true);NativeInsert half;half.id=new_id();half.kind=InsertKind::cab_ir;half.ir.name="Half";half.ir.sample_rate=44100;half.ir.samples={.5f};record.set_inserts(mic,{half});record.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});record.set_track_armed(mic,true);std::array<float,128> input{};input.fill(.8f);record.start_recording(dir.path/"RawCab.wav");record.engine()->process(input.data(),out.data(),128);record.stop();record.engine()->process(input.data(),out.data(),128);const auto raw=audio::load_wav(dir.path/"RawCab.wav");CHECK(raw.samples.front()==.8f&&raw.samples.back()==.8f);
+
+}
+
 }
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected suite");
         std::string name = argv[1];
-        if (name == "inserts") inserts(); else if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
+        if(name=="cab_ir")cab_ir();else if (name == "inserts") inserts(); else if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
         else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else if (name == "recording") recording(); else if (name == "project_folders") project_folders(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;

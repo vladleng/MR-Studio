@@ -18,7 +18,7 @@ using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 9;
+inline constexpr std::uint32_t schema_version = 10;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -56,7 +56,16 @@ struct Folder {
     std::optional<Id> parent;
     bool operator==(const Folder&) const = default;
 };
-enum class InsertKind { gain, highpass, lowpass, eq, channel_eq, vst3 };
+enum class InsertKind { gain, highpass, lowpass, eq, channel_eq, vst3, cab_ir };
+struct CabIr {
+    std::string name;
+    std::uint32_t sample_rate{48000}, channels{1};
+    std::vector<float> samples; // embedded original, mono or independent L/R kernels
+    float mix{1}, low_cut{20}, high_cut{20000};
+    bool invert{};
+    void validate() const;
+    bool operator==(const CabIr&) const = default;
+};
 struct EqBand {
     float frequency{1000}, gain{}, q{0.70710678f};
     bool enabled{true};
@@ -76,6 +85,7 @@ struct NativeInsert {
     std::string plugin_path, class_id, plugin_name;
     std::vector<std::byte> component_state, controller_state;
     std::vector<InsertParameter> parameters;
+    CabIr ir;
     void validate() const;
     bool operator==(const NativeInsert&) const = default;
 };

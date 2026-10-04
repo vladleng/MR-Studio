@@ -159,6 +159,7 @@ double eq_response_db(const NativeInsert& fx,double frequency,std::uint32_t rate
     }return 20*std::log10(std::max(magnitude,1e-12));
 }
 std::unique_ptr<IProcessor> native_factory(const NodeState& state) {
+    if(state.format==ProcessorFormat::native && state.processor_id=="mrs.cab-ir")return cab_ir_factory();
     if (state.format==ProcessorFormat::native && state.processor_id=="mrs.channel-eq") return std::make_unique<ChannelEq>();
     if (state.format == ProcessorFormat::native && (state.processor_id=="mrs.highpass" || state.processor_id=="mrs.lowpass" || state.processor_id=="mrs.eq")) return std::make_unique<Biquad>(state.processor_id);
     if (state.format != ProcessorFormat::native || state.processor_id != "mrs.gain")
