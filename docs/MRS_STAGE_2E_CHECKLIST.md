@@ -1,7 +1,7 @@
 # MRS Stage 2e / 0.1j — inputs and simultaneous capture
 
-Local implementation ready, 2026-10-04; user/hardware acceptance pending.
-Last accepted baseline: 0.1i upd1. #22 remains open until acceptance;
+Accepted by the user, 2026-10-04: «Все проверил, все работает!».
+Latest accepted local baseline: 0.1j. #22 Mixer / Routing completed;
 deferred #16 physical/performance matrix is not claimed passed.
 
 - [x] Per-track mono/stereo inputs; physical-to-stream mapping and validation.
@@ -15,7 +15,7 @@ deferred #16 physical/performance matrix is not claimed passed.
 - [x] Local cached offline-dependency Windows x64 ASIO configure/build, CTest 73/73.
 - [x] Hidden GUI smoke: independent R/I/Undo, distinct L/R meter pixels, previous
   zoom/DPI/fader/menu/settings flicker regressions. Exported UI preview reviewed.
-- [ ] User acceptance on intended physical ASIO inputs.
+- [x] User acceptance of local 0.1j workflow (2026-10-04).
 
 ## User check
 
