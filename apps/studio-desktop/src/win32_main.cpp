@@ -112,6 +112,7 @@ struct UI {
     unsigned error_count{};
     std::uint64_t button_paints{}; // smoke regression: native buttons must stay stable during canvas repaint
     std::uint64_t button_layout_events{};
+    std::uint64_t unrelated_button_updates{};
     std::map<HWND,WNDPROC> smoke_button_procs;
     std::vector<audio::DeviceInfo> devices;
     std::string device_error;
@@ -159,6 +160,8 @@ struct UI {
     static LRESULT CALLBACK smoke_button_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
         const auto ui = reinterpret_cast<UI*>(GetWindowLongPtrW(hwnd,GWLP_USERDATA));
         if (message == WM_WINDOWPOSCHANGING) ++ui->button_layout_events;
+        const auto id = GetDlgCtrlID(hwnd);
+        if ((message == WM_SETTEXT || message == WM_ENABLE) && id != undo && id != redo) ++ui->unrelated_button_updates;
         return CallWindowProcW(ui->smoke_button_procs.at(hwnd),hwnd,message,wparam,lparam);
     }
     void button(HWND parent, const wchar_t* text, int id) {
@@ -261,7 +264,21 @@ struct UI {
         MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&current),2);
         if (!EqualRect(&current,&wanted)) MoveWindow(child(add_bus_button),wanted.left,wanted.top,wanted.right-wanted.left,wanted.bottom-wanted.top,TRUE);
     }
-    void refresh_models() {
+    void enable_changed(int id, bool enabled) {
+        if ((IsWindowEnabled(child(id)) != FALSE) != enabled) EnableWindow(child(id),enabled);
+    }
+    void text_changed(HWND control, const std::wstring& label) {
+        if (control_text(control) != label) SetWindowTextW(control,label.c_str());
+    }
+    void refresh_mix_controls() {
+        const auto state = app.services().projects->state();
+        enable_changed(undo,state.can_undo && !app.recording());
+        enable_changed(redo,state.can_redo && !app.recording());
+        const auto title = L"Moon River Studio " + wide(application_version) + L" — " + wide(state.project->title) + (app.dirty() ? L" *" : L"");
+        text_changed(window,title); InvalidateRect(window,nullptr,FALSE);
+    }
+    void refresh_models(bool mix_only = false) {
+        if (mix_only) { refresh_mix_controls(); return; }
         sync_workspace_controls();
         const auto project = app.services().projects->state().project;
         app.prepare_waveforms();
@@ -274,30 +291,30 @@ struct UI {
             if (found == project->tracks.end()) found = project->tracks.begin();
             selected_track = found->id;
             SendMessageW(child(tracks),LB_SETCURSEL,static_cast<WPARAM>(found-project->tracks.begin()),0);
-            SetWindowTextW(child(rename_edit),wide(found->name).c_str());
-        } else { selected_track.reset(); SetWindowTextW(child(rename_edit),L""); }
+            text_changed(child(rename_edit),wide(found->name));
+        } else { selected_track.reset(); text_changed(child(rename_edit),L""); }
         first_track = std::min(first_track,project->tracks.empty() ? std::size_t{0} : project->tracks.size()-1);
         if (selected_clip && std::none_of(project->clips.begin(),project->clips.end(),[&](const auto& c) { return c.id == *selected_clip; })) selected_clip.reset();
-        EnableWindow(child(split_clip_button),selected_clip.has_value() && !app.recording()); EnableWindow(child(delete_clip_button),selected_clip.has_value() && !app.recording());
+        enable_changed(split_clip_button,selected_clip.has_value() && !app.recording()); enable_changed(delete_clip_button,selected_clip.has_value() && !app.recording());
         prefs.rate = project->sample_rate;
         if (settings) SetWindowTextW(child(rate_edit,true),std::to_wstring(prefs.rate).c_str());
-        EnableWindow(child(undo),app.services().projects->state().can_undo && !app.recording()); EnableWindow(child(redo),app.services().projects->state().can_redo && !app.recording());
-        for (auto id : {play,previous,next,loop,add_track,delete_track,track_up,track_down,rename,rename_edit,audio_settings}) EnableWindow(child(id),!app.recording());
+        for (auto id : {play,previous,next,loop,add_track,delete_track,track_up,track_down,rename,rename_edit,audio_settings}) enable_changed(id,!app.recording());
         const bool audio_selected = std::any_of(project->tracks.begin(),project->tracks.end(),[&](const auto& t) { return selected_track && t.id == *selected_track && t.kind == TrackKind::audio; });
-        EnableWindow(child(arm_button),audio_selected && !app.recording());
-        EnableWindow(child(record_button),app.recording() || (app.armed_track().has_value() && app.has_input() && app.audio_running()));
-        EnableWindow(child(monitor_button),app.has_input() && app.audio_running());
-        SetWindowTextW(child(record_button),app.recording() ? L"End rec (R)" : L"Record (R)");
+        enable_changed(arm_button,audio_selected && !app.recording());
+        enable_changed(record_button,app.recording() || (app.armed_track().has_value() && app.has_input() && app.audio_running()));
+        enable_changed(monitor_button,app.has_input() && app.audio_running());
+        text_changed(child(record_button),app.recording() ? L"End rec (R)" : L"Record (R)");
         const bool armed = selected_track && app.armed_track() && *selected_track == *app.armed_track();
-        SetWindowTextW(child(arm_button),armed ? L"Disarm" : L"Arm track");
-        SetWindowTextW(child(monitor_button),app.monitoring() ? L"Monitor on" : L"Monitor off");
+        text_changed(child(arm_button),armed ? L"Disarm" : L"Arm track");
+        text_changed(child(monitor_button),app.monitoring() ? L"Monitor on" : L"Monitor off");
         const auto files = GetSubMenu(GetMenu(window),0);
-        for (auto id : {new_project_button,open,save,save_as,import_batch,import,demo})
-            EnableMenuItem(files,static_cast<UINT>(id),MF_BYCOMMAND | (app.recording() ? MF_GRAYED : MF_ENABLED));
-
-        DrawMenuBar(window);
-        std::wstring title = L"Moon River Studio " + wide(application_version) + L" — " + wide(project->title) + (app.dirty() ? L" *" : L"");
-        SetWindowTextW(window,title.c_str()); InvalidateRect(window,nullptr,FALSE);
+        bool menu_changed{};
+        for (auto id : {new_project_button,open,save,save_as,import_batch,import,demo}) {
+            const bool disabled = (GetMenuState(files,static_cast<UINT>(id),MF_BYCOMMAND) & (MF_GRAYED | MF_DISABLED)) != 0;
+            if (disabled != app.recording()) { EnableMenuItem(files,static_cast<UINT>(id),MF_BYCOMMAND | (app.recording() ? MF_GRAYED : MF_ENABLED)); menu_changed = true; }
+        }
+        if (menu_changed) DrawMenuBar(window);
+        refresh_mix_controls();
     }
     bool discard() {
         if (!app.dirty() || smoke) return true;
@@ -410,7 +427,7 @@ struct UI {
         if (mix_drag) {
             mixer_move(point); const auto d = *mix_drag; mix_drag.reset(); ReleaseCapture();
             if (d.track) app.set_track_mix(*d.track,d.mix); else app.set_master_gain(d.master);
-            refresh_models(); return;
+            refresh_models(true); return;
         }
         if (!drag) return;
         mouse_move(point); auto d = *drag; cancel_drag();
@@ -1151,6 +1168,10 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     }
                     if (ui->button_paints != preview_button_paints) throw std::runtime_error("Fader preview repainted unrelated native buttons");
                     if (ui->button_layout_events != preview_button_layout) throw std::runtime_error("Fader repaint triggered native button layout");
+                    const auto release_button_updates = ui->unrelated_button_updates;
+                    ui->mouse_up({gain_point.x,gain_point.y-ui->s(5)});
+                    if (ui->unrelated_button_updates != release_button_updates) throw std::runtime_error("Fader release updated unrelated native buttons");
+                    ui->command(undo,0);
                     ui->cancel_mix_drag();
                     RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
                     const auto idle_button_paints = ui->button_paints;
@@ -1175,7 +1196,9 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     const auto mini_revision = ui->app.services().projects->state().revision;
                     ui->mouse_down(mini_gain); ui->mouse_move({mini_gain.x+ui->s(10),mini_gain.y});
                     if (!ui->mix_drag || ui->mix_drag->vertical || ui->mix_drag->pan) throw std::runtime_error("Track header gain did not use horizontal preview");
+                    const auto mini_release_updates = ui->unrelated_button_updates;
                     ui->mouse_up({mini_gain.x+ui->s(10),mini_gain.y});
+                    if (ui->unrelated_button_updates != mini_release_updates) throw std::runtime_error("Mini fader release updated unrelated buttons");
                     if (ui->app.services().projects->state().revision != mini_revision+1) throw std::runtime_error("Mini fader did not commit one edit");
                     ui->command(undo,0);
                     const POINT knob{header.right-ui->s(14),header.top+ui->s(40)};
@@ -1184,6 +1207,13 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     ui->command(undo,0); ui->command(nav_mix,BN_CLICKED);
                     const auto overlay = ui->mix_area();
                     if (overlay.top <= ui->canvas.top || GetParent(hwnd) != nullptr) throw std::runtime_error("Mixer did not overlay the main arrangement");
+                    const auto master_fader = ui->mix_control(ui->mix_strip(0,true),34);
+                    const POINT master_point{(master_fader.left+master_fader.right)/2,(master_fader.top+master_fader.bottom)/2};
+                    ui->mouse_down(master_point);
+                    const auto master_release_updates = ui->unrelated_button_updates;
+                    ui->mouse_up(master_point);
+                    if (ui->unrelated_button_updates != master_release_updates) throw std::runtime_error("Master release updated unrelated buttons");
+                    ui->command(undo,0);
                     const auto bar = GetMenu(hwnd), files = GetSubMenu(bar,0);
                     if (!bar || !files || GetMenuItemID(files,0) != new_project_button || GetMenuItemID(files,4) != save || !GetSubMenu(files,2))
                         throw std::runtime_error("Files menu did not retain project commands");
