@@ -1,5 +1,13 @@
 # Moon River Studio — START HERE
 
+
+## 0.1j accepted; Mixer / Routing completed — 2026-10-04
+Пользователь подтвердил: «Все проверил, все работает!». Принята локальная 0.1j / Stage 2e: mono/stereo inputs, simultaneous multitrack capture, per-track Arm/Monitor, L/R meters и возврат Stop к старту. Принятый код 43fe2b510f14e77453a5e5f68e0659621f0c80bf; пакет MR-Studio-0.1j-ASIO-Windows-local. Локальные configure/build, 73/73 CTest и GUI smoke прошли ранее; при этой отметке проверки не повторялись.
+Весь scope #22 принят по проверенному пользователем workflow; Mixer / Routing завершён. Детальная длительная hardware/performance matrix #16 остаётся отложенной и не отмечается пройденной. Исторические pending/one-mono/not-started записи выше заменены этой приёмкой.
+Следующий этап: #23 Plugins / Native DSP. Предлагаемый первый подэтап 0.1k: insert-chain UI на дорожках/шинах/Master, добавление/удаление/порядок/bypass, интеграция native utility gain/filter/EQ, параметры и сохранение/Undo. Затем VST3 scan/load/editor/state/latency; IR и amp/model foundation — последующие slices. Новая реализация пока не начата.
+Код/сборки локально. GitHub только issues/docs; приёмка не разрешает code push/новый PR/merge. GitHub Actions не используются.
+
+
 ## 0.1j / Stage 2e — локальная реализация готова, 2026-10-04
 Mono/stereo inputs на дорожках, одновременная запись нескольких дорожек,
 независимые R (Arm) / I (Monitor) рядом с M/S, отдельные L/R шкалы stereo.
