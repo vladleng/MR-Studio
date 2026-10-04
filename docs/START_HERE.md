@@ -1,5 +1,15 @@
 # Moon River Studio — START HERE
 
+## Принята локальная 0.1h fix3 / Stage 2c — 2026-10-04
+Пользователь: «теперь ничего не мигает. Все работает». Sends/returns, recent projects,
+mixer overlay, vertical faders/meters, track mini panels/input selection и исправления
+мигания приняты. Принятый локальный код 0911855dce7d179e03df33f05a120684e4637d37.
+Следующая часть #22 — hardware output routing, multi-output interfaces/device profiles.
+Полный #22 остаётся открыт; benchmark #16 остаётся отложенным. Код и сборки локально;
+GitHub issues/docs only, push/PR/merge по отдельной просьбе. Исторические pending
+записи ниже заменены этой приёмкой.
+
+
 ## Локальная 0.1h fix1 — мигание кнопок — 2026-10-04
 Пользователь проверил функции 0.1h («Все работает»), но сообщил о мигании кнопок
 при движении фейдеров и открытии меню. В fix1 отрисовка больше не перемещает
