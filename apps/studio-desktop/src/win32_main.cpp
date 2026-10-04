@@ -107,6 +107,8 @@ struct UI {
     HBRUSH panel_brush{CreateSolidBrush(panel)};
     UINT dpi{96}, settings_dpi{96};
     HFONT settings_font{};
+    std::array<std::wstring,3> settings_status_text{};
+    ULONGLONG settings_status_tick{};
     bool smoke{};
     int smoke_step{};
     unsigned error_count{};
@@ -297,7 +299,7 @@ struct UI {
         if (selected_clip && std::none_of(project->clips.begin(),project->clips.end(),[&](const auto& c) { return c.id == *selected_clip; })) selected_clip.reset();
         enable_changed(split_clip_button,selected_clip.has_value() && !app.recording()); enable_changed(delete_clip_button,selected_clip.has_value() && !app.recording());
         prefs.rate = project->sample_rate;
-        if (settings) SetWindowTextW(child(rate_edit,true),std::to_wstring(prefs.rate).c_str());
+        if (settings) text_changed(child(rate_edit,true),std::to_wstring(prefs.rate));
         for (auto id : {play,previous,next,loop,add_track,delete_track,track_up,track_down,rename,rename_edit,audio_settings}) enable_changed(id,!app.recording());
         const bool audio_selected = std::any_of(project->tracks.begin(),project->tracks.end(),[&](const auto& t) { return selected_track && t.id == *selected_track && t.kind == TrackKind::audio; });
         enable_changed(arm_button,audio_selected && !app.recording());
@@ -949,10 +951,36 @@ struct UI {
     void show_settings();
     void settings_command(int);
     void settings_layout();
+    void refresh_settings_status(bool force = false);
+    void paint_settings(HDC);
     void enumerate_devices();
     void error(const std::exception& e) { ++error_count; log.write(e.what()); if (!smoke) MessageBoxW(window,wide(e.what()).c_str(),L"Moon River Studio",MB_OK | MB_ICONERROR); }
 };
 LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
+void UI::refresh_settings_status(bool force) {
+    if (!settings) return;
+    const auto now = GetTickCount64();
+    if (!force && now-settings_status_tick < 250) return;
+    settings_status_tick = now;
+    const auto status = app.device_status();
+    std::wostringstream value; value << std::fixed << std::setprecision(2)
+        << L"Output latency: " << status.output_latency_ms << L" ms   CPU: " << status.cpu_load*100 << L"%";
+    const std::array<std::wstring,3> next{wide(app.audio_name()),value.str(),
+        device_error.empty() ? L"Outputs: 1,2. Monitor input: 0 = off. Connect stops/reset transport." : wide(device_error)};
+    if (next == settings_status_text) return;
+    settings_status_text = next;
+    RECT client{}; GetClientRect(settings,&client);
+    const RECT status_area{0,ss(300),client.right,client.bottom};
+    InvalidateRect(settings,&status_area,FALSE);
+}
+void UI::paint_settings(HDC dc) {
+    RECT area{}; GetClientRect(settings,&area); fill(dc,area,background);
+    const std::array<const wchar_t*,5> labels{L"Audio backend",L"Sample rate (Hz)",L"Buffer (frames)",L"Physical outputs",L"Monitor input"};
+    const std::array<int,5> ys{24,76,118,160,202};
+    for (std::size_t i=0; i<labels.size(); ++i) text(dc,ss(20),ss(ys[i]),ss(166),ss(30),labels[i],settings_font);
+    for (std::size_t i=0; i<settings_status_text.size(); ++i)
+        text(dc,ss(20),ss(305+static_cast<int>(i)*32),ss(540),ss(30),settings_status_text[i],settings_font,muted);
+}
 LRESULT CALLBACK settings_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
 void UI::restore_audio() {
     if (!prefs.reconnect_audio || prefs.device_name.empty()) return;
@@ -993,7 +1021,7 @@ void UI::enumerate_devices() {
 }
 void UI::show_settings() {
     if (settings) { ShowWindow(settings,SW_SHOW); SetForegroundWindow(settings); return; }
-    settings = CreateWindowExW(WS_EX_CONTROLPARENT,L"MRStudioAudio",L"Audio settings",WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+    settings = CreateWindowExW(WS_EX_CONTROLPARENT,L"MRStudioAudio",L"Audio settings",WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN,
         CW_USEDEFAULT,CW_USEDEFAULT,s(600),s(475),window,nullptr,GetModuleHandleW(nullptr),this);
     if (!settings) throw std::runtime_error("Cannot open audio settings");
     settings_dpi = GetDpiForWindow(settings);
@@ -1005,7 +1033,7 @@ void UI::show_settings() {
     SetWindowTextW(child(outputs_edit,true),outputs.c_str()); SetWindowTextW(child(input_edit,true),std::to_wstring(prefs.monitor_input+1).c_str());
     settings_fonts(); enumerate_devices(); settings_layout();
     SetWindowPos(settings,nullptr,0,0,ss(600),ss(475),SWP_NOMOVE | SWP_NOZORDER);
-    ShowWindow(settings,SW_SHOW);
+    refresh_settings_status(true); ShowWindow(settings,SW_SHOW);
 }
 void UI::settings_layout() {
     auto move = [&](int id, int x, int y, int w, int h) { MoveWindow(child(id,true),ss(x),ss(y),ss(w),ss(h),TRUE); };
@@ -1059,20 +1087,19 @@ LRESULT CALLBACK settings_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lp
             SetWindowPos(hwnd,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOZORDER | SWP_NOACTIVATE);
             ui->settings_fonts(); ui->settings_layout(); return 0;
         }
-        case WM_COMMAND: ui->settings_command(LOWORD(wparam)); return 0;
+        case WM_COMMAND: ui->settings_command(LOWORD(wparam)); ui->refresh_settings_status(true); return 0;
         case WM_DRAWITEM: ui->draw_button(*reinterpret_cast<DRAWITEMSTRUCT*>(lparam)); return TRUE;
         case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX:
             SetTextColor(reinterpret_cast<HDC>(wparam),ink); SetBkColor(reinterpret_cast<HDC>(wparam),panel); return reinterpret_cast<LRESULT>(ui->panel_brush);
+        case WM_ERASEBKGND: return 1;
+        case WM_PRINTCLIENT: ui->paint_settings(reinterpret_cast<HDC>(wparam)); return 0;
         case WM_PAINT: {
-            PAINTSTRUCT ps{}; auto dc = BeginPaint(hwnd,&ps); RECT area{}; GetClientRect(hwnd,&area); ui->fill(dc,area,background);
-            const std::array<const wchar_t*,5> labels{L"Audio backend",L"Sample rate (Hz)",L"Buffer (frames)",L"Physical outputs",L"Monitor input"};
-            const std::array<int,5> ys{24,76,118,160,202};
-            for (std::size_t i = 0; i < labels.size(); ++i) ui->text(dc,ui->ss(20),ui->ss(ys[i]),ui->ss(166),ui->ss(30),labels[i],ui->settings_font);
-            auto status = ui->app.device_status(); 
-            ui->text(dc,ui->ss(20),ui->ss(305),ui->ss(540),ui->ss(30),wide(ui->app.audio_name()),ui->settings_font,muted);
-            ui->text(dc,ui->ss(20),ui->ss(337),ui->ss(540),ui->ss(30),L"Output latency: "+std::to_wstring(status.output_latency_ms)+L" ms   CPU: "+std::to_wstring(status.cpu_load*100)+L"%",ui->settings_font,muted);
-            ui->text(dc,ui->ss(20),ui->ss(370),ui->ss(540),ui->ss(30),ui->device_error.empty() ? L"Outputs: 1,2. Monitor input: 0 = off. Connect stops/reset transport." : wide(ui->device_error),ui->settings_font,muted);
-            EndPaint(hwnd,&ps); return 0;
+            PAINTSTRUCT ps{}; const auto dc = BeginPaint(hwnd,&ps); RECT area{}; GetClientRect(hwnd,&area);
+            const auto buffer = CreateCompatibleDC(dc);
+            const auto bitmap = CreateCompatibleBitmap(dc,std::max<LONG>(1,area.right),std::max<LONG>(1,area.bottom));
+            const auto old = SelectObject(buffer,bitmap); ui->paint_settings(buffer);
+            BitBlt(dc,0,0,area.right,area.bottom,buffer,0,0,SRCCOPY);
+            SelectObject(buffer,old); DeleteObject(bitmap); DeleteDC(buffer); EndPaint(hwnd,&ps); return 0;
         }
         case WM_CLOSE: DestroyWindow(hwnd); return 0;
         case WM_DESTROY: ui->settings = nullptr; return 0;
@@ -1120,7 +1147,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                 decay(ui->mix_meters.master,peaks.master);
                 if (ui->mix_drag) (void)ui->app.preview_mix(ui->mix_drag->track,ui->mix_drag->mix,ui->mix_drag->master);
                 try { const bool recording = ui->app.recording(); ui->app.poll(); if (recording != ui->app.recording()) ui->refresh_models(); ui->sync_workspace_controls(); } catch (const std::runtime_error&) { return 0; } // bounded mailbox can be busy
-                InvalidateRect(hwnd,nullptr,FALSE); if (ui->settings) InvalidateRect(ui->settings,nullptr,FALSE); return 0;
+                InvalidateRect(hwnd,nullptr,FALSE); ui->refresh_settings_status(); return 0;
             }
             if (wparam == 2 && ui->smoke) {
                 ++ui->smoke_step;
@@ -1254,6 +1281,17 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     SendMessageW(ui->child(device_combo,true),CB_SETCURSEL,0,0);
                     SetWindowTextW(ui->child(rate_edit,true),L"48000");
                     SetWindowTextW(ui->child(outputs_edit,true),L"1,2");
+                    ValidateRect(ui->settings,nullptr);
+                    ui->settings_status_text[1] = L"stale status"; ui->settings_status_tick = 0;
+                    SendMessageW(hwnd,WM_TIMER,1,0);
+                    RECT settings_update{};
+                    if (GetUpdateRect(ui->settings,&settings_update,FALSE) && settings_update.top < ui->ss(300))
+                        throw std::runtime_error("Audio settings timer invalidated static labels/input controls");
+                    if (!GetUpdateRect(ui->settings,&settings_update,FALSE) || ui->settings_status_text[1] == L"stale status") throw std::runtime_error("Audio settings status did not refresh");
+                    ValidateRect(ui->settings,nullptr); ui->refresh_settings_status(true);
+                    if (GetUpdateRect(ui->settings,&settings_update,FALSE)) throw std::runtime_error("Unchanged audio status repainted the dialog");
+                    if (!(GetWindowLongPtrW(ui->settings,GWL_STYLE) & WS_CLIPCHILDREN)) throw std::runtime_error("Audio settings paint does not protect child controls");
+                    if (SendMessageW(ui->settings,WM_ERASEBKGND,0,0) != 1) throw std::runtime_error("Audio settings background erase was not suppressed");
                     if (!ui->child(play) || !ui->child(device_combo,true) || ui->app.workspace() != Workspace::mix || ui->error_count != 0)
                         throw std::runtime_error("GUI initialization/typing produced an unexpected error");
                     // Exercise DPI layout with the same path as a monitor change.

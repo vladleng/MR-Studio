@@ -1,5 +1,12 @@
 # Moon River Studio — START HERE
 
+## Локальная 0.1h fix3 — Audio settings
+Пользователь подтвердил устранение release-мигания в fix2. Fix3 устраняет постоянную
+полную перерисовку Audio settings: double buffer/WS_CLIPCHILDREN, обновление только
+изменённого статуса не чаще 250 ms. GUI regression воспроизведён до исправления и
+прошёл после; пользовательская проверка fix3 ожидается. См. MRS_0_1H_FIX3.md.
+Код и сборка остаются локальными; GitHub — только issues/docs.
+
 ## Локальная 0.1h fix2 — мигание при отпускании фейдера
 Fix1 устранён во время движения; пользователь сообщил остаточное мигание при release.
 Fix2 заменяет полный refresh на обновление Undo/Redo, dirty title и canvas;
