@@ -1,5 +1,10 @@
 # 0.1h / MRS Stage 2c — local Windows acceptance
 
+Stage 2c accepted locally in 0.1h fix3 on 2026-10-04: user confirmed no flicker
+and everything works. Code 0911855dce7d179e03df33f05a120684e4637d37.
+The historical pending notes below are superseded. #22 stays open for hardware
+output routing/multi-output/device profiles; no automatic code publication.
+
 Local configure/build, CTest 65/65 and expanded GUI smoke passed.
 User verified 0.1h functionality and reported native button flicker. The local
 0.1h fix1 addresses this; fix1 verification is pending. See MRS_0_1H_FIX1.md.

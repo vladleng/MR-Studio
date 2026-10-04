@@ -1,5 +1,9 @@
 # Moon River Studio
 
+Последняя принятая локальная сборка: **0.1h fix3**, 2026-10-04.
+Пользователь подтвердил отсутствие мигания и работу всех функций Stage 2c.
+Далее в #22 — hardware output routing/multi-output/device profiles.
+
 Локальная **0.1h fix3** устраняет постоянное мигание Audio settings. Fix2 проверен
 пользователем; проверка fix3 ожидается. См. [MRS_0_1H_FIX3.md](docs/MRS_0_1H_FIX3.md).
 

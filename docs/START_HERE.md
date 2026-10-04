@@ -1,5 +1,14 @@
 # Moon River Studio — START HERE
 
+## Принята локальная 0.1h fix3 — 2026-10-04
+Пользователь подтвердил: «теперь ничего не мигает. Все работает».
+Stage 2c: sends/returns, recent projects, mixer overlay, vertical faders/meters,
+track mini panels/input selection и исправления мигания приняты в локальной сборке.
+Принятый код: 0911855dce7d179e03df33f05a120684e4637d37.
+Следующая часть #22: hardware output routing, multi-output interfaces и device profiles.
+Полный #22 остаётся открыт. Код/сборки локально; GitHub issues/docs only,
+code push/PR/merge по отдельной просьбе. Исторические pending записи ниже заменены этой.
+
 ## Локальная 0.1h fix3 — Audio settings
 Пользователь подтвердил устранение release-мигания в fix2. Fix3 устраняет постоянную
 полную перерисовку Audio settings: double buffer/WS_CLIPCHILDREN, обновление только
