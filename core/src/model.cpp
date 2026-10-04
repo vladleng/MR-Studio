@@ -98,6 +98,8 @@ void Project::validate() const {
     std::unordered_map<std::string,int> color;
     for (const auto& track : tracks) {
         require(track.kind != TrackKind::midi || (!track.output && track.sends.empty()), "MIDI audio routing is not supported");
+        require(!track.input_stereo || (track.kind == TrackKind::audio && track.input >= 0 && track.input < 63),"stereo input requires adjacent physical channels");
+        require(!track.input_monitor || track.kind == TrackKind::audio,"only audio tracks can monitor input");
         require(track.input >= -2 && track.input < 64 && (track.kind == TrackKind::audio || track.input == -2), "invalid track input");
         require(track.sends.size() <= 8, "at most eight sends per channel");
         std::unordered_set<std::string> destinations;

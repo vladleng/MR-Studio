@@ -263,6 +263,7 @@ struct UI {
             visible(id,workspace == Workspace::arrange || workspace == Workspace::mix);
         visible(add_bus_button,workspace == Workspace::mix);
         visible(tracks,workspace != Workspace::arrange && workspace != Workspace::mix);
+        visible(arm_button,false); visible(monitor_button,false);
         const bool enabled = !app.recording() && app.engine()->state().playback != PlaybackState::playing;
         if ((IsWindowEnabled(child(add_bus_button)) != FALSE) != enabled) EnableWindow(child(add_bus_button),enabled);
         if (canvas.bottom <= canvas.top) return;
@@ -292,7 +293,7 @@ struct UI {
         app.prepare_waveforms();
         SendMessageW(child(tracks),LB_RESETCONTENT,0,0);
         for (const auto& t : project->tracks) {
-            auto name = (t.kind == TrackKind::bus ? L"[BUS] " : app.armed_track() && t.id == *app.armed_track() ? L"[R] " : L"") + wide(t.name); SendMessageW(child(tracks),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(name.c_str()));
+            auto name = (t.kind == TrackKind::bus ? L"[BUS] " : app.track_armed(t.id) ? L"[R] " : L"") + wide(t.name); SendMessageW(child(tracks),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(name.c_str()));
         }
         if (!project->tracks.empty()) {
             auto found = std::find_if(project->tracks.begin(),project->tracks.end(),[&](const auto& t) { return selected_track && t.id == *selected_track; });
@@ -660,7 +661,7 @@ struct UI {
                 if (y+s(30) > arrangement_bottom()) break;
                 const int row_y=y;
                 if (selected_track && track.id == *selected_track) fill(dc,{rect.left,y,rect.right,y+row_height()-s(4)},RGB(63,68,74));
-                text(dc,rect.left+s(12),y,width-s(24),s(24),(app.armed_track() && track.id == *app.armed_track() ? L"[R] " : L"") + wide(track.name),normal,muted); y += s(26);
+                text(dc,rect.left+s(12),y,width-s(24),s(24),(app.track_armed(track.id) ? L"[R] " : L"") + wide(track.name),normal,muted); y += s(26);
                 for (const auto& stored_clip : project->clips) {
                     const auto clip = drag && drag->original.id == stored_clip.id ? drag->preview : stored_clip;
                     if (clip.track != track.id) continue;
@@ -697,8 +698,8 @@ struct UI {
                 line(dc,rect.left,y-s(2),rect.right,y-s(2),border);
             }
         }
-        if (!moving && app.recording() && app.armed_track()) {
-            const auto track = std::find_if(project->tracks.begin(),project->tracks.end(),[&](const auto& t) { return t.id == *app.armed_track(); });
+        if (!moving && app.recording()) for (const auto& armed : app.armed_tracks()) {
+            const auto track = std::find_if(project->tracks.begin(),project->tracks.end(),[&](const auto& t) { return t.id == armed; });
             const auto row = static_cast<std::size_t>(track-project->tracks.begin());
             if (track != project->tracks.end() && row >= first_track) {
                 const auto frames = static_cast<Sample>(app.recording_status().frames);
@@ -763,7 +764,7 @@ struct UI {
             if (track) {
                 const auto p = mix_control(r,68); fill(dc,p,border);
                 text(dc,p.left,p.top,p.right-p.left,p.bottom-p.top,mix.pan == 0 ? L"Center" : (mix.pan < 0 ? L"L " : L"R ")+std::to_wstring(static_cast<int>(std::abs(mix.pan)*100)));
-                RECT m{r.left+s(60),r.top+s(60),r.right-s(8),r.top+s(82)}, solo{m.left,r.top+s(86),m.right,r.top+s(108)};
+                RECT m{r.left+s(60),r.top+s(68),r.right-s(8),r.top+s(88)}, solo{m.left,r.top+s(86),m.right,r.top+s(108)};
                 fill(dc,m,mix.mute ? RGB(143,67,56) : border); fill(dc,solo,mix.solo ? RGB(132,105,44) : border);
                 text(dc,m.left,m.top,m.right-m.left,m.bottom-m.top,L"Mute"); text(dc,solo.left,solo.top,solo.right-solo.left,solo.bottom-solo.top,L"Solo");
             }
@@ -848,24 +849,34 @@ struct UI {
             fill(dc,r,selected_track == track.id ? RGB(75,81,88) : panel);
             fill(dc,{r.left,r.top,r.left+s(5),r.bottom},accent);
             auto mix = track.mix; if (mix_drag && mix_drag->track == track.id) mix = mix_drag->mix;
-            text(dc,r.left+s(10),r.top,r.right-r.left-s(100),s(22),wide(track.name));
+            text(dc,r.left+s(10),r.top,r.right-r.left-s(180),s(22),wide(track.name));
             if (track.kind == TrackKind::midi) continue;
-            const RECT mute_rect{r.right-s(80),r.top,r.right-s(46),r.top+s(22)}, solo_rect{r.right-s(42),r.top,r.right-s(8),r.top+s(22)};
+            const RECT mute_rect{r.right-s(160),r.top,r.right-s(126),r.top+s(22)}, solo_rect{r.right-s(122),r.top,r.right-s(88),r.top+s(22)};
             fill(dc,mute_rect,mix.mute ? RGB(143,67,56) : border); fill(dc,solo_rect,mix.solo ? RGB(132,105,44) : border);
             text(dc,mute_rect.left,mute_rect.top,mute_rect.right-mute_rect.left,s(22),L"M"); text(dc,solo_rect.left,solo_rect.top,solo_rect.right-solo_rect.left,s(22),L"S");
+            if (track.kind == TrackKind::audio) {
+                const RECT arm{r.right-s(84),r.top,r.right-s(50),r.top+s(22)}, monitor{r.right-s(46),r.top,r.right-s(8),r.top+s(22)};
+                fill(dc,arm,app.track_armed(track.id) ? RGB(160,55,55) : border); fill(dc,monitor,track.input_monitor ? accent : border);
+                text(dc,arm.left,arm.top,arm.right-arm.left,s(22),L"R"); text(dc,monitor.left,monitor.top,monitor.right-monitor.left,s(22),L"I");
+            }
             const RECT gain{r.left+s(8),r.top+s(26),r.right-s(44),r.top+s(44)}; fill(dc,gain,border);
             const int x = gain.left+static_cast<int>(fader_position(mix.gain)*(gain.right-gain.left)); line(dc,x,gain.top,x,gain.bottom,amber);
             text(dc,gain.left,gain.top,gain.right-gain.left,gain.bottom-gain.top,gain_text(mix.gain));
-            const auto peak = mix_meters.tracks[meter_index]; const float v = std::max(peak.left,peak.right);
-            RECT meter{gain.left,r.top+s(48),gain.right,r.top+s(54)}; fill(dc,meter,RGB(22,22,22));
-            const float fraction = v > 0 ? std::clamp((20*std::log10(v)+60)/60,0.0f,1.0f) : 0;
-            fill(dc,{meter.left,meter.top,meter.left+static_cast<int>(fraction*(meter.right-meter.left)),meter.bottom},v>=1 ? RGB(230,70,60) : RGB(100,178,126));
+            const auto peak = mix_meters.tracks[meter_index];
+            const bool stereo=app.stereo_track(track.id);
+            for (int c=0; c<(stereo ? 2 : 1); ++c) {
+                const float v=stereo ? (c == 0 ? peak.left : peak.right) : std::max(peak.left,peak.right);
+                RECT meter{gain.left+s(stereo ? 14 : 0),r.top+s(48+c*9),gain.right,r.top+s(55+c*9)};
+                fill(dc,meter,RGB(22,22,22)); const auto fraction=v > 0 ? std::clamp((20*std::log10(v)+60)/60,0.0f,1.0f) : 0;
+                fill(dc,{meter.left,meter.top,meter.left+static_cast<int>(fraction*(meter.right-meter.left)),meter.bottom},v>=1 ? RGB(230,70,60) : RGB(100,178,126));
+                if (stereo) text(dc,gain.left,r.top+s(44+c*9),s(12),s(16),c == 0 ? L"L" : L"R");
+            }
             const int cx = r.right-s(23), cy = r.top+s(41), radius=s(15);
             const auto brush = CreateSolidBrush(border); const auto old = SelectObject(dc,brush); Ellipse(dc,cx-radius,cy-radius,cx+radius,cy+radius); SelectObject(dc,old); DeleteObject(brush);
             const double angle = static_cast<double>(mix.pan)*2.2; line(dc,cx,cy,cx+static_cast<int>(std::sin(angle)*radius),cy-static_cast<int>(std::cos(angle)*radius),accent);
             if (track.kind == TrackKind::audio) {
-                RECT input{r.left+s(8),r.top+s(60),r.right-s(8),r.top+s(82)}; fill(dc,input,border);
-                text(dc,input.left,input.top,input.right-input.left,input.bottom-input.top,track.input == -2 ? L"Input: default" : track.input == -1 ? L"Input: off" : L"Input: "+std::to_wstring(track.input+1));
+                RECT input{r.left+s(8),r.top+s(68),r.right-s(8),r.top+s(88)}; fill(dc,input,border);
+                text(dc,input.left,input.top,input.right-input.left,input.bottom-input.top,track.input == -2 ? L"Input: default" : track.input == -1 ? L"Input: off" : (track.input_stereo ? L"Stereo "+std::to_wstring(track.input+1)+L"/"+std::to_wstring(track.input+2) : L"Mono "+std::to_wstring(track.input+1)));
             }
         }
         RestoreDC(dc,saved);
@@ -877,10 +888,15 @@ struct UI {
             const auto track = project->tracks[i];
             if (selected_track != track.id) { selected_track = track.id; refresh_models(); }
             if (track.kind == TrackKind::midi) return true;
-            const RECT mute_rect{r.right-s(80),r.top,r.right-s(46),r.top+s(22)}, solo_rect{r.right-s(42),r.top,r.right-s(8),r.top+s(22)};
+            const RECT mute_rect{r.right-s(160),r.top,r.right-s(126),r.top+s(22)}, solo_rect{r.right-s(122),r.top,r.right-s(88),r.top+s(22)};
             if (PtInRect(&mute_rect,point) || PtInRect(&solo_rect,point)) {
                 auto mix=track.mix; if (PtInRect(&mute_rect,point)) mix.mute=!mix.mute; else mix.solo=!mix.solo;
                 app.set_track_mix(track.id,mix); refresh_mix_controls(); return true;
+            }
+            if (track.kind == TrackKind::audio) {
+                const RECT arm{r.right-s(84),r.top,r.right-s(50),r.top+s(22)}, monitor{r.right-s(46),r.top,r.right-s(8),r.top+s(22)};
+                if (PtInRect(&arm,point)) { app.set_track_armed(track.id,!app.track_armed(track.id)); refresh_models(); return true; }
+                if (PtInRect(&monitor,point)) { app.set_track_monitoring(track.id,!track.input_monitor); refresh_mix_controls(); return true; }
             }
             const RECT g{r.left+s(8),r.top+s(26),r.right-s(44),r.top+s(44)}, p{r.right-s(40),r.top+s(24),r.right-s(6),r.top+s(57)};
             if (PtInRect(&g,point) || PtInRect(&p,point)) {
@@ -888,13 +904,20 @@ struct UI {
                 if (reset) { if (pan) mix.pan=0; else mix.gain=1; app.set_track_mix(track.id,mix); return true; }
                 mix_drag = MixDrag{track.id,mix,project->master_gain,pan,pan ? p : g,false}; SetCapture(window); mixer_move(point); return true;
             }
-            if (track.kind == TrackKind::audio && point.y>=r.top+s(60) && !app.recording() && app.engine()->state().playback != PlaybackState::playing) {
-                const auto names = app.input_names(); const auto menu = CreatePopupMenu();
-                AppendMenuW(menu,MF_STRING | (track.input == -2 ? MF_CHECKED : 0),1,L"Default input from Audio settings");
+            if (track.kind == TrackKind::audio && point.y>=r.top+s(68) && !app.recording() && app.engine()->state().playback != PlaybackState::playing) {
+                const auto names=app.input_names(); const auto menu=CreatePopupMenu();
+                std::vector<std::pair<int,bool>> choices{{-2,false},{-1,false}};
+                AppendMenuW(menu,MF_STRING | (track.input == -2 ? MF_CHECKED : 0),1,L"Default mono input from Audio settings");
                 AppendMenuW(menu,MF_STRING | (track.input == -1 ? MF_CHECKED : 0),2,L"Off");
-                for (std::size_t n=0; n<names.size(); ++n) AppendMenuW(menu,MF_STRING | (track.input == static_cast<int>(n) ? MF_CHECKED : 0),n+3,wide(names[n]).c_str());
+                const auto add=[&](int input,bool stereo,const std::wstring& label) {
+                    choices.emplace_back(input,stereo); AppendMenuW(menu,MF_STRING | (track.input == input && track.input_stereo == stereo ? MF_CHECKED : 0),choices.size(),label.c_str());
+                };
+                for (std::size_t n=0; n<names.size(); ++n) {
+                    add(static_cast<int>(n),false,L"Mono "+std::to_wstring(n+1)+L": "+wide(names[n]));
+                    if (n+1<names.size()) add(static_cast<int>(n),true,L"Stereo "+std::to_wstring(n+1)+L"/"+std::to_wstring(n+2)+L": "+wide(names[n])+L" / "+wide(names[n+1]));
+                }
                 ClientToScreen(window,&point); const auto choice=TrackPopupMenu(menu,TPM_RETURNCMD | TPM_NONOTIFY,point.x,point.y,0,window,nullptr); DestroyMenu(menu);
-                if (choice) app.set_track_input(track.id,static_cast<int>(choice)-3); refresh_models();
+                if (choice && choice <= choices.size()) { const auto [input,stereo]=choices[choice-1]; app.set_track_input(track.id,input,stereo); refresh_models(); }
             }
             return true;
         }
@@ -1055,7 +1078,7 @@ struct UI {
         std::vector<char> pixels(static_cast<std::size_t>(area.right)*area.bottom*4);
         if (!GetDIBits(dc,bitmap,0,static_cast<UINT>(area.bottom),pixels.data(),&info,DIB_RGB_COLORS)) throw std::runtime_error("Cannot capture UI preview");
         BITMAPFILEHEADER header{}; header.bfType=0x4d42; header.bfOffBits=sizeof(header)+sizeof(BITMAPINFOHEADER); header.bfSize=header.bfOffBits+static_cast<DWORD>(pixels.size());
-        std::ofstream out(folder/L"0.1i-upd1-preview.bmp",std::ios::binary);
+        std::ofstream out(folder/L"0.1j-preview.bmp",std::ios::binary);
         out.write(reinterpret_cast<const char*>(&header),sizeof(header)); out.write(reinterpret_cast<const char*>(&info.bmiHeader),sizeof(BITMAPINFOHEADER)); out.write(pixels.data(),static_cast<std::streamsize>(pixels.size()));
         DeleteObject(bitmap); DeleteDC(buffer); ReleaseDC(window,dc);
         if (!out) throw std::runtime_error("Cannot write UI preview");
@@ -1475,9 +1498,9 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     if (!ui->child(play) || !ui->child(device_combo,true) || ui->app.workspace() != Workspace::mix || ui->error_count != 0)
                         throw std::runtime_error("GUI initialization/typing produced an unexpected error");
                     const auto mini=ui->mini_rect(0); const auto mini_id=ui->app.services().projects->state().project->tracks.front().id;
-                    ui->mouse_down({mini.right-ui->s(70),mini.top+ui->s(10)});
+                    ui->mouse_down({mini.right-ui->s(150),mini.top+ui->s(10)});
                     if (!ui->app.services().projects->state().project->tracks.front().mix.mute) throw std::runtime_error("Header M did not mute its track");
-                    ui->app.undo(); ui->mouse_down({mini.right-ui->s(30),mini.top+ui->s(10)});
+                    ui->app.undo(); ui->mouse_down({mini.right-ui->s(110),mini.top+ui->s(10)});
                     if (!ui->app.services().projects->state().project->tracks.front().mix.solo || ui->selected_track != mini_id) throw std::runtime_error("Header S did not solo its selected track");
                     ui->app.undo();
                     // Drive the actual WM_MOUSEWHEEL dispatch with every modifier.
@@ -1507,6 +1530,33 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     ui->wheel(mixer_point,-WHEEL_DELTA,0);
                     if (ui->first_track != 1 || ui->first_mix_track != 1) throw std::runtime_error("Plain wheel changed mixer horizontal position");
                     ui->track_height=112; ui->first_track=0; ui->fit_view=true; ui->refresh_models();
+                    const auto tracks=ui->app.services().projects->state().project->tracks;
+                    if (GetWindowLongPtrW(ui->child(arm_button),GWL_STYLE) & WS_VISIBLE || GetWindowLongPtrW(ui->child(monitor_button),GWL_STYLE) & WS_VISIBLE)
+                        throw std::runtime_error("Global Arm/Monitor controls remain visible");
+                    for (std::size_t n=0; n<2; ++n) {
+                        const auto header=ui->mini_rect(n);
+                        if (!ui->mini_down({header.right-ui->s(65),header.top+ui->s(10)}) || !ui->app.track_armed(tracks[n].id))
+                            throw std::runtime_error("Track Arm click did not arm independently");
+                    }
+                    if (ui->app.armed_tracks().size() != 2) throw std::runtime_error("Arming a second track cleared the first");
+                    ui->app.set_track_monitoring(tracks[0].id,false); ui->app.set_track_monitoring(tracks[1].id,false);
+                    const auto header=ui->mini_rect(1); const auto monitor_revision=ui->app.services().projects->state().revision;
+                    if (!ui->mini_down({header.right-ui->s(25),header.top+ui->s(10)})) throw std::runtime_error("Track Monitor click missed");
+                    const auto monitored=ui->app.services().projects->state().project;
+                    if (monitored->tracks[0].input_monitor || !monitored->tracks[1].input_monitor || ui->app.services().projects->state().revision != monitor_revision+1)
+                        throw std::runtime_error("Track Monitor did not use an independent project command");
+                    if (!ui->app.undo() || ui->app.services().projects->state().project->tracks[1].input_monitor) throw std::runtime_error("Monitor Undo failed");
+                    ui->app.set_track_armed(tracks[0].id,false); ui->app.set_track_armed(tracks[1].id,false);
+                    if (!ui->app.stereo_track(tracks[0].id)) throw std::runtime_error("Stereo playback did not select L/R track meters");
+                    const auto saved_peaks=ui->mix_meters;
+                    ui->mix_meters.tracks[0]={1,0};
+                    RECT client{}; GetClientRect(hwnd,&client); const auto screen=GetDC(hwnd), meter_dc=CreateCompatibleDC(screen);
+                    const auto bitmap=CreateCompatibleBitmap(screen,client.right,client.bottom); const auto old_bitmap=SelectObject(meter_dc,bitmap);
+                    SendMessageW(hwnd,WM_PRINTCLIENT,reinterpret_cast<WPARAM>(meter_dc),PRF_CLIENT);
+                    const auto first_header=ui->mini_rect(0); const auto left_pixel=GetPixel(meter_dc,first_header.left+ui->s(40),first_header.top+ui->s(51));
+                    const auto right_pixel=GetPixel(meter_dc,first_header.left+ui->s(40),first_header.top+ui->s(60));
+                    SelectObject(meter_dc,old_bitmap); DeleteObject(bitmap); DeleteDC(meter_dc); ReleaseDC(hwnd,screen); ui->mix_meters=saved_peaks;
+                    if (left_pixel != RGB(230,70,60) || right_pixel != RGB(22,22,22)) throw std::runtime_error("Stereo L/R track meters did not draw independently");
                     if (ui->render_preview) { ui->first_mix_track=0; ui->export_preview(); }
                     // Exercise DPI layout with the same path as a monitor change.
                     ui->dpi = 144; ui->fonts();

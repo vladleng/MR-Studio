@@ -63,6 +63,7 @@ std::string serialize(const Project& p) {
         out << std::quoted(track.output ? track.output->value : "") << '\n';
         out << track.input << ' ' << track.sends.size() << '\n';
         for (const auto& send : track.sends) out << std::quoted(send.bus.value) << ' ' << send.gain << ' ' << send.pre_fader << '\n';
+        out << track.input_stereo << ' ' << track.input_monitor << '\n';
         out << track.hardware_outputs.size(); for (const auto channel : track.hardware_outputs) out << ' ' << channel; out << '\n';
     }
     section(out, "CLIPS", p.clips);
@@ -165,6 +166,11 @@ Project deserialize(std::string_view bytes) {
                 if (pre != 0 && pre != 1) throw std::invalid_argument("invalid send mode");
                 send.pre_fader = pre != 0; track.sends.push_back(std::move(send));
             }
+        }
+        if (input_version >= 7) {
+            int stereo{}, monitor{}; in >> stereo >> monitor; check_stream(in);
+            if ((stereo != 0 && stereo != 1) || (monitor != 0 && monitor != 1)) throw std::invalid_argument("invalid input flags");
+            track.input_stereo = stereo != 0; track.input_monitor = monitor != 0;
         }
         if (input_version >= 6) {
             const auto outputs = count(in); if (outputs > 2) throw std::invalid_argument("hardware output count");

@@ -594,11 +594,70 @@ void mixer() {
     engine.process(input.data(),out.data(),512); CHECK(std::abs(out[0]-0.1f)<0.00001f && out[1] == 0);
     graph.monitor_track = 2; rejects([&] { engine.prepare({48000,1,2,512},graph); });
 }
+
+void multi_input() {
+    TempFile mono, stereo;
+    auto first=std::make_shared<Recorder>(mono.path,48000,100,std::vector<std::uint32_t>{2});
+    auto second=std::make_shared<Recorder>(stereo.path,48000,100,std::vector<std::uint32_t>{0,1});
+    RenderGraph graph; graph.recordings={first,second}; graph.mixer={{1,0,false,false},{1,0,false,false}};
+    graph.monitor={{2,0,1,0},{2,1,1,0},{0,0,1,1},{1,1,1,1}};
+    graph.input_monitoring={false,true};
+    AudioEngine engine; engine.prepare({48000,3,2,8},graph,{PlaybackState::paused,100,{}});
+    std::array<float,12> in{.1f,.6f,.8f, .2f,.5f,.7f, .3f,.4f,.6f, .4f,.3f,.5f};
+    std::array<float,8> out{};
+    engine.process(in.data(),out.data(),4); CHECK(first->status().frames == 0 && out[0] == .1f && out[1] == .6f);
+    CHECK(engine.enqueue({ControlKind::play}));
+    const auto allocations=allocation_check::count.load(); allocation_check::enabled=true;
+    engine.process(in.data(),out.data(),4); allocation_check::enabled=false;
+    CHECK(allocation_check::count.load() == allocations);
+    CHECK(first->status().frames == 4 && second->status().frames == 4);
+    const auto peaks=engine.take_meters(); CHECK(peaks.tracks[1].left == .4f && peaks.tracks[1].right == .6f);
+    MixerUpdate update; update.count=2; update.tracks[0]={0,0,true,false}; update.tracks[1]={0,0,true,false}; update.master_gain=0;
+    CHECK(engine.enqueue_mix(update)); engine.process(in.data(),out.data(),4);
+    CHECK(first->status().frames == 8 && second->status().frames == 8);
+    engine.prepare({48000,0,2,8},{});
+    CHECK(first->finish().frames == 8 && second->finish().frames == 8);
+    const auto a=load_wav(mono.path), b=load_wav(stereo.path);
+    CHECK(a.channels == 1 && b.channels == 2 && a.frames() == b.frames());
+    for (std::size_t f=0; f<8; ++f) {
+        CHECK(a.samples[f] == in[(f%4)*3+2]);
+        CHECK(b.samples[f*2] == in[(f%4)*3] && b.samples[f*2+1] == in[(f%4)*3+1]);
+    }
+    TempFile bad; auto invalid=std::make_shared<Recorder>(bad.path,48000,0,std::vector<std::uint32_t>{1,2});
+    RenderGraph capture; capture.recordings={invalid}; rejects([&] { engine.prepare({48000,2,2,8},capture); });
+    capture.recordings={invalid,invalid}; rejects([&] { engine.prepare({48000,3,2,8},capture); });
+    CHECK(invalid->finish().frames == 0 && !std::filesystem::exists(bad.path));
+    TempFile dropout; Recorder pair(dropout.path,48000,0,{0,1});
+    pair.capture(in.data(),3,4,0); pair.capture(nullptr,3,4,4); CHECK(pair.finish().frames == 4);
+    CHECK(load_wav(dropout.path).channels == 2);
+}
+void stop_anchor() {
+    AudioEngine engine; engine.prepare({48000,0,2,8},{}); std::array<float,8> out{};
+    CHECK(engine.enqueue({ControlKind::seek,100})); CHECK(engine.enqueue({ControlKind::play}));
+    engine.process(nullptr,out.data(),4); CHECK(engine.state().sample == 104 && engine.state().play_start == 100);
+    CHECK(engine.enqueue({ControlKind::play})); engine.process(nullptr,out.data(),4);
+    CHECK(engine.enqueue({ControlKind::stop})); engine.process(nullptr,out.data(),4);
+    CHECK(engine.state().sample == 100 && engine.state().playback == PlaybackState::stopped);
+    CHECK(engine.enqueue({ControlKind::play})); engine.process(nullptr,out.data(),4);
+    CHECK(engine.enqueue({ControlKind::pause})); engine.process(nullptr,out.data(),4);
+    CHECK(engine.state().sample == 104);
+    engine.prepare({48000,0,2,8},{},engine.state()); // graph rebuild must retain the anchor
+    CHECK(engine.enqueue({ControlKind::stop})); engine.process(nullptr,out.data(),4); CHECK(engine.state().sample == 100);
+    CHECK(engine.enqueue({ControlKind::seek,200})); CHECK(engine.enqueue({ControlKind::loop,200,204}));
+    CHECK(engine.enqueue({ControlKind::play})); engine.process(nullptr,out.data(),4);
+    CHECK(engine.state().sample == 200);
+    CHECK(engine.enqueue({ControlKind::stop})); engine.process(nullptr,out.data(),4); CHECK(engine.state().sample == 200);
+    CHECK(engine.enqueue({ControlKind::loop,0,0})); CHECK(engine.enqueue({ControlKind::prepared_seek,300}));
+    CHECK(engine.enqueue({ControlKind::play})); engine.process(nullptr,out.data(),4); CHECK(engine.state().play_start == 300);
+    CHECK(engine.enqueue({ControlKind::stop})); engine.process(nullptr,out.data(),4); CHECK(engine.state().sample == 300);
+    rejects([&] { engine.prepare({48000,0,2,8},{},{PlaybackState::paused,0,{},-1}); });
+}
+
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
-        if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();

@@ -32,7 +32,7 @@ void AudioData::validate() const {
 AudioEngine::AudioEngine() { prepare(RenderConfig{}, {}); }
 void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState initial) {
     if ((initial.playback != PlaybackState::stopped && initial.playback != PlaybackState::paused) ||
-        initial.sample < 0 || initial.sample > max_sample ||
+        initial.sample < 0 || initial.sample > max_sample || initial.play_start < 0 || initial.play_start > max_sample ||
         (initial.loop && (initial.loop->start < 0 || initial.loop->start >= initial.loop->end || initial.loop->end > max_sample)))
         throw std::invalid_argument("invalid quiescent transport state");
 
@@ -115,9 +115,20 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
             processor.max_block < config.max_block)
             throw std::invalid_argument("processor/audio render configuration mismatch");
     }
-    if (graph.recording && (config.input_channels != 1 || graph.recording->rate() != config.sample_rate ||
-        graph.recording->start() != initial.sample || initial.loop))
-        throw std::invalid_argument("recording needs one input, matching start/rate and no loop");
+    if (graph.recording) {
+        if (!graph.recordings.empty()) throw std::invalid_argument("duplicate legacy capture sink");
+        graph.recordings.push_back(graph.recording);
+    }
+    if (graph.recordings.size() > 32) throw std::invalid_argument("recording supports up to 32 tracks");
+    for (std::size_t i=0; i<graph.recordings.size(); ++i) {
+        const auto& recorder=graph.recordings[i];
+        if (!recorder || recorder->rate() != config.sample_rate || recorder->start() != initial.sample || initial.loop ||
+            std::any_of(recorder->selectors().begin(),recorder->selectors().end(),[&](auto c) { return c >= config.input_channels; }) ||
+            std::find(graph.recordings.begin(),graph.recordings.begin()+static_cast<std::ptrdiff_t>(i),recorder) != graph.recordings.begin()+static_cast<std::ptrdiff_t>(i))
+            throw std::invalid_argument("invalid recording start/rate/selectors/sink");
+    }
+    if (!graph.input_monitoring.empty() && graph.input_monitoring.size() != graph.mixer.size()) throw std::invalid_argument("input monitoring count mismatch");
+    for (const auto& route : graph.monitor) if (route.mixer_track != no_mixer_track && (route.mixer_track >= graph.mixer.size() || graph.buses[route.mixer_track])) throw std::invalid_argument("invalid input track");
     std::size_t stream_bytes{}, stream_count{};
     for (auto& voice : graph.voices) if (voice.asset->file) {
         if (config.max_block > static_cast<std::uint32_t>(ReadAhead::page_frames))
@@ -141,6 +152,7 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     mix_order_ = std::move(order);
     MixerUpdate mix; mix.count = graph_.mixer.size(); mix.master_gain = graph_.master_gain;
     std::copy(graph_.mixer.begin(),graph_.mixer.end(),mix.tracks.begin());
+    std::copy(graph_.input_monitoring.begin(),graph_.input_monitoring.end(),mix.input_monitoring.begin());
     MixerUpdate discarded_mix; while (mixer_controls_.pop(discarded_mix)) {}
     for (std::size_t i=0; i<graph_.sends.size(); ++i) for (std::size_t j=0; j<graph_.sends[i].size(); ++j) mix.send_gains[i][j] = graph_.sends[i][j].gain;
     set_mix(mix,false);
@@ -148,7 +160,7 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     monitor_enabled_ = graph_.monitoring; input_peak_ = 0;
     Control discarded;
     while (controls_.pop(discarded)) {}
-    rt_ = initial; pending_seek_.reset();
+    rt_ = initial; pending_seek_.reset(); pending_play_anchor_=false;
     callbacks_ = 0; input_overflows_ = 0; input_underflows_ = 0;
     output_underflows_ = 0; output_overflows_ = 0; deadlines_ = 0;
     invalid_blocks_ = 0; clipped_ = 0; missing_inputs_ = 0; disk_underruns_ = 0;
@@ -179,6 +191,7 @@ bool AudioEngine::enqueue_mix(const MixerUpdate& update) noexcept {
     return mixer_controls_.push(update);
 }
 void AudioEngine::set_mix(const MixerUpdate& update, bool ramp) noexcept {
+    input_monitoring_=update.input_monitoring;
     bool solo{}; for (std::size_t i=0; i<update.count; ++i) solo = solo || update.tracks[i].solo;
     // A solo bus admits its descendants; a solo track admits its downstream buses.
     std::array<bool,max_mixer_tracks> admitted{};
@@ -223,6 +236,7 @@ MixerMeters AudioEngine::take_meters() noexcept {
 void AudioEngine::publish() noexcept {
     sequence_.fetch_add(1, std::memory_order_acq_rel);
     published_sample_.store(rt_.sample, std::memory_order_relaxed);
+    published_play_start_.store(rt_.play_start, std::memory_order_relaxed);
     published_loop_start_.store(rt_.loop ? rt_.loop->start : 0, std::memory_order_relaxed);
     published_loop_end_.store(rt_.loop ? rt_.loop->end : 0, std::memory_order_relaxed);
     published_playback_.store(static_cast<int>(rt_.playback), std::memory_order_relaxed);
@@ -233,6 +247,7 @@ RealtimeState AudioEngine::state() const {
         const auto before = sequence_.load(std::memory_order_acquire);
         if (before & 1U) continue;
         RealtimeState result;
+        result.play_start=published_play_start_.load(std::memory_order_relaxed);
         result.sample = published_sample_.load(std::memory_order_relaxed);
         result.playback = static_cast<PlaybackState>(published_playback_.load(std::memory_order_relaxed));
         const auto start = published_loop_start_.load(std::memory_order_relaxed);
@@ -246,7 +261,7 @@ RealtimeState AudioEngine::state() const {
 void AudioEngine::process(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags) noexcept {
     callbacks_.fetch_add(1, std::memory_order_relaxed);
     if (!output || frames == 0 || frames > config_.max_block) {
-        if (graph_.recording) graph_.recording->input_dropout();
+        for (const auto& recorder : graph_.recordings) recorder->input_dropout();
         invalid_blocks_.fetch_add(1, std::memory_order_relaxed);
         // Silence an oversized but valid device buffer without indexing assets.
         if (output) std::fill_n(output, static_cast<std::size_t>(frames) * config_.output_channels, 0.0F);
@@ -260,28 +275,28 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     for (int i = 0; i < 63 && controls_.pop(control); ++i) {
         switch (control.kind) {
         case ControlKind::monitor: monitor_enabled_ = control.a != 0; break;
-        case ControlKind::play: rt_.playback = PlaybackState::playing; break;
+        case ControlKind::play: if (rt_.playback != PlaybackState::playing) { rt_.play_start=rt_.sample; pending_play_anchor_=pending_seek_.has_value(); } rt_.playback = PlaybackState::playing; break;
         case ControlKind::pause:
             if (rt_.playback == PlaybackState::playing) rt_.playback = PlaybackState::paused;
             break;
         case ControlKind::stop:
-            pending_seek_.reset(); rt_.playback = PlaybackState::stopped; rt_.sample = 0;
+            pending_seek_.reset(); pending_play_anchor_=false; rt_.playback = PlaybackState::stopped; rt_.sample = rt_.play_start;
             if (graph_.processors) graph_.processors->panic();
             break;
         case ControlKind::prepared_seek:
-            if (graph_.recording) { graph_.recording->discontinuity(); break; }
+            if (!graph_.recordings.empty()) { for (const auto& recorder : graph_.recordings) recorder->discontinuity(); break; }
             if (control.a >= 0 && control.a <= max_sample) pending_seek_ = control.a;
             break;
         case ControlKind::seek:
             pending_seek_.reset();
-            if (graph_.recording) { graph_.recording->discontinuity(); break; }
+            if (!graph_.recordings.empty()) { for (const auto& recorder : graph_.recordings) recorder->discontinuity(); break; }
             if (control.a >= 0 && control.a <= max_sample) {
                 rt_.sample = control.a;
                 if (graph_.processors) graph_.processors->panic();
             }
             break;
         case ControlKind::loop:
-            if (graph_.recording) { graph_.recording->discontinuity(); break; }
+            if (!graph_.recordings.empty()) { for (const auto& recorder : graph_.recordings) recorder->discontinuity(); break; }
             if (control.a >= 0 && control.a < control.b && control.b <= max_sample)
                 rt_.loop = LoopRange{control.a, control.b};
             else if (control.a == 0 && control.b == 0) rt_.loop.reset();
@@ -300,6 +315,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         }
         if (ready) {
             rt_.sample = *pending_seek_; pending_seek_.reset(); seek_pinned = true;
+            if (pending_play_anchor_) { rt_.play_start=rt_.sample; pending_play_anchor_=false; }
             for (auto& voice : graph_.voices) if (voice.stream)
                 voice.stream->accept_seek(voice.source_offset+std::clamp(rt_.sample-voice.start,Sample{0},voice.length-1));
             if (graph_.processors) graph_.processors->panic();
@@ -315,9 +331,9 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     if (input) for (std::size_t n=0; n<static_cast<std::size_t>(frames)*config_.input_channels; ++n)
         if (std::isfinite(input[n])) peak = std::max(peak,std::abs(input[n]));
     input_peak_.store(peak,std::memory_order_relaxed);
-    if (graph_.recording && rt_.playback == PlaybackState::playing) {
-        if (input_flags & 3U) graph_.recording->input_dropout();
-        graph_.recording->capture(input,config_.input_channels,frames,rt_.sample);
+    if (rt_.playback == PlaybackState::playing) for (const auto& recorder : graph_.recordings) {
+        if (input_flags & 3U) recorder->input_dropout();
+        recorder->capture(input,config_.input_channels,frames,rt_.sample);
     }
     if (!input && monitor_enabled_ && !graph_.monitor.empty()) missing_inputs_.fetch_add(1, std::memory_order_relaxed);
     if (!seek_pinned) for (auto& voice : graph_.voices) if (voice.stream) {
@@ -332,7 +348,9 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             const auto in = static_cast<std::size_t>(frame) * config_.input_channels;
             for (const auto& route : graph_.monitor) {
                 const float sample = std::isfinite(input[in+route.input_channel]) ? input[in+route.input_channel]*route.gain : 0;
-                if (graph_.monitor_track == no_mixer_track) output[out+route.output_channel] += sample;
+                if (route.mixer_track != no_mixer_track) {
+                    if (input_monitoring_[route.mixer_track]) track_frame_[route.mixer_track][route.output_channel] += sample;
+                } else if (graph_.monitor_track == no_mixer_track) output[out+route.output_channel] += sample;
                 else track_frame_[graph_.monitor_track][route.output_channel] += sample;
             }
         }

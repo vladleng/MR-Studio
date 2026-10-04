@@ -12,10 +12,12 @@ struct RecordedFile { std::filesystem::path path; Sample frames{}; RecordStatus 
 class Recorder {
 public:
     static constexpr std::size_t capacity = 262144; // 1 MiB mono float ring
-    Recorder(std::filesystem::path destination, std::uint32_t rate, Sample start);
+    Recorder(std::filesystem::path destination, std::uint32_t rate, Sample start, std::vector<std::uint32_t> selectors = {0});
     ~Recorder();
     Recorder(const Recorder&) = delete;
     Recorder& operator=(const Recorder&) = delete;
+    const std::vector<std::uint32_t>& selectors() const { return selectors_; }
+    std::uint32_t channels() const { return static_cast<std::uint32_t>(selectors_.size()); }
     std::uint32_t rate() const { return rate_; }
     Sample start() const { return start_; }
     // One audio producer only. Raw selected mono input, before monitor/processors.
@@ -28,6 +30,7 @@ private:
     std::filesystem::path destination_, temporary_;
     std::uint32_t rate_{};
     Sample start_{};
+    std::vector<std::uint32_t> selectors_;
     std::vector<float> ring_ = std::vector<float>(capacity);
     std::atomic<std::uint64_t> write_{}, read_{}, dropped_{}, missing_{}, jumps_{}, nonfinite_{};
     std::atomic<int> fault_{};

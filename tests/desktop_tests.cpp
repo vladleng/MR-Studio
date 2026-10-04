@@ -75,7 +75,7 @@ void wav(const std::filesystem::path& path, std::uint16_t channels = 2) {
 }
 class ManualDevice final : public audio::IAudioDevice {
 public:
-    std::vector<audio::DeviceInfo> enumerate() override { if (phase_ != audio::DevicePhase::closed) throw std::runtime_error("driver cannot enumerate an open stream"); return {{0,"Manual render test",{"Mic","Line"},{"L","R","Cue 1","Cue 2"},32,2048,128,-1}}; }
+    std::vector<audio::DeviceInfo> enumerate() override { if (phase_ != audio::DevicePhase::closed) throw std::runtime_error("driver cannot enumerate an open stream"); return {{0,"Manual render test",{"Mic","Line","DI","Aux"},{"L","R","Cue 1","Cue 2"},32,2048,128,-1}}; }
     void control_panel(int) override {}
     audio::DeviceConfig last_config{};
     unsigned opens{};
@@ -121,7 +121,7 @@ void hardware() {
     CHECK(app.audio_running()); app.rename_track(bus,"Monitor"); CHECK(app.audio_running());
     app.save_project(dir.path/"routes.mrsproject"); app.open_project(dir.path/"routes.mrsproject"); CHECK(app.audio_running());
     auto device=std::make_unique<ManualDevice>(); const auto driver=device.get(); app.connect(std::move(device),{0,44100,128,{}, {3,1,0,2}});
-    CHECK(app.input_names().size() == 2 && app.output_names().size() == 4);
+    CHECK(app.input_names().size() == 4 && app.output_names().size() == 4);
     app.play(); std::array<float,512> out{}; app.engine()->process(nullptr,out.data(),128);
     CHECK(out[0] == 0.1220703125f && out[1] == 0 && out[2] == 0 && out[3] == 0.1220703125f); // selected physical order, bypass master FX
     app.pause(); app.engine()->process(nullptr,out.data(),128); const auto position=app.engine()->state().sample;
@@ -529,9 +529,10 @@ void recording() {
     app.engine()->process(input.data(),output.data(),128);
     rejects([&] { app.start_recording(dir.path/"Loop.wav"); });
     app.services().transport->set_loop({}); app.engine()->process(input.data(),output.data(),128);
+    const auto stop_start=app.engine()->state().sample;
     app.start_recording(dir.path/"Stop.wav"); app.engine()->process(input.data(),output.data(),128);
     app.stop(); CHECK(!app.recording() && app.services().projects->state().project->clips.size() == count+1);
-    app.engine()->process(input.data(),output.data(),128); CHECK(app.engine()->state().sample == 0);
+    app.engine()->process(input.data(),output.data(),128); CHECK(app.engine()->state().sample == stop_start);
     app.remove_track(armed); CHECK(!app.armed_track()); CHECK(app.undo());
     app.arm_track(armed); app.redo(); CHECK(!app.armed_track());
     CHECK(app.undo()); app.arm_track(armed);
@@ -677,12 +678,49 @@ void config() {
     auto bad = p; bad.outputs = {0,0}; rejects([&] { (void)encode_preferences(bad); });
     Directory dir; Logger log(dir.path / "app.log"); log.write("control-thread log");
 }
+
+void multi_input() {
+    Directory dir; Application app; app.new_project(44100);
+    const auto mono=app.add_audio_track("Mic"), stereo=app.add_audio_track("Keys");
+    auto device=std::make_unique<ManualDevice>(); auto* manual=device.get();
+    app.connect(std::move(device),{0,44100,128,{2},{0,1}});
+    app.set_track_input(mono,3); app.set_track_input(stereo,0,true);
+    app.set_track_monitoring(stereo,true); CHECK(app.stereo_track(stereo) && !app.stereo_track(mono));
+    app.set_track_armed(mono,true); app.set_track_armed(stereo,true);
+    CHECK(app.track_armed(mono) && app.track_armed(stereo));
+    CHECK(manual->last_config.inputs == std::vector<int>({3,0,1}));
+    std::array<float,384> input{}; for (std::size_t n=0; n<128; ++n) { input[n*3]=.8f; input[n*3+1]=.1f; input[n*3+2]=.4f; }
+    std::array<float,256> out{}; app.seek(500); app.engine()->process(input.data(),out.data(),128);
+    CHECK(out[0] == .05f && out[1] == .2f);
+    rejects([&] { app.set_track_input(stereo,3,true); }); CHECK(app.stereo_track(stereo));
+    app.start_recording(dir.path/"Take.wav"); app.engine()->process(input.data(),out.data(),128);
+    app.set_track_monitoring(stereo,false); app.engine()->process(input.data(),out.data(),128);
+    CHECK(out[0] == 0 && out[1] == 0); // monitoring off, both raw captures keep running
+    app.stop(); app.engine()->process(input.data(),out.data(),128);
+    CHECK(!app.recording() && app.engine()->state().sample == 500);
+    const auto p=app.services().projects->state().project;
+    CHECK(p->clips.size() == 2 && p->clips[0].start == 500 && p->clips[1].start == 500);
+    const auto a=audio::load_wav(dir.path/"Take-1.wav"), b=audio::load_wav(dir.path/"Take-2.wav");
+    CHECK(a.channels == 1 && b.channels == 2 && a.frames() == 256 && b.frames() == 256);
+    CHECK(a.samples.front() == .8f && b.samples[0] == .1f && b.samples[1] == .4f);
+    CHECK(app.last_takes().size() == 2);
+    CHECK(app.undo() && app.services().projects->state().project->clips.empty());
+    CHECK(std::filesystem::exists(dir.path/"Take-1.wav") && std::filesystem::exists(dir.path/"Take-2.wav"));
+    CHECK(app.redo() && app.services().projects->state().project->clips.size() == 2);
+    app.save_project(dir.path/"Session.mrsproject"); app.open_project(dir.path/"Session.mrsproject");
+    CHECK(app.stereo_track(stereo) && app.armed_tracks().empty());
+    app.set_track_monitoring(stereo,true); CHECK(app.undo() && !app.services().projects->state().project->tracks[1].input_monitor);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});
+    app.set_track_input(mono,-1); app.set_track_armed(mono,true);
+    rejects([&] { app.start_recording(dir.path/"Off.wav"); }); CHECK(!std::filesystem::exists(dir.path/"Off.wav"));
+}
+
 }
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected suite");
         std::string name = argv[1];
-        if (name == "hardware") hardware(); else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
+        if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
         else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else if (name == "recording") recording(); else if (name == "project_folders") project_folders(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;

@@ -22,6 +22,7 @@ struct MixerUpdate {
     std::size_t count{};
     float master_gain{1};
     std::array<std::array<float,8>,max_mixer_tracks> send_gains{};
+    std::array<bool,max_mixer_tracks> input_monitoring{};
 };
 struct StereoPeak { float left{}, right{}; };
 struct MixerMeters {
@@ -55,7 +56,7 @@ struct Voice {
     std::shared_ptr<ReadAhead> stream{}; // per-voice cursor, prepared off RT
     std::size_t mixer_track{no_mixer_track};
 };
-struct MonitorRoute { std::uint32_t input_channel{}, output_channel{}; float gain{1}; };
+struct MonitorRoute { std::uint32_t input_channel{}, output_channel{}; float gain{1}; std::size_t mixer_track{no_mixer_track}; };
 struct SendRoute { std::size_t destination{}; float gain{1}; bool pre_fader{}; };
 struct RenderGraph {
     std::vector<Voice> voices;
@@ -70,6 +71,8 @@ struct RenderGraph {
     std::vector<std::vector<std::size_t>> hardware_outputs{}; // explicit routes bypass master processor/gain
     std::vector<std::size_t> master_outputs{}; // empty preserves legacy interleaved renderer
     std::vector<std::vector<SendRoute>> sends{};
+    std::vector<std::shared_ptr<Recorder>> recordings{};
+    std::vector<bool> input_monitoring{};
     std::vector<bool> buses{}; // same indices as mixer; no clips/input directly on buses
 };
 struct RenderConfig {
@@ -117,6 +120,7 @@ struct RealtimeState {
     PlaybackState playback{PlaybackState::stopped};
     Sample sample{};
     std::optional<LoopRange> loop;
+    Sample play_start{};
 };
 class AudioEngine {
 public:
@@ -142,6 +146,9 @@ private:
     RenderConfig config_;
     RenderGraph graph_;
     bool monitor_enabled_{true};
+    bool pending_play_anchor_{};
+    std::array<bool,max_mixer_tracks> input_monitoring_{};
+    std::atomic<Sample> published_play_start_{};
     std::atomic<float> input_peak_{};
     SpscQueue<Control, 64> controls_;
     SpscQueue<MixerUpdate,8> mixer_controls_;

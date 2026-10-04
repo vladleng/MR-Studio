@@ -16,7 +16,7 @@ using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 6;
+inline constexpr std::uint32_t schema_version = 7;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -74,6 +74,8 @@ struct Track {
     };
     std::vector<Send> sends{}; // up to eight independent sends to shared buses/returns
     int input{-2}; // audio only: -2 default device input, -1 off, otherwise physical index
+    bool input_stereo{};
+    bool input_monitor{};
     std::vector<int> hardware_outputs{}; // mono or stereo physical channels; exclusive with output bus
     bool operator==(const Track&) const = default;
 };
@@ -279,11 +281,19 @@ private:
 };
 class SetTrackInput final : public ICommand {
 public:
-    SetTrackInput(Id track, int input) : track_(std::move(track)), input_(input) {}
+    SetTrackInput(Id track, int input, bool stereo = false) : track_(std::move(track)), input_(input), stereo_(stereo) {}
     std::string_view name() const override { return "Set track input"; }
     void apply(Project&) const override;
 private:
-    Id track_; int input_;
+    Id track_; int input_; bool stereo_;
+};
+class SetTrackMonitoring final : public ICommand {
+public:
+    SetTrackMonitoring(Id track, bool enabled) : track_(std::move(track)), enabled_(enabled) {}
+    std::string_view name() const override { return "Set track monitoring"; }
+    void apply(Project&) const override;
+private:
+    Id track_; bool enabled_;
 };
 class SetHardwareOutput final : public ICommand {
 public:

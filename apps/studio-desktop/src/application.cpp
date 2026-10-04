@@ -150,12 +150,12 @@ Application::~Application() {
     if (device_) device_->close();
     // Finalize on clean shutdown; a completed file remains recoverable even if
     // the UI did not attach/save its project reference.
-    if (recording_) try { (void)recording_->finish(); } catch (const std::exception&) {}
+    for (auto& capture : captures_) try { (void)capture.recorder->finish(); } catch (const std::exception&) {}
     for (auto& [key,value] : assets_) { (void)key; *value.cancel = true; }
 }
 void Application::workspace(Workspace w) { (void)workspace_name(w); workspace_ = w; }
 void Application::replace(persistence::ProjectDocument next) {
-    require_not_recording(); next.validate(); armed_.reset();
+    require_not_recording(); next.validate(); armed_.reset(); armed_tracks_.clear();
     // Existing MIXR channels hydrate the shared command model, including legacy archives.
     for (const auto& m : next.mixer) for (auto& t : next.project.tracks) if (t.id == m.track)
         t.mix = {m.gain,m.pan,m.mute,m.solo};
@@ -296,8 +296,9 @@ void Application::require_not_recording() const {
     require(!recording_,"End recording before changing project, files or device");
 }
 void Application::sync_arm() {
-    const auto p = services_.projects->state().project;
-    if (armed_ && std::none_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t) { return t.id == *armed_; })) armed_.reset();
+    const auto p=services_.projects->state().project;
+    std::erase_if(armed_tracks_,[&](const auto& id) { return std::none_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t) { return t.id == id && t.kind == TrackKind::audio; }); });
+    armed_=armed_tracks_.empty() ? std::nullopt : std::optional<Id>{armed_tracks_.front()};
 }
 void Application::require_not_playing() const {
     require_not_recording();
@@ -340,12 +341,27 @@ const audio::Waveform* Application::waveform(std::string_view source) const {
     const auto it = assets_.find(std::string(source));
     return it != assets_.end() && it->second.peaks ? &*it->second.peaks : nullptr;
 }
-std::vector<int> Application::selected_inputs(const Project& p) const {
-    if (armed_) for (const auto& track : p.tracks) if (track.id == *armed_) {
-        if (track.input == -1) return {};
-        if (track.input >= 0) return {track.input};
+namespace {
+std::vector<int> track_inputs(const Track& track, const std::vector<int>& defaults) {
+    if (track.input == -1) return {};
+    if (track.input == -2) return defaults.empty() ? std::vector<int>{} : std::vector<int>{defaults.front()};
+    return track.input_stereo ? std::vector<int>{track.input,track.input+1} : std::vector<int>{track.input};
+}
+}
+std::vector<int> Application::selected_inputs(const Project& p) const { return selected_inputs(p,default_inputs_); }
+std::vector<int> Application::selected_inputs(const Project& p, const std::vector<int>& defaults) const {
+    std::vector<int> result; bool assigned{};
+    for (const auto& track : p.tracks) if (track.kind == TrackKind::audio && (track_armed(track.id) || track.input_monitor)) {
+        assigned=true; for (const auto c : track_inputs(track,defaults)) if (std::find(result.begin(),result.end(),c) == result.end()) result.push_back(c);
     }
-    return default_inputs_;
+    return assigned ? result : defaults;
+}
+bool Application::track_armed(const Id& id) const { return std::find(armed_tracks_.begin(),armed_tracks_.end(),id) != armed_tracks_.end(); }
+bool Application::stereo_track(const Id& id) const {
+    const auto p=services_.projects->state().project;
+    for (const auto& t : p->tracks) if (t.id == id && (t.input_stereo || t.kind == TrackKind::bus)) return true;
+    for (const auto& clip : p->clips) if (clip.track == id) { const auto found=assets_.find(clip.source); if (found != assets_.end() && found->second.data->channels > 1) return true; }
+    return false;
 }
 std::vector<std::string> Application::input_names() { return device_info_ ? device_info_->inputs : std::vector<std::string>{}; }
 std::vector<std::string> Application::output_names() const { return device_info_ ? device_info_->outputs : std::vector<std::string>{}; }
@@ -358,11 +374,11 @@ void Application::validate_hardware(const Project& p, const audio::DeviceConfig&
     route(p.master_outputs,"Master"); for (const auto& track : p.tracks) route(track.hardware_outputs,track.name);
 }
 void Application::set_hardware_output(std::optional<Id> track, std::vector<int> outputs) { edit(SetHardwareOutput{std::move(track),std::move(outputs)}); }
-void Application::set_track_input(const Id& id, int input) {
+void Application::set_track_input(const Id& id, int input, bool stereo) {
     require_not_playing();
     const auto names = input_names();
-    require(input < 0 || static_cast<std::size_t>(input) < names.size(),"physical input is unavailable; connect the intended device first");
-    edit(SetTrackInput{id,input});
+    require(input < 0 || static_cast<std::size_t>(input+(stereo ? 1 : 0)) < names.size(),"physical input is unavailable; connect the intended device first");
+    edit(SetTrackInput{id,input,stereo});
 }
 void Application::set_track_sends(const Id& id, std::vector<Track::Send> sends) { edit(SetTrackSends{id,std::move(sends)}); }
 void Application::set_send_gain(const Id& id, std::size_t index, float gain) {
@@ -375,7 +391,7 @@ void Application::set_send_gain(const Id& id, std::size_t index, float gain) {
 void Application::rebuild_audio() {
     if (!device_ || !device_config_) return;
     auto c = *device_config_;
-    c.inputs = selected_inputs(*services_.projects->state().project);
+    c.inputs = audio_name_ == "Offline clock (no sound)" ? std::vector<int>{} : selected_inputs(*services_.projects->state().project);
     const bool reopen = c.inputs != device_config_->inputs;
     if (reopen) {
         require(device_info_.has_value(),"audio device unavailable"); audio::validate_device_config(*device_info_,c);
@@ -398,7 +414,7 @@ void Application::edit(const ICommand& command) {
     auto candidate = *services_.projects->state().project;
     command.apply(candidate); candidate.validate();
     if (device_config_ && audio_name_ != "Offline clock (no sound)") validate_hardware(candidate,*device_config_);
-    if (device_ && device_config_ && armed_) {
+    if (device_ && device_config_ && audio_name_ != "Offline clock (no sound)") {
         auto c = *device_config_; c.inputs = selected_inputs(candidate);
         require(device_info_.has_value(),"audio device unavailable"); audio::validate_device_config(*device_info_,c);
     }
@@ -448,13 +464,14 @@ bool Application::history(bool redo) {
     if (!target) return false;
     auto before = *services_.projects->state().project, after = *target;
     before.master_gain = after.master_gain = 1;
-    for (auto& t : before.tracks) { t.mix = {}; for (auto& send : t.sends) send.gain = 1; }
-    for (auto& t : after.tracks) { t.mix = {}; for (auto& send : t.sends) send.gain = 1; }
-    const bool mix_only = before == after;
+    for (auto& t : before.tracks) { t.mix = {}; t.input_monitor=false; for (auto& send : t.sends) send.gain = 1; }
+    for (auto& t : after.tracks) { t.mix = {}; t.input_monitor=false; for (auto& send : t.sends) send.gain = 1; }
+    bool mix_only = before == after;
+    if (mix_only && device_config_ && selected_inputs(*target) != device_config_->inputs) mix_only=false;
     if (!mix_only) {
         require_not_playing();
         if (device_config_ && audio_name_ != "Offline clock (no sound)") validate_hardware(*target,*device_config_);
-        if (device_ && device_config_ && armed_) {
+        if (device_ && device_config_ && audio_name_ != "Offline clock (no sound)") {
             auto c = *device_config_; c.inputs = selected_inputs(*target);
             require(device_info_.has_value(),"audio device unavailable"); audio::validate_device_config(*device_info_,c);
         }
@@ -481,7 +498,7 @@ void Application::publish_mix() {
     for (const auto& t : state.project->tracks) if (t.kind != TrackKind::midi) {
         if (update.count >= mixer_tracks_.size() || mixer_tracks_[update.count] != t.id) return;
         for (std::size_t j=0; j<t.sends.size(); ++j) update.send_gains[update.count][j] = t.sends[j].gain;
-        update.tracks[update.count++] = t.mix;
+        update.input_monitoring[update.count]=t.input_monitor; update.tracks[update.count++] = t.mix;
     }
     if (update.count != mixer_tracks_.size()) return;
     // A full queue keeps this revision pending; the next UI poll retries without blocking RT.
@@ -494,7 +511,7 @@ bool Application::preview_mix(std::optional<Id> id, Track::Mix mix, float master
     for (const auto& t : p->tracks) if (t.kind != TrackKind::midi) {
         if (update.count >= mixer_tracks_.size() || mixer_tracks_[update.count] != t.id) return false;
         for (std::size_t j=0; j<t.sends.size(); ++j) update.send_gains[update.count][j] = t.sends[j].gain;
-        update.tracks[update.count++] = id && t.id == *id ? mix : t.mix;
+        update.input_monitoring[update.count]=t.input_monitor; update.tracks[update.count++] = id && t.id == *id ? mix : t.mix;
     }
     return engine_->enqueue_mix(update);
 }
@@ -558,7 +575,7 @@ void Application::prepare_mixer(audio::RenderGraph& result) {
     mixer_tracks_.clear();
     for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {
         require(mixer_tracks_.size() < audio::max_mixer_tracks,"mixer supports up to 128 audio tracks and buses");
-        mixer_tracks_.push_back(t.id); result.mixer.push_back(t.mix); result.buses.push_back(t.kind == TrackKind::bus);
+        mixer_tracks_.push_back(t.id); result.mixer.push_back(t.mix); result.input_monitoring.push_back(t.input_monitor); result.buses.push_back(t.kind == TrackKind::bus);
     }
     for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {
         const auto destination = t.output ? std::find(mixer_tracks_.begin(),mixer_tracks_.end(),*t.output) : mixer_tracks_.end();
@@ -576,10 +593,11 @@ void Application::prepare_mixer(audio::RenderGraph& result) {
 }
 audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     require(c.sample_rate == services_.projects->state().project->sample_rate,"device/project rate mismatch; choose the project rate (resampling is a later stage)");
-    require(!c.outputs.empty() && c.outputs.size() <= audio::max_channels && c.inputs.size() <= 1,"invalid channel selection");
+    require(!c.outputs.empty() && c.outputs.size() <= audio::max_channels && c.inputs.size() <= audio::max_channels,"invalid channel selection");
     validate_hardware(*services_.projects->state().project,c);
     audio::RenderGraph result;
-    result.recording = recording_; result.monitoring = monitoring_;
+    for (const auto& capture : captures_) result.recordings.push_back(capture.recorder);
+    result.monitoring = monitoring_;
     const auto config = processing::ProcessConfig{c.sample_rate,static_cast<std::uint32_t>(c.outputs.size()),8192,c.buffer_frames};
     prepared_ = std::make_shared<processing::PreparedGraph>(graphs_->state(),config);
     result.processors = prepared_;
@@ -615,21 +633,23 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
             voice.routes.push_back({channel,channel % static_cast<std::uint32_t>(std::min<std::size_t>(2,c.outputs.size())),gain});
         result.voices.push_back(std::move(voice));
     }
-    if (!c.inputs.empty()) for (std::uint32_t channel = 0; channel < std::min<std::size_t>(2,c.outputs.size()); ++channel) result.monitor.push_back({0,channel,1});
-    if (armed_) {
-        const auto track = std::find(mixer_tracks_.begin(),mixer_tracks_.end(),*armed_);
-        if (track != mixer_tracks_.end()) result.monitor_track = static_cast<std::size_t>(track-mixer_tracks_.begin());
+    for (const auto& track : project->tracks) if (track.kind == TrackKind::audio) {
+        const auto inputs=track_inputs(track,default_inputs_);
+        const auto found_track=std::find(mixer_tracks_.begin(),mixer_tracks_.end(),track.id);
+        const auto index=static_cast<std::size_t>(found_track-mixer_tracks_.begin());
+        for (std::size_t i=0; i<inputs.size(); ++i) {
+            const auto input=std::find(c.inputs.begin(),c.inputs.end(),inputs[i]); if (input == c.inputs.end()) continue;
+            const auto stream=static_cast<std::uint32_t>(input-c.inputs.begin());
+            if (inputs.size() == 1) for (std::uint32_t out=0; out<std::min<std::size_t>(2,c.outputs.size()); ++out) result.monitor.push_back({stream,out,1,index});
+            else result.monitor.push_back({stream,static_cast<std::uint32_t>(c.outputs.size() == 1 ? 0 : i),c.outputs.size() == 1 ? 0.5f : 1.0f,index});
+        }
     }
     return result;
 }
 void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::DeviceConfig c) {
     require_not_recording();
     require(static_cast<bool>(device),"missing audio backend");
-    const auto defaults = c.inputs;
-    if (armed_) for (const auto& track : services_.projects->state().project->tracks) if (track.id == *armed_) {
-        if (track.input == -1) c.inputs.clear();
-        else if (track.input >= 0) c.inputs = {track.input};
-    }
+    const auto defaults=c.inputs; c.inputs=selected_inputs(*services_.projects->state().project,defaults);
     auto infos = device->enumerate();
     const auto info = std::find_if(infos.begin(),infos.end(),[&](const auto& v) { return v.index == c.device; });
     require(info != infos.end(),"audio device no longer available"); audio::validate_device_config(*info,c);
@@ -637,6 +657,7 @@ void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::De
     require(c.sample_rate == services_.projects->state().project->sample_rate,"device/project rate mismatch; choose the project rate");
     // Existing callbacks must be stopped before preparing or releasing graphs.
     disconnect();
+    const auto previous_defaults=default_inputs_; default_inputs_=defaults;
     try {
         audio::RenderGraph graph;
         if (audio_name_ == "Offline clock (no sound)") prepare_mixer(graph);
@@ -644,7 +665,7 @@ void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::De
         engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192},std::move(graph));
         device->open(c,engine_); device->start(); audio_name_ = info->name; device_ = std::move(device); device_config_ = c; device_info_ = *info; default_inputs_ = defaults; poll();
     } catch (...) {
-        device->close(); prepared_.reset();
+        default_inputs_=previous_defaults; device->close(); prepared_.reset();
         engine_->prepare({services_.projects->state().project->sample_rate,0,2,8192},{});
         transport_->poll(); throw;
     }
@@ -657,7 +678,7 @@ void Application::disconnect() {
 }
 void Application::poll() {
     publish_mix();
-    if (recording_ && (recording_->status().fault != audio::RecordFault::none ||
+    if (recording_ && (std::any_of(captures_.begin(),captures_.end(),[](const auto& capture) { return capture.recorder->status().fault != audio::RecordFault::none; }) ||
         (recording_->status().frames > 0 && engine_->state().playback != PlaybackState::playing) ||
         device_status().phase != audio::DevicePhase::running)) {
         try { (void)stop_recording(); } catch (const std::exception& e) { recording_error_ = e.what(); }
@@ -676,20 +697,35 @@ void Application::pause() { if (recording_) (void)stop_recording(); else transpo
 void Application::stop() { if (recording_) (void)stop_recording(); transport_->stop(); }
 void Application::seek(Sample sample) { require_not_recording(); transport_->seek(sample); }
 
-void Application::arm_track(std::optional<Id> id) {
+void Application::set_track_armed(const Id& id, bool enabled) {
     require_not_playing();
-    if (id) {
-        const auto p = services_.projects->state().project;
-        require(std::any_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t) { return t.id == *id && t.kind == TrackKind::audio; }),"arm an existing audio track");
-    }
-    if (id && device_config_) {
-        const auto p = services_.projects->state().project;
-        const auto t = std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& track) { return track.id == *id; });
-        const auto names = input_names();
-        require(t->input < 0 || static_cast<std::size_t>(t->input) < names.size(),"saved track input is unavailable on this device");
-    }
-    armed_ = std::move(id);
-    rebuild_audio();
+    const auto p=services_.projects->state().project;
+    require(std::any_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t) { return t.id == id && t.kind == TrackKind::audio; }),"arm an existing audio track");
+    const auto before=armed_tracks_;
+    require(!enabled || track_armed(id) || armed_tracks_.size() < 32,"recording supports up to 32 armed tracks");
+    if (enabled && !track_armed(id)) armed_tracks_.push_back(id); else if (!enabled) std::erase(armed_tracks_,id);
+    try {
+        if (device_config_ && audio_name_ != "Offline clock (no sound)") { auto c=*device_config_; c.inputs=selected_inputs(*p); audio::validate_device_config(*device_info_,c); }
+        sync_arm(); rebuild_audio();
+    } catch (...) { armed_tracks_=before; sync_arm(); throw; }
+}
+void Application::arm_track(std::optional<Id> id) {
+    require_not_playing(); const auto before=armed_tracks_; armed_tracks_.clear();
+    try { if (id) { set_track_armed(*id,true); set_track_monitoring(*id,true); } else { sync_arm(); rebuild_audio(); } }
+    catch (...) { armed_tracks_=before; sync_arm(); throw; }
+}
+void Application::set_track_monitoring(const Id& id, bool enabled) {
+    const SetTrackMonitoring command{id,enabled}; auto candidate=*services_.projects->state().project;
+    command.apply(candidate); candidate.validate();
+    auto next=device_config_; if (next) next->inputs=selected_inputs(candidate);
+    const bool rebind=enabled && next && audio_name_ != "Offline clock (no sound)" &&
+        std::any_of(next->inputs.begin(),next->inputs.end(),[&](int input) {
+            return std::find(device_config_->inputs.begin(),device_config_->inputs.end(),input) == device_config_->inputs.end();
+        });
+    if (rebind) require_not_playing();
+    if (rebind) audio::validate_device_config(*device_info_,*next);
+    services_.projects->execute(command);
+    if (rebind) rebuild_audio(); else publish_mix();
 }
 void Application::monitoring(bool enabled) {
     require(engine_->enqueue({audio::ControlKind::monitor,enabled ? 1 : 0}),"audio command queue full");
@@ -697,59 +733,75 @@ void Application::monitoring(bool enabled) {
 }
 audio::RecordStatus Application::recording_status() const { return recording_ ? recording_->status() : last_recording_status_; }
 void Application::start_recording(const std::filesystem::path& destination) {
-    require_not_playing(); sync_arm(); require(armed_.has_value(),"select an audio track and press Arm track");
-    require(audio_running() && device_config_ && device_config_->inputs.size() == 1,"connect one ASIO input in Audio settings");
+    require_not_playing(); sync_arm(); require(!armed_tracks_.empty(),"Arm one or more audio tracks before recording");
+    require(audio_running() && device_config_ && !device_config_->inputs.empty(),"select available hardware inputs for the armed tracks");
     require(audio_name_ != "Offline clock (no sound)","recording needs a hardware input; Offline clock cannot record");
-    auto position = engine_->state();
-    require(!position.loop,"turn off loop before recording");
-    const auto p = services_.projects->state().project;
-    require(p->clips.size() < audio::max_voices && assets_.size() < 128,"no free clip/source capacity for a recording");
-    // Reserve a disk cursor for a long take before opening/writing any media.
+    auto position=engine_->state(); require(!position.loop,"turn off loop before recording");
+    const auto p=services_.projects->state().project;
+    require(p->clips.size()+armed_tracks_.size() <= audio::max_voices && assets_.size()+armed_tracks_.size() <= 128,"no free clip/source capacity for recording");
     std::size_t disk{}, bytes{};
-    for (const auto& clip : p->clips) {
-        auto data = asset(clip.source); if (data->file) { ++disk; bytes += 8*8192*static_cast<std::size_t>(data->channels)*sizeof(float); }
+    for (const auto& clip : p->clips) { const auto data=asset(clip.source); if (data->file) { ++disk; bytes+=8*8192*static_cast<std::size_t>(data->channels)*sizeof(float); } }
+    struct Pending { Id track; std::vector<std::uint32_t> selectors; std::filesystem::path path; };
+    std::vector<Pending> pending;
+    for (std::size_t i=0; i<armed_tracks_.size(); ++i) {
+        const auto& id=armed_tracks_[i]; const auto track=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t) { return t.id == id; });
+        const auto inputs=track_inputs(*track,default_inputs_); require(!inputs.empty(),"armed track has no selected input");
+        Pending take{id,{},destination};
+        for (const auto input : inputs) { const auto found=std::find(device_config_->inputs.begin(),device_config_->inputs.end(),input); require(found != device_config_->inputs.end(),"armed input is not active"); take.selectors.push_back(static_cast<std::uint32_t>(found-device_config_->inputs.begin())); }
+        if (armed_tracks_.size()>1) take.path=destination.parent_path()/(destination.stem().wstring()+L"-"+std::to_wstring(i+1)+L".wav");
+        require(!std::filesystem::exists(take.path),"recording destination exists; choose a new take name");
+        bytes+=8*8192*inputs.size()*sizeof(float); pending.push_back(std::move(take));
     }
-    require(disk < 32 && bytes+8*8192*sizeof(float) <= 256*1024*1024,"no disk voice capacity for a recording");
-    device_->stop(); position = engine_->state();
+    require(disk+pending.size() <= 32 && bytes <= 256*1024*1024,"no disk voice capacity for recording");
+    device_->stop(); position=engine_->state();
     try {
-        recording_error_.clear(); last_take_.clear(); last_recording_status_ = {};
-        recording_ = std::make_shared<audio::Recorder>(destination,p->sample_rate,position.sample);
-        engine_->prepare({device_config_->sample_rate,1,static_cast<std::uint32_t>(device_config_->outputs.size()),8192},render(*device_config_),position);
+        recording_error_.clear(); last_take_.clear(); last_takes_.clear(); last_recording_status_={};
+        for (const auto& take : pending) captures_.push_back({take.track,std::make_shared<audio::Recorder>(take.path,p->sample_rate,position.sample,take.selectors)});
+        recording_=captures_.front().recorder;
+        engine_->prepare({device_config_->sample_rate,static_cast<std::uint32_t>(device_config_->inputs.size()),static_cast<std::uint32_t>(device_config_->outputs.size()),8192},render(*device_config_),position);
         transport_->play(); device_->start();
     } catch (...) {
-        recording_.reset(); disconnect(); throw;
+        if (device_) device_->close();
+        engine_->prepare({p->sample_rate,0,2,8192},{},position);
+        for (auto& capture : captures_) try { (void)capture.recorder->finish(); } catch (...) {}
+        captures_.clear(); recording_.reset(); disconnect(); throw;
     }
 }
 bool Application::stop_recording() {
     if (!recording_) return false;
     try { device_->stop(); }
     catch (const std::exception& e) {
-        // Device close guarantees quiescence even if the driver rejected Stop.
-        recording_error_ = std::string("Audio device failed; take retained, device disconnected: ")+e.what();
-        device_->close(); device_.reset(); device_config_.reset(); audio_name_ = "Disconnected";
+        recording_error_=std::string("Audio device failed; takes retained, device disconnected: ")+e.what();
+        device_->close(); device_.reset(); device_config_.reset(); device_info_.reset(); audio_name_="Disconnected";
     }
-    auto position = engine_->state();
-    if (position.playback == PlaybackState::playing) position.playback = PlaybackState::paused;
-    auto session = std::move(recording_); // detach capture before any file/command work
+    auto position=engine_->state(); if (position.playback == PlaybackState::playing) position.playback=PlaybackState::paused;
+    auto sessions=std::move(captures_); captures_.clear(); recording_.reset();
+    struct AddTakes final : ICommand {
+        std::vector<Clip> clips;
+        std::string_view name() const override { return "Add recorded takes"; }
+        void apply(Project& p) const override { for (const auto& clip : clips) AddRecordedClip{clip}.apply(p); }
+    } command;
+    std::string failure;
     try {
-        // Detach to a silent paused graph BEFORE drain/asset/file work. A missing
-        // backing source must not leave the old capture graph restartable.
-        engine_->prepare({session->rate(),device_config_ ? 1U : 0U,
+        engine_->prepare({sessions.front().recorder->rate(),device_config_ ? static_cast<std::uint32_t>(device_config_->inputs.size()) : 0U,
             device_config_ ? static_cast<std::uint32_t>(device_config_->outputs.size()) : 2U,8192},{},position);
-        auto result = session->finish(); last_recording_status_ = result.status;
-        if (result.status.fault != audio::RecordFault::none) {
-            recording_error_ = "Recording ended early (input dropout, disk backpressure, seek or size limit); valid prefix retained";
-        } else if (result.status.nonfinite_samples) recording_error_ = "Non-finite input samples replaced with silence";
-        if (!result.frames) { rebuild_audio(); return false; }
-        last_take_ = result.path;
-        const auto source = utf8(result.path);
-        edit(AddRecordedClip{{new_id(),*armed_,utf8(result.path.stem()),session->start(),result.frames,0,source}});
-        return true;
+        for (const auto& capture : sessions) {
+            try {
+                const auto result=capture.recorder->finish();
+                if (capture.track == sessions.front().track) last_recording_status_=result.status;
+                if (result.status.fault != audio::RecordFault::none) recording_error_="Recording ended early; valid prefixes retained (input/dropout/disk/seek/size limit)";
+                else if (result.status.nonfinite_samples) recording_error_="Non-finite input replaced with silence";
+                if (!result.frames) continue;
+                last_takes_.push_back(result.path); if (last_take_.empty()) last_take_=result.path;
+                command.clips.push_back({new_id(),capture.track,utf8(result.path.stem()),capture.recorder->start(),result.frames,0,utf8(result.path)});
+            } catch (const std::exception& e) { failure=e.what(); }
+        }
+        if (!command.clips.empty()) edit(command); else rebuild_audio();
+        if (!failure.empty()) throw std::runtime_error(failure);
+        return !command.clips.empty();
     } catch (const std::exception& e) {
-        recording_error_ = e.what();
-        if (!last_take_.empty()) recording_error_ += "; recorded file: "+utf8(last_take_);
-        // No capture pointer remains; preserve a playable paused session where possible.
-        if (device_ && device_config_) { try { rebuild_audio(); } catch (...) { disconnect(); } }
+        recording_error_=e.what(); if (!last_take_.empty()) recording_error_+="; retained file: "+utf8(last_take_);
+        if (device_ && device_config_) try { rebuild_audio(); } catch (...) { disconnect(); }
         throw;
     }
 }

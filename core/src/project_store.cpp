@@ -28,7 +28,12 @@ void SetTrackSends::apply(Project& project) const {
 void SetTrackInput::apply(Project& project) const {
     auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
     if (track == project.tracks.end() || track->kind != TrackKind::audio) throw std::invalid_argument("input requires an audio track");
-    track->input = input_;
+    track->input = input_; track->input_stereo = stereo_;
+}
+void SetTrackMonitoring::apply(Project& project) const {
+    const auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
+    if (track == project.tracks.end() || track->kind != TrackKind::audio) throw std::invalid_argument("monitor requires an audio track");
+    track->input_monitor = enabled_;
 }
 void SetHardwareOutput::apply(Project& project) const {
     if (!track_) { project.master_outputs = outputs_; return; }

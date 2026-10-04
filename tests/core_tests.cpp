@@ -25,6 +25,26 @@ template<class F> void invalid_project(F edit) {
     edit(project);
     rejects([&] { project.validate(); });
 }
+
+void inputs() {
+    using namespace mrs;
+    auto p=demo_project(); const auto id=p.tracks.front().id; ProjectStore store{p};
+    store.execute(SetTrackInput{id,4,true}); store.execute(SetTrackMonitoring{id,true});
+    CHECK(store.state().project->tracks.front().input_stereo && store.state().project->tracks.front().input_monitor);
+    CHECK(deserialize(serialize(*store.state().project)) == *store.state().project);
+    CHECK(store.undo() && !store.state().project->tracks.front().input_monitor);
+    CHECK(store.redo() && store.state().project->tracks.front().input_monitor);
+    CHECK(store.undo() && store.undo() && *store.state().project == p);
+    const auto before=*store.state().project;
+    rejects([&] { store.execute(SetTrackInput{id,63,true}); });
+    rejects([&] { store.execute(SetTrackInput{id,-2,true}); });
+    rejects([&] { store.execute(SetTrackMonitoring{Id{"missing"},true}); });
+    CHECK(*store.state().project == before);
+    p.tracks.push_back({{"bus"},"Bus",TrackKind::bus,{}}); ProjectStore buses{p};
+    rejects([&] { buses.execute(SetTrackMonitoring{Id{"bus"},true}); });
+    rejects([&] { buses.execute(SetTrackInput{Id{"bus"},0,true}); });
+}
+
 void hardware() {
     using namespace mrs;
     auto p = demo_project(); const auto id = p.tracks.front().id;
@@ -69,7 +89,7 @@ void sends() {
     store.execute(RemoveTrack{Id{"r1"}});
     CHECK(store.state().project->tracks.front().sends.size() == 1);
     CHECK(store.undo() && store.state().project->tracks.front().sends.size() == 2);
-    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT 6"); CHECK(head == 0);
+    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT 7"); CHECK(head == 0);
     const std::string old = "MRS_CORE_SNAPSHOT 4\nPROJECT \"old\" \"Old\" \"\" 48000\nTEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n\"a\" \"Audio\" 0 \"\"\n1 0 0 0\n\"\"\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nMASTER 1\nEND\n";
     const auto migrated = deserialize(old); CHECK(migrated.tracks.front().sends.empty() && migrated.tracks.front().input == -2);
 }
@@ -359,7 +379,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected test suite");
         const std::string suite = argv[1];
-        if (suite == "hardware") hardware(); else if (suite == "sends") sends();
+        if (suite == "inputs") inputs(); else if (suite == "hardware") hardware(); else if (suite == "sends") sends();
         else if (suite == "buses") buses();
         else if (suite == "model") model();
         else if (suite == "timeline") timeline();

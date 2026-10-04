@@ -19,10 +19,12 @@ void put16(std::ostream& out, std::uint16_t n) { for (int i=0; i<2; ++i) out.put
 void put32(std::ostream& out, std::uint32_t n) { for (int i=0; i<4; ++i) out.put(static_cast<char>((n>>(8*i))&255)); }
 constexpr std::uint64_t maximum_frames = (std::numeric_limits<std::uint32_t>::max()-36ULL)/4;
 }
-Recorder::Recorder(std::filesystem::path destination, std::uint32_t rate, Sample start)
-    : destination_(std::filesystem::absolute(destination)), temporary_(destination_), rate_(rate), start_(start) {
+Recorder::Recorder(std::filesystem::path destination, std::uint32_t rate, Sample start, std::vector<std::uint32_t> selectors)
+    : destination_(std::filesystem::absolute(destination)), temporary_(destination_), rate_(rate), start_(start), selectors_(std::move(selectors)) {
     if (rate < 8000 || rate > 768000 || start < 0 || start > max_sample)
         throw std::invalid_argument("invalid recording rate/position");
+    if (selectors_.empty() || selectors_.size() > 2 || (selectors_.size() == 2 && selectors_[0] == selectors_[1]) ||
+        std::any_of(selectors_.begin(),selectors_.end(),[](auto c) { return c >= max_channels; })) throw std::invalid_argument("invalid recording selectors");
     temporary_ += "."+new_id().value+".partial";
     if (std::filesystem::exists(destination_) || std::filesystem::exists(temporary_))
         throw std::invalid_argument("recording destination already exists; choose a new take name");
@@ -40,31 +42,32 @@ void Recorder::input_dropout() noexcept { missing_.fetch_add(1,std::memory_order
 void Recorder::discontinuity() noexcept { jumps_.fetch_add(1,std::memory_order_relaxed); fail(RecordFault::discontinuity); }
 void Recorder::capture(const float* input, std::uint32_t channels, std::uint32_t frames, Sample position) noexcept {
     if (fault_.load(std::memory_order_relaxed) || quit_.load(std::memory_order_relaxed)) return;
-    if (!input || channels == 0) { input_dropout(); return; }
+    if (!input || std::any_of(selectors_.begin(),selectors_.end(),[&](auto c) { return c >= channels; })) { input_dropout(); return; }
     const auto write = write_.load(std::memory_order_relaxed);
-    if (position < start_ || static_cast<std::uint64_t>(position-start_) != write) {
+    if (position < start_ || static_cast<std::uint64_t>(position-start_) != write/selectors_.size()) {
         discontinuity(); return;
     }
-    if (write > maximum_frames || frames > maximum_frames-write ||
-        static_cast<std::uint64_t>(max_sample-start_) < write+frames) { fail(RecordFault::size_limit); return; }
+    const auto samples = static_cast<std::uint64_t>(frames)*selectors_.size();
+    if (write > maximum_frames || samples > maximum_frames-write ||
+        static_cast<std::uint64_t>(max_sample-start_) < write/selectors_.size()+frames) { fail(RecordFault::size_limit); return; }
     const auto read = read_.load(std::memory_order_acquire);
-    if (frames > capacity || write-read > capacity-frames) {
+    if (samples > capacity || write-read > capacity-samples) {
         dropped_.fetch_add(1,std::memory_order_relaxed); fail(RecordFault::overflow); return;
     }
-    for (std::uint32_t f=0; f<frames; ++f) {
-        auto value = input[static_cast<std::size_t>(f)*channels];
+    for (std::uint32_t f=0; f<frames; ++f) for (std::size_t c=0; c<selectors_.size(); ++c) {
+        auto value = input[static_cast<std::size_t>(f)*channels+selectors_[c]];
         if (!std::isfinite(value)) { value = 0; nonfinite_.fetch_add(1,std::memory_order_relaxed); }
-        ring_[static_cast<std::size_t>((write+f)%capacity)] = value;
+        ring_[static_cast<std::size_t>((write+static_cast<std::uint64_t>(f)*selectors_.size()+c)%capacity)] = value;
     }
-    write_.store(write+frames,std::memory_order_release);
+    write_.store(write+samples,std::memory_order_release);
 }
 RecordStatus Recorder::status() const noexcept {
-    return {write_.load(),dropped_.load(),missing_.load(),jumps_.load(),nonfinite_.load(),static_cast<RecordFault>(fault_.load())};
+    return {write_.load()/selectors_.size(),dropped_.load(),missing_.load(),jumps_.load(),nonfinite_.load(),static_cast<RecordFault>(fault_.load())};
 }
 void Recorder::header(std::uint32_t samples) {
     output_.seekp(0); output_.write("RIFF",4); put32(output_,36+samples*4); output_.write("WAVEfmt ",8);
-    put32(output_,16); put16(output_,3); put16(output_,1); put32(output_,rate_); put32(output_,rate_*4);
-    put16(output_,4); put16(output_,32); output_.write("data",4); put32(output_,samples*4);
+    put32(output_,16); put16(output_,3); put16(output_,static_cast<std::uint16_t>(selectors_.size())); put32(output_,rate_); put32(output_,rate_*4*static_cast<std::uint32_t>(selectors_.size()));
+    put16(output_,static_cast<std::uint16_t>(4*selectors_.size())); put16(output_,32); output_.write("data",4); put32(output_,samples*4);
 }
 void Recorder::run() noexcept {
     // Worker staging/encoding storage never belongs to the callback.
@@ -106,6 +109,6 @@ RecordedFile Recorder::finish() {
     std::filesystem::create_hard_link(temporary_,destination_);
     std::filesystem::remove(temporary_);
 #endif
-    return {destination_,static_cast<Sample>(written_),state};
+    return {destination_,static_cast<Sample>(written_/selectors_.size()),state};
 }
 }

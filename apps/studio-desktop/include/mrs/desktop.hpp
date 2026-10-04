@@ -70,7 +70,12 @@ public:
     void set_track_output(const Id&, std::optional<Id>);
     void set_track_sends(const Id&, std::vector<Track::Send>);
     void set_send_gain(const Id&, std::size_t, float);
-    void set_track_input(const Id&, int);
+    void set_track_input(const Id&, int, bool stereo = false);
+    void set_track_monitoring(const Id&, bool);
+    bool stereo_track(const Id&) const;
+    void set_track_armed(const Id&, bool);
+    bool track_armed(const Id&) const;
+    const std::vector<Id>& armed_tracks() const { return armed_tracks_; }
     std::vector<std::string> input_names();
     std::vector<std::string> output_names() const;
     std::vector<int> active_outputs() const;
@@ -112,6 +117,7 @@ public:
     audio::RecordStatus recording_status() const;
     Sample recording_start() const { return recording_ ? recording_->start() : 0; }
     const std::string& recording_error() const { return recording_error_; }
+    const std::vector<std::filesystem::path>& last_takes() const { return last_takes_; }
     const std::filesystem::path& last_take() const { return last_take_; }
     void monitoring(bool);
     bool monitoring() const { return monitoring_; }
@@ -128,6 +134,10 @@ private:
     Workspace workspace_{Workspace::arrange};
     std::shared_ptr<audio::Recorder> recording_;
     std::optional<Id> armed_;
+    std::vector<Id> armed_tracks_;
+    struct Capture { Id track; std::shared_ptr<audio::Recorder> recorder; };
+    std::vector<Capture> captures_;
+    std::vector<std::filesystem::path> last_takes_;
     std::string recording_error_;
     std::filesystem::path last_take_;
     audio::RecordStatus last_recording_status_{};
@@ -158,6 +168,7 @@ private:
     std::optional<audio::DeviceInfo> device_info_;
     void validate_hardware(const Project&, const audio::DeviceConfig&) const;
     std::vector<int> selected_inputs(const Project&) const;
+    std::vector<int> selected_inputs(const Project&, const std::vector<int>&) const;
     std::shared_ptr<const audio::AudioData> asset(const std::string&);
     void cache_asset(std::string, std::shared_ptr<const audio::AudioData>);
     void edit(const ICommand&);
