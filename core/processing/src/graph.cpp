@@ -87,10 +87,16 @@ PreparedGraph::PreparedGraph(GraphSnapshot snapshot, ProcessConfig config, Proce
             for (std::size_t b = 0; b < a; ++b)
                 if (node.infos[b].id == info.id) throw std::invalid_argument("duplicate processor parameter ID");
         }
+        // Older hosts appended a complete parameter snapshot to opaque state.
+        // Complete lists are legacy snapshots, not sparse host overrides;
+        // replaying them (notably TH-U) can reset a restored preset over many blocks.
+        const bool legacy_full_state=saved.format==ProcessorFormat::vst3&&!saved.plugin.component.empty()&&saved.parameters.size()>1&&
+            static_cast<std::size_t>(std::count_if(node.infos.begin(),node.infos.end(),[](const auto& p){return p.automatable;}))==saved.parameters.size()&&
+            std::all_of(saved.parameters.begin(),saved.parameters.end(),[&](const auto& value){return std::any_of(node.infos.begin(),node.infos.end(),[&](const auto& p){return p.id==value.id&&p.automatable;});});
         for (const auto& value : saved.parameters) {
             const auto it = std::find_if(node.infos.begin(),node.infos.end(),[&](const auto& info) { return info.id == value.id; });
             if (it == node.infos.end() || value.value < it->minimum || value.value > it->maximum ||
-                !node.processor->set_parameter(value.id,value.value))
+                (!legacy_full_state && !(saved.format==ProcessorFormat::vst3&&value.value==it->initial) && !node.processor->set_parameter(value.id,value.value)))
                 throw std::invalid_argument("unsupported or out-of-range processor parameter");
         }
         node.audio.resize(samples);
@@ -268,11 +274,19 @@ GraphMetrics PreparedGraph::metrics() const noexcept {
         impl_->output_overflows.load(),impl_->panics.load()};
 }
 GraphState PreparedGraph::capture() const {
+    // Capture is quiescent. Apply queued controls before taking opaque state so
+    // Save immediately after a gesture cannot lose an edit waiting for a callback.
+    const auto apply=[&](const auto& c){auto& n=impl_->nodes[c.node];if(c.event.id==UINT32_MAX)n.bypass=c.event.value>=0.5f;else {n.processor->set_parameter(c.event.id,c.event.value);n.processor->sync_controller(c.event.id,c.event.value);}};
+    ParamCommand command;for(int i=0;i<1023&&impl_->parameter_queue.pop(command);++i)apply(command);
+    ParamBatch batch;for(int i=0;i<63&&impl_->batch_queue.pop(batch);++i)for(std::size_t j=0;j<batch.size;++j)apply(batch.changes[j]);
     auto saved = *impl_->snapshot.graph;
     for (std::size_t i = 0; i < saved.nodes.size(); ++i) {
         const auto& processor = impl_->nodes[i].processor;
         saved.nodes[i].plugin = processor->capture();
         saved.nodes[i].parameters.clear();
+        // Opaque VST3 state is authoritative; replaying every normalized parameter
+        // can reset program/preset selectors after setState.
+        if(saved.nodes[i].format==ProcessorFormat::vst3)continue;
         for (const auto& info : impl_->nodes[i].infos) {
             const auto value = processor->parameter_value(info.id);
             if (value) saved.nodes[i].parameters.push_back({info.id,*value});

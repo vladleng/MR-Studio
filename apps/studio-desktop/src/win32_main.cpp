@@ -99,7 +99,7 @@ enum ControlId {
     device_combo = 200, rate_edit, buffer_edit, outputs_edit, input_edit,
     connect_button, disconnect_button, panel_button, refresh_button, profile_combo = 220, profile_name, profile_save, profile_load, profile_delete,
     fx_list=300, fx_kind, fx_add, fx_remove, fx_up, fx_down, fx_bypass, fx_value, fx_frequency, fx_q, fx_apply, fx_band, fx_band_enable, fx_scan, fx_editor, fx_status,
-    browser_tab=340, browser_tree, browser_scan, ir_load, ir_mix, ir_low, ir_high, ir_polarity, ir_preset, ir_name, fx_hint, fx_gain_label, fx_frequency_label, fx_q_label
+    browser_toggle=339, browser_tab=340, browser_tree, browser_scan, ir_load, ir_mix, ir_low, ir_high, ir_polarity, ir_preset, ir_name, fx_hint, fx_gain_label, fx_frequency_label, fx_q_label
 };
 // Hidden smoke transport has one explicit callback consumer: the test steps.
 class SmokeDevice final : public audio::IAudioDevice {
@@ -130,7 +130,7 @@ struct UI {
     std::optional<std::vector<NativeInsert>> fx_preview;
     POINT eq_origin{};EqBand eq_original{};bool eq_dragging{};
     std::vector<processing::VstPlugin> vst_catalog;
-    RECT browser_area{};
+    RECT browser_area{};bool browser_visible{true};
     std::optional<std::size_t> plugin_drag;
     std::optional<Id> plugin_drop_track;
     bool plugin_drop_valid{};
@@ -267,7 +267,7 @@ struct UI {
             {add_track,L"+ Track"},{delete_track,L"Delete"},{track_up,L"Up"},{track_down,L"Down"},
             {zoom_in,L"Zoom +"},{zoom_out,L"Zoom -"},{zoom_fit,L"Fit"}}}) button(window,label,id);
         button(window,L"Record (R)",record_button); button(window,L"Arm track",arm_button); button(window,L"Monitor on",monitor_button);
-        button(window,L"+ Bus",add_bus_button);
+        button(window,L"+ Bus",add_bus_button);button(window,L"BROWS",browser_toggle);
         create(window,WC_TABCONTROLW,L"",browser_tab,WS_TABSTOP);TCITEMW item{};item.mask=TCIF_TEXT;wchar_t label[]=L"VST3";item.pszText=label;TabCtrl_InsertItem(child(browser_tab),0,&item);SetWindowSubclass(child(browser_tab),tab_proc,1,reinterpret_cast<DWORD_PTR>(this));
         create(window,WC_TREEVIEWW,L"",browser_tree,WS_TABSTOP|WS_BORDER|TVS_HASBUTTONS|TVS_HASLINES|TVS_LINESATROOT|TVS_SHOWSELALWAYS);
         TreeView_SetBkColor(child(browser_tree),background);TreeView_SetTextColor(child(browser_tree),ink);TreeView_SetLineColor(child(browser_tree),border);button(window,L"Scan VST3…",browser_scan);
@@ -287,7 +287,8 @@ struct UI {
     void layout() {
         RECT area{}; GetClientRect(window,&area); const int width = MulDiv(area.right,96,static_cast<int>(dpi));
         const int height = MulDiv(area.bottom,96,static_cast<int>(dpi));
-        for (int i=0; i<3; ++i) move(nav_arrange+i,12+i*76,8,70,28);
+        for (int i=0; i<3; ++i) move(nav_arrange+i,width-316+i*76,height-34,70,28);
+        move(browser_toggle,width-88,height-34,76,28);
         move(undo,250,8,58,28); move(redo,314,8,58,28);
         int ax=388; for (auto id : {add_track,delete_track,track_up,track_down}) { move(id,ax,8,64,28); ax+=70; }
         move(split_clip_button,680,8,66,28); move(delete_clip_button,752,8,66,28); move(snap_button,824,8,68,28);
@@ -299,7 +300,7 @@ struct UI {
         move(record_button,x,height-66,86,30);
         move(tracks,12,100,272,std::max(70,height-200));
         const int sidebar=width<1200?210:260;browser_area={area.right-s(sidebar+12),s(84),area.right-s(12),area.bottom-s(84)};
-        canvas={s(300),s(84),browser_area.left-s(10),area.bottom-s(84)};
+        canvas={s(300),s(84),browser_visible?browser_area.left-s(10):area.right-s(12),area.bottom-s(84)};
         move(browser_tab,width-sidebar-12,84,sidebar,30);move(browser_scan,width-sidebar-4,124,sidebar-16,28);move(browser_tree,width-sidebar-4,162,sidebar-16,std::max(60,height-278));
         sync_workspace_controls();
         InvalidateRect(window,nullptr,FALSE);
@@ -313,6 +314,7 @@ struct UI {
             const bool shown = (GetWindowLongPtrW(control,GWL_STYLE) & WS_VISIBLE) != 0;
             if (shown != show) ShowWindow(control,show ? SW_SHOWNA : SW_HIDE);
         };
+        for(auto id:{browser_tab,browser_tree,browser_scan})visible(id,browser_visible);
         for (auto id : {add_track,delete_track,track_up,track_down,zoom_in,zoom_out,zoom_fit,split_clip_button,delete_clip_button,snap_button})
             visible(id,workspace == Workspace::arrange || workspace == Workspace::mix);
         visible(add_bus_button,workspace == Workspace::mix);
@@ -555,6 +557,7 @@ struct UI {
             app.open_project(std::filesystem::path(std::u8string(name.begin(),name.end())));
             recent_project(); fit_view = true; view_start = 0; first_track = 0; track_offset=0; refresh_models(); restore_audio(); return;
         }
+        if(id==browser_toggle){browser_cancel();browser_visible=!browser_visible;layout();InvalidateRect(child(browser_toggle),nullptr,FALSE);return;}
         if (id >= nav_arrange && id <= nav_mix) { app.workspace(id == nav_mix && app.workspace() == Workspace::mix ? Workspace::arrange : static_cast<Workspace>(id-nav_arrange)); sync_workspace_controls(); for (int i = nav_arrange; i <= nav_mix; ++i) InvalidateRect(child(i),nullptr,FALSE); InvalidateRect(window,nullptr,FALSE); return; }
         if (id == tracks && notification == LBN_SELCHANGE) {
             const auto selection = SendMessageW(child(tracks),LB_GETCURSEL,0,0);
@@ -668,7 +671,7 @@ struct UI {
     }
     void draw_button(const DRAWITEMSTRUCT& item) {
         if (smoke) ++button_paints;
-        bool selected = item.CtlID >= nav_arrange && item.CtlID <= nav_mix && item.CtlID-nav_arrange == static_cast<UINT>(app.workspace());
+        bool selected = item.CtlID==browser_toggle?browser_visible:item.CtlID >= nav_arrange && item.CtlID <= nav_mix && item.CtlID-nav_arrange == static_cast<UINT>(app.workspace());
         const bool rec = item.CtlID == record_button && app.recording();
         fill(item.hDC,item.rcItem,rec ? RGB(148,46,46) : selected ? accent : (item.itemState & ODS_SELECTED) ? border : RGB(46,50,54));
         const auto edge=CreateSolidBrush(border); FrameRect(item.hDC,&item.rcItem,edge); DeleteObject(edge);
@@ -1115,7 +1118,7 @@ struct UI {
     }
     void paint(HDC dc) {
         RECT area{}; GetClientRect(window,&area); fill(dc,area,background);
-        fill(dc,browser_area,panel);text(dc,browser_area.left+s(8),browser_area.bottom-s(26),browser_area.right-browser_area.left-s(16),s(24),vst_scan.valid()?L"Scanning…":vst_catalog.empty()?L"Scan a folder to find VST3":L"Drag an effect onto a mixer channel",normal,muted);
+        if(browser_visible){fill(dc,browser_area,panel);text(dc,browser_area.left+s(8),browser_area.bottom-s(26),browser_area.right-browser_area.left-s(16),s(24),vst_scan.valid()?L"Scanning…":vst_catalog.empty()?L"Scan a folder to find VST3":L"Drag an effect onto a mixer channel",normal,muted);}
         fill(dc,{0,0,area.right,s(78)},panel); line(dc,0,s(78),area.right,s(78));
         const auto& context=app.musical().state();
         std::wostringstream position; position << L"Bar " << context.transport.musical.bar << L" : " << context.transport.musical.beat
@@ -1240,7 +1243,7 @@ void UI::browser_refresh(){
     browser_cancel();auto tree=child(browser_tree);if(!tree)return;SendMessageW(tree,WM_SETREDRAW,FALSE,0);TreeView_DeleteAllItems(tree);
     std::map<std::wstring,std::vector<std::size_t>> vendors;for(std::size_t i=0;i<vst_catalog.size();++i)vendors[vst_catalog[i].vendor.empty()?L"Unknown vendor":wide(vst_catalog[i].vendor)].push_back(i);
     for(auto& [vendor,plugins]:vendors){TVINSERTSTRUCTW item{};item.hParent=TVI_ROOT;item.hInsertAfter=TVI_LAST;item.item.mask=TVIF_TEXT|TVIF_PARAM;auto vendor_label=vendor;item.item.pszText=vendor_label.data();auto parent=TreeView_InsertItem(tree,&item);
-        std::sort(plugins.begin(),plugins.end(),[&](auto a,auto b){return vst_catalog[a].name<vst_catalog[b].name;});for(auto index:plugins){auto name=wide(vst_catalog[index].name);item.hParent=parent;item.item.pszText=name.data();item.item.lParam=static_cast<LPARAM>(index+1);TreeView_InsertItem(tree,&item);}TreeView_Expand(tree,parent,TVE_EXPAND);}
+        std::sort(plugins.begin(),plugins.end(),[&](auto a,auto b){return vst_catalog[a].name<vst_catalog[b].name;});for(auto index:plugins){auto name=wide(vst_catalog[index].name);item.hParent=parent;item.item.pszText=name.data();item.item.lParam=static_cast<LPARAM>(index+1);TreeView_InsertItem(tree,&item);}}
     SendMessageW(tree,WM_SETREDRAW,TRUE,0);InvalidateRect(tree,nullptr,FALSE);InvalidateRect(window,&browser_area,FALSE);
 }
 void UI::browser_notify(NMHDR* header){if(header->idFrom!=browser_tree||header->code!=TVN_BEGINDRAGW)return;const auto event=reinterpret_cast<NMTREEVIEWW*>(header);if(event->itemNew.lParam<=0)return;const auto index=static_cast<std::size_t>(event->itemNew.lParam-1);if(index>=vst_catalog.size())return;
@@ -1903,7 +1906,10 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
 #ifdef MRS_HAS_VST3
                     wchar_t module[32768]{};GetModuleFileNameW(nullptr,module,32768);const auto fixture=std::filesystem::path(module).parent_path()/L"mrs_vst3_fixture.vst3";
                     if(std::filesystem::exists(fixture)){
-                        ui->vst_catalog=processing::probe_vst3(narrow(fixture.wstring()));if(ui->vst_catalog.empty())throw std::runtime_error("Browser fixture missing");ui->browser_refresh();auto tree=ui->child(browser_tree);auto vendor=TreeView_GetRoot(tree);if(!vendor||!TreeView_GetChild(tree,vendor))throw std::runtime_error("Browser vendor grouping failed");
+                        ui->vst_catalog=processing::probe_vst3(narrow(fixture.wstring()));if(ui->vst_catalog.empty())throw std::runtime_error("Browser fixture missing");ui->browser_refresh();auto tree=ui->child(browser_tree);auto vendor=TreeView_GetRoot(tree);if(!vendor||!TreeView_GetChild(tree,vendor))throw std::runtime_error("Browser vendor grouping failed");if(TreeView_GetItemState(tree,vendor,TVIS_EXPANDED)&TVIS_EXPANDED)throw std::runtime_error("Browser folders should start collapsed");
+                        const auto shown_canvas=ui->canvas;ui->command(browser_toggle,BN_CLICKED);if(ui->browser_visible||(GetWindowLongPtrW(tree,GWL_STYLE)&WS_VISIBLE)||ui->canvas.right<=shown_canvas.right)throw std::runtime_error("BROWS hide/arrangement resize failed");
+                        ui->command(browser_toggle,BN_CLICKED);if(!ui->browser_visible||!EqualRect(&ui->canvas,&shown_canvas))throw std::runtime_error("BROWS show failed");
+                        TreeView_Expand(tree,vendor,TVE_EXPAND);
                         ui->app.connect(std::make_unique<SmokeDevice>(),{0,48000,128,{}, {0,1}});const auto initial_revision=ui->app.services().projects->state().revision;
                         NMTREEVIEWW event{};event.hdr.hwndFrom=tree;event.hdr.idFrom=browser_tree;event.hdr.code=TVN_BEGINDRAGW;event.itemNew.lParam=1;SendMessageW(hwnd,WM_NOTIFY,browser_tree,reinterpret_cast<LPARAM>(&event));
                         if(!ui->plugin_drag||GetCapture()!=hwnd)throw std::runtime_error("Tree drag notification failed");ui->browser_up({-5,-5});if(ui->app.services().projects->state().revision!=initial_revision)throw std::runtime_error("Invalid drop changed project");

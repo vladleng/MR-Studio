@@ -14,7 +14,10 @@ class Fixture final : public SingleComponentEffect {
     float gain_{0.5f};
 public:
     static FUnknown* create(void*){return static_cast<IComponent*>(new Fixture);}
-    tresult PLUGIN_API initialize(FUnknown* context) override{auto result=SingleComponentEffect::initialize(context);if(result!=kResultOk)return result;addAudioInput(STR16("Input"),SpeakerArr::kStereo);addAudioOutput(STR16("Output"),SpeakerArr::kStereo);parameters.addParameter(STR16("Gain"),nullptr,0,0.5,ParameterInfo::kCanAutomate,100);return kResultOk;}
+    tresult PLUGIN_API initialize(FUnknown* context) override{auto result=SingleComponentEffect::initialize(context);if(result!=kResultOk)return result;addAudioInput(STR16("Input"),SpeakerArr::kStereo);addAudioOutput(STR16("Output"),SpeakerArr::kStereo);addAudioInput(STR16("Sidechain"),SpeakerArr::kStereo,kAux,0);parameters.addParameter(STR16("Gain"),nullptr,0,0.5,ParameterInfo::kCanAutomate,100);parameters.addParameter(STR16("Program"),nullptr,0,0,ParameterInfo::kIsProgramChange,200);wchar_t modulePath[32768]{};GetModuleFileNameW(static_cast<HMODULE>(moduleHandle),modulePath,32768);if(wcsstr(modulePath,L"legacy-state.vst3"))for(ParamID id=1000;id<1300;++id)parameters.addParameter(STR16("Legacy control"),nullptr,0,0,ParameterInfo::kCanAutomate,id);return kResultOk;}
+    tresult PLUGIN_API setBusArrangements(SpeakerArrangement* ins,int32 ni,SpeakerArrangement* outs,int32 no) override{if(ni!=2||no!=1)return kResultFalse;return SingleComponentEffect::setBusArrangements(ins,ni,outs,no);}
+    // Re-setting the program selector also reloads its default sound, even at the same value.
+    tresult PLUGIN_API setParamNormalized(ParamID id,ParamValue value) override{if(id==200)gain_=0.5f;return SingleComponentEffect::setParamNormalized(id,value);}
     tresult PLUGIN_API getState(IBStream* s) override{return s->write(&gain_,sizeof(gain_),nullptr);}
     tresult PLUGIN_API setState(IBStream* s) override{float v{};int32 n{};if(s->read(&v,sizeof(v),&n)!=kResultOk||n!=sizeof(v)||v<0||v>1)return kInvalidArgument;gain_=v;setParamNormalized(100,v);return kResultOk;}
     tresult PLUGIN_API setComponentState(IBStream* s) override{return setState(s);}
@@ -27,7 +30,7 @@ public:
     void edit(){setParamNormalized(100,0.75);if(componentHandler){componentHandler->beginEdit(100);componentHandler->performEdit(100,0.75);componentHandler->endEdit(100);}}
     class View final : public CPluginView{
         Fixture* owner_;HWND child_{};
-        static LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){auto owner=reinterpret_cast<Fixture*>(GetWindowLongPtrW(hwnd,GWLP_USERDATA));if(msg==WM_COMMAND&&owner){owner->edit();return 0;}return DefWindowProcW(hwnd,msg,wp,lp);}
+        static LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){auto owner=reinterpret_cast<Fixture*>(GetWindowLongPtrW(hwnd,GWLP_USERDATA));if(msg==WM_COMMAND&&owner){if(LOWORD(wp)==2){owner->gain_=0.625f;owner->setParamNormalized(100,0.625);if(owner->componentHandler)owner->componentHandler->restartComponent(kParamValuesChanged);}else owner->edit();return 0;}return DefWindowProcW(hwnd,msg,wp,lp);}
     public:
         explicit View(Fixture* owner):owner_(owner){rect={0,0,320,120};owner_->addRef();}
         ~View() override{owner_->release();}

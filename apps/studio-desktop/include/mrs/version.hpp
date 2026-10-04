@@ -1,5 +1,5 @@
 #pragma once
 #include <string_view>
 namespace mrs::desktop {
-inline constexpr std::string_view application_version = "0.1m";
+inline constexpr std::string_view application_version = "0.1m upd1 fix1";
 }

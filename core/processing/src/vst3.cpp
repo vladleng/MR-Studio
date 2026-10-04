@@ -70,7 +70,7 @@ class Plugin final : public IProcessor, public IComponentHandler, public IPlugFr
     audio::SpscQueue<ParameterChange,1024> editor_changes_;
     std::array<bool,4096> initial_pending_{};std::size_t initial_count_{};
     std::unordered_map<ParamID,std::size_t> parameter_index_;
-    std::atomic<bool> edited_{},fault_{};
+    std::atomic<bool> edited_{},fault_{},refresh_values_{};
     HWND parent_{};
     uint32 latency_{};bool active_{},processing_{};
     std::optional<std::size_t> index(ParamID id) const noexcept{auto it=parameter_index_.find(id);return it==parameter_index_.end()?std::nullopt:std::optional<std::size_t>{it->second};}
@@ -90,7 +90,10 @@ public:
     void prepare(ProcessConfig c) override{
         config_=c;const SpeakerArrangement arrangement=c.channels==1?SpeakerArr::kMono:SpeakerArr::kStereo;
         if(component_->getBusCount(kAudio,kInput)<1||component_->getBusCount(kAudio,kOutput)<1)throw std::runtime_error("VST3 slice supports mono/stereo audio effects, not instruments");
-        ok(processor_->setBusArrangements(const_cast<SpeakerArrangement*>(&arrangement),1,const_cast<SpeakerArrangement*>(&arrangement),1),"effect must support selected mono/stereo layout");
+        // Negotiate every declared bus, including inactive sidechain/auxiliary buses.
+        std::vector<SpeakerArrangement> inputs(component_->getBusCount(kAudio,kInput)),outputs(component_->getBusCount(kAudio,kOutput));
+        for(auto dir:{kInput,kOutput}){auto& buses=dir==kInput?inputs:outputs;for(int32 i=0;i<static_cast<int32>(buses.size());++i){ok(processor_->getBusArrangement(dir,i,buses[i]),"cannot query audio bus layout");if(i==0)buses[i]=arrangement;}}
+        ok(processor_->setBusArrangements(inputs.data(),static_cast<int32>(inputs.size()),outputs.data(),static_cast<int32>(outputs.size())),"effect must support selected mono/stereo layout");
         for(auto dir:{kInput,kOutput}){for(int32 i=0;i<component_->getBusCount(kAudio,dir);++i)ok(component_->activateBus(kAudio,dir,i,i==0),"audio bus activation failed");for(int32 i=0;i<component_->getBusCount(kEvent,dir);++i)component_->activateBus(kEvent,dir,i,false);}
         ProcessSetup setup{kRealtime,kSample32,static_cast<int32>(c.max_block),static_cast<double>(c.sample_rate)};ok(processor_->canProcessSampleSize(kSample32),"32-bit processing unsupported");ok(processor_->setupProcessing(setup),"setup processing failed");
         if(!data_.prepare(*component_,static_cast<int32>(c.max_block),kSample32))throw std::runtime_error("VST3 audio buffer preparation failed");
@@ -104,6 +107,16 @@ public:
         for(std::size_t i=0;i<infos_.size();++i){const auto v=static_cast<float>(controller_->getParamNormalized(infos_[i].id));values_[i]=v;infos_[i].initial=v;}
     }
     PluginState capture() const override{
+        // VST3's zero-sample parameter flush, off the audio thread with callbacks
+        // stopped. Do not render/advance audio merely to commit pending controls.
+        auto& self=*const_cast<Plugin*>(this);
+        for(int pass=0;pass<20;++pass){
+            self.input_.clear();self.output_.clear();std::size_t emitted=0;
+            for(std::size_t i=0;i<infos_.size()&&emitted<256;++i)if(self.initial_pending_[i]){self.input_.add(infos_[i].id,values_[i].load(),0);self.initial_pending_[i]=false;--self.initial_count_;++emitted;}
+            ParameterChange change;while(emitted<256&&self.editor_changes_.pop(change)){self.input_.add(change.id,change.value,0);++emitted;}
+            if(!emitted)break;
+            self.data_.numSamples=0;if(!safe_process(processor_,&self.data_))throw std::runtime_error("VST3: pending parameter state flush failed");
+        }
         PluginState state;state.class_id=uid_;
         const auto copy=[](MemoryStream& stream){if(stream.getSize()>1024*1024)throw std::runtime_error("VST3 state exceeds 1 MiB budget");std::vector<std::byte> v(static_cast<std::size_t>(stream.getSize()));if(!v.empty())std::memcpy(v.data(),stream.getData(),v.size());return v;};
         MemoryStream component,controller;ok(component_->getState(&component),"capture component state failed");state.component=copy(component);if(controller_->getState(&controller)==kResultOk)state.controller=copy(controller);return state;
@@ -112,9 +125,9 @@ public:
     bool set_parameter(std::uint32_t id,float value) noexcept override{const auto i=index(id);if(!i||!std::isfinite(value)||value<0||value>1)return false;values_[*i]=value;if(!initial_pending_[*i]){initial_pending_[*i]=true;++initial_count_;}return true;}
     std::optional<float> parameter_value(std::uint32_t id) const noexcept override{auto i=index(id);return i?std::optional<float>{values_[*i].load()}:std::nullopt;}
     std::uint32_t latency() const noexcept override{return latency_;}bool live_safe() const noexcept override{return false;}
-    void warm() override{for(std::size_t i=0;i<infos_.size();++i)controller_->setParamNormalized(infos_[i].id,values_[i].load());ok(component_->setActive(true),"activation failed");active_=true;ok(processor_->setProcessing(true),"start processing failed");processing_=true;latency_=processor_->getLatencySamples();}
+    void warm() override{for(std::size_t i=0;i<infos_.size();++i)if(initial_pending_[i])controller_->setParamNormalized(infos_[i].id,values_[i].load());ok(component_->setActive(true),"activation failed");active_=true;ok(processor_->setProcessing(true),"start processing failed");processing_=true;latency_=processor_->getLatencySamples();}
     void reset() noexcept override{context_.projectTimeSamples=0;}
-    bool edited() noexcept override{return edited_.exchange(false);}
+    bool edited() noexcept override{if(refresh_values_.exchange(false))for(std::size_t i=0;i<infos_.size();++i)values_[i]=static_cast<float>(controller_->getParamNormalized(infos_[i].id));return edited_.exchange(false);}
     void sync_controller(std::uint32_t id,float value) override{controller_->setParamNormalized(id,value);}
     bool failed() const noexcept override{return fault_.load();}
     bool open_editor(void* parent,int& width,int& height) override{
@@ -130,7 +143,7 @@ public:
     tresult PLUGIN_API beginEdit(ParamID) override{return kResultOk;}
     tresult PLUGIN_API performEdit(ParamID id,ParamValue value) override{const auto i=index(id);if(!i||!std::isfinite(value)||value<0||value>1)return kInvalidArgument;values_[*i]=static_cast<float>(value);edited_=true;return editor_changes_.push({0,id,static_cast<float>(value)})?kResultOk:kOutOfMemory;}
     tresult PLUGIN_API endEdit(ParamID) override{edited_=true;return kResultOk;}
-    tresult PLUGIN_API restartComponent(int32 flags) override{if(flags&(kIoChanged|kLatencyChanged|kReloadComponent))return kNotImplemented;edited_=true;return kResultOk;}
+    tresult PLUGIN_API restartComponent(int32 flags) override{if(flags&(kIoChanged|kLatencyChanged|kReloadComponent))return kNotImplemented;if(flags&kParamValuesChanged)refresh_values_=true;edited_=true;return kResultOk;}
     tresult PLUGIN_API resizeView(IPlugView* view,ViewRect* rect) override{if(!parent_||!rect||rect->getWidth()<1||rect->getHeight()<1||rect->getWidth()>4096||rect->getHeight()>4096)return kInvalidArgument;RECT r{0,0,rect->getWidth(),rect->getHeight()};AdjustWindowRect(&r,static_cast<DWORD>(GetWindowLongPtrW(parent_,GWL_STYLE)),FALSE);SetWindowPos(parent_,nullptr,0,0,r.right-r.left,r.bottom-r.top,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);return view->onSize(rect);}
     void process(ProcessBlock block) noexcept override{
         if(fault_)return;
