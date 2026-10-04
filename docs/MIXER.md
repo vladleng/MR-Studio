@@ -1,6 +1,7 @@
 # 0.1f / MRS Stage 2a — track mixer and master
 
 First slice of #22. Mix edits the same ProjectStore and AudioEngine as Arrange.
+Includes portable project folders and concurrent seek protection from PR #47.
 Track gain/pan/mute/solo and master gain use shared commands and Undo/Redo.
 No second engine, device handle, project copy or transport is created.
 

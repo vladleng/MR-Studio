@@ -1,5 +1,5 @@
 # MR Studio — implementation status
-Updated: 2026-10-03. Accepted: 0.1e / MRS Stage 1d; whole Audio Arrangement #21 accepted. Next: MRS Stage 2 / #22 Mixer / Routing (not started).
+Updated: 2026-10-04. Accepted: 0.1e / MRS Stage 1d; whole Audio Arrangement #21 accepted. In development: 0.1f / MRS Stage 2a / #22 Mixer / Routing, PR #48; physical acceptance pending. Includes portable folders/concurrent seek fix from open PR #47.
 
 ## Stage 0
 Accepted. PR #36 merged, #15 closed. Common ProjectStore/Undo/Transport established.

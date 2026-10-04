@@ -927,6 +927,19 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     if (ui->app.services().projects->state().revision != undone)
                         throw std::runtime_error("Cancelled drag changed project state");
                     ui->command(nav_mix,BN_CLICKED);
+                    const auto mix_before = ui->app.services().projects->state();
+                    const auto strip = ui->mix_strip(0), fader = ui->mix_control(strip,34);
+                    const POINT gain_point{fader.left+(fader.right-fader.left)/2,(fader.top+fader.bottom)/2};
+                    ui->mouse_down(gain_point);
+                    if (!ui->mix_drag || ui->app.services().projects->state().revision != mix_before.revision)
+                        throw std::runtime_error("Mixer preview changed project state");
+                    ui->mouse_up(gain_point);
+                    if (ui->app.services().projects->state().revision != mix_before.revision+1)
+                        throw std::runtime_error("Mixer gesture did not commit one shared command");
+                    ui->command(undo,0);
+                    ui->mouse_down(gain_point); ui->cancel_mix_drag();
+                    if (ui->app.services().projects->state().project->tracks.front().mix != mix_before.project->tracks.front().mix)
+                        throw std::runtime_error("Mixer cancellation changed saved parameters");
                     const auto bar = GetMenu(hwnd), files = GetSubMenu(bar,0);
                     if (!bar || !files || GetMenuItemID(files,0) != new_project_button || GetMenuItemID(files,3) != save)
                         throw std::runtime_error("Files menu did not retain project commands");

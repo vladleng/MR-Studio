@@ -136,6 +136,22 @@ void mixer() {
     rejects([&] { app.set_master_gain(-1); });
     CHECK(app.services().projects->state().revision == revision);
     app.remove_track(track); CHECK(app.undo() && app.services().projects->state().project->tracks.front().mix.gain == 0.5f);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
+    // Saturated previews must restore even when commit is a model no-op.
+    for (int n=0; n<20; ++n) (void)app.preview_mix(track,{0,0,false,false},0);
+    app.cancel_mix_preview(); app.engine()->process(nullptr,output.data(),512); app.poll();
+    app.play(); app.engine()->process(nullptr,output.data(),512);
+    CHECK(output[1022] == 0 && output[1023] == 0.0152587890625f);
+    app.stop(); app.engine()->process(nullptr,output.data(),128);
+    app.new_project(44100); const auto vocal = app.add_audio_track("Raw take"); app.arm_track(vocal);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});
+    const auto take = dir.path / "raw-mix.wav"; app.start_recording(take);
+    std::array<float,512> input{}; input.fill(0.25f);
+    app.engine()->process(input.data(),output.data(),512);
+    app.set_track_mix(vocal,{0,1,true,true}); app.set_master_gain(0);
+    app.engine()->process(input.data(),output.data(),512); CHECK(output[1022] == 0 && output[1023] == 0);
+    CHECK(app.stop_recording()); const auto raw = audio::load_wav(take);
+    CHECK(raw.frames() == 1024); for (const auto value : raw.samples) CHECK(value == 0.25f);
 }
 
 void audio_settings() {

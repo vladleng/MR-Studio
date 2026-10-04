@@ -40,8 +40,8 @@ Live Mode входит в ту же сборку и не получает отд
 User requested project-owned content folders on 2026-10-03 after accepting 0.1e.
 Small update keeps base 0.1e: UI version 0.1e upd1 fix1;
 artifact MR-Studio-0.1e-upd1-fix1-ASIO-Windows. PR #47, user acceptance pending.
-See PROJECT_FOLDERS.md and MRS_PROJECT_FOLDERS_CHECKLIST.md. Next Mixer/Routing
-substage/version is still to be planned after this update.
+See PROJECT_FOLDERS.md and MRS_PROJECT_FOLDERS_CHECKLIST.md. These changes are
+included in 0.1f / Stage 2a / PR #48, which now adds the first Mixer/Routing slice.
 
 
 ## Included fix1: concurrent seek read-head protection
