@@ -1,5 +1,18 @@
 # Moon River Studio — START HERE
 
+## 0.1j / Stage 2e — локальная реализация готова, 2026-10-04
+Mono/stereo inputs на дорожках, одновременная запись нескольких дорожек,
+независимые R (Arm) / I (Monitor) рядом с M/S, отдельные L/R шкалы stereo.
+Stop возвращает к старту Play/Record; Pause сохраняет текущую позицию.
+Core v7 читает v1–v6; input/Monitor сохраняются и используют Undo; Arm — session-only.
+Offline-dependency Windows x64 ASIO configure/build, **73/73 CTest** и expanded GUI
+smoke пройдены, UI preview проверен. Пользовательская/physical ASIO приёмка ожидается.
+Последняя принятая сборка — 0.1i upd1; исторические статусы ниже заменены этой записью.
+Пакет MR-Studio-0.1j-ASIO-Windows-local в Builds; ветка mrs/0.1j-multi-input-local.
+См. [inputs](INPUT_ROUTING.md) и [checklist](MRS_STAGE_2E_CHECKLIST.md).
+#22 открыт до приёмки; затем #23 Plugins / Native DSP. #16 matrix остаётся отложенной.
+Код/сборки локально; GitHub только issues/docs. Без code push/new PR/merge/Actions.
+
 ## 0.1i upd1 принята — 2026-10-04
 Пользователь: «Все работает». Последняя принятая локальная сборка — 0.1i upd1,
 код 1f9a89568e50a83bb44d6f4ec3e7df8aac9032a8. Приёмка интерфейса/зумирования закрыта.
@@ -481,3 +494,4 @@ the current position and retries on its next block; worker retry pages remain
 protected. This closes the queued-command handoff race without blocking RT.
 The concurrent seek exact-sample/zero-underrun/zero-RT-allocation regression is
 repeated eight times in every Debug/Release CI job for this fix.
+
