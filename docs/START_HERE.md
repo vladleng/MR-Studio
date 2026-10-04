@@ -7,7 +7,7 @@ Neutral/Warm/Bright control presets, zero additional algorithmic convolution lat
 Right VST3 tab: vendor folders, drag/drop to mixer tracks/buses/Master and single-click
 insert native editor. Native insert workflow retained; structure edits after Pause/Stop.
 Core v10 reads v1–v9; keep a project backup before saving. Code
-`c505128089916350950bc7bdc36ce7a36152f6d4`, local branch `mrs/0.1m-cab-ir-browser-local`.
+`8c805259541c39f2eee59ebba2c38e87cdeae706`, local branch `mrs/0.1m-cab-ir-browser-local`.
 Offline-dependency local ASIO configure/build and 87/87 CTest passed; hidden GUI tests
 cover actual tree drag notifications, invalid/cancelled drops, track/bus/Master targets,
 Undo, single-click editor/reuse, Cab controls/presets and existing DPI/flicker regressions.

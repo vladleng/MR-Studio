@@ -95,3 +95,6 @@ parameters remain available with an explicit status. Connect audio to prepare th
 plugin instance. Native Gain/EQ/Cab IR still open through the native insert window.
 Mono/stereo audio effect, state, structural-edit and in-process runtime boundaries
 from 0.1l remain applicable. Full runtime isolation/PDC belongs to 3e.
+
+Prepared-graph generations close obsolete host editor windows after structural Undo,
+Redo, reconnect/disconnect or chain rebuild. Live parameter edits keep the editor open.
