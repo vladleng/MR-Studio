@@ -1,5 +1,22 @@
 # Moon River Studio — START HERE
 
+## Локальная 0.1h / MRS Stage 2c готова к проверке — 2026-10-04
+Реализованы посылы/возвраты (до 8 sends на канал, pre/post, уровни, nested buses,
+cycle rejection, Undo и persistence), Files → Open recent project,
+вертикальные фейдеры/стереометры, нижний Mix поверх аранжировки в том же окне,
+мини-панели дорожек с horizontal gain/meters, pan knob и physical mono input.
+Core snapshot v5 читает v1–v4; desktop config v3 читает v1/v2.
+Локальный код: cce4a4e0071090227aef58cd84d2823a49094da2,
+ветка mrs/0.1h-sends-ui-local. Код не отправлен; PR не создан/не слит.
+Windows x64 ASIO Release configure/build с cached offline dependencies,
+CTest 65/65 и expanded GUI smoke пройдены; GitHub Actions не использовались.
+Пакет MR-Studio-0.1h-ASIO-Windows-local в локальной папке Builds.
+Пользовательская/физическая ASIO приёмка 0.1h ожидается; последняя принятая — 0.1g.
+Контракты: [SENDS.md](SENDS.md); проверка: [MRS_STAGE_2C_CHECKLIST.md](MRS_STAGE_2C_CHECKLIST.md).
+Далее hardware multi-output/device profiles. #22 и отложенный #16 остаются открытыми.
+GitHub: только issues/docs; публикация кода/PR/слияние — по отдельной просьбе.
+
+
 ## Актуальное состояние — 2026-10-04: локальная 0.1g принята
 Пользователь подтвердил: «Все работает!». MRS Stage 2a / 0.1f и Stage 2b / 0.1g приняты.
 В 0.1g добавлены шины/подгруппы, track/bus outputs, защита от циклов,
@@ -7,7 +24,7 @@ controls/meters, Undo и persistence на том же SHARED engine.
 Локальные Windows ASIO Release configure/build, 62/62 CTest и GUI smoke пройдены.
 Проверенный локальный код: 99d9b7be5537281a956bd8fadddaa95071d381f4.
 PR #48/#47 слиты ранее; PR #49 уже открыт, но не слит. Код main пока соответствует 0.1f.
-Следующая часть #22 — sends/returns, затем hardware multi-output и profiles; ещё не начата.
+Sends/returns реализованы локально в 0.1h; далее hardware multi-output и profiles.
 Полный #22 остаётся открытым; длительный benchmark #16 остаётся отложенным.
 
 ## Порядок работы по инструкции пользователя
