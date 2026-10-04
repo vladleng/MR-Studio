@@ -110,6 +110,9 @@ struct UI {
     bool smoke{};
     int smoke_step{};
     unsigned error_count{};
+    std::uint64_t button_paints{}; // smoke regression: native buttons must stay stable during canvas repaint
+    std::uint64_t button_layout_events{};
+    std::map<HWND,WNDPROC> smoke_button_procs;
     std::vector<audio::DeviceInfo> devices;
     std::string device_error;
     RECT canvas{};
@@ -153,7 +156,19 @@ struct UI {
         auto result = CreateWindowExW(0,cls,name,WS_CHILD | WS_VISIBLE | extra,0,0,1,1,parent,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);
         if (!result) throw std::runtime_error("Cannot create window control"); return result;
     }
-    void button(HWND parent, const wchar_t* text, int id) { create(parent,L"BUTTON",text,id,BS_OWNERDRAW | WS_TABSTOP); }
+    static LRESULT CALLBACK smoke_button_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+        const auto ui = reinterpret_cast<UI*>(GetWindowLongPtrW(hwnd,GWLP_USERDATA));
+        if (message == WM_WINDOWPOSCHANGING) ++ui->button_layout_events;
+        return CallWindowProcW(ui->smoke_button_procs.at(hwnd),hwnd,message,wparam,lparam);
+    }
+    void button(HWND parent, const wchar_t* text, int id) {
+        const auto control = create(parent,L"BUTTON",text,id,BS_OWNERDRAW | WS_TABSTOP);
+        if (smoke) {
+            SetWindowLongPtrW(control,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(this));
+            const auto proc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(control,GWLP_WNDPROC,reinterpret_cast<LONG_PTR>(smoke_button_proc)));
+            smoke_button_procs.emplace(control,proc);
+        }
+    }
     void fonts() {
         if (normal) DeleteObject(normal); if (heading) DeleteObject(heading); if (big) DeleteObject(big);
         normal = CreateFontW(-s(15),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
@@ -219,13 +234,35 @@ struct UI {
         move(undo,20,140,80,32); move(redo,108,140,80,32);
         int ax = 220;
         for (auto id : {add_track,delete_track,track_up,track_down,zoom_in,zoom_out,zoom_fit}) { move(id,ax,244,84,32); ax += 92; }
-        move(add_bus_button,220,244,96,30);
         move(tracks,20,228,168,std::max(70,height-388));
         move(rename_edit,20,height-148,168,32); move(rename,20,height-108,168,32);
         canvas = {s(400),s(290),area.right-s(20),area.bottom-s(68)};
+        sync_workspace_controls();
         InvalidateRect(window,nullptr,FALSE);
     }
+    void sync_workspace_controls() {
+        // Window mutations belong to state/layout updates, never to paint. Even
+        // an unchanged MoveWindow generates native layout/erase messages.
+        const auto workspace = app.workspace();
+        const auto visible = [&](int id, bool show) {
+            const auto control = child(id);
+            const bool shown = (GetWindowLongPtrW(control,GWL_STYLE) & WS_VISIBLE) != 0;
+            if (shown != show) ShowWindow(control,show ? SW_SHOWNA : SW_HIDE);
+        };
+        for (auto id : {add_track,delete_track,track_up,track_down,zoom_in,zoom_out,zoom_fit,split_clip_button,delete_clip_button,snap_button})
+            visible(id,workspace == Workspace::arrange || workspace == Workspace::mix);
+        visible(add_bus_button,workspace == Workspace::mix);
+        const bool enabled = !app.recording() && app.engine()->state().playback != PlaybackState::playing;
+        if ((IsWindowEnabled(child(add_bus_button)) != FALSE) != enabled) EnableWindow(child(add_bus_button),enabled);
+        if (canvas.bottom <= canvas.top) return;
+        const auto area = mix_area();
+        const RECT wanted{area.left+s(8),area.top+s(5),area.left+s(104),area.top+s(35)};
+        RECT current{}; GetWindowRect(child(add_bus_button),&current);
+        MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&current),2);
+        if (!EqualRect(&current,&wanted)) MoveWindow(child(add_bus_button),wanted.left,wanted.top,wanted.right-wanted.left,wanted.bottom-wanted.top,TRUE);
+    }
     void refresh_models() {
+        sync_workspace_controls();
         const auto project = app.services().projects->state().project;
         app.prepare_waveforms();
         SendMessageW(child(tracks),LB_RESETCONTENT,0,0);
@@ -248,7 +285,6 @@ struct UI {
         for (auto id : {play,previous,next,loop,add_track,delete_track,track_up,track_down,rename,rename_edit,audio_settings}) EnableWindow(child(id),!app.recording());
         const bool audio_selected = std::any_of(project->tracks.begin(),project->tracks.end(),[&](const auto& t) { return selected_track && t.id == *selected_track && t.kind == TrackKind::audio; });
         EnableWindow(child(arm_button),audio_selected && !app.recording());
-        EnableWindow(child(add_bus_button),!app.recording() && app.engine()->state().playback != PlaybackState::playing);
         EnableWindow(child(record_button),app.recording() || (app.armed_track().has_value() && app.has_input() && app.audio_running()));
         EnableWindow(child(monitor_button),app.has_input() && app.audio_running());
         SetWindowTextW(child(record_button),app.recording() ? L"End rec (R)" : L"Record (R)");
@@ -397,7 +433,7 @@ struct UI {
             app.open_project(std::filesystem::path(std::u8string(name.begin(),name.end())));
             recent_project(); fit_view = true; view_start = 0; first_track = 0; refresh_models(); restore_audio(); return;
         }
-        if (id >= nav_arrange && id <= nav_mix) { app.workspace(id == nav_mix && app.workspace() == Workspace::mix ? Workspace::arrange : static_cast<Workspace>(id-nav_arrange)); for (int i = nav_arrange; i <= nav_mix; ++i) InvalidateRect(child(i),nullptr,TRUE); InvalidateRect(window,nullptr,FALSE); return; }
+        if (id >= nav_arrange && id <= nav_mix) { app.workspace(id == nav_mix && app.workspace() == Workspace::mix ? Workspace::arrange : static_cast<Workspace>(id-nav_arrange)); sync_workspace_controls(); for (int i = nav_arrange; i <= nav_mix; ++i) InvalidateRect(child(i),nullptr,FALSE); InvalidateRect(window,nullptr,FALSE); return; }
         if (id == tracks && notification == LBN_SELCHANGE) {
             const auto selection = SendMessageW(child(tracks),LB_GETCURSEL,0,0);
             const auto project = app.services().projects->state().project;
@@ -509,6 +545,7 @@ struct UI {
         MoveToEx(dc,x1,y1,nullptr); LineTo(dc,x2,y2); SelectObject(dc,old); DeleteObject(pen);
     }
     void draw_button(const DRAWITEMSTRUCT& item) {
+        if (smoke) ++button_paints;
         bool selected = item.CtlID >= nav_arrange && item.CtlID <= nav_mix && item.CtlID-nav_arrange == static_cast<UINT>(app.workspace());
         const bool rec = item.CtlID == record_button && app.recording();
         fill(item.hDC,item.rcItem,rec ? RGB(148,46,46) : selected ? RGB(88,88,88) : (item.itemState & ODS_SELECTED) ? border : panel);
@@ -643,7 +680,6 @@ struct UI {
     }
     void paint_mixer(HDC dc) {
         const auto area = mix_area(); fill(dc,area,panel); line(dc,area.left,area.top,area.right,area.top,accent);
-        MoveWindow(child(add_bus_button),area.left+s(8),area.top+s(5),s(96),s(30),TRUE);
         text(dc,area.left+s(112),area.top+s(4),area.right-area.left-s(120),s(30),L"Mixer  |  Mix: show / hide  |  Sends: pre / post, level, return  |  wheel: channels",normal,muted);
         const auto all = mix_tracks();
         first_mix_track = all.empty() ? 0 : std::min(first_mix_track,all.size()-1);
@@ -759,7 +795,8 @@ struct UI {
         const auto project = app.services().projects->state().project;
         for (std::size_t i=first_track; i<project->tracks.size(); ++i) {
             const auto r = mini_rect(i); if (!PtInRect(&r,point)) continue;
-            const auto track = project->tracks[i]; selected_track = track.id; refresh_models();
+            const auto track = project->tracks[i];
+            if (selected_track != track.id) { selected_track = track.id; refresh_models(); }
             if (track.kind == TrackKind::midi) return true;
             const RECT g{r.left+s(8),r.top+s(26),r.right-s(44),r.top+s(44)}, p{r.right-s(40),r.top+s(24),r.right-s(6),r.top+s(57)};
             if (PtInRect(&g,point) || PtInRect(&p,point)) {
@@ -807,7 +844,7 @@ struct UI {
             if (!PtInRect(&r,point)) continue;
             const auto t = master ? nullptr : &all[slot];
             auto mix = t ? t->mix : Track::Mix{};
-            if (t) { selected_track = t->id; refresh_models(); }
+            if (t && selected_track != t->id) { selected_track = t->id; refresh_models(); }
             const auto route = output_control(r,t && t->kind == TrackKind::bus), remove = remove_bus_control(r);
             if (t && PtInRect(&route,point)) { choose_bus(*t,point); return; }
             if (t && t->kind == TrackKind::bus && PtInRect(&remove,point)) {
@@ -862,9 +899,6 @@ struct UI {
         text(dc,s(220),s(196),s(470),s(35),position.str(),heading,amber);
         text(dc,s(20),s(194),s(168),s(28),L"Project tracks",normal,muted);
         auto workspace = app.workspace();
-        for (auto id : {add_track,delete_track,track_up,track_down,zoom_in,zoom_out,zoom_fit,split_clip_button,delete_clip_button,snap_button}) ShowWindow(child(id),(workspace == Workspace::arrange || workspace == Workspace::mix) ? SW_SHOW : SW_HIDE);
-        ShowWindow(child(add_bus_button),workspace == Workspace::mix ? SW_SHOW : SW_HIDE);
-        EnableWindow(child(add_bus_button),!app.recording() && app.engine()->state().playback != PlaybackState::playing);
         if (workspace == Workspace::arrange || workspace == Workspace::mix) {
             timeline(dc,canvas,false); paint_minis(dc);
             if (workspace == Workspace::mix) paint_mixer(dc);
@@ -1054,6 +1088,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
         case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX:
             SetTextColor(reinterpret_cast<HDC>(wparam),ink); SetBkColor(reinterpret_cast<HDC>(wparam),panel); return reinterpret_cast<LRESULT>(ui->panel_brush);
         case WM_ERASEBKGND: return 1;
+        case WM_PRINTCLIENT: ui->paint(reinterpret_cast<HDC>(wparam)); return 0;
         case WM_PAINT: {
             PAINTSTRUCT ps{}; auto dc = BeginPaint(hwnd,&ps); RECT area{}; GetClientRect(hwnd,&area);
             auto buffer = CreateCompatibleDC(dc); auto bitmap = CreateCompatibleBitmap(dc,std::max<LONG>(1,area.right),std::max<LONG>(1,area.bottom));
@@ -1067,7 +1102,7 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                 for (std::size_t i=0; i<audio::max_mixer_tracks; ++i) decay(ui->mix_meters.tracks[i],peaks.tracks[i]);
                 decay(ui->mix_meters.master,peaks.master);
                 if (ui->mix_drag) (void)ui->app.preview_mix(ui->mix_drag->track,ui->mix_drag->mix,ui->mix_drag->master);
-                try { const bool recording = ui->app.recording(); ui->app.poll(); if (recording != ui->app.recording()) ui->refresh_models(); } catch (const std::runtime_error&) { return 0; } // bounded mailbox can be busy
+                try { const bool recording = ui->app.recording(); ui->app.poll(); if (recording != ui->app.recording()) ui->refresh_models(); ui->sync_workspace_controls(); } catch (const std::runtime_error&) { return 0; } // bounded mailbox can be busy
                 InvalidateRect(hwnd,nullptr,FALSE); if (ui->settings) InvalidateRect(ui->settings,nullptr,FALSE); return 0;
             }
             if (wparam == 2 && ui->smoke) {
@@ -1103,6 +1138,30 @@ LRESULT CALLBACK main_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
                     ui->mouse_down(gain_point); ui->cancel_mix_drag();
                     if (ui->app.services().projects->state().project->tracks.front().mix != mix_before.project->tracks.front().mix)
                         throw std::runtime_error("Mixer cancellation changed saved parameters");
+                    // Flush the selection/focus change once, then verify that repeated
+                    // fader previews and timer paints do not redraw native buttons.
+                    ui->mouse_down(gain_point);
+                    RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+                    const auto preview_button_paints = ui->button_paints;
+                    const auto preview_button_layout = ui->button_layout_events;
+                    for (int n=0; n<4; ++n) {
+                        ui->mouse_move({gain_point.x,gain_point.y-ui->s(n+1)}); UpdateWindow(hwnd);
+                        const auto dc = GetDC(hwnd); SendMessageW(hwnd,WM_PRINTCLIENT,reinterpret_cast<WPARAM>(dc),PRF_CLIENT); ReleaseDC(hwnd,dc);
+                        for (auto control = GetWindow(hwnd,GW_CHILD); control; control = GetWindow(control,GW_HWNDNEXT)) UpdateWindow(control);
+                    }
+                    if (ui->button_paints != preview_button_paints) throw std::runtime_error("Fader preview repainted unrelated native buttons");
+                    if (ui->button_layout_events != preview_button_layout) throw std::runtime_error("Fader repaint triggered native button layout");
+                    ui->cancel_mix_drag();
+                    RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+                    const auto idle_button_paints = ui->button_paints;
+                    const auto idle_button_layout = ui->button_layout_events;
+                    for (int n=0; n<4; ++n) {
+                        SendMessageW(hwnd,WM_TIMER,1,0); UpdateWindow(hwnd);
+                        const auto dc = GetDC(hwnd); SendMessageW(hwnd,WM_PRINTCLIENT,reinterpret_cast<WPARAM>(dc),PRF_CLIENT); ReleaseDC(hwnd,dc);
+                        for (auto control = GetWindow(hwnd,GW_CHILD); control; control = GetWindow(control,GW_HWNDNEXT)) UpdateWindow(control);
+                    }
+                    if (ui->button_paints != idle_button_paints) throw std::runtime_error("Timer/menu idle repainted unrelated native buttons");
+                    if (ui->button_layout_events != idle_button_layout) throw std::runtime_error("Timer/menu repaint triggered native button layout");
                     ui->mouse_down(gain_point);
                     const auto initial_gain = ui->mix_drag->mix.gain;
                     ui->mouse_move({gain_point.x,gain_point.y-ui->s(10)});

@@ -1,7 +1,9 @@
 # 0.1h / MRS Stage 2c — local Windows acceptance
 
 Local configure/build, CTest 65/65 and expanded GUI smoke passed.
-User acceptance is pending. Run the local MoonRiverStudio.exe; no GitHub build.
+User verified 0.1h functionality and reported native button flicker. The local
+0.1h fix1 addresses this; fix1 verification is pending. See MRS_0_1H_FIX1.md.
+Run the local MoonRiverStudio.exe; no GitHub build.
 
 1. Open/save several projects. Files → Open recent project lists them newest
    first, without duplicates; restart and open one from this menu.
