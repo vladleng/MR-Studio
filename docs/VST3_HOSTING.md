@@ -99,3 +99,37 @@ from 0.1l remain applicable. Full runtime isolation/PDC belongs to 3e.
 Prepared-graph generations close obsolete host editor windows after structural Undo,
 Redo, reconnect/disconnect or chain rebuild. Live parameter edits keep the editor open.
 
+## 0.1m upd1 fix1 — Nuro buses, authoritative state and browser controls
+
+Nuro Audio effects declare auxiliary buses. The host now sends an arrangement for
+EVERY declared input/output bus, preserves auxiliary layouts and keeps auxiliaries
+inactive/zero-filled. The main bus must still accept the requested mono/stereo layout;
+this does not expose sidechain routing or instrument hosting.
+
+After setState/setComponentState, activation sets only explicit overrides rather than
+all controller parameters. Re-setting program selectors can reload a default preset
+even when their normalized value has not changed. Save captures opaque component and
+controller state without adding a redundant blanket normalized-parameter snapshot.
+Pending host/editor edits are committed with zero-sample parameter processing while
+callbacks are stopped; capture does not advance the audible timeline. kParamValuesChanged
+refreshes the UI cache on the control thread. Matching restored overrides are not resent.
+
+For old projects, a complete list of all automatable parameters (more than one) alongside
+opaque state is treated as a legacy captured snapshot and omitted from replay. Sparse
+explicit overrides are retained. This avoids stale cached controls overriding the plugin's
+saved preset; existing files are not rewritten until the user saves them. A preset whose
+opaque state was already overwritten in an earlier save must be selected again.
+
+Vendor folders start collapsed. Arrange / Edit / Mix move to the bottom right. BROWS
+shows/hides the sidebar and expands/contracts the arrangement; existing native insert
+windows and plugin drop/editor workflows remain intact.
+
+Validation: offline-dependency local configure/build, 87/87 CTest, GUI exit 0 including
+collapsed vendor default, BROWS geometry and prior DPI/flicker/drop regressions. A strict
+aux-bus fixture rejects the previous single-input negotiation. A program-selector fixture
+covers opaque preset restore, kParamValuesChanged and immediate save before a callback;
+a legacy complete-state fixture covers stale parameter snapshots. All 20 installed Nuro
+effects passed load/process/state restore. Installed TH-U passed load/process/state restore
+and a synthesized legacy snapshot check (2546 declared parameters, 178 automatable).
+The exact user-selected TH-U preset and its sound after reopen still require user audition.
+No new plugin/tool installation, code publication or GitHub Actions.
