@@ -1,5 +1,25 @@
 # Moon River Studio
 
+## 0.1l / Stage 3b — локальная сборка готова, 2026-10-04
+
+VST3 effects: scan/cache в отдельном процессе с timeout, загрузка/удаление/bypass,
+окно плагина, generic параметры, opaque component/controller state и reported latency.
+Channel EQ объединяет три bell-полосы и HP/LP: суммарная кривая, точки frequency/gain,
+Q колесом, band enable/bypass и параметры во время playback без остановки устройства.
+Фейдеры track/bus/Master и pan двигаются относительно исходного значения от ручки;
+нажатие на шкалу не меняет значение. Ctrl — точная регулировка.
+Core v9 читает v1–v8; сохраните копию проекта перед сохранением новой версией.
+Код 95c719fcd0893652f92a93beb9b20cb538cd84b9, ветка mrs/0.1l-vst3-eq-local.
+Локальные configure/build, 85/85 CTest, GUI smoke и previews пройдены. Установленный
+Blue Cat Gain 3 Stereo проверен на обработку, gain automation, state roundtrip и editor.
+Пакет MR-Studio-0.1l-ASIO-Windows-local в Builds. Последняя принятая — 0.1k / 3a;
+0.1l / 3b ожидает пользовательской приёмки. #23 открыт; #16 остаётся отложенным.
+Следующие подэтапы: 3c Cab IR, 3d Amp/Preamp, 3e Processing Reliability.
+Код/пакеты только локально, GitHub только issues/docs; без code push/PR/merge/Actions.
+См. [VST3](VST3_HOSTING.md), [Channel EQ](NATIVE_INSERTS.md),
+[приёмка 3b](MRS_STAGE_3B_CHECKLIST.md).
+
+
 ## 0.1k / Stage 3a accepted — 2026-10-04
 
 Пользователь подтвердил: «Проверил, вроде все работает, закрывай под-этап.»
