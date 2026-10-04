@@ -1,5 +1,21 @@
 # Правила версионирования Moon River Studio
 
+Текущая локальная сборка: **0.1i**, hardware outputs / multi-output / device profiles.
+Пакет MR-Studio-0.1i-ASIO-Windows-local. Local configure/build, 69/69 tests и GUI smoke
+пройдены; пользовательская/физическая приёмка ожидается. Последняя принятая — 0.1h fix3.
+Ниже — исторические записи предыдущих сборок. Код публикуется только по просьбе пользователя.
+
+Текущая локальная сборка: **0.1h fix3**, устранение мигания Audio settings.
+0.1h fix3 принята пользователем 2026-10-04: «теперь ничего не мигает. Все работает».
+Пакет MR-Studio-0.1h-fix3-ASIO-Windows-local; код 0911855dce7d179e03df33f05a120684e4637d37.
+
+Текущая локальная сборка: **0.1h fix2**, устранение мигания при отпускании фейдера.
+Пакет MR-Studio-0.1h-fix2-ASIO-Windows-local; пользовательская проверка ожидается.
+
+Текущая локальная сборка: **0.1h fix1** — устранение мигания native кнопок
+при mixer repaint. Функции 0.1h проверены пользователем; проверка fix1 ожидается.
+Пакет: MR-Studio-0.1h-fix1-ASIO-Windows-local. См. MRS_0_1H_FIX1.md.
+
 Зафиксировано по инструкции пользователя 2026-10-03.
 
 - Пользовательские версии подэтапов: 0.1b, 0.1c и далее.
@@ -25,9 +41,12 @@
 | Принятое исправление моно L/R, включено в UI сборку | 0.1d fix1 |
 | Принятый MRS Stage 1d: record/monitor + save/load | 0.1e |
 
-Принятая версия: `0.1e` / Stage 1d. Весь MRS Stage 1 завершён.
-В разработке: `0.1f` / MRS Stage 2a / #22 — track gain/pan, mute/solo, meters и master.
-Последняя принятая сборка остаётся `0.1e`; 0.1f ожидает проверки и приёмки.
+Принятая локальная версия: `0.1g` / Stage 2b, ASIO сборка принята 2026-10-04.
+PR #48 и включённый #47 слиты в main. Весь MRS Stage 1 завершён.
+MRS Stage 2b / #22 — buses/subgroups и track/bus outputs принят пользователем.
+Полный Stage 2 ещё не завершён. Следующая часть — sends/returns; ещё не начата.
+Код и сборки остаются локальными; GitHub — только issues и документация.
+Публикация кода/PR/слияние — только по отдельной просьбе пользователя; PR #49 не слит.
 
 Эта схема имеет приоритет над прежними номерными примерами roadmap.
 Live Mode входит в ту же сборку и не получает отдельную продуктовую версию.
@@ -58,3 +77,17 @@ the current position and retries on its next block; worker retry pages remain
 protected. This closes the queued-command handoff race without blocking RT.
 The concurrent seek exact-sample/zero-underrun/zero-RT-allocation regression is
 repeated eight times in every Debug/Release CI job for this fix.
+
+
+## Локальная 0.1h / MRS Stage 2c готова к проверке — 2026-10-04
+Посылы/возвраты (до 8 на канал, pre/post-fader, уровни, nested buses, cycle rejection),
+вертикальные фейдеры/стереометры, Mix поверх аранжировки, мини-панели дорожек
+(горизонтальные gain/meters, колесо pan, mono input selection), Files → Open recent project.
+Core snapshot v5 читает v1–v4; desktop config v3 читает v1/v2. Undo и сохранение общие.
+Локальные Windows x64 ASIO Release configure/build, 65/65 CTest и расширенный GUI smoke
+пройдены; зависимости использованы из кеша, GitHub Actions не использовались.
+Контракты: SENDS.md; пользовательская проверка: MRS_STAGE_2C_CHECKLIST.md.
+Пользовательская/физическая ASIO приёмка 0.1h ожидается; последняя принятая версия — 0.1g.
+Ветка mrs/0.1h-sends-ui-local остаётся локальной. На GitHub — только issues/docs;
+код push/PR/merge исключительно по отдельной просьбе. #22 и отложенный #16 остаются открыты.
+Далее в #22: hardware multi-output и device profiles. Multi-input recording — будущая работа.
