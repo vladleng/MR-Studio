@@ -30,3 +30,12 @@ Source `8c805259541c39f2eee59ebba2c38e87cdeae706`; local branch `mrs/0.1m-cab-ir
 
 No code push/PR/merge/Actions. GitHub docs/issues only, code/packages local.
 Full #23 open; 3d Amp/Preamp and 3e reliability follow acceptance. #16 deferred.
+
+## 0.1m upd1 fix1 follow-up
+- [x] Full audio-bus arrangement negotiation; 20 installed Nuro Audio effects load/process/restore.
+- [x] Authoritative opaque state, no blanket activation/save replay; immediate-save and legacy-state regression coverage.
+- [x] Vendor folders collapsed on launch; footer Arrange / Edit / Mix / BROWS and arrangement resizing.
+- [x] Local offline configure/build, 87/87 CTest and GUI/DPI checks.
+- [ ] User checks TH-U: choose preset, adjust sound, Pause/Stop, save, reopen/connect and compare sound and selected preset.
+- [ ] User checks Nuro inserts and footer/browser behavior in intended project.
+3c remains open pending this follow-up acceptance. No code push/PR/merge/Actions.

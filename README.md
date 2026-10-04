@@ -1,5 +1,23 @@
 # Moon River Studio
 
+## 0.1m upd1 fix1 — local compatibility/UI update, 2026-10-04
+
+Requested after the user found Nuro loading and TH-U preset-reopen issues in 0.1m.
+Vendor folders start collapsed. Arrange / Edit / Mix are at the bottom right with
+BROWS; hiding the sidebar expands the arrangement. VST3 layout negotiation includes
+all declared audio buses (inactive auxiliary/sidechain buses remain unassigned).
+Opaque plugin state is authoritative: no blanket parameter replay on activation or
+save; complete legacy parameter snapshots are ignored on restore in favor of opaque
+state, while sparse explicit host overrides remain supported. Pending host/editor
+controls are flushed with zero samples while callbacks are stopped before state capture.
+Local source `d5015f2043629178291f3d4824371d293ddf6bf8`, branch `mrs/0.1m-upd1-fix1-local`.
+No project schema change (v10). Local package: MR-Studio-0.1m-upd1-fix1-ASIO-Windows-local.
+87/87 CTest and hidden GUI checks passed. Installed Nuro Audio effects and TH-U passed
+load, finite processing and opaque-state restore checks. TH-U selected-preset auditory
+comparison in the user's project remains pending. Stage 3c stays open until acceptance.
+Code/builds local; GitHub issues/docs only, no code push/PR/merge/Actions/install.
+See [VST3 workflow](VST3_HOSTING.md) and [3c checklist](MRS_STAGE_3C_CHECKLIST.md).
+
 ## 0.1m / Stage 3c — local build ready, 2026-10-04
 
 Cab IR: mono/stereo WAV import, embedded kernel, live Mix/Gain/low-high cuts/polarity,
