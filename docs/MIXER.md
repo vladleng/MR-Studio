@@ -59,3 +59,12 @@ Mix overlays the arrangement, with vertical gain/master faders and stereo meters
 Track mini panels expose horizontal gain/meters, a pan knob and a mono input menu.
 Sends/returns, pre/post levels, snapshot v5 and recent projects are implemented;
 see SENDS.md and MRS_STAGE_2C_CHECKLIST.md. User acceptance is pending.
+
+
+## UI choice — 2026-10-04
+
+User preferred the previous interface over the approximate reference skin.
+Working branch and local development build returned to mrs/0.1m-upd1-fix1-local.
+Use MR-Studio-0.1m-upd1-fix1-ASIO-Windows-local. The upd2 skin remains an
+experimental branch/package, not the current UI direction. Full custom UI
+architecture/design is a proposal only; no renderer migration or installation started.
