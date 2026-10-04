@@ -203,4 +203,3 @@ User authorized 0.1f. First #22 slice: shared track mixer, gain/pan/mute/solo,
 stereo track/master meters, master gain, live parameter updates, persistence,
 shared Undo/Redo. See MIXER.md and MRS_STAGE_2A_CHECKLIST.md.
 0.1e remains the accepted baseline; #22 is not completed by this slice.
-

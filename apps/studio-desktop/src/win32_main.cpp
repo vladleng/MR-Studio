@@ -653,7 +653,7 @@ struct UI {
     void cancel_mix_drag() {
         if (!mix_drag) return;
         mix_drag.reset();
-        (void)app.preview_mix({},Track::Mix{},app.services().projects->state().project->master_gain);
+        app.cancel_mix_preview();
         ReleaseCapture(); InvalidateRect(window,nullptr,FALSE);
     }
     void paint(HDC dc) {

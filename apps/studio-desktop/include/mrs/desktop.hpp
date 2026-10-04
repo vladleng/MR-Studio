@@ -70,6 +70,7 @@ public:
     void set_track_mix(const Id&, Track::Mix);
     void set_master_gain(float);
     bool preview_mix(std::optional<Id>, Track::Mix, float master_gain);
+    void cancel_mix_preview();
     void connect(std::unique_ptr<audio::IAudioDevice>, audio::DeviceConfig);
     void disconnect();
     audio::DeviceStatus device_status();

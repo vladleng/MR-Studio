@@ -270,10 +270,13 @@ bool Application::history(bool redo) {
 bool Application::undo() { return history(false); }
 bool Application::redo() { return history(true); }
 void Application::set_track_mix(const Id& id, Track::Mix mix) {
-    services_.projects->execute(SetTrackMix{id,mix}); publish_mix();
+    services_.projects->execute(SetTrackMix{id,mix}); cancel_mix_preview();
 }
 void Application::set_master_gain(float gain) {
-    services_.projects->execute(SetMasterGain{gain}); publish_mix();
+    services_.projects->execute(SetMasterGain{gain}); cancel_mix_preview();
+}
+void Application::cancel_mix_preview() {
+    applied_mix_revision_ = std::numeric_limits<std::uint64_t>::max(); publish_mix();
 }
 void Application::publish_mix() {
     const auto state = services_.projects->state();

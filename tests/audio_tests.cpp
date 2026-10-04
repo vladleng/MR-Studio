@@ -480,7 +480,8 @@ void mixer() {
     update.count = max_mixer_tracks+1; CHECK(!engine.enqueue_mix(update)); update.count = 2;
     update.master_gain = std::numeric_limits<float>::quiet_NaN(); CHECK(!engine.enqueue_mix(update));
     update.master_gain = 1; update.tracks[0].pan = 2; CHECK(!engine.enqueue_mix(update)); update.tracks[0].pan = 0;
-    for (int n=0; n<7; ++n) CHECK(engine.enqueue_mix(update)); CHECK(!engine.enqueue_mix(update));
+    for (int n=0; n<7; ++n) { CHECK(engine.enqueue_mix(update)); }
+    CHECK(!engine.enqueue_mix(update));
     allocation_check::count = 0; allocation_check::enabled = true;
     engine.process(nullptr,out.data(),512); allocation_check::enabled = false; CHECK(allocation_check::count == 0);
     // Monitoring routes through a channel even when stopped; raw input is independent.
