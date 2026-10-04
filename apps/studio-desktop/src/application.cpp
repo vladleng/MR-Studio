@@ -1,4 +1,7 @@
 #include <mrs/desktop.hpp>
+#ifdef MRS_HAS_VST3
+#include <mrs/vst3.hpp>
+#endif
 #include <mrs/offline_device.hpp>
 #include <algorithm>
 #include <charconv>
@@ -232,6 +235,7 @@ void Application::save_project(const std::filesystem::path& requested) {
     const auto path = std::filesystem::absolute(requested).lexically_normal();
     require(!path.filename().empty(),"choose a project filename");
     auto document = snapshot();
+    capture_insert_state(document.project);
     // Validate identity BEFORE adding content to an existing project directory.
     if (std::filesystem::exists(path)) {
         const auto previous = persistence::load_project(path);
@@ -374,7 +378,64 @@ void Application::validate_hardware(const Project& p, const audio::DeviceConfig&
     route(p.master_outputs,"Master"); for (const auto& track : p.tracks) route(track.hardware_outputs,track.name);
 }
 void Application::set_hardware_output(std::optional<Id> track, std::vector<int> outputs) { edit(SetHardwareOutput{std::move(track),std::move(outputs)}); }
-void Application::set_inserts(std::optional<Id> track, std::vector<NativeInsert> inserts) { edit(SetInserts{std::move(track),std::move(inserts)}); }
+namespace {
+bool parameter_only(const std::vector<NativeInsert>& before,const std::vector<NativeInsert>& after){
+    if(before.size()!=after.size())return false;
+    for(std::size_t i=0;i<before.size();++i){auto a=before[i],b=after[i];a.gain=b.gain;a.frequency=b.frequency;a.q=b.q;a.bands=b.bands;
+        // Native EQ/gain/filter parameters and bypass may change without rebuilding.
+        if(a.kind!=InsertKind::vst3)a.bypass=b.bypass;else a.parameters=b.parameters;
+        if(a!=b)return false;
+    }return true;
+}
+const std::vector<NativeInsert>& insert_chain(const Project& p,const std::optional<Id>& track){if(!track)return p.master_inserts;for(const auto& t:p.tracks)if(t.id==track)return t.inserts;throw std::invalid_argument("unknown insert track");}
+}
+void Application::publish_inserts(){for(auto& [key,r]:insert_runtime_){(void)key;if(r.pending && r.graph && r.graph->enqueue_parameters(*r.pending))r.pending.reset();}}
+void Application::preview_inserts(std::optional<Id> track,const std::vector<NativeInsert>& inserts){
+    const auto p=services_.projects->state().project;require(parameter_only(insert_chain(*p,track),inserts),"Pause/Stop to change insert structure");
+    const auto found=insert_runtime_.find(track?track->value:std::string{});if(found!=insert_runtime_.end()){found->second.pending=processing::insert_graph(inserts);publish_inserts();}
+}
+void Application::cancel_insert_preview(){const auto p=services_.projects->state().project;for(auto& [key,r]:insert_runtime_){r.pending=processing::insert_graph(insert_chain(*p,key.empty()?std::nullopt:std::optional<Id>{Id{key}}));}publish_inserts();}
+void Application::set_inserts(std::optional<Id> track, std::vector<NativeInsert> inserts) {
+    const auto p=services_.projects->state().project;
+    if(parameter_only(insert_chain(*p,track),inserts)){auto candidate=*p;SetInserts{track,inserts}.apply(candidate);candidate.validate();preview_inserts(track,inserts);services_.projects->execute(SetInserts{track,std::move(inserts)});}
+    else {
+        require_not_playing();
+#ifdef MRS_HAS_VST3
+        const auto& current=insert_chain(*p,track);
+        for(const auto& fx:inserts)if(fx.kind==InsertKind::vst3 && std::none_of(current.begin(),current.end(),[&](const auto& old){return old.id==fx.id&&old.plugin_path==fx.plugin_path&&old.class_id==fx.class_id;})){
+            auto state=processing::insert_graph(std::array{fx});const auto channels=device_config_?static_cast<std::uint32_t>(device_config_->outputs.size()):2;
+            processing::PreparedGraph checked{{std::make_shared<const processing::GraphState>(state),0,false,false},{p->sample_rate,channels,64},processing::hosted_factory};
+        }
+#else
+        require(std::none_of(inserts.begin(),inserts.end(),[](const auto& fx){return fx.kind==InsertKind::vst3;}),"This build has no VST3 support");
+#endif
+        edit(SetInserts{std::move(track),std::move(inserts)});
+    }
+}
+bool Application::open_plugin_editor(std::optional<Id> track,const Id& slot,void* parent,int& w,int& h){auto it=insert_runtime_.find(track?track->value:std::string{});return it!=insert_runtime_.end() && it->second.graph && it->second.graph->open_editor(slot,parent,w,h);}
+void Application::close_plugin_editors(){for(auto& [key,r]:insert_runtime_){(void)key;if(r.graph)r.graph->close_editors();}}
+std::uint32_t Application::plugin_latency(std::optional<Id> track,const Id& slot) const{auto it=insert_runtime_.find(track?track->value:std::string{});return it==insert_runtime_.end()||!it->second.graph?0:it->second.graph->node_latency(slot);}
+bool Application::plugin_failed() const{for(const auto& [key,r]:insert_runtime_){(void)key;if(r.graph && r.graph->failed())return true;}return false;}
+std::vector<processing::ParameterInfo> Application::plugin_parameters(std::optional<Id> track,const Id& slot) const{
+    auto it=insert_runtime_.find(track?track->value:std::string{});if(it==insert_runtime_.end()||!it->second.graph)return {};
+    // Metadata belongs to the prepared instance; no processing-thread calls.
+    return it->second.graph->parameter_infos(slot);
+}
+void Application::set_plugin_parameter(std::optional<Id> track,const Id& slot,std::uint32_t id,float value){auto chain=insert_chain(*services_.projects->state().project,track);auto it=std::find_if(chain.begin(),chain.end(),[&](const auto& fx){return fx.id==slot;});require(it!=chain.end() && it->kind==InsertKind::vst3,"unknown VST3 insert");auto p=std::find_if(it->parameters.begin(),it->parameters.end(),[&](const auto& p){return p.id==id;});if(p==it->parameters.end())it->parameters.push_back({id,value});else p->value=value;set_inserts(track,std::move(chain));}
+void Application::capture_insert_state(Project& project){
+    bool has_vst=false;for(const auto& [key,r]:insert_runtime_){(void)key;if(r.graph)for(const auto& n:r.graph->snapshot().graph->nodes)has_vst=has_vst||n.format==processing::ProcessorFormat::vst3;}if(!has_vst || !device_)return;
+    require_not_playing();device_->stop();
+    try{const auto original=services_.projects->state().project;
+        for(const auto& [key,r]:insert_runtime_)if(r.graph){auto saved=r.graph->capture();auto* chain=&project.master_inserts;if(!key.empty()){chain=nullptr;for(auto& t:project.tracks)if(t.id.value==key)chain=&t.inserts;}if(!chain)continue;
+            for(auto& fx:*chain)if(fx.kind==InsertKind::vst3)for(const auto& node:saved.nodes)if(node.id==fx.id && node.processor_id==fx.plugin_path && node.plugin.class_id==fx.class_id){
+                const auto& old_chain=insert_chain(*original,key.empty()?std::nullopt:std::optional<Id>{Id{key}});const auto old=std::find_if(old_chain.begin(),old_chain.end(),[&](const auto& f){return f.id==fx.id;});if(old==old_chain.end() || fx.component_state!=old->component_state || fx.controller_state!=old->controller_state)continue;
+                const auto overrides=fx.parameters;fx.component_state=node.plugin.component;fx.controller_state=node.plugin.controller;fx.parameters.clear();const auto infos=r.graph->parameter_infos(node.id);
+                for(const auto& p:node.parameters)if(std::any_of(infos.begin(),infos.end(),[&](const auto& info){return info.id==p.id&&info.automatable;}))fx.parameters.push_back({p.id,p.value});
+                for(const auto& p:overrides)if(std::find(old->parameters.begin(),old->parameters.end(),p)==old->parameters.end()){auto at=std::find_if(fx.parameters.begin(),fx.parameters.end(),[&](const auto& v){return v.id==p.id;});if(at==fx.parameters.end())fx.parameters.push_back(p);else *at=p;}
+            }
+        }device_->start();
+    }catch(...){device_->start();throw;}
+}
 void Application::set_track_input(const Id& id, int input, bool stereo) {
     require_not_playing();
     const auto names = input_names();
@@ -414,6 +475,7 @@ void Application::edit(const ICommand& command) {
     require_not_playing();
     auto candidate = *services_.projects->state().project;
     command.apply(candidate); candidate.validate();
+    capture_insert_state(candidate);candidate.validate();
     if (device_config_ && audio_name_ != "Offline clock (no sound)") validate_hardware(candidate,*device_config_);
     if (device_ && device_config_ && audio_name_ != "Offline clock (no sound)") {
         auto c = *device_config_; c.inputs = selected_inputs(candidate);
@@ -431,7 +493,8 @@ void Application::edit(const ICommand& command) {
         }
     }
     require(streamed <= 32 && bytes <= 256*1024*1024,"disk voice budget exceeded (32 voices / 256 MiB)");
-    services_.projects->execute(command); sync_arm(); rebuild_audio();
+    class PreparedEdit final:public ICommand{Project project_;std::string name_;public:PreparedEdit(Project p,std::string_view name):project_(std::move(p)),name_(name){}std::string_view name() const override{return name_;}void apply(Project& p) const override{p=project_;}};
+    services_.projects->execute(PreparedEdit{std::move(candidate),command.name()}); sync_arm(); rebuild_audio();
 }
 Id Application::add_audio_track(std::string name) {
     require(!name.empty() && name.size() <= 4096,"enter a track name");
@@ -467,7 +530,12 @@ bool Application::history(bool redo) {
     before.master_gain = after.master_gain = 1;
     for (auto& t : before.tracks) { t.mix = {}; t.input_monitor=false; for (auto& send : t.sends) send.gain = 1; }
     for (auto& t : after.tracks) { t.mix = {}; t.input_monitor=false; for (auto& send : t.sends) send.gain = 1; }
-    bool mix_only = before == after;
+    bool inserts_only=true;
+    if(!parameter_only(before.master_inserts,after.master_inserts))inserts_only=false;
+    before.master_inserts=after.master_inserts;
+    if(before.tracks.size()!=after.tracks.size())inserts_only=false;
+    else for(std::size_t i=0;i<before.tracks.size();++i){if(!parameter_only(before.tracks[i].inserts,after.tracks[i].inserts))inserts_only=false;before.tracks[i].inserts=after.tracks[i].inserts;}
+    bool mix_only = inserts_only && before == after;
     if (mix_only && device_config_ && selected_inputs(*target) != device_config_->inputs) mix_only=false;
     if (!mix_only) {
         require_not_playing();
@@ -478,7 +546,7 @@ bool Application::history(bool redo) {
         }
     }
     const bool changed = redo ? services_.projects->redo() : services_.projects->undo();
-    if (changed) { sync_arm(); if (mix_only) publish_mix(); else rebuild_audio(); }
+    if (changed) { sync_arm(); if (mix_only) {publish_mix();cancel_insert_preview();} else rebuild_audio(); }
     return changed;
 }
 bool Application::undo() { return history(false); }
@@ -604,13 +672,19 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     result.processors = prepared_;
     const auto project = services_.projects->state().project;
     prepare_mixer(result);
+    const Timeline timeline(project->time,project->sample_rate);for(const auto& tempo:project->time.tempos)result.tempos.push_back({timeline.to_samples(tempo.tick),tempo.bpm,static_cast<double>(tempo.tick)/ppq});
+    insert_runtime_.clear();
     const auto chain=[&](const std::vector<NativeInsert>& effects,std::uint32_t block) -> std::shared_ptr<processing::PreparedGraph> {
         if (effects.empty()) return {};
         auto saved=std::make_shared<const processing::GraphState>(processing::insert_graph(effects));
-        return std::make_shared<processing::PreparedGraph>(processing::GraphSnapshot{saved,0,false,false},processing::ProcessConfig{c.sample_rate,static_cast<std::uint32_t>(c.outputs.size()),block,c.buffer_frames});
+        return std::make_shared<processing::PreparedGraph>(processing::GraphSnapshot{saved,0,false,false},processing::ProcessConfig{c.sample_rate,static_cast<std::uint32_t>(c.outputs.size()),block,c.buffer_frames}
+#ifdef MRS_HAS_VST3
+            ,processing::hosted_factory
+#endif
+        );
     };
-    for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) result.inserts.push_back(chain(t.inserts,1));
-    result.master_inserts=chain(project->master_inserts,8192);
+    for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {auto prepared=chain(t.inserts,64);result.inserts.push_back(prepared);insert_runtime_[t.id.value]={prepared,{}};}
+    result.master_inserts=chain(project->master_inserts,8192);insert_runtime_[std::string{}]={result.master_inserts,{}};
     const auto mapped = [&](const std::vector<int>& outputs) {
         std::vector<std::size_t> result;
         for (const auto channel : outputs) {
@@ -681,10 +755,12 @@ void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::De
 void Application::disconnect() {
     require_not_recording();
     if (device_) { device_->close(); device_.reset(); }
-    prepared_.reset(); device_config_.reset(); device_info_.reset(); audio_name_ = "Disconnected";
+    insert_runtime_.clear(); prepared_.reset(); device_config_.reset(); device_info_.reset(); audio_name_ = "Disconnected";
     if (transport_) { engine_->prepare({engine_->config().sample_rate,0,2,8192},{}); transport_->poll(); }
 }
 void Application::poll() {
+    publish_inserts();
+    for(auto& [key,r]:insert_runtime_){(void)key;if(r.graph && r.graph->consume_edits())unsaved_=true;}
     publish_mix();
     if (recording_ && (std::any_of(captures_.begin(),captures_.end(),[](const auto& capture) { return capture.recorder->status().fault != audio::RecordFault::none; }) ||
         (recording_->status().frames > 0 && engine_->state().playback != PlaybackState::playing) ||

@@ -150,10 +150,14 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
             voice.stream->loop(source); voice.stream->prime(source);
         }
     }
+    for(std::size_t i=0;i<graph.tempos.size();++i){const auto& t=graph.tempos[i];if(t.sample<0 || !std::isfinite(t.bpm) || t.bpm<1 || t.bpm>1000 || !std::isfinite(t.quarter) || (i && t.sample<=graph.tempos[i-1].sample))throw std::invalid_argument("invalid prepared tempo map");}
     config_ = config;
     master_envelope_.resize(config.max_block);
     direct_output_.resize(static_cast<std::size_t>(config.max_block)*config.output_channels);
     graph_ = std::move(graph);
+    insert_block_size_=std::min<std::uint32_t>(64,config.max_block);
+    for(const auto& chain:graph_.inserts)if(chain)insert_block_size_=std::min(insert_block_size_,chain->config().max_block);
+    track_block_.assign(graph_.mixer.size(),std::vector<float>(static_cast<std::size_t>(insert_block_size_)*config.output_channels));
     mix_order_ = std::move(order);
     MixerUpdate mix; mix.count = graph_.mixer.size(); mix.master_gain = graph_.master_gain;
     std::copy(graph_.mixer.begin(),graph_.mixer.end(),mix.tracks.begin());
@@ -351,18 +355,24 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         if (!pending_seek_) voice.stream->cancel_seek();
         voice.stream->begin(voice.source_offset+std::clamp(rt_.sample-voice.start,Sample{0},voice.length-1));
     }
-    for (std::uint32_t frame = 0; frame < frames; ++frame) {
+    const auto tempo_at=[&](Sample sample){RenderGraph::TempoSegment result;for(const auto& t:graph_.tempos){if(t.sample>sample)break;result=t;}result.quarter+=static_cast<double>(sample-result.sample)*result.bpm/(60*config_.sample_rate);return result;};
+    const auto block_position=rt_.sample;const auto block_playing=rt_.playback==PlaybackState::playing;const auto block_tempo=tempo_at(block_position);
+    for(std::uint32_t base=0;base<frames;base+=insert_block_size_){
+        const auto position=rt_.sample;const auto playing=rt_.playback==PlaybackState::playing;const auto tempo=tempo_at(position);
+        const auto count=std::min(insert_block_size_,frames-base);
+        for(auto& block:track_block_)std::fill_n(block.begin(),static_cast<std::size_t>(count)*config_.output_channels,0.f);
+        for(std::uint32_t local=0;local<count;++local){
+        const auto frame=base+local; const auto at=static_cast<std::size_t>(local)*config_.output_channels;
         const auto out = static_cast<std::size_t>(frame) * config_.output_channels;
-        for (std::size_t t=0; t<graph_.mixer.size(); ++t) std::fill_n(track_frame_[t].begin(),config_.output_channels,0.0F);
         // Monitoring is independent of transport and playback source density.
         if (input && monitor_enabled_) {
             const auto in = static_cast<std::size_t>(frame) * config_.input_channels;
             for (const auto& route : graph_.monitor) {
                 const float sample = std::isfinite(input[in+route.input_channel]) ? input[in+route.input_channel]*route.gain : 0;
                 if (route.mixer_track != no_mixer_track) {
-                    if (input_monitoring_[route.mixer_track]) track_frame_[route.mixer_track][route.output_channel] += sample;
+                    if (input_monitoring_[route.mixer_track]) track_block_[route.mixer_track][at+route.output_channel] += sample;
                 } else if (graph_.monitor_track == no_mixer_track) output[out+route.output_channel] += sample;
-                else track_frame_[graph_.monitor_track][route.output_channel] += sample;
+                else track_block_[graph_.monitor_track][at+route.output_channel] += sample;
             }
         }
         if (rt_.playback == PlaybackState::playing) {
@@ -377,16 +387,19 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
                     if (voice.stream) (void)voice.stream->read(source_frame,route.source_channel,sample);
                     else sample = voice.asset->samples[source+route.source_channel];
                     if (voice.mixer_track == no_mixer_track) output[out+route.output_channel] += sample*route.gain;
-                    else track_frame_[voice.mixer_track][route.output_channel] += sample*route.gain;
+                    else track_block_[voice.mixer_track][at+route.output_channel] += sample*route.gain;
                 }
             }
             if (rt_.sample < max_sample) ++rt_.sample;
             else rt_.playback = PlaybackState::stopped;
         }
+        }
+        const auto ramp=mix_ramp_;
         for (const auto t : mix_order_) {
-            if (!graph_.inserts.empty() && graph_.inserts[t]) graph_.inserts[t]->process(track_frame_[t].data(),1);
+            if (!graph_.inserts.empty() && graph_.inserts[t]) graph_.inserts[t]->process(track_block_[t].data(),count,position,playing,tempo.bpm,tempo.quarter);
+            for(std::uint32_t local=0;local<count;++local){const auto at=static_cast<std::size_t>(local)*config_.output_channels;const auto out=static_cast<std::size_t>(base+local)*config_.output_channels;
             for (std::uint32_t c=0; c<config_.output_channels; ++c) {
-                const float sample = track_frame_[t][c]*mix_gain_[t][c%2];
+                const float sample = track_block_[t][at+c]*mix_gain_[t][c%2];
                 const auto destination = graph_.outputs[t];
                 const auto& hardware = graph_.hardware_outputs[t];
                 if (!hardware.empty()) {
@@ -394,32 +407,36 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
                     else if (hardware.size() == 2 && c < 2) direct_output_[out+hardware[c]] += sample;
                 }
                 else if (destination == no_mixer_track) output[out+c] += sample;
-                else track_frame_[destination][c] += sample;
+                else track_block_[destination][at+c] += sample;
                 for (std::size_t j=0; j<graph_.sends[t].size(); ++j) {
                     const auto& send = graph_.sends[t][j];
-                    track_frame_[send.destination][c] += (send.pre_fader ? track_frame_[t][c]*gate_[t] : sample)*send_gain_[t][j];
+                    track_block_[send.destination][at+c] += (send.pre_fader ? track_block_[t][at+c]*gate_[t] : sample)*send_gain_[t][j];
                 }
                 if (c<2) block_peaks[t][c] = std::max(block_peaks[t][c],std::abs(sample));
             }
-            if (mix_ramp_) {
+            if (local<ramp) {
                 for (std::size_t c=0; c<2; ++c) mix_gain_[t][c] += mix_step_[t][c];
                 gate_[t] += gate_step_[t];
                 for (std::size_t j=0; j<graph_.sends[t].size(); ++j) send_gain_[t][j] += send_step_[t][j];
+                if(local+1==ramp){mix_gain_[t]=mix_target_[t];gate_[t]=gate_target_[t];send_gain_[t]=send_target_[t];}
+            }
             }
         }
+        for(std::uint32_t local=0;local<count;++local){const auto frame=base+local;
         master_envelope_[frame] = master_gain_;
         if (mix_ramp_) {
             master_gain_ += master_step_;
             if (--mix_ramp_ == 0) { master_gain_ = master_target_; mix_gain_ = mix_target_; gate_ = gate_target_; send_gain_ = send_target_; }
         }
     }
+    }
     for (auto& voice : graph_.voices) if (voice.stream && voice.stream->end())
         disk_underruns_.fetch_add(1,std::memory_order_relaxed);
     const auto output_samples = static_cast<std::size_t>(frames) * config_.output_channels;
     for (std::size_t i = 0; i < output_samples; ++i)
         if (!std::isfinite(output[i])) output[i] = 0;
-    if (graph_.processors) graph_.processors->process(output,frames);
-    if (graph_.master_inserts) graph_.master_inserts->process(output,frames);
+    if (graph_.processors) graph_.processors->process(output,frames,block_position,block_playing,block_tempo.bpm,block_tempo.quarter);
+    if (graph_.master_inserts) graph_.master_inserts->process(output,frames,block_position,block_playing,block_tempo.bpm,block_tempo.quarter);
     for (std::uint32_t frame=0; frame<frames; ++frame) {
         const auto offset = static_cast<std::size_t>(frame)*config_.output_channels;
         std::array<float,max_channels> master{};

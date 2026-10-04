@@ -30,6 +30,7 @@ add_library(mrs_processing STATIC
   core/processing/src/model.cpp core/processing/src/native.cpp core/processing/src/graph.cpp)
 target_link_libraries(mrs_processing PUBLIC mrs_core)
 target_include_directories(mrs_processing PRIVATE core/audio/include)
+include(cmake/Vst3.cmake)
 
 find_package(Threads REQUIRED)
 add_library(mrs_audio STATIC
@@ -74,7 +75,7 @@ target_link_libraries(mrs_processor_check PRIVATE mrs_audio)
 if(BUILD_TESTING)
   add_executable(mrs_processing_tests tests/processing_tests.cpp)
   target_link_libraries(mrs_processing_tests PRIVATE mrs_audio)
-  foreach(suite midi model graph parameters state latency engine realtime filters)
+  foreach(suite midi model graph parameters state latency engine realtime filters channel_eq)
     add_test(NAME processing_${suite} COMMAND mrs_processing_tests ${suite})
   endforeach()
   add_test(NAME processing_acceptance COMMAND mrs_processor_check)

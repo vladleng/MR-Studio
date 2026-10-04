@@ -42,7 +42,7 @@ void inserts() {
     CHECK(*store.state().project == saved);
     p.tracks.push_back({new_id(),"MIDI",TrackKind::midi,{}}); ProjectStore midi{p}; rejects([&] { midi.execute(SetInserts{p.tracks.back().id,{gain}}); });
     std::vector<NativeInsert> excess; for (int n=0;n<9;++n) excess.push_back({new_id()}); rejects([&] { store.execute(SetInserts{track,excess}); });
-    auto legacy=serialize(demo_project()); legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 8").size(),"MRS_CORE_SNAPSHOT 7");
+    auto legacy=serialize(demo_project()); legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 9").size(),"MRS_CORE_SNAPSHOT 7");
     const std::string line="INSERTS 0\n"; for (auto pos=legacy.find(line);pos!=std::string::npos;pos=legacy.find(line)) legacy.erase(pos,line.size());
     CHECK(deserialize(legacy) == demo_project());
 }
@@ -110,7 +110,7 @@ void sends() {
     store.execute(RemoveTrack{Id{"r1"}});
     CHECK(store.state().project->tracks.front().sends.size() == 1);
     CHECK(store.undo() && store.state().project->tracks.front().sends.size() == 2);
-    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT 8"); CHECK(head == 0);
+    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT 9"); CHECK(head == 0);
     const std::string old = "MRS_CORE_SNAPSHOT 4\nPROJECT \"old\" \"Old\" \"\" 48000\nTEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n\"a\" \"Audio\" 0 \"\"\n1 0 0 0\n\"\"\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nMASTER 1\nEND\n";
     const auto migrated = deserialize(old); CHECK(migrated.tracks.front().sends.empty() && migrated.tracks.front().input == -2);
 }

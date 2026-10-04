@@ -5,6 +5,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <unordered_map>
+#include <map>
 
 namespace mrs::processing {
 namespace {
@@ -19,6 +20,7 @@ template<class T> void sort_offsets(T* events, std::size_t size) noexcept {
 }
 struct MidiCommand { std::uint16_t node{}; MidiEvent event; };
 struct ParamCommand { std::uint16_t node{}; ParameterChange event; };
+struct ParamBatch {std::array<ParamCommand,256> changes{};std::size_t size{};};
 }
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -37,6 +39,7 @@ struct PreparedGraph::Impl {
         bool bypass{};
     };
     GraphSnapshot snapshot;
+    std::map<std::string,std::vector<ParameterValue>> last_parameters;
     ProcessConfig config;
     LatencyReport report;
     std::vector<Node> nodes;
@@ -44,6 +47,7 @@ struct PreparedGraph::Impl {
     std::unordered_map<std::string,std::size_t> index;
     audio::SpscQueue<MidiCommand,1024> midi_queue;
     audio::SpscQueue<ParamCommand,1024> parameter_queue;
+    audio::SpscQueue<ParamBatch,64> batch_queue;
     audio::SpscQueue<MidiOutput,4096> output_queue;
     std::atomic<bool> panic_requested{};
     std::atomic<std::uint64_t> dropped_midi{}, dropped_parameters{}, invalid{}, output_overflows{}, panics{};
@@ -67,12 +71,13 @@ PreparedGraph::PreparedGraph(GraphSnapshot snapshot, ProcessConfig config, Proce
     for (std::size_t i = 0; i < state.nodes.size(); ++i) {
         auto& node = p.nodes[i]; const auto& saved = state.nodes[i];
         node.bypass = saved.bypass;
+        p.last_parameters[saved.id.value]=saved.parameters;
         node.processor = factory(saved);
         if (!node.processor) throw std::invalid_argument("processor factory returned null");
         node.processor->prepare(config);
         node.processor->restore(saved.plugin);
         node.infos = node.processor->parameters();
-        if (node.infos.size() > 1024) throw std::invalid_argument("too many processor parameters");
+        if (node.infos.size() > 4096) throw std::invalid_argument("too many processor parameters");
         for (std::size_t a = 0; a < node.infos.size(); ++a) {
             const auto& info = node.infos[a];
             if (!std::isfinite(info.minimum) || !std::isfinite(info.maximum) ||
@@ -167,8 +172,31 @@ bool PreparedGraph::enqueue_parameter(const Id& node, ParameterChange change) {
     }
     return true;
 }
+bool PreparedGraph::enqueue_parameters(const GraphState& state) {
+    ParamBatch batch;
+    for(const auto& saved:state.nodes){const auto at=impl_->index.find(saved.id.value);if(at==impl_->index.end())throw std::invalid_argument("unknown insert node");
+        if(batch.size>=batch.changes.size())throw std::invalid_argument("parameter transaction too large");
+        batch.changes[batch.size++]={static_cast<std::uint16_t>(at->second),{0,UINT32_MAX,saved.bypass?1.f:0.f}};
+        for(const auto& v:saved.parameters){
+            if(saved.format==ProcessorFormat::vst3){const auto& old=impl_->last_parameters.at(saved.id.value);if(std::find(old.begin(),old.end(),v)!=old.end())continue;}
+            const auto& infos=impl_->nodes[at->second].infos;const auto it=std::find_if(infos.begin(),infos.end(),[&](const auto& p){return p.id==v.id;});
+            if(it==infos.end() || !std::isfinite(v.value) || v.value<it->minimum || v.value>it->maximum)throw std::invalid_argument("invalid insert parameter update");
+            if(batch.size>=batch.changes.size())throw std::invalid_argument("parameter transaction too large");batch.changes[batch.size++]={static_cast<std::uint16_t>(at->second),{0,v.id,v.value}};
+        }
+        if(saved.format==ProcessorFormat::vst3)for(const auto& old:impl_->last_parameters.at(saved.id.value)){
+            if(std::none_of(saved.parameters.begin(),saved.parameters.end(),[&](const auto& p){return p.id==old.id;})){
+                const auto& infos=impl_->nodes[at->second].infos;const auto it=std::find_if(infos.begin(),infos.end(),[&](const auto& p){return p.id==old.id;});
+                if(it!=infos.end()){if(batch.size>=batch.changes.size())throw std::invalid_argument("parameter transaction too large");batch.changes[batch.size++]={static_cast<std::uint16_t>(at->second),{0,old.id,it->initial}};}
+            }
+        }
+    }
+    if(!impl_->batch_queue.push(batch)){++impl_->dropped_parameters;return false;}
+    for(std::size_t i=0;i<batch.size;++i){const auto& c=batch.changes[i];if(c.event.id!=UINT32_MAX && impl_->snapshot.graph->nodes[c.node].format==ProcessorFormat::vst3)impl_->nodes[c.node].processor->sync_controller(c.event.id,c.event.value);}
+    for(const auto& n:state.nodes)impl_->last_parameters[n.id.value]=n.parameters;
+    return true;
+}
 void PreparedGraph::panic() noexcept { impl_->panic_requested = true; }
-void PreparedGraph::process(float* audio, std::uint32_t frames) noexcept {
+void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,bool playing,double tempo,double quarter) noexcept {
     auto& p = *impl_;
     if (!audio || !frames || frames > p.config.max_block) { ++p.invalid; return; }
     for (auto& node : p.nodes) { node.midi.clear(); node.output.clear(); node.parameter_count = 0; }
@@ -195,6 +223,11 @@ void PreparedGraph::process(float* audio, std::uint32_t frames) noexcept {
         if (node.parameter_count == event_capacity) { ++p.dropped_parameters; continue; }
         node.parameters[node.parameter_count++] = param.event;
     }
+    ParamBatch batch;
+    // Last complete transaction wins at the block boundary. No partial EQ state.
+    for(int i=0;i<63 && p.batch_queue.pop(batch);++i) {
+        for(std::size_t j=0;j<batch.size;++j){const auto& c=batch.changes[j];auto& node=p.nodes[c.node];if(c.event.id==UINT32_MAX)node.bypass=c.event.value>=0.5f;else {std::size_t k=0;for(;k<node.parameter_count;++k)if(node.parameters[k].id==c.event.id)break;if(k<event_capacity){node.parameters[k]=c.event;if(k==node.parameter_count)++node.parameter_count;}else ++p.dropped_parameters;}}
+    }
     const auto count = static_cast<std::size_t>(frames) * p.config.channels;
     for (auto index : p.order) {
         auto& node = p.nodes[index];
@@ -211,7 +244,7 @@ void PreparedGraph::process(float* audio, std::uint32_t frames) noexcept {
             for (auto event : node.midi.view()) (void)node.output.push(event);
         } else {
             node.processor->process({{node.audio.data(),count},frames,p.config.channels,
-                node.midi.view(),{node.parameters.data(),node.parameter_count},node.output});
+                node.midi.view(),{node.parameters.data(),node.parameter_count},node.output,position,playing,tempo,quarter});
         }
         // Sanitize each node before its output feeds other nodes.
         for (std::size_t i = 0; i < count; ++i) if (!std::isfinite(node.audio[i])) node.audio[i] = 0;
@@ -247,4 +280,10 @@ GraphState PreparedGraph::capture() const {
     }
     saved.validate(); return saved;
 }
+std::uint32_t PreparedGraph::node_latency(const Id& id) const{auto it=impl_->index.find(id.value);return it==impl_->index.end()?0:impl_->nodes[it->second].processor->latency();}
+std::vector<ParameterInfo> PreparedGraph::parameter_infos(const Id& id) const{auto it=impl_->index.find(id.value);return it==impl_->index.end()?std::vector<ParameterInfo>{}:[&]{auto infos=impl_->nodes[it->second].infos;if(impl_->snapshot.graph->nodes[it->second].format==ProcessorFormat::vst3)for(auto& p:infos)if(auto v=impl_->nodes[it->second].processor->parameter_value(p.id))p.initial=*v;return infos;}();}
+bool PreparedGraph::open_editor(const Id& id,void* parent,int& w,int& h){const auto it=impl_->index.find(id.value);if(it==impl_->index.end())return false;return impl_->nodes[it->second].processor->open_editor(parent,w,h);}
+void PreparedGraph::close_editors() noexcept {for(auto& n:impl_->nodes)n.processor->close_editor();}
+bool PreparedGraph::consume_edits() noexcept{bool any=false;for(auto& n:impl_->nodes)any=n.processor->edited()||any;return any;}
+bool PreparedGraph::failed() const noexcept{for(const auto& n:impl_->nodes)if(n.processor->failed())return true;return false;}
 } // namespace mrs::processing

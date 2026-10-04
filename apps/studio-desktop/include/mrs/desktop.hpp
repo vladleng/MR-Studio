@@ -101,6 +101,14 @@ public:
     void set_track_mix(const Id&, Track::Mix);
     void set_master_gain(float);
     void set_inserts(std::optional<Id>, std::vector<NativeInsert>);
+    void preview_inserts(std::optional<Id>, const std::vector<NativeInsert>&);
+    void cancel_insert_preview();
+    bool open_plugin_editor(std::optional<Id>,const Id&,void*,int&,int&);
+    void close_plugin_editors();
+    bool plugin_failed() const;
+    std::uint32_t plugin_latency(std::optional<Id>,const Id&) const;
+    std::vector<processing::ParameterInfo> plugin_parameters(std::optional<Id>,const Id&) const;
+    void set_plugin_parameter(std::optional<Id>,const Id&,std::uint32_t,float);
     bool preview_mix(std::optional<Id>, Track::Mix, float master_gain);
     void cancel_mix_preview();
     void connect(std::unique_ptr<audio::IAudioDevice>, audio::DeviceConfig);
@@ -132,6 +140,10 @@ private:
     std::unique_ptr<MusicalTimeline> musical_;
     std::unique_ptr<audio::IAudioDevice> device_;
     std::shared_ptr<processing::PreparedGraph> prepared_;
+    struct InsertRuntime {std::shared_ptr<processing::PreparedGraph> graph;std::optional<processing::GraphState> pending;};
+    std::map<std::string,InsertRuntime> insert_runtime_;
+    void publish_inserts();
+    void capture_insert_state(Project&);
     Workspace workspace_{Workspace::arrange};
     std::shared_ptr<audio::Recorder> recording_;
     std::optional<Id> armed_;

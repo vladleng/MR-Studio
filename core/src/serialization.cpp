@@ -39,16 +39,28 @@ template<class T> void section(std::ostream& out, std::string_view name, const s
 }
 void write_inserts(std::ostream& out, const std::vector<NativeInsert>& inserts) {
     out << "INSERTS " << inserts.size() << '\n';
-    for (const auto& fx : inserts) out << std::quoted(fx.id.value) << ' ' << static_cast<int>(fx.kind) << ' ' << fx.gain << ' ' << fx.frequency << ' ' << fx.q << ' ' << fx.bypass << '\n';
+    const auto blob=[&](const std::vector<std::byte>& data) { static constexpr char hex[]="0123456789abcdef"; std::string s; for(auto b:data) { auto v=std::to_integer<unsigned>(b);s+=hex[v>>4];s+=hex[v&15]; } out<<std::quoted(s)<<' '; };
+    for (const auto& fx : inserts) {
+        out << std::quoted(fx.id.value) << ' ' << static_cast<int>(fx.kind) << ' ' << fx.gain << ' ' << fx.frequency << ' ' << fx.q << ' ' << fx.bypass << '\n';
+        for(const auto& b:fx.bands) out<<b.frequency<<' '<<b.gain<<' '<<b.q<<' '<<b.enabled<<' '; out<<'\n';
+        out<<std::quoted(fx.plugin_path)<<' '<<std::quoted(fx.class_id)<<' '<<std::quoted(fx.plugin_name)<<' ';blob(fx.component_state);blob(fx.controller_state);out<<fx.parameters.size();for(const auto& p:fx.parameters) out<<' '<<p.id<<' '<<p.value;out<<'\n';
+    }
 }
-std::vector<NativeInsert> read_inserts(std::istream& in) {
+std::vector<NativeInsert> read_inserts(std::istream& in, std::uint32_t version) {
     tag(in,"INSERTS"); const auto n=count(in); if (n>8) throw std::invalid_argument("too many inserts");
     std::vector<NativeInsert> result;
     for (std::size_t i=0;i<n;++i) {
         NativeInsert fx; fx.id={quoted(in)}; int kind{},bypass{};
         in >> kind >> fx.gain >> fx.frequency >> fx.q >> bypass; check_stream(in);
-        if (kind<0 || kind>3 || (bypass!=0 && bypass!=1)) throw std::invalid_argument("invalid insert kind/bypass");
-        fx.kind=static_cast<InsertKind>(kind); fx.bypass=bypass!=0; result.push_back(std::move(fx));
+        if (kind<0 || kind>(version>=9 ? 5 : 3) || (bypass!=0 && bypass!=1)) throw std::invalid_argument("invalid insert kind/bypass");
+        fx.kind=static_cast<InsertKind>(kind); fx.bypass=bypass!=0;
+        if(version>=9) {
+            for(auto& b:fx.bands) {int enabled{};in>>b.frequency>>b.gain>>b.q>>enabled;check_stream(in);if(enabled!=0 && enabled!=1) throw std::invalid_argument("invalid EQ enable");b.enabled=enabled!=0;}
+            fx.plugin_path=quoted(in);fx.class_id=quoted(in);fx.plugin_name=quoted(in);
+            const auto blob=[&]() { auto s=quoted(in);if(s.size()>2*1024*1024 || s.size()%2) throw std::invalid_argument("invalid plugin blob");std::vector<std::byte> data;const auto digit=[](char c)->unsigned {if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return c-'a'+10;throw std::invalid_argument("invalid plugin hex");};for(std::size_t j=0;j<s.size();j+=2)data.push_back(static_cast<std::byte>(digit(s[j])*16+digit(s[j+1])));return data;};
+            fx.component_state=blob();fx.controller_state=blob();auto nparams=count(in);if(nparams>4096)throw std::invalid_argument("too many plugin parameters");for(std::size_t j=0;j<nparams;++j){InsertParameter p;in>>p.id>>p.value;check_stream(in);fx.parameters.push_back(p);}
+        }
+        result.push_back(std::move(fx));
     }
     return result;
 }
@@ -192,7 +204,7 @@ Project deserialize(std::string_view bytes) {
             const auto outputs = count(in); if (outputs > 2) throw std::invalid_argument("hardware output count");
             for (std::size_t j=0; j<outputs; ++j) { int channel{}; in >> channel; check_stream(in); track.hardware_outputs.push_back(channel); }
         }
-        if (input_version >= 8) track.inserts=read_inserts(in);
+        if (input_version >= 8) track.inserts=read_inserts(in,input_version);
         p.tracks.push_back(std::move(track));
     }
     tag(in, "CLIPS");
@@ -245,7 +257,7 @@ Project deserialize(std::string_view bytes) {
         tag(in,"HARDWARE"); const auto outputs = count(in); if (outputs > 2) throw std::invalid_argument("master output count");
         for (std::size_t j=0; j<outputs; ++j) { int channel{}; in >> channel; check_stream(in); p.master_outputs.push_back(channel); }
     }
-    if (input_version >= 8) p.master_inserts=read_inserts(in);
+    if (input_version >= 8) p.master_inserts=read_inserts(in,input_version);
     tag(in, "END");
     in >> std::ws;
     if (!in.eof()) throw std::invalid_argument("unknown trailing snapshot data");

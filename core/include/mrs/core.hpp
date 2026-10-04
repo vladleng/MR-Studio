@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -16,7 +18,7 @@ using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 8;
+inline constexpr std::uint32_t schema_version = 9;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -54,12 +56,26 @@ struct Folder {
     std::optional<Id> parent;
     bool operator==(const Folder&) const = default;
 };
-enum class InsertKind { gain, highpass, lowpass, eq };
+enum class InsertKind { gain, highpass, lowpass, eq, channel_eq, vst3 };
+struct EqBand {
+    float frequency{1000}, gain{}, q{0.70710678f};
+    bool enabled{true};
+    bool operator==(const EqBand&) const = default;
+};
+struct InsertParameter {
+    std::uint32_t id{}; float value{};
+    bool operator==(const InsertParameter&) const = default;
+};
 struct NativeInsert {
     Id id;
     InsertKind kind{InsertKind::gain};
     float gain{1}, frequency{1000}, q{0.70710678f}; // gain: linear trim or EQ dB
     bool bypass{};
+    // HP, three bell bands, LP. Filters initially off, bell bands flat.
+    std::array<EqBand,5> bands{{{40,0,0.70710678f,false},{150,0,0.70710678f,true},{1000,0,0.70710678f,true},{6000,0,0.70710678f,true},{16000,0,0.70710678f,false}}};
+    std::string plugin_path, class_id, plugin_name;
+    std::vector<std::byte> component_state, controller_state;
+    std::vector<InsertParameter> parameters;
     void validate() const;
     bool operator==(const NativeInsert&) const = default;
 };

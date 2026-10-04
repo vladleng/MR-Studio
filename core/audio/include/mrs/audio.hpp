@@ -75,6 +75,8 @@ struct RenderGraph {
     std::vector<bool> input_monitoring{};
     std::vector<std::shared_ptr<processing::PreparedGraph>> inserts{};
     std::shared_ptr<processing::PreparedGraph> master_inserts{};
+    struct TempoSegment{Sample sample{};double bpm{120},quarter{};};
+    std::vector<TempoSegment> tempos{};
     std::vector<bool> buses{}; // same indices as mixer; no clips/input directly on buses
 };
 struct RenderConfig {
@@ -154,7 +156,8 @@ private:
     std::atomic<float> input_peak_{};
     SpscQueue<Control, 64> controls_;
     SpscQueue<MixerUpdate,8> mixer_controls_;
-    std::array<std::array<float,max_channels>,max_mixer_tracks> track_frame_{};
+    std::vector<std::vector<float>> track_block_;
+    std::uint32_t insert_block_size_{64};
     std::array<std::array<float,2>,max_mixer_tracks> mix_gain_{}, mix_target_{}, mix_step_{};
     std::array<std::array<float,8>,max_mixer_tracks> send_gain_{}, send_target_{}, send_step_{};
     std::array<float,max_mixer_tracks> gate_{}, gate_target_{}, gate_step_{};

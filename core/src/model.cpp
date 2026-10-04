@@ -54,7 +54,13 @@ void Track::Mix::validate() const {
         std::isfinite(pan) && pan >= -1 && pan <= 1, "invalid track mix");
 }
 void NativeInsert::validate() const {
-    require(kind >= InsertKind::gain && kind <= InsertKind::eq,"invalid insert kind");
+    for (const auto& b : bands) require(std::isfinite(b.frequency) && b.frequency>=20 && b.frequency<=20000 && std::isfinite(b.gain) && b.gain>=-24 && b.gain<=24 && std::isfinite(b.q) && b.q>=0.1f && b.q<=10,"invalid EQ band");
+    require(component_state.size()<=1024*1024 && controller_state.size()<=1024*1024 && parameters.size()<=4096,"plugin state budget exceeded");
+    if (kind==InsertKind::vst3) {
+        require(!plugin_path.empty() && plugin_path.size()<=32768 && plugin_name.size()<=4096 && class_id.size()==32 && class_id.find_first_not_of("0123456789abcdefABCDEF")==std::string::npos,"invalid VST3 identity");
+        for (std::size_t i=0;i<parameters.size();++i) { const auto& p=parameters[i]; require(std::isfinite(p.value) && p.value>=0 && p.value<=1,"invalid VST3 parameter"); for(std::size_t j=0;j<i;++j) require(p.id!=parameters[j].id,"duplicate VST3 parameter"); }
+    }
+    require(kind >= InsertKind::gain && kind <= InsertKind::vst3,"invalid insert kind");
     require(std::isfinite(gain) && (kind == InsertKind::eq ? gain >= -24 && gain <= 24 : gain >= 0 && gain <= 4),"invalid insert gain");
     require(std::isfinite(frequency) && frequency >= 20 && frequency <= 20000 && std::isfinite(q) && q >= 0.1f && q <= 10,"invalid filter frequency/Q");
 }

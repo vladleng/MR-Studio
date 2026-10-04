@@ -119,7 +119,47 @@ public:
     }
 };
 }
+namespace {
+class ChannelEq final : public IProcessor {
+    std::array<Biquad,5> filters_{{Biquad{"mrs.highpass"},Biquad{"mrs.eq"},Biquad{"mrs.eq"},Biquad{"mrs.eq"},Biquad{"mrs.lowpass"}}};
+    std::array<EqBand,5> targets_=NativeInsert{}.bands, current_=targets_;
+    std::array<float,5> wet_{};
+    float smoothing_{0.001f}; std::uint32_t tick_{};
+    void update() noexcept { for(std::size_t i=0;i<5;++i) { (void)filters_[i].set_parameter(0,current_[i].frequency);(void)filters_[i].set_parameter(1,current_[i].q);if(i>0 && i<4)(void)filters_[i].set_parameter(2,current_[i].gain); } }
+public:
+    std::vector<ParameterInfo> parameters() const override { std::vector<ParameterInfo> p;for(std::uint32_t i=0;i<5;++i){p.push_back({i*4,20,20000,targets_[i].frequency,true});p.push_back({i*4+1,0.1f,10,0.70710678f,true});p.push_back({i*4+2,-24,24,0,true});p.push_back({i*4+3,0,1,targets_[i].enabled?1.f:0.f,true});}return p; }
+    void prepare(ProcessConfig c) override {for(auto& f:filters_)f.prepare(c);smoothing_=1-std::exp(-1.f/(0.02f*c.sample_rate));warm();}
+    void restore(const PluginState& state) override {if(!state.component.empty() || !state.controller.empty())throw std::invalid_argument("EQ state uses parameters");}
+    PluginState capture() const override {PluginState s;s.class_id="mrs.channel-eq";return s;}
+    bool set_parameter(std::uint32_t id,float v) noexcept override {if(id>=20 || !std::isfinite(v))return false;auto& b=targets_[id/4];switch(id%4){case 0:if(v<20||v>20000)return false;b.frequency=v;break;case 1:if(v<0.1f||v>10)return false;b.q=v;break;case 2:if(v<-24||v>24)return false;b.gain=v;break;case 3:if(v<0||v>1)return false;b.enabled=v>=0.5f;break;}return true;}
+    std::optional<float> parameter_value(std::uint32_t id) const noexcept override {if(id>=20)return {};const auto& b=targets_[id/4];switch(id%4){case 0:return b.frequency;case 1:return b.q;case 2:return b.gain;default:return b.enabled?1.f:0.f;}}
+    std::uint32_t latency() const noexcept override{return 0;} bool live_safe() const noexcept override{return true;}
+    void warm() override {current_=targets_;for(std::size_t i=0;i<5;++i)wet_[i]=targets_[i].enabled?1.f:0.f;update();}
+    void reset() noexcept override {for(auto& f:filters_)f.reset();}
+    void process(ProcessBlock block) noexcept override {
+        std::size_t next{};MidiBuffer discarded;
+        for(std::uint32_t frame=0;frame<block.frames;++frame){
+            while(next<block.parameters.size() && block.parameters[next].offset==frame){const auto& p=block.parameters[next++];(void)set_parameter(p.id,p.value);}
+            for(std::size_t i=0;i<5;++i){auto& b=current_[i];const auto& t=targets_[i];b.frequency+=smoothing_*(t.frequency-b.frequency);b.q+=smoothing_*(t.q-b.q);b.gain+=smoothing_*(t.gain-b.gain);wet_[i]+=smoothing_*((t.enabled?1.f:0.f)-wet_[i]);}
+            if((tick_++ & 15)==0)update();
+            auto samples=block.audio.subspan(static_cast<std::size_t>(frame)*block.channels,block.channels);
+            for(std::size_t i=0;i<5;++i){std::array<float,64> dry{};std::copy(samples.begin(),samples.end(),dry.begin());filters_[i].process({samples,1,block.channels,{},{},discarded});for(std::uint32_t c=0;c<block.channels;++c)samples[c]=dry[c]+wet_[i]*(samples[c]-dry[c]);}
+        }
+        for(auto e:block.midi)(void)block.midi_output.push(e);
+    }
+};
+}
+double eq_response_db(const NativeInsert& fx,double frequency,std::uint32_t rate) {
+    if(fx.bypass)return 0;
+    double magnitude=1;const double phase=2*std::numbers::pi*frequency/rate;
+    for(std::size_t i=0;i<5;++i){const auto& b=fx.bands[i];if(!b.enabled)continue;
+        const double w=2*std::numbers::pi*std::min<double>(b.frequency,rate*0.45)/rate,c=std::cos(w),alpha=std::sin(w)/(2*b.q),A=std::pow(10.,b.gain/40);const bool eq=i>0&&i<4,hp=i==0;
+        const double a0=eq?1+alpha/A:1+alpha,b0=(eq?1+alpha*A:(1+(hp?c:-c))/2)/a0,b1=(eq?-2*c:hp?-(1+c):1-c)/a0,b2=(eq?1-alpha*A:(1+(hp?c:-c))/2)/a0,a1=-2*c/a0,a2=(eq?1-alpha/A:1-alpha)/a0;
+        const auto norm=[&](double x,double y,double z){const double re=x+y*std::cos(phase)+z*std::cos(2*phase),im=-y*std::sin(phase)-z*std::sin(2*phase);return re*re+im*im;};magnitude*=std::sqrt(norm(b0,b1,b2)/std::max(1e-30,norm(1,a1,a2)));
+    }return 20*std::log10(std::max(magnitude,1e-12));
+}
 std::unique_ptr<IProcessor> native_factory(const NodeState& state) {
+    if (state.format==ProcessorFormat::native && state.processor_id=="mrs.channel-eq") return std::make_unique<ChannelEq>();
     if (state.format == ProcessorFormat::native && (state.processor_id=="mrs.highpass" || state.processor_id=="mrs.lowpass" || state.processor_id=="mrs.eq")) return std::make_unique<Biquad>(state.processor_id);
     if (state.format != ProcessorFormat::native || state.processor_id != "mrs.gain")
         throw std::invalid_argument("processor unavailable; VST3 hosting belongs to MRS Stage 3");

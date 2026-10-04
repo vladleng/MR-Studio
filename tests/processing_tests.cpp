@@ -242,12 +242,28 @@ void filters() {
     for (int n=0;n<8;++n) { low_rate.process(audio.data(),128); for (auto sample:audio) CHECK(std::isfinite(sample)); }
 }
 
+void channel_eq(){
+    mrs::NativeInsert fx;fx.id={"channel-eq"};fx.kind=mrs::InsertKind::channel_eq;
+    auto g=insert_graph(std::array{fx});PreparedGraph runtime{snapshot(g),{48000,2,128}};
+    std::array<float,256> buffer{};buffer[0]=1;runtime.process(buffer.data(),128);CHECK(buffer[0]==1&&buffer[1]==0);CHECK(std::abs(eq_response_db(fx,1000,48000))<1e-8);
+    fx.bands[2].gain=12;fx.bands[2].q=1;CHECK(std::abs(eq_response_db(fx,1000,48000)-12)<0.00001);
+    fx.bands[0].enabled=true;fx.bands[0].frequency=200;fx.bands[4].enabled=true;fx.bands[4].frequency=5000;
+    CHECK(eq_response_db(fx,20,48000)<-35&&eq_response_db(fx,18000,48000)<-25);
+    auto changed=insert_graph(std::array{fx});CHECK(runtime.enqueue_parameters(changed));allocations=0;probing=true;
+    for(int n=0;n<64;++n){for(std::size_t i=0;i<buffer.size();i+=2){buffer[i]=static_cast<float>(std::sin((n*128+i/2)*0.1));buffer[i+1]=0;}runtime.process(buffer.data(),128);for(std::size_t i=0;i<buffer.size();i+=2){if(!std::isfinite(buffer[i])||buffer[i+1]!=0)std::abort();}}
+    probing=false;CHECK(allocations==0);
+    fx.bypass=true;CHECK(runtime.enqueue_parameters(insert_graph(std::array{fx})));buffer.fill(0.25f);runtime.process(buffer.data(),128);for(auto v:buffer)CHECK(v==0.25f);
+    fx.bypass=false;fx.bands[2].frequency=20000;fx.bands[2].q=10;PreparedGraph low{snapshot(insert_graph(std::array{fx})),{8000,2,128}};for(int n=0;n<64;++n){buffer.fill(0.25f);low.process(buffer.data(),128);for(auto v:buffer)CHECK(std::isfinite(v));}
+    auto p=mrs::demo_project();p.tracks.front().inserts={fx};CHECK(mrs::deserialize(mrs::serialize(p))==p);
+    CHECK(runtime.enqueue_parameters(changed));for(int n=0;n<62;++n)CHECK(runtime.enqueue_parameters(changed));CHECK(!runtime.enqueue_parameters(changed));runtime.process(buffer.data(),128);CHECK(runtime.enqueue_parameters(changed));
+}
+
 }
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected suite");
         const std::string suite = argv[1];
-        if (suite == "filters") filters(); else if (suite == "midi") midi(); else if (suite == "model") model();
+        if (suite == "channel_eq") channel_eq(); else if (suite == "filters") filters(); else if (suite == "midi") midi(); else if (suite == "model") model();
         else if (suite == "graph") graph(); else if (suite == "parameters") parameters();
         else if (suite == "state") state(); else if (suite == "latency") latency();
         else if (suite == "engine") engine(); else if (suite == "realtime") realtime();

@@ -682,6 +682,9 @@ void config() {
 
 
 void inserts() {
+    {Application live;const auto id=live.services().projects->state().project->tracks.front().id;NativeInsert eq;eq.id=new_id();eq.kind=InsertKind::channel_eq;live.set_inserts(id,{eq});auto device=std::make_unique<ManualDevice>();auto* driver=device.get();live.connect(std::move(device),{0,48000,128,{}, {0,1}});live.play();std::array<float,256> out{};live.engine()->process(nullptr,out.data(),128);const auto at=live.engine()->state().sample;
+        eq.bands[2].gain=6;live.preview_inserts(id,{eq});CHECK(live.services().projects->state().project->tracks.front().inserts.front().bands[2].gain==0);live.set_inserts(id,{eq});live.engine()->process(nullptr,out.data(),128);CHECK(live.engine()->state().sample==at+128&&live.engine()->state().playback==PlaybackState::playing&&driver->opens==1);CHECK(live.undo());live.engine()->process(nullptr,out.data(),128);CHECK(live.services().projects->state().project->tracks.front().inserts.front().bands[2].gain==0);CHECK(live.redo());live.engine()->process(nullptr,out.data(),128);CHECK(driver->opens==1);rejects([&]{live.set_inserts(id,{});});}
+
     Directory dir; Application app; app.new_project(44100);
     const auto track=app.add_audio_track("Mic"), bus=app.add_bus("Bus"); app.set_track_output(track,bus);
     NativeInsert a{new_id(),InsertKind::gain,.5f}, b{new_id(),InsertKind::gain,.25f}, c{new_id(),InsertKind::gain,.5f};

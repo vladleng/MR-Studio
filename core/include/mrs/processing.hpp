@@ -63,6 +63,8 @@ struct ParameterInfo {
     std::uint32_t id{};
     float minimum{}, maximum{1}, initial{};
     bool automatable{true};
+    std::string name{};
+    bool hidden{};
 };
 struct ParameterValue {
     std::uint32_t id{};
@@ -135,6 +137,7 @@ struct ProcessBlock {
     std::span<const MidiEvent> midi;
     std::span<const ParameterChange> parameters;
     MidiBuffer& midi_output;
+    Sample position{};bool playing{};double tempo{120}, quarter{};
 };
 class IProcessor {
 public:
@@ -150,6 +153,11 @@ public:
     virtual void warm() = 0; // off-thread after prepare/restore
     virtual void reset() noexcept = 0;
     virtual void process(ProcessBlock) noexcept = 0; // bounded RT implementation required
+    virtual bool open_editor(void*,int&,int&) { return false; }
+    virtual void close_editor() noexcept {}
+    virtual bool edited() noexcept { return false; }
+    virtual bool failed() const noexcept { return false; }
+    virtual void sync_controller(std::uint32_t,float) {}
 };
 using ProcessorFactory = std::function<std::unique_ptr<IProcessor>(const NodeState&)>;
 std::unique_ptr<IProcessor> native_factory(const NodeState&);
@@ -178,19 +186,27 @@ public:
     // Single application-thread producer; buffers refer to the next block.
     bool enqueue_midi(const Id& source_port, MidiEvent);
     bool enqueue_parameter(const Id& node, ParameterChange);
+    bool enqueue_parameters(const GraphState&); // atomic bounded parameter/bypass update
     void panic() noexcept;
     // Single audio-thread consumer; no allocation, locks or I/O.
-    void process(float* interleaved, std::uint32_t frames) noexcept;
+    void process(float* interleaved, std::uint32_t frames, Sample position=0,bool playing=false,double tempo=120,double quarter=0) noexcept;
     bool pop_midi_output(MidiOutput&) noexcept; // single control-thread consumer
     const GraphSnapshot& snapshot() const;
     ProcessConfig config() const;
     const LatencyReport& latency() const;
     GraphMetrics metrics() const noexcept;
     GraphState capture() const; // quiescent: reads processor state
+    std::uint32_t node_latency(const Id&) const;
+    std::vector<ParameterInfo> parameter_infos(const Id&) const;
+    bool open_editor(const Id&,void*,int&,int&);
+    void close_editors() noexcept;
+    bool consume_edits() noexcept;
+    bool failed() const noexcept;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+double eq_response_db(const NativeInsert&, double frequency, std::uint32_t sample_rate);
 GraphState insert_graph(std::span<const NativeInsert>);
 GraphState demo_graph();
 } // namespace mrs::processing
