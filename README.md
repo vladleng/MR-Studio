@@ -1,11 +1,45 @@
 # Moon River Studio
 
-## В разработке: 0.1f / MRS Stage 2a — Mixer
+Локальная **0.1i** готова к проверке: physical outputs на дорожках/шинах/Master,
+multi-output и профили аудиоустройства. Configure/build, **69/69 CTest** и GUI smoke
+пройдены локально с кешем зависимостей. Физическая ASIO-приёмка ожидается.
+Последняя принятая версия — **0.1h fix3**. Код и пакеты остаются локальными;
+GitHub используется только для issues/docs, без Actions и автоматического push/merge.
+См. [контракты](docs/HARDWARE_OUTPUTS.md) и [проверку 0.1i](docs/MRS_STAGE_2D_CHECKLIST.md).
+Исторические статусы ниже не заменяют эту запись.
 
-Первый подэтап #22: track gain/pan, mute/solo, stereo meters, master gain,
-общий Undo/Redo и сохранение настроек. Параметры меняются во время playback
-на том же SHARED engine без переподключения ASIO. Последняя принятая сборка — 0.1e.
-[Контракты](docs/MIXER.md) · [Приёмка Windows](docs/MRS_STAGE_2A_CHECKLIST.md).
+Последняя принятая локальная сборка: **0.1h fix3**, 2026-10-04.
+Пользователь подтвердил отсутствие мигания и работу всех функций Stage 2c.
+Hardware output routing/multi-output/device profiles реализованы локально в 0.1i; приёмка ожидается.
+
+Локальная **0.1h fix3** устраняет постоянное мигание Audio settings. Fix2 проверен
+пользователем; проверка fix3 ожидается. См. [MRS_0_1H_FIX3.md](docs/MRS_0_1H_FIX3.md).
+
+Локальная **0.1h fix1** исправляет мигание кнопок при движении фейдеров и открытии
+меню. Функции 0.1h проверены пользователем; проверка исправления ожидается.
+Подробности: [MRS_0_1H_FIX1.md](docs/MRS_0_1H_FIX1.md). Код остаётся локальным.
+
+## Локальная 0.1h / MRS Stage 2c готова к проверке — 2026-10-04
+Посылы/возвраты (до 8 на канал, pre/post-fader, уровни, nested buses, cycle rejection),
+вертикальные фейдеры/стереометры, Mix поверх аранжировки, мини-панели дорожек
+(горизонтальные gain/meters, колесо pan, mono input selection), Files → Open recent project.
+Core snapshot v5 читает v1–v4; desktop config v3 читает v1/v2. Undo и сохранение общие.
+Локальные Windows x64 ASIO Release configure/build, 65/65 CTest и расширенный GUI smoke
+пройдены; зависимости использованы из кеша, GitHub Actions не использовались.
+Контракты: SENDS.md; пользовательская проверка: MRS_STAGE_2C_CHECKLIST.md.
+Пользовательская/физическая ASIO приёмка 0.1h ожидается; последняя принятая версия — 0.1g.
+Ветка mrs/0.1h-sends-ui-local остаётся локальной. На GitHub — только issues/docs;
+код push/PR/merge исключительно по отдельной просьбе. #22 и отложенный #16 остаются открыты.
+Далее в #22: hardware multi-output и device profiles. Multi-input recording — будущая работа.
+
+
+## Принята локальная 0.1g / MRS Stage 2b — Buses / Subgroups
+
+Принятая пользователем локальная сборка — 0.1g: микшер, portable folders, bus channels,
+track/bus outputs, cycle-safe routing, bus controls/meters, Undo и persistence.
+PR #48/#47 интегрированы в main; PR #49 не слит. Разработка и сборки выполняются локально.
+На GitHub обновляются только issues и документация; публикация кода и слияния — по просьбе пользователя.
+[Микшер](docs/MIXER.md) · [Шины](docs/BUSES.md) · [Приёмка Windows](docs/MRS_STAGE_2B_CHECKLIST.md).
 
 **Moon River Studio** (`MRS`, рабочее сокращение `MR Studio`) — проект собственной performance-first DAW.
 
