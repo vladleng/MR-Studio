@@ -24,7 +24,7 @@ click resolution remains unconfirmed.
 
 | Order | Slice | Issue | Status |
 |---|---|---|---|
-| 1 | 3e-P1: parallel channel processing and dependency scheduler | [#51](https://github.com/vladleng/MR-Studio/issues/51) | Planned |
+| 1 | 3e-P1: parallel channel processing and dependency scheduler | [#51](https://github.com/vladleng/MR-Studio/issues/51) | 0.1r local implementation/validation; user ASIO acceptance pending |
 | 2 | 3e-P2: anticipative playback and separate process buffer | [#52](https://github.com/vladleng/MR-Studio/issues/52) | Planned; depends on P1 |
 | 3 | 3e-P3: separate low-latency monitoring | [#53](https://github.com/vladleng/MR-Studio/issues/53) | Planned; depends on P2 |
 | 4 | 3e-P4: detailed profiling and sustained-load acceptance | [#54](https://github.com/vladleng/MR-Studio/issues/54) | Planned; depends on P3 |
@@ -32,7 +32,8 @@ click resolution remains unconfirmed.
 Minimal measurement hooks accompany P1 so scheduling decisions have evidence;
 full diagnostics/UI and broad acceptance belong to P4. Each slice receives local
 validation, a separate package and user acceptance. Build version letters are
-assigned when implementation starts. This is a documentation-only planning change.
+assigned when implementation starts. P1 is now implemented locally in 0.1r; see
+[parallel processing and measured limits](ENGINE_PARALLEL_PROCESSING.md).
 Existing 3e1 PDC, 3e2 safe transitions/dynamic latency and 3e3 recovery/isolation
 remain tracked; P1-P4 do not claim those outstanding gates completed. Transition
 safety is a prerequisite within every performance slice, not deferred until later.
