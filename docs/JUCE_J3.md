@@ -86,8 +86,9 @@ Build/test logs and validation record are bundled.
       reconnect after project open and chosen physical input/output mappings.
 - [x] User TH-U project-state/sound restore and Nuro state restore accepted.
 - [ ] Remaining physical ASIO playback/monitoring/recording acceptance on intended hardware.
-- [ ] Real 100/150/200% monitors and monitor transitions, plugin-driven resizing,
-      focus/Tab/Return/Space interactions, Narrator/UI Automation session.
+- [x] User physical multi-monitor DPI/scale-transition check accepted, 2026-10-05:
+      windows moved between screens with different scaling and worked correctly.
+- [ ] Plugin-driven resizing, focus/Tab/Return/Space interactions and Narrator/UI Automation session.
 - [ ] Decide whether JUCE becomes the default shell after these checks.
 
 Whole Stage 3/#23 and deferred #16 remain open. No Amp/Preamp/PDC/isolation work
