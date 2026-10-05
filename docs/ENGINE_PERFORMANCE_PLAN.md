@@ -18,14 +18,14 @@ wait for their outputs. They are not one serial insert chain. The previous offli
 benchmark flattened plugins into one chain and measured call overhead only; its
 approximately 11% mean reduction is not a measurement of this project's routing
 or multicore scaling. User reports fix3 slightly improved the situation; complete
-click resolution remains unconfirmed.
+click resolution was unconfirmed at this baseline; P1 later removed regular clicks in the user's 128-frame audition, with rare clicks remaining.
 
 ## Sequence and tracking
 
 | Order | Slice | Issue | Status |
 |---|---|---|---|
-| 1 | 3e-P1: parallel channel processing and dependency scheduler | [#51](https://github.com/vladleng/MR-Studio/issues/51) | 0.1r local implementation/validation; user ASIO acceptance pending |
-| 2 | 3e-P2: anticipative playback and separate process buffer | [#52](https://github.com/vladleng/MR-Studio/issues/52) | Planned; depends on P1 |
+| 1 | 3e-P1: parallel channel processing and dependency scheduler | [#51](https://github.com/vladleng/MR-Studio/issues/51) | 0.1r user-accepted at 128 frames on 2026-10-05; closed |
+| 2 | 3e-P2: anticipative playback and separate process buffer | [#52](https://github.com/vladleng/MR-Studio/issues/52) | 0.1s conservative whole-graph native playback implementation ready locally; user review pending; VST3/live stay direct |
 | 3 | 3e-P3: separate low-latency monitoring | [#53](https://github.com/vladleng/MR-Studio/issues/53) | Planned; depends on P2 |
 | 4 | 3e-P4: detailed profiling and sustained-load acceptance | [#54](https://github.com/vladleng/MR-Studio/issues/54) | Planned; depends on P3 |
 
@@ -34,6 +34,8 @@ full diagnostics/UI and broad acceptance belong to P4. Each slice receives local
 validation, a separate package and user acceptance. Build version letters are
 assigned when implementation starts. P1 is now implemented locally in 0.1r; see
 [parallel processing and measured limits](ENGINE_PARALLEL_PROCESSING.md).
+P2's initial whole-graph eligibility, history-reset transition policy and offline
+measurements are documented in [anticipative processing](ENGINE_ANTICIPATIVE_PROCESSING.md).
 Existing 3e1 PDC, 3e2 safe transitions/dynamic latency and 3e3 recovery/isolation
 remain tracked; P1-P4 do not claim those outstanding gates completed. Transition
 safety is a prerequisite within every performance slice, not deferred until later.
