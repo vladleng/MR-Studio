@@ -65,3 +65,13 @@ retaining the fix3 application version and the original package.
 Local Release rebuild and packaged J3 fixture smoke passed; no new tests or
 special TH-U/Nuro checks for this paint-only change. The prior 90/90 suite applies
 to fix3's functional changes.
+
+## 0.1p fix3 accepted and follow-up closed — 2026-10-05
+User confirms: «Принято! Все работает, закрывай».
+0.1p fix3 including the final cosmetic follow-up is accepted; this update is closed.
+Accepted local source: 43e9974133c6775ed8c6c2c2fa54ea1e78c8c16d.
+Package: MR-Studio-0.1p-fix3-cosmetic-JUCE-J3-ASIO-Windows-local.
+EXE SHA256: 1E30CDDF79B2C134EF79D3522D2AEE4B3042AB420CCD0D420184F800D729104F.
+Existing build/tests/smoke stand; no rebuild or special TH-U/Nuro tests for acceptance.
+Remaining J3 physical DPI/accessibility/default-shell gates, Stage 3/#23, Stage 3c and #16 remain open.
+Code/packages local; GitHub issues/docs only, no code push/PR/merge/Actions.
