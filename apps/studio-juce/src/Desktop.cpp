@@ -176,7 +176,12 @@ void Desktop::resized(){menu.setBounds(0,0,getWidth(),26);projectTitle.setBounds
 }
 void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFont(theme.font(12));g.setColour(message.isEmpty()?juce::Colours::lightgrey:juce::Colours::orange);
     auto s=message.isEmpty()?label(app.audio_name()):message;
-    if(message.isEmpty()){const auto samples=app.engine()->compensation().output;s+="  |  PDC "+juce::String(static_cast<double>(samples)*1000/project()->sample_rate,2)+" ms";}
+    if(message.isEmpty()){const auto samples=app.engine()->compensation().output;s+="  |  PDC "+juce::String(static_cast<double>(samples)*1000/project()->sample_rate,2)+" ms";
+        const auto metrics=app.engine()->metrics();const bool hardware=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
+        if(hardware){s+="  |  B "+(metrics.callbacks?juce::String(metrics.min_frames)+(metrics.min_frames==metrics.max_frames?juce::String():"-"+juce::String(metrics.max_frames)):juce::String("--"));
+            s+="  |  XR "+juce::String(static_cast<juce::int64>(metrics.input_underflows+metrics.input_overflows+metrics.output_underflows+metrics.output_overflows));
+            s+="  |  Late "+juce::String(static_cast<juce::int64>(metrics.deadline_misses));
+            s+="  |  D "+juce::String(static_cast<juce::int64>(metrics.disk_underruns));}}
     g.drawText(s,10,getHeight()-62,getWidth()-512,16,juce::Justification::left);
     if(sidebar){g.setColour(juce::Colour(0xff697580));g.fillRect(browserDivider.getX()+3,70,2,getHeight()-128);}
     if(mixerDivider.isVisible()){g.setColour(juce::Colour(0xff697580));g.fillRect(mixerDivider.getBounds().withHeight(1).translated(0,2));}

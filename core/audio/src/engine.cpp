@@ -2,6 +2,7 @@
 #include <mrs/read_ahead.hpp>
 #include <mrs/recording.hpp>
 #include <mrs/processing.hpp>
+#include <mrs/no_denormals.hpp>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -39,7 +40,7 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
 
     if (config.sample_rate < 8000 || config.sample_rate > 768000 ||
         config.input_channels > max_channels || config.output_channels == 0 ||
-        config.output_channels > max_channels || config.max_block == 0 || config.max_block > 65536 ||
+        config.output_channels > max_channels || config.max_block == 0 || config.max_block > 65536 || config.processing_block>config.max_block ||
         graph.voices.size() > max_voices || graph.monitor.size() > max_channels * max_channels)
         throw std::invalid_argument("invalid render configuration");
     if (graph.mixer.size() > max_mixer_tracks || !std::isfinite(graph.master_gain) || graph.master_gain < 0 || graph.master_gain > 16 ||
@@ -178,13 +179,16 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
         }
     }
     for(std::size_t i=0;i<graph.tempos.size();++i){const auto& t=graph.tempos[i];if(t.sample<0 || !std::isfinite(t.bpm) || t.bpm<1 || t.bpm>1000 || !std::isfinite(t.quarter) || (i && t.sample<=graph.tempos[i-1].sample))throw std::invalid_argument("invalid prepared tempo map");}
+    auto block_size=config.processing_block?config.processing_block:config.max_block;
+    for(const auto& chain:graph.inserts)if(chain)block_size=std::min(block_size,chain->config().max_block);
+    if(static_cast<std::uint64_t>(block_size)*config.output_channels*graph.mixer.size()*sizeof(float)>128ULL*1024*1024)
+        throw std::invalid_argument("mixer scratch budget exceeded");
     config_ = config;
     compensation_=std::move(compensation);route_delays_=std::move(routes);send_delays_=std::move(sends);legacy_delay_=std::move(legacy);
     master_envelope_.resize(config.max_block);
     direct_output_.resize(static_cast<std::size_t>(config.max_block)*config.output_channels);
     graph_ = std::move(graph);
-    insert_block_size_=std::min<std::uint32_t>(64,config.max_block);
-    for(const auto& chain:graph_.inserts)if(chain)insert_block_size_=std::min(insert_block_size_,chain->config().max_block);
+    insert_block_size_=block_size;
     track_block_.assign(graph_.mixer.size(),std::vector<float>(static_cast<std::size_t>(insert_block_size_)*config.output_channels));
     mix_order_ = std::move(order);
     MixerUpdate mix; mix.count = graph_.mixer.size(); mix.master_gain = graph_.master_gain;
@@ -296,6 +300,7 @@ RealtimeState AudioEngine::state() const {
     throw std::runtime_error("audio state busy; poll again");
 }
 void AudioEngine::process(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags) noexcept {
+    const ScopedNoDenormals no_denormals;
     callbacks_.fetch_add(1, std::memory_order_relaxed);
     if (!output || frames == 0 || frames > config_.max_block) {
         for (const auto& recorder : graph_.recordings) recorder->input_dropout();
@@ -387,9 +392,12 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     }
     const auto tempo_at=[&](Sample sample){RenderGraph::TempoSegment result;for(const auto& t:graph_.tempos){if(t.sample>sample)break;result=t;}result.quarter+=static_cast<double>(sample-result.sample)*result.bpm/(60*config_.sample_rate);return result;};
     const auto block_position=rt_.sample;const auto block_playing=rt_.playback==PlaybackState::playing;const auto block_tempo=tempo_at(block_position);
-    for(std::uint32_t base=0;base<frames;base+=insert_block_size_){
+    for(std::uint32_t base=0;base<frames;){
+        if(rt_.playback==PlaybackState::playing&&rt_.loop&&rt_.sample>=rt_.loop->end)
+            rt_.sample=rt_.loop->start+(rt_.sample-rt_.loop->start)%(rt_.loop->end-rt_.loop->start);
         const auto position=rt_.sample;const auto playing=rt_.playback==PlaybackState::playing;const auto tempo=tempo_at(position);
-        const auto count=std::min(insert_block_size_,frames-base);
+        auto count=std::min(insert_block_size_,frames-base);
+        if(playing&&rt_.loop)count=static_cast<std::uint32_t>(std::min<Sample>(count,rt_.loop->end-rt_.sample));
         for(auto& block:track_block_)std::fill_n(block.begin(),static_cast<std::size_t>(count)*config_.output_channels,0.f);
         for(std::uint32_t local=0;local<count;++local){
         const auto frame=base+local; const auto at=static_cast<std::size_t>(local)*config_.output_channels;
@@ -461,6 +469,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             if (--mix_ramp_ == 0) { master_gain_ = master_target_; mix_gain_ = mix_target_; gate_ = gate_target_; send_gain_ = send_target_; }
         }
     }
+        base+=count;
     }
     for (auto& voice : graph_.voices) if (voice.stream && voice.stream->end())
         disk_underruns_.fetch_add(1,std::memory_order_relaxed);

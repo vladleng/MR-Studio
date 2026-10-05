@@ -31,6 +31,8 @@ if(MRS_BUILD_VST3)
   target_compile_definitions(mrs_processing PUBLIC MRS_HAS_VST3=1)
   add_executable(mrs_vst3_scan tools/vst3_scan.cpp)
   target_link_libraries(mrs_vst3_scan PRIVATE mrs_processing)
+  add_executable(mrs_processing_bench tools/processing_bench.cpp)
+  target_link_libraries(mrs_processing_bench PRIVATE mrs_processing mrs_persistence ole32)
   if(BUILD_TESTING)
     add_library(mrs_vst3_fixture MODULE tests/vst3_fixture.cpp "${MRS_VST3_SDK_ROOT}/public.sdk/source/main/dllmain.cpp"
       "${MRS_VST3_SDK_ROOT}/public.sdk/source/vst/vstsinglecomponenteffect.cpp")

@@ -86,6 +86,7 @@ struct RenderConfig {
     std::uint32_t input_channels{};
     std::uint32_t output_channels{2};
     std::uint32_t max_block{8192};
+    std::uint32_t processing_block{}; // preferred host chunk; zero uses max_block
 };
 struct Metrics {
     std::uint64_t callbacks{}, input_overflows{}, input_underflows{};

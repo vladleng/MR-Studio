@@ -496,7 +496,7 @@ void Application::rebuild_audio() {
         audio::RenderGraph graph;
         if (audio_name_ == "Offline clock (no sound)") { prepare_mixer(graph); prepare_inserts(graph,c); }
         else graph = render(c);
-        engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192},std::move(graph),position);
+        engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192,c.buffer_frames},std::move(graph),position);
         if (reopen) device_->open(c,engine_);
         device_config_ = c; device_->start(); poll();
     } catch (...) { disconnect(); throw; }
@@ -764,7 +764,7 @@ void Application::prepare_inserts(audio::RenderGraph& result,const audio::Device
 #endif
         );
     };
-    for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {auto prepared=chain(t.inserts,64);result.inserts.push_back(prepared);insert_runtime_[t.id.value]={prepared,{}};}
+    for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {auto prepared=chain(t.inserts,c.buffer_frames);result.inserts.push_back(prepared);insert_runtime_[t.id.value]={prepared,{}};}
     result.master_inserts=chain(project->master_inserts,8192);insert_runtime_[std::string{}]={result.master_inserts,{}};
 }
 void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::DeviceConfig c) {
@@ -804,7 +804,7 @@ void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::De
         audio::RenderGraph graph;
         if (offline) { prepare_mixer(graph); prepare_inserts(graph,c); }
         else graph = render(c);
-        engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192},std::move(graph),position);
+        engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192,c.buffer_frames},std::move(graph),position);
         device->open(c,engine_); device->start(); audio_name_ = info->name; device_ = std::move(device); device_config_ = c; device_info_ = *info; default_inputs_ = defaults; poll();
     } catch (...) {
         default_inputs_=previous_defaults; device->close(); prepared_.reset();
@@ -902,7 +902,7 @@ void Application::start_recording(const std::filesystem::path& destination) {
         recording_error_.clear(); last_take_.clear(); last_takes_.clear(); last_recording_status_={};
         for (const auto& take : pending) captures_.push_back({take.track,std::make_shared<audio::Recorder>(take.path,p->sample_rate,position.sample,take.selectors)});
         recording_=captures_.front().recorder;
-        engine_->prepare({device_config_->sample_rate,static_cast<std::uint32_t>(device_config_->inputs.size()),static_cast<std::uint32_t>(device_config_->outputs.size()),8192},render(*device_config_),position);
+        engine_->prepare({device_config_->sample_rate,static_cast<std::uint32_t>(device_config_->inputs.size()),static_cast<std::uint32_t>(device_config_->outputs.size()),8192,device_config_->buffer_frames},render(*device_config_),position);
         transport_->play(); device_->start();
     } catch (...) {
         if (device_) device_->close();

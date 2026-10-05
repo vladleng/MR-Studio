@@ -1,5 +1,6 @@
 #include <mrs/audio.hpp>
 #include <mrs/processing.hpp>
+#include <mrs/no_denormals.hpp>
 #include "latency_fixture.hpp"
 #include <mrs/device.hpp>
 #include <mrs/read_ahead.hpp>
@@ -639,6 +640,52 @@ void inserts() {
     graph.inserts.pop_back(); rejects([&] { engine.prepare({48000,1,2,128},graph); });
 }
 
+void callback_blocks(){
+    using namespace mrs::processing;
+    struct Observed {std::array<std::uint32_t,32> frames{};std::array<Sample,32> positions{};std::size_t calls{};unsigned fp_mode{};} observed;
+    struct Probe final:IProcessor {
+        Observed& seen;explicit Probe(Observed& s):seen(s){}
+        std::vector<ParameterInfo> parameters() const override{return {};}
+        void prepare(ProcessConfig) override{}
+        void restore(const PluginState&) override{}
+        PluginState capture() const override{return {};}
+        bool set_parameter(std::uint32_t,float) noexcept override{return false;}
+        std::optional<float> parameter_value(std::uint32_t) const noexcept override{return {};}
+        std::uint32_t latency() const noexcept override{return 0;}
+        bool live_safe() const noexcept override{return true;}
+        void warm() override{}
+        void reset() noexcept override{}
+        void process(ProcessBlock b) noexcept override{if(seen.calls<seen.frames.size()){seen.frames[seen.calls]=b.frames;seen.positions[seen.calls]=b.position;}++seen.calls;
+#if defined(_M_X64) || defined(_M_IX86) || defined(__SSE2__)
+            seen.fp_mode=_mm_getcsr();
+#endif
+        }
+    };
+    auto saved=demo_graph();saved.nodes.front().parameters.clear();const auto state=std::make_shared<const GraphState>(saved);
+    auto chain=std::make_shared<PreparedGraph>(GraphSnapshot{state,0,false,false},ProcessConfig{48000,2,256},[&](const auto&){return std::make_unique<Probe>(observed);});
+    RenderGraph graph;graph.mixer.resize(1);graph.inserts={chain};
+    AudioEngine engine;engine.prepare({48000,0,2,8192,128},graph);
+#if defined(_M_X64) || defined(_M_IX86) || defined(__SSE2__)
+    const auto original_mode=_mm_getcsr();_mm_setcsr(original_mode&~0x8040U);const auto caller_mode=_mm_getcsr();
+#endif
+    std::array<float,1024> audio{};const auto allocations=allocation_check::count.load();allocation_check::enabled=true;
+    engine.process(nullptr,audio.data(),128);allocation_check::enabled=false;
+#if defined(_M_X64) || defined(_M_IX86) || defined(__SSE2__)
+    CHECK((observed.fp_mode&0x8040U)==0x8040U&&_mm_getcsr()==caller_mode);_mm_setcsr(original_mode);
+#endif
+    CHECK(observed.calls==1&&observed.frames[0]==128&&allocation_check::count.load()==allocations);
+    observed={};engine.prepare({48000,0,2,8192,256},graph);engine.process(nullptr,audio.data(),256);CHECK(observed.calls==1&&observed.frames[0]==256);
+    observed={};engine.prepare({48000,0,2,8192,128},graph);engine.process(nullptr,audio.data(),299);CHECK(observed.calls==3&&observed.frames[0]==128&&observed.frames[1]==128&&observed.frames[2]==43);
+    observed={};engine.prepare({48000,0,2,8192,128},graph,{PlaybackState::paused,10,LoopRange{10,27}});
+    CHECK(engine.enqueue({ControlKind::play}));engine.process(nullptr,audio.data(),128);
+    CHECK(observed.calls==8&&observed.frames[0]==17&&observed.frames[7]==9);
+    for(std::size_t i=0;i<observed.calls;++i)CHECK(observed.positions[i]==10);
+    CHECK(engine.state().sample==19);
+    rejects([&]{engine.prepare({48000,0,2,128,256},graph);});
+    RenderGraph oversized;oversized.mixer.resize(max_mixer_tracks);
+    rejects([&]{engine.prepare({48000,0,max_channels,65536},oversized);});
+}
+
 void multi_input() {
     TempFile mono, stereo;
     auto first=std::make_shared<Recorder>(mono.path,48000,100,std::vector<std::uint32_t>{2});
@@ -701,7 +748,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
-        if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();
