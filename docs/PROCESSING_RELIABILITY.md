@@ -138,7 +138,9 @@ No special installed TH-U/Nuro tests. Code/builds local, GitHub docs/issues only
 ## 0.1q fix3 — investigate clicks at 128 frames
 
 User reports clicks at 128, absent at 256, with TH-U, Xvox Pro and IK Multimedia
-One; Studio Pro handles the intended workload without those clicks. This is a new
+One. Clarification: TH-U and Xvox are on different channels, One on Master;
+they are not one serial insert chain. Studio Pro handles the intended workload
+without those clicks. This is a new
 performance report, so focused installed-plugin CPU experiments are in scope.
 Previously accepted preset/editor behavior is not routinely retested.
 
@@ -187,3 +189,13 @@ Branch: mrs/0.1q-fix3-processing-local. Code/builds local; GitHub docs/issues on
 Cached offline configure/full local Release build and 92/92 CTest passed
 (22.41 seconds). Current software preview inspected. Real ASIO listening with
 all three active presets at 128 frames remains the user's pending acceptance check.
+
+## Universal engine performance direction — 2026-10-05
+
+User reports fix3 slightly improved playback and authorizes systematic shared
+engine development, independent of a particular project/plugin brand. Complete
+click resolution is not confirmed. Follow [the performance plan](ENGINE_PERFORMANCE_PLAN.md):
+3e-P1 parallel channels (#51), 3e-P2 anticipative playback (#52), 3e-P3 separate
+low-latency monitoring (#53), then 3e-P4 profiling and sustained-load acceptance
+(#54). Minimal profiling accompanies P1. All four slices are planned, not
+implemented; existing transition/isolation/hardware gates remain open.
