@@ -296,6 +296,26 @@ GraphState PreparedGraph::capture() const {
 }
 std::uint32_t PreparedGraph::node_latency(const Id& id) const{auto it=impl_->index.find(id.value);return it==impl_->index.end()?0:impl_->nodes[it->second].processor->latency();}
 std::vector<ParameterInfo> PreparedGraph::parameter_infos(const Id& id) const{auto it=impl_->index.find(id.value);return it==impl_->index.end()?std::vector<ParameterInfo>{}:[&]{auto infos=impl_->nodes[it->second].infos;if(impl_->snapshot.graph->nodes[it->second].format==ProcessorFormat::vst3)for(auto& p:infos)if(auto v=impl_->nodes[it->second].processor->parameter_value(p.id))p.initial=*v;return infos;}();}
+void PreparedGraph::restore_node(const NodeState& state) {
+    auto& p=*impl_;const auto found=p.index.find(state.id.value);
+    if(found==p.index.end())throw std::invalid_argument("unknown preset processor");
+    const auto index=found->second;const auto& original=p.snapshot.graph->nodes[index];
+    if(state.format!=ProcessorFormat::vst3||state.processor_id!=original.processor_id||state.plugin.class_id!=original.plugin.class_id||state.bypass!=original.bypass)throw std::invalid_argument("preset changes processor structure");
+    auto saved=capture();auto next=std::make_shared<GraphState>(*p.snapshot.graph);next->nodes[index]=state;next->validate();
+    auto& node=p.nodes[index];const auto latency=node.processor->latency();
+    try {
+        node.processor->restore(state.plugin);
+        auto infos=node.processor->parameters();
+        const bool legacyFull=!state.plugin.component.empty()&&state.parameters.size()>1&&state.parameters.size()==static_cast<std::size_t>(std::count_if(infos.begin(),infos.end(),[](const auto& info){return info.automatable;}))&&std::all_of(state.parameters.begin(),state.parameters.end(),[&](const auto& value){return std::any_of(infos.begin(),infos.end(),[&](const auto& info){return info.id==value.id&&info.automatable;});});
+        if(!legacyFull)for(const auto& value:state.parameters){auto at=std::find_if(infos.begin(),infos.end(),[&](const auto& info){return info.id==value.id&&info.automatable;});
+            if(at==infos.end()||value.value<at->minimum||value.value>at->maximum)throw std::invalid_argument("invalid preset parameter");
+            if(node.processor->parameter_value(value.id)!=value.value){if(!node.processor->set_parameter(value.id,value.value))throw std::invalid_argument("preset parameter rejected");node.processor->sync_controller(value.id,value.value);}
+        }
+        (void)node.processor->capture(); // flush sparse overrides without advancing audio
+        if(node.processor->latency()!=latency)throw std::runtime_error("Preset changes plugin latency; reload the insert before using this mode");
+        node.infos=std::move(infos);p.last_parameters[state.id.value]=state.parameters;p.snapshot.graph=std::move(next);
+    }catch(...){node.processor->restore(saved.nodes[index].plugin);throw;}
+}
 bool PreparedGraph::open_editor(const Id& id,void* parent,int& w,int& h){const auto it=impl_->index.find(id.value);if(it==impl_->index.end())return false;return impl_->nodes[it->second].processor->open_editor(parent,w,h);}
 void PreparedGraph::close_editors() noexcept {for(auto& n:impl_->nodes)n.processor->close_editor();}
 bool PreparedGraph::consume_edits() noexcept{bool any=false;for(auto& n:impl_->nodes)any=n.processor->edited()||any;return any;}

@@ -106,9 +106,13 @@ public:
         latency_=processor_->getLatencySamples();
     }
     void restore(const PluginState& state) override{
+        ParameterChange stale;while(editor_changes_.pop(stale)){}initial_pending_.fill(false);initial_count_=0;
+        edited_=false;refresh_values_=false;
+
         if(!state.component.empty()){MemoryStream s(const_cast<std::byte*>(state.component.data()),state.component.size());ok(component_->setState(&s),"restore component state failed");s.seek(0,IBStream::kIBSeekSet,nullptr);controller_->setComponentState(&s);}
         if(!state.controller.empty()){MemoryStream s(const_cast<std::byte*>(state.controller.data()),state.controller.size());ok(controller_->setState(&s),"restore controller state failed");}
         for(std::size_t i=0;i<infos_.size();++i){const auto v=static_cast<float>(controller_->getParamNormalized(infos_[i].id));values_[i]=v;infos_[i].initial=v;}
+        latency_=processor_->getLatencySamples();
     }
     PluginState capture() const override{
         // VST3's zero-sample parameter flush, off the audio thread with callbacks

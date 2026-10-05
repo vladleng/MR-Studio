@@ -74,7 +74,11 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
         check(presetWindow->isVisible()&&IsWindow(child),"preset list refresh keeps native editor alive");
         const auto beforeLoad=d.app.services().projects->state().revision;d.loadPresetFile(second,plugin.id,presetFile);
         check(d.message.isEmpty()&&d.app.services().projects->state().revision==beforeLoad,"same snapshot preset restores DSP without a redundant history entry");
+        check(presetWindow->isVisible()&&IsWindow(child)&&d.windows.back().get()==presetWindow,"preset load preserves editor HWND and window identity");
         check(d.app.capture_insert(second,plugin.id).component_state==savedPreset.component_state,"preset equal to project snapshot replaces edited live DSP");
+        auto badPreset=savedPreset;badPreset.component_state={std::byte{0},std::byte{0},std::byte{0},std::byte{0x40}}; // fixture rejects gain 2.0
+        publishSettings(presetFile,encodePreset(badPreset));d.loadPresetFile(second,plugin.id,presetFile);
+        check(!d.message.isEmpty()&&IsWindow(child)&&d.app.capture_insert(second,plugin.id).component_state==savedPreset.component_state,"failed in-place preset restores previous DSP and retains editor");d.message.clear();
         presetFile.deleteFile();d.closeEditors();d.app.set_plugin_parameter(second,plugin.id,100,.25f);render();
     }
     const auto folder=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("mrs-juce-j2","",false);folder.createDirectory();
@@ -98,6 +102,7 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     d.action(10);check(d.project()->clips.size()==clipsBeforeDrop&&d.project()->tracks.size()==tracksBeforeDrop,"sample import undo restores clips without removing track");
     d.arrangement->filesDropped({wav.getFullPathName()},400,70+static_cast<int>(tracksBeforeDrop)*d.arrangement->trackHeight+4);
     fileTree->setSelectedFile(wav);
+    {const auto until=juce::Time::getMillisecondCounter()+180;while(juce::Time::getMillisecondCounter()<until){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}juce::Thread::sleep(1);}}
     {auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-files-preview.png").createOutputStream();juce::PNGImageFormat format;if(stream){stream->setPosition(0);stream->truncate();format.writeImageToStream(d.createComponentSnapshot(d.getLocalBounds(),true,1.f,juce::SoftwareImageType{}),*stream);}}
     d.browser->showFiles(false);check(d.project()->tracks.size()==4,"WAV import track");
     const auto imported=d.project()->clips.back();

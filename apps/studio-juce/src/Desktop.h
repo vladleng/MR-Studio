@@ -171,7 +171,7 @@ private:
     static constexpr int header=70,left=250;
 };
 
-class Browser final : public juce::Component {
+class Browser final : public juce::Component,private juce::FileBrowserListener,private juce::Timer {
 public:
     explicit Browser(Desktop&);
     ~Browser() override;
@@ -183,6 +183,16 @@ public:
     void rebuild();
     juce::TreeView tree;
 private:
+    void selectionChanged() override;
+    void fileClicked(const juce::File&,const juce::MouseEvent&) override {}
+    void fileDoubleClicked(const juce::File& file) override {if(file.isDirectory())navigate(file);}
+    void browserRootChanged(const juce::File&) override {}
+    void timerCallback() override;
+    struct Preview {juce::File file;juce::String info;std::array<float,256> levels{};};
+    std::future<Preview> previewWorker;juce::File wantedFile;Preview preview;
+    juce::ComboBox locations;std::vector<juce::File> locationPaths;
+    juce::Viewport breadcrumbView;juce::Component breadcrumbBody;
+    std::vector<std::unique_ptr<juce::TextButton>> crumbs;
     Desktop& owner;
     juce::TextButton scanButton{"Scan VST3..."};
     juce::TextEditor search;

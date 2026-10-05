@@ -202,6 +202,7 @@ public:
     std::vector<ParameterInfo> parameter_infos(const Id&) const;
     bool open_editor(const Id&,void*,int&,int&);
     void close_editors() noexcept;
+    void restore_node(const NodeState&); // quiescent: retain processor/editor instance
     bool consume_edits() noexcept;
     bool failed() const noexcept;
 private:

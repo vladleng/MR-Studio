@@ -3,10 +3,10 @@
 #include <BinaryData.h>
 #include <cmath>
 namespace ui {
-constexpr auto background = 0xff292d31;
-constexpr auto panel = 0xff383e43;
-constexpr auto surface = 0xff111315;
-constexpr auto accent = 0xff3285ec;
+constexpr auto background = 0xff303438;
+constexpr auto panel = 0xff393e43;
+constexpr auto surface = 0xff25282b;
+constexpr auto accent = 0xff006dcc;
 
 class Theme final : public juce::LookAndFeel_V4 {
 public:
@@ -15,6 +15,9 @@ public:
         setColour(juce::TextButton::buttonColourId, juce::Colour(panel));
         setColour(juce::TextButton::buttonOnColourId, juce::Colour(accent));
         setColour(juce::TextButton::textColourOffId, juce::Colours::whitesmoke);
+        setColour(juce::ComboBox::backgroundColourId,juce::Colour(background));setColour(juce::ComboBox::outlineColourId,juce::Colour(0xff51565c));
+        setColour(juce::TextEditor::backgroundColourId,juce::Colour(surface));setColour(juce::TextEditor::outlineColourId,juce::Colour(0xff51565c));
+        setColour(juce::TreeView::linesColourId,juce::Colour(0xff858d94));setColour(juce::ScrollBar::thumbColourId,juce::Colour(0xff62686e));
     }
     void drawTreeviewPlusMinusBox(juce::Graphics& g,const juce::Rectangle<float>& area,juce::Colour,bool open,bool hover) override {
         g.setColour(hover?juce::Colours::white:juce::Colour(0xffb8bdc2));
@@ -23,14 +26,22 @@ public:
         else {arrow.startNewSubPath(centre.x-size*.5f,centre.y-size);arrow.lineTo(centre.x+size*.5f,centre.y);arrow.lineTo(centre.x-size*.5f,centre.y+size);}
         g.strokePath(arrow,juce::PathStrokeType(1.5f));
     }
-    juce::Font getTextButtonFont(juce::TextButton&, int) override { return font(14); }
+    void drawButtonText(juce::Graphics& g,juce::TextButton& button,bool hover,bool down) override {
+        const auto text=button.getButtonText();auto area=button.getLocalBounds().toFloat().reduced(8);auto centre=area.getCentre();
+        if(text=="Play"){g.setColour(juce::Colour(0xff31b7dd));juce::Path shape;shape.addTriangle(centre.x-5,centre.y-7,centre.x-5,centre.y+7,centre.x+7,centre.y);g.fillPath(shape);}
+        else if(text=="Stop"){g.setColour(juce::Colour(0xffc6d3df));g.fillRect(centre.x-6,centre.y-6,12.f,12.f);}
+        else if(text=="Pause"){g.setColour(juce::Colour(0xffc6d3df));g.fillRect(centre.x-6,centre.y-6,4.f,12.f);g.fillRect(centre.x+2,centre.y-6,4.f,12.f);}
+        else if(text=="Record (R)"){g.setColour(juce::Colour(0xffe64b54));g.fillEllipse(centre.x-6,centre.y-6,12,12);}
+        else juce::LookAndFeel_V4::drawButtonText(g,button,hover,down);
+    }
+    juce::Font getTextButtonFont(juce::TextButton&, int) override { return font(12); }
     juce::Font font(float size) const { return juce::Font(juce::FontOptions(face).withPointHeight(size)); }
     void drawButtonBackground(juce::Graphics& g, juce::Button& b, const juce::Colour& c,
                               bool hover, bool down) override {
         g.setColour(c.brighter(down ? .18f : hover ? .09f : 0.f));
-        g.fillRect(b.getLocalBounds().reduced(1));
+        g.fillRoundedRectangle(b.getLocalBounds().reduced(1).toFloat(),3.f);
         g.setColour(b.hasKeyboardFocus(true) ? juce::Colours::skyblue : juce::Colour(0xff525a62));
-        g.drawRect(b.getLocalBounds().reduced(1));
+        g.drawRoundedRectangle(b.getLocalBounds().reduced(1).toFloat(),3.f,1.f);
     }
 private:
     juce::Typeface::Ptr face;

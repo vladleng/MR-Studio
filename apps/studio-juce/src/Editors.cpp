@@ -121,7 +121,9 @@ void Desktop::loadPresetFile(std::optional<mrs::Id> target,mrs::Id slot,const ju
     auto effects=chain(target);auto at=std::find_if(effects.begin(),effects.end(),[&](const auto& n){return n.id==slot;});if(at==effects.end())throw std::runtime_error("Insert no longer exists");
     auto preset=decodePreset(file.loadFileAsString(),*at);
     if(app.engine()->state().playback==mrs::PlaybackState::playing||app.recording())throw std::runtime_error("Pause/Stop before loading a plugin preset");
-    closeEditors();app.load_insert_preset(target,std::move(preset));editorGeneration=app.insert_generation();refresh(true);openInsert(target,slot);
+    const bool nativeView=preset.kind==mrs::InsertKind::vst3;
+    if(!nativeView)closeEditors();app.load_insert_preset(target,std::move(preset));editorGeneration=app.insert_generation();refresh(true);
+    if(!nativeView)openInsert(target,slot);
 });}
 void Desktop::loadPreset(std::optional<mrs::Id> target,mrs::Id slot){juce::Component::SafePointer<Desktop> safe(this);
     choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[safe,target,slot](auto file){if(safe)safe->loadPresetFile(target,slot,file);},"*.mrspreset");

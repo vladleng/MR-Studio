@@ -1,4 +1,6 @@
-# 0.1p / JUCE J3 РІР‚вЂќ Windows polish and parity review
+# 0.1p / JUCE J3 Р Р†Р вЂљРІР‚Сњ Windows polish and parity review
+
+Follow-up 0.1p fix2: user accepted TH-U state/sound after project reopen; special TH-U/Nuro build checks disabled by policy. VST3 preset loads keep the editor/processor instance; reference palette and Files breadcrumbs/details added. See [JUCE_FIX2.md](JUCE_FIX2.md).
 
 Follow-up 0.1p fix1: upd2 embedded plugin GUI accepted; explicit preset restoration, in-place Save list refresh, visible/resizable browser and WAV drops onto existing tracks. See [JUCE_FIX1.md](JUCE_FIX1.md). TH-U audible review remains pending.
 
@@ -49,7 +51,7 @@ remaining physical acceptance gates are verified.
   Plugin-directed resize/content scaling while crossing physical monitors still
   requires the explicit acceptance check below.
 
-## Local verification РІР‚вЂќ 2026-10-05
+## Local verification Р Р†Р вЂљРІР‚Сњ 2026-10-05
 
 - Cached, fully disconnected Windows MSVC/SDK configure and full Release build passed.
   No new dependencies installed/downloaded; no GitHub Actions.
@@ -80,8 +82,8 @@ Build/test logs and validation record are bundled.
 
 - [ ] User review: saved view/window state after restart, ASIO profile load/connect,
       reconnect after project open and chosen physical input/output mappings.
-- [ ] Audible playback/monitoring/recording on intended ASIO hardware; selected TH-U
-      preset after save/reopen and intended Nuro plugins in actual projects.
+- [x] User TH-U project-state/sound restore and Nuro state restore accepted.
+- [ ] Remaining physical ASIO playback/monitoring/recording acceptance on intended hardware.
 - [ ] Real 100/150/200% monitors and monitor transitions, plugin-driven resizing,
       focus/Tab/Return/Space interactions, Narrator/UI Automation session.
 - [ ] Decide whether JUCE becomes the default shell after these checks.

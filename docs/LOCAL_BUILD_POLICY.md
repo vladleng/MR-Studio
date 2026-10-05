@@ -8,6 +8,7 @@ User instructions, recorded 2026-10-05:
 - Nuro Audio project-state restore is user accepted. Do not run special installed
   Nuro compatibility/state checks on every build. Repeat only when the user requests
   it or reports a new Nuro issue. Keep ordinary synthetic VST3 regression tests.
-- TH-U audible state regression is tracked separately; matching preset UI or opaque
-  bytes alone is insufficient evidence that rendered sound is restored.
-
+- TH-U project-state/sound restore is user accepted on 2026-10-05. Do not run
+  special installed TH-U editor/state/DSP comparisons on routine builds. Repeat
+  only on an explicit request or a newly reported TH-U-specific issue. Keep ordinary
+  synthetic plugin regression coverage; new generic preset workflow tests use fixtures.

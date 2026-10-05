@@ -419,7 +419,20 @@ void Application::load_insert_preset(std::optional<Id> track,NativeInsert preset
     auto at=std::find_if(effects.begin(),effects.end(),[&](const auto& effect){return effect.id==preset.id;});
     require(at!=effects.end()&&at->kind==preset.kind,"unknown preset insert");
     require(preset.kind!=InsertKind::vst3||(at->class_id==preset.class_id&&at->plugin_path==preset.plugin_path),"preset plugin mismatch");
-    const auto id=preset.id;*at=std::move(preset);
+    const auto id=preset.id;
+    if(preset.kind==InsertKind::vst3){
+        auto runtime=insert_runtime_.find(track?track->value:std::string{});
+        require(device_&&runtime!=insert_runtime_.end()&&runtime->second.graph,"Plugin is not prepared; connect audio or offline clock");
+        auto candidate=*services_.projects->state().project;*at=preset;SetInserts{track,effects}.apply(candidate);candidate.validate();
+        device_->stop();
+        try {
+            auto previous=runtime->second.graph->capture();auto requested=processing::insert_graph(std::array{preset}).nodes.front();
+            runtime->second.graph->restore_node(requested);runtime->second.pending.reset();
+            try{services_.projects->execute(SetInserts{track,std::move(effects)});}catch(...){auto old=std::find_if(previous.nodes.begin(),previous.nodes.end(),[&](const auto& n){return n.id==id;});if(old!=previous.nodes.end())runtime->second.graph->restore_node(*old);throw;}
+            unsaved_=true;device_->start();return;
+        }catch(...){device_->start();throw;}
+    }
+    *at=std::move(preset);
     // An explicit load must restore even identical serialized state: the active
     // controller/DSP may have been edited since the last project snapshot.
     edit(SetInserts{track,std::move(effects)},id);

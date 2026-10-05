@@ -255,7 +255,7 @@ void Strip::resized(){const int w=getWidth(),h=getHeight();if(mini){mute.setBoun
         pan.setBounds(8,56+effectHeight,w-16,30);gain.setBounds(w-62,90+effectHeight,56,juce::jmax(55,h-200-effectHeight));
         mute.setBounds(8,h-85,40,24);solo.setBounds(52,h-85,40,24);output.setBounds(8,h-56,w-16,23);sends.setBounds(8,h-30,w-16,23);}
 }
-void Strip::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setColour(juce::Colour(accent));g.fillRect(0,0,mini?4:getWidth(),mini?getHeight():3);
+void Strip::paint(juce::Graphics& g){g.fillAll(juce::Colour(mini?0xff393e43:0xff303438));g.setColour(juce::Colour(accent));g.fillRect(0,0,mini?4:getWidth(),mini?getHeight():3);
     const auto t=track();g.setFont(owner.theme.font(12));g.setColour(target?juce::Colours::whitesmoke:juce::Colours::gold);
     g.drawText(target?label(t.name):"MASTER",8,3,mini?getWidth()-145:getWidth()-16,23,juce::Justification::left);
     mrs::audio::StereoPeak p=owner.masterPeak;if(target){const auto tracks=owner.project()->tracks;for(std::size_t i=0;i<tracks.size();++i)if(tracks[i].id==target)p=owner.peaks[i];}
@@ -283,9 +283,10 @@ mrs::Sample Arrangement::sampleAt(float x) const{auto sample=static_cast<mrs::Sa
     if(owner.snap){mrs::Timeline time(owner.project()->time,owner.project()->sample_rate);auto tick=time.to_ticks(sample);sample=time.to_samples((tick/(mrs::ppq/4))*(mrs::ppq/4));}return sample;}
 juce::Rectangle<float> Arrangement::clipRect(const mrs::Clip& c) const{int index=0;for(const auto& t:owner.project()->tracks){if(t.id==c.track)break;++index;}
     const double rate=owner.project()->sample_rate;return {static_cast<float>(left+c.start/rate*pixelsPerSecond-horizontal),static_cast<float>(header+index*trackHeight-vertical+22),static_cast<float>(c.length/rate*pixelsPerSecond),static_cast<float>(trackHeight-27)};}
-void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFont(owner.theme.font(11));g.setColour(juce::Colours::lightgrey);
+void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(0xff373b3f));g.setFont(owner.theme.font(11));g.setColour(juce::Colours::lightgrey);
     const auto p=owner.project();mrs::Timeline time(p->time,p->sample_rate);
     g.drawText("Tracks / input / monitor",8,5,left-10,22,juce::Justification::left);
+    for(int gridX=left;gridX<getWidth();gridX+=10){g.setColour(juce::Colour(0xff40454a));g.drawVerticalLine(gridX,20,static_cast<float>(getHeight()));}
     for(int x=left;x<getWidth();x+=40){const auto sample=sampleAt(static_cast<float>(x));auto pos=time.musical_position(time.to_ticks(sample));g.setColour(juce::Colour(0xff4a5259));g.drawVerticalLine(x,20,static_cast<float>(getHeight()));g.setColour(juce::Colours::lightgrey);g.drawText(juce::String(pos.bar)+":"+juce::String(pos.beat),x+2,0,40,20,juce::Justification::left);}
     for(const auto& section:p->sections){const float x=static_cast<float>(left+static_cast<double>(time.to_samples(section.start))/p->sample_rate*pixelsPerSecond-horizontal);const float width=static_cast<float>(static_cast<double>(time.to_samples(section.end)-time.to_samples(section.start))/p->sample_rate*pixelsPerSecond);
         g.setColour(juce::Colour(section.color).withAlpha(1.f));g.fillRect(juce::Rectangle<float>(x,22,width,22));g.setColour(juce::Colours::white);g.drawText(label(section.name),static_cast<int>(x)+4,22,static_cast<int>(width)-4,22,juce::Justification::left);}
@@ -342,6 +343,14 @@ public:
 };
 }
 Browser::Browser(Desktop& d):owner(d){
+    addAndMakeVisible(locations);addAndMakeVisible(breadcrumbView);breadcrumbView.setViewedComponent(&breadcrumbBody,false);breadcrumbView.setScrollBarsShown(false,false);
+    auto addLocation=[&](juce::String name,juce::File file){if(file.isDirectory()){locationPaths.push_back(file);locations.addItem(name,static_cast<int>(locationPaths.size()));}};
+    addLocation("Desktop",juce::File::getSpecialLocation(juce::File::userDesktopDirectory));addLocation("Documents",juce::File::getSpecialLocation(juce::File::userDocumentsDirectory));
+    addLocation("Music",juce::File::getSpecialLocation(juce::File::userMusicDirectory));addLocation("MR Studio",juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio"));
+    juce::Array<juce::File> drives;juce::File::findFileSystemRoots(drives);for(const auto& drive:drives)addLocation("Volume "+drive.getFullPathName(),drive);
+    locations.setTitle("Quick folders and volumes");breadcrumbView.setTitle("Folder breadcrumbs");locations.setTextWhenNothingSelected("Folders");locations.onChange=[this]{const auto index=locations.getSelectedId()-1;if(index>=0&&index<static_cast<int>(locationPaths.size()))owner.run([&]{navigate(locationPaths[static_cast<std::size_t>(index)]);});};
+    fileTree.addListener(this);startTimerHz(10);
+
     for(auto* component:{static_cast<juce::Component*>(&vstTab),static_cast<juce::Component*>(&filesTab),static_cast<juce::Component*>(&parentFolder),static_cast<juce::Component*>(&chooseFolder),static_cast<juce::Component*>(&folderPath),static_cast<juce::Component*>(&fileTree)})addAndMakeVisible(component);
     vstTab.onClick=[this]{showFiles(false);};filesTab.onClick=[this]{showFiles(true);};
     parentFolder.onClick=[this]{navigate(directory.getDirectory().getParentDirectory());};
@@ -355,14 +364,32 @@ Browser::Browser(Desktop& d):owner(d){
 search.setTitle("Search VST3 plugins");search.setTextToShowWhenEmpty("Search VST3...",juce::Colours::grey);tree.setTitle("VST3 plugins by vendor");addAndMakeVisible(tree);addAndMakeVisible(scanButton);addAndMakeVisible(search);tree.setDefaultOpenness(false);tree.setRootItemVisible(false);
     search.setTextToShowWhenEmpty("Search VST3...",juce::Colours::grey);search.onTextChange=[this]{rebuild();};
     scanButton.onClick=[this]{owner.choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectDirectories,[this](const auto& f){owner.scan(f);});};rebuild();}
-Browser::~Browser(){tree.setRootItem(nullptr);fileThread.stopThread(2000);}
-void Browser::navigate(const juce::File& folder){if(!folder.isDirectory())throw std::runtime_error("Folder is unavailable");directory.setDirectory(folder,true,true);folderPath.setText(folder.getFullPathName(),false);}
-void Browser::showFiles(bool files){filesVisible=files;for(auto* component:{static_cast<juce::Component*>(&fileTree),static_cast<juce::Component*>(&folderPath),static_cast<juce::Component*>(&parentFolder),static_cast<juce::Component*>(&chooseFolder)})component->setVisible(files);
+Browser::~Browser(){stopTimer();fileTree.removeListener(this);breadcrumbView.setViewedComponent(nullptr,false);tree.setRootItem(nullptr);fileThread.stopThread(2000);}
+void Browser::navigate(const juce::File& folder){if(!folder.isDirectory())throw std::runtime_error("Folder is unavailable");directory.setDirectory(folder,true,true);folderPath.setText(folder.getFullPathName(),false);
+    crumbs.clear();std::vector<juce::File> parents;auto current=folder;for(int i=0;i<32;++i){parents.push_back(current);auto parent=current.getParentDirectory();if(parent==current)break;current=parent;}
+    int x=0;for(auto it=parents.rbegin();it!=parents.rend();++it){auto file=*it;auto text=file.getFileName().isEmpty()?file.getFullPathName():file.getFileName();auto button=std::make_unique<juce::TextButton>(text+"  >");const int width=juce::jlimit(62,170,text.length()*7+28);button->setBounds(x,0,width,24);x+=width+2;
+        juce::Component::SafePointer<Browser> safe(this);button->onClick=[safe,file]{juce::MessageManager::callAsync([safe,file]{if(safe)safe->owner.run([&]{safe->navigate(file);});});};breadcrumbBody.addAndMakeVisible(*button);crumbs.push_back(std::move(button));}
+    breadcrumbBody.setSize(x,24);breadcrumbView.setViewPosition(juce::jmax(0,x-breadcrumbView.getWidth()),0);
+}
+void Browser::selectionChanged(){const auto files=selectedSamples();wantedFile=files.isEmpty()?juce::File():juce::File(files[0]);if(wantedFile==juce::File()){preview={};repaint();}}
+void Browser::timerCallback(){
+    if(previewWorker.valid()){if(previewWorker.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;auto result=previewWorker.get();if(result.file==wantedFile){preview=std::move(result);repaint();}}
+    if(wantedFile==juce::File()||preview.file==wantedFile)return;auto file=wantedFile;
+    previewWorker=std::async(std::launch::async,[file]{Preview result;result.file=file;try{auto wav=mrs::audio::inspect_wav(path(file));result.info=juce::String(wav.sample_rate/1000.,1)+" kHz | "+juce::String(wav.bits)+" bit | "+(wav.channels==1?"Mono":wav.channels==2?"Stereo":juce::String(wav.channels)+" channels")+"\nWAV | "+juce::String(static_cast<double>(wav.frame_count)/wav.sample_rate/60,2)+" min | "+file.getLastModificationTime().formatted("%d.%m.%Y %H:%M");
+        for(std::size_t bin=0;bin<result.levels.size();++bin){const auto first=wav.frame_count*static_cast<mrs::Sample>(bin)/static_cast<mrs::Sample>(result.levels.size());const auto count=std::min<mrs::Sample>(128,wav.frame_count-first);if(count<=0)continue;std::vector<float> block(static_cast<std::size_t>(count)*wav.channels);wav.read(first,block);for(float value:block)if(std::isfinite(value))result.levels[bin]=std::max(result.levels[bin],std::abs(value));}
+    }catch(const std::exception& e){result.info=label(e.what());}return result;});
+}
+
+void Browser::showFiles(bool files){filesVisible=files;locations.setVisible(files);breadcrumbView.setVisible(files);for(auto* component:{static_cast<juce::Component*>(&fileTree),static_cast<juce::Component*>(&folderPath),static_cast<juce::Component*>(&parentFolder),static_cast<juce::Component*>(&chooseFolder)})component->setVisible(files);
     tree.setVisible(!files);scanButton.setVisible(!files);search.setVisible(!files);vstTab.setToggleState(!files,juce::dontSendNotification);filesTab.setToggleState(files,juce::dontSendNotification);repaint();}
 juce::StringArray Browser::selectedSamples() const {juce::StringArray files;for(int i=0;i<fileTree.getNumSelectedFiles();++i){auto file=fileTree.getSelectedFile(i);if(file.existsAsFile()&&file.hasFileExtension("wav"))files.add(file.getFullPathName());}return files;}
-void Browser::resized(){vstTab.setBounds(8,0,76,26);filesTab.setBounds(90,0,76,26);scanButton.setBounds(8,28,getWidth()-16,28);search.setBounds(8,62,getWidth()-16,26);tree.setBounds(8,94,getWidth()-16,getHeight()-120);
-    parentFolder.setBounds(8,28,52,28);chooseFolder.setBounds(66,28,getWidth()-74,28);folderPath.setBounds(8,62,getWidth()-16,26);fileTree.setBounds(tree.getBounds());}
-void Browser::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setColour(juce::Colours::whitesmoke);g.setFont(owner.theme.font(12));g.drawText(filesVisible?"Drag WAV samples into arrangement":"Drag an effect onto a mixer channel",8,getHeight()-23,getWidth()-16,20,juce::Justification::left);}
+void Browser::resized(){vstTab.setBounds(8,0,76,26);filesTab.setBounds(90,0,76,26);scanButton.setBounds(8,32,getWidth()-16,26);search.setBounds(8,64,getWidth()-16,26);tree.setBounds(8,98,getWidth()-16,getHeight()-122);
+    locations.setBounds(8,32,getWidth()-132,26);parentFolder.setBounds(getWidth()-118,32,44,26);chooseFolder.setBounds(getWidth()-68,32,60,26);chooseFolder.setButtonText("...");folderPath.setBounds(8,64,getWidth()-16,26);breadcrumbView.setBounds(8,98,getWidth()-16,24);fileTree.setBounds(4,126,getWidth()-8,juce::jmax(30,getHeight()-278));}
+void Browser::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setColour(juce::Colours::whitesmoke);g.setFont(owner.theme.font(11));
+    if(filesVisible){auto area=juce::Rectangle<int>(0,getHeight()-148,getWidth(),124);g.setColour(juce::Colour(panel));g.fillRect(area);g.setColour(juce::Colours::whitesmoke);g.drawText(preview.file==juce::File()?"Select a WAV sample":preview.file.getFileNameWithoutExtension(),area.removeFromTop(28).reduced(8,0),juce::Justification::left);
+        g.drawFittedText(preview.info,area.removeFromTop(42).reduced(8,0),juce::Justification::topLeft,2);auto wave=area.reduced(8,4).toFloat();g.setColour(juce::Colour(0xff929ba4));for(int x=0;x<static_cast<int>(wave.getWidth());++x){const auto index=static_cast<std::size_t>(x*256/juce::jmax(1,static_cast<int>(wave.getWidth())));const auto height=juce::jlimit(1.f,wave.getHeight(),preview.levels[index]*wave.getHeight());g.drawVerticalLine(static_cast<int>(wave.getX())+x,wave.getCentreY()-height/2,wave.getCentreY()+height/2);}
+    }
+    g.drawText(filesVisible?"Drag WAV onto a track or empty space":"Drag an effect onto a mixer channel",8,getHeight()-23,getWidth()-16,20,juce::Justification::left);}
 void Browser::rebuild(){tree.setRootItem(nullptr);root=std::make_unique<BrowserNode>("root");std::map<std::string,BrowserNode*> vendors;
     for(std::size_t i=0;i<owner.catalog.size();++i){const auto& p=owner.catalog[i];if(!search.getText().isEmpty()&&!label(p.name+" "+p.vendor).containsIgnoreCase(search.getText()))continue;
         if(!vendors.contains(p.vendor)){auto* node=new BrowserNode(label(p.vendor));root->addSubItem(node);node->setOpen(false);vendors[p.vendor]=node;}vendors[p.vendor]->addSubItem(new BrowserNode(label(p.name),static_cast<int>(i)));}
