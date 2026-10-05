@@ -27,3 +27,19 @@ Deliver 3e in reviewable local slices:
 - 3e2: safe chain/state transitions, latency changes and explicit switching behavior.
 - 3e3: failure recovery/isolation boundaries and intended-system load validation.
 See [processing reliability](PROCESSING_RELIABILITY.md). Whole 3e/#23 and deferred #16 remain open until their acceptance gates pass; 3e1 does not claim crash isolation or seamless live patch switching. Code/builds local; GitHub issues/docs only.
+
+## Universal engine performance sequence — 2026-10-05
+
+User authorized general shared-engine performance work; no per-project/vendor
+scheduling shortcuts. TH-U and Xvox are on separate channels, One on Master.
+0.1q fix3 slightly improved the user's playback; clicks are not confirmed resolved.
+
+1. 3e-P1 / [#51](https://github.com/vladleng/MR-Studio/issues/51): parallel independent channels, dependency scheduler and bounded precreated workers.
+2. 3e-P2 / [#52](https://github.com/vladleng/MR-Studio/issues/52): anticipative playback, separate process/device buffers and correct invalidation/timing.
+3. 3e-P3 / [#53](https://github.com/vladleng/MR-Studio/issues/53): separate live monitoring path, explicit shared-route/PDC/latency policy.
+4. 3e-P4 / [#54](https://github.com/vladleng/MR-Studio/issues/54): channel/plugin profiling and reproducible sustained-load matrix; minimal measurements begin in P1.
+
+All four are planned; implementation/build versions not started or assigned.
+Existing 3e2 transitions and 3e3 recovery/isolation remain in scope; this sequence
+does not close them, whole #23 or deferred #16. Own effects/instruments remain
+deferred. See [architecture and acceptance](ENGINE_PERFORMANCE_PLAN.md).
