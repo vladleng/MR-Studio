@@ -49,7 +49,9 @@ No WASAPI fallback, driver installation or automatic hardware activation is adde
 Legacy recent projects and VST3 cache are read from the existing local data folder;
 JUCE preferences use a separate file. Profile-management UI is not exposed yet.
 
-User J2 acceptance is pending. Windows hardware recording/playback, the intended
+User accepted J2 on 2026-10-05: «Отлично! Все работает».
+This general confirmation does not enumerate individual device/preset checks.
+Windows hardware recording/playback, the intended
 TH-U preset/sound, physical multiple-monitor DPI, complete accessibility and the
 remaining preference/profile polish are J3 parity gates before switching defaults.
 VST3 runtime remains in process; full isolation/PDC remain Stage 3e, not this UI port.
@@ -93,3 +95,10 @@ automatic public source/binary release.
   between editor cleanup and module reload. Timed test now dispatches deferred UI
   cleanup messages before reloading; successful runs supersede those timeouts.
 - Existing hidden Win32 GUI smoke exited 0. Core/ASIO/VST3/persistence source unchanged.
+
+## J2 acceptance — 2026-10-05
+
+Local 0.1o / J2 accepted on source 74d6e6f9580908b67eb08330e6ef112a49c3e1f5.
+EXE SHA256 E1FB66D1486AAA721A4D39DFCEBE66FEF02E41BBAC2A12730021F4395DCABCE2.
+Next planned slice is J3; implementation has not started. Existing test results
+stand; no rebuild performed for this documentation-only acceptance update.

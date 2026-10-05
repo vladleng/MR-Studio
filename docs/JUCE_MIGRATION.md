@@ -85,17 +85,24 @@ Official sources checked 2026-10-04:
 
 ## Status
 
-J1 / 0.1n accepted by the user. J2 / 0.1o desktop workflow is ready locally for review:
+J1 / 0.1n accepted by the user. J2 / 0.1o desktop workflow was accepted by the user on 2026-10-05:
 arrangement/WAV/clip edits/zoom, shared mini-panels and docked mixer, routing/sends,
 project menus/recents, ASIO settings/recording bindings, VST3 browser/drop/native
 editor bridge and native DSP editors. Existing backend and project schema unchanged.
 Offline configure/build and 89/89 CTest passed; final component checks rerun after
 UI/test corrections. Existing Win32 GUI smoke exited 0. Reviewed waveform snapshot.
 Nuro Flexion/TH-U editor and opaque-state software checks passed; intended preset
-audition/hardware tests are not claimed. User J2 review and J3 remain pending.
+audition/hardware tests are not claimed. User J2 review is complete; detailed J3 gates remain pending.
 Start/open uses offline mode; select ASIO explicitly. Full preference/profile polish,
 physical multiple-monitor DPI, accessibility and hardware acceptance remain J3 gates.
 Full DAW baseline remains MR-Studio-0.1m-upd1-fix1-ASIO-Windows-local.
 Separate packages: MR-Studio-0.1n-JUCE-J1-Windows-local (accepted) and
-MR-Studio-0.1o-JUCE-J2-ASIO-Windows-local (review pending). Outstanding 3c checks remain pending.
+MR-Studio-0.1o-JUCE-J2-ASIO-Windows-local (accepted). Outstanding 3c checks remain pending.
 This decision does not close #23, pass deferred #16 or implement Amp/Preamp/reliability.
+
+## J2 acceptance — 2026-10-05
+
+Local 0.1o / J2 accepted on source 74d6e6f9580908b67eb08330e6ef112a49c3e1f5.
+EXE SHA256 E1FB66D1486AAA721A4D39DFCEBE66FEF02E41BBAC2A12730021F4395DCABCE2.
+Next planned slice is J3; implementation has not started. Existing test results
+stand; no rebuild performed for this documentation-only acceptance update.
