@@ -54,3 +54,14 @@ Keep mrs_vst3_scan.exe beside the main executable; previous packages retained.
 Code/builds local; GitHub issues/docs only. No code push, PR, merge, Actions,
 installation or downloads. Remaining J3 physical gates, Stage 3/#23 and #16 stay
 open.
+
+## Final cosmetic follow-up
+
+User confirms fix3 works. The arrangement's left backing area, including the
+empty space below track controls, now uses browser surface #25282b. Track control
+blocks keep their existing #393e43 paint; the clip grid remains unchanged.
+Delivered separately as MR-Studio-0.1p-fix3-cosmetic-JUCE-J3-ASIO-Windows-local,
+retaining the fix3 application version and the original package.
+Local Release rebuild and packaged J3 fixture smoke passed; no new tests or
+special TH-U/Nuro checks for this paint-only change. The prior 90/90 suite applies
+to fix3's functional changes.

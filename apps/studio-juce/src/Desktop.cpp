@@ -294,7 +294,7 @@ mrs::Sample Arrangement::sampleAt(float x) const{auto sample=static_cast<mrs::Sa
     if(owner.snap){mrs::Timeline time(owner.project()->time,owner.project()->sample_rate);auto tick=time.to_ticks(sample);sample=time.to_samples((tick/(mrs::ppq/4))*(mrs::ppq/4));}return sample;}
 juce::Rectangle<float> Arrangement::clipRect(const mrs::Clip& c) const{int index=0;for(const auto& t:owner.project()->tracks){if(t.id==c.track)break;++index;}
     const double rate=owner.project()->sample_rate;return {static_cast<float>(left+c.start/rate*pixelsPerSecond-horizontal),static_cast<float>(header+index*trackHeight-vertical+22),static_cast<float>(c.length/rate*pixelsPerSecond),static_cast<float>(trackHeight-27)};}
-void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(0xff373b3f));g.setFont(owner.theme.font(11));g.setColour(juce::Colours::lightgrey);
+void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(0xff373b3f));g.setColour(juce::Colour(surface));g.fillRect(0,0,left,getHeight());g.setFont(owner.theme.font(11));g.setColour(juce::Colours::lightgrey);
     const auto p=owner.project();mrs::Timeline time(p->time,p->sample_rate);
     g.drawText("Tracks / input / monitor",8,5,left-10,22,juce::Justification::left);
     for(int gridX=left;gridX<getWidth();gridX+=10){g.setColour(juce::Colour(0xff40454a));g.drawVerticalLine(gridX,20,static_cast<float>(getHeight()));}
