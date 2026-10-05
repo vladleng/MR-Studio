@@ -1,5 +1,8 @@
 # 0.1n / JUCE J1 — Windows local prototype
 
+Historical J1 package, accepted by the user 2026-10-05. The current opt-in target
+now opens [J2 / 0.1o](JUCE_J2.md); the accepted J1 package remains in Builds.
+
 Parallel opt-in executable, sharing mrs_desktop/Application and the existing
 model, history, transport and AudioEngine. Win32 0.1m upd1 fix1 remains the full DAW.
 J1 has one demo channel, relative handle-only gain/pan, Ctrl fine movement,
