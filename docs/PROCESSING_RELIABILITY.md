@@ -82,3 +82,36 @@ remains pending; no installed TH-U/Nuro special checks were run.
 Branch: mrs/0.1q-stage3e1-pdc-local.
 Package: MR-Studio-0.1q-Stage3e1-PDC-JUCE-ASIO-Windows-local in chat Builds.
 Keep mrs_vst3_scan.exe beside the main EXE. Previous packages are preserved.
+
+## 0.1q fix1 — project display, audio reconnect and mixer
+
+Local Windows update, 2026-10-05; user review pending.
+
+- Opening a different document rebuilds channel views even when track IDs and
+  revision match the previous project. Old selections, meters and view offsets
+  are reset. The saved project filename (unsaved project title otherwise), plus
+  the dirty marker, is centered in the upper menu bar.
+- Device/buffer reconnect stops callbacks and captures live VST3 component,
+  controller and parameter state before destroying hosted instances. The captured
+  snapshot is retained in the project/Undo history only when changed. A failed
+  capture restarts the old device. Reconnect preserves the timeline position and
+  pauses active playback; recording still prevents reconfiguration.
+- Mixer strips use the track-control panel color (#393e43), against the darker
+  browser/workspace surface (#25282b).
+- Drag the mixer upper divider to resize upward/downward. The base height is
+  persisted; at least 140 logical pixels remain for arrangement.
+- Faders and stereo meters share a height independent of insert count. The
+  upper insert area grows with the largest chain; at window height limits its
+  list scrolls vertically. Every supported insert remains accessible (eight per
+  channel); resizing the mixer changes the shared fader height.
+
+Offline cached configure and full local Release build passed. 91/91 CTest passed
+in 21.93 seconds, including JUCE J2/J3 regression checks for live native-editor
+edits across buffer reconnect, same-ID document replacement, long insert chains,
+divider drag and persisted height. No special installed TH-U/Nuro tests.
+
+Branch: mrs/0.1q-fix1-local.
+Package: MR-Studio-0.1q-fix1-JUCE-ASIO-Windows-local in chat Builds.
+User ASIO/project review remains pending; 3e2/3e3 and whole #23 remain open.
+Code/builds stay local. GitHub documentation/issues only, no source push or Actions.
+
