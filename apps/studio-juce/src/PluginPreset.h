@@ -2,6 +2,17 @@
 #include <mrs/desktop.hpp>
 #include "Settings.h"
 namespace ui {
+inline juce::File presetFolder(const mrs::NativeInsert& effect,const juce::File& root=juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio/Presets/Plugins")) {
+    juce::String name=effect.kind==mrs::InsertKind::vst3?juce::String::fromUTF8(effect.plugin_name.c_str()):"Native-"+juce::String(static_cast<int>(effect.kind));
+    name=juce::File::createLegalFileName(name).trim().substring(0,80);
+    if(name.isEmpty())name="Plugin";
+    if(effect.kind==mrs::InsertKind::vst3)name+="-"+juce::String::fromUTF8(effect.class_id.c_str());
+    return root.getChildFile(name);
+}
+inline juce::Array<juce::File> presetFiles(const mrs::NativeInsert& effect,const juce::File& root=juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio/Presets/Plugins")) {
+    auto files=presetFolder(effect,root).findChildFiles(juce::File::findFiles,false,"*.mrspreset");
+    files.sort();return files;
+}
 inline juce::String encodePreset(const mrs::NativeInsert& effect) {
     auto p=mrs::desktop::foundation_demo().project;
     p.clips.clear();p.tracks.resize(1);p.tracks.front().inserts={effect};p.master_inserts.clear();
@@ -9,8 +20,9 @@ inline juce::String encodePreset(const mrs::NativeInsert& effect) {
 }
 inline mrs::NativeInsert decodePreset(const juce::String& bytes,const mrs::NativeInsert& target) {
     const juce::String magic="MRS_PLUGIN_PRESET 1\n";
-    if(bytes.getNumBytesAsUTF8()>8*1024*1024||!bytes.startsWith(magic))throw std::runtime_error("Unsupported MR Studio plugin preset");
-    auto p=mrs::deserialize(bytes.substring(magic.length()).toStdString());
+    const auto header=bytes.startsWith("MRS_PLUGIN_PRESET 1\r\n")?juce::String("MRS_PLUGIN_PRESET 1\r\n"):magic;
+    if(bytes.getNumBytesAsUTF8()>8*1024*1024||!bytes.startsWith(header))throw std::runtime_error("Unsupported MR Studio plugin preset");
+    auto p=mrs::deserialize(bytes.substring(header.length()).toStdString());
     if(p.tracks.size()!=1||p.tracks.front().inserts.size()!=1||!p.clips.empty()||!p.master_inserts.empty())throw std::runtime_error("Invalid plugin preset contents");
     auto saved=p.tracks.front().inserts.front();
     if(saved.kind!=target.kind||(saved.kind==mrs::InsertKind::vst3&&saved.class_id!=target.class_id))throw std::runtime_error("Preset belongs to a different plugin");

@@ -52,7 +52,8 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
         juce::DragAndDropTarget::SourceDetails drop("vst3:0",d.browser.get(),{50,50});
         const auto revision=d.app.services().projects->state().revision;d.mixer[1]->itemDropped(drop);
         check(d.app.services().projects->state().revision==revision+1,"plugin drop commits once");
-        auto plugin=d.chain(second).back();d.openInsert(second,plugin.id);check(d.windows.back()->isVisible(),"VST3 HWND bridge");
+        d.closeEditors();d.resetDevice();d.applyChain(second,d.chain(second));
+        auto plugin=d.chain(second).back();d.openInsert(second,plugin.id);check(d.windows.back()->isVisible()&&static_cast<bool>(d.windows.back()->getProperties()["mrs-native-editor"]),"VST3 HWND bridge after offline insert rebuild");
         auto* pluginWindow=d.windows.back().get();
         RECT client{};GetClientRect(reinterpret_cast<HWND>(static_cast<std::intptr_t>(static_cast<juce::int64>(pluginWindow->getProperties()["mrs-native-host"]))),&client);
         check(std::abs(client.right-320)<=1&&std::abs(client.bottom-120)<=1,"native plugin physical dimensions");
@@ -69,7 +70,17 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     const auto wav=folder.getChildFile("stereo.wav");
     {mrs::audio::Recorder recorder(std::filesystem::path(wav.getFullPathName().toWideCharPointer()),48000,0,{0,1});std::array<float,1024> samples{};
         for(std::size_t i=0;i<samples.size();i+=2){samples[i]=.25f;samples[i+1]=-.5f;}recorder.capture(samples.data(),2,512,0);recorder.finish();}
-    d.importFiles({wav.getFullPathName()});check(d.project()->tracks.size()==4,"WAV import track");
+    d.browser->showFiles(true);d.browser->navigate(folder);
+    check(!d.arrangement->isInterestedInFileDrag({folder.getFullPathName()})&&d.arrangement->isInterestedInFileDrag({wav.getFullPathName()}),"sample browser rejects folders and accepts WAV");
+    auto* fileTree=dynamic_cast<juce::FileTreeComponent*>(d.browser->getChildComponent(d.browser->getNumChildComponents()-1));
+    for(int i=0;i<d.browser->getNumChildComponents();++i)if(auto* candidate=dynamic_cast<juce::FileTreeComponent*>(d.browser->getChildComponent(i)))fileTree=candidate;
+    check(fileTree!=nullptr,"file browser tree exists");
+    for(int i=0;i<500&&d.browser->selectedSamples().isEmpty();++i){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}fileTree->setSelectedFile(wav);juce::Thread::sleep(1);}
+    juce::DragAndDropTarget::SourceDetails sampleDrop("mrs-sample-files",fileTree,{400,120});
+    check(d.arrangement->isInterestedInDragSource(sampleDrop),"internal WAV browser drag accepted");
+    d.arrangement->itemDropped(sampleDrop);
+    {auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-files-preview.png").createOutputStream();juce::PNGImageFormat format;if(stream)format.writeImageToStream(d.createComponentSnapshot(d.getLocalBounds(),true,1.f,juce::SoftwareImageType{}),*stream);}
+    d.browser->showFiles(false);check(d.project()->tracks.size()==4,"WAV import track");
     const auto imported=d.project()->clips.back();
     d.saveFile(file);const auto saved=mrs::persistence::load_project(d.app.path()).project;d.app.rename_track(second,"Changed");d.openFile(juce::File(juce::String(d.app.path().wstring().c_str())));
     check(*d.project()==saved,"project roundtrip");
@@ -101,6 +112,15 @@ void j3Smoke(Desktop& d){
         auto another=fx;another.id=mrs::new_id();another.bypass=!fx.bypass;auto remapped=decodePreset(text,another);
         check(remapped.id==another.id&&remapped.bypass==another.bypass,"preset slot identity and bypass preserved");
         if(fx.kind==mrs::InsertKind::vst3){another.class_id="00000000000000000000000000000000";bool rejected=false;try{decodePreset(text,another);}catch(...){rejected=true;}check(rejected,"wrong plugin preset rejected");}
+    }
+    {
+        auto temp=juce::File::getSpecialLocation(juce::File::tempDirectory);auto folder=temp.getNonexistentChildFile("mrs-preset-library","",false);
+        mrs::NativeInsert effect;effect.id=mrs::new_id();effect.kind=mrs::InsertKind::gain;effect.gain=.25f;
+        auto pluginFolder=presetFolder(effect,folder);check(pluginFolder.createDirectory().wasOk(),"preset library folder created");
+        publishSettings(pluginFolder.getChildFile("Clean.mrspreset"),encodePreset(effect));
+        auto files=presetFiles(effect,folder);check(files.size()==1&&decodePreset(files[0].loadFileAsString(),effect).gain==.25f,"saved preset discoverable and reloadable");
+        auto other=effect;other.kind=mrs::InsertKind::channel_eq;check(presetFiles(other,folder).isEmpty(),"preset library separates processors");
+        check(folder.getParentDirectory()==temp&&folder.getFileName().startsWith("mrs-preset-library"),"preset cleanup scope");folder.deleteRecursively();
     }
     d.addToDesktop(0);
     auto* handler=d.mixer.front()->gain.getAccessibilityHandler();check(handler&&handler->getRole()==juce::AccessibilityRole::slider&&!handler->getTitle().isEmpty(),"named accessible fader");
@@ -142,19 +162,21 @@ void j2PluginSmoke(Desktop& d,const juce::File& module){
     d.app.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1}});
     stage("probe");
     d.catalog=mrs::processing::probe_vst3(module.getFullPathName().toStdString());check(!d.catalog.empty(),"external probe");
-    stage("load");auto track=d.project()->tracks.front().id;d.addPlugin(track,0);check(d.chain(track).size()==1,"external load");auto slot=d.chain(track).front().id;
+    d.resetDevice();
+    stage("load offline");auto track=d.project()->tracks.front().id;d.addPlugin(track,0);check(d.chain(track).size()==1,"external load");auto slot=d.chain(track).front().id;
     stage("open editor");
     d.openInsert(track,slot);check(!d.windows.empty()&&static_cast<bool>(d.windows.back()->getProperties()["mrs-native-editor"]),"external native editor");
-    stage("reuse and close editor");const auto count=d.windows.size();d.openInsert(track,slot);check(d.windows.size()==count,"external editor reuse");d.closeEditors();
+    stage("reuse and close editor");const auto count=d.windows.size();d.openInsert(track,slot);check(d.windows.size()==count,"external editor reuse");
     auto pump=[] {const auto until=juce::Time::getMillisecondCounter()+80;while(juce::Time::getMillisecondCounter()<until){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}juce::Thread::sleep(1);}};
-    pump();
+    pump();check(d.windows.back()->isVisible()&&static_cast<bool>(d.windows.back()->getProperties()["mrs-native-editor"]),"external editor survives offline UI timer");
+    d.closeEditors();
     std::array<float,256> audio{};d.app.play();for(int i=0;i<4;++i){d.app.engine()->process(nullptr,audio.data(),128);d.app.poll();}d.app.stop();d.app.engine()->process(nullptr,audio.data(),128);d.app.poll();
     check(std::all_of(audio.begin(),audio.end(),[](float v){return std::isfinite(v);}),"external finite process");
     stage("capture project");const auto temp=juce::File::getSpecialLocation(juce::File::tempDirectory);auto folder=temp.getNonexistentChildFile("mrs-juce-plugin","",false);folder.createDirectory();d.saveFile(folder.getChildFile("plugin.mrsproject"));
     const auto saved=mrs::persistence::load_project(d.app.path()).project;check(!saved.tracks.front().inserts.front().component_state.empty(),"opaque component capture");
     pump();stage("reopen project");d.openFile(juce::File(d.app.path().wstring().c_str()));check(d.project()->tracks.front().inserts.front().component_state==saved.tracks.front().inserts.front().component_state,"opaque component reopen");
     stage("reopen editor");
-    d.app.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1}});d.openInsert(track,slot);check(static_cast<bool>(d.windows.back()->getProperties()["mrs-native-editor"]),"external reopened editor");d.closeEditors();
+    d.openInsert(track,slot);check(static_cast<bool>(d.windows.back()->getProperties()["mrs-native-editor"]),"external reopened editor offline");pump();check(d.windows.back()->isVisible(),"external reopened editor remains visible");d.closeEditors();
     check(folder.getParentDirectory()==temp&&folder.getFileName().startsWith("mrs-juce-plugin"),"external cleanup scope");folder.deleteRecursively();
     stage("passed");
 }

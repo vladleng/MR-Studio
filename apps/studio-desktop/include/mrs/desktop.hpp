@@ -162,6 +162,7 @@ private:
     std::uint64_t applied_mix_revision_{};
     void publish_mix();
     void prepare_mixer(audio::RenderGraph&);
+    void prepare_inserts(audio::RenderGraph&,const audio::DeviceConfig&);
     bool history(bool redo);
     void sync_arm();
     void require_not_recording() const;

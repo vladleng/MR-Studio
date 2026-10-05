@@ -470,7 +470,7 @@ void Application::rebuild_audio() {
         const auto position = engine_->state();
         if (reopen) device_->close();
         audio::RenderGraph graph;
-        if (audio_name_ == "Offline clock (no sound)") prepare_mixer(graph);
+        if (audio_name_ == "Offline clock (no sound)") { prepare_mixer(graph); prepare_inserts(graph,c); }
         else graph = render(c);
         engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192},std::move(graph),position);
         if (reopen) device_->open(c,engine_);
@@ -679,18 +679,7 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     const auto project = services_.projects->state().project;
     prepare_mixer(result);
     const Timeline timeline(project->time,project->sample_rate);for(const auto& tempo:project->time.tempos)result.tempos.push_back({timeline.to_samples(tempo.tick),tempo.bpm,static_cast<double>(tempo.tick)/ppq});
-    ++insert_generation_;insert_runtime_.clear();
-    const auto chain=[&](const std::vector<NativeInsert>& effects,std::uint32_t block) -> std::shared_ptr<processing::PreparedGraph> {
-        if (effects.empty()) return {};
-        auto saved=std::make_shared<const processing::GraphState>(processing::insert_graph(effects));
-        return std::make_shared<processing::PreparedGraph>(processing::GraphSnapshot{saved,0,false,false},processing::ProcessConfig{c.sample_rate,static_cast<std::uint32_t>(c.outputs.size()),block,c.buffer_frames}
-#ifdef MRS_HAS_VST3
-            ,processing::hosted_factory
-#endif
-        );
-    };
-    for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {auto prepared=chain(t.inserts,64);result.inserts.push_back(prepared);insert_runtime_[t.id.value]={prepared,{}};}
-    result.master_inserts=chain(project->master_inserts,8192);insert_runtime_[std::string{}]={result.master_inserts,{}};
+    prepare_inserts(result,c);
     const auto mapped = [&](const std::vector<int>& outputs) {
         std::vector<std::size_t> result;
         for (const auto channel : outputs) {
@@ -734,6 +723,21 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     }
     return result;
 }
+void Application::prepare_inserts(audio::RenderGraph& result,const audio::DeviceConfig& c) {
+    const auto project=services_.projects->state().project;
+    ++insert_generation_;insert_runtime_.clear();
+    const auto chain=[&](const std::vector<NativeInsert>& effects,std::uint32_t block) -> std::shared_ptr<processing::PreparedGraph> {
+        if (effects.empty()) return {};
+        auto saved=std::make_shared<const processing::GraphState>(processing::insert_graph(effects));
+        return std::make_shared<processing::PreparedGraph>(processing::GraphSnapshot{saved,0,false,false},processing::ProcessConfig{c.sample_rate,static_cast<std::uint32_t>(c.outputs.size()),block,c.buffer_frames}
+#ifdef MRS_HAS_VST3
+            ,processing::hosted_factory
+#endif
+        );
+    };
+    for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {auto prepared=chain(t.inserts,64);result.inserts.push_back(prepared);insert_runtime_[t.id.value]={prepared,{}};}
+    result.master_inserts=chain(project->master_inserts,8192);insert_runtime_[std::string{}]={result.master_inserts,{}};
+}
 void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::DeviceConfig c) {
     require_not_recording();
     require(static_cast<bool>(device),"missing audio backend");
@@ -748,7 +752,7 @@ void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::De
     const auto previous_defaults=default_inputs_; default_inputs_=defaults;
     try {
         audio::RenderGraph graph;
-        if (audio_name_ == "Offline clock (no sound)") prepare_mixer(graph);
+        if (audio_name_ == "Offline clock (no sound)") { prepare_mixer(graph); prepare_inserts(graph,c); }
         else graph = render(c);
         engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192},std::move(graph));
         device->open(c,engine_); device->start(); audio_name_ = info->name; device_ = std::move(device); device_config_ = c; device_info_ = *info; default_inputs_ = defaults; poll();

@@ -14,7 +14,7 @@ class Browser;
 class FxPanel;
 class EditorWindow final : public juce::DocumentWindow {
 public:
-    EditorWindow(juce::String,juce::Component*);
+    EditorWindow(juce::String,juce::Component*,bool show=true);
     void closeButtonPressed() override;
     void fitNativeEditor(int,int);
     std::function<void()> onClose;
@@ -57,6 +57,7 @@ public:
     void openInsert(std::optional<mrs::Id>,mrs::Id);
     void savePreset(std::optional<mrs::Id>,mrs::Id);
     void loadPreset(std::optional<mrs::Id>,mrs::Id);
+    void loadPresetFile(std::optional<mrs::Id>,mrs::Id,const juce::File&);
     juce::PopupMenu pluginMenu(int base=10000) const;
     void addPlugin(std::optional<mrs::Id>,std::size_t);
     void routeMenu(mrs::Id);
@@ -133,7 +134,7 @@ private:
     std::vector<std::unique_ptr<juce::TextButton>> insertButtons;
 };
 
-class Arrangement final : public juce::Component, public juce::FileDragAndDropTarget {
+class Arrangement final : public juce::Component, public juce::FileDragAndDropTarget, public juce::DragAndDropTarget {
 public:
     explicit Arrangement(Desktop&);
     void paint(juce::Graphics&) override;
@@ -145,6 +146,8 @@ public:
     void mouseWheelMove(const juce::MouseEvent&,const juce::MouseWheelDetails&) override;
     bool isInterestedInFileDrag(const juce::StringArray&) override;
     void filesDropped(const juce::StringArray&,int,int) override;
+    bool isInterestedInDragSource(const SourceDetails&) override;
+    void itemDropped(const SourceDetails&) override;
     void zoom(double);void fit();
     void wheel(float,juce::ModifierKeys,float);
     juce::Rectangle<float> clipRect(const mrs::Clip&) const;
@@ -168,7 +171,10 @@ private:
 class Browser final : public juce::Component {
 public:
     explicit Browser(Desktop&);
-    ~Browser() override {tree.setRootItem(nullptr);}
+    ~Browser() override;
+    void showFiles(bool);
+    void navigate(const juce::File&);
+    juce::StringArray selectedSamples() const;
     void paint(juce::Graphics&) override;
     void resized() override;
     void rebuild();
@@ -177,6 +183,13 @@ private:
     Desktop& owner;
     juce::TextButton scanButton{"Scan VST3..."};
     juce::TextEditor search;
+    juce::TextButton vstTab{"VST3"},filesTab{"Files"},parentFolder{"Up"},chooseFolder{"Folder..."};
+    juce::TextEditor folderPath;
+    juce::TimeSliceThread fileThread{"MR Studio file browser"};
+    juce::WildcardFileFilter fileFilter{"*.wav","*","WAV samples"};
+    juce::DirectoryContentsList directory{&fileFilter,fileThread};
+    juce::FileTreeComponent fileTree{directory};
+    bool filesVisible{};
     std::unique_ptr<juce::TreeViewItem> root;
 };
 void j2Smoke(Desktop&,const juce::File& fixture={});

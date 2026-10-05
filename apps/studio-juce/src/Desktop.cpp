@@ -16,10 +16,10 @@ juce::String insertName(const mrs::NativeInsert& n){
 }
 juce::PopupMenu::Options popup(juce::Component* c){return juce::PopupMenu::Options().withTargetComponent(c);}
 }
-EditorWindow::EditorWindow(juce::String name,juce::Component* content)
+EditorWindow::EditorWindow(juce::String name,juce::Component* content,bool show)
     :DocumentWindow(name,juce::Colour(background),closeButton){
     setUsingNativeTitleBar(true);setContentOwned(content,true);centreWithSize(content->getWidth(),content->getHeight());
-    setVisible(true);
+    setVisible(show);
 }
 void EditorWindow::closeButtonPressed(){if(onClose)onClose();setVisible(false);}
 void EditorWindow::fitNativeEditor(int width,int height){
@@ -314,6 +314,9 @@ void Arrangement::zoom(double factor){pixelsPerSecond=juce::jlimit(2.,2400.,pixe
 void Arrangement::fit(){mrs::Sample end=48000*16;for(const auto& c:owner.project()->clips)end=juce::jmax(end,c.start+c.length);horizontal=0;pixelsPerSecond=juce::jlimit(2.,2400.,(getWidth()-left)*static_cast<double>(owner.project()->sample_rate)/end);repaint();}
 bool Arrangement::isInterestedInFileDrag(const juce::StringArray& files){for(const auto& f:files)if(!f.endsWithIgnoreCase(".wav"))return false;return !files.isEmpty();}
 void Arrangement::filesDropped(const juce::StringArray& files,int,int){owner.run([&]{owner.importFiles(files);});}
+bool Arrangement::isInterestedInDragSource(const SourceDetails& details){return details.description.toString()=="mrs-sample-files"&&!owner.browser->selectedSamples().isEmpty();}
+void Arrangement::itemDropped(const SourceDetails& details){if(isInterestedInDragSource(details))filesDropped(owner.browser->selectedSamples(),details.localPosition.x,details.localPosition.y);}
+
 
 namespace {
 class BrowserNode final : public juce::TreeViewItem {
@@ -326,11 +329,26 @@ public:
     juce::String name;int plugin;
 };
 }
-Browser::Browser(Desktop& d):owner(d){search.setTitle("Search VST3 plugins");search.setTextToShowWhenEmpty("Search VST3...",juce::Colours::grey);tree.setTitle("VST3 plugins by vendor");addAndMakeVisible(tree);addAndMakeVisible(scanButton);addAndMakeVisible(search);tree.setDefaultOpenness(false);tree.setRootItemVisible(false);
+Browser::Browser(Desktop& d):owner(d){
+    for(auto* component:{static_cast<juce::Component*>(&vstTab),static_cast<juce::Component*>(&filesTab),static_cast<juce::Component*>(&parentFolder),static_cast<juce::Component*>(&chooseFolder),static_cast<juce::Component*>(&folderPath),static_cast<juce::Component*>(&fileTree)})addAndMakeVisible(component);
+    vstTab.onClick=[this]{showFiles(false);};filesTab.onClick=[this]{showFiles(true);};
+    parentFolder.onClick=[this]{navigate(directory.getDirectory().getParentDirectory());};
+    juce::Component::SafePointer<Browser> safe(this);chooseFolder.onClick=[safe]{if(safe)safe->owner.choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectDirectories,[safe](const auto& file){if(safe)safe->navigate(file);});};
+    folderPath.setTitle("Computer folder path");folderPath.onReturnKey=[this]{owner.run([&]{navigate(juce::File(folderPath.getText()));});};
+    fileTree.setColour(juce::TreeView::backgroundColourId,juce::Colour(surface));fileTree.setColour(juce::DirectoryContentsDisplayComponent::textColourId,juce::Colours::whitesmoke);
+    fileTree.setTitle("Computer folders and WAV samples");fileTree.setDragAndDropDescription("mrs-sample-files");fileTree.setMultiSelectEnabled(true);
+    fileThread.startThread();navigate(juce::File::getSpecialLocation(juce::File::userDocumentsDirectory));showFiles(false);
+search.setTitle("Search VST3 plugins");search.setTextToShowWhenEmpty("Search VST3...",juce::Colours::grey);tree.setTitle("VST3 plugins by vendor");addAndMakeVisible(tree);addAndMakeVisible(scanButton);addAndMakeVisible(search);tree.setDefaultOpenness(false);tree.setRootItemVisible(false);
     search.setTextToShowWhenEmpty("Search VST3...",juce::Colours::grey);search.onTextChange=[this]{rebuild();};
     scanButton.onClick=[this]{owner.choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectDirectories,[this](const auto& f){owner.scan(f);});};rebuild();}
-void Browser::resized(){scanButton.setBounds(8,28,getWidth()-16,28);search.setBounds(8,62,getWidth()-16,26);tree.setBounds(8,94,getWidth()-16,getHeight()-120);}
-void Browser::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setColour(juce::Colours::whitesmoke);g.setFont(owner.theme.font(12));g.drawText("VST3",8,2,100,24,juce::Justification::left);g.drawText("Drag an effect onto a mixer channel",8,getHeight()-23,getWidth()-16,20,juce::Justification::left);}
+Browser::~Browser(){tree.setRootItem(nullptr);fileThread.stopThread(2000);}
+void Browser::navigate(const juce::File& folder){if(!folder.isDirectory())throw std::runtime_error("Folder is unavailable");directory.setDirectory(folder,true,true);folderPath.setText(folder.getFullPathName(),false);}
+void Browser::showFiles(bool files){filesVisible=files;for(auto* component:{static_cast<juce::Component*>(&fileTree),static_cast<juce::Component*>(&folderPath),static_cast<juce::Component*>(&parentFolder),static_cast<juce::Component*>(&chooseFolder)})component->setVisible(files);
+    tree.setVisible(!files);scanButton.setVisible(!files);search.setVisible(!files);vstTab.setToggleState(!files,juce::dontSendNotification);filesTab.setToggleState(files,juce::dontSendNotification);repaint();}
+juce::StringArray Browser::selectedSamples() const {juce::StringArray files;for(int i=0;i<fileTree.getNumSelectedFiles();++i){auto file=fileTree.getSelectedFile(i);if(file.existsAsFile()&&file.hasFileExtension("wav"))files.add(file.getFullPathName());}return files;}
+void Browser::resized(){vstTab.setBounds(8,0,76,26);filesTab.setBounds(90,0,76,26);scanButton.setBounds(8,28,getWidth()-16,28);search.setBounds(8,62,getWidth()-16,26);tree.setBounds(8,94,getWidth()-16,getHeight()-120);
+    parentFolder.setBounds(8,28,52,28);chooseFolder.setBounds(66,28,getWidth()-74,28);folderPath.setBounds(8,62,getWidth()-16,26);fileTree.setBounds(tree.getBounds());}
+void Browser::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setColour(juce::Colours::whitesmoke);g.setFont(owner.theme.font(12));g.drawText(filesVisible?"Drag WAV samples into arrangement":"Drag an effect onto a mixer channel",8,getHeight()-23,getWidth()-16,20,juce::Justification::left);}
 void Browser::rebuild(){tree.setRootItem(nullptr);root=std::make_unique<BrowserNode>("root");std::map<std::string,BrowserNode*> vendors;
     for(std::size_t i=0;i<owner.catalog.size();++i){const auto& p=owner.catalog[i];if(!search.getText().isEmpty()&&!label(p.name+" "+p.vendor).containsIgnoreCase(search.getText()))continue;
         if(!vendors.contains(p.vendor)){auto* node=new BrowserNode(label(p.vendor));root->addSubItem(node);node->setOpen(false);vendors[p.vendor]=node;}vendors[p.vendor]->addSubItem(new BrowserNode(label(p.name),static_cast<int>(i)));}

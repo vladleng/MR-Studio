@@ -7,9 +7,21 @@ namespace {
 juce::String label(const std::string& s){return juce::String::fromUTF8(s.c_str());}
 std::filesystem::path path(const juce::File& f){return std::filesystem::path(f.getFullPathName().toWideCharPointer());}
 }
+class PresetSelector final : public juce::ComboBox {
+public:
+    PresetSelector(Desktop& desktop,std::optional<mrs::Id> track,mrs::Id id):owner(desktop),target(track),slot(id) {
+        setTitle("Saved plugin presets");setTextWhenNothingSelected("Saved presets...");
+        const auto effects=owner.chain(target);for(const auto& effect:effects)if(effect.id==slot)files=presetFiles(effect);
+        for(int i=0;i<files.size();++i)addItem(files[i].getFileNameWithoutExtension(),i+1);
+        onChange=[this]{const auto index=getSelectedId()-1;if(index>=0&&index<files.size())owner.loadPresetFile(target,slot,files[index]);};
+    }
+private:
+    Desktop& owner;std::optional<mrs::Id> target;mrs::Id slot;juce::Array<juce::File> files;
+};
 class FxPanel final : public juce::Component {
 public:
-    FxPanel(Desktop& d,std::optional<mrs::Id> t,mrs::Id id):owner(d),target(t),slot(id){
+    FxPanel(Desktop& d,std::optional<mrs::Id> t,mrs::Id id):owner(d),target(t),slot(id),library(d,t,id){
+        addAndMakeVisible(library);
         gain.setComponentID("native-gain");apply.setComponentID("apply-native");
         for(auto* b:{&apply,&bypass,&remove,&up,&down,&enabled,&load,&invert,&savePreset,&loadPreset})addAndMakeVisible(b);
         for(auto* c:{static_cast<juce::Component*>(&bands),static_cast<juce::Component*>(&parameters),static_cast<juce::Component*>(&presets),static_cast<juce::Component*>(&gain),static_cast<juce::Component*>(&frequency),static_cast<juce::Component*>(&q),static_cast<juce::Component*>(&mix)})addAndMakeVisible(c);
@@ -30,7 +42,7 @@ public:
             else if((direction<0&&i>0)||(direction>0&&i+1<effects.size()))std::swap(effects[i],effects[direction<0?i-1:i+1]);
             owner.closeEditors();owner.applyChain(target,effects);});};
         remove.onClick=[structure]{structure(0);};up.onClick=[structure]{structure(-1);};down.onClick=[structure]{structure(1);};
-        setWantsKeyboardFocus(true);setSize(720,510);sync();
+        setWantsKeyboardFocus(true);setSize(720,550);sync();
     }
     ~FxPanel() override {if(drag)owner.app.cancel_insert_preview();}
     std::size_t index(const std::vector<mrs::NativeInsert>& effects) const{for(std::size_t i=0;i<effects.size();++i)if(effects[i].id==slot)return i;throw std::runtime_error("Insert no longer exists");}
@@ -47,16 +59,16 @@ public:
         q.setText(juce::String(cab?n.ir.high_cut:eq?n.bands[band].q:n.q,4),false);mix.setText(juce::String(n.ir.mix,3),false);
         enabled.setButtonText(eq&&n.bands[band].enabled?"Band on":"Band off");invert.setButtonText(n.ir.invert?"Polarity -":"Polarity +");bypass.setButtonText(n.bypass?"Enable":"Bypass");repaint();
     }
-    void resized() override {bypass.setBounds(20,14,90,28);remove.setBounds(118,14,90,28);up.setBounds(216,14,70,28);down.setBounds(294,14,70,28);savePreset.setBounds(380,14,150,28);loadPreset.setBounds(540,14,150,28);
+    void resized() override {library.setBounds(20,514,670,28);bypass.setBounds(20,14,90,28);remove.setBounds(118,14,90,28);up.setBounds(216,14,70,28);down.setBounds(294,14,70,28);savePreset.setBounds(380,14,150,28);loadPreset.setBounds(540,14,150,28);
         bands.setBounds(20,335,180,28);enabled.setBounds(210,335,100,28);parameters.setBounds(20,335,460,28);
         load.setBounds(20,335,120,28);presets.setBounds(150,335,125,28);invert.setBounds(285,335,115,28);mix.setBounds(500,335,100,28);
         gain.setBounds(20,402,170,28);frequency.setBounds(215,402,170,28);q.setBounds(410,402,170,28);apply.setBounds(20,447,160,30);}
     juce::Rectangle<float> curve() const{return {24,76,660,234};}
     juce::Point<float> point(const mrs::EqBand& b) const {auto r=curve();return {r.getX()+static_cast<float>(std::log(b.frequency/20.)/std::log(1000.))*r.getWidth(),r.getCentreY()-b.gain/48.f*r.getHeight()};}
-    void paint(juce::Graphics& g) override{g.fillAll(juce::Colour(background));g.setColour(juce::Colours::lightgrey);g.setFont(owner.theme.font(12));
+    void paint(juce::Graphics& g) override{g.fillAll(juce::Colour(0xff31363b));g.setColour(juce::Colours::lightgrey);g.setFont(owner.theme.font(12));
         g.drawText("Gain dB / VST 0..1",20,374,180,24,juce::Justification::left);g.drawText("Frequency / low cut Hz",215,374,180,24,juce::Justification::left);g.drawText("Q / high cut Hz",410,374,180,24,juce::Justification::left);
         g.drawText("Live native parameters; structural edits and project save after Pause / Stop",20,483,680,24,juce::Justification::left);
-        auto n=drag?*drag:current();g.setColour(juce::Colour(0xff1d2328));g.fillRect(curve());
+        auto n=drag?*drag:current();g.setColour(juce::Colour(0xff232a30));g.fillRect(curve());
         if(n.kind==mrs::InsertKind::channel_eq){g.setColour(juce::Colour(0xff46515a));for(int i=0;i<5;++i)g.drawHorizontalLine(static_cast<int>(curve().getY()+i*curve().getHeight()/4),curve().getX(),curve().getRight());
             juce::Path response;for(int x=0;x<=660;++x){const double hz=20*std::pow(1000.,x/660.);const double db=mrs::processing::eq_response_db(n,hz,owner.project()->sample_rate);float y=curve().getCentreY()-static_cast<float>(juce::jlimit(-24.,24.,db))/48.f*curve().getHeight();if(x==0)response.startNewSubPath(curve().getX(),y);else response.lineTo(curve().getX()+x,y);}
             g.setColour(juce::Colours::skyblue);g.strokePath(response,juce::PathStrokeType(2));for(std::size_t i=0;i<n.bands.size();++i){auto p=point(n.bands[i]);g.setColour(n.bands[i].enabled?juce::Colours::orange:juce::Colours::grey);g.fillEllipse(p.x-5,p.y-5,10,10);}
@@ -78,6 +90,7 @@ private:
     std::vector<mrs::processing::ParameterInfo> infos;
     juce::TextButton savePreset{"Save preset..."},loadPreset{"Load preset..."};
     juce::TextButton apply{"Apply parameters"},bypass{"Bypass"},remove{"Remove"},up{"Up"},down{"Down"},enabled{"Band on"},load{"Load IR WAV"},invert{"Polarity +"};
+    PresetSelector library;
     juce::ComboBox bands,parameters,presets;
     juce::TextEditor gain,frequency,q,mix;
 };
@@ -87,17 +100,24 @@ juce::PopupMenu Desktop::pluginMenu(int base) const {
     juce::PopupMenu result;for(auto& [vendor,items]:groups)result.addSubMenu(vendor,items);return result;
 }
 void Desktop::savePreset(std::optional<mrs::Id> target,mrs::Id slot){run([&]{
-    auto effect=app.capture_insert(target,slot);auto bytes=encodePreset(effect);juce::Component::SafePointer<Desktop> safe(this);
-    choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[safe,bytes](auto file){if(safe)publishSettings(file.withFileExtension("mrspreset"),bytes);},"*.mrspreset");
+    auto effect=app.capture_insert(target,slot);auto bytes=encodePreset(effect);auto folder=presetFolder(effect);
+    juce::Component::SafePointer<Desktop> safe(this);
+    textDialog("Save plugin preset (new name)","Preset",[safe,bytes,folder,target,slot](auto name){if(!safe)return;
+        name=name.trim();if(name.isEmpty()||name!=juce::File::createLegalFileName(name)||name.length()>100)throw std::runtime_error("Use a valid preset name (1..100 characters)");
+        auto file=folder.getChildFile(name+".mrspreset");if(file.exists())throw std::runtime_error("Preset name already exists; choose a new name");
+        if(folder.createDirectory().failed())throw std::runtime_error("Cannot create plugin preset folder");
+        publishSettings(file,bytes);safe->closeEditors();safe->openInsert(target,slot);
+    });
+});}
+void Desktop::loadPresetFile(std::optional<mrs::Id> target,mrs::Id slot,const juce::File& file){run([&]{
+    if(!file.existsAsFile()||file.getSize()>8*1024*1024)throw std::runtime_error("Plugin preset missing or exceeds size limit");
+    auto effects=chain(target);auto at=std::find_if(effects.begin(),effects.end(),[&](const auto& n){return n.id==slot;});if(at==effects.end())throw std::runtime_error("Insert no longer exists");
+    *at=decodePreset(file.loadFileAsString(),*at);
+    if(app.engine()->state().playback==mrs::PlaybackState::playing||app.recording())throw std::runtime_error("Pause/Stop before loading a plugin preset");
+    closeEditors();applyChain(target,std::move(effects));openInsert(target,slot);
 });}
 void Desktop::loadPreset(std::optional<mrs::Id> target,mrs::Id slot){juce::Component::SafePointer<Desktop> safe(this);
-    choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[safe,target,slot](auto file){if(!safe)return;
-        if(file.getSize()>8*1024*1024)throw std::runtime_error("Plugin preset exceeds size limit");
-        auto effects=safe->chain(target);auto at=std::find_if(effects.begin(),effects.end(),[&](const auto& n){return n.id==slot;});if(at==effects.end())throw std::runtime_error("Insert no longer exists");
-        auto restored=decodePreset(file.loadFileAsString(),*at);*at=restored;
-        if(safe->app.engine()->state().playback==mrs::PlaybackState::playing||safe->app.recording())throw std::runtime_error("Pause/Stop before loading a plugin preset");
-        safe->closeEditors();safe->applyChain(target,std::move(effects));safe->openInsert(target,slot);
-    },"*.mrspreset");
+    choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[safe,target,slot](auto file){if(safe)safe->loadPresetFile(target,slot,file);},"*.mrspreset");
 }
 void Desktop::insertMenu(std::optional<mrs::Id> target){juce::PopupMenu m;m.addItem(1,"Add Gain");m.addItem(2,"Add Channel EQ");m.addItem(3,"Add Cab IR...");
     const auto existing=chain(target);for(std::size_t i=0;i<existing.size();++i)m.addItem(1000+static_cast<int>(i),"Edit insert "+juce::String(static_cast<int>(i)+1));
@@ -109,7 +129,8 @@ void Desktop::insertMenu(std::optional<mrs::Id> target){juce::PopupMenu m;m.addI
     });});}
 class PluginPanel final : public juce::Component,private juce::Timer {
 public:
-    PluginPanel(Desktop& d,std::optional<mrs::Id> t,mrs::Id id):owner(d),target(t),slot(id){
+    PluginPanel(Desktop& d,std::optional<mrs::Id> t,mrs::Id id):owner(d),target(t),slot(id),library(d,t,id){
+        addAndMakeVisible(library);
         setTitle("Plugin editor and insert controls");setSize(760,520);
         for(auto* button:{&save,&load,&bypass,&remove,&up,&down,&parameters}){addAndMakeVisible(button);button->setTitle(button->getButtonText());}
         save.onClick=[this]{owner.savePreset(target,slot);};load.onClick=[this]{owner.loadPreset(target,slot);};
@@ -130,21 +151,22 @@ public:
         w.getProperties().set("mrs-native-host",static_cast<juce::int64>(reinterpret_cast<std::intptr_t>(host)));resizeWindow();startTimerHz(10);return true;
     }
     void resizeWindow(){const auto scale=window->getPeer()->getPlatformScaleFactor();window->fitNativeEditor(juce::jmax(nativeWidth,juce::roundToInt(760*scale)),nativeHeight+juce::roundToInt(toolbar*scale));resized();}
-    void resized() override {int x=8;for(auto* button:{&save,&load,&bypass,&up,&down,&remove,&parameters}){int width=button==&save||button==&load?124:button==&parameters?112:button==&up||button==&down?48:80;button->setBounds(x,8,width,30);x+=width+6;}
+    void resized() override {library.setBounds(8,46,getWidth()-16,28);int x=8;for(auto* button:{&save,&load,&bypass,&up,&down,&remove,&parameters}){int width=button==&save||button==&load?124:button==&parameters?112:button==&up||button==&down?48:80;button->setBounds(x,8,width,30);x+=width+6;}
         if(host&&window&&window->getPeer()){auto scale=window->getPeer()->getPlatformScaleFactor();SetWindowPos(host,nullptr,0,juce::roundToInt(toolbar*scale),nativeWidth,nativeHeight,SWP_NOZORDER|SWP_NOACTIVATE);}
     }
-    void paint(juce::Graphics& g) override {g.fillAll(juce::Colour(surface));}
+    void paint(juce::Graphics& g) override {g.fillAll(juce::Colour(0xff31363b));}
 private:
     void timerCallback() override {if(!host||!IsWindow(host)||!window||!window->isVisible())return;RECT rect{};if(GetClientRect(host,&rect)&&rect.right>0&&rect.bottom>0&&(rect.right!=nativeWidth||rect.bottom!=nativeHeight)){nativeWidth=rect.right;nativeHeight=rect.bottom;resizeWindow();}}
-    Desktop& owner;std::optional<mrs::Id> target;mrs::Id slot;HWND host{};EditorWindow* window{};int nativeWidth{640},nativeHeight{480};static constexpr int toolbar=50;
+    Desktop& owner;std::optional<mrs::Id> target;mrs::Id slot;HWND host{};EditorWindow* window{};int nativeWidth{640},nativeHeight{480};static constexpr int toolbar=86;
+    PresetSelector library;
     juce::TextButton save{"Save preset..."},load{"Load preset..."},bypass{"Bypass"},up{"Up"},down{"Down"},remove{"Remove"},parameters{"Parameters"};
 };
 void retirePluginWindow(EditorWindow& window){if(auto* content=dynamic_cast<PluginPanel*>(window.getContentComponent()))content->retire();}
 void Desktop::openInsert(std::optional<mrs::Id> target,mrs::Id slot){run([&]{auto effects=chain(target);auto found=std::find_if(effects.begin(),effects.end(),[&](const auto& n){return n.id==slot;});if(found==effects.end())return;
     const auto key=label((target?target->value:"master")+":"+slot.value);for(auto& w:windows)if(w->isVisible()&&w->getProperties()["mrs-slot"].toString()==key){w->toFront(true);return;}
-    closeEditors();if(found->kind==mrs::InsertKind::vst3){auto* content=new PluginPanel(*this,target,slot);auto window=std::make_unique<EditorWindow>(label(found->plugin_name),content);window->setLookAndFeel(&theme);
+    closeEditors();editorGeneration=app.insert_generation();if(found->kind==mrs::InsertKind::vst3){auto* content=new PluginPanel(*this,target,slot);auto window=std::make_unique<EditorWindow>(label(found->plugin_name),content,false);window->setLookAndFeel(&theme);
         bool attached=false;try{attached=content->attach(*window);}catch(...){app.close_plugin_editors();content->retire();throw;}
-        if(attached){window->getProperties().set("mrs-slot",key);window->getProperties().set("mrs-native-editor",true);window->onClose=[this,content]{app.close_plugin_editors();content->retire();};windows.push_back(std::move(window));return;}}
+        if(attached){window->setVisible(true);window->getProperties().set("mrs-slot",key);window->getProperties().set("mrs-native-editor",true);window->onClose=[this,content]{app.close_plugin_editors();content->retire();};windows.push_back(std::move(window));return;}}
     auto fx=std::make_unique<EditorWindow>("Insert editor",new FxPanel(*this,target,slot));fx->setLookAndFeel(&theme);fx->getProperties().set("mrs-slot",key);windows.push_back(std::move(fx));
 });}
 
