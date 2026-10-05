@@ -24,6 +24,7 @@ struct MixerUpdate {
     float master_gain{1};
     std::array<std::array<float,8>,max_mixer_tracks> send_gains{};
     std::array<bool,max_mixer_tracks> input_monitoring{};
+    std::uint64_t serial{};
 };
 struct StereoPeak { float left{}, right{}; };
 struct MixerMeters {
@@ -43,6 +44,7 @@ CabIr load_cab_ir(const std::filesystem::path&);
 class ReadAhead;
 class Recorder;
 class ChannelWorkers;
+class AheadRenderer;
 struct AudioData {
     std::uint32_t sample_rate{48000};
     std::uint32_t channels{2};
@@ -106,6 +108,10 @@ struct Metrics {
     std::uint64_t parallel_batches{}, worker_timeouts{};
     std::uint64_t scheduler_overhead_ns{};
     bool processing_fault{}; // silence until stopped/reprepared; never concurrent serial retry
+    bool anticipation_active{};
+    std::uint32_t process_buffer_frames{}, ahead_buffered_frames{};
+    std::uint64_t ahead_underruns{}, ahead_invalidations{}, ahead_max_process_ns{};
+    std::uint64_t ahead_memory_bytes{}; // bounded packet/mailbox/journal storage, excludes DSP/assets
 };
 // One producer (control thread), one consumer (audio thread), fixed storage.
 template<class T, std::size_t Capacity> class SpscQueue {
@@ -131,7 +137,7 @@ public:
     }
 };
 enum class ControlKind { play, pause, stop, seek, loop, monitor, prepared_seek };
-struct Control { ControlKind kind{}; Sample a{}, b{}; };
+struct Control { ControlKind kind{}; Sample a{}, b{}; std::uint64_t serial{}; };
 struct RealtimeState {
     PlaybackState playback{PlaybackState::stopped};
     Sample sample{};
@@ -158,11 +164,37 @@ public:
     // Backend passes measured callback body duration, on the same audio thread.
     void observe(std::uint64_t duration_ns, std::uint32_t frames, std::uint32_t flags) noexcept;
     RealtimeState state() const; // control-thread bounded coherent mailbox read
+    bool try_state(RealtimeState&) const noexcept;
+    bool anticipation_safe() const noexcept;
+    std::uint64_t control_revision() const noexcept;
     Metrics metrics() const;
     RenderConfig config() const { return config_; }
     struct CompensationReport {std::vector<std::uint64_t> track_paths;std::uint64_t output{},master{};std::size_t memory_bytes{};};
     const CompensationReport& compensation() const {return compensation_;} // prepared, control thread
 private:
+    friend class AheadRenderer;
+    bool speculative_{}; // changed only while both device and producer are stopped
+    AheadRenderer* ahead_owner_{};
+    void apply_control(const Control&) noexcept;
+    RealtimeState last_render_start_{};
+    MixerMeters last_render_meters_{};
+    struct MixHead {
+        std::array<std::array<float,2>,max_mixer_tracks> gain{},target{},step{};
+        std::array<std::array<float,8>,max_mixer_tracks> send{},send_target{},send_step{};
+        std::array<float,max_mixer_tracks> gate{},gate_target{},gate_step{};
+        float master{1},master_target{1},master_step{};
+        std::uint32_t ramp{};
+    };
+    MixHead last_render_mix_{};
+    MixHead mix_head() const noexcept;
+    void restore_mix(const MixHead&) noexcept;
+    std::atomic<std::uint64_t> control_revision_{};
+    std::atomic<bool> anticipation_active_{};
+    std::atomic<std::uint32_t> process_buffer_frames_{}, ahead_buffered_frames_{};
+    std::atomic<std::uint64_t> ahead_underruns_{},ahead_invalidations_{},ahead_max_process_ns_{};
+    std::atomic<std::uint64_t> ahead_memory_bytes_{};
+    void publish_delivered(const RealtimeState&,const MixerMeters&) noexcept;
+    void rebase_head(const RealtimeState&) noexcept;
     RenderConfig config_;
     RenderGraph graph_;
     std::unique_ptr<ChannelWorkers> workers_; // joined before graph/plugin storage is replaced

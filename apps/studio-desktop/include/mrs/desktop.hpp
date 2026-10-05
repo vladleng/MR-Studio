@@ -33,6 +33,7 @@ struct Preferences {
     std::vector<std::string> recent_projects{};
     std::vector<DeviceProfile> profiles{};
     std::uint32_t processing_workers{2};
+    std::uint32_t process_buffer_frames{};
     bool operator==(const Preferences&) const = default;
     void validate() const;
 };

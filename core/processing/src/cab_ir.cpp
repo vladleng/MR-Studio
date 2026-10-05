@@ -78,6 +78,7 @@ public:
     }
     std::optional<float> parameter_value(std::uint32_t id) const noexcept override{return id<5?std::optional<float>{target_[id]}:std::nullopt;}
     std::uint32_t latency() const noexcept override{return 0;} // direct head hides tail partition delay
+    bool anticipation_safe() const noexcept override{return true;}
     bool live_safe() const noexcept override{return true;}
     void warm() override{reset();}
     void reset() noexcept override{for(auto* v:{&history_,&input_,&output_,&overlap_})std::fill(v->begin(),v->end(),0.f);std::fill(spectra_.begin(),spectra_.end(),Complex{});previous_input_.fill(0);hp_state_.fill(0);lp_state_.fill(0);current_=target_;cursor_=head_pos_=block_pos_=0;tick_=0;}

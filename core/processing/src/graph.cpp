@@ -52,6 +52,8 @@ struct PreparedGraph::Impl {
     audio::SpscQueue<ParamBatch,64> batch_queue;
     audio::SpscQueue<MidiOutput,4096> output_queue;
     std::atomic<bool> panic_requested{};
+    std::atomic<std::uint64_t> control_revision{};
+    std::atomic<bool> external_schedule{};
     std::atomic<std::uint64_t> dropped_midi{}, dropped_parameters{}, invalid{}, output_overflows{}, panics{};
 };
 #ifdef _MSC_VER
@@ -155,6 +157,8 @@ const LatencyReport& PreparedGraph::latency() const { return impl_->report; }
 bool PreparedGraph::enqueue_midi(const Id& source, MidiEvent event) {
     event.validate();
     if (event.offset >= impl_->config.max_block) throw std::invalid_argument("MIDI offset exceeds prepared block");
+    impl_->external_schedule=true;
+    ++impl_->control_revision;
     if (event.kind == MidiKind::note_on && event.data2 == 0) event.kind = MidiKind::note_off;
     bool accepted = true;
     for (const auto& route : impl_->snapshot.graph->midi_routes) {
@@ -182,10 +186,12 @@ bool PreparedGraph::enqueue_parameter(const Id& node, ParameterChange change) {
     const auto it = std::find_if(infos.begin(),infos.end(),[&](const auto& p) { return p.id == change.id; });
     if (it == infos.end() || !it->automatable || change.value < it->minimum || change.value > it->maximum)
         throw std::invalid_argument("unsupported automation parameter");
+    if(change.offset)impl_->external_schedule=true;
+    ++impl_->control_revision;
     if (!impl_->parameter_queue.push({static_cast<std::uint16_t>(found->second),change})) {
-        ++impl_->dropped_parameters; return false;
+        ++impl_->control_revision;++impl_->dropped_parameters; return false;
     }
-    return true;
+    ++impl_->control_revision;return true;
 }
 bool PreparedGraph::enqueue_parameters(const GraphState& state) {
     ParamBatch batch;
@@ -206,12 +212,18 @@ bool PreparedGraph::enqueue_parameters(const GraphState& state) {
             }
         }
     }
-    if(!impl_->batch_queue.push(batch)){++impl_->dropped_parameters;return false;}
+    ++impl_->control_revision;
+    if(!impl_->batch_queue.push(batch)){++impl_->control_revision;++impl_->dropped_parameters;return false;}
+    ++impl_->control_revision;
     for(std::size_t i=0;i<batch.size;++i){const auto& c=batch.changes[i];if(c.event.id!=UINT32_MAX && impl_->snapshot.graph->nodes[c.node].format==ProcessorFormat::vst3)impl_->nodes[c.node].processor->sync_controller(c.event.id,c.event.value);}
     for(const auto& n:state.nodes)impl_->last_parameters[n.id.value]=n.parameters;
     return true;
 }
 void PreparedGraph::panic() noexcept { impl_->panic_requested = true; }
+void PreparedGraph::reset_anticipation() noexcept {
+    for(auto& node:impl_->nodes){node.processor->reset_anticipation();for(auto& edge:node.inputs)edge.delay.reset();}
+    for(auto& delay:impl_->output_delays)delay.reset();
+}
 void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,bool playing,double tempo,double quarter) noexcept {
     auto& p = *impl_;
     if (!audio || !frames || frames > p.config.max_block) { ++p.invalid; return; }
@@ -332,4 +344,10 @@ bool PreparedGraph::open_editor(const Id& id,void* parent,int& w,int& h){const a
 void PreparedGraph::close_editors() noexcept {for(auto& n:impl_->nodes)n.processor->close_editor();}
 bool PreparedGraph::consume_edits() noexcept{bool any=false;for(auto& n:impl_->nodes)any=n.processor->edited()||any;return any;}
 bool PreparedGraph::failed() const noexcept{for(const auto& n:impl_->nodes)if(n.processor->failed())return true;return false;}
+bool PreparedGraph::anticipation_safe() const noexcept {
+    if(impl_->external_schedule.load(std::memory_order_acquire))return false;
+    for(const auto& node:impl_->nodes)if(!node.processor->anticipation_safe())return false;
+    return true;
+}
+std::uint64_t PreparedGraph::control_revision() const noexcept {return impl_->control_revision.load(std::memory_order_acquire);}
 } // namespace mrs::processing

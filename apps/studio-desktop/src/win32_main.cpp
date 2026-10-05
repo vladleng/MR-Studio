@@ -1426,7 +1426,7 @@ void UI::restore_audio() {
     const auto found = std::find_if(available.begin(),available.end(),[&](const auto& info) { return info.name == prefs.device_name; });
     if (found == available.end()) throw std::runtime_error("Saved ASIO device is unavailable. Choose a device in Audio settings.");
     // Resolve the saved name afresh: enumeration indices may change between sessions.
-    audio::DeviceConfig config{found->index,app.services().projects->state().project->sample_rate,prefs.buffer,{},prefs.outputs,prefs.processing_workers};
+    audio::DeviceConfig config{found->index,app.services().projects->state().project->sample_rate,prefs.buffer,{},prefs.outputs,prefs.processing_workers,prefs.process_buffer_frames};
     if (prefs.monitor_input >= 0) config.inputs = {prefs.monitor_input};
     app.connect(std::move(device),config); prefs.rate = config.sample_rate; preferences();
     refresh_models(); log.write("Saved ASIO connection restored; transport stopped");
@@ -1540,7 +1540,7 @@ void UI::settings_command(int id) {
     const auto input = number(child(input_edit,true)); if (input > 64) throw std::invalid_argument("Input must be 0 (off) or a channel 1..64");
     next_prefs.monitor_input = static_cast<int>(input)-1;
     next_prefs.device_name = selection == 0 ? "" : devices[static_cast<std::size_t>(selection)-1].name; next_prefs.reconnect_audio = selection != 0; next_prefs.validate();
-    audio::DeviceConfig config{selection == 0 ? 0 : devices[static_cast<std::size_t>(selection)-1].index,next_prefs.rate,next_prefs.buffer,{},next_prefs.outputs,next_prefs.processing_workers};
+    audio::DeviceConfig config{selection == 0 ? 0 : devices[static_cast<std::size_t>(selection)-1].index,next_prefs.rate,next_prefs.buffer,{},next_prefs.outputs,next_prefs.processing_workers,next_prefs.process_buffer_frames};
     if (next_prefs.monitor_input >= 0) config.inputs = {next_prefs.monitor_input};
     std::unique_ptr<audio::IAudioDevice> device;
     if (selection == 0) device = audio::make_offline_device();

@@ -34,6 +34,7 @@ public:
         return id == 0 ? std::optional<float>{gain_} : std::nullopt;
     }
     std::uint32_t latency() const noexcept override { return 0; }
+    bool anticipation_safe() const noexcept override{return true;}
     bool live_safe() const noexcept override { return true; }
     void warm() override {}
     void reset() noexcept override {}
@@ -100,6 +101,7 @@ public:
         if (id==0) return frequency_; if (id==1) return q_; if (id==2 && eq_) return gain_; return {};
     }
     std::uint32_t latency() const noexcept override { return 0; }
+    bool anticipation_safe() const noexcept override{return true;}
     bool live_safe() const noexcept override { return true; }
     void warm() override {}
     void reset() noexcept override { z1_.fill(0); z2_.fill(0); }
@@ -133,9 +135,11 @@ public:
     PluginState capture() const override {PluginState s;s.class_id="mrs.channel-eq";return s;}
     bool set_parameter(std::uint32_t id,float v) noexcept override {if(id>=20 || !std::isfinite(v))return false;auto& b=targets_[id/4];switch(id%4){case 0:if(v<20||v>20000)return false;b.frequency=v;break;case 1:if(v<0.1f||v>10)return false;b.q=v;break;case 2:if(v<-24||v>24)return false;b.gain=v;break;case 3:if(v<0||v>1)return false;b.enabled=v>=0.5f;break;}return true;}
     std::optional<float> parameter_value(std::uint32_t id) const noexcept override {if(id>=20)return {};const auto& b=targets_[id/4];switch(id%4){case 0:return b.frequency;case 1:return b.q;case 2:return b.gain;default:return b.enabled?1.f:0.f;}}
-    std::uint32_t latency() const noexcept override{return 0;} bool live_safe() const noexcept override{return true;}
+    std::uint32_t latency() const noexcept override{return 0;} bool anticipation_safe() const noexcept override{return true;}
+    bool live_safe() const noexcept override{return true;}
     void warm() override {current_=targets_;for(std::size_t i=0;i<5;++i)wet_[i]=targets_[i].enabled?1.f:0.f;update();}
     void reset() noexcept override {for(auto& f:filters_)f.reset();}
+    void reset_anticipation() noexcept override {current_=targets_;for(std::size_t i=0;i<5;++i)wet_[i]=targets_[i].enabled?1.f:0.f;tick_=0;update();reset();}
     void process(ProcessBlock block) noexcept override {
         std::size_t next{};MidiBuffer discarded;
         for(std::uint32_t frame=0;frame<block.frames;++frame){

@@ -1,4 +1,5 @@
 #include <mrs/device.hpp>
+#include <mrs/ahead_renderer.hpp>
 #include <portaudio.h>
 #include <pa_asio.h>
 #include <algorithm>
@@ -11,13 +12,14 @@ namespace {
 class AsioDevice final : public IAudioDevice {
     PaStream* stream_{};
     std::shared_ptr<AudioEngine> engine_;
+    std::unique_ptr<AheadRenderer> ahead_;
     DeviceConfig config_;
     DeviceStatus status_;
     static int callback(const void* input, void* output, unsigned long frames,
                         const PaStreamCallbackTimeInfo*, PaStreamCallbackFlags flags, void* user) noexcept {
         auto& self = *static_cast<AsioDevice*>(user);
         const auto begin = std::chrono::steady_clock::now();
-        self.engine_->process(static_cast<const float*>(input), static_cast<float*>(output), static_cast<std::uint32_t>(frames),
+        self.ahead_->process(static_cast<const float*>(input), static_cast<float*>(output), static_cast<std::uint32_t>(frames),
             ((flags & paInputUnderflow) ? 1U : 0U) | ((flags & paInputOverflow) ? 2U : 0U));
         const auto elapsed = std::chrono::steady_clock::now() - begin;
         const auto ns = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
@@ -89,6 +91,7 @@ public:
             render.output_channels != config.outputs.size() || render.max_block < config.buffer_frames)
             throw std::invalid_argument("engine/device configuration mismatch");
         config_ = config; engine_ = std::move(engine);
+        ahead_=std::make_unique<AheadRenderer>(engine_,config.buffer_frames,config.process_buffer_frames);
         PaAsioStreamInfo input_info{sizeof(PaAsioStreamInfo), paASIO, 1, paAsioUseChannelSelectors, config_.inputs.data()};
         PaAsioStreamInfo output_info{sizeof(PaAsioStreamInfo), paASIO, 1, paAsioUseChannelSelectors, config_.outputs.data()};
         const auto* d = Pa_GetDeviceInfo(config_.device);
@@ -107,7 +110,7 @@ public:
         const auto error = Pa_OpenStream(&opened, config_.inputs.empty() ? nullptr : &input, &output,
                                         config_.sample_rate, paFramesPerBufferUnspecified, paClipOff | paDitherOff,
                                         &callback, this);
-        if (error != paNoError) { engine_.reset(); check(error, "ASIO open (close other DAWs if device is busy)"); }
+        if (error != paNoError) { ahead_.reset();engine_.reset(); check(error, "ASIO open (close other DAWs if device is busy)"); }
         stream_ = opened;
         const auto* stream_info = Pa_GetStreamInfo(stream_);
         if (!stream_info) { close(); throw std::runtime_error("ASIO stream info unavailable"); }
@@ -120,18 +123,20 @@ public:
     }
     void start() override {
         if (!stream_) throw std::logic_error("ASIO device not open");
-        check(Pa_StartStream(stream_), "ASIO start"); status_.phase = DevicePhase::running;
+        ahead_->start();try{check(Pa_StartStream(stream_), "ASIO start");}catch(...){ahead_->stop();throw;}status_.phase = DevicePhase::running;
     }
     void stop() override {
         if (!stream_) return;
         const auto active = Pa_IsStreamActive(stream_);
         if (active < 0) check(active, "ASIO active state");
         if (active == 1) check(Pa_StopStream(stream_), "ASIO stop");
+        if(ahead_)ahead_->stop();
         if(engine_)engine_->quiesce();
         status_.phase = DevicePhase::stopped;
     }
     void close() noexcept override {
         if (stream_) { (void)Pa_AbortStream(stream_); (void)Pa_CloseStream(stream_); stream_ = nullptr; }
+        if(ahead_)ahead_->stop();ahead_.reset();
         if(engine_)engine_->quiesce();
         engine_.reset(); status_.phase = DevicePhase::closed;
     }

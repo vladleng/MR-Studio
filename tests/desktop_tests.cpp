@@ -678,11 +678,14 @@ void project_folders() {
 
 void config() {
     Preferences p; p.workspace = Workspace::live; p.device_name = "Komplete Audio ASIO Driver"; p.reconnect_audio = true;
+    p.process_buffer_frames=1024;
     CHECK(decode_preferences(encode_preferences(p)) == p);
     auto disabled = p; disabled.reconnect_audio = false;
     CHECK(decode_preferences(encode_preferences(disabled)) == disabled);
     const auto legacy = decode_preferences("MRS_DESKTOP_CONFIG 1\n0 48000 128 -1 \"Komplete Audio ASIO Driver\" 2 0 1\n");
     CHECK(legacy.reconnect_audio && legacy.device_name == p.device_name);
+    CHECK(legacy.process_buffer_frames==0);
+    auto invalid_process=p;invalid_process.process_buffer_frames=64;rejects([&]{(void)encode_preferences(invalid_process);});
     CHECK(!decode_preferences("MRS_DESKTOP_CONFIG 1\n0 48000 128 -1 \"\" 2 0 1\n").reconnect_audio);
     rejects([&] { (void)decode_preferences("MRS_DESKTOP_CONFIG 2\n0 48000 128 -1 \"\" 2 0 1 2\n"); });
     CHECK(parse_outputs("1, 2,6") == std::vector<int>({0,1,5}));

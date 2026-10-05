@@ -176,16 +176,19 @@ The adaptive cheap graph issues zero parallel batches: median 10.8 -> 11.0 us,
 though timing/OS noise increases its p99. The heavy Master stays effectively serial.
 More workers are not automatically better, and p99 varies between the two policies.
 
-## Delivery and pending acceptance
+## Delivery and acceptance
 
 Package: `MR-Studio-0.1r-P1-parallel-JUCE-ASIO-Windows-local` under chat Builds.
 Launch `Moon River Studio JUCE.exe`; keep `mrs_vst3_scan.exe` beside it. Previous
 packages are preserved. Compare Workers 1 and 2 (4 if useful) on the same ASIO
 buffer/project; TH-U and Xvox on separate channels, ONE on Master is a regression
 case, not a scheduling rule. Listen at 128 and inspect CPU/B/XR/Late/D/W, then compare
-256 without changing the plugin states. Real ASIO/project listening, long sustained
-mixed playback/monitor/recording and Fender Studio Pro parity remain unaccepted.
-Issue #51 stays open for that acceptance; P2/P3/P4, dynamic-latency transitions,
+256 without changing the plugin states. User listening acceptance on 2026-10-05:
+at the same plugins and 128 frames, regular clicks disappeared; occasional rare
+clicks remain, also experienced by the user in Studio Pro. P1/#51 is accepted and
+closed. Worker setting and audition duration were not reported. Long sustained
+mixed playback/monitor/recording and Fender Studio Pro parity remain unverified.
+P2/P3/P4, dynamic-latency transitions,
 process isolation and the wider #16 hardware matrix remain separately open.
 
 Code, tools, tests, logs and packages remain local. GitHub receives only documentation

@@ -4,6 +4,7 @@
 #include <mrs/processing.hpp>
 #include <mrs/no_denormals.hpp>
 #include <mrs/channel_workers.hpp>
+#include <mrs/ahead_renderer.hpp>
 #include <algorithm>
 #include <cmath>
 #include <chrono>
@@ -67,6 +68,7 @@ void AudioEngine::process_channel(std::size_t t) noexcept {
 }
 void AudioEngine::reset_compensation() noexcept {legacy_delay_.reset();for(auto& delay:route_delays_)delay.reset();for(auto& row:send_delays_)for(auto& delay:row)delay.reset();}
 void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState initial) {
+    if(speculative_)throw std::logic_error("stop the process producer before preparing audio");
     // Caller has stopped the device; this also joins a timed-out worker batch.
     workers_.reset();
     if ((initial.playback != PlaybackState::stopped && initial.playback != PlaybackState::paused) ||
@@ -295,7 +297,7 @@ void AudioEngine::prime_loop(std::optional<LoopRange> loop) {
         } else voice.stream->loop(-1);
     }
 }
-bool AudioEngine::enqueue(Control control) noexcept { return controls_.push(control); }
+bool AudioEngine::enqueue(Control control) noexcept { control.serial=control_revision_.fetch_add(1,std::memory_order_acq_rel)+1;const auto ok=controls_.push(control);++control_revision_;return ok; }
 bool AudioEngine::enqueue_mix(const MixerUpdate& update) noexcept {
     if (update.count != graph_.mixer.size() || !std::isfinite(update.master_gain) || update.master_gain < 0 || update.master_gain > 16) return false;
     for (std::size_t i=0; i<update.count; ++i) {
@@ -303,7 +305,7 @@ bool AudioEngine::enqueue_mix(const MixerUpdate& update) noexcept {
         for (std::size_t j=0; j<graph_.sends[i].size(); ++j) if (!std::isfinite(update.send_gains[i][j]) || update.send_gains[i][j] < 0 || update.send_gains[i][j] > 16) return false;
         if (!std::isfinite(m.gain) || m.gain < 0 || m.gain > 16 || !std::isfinite(m.pan) || m.pan < -1 || m.pan > 1) return false;
     }
-    return mixer_controls_.push(update);
+    auto message=update;message.serial=control_revision_.fetch_add(1,std::memory_order_acq_rel)+1;const auto ok=mixer_controls_.push(message);++control_revision_;return ok;
 }
 void AudioEngine::set_mix(const MixerUpdate& update, bool ramp) noexcept {
     input_monitoring_=update.input_monitoring;
@@ -349,19 +351,26 @@ MixerMeters AudioEngine::take_meters() noexcept {
     return result;
 }
 void AudioEngine::publish() noexcept {
-    sequence_.fetch_add(1, std::memory_order_acq_rel);
-    published_sample_.store(rt_.sample, std::memory_order_relaxed);
-    published_play_start_.store(rt_.play_start, std::memory_order_relaxed);
-    published_loop_start_.store(rt_.loop ? rt_.loop->start : 0, std::memory_order_relaxed);
-    published_loop_end_.store(rt_.loop ? rt_.loop->end : 0, std::memory_order_relaxed);
-    published_playback_.store(static_cast<int>(rt_.playback), std::memory_order_relaxed);
-    sequence_.fetch_add(1, std::memory_order_release);
+    if(speculative_)return;
+    publish_delivered(rt_,{});
 }
-RealtimeState AudioEngine::state() const {
+void AudioEngine::publish_delivered(const RealtimeState& delivered,const MixerMeters& meters) noexcept {
+    sequence_.fetch_add(1, std::memory_order_acq_rel);
+    published_sample_.store(delivered.sample, std::memory_order_relaxed);
+    published_play_start_.store(delivered.play_start, std::memory_order_relaxed);
+    published_loop_start_.store(delivered.loop ? delivered.loop->start : 0, std::memory_order_relaxed);
+    published_loop_end_.store(delivered.loop ? delivered.loop->end : 0, std::memory_order_relaxed);
+    published_playback_.store(static_cast<int>(delivered.playback), std::memory_order_relaxed);
+    sequence_.fetch_add(1, std::memory_order_release);
+    if(speculative_) {
+        for(std::size_t t=0;t<max_mixer_tracks;++t)for(std::size_t c=0;c<2;++c){const auto value=c?meters.tracks[t].right:meters.tracks[t].left;meter_peaks_[t][c].store(std::max(value,meter_peaks_[t][c].load(std::memory_order_relaxed)),std::memory_order_relaxed);}
+        for(std::size_t c=0;c<2;++c){const auto value=c?meters.master.right:meters.master.left;meter_peaks_[max_mixer_tracks][c].store(std::max(value,meter_peaks_[max_mixer_tracks][c].load(std::memory_order_relaxed)),std::memory_order_relaxed);}
+    }
+}
+bool AudioEngine::try_state(RealtimeState& result) const noexcept {
     for (int attempt = 0; attempt < 32; ++attempt) {
         const auto before = sequence_.load(std::memory_order_acquire);
         if (before & 1U) continue;
-        RealtimeState result;
         result.play_start=published_play_start_.load(std::memory_order_relaxed);
         result.sample = published_sample_.load(std::memory_order_relaxed);
         result.playback = static_cast<PlaybackState>(published_playback_.load(std::memory_order_relaxed));
@@ -369,32 +378,42 @@ RealtimeState AudioEngine::state() const {
         const auto end = published_loop_end_.load(std::memory_order_relaxed);
         if (end > start) result.loop = LoopRange{start, end};
         std::atomic_thread_fence(std::memory_order_acquire);
-        if (before == sequence_.load(std::memory_order_acquire)) return result;
+        if (before == sequence_.load(std::memory_order_acquire)) return true;
     }
+    return false;
+}
+RealtimeState AudioEngine::state() const {
+    RealtimeState result;if(try_state(result))return result;
     throw std::runtime_error("audio state busy; poll again");
 }
-void AudioEngine::process(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags) noexcept {
-    const ScopedNoDenormals no_denormals;
-    callbacks_.fetch_add(1, std::memory_order_relaxed);
-    if (!output || frames == 0 || frames > config_.max_block) {
-        for (const auto& recorder : graph_.recordings) recorder->input_dropout();
-        invalid_blocks_.fetch_add(1, std::memory_order_relaxed);
-        // Silence an oversized but valid device buffer without indexing assets.
-        if (output) std::fill_n(output, static_cast<std::size_t>(frames) * config_.output_channels, 0.0F);
-        return;
-    }
-    if(processing_fault_.load(std::memory_order_relaxed)) {
-        std::fill_n(output,static_cast<std::size_t>(frames)*config_.output_channels,0.f);
-        for(const auto& recorder:graph_.recordings)recorder->input_dropout();
-        return;
-    }
-    std::fill_n(direct_output_.data(),static_cast<std::size_t>(frames)*config_.output_channels,0.0f);
-    auto minimum = min_frames_.load(std::memory_order_relaxed);
-    if (minimum == 0 || frames < minimum) min_frames_.store(frames, std::memory_order_relaxed);
-    if (frames > max_frames_.load(std::memory_order_relaxed)) max_frames_.store(frames, std::memory_order_relaxed);
-    Control control;
-    for (int i = 0; i < 63 && controls_.pop(control); ++i) {
-        switch (control.kind) {
+bool AudioEngine::anticipation_safe() const noexcept {
+    if(!graph_.monitor.empty() || !graph_.recordings.empty())return false;
+    const auto safe=[](const auto& chain){return !chain||chain->anticipation_safe();};
+    if(!safe(graph_.processors)||!safe(graph_.master_inserts))return false;
+    for(const auto& chain:graph_.inserts)if(!safe(chain))return false;
+    return true;
+}
+std::uint64_t AudioEngine::control_revision() const noexcept {
+    auto revision=control_revision_.load(std::memory_order_acquire);
+    if(graph_.processors)revision+=graph_.processors->control_revision();
+    if(graph_.master_inserts)revision+=graph_.master_inserts->control_revision();
+    for(const auto& chain:graph_.inserts)if(chain)revision+=chain->control_revision();
+    return revision;
+}
+void AudioEngine::rebase_head(const RealtimeState& head) noexcept {
+    rt_=head;pending_seek_.reset();pending_play_anchor_=false;reset_compensation();
+    if(graph_.processors)graph_.processors->reset_anticipation();if(graph_.master_inserts)graph_.master_inserts->reset_anticipation();
+    for(const auto& chain:graph_.inserts)if(chain)chain->reset_anticipation();
+}
+AudioEngine::MixHead AudioEngine::mix_head() const noexcept {
+    return {mix_gain_,mix_target_,mix_step_,send_gain_,send_target_,send_step_,gate_,gate_target_,gate_step_,master_gain_,master_target_,master_step_,mix_ramp_};
+}
+void AudioEngine::restore_mix(const MixHead& mix) noexcept {
+    mix_gain_=mix.gain;mix_target_=mix.target;mix_step_=mix.step;send_gain_=mix.send;send_target_=mix.send_target;send_step_=mix.send_step;
+    gate_=mix.gate;gate_target_=mix.gate_target;gate_step_=mix.gate_step;master_gain_=mix.master;master_target_=mix.master_target;master_step_=mix.master_step;mix_ramp_=mix.ramp;
+}
+void AudioEngine::apply_control(const Control& control) noexcept {
+    switch (control.kind) {
         case ControlKind::monitor: monitor_enabled_ = control.a != 0; break;
         case ControlKind::play: if (rt_.playback != PlaybackState::playing) { rt_.play_start=rt_.sample; pending_play_anchor_=pending_seek_.has_value(); } rt_.playback = PlaybackState::playing; break;
         case ControlKind::pause:
@@ -429,7 +448,28 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             else if (control.a == 0 && control.b == 0) rt_.loop.reset();
             break;
         }
+ }
+void AudioEngine::process(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags) noexcept {
+    const ScopedNoDenormals no_denormals;
+    if(!speculative_)callbacks_.fetch_add(1, std::memory_order_relaxed);
+    if (!output || frames == 0 || frames > config_.max_block) {
+        for (const auto& recorder : graph_.recordings) recorder->input_dropout();
+        invalid_blocks_.fetch_add(1, std::memory_order_relaxed);
+        // Silence an oversized but valid device buffer without indexing assets.
+        if (output) std::fill_n(output, static_cast<std::size_t>(frames) * config_.output_channels, 0.0F);
+        return;
     }
+    if(processing_fault_.load(std::memory_order_relaxed)) {
+        std::fill_n(output,static_cast<std::size_t>(frames)*config_.output_channels,0.f);
+        for(const auto& recorder:graph_.recordings)recorder->input_dropout();
+        return;
+    }
+    std::fill_n(direct_output_.data(),static_cast<std::size_t>(frames)*config_.output_channels,0.0f);
+    auto minimum = min_frames_.load(std::memory_order_relaxed);
+    if (!speculative_ && (minimum == 0 || frames < minimum)) min_frames_.store(frames, std::memory_order_relaxed);
+    if (!speculative_ && frames > max_frames_.load(std::memory_order_relaxed)) max_frames_.store(frames, std::memory_order_relaxed);
+    Control control;
+    for(int i=0;i<63&&controls_.pop(control);++i){if(ahead_owner_)ahead_owner_->record_control(control);apply_control(control);}
     // A later control prime can replace an earlier queued seek's warm target.
     // Pin/verify the candidate before changing RT position. If unavailable, keep
     // rendering the current head and retry next block; callback never waits.
@@ -454,7 +494,8 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     }
     std::fill_n(output, static_cast<std::size_t>(frames) * config_.output_channels, 0.0F);
     MixerUpdate mix;
-    for (int n=0; n<7 && mixer_controls_.pop(mix); ++n) set_mix(mix,true);
+    for(int n=0;n<7&&mixer_controls_.pop(mix);++n){if(ahead_owner_)ahead_owner_->record_mix(mix);set_mix(mix,true);}
+    if(speculative_)last_render_mix_=mix_head();
     std::array<std::array<float,2>,max_mixer_tracks+1> block_peaks{};
     float peak{};
     if (input) for (std::size_t n=0; n<static_cast<std::size_t>(frames)*config_.input_channels; ++n)
@@ -470,6 +511,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         voice.stream->begin(voice.source_offset+std::clamp(rt_.sample-voice.start,Sample{0},voice.length-1));
     }
     const auto tempo_at=[&](Sample sample){RenderGraph::TempoSegment result;for(const auto& t:graph_.tempos){if(t.sample>sample)break;result=t;}result.quarter+=static_cast<double>(sample-result.sample)*result.bpm/(60*config_.sample_rate);return result;};
+    last_render_start_=rt_;
     const auto block_position=rt_.sample;const auto block_playing=rt_.playback==PlaybackState::playing;const auto block_tempo=tempo_at(block_position);
     for(std::uint32_t base=0;base<frames;){
         if(rt_.playback==PlaybackState::playing&&rt_.loop&&rt_.sample>=rt_.loop->end)
@@ -597,7 +639,8 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             if (sample > 1 || sample < -1) { clipped_.fetch_add(1,std::memory_order_relaxed); sample = std::clamp(sample,-1.0f,1.0f); }
         }
     }
-    for (std::size_t t=0; t<=max_mixer_tracks; ++t) for (std::size_t c=0; c<2; ++c)
+    last_render_meters_={};for(std::size_t t=0;t<max_mixer_tracks;++t)last_render_meters_.tracks[t]={block_peaks[t][0],block_peaks[t][1]};last_render_meters_.master={block_peaks[max_mixer_tracks][0],block_peaks[max_mixer_tracks][1]};
+    if(!speculative_)for (std::size_t t=0; t<=max_mixer_tracks; ++t) for (std::size_t c=0; c<2; ++c)
         meter_peaks_[t][c].store(std::max(block_peaks[t][c],meter_peaks_[t][c].load(std::memory_order_relaxed)),std::memory_order_relaxed);
     // Normalize at an exact block boundary for coherent displayed loop position.
     if (rt_.loop && rt_.playback == PlaybackState::playing && rt_.sample >= rt_.loop->end)
@@ -621,6 +664,9 @@ void AudioEngine::observe(std::uint64_t ns, std::uint32_t frames, std::uint32_t 
 }
 Metrics AudioEngine::metrics() const {
     Metrics m;
+    m.ahead_memory_bytes=ahead_memory_bytes_.load();
+    m.anticipation_active=anticipation_active_.load();m.process_buffer_frames=process_buffer_frames_.load();m.ahead_buffered_frames=ahead_buffered_frames_.load();
+    m.ahead_underruns=ahead_underruns_.load();m.ahead_invalidations=ahead_invalidations_.load();m.ahead_max_process_ns=ahead_max_process_ns_.load();
     m.processing_workers=workers_?workers_->count()+1:1;
     m.audio_scheduled_workers=workers_?workers_->audio_scheduled():0;
     m.parallel_batches=parallel_batches_.load();m.worker_timeouts=worker_timeouts_.load();m.processing_fault=processing_fault_.load();

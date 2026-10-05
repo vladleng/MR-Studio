@@ -15,6 +15,7 @@ public:
     std::optional<float> parameter_value(std::uint32_t) const noexcept override{return {};}
     std::uint32_t latency() const noexcept override{return latency_;}
     bool live_safe() const noexcept override{return true;}
+    bool anticipation_safe() const noexcept override{return true;}
     void warm() override{}
     void reset() noexcept override{std::fill(ring_.begin(),ring_.end(),0.f);cursor_=0;}
     void process(mrs::processing::ProcessBlock block) noexcept override{if(ring_.empty())return;for(auto& sample:block.audio){sample=std::exchange(ring_[cursor_],sample);if(++cursor_==ring_.size())cursor_=0;}}

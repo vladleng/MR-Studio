@@ -56,6 +56,7 @@ void Preferences::validate() const {
     (void)workspace_name(workspace); require(rate >= 8000 && rate <= 768000,"invalid sample rate");
     require(buffer >= 8 && buffer <= 8192,"invalid buffer"); require(monitor_input >= -1 && monitor_input < 64,"invalid monitor input");
     require(processing_workers>=1&&processing_workers<=8,"invalid audio worker limit (1..8)");
+    require(process_buffer_frames<=8192&&(!process_buffer_frames||process_buffer_frames>=buffer),"Process Buffer must be off or at least Device Buffer (max 8192)");
     require(!outputs.empty() && outputs.size() <= 64 && device_name.size() <= 4096,"invalid device preferences");
     require(recent_projects.size() <= 10,"too many recent projects");
     require(profiles.size() <= 16,"too many device profiles (maximum 16)");
@@ -67,7 +68,7 @@ void Preferences::validate() const {
 }
 std::string encode_preferences(const Preferences& p) {
     p.validate(); std::ostringstream out;
-    out << "MRS_DESKTOP_CONFIG 5\n" << static_cast<int>(p.workspace) << ' ' << p.rate << ' ' << p.buffer << ' ' << p.monitor_input
+    out << "MRS_DESKTOP_CONFIG 6\n" << static_cast<int>(p.workspace) << ' ' << p.rate << ' ' << p.buffer << ' ' << p.monitor_input
         << ' ' << std::quoted(p.device_name) << ' ' << p.outputs.size();
     for (auto o : p.outputs) out << ' ' << o;
     out << ' ' << p.reconnect_audio << "\n" << p.recent_projects.size() << '\n';
@@ -78,13 +79,13 @@ std::string encode_preferences(const Preferences& p) {
         for (std::size_t i=0; i<v.outputs.size(); ++i) out << ' ' << v.outputs[i] << ' ' << std::quoted(v.output_labels[i]);
         out << '\n';
     }
-    out << p.processing_workers << '\n';
+    out << p.processing_workers << ' ' << p.process_buffer_frames << '\n';
     const auto bytes = out.str(); require(bytes.size() <= 524288,"config too large"); return bytes;
 }
 Preferences decode_preferences(std::string_view bytes) {
     require(bytes.size() <= 524288,"config too large"); std::istringstream in{std::string(bytes)};
     std::string magic; int version{},workspace{}; std::size_t count{}; Preferences p;
-    require(static_cast<bool>(in >> magic >> version) && magic == "MRS_DESKTOP_CONFIG" && (version >= 1 && version <= 5),"unsupported config");
+    require(static_cast<bool>(in >> magic >> version) && magic == "MRS_DESKTOP_CONFIG" && (version >= 1 && version <= 6),"unsupported config");
     require(static_cast<bool>(in >> workspace >> p.rate >> p.buffer >> p.monitor_input >> std::quoted(p.device_name) >> count) && workspace >= 0 && workspace <= 3 && count > 0 && count <= 64,"invalid config");
     p.workspace = static_cast<Workspace>(workspace); p.outputs.clear();
     for (std::size_t i = 0; i < count; ++i) { int o{}; require(static_cast<bool>(in >> o),"truncated config"); p.outputs.push_back(o); }
@@ -113,6 +114,7 @@ Preferences decode_preferences(std::string_view bytes) {
         }
     }
     if(version>=5)require(static_cast<bool>(in>>p.processing_workers),"truncated audio worker limit");
+    if(version>=6)require(static_cast<bool>(in>>p.process_buffer_frames),"truncated Process Buffer");
     in >> std::ws; require(in.eof(),"extra config data"); p.validate(); return p;
 }
 void remember_project(Preferences& p, const std::filesystem::path& path) {

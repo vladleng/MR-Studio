@@ -150,6 +150,11 @@ public:
     virtual std::optional<float> parameter_value(std::uint32_t) const noexcept = 0;
     virtual std::uint32_t latency() const noexcept = 0;
     virtual bool live_safe() const noexcept = 0;
+    // Opt in only when reset_anticipation clears DSP history while retaining parameter
+    // targets, device-sized packet rendering is valid, and all external edits are
+    // represented in PreparedGraph revisions. Unsupported processors stay direct.
+    virtual bool anticipation_safe() const noexcept { return false; }
+    virtual void reset_anticipation() noexcept { reset(); }
     virtual void warm() = 0; // off-thread after prepare/restore
     virtual void reset() noexcept = 0;
     virtual void process(ProcessBlock) noexcept = 0; // bounded RT implementation required
@@ -191,6 +196,7 @@ public:
     bool enqueue_parameter(const Id& node, ParameterChange);
     bool enqueue_parameters(const GraphState&); // atomic bounded parameter/bypass update
     void panic() noexcept;
+    void reset_anticipation() noexcept; // single quiescent DSP owner, retain parameter targets
     // Single audio-thread consumer; no allocation, locks or I/O.
     void process(float* interleaved, std::uint32_t frames, Sample position=0,bool playing=false,double tempo=120,double quarter=0) noexcept;
     bool pop_midi_output(MidiOutput&) noexcept; // single control-thread consumer
@@ -206,6 +212,8 @@ public:
     void restore_node(const NodeState&); // quiescent: retain processor/editor instance
     bool consume_edits() noexcept;
     bool failed() const noexcept;
+    bool anticipation_safe() const noexcept;
+    std::uint64_t control_revision() const noexcept;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
