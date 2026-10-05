@@ -198,7 +198,7 @@ click resolution is not confirmed. Follow [the performance plan](ENGINE_PERFORMA
 3e-P1 parallel channels (#51), 3e-P2 anticipative playback (#52), 3e-P3 separate
 low-latency monitoring (#53), then 3e-P4 profiling and sustained-load acceptance
 (#54). Minimal profiling accompanies P1. P1 is implemented and locally validated
-in 0.1r; P2/P3/P4 remain planned. User ASIO acceptance and existing
+in 0.1r and user-accepted at 128 frames; P2 is in local 0.1s development. P3/P4 and existing
 transition/isolation/hardware gates remain open.
 
 
@@ -231,6 +231,47 @@ This does not establish Fender Studio Pro parity or resolution of ASIO clicks.
 
 Branch retained: mrs/0.1q-fix3-processing-local. Package:
 MR-Studio-0.1r-P1-parallel-JUCE-ASIO-Windows-local in chat Builds.
-#51 remains open for intended-system ASIO/listening/sustained-load acceptance.
+#51 was accepted and closed on 2026-10-05 after the user's 128-frame audition; broader sustained-load acceptance remains P4/#16 scope.
 No special installed TH-U/Nuro routine state tests; code/builds/tools/tests local,
 GitHub docs/issues only with skip-ci commits; no Actions or source push.
+
+
+## P1 user acceptance — 2026-10-05
+
+User tested 0.1r with the same plugins at ASIO buffer 128: regular clicks
+disappeared, occasional rare clicks remain (also experienced in Studio Pro).
+User accepts the improvement; #51 is closed as completed. No universal zero-click
+claim, detailed worker/duration report, sustained mixed recording matrix or
+Fender Studio Pro parity measurement is inferred. P4/#16 and isolation remain open.
+P2/#52 starts locally today at the user's request.
+
+## 0.1s / 3e-P2 — conservative native playback anticipation
+
+The local build adds an explicit Process Buffer, Off by default, independent of
+Device Buffer. A single producer owns eligible whole-graph prerecorded DSP and
+reuses P1 helpers; the callback consumes bounded generation-tagged PCM and publishes
+the heard head. Prepared packet/mailbox/journal storage is limited to 16 MiB.
+Seek/Stop/loop/mixer/parameter changes discard stale packets, reset histories and
+restore/replay heard transport/mix state. Pause/edits/restart cut previous tails;
+seamless history rewind remains outside this first implementation. Empty queues
+silence/hold timeline and recover without concurrent retry.
+
+All VST3, any input-monitor/recording graph and external MIDI/offset automation
+remain direct P1 processing. Native Gain/filter/EQ/Cab IR opt in through a generic
+capability; no project/vendor whitelist. Unsupported scheduling introduced during
+active anticipation faults until reconnect. Stop/close joins producer/helpers
+before state capture/replacement. Native crashes/hangs still need later isolation.
+
+Cached local Release build and 99/99 CTest passed (43.21 s). Exact PCM/PDC/short
+loops/variable callback/transport/mixer/parameter/EQ smoothing/history tests,
+allocation probe on producer/device/helpers, memory/eligibility/ownership and
+9.6 MB streamed-WAV seek/loop checks passed. A 75-case short paced synthetic matrix
+at Device 64/128/256/512 and Process Off/256/1024/4096 had 0 Late/U/timeouts/disk
+misses with a high-resolution timer and 12,000 exact reference blocks. Initial
+coarse-clock short-window underruns are retained and explained in the report.
+
+[Eligibility, transitions and measured limits](ENGINE_ANTICIPATIVE_PROCESSING.md).
+Package: MR-Studio-0.1s-P2-anticipative-JUCE-ASIO-Windows-local in chat Builds.
+#52 remains open for user review; VST3 anticipation capability, live/playback
+dependency separation (P3), sustained load (P4/#16), 3e2/3e3 remain separate.
+Code/builds/tests/packages local; GitHub docs/issues only, no Actions/source push.
