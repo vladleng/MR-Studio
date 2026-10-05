@@ -32,6 +32,7 @@ struct Preferences {
     bool reconnect_audio{};
     std::vector<std::string> recent_projects{};
     std::vector<DeviceProfile> profiles{};
+    std::uint32_t processing_workers{2};
     bool operator==(const Preferences&) const = default;
     void validate() const;
 };

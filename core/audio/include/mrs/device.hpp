@@ -14,6 +14,7 @@ struct DeviceConfig {
     std::uint32_t sample_rate{48000}, buffer_frames{128};
     std::vector<int> inputs; // zero-based hardware channel selectors
     std::vector<int> outputs{0, 1};
+    std::uint32_t processing_workers{2}; // callback + helpers, 1 serial, maximum 8
 };
 struct DeviceStatus {
     DevicePhase phase{DevicePhase::closed};

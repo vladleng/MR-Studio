@@ -127,10 +127,12 @@ public:
         const auto active = Pa_IsStreamActive(stream_);
         if (active < 0) check(active, "ASIO active state");
         if (active == 1) check(Pa_StopStream(stream_), "ASIO stop");
+        if(engine_)engine_->quiesce();
         status_.phase = DevicePhase::stopped;
     }
     void close() noexcept override {
         if (stream_) { (void)Pa_AbortStream(stream_); (void)Pa_CloseStream(stream_); stream_ = nullptr; }
+        if(engine_)engine_->quiesce();
         engine_.reset(); status_.phase = DevicePhase::closed;
     }
     DeviceStatus status() override {

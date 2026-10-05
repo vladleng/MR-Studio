@@ -182,8 +182,8 @@ void Desktop::openInsert(std::optional<mrs::Id> target,mrs::Id slot){run([&]{aut
 class AudioPanel final : public juce::Component {
 public:
     explicit AudioPanel(Desktop& d,bool test=false):owner(d){
-        for(auto* c:{static_cast<juce::Component*>(&devices),static_cast<juce::Component*>(&rate),static_cast<juce::Component*>(&buffer),static_cast<juce::Component*>(&inputs),static_cast<juce::Component*>(&outputs),static_cast<juce::Component*>(&connect),static_cast<juce::Component*>(&disconnect),static_cast<juce::Component*>(&panelButton),static_cast<juce::Component*>(&profiles),static_cast<juce::Component*>(&profileName),static_cast<juce::Component*>(&save),static_cast<juce::Component*>(&load),static_cast<juce::Component*>(&remove),static_cast<juce::Component*>(&reconnect)})addAndMakeVisible(c);
-        setFocusContainerType(FocusContainerType::keyboardFocusContainer);setTitle("Audio settings");devices.setTitle("ASIO device");rate.setTitle("Sample rate");buffer.setTitle("Buffer frames");inputs.setTitle("Physical inputs, one-based channel numbers");outputs.setTitle("Physical outputs, one-based channel numbers");profiles.setTitle("Saved audio profiles");profileName.setTitle("Audio profile name");
+        for(auto* c:{static_cast<juce::Component*>(&devices),static_cast<juce::Component*>(&rate),static_cast<juce::Component*>(&buffer),static_cast<juce::Component*>(&workers),static_cast<juce::Component*>(&inputs),static_cast<juce::Component*>(&outputs),static_cast<juce::Component*>(&connect),static_cast<juce::Component*>(&disconnect),static_cast<juce::Component*>(&panelButton),static_cast<juce::Component*>(&profiles),static_cast<juce::Component*>(&profileName),static_cast<juce::Component*>(&save),static_cast<juce::Component*>(&load),static_cast<juce::Component*>(&remove),static_cast<juce::Component*>(&reconnect)})addAndMakeVisible(c);
+        setFocusContainerType(FocusContainerType::keyboardFocusContainer);setTitle("Audio settings");devices.setTitle("ASIO device");rate.setTitle("Sample rate");buffer.setTitle("Buffer frames");workers.setTitle("Audio workers including callback, 1 serial");inputs.setTitle("Physical inputs, one-based channel numbers");outputs.setTitle("Physical outputs, one-based channel numbers");profiles.setTitle("Saved audio profiles");profileName.setTitle("Audio profile name");
         devices.addItem("Offline clock (no sound)",1);
 #ifdef MRS_HAS_ASIO
         if(!test){probe=mrs::audio::make_asio_device();infos=probe->enumerate();}
@@ -193,6 +193,7 @@ public:
         populateDevices();rate.setEditableText(true);buffer.setEditableText(true);
         rate.addItemList({"44100","48000","88200","96000","192000"},1);rate.setText(juce::String(owner.prefs.rate),juce::dontSendNotification);
         buffer.addItemList({"64","128","256","512","1024","2048"},1);buffer.setText(juce::String(owner.prefs.buffer),juce::dontSendNotification);
+        workers.addItemList({"1 (serial)","2","3","4","5","6","7","8"},1);workers.setSelectedId(static_cast<int>(owner.prefs.processing_workers),juce::dontSendNotification);
         inputs.setText(owner.view.inputs.isEmpty()&&owner.prefs.monitor_input>=0?juce::String(owner.prefs.monitor_input+1):owner.view.inputs);outputs.setText(channels(owner.prefs.outputs));
         reconnect.setToggleState(owner.prefs.reconnect_audio,juce::dontSendNotification);reconnect.onClick=[this]{owner.run([&]{owner.prefs.reconnect_audio=reconnect.getToggleState();owner.saveSettings();});};
         auto changed=[this]{staged.reset();};devices.onChange=changed;rate.onChange=changed;buffer.onChange=changed;inputs.onTextChange=changed;outputs.onTextChange=changed;
@@ -206,12 +207,12 @@ public:
             auto found=std::find_if(fresh.begin(),fresh.end(),[&](const auto& i){return i.name==info.name;});
             if(found==fresh.end())throw std::runtime_error("Selected ASIO device is no longer available");
             config.device=found->index;mrs::audio::validate_device_config(*found,config);
-            if(staged)config=mrs::desktop::resolve_profile(*staged,*found);
+            if(staged)config=mrs::desktop::resolve_profile(*staged,*found);config.processing_workers=static_cast<std::uint32_t>(workers.getSelectedId());
             info=*found;owner.closeEditors();try{owner.app.connect(std::move(device),config);}catch(...){owner.resetDevice();throw;}
 #else
             throw std::runtime_error("ASIO is not enabled in this build");
 #endif
-            owner.view.deviceChannels=deviceLayout(info);owner.prefs.device_name=info.name;owner.prefs.rate=config.sample_rate;owner.prefs.buffer=config.buffer_frames;owner.prefs.outputs=config.outputs;
+            owner.view.deviceChannels=deviceLayout(info);owner.prefs.device_name=info.name;owner.prefs.rate=config.sample_rate;owner.prefs.buffer=config.buffer_frames;owner.prefs.processing_workers=config.processing_workers;owner.prefs.outputs=config.outputs;
             owner.prefs.monitor_input=config.inputs.size()==1?config.inputs.front():-1;owner.view.inputs=channels(config.inputs);owner.saveSettings();
         });};
         disconnect.onClick=[this]{owner.run([&]{owner.closeEditors();owner.resetDevice();});};
@@ -235,20 +236,20 @@ public:
     void populateProfiles(const std::string& selected={}){profiles.clear(juce::dontSendNotification);for(std::size_t i=0;i<owner.prefs.profiles.size();++i){profiles.addItem(label(owner.prefs.profiles[i].name),static_cast<int>(i)+1);if(owner.prefs.profiles[i].name==selected)profiles.setSelectedId(static_cast<int>(i)+1,juce::dontSendNotification);}}
     mrs::audio::DeviceConfig configuration() const {int i=devices.getSelectedId()-2;if(i<0)throw std::runtime_error("Select an ASIO device");
         const auto parse=[](juce::String text){text=text.trim();if(text.isEmpty()||text.containsOnly("0123456789")==false)throw std::runtime_error("Rate and buffer must be whole positive numbers");auto number=text.getLargeIntValue();if(number<8||number>768000)throw std::runtime_error("Rate or buffer outside supported range");return static_cast<std::uint32_t>(number);};
-        mrs::audio::DeviceConfig c{infos.at(static_cast<std::size_t>(i)).index,parse(rate.getText()),parse(buffer.getText()),{},mrs::desktop::parse_outputs(outputs.getText().toStdString())};
+        mrs::audio::DeviceConfig c{infos.at(static_cast<std::size_t>(i)).index,parse(rate.getText()),parse(buffer.getText()),{},mrs::desktop::parse_outputs(outputs.getText().toStdString()),static_cast<std::uint32_t>(workers.getSelectedId())};
         if(!inputs.getText().trim().isEmpty())c.inputs=mrs::desktop::parse_outputs(inputs.getText().toStdString());mrs::audio::validate_device_config(infos.at(static_cast<std::size_t>(i)),c);return c;
     }
     void resized() override{devices.setBounds(180,20,470,28);rate.setBounds(180,62,180,28);buffer.setBounds(470,62,180,28);inputs.setBounds(180,110,470,28);outputs.setBounds(180,155,470,28);connect.setBounds(20,205,130,30);disconnect.setBounds(160,205,130,30);panelButton.setBounds(300,205,150,30);
-        reconnect.setBounds(20,248,620,28);profiles.setBounds(180,290,300,28);load.setBounds(490,290,70,28);remove.setBounds(570,290,80,28);profileName.setBounds(180,330,300,28);save.setBounds(490,330,160,28);}
+        reconnect.setBounds(20,248,450,28);workers.setBounds(555,248,95,28);profiles.setBounds(180,290,300,28);load.setBounds(490,290,70,28);remove.setBounds(570,290,80,28);profileName.setBounds(180,330,300,28);save.setBounds(490,330,160,28);}
     void paint(juce::Graphics& g) override{g.fillAll(juce::Colour(background));g.setColour(juce::Colours::whitesmoke);g.setFont(owner.theme.font(12));
         g.drawText("Device",20,20,150,28,juce::Justification::left);g.drawText("Sample rate",20,62,150,28,juce::Justification::left);g.drawText("Frames",390,62,70,28,juce::Justification::left);g.drawText("Inputs (1,2...)",20,110,150,28,juce::Justification::left);g.drawText("Outputs (1,2...)",20,155,150,28,juce::Justification::left);
-        g.drawText("Saved profiles",20,290,150,28,juce::Justification::left);g.drawText("Profile name",20,330,150,28,juce::Justification::left);
+        g.drawText("Workers",480,248,75,28,juce::Justification::left);g.drawText("Saved profiles",20,290,150,28,juce::Justification::left);g.drawText("Profile name",20,330,150,28,juce::Justification::left);
         g.drawText("Load stages settings; Connect activates audio. Profiles support one monitor input.",20,382,640,26,juce::Justification::left);g.drawText("Empty inputs = playback only. Device rate must match project rate.",20,416,640,26,juce::Justification::left);
         g.setColour(juce::Colours::orange);g.drawText(owner.message,20,452,640,24,juce::Justification::left);
     }
     Desktop& owner;std::unique_ptr<mrs::audio::IAudioDevice> probe;std::vector<mrs::audio::DeviceInfo> infos;
     std::optional<mrs::desktop::DeviceProfile> staged;
-    juce::ComboBox devices,rate,buffer,profiles;juce::TextEditor inputs,outputs,profileName;
+    juce::ComboBox devices,rate,buffer,profiles,workers;juce::TextEditor inputs,outputs,profileName;
     juce::ToggleButton reconnect{"Reconnect saved ASIO device on startup and project open"};
     juce::TextButton connect{"Connect"},disconnect{"Offline"},panelButton{"ASIO control panel"},save{"Save / replace profile"},load{"Load"},remove{"Delete"};
 };
@@ -257,6 +258,9 @@ void j3AudioSmoke(Desktop& d){
     auto original=d.prefs;auto originalView=d.view;
     AudioPanel audioPanel(d,true);audioPanel.infos={{7,"J3 test interface",{"Mic L","Mic R"},{"Main L","Main R","Cue L","Cue R"},64,1024,128,0}};audioPanel.populateDevices();
     audioPanel.devices.setSelectedId(2,juce::dontSendNotification);audioPanel.rate.setText("48000",juce::dontSendNotification);audioPanel.buffer.setText("128",juce::dontSendNotification);audioPanel.inputs.setText("2",false);audioPanel.outputs.setText("3,4",false);audioPanel.profileName.setText("Guitar",false);audioPanel.save.onClick();
+    audioPanel.workers.setSelectedId(4,juce::dontSendNotification);check(audioPanel.configuration().processing_workers==4,"parallel worker setting reaches device config");
+    audioPanel.workers.setSelectedId(1,juce::dontSendNotification);check(audioPanel.configuration().processing_workers==1,"serial reference setting reaches device config");
+    {auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-audio-workers-preview.png").createOutputStream();juce::PNGImageFormat format;if(stream){stream->setPosition(0);stream->truncate();format.writeImageToStream(audioPanel.createComponentSnapshot(audioPanel.getLocalBounds(),true,1.f,juce::SoftwareImageType{}),*stream);}}
     check(d.message.isEmpty()&&d.prefs.profiles.size()==original.profiles.size()+1,"audio profile save binding");
     audioPanel.outputs.setText("1,2",false);audioPanel.load.onClick();check(audioPanel.outputs.getText()=="3,4"&&audioPanel.inputs.getText()=="2"&&audioPanel.staged.has_value(),"profile stages mapped channels");
     check(d.app.audio_name()!="J3 test interface","profile load never activates hardware");

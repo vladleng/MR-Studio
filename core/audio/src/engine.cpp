@@ -3,8 +3,10 @@
 #include <mrs/recording.hpp>
 #include <mrs/processing.hpp>
 #include <mrs/no_denormals.hpp>
+#include <mrs/channel_workers.hpp>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <limits>
 #include <stdexcept>
 
@@ -31,8 +33,42 @@ void AudioData::validate() const {
         if (!std::isfinite(sample)) throw std::invalid_argument("non-finite audio sample");
 }
 AudioEngine::AudioEngine() { prepare(RenderConfig{}, {}); }
+AudioEngine::~AudioEngine() {workers_.reset();}
+void AudioEngine::quiesce() noexcept {if(workers_)workers_->quiesce();}
+void AudioEngine::channel_job(void* context,std::uint32_t index) noexcept {
+    auto& engine=*static_cast<AudioEngine*>(context);
+    const auto track=engine.channel_levels_[engine.job_level_][index];
+    engine.process_channel(track);
+}
+void AudioEngine::process_channel(std::size_t t) noexcept {
+    const auto started=measure_channels_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+    if(!graph_.inserts.empty()&&graph_.inserts[t])graph_.inserts[t]->process(track_block_[t].data(),job_frames_,job_position_,job_playing_,job_tempo_,job_quarter_);
+    channel_peaks_[t]={};
+    for(std::uint32_t local=0;local<job_frames_;++local) {
+        const auto at=static_cast<std::size_t>(local)*config_.output_channels;
+        for(std::uint32_t c=0;c<config_.output_channels;++c) {
+            const auto sample=track_block_[t][at+c]*mix_gain_[t][c%2];
+            route_contributions_[t][at+c]=route_delays_[t].sample(sample,c);
+            for(std::size_t j=0;j<graph_.sends[t].size();++j) {
+                const auto& send=graph_.sends[t][j];
+                send_contributions_[t][j][at+c]=send_delays_[t][j].sample((send.pre_fader?track_block_[t][at+c]*gate_[t]:sample)*send_gain_[t][j],c);
+            }
+            if(c<2)channel_peaks_[t][c]=std::max(channel_peaks_[t][c],std::abs(sample));
+        }
+        if(local<job_ramp_) {
+            for(std::size_t c=0;c<2;++c)mix_gain_[t][c]+=mix_step_[t][c];
+            gate_[t]+=gate_step_[t];
+            for(std::size_t j=0;j<graph_.sends[t].size();++j)send_gain_[t][j]+=send_step_[t][j];
+            if(local+1==job_ramp_){mix_gain_[t]=mix_target_[t];gate_[t]=gate_target_[t];send_gain_[t]=send_target_[t];}
+        }
+    }
+    if(measure_channels_){const auto elapsed=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-started).count())/job_frames_;
+        channel_cost_ns_[t]=channel_cost_ns_[t]?(channel_cost_ns_[t]*3+elapsed)/4:elapsed;}
+}
 void AudioEngine::reset_compensation() noexcept {legacy_delay_.reset();for(auto& delay:route_delays_)delay.reset();for(auto& row:send_delays_)for(auto& delay:row)delay.reset();}
 void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState initial) {
+    // Caller has stopped the device; this also joins a timed-out worker batch.
+    workers_.reset();
     if ((initial.playback != PlaybackState::stopped && initial.playback != PlaybackState::paused) ||
         initial.sample < 0 || initial.sample > max_sample || initial.play_start < 0 || initial.play_start > max_sample ||
         (initial.loop && (initial.loop->start < 0 || initial.loop->start >= initial.loop->end || initial.loop->end > max_sample)))
@@ -41,6 +77,8 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     if (config.sample_rate < 8000 || config.sample_rate > 768000 ||
         config.input_channels > max_channels || config.output_channels == 0 ||
         config.output_channels > max_channels || config.max_block == 0 || config.max_block > 65536 || config.processing_block>config.max_block ||
+        config.processing_workers<1 || config.processing_workers>8 ||
+        config.worker_wait_ms<1 || config.worker_wait_ms>1000 ||
         graph.voices.size() > max_voices || graph.monitor.size() > max_channels * max_channels)
         throw std::invalid_argument("invalid render configuration");
     if (graph.mixer.size() > max_mixer_tracks || !std::isfinite(graph.master_gain) || graph.master_gain < 0 || graph.master_gain > 16 ||
@@ -89,6 +127,23 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
         for (const auto& send : graph.sends[order[i]]) release(send.destination);
     }
     if (order.size() != graph.mixer.size()) throw std::invalid_argument("audio routing cycle");
+    std::vector<std::size_t> levels(graph.mixer.size());
+    std::vector<std::vector<std::size_t>> channel_levels;
+    std::vector<const processing::PreparedGraph*> owners;
+    const auto register_owner=[&](const std::shared_ptr<processing::PreparedGraph>& chain) {
+        if(!chain)return;
+        if(std::find(owners.begin(),owners.end(),chain.get())!=owners.end())
+            throw std::invalid_argument("processor graph must have a single channel owner");
+        owners.push_back(chain.get());
+    };
+    register_owner(graph.processors);register_owner(graph.master_inserts);
+    for(const auto& chain:graph.inserts)register_owner(chain);
+    for(const auto t:order) {
+        if(channel_levels.size()<=levels[t])channel_levels.resize(levels[t]+1);
+        channel_levels[levels[t]].push_back(t);
+        const auto advance=[&](std::size_t dest){if(dest!=no_mixer_track)levels[dest]=std::max(levels[dest],levels[t]+1);};
+        advance(graph.outputs[t]);for(const auto& send:graph.sends[t])advance(send.destination);
+    }
     if (graph.monitor_track != no_mixer_track && graph.buses[graph.monitor_track]) throw std::invalid_argument("input requires an audio track");
     for (const auto& voice : graph.voices) {
         if (voice.mixer_track != no_mixer_track && voice.mixer_track >= graph.mixer.size()) throw std::invalid_argument("invalid voice mixer track");
@@ -181,16 +236,35 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     for(std::size_t i=0;i<graph.tempos.size();++i){const auto& t=graph.tempos[i];if(t.sample<0 || !std::isfinite(t.bpm) || t.bpm<1 || t.bpm>1000 || !std::isfinite(t.quarter) || (i && t.sample<=graph.tempos[i-1].sample))throw std::invalid_argument("invalid prepared tempo map");}
     auto block_size=config.processing_block?config.processing_block:config.max_block;
     for(const auto& chain:graph.inserts)if(chain)block_size=std::min(block_size,chain->config().max_block);
-    if(static_cast<std::uint64_t>(block_size)*config.output_channels*graph.mixer.size()*sizeof(float)>128ULL*1024*1024)
+    std::size_t scratch_blocks=graph.mixer.size()*2;
+    for(const auto& sends_for_track:graph.sends)scratch_blocks+=sends_for_track.size();
+    if(static_cast<std::uint64_t>(block_size)*config.output_channels*scratch_blocks*sizeof(float)>128ULL*1024*1024)
         throw std::invalid_argument("mixer scratch budget exceeded");
     config_ = config;
+    mix_levels_=std::move(levels);channel_levels_=std::move(channel_levels);
     compensation_=std::move(compensation);route_delays_=std::move(routes);send_delays_=std::move(sends);legacy_delay_=std::move(legacy);
     master_envelope_.resize(config.max_block);
     direct_output_.resize(static_cast<std::size_t>(config.max_block)*config.output_channels);
     graph_ = std::move(graph);
     insert_block_size_=block_size;
     track_block_.assign(graph_.mixer.size(),std::vector<float>(static_cast<std::size_t>(insert_block_size_)*config.output_channels));
+    route_contributions_=track_block_;send_contributions_.clear();send_contributions_.resize(graph_.mixer.size());
+    for(std::size_t t=0;t<graph_.mixer.size();++t)send_contributions_[t].assign(graph_.sends[t].size(),std::vector<float>(static_cast<std::size_t>(insert_block_size_)*config.output_channels));
     mix_order_ = std::move(order);
+    std::size_t width{};for(const auto& level:channel_levels_)width=std::max(width,level.size());
+    if(config.processing_workers>1&&width>1)
+        workers_=std::make_unique<ChannelWorkers>(static_cast<std::uint32_t>(std::min<std::size_t>(config.processing_workers-1,width-1)),config.worker_mmcss);
+    scheduler_overhead_ns_=0;channel_cost_ns_.fill(0);
+    measure_channels_=workers_!=nullptr;
+    if(workers_) {
+        std::array<std::uint64_t,32> samples{};
+        const auto empty_job=[](void*,std::uint32_t) noexcept {};
+        for(auto& sample:samples){const auto started=std::chrono::steady_clock::now();
+            if(!workers_->run(nullptr,empty_job,static_cast<std::uint32_t>(width),1000))throw std::runtime_error("audio worker calibration timed out");
+            sample=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-started).count());}
+        std::sort(samples.begin(),samples.end());scheduler_overhead_ns_=std::max<std::uint64_t>(1,samples[samples.size()/2]);
+    }
+    processing_fault_=false;parallel_batches_=0;worker_timeouts_=0;
     MixerUpdate mix; mix.count = graph_.mixer.size(); mix.master_gain = graph_.master_gain;
     std::copy(graph_.mixer.begin(),graph_.mixer.end(),mix.tracks.begin());
     std::copy(graph_.input_monitoring.begin(),graph_.input_monitoring.end(),mix.input_monitoring.begin());
@@ -307,6 +381,11 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         invalid_blocks_.fetch_add(1, std::memory_order_relaxed);
         // Silence an oversized but valid device buffer without indexing assets.
         if (output) std::fill_n(output, static_cast<std::size_t>(frames) * config_.output_channels, 0.0F);
+        return;
+    }
+    if(processing_fault_.load(std::memory_order_relaxed)) {
+        std::fill_n(output,static_cast<std::size_t>(frames)*config_.output_channels,0.f);
+        for(const auto& recorder:graph_.recordings)recorder->input_dropout();
         return;
     }
     std::fill_n(direct_output_.data(),static_cast<std::size_t>(frames)*config_.output_channels,0.0f);
@@ -432,14 +511,39 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             else rt_.playback = PlaybackState::stopped;
         }
         }
-        const auto ramp=mix_ramp_;
+        job_ramp_=mix_ramp_;job_frames_=count;job_position_=position;
+        job_playing_=playing;job_tempo_=tempo.bpm;job_quarter_=tempo.quarter;
         for(std::uint32_t local=0;local<count;++local)for(std::uint32_t c=0;c<config_.output_channels;++c){const auto out=static_cast<std::size_t>(base+local)*config_.output_channels+c;output[out]=legacy_delay_.sample(output[out],c);}
         for (const auto t : mix_order_) {
-            if (!graph_.inserts.empty() && graph_.inserts[t]) graph_.inserts[t]->process(track_block_[t].data(),count,position,playing,tempo.bpm,tempo.quarter);
+            if(workers_) {
+                if(t==mix_order_.front() || mix_levels_[t]!=job_level_) {
+                    job_level_=mix_levels_[t];job_frames_=count;job_position_=position;
+                    job_playing_=playing;job_tempo_=tempo.bpm;job_quarter_=tempo.quarter;
+                    const auto jobs=static_cast<std::uint32_t>(channel_levels_[job_level_].size());
+                    std::uint64_t total{},largest{};
+                    for(const auto channel:channel_levels_[job_level_]){const auto cost=channel_cost_ns_[channel]*count;total+=cost;largest=std::max(largest,cost);}
+                    const auto predicted=std::max(largest,total/(workers_->count()+1));
+                    // First chunk measures serial cost. Avoid dispatch when predicted savings cannot cover calibrated wake cost.
+                    const bool dispatch=jobs>1&&(!config_.adaptive_parallel||total>predicted+scheduler_overhead_ns_*2);
+                    if(dispatch)parallel_batches_.fetch_add(1,std::memory_order_relaxed);
+                    bool completed=true;
+                    if(dispatch)completed=workers_->run(this,channel_job,jobs,config_.worker_wait_ms);
+                    else for(std::uint32_t index=0;index<jobs;++index)channel_job(this,index);
+                    if(!completed) {
+                        processing_fault_.store(true,std::memory_order_relaxed);worker_timeouts_.fetch_add(1,std::memory_order_relaxed);
+                        rt_.playback=PlaybackState::paused;
+                        std::fill_n(output,static_cast<std::size_t>(frames)*config_.output_channels,0.f);
+                        for(const auto& recorder:graph_.recordings)recorder->input_dropout();
+                        // Leave worker-owned buffers/plugins/context intact until control-thread join.
+                        for(auto& voice:graph_.voices)if(voice.stream)(void)voice.stream->end();
+                        publish();return;
+                    }
+                }
+            } else process_channel(t);
+            for(std::size_t c=0;c<2;++c)block_peaks[t][c]=std::max(block_peaks[t][c],channel_peaks_[t][c]);
             for(std::uint32_t local=0;local<count;++local){const auto at=static_cast<std::size_t>(local)*config_.output_channels;const auto out=static_cast<std::size_t>(base+local)*config_.output_channels;
             for (std::uint32_t c=0; c<config_.output_channels; ++c) {
-                const float sample = track_block_[t][at+c]*mix_gain_[t][c%2];
-                const float routed=route_delays_[t].sample(sample,c);
+                const float routed=route_contributions_[t][at+c];
                 const auto destination = graph_.outputs[t];
                 const auto& hardware = graph_.hardware_outputs[t];
                 if (!hardware.empty()) {
@@ -450,15 +554,8 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
                 else track_block_[destination][at+c] += routed;
                 for (std::size_t j=0; j<graph_.sends[t].size(); ++j) {
                     const auto& send = graph_.sends[t][j];
-                    track_block_[send.destination][at+c] += send_delays_[t][j].sample((send.pre_fader ? track_block_[t][at+c]*gate_[t] : sample)*send_gain_[t][j],c);
+                    track_block_[send.destination][at+c] += send_contributions_[t][j][at+c];
                 }
-                if (c<2) block_peaks[t][c] = std::max(block_peaks[t][c],std::abs(sample));
-            }
-            if (local<ramp) {
-                for (std::size_t c=0; c<2; ++c) mix_gain_[t][c] += mix_step_[t][c];
-                gate_[t] += gate_step_[t];
-                for (std::size_t j=0; j<graph_.sends[t].size(); ++j) send_gain_[t][j] += send_step_[t][j];
-                if(local+1==ramp){mix_gain_[t]=mix_target_[t];gate_[t]=gate_target_[t];send_gain_[t]=send_target_[t];}
             }
             }
         }
@@ -524,6 +621,10 @@ void AudioEngine::observe(std::uint64_t ns, std::uint32_t frames, std::uint32_t 
 }
 Metrics AudioEngine::metrics() const {
     Metrics m;
+    m.processing_workers=workers_?workers_->count()+1:1;
+    m.audio_scheduled_workers=workers_?workers_->audio_scheduled():0;
+    m.parallel_batches=parallel_batches_.load();m.worker_timeouts=worker_timeouts_.load();m.processing_fault=processing_fault_.load();
+    m.scheduler_overhead_ns=scheduler_overhead_ns_;
     m.input_peak = input_peak_.load();
     m.disk_underruns = disk_underruns_.load();
     for (const auto& voice : graph_.voices) if (voice.stream) m.disk_errors += voice.stream->errors();

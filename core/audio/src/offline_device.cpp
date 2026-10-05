@@ -43,6 +43,7 @@ public:
     void stop() override {
         running_.store(false,std::memory_order_release);
         if (thread_.joinable()) thread_.join();
+        if(engine_)engine_->quiesce();
         if (engine_) phase_ = DevicePhase::stopped;
     }
     void close() noexcept override {

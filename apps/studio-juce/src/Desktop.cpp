@@ -85,7 +85,7 @@ void Desktop::reconnectDevice(bool session){if(testing||(!session&&!prefs.reconn
     if(found==infos.end())throw std::runtime_error("Saved ASIO device unavailable; running offline. Review Audio settings.");
     if(!view.deviceChannels.isEmpty()&&view.deviceChannels!=deviceLayout(*found))
         throw std::runtime_error("ASIO channel names changed; running offline. Review Audio settings.");
-    mrs::audio::DeviceConfig config{found->index,project()->sample_rate,prefs.buffer,{},prefs.outputs};
+    mrs::audio::DeviceConfig config{found->index,project()->sample_rate,prefs.buffer,{},prefs.outputs,prefs.processing_workers};
     if(!view.inputs.trim().isEmpty())config.inputs=mrs::desktop::parse_outputs(view.inputs.toStdString());
     else if(prefs.monitor_input>=0)config.inputs={prefs.monitor_input};
     try{app.connect(std::move(device),config);prefs.rate=config.sample_rate;saveSettings();}catch(...){resetDevice();throw;}
@@ -181,7 +181,8 @@ void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFon
         if(hardware){s+="  |  B "+(metrics.callbacks?juce::String(metrics.min_frames)+(metrics.min_frames==metrics.max_frames?juce::String():"-"+juce::String(metrics.max_frames)):juce::String("--"));
             s+="  |  XR "+juce::String(static_cast<juce::int64>(metrics.input_underflows+metrics.input_overflows+metrics.output_underflows+metrics.output_overflows));
             s+="  |  Late "+juce::String(static_cast<juce::int64>(metrics.deadline_misses));
-            s+="  |  D "+juce::String(static_cast<juce::int64>(metrics.disk_underruns));}}
+            s+="  |  D "+juce::String(static_cast<juce::int64>(metrics.disk_underruns));
+            s+="  |  W "+juce::String(metrics.processing_workers);if(metrics.processing_fault)s+=" WORKER TIMEOUT: reconnect audio";}}
     g.drawText(s,10,getHeight()-62,getWidth()-512,16,juce::Justification::left);
     if(sidebar){g.setColour(juce::Colour(0xff697580));g.fillRect(browserDivider.getX()+3,70,2,getHeight()-128);}
     if(mixerDivider.isVisible()){g.setColour(juce::Colour(0xff697580));g.fillRect(mixerDivider.getBounds().withHeight(1).translated(0,2));}

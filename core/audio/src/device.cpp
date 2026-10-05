@@ -13,7 +13,7 @@ bool supports_buffer(const DeviceInfo& device, std::uint32_t frames) {
 void validate_device_config(const DeviceInfo& device, const DeviceConfig& config) {
     if (config.device != device.index || config.sample_rate < 8000 || config.sample_rate > 768000 ||
         !supports_buffer(device, config.buffer_frames) || config.outputs.empty() ||
-        config.outputs.size() > max_channels || config.inputs.size() > max_channels)
+        config.outputs.size() > max_channels || config.inputs.size() > max_channels || config.processing_workers<1 || config.processing_workers>8)
         throw std::invalid_argument("invalid ASIO device/rate/buffer configuration");
     const auto validate_channels = [](const auto& selected, std::size_t total) {
         std::set<int> used;

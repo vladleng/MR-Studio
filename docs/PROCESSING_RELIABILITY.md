@@ -197,5 +197,40 @@ engine development, independent of a particular project/plugin brand. Complete
 click resolution is not confirmed. Follow [the performance plan](ENGINE_PERFORMANCE_PLAN.md):
 3e-P1 parallel channels (#51), 3e-P2 anticipative playback (#52), 3e-P3 separate
 low-latency monitoring (#53), then 3e-P4 profiling and sustained-load acceptance
-(#54). Minimal profiling accompanies P1. All four slices are planned, not
-implemented; existing transition/isolation/hardware gates remain open.
+(#54). Minimal profiling accompanies P1. P1 is implemented and locally validated
+in 0.1r; P2/P3/P4 remain planned. User ASIO acceptance and existing
+transition/isolation/hardware gates remain open.
+
+
+## 0.1r / 3e-P1 — parallel channel processing
+
+Prepared dependency levels execute independent channel insert/gain/send/PDC jobs
+on persistent bounded workers plus the callback, then reduce isolated contributions
+in the previous deterministic order. Buses and Master wait for dependencies; shared
+mutable graph aliases reject. Workers use FP FTZ/DAZ scopes and Windows MMCSS Pro
+Audio without affinity. Audio settings -> Workers -> Connect selects 1 (serial)
+or a 2..8 participant limit; default 2. Cheap levels use measured serial fallback.
+No process buffer or extra buffering latency is added.
+
+A 20 ms helper-wait watchdog latches silence/paused transport on timeout without
+serial retry; reconnect is required. Stop/close quiesce helpers before plugin state
+access, and preparation/destruction join before storage replacement. Native plugin
+calls themselves are not preemptible; crash/hang survival remains isolation scope.
+W in the footer reports prepared participant capacity, not per-callback busy threads.
+
+Cached configure/full local Release build and 94/94 CTest passed (22.25 seconds).
+Tests compare exact serial/parallel samples/meters at forced 2/4/8 limits, routing,
+real latency, variable/short blocks, loops/transport/mix changes, host allocations
+on all processing threads, timeout ownership, raw capture and lifecycle/reconnect.
+The 192-case synthetic offline matrix compares 1/2/4/8 limits at 64/128/256/512
+frames under MMCSS and ordinary policy; measured Late/timeouts are zero. At 128,
+8 independent synthetic channels take 788.6 us serial versus 238.3 us median with
+4 participants; scheduling tails and small-graph overhead are explicitly reported.
+See [the implementation/measurement report](ENGINE_PARALLEL_PROCESSING.md).
+This does not establish Fender Studio Pro parity or resolution of ASIO clicks.
+
+Branch retained: mrs/0.1q-fix3-processing-local. Package:
+MR-Studio-0.1r-P1-parallel-JUCE-ASIO-Windows-local in chat Builds.
+#51 remains open for intended-system ASIO/listening/sustained-load acceptance.
+No special installed TH-U/Nuro routine state tests; code/builds/tools/tests local,
+GitHub docs/issues only with skip-ci commits; no Actions or source push.

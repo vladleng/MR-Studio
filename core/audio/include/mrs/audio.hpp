@@ -42,6 +42,7 @@ WavFile inspect_wav(const std::filesystem::path&);
 CabIr load_cab_ir(const std::filesystem::path&);
 class ReadAhead;
 class Recorder;
+class ChannelWorkers;
 struct AudioData {
     std::uint32_t sample_rate{48000};
     std::uint32_t channels{2};
@@ -87,6 +88,10 @@ struct RenderConfig {
     std::uint32_t output_channels{2};
     std::uint32_t max_block{8192};
     std::uint32_t processing_block{}; // preferred host chunk; zero uses max_block
+    std::uint32_t processing_workers{1}; // total participants including callback; 1 = serial reference
+    bool worker_mmcss{true}; // Windows Pro Audio scheduling, no affinity
+    std::uint32_t worker_wait_ms{20}; // bounded scheduler watchdog, separate from buffer deadline
+    bool adaptive_parallel{true}; // skip dispatch if measured savings do not cover calibrated wake cost
 };
 struct Metrics {
     std::uint64_t callbacks{}, input_overflows{}, input_underflows{};
@@ -97,6 +102,10 @@ struct Metrics {
     std::uint32_t min_frames{}, max_frames{};
     double p50_load_percent{}, p95_load_percent{}, p99_load_percent{};
     float input_peak{};
+    std::uint32_t processing_workers{1}, audio_scheduled_workers{};
+    std::uint64_t parallel_batches{}, worker_timeouts{};
+    std::uint64_t scheduler_overhead_ns{};
+    bool processing_fault{}; // silence until stopped/reprepared; never concurrent serial retry
 };
 // One producer (control thread), one consumer (audio thread), fixed storage.
 template<class T, std::size_t Capacity> class SpscQueue {
@@ -132,10 +141,12 @@ struct RealtimeState {
 class AudioEngine {
 public:
     AudioEngine();
+    ~AudioEngine();
     // Control thread, ONLY while callback/device is stopped; graph/assets stay
     // alive until callback is stopped again. No RT ownership/deallocation.
     // Optional quiescent state retains a stopped/paused position and loop; never autoplay.
     void prepare(RenderConfig, RenderGraph, RealtimeState initial = {});
+    void quiesce() noexcept; // device stopped, before plugin state/editor access
     bool enqueue(Control) noexcept;
     bool enqueue_mix(const MixerUpdate&) noexcept;
     MixerMeters take_meters() noexcept; // one UI consumer; peak hold since previous read
@@ -154,6 +165,25 @@ public:
 private:
     RenderConfig config_;
     RenderGraph graph_;
+    std::unique_ptr<ChannelWorkers> workers_; // joined before graph/plugin storage is replaced
+    std::vector<std::vector<std::size_t>> channel_levels_;
+    std::vector<std::size_t> mix_levels_;
+    std::size_t job_level_{};
+    std::uint32_t job_frames_{};
+    std::uint32_t job_ramp_{};
+    Sample job_position_{};
+    bool job_playing_{};
+    double job_tempo_{120}, job_quarter_{};
+    static void channel_job(void*, std::uint32_t) noexcept;
+    void process_channel(std::size_t) noexcept;
+    std::vector<std::vector<float>> route_contributions_;
+    std::vector<std::vector<std::vector<float>>> send_contributions_;
+    std::array<std::array<float,2>,max_mixer_tracks> channel_peaks_{};
+    std::array<std::uint64_t,max_mixer_tracks> channel_cost_ns_{};
+    std::uint64_t scheduler_overhead_ns_{};
+    bool measure_channels_{}; // immutable until previous workers are joined
+    std::atomic<bool> processing_fault_{};
+    std::atomic<std::uint64_t> parallel_batches_{}, worker_timeouts_{};
     CompensationReport compensation_;
     std::vector<CompensationDelay> route_delays_;
     std::vector<std::vector<CompensationDelay>> send_delays_;
