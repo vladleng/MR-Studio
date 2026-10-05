@@ -98,7 +98,7 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     d.action(10);check(d.project()->clips.size()==clipsBeforeDrop&&d.project()->tracks.size()==tracksBeforeDrop,"sample import undo restores clips without removing track");
     d.arrangement->filesDropped({wav.getFullPathName()},400,70+static_cast<int>(tracksBeforeDrop)*d.arrangement->trackHeight+4);
     fileTree->setSelectedFile(wav);
-    {auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-files-preview.png").createOutputStream();juce::PNGImageFormat format;if(stream)format.writeImageToStream(d.createComponentSnapshot(d.getLocalBounds(),true,1.f,juce::SoftwareImageType{}),*stream);}
+    {auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-files-preview.png").createOutputStream();juce::PNGImageFormat format;if(stream){stream->setPosition(0);stream->truncate();format.writeImageToStream(d.createComponentSnapshot(d.getLocalBounds(),true,1.f,juce::SoftwareImageType{}),*stream);}}
     d.browser->showFiles(false);check(d.project()->tracks.size()==4,"WAV import track");
     const auto imported=d.project()->clips.back();
     d.saveFile(file);const auto saved=mrs::persistence::load_project(d.app.path()).project;d.app.rename_track(second,"Changed");d.openFile(juce::File(juce::String(d.app.path().wstring().c_str())));
@@ -129,7 +129,7 @@ void j3Smoke(Desktop& d){
 
     auto oldCatalog=d.catalog;d.catalog={{"a.vst3","00000000000000000000000000000001","A","Vendor A","1"},{"b.vst3","00000000000000000000000000000002","B","Vendor A","1"},{"c.vst3","00000000000000000000000000000003","C","Vendor B","1"}};
     auto vendorMenu=d.pluginMenu();check(vendorMenu.getNumItems()==2,"insert menu grouped by vendor");d.browser->rebuild();
-    {auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-vendors-preview.png").createOutputStream();juce::PNGImageFormat format;if(stream)format.writeImageToStream(d.browser->createComponentSnapshot(d.browser->getLocalBounds(),true,1.f,juce::SoftwareImageType{}),*stream);}
+    {auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-vendors-preview.png").createOutputStream();juce::PNGImageFormat format;if(stream){stream->setPosition(0);stream->truncate();format.writeImageToStream(d.browser->createComponentSnapshot(d.browser->getLocalBounds(),true,1.f,juce::SoftwareImageType{}),*stream);}}
     d.catalog=oldCatalog;d.browser->rebuild();
     for(const auto& track:d.project()->tracks)for(const auto& fx:track.inserts){
         if(fx.kind!=mrs::InsertKind::channel_eq&&fx.kind!=mrs::InsertKind::vst3)continue;

@@ -33,7 +33,7 @@ public:
                         int y=surface.arrangeArea.getY()+static_cast<int>(r.getY()+22+(r.getHeight()-22)/4);
                         if(image.getPixelAt(x,y)!=juce::Colour(0xff8ac3ff))throw std::runtime_error("visible waveform pixels");
                     }
-                    auto file=juce::File::getCurrentWorkingDirectory().getChildFile("juce-j2-preview.png");auto stream=file.createOutputStream();
+                    auto file=juce::File::getCurrentWorkingDirectory().getChildFile("juce-j2-preview.png");auto stream=file.createOutputStream();if(stream){stream->setPosition(0);stream->truncate();}
                     if(!stream)throw std::runtime_error("snapshot stream");stream->setPosition(0);stream->truncate();
                     if(!juce::PNGImageFormat().writeImageToStream(image,*stream))throw std::runtime_error("snapshot export");}
                 setApplicationReturnValue(0);
