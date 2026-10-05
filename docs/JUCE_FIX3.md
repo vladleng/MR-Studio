@@ -63,3 +63,14 @@ Package MR-Studio-0.1p-fix3-cosmetic-JUCE-J3-ASIO-Windows-local retains fix3 app
 EXE SHA256 1E30CDDF79B2C134EF79D3522D2AEE4B3042AB420CCD0D420184F800D729104F.
 Local Release rebuild, packaged J3 fixture smoke and preview passed. No new tests or special TH-U/Nuro checks for this paint-only change; prior 90/90 suite covers functional fix3 changes.
 Code/builds local; GitHub documentation only.
+
+
+## 0.1p fix3 accepted and follow-up closed — 2026-10-05
+User confirms: «Принято! Все работает, закрывай».
+0.1p fix3 and its final cosmetic follow-up are accepted; work on this update is closed.
+Accepted local source: 43e9974133c6775ed8c6c2c2fa54ea1e78c8c16d.
+Package: MR-Studio-0.1p-fix3-cosmetic-JUCE-J3-ASIO-Windows-local.
+EXE SHA256: 1E30CDDF79B2C134EF79D3522D2AEE4B3042AB420CCD0D420184F800D729104F.
+Prior local build/tests/smoke stand; no rebuild or special TH-U/Nuro runs for acceptance.
+This closes the fix3 update, not the remaining J3 physical DPI/accessibility/default-shell gates, Stage 3/#23, Stage 3c or deferred #16.
+Code/packages remain local; GitHub issues/docs only, no code push/PR/merge/Actions.
