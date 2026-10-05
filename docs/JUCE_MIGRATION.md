@@ -5,6 +5,8 @@ the active migration to Windows. Mobile work is outside the current plan.
 J1 was implemented locally on 2026-10-05 as the parallel 0.1n Windows prototype.
 An official pinned JUCE source dependency was downloaded before offline configure;
 no global toolchain installation was performed. See [J1 details](JUCE_J1.md).
+The user accepted J1 and authorized J2 on 2026-10-05. The parallel target now builds
+0.1o / J2 desktop workflow; see [J2 details and boundaries](JUCE_J2.md).
 The preferred working interface remains 0.1m upd1 fix1. The upd2 skin is experimental.
 Code/builds remain local; GitHub issues/docs only, without code push/PR/merge/Actions.
 
@@ -83,14 +85,18 @@ Official sources checked 2026-10-04:
 
 ## Status
 
-J1 / 0.1n is ready locally for user review: parallel JUCE shell, existing engine/model,
-custom font/buttons, gain/pan, M/S, stereo meters, Play/Stop and Undo.
-Local offline-dependency configure/build passed; 88/88 CTest including JUCE component
-smoke passed, and existing hidden Win32 GUI smoke exited 0. Reviewed UI snapshot and
-1.5x snapshot dimensions; logical resizing and focus cancellation tested.
-Physical multi-monitor DPI and complete accessibility/hardware parity are not claimed.
-J2 and J3 remain pending; J1 uses the offline device without hardware sound output.
+J1 / 0.1n accepted by the user. J2 / 0.1o desktop workflow is ready locally for review:
+arrangement/WAV/clip edits/zoom, shared mini-panels and docked mixer, routing/sends,
+project menus/recents, ASIO settings/recording bindings, VST3 browser/drop/native
+editor bridge and native DSP editors. Existing backend and project schema unchanged.
+Offline configure/build and 89/89 CTest passed; final component checks rerun after
+UI/test corrections. Existing Win32 GUI smoke exited 0. Reviewed waveform snapshot.
+Nuro Flexion/TH-U editor and opaque-state software checks passed; intended preset
+audition/hardware tests are not claimed. User J2 review and J3 remain pending.
+Start/open uses offline mode; select ASIO explicitly. Full preference/profile polish,
+physical multiple-monitor DPI, accessibility and hardware acceptance remain J3 gates.
 Full DAW baseline remains MR-Studio-0.1m-upd1-fix1-ASIO-Windows-local.
-New separate package: MR-Studio-0.1n-JUCE-J1-Windows-local. Outstanding 3c user checks remain pending.
+Separate packages: MR-Studio-0.1n-JUCE-J1-Windows-local (accepted) and
+MR-Studio-0.1o-JUCE-J2-ASIO-Windows-local (review pending). Outstanding 3c checks remain pending.
 This decision does not close #23, pass deferred #16 or implement Amp/Preamp/reliability.
 
