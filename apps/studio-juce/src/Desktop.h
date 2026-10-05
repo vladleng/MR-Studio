@@ -178,6 +178,7 @@ public:
     void showFiles(bool);
     void navigate(const juce::File&);
     juce::StringArray selectedSamples() const;
+    bool samplePreviewReady() const {return wantedFile!=juce::File()&&preview.file==wantedFile;}
     void paint(juce::Graphics&) override;
     void resized() override;
     void rebuild();

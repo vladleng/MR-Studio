@@ -102,7 +102,8 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     d.action(10);check(d.project()->clips.size()==clipsBeforeDrop&&d.project()->tracks.size()==tracksBeforeDrop,"sample import undo restores clips without removing track");
     d.arrangement->filesDropped({wav.getFullPathName()},400,70+static_cast<int>(tracksBeforeDrop)*d.arrangement->trackHeight+4);
     fileTree->setSelectedFile(wav);
-    {const auto until=juce::Time::getMillisecondCounter()+180;while(juce::Time::getMillisecondCounter()<until){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}juce::Thread::sleep(1);}}
+    {const auto until=juce::Time::getMillisecondCounter()+2000;while(!d.browser->samplePreviewReady()&&juce::Time::getMillisecondCounter()<until){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}juce::Thread::sleep(1);}}
+    check(d.browser->samplePreviewReady(),"background WAV metadata and waveform preview completes");
     {auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-files-preview.png").createOutputStream();juce::PNGImageFormat format;if(stream){stream->setPosition(0);stream->truncate();format.writeImageToStream(d.createComponentSnapshot(d.getLocalBounds(),true,1.f,juce::SoftwareImageType{}),*stream);}}
     d.browser->showFiles(false);check(d.project()->tracks.size()==4,"WAV import track");
     const auto imported=d.project()->clips.back();

@@ -373,6 +373,7 @@ void Browser::navigate(const juce::File& folder){if(!folder.isDirectory())throw 
 }
 void Browser::selectionChanged(){const auto files=selectedSamples();wantedFile=files.isEmpty()?juce::File():juce::File(files[0]);if(wantedFile==juce::File()){preview={};repaint();}}
 void Browser::timerCallback(){
+    const auto selected=selectedSamples();wantedFile=selected.isEmpty()?juce::File():juce::File(selected[0]);
     if(previewWorker.valid()){if(previewWorker.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;auto result=previewWorker.get();if(result.file==wantedFile){preview=std::move(result);repaint();}}
     if(wantedFile==juce::File()||preview.file==wantedFile)return;auto file=wantedFile;
     previewWorker=std::async(std::launch::async,[file]{Preview result;result.file=file;try{auto wav=mrs::audio::inspect_wav(path(file));result.info=juce::String(wav.sample_rate/1000.,1)+" kHz | "+juce::String(wav.bits)+" bit | "+(wav.channels==1?"Mono":wav.channels==2?"Stereo":juce::String(wav.channels)+" channels")+"\nWAV | "+juce::String(static_cast<double>(wav.frame_count)/wav.sample_rate/60,2)+" min | "+file.getLastModificationTime().formatted("%d.%m.%Y %H:%M");
