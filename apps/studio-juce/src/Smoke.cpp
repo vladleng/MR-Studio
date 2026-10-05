@@ -1,5 +1,6 @@
 #include "Desktop.h"
 #include "J1Smoke.h"
+#include "PluginPreset.h"
 #include <windows.h>
 namespace ui {
 void j2Smoke(Desktop& d,const juce::File& fixture){
@@ -53,7 +54,7 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
         check(d.app.services().projects->state().revision==revision+1,"plugin drop commits once");
         auto plugin=d.chain(second).back();d.openInsert(second,plugin.id);check(d.windows.back()->isVisible(),"VST3 HWND bridge");
         auto* pluginWindow=d.windows.back().get();
-        RECT client{};GetClientRect(static_cast<HWND>(pluginWindow->getPeer()->getNativeHandle()),&client);
+        RECT client{};GetClientRect(reinterpret_cast<HWND>(static_cast<std::intptr_t>(static_cast<juce::int64>(pluginWindow->getProperties()["mrs-native-host"]))),&client);
         check(std::abs(client.right-320)<=1&&std::abs(client.bottom-120)<=1,"native plugin physical dimensions");
         for(const double editorScale:{1.,1.5,2.}){pluginWindow->getPeer()->setCustomPlatformScaleFactor(editorScale);pluginWindow->fitNativeEditor(320,120);
             // A forced peer scale does not change Windows non-client metrics. Check the
@@ -91,6 +92,16 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
 void j3Smoke(Desktop& d){
     auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
     j3AudioSmoke(d);
+    auto oldCatalog=d.catalog;d.catalog={{"a.vst3","00000000000000000000000000000001","A","Vendor A","1"},{"b.vst3","00000000000000000000000000000002","B","Vendor A","1"},{"c.vst3","00000000000000000000000000000003","C","Vendor B","1"}};
+    auto vendorMenu=d.pluginMenu();check(vendorMenu.getNumItems()==2,"insert menu grouped by vendor");d.catalog=oldCatalog;
+    for(const auto& track:d.project()->tracks)for(const auto& fx:track.inserts){
+        if(fx.kind!=mrs::InsertKind::channel_eq&&fx.kind!=mrs::InsertKind::vst3)continue;
+        auto captured=d.app.capture_insert(track.id,fx.id);auto text=encodePreset(captured);auto loaded=decodePreset(text,fx);
+        check(loaded.id==fx.id&&loaded.component_state==captured.component_state&&loaded.bands==captured.bands,"native/VST preset state roundtrip");
+        auto another=fx;another.id=mrs::new_id();another.bypass=!fx.bypass;auto remapped=decodePreset(text,another);
+        check(remapped.id==another.id&&remapped.bypass==another.bypass,"preset slot identity and bypass preserved");
+        if(fx.kind==mrs::InsertKind::vst3){another.class_id="00000000000000000000000000000000";bool rejected=false;try{decodePreset(text,another);}catch(...){rejected=true;}check(rejected,"wrong plugin preset rejected");}
+    }
     d.addToDesktop(0);
     auto* handler=d.mixer.front()->gain.getAccessibilityHandler();check(handler&&handler->getRole()==juce::AccessibilityRole::slider&&!handler->getTitle().isEmpty(),"named accessible fader");
     auto* value=handler->getValueInterface();check(value&&value->getRange().isValid(),"accessible fader range");
@@ -106,6 +117,23 @@ void j3Smoke(Desktop& d){
     for(const auto scale:{1.f,1.5f,2.f}){auto image=d.createComponentSnapshot(d.getLocalBounds(),true,scale,juce::SoftwareImageType{});check(image.getWidth()==juce::roundToInt(d.getWidth()*scale)&&image.getHeight()==juce::roundToInt(d.getHeight()*scale),"DPI snapshot dimensions");}
     d.setSize(1200,700);d.sidebar=true;d.browserWidth=450;d.resized();check(d.arrangeArea.getWidth()>250&&d.master->getBounds().getRight()<=d.arrangeArea.getRight(),"minimum layout with widest browser");
     d.browserWidth=260;d.setSize(1400,850);d.resized();d.removeFromDesktop();
+}
+void thuDiagnostic(const juce::File& file){
+    auto project=mrs::persistence::load_project(std::filesystem::path(file.getFullPathName().toWideCharPointer())).project;
+    std::vector<mrs::NativeInsert> effects=project.master_inserts;for(const auto& track:project.tracks)effects.insert(effects.end(),track.inserts.begin(),track.inserts.end());
+    auto found=std::find_if(effects.begin(),effects.end(),[](const auto& n){return n.kind==mrs::InsertKind::vst3&&n.plugin_name=="TH-U";});if(found==effects.end())throw std::runtime_error("TH-U insert not found in project");
+    auto graph=mrs::processing::insert_graph(std::array{*found});auto node=graph.nodes.front();
+    auto run=[&](bool activeRestore){auto plugin=mrs::processing::vst3_factory(node);plugin->prepare({project.sample_rate,2,128});
+        if(activeRestore){plugin->warm();plugin->restore(node.plugin);}else {plugin->restore(node.plugin);plugin->warm();}
+        auto captured=plugin->capture();juce::String result="component bytes="+juce::String(static_cast<int>(captured.component.size()))+" exact="+juce::String(captured.component==node.plugin.component?1:0);
+        std::array<float,256> audio{};mrs::processing::MidiBuffer midi;double energy=0;std::vector<float> rendered;rendered.reserve(256*256);
+        for(int block=0;block<256;++block){for(int sample=0;sample<128;++sample){const auto time=static_cast<float>(block*128+sample);audio[sample*2]=audio[sample*2+1]=.035f*std::sin(time*.0288f)+.015f*std::sin(time*.087f);}
+            plugin->process({audio,128,2,{}, {},midi,block*128,true,120,0});for(auto value:audio){if(!std::isfinite(value))throw std::runtime_error("TH-U non-finite audio");energy+=value*value;rendered.push_back(value);}}
+        result+=" RMS="+juce::String(std::sqrt(energy/rendered.size()),9);return std::pair{result,rendered};};
+    auto before=run(false),repeatBefore=run(false),after=run(true),repeatAfter=run(true);
+    auto difference=[](const auto& left,const auto& right){double error=0,reference=0;for(std::size_t i=0;i<left.second.size();++i){auto diff=left.second[i]-right.second[i];error+=diff*diff;reference+=right.second[i]*right.second[i];}return std::sqrt(error/juce::jmax(1.e-20,reference));};
+    auto log="Normal prepare / restore / warm: "+before.first+"\nExplicit restore after warm: "+after.first+"\nRelative audio difference: "+juce::String(difference(before,after),9)+"\nRepeat restore-first difference: "+juce::String(difference(before,repeatBefore),9)+"\nRepeat activate-first difference: "+juce::String(difference(after,repeatAfter),9)+"\n";
+    juce::File::getCurrentWorkingDirectory().getChildFile("thu-audio-diagnostic.log").replaceWithText(log);
 }
 void j2PluginSmoke(Desktop& d,const juce::File& module){
     auto check=[](bool b,const char* text){if(!b)throw std::runtime_error(text);};

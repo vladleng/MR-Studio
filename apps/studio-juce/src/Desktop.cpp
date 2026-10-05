@@ -249,7 +249,7 @@ void Strip::resized(){const int w=getWidth(),h=getHeight();if(mini){mute.setBoun
         pan.setBounds(8,56+effectHeight,w-16,30);gain.setBounds(w-62,90+effectHeight,56,juce::jmax(55,h-200-effectHeight));
         mute.setBounds(8,h-85,40,24);solo.setBounds(52,h-85,40,24);output.setBounds(8,h-56,w-16,23);sends.setBounds(8,h-30,w-16,23);}
 }
-void Strip::paint(juce::Graphics& g){g.fillAll(juce::Colour(panel));g.setColour(juce::Colour(accent));g.fillRect(0,0,mini?4:getWidth(),mini?getHeight():3);
+void Strip::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setColour(juce::Colour(accent));g.fillRect(0,0,mini?4:getWidth(),mini?getHeight():3);
     const auto t=track();g.setFont(owner.theme.font(12));g.setColour(target?juce::Colours::whitesmoke:juce::Colours::gold);
     g.drawText(target?label(t.name):"MASTER",8,3,mini?getWidth()-145:getWidth()-16,23,juce::Justification::left);
     mrs::audio::StereoPeak p=owner.masterPeak;if(target){const auto tracks=owner.project()->tracks;for(std::size_t i=0;i<tracks.size();++i)if(tracks[i].id==target)p=owner.peaks[i];}
@@ -277,7 +277,7 @@ mrs::Sample Arrangement::sampleAt(float x) const{auto sample=static_cast<mrs::Sa
     if(owner.snap){mrs::Timeline time(owner.project()->time,owner.project()->sample_rate);auto tick=time.to_ticks(sample);sample=time.to_samples((tick/(mrs::ppq/4))*(mrs::ppq/4));}return sample;}
 juce::Rectangle<float> Arrangement::clipRect(const mrs::Clip& c) const{int index=0;for(const auto& t:owner.project()->tracks){if(t.id==c.track)break;++index;}
     const double rate=owner.project()->sample_rate;return {static_cast<float>(left+c.start/rate*pixelsPerSecond-horizontal),static_cast<float>(header+index*trackHeight-vertical+22),static_cast<float>(c.length/rate*pixelsPerSecond),static_cast<float>(trackHeight-27)};}
-void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(0xff30363b));g.setFont(owner.theme.font(11));g.setColour(juce::Colours::lightgrey);
+void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFont(owner.theme.font(11));g.setColour(juce::Colours::lightgrey);
     const auto p=owner.project();mrs::Timeline time(p->time,p->sample_rate);
     g.drawText("Tracks / input / monitor",8,5,left-10,22,juce::Justification::left);
     for(int x=left;x<getWidth();x+=40){const auto sample=sampleAt(static_cast<float>(x));auto pos=time.musical_position(time.to_ticks(sample));g.setColour(juce::Colour(0xff4a5259));g.drawVerticalLine(x,20,static_cast<float>(getHeight()));g.setColour(juce::Colours::lightgrey);g.drawText(juce::String(pos.bar)+":"+juce::String(pos.beat),x+2,0,40,20,juce::Justification::left);}
@@ -330,7 +330,7 @@ Browser::Browser(Desktop& d):owner(d){search.setTitle("Search VST3 plugins");sea
     search.setTextToShowWhenEmpty("Search VST3...",juce::Colours::grey);search.onTextChange=[this]{rebuild();};
     scanButton.onClick=[this]{owner.choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectDirectories,[this](const auto& f){owner.scan(f);});};rebuild();}
 void Browser::resized(){scanButton.setBounds(8,28,getWidth()-16,28);search.setBounds(8,62,getWidth()-16,26);tree.setBounds(8,94,getWidth()-16,getHeight()-120);}
-void Browser::paint(juce::Graphics& g){g.fillAll(juce::Colour(panel));g.setColour(juce::Colours::whitesmoke);g.setFont(owner.theme.font(12));g.drawText("VST3",8,2,100,24,juce::Justification::left);g.drawText("Drag an effect onto a mixer channel",8,getHeight()-23,getWidth()-16,20,juce::Justification::left);}
+void Browser::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setColour(juce::Colours::whitesmoke);g.setFont(owner.theme.font(12));g.drawText("VST3",8,2,100,24,juce::Justification::left);g.drawText("Drag an effect onto a mixer channel",8,getHeight()-23,getWidth()-16,20,juce::Justification::left);}
 void Browser::rebuild(){tree.setRootItem(nullptr);root=std::make_unique<BrowserNode>("root");std::map<std::string,BrowserNode*> vendors;
     for(std::size_t i=0;i<owner.catalog.size();++i){const auto& p=owner.catalog[i];if(!search.getText().isEmpty()&&!label(p.name+" "+p.vendor).containsIgnoreCase(search.getText()))continue;
         if(!vendors.contains(p.vendor)){auto* node=new BrowserNode(label(p.vendor));root->addSubItem(node);node->setOpen(false);vendors[p.vendor]=node;}vendors[p.vendor]->addSubItem(new BrowserNode(label(p.name),static_cast<int>(i)));}
@@ -339,12 +339,12 @@ void Browser::rebuild(){tree.setRootItem(nullptr);root=std::make_unique<BrowserN
 void Desktop::scan(const juce::File& root){if(scanner.valid())throw std::runtime_error("Scan already running");*scanCancel=false;const auto folder=path(root);const auto helper=path(juce::File::getSpecialLocation(juce::File::currentExecutableFile).getSiblingFile("mrs_vst3_scan.exe"));
     auto cache=cacheFile;auto cancel=scanCancel;scanner=std::async(std::launch::async,[folder,helper,cache,cancel]{return mrs::processing::scan_vst3(folder,helper,cache,cancel);});}
 std::vector<mrs::NativeInsert> Desktop::chain(std::optional<mrs::Id> t) const{const auto p=project();if(!t)return p->master_inserts;for(const auto& track:p->tracks)if(track.id==t)return track.inserts;throw std::runtime_error("Track no longer exists");}
-void Desktop::closeEditors(){app.close_plugin_editors();for(auto& w:windows){w->setVisible(false);
+void Desktop::closeEditors(){app.close_plugin_editors();for(auto& w:windows){retirePluginWindow(*w);w->setVisible(false);
     // Retire the native parent HWND while its plugin module is still alive.
     // Keep the C++ window until the next timer turn so an editor callback can return safely.
     if(static_cast<bool>(w->getProperties()["mrs-native-editor"]))w->removeFromDesktop();}}
 void Desktop::applyChain(std::optional<mrs::Id> target,std::vector<mrs::NativeInsert> effects){app.set_inserts(target,std::move(effects));editorGeneration=app.insert_generation();refresh(true);}
-void Desktop::addPlugin(std::optional<mrs::Id> target,std::size_t i){run([&]{if(i>=catalog.size())throw std::runtime_error("Unknown browser plugin");closeEditors();auto effects=chain(target);const auto& p=catalog[i];mrs::NativeInsert n;n.id=mrs::new_id();n.kind=mrs::InsertKind::vst3;n.plugin_name=p.name;n.plugin_path=p.path;n.class_id=p.class_id;effects.push_back(n);applyChain(target,std::move(effects));});}
+void Desktop::addPlugin(std::optional<mrs::Id> target,std::size_t i){run([&]{if(i>=catalog.size())throw std::runtime_error("Unknown browser plugin");closeEditors();auto effects=chain(target);const auto& p=catalog[i];mrs::NativeInsert n;n.id=mrs::new_id();n.kind=mrs::InsertKind::vst3;n.plugin_name=p.name;n.plugin_path=p.path;n.class_id=p.class_id;effects.push_back(n);applyChain(target,std::move(effects));openInsert(target,n.id);});}
 void Desktop::routeMenu(mrs::Id id){juce::PopupMenu m;m.addItem(1,"Master");auto p=project();for(std::size_t i=0;i<p->tracks.size();++i)if(p->tracks[i].kind==mrs::TrackKind::bus&&p->tracks[i].id!=id)m.addItem(10+static_cast<int>(i),label(p->tracks[i].name));m.addItem(2,"Hardware outputs...");
     juce::Component::SafePointer<Desktop> safe(this);m.showMenuAsync(popup(this),[safe,id,p](int n){if(!safe||!n)return;safe->run([&]{if(n==2)safe->textDialog("Hardware outputs (1,2...)","1,2",[safe,id](auto s){if(safe)safe->app.set_hardware_output(id,mrs::desktop::parse_outputs(s.toStdString()));});else safe->app.set_track_output(id,n==1?std::optional<mrs::Id>{}:p->tracks[static_cast<std::size_t>(n-10)].id);});});}
 void Desktop::sendsMenu(mrs::Id id){juce::PopupMenu m;auto p=project();mrs::Track source;for(const auto& t:p->tracks)if(t.id==id)source=t;

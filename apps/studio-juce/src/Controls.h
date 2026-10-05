@@ -5,6 +5,7 @@
 namespace ui {
 constexpr auto background = 0xff292d31;
 constexpr auto panel = 0xff383e43;
+constexpr auto surface = 0xff111315;
 constexpr auto accent = 0xff3285ec;
 
 class Theme final : public juce::LookAndFeel_V4 {

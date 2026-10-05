@@ -110,6 +110,7 @@ public:
     std::uint32_t plugin_latency(std::optional<Id>,const Id&) const;
     std::vector<processing::ParameterInfo> plugin_parameters(std::optional<Id>,const Id&) const;
     void set_plugin_parameter(std::optional<Id>,const Id&,std::uint32_t,float);
+    NativeInsert capture_insert(std::optional<Id>,const Id&);
     bool preview_mix(std::optional<Id>, Track::Mix, float master_gain);
     void cancel_mix_preview();
     void connect(std::unique_ptr<audio::IAudioDevice>, audio::DeviceConfig);

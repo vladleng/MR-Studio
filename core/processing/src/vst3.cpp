@@ -99,6 +99,10 @@ public:
         if(!data_.prepare(*component_,static_cast<int32>(c.max_block),kSample32))throw std::runtime_error("VST3 audio buffer preparation failed");
         const int32 channels=c.channels==1?1:2;if(data_.inputs[0].numChannels!=channels||data_.outputs[0].numChannels!=channels)throw std::runtime_error("VST3 bus layout mismatch");
         context_.sampleRate=c.sample_rate;data_.processContext=&context_;data_.processMode=kRealtime;data_.inputParameterChanges=&input_;data_.outputParameterChanges=&output_;
+        // Restore into an activated component, as desktop hosts do. TH-U resets
+        // DSP internals on activation even while getState/UI retains the preset.
+        // Activating after setState therefore loses the audible state.
+        ok(component_->setActive(true),"activation failed");active_=true;
         latency_=processor_->getLatencySamples();
     }
     void restore(const PluginState& state) override{
@@ -125,7 +129,7 @@ public:
     bool set_parameter(std::uint32_t id,float value) noexcept override{const auto i=index(id);if(!i||!std::isfinite(value)||value<0||value>1)return false;values_[*i]=value;if(!initial_pending_[*i]){initial_pending_[*i]=true;++initial_count_;}return true;}
     std::optional<float> parameter_value(std::uint32_t id) const noexcept override{auto i=index(id);return i?std::optional<float>{values_[*i].load()}:std::nullopt;}
     std::uint32_t latency() const noexcept override{return latency_;}bool live_safe() const noexcept override{return false;}
-    void warm() override{for(std::size_t i=0;i<infos_.size();++i)if(initial_pending_[i])controller_->setParamNormalized(infos_[i].id,values_[i].load());ok(component_->setActive(true),"activation failed");active_=true;ok(processor_->setProcessing(true),"start processing failed");processing_=true;latency_=processor_->getLatencySamples();}
+    void warm() override{for(std::size_t i=0;i<infos_.size();++i)if(initial_pending_[i])controller_->setParamNormalized(infos_[i].id,values_[i].load());if(!active_){ok(component_->setActive(true),"activation failed");active_=true;}ok(processor_->setProcessing(true),"start processing failed");processing_=true;latency_=processor_->getLatencySamples();}
     void reset() noexcept override{context_.projectTimeSamples=0;}
     bool edited() noexcept override{if(refresh_values_.exchange(false))for(std::size_t i=0;i<infos_.size();++i)values_[i]=static_cast<float>(controller_->getParamNormalized(infos_[i].id));return edited_.exchange(false);}
     void sync_controller(std::uint32_t id,float value) override{controller_->setParamNormalized(id,value);}

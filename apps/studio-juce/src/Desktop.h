@@ -55,6 +55,9 @@ public:
     void audioSettings();
     void insertMenu(std::optional<mrs::Id>);
     void openInsert(std::optional<mrs::Id>,mrs::Id);
+    void savePreset(std::optional<mrs::Id>,mrs::Id);
+    void loadPreset(std::optional<mrs::Id>,mrs::Id);
+    juce::PopupMenu pluginMenu(int base=10000) const;
     void addPlugin(std::optional<mrs::Id>,std::size_t);
     void routeMenu(mrs::Id);
     void sendsMenu(mrs::Id);
@@ -180,4 +183,6 @@ void j2Smoke(Desktop&,const juce::File& fixture={});
 void j2PluginSmoke(Desktop&,const juce::File&);
 void j3Smoke(Desktop&);
 void j3AudioSmoke(Desktop&);
+void thuDiagnostic(const juce::File&);
+void retirePluginWindow(EditorWindow&);
 }

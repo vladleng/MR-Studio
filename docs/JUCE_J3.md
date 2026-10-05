@@ -1,5 +1,10 @@
 # 0.1p / JUCE J3 — Windows polish and parity review
 
+Follow-up 0.1p upd1: user confirmed the UI and Nuro state restore work, but reported
+TH-U audible-state mismatch. See [diagnosis, plugin presets and editor update](PLUGIN_PRESETS.md)
+and [local build/test policy](LOCAL_BUILD_POLICY.md). General J3 review confirmation
+does not enumerate the outstanding physical monitor/accessibility checks below.
+
 J1 / 0.1n and J2 / 0.1o were accepted by the user. J3 implementation is ready
 locally for user review. JUCE remains an opt-in parallel shell; the preserved
 Win32 package remains available. No default-target switch is made before the

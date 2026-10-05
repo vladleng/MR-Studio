@@ -11,16 +11,17 @@ bool DeinitModule(){return true;}
 using namespace Steinberg;
 using namespace Steinberg::Vst;
 class Fixture final : public SingleComponentEffect {
-    float gain_{0.5f};
+    float gain_{0.5f};bool activationReset_{};
 public:
     static FUnknown* create(void*){return static_cast<IComponent*>(new Fixture);}
-    tresult PLUGIN_API initialize(FUnknown* context) override{auto result=SingleComponentEffect::initialize(context);if(result!=kResultOk)return result;addAudioInput(STR16("Input"),SpeakerArr::kStereo);addAudioOutput(STR16("Output"),SpeakerArr::kStereo);addAudioInput(STR16("Sidechain"),SpeakerArr::kStereo,kAux,0);parameters.addParameter(STR16("Gain"),nullptr,0,0.5,ParameterInfo::kCanAutomate,100);parameters.addParameter(STR16("Program"),nullptr,0,0,ParameterInfo::kIsProgramChange,200);wchar_t modulePath[32768]{};GetModuleFileNameW(static_cast<HMODULE>(moduleHandle),modulePath,32768);if(wcsstr(modulePath,L"legacy-state.vst3"))for(ParamID id=1000;id<1300;++id)parameters.addParameter(STR16("Legacy control"),nullptr,0,0,ParameterInfo::kCanAutomate,id);return kResultOk;}
+    tresult PLUGIN_API initialize(FUnknown* context) override{auto result=SingleComponentEffect::initialize(context);if(result!=kResultOk)return result;addAudioInput(STR16("Input"),SpeakerArr::kStereo);addAudioOutput(STR16("Output"),SpeakerArr::kStereo);addAudioInput(STR16("Sidechain"),SpeakerArr::kStereo,kAux,0);parameters.addParameter(STR16("Gain"),nullptr,0,0.5,ParameterInfo::kCanAutomate,100);parameters.addParameter(STR16("Program"),nullptr,0,0,ParameterInfo::kIsProgramChange,200);wchar_t modulePath[32768]{};GetModuleFileNameW(static_cast<HMODULE>(moduleHandle),modulePath,32768);activationReset_=wcsstr(modulePath,L"activation-state.vst3")!=nullptr;if(wcsstr(modulePath,L"legacy-state.vst3"))for(ParamID id=1000;id<1300;++id)parameters.addParameter(STR16("Legacy control"),nullptr,0,0,ParameterInfo::kCanAutomate,id);return kResultOk;}
     tresult PLUGIN_API setBusArrangements(SpeakerArrangement* ins,int32 ni,SpeakerArrangement* outs,int32 no) override{if(ni!=2||no!=1)return kResultFalse;return SingleComponentEffect::setBusArrangements(ins,ni,outs,no);}
     // Re-setting the program selector also reloads its default sound, even at the same value.
     tresult PLUGIN_API setParamNormalized(ParamID id,ParamValue value) override{if(id==200)gain_=0.5f;return SingleComponentEffect::setParamNormalized(id,value);}
     tresult PLUGIN_API getState(IBStream* s) override{return s->write(&gain_,sizeof(gain_),nullptr);}
     tresult PLUGIN_API setState(IBStream* s) override{float v{};int32 n{};if(s->read(&v,sizeof(v),&n)!=kResultOk||n!=sizeof(v)||v<0||v>1)return kInvalidArgument;gain_=v;setParamNormalized(100,v);return kResultOk;}
     tresult PLUGIN_API setComponentState(IBStream* s) override{return setState(s);}
+    tresult PLUGIN_API setActive(TBool active) override{if(active&&activationReset_)gain_=0.5f;return SingleComponentEffect::setActive(active);}
     uint32 PLUGIN_API getLatencySamples() override{return 7;}
     tresult PLUGIN_API setProcessing(TBool) override{return kResultOk;}
     tresult PLUGIN_API process(ProcessData& d) override{

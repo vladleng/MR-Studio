@@ -50,6 +50,11 @@ void state(const NodeState& node){PreparedGraph graph{snapshot(node),{48000,2,64
     for(const auto& info:source.parameter_infos(node.id))if(info.automatable)old.nodes.front().parameters.push_back({info.id,info.id==100?0.5f:0.f});
     CHECK(old.nodes.front().parameters.size()>256);
     PreparedGraph migrated{{std::make_shared<const GraphState>(old),0,false,false},{48000,2,64},hosted_factory};audio.fill(1);migrated.process(audio.data(),64);CHECK(audio[0]==0.625f);
+    auto activationCopy=dir.path/L"activation-state.vst3";std::filesystem::copy_file(std::filesystem::path(std::u8string(node.processor_id.begin(),node.processor_id.end())),activationCopy);
+    auto activationSaved=old;activationSaved.nodes.front().processor_id=utf8(activationCopy);activationSaved.nodes.front().parameters.clear();
+    PreparedGraph activated{{std::make_shared<const GraphState>(activationSaved),0,false,false},{48000,2,64},hosted_factory};audio.fill(1);activated.process(audio.data(),64);
+    for(auto v:audio)CHECK(std::abs(v-0.625f)<0.000001f); // DSP reset on activation cannot overwrite restored sound.
+
 }
 void editor(const NodeState& node){PreparedGraph graph{snapshot(node),{48000,2,64},hosted_factory};const auto parent=CreateWindowW(L"STATIC",L"test",WS_OVERLAPPED,0,0,400,200,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);CHECK(parent!=nullptr);int w{},h{};CHECK(graph.open_editor(node.id,parent,w,h)&&w==320&&h==120);auto child=GetWindow(parent,GW_CHILD);CHECK(child!=nullptr);SendMessageW(child,WM_COMMAND,MAKEWPARAM(1,BN_CLICKED),0);CHECK(graph.consume_edits());std::array<float,128> audio;audio.fill(1);graph.process(audio.data(),64);CHECK(audio[0]==0.75f);
     // A preset changes processor/controller state without performEdit for each parameter.

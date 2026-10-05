@@ -423,6 +423,11 @@ std::vector<processing::ParameterInfo> Application::plugin_parameters(std::optio
     return it->second.graph->parameter_infos(slot);
 }
 void Application::set_plugin_parameter(std::optional<Id> track,const Id& slot,std::uint32_t id,float value){auto chain=insert_chain(*services_.projects->state().project,track);auto it=std::find_if(chain.begin(),chain.end(),[&](const auto& fx){return fx.id==slot;});require(it!=chain.end() && it->kind==InsertKind::vst3,"unknown VST3 insert");auto p=std::find_if(it->parameters.begin(),it->parameters.end(),[&](const auto& p){return p.id==id;});if(p==it->parameters.end())it->parameters.push_back({id,value});else p->value=value;set_inserts(track,std::move(chain));}
+NativeInsert Application::capture_insert(std::optional<Id> track,const Id& slot){
+    auto candidate=*services_.projects->state().project;capture_insert_state(candidate);
+    const auto& effects=insert_chain(candidate,track);auto found=std::find_if(effects.begin(),effects.end(),[&](const auto& n){return n.id==slot;});
+    require(found!=effects.end(),"unknown insert");return *found;
+}
 void Application::capture_insert_state(Project& project){
     bool has_vst=false;for(const auto& [key,r]:insert_runtime_){(void)key;if(r.graph)for(const auto& n:r.graph->snapshot().graph->nodes)has_vst=has_vst||n.format==processing::ProcessorFormat::vst3;}if(!has_vst || !device_)return;
     require_not_playing();device_->stop();
