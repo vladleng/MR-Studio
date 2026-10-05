@@ -135,3 +135,55 @@ Cached offline configure/full local Release build and 91/91 CTest passed
 and offline unavailable-state checks. Current software preview inspected.
 No special installed TH-U/Nuro tests. Code/builds local, GitHub docs/issues only.
 
+## 0.1q fix3 — investigate clicks at 128 frames
+
+User reports clicks at 128, absent at 256, with TH-U, Xvox Pro and IK Multimedia
+One; Studio Pro handles the intended workload without those clicks. This is a new
+performance report, so focused installed-plugin CPU experiments are in scope.
+Previously accepted preset/editor behavior is not routinely retested.
+
+Track/bus inserts were always prepared and rendered in 64-frame slices. At a
+128-frame callback each active insert was therefore invoked twice. The desktop
+now prepares those inserts for the selected device buffer and passes an explicit
+preferred processing chunk to the engine. Larger/unusual callbacks remain bounded
+by the prepared size; loop wraps split chunks at their exact boundaries and
+publish the correct track/bus plugin position. No new buffering latency is added.
+
+An audio-thread SSE FTZ/DAZ scope prevents slow subnormal DSP math and restores
+the caller's floating-point mode. Mixer scratch allocation is bounded to 128 MiB.
+Tests cover one insert call for 128/256-frame callbacks, irregular blocks, short
+loop/context boundaries, zero RT allocation, FP mode restoration and budget bounds.
+Existing PDC/bus/send/hardware/raw-recording/state regressions remain required.
+
+Footer diagnostics, since the last engine preparation:
+- B: observed callback frame count (range if variable), not just requested buffer.
+- XR: backend-reported input/output underflow and overflow flags.
+- Late: measured engine callback durations exceeding their buffer deadline.
+- D: disk read-ahead misses. Counters identify categories; zero does not prove
+  every possible driver/plugin fault absent.
+
+Offline experiments, 48 kHz, 128-frame callbacks, synthetic stereo sine, 400 warmup
+and 3000 measured callbacks, separate processes with no ASIO device/editor:
+
+| State | Chunk | Average us | p99 us | Max us | Over 2666.667 us |
+|---|---:|---:|---:|---:|---:|
+| TH-U + Xvox Pro + One initial states | 64 | 264.450 | 374.600 | 766.800 | 0/3000 |
+| Same initial states | 128 | 234.307 | 361.100 | 663.700 | 0/3000 |
+| Last saved project's TH-U/Xvox states | 64 | 379.715 | 1484.600 | 9131.300 | 3/3000 |
+| Same saved states | 128 | 338.395 | 1190.100 | 3991.700 | 2/3000 |
+
+The initial three-plugin graph reports 2465 latency samples with either chunk.
+Average processing fell approximately 11%; rare scheduling/time spikes remain in
+the saved-state experiment. The saved project contains two plugins, no One. Saved
+chains are flattened for this CPU experiment; source WAVs/routing, active unsaved
+presets and real ASIO scheduling are not reproduced. No project or audio settings
+were written. These measurements do not establish that the clicks are resolved.
+
+Developer tool: mrs_processing_bench CHUNK PLUGIN_PATH... or
+mrs_processing_bench CHUNK --project PROJECT_PATH. CHUNK is 1..128 here; Windows
+only, no device connection. Hardware comparison and user's 128-frame review pending.
+Package: MR-Studio-0.1q-fix3-processing-JUCE-ASIO-Windows-local.
+Branch: mrs/0.1q-fix3-processing-local. Code/builds local; GitHub docs/issues only.
+Cached offline configure/full local Release build and 92/92 CTest passed
+(22.41 seconds). Current software preview inspected. Real ASIO listening with
+all three active presets at 128 frames remains the user's pending acceptance check.
