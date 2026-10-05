@@ -1,5 +1,6 @@
 #include <mrs/audio.hpp>
 #include <mrs/processing.hpp>
+#include "latency_fixture.hpp"
 #include <mrs/device.hpp>
 #include <mrs/read_ahead.hpp>
 #include <mrs/recording.hpp>
@@ -597,6 +598,30 @@ void mixer() {
 }
 
 
+void pdc() {
+    using namespace mrs::processing;
+    const auto prepared=[](std::uint32_t latency,std::uint32_t block){auto state=demo_graph();state.nodes.front().parameters.clear();return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(state),0,false,false},ProcessConfig{48000,2,block},[latency](const auto&){return std::make_unique<LatencyFixture>(latency);});};
+    RenderGraph graph;graph.mixer.resize(4);graph.buses={false,false,true,false};graph.outputs={no_mixer_track,no_mixer_track,no_mixer_track,no_mixer_track};
+    graph.sends={{{2,1,false}},{{2,1,true}},{},{}};graph.hardware_outputs={{},{},{},{1}};graph.master_outputs={0};
+    graph.inserts={prepared(7,17),{},prepared(23,17),prepared(5,17)};graph.master_inserts=prepared(11,128);
+    graph.monitor={{0,0,1,0},{0,1,1,0},{0,0,1,1},{0,1,1,1},{0,0,1,3},{0,1,1,3}};graph.input_monitoring={true,true,false,true};
+    AudioEngine engine;engine.prepare({48000,1,2,128},graph);CHECK(engine.compensation().output==41&&engine.compensation().track_paths==std::vector<std::uint64_t>({7,0,30,5}));
+    std::array<float,128> in{};std::array<float,256> out{};std::size_t position=0;const auto before=allocation_check::count.load();
+    while(position<400){const auto frames=static_cast<std::uint32_t>(std::min<std::size_t>(1+position%127,400-position));in.fill(0);if(!position)in[0]=.1f;
+        allocation_check::enabled=true;engine.process(in.data(),out.data(),frames);allocation_check::enabled=false;
+        for(std::uint32_t f=0;f<frames;++f){CHECK(std::abs(out[f*2]-(position+f==41?.4f:0.f))<1e-6f);CHECK(std::abs(out[f*2+1]-(position+f==41?.1f:0.f))<1e-6f);}position+=frames;}
+    CHECK(allocation_check::count.load()==before);
+    in.fill(0);in[0]=.1f;engine.process(in.data(),out.data(),1);CHECK(engine.enqueue({ControlKind::stop}));in.fill(0);engine.process(in.data(),out.data(),128);for(float sample:out)CHECK(sample==0);
+    position=0;while(position<300){const auto frames=static_cast<std::uint32_t>(std::min<std::size_t>(1+position%127,300-position));for(std::uint32_t f=0;f<frames;++f)in[f]=static_cast<float>(.05*std::sin((position+f)*.13));engine.process(in.data(),out.data(),frames);
+        for(std::uint32_t f=0;f<frames;++f){const float expected=position+f<41?0.f:static_cast<float>(.05*std::sin((position+f-41)*.13));CHECK(std::abs(out[f*2]-expected*4)<1e-6f);CHECK(std::abs(out[f*2+1]-expected)<1e-6f);}position+=frames;}
+    auto oversized=graph;oversized.master_inserts=prepared(262140,128);rejects([&]{engine.prepare({48000,1,2,128},oversized);});
+    RenderGraph many;many.mixer.resize(40);many.inserts.resize(40);many.inserts[0]=prepared(262144,128);rejects([&]{engine.prepare({48000,1,2,128},many);});
+    // The capture tap remains at raw input, before any DSP/PDC delay.
+    TempFile file;auto recorder=std::make_shared<Recorder>(file.path,48000,0);
+    graph.recording=recorder;engine.prepare({48000,1,2,128},graph);CHECK(engine.enqueue({ControlKind::play}));in.fill(0);in[0]=.1f;
+    engine.process(in.data(),out.data(),128);CHECK(recorder->status().frames==128);engine.prepare({48000,0,2,128},{});CHECK(recorder->finish().frames==128);
+    const auto raw=load_wav(file.path);CHECK(std::abs(raw.samples.front()-.1f)<1e-6f);for(std::size_t i=1;i<raw.samples.size();++i)CHECK(raw.samples[i]==0);
+}
 void inserts() {
     using namespace mrs::processing;
     const auto prepared=[](float gain,std::uint32_t block) {
@@ -676,7 +701,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
-        if (suite=="inserts") inserts(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();

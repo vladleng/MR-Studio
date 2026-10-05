@@ -1,4 +1,5 @@
 #pragma once
+#include <mrs/delay.hpp>
 #include <mrs/core.hpp>
 #include <array>
 #include <atomic>
@@ -147,9 +148,16 @@ public:
     RealtimeState state() const; // control-thread bounded coherent mailbox read
     Metrics metrics() const;
     RenderConfig config() const { return config_; }
+    struct CompensationReport {std::vector<std::uint64_t> track_paths;std::uint64_t output{},master{};std::size_t memory_bytes{};};
+    const CompensationReport& compensation() const {return compensation_;} // prepared, control thread
 private:
     RenderConfig config_;
     RenderGraph graph_;
+    CompensationReport compensation_;
+    std::vector<CompensationDelay> route_delays_;
+    std::vector<std::vector<CompensationDelay>> send_delays_;
+    CompensationDelay legacy_delay_;
+    void reset_compensation() noexcept;
     bool monitor_enabled_{true};
     bool pending_play_anchor_{};
     std::array<bool,max_mixer_tracks> input_monitoring_{};

@@ -30,6 +30,7 @@ void AudioData::validate() const {
         if (!std::isfinite(sample)) throw std::invalid_argument("non-finite audio sample");
 }
 AudioEngine::AudioEngine() { prepare(RenderConfig{}, {}); }
+void AudioEngine::reset_compensation() noexcept {legacy_delay_.reset();for(auto& delay:route_delays_)delay.reset();for(auto& row:send_delays_)for(auto& delay:row)delay.reset();}
 void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState initial) {
     if ((initial.playback != PlaybackState::stopped && initial.playback != PlaybackState::paused) ||
         initial.sample < 0 || initial.sample > max_sample || initial.play_start < 0 || initial.play_start > max_sample ||
@@ -134,6 +135,32 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
         const auto c=chain->config(); if (c.sample_rate != config.sample_rate || c.channels != config.output_channels || c.max_block < 1) throw std::invalid_argument("insert render config mismatch");
     }
     if (graph.master_inserts) { const auto c=graph.master_inserts->config(); if (c.sample_rate != config.sample_rate || c.channels != config.output_channels || c.max_block < config.max_block) throw std::invalid_argument("master insert config mismatch"); }
+    // Keep muted paths in the plan: gates must never change prepared latency.
+    CompensationReport compensation;
+    std::vector<std::uint64_t> arrivals(graph.mixer.size());
+    compensation.track_paths.resize(graph.mixer.size());
+    for(const auto t:order){const auto own=graph.inserts.empty()||!graph.inserts[t]?0:graph.inserts[t]->latency().output;
+        const auto path=arrivals[t]+own;if(path>262144)throw std::invalid_argument("PDC mixer path exceeds 262144 samples");
+        compensation.track_paths[t]=path;
+        if(graph.outputs[t]!=no_mixer_track)arrivals[graph.outputs[t]]=std::max(arrivals[graph.outputs[t]],path);
+        for(const auto& send:graph.sends[t])arrivals[send.destination]=std::max(arrivals[send.destination],path);
+        compensation.output=std::max(compensation.output,path);
+    }
+    const auto master_input=compensation.output;
+    compensation.master=(graph.processors?graph.processors->latency().output:0)+(graph.master_inserts?graph.master_inserts->latency().output:0);
+    compensation.output+=compensation.master;
+    if(compensation.output>262144)throw std::invalid_argument("PDC output path exceeds 262144 samples");
+    std::size_t delay_budget=128*1024*1024;
+    std::vector<CompensationDelay> routes(graph.mixer.size());
+    std::vector<std::vector<CompensationDelay>> sends(graph.mixer.size());
+    for(std::size_t t=0;t<graph.mixer.size();++t){const auto destination=graph.outputs[t];
+        const auto target=!graph.hardware_outputs[t].empty()?compensation.output:destination==no_mixer_track?master_input:arrivals[destination];
+        routes[t].prepare(target-compensation.track_paths[t],config.output_channels,delay_budget);
+        sends[t].resize(graph.sends[t].size());
+        for(std::size_t j=0;j<sends[t].size();++j)sends[t][j].prepare(arrivals[graph.sends[t][j].destination]-compensation.track_paths[t],config.output_channels,delay_budget);
+    }
+    CompensationDelay legacy;legacy.prepare(master_input,config.output_channels,delay_budget);
+    compensation.memory_bytes=128*1024*1024-delay_budget;
     std::size_t stream_bytes{}, stream_count{};
     for (auto& voice : graph.voices) if (voice.asset->file) {
         if (config.max_block > static_cast<std::uint32_t>(ReadAhead::page_frames))
@@ -152,6 +179,7 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     }
     for(std::size_t i=0;i<graph.tempos.size();++i){const auto& t=graph.tempos[i];if(t.sample<0 || !std::isfinite(t.bpm) || t.bpm<1 || t.bpm>1000 || !std::isfinite(t.quarter) || (i && t.sample<=graph.tempos[i-1].sample))throw std::invalid_argument("invalid prepared tempo map");}
     config_ = config;
+    compensation_=std::move(compensation);route_delays_=std::move(routes);send_delays_=std::move(sends);legacy_delay_=std::move(legacy);
     master_envelope_.resize(config.max_block);
     direct_output_.resize(static_cast<std::size_t>(config.max_block)*config.output_channels);
     graph_ = std::move(graph);
@@ -289,6 +317,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             if (rt_.playback == PlaybackState::playing) rt_.playback = PlaybackState::paused;
             break;
         case ControlKind::stop:
+            reset_compensation();
             pending_seek_.reset(); pending_play_anchor_=false; rt_.playback = PlaybackState::stopped; rt_.sample = rt_.play_start;
             if (graph_.processors) graph_.processors->panic();
             for (const auto& chain : graph_.inserts) if (chain) chain->panic();
@@ -299,6 +328,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             if (control.a >= 0 && control.a <= max_sample) pending_seek_ = control.a;
             break;
         case ControlKind::seek:
+            reset_compensation();
             pending_seek_.reset();
             if (!graph_.recordings.empty()) { for (const auto& recorder : graph_.recordings) recorder->discontinuity(); break; }
             if (control.a >= 0 && control.a <= max_sample) {
@@ -327,7 +357,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             if (!voice.stream->try_begin(source,frames)) ready = false;
         }
         if (ready) {
-            rt_.sample = *pending_seek_; pending_seek_.reset(); seek_pinned = true;
+            reset_compensation();rt_.sample = *pending_seek_; pending_seek_.reset(); seek_pinned = true;
             if (pending_play_anchor_) { rt_.play_start=rt_.sample; pending_play_anchor_=false; }
             for (auto& voice : graph_.voices) if (voice.stream)
                 voice.stream->accept_seek(voice.source_offset+std::clamp(rt_.sample-voice.start,Sample{0},voice.length-1));
@@ -395,22 +425,24 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         }
         }
         const auto ramp=mix_ramp_;
+        for(std::uint32_t local=0;local<count;++local)for(std::uint32_t c=0;c<config_.output_channels;++c){const auto out=static_cast<std::size_t>(base+local)*config_.output_channels+c;output[out]=legacy_delay_.sample(output[out],c);}
         for (const auto t : mix_order_) {
             if (!graph_.inserts.empty() && graph_.inserts[t]) graph_.inserts[t]->process(track_block_[t].data(),count,position,playing,tempo.bpm,tempo.quarter);
             for(std::uint32_t local=0;local<count;++local){const auto at=static_cast<std::size_t>(local)*config_.output_channels;const auto out=static_cast<std::size_t>(base+local)*config_.output_channels;
             for (std::uint32_t c=0; c<config_.output_channels; ++c) {
                 const float sample = track_block_[t][at+c]*mix_gain_[t][c%2];
+                const float routed=route_delays_[t].sample(sample,c);
                 const auto destination = graph_.outputs[t];
                 const auto& hardware = graph_.hardware_outputs[t];
                 if (!hardware.empty()) {
-                    if (hardware.size() == 1 && c < 2) direct_output_[out+hardware[0]] += sample*(config_.output_channels == 1 ? 1.0f : 0.5f);
-                    else if (hardware.size() == 2 && c < 2) direct_output_[out+hardware[c]] += sample;
+                    if (hardware.size() == 1 && c < 2) direct_output_[out+hardware[0]] += routed*(config_.output_channels == 1 ? 1.0f : 0.5f);
+                    else if (hardware.size() == 2 && c < 2) direct_output_[out+hardware[c]] += routed;
                 }
-                else if (destination == no_mixer_track) output[out+c] += sample;
-                else track_block_[destination][at+c] += sample;
+                else if (destination == no_mixer_track) output[out+c] += routed;
+                else track_block_[destination][at+c] += routed;
                 for (std::size_t j=0; j<graph_.sends[t].size(); ++j) {
                     const auto& send = graph_.sends[t][j];
-                    track_block_[send.destination][at+c] += (send.pre_fader ? track_block_[t][at+c]*gate_[t] : sample)*send_gain_[t][j];
+                    track_block_[send.destination][at+c] += send_delays_[t][j].sample((send.pre_fader ? track_block_[t][at+c]*gate_[t] : sample)*send_gain_[t][j],c);
                 }
                 if (c<2) block_peaks[t][c] = std::max(block_peaks[t][c],std::abs(sample));
             }

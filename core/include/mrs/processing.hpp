@@ -174,6 +174,7 @@ struct LatencyReport {
     std::uint64_t output{};
     bool live_safe{true};
     bool parallel_paths_need_compensation{};
+    bool compensation_applied{};
 };
 struct GraphMetrics {
     std::uint64_t dropped_midi{}, dropped_parameters{}, invalid_events{}, output_overflows{}, panics{};

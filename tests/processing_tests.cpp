@@ -1,4 +1,5 @@
 #include <mrs/processing.hpp>
+#include "latency_fixture.hpp"
 #include <mrs/audio.hpp>
 #include <algorithm>
 #include <array>
@@ -163,13 +164,25 @@ public:
     }
 };
 void latency() {
+    auto wire=two_nodes();for(auto& n:wire.nodes){n.parameters.clear();n.processor_id="fixture";}wire.edges[1].from.reset();wire.outputs={wire.nodes[0].id,wire.nodes[1].id};
+    const auto factory=[](const NodeState& n){return std::make_unique<LatencyFixture>(n.id==mrs::Id{"gain"}?7U:n.id==mrs::Id{"sum"}?0U:31U);};
+    for(bool merge:{false,true}){
+        auto state=wire;if(merge){auto sum=state.nodes[0];sum.id={"sum"};state.nodes.push_back(sum);state.edges.push_back({state.nodes[0].id,sum.id,1});state.edges.push_back({state.nodes[1].id,sum.id,1});state.outputs={sum.id};}
+        PreparedGraph graph{snapshot(state),{48000,2,17,128},factory};CHECK(graph.latency().output==31&&graph.latency().compensation_applied);
+        std::array<float,34> block{};std::size_t position=0;const auto before=allocations.load();
+        while(position<200){const auto count=static_cast<std::uint32_t>(std::min<std::size_t>(1+position%17,200-position));block.fill(0);if(!position){block[0]=.125f;block[1]=-.25f;}probing=true;graph.process(block.data(),count);probing=false;
+            for(std::uint32_t f=0;f<count;++f){CHECK(block[f*2]==(position+f==31?.25f:0.f));CHECK(block[f*2+1]==(position+f==31?-.5f:0.f));}position+=count;}
+        CHECK(allocations.load()==before);block.fill(0);block[0]=.125f;graph.process(block.data(),1);graph.panic();block.fill(0);for(int i=0;i<40;++i){graph.process(block.data(),1);CHECK(block[0]==0&&block[1]==0);}
+        auto bypass=state;bypass.nodes[0].bypass=true;rejects([&]{graph.enqueue_parameters(bypass);});
+    }
+    rejects([&]{PreparedGraph bad{snapshot(wire),{48000,2,17},[](const auto&){return std::make_unique<LatencyFixture>(262145);}};});
     auto g = two_nodes();
     for (auto& n : g.nodes) { n.parameters.clear(); n.processor_id = "mock"; }
     PreparedGraph serial{snapshot(g),{48000,2,8,128},[](const auto&) { return std::make_unique<MockProcessor>(80); }};
     CHECK(serial.latency().output == 160 && !serial.latency().live_safe);
     g.edges[1].from.reset(); g.outputs = {g.nodes[0].id,g.nodes[1].id};
     PreparedGraph parallel{snapshot(g),{48000,2,8,128},[](const auto& n) { return std::make_unique<MockProcessor>(n.id == mrs::Id{"gain"} ? 20U : 80U); }};
-    CHECK(parallel.latency().output == 80 && parallel.latency().parallel_paths_need_compensation && !parallel.latency().live_safe);
+    CHECK(parallel.latency().output == 80 && !parallel.latency().parallel_paths_need_compensation && parallel.latency().compensation_applied && parallel.latency().live_safe);
     auto vst = demo_graph(); vst.nodes[0].format = ProcessorFormat::vst3;
     vst.nodes[0].parameters.clear(); vst.nodes[0].plugin.class_id = "0123456789ABCDEF0123456789ABCDEF";
     vst.nodes[0].plugin.component = {std::byte{1},std::byte{2}};

@@ -1,5 +1,6 @@
 #include <mrs/processing.hpp>
 #include <mrs/audio.hpp>
+#include <mrs/delay.hpp>
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -27,7 +28,7 @@ struct ParamBatch {std::array<ParamCommand,256> changes{};std::size_t size{};};
 #pragma warning(disable: 4324) // intentional SPSC alignment propagated into Impl
 #endif
 struct PreparedGraph::Impl {
-    struct Edge { std::optional<std::size_t> from; float gain; };
+    struct Edge { std::optional<std::size_t> from; float gain; CompensationDelay delay; };
     struct Node {
         std::unique_ptr<IProcessor> processor;
         std::vector<ParameterInfo> infos;
@@ -44,6 +45,7 @@ struct PreparedGraph::Impl {
     LatencyReport report;
     std::vector<Node> nodes;
     std::vector<std::size_t> order, outputs;
+    std::vector<CompensationDelay> output_delays;
     std::unordered_map<std::string,std::size_t> index;
     audio::SpscQueue<MidiCommand,1024> midi_queue;
     audio::SpscQueue<ParamCommand,1024> parameter_queue;
@@ -114,6 +116,7 @@ PreparedGraph::PreparedGraph(GraphSnapshot snapshot, ProcessConfig config, Proce
         for (const auto& edge : state.edges)
             if (edge.from && p.index.at(edge.from->value) == p.order[i])
                 if (--degrees[p.index.at(edge.to.value)] == 0) p.order.push_back(p.index.at(edge.to.value));
+    std::size_t delay_budget=64*1024*1024;
     std::vector<std::uint64_t> paths(state.nodes.size());
     for (auto index : p.order) {
         auto& node = p.nodes[index];
@@ -125,7 +128,9 @@ PreparedGraph::PreparedGraph(GraphSnapshot snapshot, ProcessConfig config, Proce
             first = latency; upstream = std::max(upstream,latency);
         }
         const auto own = node.bypass ? 0 : node.processor->latency();
+        for(auto& edge:node.inputs)edge.delay.prepare(upstream-(edge.from?paths[*edge.from]:0),config.channels,delay_budget);
         paths[index] = upstream + own;
+        if(paths[index]>262144)throw std::invalid_argument("PDC processor path exceeds 262144 samples");
         const bool safe = node.bypass || node.processor->live_safe();
         p.report.nodes.push_back({state.nodes[index].id,own,paths[index],safe});
         p.report.live_safe = p.report.live_safe && safe;
@@ -136,7 +141,11 @@ PreparedGraph::PreparedGraph(GraphSnapshot snapshot, ProcessConfig config, Proce
         if (first && *first != paths[index]) p.report.parallel_paths_need_compensation = true;
         first = paths[index]; p.report.output = std::max(p.report.output,paths[index]);
     }
-    if (p.report.output > config.live_latency_budget || p.report.parallel_paths_need_compensation)
+    p.output_delays.resize(p.outputs.size());
+    for(std::size_t i=0;i<p.outputs.size();++i)p.output_delays[i].prepare(p.report.output-paths[p.outputs[i]],config.channels,delay_budget);
+    p.report.compensation_applied=p.report.parallel_paths_need_compensation;
+    p.report.parallel_paths_need_compensation=false;
+    if (p.report.output > config.live_latency_budget)
         p.report.live_safe = false;
 }
 PreparedGraph::~PreparedGraph() = default;
@@ -181,6 +190,7 @@ bool PreparedGraph::enqueue_parameter(const Id& node, ParameterChange change) {
 bool PreparedGraph::enqueue_parameters(const GraphState& state) {
     ParamBatch batch;
     for(const auto& saved:state.nodes){const auto at=impl_->index.find(saved.id.value);if(at==impl_->index.end())throw std::invalid_argument("unknown insert node");
+        if(saved.bypass!=impl_->snapshot.graph->nodes[at->second].bypass&&impl_->nodes[at->second].processor->latency())throw std::invalid_argument("Pause/Stop and rebuild to bypass a latency-bearing processor");
         if(batch.size>=batch.changes.size())throw std::invalid_argument("parameter transaction too large");
         batch.changes[batch.size++]={static_cast<std::uint16_t>(at->second),{0,UINT32_MAX,saved.bypass?1.f:0.f}};
         for(const auto& v:saved.parameters){
@@ -216,11 +226,13 @@ void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,b
         ++p.panics;
         for (auto& node : p.nodes) {
             node.processor->reset(); node.midi.clear();
+            for(auto& edge:node.inputs)edge.delay.reset();
             for (std::uint8_t ch = 0; ch < 16; ++ch) {
                 (void)node.midi.push({0,MidiKind::cc,ch,120,0});
                 (void)node.midi.push({0,MidiKind::cc,ch,123,0});
             }
         }
+        for(auto& delay:p.output_delays)delay.reset();
     }
     ParamCommand param;
     for (int i = 0; i < 1023 && p.parameter_queue.pop(param); ++i) {
@@ -238,9 +250,9 @@ void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,b
     for (auto index : p.order) {
         auto& node = p.nodes[index];
         std::fill_n(node.audio.data(),count,0.0F);
-        for (const auto& edge : node.inputs) {
+        for (auto& edge : node.inputs) {
             const auto* input = edge.from ? p.nodes[*edge.from].audio.data() : audio;
-            for (std::size_t i = 0; i < count; ++i) node.audio[i] += input[i] * edge.gain;
+            for (std::size_t i = 0; i < count; ++i) node.audio[i] += edge.delay.sample(input[i],static_cast<std::uint32_t>(i%p.config.channels)) * edge.gain;
         }
         sort_offsets(node.midi.events.data(),node.midi.size);
         sort_offsets(node.parameters.data(),node.parameter_count);
@@ -264,8 +276,8 @@ void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,b
     }
     if (!p.nodes.empty()) {
         std::fill_n(audio,count,0.0F);
-        for (auto index : p.outputs)
-            for (std::size_t i = 0; i < count; ++i) audio[i] += p.nodes[index].audio[i];
+        for(std::size_t j=0;j<p.outputs.size();++j)
+            for (std::size_t i = 0; i < count; ++i) audio[i] += p.output_delays[j].sample(p.nodes[p.outputs[j]].audio[i],static_cast<std::uint32_t>(i%p.config.channels));
     }
 }
 bool PreparedGraph::pop_midi_output(MidiOutput& event) noexcept { return impl_->output_queue.pop(event); }
