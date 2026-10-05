@@ -16,6 +16,13 @@ public:
         setColour(juce::TextButton::buttonOnColourId, juce::Colour(accent));
         setColour(juce::TextButton::textColourOffId, juce::Colours::whitesmoke);
     }
+    void drawTreeviewPlusMinusBox(juce::Graphics& g,const juce::Rectangle<float>& area,juce::Colour,bool open,bool hover) override {
+        g.setColour(hover?juce::Colours::white:juce::Colour(0xffb8bdc2));
+        const auto centre=area.getCentre();const float size=juce::jmin(5.f,area.getWidth()*.3f);juce::Path arrow;
+        if(open){arrow.startNewSubPath(centre.x-size,centre.y-size*.5f);arrow.lineTo(centre.x,centre.y+size*.5f);arrow.lineTo(centre.x+size,centre.y-size*.5f);}
+        else {arrow.startNewSubPath(centre.x-size*.5f,centre.y-size);arrow.lineTo(centre.x+size*.5f,centre.y);arrow.lineTo(centre.x-size*.5f,centre.y+size);}
+        g.strokePath(arrow,juce::PathStrokeType(1.5f));
+    }
     juce::Font getTextButtonFont(juce::TextButton&, int) override { return font(14); }
     juce::Font font(float size) const { return juce::Font(juce::FontOptions(face).withPointHeight(size)); }
     void drawButtonBackground(juce::Graphics& g, juce::Button& b, const juce::Colour& c,

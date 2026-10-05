@@ -27,7 +27,7 @@ struct ViewSettings {
         if(bytes.length()>65536||juce::JSON::parse(bytes,value).failed()||!value.isObject()||static_cast<int>(value["version"])!=1)
             throw std::runtime_error("Invalid JUCE view settings");
         result.sidebar=static_cast<bool>(value["sidebar"]);result.snap=static_cast<bool>(value["snap"]);
-        result.browserWidth=juce::jlimit(200,450,static_cast<int>(value["browserWidth"]));
+        result.browserWidth=juce::jlimit(200,700,static_cast<int>(value["browserWidth"]));
         result.trackHeight=juce::jlimit(128,360,static_cast<int>(value["trackHeight"]));
         auto scale=static_cast<double>(value["pixelsPerSecond"]);
         result.pixelsPerSecond=std::isfinite(scale)?juce::jlimit(2.,2400.,scale):30.;

@@ -40,6 +40,7 @@ Desktop::Desktop(bool test):testing(test){
     sidebar=view.sidebar;browserWidth=view.browserWidth;snap=view.snap;
     app.demo();resetDevice();
     arrangement=std::make_unique<Arrangement>(*this);browser=std::make_unique<Browser>(*this);
+    addAndMakeVisible(browserDivider);browserDivider.setTitle("Resize browser");browserDivider.setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);browserDivider.addMouseListener(this,false);
     for(auto* c:{static_cast<juce::Component*>(&menu),static_cast<juce::Component*>(arrangement.get()),static_cast<juce::Component*>(browser.get()),static_cast<juce::Component*>(&mixerViewport)})addAndMakeVisible(c);
     mixerViewport.setViewedComponent(&mixerBody,false);mixerViewport.setScrollBarsShown(false,true);
     for(auto* b:{&play,&pause,&stop,&record,&previous,&next,&loop,&arrangeButton,&editButton,&mixButton,&brows,&addTrack,&addBus,&undo,&redo,&split,&remove,&zoomIn,&zoomOut,&fit,&audio,&snapButton})addAndMakeVisible(b);
@@ -140,6 +141,7 @@ void Desktop::setWorkspace(mrs::desktop::Workspace w){app.workspace(w);prefs.wor
 void Desktop::resized(){menu.setBounds(0,0,getWidth(),26);int x=8;
     for(auto* b:{&undo,&redo,&addTrack,&addBus,&split,&remove,&zoomIn,&zoomOut,&fit,&snapButton}){const int width=(b==&snapButton?86:78);b->setBounds(x,34,width,28);x+=width+5;}
     audio.setBounds(getWidth()-148,34,140,28);
+    browserWidth=juce::jlimit(200,juce::jmax(200,juce::jmin(700,getWidth()-700)),browserWidth);
     const int available=getWidth()-(sidebar?browserWidth:0)-16;
     const bool showMix=app.workspace()==mrs::desktop::Workspace::mix;
     const int mixerHeight=showMix ? juce::jlimit(210,365,(getHeight()-120)/2) : 0;
@@ -149,6 +151,8 @@ void Desktop::resized(){menu.setBounds(0,0,getWidth(),26);int x=8;
     if(showMix){mixerViewport.setBounds(mixArea.withTrimmedRight(140));mixerBody.setSize(juce::jmax(mixerViewport.getWidth(),static_cast<int>(mixer.size())*148),mixArea.getHeight()-14);
         for(std::size_t i=0;i<mixer.size();++i)mixer[i]->setBounds(static_cast<int>(i)*148,0,140,mixerBody.getHeight());
         if(master)master->setBounds(mixArea.getRight()-132,mixArea.getY(),132,mixArea.getHeight()-14);}
+    browserWidth=juce::jlimit(200,juce::jmax(200,juce::jmin(700,getWidth()-700)),browserWidth);
+    browserDivider.setVisible(sidebar);browserDivider.setBounds(getWidth()-browserWidth-8,70,8,getHeight()-128);
     browser->setVisible(sidebar);browser->setBounds(getWidth()-browserWidth,70,browserWidth-8,getHeight()-128);
     x=8;for(auto* b:{&play,&pause,&stop,&record,&previous,&next,&loop}){int width=b==&record||b==&loop?100:78;b->setBounds(x,getHeight()-45,width,30);x+=width+5;}
     x=getWidth()-344;for(auto* b:{&arrangeButton,&editButton,&mixButton,&brows}){b->setBounds(x,getHeight()-45,78,30);x+=84;}
@@ -156,11 +160,13 @@ void Desktop::resized(){menu.setBounds(0,0,getWidth(),26);int x=8;
 void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(background));g.setFont(theme.font(12));g.setColour(message.isEmpty()?juce::Colours::lightgrey:juce::Colours::orange);
     auto s=message.isEmpty()?label(project()->title)+(app.dirty()?" *":"")+"  |  "+label(app.audio_name()):message;
     g.drawText(s,10,getHeight()-62,getWidth()-20,16,juce::Justification::left);
+    if(sidebar){g.setColour(juce::Colour(0xff697580));g.fillRect(browserDivider.getX()+3,70,2,getHeight()-128);}
     g.setColour(juce::Colours::whitesmoke);g.drawText(juce::String(static_cast<double>(app.engine()->state().sample)/project()->sample_rate,2)+" s",680,getHeight()-44,120,28,juce::Justification::left);
 }
-void Desktop::mouseDown(const juce::MouseEvent& e){resizingBrowser=sidebar&&std::abs(e.x-(getWidth()-browserWidth-4))<=4;}
-void Desktop::mouseDrag(const juce::MouseEvent& e){if(resizingBrowser){browserWidth=juce::jlimit(200,450,getWidth()-e.x);resized();repaint();}}
-void Desktop::mouseUp(const juce::MouseEvent&){resizingBrowser=false;}
+void Desktop::mouseDown(const juce::MouseEvent& e){const auto local=e.getEventRelativeTo(this);resizingBrowser=sidebar&&browserDivider.getBounds().contains(local.getPosition());}
+void Desktop::resizeBrowser(int width){browserWidth=juce::jlimit(200,juce::jmax(200,juce::jmin(700,getWidth()-700)),width);resized();repaint();}
+void Desktop::mouseDrag(const juce::MouseEvent& e){if(resizingBrowser)resizeBrowser(getWidth()-e.getEventRelativeTo(this).x); }
+void Desktop::mouseUp(const juce::MouseEvent&){if(resizingBrowser)saveSettings();resizingBrowser=false;}
 void Desktop::refresh(bool force){const auto p=project();const auto state=app.services().projects->state();
     std::vector<mrs::Id> current;for(const auto& t:p->tracks)current.push_back(t.id);
     if(current!=ids){closeEditors();cancelPreview();ids=current;mixer.clear();for(const auto& t:p->tracks){auto s=std::make_unique<Strip>(*this,t.id);mixerBody.addAndMakeVisible(*s);mixer.push_back(std::move(s));}
@@ -313,7 +319,13 @@ void Arrangement::mouseWheelMove(const juce::MouseEvent& e,const juce::MouseWhee
 void Arrangement::zoom(double factor){pixelsPerSecond=juce::jlimit(2.,2400.,pixelsPerSecond*factor);repaint();}
 void Arrangement::fit(){mrs::Sample end=48000*16;for(const auto& c:owner.project()->clips)end=juce::jmax(end,c.start+c.length);horizontal=0;pixelsPerSecond=juce::jlimit(2.,2400.,(getWidth()-left)*static_cast<double>(owner.project()->sample_rate)/end);repaint();}
 bool Arrangement::isInterestedInFileDrag(const juce::StringArray& files){for(const auto& f:files)if(!f.endsWithIgnoreCase(".wav"))return false;return !files.isEmpty();}
-void Arrangement::filesDropped(const juce::StringArray& files,int,int){owner.run([&]{owner.importFiles(files);});}
+void Arrangement::filesDropped(const juce::StringArray& files,int x,int y){owner.run([&]{
+    if(!isInterestedInFileDrag(files))throw std::runtime_error("Select WAV samples to import");
+    std::optional<mrs::Id> target;const int at=trackAt(static_cast<float>(y));
+    if(y>=header&&at>=0&&at<static_cast<int>(owner.project()->tracks.size()))target=owner.project()->tracks[static_cast<std::size_t>(at)].id;
+    std::vector<std::filesystem::path> paths;for(const auto& file:files)paths.push_back(path(juce::File(file)));
+    owner.closeEditors();owner.app.import_wavs(paths,target,sampleAt(static_cast<float>(x)));owner.refresh(true);
+});}
 bool Arrangement::isInterestedInDragSource(const SourceDetails& details){return details.description.toString()=="mrs-sample-files"&&!owner.browser->selectedSamples().isEmpty();}
 void Arrangement::itemDropped(const SourceDetails& details){if(isInterestedInDragSource(details))filesDropped(owner.browser->selectedSamples(),details.localPosition.x,details.localPosition.y);}
 
@@ -335,6 +347,8 @@ Browser::Browser(Desktop& d):owner(d){
     parentFolder.onClick=[this]{navigate(directory.getDirectory().getParentDirectory());};
     juce::Component::SafePointer<Browser> safe(this);chooseFolder.onClick=[safe]{if(safe)safe->owner.choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectDirectories,[safe](const auto& file){if(safe)safe->navigate(file);});};
     folderPath.setTitle("Computer folder path");folderPath.onReturnKey=[this]{owner.run([&]{navigate(juce::File(folderPath.getText()));});};
+    fileTree.setColour(juce::TreeView::selectedItemBackgroundColourId,juce::Colour(0xff375a80));
+    fileTree.setColour(juce::DirectoryContentsDisplayComponent::highlightColourId,juce::Colour(0xff375a80));fileTree.setColour(juce::DirectoryContentsDisplayComponent::highlightedTextColourId,juce::Colours::white);
     fileTree.setColour(juce::TreeView::backgroundColourId,juce::Colour(surface));fileTree.setColour(juce::DirectoryContentsDisplayComponent::textColourId,juce::Colours::whitesmoke);
     fileTree.setTitle("Computer folders and WAV samples");fileTree.setDragAndDropDescription("mrs-sample-files");fileTree.setMultiSelectEnabled(true);
     fileThread.startThread();navigate(juce::File::getSpecialLocation(juce::File::userDocumentsDirectory));showFiles(false);

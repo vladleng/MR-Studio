@@ -63,7 +63,19 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
             auto* content=pluginWindow->getContentComponent();if(std::abs(content->getWidth()*editorScale-320)>1||std::abs(content->getHeight()*editorScale-120)>1)throw std::runtime_error("native editor content DPI conversion "+std::to_string(editorScale)+" "+std::to_string(content->getWidth())+","+std::to_string(content->getHeight()));}
         pluginWindow->getPeer()->setCustomPlatformScaleFactor({});pluginWindow->fitNativeEditor(320,120);
         const auto count=d.windows.size();d.openInsert(second,plugin.id);check(d.windows.size()==count,"editor repeated-click reuse");
-        d.closeEditors();d.app.set_plugin_parameter(second,plugin.id,100,.25f);render();
+        d.closeEditors();
+        auto savedPreset=d.app.capture_insert(second,plugin.id);d.app.load_insert_preset(second,savedPreset);d.openInsert(second,plugin.id);
+        auto* presetWindow=d.windows.back().get();auto host=reinterpret_cast<HWND>(static_cast<std::intptr_t>(static_cast<juce::int64>(presetWindow->getProperties()["mrs-native-host"])));
+        auto child=GetWindow(host,GW_CHILD);check(child!=nullptr,"preset fixture native child");
+        SendMessageW(child,WM_COMMAND,MAKEWPARAM(1,BN_CLICKED),0);d.app.poll();
+        check(d.app.capture_insert(second,plugin.id).component_state!=savedPreset.component_state,"fixture edits DSP before preset load");
+        const auto presetFile=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("mrs-preset-load",".mrspreset",false);
+        publishSettings(presetFile,encodePreset(savedPreset));d.refreshPresetLists();
+        check(presetWindow->isVisible()&&IsWindow(child),"preset list refresh keeps native editor alive");
+        const auto beforeLoad=d.app.services().projects->state().revision;d.loadPresetFile(second,plugin.id,presetFile);
+        check(d.message.isEmpty()&&d.app.services().projects->state().revision==beforeLoad,"same snapshot preset restores DSP without a redundant history entry");
+        check(d.app.capture_insert(second,plugin.id).component_state==savedPreset.component_state,"preset equal to project snapshot replaces edited live DSP");
+        presetFile.deleteFile();d.closeEditors();d.app.set_plugin_parameter(second,plugin.id,100,.25f);render();
     }
     const auto folder=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("mrs-juce-j2","",false);folder.createDirectory();
     const auto file=folder.getChildFile("roundtrip.mrsproject");
@@ -78,7 +90,14 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     for(int i=0;i<500&&d.browser->selectedSamples().isEmpty();++i){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}fileTree->setSelectedFile(wav);juce::Thread::sleep(1);}
     juce::DragAndDropTarget::SourceDetails sampleDrop("mrs-sample-files",fileTree,{400,120});
     check(d.arrangement->isInterestedInDragSource(sampleDrop),"internal WAV browser drag accepted");
+    const auto tracksBeforeDrop=d.project()->tracks.size();const auto clipsBeforeDrop=d.project()->clips.size();const auto revisionBeforeDrop=d.app.services().projects->state().revision;
     d.arrangement->itemDropped(sampleDrop);
+    check(d.project()->tracks.size()==tracksBeforeDrop&&d.project()->clips.size()==clipsBeforeDrop+1,"sample drop uses existing audio track");
+    check(d.project()->clips.back().track==first&&d.project()->clips.back().start==d.arrangement->sampleAt(400),"sample drop follows track and cursor time");
+    check(d.app.services().projects->state().revision==revisionBeforeDrop+1,"existing track import is one command");
+    d.action(10);check(d.project()->clips.size()==clipsBeforeDrop&&d.project()->tracks.size()==tracksBeforeDrop,"sample import undo restores clips without removing track");
+    d.arrangement->filesDropped({wav.getFullPathName()},400,70+static_cast<int>(tracksBeforeDrop)*d.arrangement->trackHeight+4);
+    fileTree->setSelectedFile(wav);
     {auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-files-preview.png").createOutputStream();juce::PNGImageFormat format;if(stream)format.writeImageToStream(d.createComponentSnapshot(d.getLocalBounds(),true,1.f,juce::SoftwareImageType{}),*stream);}
     d.browser->showFiles(false);check(d.project()->tracks.size()==4,"WAV import track");
     const auto imported=d.project()->clips.back();
@@ -103,8 +122,15 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
 void j3Smoke(Desktop& d){
     auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
     j3AudioSmoke(d);
+    auto dividerEvent=[&](juce::Point<float> point){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier),1,0,0,0,0,&d.browserDivider,&d.browserDivider,juce::Time::getCurrentTime(),{4,20},juce::Time::getCurrentTime(),1,true);};
+    d.mouseDown(dividerEvent({4,20}));d.mouseDrag(dividerEvent({-336,20}));d.mouseUp(dividerEvent({4,20}));check(d.browserWidth==604,"browser divider drag uses local coordinates");
+    d.resizeBrowser(600);check(d.browserWidth==600&&d.browserDivider.getBounds().getRight()==d.browser->getX(),"browser widens with usable divider");
+    d.resizeBrowser(2000);check(d.browserWidth<=700&&d.arrangeArea.getWidth()>=680,"browser maximum keeps arrangement usable");d.resizeBrowser(260);
+
     auto oldCatalog=d.catalog;d.catalog={{"a.vst3","00000000000000000000000000000001","A","Vendor A","1"},{"b.vst3","00000000000000000000000000000002","B","Vendor A","1"},{"c.vst3","00000000000000000000000000000003","C","Vendor B","1"}};
-    auto vendorMenu=d.pluginMenu();check(vendorMenu.getNumItems()==2,"insert menu grouped by vendor");d.catalog=oldCatalog;
+    auto vendorMenu=d.pluginMenu();check(vendorMenu.getNumItems()==2,"insert menu grouped by vendor");d.browser->rebuild();
+    {auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-vendors-preview.png").createOutputStream();juce::PNGImageFormat format;if(stream)format.writeImageToStream(d.browser->createComponentSnapshot(d.browser->getLocalBounds(),true,1.f,juce::SoftwareImageType{}),*stream);}
+    d.catalog=oldCatalog;d.browser->rebuild();
     for(const auto& track:d.project()->tracks)for(const auto& fx:track.inserts){
         if(fx.kind!=mrs::InsertKind::channel_eq&&fx.kind!=mrs::InsertKind::vst3)continue;
         auto captured=d.app.capture_insert(track.id,fx.id);auto text=encodePreset(captured);auto loaded=decodePreset(text,fx);

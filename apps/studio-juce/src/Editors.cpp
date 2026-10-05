@@ -11,9 +11,12 @@ class PresetSelector final : public juce::ComboBox {
 public:
     PresetSelector(Desktop& desktop,std::optional<mrs::Id> track,mrs::Id id):owner(desktop),target(track),slot(id) {
         setTitle("Saved plugin presets");setTextWhenNothingSelected("Saved presets...");
-        const auto effects=owner.chain(target);for(const auto& effect:effects)if(effect.id==slot)files=presetFiles(effect);
-        for(int i=0;i<files.size();++i)addItem(files[i].getFileNameWithoutExtension(),i+1);
+        refresh();
         onChange=[this]{const auto index=getSelectedId()-1;if(index>=0&&index<files.size())owner.loadPresetFile(target,slot,files[index]);};
+    }
+    void refresh(){const auto text=getText();clear(juce::dontSendNotification);files.clear();
+        const auto effects=owner.chain(target);for(const auto& effect:effects)if(effect.id==slot)files=presetFiles(effect);
+        for(int i=0;i<files.size();++i){const auto name=files[i].getFileNameWithoutExtension();addItem(name,i+1);if(name==text)setSelectedId(i+1,juce::dontSendNotification);}
     }
 private:
     Desktop& owner;std::optional<mrs::Id> target;mrs::Id slot;juce::Array<juce::File> files;
@@ -99,22 +102,26 @@ juce::PopupMenu Desktop::pluginMenu(int base) const {
     for(std::size_t i=0;i<catalog.size();++i){auto vendor=label(catalog[i].vendor).trim();if(vendor.isEmpty())vendor="Unknown vendor";groups[vendor].addItem(base+static_cast<int>(i),label(catalog[i].name));}
     juce::PopupMenu result;for(auto& [vendor,items]:groups)result.addSubMenu(vendor,items);return result;
 }
+void Desktop::refreshPresetLists(){
+    std::function<void(juce::Component*)> visit=[&](juce::Component* component){if(auto* selector=dynamic_cast<PresetSelector*>(component))selector->refresh();for(int i=0;i<component->getNumChildComponents();++i)visit(component->getChildComponent(i));};
+    for(auto& window:windows)if(window->isVisible())visit(window.get());
+}
 void Desktop::savePreset(std::optional<mrs::Id> target,mrs::Id slot){run([&]{
     auto effect=app.capture_insert(target,slot);auto bytes=encodePreset(effect);auto folder=presetFolder(effect);
     juce::Component::SafePointer<Desktop> safe(this);
-    textDialog("Save plugin preset (new name)","Preset",[safe,bytes,folder,target,slot](auto name){if(!safe)return;
+    textDialog("Save plugin preset (new name)","Preset",[safe,bytes,folder](auto name){if(!safe)return;
         name=name.trim();if(name.isEmpty()||name!=juce::File::createLegalFileName(name)||name.length()>100)throw std::runtime_error("Use a valid preset name (1..100 characters)");
         auto file=folder.getChildFile(name+".mrspreset");if(file.exists())throw std::runtime_error("Preset name already exists; choose a new name");
         if(folder.createDirectory().failed())throw std::runtime_error("Cannot create plugin preset folder");
-        publishSettings(file,bytes);safe->closeEditors();safe->openInsert(target,slot);
+        publishSettings(file,bytes);safe->refreshPresetLists();
     });
 });}
 void Desktop::loadPresetFile(std::optional<mrs::Id> target,mrs::Id slot,const juce::File& file){run([&]{
     if(!file.existsAsFile()||file.getSize()>8*1024*1024)throw std::runtime_error("Plugin preset missing or exceeds size limit");
     auto effects=chain(target);auto at=std::find_if(effects.begin(),effects.end(),[&](const auto& n){return n.id==slot;});if(at==effects.end())throw std::runtime_error("Insert no longer exists");
-    *at=decodePreset(file.loadFileAsString(),*at);
+    auto preset=decodePreset(file.loadFileAsString(),*at);
     if(app.engine()->state().playback==mrs::PlaybackState::playing||app.recording())throw std::runtime_error("Pause/Stop before loading a plugin preset");
-    closeEditors();applyChain(target,std::move(effects));openInsert(target,slot);
+    closeEditors();app.load_insert_preset(target,std::move(preset));editorGeneration=app.insert_generation();refresh(true);openInsert(target,slot);
 });}
 void Desktop::loadPreset(std::optional<mrs::Id> target,mrs::Id slot){juce::Component::SafePointer<Desktop> safe(this);
     choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[safe,target,slot](auto file){if(safe)safe->loadPresetFile(target,slot,file);},"*.mrspreset");

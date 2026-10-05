@@ -57,6 +57,8 @@ public:
     void openInsert(std::optional<mrs::Id>,mrs::Id);
     void savePreset(std::optional<mrs::Id>,mrs::Id);
     void loadPreset(std::optional<mrs::Id>,mrs::Id);
+    void refreshPresetLists();
+    void resizeBrowser(int);
     void loadPresetFile(std::optional<mrs::Id>,mrs::Id,const juce::File&);
     juce::PopupMenu pluginMenu(int base=10000) const;
     void addPlugin(std::optional<mrs::Id>,std::size_t);
@@ -79,6 +81,7 @@ public:
     mrs::audio::StereoPeak masterPeak{};
     std::unique_ptr<Arrangement> arrangement;
     juce::Rectangle<int> arrangeArea,mixArea;
+    juce::Component browserDivider;
     std::vector<std::unique_ptr<Strip>> mixer;
     std::unique_ptr<Strip> master;
     std::unique_ptr<Browser> browser;

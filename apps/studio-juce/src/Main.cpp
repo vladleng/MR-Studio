@@ -3,7 +3,7 @@
 namespace {
 class Window final : public juce::DocumentWindow {
 public:
-    Window():DocumentWindow("Moon River Studio 0.1p upd2 — JUCE J3",juce::Colour(ui::background),allButtons) {
+    Window():DocumentWindow("Moon River Studio 0.1p fix1 — JUCE J3",juce::Colour(ui::background),allButtons) {
         setUsingNativeTitleBar(true);setContentOwned(new ui::Desktop,true);
         setResizable(true,false);setResizeLimits(1200,700,3840,2160);centreWithSize(1400,850);auto* desktop=dynamic_cast<ui::Desktop*>(getContentComponent());
         if(desktop&&!desktop->view.windowState.isEmpty())restoreWindowStateFromString(desktop->view.windowState);
@@ -18,7 +18,7 @@ public:
 class Studio final : public juce::JUCEApplication {
 public:
     const juce::String getApplicationName() override {return "Moon River Studio JUCE";}
-    const juce::String getApplicationVersion() override {return "0.1p upd2 J3";}
+    const juce::String getApplicationVersion() override {return "0.1p fix1 J3";}
     void initialise(const juce::String& args) override {
         if(args.contains("--thu-diagnostic") || args.contains("--j3-smoke") || args.contains("--smoke-test") || args.contains("--j1-smoke") || args.contains("--plugin-smoke")) {
             juce::File::getCurrentWorkingDirectory().getChildFile("juce-j2-failure.txt").deleteFile();

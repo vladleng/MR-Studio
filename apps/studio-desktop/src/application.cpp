@@ -413,6 +413,17 @@ void Application::set_inserts(std::optional<Id> track, std::vector<NativeInsert>
         edit(SetInserts{std::move(track),std::move(inserts)});
     }
 }
+void Application::load_insert_preset(std::optional<Id> track,NativeInsert preset) {
+    require_not_playing();preset.validate();
+    auto effects=insert_chain(*services_.projects->state().project,track);
+    auto at=std::find_if(effects.begin(),effects.end(),[&](const auto& effect){return effect.id==preset.id;});
+    require(at!=effects.end()&&at->kind==preset.kind,"unknown preset insert");
+    require(preset.kind!=InsertKind::vst3||(at->class_id==preset.class_id&&at->plugin_path==preset.plugin_path),"preset plugin mismatch");
+    const auto id=preset.id;*at=std::move(preset);
+    // An explicit load must restore even identical serialized state: the active
+    // controller/DSP may have been edited since the last project snapshot.
+    edit(SetInserts{track,std::move(effects)},id);
+}
 bool Application::open_plugin_editor(std::optional<Id> track,const Id& slot,void* parent,int& w,int& h){auto it=insert_runtime_.find(track?track->value:std::string{});return it!=insert_runtime_.end() && it->second.graph && it->second.graph->open_editor(slot,parent,w,h);}
 void Application::close_plugin_editors(){for(auto& [key,r]:insert_runtime_){(void)key;if(r.graph)r.graph->close_editors();}}
 std::uint32_t Application::plugin_latency(std::optional<Id> track,const Id& slot) const{auto it=insert_runtime_.find(track?track->value:std::string{});return it==insert_runtime_.end()||!it->second.graph?0:it->second.graph->node_latency(slot);}
@@ -428,12 +439,12 @@ NativeInsert Application::capture_insert(std::optional<Id> track,const Id& slot)
     const auto& effects=insert_chain(candidate,track);auto found=std::find_if(effects.begin(),effects.end(),[&](const auto& n){return n.id==slot;});
     require(found!=effects.end(),"unknown insert");return *found;
 }
-void Application::capture_insert_state(Project& project){
+void Application::capture_insert_state(Project& project,std::optional<Id> authoritative){
     bool has_vst=false;for(const auto& [key,r]:insert_runtime_){(void)key;if(r.graph)for(const auto& n:r.graph->snapshot().graph->nodes)has_vst=has_vst||n.format==processing::ProcessorFormat::vst3;}if(!has_vst || !device_)return;
     require_not_playing();device_->stop();
     try{const auto original=services_.projects->state().project;
         for(const auto& [key,r]:insert_runtime_)if(r.graph){auto saved=r.graph->capture();auto* chain=&project.master_inserts;if(!key.empty()){chain=nullptr;for(auto& t:project.tracks)if(t.id.value==key)chain=&t.inserts;}if(!chain)continue;
-            for(auto& fx:*chain)if(fx.kind==InsertKind::vst3)for(const auto& node:saved.nodes)if(node.id==fx.id && node.processor_id==fx.plugin_path && node.plugin.class_id==fx.class_id){
+            for(auto& fx:*chain)if(fx.kind==InsertKind::vst3 && (!authoritative || fx.id!=*authoritative))for(const auto& node:saved.nodes)if(node.id==fx.id && node.processor_id==fx.plugin_path && node.plugin.class_id==fx.class_id){
                 const auto& old_chain=insert_chain(*original,key.empty()?std::nullopt:std::optional<Id>{Id{key}});const auto old=std::find_if(old_chain.begin(),old_chain.end(),[&](const auto& f){return f.id==fx.id;});if(old==old_chain.end() || fx.component_state!=old->component_state || fx.controller_state!=old->controller_state)continue;
                 const auto overrides=fx.parameters;fx.component_state=node.plugin.component;fx.controller_state=node.plugin.controller;fx.parameters.clear();const auto infos=r.graph->parameter_infos(node.id);
                 for(const auto& p:node.parameters)if(std::any_of(infos.begin(),infos.end(),[&](const auto& info){return info.id==p.id&&info.automatable;}))fx.parameters.push_back({p.id,p.value});
@@ -477,11 +488,11 @@ void Application::rebuild_audio() {
         device_config_ = c; device_->start(); poll();
     } catch (...) { disconnect(); throw; }
 }
-void Application::edit(const ICommand& command) {
+void Application::edit(const ICommand& command,std::optional<Id> authoritative) {
     require_not_playing();
     auto candidate = *services_.projects->state().project;
     command.apply(candidate); candidate.validate();
-    capture_insert_state(candidate);candidate.validate();
+    capture_insert_state(candidate,authoritative);candidate.validate();
     if (device_config_ && audio_name_ != "Offline clock (no sound)") validate_hardware(candidate,*device_config_);
     if (device_ && device_config_ && audio_name_ != "Offline clock (no sound)") {
         auto c = *device_config_; c.inputs = selected_inputs(candidate);
@@ -605,10 +616,13 @@ Id Application::split_clip(const Id& id, Sample position) {
     const auto right = new_id(); edit(SplitAudioClip{id,position,right}); return right;
 }
 void Application::remove_clip(const Id& id) { edit(RemoveAudioClip{id}); }
-void Application::import_wavs(const std::vector<std::filesystem::path>& paths) {
+void Application::import_wavs(const std::vector<std::filesystem::path>& paths,std::optional<Id> target,Sample start) {
     require_not_playing(); require(!paths.empty() && paths.size() <= audio::max_voices,"select 1..128 WAV files");
     const auto current = services_.projects->state().project;
     require(current->clips.size()+paths.size() <= audio::max_voices,"too many playback clips");
+    require(start>=0,"invalid WAV drop position");
+    if(target){auto at=std::find_if(current->tracks.begin(),current->tracks.end(),[&](const auto& track){return track.id==*target;});require(at!=current->tracks.end()&&at->kind==TrackKind::audio,"Drop samples on an audio track or empty arrangement");}
+
     // Inspect the entire source batch before copying content.
     for (const auto& path : paths) require(audio::inspect_wav(path).sample_rate == current->sample_rate,"WAV/project sample-rate mismatch; import WAVs at the project rate");
     std::unique_ptr<MediaCopy> copies;
@@ -629,9 +643,11 @@ void Application::import_wavs(const std::vector<std::filesystem::path>& paths) {
             data = std::make_shared<const audio::AudioData>(audio::open_wav(path,std::min<std::size_t>(8*1024*1024,512*1024*1024-bytes)));
             bytes += data->samples.size()*sizeof(float); decoded.emplace(source,data);
         }
-        const auto id = new_id();
-        tracks.push_back({id,utf8(original.stem()),TrackKind::audio,{}});
-        clips.push_back({new_id(),id,utf8(original.filename()),0,data->frames(),0,source});
+        const auto id = target ? *target : new_id();
+        if(!target)tracks.push_back({id,utf8(original.stem()),TrackKind::audio,{}});
+        require(data->frames()<=std::numeric_limits<Sample>::max()-start,"WAV drop exceeds timeline range");
+        clips.push_back({new_id(),id,utf8(original.filename()),start,data->frames(),0,source});
+        if(target)start+=data->frames();
     }
     const auto revision = services_.projects->state().revision;
     std::vector<std::string> cached;

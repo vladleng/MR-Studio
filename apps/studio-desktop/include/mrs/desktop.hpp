@@ -82,7 +82,7 @@ public:
     void set_hardware_output(std::optional<Id>, std::vector<int>);
     void remove_track(const Id&);
     void reorder_track(const Id&, std::size_t index);
-    void import_wavs(const std::vector<std::filesystem::path>&);
+    void import_wavs(const std::vector<std::filesystem::path>&,std::optional<Id> target={},Sample start=0);
     bool undo(); bool redo();
     void move_clip(const Id&, const Id& track, Sample start);
     void trim_clip(const Id&, Sample start, Sample end);
@@ -101,6 +101,7 @@ public:
     void set_track_mix(const Id&, Track::Mix);
     void set_master_gain(float);
     void set_inserts(std::optional<Id>, std::vector<NativeInsert>);
+    void load_insert_preset(std::optional<Id>,NativeInsert);
     void preview_inserts(std::optional<Id>, const std::vector<NativeInsert>&);
     void cancel_insert_preview();
     std::uint64_t insert_generation() const {return insert_generation_;}
@@ -146,7 +147,7 @@ private:
     std::map<std::string,InsertRuntime> insert_runtime_;
     std::uint64_t insert_generation_{};
     void publish_inserts();
-    void capture_insert_state(Project&);
+    void capture_insert_state(Project&,std::optional<Id> authoritative={});
     Workspace workspace_{Workspace::arrange};
     std::shared_ptr<audio::Recorder> recording_;
     std::optional<Id> armed_;
@@ -188,7 +189,7 @@ private:
     std::vector<int> selected_inputs(const Project&, const std::vector<int>&) const;
     std::shared_ptr<const audio::AudioData> asset(const std::string&);
     void cache_asset(std::string, std::shared_ptr<const audio::AudioData>);
-    void edit(const ICommand&);
+    void edit(const ICommand&,std::optional<Id> authoritative={});
     void require_not_playing() const;
     void rebuild_audio();
     void replace(persistence::ProjectDocument);
