@@ -107,3 +107,13 @@ Local 0.1o / J2 accepted on source 74d6e6f9580908b67eb08330e6ef112a49c3e1f5.
 EXE SHA256 E1FB66D1486AAA721A4D39DFCEBE66FEF02E41BBAC2A12730021F4395DCABCE2.
 Next planned slice is J3; implementation has not started. Existing test results
 stand; no rebuild performed for this documentation-only acceptance update.
+
+## J3 / 0.1p ready locally for review — 2026-10-05
+
+The user authorized J3. Windows preferences/window/view persistence, audio profiles,
+explicit ASIO reconnect, keyboard/focus guards and named UI Automation controls are
+implemented locally; native editor DPI initial sizing corrected. Offline configure/
+build and 90/90 CTest passed; installed Nuro Flexion/TH-U editor/state checks passed.
+See [J3 changes, validation and remaining physical acceptance gates](JUCE_J3.md).
+JUCE stays opt-in until hardware, physical monitor transitions and accessibility
+acceptance are verified. Code/packages local; GitHub issues/docs only.
