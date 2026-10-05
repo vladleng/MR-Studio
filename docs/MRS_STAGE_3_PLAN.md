@@ -3,7 +3,7 @@
 Parent: #23, roadmap #12. Split requested by the user on 2026-10-04.
 Each slice gets a separate local build, automated validation and user acceptance.
 Code/builds remain local; GitHub issues/docs only. No code push/PR/merge/Actions.
-Last accepted baseline: local 0.1l; #22 Mixer / Routing is completed.
+Last accepted UI baseline: local 0.1p fix3 including cosmetic follow-up; #22 Mixer / Routing is completed.
 
 | Slice | Scope | Acceptance |
 | --- | --- | --- |
@@ -14,9 +14,16 @@ Last accepted baseline: local 0.1l; #22 Mixer / Routing is completed.
 | 3e | Processing reliability: latency compensation, parallel routes, chain/patch switching and load tests; harden isolation/recovery. | Documented compensation and switching behavior; measured tests on the intended system. Deferred #16 is not implicitly passed. |
 
 3a was accepted by the user on 2026-10-04. 3b / 0.1l was accepted by the user on 2026-10-04; it also includes live graphical Channel EQ and handle-only
-relative gain/pan gestures. 3c / 0.1m is ready locally and awaits user acceptance. 3d–3e are planned, not started.
+relative gain/pan gestures. 3c / 0.1m is ready locally and awaits user acceptance. 3d is deferred by the user until the DAW foundation is ready; 3e starts locally with 3e1 / 0.1q static PDC.
 3c includes owned synthetic WAVs; Celestion is obtained separately by user email subscription.
 See CAB_IR.md and MRS_STAGE_3C_CHECKLIST.md. Future version letters will be assigned when each slice starts.
 VST3 support is not part of 0.1k. Stage 3 stays open until all agreed slices are accepted.
 The same shared processor graph serves Arrange/Mix and future Live patches.
 
+## 3e started — 2026-10-05
+User authorized Processing Reliability and deferred own effects/instruments/Amp-Preamp until the DAW foundation is ready.
+Deliver 3e in reviewable local slices:
+- 3e1 / 0.1q: static audio PDC, parallel paths/tracks/buses/sends/Master/direct output alignment and bounded RT storage.
+- 3e2: safe chain/state transitions, latency changes and explicit switching behavior.
+- 3e3: failure recovery/isolation boundaries and intended-system load validation.
+See [processing reliability](PROCESSING_RELIABILITY.md). Whole 3e/#23 and deferred #16 remain open until their acceptance gates pass; 3e1 does not claim crash isolation or seamless live patch switching. Code/builds local; GitHub issues/docs only.
