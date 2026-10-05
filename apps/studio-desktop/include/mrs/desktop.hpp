@@ -147,7 +147,7 @@ private:
     std::map<std::string,InsertRuntime> insert_runtime_;
     std::uint64_t insert_generation_{};
     void publish_inserts();
-    void capture_insert_state(Project&,std::optional<Id> authoritative={});
+    void capture_insert_state(Project&,std::optional<Id> authoritative={},bool callbacks_stopped=false);
     Workspace workspace_{Workspace::arrange};
     std::shared_ptr<audio::Recorder> recording_;
     std::optional<Id> armed_;

@@ -44,7 +44,11 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     auto originalClip=d.project()->clips.front();d.app.move_clip(originalClip.id,second,4800);d.selectedClip=originalClip.id;d.app.seek(10000);
     std::array<float,256> audio{};auto render=[&]{d.app.engine()->process(nullptr,audio.data(),128);d.app.poll();};render();d.action(24);
     check(d.project()->clips.size()==2,"split binding");d.action(10);check(d.project()->clips.size()==1,"split undo");
-    mrs::NativeInsert eq;eq.id=mrs::new_id();eq.kind=mrs::InsertKind::channel_eq;d.applyChain(second,{eq});d.openInsert(second,eq.id);
+    const auto emptyFaderHeight=d.mixer[1]->gain.getHeight();const auto emptyMixerHeight=d.mixArea.getHeight();
+    mrs::NativeInsert eq;eq.id=mrs::new_id();eq.kind=mrs::InsertKind::channel_eq;d.applyChain(second,{eq});
+    check(d.mixer[1]->gain.getHeight()==emptyFaderHeight&&d.mixArea.getHeight()>emptyMixerHeight,"inserts grow header without shrinking faders");
+    std::vector<mrs::NativeInsert> longChain{eq};for(int i=0;i<7;++i){auto effect=eq;effect.id=mrs::new_id();longChain.push_back(effect);}d.applyChain(second,longChain);
+    check(d.mixer[1]->gain.getHeight()==emptyFaderHeight&&d.mixer[0]->gain.getHeight()==emptyFaderHeight,"long insert chain retains equal fixed fader heights");d.applyChain(second,{eq});d.openInsert(second,eq.id);
     check(!d.windows.empty()&&d.windows.back()->isVisible(),"native editor bridge");d.closeEditors();
     d.openInsert(second,eq.id);auto* editor=d.windows.back()->getContentComponent();
     auto eqEvent=[&](juce::Point<float> p,int mods){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),p,juce::ModifierKeys(mods),1,0,0,0,0,editor,editor,juce::Time::getCurrentTime(),p,juce::Time::getCurrentTime(),1,true);};
@@ -89,7 +93,13 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
         auto badPreset=savedPreset;badPreset.component_state={std::byte{0},std::byte{0},std::byte{0},std::byte{0x40}}; // fixture rejects gain 2.0
         publishSettings(presetFile,encodePreset(badPreset));d.loadPresetFile(second,plugin.id,presetFile);
         check(!d.message.isEmpty()&&IsWindow(child)&&d.app.capture_insert(second,plugin.id).component_state==savedPreset.component_state,"failed in-place preset restores previous DSP and retains editor");d.message.clear();
-        presetFile.deleteFile();d.closeEditors();d.app.set_plugin_parameter(second,plugin.id,100,.25f);render();
+        SendMessageW(child,WM_COMMAND,MAKEWPARAM(1,BN_CLICKED),0);d.app.poll();const auto liveBeforeBuffer=d.app.capture_insert(second,plugin.id);
+        check(liveBeforeBuffer.component_state!=savedPreset.component_state,"buffer regression starts with unsaved native editor edits");
+        d.closeEditors();d.app.connect(std::make_unique<ManualDevice>(),{0,48000,256,{}, {0,1}});
+        const auto liveAfterBuffer=d.app.capture_insert(second,plugin.id);
+        check(liveAfterBuffer.component_state==liveBeforeBuffer.component_state&&liveAfterBuffer.controller_state==liveBeforeBuffer.controller_state,"buffer reconnect preserves live component/controller state");
+        check(d.chain(second).back().component_state==liveBeforeBuffer.component_state,"buffer reconnect updates project plugin snapshot");
+        presetFile.deleteFile();d.app.set_plugin_parameter(second,plugin.id,100,.25f);render();
     }
     const auto folder=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("mrs-juce-j2","",false);folder.createDirectory();
     const auto file=folder.getChildFile("roundtrip.mrsproject");
@@ -119,6 +129,12 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     const auto imported=d.project()->clips.back();
     d.saveFile(file);const auto saved=mrs::persistence::load_project(d.app.path()).project;d.app.rename_track(second,"Changed");d.openFile(juce::File(juce::String(d.app.path().wstring().c_str())));
     check(*d.project()==saved,"project roundtrip");
+    check(d.projectTitle.getText().startsWith("roundtrip"),"saved filename displayed in menu bar");
+    auto other=mrs::persistence::load_project(d.app.path());other.project.title="Different session";other.project.tracks[0].name="Different track";
+    const auto alternate=juce::File(juce::String(d.app.path().wstring().c_str())).getSiblingFile("other.mrsproject");mrs::persistence::save_project(std::filesystem::path(alternate.getFullPathName().toWideCharPointer()),other);
+    auto originalPath=d.app.path();d.openFile(alternate);
+    check(d.projectTitle.getText()=="other"&&d.arrangement->rows.front()->gain.getTitle().contains("Different track"),"same track IDs in another project refresh title and channel views");
+    d.openFile(juce::File(juce::String(originalPath.wstring().c_str())));
     std::string source;for(const auto& c:d.project()->clips)if(c.name==imported.name)source=c.source;
     for(int i=0;i<500&&!d.app.waveform(source);++i){d.app.poll();juce::Thread::sleep(1);}
     for(const auto& c:d.project()->clips)if(c.name=="stereo.wav"){const auto* wave=d.app.waveform(c.source);check(wave&&wave->channels()==2,"stereo waveform channels");check(wave->range(0,512,0).maximum>.2f&&wave->range(0,512,1).minimum<-.4f,"independent L/R waveform");}
@@ -142,6 +158,10 @@ void j3Smoke(Desktop& d){
     d.mouseDown(dividerEvent({4,20}));d.mouseDrag(dividerEvent({-336,20}));d.mouseUp(dividerEvent({4,20}));check(d.browserWidth==604,"browser divider drag uses local coordinates");
     d.resizeBrowser(600);check(d.browserWidth==600&&d.browserDivider.getBounds().getRight()==d.browser->getX(),"browser widens with usable divider");
     d.resizeBrowser(2000);check(d.browserWidth<=700&&d.arrangeArea.getWidth()>=680,"browser maximum keeps arrangement usable");d.resizeBrowser(260);
+    const auto mixerBefore=d.mixArea.getHeight();const auto mixerSetting=d.view.mixerHeight;
+    auto mixerEvent=[&](juce::Point<float> point){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier),1,0,0,0,0,&d.mixerDivider,&d.mixerDivider,juce::Time::getCurrentTime(),{30,2},juce::Time::getCurrentTime(),1,true);};
+    d.mouseDown(mixerEvent({30,2}));d.mouseDrag(mixerEvent({30,-48}));d.mouseUp(mixerEvent({30,2}));
+    check(d.mixArea.getHeight()>mixerBefore&&d.arrangeArea.getHeight()>=140,"mixer divider grows dock upward while retaining arrangement");d.resizeMixer(mixerSetting);
 
     auto oldCatalog=d.catalog;d.catalog={{"a.vst3","00000000000000000000000000000001","A","Vendor A","1"},{"b.vst3","00000000000000000000000000000002","B","Vendor A","1"},{"c.vst3","00000000000000000000000000000003","C","Vendor B","1"}};
     auto vendorMenu=d.pluginMenu();check(vendorMenu.getNumItems()==2,"insert menu grouped by vendor");d.browser->rebuild();
@@ -171,8 +191,9 @@ void j3Smoke(Desktop& d){
     juce::TextEditor text;d.addChildComponent(text);auto count=d.project()->tracks.size();check(!d.shortcutAllowedFor(&text),"text input blocks global shortcuts");
     juce::Component external;check(!d.shortcutAllowedFor(&external),"editor window blocks arrangement shortcuts");check(d.shortcutAllowedFor(&d.mixer.front()->gain),"mixer allows transport shortcuts");d.removeChildComponent(&text);
     check(!d.keyPressed(juce::KeyPress('R',juce::ModifierKeys::ctrlModifier,0))&&d.project()->tracks.size()==count,"unassigned modified shortcuts ignored");
-    ViewSettings settings;settings.sidebar=false;settings.snap=true;settings.browserWidth=440;settings.trackHeight=320;settings.pixelsPerSecond=1200;settings.inputs="1,2";
+    ViewSettings settings;settings.sidebar=false;settings.snap=true;settings.browserWidth=440;settings.trackHeight=320;settings.mixerHeight=440;settings.pixelsPerSecond=1200;settings.inputs="1,2";
     auto decoded=ViewSettings::decode(settings.encode());check(!decoded.sidebar&&decoded.snap&&decoded.browserWidth==440&&decoded.trackHeight==320&&decoded.pixelsPerSecond==1200&&decoded.inputs=="1,2","view settings roundtrip");
+    check(decoded.mixerHeight==440,"mixer dock height settings roundtrip");
     bool rejected=false;try{ViewSettings::decode("{broken}");}catch(...){rejected=true;}check(rejected,"malformed settings rejected");
     auto file=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("mrs-j3-settings",".json",false);
     publishSettings(file,settings.encode());publishSettings(file,settings.encode());check(ViewSettings::decode(file.loadFileAsString()).inputs=="1,2","atomic settings publication");file.deleteFile();

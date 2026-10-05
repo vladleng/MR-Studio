@@ -62,6 +62,8 @@ public:
     void loadPreset(std::optional<mrs::Id>,mrs::Id);
     void refreshPresetLists();
     void resizeBrowser(int);
+    void resizeMixer(int);
+    juce::String projectCaption() const;
     void loadPresetFile(std::optional<mrs::Id>,mrs::Id,const juce::File&);
     juce::PopupMenu pluginMenu(int base=10000) const;
     void addPlugin(std::optional<mrs::Id>,std::size_t);
@@ -84,7 +86,9 @@ public:
     mrs::audio::StereoPeak masterPeak{};
     std::unique_ptr<Arrangement> arrangement;
     juce::Rectangle<int> arrangeArea,mixArea;
-    juce::Component browserDivider;
+    juce::Component browserDivider,mixerDivider;
+    juce::Label projectTitle;
+    int faderHeight{160};
     std::vector<std::unique_ptr<Strip>> mixer;
     std::unique_ptr<Strip> master;
     std::unique_ptr<Browser> browser;
@@ -98,7 +102,9 @@ private:
     void timerCallback() override;
     void remember();
     bool spaceHeld{};
-    bool resizingBrowser{};
+    bool resizingBrowser{},resizingMixer{};
+    int mixerDragHeight{},mixerDragY{};
+    std::shared_ptr<mrs::IProjectStore> displayedStore;
     std::uint64_t revision{~0ULL},editorGeneration{};
     std::vector<mrs::Id> ids;
     std::future<std::vector<mrs::processing::VstPlugin>> scanner;
@@ -142,6 +148,8 @@ private:
     juce::TextButton mute{"M"},solo{"S"},arm{"R"},monitor{"I"},input{"Input"},
         inserts{"Inserts"},output{"Out: Master"},sends{"Sends"},add{"+"};
     std::vector<std::unique_ptr<juce::TextButton>> insertButtons;
+    juce::Viewport insertViewport;
+    juce::Component insertBody;
 };
 
 class Arrangement final : public juce::Component, public juce::FileDragAndDropTarget, public juce::DragAndDropTarget {

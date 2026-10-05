@@ -452,9 +452,9 @@ NativeInsert Application::capture_insert(std::optional<Id> track,const Id& slot)
     const auto& effects=insert_chain(candidate,track);auto found=std::find_if(effects.begin(),effects.end(),[&](const auto& n){return n.id==slot;});
     require(found!=effects.end(),"unknown insert");return *found;
 }
-void Application::capture_insert_state(Project& project,std::optional<Id> authoritative){
+void Application::capture_insert_state(Project& project,std::optional<Id> authoritative,bool callbacks_stopped){
     bool has_vst=false;for(const auto& [key,r]:insert_runtime_){(void)key;if(r.graph)for(const auto& n:r.graph->snapshot().graph->nodes)has_vst=has_vst||n.format==processing::ProcessorFormat::vst3;}if(!has_vst || !device_)return;
-    require_not_playing();device_->stop();
+    if(!callbacks_stopped){require_not_playing();device_->stop();}
     try{const auto original=services_.projects->state().project;
         for(const auto& [key,r]:insert_runtime_)if(r.graph){auto saved=r.graph->capture();auto* chain=&project.master_inserts;if(!key.empty()){chain=nullptr;for(auto& t:project.tracks)if(t.id.value==key)chain=&t.inserts;}if(!chain)continue;
             for(auto& fx:*chain)if(fx.kind==InsertKind::vst3 && (!authoritative || fx.id!=*authoritative))for(const auto& node:saved.nodes)if(node.id==fx.id && node.processor_id==fx.plugin_path && node.plugin.class_id==fx.class_id){
@@ -463,8 +463,8 @@ void Application::capture_insert_state(Project& project,std::optional<Id> author
                 for(const auto& p:node.parameters)if(std::any_of(infos.begin(),infos.end(),[&](const auto& info){return info.id==p.id&&info.automatable;}))fx.parameters.push_back({p.id,p.value});
                 for(const auto& p:overrides)if(std::find(old->parameters.begin(),old->parameters.end(),p)==old->parameters.end()){auto at=std::find_if(fx.parameters.begin(),fx.parameters.end(),[&](const auto& v){return v.id==p.id;});if(at==fx.parameters.end())fx.parameters.push_back(p);else *at=p;}
             }
-        }device_->start();
-    }catch(...){device_->start();throw;}
+        }if(!callbacks_stopped)device_->start();
+    }catch(...){if(!callbacks_stopped)device_->start();throw;}
 }
 void Application::set_track_input(const Id& id, int input, bool stereo) {
     require_not_playing();
@@ -779,6 +779,24 @@ void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::De
     audio::validate_device_config(*info,c);
     if (!offline) validate_hardware(*services_.projects->state().project,c);
     require(c.sample_rate == services_.projects->state().project->sample_rate,"device/project rate mismatch; choose the project rate");
+    // Capture live component/controller state before releasing the old instances.
+    // In particular a buffer change must retain edits made inside native editors.
+    if(device_){
+        device_->stop();
+        try {
+            auto candidate=*services_.projects->state().project;
+            capture_insert_state(candidate,{},true);
+            struct Capture final:ICommand {
+                Project saved;
+                explicit Capture(Project p):saved(std::move(p)){}
+                std::string_view name() const override{return "Capture plugin state before audio reconnect";}
+                void apply(Project& p) const override{p=saved;}
+            };
+            services_.projects->execute(Capture{std::move(candidate)});
+        }catch(...){device_->start();throw;}
+    }
+    auto position=engine_->state();
+    if(position.playback==PlaybackState::playing)position.playback=PlaybackState::paused;
     // Existing callbacks must be stopped before preparing or releasing graphs.
     disconnect();
     const auto previous_defaults=default_inputs_; default_inputs_=defaults;
@@ -786,7 +804,7 @@ void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::De
         audio::RenderGraph graph;
         if (offline) { prepare_mixer(graph); prepare_inserts(graph,c); }
         else graph = render(c);
-        engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192},std::move(graph));
+        engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192},std::move(graph),position);
         device->open(c,engine_); device->start(); audio_name_ = info->name; device_ = std::move(device); device_config_ = c; device_info_ = *info; default_inputs_ = defaults; poll();
     } catch (...) {
         default_inputs_=previous_defaults; device->close(); prepared_.reset();

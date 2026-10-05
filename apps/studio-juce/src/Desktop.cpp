@@ -41,8 +41,10 @@ Desktop::Desktop(bool test):testing(test){
     app.demo();resetDevice();
     arrangement=std::make_unique<Arrangement>(*this);browser=std::make_unique<Browser>(*this);
     addAndMakeVisible(browserDivider);browserDivider.setTitle("Resize browser");browserDivider.setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);browserDivider.addMouseListener(this,false);
+    addAndMakeVisible(mixerDivider);mixerDivider.setTitle("Resize mixer");mixerDivider.setMouseCursor(juce::MouseCursor::UpDownResizeCursor);mixerDivider.addMouseListener(this,false);
     for(auto* c:{static_cast<juce::Component*>(&menu),static_cast<juce::Component*>(arrangement.get()),static_cast<juce::Component*>(browser.get()),static_cast<juce::Component*>(&mixerViewport)})addAndMakeVisible(c);
     mixerViewport.setViewedComponent(&mixerBody,false);mixerViewport.setScrollBarsShown(false,true);
+    addAndMakeVisible(projectTitle);projectTitle.setJustificationType(juce::Justification::centred);projectTitle.setInterceptsMouseClicks(false,false);projectTitle.setFont(theme.font(13));
     for(auto* b:{&play,&pause,&stop,&record,&previous,&next,&loop,&arrangeButton,&editButton,&mixButton,&brows,&addTrack,&addBus,&undo,&redo,&split,&remove,&zoomIn,&zoomOut,&fit,&audio,&snapButton})addAndMakeVisible(b);
     auto bind=[this](juce::TextButton& b,int cmd){b.onClick=[this,cmd]{action(cmd);};};
     bind(play,30);bind(pause,31);bind(stop,32);bind(record,33);bind(previous,34);bind(next,35);bind(loop,36);
@@ -137,19 +139,26 @@ void Desktop::action(int n){if(busyGesture())return;run([&]{
     else if(n==40)audioSettings();
 });}
 void Desktop::setWorkspace(mrs::desktop::Workspace w){app.workspace(w);prefs.workspace=w;resized();refresh();}
-void Desktop::resized(){menu.setBounds(0,0,getWidth(),26);int x=8;
+juce::String Desktop::projectCaption() const{return (app.path().empty()?label(project()->title):juce::String(app.path().stem().wstring().c_str()))+(app.dirty()?" *":"");}
+void Desktop::resized(){menu.setBounds(0,0,getWidth(),26);projectTitle.setBounds(300,0,juce::jmax(0,getWidth()-600),26);int x=8;
     for(auto* b:{&undo,&redo,&addTrack,&addBus,&split,&remove,&zoomIn,&zoomOut,&fit,&snapButton}){const int width=(b==&snapButton?86:78);b->setBounds(x,34,width,28);x+=width+5;}
     audio.setBounds(getWidth()-148,34,140,28);
     browserWidth=juce::jlimit(200,juce::jmax(200,juce::jmin(700,getWidth()-700)),browserWidth);
     const int available=getWidth()-(sidebar?browserWidth:0)-16;
     const bool showMix=app.workspace()==mrs::desktop::Workspace::mix;
-    const int mixerHeight=showMix ? juce::jlimit(210,365,(getHeight()-120)/2) : 0;
+    const int maxHeight=juce::jmax(260,getHeight()-268);
+    const int baseHeight=juce::jlimit(260,juce::jmax(260,maxHeight-22),view.mixerHeight);
+    int insertHeight=0;for(const auto& track:project()->tracks)insertHeight=juce::jmax(insertHeight,static_cast<int>(track.inserts.size())*22);
+    insertHeight=juce::jmax(insertHeight,static_cast<int>(project()->master_inserts.size())*22);
+    faderHeight=juce::jmax(40,baseHeight-220);
+    const int mixerHeight=showMix ? juce::jmin(maxHeight,baseHeight+insertHeight) : 0;
     arrangeArea={8,70,available,getHeight()-128-mixerHeight};arrangement->setBounds(arrangeArea);
     mixArea={8,arrangeArea.getBottom()+6,available,mixerHeight-6};
+    mixerDivider.setVisible(showMix);mixerDivider.setBounds(8,arrangeArea.getBottom(),available,6);
     mixerViewport.setVisible(showMix);if(master)master->setVisible(showMix);
     if(showMix){mixerViewport.setBounds(mixArea.withTrimmedRight(140));mixerBody.setSize(juce::jmax(mixerViewport.getWidth(),static_cast<int>(mixer.size())*148),mixArea.getHeight()-14);
-        for(std::size_t i=0;i<mixer.size();++i)mixer[i]->setBounds(static_cast<int>(i)*148,0,140,mixerBody.getHeight());
-        if(master)master->setBounds(mixArea.getRight()-132,mixArea.getY(),132,mixArea.getHeight()-14);}
+        for(std::size_t i=0;i<mixer.size();++i){mixer[i]->setBounds(static_cast<int>(i)*148,0,140,mixerBody.getHeight());mixer[i]->resized();}
+        if(master){master->setBounds(mixArea.getRight()-132,mixArea.getY(),132,mixArea.getHeight()-14);master->resized();}}
     browserWidth=juce::jlimit(200,juce::jmax(200,juce::jmin(700,getWidth()-700)),browserWidth);
     browserDivider.setVisible(sidebar);browserDivider.setBounds(getWidth()-browserWidth-8,70,8,getHeight()-128);
     browser->setVisible(sidebar);browser->setBounds(getWidth()-browserWidth,70,browserWidth-8,getHeight()-128);
@@ -157,28 +166,33 @@ void Desktop::resized(){menu.setBounds(0,0,getWidth(),26);int x=8;
     x=getWidth()-344;for(auto* b:{&arrangeButton,&editButton,&mixButton,&brows}){b->setBounds(x,getHeight()-45,78,30);x+=84;}
 }
 void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFont(theme.font(12));g.setColour(message.isEmpty()?juce::Colours::lightgrey:juce::Colours::orange);
-    auto s=message.isEmpty()?label(project()->title)+(app.dirty()?" *":"")+"  |  "+label(app.audio_name()):message;
+    auto s=message.isEmpty()?label(app.audio_name()):message;
     if(message.isEmpty()){const auto samples=app.engine()->compensation().output;s+="  |  PDC "+juce::String(static_cast<double>(samples)*1000/project()->sample_rate,2)+" ms";}
     g.drawText(s,10,getHeight()-62,getWidth()-20,16,juce::Justification::left);
     if(sidebar){g.setColour(juce::Colour(0xff697580));g.fillRect(browserDivider.getX()+3,70,2,getHeight()-128);}
+    if(mixerDivider.isVisible()){g.setColour(juce::Colour(0xff697580));g.fillRect(mixerDivider.getBounds().withHeight(1).translated(0,2));}
     g.setColour(juce::Colours::whitesmoke);g.drawText(juce::String(static_cast<double>(app.engine()->state().sample)/project()->sample_rate,2)+" s",680,getHeight()-44,120,28,juce::Justification::left);
 }
-void Desktop::mouseDown(const juce::MouseEvent& e){const auto local=e.getEventRelativeTo(this);resizingBrowser=sidebar&&browserDivider.getBounds().contains(local.getPosition());}
+void Desktop::mouseDown(const juce::MouseEvent& e){const auto local=e.getEventRelativeTo(this);resizingBrowser=sidebar&&browserDivider.getBounds().contains(local.getPosition());resizingMixer=mixerDivider.isVisible()&&mixerDivider.getBounds().contains(local.getPosition());mixerDragHeight=view.mixerHeight;mixerDragY=local.y;}
 void Desktop::resizeBrowser(int width){browserWidth=juce::jlimit(200,juce::jmax(200,juce::jmin(700,getWidth()-700)),width);resized();repaint();}
-void Desktop::mouseDrag(const juce::MouseEvent& e){if(resizingBrowser)resizeBrowser(getWidth()-e.getEventRelativeTo(this).x); }
-void Desktop::mouseUp(const juce::MouseEvent&){if(resizingBrowser)saveSettings();resizingBrowser=false;}
+void Desktop::resizeMixer(int height){view.mixerHeight=juce::jlimit(260,juce::jmax(260,getHeight()-290),height);resized();repaint();}
+void Desktop::mouseDrag(const juce::MouseEvent& e){if(resizingBrowser)resizeBrowser(getWidth()-e.getEventRelativeTo(this).x);if(resizingMixer)resizeMixer(mixerDragHeight+mixerDragY-e.getEventRelativeTo(this).y);}
+void Desktop::mouseUp(const juce::MouseEvent&){if(resizingBrowser||resizingMixer)saveSettings();resizingBrowser=resizingMixer=false;}
 void Desktop::refresh(bool force){const auto p=project();const auto state=app.services().projects->state();
     std::vector<mrs::Id> current;for(const auto& t:p->tracks)current.push_back(t.id);
-    if(current!=ids){closeEditors();cancelPreview();ids=current;mixer.clear();for(const auto& t:p->tracks){auto s=std::make_unique<Strip>(*this,t.id);mixerBody.addAndMakeVisible(*s);mixer.push_back(std::move(s));}
+    const bool replaced=displayedStore!=app.services().projects;
+    if(replaced){displayedStore=app.services().projects;revision=~0ULL;peaks={};masterPeak={};arrangement->horizontal=0;arrangement->vertical=0;mixerViewport.setViewPosition(0,0);}
+    if(replaced||current!=ids){closeEditors();cancelPreview();ids=current;mixer.clear();for(const auto& t:p->tracks){auto s=std::make_unique<Strip>(*this,t.id);mixerBody.addAndMakeVisible(*s);mixer.push_back(std::move(s));}
         master=std::make_unique<Strip>(*this,std::nullopt);addAndMakeVisible(*master);arrangement->rebuild();resized();}
-    if(force || revision!=state.revision){app.prepare_waveforms();for(auto& s:mixer)s->sync();for(auto& s:arrangement->rows)s->sync();if(master)master->sync();revision=state.revision;}
+    if(force || revision!=state.revision){app.prepare_waveforms();for(auto& s:mixer)s->sync();for(auto& s:arrangement->rows)s->sync();if(master)master->sync();revision=state.revision;resized();}
+    projectTitle.setText(projectCaption(),juce::dontSendNotification);
     undo.setEnabled(state.can_undo);redo.setEnabled(state.can_redo);
     arrangeButton.setToggleState(app.workspace()==mrs::desktop::Workspace::arrange,juce::dontSendNotification);
     editButton.setToggleState(app.workspace()==mrs::desktop::Workspace::edit,juce::dontSendNotification);
     mixButton.setToggleState(app.workspace()==mrs::desktop::Workspace::mix,juce::dontSendNotification);
     brows.setToggleState(sidebar,juce::dontSendNotification);repaint();arrangement->repaint();
 }
-bool Desktop::busyGesture() const{if(preview&&preview->active())return true;return false;}
+bool Desktop::busyGesture() const{if(resizingMixer||resizingBrowser)return true;if(preview&&preview->active())return true;return false;}
 void Desktop::setPreview(std::optional<mrs::Id> t,mrs::Track::Mix m,float gain,std::function<bool()> active){preview=MixPreview{t,m,gain,std::move(active)};app.preview_mix(t,m,gain);}
 void Desktop::cancelPreview(){preview.reset();app.cancel_mix_preview();}
 void Desktop::finishPreview(){preview.reset();}
@@ -223,6 +237,7 @@ Strip::Strip(Desktop& d,std::optional<mrs::Id> id,bool small):gain(!small),targe
     sends.onClick=[this]{if(target)owner.sendsMenu(*target);};
     gain.preview=[this](double v){preview(true,v);};pan.preview=[this](double v){preview(false,v);};
     gain.commit=[this](double v){commit(true,v);};pan.commit=[this](double v){commit(false,v);};
+    addAndMakeVisible(insertViewport);insertViewport.setViewedComponent(&insertBody,false);insertViewport.setScrollBarsShown(true,false);insertViewport.setVisible(!mini);
     gain.cancel=pan.cancel=[this]{owner.cancelPreview();sync();};sync();
 }
 mrs::Track Strip::track() const{if(target)for(const auto& t:owner.project()->tracks)if(t.id==target)return t;return {};}
@@ -246,23 +261,26 @@ void Strip::sync(){const auto t=track();gain.setTitle(label(t.name)+" gain");pan
 void Strip::insertList(){const auto chain=owner.chain(target);insertButtons.clear();if(mini)return;
     inserts.setButtonText("Inserts ("+juce::String(static_cast<int>(chain.size()))+")");
     for(const auto& n:chain){auto b=std::make_unique<juce::TextButton>((n.bypass?"[B] ":"")+insertName(n));const auto slot=n.id;
-        b->onClick=[this,slot]{owner.openInsert(target,slot);};addAndMakeVisible(*b);insertButtons.push_back(std::move(b));}
+        b->onClick=[this,slot]{owner.openInsert(target,slot);};insertBody.addAndMakeVisible(*b);insertButtons.push_back(std::move(b));}
 }
 void Strip::resized(){const int w=getWidth(),h=getHeight();if(mini){mute.setBounds(w-132,4,28,24);solo.setBounds(w-102,4,28,24);arm.setBounds(w-72,4,28,24);monitor.setBounds(w-42,4,28,24);
         gain.setBounds(8,32,w-70,36);pan.setBounds(w-64,34,58,32);input.setBounds(8,h-30,w-18,24);}
     else {inserts.setBounds(8,26,w-40,24);add.setBounds(w-30,26,24,24);
-        for(std::size_t i=0;i<insertButtons.size();++i){insertButtons[i]->setVisible(i<3);insertButtons[i]->setBounds(8,52+static_cast<int>(i)*22,w-16,20);}
-        const int effectHeight=juce::jmin(66,static_cast<int>(insertButtons.size())*22);
-        pan.setBounds(8,56+effectHeight,w-16,30);gain.setBounds(w-62,90+effectHeight,56,juce::jmax(55,h-200-effectHeight));
+        const int top=h-110-owner.faderHeight;
+        gain.setBounds(w-62,top,56,owner.faderHeight);pan.setBounds(8,top-34,w-16,30);
+        insertViewport.setBounds(8,52,w-16,juce::jmax(0,top-90));
+        const int insertWidth=w-16-(static_cast<int>(insertButtons.size())*22>insertViewport.getHeight()?insertViewport.getScrollBarThickness():0);
+        insertBody.setSize(insertWidth,static_cast<int>(insertButtons.size())*22);
+        for(std::size_t i=0;i<insertButtons.size();++i)insertButtons[i]->setBounds(0,static_cast<int>(i)*22,insertWidth,20);
         mute.setBounds(8,h-85,40,24);solo.setBounds(52,h-85,40,24);output.setBounds(8,h-56,w-16,23);sends.setBounds(8,h-30,w-16,23);}
 }
-void Strip::paint(juce::Graphics& g){g.fillAll(juce::Colour(mini?panel:surface));g.setColour(juce::Colour(accent));g.fillRect(0,0,mini?4:getWidth(),mini?getHeight():3);
+void Strip::paint(juce::Graphics& g){g.fillAll(juce::Colour(panel));g.setColour(juce::Colour(accent));g.fillRect(0,0,mini?4:getWidth(),mini?getHeight():3);
     if(trackHover){g.setColour(juce::Colours::lightskyblue);if(mini)g.fillRect(0,dropBefore?0:getHeight()-3,getWidth(),3);else g.fillRect(dropBefore?0:getWidth()-3,0,3,getHeight());}
     const auto t=track();g.setFont(owner.theme.font(12));g.setColour(target?juce::Colours::whitesmoke:juce::Colours::gold);
     g.drawText(target?label(t.name):"MASTER",8,3,mini?getWidth()-145:getWidth()-16,23,juce::Justification::left);
     mrs::audio::StereoPeak p=owner.masterPeak;if(target){const auto tracks=owner.project()->tracks;for(std::size_t i=0;i<tracks.size();++i)if(tracks[i].id==target)p=owner.peaks[i];}
     for(int i=0;i<2;++i){const float peak=i==0?p.left:p.right;const auto level=juce::jlimit(0.f,1.f,(20.f*std::log10(juce::jmax(.000001f,peak))+60.f)/60.f);
-        const juce::Rectangle<int> r=mini?juce::Rectangle<int>(10,70+i*7,getWidth()-82,5):juce::Rectangle<int>(12+i*17,90+juce::jmin(66,static_cast<int>(insertButtons.size())*22),12,juce::jmax(25,getHeight()-202-juce::jmin(66,static_cast<int>(insertButtons.size())*22)));
+        const juce::Rectangle<int> r=mini?juce::Rectangle<int>(10,70+i*7,getWidth()-82,5):juce::Rectangle<int>(12+i*17,gain.getY(),12,gain.getHeight());
         g.setColour(juce::Colour(0xff121619));g.fillRect(r);g.setColour(peak>.95f?juce::Colours::orange:juce::Colour(0xff45d899));
         if(mini)g.fillRect(r.withWidth(static_cast<int>(r.getWidth()*level)));else g.fillRect(r.withTop(r.getBottom()-static_cast<int>(r.getHeight()*level)));
     }
