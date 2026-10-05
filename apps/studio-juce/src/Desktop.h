@@ -1,5 +1,6 @@
 #pragma once
 #include "Controls.h"
+#include "Settings.h"
 #include <mrs/desktop.hpp>
 #include <mrs/offline_device.hpp>
 #include <mrs/vst3.hpp>
@@ -15,6 +16,7 @@ class EditorWindow final : public juce::DocumentWindow {
 public:
     EditorWindow(juce::String,juce::Component*);
     void closeButtonPressed() override;
+    void fitNativeEditor(int,int);
     std::function<void()> onClose;
 };
 class Desktop final : public juce::Component, private juce::Timer,
@@ -44,6 +46,11 @@ public:
     void saveFile(const juce::File&);
     void importFiles(const juce::StringArray&);
     void resetDevice();
+    void reconnectDevice();
+    void saveSettings();
+    bool shortcutAllowed() const;
+    bool shortcutAllowedFor(juce::Component*) const;
+    ViewSettings view;
     void closeEditors();
     void audioSettings();
     void insertMenu(std::optional<mrs::Id>);
@@ -73,7 +80,7 @@ public:
     std::unique_ptr<Browser> browser;
     std::vector<std::unique_ptr<EditorWindow>> windows;
     mrs::desktop::Preferences prefs;
-    std::filesystem::path prefsFile,cacheFile;
+    std::filesystem::path prefsFile,cacheFile,viewFile;
     bool sidebar{true},testing{},snap{};
     int browserWidth{260};
     juce::String message;
@@ -171,4 +178,6 @@ private:
 };
 void j2Smoke(Desktop&,const juce::File& fixture={});
 void j2PluginSmoke(Desktop&,const juce::File&);
+void j3Smoke(Desktop&);
+void j3AudioSmoke(Desktop&);
 }

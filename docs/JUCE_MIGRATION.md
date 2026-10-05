@@ -100,6 +100,16 @@ Separate packages: MR-Studio-0.1n-JUCE-J1-Windows-local (accepted) and
 MR-Studio-0.1o-JUCE-J2-ASIO-Windows-local (accepted). Outstanding 3c checks remain pending.
 This decision does not close #23, pass deferred #16 or implement Amp/Preamp/reliability.
 
+## J3 / 0.1p ready locally for review — 2026-10-05
+
+The user authorized J3. Windows preferences/window/view persistence, audio profiles,
+explicit ASIO reconnect, keyboard/focus guards and named UI Automation controls are
+implemented locally; native editor DPI initial sizing corrected. Offline configure/
+build and 90/90 CTest passed; installed Nuro Flexion/TH-U editor/state checks passed.
+See [J3 changes, validation and remaining physical acceptance gates](JUCE_J3.md).
+JUCE stays opt-in until hardware, physical monitor transitions and accessibility
+acceptance are verified. Code/packages local; GitHub issues/docs only.
+
 ## J2 acceptance — 2026-10-05
 
 Local 0.1o / J2 accepted on source 74d6e6f9580908b67eb08330e6ef112a49c3e1f5.

@@ -52,7 +52,14 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
         const auto revision=d.app.services().projects->state().revision;d.mixer[1]->itemDropped(drop);
         check(d.app.services().projects->state().revision==revision+1,"plugin drop commits once");
         auto plugin=d.chain(second).back();d.openInsert(second,plugin.id);check(d.windows.back()->isVisible(),"VST3 HWND bridge");
-        auto* content=d.windows.back()->getContentComponent();check(content->getWidth()==320&&content->getHeight()==120,"native plugin dimensions");
+        auto* pluginWindow=d.windows.back().get();
+        RECT client{};GetClientRect(static_cast<HWND>(pluginWindow->getPeer()->getNativeHandle()),&client);
+        check(std::abs(client.right-320)<=1&&std::abs(client.bottom-120)<=1,"native plugin physical dimensions");
+        for(const double editorScale:{1.,1.5,2.}){pluginWindow->getPeer()->setCustomPlatformScaleFactor(editorScale);pluginWindow->fitNativeEditor(320,120);
+            // A forced peer scale does not change Windows non-client metrics. Check the
+            // JUCE content conversion here; real HWND client dimensions above use OS DPI.
+            auto* content=pluginWindow->getContentComponent();if(std::abs(content->getWidth()*editorScale-320)>1||std::abs(content->getHeight()*editorScale-120)>1)throw std::runtime_error("native editor content DPI conversion "+std::to_string(editorScale)+" "+std::to_string(content->getWidth())+","+std::to_string(content->getHeight()));}
+        pluginWindow->getPeer()->setCustomPlatformScaleFactor({});pluginWindow->fitNativeEditor(320,120);
         const auto count=d.windows.size();d.openInsert(second,plugin.id);check(d.windows.size()==count,"editor repeated-click reuse");
         d.closeEditors();d.app.set_plugin_parameter(second,plugin.id,100,.25f);render();
     }
@@ -80,6 +87,25 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     for(const auto& clip:d.project()->clips)if(clip.source=="mrs:demo-tone")check(d.app.waveform(clip.source)->range(0,48000,0).maximum>.05f,"demo waveform data");
     // Fixture is under a unique temporary directory created by this test only.
     check(folder.getParentDirectory()==juce::File::getSpecialLocation(juce::File::tempDirectory)&&folder.getFileName().startsWith("mrs-juce-j2"),"fixture cleanup scope");folder.deleteRecursively();
+}
+void j3Smoke(Desktop& d){
+    auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    j3AudioSmoke(d);
+    d.addToDesktop(0);
+    auto* handler=d.mixer.front()->gain.getAccessibilityHandler();check(handler&&handler->getRole()==juce::AccessibilityRole::slider&&!handler->getTitle().isEmpty(),"named accessible fader");
+    auto* value=handler->getValueInterface();check(value&&value->getRange().isValid(),"accessible fader range");
+    auto history=d.app.services().projects->state().revision;value->setValue(.7);check(d.app.services().projects->state().revision==history+1,"UI Automation fader uses one shared command");d.action(10);
+    juce::TextEditor text;d.addChildComponent(text);auto count=d.project()->tracks.size();check(!d.shortcutAllowedFor(&text),"text input blocks global shortcuts");
+    juce::Component external;check(!d.shortcutAllowedFor(&external),"editor window blocks arrangement shortcuts");check(d.shortcutAllowedFor(&d.mixer.front()->gain),"mixer allows transport shortcuts");d.removeChildComponent(&text);
+    check(!d.keyPressed(juce::KeyPress('R',juce::ModifierKeys::ctrlModifier,0))&&d.project()->tracks.size()==count,"unassigned modified shortcuts ignored");
+    ViewSettings settings;settings.sidebar=false;settings.snap=true;settings.browserWidth=440;settings.trackHeight=320;settings.pixelsPerSecond=1200;settings.inputs="1,2";
+    auto decoded=ViewSettings::decode(settings.encode());check(!decoded.sidebar&&decoded.snap&&decoded.browserWidth==440&&decoded.trackHeight==320&&decoded.pixelsPerSecond==1200&&decoded.inputs=="1,2","view settings roundtrip");
+    bool rejected=false;try{ViewSettings::decode("{broken}");}catch(...){rejected=true;}check(rejected,"malformed settings rejected");
+    auto file=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("mrs-j3-settings",".json",false);
+    publishSettings(file,settings.encode());publishSettings(file,settings.encode());check(ViewSettings::decode(file.loadFileAsString()).inputs=="1,2","atomic settings publication");file.deleteFile();
+    for(const auto scale:{1.f,1.5f,2.f}){auto image=d.createComponentSnapshot(d.getLocalBounds(),true,scale,juce::SoftwareImageType{});check(image.getWidth()==juce::roundToInt(d.getWidth()*scale)&&image.getHeight()==juce::roundToInt(d.getHeight()*scale),"DPI snapshot dimensions");}
+    d.setSize(1200,700);d.sidebar=true;d.browserWidth=450;d.resized();check(d.arrangeArea.getWidth()>250&&d.master->getBounds().getRight()<=d.arrangeArea.getRight(),"minimum layout with widest browser");
+    d.browserWidth=260;d.setSize(1400,850);d.resized();d.removeFromDesktop();
 }
 void j2PluginSmoke(Desktop& d,const juce::File& module){
     auto check=[](bool b,const char* text){if(!b)throw std::runtime_error(text);};

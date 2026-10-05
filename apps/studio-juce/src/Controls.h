@@ -38,6 +38,24 @@ public:
     double value{.8};
     bool rotary{};
     bool dragging() const { return active; }
+    void notifyValue() {if(auto* handler=getAccessibilityHandler())handler->notifyAccessibilityEvent(juce::AccessibilityEvent::valueChanged);}
+    std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override {
+        struct Value final : juce::AccessibilityRangedNumericValueInterface {
+            explicit Value(Handle& c):control(c){}
+            bool isReadOnly() const override {return !control.isEnabled()||control.dragging();}
+            double getCurrentValue() const override {return control.value;}
+            void setValue(double v) override {
+                if(isReadOnly()||!std::isfinite(v))return;
+                const auto next=juce::jlimit(0.,1.,v);
+                if(next==control.value)return;control.value=next;
+                if(control.commit)control.commit(next);control.notifyValue();control.repaint();
+            }
+            AccessibleValueRange getRange() const override {return {{0.,1.},.001};}
+            Handle& control;
+        };
+        return std::make_unique<juce::AccessibilityHandler>(*this,juce::AccessibilityRole::slider,
+            juce::AccessibilityActions{},juce::AccessibilityHandler::Interfaces(std::make_unique<Value>(*this)));
+    }
     juce::Rectangle<float> knob() const {
         if(rotary){const float side=static_cast<float>(juce::jmin(getWidth(),getHeight())-8);return getLocalBounds().toFloat().withSizeKeepingCentre(side,side);}
         if (vertical_) return {7.f, 12.f + static_cast<float>(1-value) * travel(),
@@ -67,7 +85,7 @@ public:
     }
     void mouseUp(const juce::MouseEvent&) override {
         if(!active) return; active=false;
-        if(value!=origin && commit) commit(value); else if(cancel) cancel(); repaint();
+        if(value!=origin && commit) commit(value); else if(cancel) cancel(); notifyValue();repaint();
     }
     bool keyPressed(const juce::KeyPress& key) override {
         if(key==juce::KeyPress::escapeKey && active) { abort(); return true; }
@@ -77,7 +95,7 @@ public:
            k!=juce::KeyPress::downKey && k!=juce::KeyPress::leftKey) return false;
         const auto step=key.getModifiers().isCtrlDown() ? .001 : .01;
         value=juce::jlimit(0.,1.,value+((k==juce::KeyPress::upKey || k==juce::KeyPress::rightKey) ? step : -step));
-        if(commit) commit(value); repaint(); return true;
+        if(commit) commit(value); notifyValue();repaint(); return true;
     }
     void focusLost(FocusChangeType) override { abort(); }
 private:
