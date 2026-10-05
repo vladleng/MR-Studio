@@ -1,4 +1,6 @@
-# 0.1p / JUCE J3 вЂ” Windows polish and parity review
+# 0.1p / JUCE J3 РІР‚вЂќ Windows polish and parity review
+
+Follow-up 0.1p fix1: upd2 embedded plugin GUI accepted; explicit preset restoration, in-place Save list refresh, visible/resizable browser and WAV drops onto existing tracks. See [JUCE_FIX1.md](JUCE_FIX1.md). TH-U audible review remains pending.
 
 Follow-up 0.1p upd2: offline native editor rebuild/lifecycle corrected; per-plugin preset library and Files browser added. See [JUCE_UPD2.md](JUCE_UPD2.md). TH-U audible-state user review remains pending because upd1 GUI blocked testing.
 
@@ -47,7 +49,7 @@ remaining physical acceptance gates are verified.
   Plugin-directed resize/content scaling while crossing physical monitors still
   requires the explicit acceptance check below.
 
-## Local verification вЂ” 2026-10-05
+## Local verification РІР‚вЂќ 2026-10-05
 
 - Cached, fully disconnected Windows MSVC/SDK configure and full Release build passed.
   No new dependencies installed/downloaded; no GitHub Actions.
