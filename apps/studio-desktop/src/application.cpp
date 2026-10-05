@@ -770,18 +770,21 @@ void Application::prepare_inserts(audio::RenderGraph& result,const audio::Device
 void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::DeviceConfig c) {
     require_not_recording();
     require(static_cast<bool>(device),"missing audio backend");
-    const auto defaults=c.inputs; c.inputs=selected_inputs(*services_.projects->state().project,defaults);
+    const auto defaults=c.inputs;
     auto infos = device->enumerate();
     const auto info = std::find_if(infos.begin(),infos.end(),[&](const auto& v) { return v.index == c.device; });
-    require(info != infos.end(),"audio device no longer available"); audio::validate_device_config(*info,c);
-    validate_hardware(*services_.projects->state().project,c);
+    require(info != infos.end(),"audio device no longer available");
+    const bool offline=info->name == "Offline clock (no sound)";
+    c.inputs=offline ? defaults : selected_inputs(*services_.projects->state().project,defaults);
+    audio::validate_device_config(*info,c);
+    if (!offline) validate_hardware(*services_.projects->state().project,c);
     require(c.sample_rate == services_.projects->state().project->sample_rate,"device/project rate mismatch; choose the project rate");
     // Existing callbacks must be stopped before preparing or releasing graphs.
     disconnect();
     const auto previous_defaults=default_inputs_; default_inputs_=defaults;
     try {
         audio::RenderGraph graph;
-        if (audio_name_ == "Offline clock (no sound)") { prepare_mixer(graph); prepare_inserts(graph,c); }
+        if (offline) { prepare_mixer(graph); prepare_inserts(graph,c); }
         else graph = render(c);
         engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192},std::move(graph));
         device->open(c,engine_); device->start(); audio_name_ = info->name; device_ = std::move(device); device_config_ = c; device_info_ = *info; default_inputs_ = defaults; poll();

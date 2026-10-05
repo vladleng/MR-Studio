@@ -19,6 +19,7 @@ public:
         setColour(juce::TextEditor::backgroundColourId,juce::Colour(surface));setColour(juce::TextEditor::outlineColourId,juce::Colour(0xff51565c));
         setColour(juce::TreeView::linesColourId,juce::Colour(0xff858d94));setColour(juce::ScrollBar::thumbColourId,juce::Colour(0xff62686e));
     }
+    void drawMenuBarBackground(juce::Graphics& g,int,int,bool,juce::MenuBarComponent&) override {g.fillAll(juce::Colour(surface));}
     void drawTreeviewPlusMinusBox(juce::Graphics& g,const juce::Rectangle<float>& area,juce::Colour,bool open,bool hover) override {
         g.setColour(hover?juce::Colours::white:juce::Colour(0xffb8bdc2));
         const auto centre=area.getCentre();const float size=juce::jmin(5.f,area.getWidth()*.3f);juce::Path arrow;

@@ -310,6 +310,19 @@ void arrangement() {
     app.stop(); app.engine()->process(nullptr,output.data(),128); app.poll();
     app.save_project(saved); auto snapshot = app.snapshot(); app.open_project(saved);
     CHECK(app.snapshot().project == snapshot.project);
+    // Reopen a session whose monitored input/output selectors exceed the offline clock.
+    Application session;session.new_project(44100);const auto mic=session.add_audio_track("Stereo input");
+    session.connect(std::make_unique<ManualDevice>(),{0,44100,256,{}, {0,1,2,3}});
+    session.set_track_input(mic,2,true);session.set_track_monitoring(mic,true);session.set_hardware_output({}, {2,3});
+    const auto sessionFile=dir.path/"hardware-session.mrsproject";session.save_project(sessionFile);session.open_project(sessionFile);
+    session.connect(audio::make_offline_device(),{0,44100,128,{}, {0,1}});
+    CHECK(session.audio_running() && session.audio_name()=="Offline clock (no sound)");
+    CHECK(session.services().projects->state().project->tracks.front().input==2);
+    CHECK(session.services().projects->state().project->master_outputs==std::vector<int>({2,3}));
+    auto reconnected=std::make_unique<ManualDevice>();auto* driver=reconnected.get();
+    session.connect(std::move(reconnected),{0,44100,256,{0}, {0,1,2,3}});
+    CHECK(session.audio_running() && driver->last_config.inputs==std::vector<int>({2,3}));
+    CHECK(driver->last_config.buffer_frames==256 && driver->last_config.outputs==std::vector<int>({0,1,2,3}));
     Application other; auto p = *other.services().projects->state().project;
     rejects([&] { other.import_wavs({a}); }); CHECK(*other.services().projects->state().project == p); // rate mismatch
 }

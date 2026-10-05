@@ -1,5 +1,7 @@
 # 0.1p / JUCE J3 Р Р†Р вЂљРІР‚Сњ Windows polish and parity review
 
+Follow-up 0.1p fix3: fix2 generally accepted; offline transition no longer validates saved physical selectors, active ASIO selection reconnects across Open/New, shared arrangement/mixer track drag order, browser-colored chrome and Backspace deletion. See [JUCE_FIX3.md](JUCE_FIX3.md). Physical ASIO project-switch review remains pending.
+
 Follow-up 0.1p fix2: user accepted TH-U state/sound after project reopen; special TH-U/Nuro build checks disabled by policy. VST3 preset loads keep the editor/processor instance; reference palette and Files breadcrumbs/details added. See [JUCE_FIX2.md](JUCE_FIX2.md).
 
 Follow-up 0.1p fix1: upd2 embedded plugin GUI accepted; explicit preset restoration, in-place Save list refresh, visible/resizable browser and WAV drops onto existing tracks. See [JUCE_FIX1.md](JUCE_FIX1.md). TH-U audible review remains pending.

@@ -12,6 +12,16 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     d.action(21);auto bus=d.project()->tracks.back().id;
     d.app.set_track_output(first,bus);d.app.set_track_sends(second,{{bus,.5f,true}});d.refresh(true);
     check(d.mixer.size()==3&&d.arrangement->rows.size()==3,"multiple channel views");
+    auto pump=[] {for(int i=0;i<10;++i){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}juce::Thread::sleep(1);}};
+    const auto beforeReorder=*d.project();
+    juce::DragAndDropTarget::SourceDetails trackDrop("mrs-track:"+juce::String(first.value),d.arrangement->rows[0].get(),{130,300});
+    check(d.mixer[2]->isInterestedInDragSource(trackDrop),"mixer accepts track drag from arrangement");d.mixer[2]->itemDropped(trackDrop);pump();
+    check(d.project()->tracks.back().id==first&&d.mixer.back()->target==first&&d.arrangement->rows.back()->target==first,"reorder synchronizes both views");
+    check(d.project()->clips==beforeReorder.clips,"reorder retains clip identities and positions");d.action(10);check(*d.project()==beforeReorder,"reorder undo");
+    juce::DragAndDropTarget::SourceDetails reverseDrop("mrs-track:"+juce::String(bus.value),d.mixer[2].get(),{400,70});
+    check(d.arrangement->isInterestedInDragSource(reverseDrop),"arrangement accepts mixer track drag");d.arrangement->itemDropped(reverseDrop);pump();
+    check(d.project()->tracks.front().id==bus&&d.mixer.front()->target==bus&&d.arrangement->rows.front()->target==bus,"reverse reorder synchronizes views");d.action(10);
+    const auto reorderRevision=d.app.services().projects->state().revision;d.dropTrack("mrs-track:"+juce::String(first.value),1);pump();check(d.app.services().projects->state().revision==reorderRevision,"same position drag is no-op");
     d.app.set_track_armed(second,true);d.app.set_track_input(second,-1);d.refresh(true);
     check(d.app.track_armed(second),"arm binding");
     auto& fader=d.mixer[1]->gain;const auto initial=d.app.services().projects->state();const auto point=fader.knob().getCentre();
@@ -116,7 +126,7 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     check(d.app.engine()->state().sample==4800,"stop returns to start");
     d.spaceKey(true);render();check(d.app.engine()->state().playback==mrs::PlaybackState::playing,"space starts");d.spaceKey(true);render();check(d.app.engine()->state().playback==mrs::PlaybackState::playing,"space repeat rejected");
     d.spaceKey(false);d.spaceKey(true);render();check(d.app.engine()->state().playback==mrs::PlaybackState::stopped,"space stops");d.spaceKey(false);
-    d.selectedClip=d.project()->clips.front().id;const auto clips=d.project()->clips.size();d.action(25);check(d.project()->clips.size()+1==clips,"delete clip");d.action(10);
+    d.selectedClip=d.project()->clips.front().id;const auto clips=d.project()->clips.size();check(d.keyPressed(juce::KeyPress(juce::KeyPress::backspaceKey)),"Backspace binding handled");check(d.project()->clips.size()+1==clips,"Backspace deletes selected clip");d.action(10);
     d.setSize(1200,700);check(d.arrangeArea.getWidth()>0&&d.mixArea.getHeight()>0,"minimum layout");d.setSize(1400,850);d.arrangement->fit();
     d.app.play();for(int i=0;i<8;++i)render();d.app.stop();render();
     const auto meter=d.app.engine()->take_meters();d.peaks=meter.tracks;d.masterPeak=meter.master;

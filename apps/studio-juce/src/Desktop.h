@@ -20,7 +20,7 @@ public:
     std::function<void()> onClose;
 };
 class Desktop final : public juce::Component, private juce::Timer,
-                      public juce::MenuBarModel, public juce::DragAndDropContainer {
+                      public juce::MenuBarModel, public juce::DragAndDropContainer, public juce::DragAndDropTarget {
 public:
     explicit Desktop(bool testing=false);
     ~Desktop() override;
@@ -46,7 +46,10 @@ public:
     void saveFile(const juce::File&);
     void importFiles(const juce::StringArray&);
     void resetDevice();
-    void reconnectDevice();
+    void reconnectDevice(bool session=false);
+    bool isInterestedInDragSource(const SourceDetails&) override;
+    void itemDropped(const SourceDetails&) override;
+    void dropTrack(const juce::String&,std::size_t boundary);
     void saveSettings();
     bool shortcutAllowed() const;
     bool shortcutAllowedFor(juce::Component*) const;
@@ -117,11 +120,14 @@ class Strip final : public juce::Component, public juce::DragAndDropTarget {
 public:
     Strip(Desktop&,std::optional<mrs::Id>,bool mini=false);
     void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
     void resized() override;
     void paint(juce::Graphics&) override;
     void sync();
     bool isInterestedInDragSource(const SourceDetails&) override;
     void itemDropped(const SourceDetails&) override;
+    void itemDragMove(const SourceDetails&) override;
+    void itemDragExit(const SourceDetails&) override;
     bool active() const {return gain.dragging()||pan.dragging();}
     Handle gain,pan{false};
     std::optional<mrs::Id> target;
@@ -132,6 +138,7 @@ private:
     void inputMenu();void insertList();
     Desktop& owner;
     bool mini{};
+    bool dragTitle{},dropBefore{},trackHover{};
     juce::TextButton mute{"M"},solo{"S"},arm{"R"},monitor{"I"},input{"Input"},
         inserts{"Inserts"},output{"Out: Master"},sends{"Sends"},add{"+"};
     std::vector<std::unique_ptr<juce::TextButton>> insertButtons;

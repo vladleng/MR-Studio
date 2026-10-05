@@ -69,21 +69,20 @@ void Desktop::saveSettings(){if(testing)return;
     publishSettings(juce::File(juce::String(viewFile.wstring().c_str())),view.encode());
 }
 void Desktop::remember(){if(testing)return;mrs::desktop::remember_project(prefs,app.path());saveSettings();}
-void Desktop::reconnectDevice(){if(testing||!prefs.reconnect_audio||prefs.device_name.empty())return;
-    if(project()->sample_rate!=prefs.rate)throw std::runtime_error("ASIO reconnect skipped: saved device rate differs from project rate. Review Audio settings.");
+void Desktop::reconnectDevice(bool session){if(testing||(!session&&!prefs.reconnect_audio)||prefs.device_name.empty())return;
 #ifdef MRS_HAS_ASIO
     auto device=mrs::audio::make_asio_device();auto infos=device->enumerate();
     auto found=std::find_if(infos.begin(),infos.end(),[&](const auto& info){return info.name==prefs.device_name;});
     if(found==infos.end())throw std::runtime_error("Saved ASIO device unavailable; running offline. Review Audio settings.");
     if(!view.deviceChannels.isEmpty()&&view.deviceChannels!=deviceLayout(*found))
         throw std::runtime_error("ASIO channel names changed; running offline. Review Audio settings.");
-    mrs::audio::DeviceConfig config{found->index,prefs.rate,prefs.buffer,{},prefs.outputs};
+    mrs::audio::DeviceConfig config{found->index,project()->sample_rate,prefs.buffer,{},prefs.outputs};
     if(!view.inputs.trim().isEmpty())config.inputs=mrs::desktop::parse_outputs(view.inputs.toStdString());
     else if(prefs.monitor_input>=0)config.inputs={prefs.monitor_input};
-    try{app.connect(std::move(device),config);}catch(...){resetDevice();throw;}
+    try{app.connect(std::move(device),config);prefs.rate=config.sample_rate;saveSettings();}catch(...){resetDevice();throw;}
 #endif
 }
-void Desktop::openFile(const juce::File& f){closeEditors();cancelPreview();app.open_project(path(f));resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();reconnectDevice();}
+void Desktop::openFile(const juce::File& f){const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();cancelPreview();app.open_project(path(f));resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();reconnectDevice(session);}
 void Desktop::saveFile(const juce::File& f){auto destination=path(f);if(destination!=app.path())destination=mrs::desktop::project_folder_file(destination);app.save_project(destination);remember();refresh();}
 void Desktop::importFiles(const juce::StringArray& files){closeEditors();std::vector<std::filesystem::path> paths;for(const auto& f:files)paths.push_back(path(juce::File(f)));app.import_wavs(paths);refresh(true);}
 void Desktop::choose(int chooserOptions,std::function<void(const juce::File&)> callback,juce::String pattern){
@@ -111,7 +110,7 @@ juce::StringArray Desktop::getMenuBarNames(){return {"File","Edit","Track","Tran
 juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupMenu m;
     if(n==0){m.addItem(1,"New project");m.addItem(2,"Open project...");m.addItem(3,"Save");m.addItem(4,"Save as...");m.addItem(5,"Import WAV...");
         juce::PopupMenu recent;for(std::size_t i=0;i<prefs.recent_projects.size();++i)recent.addItem(1000+static_cast<int>(i),label(prefs.recent_projects[i]));m.addSubMenu("Open recent project",recent);}
-    if(n==1){m.addItem(10,"Undo",app.services().projects->state().can_undo);m.addItem(11,"Redo",app.services().projects->state().can_redo);m.addItem(24,"Split selected clip (S)");m.addItem(25,"Delete selected clip");}
+    if(n==1){m.addItem(10,"Undo",app.services().projects->state().can_undo);m.addItem(11,"Redo",app.services().projects->state().can_redo);m.addItem(24,"Split selected clip (S)");m.addItem(25,"Delete selected clip (Backspace)");}
     if(n==2){m.addItem(20,"Add audio track");m.addItem(21,"Add bus");m.addItem(22,"Rename track");m.addItem(23,"Delete track");m.addItem(26,"Move track up");m.addItem(27,"Move track down");}
     if(n==3){m.addItem(30,"Play");m.addItem(31,"Pause");m.addItem(32,"Stop");m.addItem(33,"Record");m.addItem(34,"Previous section");m.addItem(35,"Next section");m.addItem(36,"Loop section");m.addItem(40,"Audio settings...");}
     return m;
@@ -119,7 +118,7 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
 void Desktop::menuItemSelected(int n,int){action(n);}
 void Desktop::action(int n){if(busyGesture())return;run([&]{
     if(n>=1000){auto at=static_cast<std::size_t>(n-1000);if(at<prefs.recent_projects.size()){const auto f=juce::File(label(prefs.recent_projects[at]));confirmDiscard([this,f]{run([&]{openFile(f);});});}return;}
-    if(n==1 || n==2){confirmDiscard([this,n]{run([&]{if(n==1){closeEditors();app.new_project();resetDevice();reconnectDevice();selectedClip.reset();selectedTrack.reset();refresh(true);}else choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){openFile(f);},"*.mrsproject");});});}
+    if(n==1 || n==2){confirmDiscard([this,n]{run([&]{if(n==1){const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();app.new_project(session?prefs.rate:48000);resetDevice();selectedClip.reset();selectedTrack.reset();refresh(true);reconnectDevice(session);}else choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){openFile(f);},"*.mrsproject");});});}
     else if(n==3){if(app.path().empty())action(4);else saveFile(juce::File(juce::String(app.path().wstring().c_str())));}
     else if(n==4)choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& f){saveFile(f.withFileExtension("mrsproject"));},"*.mrsproject");
     else if(n==5)choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){importFiles({f.getFullPathName()});},"*.wav");
@@ -157,7 +156,7 @@ void Desktop::resized(){menu.setBounds(0,0,getWidth(),26);int x=8;
     x=8;for(auto* b:{&play,&pause,&stop,&record,&previous,&next,&loop}){int width=b==&record||b==&loop?100:78;b->setBounds(x,getHeight()-45,width,30);x+=width+5;}
     x=getWidth()-344;for(auto* b:{&arrangeButton,&editButton,&mixButton,&brows}){b->setBounds(x,getHeight()-45,78,30);x+=84;}
 }
-void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(background));g.setFont(theme.font(12));g.setColour(message.isEmpty()?juce::Colours::lightgrey:juce::Colours::orange);
+void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFont(theme.font(12));g.setColour(message.isEmpty()?juce::Colours::lightgrey:juce::Colours::orange);
     auto s=message.isEmpty()?label(project()->title)+(app.dirty()?" *":"")+"  |  "+label(app.audio_name()):message;
     g.drawText(s,10,getHeight()-62,getWidth()-20,16,juce::Justification::left);
     if(sidebar){g.setColour(juce::Colour(0xff697580));g.fillRect(browserDivider.getX()+3,70,2,getHeight()-128);}
@@ -192,7 +191,7 @@ bool Desktop::shortcutAllowedFor(juce::Component* focused) const {
 bool Desktop::keyPressed(const juce::KeyPress& k){if(!shortcutAllowed())return false;
     auto c=k.getKeyCode();if(k.getModifiers().isAltDown())return false;if(k.getModifiers().isCtrlDown()){if(c=='Z'){action(10);return true;}if(c=='Y'){action(11);return true;}if(c=='S'){action(3);return true;}if(c=='O'){action(2);return true;}if(c=='N'){action(1);return true;}return false;}
     if(k.getModifiers().isShiftDown())return false;
-    if(c=='S'){action(24);return true;}if(c=='R'){action(33);return true;}if(c==juce::KeyPress::deleteKey){action(25);return true;}return c==juce::KeyPress::spaceKey;
+    if(c=='S'){action(24);return true;}if(c=='R'){action(33);return true;}if(c==juce::KeyPress::backspaceKey||c==juce::KeyPress::deleteKey){action(25);return true;}return c==juce::KeyPress::spaceKey;
 }
 bool Desktop::keyStateChanged(bool){if(!shortcutAllowed()){spaceHeld=false;return false;}
     const bool down=juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey);spaceKey(down);return down;}
@@ -226,7 +225,8 @@ Strip::Strip(Desktop& d,std::optional<mrs::Id> id,bool small):gain(!small),targe
     gain.cancel=pan.cancel=[this]{owner.cancelPreview();sync();};sync();
 }
 mrs::Track Strip::track() const{if(target)for(const auto& t:owner.project()->tracks)if(t.id==target)return t;return {};}
-void Strip::mouseDown(const juce::MouseEvent&){owner.selectedTrack=target;owner.refresh();}
+void Strip::mouseDown(const juce::MouseEvent& e){owner.selectedTrack=target;dragTitle=target&&e.mods.isLeftButtonDown()&&e.y<26;owner.refresh();}
+void Strip::mouseDrag(const juce::MouseEvent& e){if(dragTitle&&target&&e.getDistanceFromDragStart()>5&&!owner.isDragAndDropActive())owner.startDragging("mrs-track:"+label(target->value),this);}
 mrs::Track::Mix Strip::adjusted(bool volume,double v) const{auto m=track().mix;if(volume)m.gain=static_cast<float>(std::pow(10.,(-60+72*v)/20));else m.pan=static_cast<float>(2*v-1);return m;}
 void Strip::preview(bool volume,double v){owner.setPreview(target,adjusted(volume,v),target?owner.project()->master_gain:adjusted(volume,v).gain,[this]{return active();});}
 void Strip::commit(bool volume,double v){owner.run([&]{owner.finishPreview();if(target)owner.app.set_track_mix(*target,adjusted(volume,v));else owner.app.set_master_gain(adjusted(volume,v).gain);owner.app.poll();owner.refresh(true);});}
@@ -255,7 +255,8 @@ void Strip::resized(){const int w=getWidth(),h=getHeight();if(mini){mute.setBoun
         pan.setBounds(8,56+effectHeight,w-16,30);gain.setBounds(w-62,90+effectHeight,56,juce::jmax(55,h-200-effectHeight));
         mute.setBounds(8,h-85,40,24);solo.setBounds(52,h-85,40,24);output.setBounds(8,h-56,w-16,23);sends.setBounds(8,h-30,w-16,23);}
 }
-void Strip::paint(juce::Graphics& g){g.fillAll(juce::Colour(mini?0xff393e43:0xff303438));g.setColour(juce::Colour(accent));g.fillRect(0,0,mini?4:getWidth(),mini?getHeight():3);
+void Strip::paint(juce::Graphics& g){g.fillAll(juce::Colour(mini?panel:surface));g.setColour(juce::Colour(accent));g.fillRect(0,0,mini?4:getWidth(),mini?getHeight():3);
+    if(trackHover){g.setColour(juce::Colours::lightskyblue);if(mini)g.fillRect(0,dropBefore?0:getHeight()-3,getWidth(),3);else g.fillRect(dropBefore?0:getWidth()-3,0,3,getHeight());}
     const auto t=track();g.setFont(owner.theme.font(12));g.setColour(target?juce::Colours::whitesmoke:juce::Colours::gold);
     g.drawText(target?label(t.name):"MASTER",8,3,mini?getWidth()-145:getWidth()-16,23,juce::Justification::left);
     mrs::audio::StereoPeak p=owner.masterPeak;if(target){const auto tracks=owner.project()->tracks;for(std::size_t i=0;i<tracks.size();++i)if(tracks[i].id==target)p=owner.peaks[i];}
@@ -270,8 +271,18 @@ void Strip::inputMenu(){if(!target)return;juce::PopupMenu m;m.addItem(1,"Default
     for(std::size_t i=0;i<names.size();++i){m.addItem(10+static_cast<int>(i),"Mono "+label(names[i]));if(i+1<names.size())m.addItem(100+static_cast<int>(i),"Stereo "+label(names[i])+" / "+label(names[i+1]));}
     juce::Component::SafePointer<Strip> safe(this);m.showMenuAsync(popup(&input),[safe](int n){if(safe&&n)safe->owner.run([&]{safe->owner.app.set_track_input(*safe->target,n==1?-2:n==2?-1:n>=100?n-100:n-10,n>=100);safe->sync();});});
 }
-bool Strip::isInterestedInDragSource(const SourceDetails& s){const auto text=s.description.toString();const auto number=text.substring(5);return text.startsWith("vst3:")&&!mini&&!number.isEmpty()&&number.containsOnly("0123456789");}
-void Strip::itemDropped(const SourceDetails& s){if(isInterestedInDragSource(s))owner.addPlugin(target,static_cast<std::size_t>(s.description.toString().substring(5).getIntValue()));}
+bool Strip::isInterestedInDragSource(const SourceDetails& s){const auto text=s.description.toString();if(text.startsWith("mrs-track:"))return target.has_value();const auto number=text.substring(5);return text.startsWith("vst3:")&&!mini&&!number.isEmpty()&&number.containsOnly("0123456789");}
+void Strip::itemDragMove(const SourceDetails& s){trackHover=target&&s.description.toString().startsWith("mrs-track:");dropBefore=mini?s.localPosition.y<getHeight()/2:s.localPosition.x<getWidth()/2;repaint();}
+void Strip::itemDragExit(const SourceDetails&){trackHover=false;repaint();}
+void Strip::itemDropped(const SourceDetails& s){trackHover=false;repaint();if(!isInterestedInDragSource(s))return;const auto text=s.description.toString();if(text.startsWith("mrs-track:")){const auto p=owner.project();for(std::size_t i=0;i<p->tracks.size();++i)if(p->tracks[i].id==target){const bool before=mini?s.localPosition.y<getHeight()/2:s.localPosition.x<getWidth()/2;owner.dropTrack(text,i+(before?0:1));break;}}else owner.addPlugin(target,static_cast<std::size_t>(text.substring(5).getIntValue()));}
+
+void Desktop::dropTrack(const juce::String& description,std::size_t boundary){const auto p=project();const mrs::Id id{description.substring(10).toStdString()};const auto found=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==id;});if(found==p->tracks.end())return;
+    const auto source=static_cast<std::size_t>(found-p->tracks.begin());boundary=std::min(boundary,p->tracks.size());const auto index=boundary-(source<boundary?1:0);if(index==source)return;
+    // Defer until JUCE has released source/target pointers; refresh rebuilds both views.
+    juce::Component::SafePointer<Desktop> safe(this);juce::MessageManager::callAsync([safe,id,index]{if(safe)safe->run([&]{safe->app.reorder_track(id,index);safe->selectedTrack=id;});});
+}
+bool Desktop::isInterestedInDragSource(const SourceDetails& s){return s.description.toString().startsWith("mrs-track:")&&mixArea.contains(s.localPosition);}
+void Desktop::itemDropped(const SourceDetails& s){if(isInterestedInDragSource(s))dropTrack(s.description.toString(),project()->tracks.size());}
 
 Arrangement::Arrangement(Desktop& d):owner(d){setWantsKeyboardFocus(true);addAndMakeVisible(rowsBody);rowsBody.setInterceptsMouseClicks(false,true);}
 void Arrangement::rebuild(){rows.clear();for(const auto& t:owner.project()->tracks){auto row=std::make_unique<Strip>(owner,t.id,true);rowsBody.addAndMakeVisible(*row);rows.push_back(std::move(row));}resized();}
@@ -327,8 +338,8 @@ void Arrangement::filesDropped(const juce::StringArray& files,int x,int y){owner
     std::vector<std::filesystem::path> paths;for(const auto& file:files)paths.push_back(path(juce::File(file)));
     owner.closeEditors();owner.app.import_wavs(paths,target,sampleAt(static_cast<float>(x)));owner.refresh(true);
 });}
-bool Arrangement::isInterestedInDragSource(const SourceDetails& details){return details.description.toString()=="mrs-sample-files"&&!owner.browser->selectedSamples().isEmpty();}
-void Arrangement::itemDropped(const SourceDetails& details){if(isInterestedInDragSource(details))filesDropped(owner.browser->selectedSamples(),details.localPosition.x,details.localPosition.y);}
+bool Arrangement::isInterestedInDragSource(const SourceDetails& details){return details.description.toString().startsWith("mrs-track:")||(details.description.toString()=="mrs-sample-files"&&!owner.browser->selectedSamples().isEmpty());}
+void Arrangement::itemDropped(const SourceDetails& details){if(details.description.toString().startsWith("mrs-track:")){const auto y=details.localPosition.y;const auto index=juce::jlimit(0,static_cast<int>(owner.project()->tracks.size()),static_cast<int>(std::floor((y-header+vertical)/trackHeight+.5f)));owner.dropTrack(details.description.toString(),static_cast<std::size_t>(index));}else if(isInterestedInDragSource(details))filesDropped(owner.browser->selectedSamples(),details.localPosition.x,details.localPosition.y);}
 
 
 namespace {
