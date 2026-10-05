@@ -85,7 +85,7 @@ Keep mrs_vst3_scan.exe beside the main EXE. Previous packages are preserved.
 
 ## 0.1q fix1 — project display, audio reconnect and mixer
 
-Local Windows update, 2026-10-05; user review pending.
+Local Windows update, 2026-10-05; accepted by the user: «Теперь все отлично!».
 
 - Opening a different document rebuilds channel views even when track IDs and
   revision match the previous project. Old selections, meters and view offsets
@@ -112,5 +112,25 @@ divider drag and persisted height. No special installed TH-U/Nuro tests.
 
 Branch: mrs/0.1q-fix1-local.
 Package: MR-Studio-0.1q-fix1-JUCE-ASIO-Windows-local in chat Builds.
-User ASIO/project review remains pending; 3e2/3e3 and whole #23 remain open.
+The fix1 update is user-accepted; 3e2/3e3 and whole #23 remain open.
 Code/builds stay local. GitHub documentation/issues only, no source push or Actions.
+
+## 0.1q fix2 — performance footer
+
+CPU readout and bar use the ASIO backend's measured callback CPU load, multiplied
+by 100. This is audio processing time relative to its buffer deadline, not overall
+Windows CPU utilization. A full bar is 100%; overload text can exceed 100%.
+The bar is green below 80%, orange at 80% and red at 100%.
+
+The footer also shows driver-reported input/output latency in milliseconds.
+PDC remains separate; these values do not claim measured acoustic round-trip
+latency. Offline/disconnected/unavailable hardware readings show dashes rather
+than invented measurements. UI reads backend status on its 30 Hz timer; no new
+audio callback instrumentation or processing behavior changes.
+
+Package: MR-Studio-0.1q-fix2-performance-JUCE-ASIO-Windows-local.
+Branch: mrs/0.1q-fix2-performance-local. User review pending.
+Cached offline configure/full local Release build and 91/91 CTest passed
+(21.73 seconds), including measured-value conversion, overload bar saturation
+and offline unavailable-state checks. Current software preview inspected.
+No special installed TH-U/Nuro tests. Code/builds local, GitHub docs/issues only.

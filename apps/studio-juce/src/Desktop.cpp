@@ -45,6 +45,13 @@ Desktop::Desktop(bool test):testing(test){
     for(auto* c:{static_cast<juce::Component*>(&menu),static_cast<juce::Component*>(arrangement.get()),static_cast<juce::Component*>(browser.get()),static_cast<juce::Component*>(&mixerViewport)})addAndMakeVisible(c);
     mixerViewport.setViewedComponent(&mixerBody,false);mixerViewport.setScrollBarsShown(false,true);
     addAndMakeVisible(projectTitle);projectTitle.setJustificationType(juce::Justification::centred);projectTitle.setInterceptsMouseClicks(false,false);projectTitle.setFont(theme.font(13));
+    for(auto* component:{static_cast<juce::Component*>(&audioCpuBar),static_cast<juce::Component*>(&cpuReadout),static_cast<juce::Component*>(&latencyReadout)})addAndMakeVisible(component);
+    cpuReadout.setFont(theme.font(12));latencyReadout.setFont(theme.font(12));
+    cpuReadout.setTitle("Audio CPU load percent");audioCpuBar.setTitle("Audio processing budget usage");latencyReadout.setTitle("Device input and output latency in milliseconds");
+    cpuReadout.setDescription("Audio callback CPU load as a percentage of the buffer processing deadline; not whole-computer CPU usage.");
+    latencyReadout.setDescription("Driver-reported input/output latency. Plugin delay compensation is shown separately as PDC.");
+    audioCpuBar.setPercentageDisplay(false);audioCpuBar.setColour(juce::ProgressBar::backgroundColourId,juce::Colour(0xff121619));
+    updatePerformance(app.device_status(),false);
     for(auto* b:{&play,&pause,&stop,&record,&previous,&next,&loop,&arrangeButton,&editButton,&mixButton,&brows,&addTrack,&addBus,&undo,&redo,&split,&remove,&zoomIn,&zoomOut,&fit,&audio,&snapButton})addAndMakeVisible(b);
     auto bind=[this](juce::TextButton& b,int cmd){b.onClick=[this,cmd]{action(cmd);};};
     bind(play,30);bind(pause,31);bind(stop,32);bind(record,33);bind(previous,34);bind(next,35);bind(loop,36);
@@ -164,11 +171,13 @@ void Desktop::resized(){menu.setBounds(0,0,getWidth(),26);projectTitle.setBounds
     browser->setVisible(sidebar);browser->setBounds(getWidth()-browserWidth,70,browserWidth-8,getHeight()-128);
     x=8;for(auto* b:{&play,&pause,&stop,&record,&previous,&next,&loop}){int width=b==&record||b==&loop?100:78;b->setBounds(x,getHeight()-45,width,30);x+=width+5;}
     x=getWidth()-344;for(auto* b:{&arrangeButton,&editButton,&mixButton,&brows}){b->setBounds(x,getHeight()-45,78,30);x+=84;}
+    cpuReadout.setBounds(getWidth()-490,getHeight()-66,80,20);audioCpuBar.setBounds(getWidth()-408,getHeight()-61,90,10);
+    latencyReadout.setBounds(getWidth()-312,getHeight()-66,304,20);
 }
 void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFont(theme.font(12));g.setColour(message.isEmpty()?juce::Colours::lightgrey:juce::Colours::orange);
     auto s=message.isEmpty()?label(app.audio_name()):message;
     if(message.isEmpty()){const auto samples=app.engine()->compensation().output;s+="  |  PDC "+juce::String(static_cast<double>(samples)*1000/project()->sample_rate,2)+" ms";}
-    g.drawText(s,10,getHeight()-62,getWidth()-20,16,juce::Justification::left);
+    g.drawText(s,10,getHeight()-62,getWidth()-512,16,juce::Justification::left);
     if(sidebar){g.setColour(juce::Colour(0xff697580));g.fillRect(browserDivider.getX()+3,70,2,getHeight()-128);}
     if(mixerDivider.isVisible()){g.setColour(juce::Colour(0xff697580));g.fillRect(mixerDivider.getBounds().withHeight(1).translated(0,2));}
     g.setColour(juce::Colours::whitesmoke);g.drawText(juce::String(static_cast<double>(app.engine()->state().sample)/project()->sample_rate,2)+" s",680,getHeight()-44,120,28,juce::Justification::left);
@@ -176,6 +185,15 @@ void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFon
 void Desktop::mouseDown(const juce::MouseEvent& e){const auto local=e.getEventRelativeTo(this);resizingBrowser=sidebar&&browserDivider.getBounds().contains(local.getPosition());resizingMixer=mixerDivider.isVisible()&&mixerDivider.getBounds().contains(local.getPosition());mixerDragHeight=view.mixerHeight;mixerDragY=local.y;}
 void Desktop::resizeBrowser(int width){browserWidth=juce::jlimit(200,juce::jmax(200,juce::jmin(700,getWidth()-700)),width);resized();repaint();}
 void Desktop::resizeMixer(int height){view.mixerHeight=juce::jlimit(260,juce::jmax(260,getHeight()-290),height);resized();repaint();}
+void Desktop::updatePerformance(const mrs::audio::DeviceStatus& status,bool hardware){
+    const bool running=hardware&&status.phase==mrs::audio::DevicePhase::running;
+    const bool measured=running&&std::isfinite(status.cpu_load)&&status.cpu_load>=0;
+    audioCpu=measured?juce::jlimit(0.,1.,status.cpu_load):0.;
+    cpuReadout.setText(measured?"CPU "+juce::String(status.cpu_load*100,1)+"%":"CPU --%",juce::dontSendNotification);
+    audioCpuBar.setColour(juce::ProgressBar::foregroundColourId,!measured?juce::Colour(0xff62686e):status.cpu_load>=1?juce::Colour(0xffe64b54):status.cpu_load>=.8?juce::Colours::orange:juce::Colour(0xff45d899));
+    auto latency=[&](double value){return running&&std::isfinite(value)&&value>=0?juce::String(value,2):juce::String("--");};
+    latencyReadout.setText("Latency I "+latency(status.input_latency_ms)+" / O "+latency(status.output_latency_ms)+" ms",juce::dontSendNotification);
+}
 void Desktop::mouseDrag(const juce::MouseEvent& e){if(resizingBrowser)resizeBrowser(getWidth()-e.getEventRelativeTo(this).x);if(resizingMixer)resizeMixer(mixerDragHeight+mixerDragY-e.getEventRelativeTo(this).y);}
 void Desktop::mouseUp(const juce::MouseEvent&){if(resizingBrowser||resizingMixer)saveSettings();resizingBrowser=resizingMixer=false;}
 void Desktop::refresh(bool force){const auto p=project();const auto state=app.services().projects->state();
@@ -213,6 +231,7 @@ bool Desktop::keyStateChanged(bool){if(!shortcutAllowed()){spaceHeld=false;retur
 void Desktop::spaceKey(bool down){if(down&&!spaceHeld)action(app.engine()->state().playback==mrs::PlaybackState::playing?32:30);spaceHeld=down;}
 void Desktop::focusLost(FocusChangeType){spaceHeld=false;}
 void Desktop::timerCallback(){try{app.poll();if(preview){if(preview->active())app.preview_mix(preview->target,preview->mix,preview->master);else preview.reset();}
+    updatePerformance(app.device_status(),app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected");
     if(editorGeneration!=app.insert_generation()){closeEditors();editorGeneration=app.insert_generation();}
     std::erase_if(windows,[](const auto& w){return !w->isVisible();});
     if(scanner.valid()&&scanner.wait_for(std::chrono::seconds(0))==std::future_status::ready){catalog=scanner.get();browser->rebuild();}

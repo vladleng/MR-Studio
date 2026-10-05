@@ -153,6 +153,10 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
 }
 void j3Smoke(Desktop& d){
     auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    mrs::audio::DeviceStatus performance{mrs::audio::DevicePhase::running,48000,2.7,5.4,.5,{}};
+    d.updatePerformance(performance,true);check(d.cpuReadout.getText()=="CPU 50.0%"&&d.audioCpu==.5&&d.latencyReadout.getText()=="Latency I 2.70 / O 5.40 ms","driver load and latency readouts");
+    performance.cpu_load=1.25;d.updatePerformance(performance,true);check(d.cpuReadout.getText()=="CPU 125.0%"&&d.audioCpu==1.,"overload readout exceeds 100 while bar saturates");
+    d.updatePerformance(performance,false);check(d.cpuReadout.getText()=="CPU --%"&&d.latencyReadout.getText().contains("--")&&d.audioCpu==0,"offline clock does not claim measured hardware CPU or latency");
     j3AudioSmoke(d);
     auto dividerEvent=[&](juce::Point<float> point){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier),1,0,0,0,0,&d.browserDivider,&d.browserDivider,juce::Time::getCurrentTime(),{4,20},juce::Time::getCurrentTime(),1,true);};
     d.mouseDown(dividerEvent({4,20}));d.mouseDrag(dividerEvent({-336,20}));d.mouseUp(dividerEvent({4,20}));check(d.browserWidth==604,"browser divider drag uses local coordinates");

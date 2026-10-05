@@ -63,6 +63,7 @@ public:
     void refreshPresetLists();
     void resizeBrowser(int);
     void resizeMixer(int);
+    void updatePerformance(const mrs::audio::DeviceStatus&,bool hardware);
     juce::String projectCaption() const;
     void loadPresetFile(std::optional<mrs::Id>,mrs::Id,const juce::File&);
     juce::PopupMenu pluginMenu(int base=10000) const;
@@ -88,6 +89,9 @@ public:
     juce::Rectangle<int> arrangeArea,mixArea;
     juce::Component browserDivider,mixerDivider;
     juce::Label projectTitle;
+    double audioCpu{};
+    juce::ProgressBar audioCpuBar{audioCpu};
+    juce::Label cpuReadout,latencyReadout;
     int faderHeight{160};
     std::vector<std::unique_ptr<Strip>> mixer;
     std::unique_ptr<Strip> master;
