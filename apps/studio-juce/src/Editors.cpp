@@ -8,6 +8,7 @@ std::filesystem::path path(const juce::File& f){return std::filesystem::path(f.g
 class FxPanel final : public juce::Component {
 public:
     FxPanel(Desktop& d,std::optional<mrs::Id> t,mrs::Id id):owner(d),target(t),slot(id){
+        gain.setComponentID("native-gain");apply.setComponentID("apply-native");
         for(auto* b:{&apply,&bypass,&remove,&up,&down,&enabled,&load,&invert})addAndMakeVisible(b);
         for(auto* c:{static_cast<juce::Component*>(&bands),static_cast<juce::Component*>(&parameters),static_cast<juce::Component*>(&presets),static_cast<juce::Component*>(&gain),static_cast<juce::Component*>(&frequency),static_cast<juce::Component*>(&q),static_cast<juce::Component*>(&mix)})addAndMakeVisible(c);
         bands.addItemList({"HP / Low cut","Band 1","Band 2","Band 3","LP / High cut"},1);bands.setSelectedId(2);
@@ -15,7 +16,7 @@ public:
         bands.onChange=[this]{band=static_cast<std::size_t>(bands.getSelectedId()-1);sync();};parameters.onChange=[this]{sync();};
         apply.onClick=[this]{owner.run([&]{auto n=current();if(n.kind==mrs::InsertKind::vst3){const int i=parameters.getSelectedId()-1;if(i>=0&&i<static_cast<int>(infos.size()))owner.app.set_plugin_parameter(target,slot,infos[static_cast<std::size_t>(i)].id,gain.getText().getFloatValue());return;}
             if(n.kind==mrs::InsertKind::channel_eq){n.bands[band].gain=gain.getText().getFloatValue();n.bands[band].frequency=frequency.getText().getFloatValue();n.bands[band].q=q.getText().getFloatValue();}
-            else {n.gain=std::pow(10.f,gain.getText().getFloatValue()/20);n.frequency=frequency.getText().getFloatValue();n.q=q.getText().getFloatValue();if(n.kind==mrs::InsertKind::cab_ir){n.ir.mix=mix.getText().getFloatValue();n.ir.low_cut=n.frequency;n.ir.high_cut=n.q;}}
+            else {n.gain=n.kind==mrs::InsertKind::eq?gain.getText().getFloatValue():std::pow(10.f,gain.getText().getFloatValue()/20);n.frequency=frequency.getText().getFloatValue();n.q=q.getText().getFloatValue();if(n.kind==mrs::InsertKind::cab_ir){n.ir.mix=mix.getText().getFloatValue();n.ir.low_cut=n.frequency;n.ir.high_cut=n.q;}}
             commit(n);});};
         bypass.onClick=[this]{owner.run([&]{auto n=current();n.bypass=!n.bypass;commit(n);});};
         enabled.onClick=[this]{owner.run([&]{auto n=current();n.bands[band].enabled=!n.bands[band].enabled;commit(n);});};
@@ -37,7 +38,7 @@ public:
         bands.setVisible(eq);enabled.setVisible(eq);load.setVisible(cab);mix.setVisible(cab);presets.setVisible(cab);invert.setVisible(cab);parameters.setVisible(vst);
         frequency.setEnabled(!vst&&n.kind!=mrs::InsertKind::gain);q.setEnabled(frequency.isEnabled());
         if(vst&&infos.empty()){infos=owner.app.plugin_parameters(target,slot);std::erase_if(infos,[](const auto& p){return p.hidden;});for(std::size_t i=0;i<infos.size();++i)parameters.addItem(label(infos[i].name),static_cast<int>(i)+1);if(!infos.empty())parameters.setSelectedId(1,juce::dontSendNotification);}
-        float value=eq?n.bands[band].gain:20*std::log10(juce::jmax(.000001f,n.gain));
+        float value=eq?n.bands[band].gain:n.kind==mrs::InsertKind::eq?n.gain:20*std::log10(juce::jmax(.000001f,n.gain));
         if(vst){const auto live=owner.app.plugin_parameters(target,slot);int at=parameters.getSelectedId()-1;if(at>=0&&at<static_cast<int>(infos.size())){for(const auto& p:live)if(p.id==infos[static_cast<std::size_t>(at)].id)value=p.initial;apply.setEnabled(infos[static_cast<std::size_t>(at)].automatable);}}
         gain.setText(juce::String(value,4),false);frequency.setText(juce::String(cab?n.ir.low_cut:eq?n.bands[band].frequency:n.frequency,2),false);
         q.setText(juce::String(cab?n.ir.high_cut:eq?n.bands[band].q:n.q,4),false);mix.setText(juce::String(n.ir.mix,3),false);

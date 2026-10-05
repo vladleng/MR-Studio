@@ -43,6 +43,9 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     check(d.app.services().projects->state().revision==eqRevision,"live EQ preview");editor->mouseUp(eqEvent({midX+30,173},0));render();
     check(d.chain(second).front().bands[2].gain>0&&d.app.services().projects->state().revision==eqRevision+1,"live EQ commit");
     d.app.stop();render();d.closeEditors();
+    auto effects=d.chain(second);mrs::NativeInsert legacy;legacy.id=mrs::new_id();legacy.kind=mrs::InsertKind::eq;legacy.gain=4;effects.push_back(legacy);d.applyChain(second,effects);d.openInsert(second,legacy.id);
+    auto* legacyEditor=d.windows.back()->getContentComponent();auto* valueEditor=dynamic_cast<juce::TextEditor*>(legacyEditor->findChildWithID("native-gain"));auto* applyButton=dynamic_cast<juce::TextButton*>(legacyEditor->findChildWithID("apply-native"));
+    check(valueEditor&&applyButton&&valueEditor->getText().getFloatValue()==4,"legacy EQ dB display");valueEditor->setText("6",false);applyButton->onClick();check(d.chain(second).back().gain==6,"legacy EQ dB commit");d.closeEditors();effects.pop_back();d.applyChain(second,effects);
     if(fixture!=juce::File()){
         d.catalog=mrs::processing::probe_vst3(std::string(fixture.getFullPathName().toUTF8()));check(!d.catalog.empty(),"fixture probe");
         juce::DragAndDropTarget::SourceDetails drop("vst3:0",d.browser.get(),{50,50});
