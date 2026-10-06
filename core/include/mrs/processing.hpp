@@ -208,6 +208,7 @@ public:
     std::uint32_t node_latency(const Id&) const;
     std::vector<ParameterInfo> parameter_infos(const Id&) const;
     bool open_editor(const Id&,void*,int&,int&);
+    void close_editor(const Id&) noexcept;
     void close_editors() noexcept;
     void restore_node(const NodeState&); // quiescent: retain processor/editor instance
     bool consume_edits() noexcept;

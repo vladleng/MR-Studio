@@ -30,14 +30,14 @@ public:
     }
     void edit(){setParamNormalized(100,0.75);if(componentHandler){componentHandler->beginEdit(100);componentHandler->performEdit(100,0.75);componentHandler->endEdit(100);}}
     class View final : public CPluginView{
-        Fixture* owner_;HWND child_{};
+        Fixture* owner_;HWND child_{};inline static int attachedViews_{};
         static LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){auto owner=reinterpret_cast<Fixture*>(GetWindowLongPtrW(hwnd,GWLP_USERDATA));if(msg==WM_COMMAND&&owner){if(LOWORD(wp)==2){owner->gain_=0.625f;owner->setParamNormalized(100,0.625);if(owner->componentHandler)owner->componentHandler->restartComponent(kParamValuesChanged);}else owner->edit();return 0;}return DefWindowProcW(hwnd,msg,wp,lp);}
     public:
         explicit View(Fixture* owner):owner_(owner){rect={0,0,320,120};owner_->addRef();}
         ~View() override{owner_->release();}
         tresult PLUGIN_API isPlatformTypeSupported(FIDString type) override{return std::strcmp(type,kPlatformTypeHWND)==0?kResultOk:kResultFalse;}
-        tresult PLUGIN_API attached(void* parent,FIDString type) override{if(isPlatformTypeSupported(type)!=kResultOk)return kResultFalse;WNDCLASSW cls{};cls.lpfnWndProc=proc;cls.hInstance=GetModuleHandleW(nullptr);cls.lpszClassName=L"MRSVstFixtureEditor";RegisterClassW(&cls);child_=CreateWindowW(cls.lpszClassName,L"",WS_CHILD|WS_VISIBLE,0,0,320,120,static_cast<HWND>(parent),nullptr,cls.hInstance,nullptr);SetWindowLongPtrW(child_,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(owner_));CreateWindowW(L"BUTTON",L"Set gain to 0.75",WS_CHILD|WS_VISIBLE,20,30,250,40,child_,reinterpret_cast<HMENU>(1),cls.hInstance,nullptr);return kResultOk;}
-        tresult PLUGIN_API removed() override{if(child_)DestroyWindow(child_);child_=nullptr;return kResultOk;}
+        tresult PLUGIN_API attached(void* parent,FIDString type) override{if(isPlatformTypeSupported(type)!=kResultOk)return kResultFalse;WNDCLASSW cls{};cls.lpfnWndProc=proc;cls.hInstance=GetModuleHandleW(nullptr);cls.lpszClassName=L"MRSVstFixtureEditor";RegisterClassW(&cls);child_=CreateWindowW(cls.lpszClassName,L"",WS_CHILD|WS_VISIBLE,0,0,320,120,static_cast<HWND>(parent),nullptr,cls.hInstance,nullptr);if(child_)++attachedViews_;SetWindowLongPtrW(child_,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(owner_));CreateWindowW(L"BUTTON",L"Set gain to 0.75",WS_CHILD|WS_VISIBLE,20,30,250,40,child_,reinterpret_cast<HMENU>(1),cls.hInstance,nullptr);return kResultOk;}
+        tresult PLUGIN_API removed() override{if(child_){DestroyWindow(child_);if(--attachedViews_==0)UnregisterClassW(L"MRSVstFixtureEditor",GetModuleHandleW(nullptr));}child_=nullptr;return kResultOk;}
     };
     IPlugView* PLUGIN_API createView(FIDString name) override{return std::strcmp(name,ViewType::kEditor)==0?new View(this):nullptr;}
 };

@@ -141,7 +141,8 @@ public:
     PluginPanel(Desktop& d,std::optional<mrs::Id> t,mrs::Id id):owner(d),target(t),slot(id),library(d,t,id){
         addAndMakeVisible(library);
         setTitle("Plugin editor and insert controls");setSize(760,520);
-        for(auto* button:{&save,&load,&bypass,&remove,&up,&down,&parameters}){addAndMakeVisible(button);button->setTitle(button->getButtonText());}
+        for(auto* button:{&save,&load,&bypass,&remove,&up,&down,&parameters,&pin}){addAndMakeVisible(button);button->setTitle(button->getButtonText());}
+        bypass.setComponentID("plugin-bypass");pin.setComponentID("plugin-pin");pin.setClickingTogglesState(true);pin.setTooltip("Keep this editor open when opening another plugin");pin.onClick=[this]{if(window)window->getProperties().set("mrs-pinned",pin.getToggleState());};
         save.onClick=[this]{owner.savePreset(target,slot);};load.onClick=[this]{owner.loadPreset(target,slot);};
         bypass.onClick=[this]{owner.run([&]{auto effects=owner.chain(target);auto at=find(effects);at->bypass=!at->bypass;owner.applyChain(target,effects);sync();});};
         auto structure=[this](int direction){owner.run([&]{auto effects=owner.chain(target);auto at=find(effects);auto pos=at-effects.begin();
@@ -159,8 +160,9 @@ public:
         if(!owner.app.open_plugin_editor(target,slot,host,nativeWidth,nativeHeight))return false;
         w.getProperties().set("mrs-native-host",static_cast<juce::int64>(reinterpret_cast<std::intptr_t>(host)));resizeWindow();startTimerHz(10);return true;
     }
-    void resizeWindow(){const auto scale=window->getPeer()->getPlatformScaleFactor();window->fitNativeEditor(juce::jmax(nativeWidth,juce::roundToInt(760*scale)),nativeHeight+juce::roundToInt(toolbar*scale));resized();}
-    void resized() override {library.setBounds(8,46,getWidth()-16,28);int x=8;for(auto* button:{&save,&load,&bypass,&up,&down,&remove,&parameters}){int width=button==&save||button==&load?124:button==&parameters?112:button==&up||button==&down?48:80;button->setBounds(x,8,width,30);x+=width+6;}
+    void reconnect(EditorWindow& w){try{if(!attach(w))throw std::runtime_error("Cannot reopen native plugin editor");sync();}catch(...){owner.app.close_plugin_editor(target,slot);retire();throw;}}
+    void resizeWindow(){const auto scale=window->getPeer()->getPlatformScaleFactor();window->fitNativeEditor(juce::jmax(nativeWidth,juce::roundToInt(850*scale)),nativeHeight+juce::roundToInt(toolbar*scale));resized();}
+    void resized() override {library.setBounds(8,46,getWidth()-16,28);int x=8;for(auto* button:{&save,&load,&bypass,&up,&down,&remove,&parameters,&pin}){int width=button==&save||button==&load?124:button==&parameters?112:button==&up||button==&down?48:80;button->setBounds(x,8,width,30);x+=width+6;}
         if(host&&window&&window->getPeer()){auto scale=window->getPeer()->getPlatformScaleFactor();SetWindowPos(host,nullptr,0,juce::roundToInt(toolbar*scale),nativeWidth,nativeHeight,SWP_NOZORDER|SWP_NOACTIVATE);}
     }
     void paint(juce::Graphics& g) override {g.fillAll(juce::Colour(0xff31363b));}
@@ -168,14 +170,15 @@ private:
     void timerCallback() override {if(!host||!IsWindow(host)||!window||!window->isVisible())return;RECT rect{};if(GetClientRect(host,&rect)&&rect.right>0&&rect.bottom>0&&(rect.right!=nativeWidth||rect.bottom!=nativeHeight)){nativeWidth=rect.right;nativeHeight=rect.bottom;resizeWindow();}}
     Desktop& owner;std::optional<mrs::Id> target;mrs::Id slot;HWND host{};EditorWindow* window{};int nativeWidth{640},nativeHeight{480};static constexpr int toolbar=86;
     PresetSelector library;
-    juce::TextButton save{"Save preset..."},load{"Load preset..."},bypass{"Bypass"},up{"Up"},down{"Down"},remove{"Remove"},parameters{"Parameters"};
+    juce::TextButton save{"Save preset..."},load{"Load preset..."},bypass{"Bypass"},up{"Up"},down{"Down"},remove{"Remove"},parameters{"Parameters"},pin{"Pin"};
 };
+void reconnectPluginWindow(EditorWindow& window){if(auto* content=dynamic_cast<PluginPanel*>(window.getContentComponent()))content->reconnect(window);}
 void retirePluginWindow(EditorWindow& window){if(auto* content=dynamic_cast<PluginPanel*>(window.getContentComponent()))content->retire();}
 void Desktop::openInsert(std::optional<mrs::Id> target,mrs::Id slot){run([&]{auto effects=chain(target);auto found=std::find_if(effects.begin(),effects.end(),[&](const auto& n){return n.id==slot;});if(found==effects.end())return;
     const auto key=label((target?target->value:"master")+":"+slot.value);for(auto& w:windows)if(w->isVisible()&&w->getProperties()["mrs-slot"].toString()==key){w->toFront(true);return;}
-    closeEditors();editorGeneration=app.insert_generation();if(found->kind==mrs::InsertKind::vst3){auto* content=new PluginPanel(*this,target,slot);auto window=std::make_unique<EditorWindow>(label(found->plugin_name),content,false);window->setLookAndFeel(&theme);
-        bool attached=false;try{attached=content->attach(*window);}catch(...){app.close_plugin_editors();content->retire();throw;}
-        if(attached){window->setVisible(true);window->getProperties().set("mrs-slot",key);window->getProperties().set("mrs-native-editor",true);window->onClose=[this,content]{app.close_plugin_editors();content->retire();};windows.push_back(std::move(window));return;}}
+    closeUnpinnedEditors();editorGeneration=app.insert_generation();if(found->kind==mrs::InsertKind::vst3){auto* content=new PluginPanel(*this,target,slot);auto window=std::make_unique<EditorWindow>(label(found->plugin_name),content,false);window->setLookAndFeel(&theme);
+        bool attached=false;try{attached=content->attach(*window);}catch(...){app.close_plugin_editor(target,slot);content->retire();throw;}
+        if(attached){if(getPeer())SetWindowLongPtrW(static_cast<HWND>(window->getPeer()->getNativeHandle()),GWLP_HWNDPARENT,reinterpret_cast<LONG_PTR>(getPeer()->getNativeHandle()));window->setVisible(true);window->getProperties().set("mrs-slot",key);window->getProperties().set("mrs-native-editor",true);window->onClose=[this,content,target,slot]{app.close_plugin_editor(target,slot);content->retire();};windows.push_back(std::move(window));return;}}
     auto fx=std::make_unique<EditorWindow>("Insert editor",new FxPanel(*this,target,slot));fx->setLookAndFeel(&theme);fx->getProperties().set("mrs-slot",key);windows.push_back(std::move(fx));
 });}
 

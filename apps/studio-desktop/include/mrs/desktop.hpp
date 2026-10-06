@@ -109,6 +109,7 @@ public:
     std::uint64_t insert_generation() const {return insert_generation_;}
     bool open_plugin_editor(std::optional<Id>,const Id&,void*,int&,int&);
     void close_plugin_editors();
+    void close_plugin_editor(std::optional<Id>,const Id&);
     bool plugin_failed() const;
     std::uint32_t plugin_latency(std::optional<Id>,const Id&) const;
     std::vector<processing::ParameterInfo> plugin_parameters(std::optional<Id>,const Id&) const;

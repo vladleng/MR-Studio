@@ -55,6 +55,7 @@ public:
     bool shortcutAllowedFor(juce::Component*) const;
     ViewSettings view;
     void closeEditors();
+    void closeUnpinnedEditors();
     void audioSettings();
     void insertMenu(std::optional<mrs::Id>);
     void openInsert(std::optional<mrs::Id>,mrs::Id);
@@ -231,4 +232,5 @@ void j3Smoke(Desktop&);
 void j3AudioSmoke(Desktop&);
 void thuDiagnostic(const juce::File&);
 void retirePluginWindow(EditorWindow&);
+void reconnectPluginWindow(EditorWindow&);
 }

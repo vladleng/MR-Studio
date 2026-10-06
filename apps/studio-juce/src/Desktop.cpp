@@ -462,7 +462,25 @@ void Desktop::closeEditors(){app.close_plugin_editors();for(auto& w:windows){ret
     // Retire the native parent HWND while its plugin module is still alive.
     // Keep the C++ window until the next timer turn so an editor callback can return safely.
     if(static_cast<bool>(w->getProperties()["mrs-native-editor"]))w->removeFromDesktop();}}
-void Desktop::applyChain(std::optional<mrs::Id> target,std::vector<mrs::NativeInsert> effects){app.set_inserts(target,std::move(effects));editorGeneration=app.insert_generation();refresh(true);}
+void Desktop::closeUnpinnedEditors(){for(auto& w:windows)if(w->isVisible()&&!static_cast<bool>(w->getProperties()["mrs-pinned"]))w->closeButtonPressed();}
+void Desktop::applyChain(std::optional<mrs::Id> target,std::vector<mrs::NativeInsert> effects){
+    const auto before=chain(target);
+    bool bypassChanged=before.size()==effects.size();
+    bool changed=false;
+    for(std::size_t i=0;i<before.size()&&bypassChanged;++i){auto a=before[i],b=effects[i];changed|=a.kind==mrs::InsertKind::vst3&&a.bypass!=b.bypass;a.bypass=b.bypass;bypassChanged=a==b;}
+    bypassChanged&=changed;
+    // Bypass can change graph PDC. Detach every view before old processors die,
+    // then attach the new processors to the same visible editor windows.
+    std::vector<EditorWindow*> views;
+    if(bypassChanged){if(app.engine()->state().playback==mrs::PlaybackState::playing||app.recording())throw std::runtime_error("Pause/Stop before changing plugin bypass");
+        for(auto& w:windows)if(w->isVisible()&&static_cast<bool>(w->getProperties()["mrs-native-editor"]))views.push_back(w.get());
+        app.close_plugin_editors();for(auto* w:views)retirePluginWindow(*w);
+    }
+    try{app.set_inserts(target,std::move(effects));}catch(...){for(auto* w:views){try{reconnectPluginWindow(*w);}catch(...){w->setVisible(false);}}throw;}
+    editorGeneration=app.insert_generation();
+    for(auto* w:views){try{reconnectPluginWindow(*w);}catch(...){w->setVisible(false);throw;}}
+    refresh(true);
+}
 void Desktop::addPlugin(std::optional<mrs::Id> target,std::size_t i){run([&]{if(i>=catalog.size())throw std::runtime_error("Unknown browser plugin");closeEditors();auto effects=chain(target);const auto& p=catalog[i];mrs::NativeInsert n;n.id=mrs::new_id();n.kind=mrs::InsertKind::vst3;n.plugin_name=p.name;n.plugin_path=p.path;n.class_id=p.class_id;effects.push_back(n);applyChain(target,std::move(effects));openInsert(target,n.id);});}
 void Desktop::routeMenu(mrs::Id id){juce::PopupMenu m;m.addItem(1,"Master");auto p=project();for(std::size_t i=0;i<p->tracks.size();++i)if(p->tracks[i].kind==mrs::TrackKind::bus&&p->tracks[i].id!=id)m.addItem(10+static_cast<int>(i),label(p->tracks[i].name));m.addItem(2,"Hardware outputs...");
     juce::Component::SafePointer<Desktop> safe(this);m.showMenuAsync(popup(this),[safe,id,p](int n){if(!safe||!n)return;safe->run([&]{if(n==2)safe->textDialog("Hardware outputs (1,2...)","1,2",[safe,id](auto s){if(safe)safe->app.set_hardware_output(id,mrs::desktop::parse_outputs(s.toStdString()));});else safe->app.set_track_output(id,n==1?std::optional<mrs::Id>{}:p->tracks[static_cast<std::size_t>(n-10)].id);});});}

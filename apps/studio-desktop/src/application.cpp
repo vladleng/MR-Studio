@@ -444,6 +444,7 @@ void Application::load_insert_preset(std::optional<Id> track,NativeInsert preset
 }
 bool Application::open_plugin_editor(std::optional<Id> track,const Id& slot,void* parent,int& w,int& h){auto it=insert_runtime_.find(track?track->value:std::string{});return it!=insert_runtime_.end() && it->second.graph && it->second.graph->open_editor(slot,parent,w,h);}
 void Application::close_plugin_editors(){for(auto& [key,r]:insert_runtime_){(void)key;if(r.graph)r.graph->close_editors();}}
+void Application::close_plugin_editor(std::optional<Id> track,const Id& slot){auto it=insert_runtime_.find(track?track->value:std::string{});if(it!=insert_runtime_.end()&&it->second.graph)it->second.graph->close_editor(slot);}
 std::uint32_t Application::plugin_latency(std::optional<Id> track,const Id& slot) const{auto it=insert_runtime_.find(track?track->value:std::string{});return it==insert_runtime_.end()||!it->second.graph?0:it->second.graph->node_latency(slot);}
 bool Application::plugin_failed() const{for(const auto& [key,r]:insert_runtime_){(void)key;if(r.graph && r.graph->failed())return true;}return false;}
 std::vector<processing::ParameterInfo> Application::plugin_parameters(std::optional<Id> track,const Id& slot) const{

@@ -78,6 +78,33 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
         pluginWindow->getPeer()->setCustomPlatformScaleFactor({});pluginWindow->fitNativeEditor(320,120);
         const auto count=d.windows.size();d.openInsert(second,plugin.id);check(d.windows.size()==count,"editor repeated-click reuse");
         d.closeEditors();
+        auto fixStage=[](const char* text){juce::File::getCurrentWorkingDirectory().getChildFile("fix1-editor-stage.txt").replaceWithText(text);};fixStage("prepare second plugin");
+        auto peerPlugin=plugin;peerPlugin.id=mrs::new_id();d.applyChain(std::nullopt,{peerPlugin});
+        if(!d.getPeer())d.addToDesktop(0);
+        fixStage("open pin");
+        d.openInsert(second,plugin.id);auto* pinned=d.windows.back().get();
+        auto button=[&](EditorWindow* w,const juce::String& id){for(int i=0;i<w->getContentComponent()->getNumChildComponents();++i)if(auto* b=dynamic_cast<juce::TextButton*>(w->getContentComponent()->getChildComponent(i));b&&b->getComponentID()==id)return b;return static_cast<juce::TextButton*>(nullptr);};
+        fixStage("pin button");
+        check(GetWindow(static_cast<HWND>(pinned->getPeer()->getNativeHandle()),GW_OWNER)==static_cast<HWND>(d.getPeer()->getNativeHandle()),"plugin editor is owned by MR Studio HWND");
+        auto* pin=button(pinned,"plugin-pin");check(pin!=nullptr,"native editor exposes Pin");pin->setToggleState(true,juce::dontSendNotification);pin->onClick();
+        {auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-plugin-pin-preview.png").createOutputStream();if(stream){stream->setPosition(0);stream->truncate();juce::PNGImageFormat().writeImageToStream(pinned->getContentComponent()->createComponentSnapshot(pinned->getContentComponent()->getLocalBounds(),true,1.f,juce::SoftwareImageType{}),*stream);}}
+        fixStage("other editor");
+        d.openInsert(std::nullopt,peerPlugin.id);auto* other=d.windows.back().get();
+        auto hostOf=[](EditorWindow* w){return reinterpret_cast<HWND>(static_cast<std::intptr_t>(static_cast<juce::int64>(w->getProperties()["mrs-native-host"])));};
+        check(pinned->isVisible()&&other->isVisible()&&IsWindow(GetWindow(hostOf(pinned),GW_CHILD))&&IsWindow(GetWindow(hostOf(other),GW_CHILD)),"Pin permits two independent native editors");
+        fixStage("bypass loops");
+        for(int i=0;i<4;++i){const bool bypassBefore=d.chain(second).back().bypass;button(pinned,"plugin-bypass")->onClick();check(d.chain(second).back().bypass!=bypassBefore,"bypass button commits project state");render();pump();
+            check(d.message.isEmpty()&&pinned->isVisible()&&other->isVisible()&&IsWindow(GetWindow(hostOf(pinned),GW_CHILD))&&IsWindow(GetWindow(hostOf(other),GW_CHILD)),"bypass reconnects both native views without white host");}
+        fixStage("close other");
+        other->closeButtonPressed();check(pinned->isVisible()&&IsWindow(GetWindow(hostOf(pinned),GW_CHILD)),"closing one editor retains pinned native view");
+        fixStage("hover");
+        SendMessageW(hostOf(pinned),WM_MOUSEMOVE,0,MAKELPARAM(5,5));SendMessageW(hostOf(pinned),WM_MOUSELEAVE,0,0);d.toFront(false);pump();
+        check(pinned->isVisible()&&IsWindow(GetWindow(hostOf(pinned),GW_CHILD)),"hover and focus changes retain editor");
+        fixStage("unpin");
+        pin->setToggleState(false,juce::dontSendNotification);pin->onClick();d.openInsert(std::nullopt,peerPlugin.id);
+        check(!pinned->isVisible(),"unpin restores close on opening another plugin");
+        fixStage("cleanup");
+        d.closeEditors();d.applyChain(std::nullopt,{});
         auto savedPreset=d.app.capture_insert(second,plugin.id);d.app.load_insert_preset(second,savedPreset);d.openInsert(second,plugin.id);
         auto* presetWindow=d.windows.back().get();auto host=reinterpret_cast<HWND>(static_cast<std::intptr_t>(static_cast<juce::int64>(presetWindow->getProperties()["mrs-native-host"])));
         auto child=GetWindow(host,GW_CHILD);check(child!=nullptr,"preset fixture native child");

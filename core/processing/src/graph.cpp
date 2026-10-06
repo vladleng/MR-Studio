@@ -342,6 +342,7 @@ void PreparedGraph::restore_node(const NodeState& state) {
 }
 bool PreparedGraph::open_editor(const Id& id,void* parent,int& w,int& h){const auto it=impl_->index.find(id.value);if(it==impl_->index.end())return false;return impl_->nodes[it->second].processor->open_editor(parent,w,h);}
 void PreparedGraph::close_editors() noexcept {for(auto& n:impl_->nodes)n.processor->close_editor();}
+void PreparedGraph::close_editor(const Id& id) noexcept {const auto it=impl_->index.find(id.value);if(it!=impl_->index.end())impl_->nodes[it->second].processor->close_editor();}
 bool PreparedGraph::consume_edits() noexcept{bool any=false;for(auto& n:impl_->nodes)any=n.processor->edited()||any;return any;}
 bool PreparedGraph::failed() const noexcept{for(const auto& n:impl_->nodes)if(n.processor->failed())return true;return false;}
 bool PreparedGraph::anticipation_safe() const noexcept {
