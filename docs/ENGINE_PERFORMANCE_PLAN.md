@@ -201,3 +201,61 @@ transport/parameter changes, with a small pause in the multitrack material.
 Cause/timing of those events is unproven. No full #16/3e2/3e3 acceptance inferred.
 See [current handoff](PROJECT_CONTEXT.md) for the next-chat entry point.
 
+
+
+## P4 extension: single-track instrument parallelism
+
+Decision recorded 2026-10-06 and tracked in #54.
+
+P1 already parallelizes independent graph nodes/channels, but one heavy stateful VST3
+instrument instance remains one scheduler node. The host must not assume it can call one
+arbitrary plugin instance concurrently from multiple workers.
+
+P4 therefore includes a generic **Instrument Parallelism / multi-instance VSTi sharding**
+capability for cases where one polyphonic instrument is the critical path:
+
+```text
+Logical Instrument Track
+          |
+     MIDI dispatcher
+      /   |   |   \
+    VSTi VSTi VSTi VSTi
+     W1   W2   W3   W4
+      \   |   |   /
+   deterministic sum
+          |
+ common track post-FX
+          |
+      buses/master
+```
+
+The user sees one logical track. The engine may prepare 2/4 synchronized hidden instances
+of the same instrument, assign note ownership deterministically, process the instances on
+existing RT workers, sum their audio into preallocated buffers, then run the ordinary
+post-instrument track chain exactly once.
+
+Required correctness:
+- stable note-on -> note-off ownership, including repeated equal pitches;
+- sustain and other global controller handling that remains coherent across shards;
+- coherent pitch bend/modulation/expression/aftertouch policy;
+- identical initial plugin state and synchronized parameter/automation changes;
+- deterministic summing before shared post-instrument FX;
+- unchanged routing, PDC, buses, sends, Master and raw-capture contracts;
+- safe quiesce/rebuild/state/device transitions;
+- no RT allocation, file/network/UI work, blocking mutex or concurrent call into the same instance.
+
+This is **capability-gated and opt-in first**. Mono/legato/portamento instruments, internal
+sequencers/arpeggiators, round-robin/global voice stealing, shared/random state, global
+envelopes/effects or other cross-voice behavior can make multi-instance output differ from
+one instance. Always retain a Single Instance fallback. Auto mode is future work and requires
+profiling plus equivalence evidence.
+
+P4 measurement must include Single Instance vs Parallel x2/x4 at 48 kHz / 128 frames first,
+then other supported buffers, with worker count, callback p50/p95/p99/max, Late/XR/D,
+per-instance timings, controller/sustain/repeated-note stress, state save/reload and common
+post-FX-once verification.
+
+Omnisphere piano/high-polyphony at 48 kHz / 128 frames is the first representative hardware
+acceptance case because the user observed intermittent clicks in MR Studio where Fender
+Studio Pro remained stable. It is a regression/benchmark case, never a vendor-specific
+scheduler rule.
