@@ -288,3 +288,23 @@ monitoring toggles preserve ownership and fixed PDC. Merge edges retain the exis
 compensation, including direct hardware alignment. This preparation does not yet
 activate mixed rendering or change the accepted P2 whole-graph fallback.
 See [P3 implementation contract and remaining work](ENGINE_PERFORMANCE_PLAN.md).
+
+## 0.1t / P3 mixed rendering — 2026-10-06
+
+The next implementation separates eligible native playback channels from live
+dependencies using disjoint DSP/PDC/source-cursor owners and a bounded PCM queue.
+Shared buses, unsupported processors, legacy unassigned playback and Master remain
+on callback-sized processing. Raw capture is before effects/PDC. Empty/stale
+playback slots silence only their contribution while live DSP/capture/device time
+continue. Control/parameter generation plus monotonic render sequence prevents
+stale short-loop reuse; producer history rebases can cut playback tails.
+Monitor toggles preserve ownership; structural Arm/route changes retain stopped
+graph preparation. No effect is disabled; fixed plugin/PDC latency remains.
+Workers >= 2 is required for mixed mode, within configured active DSP capacity;
+Off/Workers 1 retain direct mixed processing. Unsupported VST3 remains direct;
+eligible independent upstream native channels may anticipate into its shared path.
+Footer `mixed` and `Mon` distinguish mixed mode and estimated driver I/O + fixed PDC
+monitoring delay. No additional Process Buffer hold is introduced on live input.
+Full local Release and 109/109 CTest passed (58.28 s), including seven new mixed
+suites, existing P1/P2, VST3 fixture, persistence and GUI checks. Hardware acceptance,
+P4/#16 and isolation remain open. [Ownership, transitions and limits](ENGINE_MIXED_PROCESSING.md).
