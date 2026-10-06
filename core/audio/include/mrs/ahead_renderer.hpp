@@ -2,8 +2,9 @@
 #include <mrs/audio.hpp>
 #include <thread>
 namespace mrs::audio {
-// Optional single-owner playback producer. Graph eligibility is conservative;
-// live/unsupported graphs retain the ordinary callback path.
+class MixedRenderer;
+// Optional whole-graph playback producer or disjoint mixed channel owners.
+// Live/unsupported dependencies always retain device processing.
 class AheadRenderer {
 public:
     AheadRenderer(std::shared_ptr<AudioEngine>,std::uint32_t device_frames,std::uint32_t process_frames);
@@ -27,6 +28,7 @@ private:
         std::uint64_t control_serial{},mix_serial{};
     };
     std::shared_ptr<AudioEngine> engine_;
+    std::unique_ptr<MixedRenderer> mixed_;
     std::unique_ptr<Signals> signals_;
     std::vector<Packet> packets_;
     std::array<Mailbox,3> delivered_;

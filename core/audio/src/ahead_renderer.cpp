@@ -1,4 +1,5 @@
 #include <mrs/ahead_renderer.hpp>
+#include <mrs/mixed_renderer.hpp>
 #include <algorithm>
 #include <chrono>
 #include <semaphore>
@@ -42,9 +43,20 @@ AheadRenderer::AheadRenderer(std::shared_ptr<AudioEngine> engine,std::uint32_t d
 }
 AheadRenderer::~AheadRenderer(){stop();}
 void AheadRenderer::start() {
-    if(producer_.joinable())throw std::logic_error("process producer already running");
+    if(producer_.joinable()||(mixed_&&mixed_->active()))throw std::logic_error("process producer already running");
+    mixed_.reset(); // retire an inactive domain/queue before preparing another mode
+    while(signals_->ready.wait_for(0)){}
     active_=process_frames_&&engine_->anticipation_safe();engine_->anticipation_active_=active_;
-    if(!active_)return;
+    if(!active_){
+        if(process_frames_){
+            packets_.clear();packets_.shrink_to_fit();mixes_.clear();mixes_.shrink_to_fit();
+            engine_->ahead_memory_bytes_=sizeof(*this)+sizeof(Signals);
+            mixed_=std::make_unique<MixedRenderer>(engine_,device_frames_,process_frames_);active_=mixed_->start();}
+        return;
+    }
+    const auto slots=(process_frames_+device_frames_-1)/device_frames_+1;
+    packets_.resize(slots);for(auto& packet:packets_)packet.audio.resize(static_cast<std::size_t>(device_frames_)*engine_->config().output_channels);mixes_.resize(16);
+    engine_->ahead_memory_bytes_=sizeof(*this)+sizeof(Signals)+16*sizeof(MixerUpdate)+static_cast<std::uint64_t>(slots)*(sizeof(Packet)+static_cast<std::uint64_t>(device_frames_)*engine_->config().output_channels*sizeof(float));
     consumer_head_={engine_->state(),engine_->mix_head()};delivered_[0].value=consumer_head_;latest_=0;
     read_=0;write_=0;partial_=0;quit_=false;control_count_=mix_count_=0;control_serial_=mix_serial_=0;engine_->speculative_=true;engine_->ahead_owner_=this;
     try{producer_=std::thread([this]{run();});}
@@ -52,6 +64,7 @@ void AheadRenderer::start() {
     if(!signals_->ready.wait_for(1000)){stop();throw std::runtime_error("process buffer priming timed out");}
 }
 void AheadRenderer::stop() noexcept {
+    if(mixed_&&mixed_->active()){mixed_->stop();active_=false;return;}
     quit_=true;signals_->wake.post();if(producer_.joinable())producer_.join();
     if(active_){engine_->quiesce();Delivered head;if(read_head(head)){engine_->rebase_head(head.head);engine_->restore_mix(head.mix);replay(head);}engine_->speculative_=false;engine_->ahead_owner_=nullptr;}
     active_=false;engine_->anticipation_active_=false;engine_->ahead_buffered_frames_=0;
@@ -122,6 +135,7 @@ void AheadRenderer::run() noexcept {
 #endif
 }
 void AheadRenderer::process(const float* input,float* output,std::uint32_t frames,std::uint32_t flags) noexcept {
+    if(mixed_&&mixed_->active()){engine_->process(input,output,frames,flags);return;}
     if(!active_){engine_->process(input,output,frames,flags);return;}
     ++engine_->callbacks_;const auto channels=engine_->config().output_channels;
     if(!output||!frames||frames>engine_->config().max_block){++engine_->invalid_blocks_;if(output)std::fill_n(output,static_cast<std::size_t>(frames)*channels,0.f);return;}

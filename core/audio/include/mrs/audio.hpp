@@ -45,6 +45,7 @@ class ReadAhead;
 class Recorder;
 class ChannelWorkers;
 class AheadRenderer;
+class MixedRenderer;
 struct AudioData {
     std::uint32_t sample_rate{48000};
     std::uint32_t channels{2};
@@ -95,7 +96,8 @@ struct RenderConfig {
     std::uint32_t worker_wait_ms{20}; // bounded scheduler watchdog, separate from buffer deadline
     bool adaptive_parallel{true}; // skip dispatch if measured savings do not cover calibrated wake cost
 };
-// Prepared P3 candidate ownership; it does not enable mixed rendering yet.
+// Prepared P3 candidate ownership; runtime may retain additional device nodes
+// (in particular Master), and requires supported capabilities and worker budget.
 // Mutable plugin/PDC instances belong to exactly one domain. Never use this
 // snapshot after external scheduling capabilities change without revalidation.
 struct ProcessingDomains {
@@ -128,6 +130,8 @@ struct Metrics {
     std::uint64_t scheduler_overhead_ns{};
     bool processing_fault{}; // silence until stopped/reprepared; never concurrent serial retry
     bool anticipation_active{};
+    bool mixed_anticipation{},monitoring_available{};
+    std::uint64_t monitoring_compensation_frames{};
     std::uint32_t process_buffer_frames{}, ahead_buffered_frames{};
     std::uint64_t ahead_underruns{}, ahead_invalidations{}, ahead_max_process_ns{};
     std::uint64_t ahead_memory_bytes{}; // bounded packet/mailbox/journal storage, excludes DSP/assets
@@ -193,6 +197,16 @@ public:
     const ProcessingDomains& processing_domains() const {return domains_;} // candidate plan, control thread
 private:
     friend class AheadRenderer;
+    friend class MixedRenderer;
+    MixedRenderer* mixed_owner_{}; // immutable while device runs
+    std::array<bool,max_mixer_tracks> domain_owned_{};
+    std::array<std::size_t,max_mixer_tracks> domain_edges_{};
+    const float* domain_input_{};
+    float* domain_output_{};
+    std::uint32_t domain_stride_{}, job_base_{};
+    std::array<StereoPeak,max_mixer_tracks> domain_meters_{};
+    void consume_controls() noexcept;
+    bool owns_voice(const Voice& v) const noexcept {return v.mixer_track==no_mixer_track||domain_owned_[v.mixer_track];}
     bool speculative_{}; // changed only while both device and producer are stopped
     AheadRenderer* ahead_owner_{};
     void apply_control(const Control&) noexcept;
@@ -210,6 +224,7 @@ private:
     void restore_mix(const MixHead&) noexcept;
     std::atomic<std::uint64_t> control_revision_{};
     std::atomic<bool> anticipation_active_{};
+    std::atomic<bool> mixed_anticipation_{};
     std::atomic<std::uint32_t> process_buffer_frames_{}, ahead_buffered_frames_{};
     std::atomic<std::uint64_t> ahead_underruns_{},ahead_invalidations_{},ahead_max_process_ns_{};
     std::atomic<std::uint64_t> ahead_memory_bytes_{};

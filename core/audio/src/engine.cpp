@@ -5,6 +5,7 @@
 #include <mrs/no_denormals.hpp>
 #include <mrs/channel_workers.hpp>
 #include <mrs/ahead_renderer.hpp>
+#include <mrs/mixed_renderer.hpp>
 #include <algorithm>
 #include <cmath>
 #include <chrono>
@@ -43,18 +44,20 @@ void AudioEngine::channel_job(void* context,std::uint32_t index) noexcept {
 }
 void AudioEngine::process_channel(std::size_t t) noexcept {
     const auto started=measure_channels_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
-    if(!graph_.inserts.empty()&&graph_.inserts[t])graph_.inserts[t]->process(track_block_[t].data(),job_frames_,job_position_,job_playing_,job_tempo_,job_quarter_);
-    channel_peaks_[t]={};
+    const bool owned=domain_owned_[t];
+    if(owned&&!graph_.inserts.empty()&&graph_.inserts[t])graph_.inserts[t]->process(track_block_[t].data(),job_frames_,job_position_,job_playing_,job_tempo_,job_quarter_);
+    channel_peaks_[t]=owned?std::array<float,2>{}:std::array<float,2>{domain_meters_[t].left,domain_meters_[t].right};
     for(std::uint32_t local=0;local<job_frames_;++local) {
         const auto at=static_cast<std::size_t>(local)*config_.output_channels;
         for(std::uint32_t c=0;c<config_.output_channels;++c) {
             const auto sample=track_block_[t][at+c]*mix_gain_[t][c%2];
-            route_contributions_[t][at+c]=route_delays_[t].sample(sample,c);
+            const auto boundary=[&](std::size_t edge){return domain_input_?domain_input_[edge*static_cast<std::size_t>(domain_stride_)*config_.output_channels+static_cast<std::size_t>(job_base_+local)*config_.output_channels+c]:0.f;};
+            route_contributions_[t][at+c]=owned?route_delays_[t].sample(sample,c):boundary(domain_edges_[t]);
             for(std::size_t j=0;j<graph_.sends[t].size();++j) {
                 const auto& send=graph_.sends[t][j];
-                send_contributions_[t][j][at+c]=send_delays_[t][j].sample((send.pre_fader?track_block_[t][at+c]*gate_[t]:sample)*send_gain_[t][j],c);
+                send_contributions_[t][j][at+c]=owned?send_delays_[t][j].sample((send.pre_fader?track_block_[t][at+c]*gate_[t]:sample)*send_gain_[t][j],c):boundary(domain_edges_[t]+1+j);
             }
-            if(c<2)channel_peaks_[t][c]=std::max(channel_peaks_[t][c],std::abs(sample));
+            if(owned&&c<2)channel_peaks_[t][c]=std::max(channel_peaks_[t][c],std::abs(sample));
         }
         if(local<job_ramp_) {
             for(std::size_t c=0;c<2;++c)mix_gain_[t][c]+=mix_step_[t][c];
@@ -66,7 +69,7 @@ void AudioEngine::process_channel(std::size_t t) noexcept {
     if(measure_channels_){const auto elapsed=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-started).count())/job_frames_;
         channel_cost_ns_[t]=channel_cost_ns_[t]?(channel_cost_ns_[t]*3+elapsed)/4:elapsed;}
 }
-void AudioEngine::reset_compensation() noexcept {legacy_delay_.reset();for(auto& delay:route_delays_)delay.reset();for(auto& row:send_delays_)for(auto& delay:row)delay.reset();}
+void AudioEngine::reset_compensation() noexcept {legacy_delay_.reset();for(std::size_t t=0;t<route_delays_.size();++t)if(domain_owned_[t]){route_delays_[t].reset();for(auto& delay:send_delays_[t])delay.reset();}}
 ProcessingDomains AudioEngine::compile_domains(const RenderGraph& graph,
     const std::vector<std::size_t>& order, const CompensationReport& compensation,
     const std::vector<std::uint64_t>& arrivals) const {
@@ -128,7 +131,7 @@ ProcessingDomains AudioEngine::compile_domains(const RenderGraph& graph,
     return plan;
 }
 void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState initial) {
-    if(speculative_)throw std::logic_error("stop the process producer before preparing audio");
+    if(speculative_||mixed_owner_)throw std::logic_error("stop the process producer before preparing audio");
     // Caller has stopped the device; this also joins a timed-out worker batch.
     workers_.reset();
     if ((initial.playback != PlaybackState::stopped && initial.playback != PlaybackState::paused) ||
@@ -310,6 +313,7 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     master_envelope_.resize(config.max_block);
     direct_output_.resize(static_cast<std::size_t>(config.max_block)*config.output_channels);
     graph_ = std::move(graph);
+    domain_owned_.fill(true);domain_input_=nullptr;domain_output_=nullptr;domain_meters_={};
     insert_block_size_=block_size;
     track_block_.assign(graph_.mixer.size(),std::vector<float>(static_cast<std::size_t>(insert_block_size_)*config.output_channels));
     route_contributions_=track_block_;send_contributions_.clear();send_contributions_.resize(graph_.mixer.size());
@@ -465,7 +469,7 @@ std::uint64_t AudioEngine::control_revision() const noexcept {
 void AudioEngine::rebase_head(const RealtimeState& head) noexcept {
     rt_=head;pending_seek_.reset();pending_play_anchor_=false;reset_compensation();
     if(graph_.processors)graph_.processors->reset_anticipation();if(graph_.master_inserts)graph_.master_inserts->reset_anticipation();
-    for(const auto& chain:graph_.inserts)if(chain)chain->reset_anticipation();
+    for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.inserts[t])graph_.inserts[t]->reset_anticipation();
 }
 AudioEngine::MixHead AudioEngine::mix_head() const noexcept {
     return {mix_gain_,mix_target_,mix_step_,send_gain_,send_target_,send_step_,gate_,gate_target_,gate_step_,master_gain_,master_target_,master_step_,mix_ramp_};
@@ -485,7 +489,7 @@ void AudioEngine::apply_control(const Control& control) noexcept {
             reset_compensation();
             pending_seek_.reset(); pending_play_anchor_=false; rt_.playback = PlaybackState::stopped; rt_.sample = rt_.play_start;
             if (graph_.processors) graph_.processors->panic();
-            for (const auto& chain : graph_.inserts) if (chain) chain->panic();
+            for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.inserts[t])graph_.inserts[t]->panic();
             if (graph_.master_inserts) graph_.master_inserts->panic();
             break;
         case ControlKind::prepared_seek:
@@ -499,7 +503,7 @@ void AudioEngine::apply_control(const Control& control) noexcept {
             if (control.a >= 0 && control.a <= max_sample) {
                 rt_.sample = control.a;
                 if (graph_.processors) graph_.processors->panic();
-                for (const auto& chain : graph_.inserts) if (chain) chain->panic();
+                for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.inserts[t])graph_.inserts[t]->panic();
                 if (graph_.master_inserts) graph_.master_inserts->panic();
             }
             break;
@@ -511,6 +515,10 @@ void AudioEngine::apply_control(const Control& control) noexcept {
             break;
         }
  }
+void AudioEngine::consume_controls() noexcept {
+    Control control;
+    for(int i=0;i<63&&controls_.pop(control);++i){if(ahead_owner_)ahead_owner_->record_control(control);apply_control(control);if(mixed_owner_)++control_revision_;}
+}
 void AudioEngine::process(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags) noexcept {
     const ScopedNoDenormals no_denormals;
     if(!speculative_)callbacks_.fetch_add(1, std::memory_order_relaxed);
@@ -522,6 +530,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         return;
     }
     if(processing_fault_.load(std::memory_order_relaxed)) {
+        if(mixed_owner_){rt_.playback=PlaybackState::paused;publish();}
         std::fill_n(output,static_cast<std::size_t>(frames)*config_.output_channels,0.f);
         for(const auto& recorder:graph_.recordings)recorder->input_dropout();
         return;
@@ -530,33 +539,34 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     auto minimum = min_frames_.load(std::memory_order_relaxed);
     if (!speculative_ && (minimum == 0 || frames < minimum)) min_frames_.store(frames, std::memory_order_relaxed);
     if (!speculative_ && frames > max_frames_.load(std::memory_order_relaxed)) max_frames_.store(frames, std::memory_order_relaxed);
-    Control control;
-    for(int i=0;i<63&&controls_.pop(control);++i){if(ahead_owner_)ahead_owner_->record_control(control);apply_control(control);}
+    consume_controls();
     // A later control prime can replace an earlier queued seek's warm target.
     // Pin/verify the candidate before changing RT position. If unavailable, keep
     // rendering the current head and retry next block; callback never waits.
     bool seek_pinned = false;
     if (pending_seek_) {
         bool ready = true;
-        for (auto& voice : graph_.voices) if (voice.stream) {
+        for (auto& voice : graph_.voices) if (owns_voice(voice)&&voice.stream) {
             const auto source = voice.source_offset+std::clamp(*pending_seek_-voice.start,Sample{0},voice.length-1);
             if (!voice.stream->try_begin(source,frames)) ready = false;
         }
         if (ready) {
             reset_compensation();rt_.sample = *pending_seek_; pending_seek_.reset(); seek_pinned = true;
+            if(mixed_owner_)++control_revision_;
             if (pending_play_anchor_) { rt_.play_start=rt_.sample; pending_play_anchor_=false; }
-            for (auto& voice : graph_.voices) if (voice.stream)
+            for (auto& voice : graph_.voices) if (owns_voice(voice)&&voice.stream)
                 voice.stream->accept_seek(voice.source_offset+std::clamp(rt_.sample-voice.start,Sample{0},voice.length-1));
             if (graph_.processors) graph_.processors->panic();
-            for (const auto& chain : graph_.inserts) if (chain) chain->panic();
+            for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.inserts[t])graph_.inserts[t]->panic();
             if (graph_.master_inserts) graph_.master_inserts->panic();
         } else {
-            for (auto& voice : graph_.voices) if (voice.stream) (void)voice.stream->end();
+            for (auto& voice : graph_.voices) if (owns_voice(voice)&&voice.stream) (void)voice.stream->end();
         }
     }
     std::fill_n(output, static_cast<std::size_t>(frames) * config_.output_channels, 0.0F);
     MixerUpdate mix;
-    for(int n=0;n<7&&mixer_controls_.pop(mix);++n){if(ahead_owner_)ahead_owner_->record_mix(mix);set_mix(mix,true);}
+    for(int n=0;n<7&&mixer_controls_.pop(mix);++n){if(ahead_owner_)ahead_owner_->record_mix(mix);set_mix(mix,true);if(mixed_owner_)++control_revision_;}
+    if(mixed_owner_)mixed_owner_->begin(frames);
     if(speculative_)last_render_mix_=mix_head();
     std::array<std::array<float,2>,max_mixer_tracks+1> block_peaks{};
     float peak{};
@@ -568,7 +578,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         recorder->capture(input,config_.input_channels,frames,rt_.sample);
     }
     if (!input && monitor_enabled_ && !graph_.monitor.empty()) missing_inputs_.fetch_add(1, std::memory_order_relaxed);
-    if (!seek_pinned) for (auto& voice : graph_.voices) if (voice.stream) {
+    if (!seek_pinned) for (auto& voice : graph_.voices) if (owns_voice(voice)&&voice.stream) {
         if (!pending_seek_) voice.stream->cancel_seek();
         voice.stream->begin(voice.source_offset+std::clamp(rt_.sample-voice.start,Sample{0},voice.length-1));
     }
@@ -600,6 +610,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             if (rt_.loop && rt_.sample >= rt_.loop->end)
                 rt_.sample = rt_.loop->start + (rt_.sample - rt_.loop->start) % (rt_.loop->end - rt_.loop->start);
             for (const auto& voice : graph_.voices) {
+                if(!owns_voice(voice))continue;
                 if (rt_.sample < voice.start || rt_.sample - voice.start >= voice.length) continue;
                 const auto source_frame = rt_.sample - voice.start + voice.source_offset;
                 const auto source = static_cast<std::size_t>(source_frame)*voice.asset->channels;
@@ -615,7 +626,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             else rt_.playback = PlaybackState::stopped;
         }
         }
-        job_ramp_=mix_ramp_;job_frames_=count;job_position_=position;
+        job_base_=base;job_ramp_=mix_ramp_;job_frames_=count;job_position_=position;
         job_playing_=playing;job_tempo_=tempo.bpm;job_quarter_=tempo.quarter;
         for(std::uint32_t local=0;local<count;++local)for(std::uint32_t c=0;c<config_.output_channels;++c){const auto out=static_cast<std::size_t>(base+local)*config_.output_channels+c;output[out]=legacy_delay_.sample(output[out],c);}
         for (const auto t : mix_order_) {
@@ -639,12 +650,18 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
                         std::fill_n(output,static_cast<std::size_t>(frames)*config_.output_channels,0.f);
                         for(const auto& recorder:graph_.recordings)recorder->input_dropout();
                         // Leave worker-owned buffers/plugins/context intact until control-thread join.
-                        for(auto& voice:graph_.voices)if(voice.stream)(void)voice.stream->end();
+                        for(auto& voice:graph_.voices)if(owns_voice(voice)&&voice.stream)(void)voice.stream->end();
                         publish();return;
                     }
                 }
             } else process_channel(t);
             for(std::size_t c=0;c<2;++c)block_peaks[t][c]=std::max(block_peaks[t][c],channel_peaks_[t][c]);
+            if(domain_output_&&domain_owned_[t]) {
+                const auto copy=[&](std::size_t edge,const auto& source){std::copy_n(source.data(),static_cast<std::size_t>(count)*config_.output_channels,
+                    domain_output_+edge*static_cast<std::size_t>(domain_stride_)*config_.output_channels+static_cast<std::size_t>(base)*config_.output_channels);};
+                copy(domain_edges_[t],route_contributions_[t]);
+                for(std::size_t j=0;j<graph_.sends[t].size();++j)copy(domain_edges_[t]+1+j,send_contributions_[t][j]);
+            }
             for(std::uint32_t local=0;local<count;++local){const auto at=static_cast<std::size_t>(local)*config_.output_channels;const auto out=static_cast<std::size_t>(base+local)*config_.output_channels;
             for (std::uint32_t c=0; c<config_.output_channels; ++c) {
                 const float routed=route_contributions_[t][at+c];
@@ -672,7 +689,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     }
         base+=count;
     }
-    for (auto& voice : graph_.voices) if (voice.stream && voice.stream->end())
+    for (auto& voice : graph_.voices) if (owns_voice(voice)&&voice.stream && voice.stream->end())
         disk_underruns_.fetch_add(1,std::memory_order_relaxed);
     const auto output_samples = static_cast<std::size_t>(frames) * config_.output_channels;
     for (std::size_t i = 0; i < output_samples; ++i)
@@ -707,6 +724,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     // Normalize at an exact block boundary for coherent displayed loop position.
     if (rt_.loop && rt_.playback == PlaybackState::playing && rt_.sample >= rt_.loop->end)
         rt_.sample = rt_.loop->start + (rt_.sample - rt_.loop->start) % (rt_.loop->end - rt_.loop->start);
+    if(mixed_owner_)mixed_owner_->end();
     publish();
 }
 void AudioEngine::observe(std::uint64_t ns, std::uint32_t frames, std::uint32_t flags) noexcept {
@@ -728,8 +746,9 @@ Metrics AudioEngine::metrics() const {
     Metrics m;
     m.ahead_memory_bytes=ahead_memory_bytes_.load();
     m.anticipation_active=anticipation_active_.load();m.process_buffer_frames=process_buffer_frames_.load();m.ahead_buffered_frames=ahead_buffered_frames_.load();
+    m.mixed_anticipation=mixed_anticipation_.load();m.monitoring_available=!graph_.monitor.empty();m.monitoring_compensation_frames=domains_.monitoring_compensation_frames;
     m.ahead_underruns=ahead_underruns_.load();m.ahead_invalidations=ahead_invalidations_.load();m.ahead_max_process_ns=ahead_max_process_ns_.load();
-    m.processing_workers=workers_?workers_->count()+1:1;
+    m.processing_workers=(workers_?workers_->count()+1:1)+(m.mixed_anticipation?1:0);
     m.audio_scheduled_workers=workers_?workers_->audio_scheduled():0;
     m.parallel_batches=parallel_batches_.load();m.worker_timeouts=worker_timeouts_.load();m.processing_fault=processing_fault_.load();
     m.scheduler_overhead_ns=scheduler_overhead_ns_;

@@ -51,10 +51,10 @@ public:explicit Work(unsigned n):iterations_(n){}
 };
 std::shared_ptr<PreparedGraph> chain(unsigned work,unsigned block){auto s=demo_graph();s.nodes.front().parameters.clear();return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(s),0,false,false},ProcessConfig{48000,2,block},[work](const auto&){return std::make_unique<Work>(work);});}
 RenderGraph fixture(const std::string& topology,unsigned frames,bool reference){const auto tracks=topology=="playback2"?2U:8U;RenderGraph g;g.mixer.resize(tracks);g.inserts.resize(tracks);g.input_monitoring.assign(tracks,true);
-    std::shared_ptr<const AudioData> asset=topology=="disk8"?(reference?memory_asset:disk_asset):std::make_shared<AudioData>(sine_fixture(48000,2,frames*256,300));
+    std::shared_ptr<const AudioData> asset=(topology=="disk8"||topology=="mixed_disk8")?(reference?memory_asset:disk_asset):std::make_shared<AudioData>(sine_fixture(48000,2,frames*256,300));
     for(unsigned t=0;t<tracks;++t){g.inserts[t]=chain(topology=="master8"?0:128,frames);g.voices.push_back({asset,0,0,asset->frames(),{{0,0,.04f},{1,1,.04f}},{},t});}
-    if(topology=="master8")g.master_inserts=chain(1024,frames);
-    if(topology=="mixed8"){g.monitor={{0,0,.1f,0},{0,1,.1f,0}};g.mixer.emplace_back();g.buses.assign(tracks,false);g.buses.push_back(true);g.inserts.push_back(chain(32,frames));g.input_monitoring.push_back(false);g.sends.resize(tracks+1);g.sends[0]={{tracks,.2f,false}};}
+    if(topology=="master8"||topology=="mixed_master8")g.master_inserts=chain(1024,frames);
+    if(topology.starts_with("mixed")){g.monitor={{0,0,.1f,0},{0,1,.1f,0}};g.mixer.emplace_back();g.buses.assign(tracks,false);g.buses.push_back(true);g.inserts.push_back(chain(32,frames));g.input_monitoring.push_back(false);g.sends.resize(tracks+1);g.sends[0]={{tracks,.2f,false}};}
     return g;
 }
 std::shared_ptr<AudioEngine> engine(const std::string& topology,unsigned frames,unsigned workers,bool reference=false){auto e=std::make_shared<AudioEngine>();RenderConfig c{48000,1,2,frames,frames,workers};c.worker_wait_ms=500;e->prepare(c,fixture(topology,frames,reference));e->enqueue({ControlKind::play});return e;}
@@ -66,7 +66,7 @@ int main(int argc,char** argv){try{using Clock=std::chrono::steady_clock;constex
     for(unsigned f=0;f<source_frames;++f){const auto v=static_cast<float>(f%127)/256.f;put(std::bit_cast<std::uint32_t>(v),4);put(std::bit_cast<std::uint32_t>(v*.5f),4);}wav.close();disk_asset=std::make_shared<const AudioData>(open_wav(file.path));memory_asset=std::make_shared<const AudioData>(load_wav(file.path));
     if(!disk_asset->file||!disk_asset->samples.empty())throw std::runtime_error("disk fixture preloaded");
     std::cout<<"topology,device_frames,process_frames,active,workers,warmup,measured,p50_us,p95_us,p99_us,max_us,late,underruns,invalidations,producer_max_us,worker_timeouts,disk_underruns,queue_bytes,pcm_checked,checksum,coarse_clock,max_callback_gap_us,burst_callbacks\n";
-    for(const auto& topology:{"playback2","playback8","master8","mixed8","disk8"})for(auto frames:{64U,128U,256U,512U}){
+    for(const auto& topology:{"playback2","playback8","master8","mixed8","disk8","mixed_master8","mixed_disk8"})for(auto frames:{64U,128U,256U,512U}){
         auto ref=engine(topology,frames,1,true);std::vector<float> input(frames,.2f),expected(static_cast<std::size_t>(total)*frames*2);
         for(unsigned n=0;n<total;++n)ref->process(input.data(),expected.data()+static_cast<std::size_t>(n)*frames*2,frames);
         for(auto process:{0U,256U,1024U,4096U}){if(process&&process<frames)continue;auto e=engine(topology,frames,4);AheadRenderer cache(e,frames,process);cache.start();std::this_thread::sleep_for(std::chrono::milliseconds(10));

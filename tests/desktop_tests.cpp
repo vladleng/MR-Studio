@@ -724,6 +724,27 @@ void inserts() {
 }
 
 void multi_input() {
+    {
+        Directory dir;const auto source=dir.path/"Playback.wav";wav(source);Application mixed;mixed.import_wav(source);
+        const auto playback=mixed.services().projects->state().project->tracks.front().id;
+        const auto live=mixed.add_audio_track("Live input");mixed.set_track_monitoring(live,true);
+        auto device=std::make_unique<ManualDevice>();auto* driver=device.get();mixed.connect(std::move(device),{0,44100,128,{0},{0,1},2,1024});
+        const auto owner=[&]{return mixed.engine()->processing_domains().channels.front().owner;};
+        CHECK(owner()==audio::ProcessingDomains::Owner::ahead);
+        CHECK(mixed.engine()->processing_domains().channels[1].owner==audio::ProcessingDomains::Owner::device);
+        std::array<float,256> output{};mixed.play();mixed.engine()->process(nullptr,output.data(),128);
+        rejects([&]{mixed.set_track_monitoring(playback,true);});
+        mixed.pause();mixed.engine()->process(nullptr,output.data(),128);mixed.set_track_monitoring(playback,true);
+        CHECK(owner()==audio::ProcessingDomains::Owner::device&&driver->opens==1);
+        mixed.set_track_monitoring(playback,false);CHECK(owner()==audio::ProcessingDomains::Owner::ahead);
+        CHECK(mixed.undo()&&owner()==audio::ProcessingDomains::Owner::device);
+        CHECK(mixed.redo()&&owner()==audio::ProcessingDomains::Owner::ahead);
+        mixed.set_track_armed(playback,true);CHECK(owner()==audio::ProcessingDomains::Owner::device);
+        mixed.play();mixed.engine()->process(nullptr,output.data(),128);mixed.set_track_monitoring(playback,true);
+        mixed.engine()->process(nullptr,output.data(),128);CHECK(owner()==audio::ProcessingDomains::Owner::device&&driver->opens==1);
+        mixed.pause();mixed.engine()->process(nullptr,output.data(),128);mixed.set_track_monitoring(playback,false);mixed.set_track_armed(playback,false);
+        CHECK(owner()==audio::ProcessingDomains::Owner::ahead);
+    }
     Directory dir; Application app; app.new_project(44100);
     const auto mono=app.add_audio_track("Mic"), stereo=app.add_audio_track("Keys");
     auto device=std::make_unique<ManualDevice>(); auto* manual=device.get();

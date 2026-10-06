@@ -182,7 +182,7 @@ void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFon
             s+="  |  XR "+juce::String(static_cast<juce::int64>(metrics.input_underflows+metrics.input_overflows+metrics.output_underflows+metrics.output_overflows));
             s+="  |  Late "+juce::String(static_cast<juce::int64>(metrics.deadline_misses));
             s+="  |  D "+juce::String(static_cast<juce::int64>(metrics.disk_underruns));
-            s+="  |  W "+juce::String(metrics.processing_workers);if(metrics.process_buffer_frames)s+="  |  A "+juce::String(metrics.anticipation_active?metrics.ahead_buffered_frames:0)+"/"+juce::String(metrics.process_buffer_frames)+(metrics.anticipation_active?juce::String():" direct")+" U"+juce::String(static_cast<juce::int64>(metrics.ahead_underruns));if(metrics.processing_fault)s+=" PROCESSING FAULT: reconnect audio";}}
+            s+="  |  W "+juce::String(metrics.processing_workers);if(metrics.process_buffer_frames)s+="  |  A "+juce::String(metrics.anticipation_active?metrics.ahead_buffered_frames:0)+"/"+juce::String(metrics.process_buffer_frames)+(metrics.mixed_anticipation?" mixed":metrics.anticipation_active?juce::String():" direct")+" U"+juce::String(static_cast<juce::int64>(metrics.ahead_underruns));if(metrics.processing_fault)s+=" PROCESSING FAULT: reconnect audio";}}
     g.drawText(s,10,getHeight()-62,getWidth()-512,16,juce::Justification::left);
     if(sidebar){g.setColour(juce::Colour(0xff697580));g.fillRect(browserDivider.getX()+3,70,2,getHeight()-128);}
     if(mixerDivider.isVisible()){g.setColour(juce::Colour(0xff697580));g.fillRect(mixerDivider.getBounds().withHeight(1).translated(0,2));}
@@ -198,7 +198,11 @@ void Desktop::updatePerformance(const mrs::audio::DeviceStatus& status,bool hard
     cpuReadout.setText(measured?"CPU "+juce::String(status.cpu_load*100,1)+"%":"CPU --%",juce::dontSendNotification);
     audioCpuBar.setColour(juce::ProgressBar::foregroundColourId,!measured?juce::Colour(0xff62686e):status.cpu_load>=1?juce::Colour(0xffe64b54):status.cpu_load>=.8?juce::Colours::orange:juce::Colour(0xff45d899));
     auto latency=[&](double value){return running&&std::isfinite(value)&&value>=0?juce::String(value,2):juce::String("--");};
-    latencyReadout.setText("Latency I "+latency(status.input_latency_ms)+" / O "+latency(status.output_latency_ms)+" ms",juce::dontSendNotification);
+    auto text="Latency I "+latency(status.input_latency_ms)+" / O "+latency(status.output_latency_ms)+" ms";
+    const auto metrics=app.engine()->metrics();
+    if(metrics.monitoring_available)text+=" | Mon "+latency(status.input_latency_ms+status.output_latency_ms+static_cast<double>(metrics.monitoring_compensation_frames)*1000/project()->sample_rate);
+    latencyReadout.setText(text,juce::dontSendNotification);
+    latencyReadout.setTooltip("I/O: driver-reported ms. Mon: estimated input + output + fixed PDC; no Process Buffer hold on live input. Not a measured acoustic round trip. High-latency inserts remain active.");
 }
 void Desktop::mouseDrag(const juce::MouseEvent& e){if(resizingBrowser)resizeBrowser(getWidth()-e.getEventRelativeTo(this).x);if(resizingMixer)resizeMixer(mixerDragHeight+mixerDragY-e.getEventRelativeTo(this).y);}
 void Desktop::mouseUp(const juce::MouseEvent&){if(resizingBrowser||resizingMixer)saveSettings();resizingBrowser=resizingMixer=false;}

@@ -563,8 +563,9 @@ bool Application::history(bool redo) {
     if (!target) return false;
     auto before = *services_.projects->state().project, after = *target;
     before.master_gain = after.master_gain = 1;
-    for (auto& t : before.tracks) { t.mix = {}; t.input_monitor=false; for (auto& send : t.sends) send.gain = 1; }
-    for (auto& t : after.tracks) { t.mix = {}; t.input_monitor=false; for (auto& send : t.sends) send.gain = 1; }
+    const bool partitioned=device_config_&&device_config_->process_buffer_frames&&device_config_->processing_workers>=2&&audio_name_!="Offline clock (no sound)";
+    for (auto& t : before.tracks) { t.mix = {}; if(!partitioned||track_armed(t.id))t.input_monitor=false; for (auto& send : t.sends) send.gain = 1; }
+    for (auto& t : after.tracks) { t.mix = {}; if(!partitioned||track_armed(t.id))t.input_monitor=false; for (auto& send : t.sends) send.gain = 1; }
     bool inserts_only=true;
     if(!parameter_only(before.master_inserts,after.master_inserts))inserts_only=false;
     before.master_inserts=after.master_inserts;
@@ -745,6 +746,9 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
         result.voices.push_back(std::move(voice));
     }
     for (const auto& track : project->tracks) if (track.kind == TrackKind::audio) {
+        // A connected physical selector alone is not a live DSP dependency.
+        // Mixed ownership changes are rebuilt while stopped by Monitor/Arm.
+        if(c.process_buffer_frames&&c.processing_workers>=2&&!track.input_monitor&&!track_armed(track.id))continue;
         const auto inputs=track_inputs(track,default_inputs_);
         const auto found_track=std::find(mixer_tracks_.begin(),mixer_tracks_.end(),track.id);
         const auto index=static_cast<std::size_t>(found_track-mixer_tracks_.begin());
@@ -866,6 +870,9 @@ void Application::arm_track(std::optional<Id> id) {
 void Application::set_track_monitoring(const Id& id, bool enabled) {
     const SetTrackMonitoring command{id,enabled}; auto candidate=*services_.projects->state().project;
     command.apply(candidate); candidate.validate();
+    const auto track=std::find_if(services_.projects->state().project->tracks.begin(),services_.projects->state().project->tracks.end(),[&](const auto& t){return t.id==id;});
+    if(device_config_&&device_config_->process_buffer_frames&&device_config_->processing_workers>=2&&audio_name_!="Offline clock (no sound)"&&
+        !track_armed(id)&&track->input_monitor!=enabled){edit(command);return;}
     auto next=device_config_; if (next) next->inputs=selected_inputs(candidate);
     const bool rebind=enabled && next && audio_name_ != "Offline clock (no sound)" &&
         std::any_of(next->inputs.begin(),next->inputs.end(),[&](int input) {
