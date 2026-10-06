@@ -689,6 +689,10 @@ bool Application::audition_note(const Id& track,int pitch,int velocity,int chann
     const auto at=std::find(mixer_tracks_.begin(),mixer_tracks_.end(),track);if(at==mixer_tracks_.end())return false;
     return engine_->enqueue_audition_midi({engine_->midi_generation(),static_cast<std::size_t>(at-mixer_tracks_.begin()),{0,on?processing::MidiKind::note_on:processing::MidiKind::note_off,static_cast<std::uint8_t>(channel),static_cast<std::uint8_t>(pitch),static_cast<std::uint8_t>(velocity)},0});
 }
+void Application::edit_midi_notes(const Id& id,std::vector<Id> selected,const NoteEdit& settings){
+    require_not_recording();require_not_playing();const auto p=services_.projects->state().project;const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});require(at!=p->clips.end()&&at->midi.has_value(),"select a MIDI clip");
+    if(transform_midi_notes(*at->midi,selected,settings)==at->midi->notes)return;edit(EditMidiNotes{id,std::move(selected),settings});
+}
 void Application::set_midi_notes(const Id& id,std::vector<MidiNote> notes){edit(SetMidiNotes{id,std::move(notes)});}
 Id Application::duplicate_clip(const Id& id){const auto duplicate=new_id();edit(DuplicateClip{id,duplicate});return duplicate;}
 void Application::set_time_map(TimeMap time){const auto p=services_.projects->state().project;edit(SetMusicalData{std::move(time),p->chords,p->sections,p->markers});}

@@ -99,6 +99,7 @@ public:
     Id split_clip(const Id&, Sample position);
     void remove_clip(const Id&);
     Id create_midi_clip(const Id& track,Tick start,Tick length=4*ppq);
+    void edit_midi_notes(const Id&,std::vector<Id>,const NoteEdit&);
     void set_midi_notes(const Id&,std::vector<MidiNote>);
     Id duplicate_clip(const Id&);
     void set_time_map(TimeMap);

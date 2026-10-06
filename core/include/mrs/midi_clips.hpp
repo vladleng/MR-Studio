@@ -1,5 +1,6 @@
 #pragma once
 #include <mrs/core.hpp>
+#include <span>
 namespace mrs {
 class AddMidiClip final : public ICommand {
 public:
@@ -14,6 +15,22 @@ public:
     std::string_view name() const override{return "Edit MIDI notes";}
     void apply(Project&) const override;
 private: Id id_;std::vector<MidiNote> notes_;
+};
+enum class NoteEditKind {quantize,transpose,velocity,length};
+enum class NoteValueMode {set,add,scale};
+struct NoteEdit {
+    NoteEditKind kind{NoteEditKind::quantize};
+    Tick grid{ppq/4};double strength{100};bool starts{true},lengths{false};
+    NoteValueMode mode{NoteValueMode::set};double value{};
+};
+// Non-RT, shared Studio/Live domain operation. Empty selection changes nothing.
+std::vector<MidiNote> transform_midi_notes(const MidiClip&,std::span<const Id>,const NoteEdit&);
+class EditMidiNotes final : public ICommand {
+public:
+    EditMidiNotes(Id clip,std::vector<Id> selected,NoteEdit edit):clip_(std::move(clip)),selected_(std::move(selected)),edit_(edit){}
+    std::string_view name() const override{return "Musical note edit";}
+    void apply(Project&) const override;
+private:Id clip_;std::vector<Id> selected_;NoteEdit edit_;
 };
 class MoveMidiClip final : public ICommand {
 public:
