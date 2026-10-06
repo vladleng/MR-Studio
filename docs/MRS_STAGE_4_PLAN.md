@@ -20,8 +20,9 @@
 
 GitHub tracking: [parent #24](https://github.com/vladleng/MR-Studio/issues/24).
 Подэтапы 4a–4h: #63, #64, #65, #66, #67, #68, #69, #70 соответственно.
-Все issues открыты. 4a реализован локально, Release/111 CTest/GUI smoke прошли;
-пользовательская MIDI/ASIO приёмка ожидается. Остальные подэтапы запланированы.
+4b / #64 закрыт по пользовательской приёмке («Тест пройден, идем дальше»).
+4a / #63 открыт для полного checklist; fix1 ранее принят. 4c / #65 реализован локально,
+Release/113 CTest/package PASS, физическая ASIO-приёмка ожидается. 4d–4h запланированы.
 
 | Подэтап / версия | Пользовательский результат и объём | Критерий приёмки |
 | --- | --- | --- |
@@ -68,7 +69,7 @@ GitHub tracking: [parent #24](https://github.com/vladleng/MR-Studio/issues/24).
 По запросу пользователя «Приступай к 0.2a» реализован локальный 4a:
 [MIDI input и VST3-инструменты](MIDI_LIVE_INPUT.md),
 [checklist физической приёмки](MRS_STAGE_4A_CHECKLIST.md). Build/test/package
-результаты — в PROJECT_CONTEXT. По следующему запросу реализован 4b / 0.2b: [MIDI clips](MIDI_CLIPS.md), [checklist](MRS_STAGE_4B_CHECKLIST.md). 112/112 CTest и packaged checks PASS; физическая ASIO-приёмка ожидается. 4c–4h ещё не реализованы и не начаты автоматически.
+результаты — в PROJECT_CONTEXT. По следующему запросу реализован 4b / 0.2b: [MIDI clips](MIDI_CLIPS.md), [checklist](MRS_STAGE_4B_CHECKLIST.md). 112/112 CTest и packaged checks PASS; 4b принят пользователем, #64 закрыт. Реализован 4c / 0.2c: [MIDI recording](MIDI_RECORDING.md), [checklist](MRS_STAGE_4C_CHECKLIST.md). 113/113 CTest/package PASS; физическая ASIO-приёмка ожидается. 4d–4h ещё не реализованы и не начаты автоматически.
 Собственные инструменты/эффекты остаются отложенными. MIDI 2.0, SysEx,
 MIDI Clock/MTC, SMF import/export, MPE, loop overdub/takes, advanced MIDI и
 Live foot-controller/section automation не включены в эти подэтапы.

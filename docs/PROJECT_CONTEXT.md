@@ -32,10 +32,49 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2b / Stage 4b
+## Актуальная сборка для продолжения: 0.2c / Stage 4c
+
+По прямому запросу пользователя после приёмки 0.2b реализованы MIDI recording
+и лёгкое обновление transport SVG. 0.2c пока не принята пользователем; #65/#24 открыты.
+
+- Пакет: `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Builds/MR-Studio-0.2c-MIDI-recording-JUCE-ASIO-Windows-local`.
+  Запуск `Moon River Studio JUCE.exe`; scanner рядом. Предыдущие пакеты сохранены.
+- EXE SHA256: `E168C92CF6D1E826C9B279882F094D7F2B77AB3A12B9E5C705F0C4C27D18CE24`.
+- Source `f5247ede6775657f6067109047b7786af2f849b8`, только локально,
+  ветка `mrs/0.1q-fix3-processing-local`. Принятая компактная UI-база сохранена.
+- Instrument Arm R, live capture с независимым monitor, notes/velocity/channel,
+  CC/sustain/pitch bend/program/pressure. WinMM timestamp → transport samples →
+  PPQ ticks по общей tempo map. Открытые ноты/педаль закрываются при завершении.
+  Общая audio/MIDI сессия — один Undo; save/reopen и контроллеры поддерживаются.
+- Линейная запись: новая instrument track либо курсор после всех её MIDI clips;
+  Loop/overdub/punch не включены. Только MIDI — Record без WAV chooser, совместная
+  запись выбирает WAV для audio. Offline clock не записывает. Seek/loop/structural
+  edits/save/device changes во время записи запрещены. UI close/project change
+  завершает запись до предложения Save. Unsaved MIDI не имеет crash journal.
+- Core schema **13**, читает 1–12; старые builds не читают 13. Использовать копии
+  проектов. Event IDs/trim/split/duplicate/Undo сохранены; clip controller chase
+  и boundary release добавлены. Controller lanes — 4f, piano roll — 4d.
+- Семь transport buttons используют предоставленные SVG из `assets/ui/icons/transport`,
+  встроенные в BinaryData. Размер glyph 20 logical px, прежние hit regions/layout,
+  tooltips/accessibility names сохранены. Остальные SVG не включают новые функции.
+- Cached configure/full Release PASS; финальные **113/113 CTest, 58.60 s**.
+  Packaged midi_recording/midi_clips/midi_live PASS; hidden J3 exit 0.
+  Software previews 100%/150% просмотрены. В проверенных RT callbacks host allocation 0.
+  Проверены Workers 1/2/4 + mixed Process Buffer, input loss/overflow, timestamp
+  clamp, controller chase, live event order, raw audio и сохранение MIDI.
+- FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK. Физические A49/ASIO,
+  SWAM и Windows mixed DPI не запускались в этом чате. Timestamp arithmetic измерен
+  synthetic-тестом (100 ms/48 kHz → 4800 samples); WinMM jitter/driver latency не
+  калиброваны. Подробнее: [MIDI_RECORDING](MIDI_RECORDING.md).
+- Следующий шаг: [checklist 0.2c](MRS_STAGE_4C_CHECKLIST.md): Arm → Record → игра →
+  Stop → MIDI take → Play, sustain/bend, Undo/save/open, joint audio/MIDI и unplug.
+  4d не начинать автоматически. Chord/Arranger — Stage 5; metronome/precount — 4h.
+  P4/#54/#16 и отдельная multi-instance VSTi идея остаются самостоятельными задачами.
+
+## Предыдущая принятая поставка: 0.2b / Stage 4b
 
 По запросу «Поехали дальше, работаем над 0.2b» реализованы MIDI-клипы и playback.
-Пользовательская приёмка 0.2b ещё не получена; #64/#24 остаются открытыми.
+Пользователь принял 0.2b: «Тест пройден, идем дальше. Работаем над 0.2c». #64 закрыт; #24 открыт. Точные аппаратные режимы не перечислены. 4c реализован по следующему запросу; текущая поставка описана выше.
 
 - Пакет: `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Builds/MR-Studio-0.2b-MIDI-clips-JUCE-ASIO-Windows-local`.
   Запуск `Moon River Studio JUCE.exe`; scanner рядом. Прежние версии сохранены.
@@ -107,7 +146,8 @@ Master. Не превращай их в одну последовательну�
 | P4 / [#54](https://github.com/vladleng/MR-Studio/issues/54) | 0.1u software slice принят пользователем 2026-10-06. #54 открыт для оставшихся проверок; пользователь тестирует P4 параллельно MIDI |
 | Parent Stage 3 / #23, длительная matrix #16 | Не закрыты этой приёмкой |
 | 3e2 / 3e3 | Безопасные переходы/dynamic latency и recovery/isolation остаются отдельными задачами |
-| 4b / [#64](https://github.com/vladleng/MR-Studio/issues/64), 0.2b | Реализован локально, 112/112 CTest и packaged checks PASS; пользовательская приёмка ожидается |
+| 4c / [#65](https://github.com/vladleng/MR-Studio/issues/65), 0.2c | Реализован локально, 113/113 CTest/package PASS; пользовательская приёмка ожидается |
+| 4b / [#64](https://github.com/vladleng/MR-Studio/issues/64), 0.2b | Принят: «Тест пройден, идем дальше»; #64 закрыт. Режимы аппаратного теста не перечислены |
 | 4a / [#63](https://github.com/vladleng/MR-Studio/issues/63), 0.2a fix1 | Fix1 принят 2026-10-06: «Все работает». Полный checklist 4a отдельно не подтверждён; #63 открыт |
 
 В пользовательской переписке «0.1c показывает хорошие результаты» было принято
