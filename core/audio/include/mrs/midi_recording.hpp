@@ -9,7 +9,7 @@ class MidiRecorder {
 public:
     static constexpr std::size_t capacity=65536;
     struct Entry {Sample sample{};processing::MidiEvent event;bool cut{};};
-    explicit MidiRecorder(Sample start,std::size_t note_limit=4096,std::size_t event_limit=8176,std::vector<std::uint16_t> existing_keys={});
+    explicit MidiRecorder(Sample start,std::size_t note_limit=4096,std::size_t event_limit=8144,std::vector<std::uint16_t> existing_keys={});
     void capture(Sample,processing::MidiEvent) noexcept;
     void cut(Sample sample) noexcept;
     void advance(Sample end) noexcept {end_.store(end);}
@@ -25,7 +25,7 @@ private:
     std::vector<Entry> entries_;
     std::size_t count_{},note_count_{},event_count_{},key_count_{};
     std::array<std::uint16_t,64> keys_{};
-    std::array<bool,2048> held_{};std::size_t held_count_{},note_limit_{4096},event_limit_{8176};
+    std::array<bool,2048> held_{};std::size_t held_count_{},note_limit_{4096},event_limit_{8144};
     std::atomic<bool> fault_{};
 };
 }

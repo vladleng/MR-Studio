@@ -985,10 +985,10 @@ void Application::start_recording(const std::filesystem::path& destination) {
         recording_error_.clear(); last_take_.clear(); last_takes_.clear(); last_recording_status_={};
         for (const auto& take : pending) captures_.push_back({take.track,std::make_shared<audio::Recorder>(take.path,p->sample_rate,position.sample,take.selectors)});
         std::size_t project_notes{},project_events{};for(const auto& clip:p->clips)if(clip.midi){project_notes+=clip.midi->notes.size();project_events+=clip.midi->events.size();}
-        for(const auto& id:midi_pending){std::size_t track_notes{},track_events{};std::vector<std::uint16_t> keys;for(const auto& clip:p->clips)if(clip.midi&&clip.track==id){track_notes+=clip.midi->notes.size();track_events+=clip.midi->events.size()+16;for(const auto& event:clip.midi->events)keys.push_back(static_cast<std::uint16_t>((event.kind*16+event.channel)*128+((event.kind==2||event.kind==6)?event.data1:0)));}
+        for(const auto& id:midi_pending){std::size_t track_notes{},track_events{};std::vector<std::uint16_t> keys;for(const auto& clip:p->clips)if(clip.midi&&clip.track==id){track_notes+=clip.midi->notes.size();track_events+=clip.midi->events.size()+32;for(const auto& event:clip.midi->events)keys.push_back(static_cast<std::uint16_t>((event.kind*16+event.channel)*128+((event.kind==2||event.kind==6)?event.data1:0)));}
             const auto note_limit=std::min<std::size_t>(4096-std::min<std::size_t>(track_notes,4096),(32768-project_notes)/midi_pending.size());
-            const auto event_limit=std::min<std::size_t>(8192-std::min<std::size_t>(track_events,8192),(65536-project_events)/midi_pending.size());require(event_limit>32,"no MIDI controller recording capacity");
-            midi_captures_.push_back({id,std::make_shared<audio::MidiRecorder>(position.sample,note_limit,std::min<std::size_t>(8176,event_limit-32),std::move(keys))});
+            const auto event_limit=std::min<std::size_t>(8192-std::min<std::size_t>(track_events,8192),(65536-project_events)/midi_pending.size());require(event_limit>48,"no MIDI controller recording capacity");
+            midi_captures_.push_back({id,std::make_shared<audio::MidiRecorder>(position.sample,note_limit,std::min<std::size_t>(8144,event_limit-48),std::move(keys))});
         }
         if(!captures_.empty())recording_=captures_.front().recorder;
         engine_->prepare({device_config_->sample_rate,static_cast<std::uint32_t>(device_config_->inputs.size()),static_cast<std::uint32_t>(device_config_->outputs.size()),8192,device_config_->buffer_frames,device_config_->processing_workers},render(*device_config_),position);
