@@ -1,5 +1,11 @@
 # MR Studio — implementation status
 
+> Current development context (2026-10-06): [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
+> Start with that file and the repository AGENTS.md. It records the current
+> 0.1t fix1 delivery, user acceptance and remaining P3 work.
+> Entries below are historical snapshots; their old “pending/not started”
+> labels do not override the current context.
+
 ## 0.1m upd1 fix1 — local compatibility/UI update, 2026-10-04
 
 Requested after the user found Nuro loading and TH-U preset-reopen issues in 0.1m.

@@ -1,5 +1,11 @@
 # Moon River Studio — START HERE
 
+> Current development context (2026-10-06): [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
+> Start with that file and the repository AGENTS.md. It records the current
+> 0.1t fix1 delivery, user acceptance and remaining P3 work.
+> Entries below are historical snapshots; their old “pending/not started”
+> labels do not override the current context.
+
 Selected UI direction: [JUCE migration](JUCE_MIGRATION.md), Windows-only active scope.
 Plan recorded; integration not started. Preferred working UI remains 0.1m upd1 fix1.
 
