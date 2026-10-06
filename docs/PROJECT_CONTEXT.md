@@ -43,7 +43,7 @@ Master. Не превращай их в одну последовательну�
 | P4 / [#54](https://github.com/vladleng/MR-Studio/issues/54) | 0.1u software slice принят пользователем 2026-10-06. #54 открыт для оставшихся проверок; пользователь тестирует P4 параллельно MIDI |
 | Parent Stage 3 / #23, длительная matrix #16 | Не закрыты этой приёмкой |
 | 3e2 / 3e3 | Безопасные переходы/dynamic latency и recovery/isolation остаются отдельными задачами |
-| 4a / [#63](https://github.com/vladleng/MR-Studio/issues/63), 0.2a fix1 | Локальный fix1 после замечаний о MIDI Off, editor и тишине с Process Buffer. Tests/package прошли; повторная пользовательская проверка ON/editor ожидается |
+| 4a / [#63](https://github.com/vladleng/MR-Studio/issues/63), 0.2a fix1 | Fix1 принят 2026-10-06: «Все работает». Полный checklist 4a отдельно не подтверждён; #63 открыт |
 
 В пользовательской переписке «0.1c показывает хорошие результаты» было принято
 как подтверждение тогдашней 0.1s/P2; не возвращай roadmap к старой 0.1c.
@@ -52,7 +52,9 @@ Master. Не превращай их в одну последовательну�
 
 - **0.2a fix1**, 2026-10-06. Пользователь подтвердил загрузку SWAM Alto Flute 3,
   MIDI connected и звук через Komplete Audio ASIO / B 128 / Workers 2 после
-  отключения Process Buffer («DSP»). Полный checklist 4a и fix1 ещё не приняты.
+  отключения Process Buffer («DSP»). После поставки fix1 пользователь сообщил
+  «Все работает» — fix1 принят. Конкретные режимы повторной проверки не перечислены;
+  полный checklist 4a отдельно не подтверждён.
 - Устранена причина тишины с Process Buffer: live MIDI flags не копируются в
   ahead producer graph. Инструмент/downstream остаются device-owned; producer
   больше не отклоняет свой граф по anticipation_safe и не выставляет этот fault.
@@ -74,9 +76,13 @@ Master. Не превращай их в одну последовательну�
 - Пакет `Builds/MR-Studio-0.2a-fix1-MIDI-JUCE-ASIO-Windows-local`; старый 0.2a сохранён.
   EXE SHA256 `F857D4BD6BB8C6BE95BA2B151E012A18EEAA03966EC83924F752C38CDAC52D90`.
   Проверены совпадение Release/пакета и SHA256 manifest. Core schema остаётся 11.
-- Следующий шаг: повторить физическую игру SWAM с Process 1024/4096 при тех же
-  ASIO/Workers, проверить hover/focus editor, MIDI status, затем остальной
-  [checklist](MRS_STAGE_4A_CHECKLIST.md). #63/#24 остаются открытыми, 4b не начат.
+- Следующий шаг: продолжение MIDI по следующему запросу пользователя; оставшийся
+  [checklist](MRS_STAGE_4A_CHECKLIST.md) не отмечать пройденным без свидетельства.
+  #63/#24 остаются открытыми, 4b не начат. Приёмка fix1 записана в #63.
+- Уточнение о многопоточности: Workers распараллеливает независимые каналы,
+  включая instrument tracks. Один вызов DSP экземпляра плагина имеет одного
+  владельца; host не делит его между workers. Live MIDI остаётся device-domain,
+  Process Buffer не вычисляет его заранее. Внутренний multicore SWAM не подтверждён.
 - Fix1 docs-only GitHub main `e08b5ce77dcd476c54cb81ab24d09b6f9db5f474`
   опубликован с `[skip ci]`, remote SHA проверен; #63 обновлён и открыт.
   Source-ветка не отправлялась, Actions не запускались. Пакет заморожен с docs
