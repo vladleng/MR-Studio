@@ -26,7 +26,7 @@ click resolution was unconfirmed at this baseline; P1 later removed regular clic
 |---|---|---|---|
 | 1 | 3e-P1: parallel channel processing and dependency scheduler | [#51](https://github.com/vladleng/MR-Studio/issues/51) | 0.1r user-accepted at 128 frames on 2026-10-05; closed |
 | 2 | 3e-P2: anticipative playback and separate process buffer | [#52](https://github.com/vladleng/MR-Studio/issues/52) | 0.1s initial native whole-graph slice accepted 2026-10-06; closed; VST3/live stay direct |
-| 3 | 3e-P3: separate low-latency monitoring | [#53](https://github.com/vladleng/MR-Studio/issues/53) | Started 2026-10-06: prepared domain/merge plan; mixed execution remains pending |
+| 3 | 3e-P3: separate low-latency monitoring | [#53](https://github.com/vladleng/MR-Studio/issues/53) | 0.1t mixed renderer ready locally; user ASIO review pending |
 | 4 | 3e-P4: detailed profiling and sustained-load acceptance | [#54](https://github.com/vladleng/MR-Studio/issues/54) | Planned; depends on P3 |
 
 Minimal measurement hooks accompany P1 so scheduling decisions have evidence;
@@ -98,7 +98,7 @@ recording must remain before effects/compensation.
 Acceptance: mixed playback/live paths, sends/buses/Master/direct outputs, unequal
 latency and monitoring toggles, followed by intended-system ASIO timing/audition.
 
-### First P3 implementation step — prepared ownership plan
+### First P3 implementation step — prepared ownership plan (historical checkpoint)
 
 `AudioEngine::prepare` now compiles a candidate `ProcessingDomains` report from
 the validated DAG and its fixed PDC plan. It reserves all prepared input routes,
@@ -133,6 +133,11 @@ never wait for/retry the same stateful instance on the other owner. Seek, toggle
 parameters, partial callbacks, stream cursors, meter publication, teardown and
 recovery need reference/ownership/allocation tests before mixed mode is enabled.
 P3 remains open; this step adds no new performance claim or user package.
+
+The subsequent 0.1t delivery implements mixed execution with device-owned Master,
+bounded per-channel PCM handoff and continuous live input/time on producer
+starvation. The initial checkpoint above describes the foundation only; current
+runtime/eligibility and validation are in [mixed processing](ENGINE_MIXED_PROCESSING.md).
 
 Validation of this foundation on 2026-10-06: cached offline configure, full local
 Windows x64 Release build and 102/102 CTest passed (48.59 s), including three new
