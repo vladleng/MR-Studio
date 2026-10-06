@@ -129,12 +129,34 @@ metrics накоплены за engine session, timing cells — только п
 Средние device channel jobs: Voc 0.8046 ms, GTR 0.5794 ms, PB 0.4983 ms,
 Keys 0.0067 ms; времена пересекаются, не складывать в callback load.
 Xvox Pro 0.6044 ms, TH-U 0.3725 ms, Xrack Pro 0.4860 ms;
-две Ambiente 0.1867/0.1917 ms. ONE имеет 0 measured calls: report не подтверждает
-его активный DSP; bypass/состояние измерения следует уточнять, не объявлять факт.
+две Ambiente 0.1867/0.1917 ms. ONE имеет 0 measured calls; пользователь
+после Test 01 подтвердил, что ONE был в bypass.
 Следующий полезный контроль — свежий session CSV с Process Off / 1024 при
 неизменной остальной нагрузке; текущие данные не являются 128-frame проверкой.
 Исходный CSV и пользовательский проект не изменялись. Code/build/package без
 изменений; #54 не закрывать по этому снимку.
+
+## Пользовательский ASIO CSV: Test 02
+
+2026-10-06: получен `C:/Users/Vladislav/Documents/MR Studio/Projects/Test 02.csv`.
+Пользователь называет режим «выключенным DSP»; CSV показывает Process Buffer Off,
+Workers 4 и активный processor DSP, включая ONE. Komplete Audio ASIO Driver,
+48 kHz / Device 256. Callback load p50/p95/p99 24/34/37%, max 2.3907 ms
+при deadline 5.3333 ms. Late/XR/disk/worker timeout 0. Ahead counters 0 ожидаемы
+при отключённом producer и не подтверждают исправление Test 01 queue starvation.
+
+ONE: 385 вызовов, mean 0.4243 ms, max 0.8427 ms. Prepared graph PDC 2465 samples
+= 51.3542 ms; это fixed compensation, отдельно от driver I/O и Process Buffer,
+не акустическая latency и не пропущенный deadline. Device Voc/GTR/PB mean
+0.6197/0.5394/0.4274 ms. Timing frames 98 560 = 2.0533 s обработки при profiling;
+полная длительность session из CSV неизвестна. Это короткий profiling sample,
+не длительная ASIO приёмка. Прямое сравнение с Test 01 не изолирует Process:
+одновременно изменились bypass ONE и Process, окна сбора тоже различаются.
+
+Для чистого сравнения держать ONE и остальные plugin states одинаковыми,
+сравнить Process Off / 1024 свежими counters, дать более длинный profiling window.
+P4 остаётся открыт. Исходные CSV/проект/код/билд/пакет не изменены; только анализ
+и локальная запись контекста.
 
 ## Продолжение и обновление этого файла
 
