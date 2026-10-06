@@ -6,7 +6,7 @@ namespace {
 auto find_clip(Project& p,const Id& id){auto i=std::find_if(p.clips.begin(),p.clips.end(),[&](const auto& c){return c.id==id;});if(i==p.clips.end())throw std::invalid_argument("unknown clip");return i;}
 auto midi_clip(Project& p,const Id& id){auto i=find_clip(p,id);if(!i->midi)throw std::invalid_argument("select a MIDI clip");return i;}
 void instrument(const Project& p,const Id& id){auto i=std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t){return t.id==id;});if(i==p.tracks.end()||i->kind!=TrackKind::instrument)throw std::invalid_argument("MIDI clip needs an instrument track");}
-void fresh_notes(Clip& c){if(c.midi)for(auto& n:c.midi->notes)n.id=new_id();}
+void fresh_notes(Clip& c){if(c.midi){for(auto& n:c.midi->notes)n.id=new_id();for(auto& e:c.midi->events)e.id=new_id();}}
 }
 void AddMidiClip::apply(Project& p) const{instrument(p,clip_.track);if(!clip_.midi)throw std::invalid_argument("missing MIDI clip data");p.clips.push_back(clip_);}
 void SetMidiNotes::apply(Project& p) const{midi_clip(p,id_)->midi->notes=notes_;}

@@ -48,10 +48,11 @@ MixedRenderer::MixedRenderer(std::shared_ptr<AudioEngine> engine,std::uint32_t f
     input_.resize(edges_*device_->config_.max_block*channels);
     output_.resize(static_cast<std::size_t>(frames)*channels);
     packets_.resize(slots);for(auto& p:packets_)p.pcm.resize(edges_*frames*channels);
-    auto graph=g;graph.monitor.clear();graph.recording.reset();graph.recordings.clear();
+    auto graph=g;graph.monitor.clear();graph.recording.reset();graph.recordings.clear();graph.midi_recordings.clear();
     // The producer clone owns only prerecorded channels. Retaining live MIDI
     // flags here falsely fails anticipation_safe() and silences the device.
     graph.live_midi.assign(graph.mixer.size(),false);
+    for(std::size_t t=0;t<graph.midi_events.size();++t)if(!ahead_channels_[t])graph.midi_events[t].clear();
     for(std::size_t t=0;t<graph.midi_notes.size();++t)if(!ahead_channels_[t])graph.midi_notes[t].clear();
     graph.voices.clear();std::vector<std::size_t> voices;
     for(std::size_t i=0;i<g.voices.size();++i)if(g.voices[i].mixer_track!=no_mixer_track&&ahead_channels_[g.voices[i].mixer_track]){graph.voices.push_back(g.voices[i]);voices.push_back(i);}

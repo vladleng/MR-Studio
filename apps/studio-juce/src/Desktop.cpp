@@ -63,7 +63,7 @@ Desktop::Desktop(bool test):testing(test){
     zoomIn.onClick=[this]{arrangement->zoom(1.25);};zoomOut.onClick=[this]{arrangement->zoom(.8);};fit.onClick=[this]{arrangement->fit();};
     snapButton.setButtonText(snap ? "Snap on" : "Snap off");
     arrangement->trackHeight=view.trackHeight;arrangement->pixelsPerSecond=view.pixelsPerSecond;
-    int focus=1;for(auto* b:{&undo,&redo,&addTrack,&addBus,&split,&remove,&zoomIn,&zoomOut,&fit,&snapButton,&audio,&play,&pause,&stop,&record,&previous,&next,&loop,&arrangeButton,&editButton,&mixButton,&brows}){b->setTitle(b->getButtonText());b->setExplicitFocusOrder(focus++);}
+    int focus=1;for(auto* b:{&undo,&redo,&addTrack,&addBus,&split,&remove,&zoomIn,&zoomOut,&fit,&snapButton,&audio,&play,&pause,&stop,&record,&previous,&next,&loop,&arrangeButton,&editButton,&mixButton,&brows}){b->setTitle(b->getButtonText());b->setTooltip(b->getButtonText());b->setExplicitFocusOrder(focus++);}
     snapButton.onClick=[this]{snap=!snap;snapButton.setButtonText(snap ? "Snap on" : "Snap off");};
     setSize(1400,850);refresh(true);setWorkspace(testing?mrs::desktop::Workspace::mix:prefs.workspace==mrs::desktop::Workspace::live?mrs::desktop::Workspace::arrange:prefs.workspace);if(!testing)try{reconnectDevice();}catch(const std::exception& e){message=label(e.what());}startTimerHz(30);
 }
@@ -107,7 +107,7 @@ void Desktop::textDialog(juce::String title,juce::String initial,std::function<v
     juce::Component::SafePointer<Desktop> safe(this);
     alert->enterModalState(true,juce::ModalCallbackFunction::create([safe,alert,callback](int r){if(safe && r==1)safe->run([&]{callback(alert->getTextEditorContents("value"));});}),true);
 }
-void Desktop::confirmDiscard(std::function<void()> nextAction){if(!app.dirty()){nextAction();return;}
+void Desktop::confirmDiscard(std::function<void()> nextAction){if(app.recording()){run([&]{app.pause();});if(app.recording()||!message.isEmpty())return;}if(!app.dirty()){nextAction();return;}
     auto* alert=new juce::AlertWindow("Save project changes?",label(project()->title),juce::MessageBoxIconType::NoIcon);
     alert->addButton("Save",1);alert->addButton("Discard",2);alert->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
     juce::Component::SafePointer<Desktop> safe(this);alert->enterModalState(true,juce::ModalCallbackFunction::create([safe,nextAction](int n){if(!safe)return;
@@ -143,13 +143,13 @@ void Desktop::action(int n){if(busyGesture())return;run([&]{
     else if(n==43 && selectedTrack){const mrs::Timeline t(project()->time,project()->sample_rate);selectedClip=app.create_midi_clip(*selectedTrack,t.to_ticks(app.engine()->state().sample));openMidiClip(*selectedClip);}
     else if(n==44 && selectedClip){openMidiClip(*selectedClip);}
     else if(n==45 && selectedClip){selectedClip=app.duplicate_clip(*selectedClip);}
-    else if(n==46 && selectedClip){const auto p=project();const mrs::Timeline t(p->time,p->sample_rate);auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==*selectedClip;});if(c!=p->clips.end())app.services().transport->set_loop(mrs::LoopRange{mrs::clip_start(*c,t),mrs::clip_end(*c,t)});}
+    else if(n==46 && selectedClip){if(app.recording())throw std::runtime_error("Stop recording before changing loop");const auto p=project();const mrs::Timeline t(p->time,p->sample_rate);auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==*selectedClip;});if(c!=p->clips.end())app.services().transport->set_loop(mrs::LoopRange{mrs::clip_start(*c,t),mrs::clip_end(*c,t)});}
     else if(n==24 && selectedClip){auto id=app.split_clip(*selectedClip,app.engine()->state().sample);selectedClip=id;}
     else if(n==25 && selectedClip){app.remove_clip(*selectedClip);selectedClip.reset();}
     else if(n==30)app.play();else if(n==31)app.pause();else if(n==32){if(app.recording())app.stop_recording();app.stop();}
-    else if(n==33){if(app.recording()){app.stop_recording();app.stop();refresh(true);}else choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles,[this](auto f){app.start_recording(path(f.withFileExtension("wav")));},"*.wav");}
+    else if(n==33){if(app.recording()){app.stop_recording();app.stop();refresh(true);}else if(std::none_of(project()->tracks.begin(),project()->tracks.end(),[&](const auto& t){return t.kind==mrs::TrackKind::audio&&app.track_armed(t.id);}))app.start_recording({});else choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles,[this](auto f){app.start_recording(path(f.withFileExtension("wav")));},"*.wav");}
     else if(n==34)app.musical().previous_section();else if(n==35)app.musical().next_section();
-    else if(n==36){if(app.engine()->state().loop)app.musical().clear_loop();else if(app.musical().state().current_section)app.musical().loop_section(app.musical().state().current_section->id);}
+    else if(n==36){if(app.recording())throw std::runtime_error("Stop recording before changing loop");if(app.engine()->state().loop)app.musical().clear_loop();else if(app.musical().state().current_section)app.musical().loop_section(app.musical().state().current_section->id);}
     else if(n==40)audioSettings();
     else if(n==41)showProfiling();
 });}
@@ -228,6 +228,7 @@ void Desktop::refresh(bool force){const auto p=project();const auto state=app.se
     arrangeButton.setToggleState(app.workspace()==mrs::desktop::Workspace::arrange,juce::dontSendNotification);
     editButton.setToggleState(app.workspace()==mrs::desktop::Workspace::edit,juce::dontSendNotification);
     mixButton.setToggleState(app.workspace()==mrs::desktop::Workspace::mix,juce::dontSendNotification);
+    record.setToggleState(app.recording(),juce::dontSendNotification);loop.setToggleState(app.engine()->state().loop.has_value(),juce::dontSendNotification);
     brows.setToggleState(sidebar,juce::dontSendNotification);repaint();arrangement->repaint();
 }
 bool Desktop::busyGesture() const{if(resizingMixer||resizingBrowser)return true;if(preview&&preview->active())return true;return false;}
@@ -289,7 +290,7 @@ void Strip::refreshMidiStatus(){const auto t=track();if(t.kind==mrs::TrackKind::
 void Strip::sync(){const auto t=track();gain.setTitle(label(t.name)+" gain");pan.setTitle(label(t.name)+" pan");const auto mix=t.mix;float v=target?mix.gain:owner.project()->master_gain;
     if(!gain.dragging())gain.value=juce::jlimit(0.,1.,(20*std::log10(juce::jmax(.001f,v))+60)/72.);if(!pan.dragging())pan.value=(mix.pan+1)/2.;
     mute.setVisible(target.has_value());solo.setVisible(target.has_value());pan.setVisible(target.has_value());
-    arm.setVisible(mini&&target&&t.kind==mrs::TrackKind::audio);monitor.setVisible(arm.isVisible()||(mini&&target&&t.kind==mrs::TrackKind::instrument));input.setVisible(monitor.isVisible());
+    arm.setVisible(mini&&target&&(t.kind==mrs::TrackKind::audio||t.kind==mrs::TrackKind::instrument));monitor.setVisible(arm.isVisible()||(mini&&target&&t.kind==mrs::TrackKind::instrument));input.setVisible(monitor.isVisible());
     inserts.setVisible(!mini);add.setVisible(!mini);output.setVisible(!mini);sends.setVisible(!mini&&target.has_value());
     mute.setToggleState(mix.mute,juce::dontSendNotification);solo.setToggleState(mix.solo,juce::dontSendNotification);
     arm.setToggleState(target&&owner.app.track_armed(*target),juce::dontSendNotification);monitor.setToggleState(t.kind==mrs::TrackKind::instrument?t.midi_monitor:t.input_monitor,juce::dontSendNotification);

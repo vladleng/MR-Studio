@@ -236,6 +236,7 @@ void j2PluginSmoke(Desktop&,const juce::File&);
 void j3Smoke(Desktop&);
 void midi4aSmoke(Desktop&,const juce::File&);
 void midi4bSmoke(Desktop&,const juce::File&);
+void midi4cSmoke(Desktop&,const juce::File&);
 void j3AudioSmoke(Desktop&);
 void profilingSmoke(Desktop&);
 void thuDiagnostic(const juce::File&);

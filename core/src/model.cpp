@@ -156,7 +156,7 @@ void Project::validate() const {
             if (color[bus->id.value] == 0) { color[bus->id.value] = 1; stack.emplace_back(bus,0); }
         }
     }
-    std::size_t midi_notes{};
+    std::size_t midi_notes{},midi_events{};
     for (const auto& clip : clips) {
         add_id(clip.id);
         require(track_ids.contains(clip.track.value), "missing clip track");
@@ -170,6 +170,8 @@ void Project::validate() const {
             midi_notes+=m.notes.size();
             require(m.notes.size()<=4096 && midi_notes<=32768,"too many MIDI notes");
             for(const auto& n:m.notes){add_id(n.id);require(n.start>=0 && n.start<=max_tick && n.length>0 && n.length<=max_tick-n.start,"invalid MIDI note range");require(n.pitch>=0&&n.pitch<=127&&n.velocity>=1&&n.velocity<=127&&n.channel>=0&&n.channel<=15,"invalid MIDI note data");}
+            midi_events+=m.events.size();require(m.events.size()<=8192&&midi_events<=65536,"too many MIDI channel events");
+            for(const auto& e:m.events){add_id(e.id);require(e.start>=0&&e.start<=max_tick&&e.kind>=2&&e.kind<=6&&e.channel>=0&&e.channel<16&&e.data1>=0&&e.data1<128&&e.data2>=0&&e.data2<128,"invalid MIDI channel event");}
             continue;
         }
         require(clip.start >= 0 && clip.start <= max_sample, "invalid clip start");

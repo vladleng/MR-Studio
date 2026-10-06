@@ -18,7 +18,7 @@ using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 12;
+inline constexpr std::uint32_t schema_version = 13;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -124,9 +124,14 @@ struct MidiNote {
     int pitch{60}, velocity{100}, channel{}; // channel zero-based
     bool operator==(const MidiNote&) const = default;
 };
+struct MidiChannelEvent {
+    Id id; Tick start{}; int kind{2},channel{},data1{},data2{}; // MidiKind ordinals 2..6
+    bool operator==(const MidiChannelEvent&) const = default;
+};
 struct MidiClip {
     Tick start{}, length{4*ppq}, source_offset{};
     std::vector<MidiNote> notes;
+    std::vector<MidiChannelEvent> events{};
     bool operator==(const MidiClip&) const = default;
 };
 struct Clip {

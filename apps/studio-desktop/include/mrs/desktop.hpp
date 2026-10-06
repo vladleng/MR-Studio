@@ -9,6 +9,7 @@
 #include <mrs/waveform.hpp>
 #include <future>
 #include <mrs/recording.hpp>
+#include <mrs/midi_recording.hpp>
 #include <mrs/project_folders.hpp>
 namespace mrs::desktop {
 enum class Workspace { arrange, edit, mix, live };
@@ -138,9 +139,9 @@ public:
     const std::optional<Id>& armed_track() const { return armed_; }
     void start_recording(const std::filesystem::path& destination);
     bool stop_recording();
-    bool recording() const { return static_cast<bool>(recording_); }
+    bool recording() const { return static_cast<bool>(recording_)||!midi_captures_.empty(); }
     audio::RecordStatus recording_status() const;
-    Sample recording_start() const { return recording_ ? recording_->start() : 0; }
+    Sample recording_start() const { return recording_ ? recording_->start() : midi_captures_.empty()?0:midi_captures_.front().recorder->start(); }
     const std::string& recording_error() const { return recording_error_; }
     const std::vector<std::filesystem::path>& last_takes() const { return last_takes_; }
     const std::filesystem::path& last_take() const { return last_take_; }
@@ -172,6 +173,8 @@ private:
     struct Capture { Id track; std::shared_ptr<audio::Recorder> recorder; };
     std::vector<Capture> captures_;
     std::vector<std::filesystem::path> last_takes_;
+    struct MidiCapture {Id track;std::shared_ptr<audio::MidiRecorder> recorder;};
+    std::vector<MidiCapture> midi_captures_;
     std::string recording_error_;
     std::filesystem::path last_take_;
     audio::RecordStatus last_recording_status_{};

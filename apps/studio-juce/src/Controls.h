@@ -2,6 +2,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <BinaryData.h>
 #include <cmath>
+#include <map>
 namespace ui {
 constexpr auto background = 0xff303438;
 constexpr auto panel = 0xff393e43;
@@ -12,6 +13,9 @@ class Theme final : public juce::LookAndFeel_V4 {
 public:
     Theme() : face(juce::Typeface::createSystemTypefaceFor(BinaryData::NotoSans_ttf,
                                                          BinaryData::NotoSans_ttfSize)) {
+        const auto add=[&](const char* label,const char* data,int size){auto icon=juce::Drawable::createFromImageData(data,static_cast<std::size_t>(size));if(!icon)throw std::runtime_error("Invalid transport SVG");transport[label]=std::move(icon);transportColours[label]=juce::Colours::white;};
+        add("Play",BinaryData::play_svg,BinaryData::play_svgSize);add("Pause",BinaryData::pause_svg,BinaryData::pause_svgSize);add("Stop",BinaryData::stop_svg,BinaryData::stop_svgSize);add("Record (R)",BinaryData::record_svg,BinaryData::record_svgSize);
+        add("< Section",BinaryData::previous_svg,BinaryData::previous_svgSize);add("Section >",BinaryData::next_svg,BinaryData::next_svgSize);add("Loop section",BinaryData::loop_svg,BinaryData::loop_svgSize);
         setColour(juce::TextButton::buttonColourId, juce::Colour(panel));
         setColour(juce::TextButton::buttonOnColourId, juce::Colour(accent));
         setColour(juce::TextButton::textColourOffId, juce::Colours::whitesmoke);
@@ -29,11 +33,13 @@ public:
     }
     void drawButtonText(juce::Graphics& g,juce::TextButton& button,bool hover,bool down) override {
         const auto text=button.getButtonText();auto area=button.getLocalBounds().toFloat().reduced(8);auto centre=area.getCentre();
-        if(text=="Play"){g.setColour(juce::Colour(0xff31b7dd));juce::Path shape;shape.addTriangle(centre.x-5,centre.y-7,centre.x-5,centre.y+7,centre.x+7,centre.y);g.fillPath(shape);}
-        else if(text=="Stop"){g.setColour(juce::Colour(0xffc6d3df));g.fillRect(centre.x-6,centre.y-6,12.f,12.f);}
-        else if(text=="Pause"){g.setColour(juce::Colour(0xffc6d3df));g.fillRect(centre.x-6,centre.y-6,4.f,12.f);g.fillRect(centre.x+2,centre.y-6,4.f,12.f);}
-        else if(text=="Record (R)"){g.setColour(juce::Colour(0xffe64b54));g.fillEllipse(centre.x-6,centre.y-6,12,12);}
-        else {juce::ignoreUnused(hover,down);g.setFont(font(13));g.setColour(button.findColour(button.getToggleState()?juce::TextButton::textColourOnId:juce::TextButton::textColourOffId).withMultipliedAlpha(button.isEnabled()?1.f:.5f));g.drawText(text,button.getLocalBounds().reduced(3,1),juce::Justification::centred,true);}
+        juce::ignoreUnused(centre);
+        if(const auto at=transport.find(text.toStdString());at!=transport.end()){
+            auto colour=text=="Record (R)"?juce::Colour(0xffe64b54):button.getToggleState()?juce::Colour(0xff31b7dd):juce::Colour(0xffc6d3df);
+            if(hover||down)colour=colour.brighter(.2f);if(!button.isEnabled())colour=colour.withAlpha(.35f);
+            at->second->replaceColour(transportColours[text.toStdString()],colour);transportColours[text.toStdString()]=colour;
+            at->second->drawWithin(g,area.withSizeKeepingCentre(20,20),juce::RectanglePlacement::centred,1.f);
+        }else {g.setFont(font(13));g.setColour(button.findColour(button.getToggleState()?juce::TextButton::textColourOnId:juce::TextButton::textColourOffId).withMultipliedAlpha(button.isEnabled()?1.f:.5f));g.drawText(text,button.getLocalBounds().reduced(3,1),juce::Justification::centred,true);}
     }
     juce::Font getTextButtonFont(juce::TextButton&, int) override { return font(13); }
     juce::Font getMenuBarFont(juce::MenuBarComponent&, int, const juce::String&) override { return font(13); }
@@ -48,6 +54,8 @@ public:
     }
 private:
     juce::Typeface::Ptr face;
+    std::map<std::string,std::unique_ptr<juce::Drawable>> transport;
+    std::map<std::string,juce::Colour> transportColours;
 };
 
 // Pointer gestures start only on the handle. Relative movement never jumps to a rail click.

@@ -1,4 +1,5 @@
 #include <mrs/midi_input.hpp>
+#include <mrs/midi_recording.hpp>
 #include <algorithm>
 #include <chrono>
 #include <map>
@@ -41,12 +42,13 @@ struct MidiInputs::Impl {
 #ifdef _WIN32
     struct Port {
         Impl* owner{};MidiInputPort info;HMIDIIN handle{};
-        std::mutex mutex;audio::SpscQueue<std::uint32_t,1024> queue;
+        struct Message {std::uint32_t raw{};std::uint64_t timestamp{};};
+        std::uint64_t start_ns{};std::mutex mutex;audio::SpscQueue<Message,1024> queue;
         ~Port(){if(handle){midiInStop(handle);midiInReset(handle);midiInClose(handle);}}
-        static void CALLBACK receive(HMIDIIN,UINT message,DWORD_PTR user,DWORD_PTR data,DWORD_PTR){
+        static void CALLBACK receive(HMIDIIN,UINT message,DWORD_PTR user,DWORD_PTR data,DWORD_PTR stamp){
             auto& port=*reinterpret_cast<Port*>(user);
-            if(message==MIM_DATA){std::lock_guard lock(port.mutex);if(!port.queue.push(static_cast<std::uint32_t>(data)))port.owner->engine->midi_overflow();}
-            else if(message==MIM_ERROR)port.owner->engine->midi_panic();
+            if(message==MIM_DATA){std::lock_guard lock(port.mutex);if(!port.queue.push({static_cast<std::uint32_t>(data),port.start_ns+static_cast<std::uint64_t>(static_cast<DWORD>(stamp))*1000000ULL}))port.owner->engine->midi_overflow();}
+            else if(message==MIM_ERROR)port.owner->engine->midi_input_lost();
         }
     };
 #endif
@@ -62,16 +64,17 @@ struct MidiInputs::Impl {
 #endif
             while(!quit){
                 bool changed=false;
-                {std::lock_guard lock(requests);if(applied_request!=request_serial){active=requested;active_generation=generation;applied_request=request_serial;changed=true;}}
+                {std::lock_guard lock(requests);if(applied_request!=request_serial){changed=active!=requested;active=requested;active_generation=generation;applied_request=request_serial;}}
                 const auto now=std::chrono::steady_clock::now();
                 if(now>=check){auto current=ports();changed|=current!=inventory;inventory=std::move(current);check=now+std::chrono::seconds(1);}
-                if(changed){engine->midi_panic();
+                if(changed){
 #ifdef _WIN32
-                    opened.clear();std::map<std::string,std::string> state;
+                    if(!opened.empty())engine->midi_input_lost();opened.clear();std::map<std::string,std::string> state;
                     for(const auto& route:active){if(state.contains(route.port))continue;auto at=std::find_if(inventory.begin(),inventory.end(),[&](const auto& p){return p.id==route.port;});
                         if(at==inventory.end()){state[route.port]="MIDI: missing";continue;}
                         auto port=std::make_unique<Port>();port->owner=this;port->info=*at;
                         if(midiInOpen(&port->handle,at->index,reinterpret_cast<DWORD_PTR>(&Port::receive),reinterpret_cast<DWORD_PTR>(port.get()),CALLBACK_FUNCTION)!=MMSYSERR_NOERROR){state[route.port]="MIDI: unavailable";continue;}
+                        port->start_ns=audio::midi_clock_ns();
                         if(midiInStart(port->handle)!=MMSYSERR_NOERROR){state[route.port]="MIDI: unavailable";continue;}
                         state[route.port]="MIDI: connected";opened.push_back(std::move(port));
                     }
@@ -79,14 +82,14 @@ struct MidiInputs::Impl {
 #endif
                 }
 #ifdef _WIN32
-                for(auto& port:opened)for(int n=0;n<1023;++n){std::uint32_t raw{};{std::lock_guard lock(port->mutex);if(!port->queue.pop(raw))break;}
-                    processing::MidiEvent event;if(!decode_midi_short(raw,event))continue;
-                    for(const auto& route:active)if(route.port==port->info.id&&(route.channel<0||route.channel==event.channel))engine->enqueue_live_midi({active_generation,route.track,event});
+                for(auto& port:opened)for(int n=0;n<1023;++n){Port::Message message{};{std::lock_guard lock(port->mutex);if(!port->queue.pop(message))break;}
+                    processing::MidiEvent event;if(!decode_midi_short(message.raw,event))continue;
+                    for(const auto& route:active)if(route.port==port->info.id&&(route.channel<0||route.channel==event.channel))engine->enqueue_live_midi({active_generation,route.track,event,message.timestamp});
                 }
 #endif
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
-        }catch(...){engine->midi_panic();std::lock_guard lock(requests);for(const auto& route:requested)statuses[route.port]="MIDI: bridge failed";}
+        }catch(...){engine->midi_input_lost();std::lock_guard lock(requests);for(const auto& route:requested)statuses[route.port]="MIDI: bridge failed";}
     }
 };
 MidiInputs::MidiInputs(std::shared_ptr<audio::AudioEngine> engine):impl_(std::make_unique<Impl>(std::move(engine))){}

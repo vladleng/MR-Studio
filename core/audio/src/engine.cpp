@@ -1,4 +1,5 @@
 #include <mrs/audio.hpp>
+#include <mrs/midi_recording.hpp>
 #include <mrs/read_ahead.hpp>
 #include <mrs/recording.hpp>
 #include <mrs/processing.hpp>
@@ -81,7 +82,8 @@ ProcessingDomains AudioEngine::compile_domains(const RenderGraph& graph,
     plan.channels.resize(graph.mixer.size());
     for(std::size_t t=0;t<graph.live_midi.size();++t)if(graph.live_midi[t])plan.channels[t].reasons|=D::live_input;
     for(std::size_t t=0;t<graph.midi_notes.size();++t)if(!graph.midi_notes[t].empty())plan.channels[t].reasons|=D::unsupported_processor;
-    plan.raw_capture = !graph.recordings.empty();
+    plan.raw_capture = !graph.recordings.empty()||!graph.midi_recordings.empty();
+    for(std::size_t t=0;t<graph.midi_events.size();++t)if(!graph.midi_events[t].empty())plan.channels[t].reasons|=D::unsupported_processor;
     plan.monitoring_compensation_frames = graph.monitor.empty()&&std::none_of(graph.live_midi.begin(),graph.live_midi.end(),[](bool v){return v;}) ? 0 : compensation.output;
     const auto unsupported = [](const auto& chain) { return chain && !chain->anticipation_safe(); };
     if (unsupported(graph.processors) || unsupported(graph.master_inserts))
@@ -139,6 +141,7 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     if(speculative_||mixed_owner_)throw std::logic_error("stop the process producer before preparing audio");
     // Caller has stopped the device; this also joins a timed-out worker batch.
     workers_.reset();
+    midi_record_fault_=false;
     ++midi_generation_; // old route indices must never address a replacement graph
     if ((initial.playback != PlaybackState::stopped && initial.playback != PlaybackState::paused) ||
         initial.sample < 0 || initial.sample > max_sample || initial.play_start < 0 || initial.play_start > max_sample ||
@@ -162,9 +165,13 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     if(graph.live_midi.size()!=graph.mixer.size())throw std::invalid_argument("MIDI channel size mismatch");
     live_midi_buffers_.resize(graph.mixer.size());
     if(graph.midi_notes.empty())graph.midi_notes.resize(graph.mixer.size());
+    if(graph.midi_events.empty())graph.midi_events.resize(graph.mixer.size());
+    if(graph.midi_monitor.empty())graph.midi_monitor.assign(graph.mixer.size(),true);
+    if(graph.midi_events.size()!=graph.mixer.size()||graph.midi_monitor.size()!=graph.mixer.size())throw std::invalid_argument("MIDI event/monitor channel size mismatch");
+    for(const auto& capture:graph.midi_recordings)if(!capture.recorder||capture.track>=graph.mixer.size()||!graph.live_midi[capture.track])throw std::invalid_argument("invalid MIDI recorder route");
     if(graph.midi_notes.size()!=graph.mixer.size())throw std::invalid_argument("MIDI playback channel size mismatch");
     chunk_midi_buffers_.resize(graph.mixer.size());midi_playback_.resize(graph.mixer.size());
-    for(std::size_t t=0;t<graph.mixer.size();++t){if(graph.buses.size()==graph.mixer.size()&&graph.buses[t]&&!graph.midi_notes[t].empty())throw std::invalid_argument("bus cannot contain MIDI playback");midi_playback_[t].prepare(graph.midi_notes[t]);}
+    for(std::size_t t=0;t<graph.mixer.size();++t){if(graph.buses.size()==graph.mixer.size()&&graph.buses[t]&&(!graph.midi_notes[t].empty()||!graph.midi_events[t].empty()))throw std::invalid_argument("bus cannot contain MIDI playback");midi_playback_[t].prepare(graph.midi_notes[t],graph.midi_events[t]);}
     if (graph.outputs.size() != graph.mixer.size() || graph.buses.size() != graph.mixer.size())
         throw std::invalid_argument("mixer routing size mismatch");
     if (graph.sends.empty()) graph.sends.resize(graph.mixer.size());
@@ -469,6 +476,8 @@ RealtimeState AudioEngine::state() const {
 }
 bool AudioEngine::anticipation_safe() const noexcept {
     for(const auto& notes:graph_.midi_notes)if(!notes.empty())return false;
+    for(const auto& events:graph_.midi_events)if(!events.empty())return false;
+    if(!graph_.midi_recordings.empty())return false;
     for(bool live:graph_.live_midi)if(live)return false;
     if(!graph_.monitor.empty() || !graph_.recordings.empty())return false;
     const auto safe=[](const auto& chain){return !chain||chain->anticipation_safe();};
@@ -544,6 +553,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     if(!speculative_)callbacks_.fetch_add(1, std::memory_order_relaxed);
     if (!output || frames == 0 || frames > config_.max_block) {
         for (const auto& recorder : graph_.recordings) recorder->input_dropout();
+        for(const auto& capture:graph_.midi_recordings)capture.recorder->fail();
         invalid_blocks_.fetch_add(1, std::memory_order_relaxed);
         // Silence an oversized but valid device buffer without indexing assets.
         if (output) std::fill_n(output, static_cast<std::size_t>(frames) * config_.output_channels, 0.0F);
@@ -553,6 +563,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         if(mixed_owner_){rt_.playback=PlaybackState::paused;publish();}
         std::fill_n(output,static_cast<std::size_t>(frames)*config_.output_channels,0.f);
         for(const auto& recorder:graph_.recordings)recorder->input_dropout();
+        for(const auto& capture:graph_.midi_recordings)capture.recorder->fail();
         return;
     }
     std::fill_n(direct_output_.data(),static_cast<std::size_t>(frames)*config_.output_channels,0.0f);
@@ -561,14 +572,19 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     if (!speculative_ && frames > max_frames_.load(std::memory_order_relaxed)) max_frames_.store(frames, std::memory_order_relaxed);
     consume_controls();
     for(auto& buffer:live_midi_buffers_)buffer.clear();
+    if(rt_.loop)for(const auto& capture:graph_.midi_recordings)capture.recorder->fail();
+    const auto midi_now=graph_.midi_recordings.empty()?0:midi_clock_ns();
     LiveMidi midi;
     for(int n=0;n<1023&&live_midi_queue_.pop(midi);++n){
         if(midi.generation!=midi_generation_.load(std::memory_order_relaxed))continue;
         if(midi.track>=graph_.live_midi.size()||!graph_.live_midi[midi.track]||midi.event.channel>15||midi.event.data1>127||midi.event.data2>127||static_cast<int>(midi.event.kind)<0||midi.event.kind>processing::MidiKind::poly_pressure){++midi_dropped_;continue;}
+        if(rt_.playback==PlaybackState::playing)for(const auto& capture:graph_.midi_recordings)if(capture.track==midi.track)capture.recorder->capture(midi_record_sample(rt_.sample,capture.recorder->start(),midi_now,midi.timestamp_ns,config_.sample_rate),midi.event);
+        if(!graph_.midi_monitor[midi.track])continue;
         midi.event.offset=0;
-        if(!live_midi_buffers_[midi.track].push(midi.event)){++midi_dropped_;midi_panic_=true;}
+        if(!live_midi_buffers_[midi.track].push(midi.event)){++midi_dropped_;midi_panic_=true;for(const auto& capture:graph_.midi_recordings)capture.recorder->fail();}
     }
-    if(midi_panic_.exchange(false)){for(auto& buffer:live_midi_buffers_)buffer.clear();for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.live_midi[t]&&graph_.inserts[t])graph_.inserts[t]->panic();}
+    if(midi_record_fault_.exchange(false))for(const auto& capture:graph_.midi_recordings)capture.recorder->fail();
+    if(midi_panic_.exchange(false)){if(rt_.playback==PlaybackState::playing)for(const auto& capture:graph_.midi_recordings)capture.recorder->cut(rt_.sample);for(auto& buffer:live_midi_buffers_)buffer.clear();for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.live_midi[t]&&graph_.inserts[t])graph_.inserts[t]->panic();}
     // A later control prime can replace an earlier queued seek's warm target.
     // Pin/verify the candidate before changing RT position. If unavailable, keep
     // rendering the current head and retry next block; callback never waits.
@@ -606,6 +622,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         if (input_flags & 3U) recorder->input_dropout();
         recorder->capture(input,config_.input_channels,frames,rt_.sample);
     }
+    if(rt_.playback==PlaybackState::playing)for(const auto& capture:graph_.midi_recordings)capture.recorder->advance(rt_.sample+frames);
     if (!input && monitor_enabled_ && !graph_.monitor.empty()) missing_inputs_.fetch_add(1, std::memory_order_relaxed);
     if (!seek_pinned) for (auto& voice : graph_.voices) if (owns_voice(voice)&&voice.stream) {
         if (!pending_seek_) voice.stream->cancel_seek();
@@ -684,6 +701,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
                         rt_.playback=PlaybackState::paused;
                         std::fill_n(output,static_cast<std::size_t>(frames)*config_.output_channels,0.f);
                         for(const auto& recorder:graph_.recordings)recorder->input_dropout();
+        for(const auto& capture:graph_.midi_recordings)capture.recorder->fail();
                         // Leave worker-owned buffers/plugins/context intact until control-thread join.
                         for(auto& voice:graph_.voices)if(owns_voice(voice)&&voice.stream)(void)voice.stream->end();
                         publish();return;

@@ -58,6 +58,7 @@ struct AudioData {
     void validate() const;
 };
 struct PlaybackRoute { std::uint32_t source_channel{}, output_channel{}; float gain{1}; };
+class MidiRecorder;
 struct Voice {
     std::shared_ptr<const AudioData> asset;
     Sample start{}, source_offset{}, length{};
@@ -81,6 +82,10 @@ struct RenderGraph {
     std::vector<std::size_t> master_outputs{}; // empty preserves legacy interleaved renderer
     std::vector<std::vector<SendRoute>> sends{};
     std::vector<std::shared_ptr<Recorder>> recordings{};
+    struct MidiCapture {std::size_t track{};std::shared_ptr<MidiRecorder> recorder;};
+    std::vector<MidiCapture> midi_recordings{};
+    std::vector<bool> midi_monitor{};
+    std::vector<std::vector<PlaybackMidiEvent>> midi_events{};
     std::vector<bool> input_monitoring{};
     std::vector<std::shared_ptr<processing::PreparedGraph>> inserts{};
     std::shared_ptr<processing::PreparedGraph> master_inserts{};
@@ -181,11 +186,12 @@ struct RealtimeState {
 };
 class AudioEngine {
 public:
-    struct LiveMidi {std::uint64_t generation{};std::size_t track{};processing::MidiEvent event;};
+    struct LiveMidi {std::uint64_t generation{};std::size_t track{};processing::MidiEvent event;std::uint64_t timestamp_ns{};};
     // Single non-RT MIDI bridge producer, device callback consumer. No graph access here.
-    bool enqueue_live_midi(const LiveMidi& event) noexcept {if(live_midi_queue_.push(event))return true;++midi_dropped_;midi_panic_=true;return false;}
+    bool enqueue_live_midi(const LiveMidi& event) noexcept {if(live_midi_queue_.push(event))return true;++midi_dropped_;midi_panic_=true;midi_record_fault_=true;return false;}
     void midi_panic() noexcept {midi_panic_=true;}
-    void midi_overflow() noexcept {++midi_dropped_;midi_panic_=true;}
+    void midi_overflow() noexcept {++midi_dropped_;midi_panic_=true;midi_record_fault_=true;}
+    void midi_input_lost() noexcept {midi_panic_=true;midi_record_fault_=true;}
     std::uint64_t midi_generation() const noexcept {return midi_generation_.load();}
     std::uint64_t midi_dropped() const noexcept {return midi_dropped_.load();}
     AudioEngine();
@@ -223,7 +229,7 @@ private:
     std::vector<processing::MidiBuffer> chunk_midi_buffers_;
     std::vector<MidiPlayback> midi_playback_;
     std::atomic<std::uint64_t> midi_generation_{},midi_dropped_{};
-    std::atomic<bool> midi_panic_{};
+    std::atomic<bool> midi_panic_{},midi_record_fault_{};
     friend class AheadRenderer;
     friend class MixedRenderer;
     MixedRenderer* mixed_owner_{}; // immutable while device runs
