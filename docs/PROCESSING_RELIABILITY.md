@@ -272,6 +272,19 @@ coarse-clock short-window underruns are retained and explained in the report.
 
 [Eligibility, transitions and measured limits](ENGINE_ANTICIPATIVE_PROCESSING.md).
 Package: MR-Studio-0.1s-P2-anticipative-JUCE-ASIO-Windows-local in chat Builds.
-#52 remains open for user review; VST3 anticipation capability, live/playback
+#52 was accepted and closed for this initial slice on 2026-10-06; VST3 anticipation capability, live/playback
 dependency separation (P3), sustained load (P4/#16), 3e2/3e3 remain separate.
 Code/builds/tests/packages local; GitHub docs/issues only, no Actions/source push.
+
+## P2 accepted; P3 ownership foundation — 2026-10-06
+
+User reports good results and authorizes closing the latest delivery and proceeding.
+The initial 0.1s/#52 slice is accepted; precise new ASIO settings/duration and
+unimplemented VST3/history capabilities are not inferred. P3/#53 starts with a
+prepared candidate domain plan: all potential live input and unsupported processor
+dependencies stay on the device through buses/sends/Master, while independent
+upstream playback may be owned by a producer. Raw capture stays device-owned;
+monitoring toggles preserve ownership and fixed PDC. Merge edges retain the existing
+compensation, including direct hardware alignment. This preparation does not yet
+activate mixed rendering or change the accepted P2 whole-graph fallback.
+See [P3 implementation contract and remaining work](ENGINE_PERFORMANCE_PLAN.md).
