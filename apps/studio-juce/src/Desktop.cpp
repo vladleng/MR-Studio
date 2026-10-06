@@ -289,6 +289,7 @@ void Strip::sync(){const auto t=track();gain.setTitle(label(t.name)+" gain");pan
     mute.setToggleState(mix.mute,juce::dontSendNotification);solo.setToggleState(mix.solo,juce::dontSendNotification);
     arm.setToggleState(target&&owner.app.track_armed(*target),juce::dontSendNotification);monitor.setToggleState(t.kind==mrs::TrackKind::instrument?t.midi_monitor:t.input_monitor,juce::dontSendNotification);
     input.setButtonText(t.input==-2?"Input: default":t.input==-1?"Input: off":juce::String(t.input_stereo?"Stereo ":"Mono ")+juce::String(t.input+1));
+    input.setComponentID(t.kind==mrs::TrackKind::instrument?"midi-input-status":"");
     if(t.kind==mrs::TrackKind::instrument){input.setButtonText(label(owner.app.midi_status(t.id)));input.setTooltip("MIDI input / channel; choose a VST3 instrument as the first insert in Mix");}
     juce::String out="Out: Master";if(t.output)for(const auto& x:owner.project()->tracks)if(x.id==t.output)out="Out: "+label(x.name);
     if(!t.hardware_outputs.empty())out="Out: hardware";output.setButtonText(target?out:"Out: Default");

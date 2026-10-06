@@ -33,6 +33,7 @@ public:
         else if(text=="Stop"){g.setColour(juce::Colour(0xffc6d3df));g.fillRect(centre.x-6,centre.y-6,12.f,12.f);}
         else if(text=="Pause"){g.setColour(juce::Colour(0xffc6d3df));g.fillRect(centre.x-6,centre.y-6,4.f,12.f);g.fillRect(centre.x+2,centre.y-6,4.f,12.f);}
         else if(text=="Record (R)"){g.setColour(juce::Colour(0xffe64b54));g.fillEllipse(centre.x-6,centre.y-6,12,12);}
+        else if(button.getComponentID()=="midi-input-status"){g.setFont(font(12));g.setColour(button.findColour(juce::TextButton::textColourOffId).withMultipliedAlpha(button.isEnabled()?1.f:.5f));g.drawText(text,button.getLocalBounds().reduced(6,2),juce::Justification::centred,true);}
         else juce::LookAndFeel_V4::drawButtonText(g,button,hover,down);
     }
     juce::Font getTextButtonFont(juce::TextButton&, int) override { return font(12); }
