@@ -85,6 +85,7 @@ public:
     void finishPreview();
     mrs::desktop::Application app;
     Theme theme;
+    std::vector<mrs::MidiNote> noteClipboard;
     std::optional<mrs::Id> selectedTrack,selectedClip;
     std::vector<mrs::processing::VstPlugin> catalog;
     std::array<mrs::audio::StereoPeak,mrs::audio::max_mixer_tracks> peaks{};

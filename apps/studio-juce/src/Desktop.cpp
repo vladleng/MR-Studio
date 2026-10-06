@@ -177,7 +177,7 @@ void Desktop::resized(){menu.setBounds(0,0,getWidth(),26);projectTitle.setBounds
     browserWidth=juce::jlimit(200,juce::jmax(200,juce::jmin(700,getWidth()-700)),browserWidth);
     browserDivider.setVisible(sidebar);browserDivider.setBounds(getWidth()-browserWidth-8,70,8,getHeight()-128);
     browser->setVisible(sidebar);browser->setBounds(getWidth()-browserWidth,70,browserWidth-8,getHeight()-128);
-    x=(getWidth()-420)/2;for(auto* b:{&play,&pause,&stop,&record,&previous,&next,&loop}){int width=b==&previous||b==&next||b==&loop?78:42;b->setBounds(x,getHeight()-45,width,30);x+=width+3;}
+    x=(getWidth()-(7*42+6*3))/2;for(auto* b:{&play,&pause,&stop,&record,&previous,&next,&loop}){b->setBounds(x,getHeight()-45,42,30);x+=45;}
     x=getWidth()-344;for(auto* b:{&arrangeButton,&editButton,&mixButton,&brows}){b->setBounds(x,getHeight()-45,78,30);x+=84;}
     cpuReadout.setBounds(8,getHeight()-44,88,20);audioCpuBar.setBounds(100,getHeight()-39,90,10);
     latencyReadout.setBounds(getWidth()-312,getHeight()-66,304,20);

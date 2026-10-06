@@ -583,6 +583,11 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         midi.event.offset=0;
         if(!live_midi_buffers_[midi.track].push(midi.event)){++midi_dropped_;midi_panic_=true;for(const auto& capture:graph_.midi_recordings)capture.recorder->fail();}
     }
+    for(int n=0;n<127&&audition_midi_queue_.pop(midi);++n){
+        if(midi.generation!=midi_generation_.load(std::memory_order_relaxed))continue;
+        if(midi.track>=graph_.live_midi.size()||!graph_.live_midi[midi.track]||midi.event.channel>15||midi.event.data1>127||midi.event.data2>127||(midi.event.kind!=processing::MidiKind::note_on&&midi.event.kind!=processing::MidiKind::note_off)){++midi_dropped_;continue;}
+        midi.event.offset=0;if(!live_midi_buffers_[midi.track].push(midi.event)){++midi_dropped_;midi_panic_=true;}
+    }
     if(midi_record_fault_.exchange(false))for(const auto& capture:graph_.midi_recordings)capture.recorder->fail();
     if(midi_panic_.exchange(false)){if(rt_.playback==PlaybackState::playing)for(const auto& capture:graph_.midi_recordings)capture.recorder->cut(rt_.sample);for(auto& buffer:live_midi_buffers_)buffer.clear();for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.live_midi[t]&&graph_.inserts[t])graph_.inserts[t]->panic();}
     // A later control prime can replace an earlier queued seek's warm target.

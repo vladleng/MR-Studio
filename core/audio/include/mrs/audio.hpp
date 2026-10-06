@@ -189,6 +189,8 @@ public:
     struct LiveMidi {std::uint64_t generation{};std::size_t track{};processing::MidiEvent event;std::uint64_t timestamp_ns{};};
     // Single non-RT MIDI bridge producer, device callback consumer. No graph access here.
     bool enqueue_live_midi(const LiveMidi& event) noexcept {if(live_midi_queue_.push(event))return true;++midi_dropped_;midi_panic_=true;midi_record_fault_=true;return false;}
+    // Message-thread producer only; independent of the driver bridge SPSC. Audition is not recorded.
+    bool enqueue_audition_midi(const LiveMidi& event) noexcept {if(audition_midi_queue_.push(event))return true;++midi_dropped_;midi_panic_=true;return false;}
     void midi_panic() noexcept {midi_panic_=true;}
     void midi_overflow() noexcept {++midi_dropped_;midi_panic_=true;midi_record_fault_=true;}
     void midi_input_lost() noexcept {midi_panic_=true;midi_record_fault_=true;}
@@ -225,6 +227,7 @@ public:
     const ProcessingDomains& processing_domains() const {return domains_;} // candidate plan, control thread
 private:
     SpscQueue<LiveMidi,1024> live_midi_queue_;
+    SpscQueue<LiveMidi,128> audition_midi_queue_;
     std::vector<processing::MidiBuffer> live_midi_buffers_; // allocated only by quiescent prepare
     std::vector<processing::MidiBuffer> chunk_midi_buffers_;
     std::vector<MidiPlayback> midi_playback_;
