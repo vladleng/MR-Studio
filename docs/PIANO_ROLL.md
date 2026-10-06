@@ -18,7 +18,7 @@ UI, Application commands, audio ingress, tests/docs: AFFECTED.
 Project note data, MIDI playback, serialization: существующие paths переиспользованы.
 Схема и файловая структура: NOT AFFECTED. Selection/snap/zoom/clipboard — transient
 UI state, не сохраняются и не входят в Undo. Core и playback общие со встроенным
-Live; piano roll — Studio UI. Musical operations/CC lanes — 4e/4f, DEFERRED.
+Live; piano roll — Studio UI. Musical operations — 4e / 0.2e реализованы; CC lanes — 4f, DEFERRED.
 
 Жест создаёт local preview и один SetMidiNotes при mouse up. Escape/focus loss
 отменяет preview. Состояние модели проверяется перед commit; чужое изменение
@@ -51,3 +51,5 @@ exclusion from recording PASS; checked host callback allocation 0.
 FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK.
 Пакет/EXE SHA256: PROJECT_CONTEXT. Физические ASIO/VST3/mixed DPI не запускались.
 Software DPI previews не заменяют Windows mixed DPI и аппаратное прослушивание.
+
+0.2d принята пользователем: «Да, все работает», #66 закрыт. Точные аппаратные режимы не перечислены.
