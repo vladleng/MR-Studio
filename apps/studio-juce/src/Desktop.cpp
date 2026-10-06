@@ -267,7 +267,7 @@ Strip::Strip(Desktop& d,std::optional<mrs::Id> id,bool small):gain(!small),targe
     gain.setDescription("Arrow keys adjust gain; Ctrl for fine adjustment");pan.setDescription("Arrow keys adjust pan; Ctrl for fine adjustment");
     mute.setTitle("Mute");solo.setTitle("Solo");arm.setTitle("Arm recording");monitor.setTitle("Input monitoring");
     for(auto* c:{static_cast<juce::Component*>(&gain),static_cast<juce::Component*>(&pan)})addAndMakeVisible(c);
-    for(auto* b:{&mute,&solo,&arm,&monitor,&input,&inserts,&output,&sends,&add})addAndMakeVisible(b);
+    for(auto* b:{&mute,&solo,&arm,&monitor,&input,&inserts,&output,&sends,&add}){b->getProperties().set("channelFont",true);addAndMakeVisible(b);}
     mute.onClick=[this]{owner.run([&]{auto m=track().mix;m.mute=!m.mute;owner.app.set_track_mix(*target,m);});};
     solo.onClick=[this]{owner.run([&]{auto m=track().mix;m.solo=!m.solo;owner.app.set_track_mix(*target,m);});};
     arm.onClick=[this]{owner.run([&]{owner.app.set_track_armed(*target,!owner.app.track_armed(*target));sync();});};
@@ -304,7 +304,7 @@ void Strip::sync(){const auto t=track();gain.setTitle(label(t.name)+" gain");pan
 void Strip::insertList(){const auto chain=owner.chain(target);insertButtons.clear();if(mini)return;
     inserts.setButtonText("Inserts ("+juce::String(static_cast<int>(chain.size()))+")");
     for(const auto& n:chain){auto b=std::make_unique<juce::TextButton>((n.bypass?"[B] ":"")+insertName(n));const auto slot=n.id;
-        b->onClick=[this,slot]{owner.openInsert(target,slot);};insertBody.addAndMakeVisible(*b);insertButtons.push_back(std::move(b));}
+        b->getProperties().set("channelFont",true);b->onClick=[this,slot]{owner.openInsert(target,slot);};insertBody.addAndMakeVisible(*b);insertButtons.push_back(std::move(b));}
 }
 void Strip::resized(){const int w=getWidth(),h=getHeight();if(mini){mute.setBounds(w-132,4,28,24);solo.setBounds(w-102,4,28,24);arm.setBounds(w-72,4,28,24);monitor.setBounds(w-42,4,28,24);
         gain.setBounds(8,32,w-70,36);pan.setBounds(w-64,34,58,32);input.setBounds(8,h-30,w-18,24);}
@@ -324,7 +324,7 @@ void Strip::paint(juce::Graphics& g){const bool selected=target&&owner.selectedT
         g.setColour(juce::Colour(0xff1b2024));g.fillRect(0,24,getWidth(),1);
         g.fillRect(6,getHeight()-88,getWidth()-12,1);}
     if(trackHover){g.setColour(juce::Colours::lightskyblue);if(mini)g.fillRect(0,dropBefore?0:getHeight()-3,getWidth(),3);else g.fillRect(dropBefore?0:getWidth()-3,0,3,getHeight());}
-    const auto t=track();g.setFont(owner.theme.font(13));g.setColour(target?juce::Colours::whitesmoke:juce::Colours::gold);
+    const auto t=track();g.setFont(ui::Theme::channelFont());g.setColour(target?juce::Colours::whitesmoke:juce::Colours::gold);
     g.drawText(target?label(t.name):"MASTER",mini?8:6,3,mini?getWidth()-145:getWidth()-12,21,juce::Justification::left);
     mrs::audio::StereoPeak p=owner.masterPeak;if(target){const auto tracks=owner.project()->tracks;for(std::size_t i=0;i<tracks.size();++i)if(tracks[i].id==target)p=owner.peaks[i];}
     for(int i=0;i<2;++i){const float peak=i==0?p.left:p.right;const auto level=juce::jlimit(0.f,1.f,(20.f*std::log10(juce::jmax(.000001f,peak))+60.f)/60.f);
@@ -332,7 +332,7 @@ void Strip::paint(juce::Graphics& g){const bool selected=target&&owner.selectedT
         g.setColour(juce::Colour(0xff111518));g.fillRect(r);g.setColour(peak>.95f?juce::Colours::orange:juce::Colour(0xff38cbbf));
         if(mini)g.fillRect(r.withWidth(static_cast<int>(r.getWidth()*level)));else g.fillRect(r.withTop(r.getBottom()-static_cast<int>(r.getHeight()*level)));
     }
-    g.setFont(owner.theme.font(13));g.setColour(juce::Colours::whitesmoke);g.drawText(juce::String(-60+gain.value*72,1)+" dB",mini?10:6,mini?82:getHeight()-107,mini?100:getWidth()-12,18,juce::Justification::left);
+    g.setFont(ui::Theme::channelFont());g.setColour(juce::Colours::whitesmoke);g.drawText(juce::String(-60+gain.value*72,1)+" dB",mini?10:6,mini?82:getHeight()-107,mini?100:getWidth()-12,18,juce::Justification::left);
 }
 void Strip::inputMenu(){if(!target)return;
     if(track().kind==mrs::TrackKind::instrument){
@@ -429,7 +429,7 @@ public:
     BrowserNode(juce::String text,int id=-1):name(std::move(text)),plugin(id){}
     bool mightContainSubItems() override{return plugin<0;}
     juce::String getUniqueName() const override{return name;}
-    void paintItem(juce::Graphics& g,int width,int height) override{g.setColour(juce::Colours::whitesmoke);g.setFont(13.f);g.drawText(name,2,0,width-4,height,juce::Justification::left);}
+    void paintItem(juce::Graphics& g,int width,int height) override{g.setColour(juce::Colours::whitesmoke);g.setFont(ui::Theme::channelFont());g.drawText(name,2,0,width-4,height,juce::Justification::left);}
     juce::var getDragSourceDescription() override{return plugin<0?juce::var():juce::var("vst3:"+juce::String(plugin));}
     juce::String name;int plugin;
 };

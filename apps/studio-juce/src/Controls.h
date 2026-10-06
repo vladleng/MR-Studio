@@ -36,17 +36,21 @@ public:
         juce::ignoreUnused(centre);
         if(const auto at=transport.find(text.toStdString());at!=transport.end()){
             auto colour=text=="Record (R)"?juce::Colour(0xffe64b54):button.getToggleState()?juce::Colour(0xff31b7dd):juce::Colour(0xffc6d3df);
-            if(hover||down)colour=colour.brighter(.2f);if(!button.isEnabled())colour=colour.withAlpha(.35f);
+            if(text=="Record (R)"&&button.getToggleState())colour=colour.brighter(.35f);
+            if(button.hasKeyboardFocus(true))colour=juce::Colours::skyblue;
+            if(hover||down)colour=colour.brighter(down?.4f:.2f);if(!button.isEnabled())colour=colour.withAlpha(.35f);
             at->second->replaceColour(transportColours[text.toStdString()],colour);transportColours[text.toStdString()]=colour;
             at->second->drawWithin(g,area.withSizeKeepingCentre(20,20),juce::RectanglePlacement::centred,1.f);
-        }else {g.setFont(font(13));g.setColour(button.findColour(button.getToggleState()?juce::TextButton::textColourOnId:juce::TextButton::textColourOffId).withMultipliedAlpha(button.isEnabled()?1.f:.5f));g.drawText(text,button.getLocalBounds().reduced(3,1),juce::Justification::centred,true);}
+        }else {g.setFont(getTextButtonFont(button,button.getHeight()));g.setColour(button.findColour(button.getToggleState()?juce::TextButton::textColourOnId:juce::TextButton::textColourOffId).withMultipliedAlpha(button.isEnabled()?1.f:.5f));g.drawText(text,button.getLocalBounds().reduced(3,1),juce::Justification::centred,true);}
     }
-    juce::Font getTextButtonFont(juce::TextButton&, int) override { return font(13); }
+    juce::Font getTextButtonFont(juce::TextButton& button, int) override { return button.getProperties()["channelFont"] ? channelFont() : font(13); }
+    static juce::Font channelFont() { return juce::Font(juce::FontOptions(13.f)); }
     juce::Font getMenuBarFont(juce::MenuBarComponent&, int, const juce::String&) override { return font(13); }
     juce::Font getPopupMenuFont() override { return font(13); }
     juce::Font font(float size) const { return juce::Font(juce::FontOptions(face).withPointHeight(size)); }
     void drawButtonBackground(juce::Graphics& g, juce::Button& b, const juce::Colour& c,
                               bool hover, bool down) override {
+        if(transport.contains(b.getButtonText().toStdString()))return;
         g.setColour(c.brighter(down ? .18f : hover ? .09f : 0.f));
         g.fillRoundedRectangle(b.getLocalBounds().reduced(1).toFloat(),3.f);
         g.setColour(b.hasKeyboardFocus(true) ? juce::Colours::skyblue : juce::Colour(0xff525a62));
