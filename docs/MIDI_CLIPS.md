@@ -1,5 +1,9 @@
 # 0.2b / Stage 4b — MIDI-клипы и воспроизведение
 
+0.2b принята пользователем: «Тест пройден, идем дальше». В 0.2c модель расширена
+до schema 13 с записанными channel events; детали — [MIDI_RECORDING](MIDI_RECORDING.md).
+Ниже контракт исходной 0.2b / schema 12.
+
 Дата: 2026-10-06. Tracking: [#64](https://github.com/vladleng/MR-Studio/issues/64),
 parent [#24](https://github.com/vladleng/MR-Studio/issues/24).
 База интерфейса — принятая 0.2a upd1 fix1. Пользовательская приёмка 0.2b отдельно.

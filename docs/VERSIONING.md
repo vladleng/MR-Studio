@@ -1,5 +1,15 @@
 # Правила версионирования Moon River Studio
 
+## 0.2c — 2026-10-06
+
+Stage 4c: линейная MIDI recording, instrument Arm, timestamp/sample→tick,
+notes + channel events/sustain/bend, joint audio/MIDI, единый Undo/save/reopen.
+Семь transport SVG встроены в приложение из пользовательского assets/ui/icons/transport;
+прежняя компоновка и компактный микшер сохранены. Core schema 13 читает 1–12.
+Source `f5247ede6775657f6067109047b7786af2f849b8`, только локально.
+Release/113 CTest PASS (58.60 s), packaged recording/live/clips/J3 PASS.
+Пользовательская ASIO-приёмка ожидается. Workflow/limits: MIDI_RECORDING.
+
 ## 0.2b — 2026-10-06
 
 Stage 4b: MIDI-клипы, минимальный note form, clip editing/Undo/Redo,
@@ -7,8 +17,7 @@ tempo-aware playback и chasing/loop/Stop. Core schema 12 читает 1–11;
 старые сборки не читают 12, использовать копии проектов.
 Source `1c26828606c19d1f298417f3d1edf7821b7e4a67`, только локально.
 Release и 112/112 CTest PASS (58.30 s), packaged MIDI/live/J3 PASS.
-Принятая визуальная база 0.2a upd1 fix1 сохранена. Пользовательская ASIO-приёмка
-ожидается; #64/#24 открыты. Пакет/границы — PROJECT_CONTEXT и MIDI_CLIPS.
+Принятая визуальная база 0.2a upd1 fix1 сохранена. 0.2b принята пользователем: «Тест пройден, идем дальше». #64 закрыт; #24 открыт. Пакет/границы — PROJECT_CONTEXT и MIDI_CLIPS.
 
 ## 0.2a upd1 fix1 — 2026-10-06
 
@@ -40,7 +49,7 @@ Fix1 принят пользователем 2026-10-06: «Все работае
 Счётчики независимы внутри базовой версии и сбрасываются при смене буквы.
 Комбинация допустима: `0.2a upd1 fix2`; имя пакета содержит `0.2a-upd1-fix2`.
 0.2a реализована локально: MIDI input и VST3 instruments; Release/111 CTest прошли.
-Пакет и пользовательская приёмка — в PROJECT_CONTEXT. 0.2b выпущена локально, ASIO-приёмка ожидается; 0.2c–0.2h ещё не выпущены.
+Пакет и пользовательская приёмка — в PROJECT_CONTEXT. 0.2b принята, 0.2c выпущена локально с ожидаемой ASIO-приёмкой; 0.2d–0.2h ещё не выпущены.
 Исторический milestone MRS 0.5 не определяет версию MIDI-пакета.
 
 
