@@ -10,6 +10,8 @@
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #include "pluginterfaces/vst/ivstprocesscontext.h"
+#include "pluginterfaces/vst/ivstevents.h"
+#include "pluginterfaces/vst/ivstmidicontrollers.h"
 #include "pluginterfaces/gui/iplugview.h"
 #include <windows.h>
 #include <algorithm>
@@ -22,6 +24,16 @@ namespace mrs::processing {
 using namespace Steinberg;
 using namespace Steinberg::Vst;
 namespace {
+class FixedEvents final : public IEventList {
+public:
+    std::array<Event,4096> events{};int32 count{};
+    void clear() noexcept {count=0;}
+    tresult PLUGIN_API queryInterface(const TUID iid,void** out) override{if(FUnknownPrivate::iidEqual(iid,IEventList::iid)||FUnknownPrivate::iidEqual(iid,FUnknown::iid)){*out=this;return kResultOk;}*out=nullptr;return kNoInterface;}
+    uint32 PLUGIN_API addRef() override{return 1;}uint32 PLUGIN_API release() override{return 1;}
+    int32 PLUGIN_API getEventCount() override{return count;}
+    tresult PLUGIN_API getEvent(int32 i,Event& e) override{if(i<0||i>=count)return kInvalidArgument;e=events[i];return kResultOk;}
+    tresult PLUGIN_API addEvent(Event& e) override{if(count>=static_cast<int32>(events.size()))return kOutOfMemory;events[count++]=e;return kResultOk;}
+};
 HostApplication& host(){static auto p=owned(new HostApplication);return *p;}
 void ok(tresult result,const char* operation){if(result!=kResultOk)throw std::runtime_error(std::string("VST3: ")+operation);}
 class FixedQueue final : public IParamValueQueue {
@@ -44,7 +56,7 @@ public:
     int32 PLUGIN_API getParameterCount() override{return count;}
     IParamValueQueue* PLUGIN_API getParameterData(int32 i) override{return i>=0&&i<count?&queues[i]:nullptr;}
     IParamValueQueue* PLUGIN_API addParameterData(const ParamID& id,int32& index) override{for(int32 i=0;i<count;++i)if(queues[i].id==id){index=i;return &queues[i];}if(count>=256)return nullptr;index=count;auto& q=queues[count++];q.id=id;q.count=0;return &q;}
-    void add(ParamID id,float v,int32 offset){int32 index{};if(auto* q=addParameterData(id,index))q->addPoint(offset,v,index);}
+    bool add(ParamID id,float v,int32 offset){int32 index{};if(auto* q=addParameterData(id,index)){auto& queue=static_cast<FixedQueue&>(*q);if(queue.count&&queue.points[queue.count-1].offset==offset){queue.points[queue.count-1].value=v;return true;}return q->addPoint(offset,v,index)==kResultOk;}return false;}
 };
 bool safe_process(IAudioProcessor* processor,ProcessData* data) noexcept {
 #ifdef _MSC_VER
@@ -65,6 +77,27 @@ class Plugin final : public IProcessor, public IComponentHandler, public IPlugFr
     HostProcessData data_;
     Vst::ProcessContext context_{};
     FixedChanges input_,output_;
+    FixedEvents events_in_,events_out_;
+    std::array<std::array<ParamID,131>,16> midi_mapping_{};
+    std::array<std::array<bool,128>,16> held_{};
+    bool reset_midi_{},has_events_{};
+    void midi_event(const MidiEvent& m) noexcept {
+        const auto parameter=[&](int cc,float value){const auto id=midi_mapping_[m.channel][cc];if(id!=kNoParamId&&!input_.add(id,value,static_cast<int32>(m.offset)))reset_midi_=true;};
+        if(m.kind==MidiKind::cc){
+            parameter(m.data1,static_cast<float>(m.data2)/127);
+            if(m.data1==120||m.data1==123){for(int note=0;note<128;++note)if(held_[m.channel][note]){MidiEvent off{m.offset,MidiKind::note_off,m.channel,static_cast<std::uint8_t>(note),0};midi_event(off);}parameter(64,0);}
+            return;
+        }
+        if(m.kind==MidiKind::pitch_bend){parameter(129,static_cast<float>(m.data1+128*m.data2)/16383);return;}
+        if(m.kind==MidiKind::pressure){parameter(128,static_cast<float>(m.data1)/127);return;}
+        if(m.kind==MidiKind::program){parameter(130,static_cast<float>(m.data1)/127);return;}
+        if(!has_events_)return;
+        Event e{};e.busIndex=0;e.sampleOffset=static_cast<int32>(m.offset);e.flags=Event::kIsLive;
+        if(m.kind==MidiKind::note_on&&m.data2){e.type=Event::kNoteOnEvent;e.noteOn.channel=m.channel;e.noteOn.pitch=m.data1;e.noteOn.velocity=static_cast<float>(m.data2)/127;e.noteOn.noteId=-1;held_[m.channel][m.data1]=true;}
+        else if(m.kind==MidiKind::poly_pressure){e.type=Event::kPolyPressureEvent;e.polyPressure.channel=m.channel;e.polyPressure.pitch=m.data1;e.polyPressure.pressure=static_cast<float>(m.data2)/127;e.polyPressure.noteId=-1;}
+        else {e.type=Event::kNoteOffEvent;e.noteOff.channel=m.channel;e.noteOff.pitch=m.data1;e.noteOff.velocity=static_cast<float>(m.data2)/127;e.noteOff.noteId=-1;held_[m.channel][m.data1]=false;}
+        if(events_in_.addEvent(e)!=kResultOk)reset_midi_=true;
+    }
     std::vector<mrs::processing::ParameterInfo> infos_;
     std::array<std::atomic<float>,4096> values_{};
     audio::SpscQueue<ParameterChange,1024> editor_changes_;
@@ -89,15 +122,21 @@ public:
     ~Plugin() override{close_editor();if(controller_)controller_->setComponentHandler(nullptr);if(processor_&&processing_)processor_->setProcessing(false);if(component_&&active_)component_->setActive(false);processor_=nullptr;controller_=nullptr;component_=nullptr;provider_.reset();}
     void prepare(ProcessConfig c) override{
         config_=c;const SpeakerArrangement arrangement=c.channels==1?SpeakerArr::kMono:SpeakerArr::kStereo;
-        if(component_->getBusCount(kAudio,kInput)<1||component_->getBusCount(kAudio,kOutput)<1)throw std::runtime_error("VST3 slice supports mono/stereo audio effects, not instruments");
+        if(component_->getBusCount(kAudio,kOutput)<1||(!c.instrument&&component_->getBusCount(kAudio,kInput)<1))throw std::runtime_error("VST3 requires an audio output; generators belong on instrument tracks");
+        has_events_=component_->getBusCount(kEvent,kInput)>0;
+        if(c.instrument&&!has_events_)throw std::runtime_error("Choose a VST3 instrument with a MIDI event input");
         // Negotiate every declared bus, including inactive sidechain/auxiliary buses.
         std::vector<SpeakerArrangement> inputs(component_->getBusCount(kAudio,kInput)),outputs(component_->getBusCount(kAudio,kOutput));
         for(auto dir:{kInput,kOutput}){auto& buses=dir==kInput?inputs:outputs;for(int32 i=0;i<static_cast<int32>(buses.size());++i){ok(processor_->getBusArrangement(dir,i,buses[i]),"cannot query audio bus layout");if(i==0)buses[i]=arrangement;}}
         ok(processor_->setBusArrangements(inputs.data(),static_cast<int32>(inputs.size()),outputs.data(),static_cast<int32>(outputs.size())),"effect must support selected mono/stereo layout");
-        for(auto dir:{kInput,kOutput}){for(int32 i=0;i<component_->getBusCount(kAudio,dir);++i)ok(component_->activateBus(kAudio,dir,i,i==0),"audio bus activation failed");for(int32 i=0;i<component_->getBusCount(kEvent,dir);++i)component_->activateBus(kEvent,dir,i,false);}
+        for(auto dir:{kInput,kOutput}){for(int32 i=0;i<component_->getBusCount(kAudio,dir);++i)ok(component_->activateBus(kAudio,dir,i,i==0),"audio bus activation failed");for(int32 i=0;i<component_->getBusCount(kEvent,dir);++i)ok(component_->activateBus(kEvent,dir,i,c.instrument&&dir==kInput&&i==0),"event bus activation failed");}
+        for(auto& ch:midi_mapping_)ch.fill(kNoParamId);
+        FUnknownPtr<IMidiMapping> mapping(controller_);
+        if(mapping&&c.instrument)for(int16 ch=0;ch<16;++ch)for(int16 cc=0;cc<131;++cc){ParamID id=kNoParamId;if(mapping->getMidiControllerAssignment(0,ch,cc,id)==kResultOk)midi_mapping_[ch][cc]=id;}
         ProcessSetup setup{kRealtime,kSample32,static_cast<int32>(c.max_block),static_cast<double>(c.sample_rate)};ok(processor_->canProcessSampleSize(kSample32),"32-bit processing unsupported");ok(processor_->setupProcessing(setup),"setup processing failed");
         if(!data_.prepare(*component_,static_cast<int32>(c.max_block),kSample32))throw std::runtime_error("VST3 audio buffer preparation failed");
-        const int32 channels=c.channels==1?1:2;if(data_.inputs[0].numChannels!=channels||data_.outputs[0].numChannels!=channels)throw std::runtime_error("VST3 bus layout mismatch");
+        const int32 channels=c.channels==1?1:2;if((data_.numInputs&&data_.inputs[0].numChannels!=channels)||data_.outputs[0].numChannels!=channels)throw std::runtime_error("VST3 bus layout mismatch");
+        data_.inputEvents=&events_in_;data_.outputEvents=&events_out_;
         context_.sampleRate=c.sample_rate;data_.processContext=&context_;data_.processMode=kRealtime;data_.inputParameterChanges=&input_;data_.outputParameterChanges=&output_;
         // Restore into an activated component, as desktop hosts do. TH-U resets
         // DSP internals on activation even while getState/UI retains the preset.
@@ -118,6 +157,7 @@ public:
         // VST3's zero-sample parameter flush, off the audio thread with callbacks
         // stopped. Do not render/advance audio merely to commit pending controls.
         auto& self=*const_cast<Plugin*>(this);
+        self.events_in_.clear();self.events_out_.clear();
         for(int pass=0;pass<20;++pass){
             self.input_.clear();self.output_.clear();std::size_t emitted=0;
             for(std::size_t i=0;i<infos_.size()&&emitted<256;++i)if(self.initial_pending_[i]){self.input_.add(infos_[i].id,values_[i].load(),0);self.initial_pending_[i]=false;--self.initial_count_;++emitted;}
@@ -134,7 +174,7 @@ public:
     std::optional<float> parameter_value(std::uint32_t id) const noexcept override{auto i=index(id);return i?std::optional<float>{values_[*i].load()}:std::nullopt;}
     std::uint32_t latency() const noexcept override{return latency_;}bool live_safe() const noexcept override{return false;}
     void warm() override{for(std::size_t i=0;i<infos_.size();++i)if(initial_pending_[i])controller_->setParamNormalized(infos_[i].id,values_[i].load());if(!active_){ok(component_->setActive(true),"activation failed");active_=true;}ok(processor_->setProcessing(true),"start processing failed");processing_=true;latency_=processor_->getLatencySamples();}
-    void reset() noexcept override{context_.projectTimeSamples=0;}
+    void reset() noexcept override{context_.projectTimeSamples=0;reset_midi_=true;}
     bool edited() noexcept override{if(refresh_values_.exchange(false))for(std::size_t i=0;i<infos_.size();++i)values_[i]=static_cast<float>(controller_->getParamNormalized(infos_[i].id));return edited_.exchange(false);}
     void sync_controller(std::uint32_t id,float value) override{controller_->setParamNormalized(id,value);}
     bool failed() const noexcept override{return fault_.load();}
@@ -156,6 +196,9 @@ public:
     void process(ProcessBlock block) noexcept override{
         if(fault_)return;
         input_.clear();output_.clear();if(initial_count_){std::size_t emitted=0;for(std::size_t i=0;i<infos_.size()&&emitted<256;++i)if(initial_pending_[i]){input_.add(infos_[i].id,values_[i].load(),0);initial_pending_[i]=false;--initial_count_;++emitted;}}
+        events_in_.clear();events_out_.clear();
+        if(reset_midi_){reset_midi_=false;for(std::uint8_t ch=0;ch<16;++ch){midi_event({0,MidiKind::cc,ch,123,0});midi_event({0,MidiKind::pitch_bend,ch,0,64});}}
+        for(const auto& event:block.midi)midi_event(event);
         for(const auto& p:block.parameters){if(auto i=index(p.id))values_[*i]=p.value;input_.add(p.id,p.value,static_cast<int32>(p.offset));}
         ParameterChange change;for(int i=0;i<256&&editor_changes_.pop(change);++i)input_.add(change.id,change.value,0);
         for(int32 b=0;b<data_.numInputs;++b){data_.inputs[b].silenceFlags=0;for(int32 c=0;c<data_.inputs[b].numChannels;++c){auto* out=data_.inputs[b].channelBuffers32[c];for(std::uint32_t f=0;f<block.frames;++f)out[f]=b==0?block.audio[static_cast<std::size_t>(f)*block.channels+c]:0;}}

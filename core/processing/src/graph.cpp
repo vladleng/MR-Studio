@@ -80,7 +80,8 @@ PreparedGraph::PreparedGraph(GraphSnapshot snapshot, ProcessConfig config, Proce
         p.last_parameters[saved.id.value]=saved.parameters;
         node.processor = factory(saved);
         if (!node.processor) throw std::invalid_argument("processor factory returned null");
-        node.processor->prepare(config);
+        auto node_config=config;node_config.instrument=config.instrument&&i==0;
+        node.processor->prepare(node_config);
         node.processor->restore(saved.plugin);
         node.infos = node.processor->parameters();
         if (node.infos.size() > 4096) throw std::invalid_argument("too many processor parameters");
@@ -226,11 +227,13 @@ void PreparedGraph::reset_anticipation() noexcept {
     for(auto& node:impl_->nodes){node.processor->reset_anticipation();for(auto& edge:node.inputs)edge.delay.reset();}
     for(auto& delay:impl_->output_delays)delay.reset();
 }
-void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,bool playing,double tempo,double quarter) noexcept {
+void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,bool playing,double tempo,double quarter,std::span<const MidiEvent> live_midi) noexcept {
     auto& p = *impl_;
     const bool profiling=p.profiling.load(std::memory_order_relaxed);
     if (!audio || !frames || frames > p.config.max_block) { ++p.invalid; return; }
     for (auto& node : p.nodes) { node.midi.clear(); node.output.clear(); node.parameter_count = 0; }
+    if(live_midi.size()>event_capacity){++p.dropped_midi;p.panic_requested=true;}
+    if(p.config.instrument&&!p.nodes.empty())for(const auto& event:live_midi.first(std::min(live_midi.size(),event_capacity))){if(event.offset>=frames||event.channel>15||event.data1>127||event.data2>127||static_cast<int>(event.kind)<0||event.kind>MidiKind::poly_pressure||!p.nodes.front().midi.push(event)){++p.dropped_midi;p.panic_requested=true;}}
     MidiCommand midi;
     // Bound the drain even if producer keeps writing.
     for (int i = 0; i < 1023 && p.midi_queue.pop(midi); ++i) {
@@ -353,6 +356,7 @@ void PreparedGraph::close_editor(const Id& id) noexcept {const auto it=impl_->in
 bool PreparedGraph::consume_edits() noexcept{bool any=false;for(auto& n:impl_->nodes)any=n.processor->edited()||any;return any;}
 bool PreparedGraph::failed() const noexcept{for(const auto& n:impl_->nodes)if(n.processor->failed())return true;return false;}
 bool PreparedGraph::anticipation_safe() const noexcept {
+    if(impl_->config.instrument)return false;
     if(impl_->external_schedule.load(std::memory_order_acquire))return false;
     for(const auto& node:impl_->nodes)if(!node.processor->anticipation_safe())return false;
     return true;

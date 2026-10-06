@@ -95,6 +95,7 @@ std::string serialize(const Project& p) {
         out << track.input_stereo << ' ' << track.input_monitor << '\n';
         out << track.hardware_outputs.size(); for (const auto channel : track.hardware_outputs) out << ' ' << channel; out << '\n';
         write_inserts(out,track.inserts);
+        out << std::quoted(track.midi_input) << ' ' << track.midi_channel << ' ' << track.midi_monitor << '\n';
     }
     section(out, "CLIPS", p.clips);
     for (const auto& clip : p.clips)
@@ -175,7 +176,7 @@ Project deserialize(std::string_view bytes) {
         int kind{};
         in >> kind;
         check_stream(in);
-        if (kind < 0 || kind > (input_version >= 4 ? 2 : 1)) throw std::invalid_argument("invalid track enum");
+        if (kind < 0 || kind > (input_version >= 11 ? 3 : input_version >= 4 ? 2 : 1)) throw std::invalid_argument("invalid track enum");
         track.kind = static_cast<TrackKind>(kind);
         track.folder = parent(in);
         if (input_version >= 3) {
@@ -207,6 +208,7 @@ Project deserialize(std::string_view bytes) {
             for (std::size_t j=0; j<outputs; ++j) { int channel{}; in >> channel; check_stream(in); track.hardware_outputs.push_back(channel); }
         }
         if (input_version >= 8) track.inserts=read_inserts(in,input_version);
+        if(input_version>=11){track.midi_input=quoted(in);int monitor{};in>>track.midi_channel>>monitor;check_stream(in);if(monitor!=0&&monitor!=1)throw std::invalid_argument("invalid MIDI monitor flag");track.midi_monitor=monitor!=0;}
         p.tracks.push_back(std::move(track));
     }
     tag(in, "CLIPS");

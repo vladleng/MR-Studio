@@ -2,7 +2,30 @@
 #include "J1Smoke.h"
 #include "PluginPreset.h"
 #include <windows.h>
+#include <thread>
+#include <chrono>
 namespace ui {
+void midi4aSmoke(Desktop& d,const juce::File& fixture){
+    auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    if(fixture==juce::File())return;
+    const auto folder=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("mrs-midi4a","",false);folder.createDirectory();
+    const auto generator=folder.getChildFile("instrument.vst3");check(fixture.copyFileTo(generator),"instrument fixture copied");
+    d.closeEditors();d.app.new_project();d.refresh(true);d.action(28);
+    check(d.project()->tracks.size()==1&&d.project()->tracks.front().kind==mrs::TrackKind::instrument,"instrument track menu");
+    const auto id=d.project()->tracks.front().id;
+    auto original=d.catalog;d.catalog=mrs::processing::probe_vst3(generator.getFullPathName().toStdString());d.addPlugin(id,0);d.closeEditors();
+    d.app.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1},1});
+    d.app.set_midi_input(id,"unavailable-fixture-port",-1,true);d.refresh(true);
+    check(d.app.engine()->enqueue_live_midi({d.app.engine()->midi_generation(),0,{0,mrs::processing::MidiKind::note_on,0,60,127}}),"live note ingress");
+    // Let route reconfiguration's panic settle before the deterministic manual callback.
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));std::array<float,256> audio{};d.app.engine()->process(nullptr,audio.data(),128);
+    d.app.engine()->enqueue_live_midi({d.app.engine()->midi_generation(),0,{0,mrs::processing::MidiKind::note_on,0,60,127}});d.app.engine()->process(nullptr,audio.data(),128);
+    check(audio.back()>0,"instrument sounds while transport stopped");d.action(42);d.app.engine()->process(nullptr,audio.data(),128);check(audio.back()==0,"panic menu");
+    d.app.set_midi_input(id,"",-1,false);d.refresh(true);d.arrangement->rows.front()->refreshMidiStatus();
+    d.setWorkspace(mrs::desktop::Workspace::mix);d.selectedTrack=id;d.refresh(true);
+    for(float scale:{1.f,1.5f}){auto snapshot=d.createComponentSnapshot(d.getLocalBounds(),true,scale,juce::SoftwareImageType{});check(snapshot.getWidth()==juce::roundToInt(d.getWidth()*scale),"MIDI UI DPI snapshot");auto stream=juce::File::getCurrentWorkingDirectory().getChildFile(scale==1.f?"juce-midi-100-preview.png":"juce-midi-150-preview.png").createOutputStream();if(stream){stream->setPosition(0);stream->truncate();juce::PNGImageFormat().writeImageToStream(snapshot,*stream);}}
+    d.catalog=original;d.app.disconnect();d.app.new_project();d.refresh(true);check(folder.getParentDirectory()==juce::File::getSpecialLocation(juce::File::tempDirectory)&&folder.getFileName().startsWith("mrs-midi4a"),"MIDI fixture cleanup scope");folder.deleteRecursively();
+}
 void j2Smoke(Desktop& d,const juce::File& fixture){
     auto check=[](bool b,const char* text){if(!b)throw std::runtime_error(text);};
     d.app.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1}});

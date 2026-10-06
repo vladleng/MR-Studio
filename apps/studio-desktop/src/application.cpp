@@ -155,6 +155,7 @@ persistence::ProjectDocument foundation_demo() {
 }
 Application::Application() : engine_(std::make_shared<audio::AudioEngine>()) { demo(); }
 Application::~Application() {
+    midi_inputs_.reset(); // joins bridge/closes driver callbacks before engine/device retirement
     if (device_) device_->close();
     // Finalize on clean shutdown; a completed file remains recoverable even if
     // the UI did not attach/save its project reference.
@@ -368,7 +369,7 @@ std::vector<int> Application::selected_inputs(const Project& p, const std::vecto
 bool Application::track_armed(const Id& id) const { return std::find(armed_tracks_.begin(),armed_tracks_.end(),id) != armed_tracks_.end(); }
 bool Application::stereo_track(const Id& id) const {
     const auto p=services_.projects->state().project;
-    for (const auto& t : p->tracks) if (t.id == id && (t.input_stereo || t.kind == TrackKind::bus)) return true;
+    for (const auto& t : p->tracks) if (t.id == id && (t.input_stereo || t.kind == TrackKind::bus || t.kind == TrackKind::instrument)) return true;
     for (const auto& clip : p->clips) if (clip.track == id) { const auto found=assets_.find(clip.source); if (found != assets_.end() && found->second.data->channels > 1) return true; }
     return false;
 }
@@ -410,7 +411,8 @@ void Application::set_inserts(std::optional<Id> track, std::vector<NativeInsert>
         const auto& current=insert_chain(*p,track);
         for(const auto& fx:inserts)if(fx.kind==InsertKind::vst3 && std::none_of(current.begin(),current.end(),[&](const auto& old){return old.id==fx.id&&old.plugin_path==fx.plugin_path&&old.class_id==fx.class_id;})){
             auto state=processing::insert_graph(std::array{fx});const auto channels=device_config_?static_cast<std::uint32_t>(device_config_->outputs.size()):2;
-            processing::PreparedGraph checked{{std::make_shared<const processing::GraphState>(state),0,false,false},{p->sample_rate,channels,64},processing::hosted_factory};
+            const bool instrument=track&&fx.id==inserts.front().id&&std::any_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==*track&&t.kind==TrackKind::instrument;});
+            processing::PreparedGraph checked{{std::make_shared<const processing::GraphState>(state),0,false,false},{p->sample_rate,channels,64,128,instrument},processing::hosted_factory};
         }
 #else
         require(std::none_of(inserts.begin(),inserts.end(),[](const auto& fx){return fx.kind==InsertKind::vst3;}),"This build has no VST3 support");
@@ -535,6 +537,29 @@ void Application::edit(const ICommand& command,std::optional<Id> authoritative) 
 Id Application::add_audio_track(std::string name) {
     require(!name.empty() && name.size() <= 4096,"enter a track name");
     auto id = new_id(); edit(AddTrack{{id,std::move(name),TrackKind::audio,{}}}); return id;
+}
+Id Application::add_instrument_track(std::string name) {
+    require(!name.empty()&&name.size()<=4096,"enter a track name");
+    auto id=new_id();edit(AddTrack{{id,std::move(name),TrackKind::instrument,{}}});return id;
+}
+void Application::set_midi_input(const Id& id,std::string port,int channel,bool monitor){edit(SetMidiInput{id,std::move(port),channel,monitor});publish_midi_routes();}
+std::string Application::midi_status(const Id& id)const{
+    const auto p=services_.projects->state().project;const auto t=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& track){return track.id==id;});
+    if(t==p->tracks.end()||t->kind!=TrackKind::instrument)return {};
+    if(auto error=instrument_errors_.find(id.value);error!=instrument_errors_.end())return "Instrument unavailable: "+error->second;
+    if(t->inserts.empty())return "Choose instrument in Mix";
+    if(!t->midi_monitor)return "MIDI: monitor off";
+    return midi_inputs_?midi_inputs_->status(t->midi_input):"MIDI: off";
+}
+void Application::publish_midi_routes(){
+    const auto snapshot=services_.projects->state();const auto generation=engine_->midi_generation();
+    if(snapshot.revision==midi_route_revision_&&generation==midi_route_generation_)return;
+    std::vector<MidiInputRoute> routes;std::size_t index=0;
+    for(const auto& track:snapshot.project->tracks)if(track.kind!=TrackKind::midi){if(track.kind==TrackKind::instrument&&track.midi_monitor&&!track.midi_input.empty())routes.push_back({track.midi_input,index,track.midi_channel});++index;}
+    if(!device_config_){routes.clear();}
+    if(!routes.empty()&&!midi_inputs_)midi_inputs_=std::make_unique<MidiInputs>(engine_);
+    if(midi_inputs_)midi_inputs_->routes(std::move(routes),generation);
+    midi_route_revision_=snapshot.revision;midi_route_generation_=generation;
 }
 Id Application::add_bus(std::string name) {
     require(!name.empty() && name.size() <= 4096,"enter a bus name");
@@ -686,7 +711,7 @@ void Application::prepare_mixer(audio::RenderGraph& result) {
     mixer_tracks_.clear();
     for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {
         require(mixer_tracks_.size() < audio::max_mixer_tracks,"mixer supports up to 128 audio tracks and buses");
-        mixer_tracks_.push_back(t.id); result.mixer.push_back(t.mix); result.input_monitoring.push_back(t.input_monitor); result.buses.push_back(t.kind == TrackKind::bus);
+        mixer_tracks_.push_back(t.id); result.mixer.push_back(t.mix); result.input_monitoring.push_back(t.input_monitor); result.buses.push_back(t.kind == TrackKind::bus);result.live_midi.push_back(t.kind==TrackKind::instrument);
     }
     for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {
         const auto destination = t.output ? std::find(mixer_tracks_.begin(),mixer_tracks_.end(),*t.output) : mixer_tracks_.end();
@@ -764,17 +789,17 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
 }
 void Application::prepare_inserts(audio::RenderGraph& result,const audio::DeviceConfig& c) {
     const auto project=services_.projects->state().project;
-    ++insert_generation_;insert_runtime_.clear();
-    const auto chain=[&](const std::vector<NativeInsert>& effects,std::uint32_t block) -> std::shared_ptr<processing::PreparedGraph> {
+    ++insert_generation_;insert_runtime_.clear();instrument_errors_.clear();
+    const auto chain=[&](const std::vector<NativeInsert>& effects,std::uint32_t block,bool instrument=false) -> std::shared_ptr<processing::PreparedGraph> {
         if (effects.empty()) return {};
         auto saved=std::make_shared<const processing::GraphState>(processing::insert_graph(effects));
-        return std::make_shared<processing::PreparedGraph>(processing::GraphSnapshot{saved,0,false,false},processing::ProcessConfig{c.sample_rate,static_cast<std::uint32_t>(c.outputs.size()),block,c.buffer_frames}
+        return std::make_shared<processing::PreparedGraph>(processing::GraphSnapshot{saved,0,false,false},processing::ProcessConfig{c.sample_rate,static_cast<std::uint32_t>(c.outputs.size()),block,c.buffer_frames,instrument}
 #ifdef MRS_HAS_VST3
             ,processing::hosted_factory
 #endif
         );
     };
-    for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {auto prepared=chain(t.inserts,c.buffer_frames);result.inserts.push_back(prepared);insert_runtime_[t.id.value]={prepared,{}};}
+    for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {std::shared_ptr<processing::PreparedGraph> prepared;try{prepared=chain(t.inserts,c.buffer_frames,t.kind==TrackKind::instrument);}catch(const std::exception& e){if(t.kind!=TrackKind::instrument)throw;instrument_errors_[t.id.value]=e.what();}result.inserts.push_back(prepared);insert_runtime_[t.id.value]={prepared,{}};}
     result.master_inserts=chain(project->master_inserts,8192);insert_runtime_[std::string{}]={result.master_inserts,{}};
 }
 void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::DeviceConfig c) {
@@ -824,11 +849,13 @@ void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::De
 }
 void Application::disconnect() {
     require_not_recording();
+    midi_inputs_.reset();midi_route_revision_=~std::uint64_t{};instrument_errors_.clear();
     if (device_) { device_->close(); device_.reset(); }
     ++insert_generation_;insert_runtime_.clear(); prepared_.reset(); device_config_.reset(); device_info_.reset(); audio_name_ = "Disconnected";
     if (transport_) { engine_->prepare({engine_->config().sample_rate,0,2,8192},{}); transport_->poll(); }
 }
 void Application::poll() {
+    publish_midi_routes();
     publish_inserts();
     for(auto& [key,r]:insert_runtime_){(void)key;if(r.graph && r.graph->consume_edits())unsaved_=true;}
     publish_mix();

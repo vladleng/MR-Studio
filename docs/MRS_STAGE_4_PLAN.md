@@ -20,7 +20,8 @@
 
 GitHub tracking: [parent #24](https://github.com/vladleng/MR-Studio/issues/24).
 Подэтапы 4a–4h: #63, #64, #65, #66, #67, #68, #69, #70 соответственно.
-Все issues открыты для реализации и пользовательской приёмки.
+Все issues открыты. 4a реализован локально, Release/111 CTest/GUI smoke прошли;
+пользовательская MIDI/ASIO приёмка ожидается. Остальные подэтапы запланированы.
 
 | Подэтап / версия | Пользовательский результат и объём | Критерий приёмки |
 | --- | --- | --- |
@@ -64,8 +65,10 @@ GitHub tracking: [parent #24](https://github.com/vladleng/MR-Studio/issues/24).
 
 ## Границы и текущий статус
 
-Весь план **ещё не реализован**. Следующая задача — аудит и реализация 4a / 0.2a
-по отдельному запросу пользователя; текущий запрос посвящён разбиению этапа.
+По запросу пользователя «Приступай к 0.2a» реализован локальный 4a:
+[MIDI input и VST3-инструменты](MIDI_LIVE_INPUT.md),
+[checklist физической приёмки](MRS_STAGE_4A_CHECKLIST.md). Build/test/package
+результаты — в PROJECT_CONTEXT. 4b–4h ещё не реализованы и не начаты автоматически.
 Собственные инструменты/эффекты остаются отложенными. MIDI 2.0, SysEx,
 MIDI Clock/MTC, SMF import/export, MPE, loop overdub/takes, advanced MIDI и
 Live foot-controller/section automation не включены в эти подэтапы.

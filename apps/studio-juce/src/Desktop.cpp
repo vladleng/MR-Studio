@@ -120,8 +120,8 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
     if(n==0){m.addItem(1,"New project");m.addItem(2,"Open project...");m.addItem(3,"Save");m.addItem(4,"Save as...");m.addItem(5,"Import WAV...");
         juce::PopupMenu recent;for(std::size_t i=0;i<prefs.recent_projects.size();++i)recent.addItem(1000+static_cast<int>(i),label(prefs.recent_projects[i]));m.addSubMenu("Open recent project",recent);}
     if(n==1){m.addItem(10,"Undo",app.services().projects->state().can_undo);m.addItem(11,"Redo",app.services().projects->state().can_redo);m.addItem(24,"Split selected clip (S)");m.addItem(25,"Delete selected clip (Backspace)");}
-    if(n==2){m.addItem(20,"Add audio track");m.addItem(21,"Add bus");m.addItem(22,"Rename track");m.addItem(23,"Delete track");m.addItem(26,"Move track up");m.addItem(27,"Move track down");}
-    if(n==3){m.addItem(30,"Play");m.addItem(31,"Pause");m.addItem(32,"Stop");m.addItem(33,"Record");m.addItem(34,"Previous section");m.addItem(35,"Next section");m.addItem(36,"Loop section");m.addItem(40,"Audio settings...");m.addItem(41,"Engine profiling...");}
+    if(n==2){m.addItem(20,"Add audio track");m.addItem(28,"Add instrument track");m.addItem(21,"Add bus");m.addItem(22,"Rename track");m.addItem(23,"Delete track");m.addItem(26,"Move track up");m.addItem(27,"Move track down");}
+    if(n==3){m.addItem(30,"Play");m.addItem(31,"Pause");m.addItem(32,"Stop");m.addItem(33,"Record");m.addItem(34,"Previous section");m.addItem(35,"Next section");m.addItem(36,"Loop section");m.addItem(40,"Audio settings...");m.addItem(41,"Engine profiling...");m.addItem(42,"MIDI panic / all notes off");}
     return m;
 }
 void Desktop::menuItemSelected(int n,int){action(n);}
@@ -133,6 +133,8 @@ void Desktop::action(int n){if(busyGesture())return;run([&]{
     else if(n==5)choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){importFiles({f.getFullPathName()});},"*.wav");
     else if(n==10 || n==11){closeEditors();if(n==10)app.undo();else app.redo();refresh(true);}
     else if(n==20)selectedTrack=app.add_audio_track("Audio "+std::to_string(project()->tracks.size()+1));
+    else if(n==28)selectedTrack=app.add_instrument_track("Instrument "+std::to_string(project()->tracks.size()+1));
+    else if(n==42)app.midi_panic();
     else if(n==21)selectedTrack=app.add_bus("Bus "+std::to_string(project()->tracks.size()+1));
     else if(n==22 && selectedTrack){auto id=*selectedTrack;for(const auto& t:project()->tracks)if(t.id==id)textDialog("Rename track",label(t.name),[this,id](auto s){app.rename_track(id,s.toStdString());});}
     else if(n==23 && selectedTrack){closeEditors();app.remove_track(*selectedTrack);selectedTrack.reset();selectedClip.reset();}
@@ -250,7 +252,7 @@ void Desktop::timerCallback(){try{app.poll();if(preview){if(preview->active())ap
     if(scanner.valid()&&scanner.wait_for(std::chrono::seconds(0))==std::future_status::ready){catalog=scanner.get();browser->rebuild();}
     const auto meter=app.engine()->take_meters();for(std::size_t i=0;i<peaks.size();++i){peaks[i].left=juce::jmax(meter.tracks[i].left,peaks[i].left*.86f);peaks[i].right=juce::jmax(meter.tracks[i].right,peaks[i].right*.86f);}
     masterPeak={juce::jmax(meter.master.left,masterPeak.left*.86f),juce::jmax(meter.master.right,masterPeak.right*.86f)};
-    for(auto& s:mixer)s->repaint();for(auto& s:arrangement->rows)s->repaint();if(master)master->repaint();
+    for(auto& s:mixer)s->repaint();for(auto& s:arrangement->rows){s->refreshMidiStatus();s->repaint();}if(master)master->repaint();
     refresh();
 }catch(const std::exception& e){message=label(e.what());repaint();}}
 
@@ -263,7 +265,7 @@ Strip::Strip(Desktop& d,std::optional<mrs::Id> id,bool small):gain(!small),targe
     mute.onClick=[this]{owner.run([&]{auto m=track().mix;m.mute=!m.mute;owner.app.set_track_mix(*target,m);});};
     solo.onClick=[this]{owner.run([&]{auto m=track().mix;m.solo=!m.solo;owner.app.set_track_mix(*target,m);});};
     arm.onClick=[this]{owner.run([&]{owner.app.set_track_armed(*target,!owner.app.track_armed(*target));sync();});};
-    monitor.onClick=[this]{owner.run([&]{owner.app.set_track_monitoring(*target,!track().input_monitor);});};
+    monitor.onClick=[this]{owner.run([&]{const auto t=track();if(t.kind==mrs::TrackKind::instrument)owner.app.set_midi_input(*target,t.midi_input,t.midi_channel,!t.midi_monitor);else owner.app.set_track_monitoring(*target,!t.input_monitor);});};
     input.onClick=[this]{inputMenu();};inserts.onClick=[this]{owner.insertMenu(target);};add.onClick=inserts.onClick;
     output.onClick=[this]{if(target)owner.routeMenu(*target);else owner.textDialog("Master hardware outputs (1,2...)","1,2",[this](auto s){owner.app.set_hardware_output({},mrs::desktop::parse_outputs(s.toStdString()));});};
     sends.onClick=[this]{if(target)owner.sendsMenu(*target);};
@@ -278,14 +280,16 @@ void Strip::mouseDrag(const juce::MouseEvent& e){if(dragTitle&&target&&e.getDist
 mrs::Track::Mix Strip::adjusted(bool volume,double v) const{auto m=track().mix;if(volume)m.gain=static_cast<float>(std::pow(10.,(-60+72*v)/20));else m.pan=static_cast<float>(2*v-1);return m;}
 void Strip::preview(bool volume,double v){owner.setPreview(target,adjusted(volume,v),target?owner.project()->master_gain:adjusted(volume,v).gain,[this]{return active();});}
 void Strip::commit(bool volume,double v){owner.run([&]{owner.finishPreview();if(target)owner.app.set_track_mix(*target,adjusted(volume,v));else owner.app.set_master_gain(adjusted(volume,v).gain);owner.app.poll();owner.refresh(true);});}
+void Strip::refreshMidiStatus(){const auto t=track();if(t.kind==mrs::TrackKind::instrument){const auto status=label(owner.app.midi_status(t.id));input.setButtonText(status);input.setTooltip(status+" — click to select MIDI port / channel");}}
 void Strip::sync(){const auto t=track();gain.setTitle(label(t.name)+" gain");pan.setTitle(label(t.name)+" pan");const auto mix=t.mix;float v=target?mix.gain:owner.project()->master_gain;
     if(!gain.dragging())gain.value=juce::jlimit(0.,1.,(20*std::log10(juce::jmax(.001f,v))+60)/72.);if(!pan.dragging())pan.value=(mix.pan+1)/2.;
     mute.setVisible(target.has_value());solo.setVisible(target.has_value());pan.setVisible(target.has_value());
-    arm.setVisible(mini&&target&&t.kind==mrs::TrackKind::audio);monitor.setVisible(arm.isVisible());input.setVisible(arm.isVisible());
+    arm.setVisible(mini&&target&&t.kind==mrs::TrackKind::audio);monitor.setVisible(arm.isVisible()||(mini&&target&&t.kind==mrs::TrackKind::instrument));input.setVisible(monitor.isVisible());
     inserts.setVisible(!mini);add.setVisible(!mini);output.setVisible(!mini);sends.setVisible(!mini&&target.has_value());
     mute.setToggleState(mix.mute,juce::dontSendNotification);solo.setToggleState(mix.solo,juce::dontSendNotification);
-    arm.setToggleState(target&&owner.app.track_armed(*target),juce::dontSendNotification);monitor.setToggleState(t.input_monitor,juce::dontSendNotification);
+    arm.setToggleState(target&&owner.app.track_armed(*target),juce::dontSendNotification);monitor.setToggleState(t.kind==mrs::TrackKind::instrument?t.midi_monitor:t.input_monitor,juce::dontSendNotification);
     input.setButtonText(t.input==-2?"Input: default":t.input==-1?"Input: off":juce::String(t.input_stereo?"Stereo ":"Mono ")+juce::String(t.input+1));
+    if(t.kind==mrs::TrackKind::instrument){input.setButtonText(label(owner.app.midi_status(t.id)));input.setTooltip("MIDI input / channel; choose a VST3 instrument as the first insert in Mix");}
     juce::String out="Out: Master";if(t.output)for(const auto& x:owner.project()->tracks)if(x.id==t.output)out="Out: "+label(x.name);
     if(!t.hardware_outputs.empty())out="Out: hardware";output.setButtonText(target?out:"Out: Default");
     sends.setButtonText("Sends ("+juce::String(static_cast<int>(t.sends.size()))+")");insertList();resized();repaint();gain.repaint();pan.repaint();
@@ -318,7 +322,17 @@ void Strip::paint(juce::Graphics& g){g.fillAll(juce::Colour(panel));g.setColour(
     }
     g.setColour(juce::Colours::whitesmoke);g.drawText(juce::String(-60+gain.value*72,1)+" dB",mini?10:8,mini?82:getHeight()-110,100,20,juce::Justification::left);
 }
-void Strip::inputMenu(){if(!target)return;juce::PopupMenu m;m.addItem(1,"Default");m.addItem(2,"Off");const auto names=owner.app.input_names();
+void Strip::inputMenu(){if(!target)return;
+    if(track().kind==mrs::TrackKind::instrument){
+        const auto current=track();const auto ports=mrs::desktop::MidiInputs::ports();juce::PopupMenu midi;
+        midi.addItem(1,"MIDI input: off",true,current.midi_input.empty());
+        for(std::size_t i=0;i<ports.size();++i)midi.addItem(10+static_cast<int>(i),label(ports[i].name),true,current.midi_input==ports[i].id);
+        juce::PopupMenu channels;channels.addItem(1000,"All channels",true,current.midi_channel<0);
+        for(int ch=0;ch<16;++ch)channels.addItem(1001+ch,"Channel "+juce::String(ch+1),true,current.midi_channel==ch);
+        midi.addSubMenu("Input channel",channels);midi.addSeparator();midi.addItem(2,label(owner.app.midi_status(current.id)),false);
+        midi.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&input),[safe=juce::Component::SafePointer<Strip>(this),ports,current](int selected){if(!safe||!selected||selected==2)return;safe->owner.run([&]{auto port=current.midi_input;auto channel=current.midi_channel;if(selected==1)port.clear();else if(selected>=1000)channel=selected==1000?-1:selected-1001;else if(selected>=10&&static_cast<std::size_t>(selected-10)<ports.size())port=ports[static_cast<std::size_t>(selected-10)].id;safe->owner.app.set_midi_input(current.id,port,channel,current.midi_monitor);});});return;
+    }
+juce::PopupMenu m;m.addItem(1,"Default");m.addItem(2,"Off");const auto names=owner.app.input_names();
     for(std::size_t i=0;i<names.size();++i){m.addItem(10+static_cast<int>(i),"Mono "+label(names[i]));if(i+1<names.size())m.addItem(100+static_cast<int>(i),"Stereo "+label(names[i])+" / "+label(names[i+1]));}
     juce::Component::SafePointer<Strip> safe(this);m.showMenuAsync(popup(&input),[safe](int n){if(safe&&n)safe->owner.run([&]{safe->owner.app.set_track_input(*safe->target,n==1?-2:n==2?-1:n>=100?n-100:n-10,n>=100);safe->sync();});});
 }

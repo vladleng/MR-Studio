@@ -131,6 +131,7 @@ private:
 };
 struct ProcessConfig {
     std::uint32_t sample_rate{48000}, channels{2}, max_block{8192}, live_latency_budget{128};
+    bool instrument{}; // first node receives device-owned live MIDI
 };
 struct ProcessBlock {
     std::span<float> audio; // interleaved, in-place, frames * channels
@@ -199,7 +200,7 @@ public:
     void panic() noexcept;
     void reset_anticipation() noexcept; // single quiescent DSP owner, retain parameter targets
     // Single audio-thread consumer; no allocation, locks or I/O.
-    void process(float* interleaved, std::uint32_t frames, Sample position=0,bool playing=false,double tempo=120,double quarter=0) noexcept;
+    void process(float* interleaved, std::uint32_t frames, Sample position=0,bool playing=false,double tempo=120,double quarter=0,std::span<const MidiEvent> live_midi={}) noexcept;
     bool pop_midi_output(MidiOutput&) noexcept; // single control-thread consumer
     const GraphSnapshot& snapshot() const;
     ProcessConfig config() const;

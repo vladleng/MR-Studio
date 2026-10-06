@@ -136,6 +136,7 @@ public:
     void resized() override;
     void paint(juce::Graphics&) override;
     void sync();
+    void refreshMidiStatus();
     bool isInterestedInDragSource(const SourceDetails&) override;
     void itemDropped(const SourceDetails&) override;
     void itemDragMove(const SourceDetails&) override;
@@ -230,6 +231,7 @@ private:
 void j2Smoke(Desktop&,const juce::File& fixture={});
 void j2PluginSmoke(Desktop&,const juce::File&);
 void j3Smoke(Desktop&);
+void midi4aSmoke(Desktop&,const juce::File&);
 void j3AudioSmoke(Desktop&);
 void profilingSmoke(Desktop&);
 void thuDiagnostic(const juce::File&);

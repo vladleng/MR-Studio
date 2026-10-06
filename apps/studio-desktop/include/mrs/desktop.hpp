@@ -1,4 +1,5 @@
 #pragma once
+#include <mrs/midi_input.hpp>
 #include <mrs/persistence.hpp>
 #include <mrs/musical.hpp>
 #include <mrs/device.hpp>
@@ -67,6 +68,10 @@ public:
     void demo();
     void new_project(std::uint32_t rate = 48000, std::string title = "Untitled");
     Id add_audio_track(std::string name);
+    Id add_instrument_track(std::string name);
+    void set_midi_input(const Id&,std::string port,int channel=-1,bool monitor=true);
+    std::string midi_status(const Id&) const;
+    void midi_panic() noexcept {engine_->midi_panic();}
     Id add_bus(std::string name);
     Id add_return_send(const Id& source, std::string name);
     void set_track_output(const Id&, std::optional<Id>);
@@ -142,6 +147,10 @@ private:
     Services services_;
     std::shared_ptr<processing::GraphStore> graphs_;
     std::shared_ptr<audio::AudioEngine> engine_;
+    std::unique_ptr<MidiInputs> midi_inputs_;
+    std::map<std::string,std::string> instrument_errors_;
+    std::uint64_t midi_route_revision_{~std::uint64_t{}},midi_route_generation_{};
+    void publish_midi_routes();
     std::shared_ptr<audio::EngineTransport> transport_;
     std::unique_ptr<MusicalTimeline> musical_;
     std::unique_ptr<audio::IAudioDevice> device_;

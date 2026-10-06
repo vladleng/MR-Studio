@@ -4,6 +4,11 @@
 #include <utility>
 
 namespace mrs {
+void SetMidiInput::apply(Project& project) const {
+    auto it=std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t){return t.id==track_;});
+    if(it==project.tracks.end()||it->kind!=TrackKind::instrument)throw std::invalid_argument("MIDI input requires an instrument track");
+    it->midi_input=port_;it->midi_channel=channel_;it->midi_monitor=monitor_;
+}
 namespace {
 struct EditGuard {
     bool& editing;

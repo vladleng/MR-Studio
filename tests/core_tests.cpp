@@ -42,10 +42,10 @@ void inserts() {
     CHECK(*store.state().project == saved);
     p.tracks.push_back({new_id(),"MIDI",TrackKind::midi,{}}); ProjectStore midi{p}; rejects([&] { midi.execute(SetInserts{p.tracks.back().id,{gain}}); });
     std::vector<NativeInsert> excess; for (int n=0;n<9;++n) excess.push_back({new_id()}); rejects([&] { store.execute(SetInserts{track,excess}); });
-    auto legacy=serialize(demo_project()); legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 10").size(),"MRS_CORE_SNAPSHOT 7");
+    auto legacy=serialize(demo_project()); const std::string midiLine="\"\" -1 1\n";for(auto pos=legacy.find(midiLine);pos!=std::string::npos;pos=legacy.find(midiLine))legacy.erase(pos,midiLine.size()); legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 11").size(),"MRS_CORE_SNAPSHOT 7");
     const std::string line="INSERTS 0\n"; for (auto pos=legacy.find(line);pos!=std::string::npos;pos=legacy.find(line)) legacy.erase(pos,line.size());
     CHECK(deserialize(legacy) == demo_project());
-    auto v9project=demo_project();NativeInsert channel;channel.id=new_id();channel.kind=InsertKind::channel_eq;channel.bands[2].gain=4;v9project.tracks.front().inserts={channel};auto v9=serialize(v9project);v9.replace(0,std::string("MRS_CORE_SNAPSHOT 10").size(),"MRS_CORE_SNAPSHOT 9");const std::string irline="\"\" 48000 1 1 20 20000 0 0\n";for(auto pos=v9.find(irline);pos!=std::string::npos;pos=v9.find(irline))v9.erase(pos,irline.size());CHECK(deserialize(v9)==v9project);
+    auto v9project=demo_project();NativeInsert channel;channel.id=new_id();channel.kind=InsertKind::channel_eq;channel.bands[2].gain=4;v9project.tracks.front().inserts={channel};auto v9=serialize(v9project);for(auto pos=v9.find(midiLine);pos!=std::string::npos;pos=v9.find(midiLine))v9.erase(pos,midiLine.size());v9.replace(0,std::string("MRS_CORE_SNAPSHOT 11").size(),"MRS_CORE_SNAPSHOT 9");const std::string irline="\"\" 48000 1 1 20 20000 0 0\n";for(auto pos=v9.find(irline);pos!=std::string::npos;pos=v9.find(irline))v9.erase(pos,irline.size());CHECK(deserialize(v9)==v9project);
 
 }
 
@@ -112,7 +112,7 @@ void sends() {
     store.execute(RemoveTrack{Id{"r1"}});
     CHECK(store.state().project->tracks.front().sends.size() == 1);
     CHECK(store.undo() && store.state().project->tracks.front().sends.size() == 2);
-    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT 10"); CHECK(head == 0);
+    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT 11"); CHECK(head == 0);
     const std::string old = "MRS_CORE_SNAPSHOT 4\nPROJECT \"old\" \"Old\" \"\" 48000\nTEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n\"a\" \"Audio\" 0 \"\"\n1 0 0 0\n\"\"\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nMASTER 1\nEND\n";
     const auto migrated = deserialize(old); CHECK(migrated.tracks.front().sends.empty() && migrated.tracks.front().input == -2);
 }
@@ -352,7 +352,7 @@ void serialization() {
     CHECK(mrs::deserialize(bytes) == project);
     CHECK(mrs::serialize(mrs::deserialize(bytes)) == bytes); // canonical, locale independent
     rejects([] { (void)mrs::deserialize(""); });
-    rejects([] { (void)mrs::deserialize("MRS_CORE_SNAPSHOT 109\n"); });
+    rejects([] { (void)mrs::deserialize("MRS_CORE_SNAPSHOT 119\n"); });
     rejects([&] { (void)mrs::deserialize(bytes + "UNKNOWN\n"); });
     rejects([&] { (void)mrs::deserialize(bytes.substr(0, bytes.size() / 2)); });
     for (const auto& replacement : {"TEMPOS -1", "TEMPOS 100001", "TEMPOS abc"}) {

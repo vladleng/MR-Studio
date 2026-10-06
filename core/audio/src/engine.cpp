@@ -45,7 +45,7 @@ void AudioEngine::channel_job(void* context,std::uint32_t index) noexcept {
 void AudioEngine::process_channel(std::size_t t) noexcept {
     const auto started=(measure_channels_||profile_block_)?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
     const bool owned=domain_owned_[t];
-    if(owned&&!graph_.inserts.empty()&&graph_.inserts[t])graph_.inserts[t]->process(track_block_[t].data(),job_frames_,job_position_,job_playing_,job_tempo_,job_quarter_);
+    if(owned&&!graph_.inserts.empty()&&graph_.inserts[t])graph_.inserts[t]->process(track_block_[t].data(),job_frames_,job_position_,job_playing_,job_tempo_,job_quarter_,job_base_==0?live_midi_buffers_[t].view():std::span<const processing::MidiEvent>{});
     channel_peaks_[t]=owned?std::array<float,2>{}:std::array<float,2>{domain_meters_[t].left,domain_meters_[t].right};
     for(std::uint32_t local=0;local<job_frames_;++local) {
         const auto at=static_cast<std::size_t>(local)*config_.output_channels;
@@ -79,8 +79,9 @@ ProcessingDomains AudioEngine::compile_domains(const RenderGraph& graph,
     using D = ProcessingDomains;
     D plan;
     plan.channels.resize(graph.mixer.size());
+    for(std::size_t t=0;t<graph.live_midi.size();++t)if(graph.live_midi[t])plan.channels[t].reasons|=D::live_input;
     plan.raw_capture = !graph.recordings.empty();
-    plan.monitoring_compensation_frames = graph.monitor.empty() ? 0 : compensation.output;
+    plan.monitoring_compensation_frames = graph.monitor.empty()&&std::none_of(graph.live_midi.begin(),graph.live_midi.end(),[](bool v){return v;}) ? 0 : compensation.output;
     const auto unsupported = [](const auto& chain) { return chain && !chain->anticipation_safe(); };
     if (unsupported(graph.processors) || unsupported(graph.master_inserts))
         plan.master.reasons |= D::unsupported_processor;
@@ -137,6 +138,7 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     if(speculative_||mixed_owner_)throw std::logic_error("stop the process producer before preparing audio");
     // Caller has stopped the device; this also joins a timed-out worker batch.
     workers_.reset();
+    ++midi_generation_; // old route indices must never address a replacement graph
     if ((initial.playback != PlaybackState::stopped && initial.playback != PlaybackState::paused) ||
         initial.sample < 0 || initial.sample > max_sample || initial.play_start < 0 || initial.play_start > max_sample ||
         (initial.loop && (initial.loop->start < 0 || initial.loop->start >= initial.loop->end || initial.loop->end > max_sample)))
@@ -155,6 +157,9 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     for (const auto& mix : graph.mixer) mix.validate();
     if (graph.outputs.empty()) graph.outputs.assign(graph.mixer.size(),no_mixer_track);
     if (graph.buses.empty()) graph.buses.assign(graph.mixer.size(),false);
+    if(graph.live_midi.empty())graph.live_midi.assign(graph.mixer.size(),false);
+    if(graph.live_midi.size()!=graph.mixer.size())throw std::invalid_argument("MIDI channel size mismatch");
+    live_midi_buffers_.resize(graph.mixer.size());
     if (graph.outputs.size() != graph.mixer.size() || graph.buses.size() != graph.mixer.size())
         throw std::invalid_argument("mixer routing size mismatch");
     if (graph.sends.empty()) graph.sends.resize(graph.mixer.size());
@@ -458,6 +463,7 @@ RealtimeState AudioEngine::state() const {
     throw std::runtime_error("audio state busy; poll again");
 }
 bool AudioEngine::anticipation_safe() const noexcept {
+    for(bool live:graph_.live_midi)if(live)return false;
     if(!graph_.monitor.empty() || !graph_.recordings.empty())return false;
     const auto safe=[](const auto& chain){return !chain||chain->anticipation_safe();};
     if(!safe(graph_.processors)||!safe(graph_.master_inserts))return false;
@@ -547,6 +553,15 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     if (!speculative_ && (minimum == 0 || frames < minimum)) min_frames_.store(frames, std::memory_order_relaxed);
     if (!speculative_ && frames > max_frames_.load(std::memory_order_relaxed)) max_frames_.store(frames, std::memory_order_relaxed);
     consume_controls();
+    for(auto& buffer:live_midi_buffers_)buffer.clear();
+    LiveMidi midi;
+    for(int n=0;n<1023&&live_midi_queue_.pop(midi);++n){
+        if(midi.generation!=midi_generation_.load(std::memory_order_relaxed))continue;
+        if(midi.track>=graph_.live_midi.size()||!graph_.live_midi[midi.track]||midi.event.channel>15||midi.event.data1>127||midi.event.data2>127||static_cast<int>(midi.event.kind)<0||midi.event.kind>processing::MidiKind::poly_pressure){++midi_dropped_;continue;}
+        midi.event.offset=0;
+        if(!live_midi_buffers_[midi.track].push(midi.event)){++midi_dropped_;midi_panic_=true;}
+    }
+    if(midi_panic_.exchange(false)){for(auto& buffer:live_midi_buffers_)buffer.clear();for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.live_midi[t]&&graph_.inserts[t])graph_.inserts[t]->panic();}
     // A later control prime can replace an earlier queued seek's warm target.
     // Pin/verify the candidate before changing RT position. If unavailable, keep
     // rendering the current head and retry next block; callback never waits.
@@ -771,7 +786,7 @@ Metrics AudioEngine::metrics() const {
     Metrics m;
     m.ahead_memory_bytes=ahead_memory_bytes_.load();
     m.anticipation_active=anticipation_active_.load();m.process_buffer_frames=process_buffer_frames_.load();m.ahead_buffered_frames=ahead_buffered_frames_.load();
-    m.mixed_anticipation=mixed_anticipation_.load();m.monitoring_available=!graph_.monitor.empty();m.monitoring_compensation_frames=domains_.monitoring_compensation_frames;
+    m.mixed_anticipation=mixed_anticipation_.load();m.monitoring_available=!graph_.monitor.empty()||std::any_of(graph_.live_midi.begin(),graph_.live_midi.end(),[](bool v){return v;});m.monitoring_compensation_frames=domains_.monitoring_compensation_frames;
     m.ahead_underruns=ahead_underruns_.load();m.ahead_invalidations=ahead_invalidations_.load();m.ahead_max_process_ns=ahead_max_process_ns_.load();
     m.processing_workers=(workers_?workers_->count()+1:1)+(m.mixed_anticipation?1:0);
     m.audio_scheduled_workers=workers_?workers_->audio_scheduled():0;

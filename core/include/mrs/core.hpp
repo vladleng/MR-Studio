@@ -18,7 +18,7 @@ using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 10;
+inline constexpr std::uint32_t schema_version = 11;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -48,7 +48,7 @@ struct TimeMap {
     void validate() const;
     bool operator==(const TimeMap&) const = default;
 };
-enum class TrackKind { audio, midi, bus };
+enum class TrackKind { audio, midi, bus, instrument };
 enum class MarkerKind { generic, cue, warning, lyric, action, navigation };
 struct Folder {
     Id id;
@@ -113,6 +113,9 @@ struct Track {
     bool input_monitor{};
     std::vector<int> hardware_outputs{}; // mono or stereo physical channels; exclusive with output bus
     std::vector<NativeInsert> inserts{}; // pre-fader; at most eight, 32 total in project
+    std::string midi_input{}; // stable Windows port key; empty = off
+    int midi_channel{-1}; // -1 all, otherwise zero-based 0..15
+    bool midi_monitor{true}; // instrument live ingress; no MIDI recording in 4a
     bool operator==(const Track&) const = default;
 };
 struct Clip {
@@ -339,6 +342,15 @@ public:
     void apply(Project&) const override;
 private:
     Id track_; bool enabled_;
+};
+class SetMidiInput final : public ICommand {
+public:
+    SetMidiInput(Id track, std::string port, int channel, bool monitor)
+        : track_(std::move(track)), port_(std::move(port)), channel_(channel), monitor_(monitor) {}
+    std::string_view name() const override { return "Set MIDI input"; }
+    void apply(Project&) const override;
+private:
+    Id track_; std::string port_; int channel_; bool monitor_;
 };
 class SetHardwareOutput final : public ICommand {
 public:
