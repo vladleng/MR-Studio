@@ -62,3 +62,21 @@ SHA256 manifest (без самого manifest), проверь каждый фа
 Не отправляй локальную ветку с кодом на GitHub ради docs. Если обновление GitHub
 нужно по задаче, используй отдельное изменение только выбранных документов
 с `[skip ci]`; issues обновляй без фиктивной приёмки и без запуска Actions.
+
+## P4 profiling fixtures
+
+Run benchmarks sequentially after tests/builds complete, avoiding concurrent CPU
+loads. Save OFF/ON results independently; do not treat one noisy run as a universal
+speedup. CSV schemas and interpretation: [ENGINE_PROFILING](ENGINE_PROFILING.md).
+
+```powershell
+& build/asio-local/Release/mrs_channel_bench.exe > build/asio-local/P4-channels-off.csv
+& build/asio-local/Release/mrs_channel_bench.exe --profile > build/asio-local/P4-channels-on.csv
+& build/asio-local/Release/mrs_ahead_bench.exe --all-workers > build/asio-local/P4-ahead-off.csv
+& build/asio-local/Release/mrs_ahead_bench.exe --all-workers --profile > build/asio-local/P4-ahead-on.csv
+& build/asio-local/Release/mrs_ahead_bench.exe --topology mixed_disk8 --frames 128 --workers 4 --process 1024 --seconds 60 --record --profile > build/asio-local/P4-sustained-record.csv
+```
+
+Check each exit code before continuing. Sustained fixture flags require one case;
+seconds is capped at 300. Temporary source/capture WAVs belong only to the fixture.
+These commands do not open a hardware device or change user projects/settings.

@@ -323,3 +323,20 @@ Local Release + 109/109 CTest (57.09 s), packaged hidden J3 fixture smoke exit 0
 User accepted the plugin editor fix on 2026-10-06: plugin behavior is now correct.
 Broader P3 monitoring/recording ASIO acceptance remains separate; no special
 installed TH-U/Nuro test repetition. [Window lifetime and validation](ENGINE_PLUGIN_EDITORS.md).
+
+## P3 accepted; 0.1u / P4 diagnostics — 2026-10-06
+
+User reports stable P3 and requests proceeding. #53 is closed for the delivered
+mixed slice; the earlier pending notes above are historical. No exact ASIO duration
+or new monitoring/recording matrix is inferred. Sustained hardware acceptance now
+remains on #54/P4 and broader #16.
+
+0.1u adds opt-in bounded timing for actual channel jobs, individual processors,
+worker participants, Master and separate device/producer dependency cost estimates.
+The UI reads atomic snapshots and exports CSV on the message thread. Profiling is
+OFF by default; it adds timing overhead, does not change project history/schema,
+and is disabled when its panel closes. Existing callback B/XR/Late/D, PDC and Mon
+semantics remain. Exact PCM, concurrent reads and all-thread allocation probes
+cover profiling; existing ownership and raw capture boundaries remain unchanged.
+See [profiling contract and load methodology](ENGINE_PROFILING.md). P4 remains
+open pending physical ASIO sustained sessions; no isolation/3e2 gate is closed.

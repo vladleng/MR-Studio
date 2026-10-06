@@ -37,9 +37,9 @@ Master. Не превращай их в одну последовательну�
 |---|---|
 | P1 / [#51](https://github.com/vladleng/MR-Studio/issues/51), 0.1r | Принят 2026-10-05, issue закрыт. При 128 frames регулярные щелчки исчезли, редкие остаются |
 | P2 / [#52](https://github.com/vladleng/MR-Studio/issues/52), 0.1s | Принят 2026-10-06, issue закрыт. Первый native whole-graph anticipation slice |
-| P3 / [#53](https://github.com/vladleng/MR-Studio/issues/53), 0.1t | Реализован и проверен локально; пользователь доволен производительностью. Issue открыт: отдельная приёмка мониторинга/записи ASIO ещё не зафиксирована |
+| P3 / [#53](https://github.com/vladleng/MR-Studio/issues/53), 0.1t | Принят 2026-10-06: «P3 вроде стабилен. Переходим дальше». Issue закрыт для поставленного mixed slice; длительная matrix остаётся P4/#16 |
 | 0.1t fix1, редакторы плагинов | Принят пользователем 2026-10-06: «теперь с плагинами все как надо». Bypass, порядок окон и Pin подтверждены |
-| P4 / [#54](https://github.com/vladleng/MR-Studio/issues/54) | Запланирован: подробное профилирование и длительная нагрузка, после P3 |
+| P4 / [#54](https://github.com/vladleng/MR-Studio/issues/54) | 0.1u поставлен: опциональное профилирование, CSV, synthetic matrix и минутная raw запись. Issue открыт: длительная ASIO/installed-effects приёмка впереди |
 | Parent Stage 3 / #23, длительная matrix #16 | Не закрыты этой приёмкой |
 | 3e2 / 3e3 | Безопасные переходы/dynamic latency и recovery/isolation остаются отдельными задачами |
 
@@ -48,17 +48,23 @@ Master. Не превращай их в одну последовательну�
 
 ## Последняя поставка
 
-- Пакет: `Builds/MR-Studio-0.1t-fix1-editors-JUCE-ASIO-Windows-local` в папке чатов.
-- Запуск: `Moon River Studio JUCE.exe`; `mrs_vst3_scan.exe` должен лежать рядом.
-- Source commit: `e752037cd15451b91ad6060ab9220569b89e09a4`.
-- Запись пользовательской приёмки: `f57fb26` (docs-only). Более новые коммиты
-  могут менять инструкции; фактический HEAD всегда проверяй через Git.
-- SHA256 EXE: `034C6FAA6F62ECB8C038F8AA8F0580BE9E7736E03EB77F04F82E6E956B5B83F8`.
-- Локальный Release/configure прошёл; **109/109 CTest, 57.09 s**. Финальный
-  packaged hidden J3 smoke — exit 0; 30 файлов manifest проверены, EXE совпал
-  со сборкой. Это результаты поставки, а не автоматически результаты нового кода.
-- Предыдущий пакет 0.1t и более старые версии сохранены. Новая сборка сейчас
-  не требуется: текущий запрос — общие инструкции и передача контекста.
+- Пакет: `Builds/MR-Studio-0.1u-P4-profiling-JUCE-ASIO-Windows-local` в папке чатов.
+- Запуск: `Moon River Studio JUCE.exe`; `mrs_vst3_scan.exe` рядом.
+- Source commit: `ef11071bd221e30f822c2fd09e4689bfbf0b98ad` (только локально).
+- SHA256 EXE: `3B75C8CF1886CC983544254171D6B9499D515E7CA0500F193BE50CF874DBCBA9`.
+- Cached configure/full Release прошли. **110/110 CTest, 57.29 s**;
+  финальные profiling/J3 проверки — 2/2, 1.71 s. Packaged hidden J3 — exit 0.
+- 112 канал-конфигураций OFF + 112 ON: совпадают checksum; worker timeout 0,
+  Late 14/13. Playback/mixed — 210 OFF + 210 ON, 67 200 точных PCM-блоков;
+  producer/disk/worker misses 0, Late 13/13. Все выбросы сохранены в CSV.
+- По минуте streamed mixed raw recording и playback при 48 kHz / Device 128,
+  Workers 4, profiling ON: по 22 540 точных блоков, Late/U/D/timeouts 0.
+  Запись: 2 885 120 mono raw frames, каждый равен исходному входу, fault 0.
+  Это paced synthetic callbacks; физический ASIO не открывался.
+- Панель/CSV проверены, software snapshots 100%/150% просмотрены. Пакет имеет
+  SHA256 manifest; EXE совпадает с Release. Старые 0.1t/fix1 и другие версии сохранены.
+- [Методика](ENGINE_PROFILING.md), [замеры и ограничения](ENGINE_PROFILING_BENCHMARK.md).
+  Результаты не доказывают Fender parity, общий CPU speedup или отсутствие щелчков.
 
 ## Существенные границы реализации
 
@@ -81,13 +87,21 @@ Host bypass по-прежнему после Pause/Stop: PDC-граф перес
 редактора переподключается в том же JUCE-окне. Pin — состояние открытого окна,
 не проекта. Structural/device/project changes и Undo/Redo могут закрывать редакторы.
 
+0.1u P4: Transport -> Engine profiling... включает timing каналов/insert/Master,
+worker job balance и отдельные device/ahead banks, экспорт CSV из UI. По умолчанию
+OFF; закрытие отключает сбор. Timing добавляет overhead. Dependency cost estimate
+исключает source/reduction/queue/scheduler wait и не равен полной critical-path
+wall time. Сумма пересекающихся jobs не равна process CPU. Engine counters сбрасываются
+при stopped prepare, processor counters — при пересоздании PreparedGraph. Снимки
+приблизительны, project schema/Undo не менялись. Полная семантика — в ENGINE_PROFILING.
+
 ## Что читать по задаче
 
 - Общий смысл продукта: [PROJECT_VISION](PROJECT_VISION.md), [ARCHITECTURE](ARCHITECTURE.md),
   [DEVELOPMENT_TRACKS](DEVELOPMENT_TRACKS.md). Их исторические статусы не заменяют снимок выше.
 - Движок: [план](ENGINE_PERFORMANCE_PLAN.md), [reliability](PROCESSING_RELIABILITY.md),
   [P1](ENGINE_PARALLEL_PROCESSING.md), [P2](ENGINE_ANTICIPATIVE_PROCESSING.md),
-  [P3](ENGINE_MIXED_PROCESSING.md).
+  [P3](ENGINE_MIXED_PROCESSING.md), [P4](ENGINE_PROFILING.md).
 - Плагины: [редакторы/fix1](ENGINE_PLUGIN_EDITORS.md), [VST3](VST3_HOSTING.md),
   [пресеты](PLUGIN_PRESETS.md).
 - UI: `mr-studio-ui-design-system/SKILL.md`, [JUCE J3](JUCE_J3.md).
@@ -101,10 +115,16 @@ commands, serialization; `tests/` — регрессии. JUCE GUI smoke нах�
 
 ## Продолжение и обновление этого файла
 
-На момент снимка незавершённых code edits нет. Выполнен запрос на общий контекст;
-следующий запрос пользователя определяет работу. Если он просит продолжить движок,
-сначала сверь оставшиеся критерии P3/#53. Не трактуй приёмку окон плагинов как
-подтверждение записи/мониторинга или разрешение закрыть весь этап. Затем по плану P4.
+P4 software slice поставлен и проверен, исходники зафиксированы локально.
+Следующий шаг — пользовательская проверка 0.1u и длительные ASIO playback/monitor/
+record sessions, supported buffers 64/128/256/512, реальные Workers/Process,
+plugin versions/presets, Late/XR/D, timing и duration. Опциональный CSV поможет
+найти конкретную нагрузку/serial bottleneck. Нужны также sustained automation/
+transport/reconnect/state проверки; короткие deterministic CTest не подменяют их.
+Не закрывай #54/#16 или 3e2/3e3 по synthetic PASS. При новой приёмке фиксируй
+точный принятый объём, не приписывай пользователю незаявленную session matrix.
+Не вводи vendor/project-specific scheduling и не возвращай специальные уже
+принятые TH-U/Nuro compatibility тесты без причины.
 
 После содержательной работы обновляй этот снимок: дату, текущую задачу, подтверждённый
 результат, незавершённое, ветку/source commit, пакет/проверки, приёмку и следующий шаг.
