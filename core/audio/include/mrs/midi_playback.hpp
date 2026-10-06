@@ -5,7 +5,7 @@ struct PlaybackMidiNote {
     Sample start{},end{};
     std::uint8_t pitch{},velocity{100},channel{};
 };
-struct PlaybackMidiEvent {Sample sample{};processing::MidiEvent event;};
+struct PlaybackMidiEvent {Sample sample{};processing::MidiEvent event;unsigned order{1};};
 std::vector<std::vector<PlaybackMidiEvent>> compile_midi_events(const Project&,std::span<const Id>);
 std::vector<std::vector<PlaybackMidiNote>> compile_midi_clips(const Project&,std::span<const Id> tracks);
 // Prepared off RT, mutated only by its channel's device scheduler.

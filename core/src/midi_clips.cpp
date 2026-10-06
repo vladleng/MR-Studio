@@ -11,6 +11,9 @@ void fresh_notes(Clip& c){if(c.midi){for(auto& n:c.midi->notes)n.id=new_id();for
 }
 void AddMidiClip::apply(Project& p) const{instrument(p,clip_.track);if(!clip_.midi)throw std::invalid_argument("missing MIDI clip data");p.clips.push_back(clip_);}
 void SetMidiNotes::apply(Project& p) const{midi_clip(p,id_)->midi->notes=notes_;}
+int midi_event_value(const MidiChannelEvent& e){if(e.kind<2||e.kind>6)throw std::invalid_argument("unsupported MIDI event kind");return e.kind==5?(e.data2*128+e.data1)-8192:e.kind==3||e.kind==4?e.data1:e.data2;}
+void set_midi_event_value(MidiChannelEvent& e,int value){if(e.kind<2||e.kind>6||value<(e.kind==5?-8192:0)||value>(e.kind==5?8191:127))throw std::invalid_argument("MIDI event value outside range");if(e.kind==5){const int bend=value+8192;e.data1=bend%128;e.data2=bend/128;}else if(e.kind==3||e.kind==4){e.data1=value;e.data2=0;}else e.data2=value;}
+void SetMidiEvents::apply(Project& p) const{midi_clip(p,clip_)->midi->events=events_;}
 std::vector<MidiNote> transform_midi_notes(const MidiClip& clip,std::span<const Id> ids,const NoteEdit& edit){
     if(edit.kind<NoteEditKind::quantize||edit.kind>NoteEditKind::length||edit.mode<NoteValueMode::set||edit.mode>NoteValueMode::scale)throw std::invalid_argument("unknown musical edit operation");
     if(!std::isfinite(edit.value)||!std::isfinite(edit.strength)||edit.strength<0||edit.strength>100||edit.grid<1||edit.grid>max_tick)throw std::invalid_argument("invalid musical edit settings");

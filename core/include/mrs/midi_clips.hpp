@@ -16,6 +16,15 @@ public:
     void apply(Project&) const override;
 private: Id id_;std::vector<MidiNote> notes_;
 };
+int midi_event_value(const MidiChannelEvent&);
+void set_midi_event_value(MidiChannelEvent&,int value);
+class SetMidiEvents final : public ICommand {
+public:
+    SetMidiEvents(Id clip,std::vector<MidiChannelEvent> events):clip_(std::move(clip)),events_(std::move(events)){}
+    std::string_view name() const override{return "Edit MIDI controller events";}
+    void apply(Project&) const override;
+private:Id clip_;std::vector<MidiChannelEvent> events_;
+};
 enum class NoteEditKind {quantize,transpose,velocity,length};
 enum class NoteValueMode {set,add,scale};
 struct NoteEdit {
