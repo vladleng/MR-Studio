@@ -388,7 +388,29 @@ Live Mode использует тот же engine, но может включа�
 
 ---
 
-## 17. Licensing / release check
+## 17. Time Stretch / Pitch Shift
+
+Tracking: #56; design: `TIME_STRETCH.md`.
+
+Первый time-stretch/pitch backend MRS — **Signalsmith Stretch**. Он подключается через backend-neutral SHARED contract и не становится типовой зависимостью Project Model/Clip/Transport.
+
+Для realtime stretch обязательны те же performance rules, что и для остального Audio Engine:
+
+- prepare/configure и allocation вне callback;
+- bounded/preallocated buffers;
+- no blocking locks/file I/O/UI/network/logging в callback;
+- явные input/output latency;
+- safe seek/loop/reset;
+- измерение max callback time и spectral CPU spikes;
+- hardware check сначала на 48 kHz / 128 frames, затем 64 frames где поддерживается.
+
+Signalsmith split computation должен сравниваться по CPU-spikes **и** дополнительной latency, а не включаться автоматически.
+
+Offline/HQ path может использовать другую buffering policy, но тот же backend contract. Cache должен учитывать source identity, stretch parameters и backend/version.
+
+---
+
+## 18. Licensing / release check
 
 Перед публичным распространением необходимо отдельно проверять актуальные лицензионные условия ASIO SDK, VST3 и выбранного framework/toolchain.
 
