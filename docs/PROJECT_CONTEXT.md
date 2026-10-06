@@ -32,7 +32,36 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2d / Stage 4d
+## Актуальная сборка для продолжения: 0.2e / Stage 4e
+
+Piano roll → Musical edit...: Quantize (grid/strength, start/length separately),
+Transpose группы, Velocity и Length Set/Add/Scale. Scope Selected / Whole clip
+явный; empty selection сообщает ошибку. Интервалы transpose сохраняются, pitch
+0–127, velocity 1–127, length минимум 1 tick; clip/trim края учитываются.
+Одна Apply — один общий Undo; no-op без history. ID/channel/controller events
+сохраняются. EditMidiNotes/transform_midi_notes общие для Studio/Live; UI — Studio.
+Schema 13 и audio callback не изменены. Editing после Pause/Stop.
+Source `abd77b09f3edb2045873cf33e19d291095eda26b`, только локально, ветка `mrs/0.1q-fix3-processing-local`.
+Full Release PASS без warnings, **113/113 CTest PASS (58.96 s)**.
+Packaged midi recording/clips/live/J3 PASS; musical dialog 100%/150% просмотрен.
+Тесты: strength 0/50/100, targets, selection/isolation, transpose limits/intervals,
+velocity/duration clamp, trim edges, IDs/controllers, Undo/Redo/serialization,
+GUI transpose/whole-clip scope/invalid input/empty selection/no-op.
+Пакет `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Builds/MR-Studio-0.2e-Musical-edit-JUCE-ASIO-Windows-local`; EXE SHA256 `5371EFAA368955563AFCC84184E95CE573F7C8E2C720CB6178C0D891E607FE13`.
+FEATURE READY WITH MANUAL CHECK. Физические ASIO/VST3 и Windows mixed DPI
+для 0.2e не запускались. [Контракт](MIDI_MUSICAL_EDIT.md), [checklist](MRS_STAGE_4E_CHECKLIST.md).
+#67 открыт до приёмки. Следующая реализация — 0.2f, только по запросу пользователя.
+Дополнительные доработки отложены до реализации всех пунктов Stage 4.
+
+## Принята 0.2d; порядок продолжения
+
+Пользователь: «Да, все работает». 0.2d принята, #66 закрыт. Первоначальный запрос
+0.2f исправлен: «0.2e начинаем, я перепутал»; 0.2f не начинали. Пользователь
+указал: «Все доработки будем делать когда все пункты stage 4 будут реализованы».
+После приёмки 0.2e продолжать базовые 0.2f/0.2g/0.2h, без дополнительных upd.
+Точные аппаратные режимы при приёмке 0.2d не перечислены; новых измерений нет.
+
+## Предыдущая принятая поставка: 0.2d / Stage 4d
 
 Piano roll: клавиатура/ruler, zoom/scroll, snap, создание/удаление и групповое
 выделение/перемещение/длина/velocity, copy/paste, audition. Один жест — один
@@ -50,7 +79,7 @@ velocity и pitch/clip edge clamp. Схема 13 без изменений, чи
 Пакет `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Builds/MR-Studio-0.2d-Piano-roll-JUCE-ASIO-Windows-local`; EXE SHA256 `BED650A86669056C81F1F5B471BE257D10BC925BBA1DAB6C917751C52202582D`.
 FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK. Физические ASIO/VST3
 и Windows mixed DPI для 0.2d не запускались. [Пользовательская проверка](MRS_STAGE_4D_CHECKLIST.md),
-[архитектура/ограничения](PIANO_ROLL.md). #66 открыт до приёмки; 0.2e не начинать автоматически.
+[архитектура/ограничения](PIANO_ROLL.md). #66 закрыт после приёмки «Да, все работает»; 0.2e реализована следующим запросом.
 
 ## Пользовательская приёмка 0.2c fix1
 

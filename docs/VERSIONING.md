@@ -1,5 +1,26 @@
 # Правила версионирования Moon River Studio
 
+## 0.2e / Stage 4e — 2026-10-06
+
+Piano roll → Musical edit...: Quantize (grid/strength, start/length separately),
+Transpose группы, Velocity и Length Set/Add/Scale. Scope Selected / Whole clip
+явный; empty selection сообщает ошибку. Интервалы transpose сохраняются, pitch
+0–127, velocity 1–127, length минимум 1 tick; clip/trim края учитываются.
+Одна Apply — один общий Undo; no-op без history. ID/channel/controller events
+сохраняются. EditMidiNotes/transform_midi_notes общие для Studio/Live; UI — Studio.
+Schema 13 и audio callback не изменены. Editing после Pause/Stop.
+Source `abd77b09f3edb2045873cf33e19d291095eda26b`, только локально, ветка `mrs/0.1q-fix3-processing-local`.
+Full Release PASS без warnings, **113/113 CTest PASS (58.96 s)**.
+Packaged midi recording/clips/live/J3 PASS; musical dialog 100%/150% просмотрен.
+Тесты: strength 0/50/100, targets, selection/isolation, transpose limits/intervals,
+velocity/duration clamp, trim edges, IDs/controllers, Undo/Redo/serialization,
+GUI transpose/whole-clip scope/invalid input/empty selection/no-op.
+Пакет `MR-Studio-0.2e-Musical-edit-JUCE-ASIO-Windows-local`; EXE SHA256 `5371EFAA368955563AFCC84184E95CE573F7C8E2C720CB6178C0D891E607FE13`.
+FEATURE READY WITH MANUAL CHECK. Физические ASIO/VST3 и Windows mixed DPI
+для 0.2e не запускались. [Контракт](MIDI_MUSICAL_EDIT.md), [checklist](MRS_STAGE_4E_CHECKLIST.md).
+#67 открыт до приёмки. Следующая реализация — 0.2f, только по запросу пользователя.
+Дополнительные доработки отложены до реализации всех пунктов Stage 4.
+
 ## 0.2d / Stage 4d — 2026-10-06
 
 Piano roll: клавиатура/ruler, zoom/scroll, snap, создание/удаление и групповое
