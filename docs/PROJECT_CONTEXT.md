@@ -32,6 +32,70 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
+## Актуальная сборка для продолжения: 0.2b / Stage 4b
+
+По запросу «Поехали дальше, работаем над 0.2b» реализованы MIDI-клипы и playback.
+Пользовательская приёмка 0.2b ещё не получена; #64/#24 остаются открытыми.
+
+- Пакет: `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Builds/MR-Studio-0.2b-MIDI-clips-JUCE-ASIO-Windows-local`.
+  Запуск `Moon River Studio JUCE.exe`; scanner рядом. Прежние версии сохранены.
+- EXE SHA256: `2418BB4F9D31E5B816EB97327820007578BC05D61B7B89D4C6B0943486A219F6`.
+- Source `1c26828606c19d1f298417f3d1edf7821b7e4a67`, текущая локальная ветка
+  `mrs/0.1q-fix3-processing-local`. Включает принятую UI-базу 0.2a upd1 fix1.
+- Clip/note IDs, PPQ 960, pitch/start/length/velocity/channel; создание и простой
+  note form, move/trim/split/duplicate/delete, Undo/Redo, Save/Save As/reopen.
+  Общая tempo map, tick-сетка и Transport → Project tempo. Это минимальный ввод
+  нот; полный piano roll — 4d, MIDI recording — 4c.
+- Playback: block-relative offsets, chasing после seek/resume, Pause/Stop/loop,
+  overlap policy и bounded overflow. MIDI clips остаются device-owned с Workers
+  и Process Buffer; перед заменой графа обработчики останавливаются/присоединяются.
+  В проверенных новых callback paths host allocation 0. RT SAFE WITH MANUAL CHECK.
+- Core schema **12**, читает 1–11 с пустым MIDI payload. Старые сборки не читают
+  12: работать на копиях проектов. Audio asset persistence пропускает MIDI clips.
+- Cached configure/full Release PASS. Финальные **112/112 CTest, 58.30 s**.
+  Packaged `midi_clips`, `midi_live`, hidden `--j3-smoke` PASS/exit 0.
+  Software Arrange/note form previews 100%/150% проверены; физический DPI/ASIO,
+  Komplete Kontrol/SWAM и длительная матрица не запускались в этом чате.
+  FEATURE READY WITH MANUAL CHECK. Подробности/границы: [MIDI_CLIPS](MIDI_CLIPS.md).
+- Следующий шаг: пользовательский [checklist 0.2b](MRS_STAGE_4B_CHECKLIST.md):
+  instrument → Edit → Create MIDI clip at cursor → Add note → Play;
+  редактирование после Pause/Stop, операции над клипом, tempo/loop/save/reopen,
+  ASIO и Process Buffer Off/1024/4096 с Workers 1/2/4.
+  4c не начинать автоматически. Chord/Arranger — Stage 5; metronome/precount — 4h.
+  P4/#54/#16 и полный checklist 4a этой поставкой не закрываются.
+
+## Предыдущая принятая визуальная база: 0.2a upd1 fix1
+
+**Принята пользователем 2026-10-06**: «Отлично, задокументируй, чтобы другой чат
+мог продолжать с этого билда». Это приёмка поставленной дизайн-доработки;
+полный MIDI checklist и P4 этой репликой не закрываются.
+
+- Пакет: `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Builds/MR-Studio-0.2a-upd1-fix1-Mixer-JUCE-ASIO-Windows-local`.
+  Запуск `Moon River Studio JUCE.exe`, scanner рядом. Предыдущие пакеты сохранены.
+- EXE SHA256: `DC5DD5DE8191055E1E1B666A051D85EC5D1EC231C16D52C1D3EC993FD9E50009`.
+  Пакет содержит licenses, README, VALIDATION, SHA256.json и smoke previews.
+  Не переписывать выпущенный пакет для новой записи о приёмке.
+- Принятая визуальная база: Noto Sans 13 pt, как заголовок проекта, для кнопок,
+  меню, подписей треков/микшера и timeline; длинные button labels имеют ellipsis
+  без автоматического уменьшения шрифта. Тёмная серо-синяя палитра, выделенный
+  header/selected state. Обычные и Master strips 86 logical px с шагом 88 px;
+  ручка вертикального фейдера 16 px, meter/fader сближены. Транспорт центрирован,
+  CPU расположен слева внизу. Ещё не реализованные функции не имитируются.
+- Исходники в существующем checkout, ветка `mrs/0.1q-fix3-processing-local`.
+  HEAD `38e89e738b5b494b90d56ba0093c45d4ffbc6891` **не включает UI-доработку**:
+  на момент той поставки она была в рабочем дереве. В 0.2b она сохранена и включена в source commit. Исторические изменения:
+  `apps/studio-juce/src/Controls.h`, `apps/studio-juce/src/Desktop.cpp`,
+  `apps/studio-desktop/include/mrs/version.hpp` и документацию.
+  Не сбрасывать checkout и не заменять его remote-кодом.
+- Проверки: локальная Release-сборка MoonRiverStudioJuce PASS; packaged
+  `--j3-smoke --fixture mrs_vst3_fixture.vst3` exit 0 после финального изменения
+  шрифта. Software preview 150% финального пакета просмотрен; 100%/150%
+  проверялись в ходе итерации. CTest J3 1/1 PASS (2.36 s) относится к предыдущей
+  итерации 116 px. Полная suite для финальной косметической версии не повторялась.
+  Физический DPI, screen-reader и реальный ASIO не проверялись в этом чате.
+- Audio engine, routing, Undo, schema 11 и plugin lifecycle не менялись;
+  исправления 0.2a fix1 входят в этот исторический пакет. Текущая поставка — 0.2b выше.
+
 ## Точное состояние этапов
 
 | Область | Состояние |
@@ -43,12 +107,13 @@ Master. Не превращай их в одну последовательну�
 | P4 / [#54](https://github.com/vladleng/MR-Studio/issues/54) | 0.1u software slice принят пользователем 2026-10-06. #54 открыт для оставшихся проверок; пользователь тестирует P4 параллельно MIDI |
 | Parent Stage 3 / #23, длительная matrix #16 | Не закрыты этой приёмкой |
 | 3e2 / 3e3 | Безопасные переходы/dynamic latency и recovery/isolation остаются отдельными задачами |
+| 4b / [#64](https://github.com/vladleng/MR-Studio/issues/64), 0.2b | Реализован локально, 112/112 CTest и packaged checks PASS; пользовательская приёмка ожидается |
 | 4a / [#63](https://github.com/vladleng/MR-Studio/issues/63), 0.2a fix1 | Fix1 принят 2026-10-06: «Все работает». Полный checklist 4a отдельно не подтверждён; #63 открыт |
 
 В пользовательской переписке «0.1c показывает хорошие результаты» было принято
 как подтверждение тогдашней 0.1s/P2; не возвращай roadmap к старой 0.1c.
 
-## Последняя поставка
+## Предыдущая функциональная поставка: 0.2a fix1
 
 - **0.2a fix1**, 2026-10-06. Пользователь подтвердил загрузку SWAM Alto Flute 3,
   MIDI connected и звук через Komplete Audio ASIO / B 128 / Workers 2 после
@@ -312,7 +377,7 @@ remote SHA проверен. Локальная source-ветка не отпр�
 проверить клавиатуру, выбранный канал, sustain/bend, Stop/panic/reconnect,
 save/open и прежние audio/plugin editors. Прочитать MIDI_LIVE_INPUT и
 MRS_STAGE_4A_CHECKLIST. Не закрывать #63 без подтверждения физической приёмки.
-4b / 0.2b — следующий запланированный подэтап, не начинать автоматически.
+4b / 0.2b реализован по следующему запросу пользователя; текущая поставка описана выше. 4c / 0.2c автоматически не начинать.
 Chord/Arranger остаются Stage 5; метроном/precount — 4h. MIDI-клипы/recording,
 piano roll, external MIDI в 0.2a отсутствуют. Собственный synth не поставляется;
 нужен VST3-инструмент. Callback ingress/worker ownership не менять на UI note pump.
@@ -336,22 +401,3 @@ reconnect/state checks. #54/#16 не закрывать автоматическ
 результат, незавершённое, ветку/source commit, пакет/проверки, приёмку и следующий шаг.
 При передаче незавершённого кода укажи файлы/ошибку/последнюю команду и безопасное
 продолжение. Не копируй весь журнал чата и не запускай старые patch-скрипты.
-
-
-## Decision: instrument parallelism in P4
-
-Recorded 2026-10-06 after the user's Omnisphere piano comparison at 48 kHz / 128 frames.
-
-P4 / #54 now also owns **Instrument Parallelism / multi-instance VSTi sharding**. Existing
-P1 already parallelizes independent tracks/nodes, but one VST3 instrument instance remains
-one host scheduling node. The new goal is to let one logical instrument track optionally use
-2/4 synchronized hidden instances, distribute MIDI note ownership, process them on existing
-workers, deterministically sum audio, then run the shared post-instrument FX chain once.
-
-Initial policy is opt-in/capability-gated with Single Instance fallback; do not force this on
-mono/legato/sequenced/random/global-state instruments. Never make scheduling depend on the
-Omnisphere name/vendor. Omnisphere piano/high-polyphony is only the first representative
-hardware benchmark.
-
-No implementation was started by this documentation update. Code/build/test work remains
-local; GitHub receives issues/docs only.
