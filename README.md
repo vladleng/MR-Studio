@@ -272,6 +272,7 @@ Live UI может использовать mock SHARED services до готов
 - [`docs/PROJECT_VISION.md`](docs/PROJECT_VISION.md) — общее видение продукта.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — единый Core и workspaces.
 - [`docs/AUDIO_ENGINE.md`](docs/AUDIO_ENGINE.md) — ASIO, realtime rules и performance benchmark.
+- [Time stretch / pitch](docs/TIME_STRETCH.md) — Signalsmith-first backend architecture, realtime/offline policy and benchmark plan.
 - [`docs/AI_INTEGRATION.md`](docs/AI_INTEGRATION.md) — ChatGPT/OpenAI integration, Context/Tool API и permissions.
 - [`docs/DSP_MODELING.md`](docs/DSP_MODELING.md) — native DSP, Cab IR, amp/preamp/pedal и neural models.
 - [`docs/DEVELOPMENT_TRACKS.md`](docs/DEVELOPMENT_TRACKS.md) — параллельные MRS/SHARED/LIVE issue tracks.
