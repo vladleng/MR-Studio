@@ -68,7 +68,7 @@ GitHub tracking: [parent #24](https://github.com/vladleng/MR-Studio/issues/24).
 По запросу пользователя «Приступай к 0.2a» реализован локальный 4a:
 [MIDI input и VST3-инструменты](MIDI_LIVE_INPUT.md),
 [checklist физической приёмки](MRS_STAGE_4A_CHECKLIST.md). Build/test/package
-результаты — в PROJECT_CONTEXT. 4b–4h ещё не реализованы и не начаты автоматически.
+результаты — в PROJECT_CONTEXT. По следующему запросу реализован 4b / 0.2b: [MIDI clips](MIDI_CLIPS.md), [checklist](MRS_STAGE_4B_CHECKLIST.md). 112/112 CTest и packaged checks PASS; физическая ASIO-приёмка ожидается. 4c–4h ещё не реализованы и не начаты автоматически.
 Собственные инструменты/эффекты остаются отложенными. MIDI 2.0, SysEx,
 MIDI Clock/MTC, SMF import/export, MPE, loop overdub/takes, advanced MIDI и
 Live foot-controller/section automation не включены в эти подэтапы.
