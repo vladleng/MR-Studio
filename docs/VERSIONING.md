@@ -5,7 +5,8 @@
 Исправлены live MIDI с Process Buffer, статус назначенного входа без audio runtime,
 подготовка native editor из Disconnected и владение окнами редакторов/параметров.
 Configure/Release, 111 CTest и финальные focused/package checks прошли.
-Повторная физическая проверка Process Buffer ON и SWAM editor ожидается.
+Fix1 принят пользователем 2026-10-06: «Все работает». Конкретные режимы
+повторной проверки не перечислены; полный checklist 4a отдельно не подтверждён.
 Пакет/source/проверки: PROJECT_CONTEXT; schema остаётся 11.
 
 ## Stage 4 / MIDI и метроном — схема от 2026-10-06
