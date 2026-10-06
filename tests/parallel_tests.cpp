@@ -88,6 +88,25 @@ struct TimeoutContext {
             while(!c.started.load()&&std::chrono::steady_clock::now()<until)std::this_thread::yield();}
     }
 };
+void profiling() {
+    AudioEngine reference,profiled;RenderConfig c{48000,2,2,128,128,4};c.adaptive_parallel=false;c.worker_wait_ms=500;
+    reference.prepare({48000,2,2,128,128,1},fixture());profiled.prepare(c,fixture());
+    std::array<float,256> in{},expected{},actual{};in.fill(.2f);
+    profiled.process(in.data(),actual.data(),128);reference.process(in.data(),expected.data(),128);
+    check(profiled.profile().device_master.calls==0,"disabled profiling collected samples");
+    profiled.set_profiling(true);const auto before=allocations.load();
+    std::atomic<bool> stop{};std::atomic<bool> invalid{};
+    std::jthread reader([&](std::stop_token cancelled){while(!cancelled.stop_requested()&&!stop.load()){const auto p=profiled.profile();if(p.channels!=5)invalid=true;}});
+    for(unsigned n=0;n<70;++n){allocations_enabled=true;reference.process(in.data(),expected.data(),128);profiled.process(in.data(),actual.data(),128);allocations_enabled=false;
+        check(expected==actual,"profiling altered exact PCM");}
+    stop=true;reader.join();check(!invalid,"concurrent profile snapshot corrupt");check(allocations.load()==before,"profiling allocated on audio/helper threads");
+    const auto p=profiled.profile();check(p.device_master.calls==70&&p.device_path.calls==70,"profile master/path sample counts");
+    for(std::size_t t=0;t<5;++t)check(p.device[t].calls==70&&p.device[t].frames==70*128&&p.device[t].max_ns>0,"channel timing missing");
+    std::uint64_t jobs{};for(const auto& worker:p.device_workers)jobs+=worker.calls;check(jobs==350,"worker jobs lost/doubled");
+    const auto graphs=profiled.profile_graphs();check(graphs.front()->profile()[0].calls==70,"per-insert profiling missing");
+    profiled.set_profiling(false);profiled.process(in.data(),actual.data(),128);check(profiled.profile().device_master.calls==70,"profiling disable kept collecting");
+    profiled.prepare(c,fixture());check(!profiled.profile().enabled&&profiled.profile().device_master.calls==0,"prepare did not reset diagnostics");
+}
 void ownership() {
     TimeoutContext c;
     { ChannelWorkers workers(1);check(!workers.run(&c,TimeoutContext::job,2,1),"slow worker did not time out");
@@ -164,7 +183,7 @@ MRS_NOINLINE void operator delete[](void* p,std::size_t) noexcept{std::free(p);}
 int main(int argc,char** argv) {
     try {
         check(argc==2,"expected suite");const std::string suite=argv[1];
-        if(suite=="equivalence")equivalence();else if(suite=="ownership")ownership();else throw std::invalid_argument("unknown suite");
+        if(suite=="equivalence")equivalence();else if(suite=="ownership")ownership();else if(suite=="profiling")profiling();else throw std::invalid_argument("unknown suite");
         std::cout<<"PASS parallel "<<suite<<'\n';return 0;
     }catch(const std::exception& e){allocations_enabled=false;std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
 }

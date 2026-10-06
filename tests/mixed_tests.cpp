@@ -74,6 +74,7 @@ void equivalence(){
         Traces a,b;const RealtimeState initial{PlaybackState::paused,0,LoopRange{0,97}};
         auto direct=engine(graph(a),1,initial),mixed=engine(graph(b),workers,initial);
         check(direct->enqueue({ControlKind::play})&&mixed->enqueue({ControlKind::play}),"play queues");
+        mixed->set_profiling(true);
         AheadRenderer renderer(mixed,device,2048);renderer.start();check(renderer.active(),"mixed did not start");settle();
         std::array<float,1024> in{},expected{},actual{};const auto before=probe::allocations.load();
         for(unsigned n=0;n<80;++n){const auto frames=n%2?device-17:17;
@@ -85,6 +86,7 @@ void equivalence(){
         }
         check(probe::allocations==before,"mixed host RT allocation");renderer.stop();
         for(const auto& trace:b)check(trace.collisions==0&&trace.active==0,"mixed instance collision or failed join");
+        const auto profile=mixed->profile();check(profile.enabled&&profile.ahead[0].calls>0&&profile.device_master.calls==80,"mixed profiling did not include actual producer owner");
         check(b[4].calls==80,"shared Master moved off device or processed twice");
         renderer.start();settle();renderer.process(in.data(),actual.data(),device);renderer.stop();
     }

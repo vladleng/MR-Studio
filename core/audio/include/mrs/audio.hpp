@@ -1,6 +1,7 @@
 #pragma once
 #include <mrs/delay.hpp>
 #include <mrs/core.hpp>
+#include <mrs/profiling.hpp>
 #include <array>
 #include <atomic>
 #include <filesystem>
@@ -116,6 +117,13 @@ struct ProcessingDomains {
     bool raw_capture{}; // capture belongs to the device, never the producer
     std::uint64_t monitoring_compensation_frames{}; // excludes driver latency
 };
+struct EngineProfile {
+    bool enabled{};
+    std::size_t channels{};
+    std::array<TimingSample,max_mixer_tracks> device{},ahead{};
+    std::array<TimingSample,8> device_workers{},ahead_workers{};
+    TimingSample device_master{},ahead_master{},device_path{},ahead_path{};
+};
 struct Metrics {
     std::uint64_t callbacks{}, input_overflows{}, input_underflows{};
     std::uint64_t output_underflows{}, output_overflows{}, deadline_misses{};
@@ -191,6 +199,9 @@ public:
     bool anticipation_safe() const noexcept;
     std::uint64_t control_revision() const noexcept;
     Metrics metrics() const;
+    void set_profiling(bool) noexcept; // UI/control thread; counters reset only on stopped prepare
+    EngineProfile profile() const noexcept;
+    std::vector<std::shared_ptr<processing::PreparedGraph>> profile_graphs() const; // UI only, channel order + legacy + Master
     RenderConfig config() const { return config_; }
     struct CompensationReport {std::vector<std::uint64_t> track_paths;std::uint64_t output{},master{};std::size_t memory_bytes{};};
     const CompensationReport& compensation() const {return compensation_;} // prepared, control thread
@@ -249,6 +260,15 @@ private:
     std::array<std::uint64_t,max_mixer_tracks> channel_cost_ns_{};
     std::uint64_t scheduler_overhead_ns_{};
     bool measure_channels_{}; // immutable until previous workers are joined
+    struct ProfileStorage {
+        std::atomic<bool> enabled{};
+        std::array<TimingCounter,max_mixer_tracks> device,ahead;
+        std::array<TimingCounter,8> device_workers,ahead_workers;
+        TimingCounter device_master,ahead_master,device_path,ahead_path;
+    };
+    std::shared_ptr<ProfileStorage> profile_;
+    bool profile_block_{}; // fixed for this callback and its joined jobs
+    std::array<std::uint64_t,max_mixer_tracks> profile_duration_{},profile_path_{};
     std::atomic<bool> processing_fault_{};
     std::atomic<std::uint64_t> parallel_batches_{}, worker_timeouts_{};
     CompensationReport compensation_;

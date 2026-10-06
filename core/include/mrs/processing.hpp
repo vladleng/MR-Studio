@@ -1,5 +1,6 @@
 #pragma once
 #include <mrs/core.hpp>
+#include <mrs/profiling.hpp>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -204,6 +205,8 @@ public:
     ProcessConfig config() const;
     const LatencyReport& latency() const;
     GraphMetrics metrics() const noexcept;
+    void set_profiling(bool) noexcept;
+    std::array<TimingSample,max_nodes> profile() const noexcept; // immutable node order
     GraphState capture() const; // quiescent: reads processor state
     std::uint32_t node_latency(const Id&) const;
     std::vector<ParameterInfo> parameter_infos(const Id&) const;

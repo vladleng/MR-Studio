@@ -57,6 +57,7 @@ public:
     void closeEditors();
     void closeUnpinnedEditors();
     void audioSettings();
+    void showProfiling();
     void insertMenu(std::optional<mrs::Id>);
     void openInsert(std::optional<mrs::Id>,mrs::Id);
     void savePreset(std::optional<mrs::Id>,mrs::Id);
@@ -230,6 +231,7 @@ void j2Smoke(Desktop&,const juce::File& fixture={});
 void j2PluginSmoke(Desktop&,const juce::File&);
 void j3Smoke(Desktop&);
 void j3AudioSmoke(Desktop&);
+void profilingSmoke(Desktop&);
 void thuDiagnostic(const juce::File&);
 void retirePluginWindow(EditorWindow&);
 void reconnectPluginWindow(EditorWindow&);

@@ -14,6 +14,7 @@
 #endif
 namespace mrs::audio {
 namespace {
+thread_local std::uint32_t participant_index{};
 class Signal {
 #ifdef _WIN32
     HANDLE handle_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -59,6 +60,7 @@ ChannelWorkers::ChannelWorkers(std::uint32_t helpers,bool mmcss):impl_(std::make
     if(helpers>7) throw std::invalid_argument("audio worker limit is 1..8 including callback");
     for(std::uint32_t i=0;i<helpers;++i) {
         impl_->threads[i]=std::thread([this,i,mmcss] {
+            participant_index=i+1;
 #ifdef _WIN32
             DWORD task{};
             HANDLE audio=mmcss?AvSetMmThreadCharacteristicsW(L"Pro Audio",&task):nullptr;
@@ -87,6 +89,7 @@ void ChannelWorkers::quiesce() noexcept {
 }
 std::uint32_t ChannelWorkers::count() const noexcept {return impl_->helpers;}
 std::uint32_t ChannelWorkers::audio_scheduled() const noexcept {return impl_->scheduled.load(std::memory_order_relaxed);}
+std::uint32_t ChannelWorkers::participant() noexcept {return participant_index;}
 bool ChannelWorkers::run(void* context,Job job,std::uint32_t jobs,std::uint32_t timeout_ms) noexcept {
     if(impl_->quarantined) return false;
     if(jobs<2 || !impl_->helpers) {for(std::uint32_t i=0;i<jobs;++i)job(context,i);return true;}

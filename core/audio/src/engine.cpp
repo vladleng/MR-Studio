@@ -43,7 +43,7 @@ void AudioEngine::channel_job(void* context,std::uint32_t index) noexcept {
     engine.process_channel(track);
 }
 void AudioEngine::process_channel(std::size_t t) noexcept {
-    const auto started=measure_channels_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+    const auto started=(measure_channels_||profile_block_)?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
     const bool owned=domain_owned_[t];
     if(owned&&!graph_.inserts.empty()&&graph_.inserts[t])graph_.inserts[t]->process(track_block_[t].data(),job_frames_,job_position_,job_playing_,job_tempo_,job_quarter_);
     channel_peaks_[t]=owned?std::array<float,2>{}:std::array<float,2>{domain_meters_[t].left,domain_meters_[t].right};
@@ -66,6 +66,9 @@ void AudioEngine::process_channel(std::size_t t) noexcept {
             if(local+1==job_ramp_){mix_gain_[t]=mix_target_[t];gate_[t]=gate_target_[t];send_gain_[t]=send_target_[t];}
         }
     }
+    if(profile_block_){const auto ns=elapsed_ns(started);profile_duration_[t]=ns;
+        auto& channels=speculative_?profile_->ahead:profile_->device;channels[t].record(ns,job_frames_);
+        auto& participants=speculative_?profile_->ahead_workers:profile_->device_workers;participants[ChannelWorkers::participant()].record(ns,job_frames_);}
     if(measure_channels_){const auto elapsed=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-started).count())/job_frames_;
         channel_cost_ns_[t]=channel_cost_ns_[t]?(channel_cost_ns_[t]*3+elapsed)/4:elapsed;}
 }
@@ -306,13 +309,15 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     for(const auto& sends_for_track:graph.sends)scratch_blocks+=sends_for_track.size();
     if(static_cast<std::uint64_t>(block_size)*config.output_channels*scratch_blocks*sizeof(float)>128ULL*1024*1024)
         throw std::invalid_argument("mixer scratch budget exceeded");
+    const bool profiling=profile_&&profile_->enabled.load(std::memory_order_relaxed);
+    profile_=std::make_shared<ProfileStorage>();profile_->enabled=profiling;
     config_ = config;
     mix_levels_=std::move(levels);channel_levels_=std::move(channel_levels);
     compensation_=std::move(compensation);route_delays_=std::move(routes);send_delays_=std::move(sends);legacy_delay_=std::move(legacy);
     domains_=std::move(domains);
     master_envelope_.resize(config.max_block);
     direct_output_.resize(static_cast<std::size_t>(config.max_block)*config.output_channels);
-    graph_ = std::move(graph);
+    graph_ = std::move(graph);set_profiling(profiling);
     domain_owned_.fill(true);domain_input_=nullptr;domain_output_=nullptr;domain_meters_={};
     insert_block_size_=block_size;
     track_block_.assign(graph_.mixer.size(),std::vector<float>(static_cast<std::size_t>(insert_block_size_)*config.output_channels));
@@ -521,6 +526,8 @@ void AudioEngine::consume_controls() noexcept {
 }
 void AudioEngine::process(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags) noexcept {
     const ScopedNoDenormals no_denormals;
+    profile_block_=profile_->enabled.load(std::memory_order_relaxed);
+    std::uint64_t critical_ns{};
     if(!speculative_)callbacks_.fetch_add(1, std::memory_order_relaxed);
     if (!output || frames == 0 || frames > config_.max_block) {
         for (const auto& recorder : graph_.recordings) recorder->input_dropout();
@@ -586,6 +593,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     last_render_start_=rt_;
     const auto block_position=rt_.sample;const auto block_playing=rt_.playback==PlaybackState::playing;const auto block_tempo=tempo_at(block_position);
     for(std::uint32_t base=0;base<frames;){
+        if(profile_block_){profile_duration_.fill(0);profile_path_.fill(0);}
         if(rt_.playback==PlaybackState::playing&&rt_.loop&&rt_.sample>=rt_.loop->end)
             rt_.sample=rt_.loop->start+(rt_.sample-rt_.loop->start)%(rt_.loop->end-rt_.loop->start);
         const auto position=rt_.sample;const auto playing=rt_.playback==PlaybackState::playing;const auto tempo=tempo_at(position);
@@ -687,6 +695,9 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
             if (--mix_ramp_ == 0) { master_gain_ = master_target_; mix_gain_ = mix_target_; gate_ = gate_target_; send_gain_ = send_target_; }
         }
     }
+        if(profile_block_){std::uint64_t longest{};for(const auto t:mix_order_){const auto path=profile_path_[t]+profile_duration_[t];longest=std::max(longest,path);
+            const auto propagate=[&](std::size_t to){if(to!=no_mixer_track)profile_path_[to]=std::max(profile_path_[to],path);};propagate(graph_.outputs[t]);for(const auto& send:graph_.sends[t])propagate(send.destination);}
+            critical_ns+=longest;}
         base+=count;
     }
     for (auto& voice : graph_.voices) if (owns_voice(voice)&&voice.stream && voice.stream->end())
@@ -694,8 +705,11 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     const auto output_samples = static_cast<std::size_t>(frames) * config_.output_channels;
     for (std::size_t i = 0; i < output_samples; ++i)
         if (!std::isfinite(output[i])) output[i] = 0;
+    const auto master_start=profile_block_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
     if (graph_.processors) graph_.processors->process(output,frames,block_position,block_playing,block_tempo.bpm,block_tempo.quarter);
     if (graph_.master_inserts) graph_.master_inserts->process(output,frames,block_position,block_playing,block_tempo.bpm,block_tempo.quarter);
+    if(profile_block_){const auto ns=elapsed_ns(master_start);(speculative_?profile_->ahead_master:profile_->device_master).record(ns,frames);
+        (speculative_?profile_->ahead_path:profile_->device_path).record(critical_ns+ns,frames);}
     for (std::uint32_t frame=0; frame<frames; ++frame) {
         const auto offset = static_cast<std::size_t>(frame)*config_.output_channels;
         std::array<float,max_channels> master{};
@@ -742,6 +756,17 @@ void AudioEngine::observe(std::uint64_t ns, std::uint32_t frames, std::uint32_t 
     const auto bin = static_cast<std::size_t>(std::clamp(std::ceil(load * 100), 0.0, 100.0));
     load_histogram_[bin].fetch_add(1, std::memory_order_relaxed);
 }
+void AudioEngine::set_profiling(bool enabled) noexcept {
+    profile_->enabled.store(enabled,std::memory_order_relaxed);
+    for(const auto& chain:graph_.inserts)if(chain)chain->set_profiling(enabled);
+    if(graph_.processors)graph_.processors->set_profiling(enabled);if(graph_.master_inserts)graph_.master_inserts->set_profiling(enabled);
+}
+EngineProfile AudioEngine::profile() const noexcept {EngineProfile p;p.enabled=profile_->enabled.load(std::memory_order_relaxed);p.channels=graph_.mixer.size();
+    for(std::size_t i=0;i<p.channels;++i){p.device[i]=profile_->device[i].read();p.ahead[i]=profile_->ahead[i].read();}
+    for(std::size_t i=0;i<8;++i){p.device_workers[i]=profile_->device_workers[i].read();p.ahead_workers[i]=profile_->ahead_workers[i].read();}
+    p.device_master=profile_->device_master.read();p.ahead_master=profile_->ahead_master.read();p.device_path=profile_->device_path.read();p.ahead_path=profile_->ahead_path.read();return p;
+}
+std::vector<std::shared_ptr<processing::PreparedGraph>> AudioEngine::profile_graphs() const {auto graphs=graph_.inserts;graphs.resize(graph_.mixer.size());graphs.push_back(graph_.processors);graphs.push_back(graph_.master_inserts);return graphs;}
 Metrics AudioEngine::metrics() const {
     Metrics m;
     m.ahead_memory_bytes=ahead_memory_bytes_.load();

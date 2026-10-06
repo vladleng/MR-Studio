@@ -46,20 +46,21 @@ RenderGraph fixture(const std::string& topology,std::uint32_t block) {
     } else if(topology=="fanin8") {
         g.mixer.resize(tracks+1);g.buses.push_back(true);g.outputs.assign(tracks,tracks);g.outputs.push_back(no_mixer_track);g.inserts.push_back(chain(64,block));
     }
+    if(topology=="fanout8"){g.monitor.resize(2);g.sends.resize(tracks);for(unsigned t=1;t<tracks;++t){g.buses[t]=true;g.sends[0].push_back({t,.1f,false});}}
     if(topology=="master8")g.master_inserts=chain(2048,block);
     g.input_monitoring.assign(g.mixer.size(),true);return g;
 }
 }
 int main(int argc,char** argv) {
     try {
-        bool mmcss=true;if(argc==2&&std::string(argv[1])=="--no-mmcss")mmcss=false;
+        bool mmcss=true,profiling=false;for(int i=1;i<argc;++i){const std::string arg=argv[i];if(arg=="--no-mmcss")mmcss=false;else if(arg=="--profile")profiling=true;else throw std::invalid_argument("expected --profile or --no-mmcss");}
         constexpr unsigned warmup=100,measured=400;
-        std::cout<<"topology,frames,requested_workers,active_workers,mmcss_helpers,warmup,measured,p50_us,p95_us,p99_us,max_us,late,worker_timeouts,checksum,parallel_batches,scheduler_overhead_ns\n";
-        for(const auto& topology:{"independent2","independent8","serial8","fanin8","master8","tiny2"})for(auto frames:{64U,128U,256U,512U}) {
+        std::cout<<"topology,frames,requested_workers,active_workers,mmcss_helpers,warmup,measured,p50_us,p95_us,p99_us,max_us,late,worker_timeouts,checksum,parallel_batches,scheduler_overhead_ns,profiling,critical_max_ns,job_total_ns\n";
+        for(const auto& topology:{"independent2","independent8","serial8","fanin8","fanout8","master8","tiny2"})for(auto frames:{64U,128U,256U,512U}) {
             double reference{};
             for(auto workers:{1U,2U,4U,8U}) {
                 AudioEngine engine;RenderConfig config{48000,1,2,frames,frames,workers,mmcss};config.worker_wait_ms=500;
-                engine.prepare(config,fixture(topology,frames));std::vector<float> input(frames),output(frames*2);
+                engine.prepare(config,fixture(topology,frames));engine.set_profiling(profiling);std::vector<float> input(frames),output(frames*2);
                 for(unsigned f=0;f<frames;++f)input[f]=static_cast<float>(std::sin(f*.07)*.2);
                 std::vector<double> times;times.reserve(measured);double checksum{};unsigned late{};
                 for(unsigned n=0;n<warmup+measured;++n) {
@@ -73,7 +74,7 @@ int main(int argc,char** argv) {
                 const auto m=engine.metrics();if(m.processing_fault)throw std::runtime_error("benchmark worker timeout");
                 std::sort(times.begin(),times.end());const auto percentile=[&](double q){return times[static_cast<std::size_t>(std::ceil(q*times.size()))-1];};
                 std::cout<<topology<<','<<frames<<','<<workers<<','<<m.processing_workers<<','<<m.audio_scheduled_workers<<','<<warmup<<','<<measured<<','
-                    <<std::fixed<<std::setprecision(3)<<percentile(.5)<<','<<percentile(.95)<<','<<percentile(.99)<<','<<times.back()<<','<<late<<','<<m.worker_timeouts<<','<<std::setprecision(9)<<checksum<<','<<m.parallel_batches<<','<<m.scheduler_overhead_ns<<'\n';
+                    <<std::fixed<<std::setprecision(3)<<percentile(.5)<<','<<percentile(.95)<<','<<percentile(.99)<<','<<times.back()<<','<<late<<','<<m.worker_timeouts<<','<<std::setprecision(9)<<checksum<<','<<m.parallel_batches<<','<<m.scheduler_overhead_ns<<','<<profiling<<','<<engine.profile().device_path.max_ns<<','<<[&]{std::uint64_t total{};for(const auto& t:engine.profile().device_workers)total+=t.total_ns;return total;}()<<'\n';
             }
         }
         return 0;

@@ -56,6 +56,7 @@ MixedRenderer::MixedRenderer(std::shared_ptr<AudioEngine> engine,std::uint32_t f
     config.processing_workers=1;
     auto initial=device_->rt_;initial.playback=PlaybackState::paused;
     ahead_->prepare(config,std::move(graph),initial);
+    ahead_->profile_=device_->profile_;ahead_->set_profiling(device_->profile_->enabled.load(std::memory_order_relaxed));
     ahead_->graph_.processors.reset();ahead_->graph_.master_inserts.reset();
     for(std::size_t t=0;t<g.mixer.size();++t)if(!ahead_channels_[t]&&!ahead_->graph_.inserts.empty())ahead_->graph_.inserts[t].reset();
     // One ReadAhead cursor per voice; callback will no longer begin/read/end

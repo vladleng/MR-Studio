@@ -121,7 +121,7 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
         juce::PopupMenu recent;for(std::size_t i=0;i<prefs.recent_projects.size();++i)recent.addItem(1000+static_cast<int>(i),label(prefs.recent_projects[i]));m.addSubMenu("Open recent project",recent);}
     if(n==1){m.addItem(10,"Undo",app.services().projects->state().can_undo);m.addItem(11,"Redo",app.services().projects->state().can_redo);m.addItem(24,"Split selected clip (S)");m.addItem(25,"Delete selected clip (Backspace)");}
     if(n==2){m.addItem(20,"Add audio track");m.addItem(21,"Add bus");m.addItem(22,"Rename track");m.addItem(23,"Delete track");m.addItem(26,"Move track up");m.addItem(27,"Move track down");}
-    if(n==3){m.addItem(30,"Play");m.addItem(31,"Pause");m.addItem(32,"Stop");m.addItem(33,"Record");m.addItem(34,"Previous section");m.addItem(35,"Next section");m.addItem(36,"Loop section");m.addItem(40,"Audio settings...");}
+    if(n==3){m.addItem(30,"Play");m.addItem(31,"Pause");m.addItem(32,"Stop");m.addItem(33,"Record");m.addItem(34,"Previous section");m.addItem(35,"Next section");m.addItem(36,"Loop section");m.addItem(40,"Audio settings...");m.addItem(41,"Engine profiling...");}
     return m;
 }
 void Desktop::menuItemSelected(int n,int){action(n);}
@@ -144,6 +144,7 @@ void Desktop::action(int n){if(busyGesture())return;run([&]{
     else if(n==34)app.musical().previous_section();else if(n==35)app.musical().next_section();
     else if(n==36){if(app.engine()->state().loop)app.musical().clear_loop();else if(app.musical().state().current_section)app.musical().loop_section(app.musical().state().current_section->id);}
     else if(n==40)audioSettings();
+    else if(n==41)showProfiling();
 });}
 void Desktop::setWorkspace(mrs::desktop::Workspace w){app.workspace(w);prefs.workspace=w;resized();refresh();}
 juce::String Desktop::projectCaption() const{return (app.path().empty()?label(project()->title):juce::String(app.path().stem().wstring().c_str()))+(app.dirty()?" *":"");}
@@ -176,6 +177,7 @@ void Desktop::resized(){menu.setBounds(0,0,getWidth(),26);projectTitle.setBounds
 }
 void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFont(theme.font(12));g.setColour(message.isEmpty()?juce::Colours::lightgrey:juce::Colours::orange);
     auto s=message.isEmpty()?label(app.audio_name()):message;
+    if(app.engine()->profile().enabled)s+=" | PROF";
     if(message.isEmpty()){const auto samples=app.engine()->compensation().output;s+="  |  PDC "+juce::String(static_cast<double>(samples)*1000/project()->sample_rate,2)+" ms";
         const auto metrics=app.engine()->metrics();const bool hardware=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
         if(hardware){s+="  |  B "+(metrics.callbacks?juce::String(metrics.min_frames)+(metrics.min_frames==metrics.max_frames?juce::String():"-"+juce::String(metrics.max_frames)):juce::String("--"));
@@ -195,6 +197,7 @@ void Desktop::updatePerformance(const mrs::audio::DeviceStatus& status,bool hard
     const bool running=hardware&&status.phase==mrs::audio::DevicePhase::running;
     const bool measured=running&&std::isfinite(status.cpu_load)&&status.cpu_load>=0;
     audioCpu=measured?juce::jlimit(0.,1.,status.cpu_load):0.;
+    cpuReadout.setTooltip("Driver callback wall time / deadline; excludes summed parallel worker CPU. Engine profiling is in the Transport menu.");
     cpuReadout.setText(measured?"CPU "+juce::String(status.cpu_load*100,1)+"%":"CPU --%",juce::dontSendNotification);
     audioCpuBar.setColour(juce::ProgressBar::foregroundColourId,!measured?juce::Colour(0xff62686e):status.cpu_load>=1?juce::Colour(0xffe64b54):status.cpu_load>=.8?juce::Colours::orange:juce::Colour(0xff45d899));
     auto latency=[&](double value){return running&&std::isfinite(value)&&value>=0?juce::String(value,2):juce::String("--");};
@@ -458,7 +461,7 @@ void Browser::rebuild(){tree.setRootItem(nullptr);root=std::make_unique<BrowserN
 void Desktop::scan(const juce::File& root){if(scanner.valid())throw std::runtime_error("Scan already running");*scanCancel=false;const auto folder=path(root);const auto helper=path(juce::File::getSpecialLocation(juce::File::currentExecutableFile).getSiblingFile("mrs_vst3_scan.exe"));
     auto cache=cacheFile;auto cancel=scanCancel;scanner=std::async(std::launch::async,[folder,helper,cache,cancel]{return mrs::processing::scan_vst3(folder,helper,cache,cancel);});}
 std::vector<mrs::NativeInsert> Desktop::chain(std::optional<mrs::Id> t) const{const auto p=project();if(!t)return p->master_inserts;for(const auto& track:p->tracks)if(track.id==t)return track.inserts;throw std::runtime_error("Track no longer exists");}
-void Desktop::closeEditors(){app.close_plugin_editors();for(auto& w:windows){retirePluginWindow(*w);w->setVisible(false);
+void Desktop::closeEditors(){app.engine()->set_profiling(false);app.close_plugin_editors();for(auto& w:windows){retirePluginWindow(*w);w->setVisible(false);
     // Retire the native parent HWND while its plugin module is still alive.
     // Keep the C++ window until the next timer turn so an editor callback can return safely.
     if(static_cast<bool>(w->getProperties()["mrs-native-editor"]))w->removeFromDesktop();}}

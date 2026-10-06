@@ -40,6 +40,8 @@ struct PreparedGraph::Impl {
         bool bypass{};
     };
     GraphSnapshot snapshot;
+    std::atomic<bool> profiling{};
+    std::array<TimingCounter,max_nodes> timings;
     std::map<std::string,std::vector<ParameterValue>> last_parameters;
     ProcessConfig config;
     LatencyReport report;
@@ -226,6 +228,7 @@ void PreparedGraph::reset_anticipation() noexcept {
 }
 void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,bool playing,double tempo,double quarter) noexcept {
     auto& p = *impl_;
+    const bool profiling=p.profiling.load(std::memory_order_relaxed);
     if (!audio || !frames || frames > p.config.max_block) { ++p.invalid; return; }
     for (auto& node : p.nodes) { node.midi.clear(); node.output.clear(); node.parameter_count = 0; }
     MidiCommand midi;
@@ -273,8 +276,10 @@ void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,b
                 (void)node.processor->set_parameter(node.parameters[i].id,node.parameters[i].value);
             for (auto event : node.midi.view()) (void)node.output.push(event);
         } else {
+            const auto start=profiling?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
             node.processor->process({{node.audio.data(),count},frames,p.config.channels,
                 node.midi.view(),{node.parameters.data(),node.parameter_count},node.output,position,playing,tempo,quarter});
+            if(profiling)p.timings[index].record(elapsed_ns(start),frames);
         }
         // Sanitize each node before its output feeds other nodes.
         for (std::size_t i = 0; i < count; ++i) if (!std::isfinite(node.audio[i])) node.audio[i] = 0;
@@ -293,6 +298,8 @@ void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,b
     }
 }
 bool PreparedGraph::pop_midi_output(MidiOutput& event) noexcept { return impl_->output_queue.pop(event); }
+void PreparedGraph::set_profiling(bool enabled) noexcept {impl_->profiling.store(enabled,std::memory_order_relaxed);}
+std::array<TimingSample,max_nodes> PreparedGraph::profile() const noexcept {std::array<TimingSample,max_nodes> result{};for(std::size_t i=0;i<impl_->nodes.size();++i)result[i]=impl_->timings[i].read();return result;}
 GraphMetrics PreparedGraph::metrics() const noexcept {
     return {impl_->dropped_midi.load(),impl_->dropped_parameters.load(),impl_->invalid.load(),
         impl_->output_overflows.load(),impl_->panics.load()};

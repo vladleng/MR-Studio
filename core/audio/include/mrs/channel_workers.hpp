@@ -15,6 +15,7 @@ public:
     void quiesce() noexcept; // control thread, after device callback stops
     std::uint32_t count() const noexcept;
     std::uint32_t audio_scheduled() const noexcept;
+    static std::uint32_t participant() noexcept; // 0 caller, 1..7 helpers, scalar TLS
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
