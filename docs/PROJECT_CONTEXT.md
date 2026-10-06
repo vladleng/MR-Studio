@@ -77,6 +77,10 @@ Master. Не превращай их в одну последовательну�
 - Следующий шаг: повторить физическую игру SWAM с Process 1024/4096 при тех же
   ASIO/Workers, проверить hover/focus editor, MIDI status, затем остальной
   [checklist](MRS_STAGE_4A_CHECKLIST.md). #63/#24 остаются открытыми, 4b не начат.
+- Fix1 docs-only GitHub main `e08b5ce77dcd476c54cb81ab24d09b6f9db5f474`
+  опубликован с `[skip ci]`, remote SHA проверен; #63 обновлён и открыт.
+  Source-ветка не отправлялась, Actions не запускались. Пакет заморожен с docs
+  `88a0fae`, manifest 118 файлов проверен; запись синхронизации пакет не меняет.
 
 ## Исходная поставка 0.2a
 
