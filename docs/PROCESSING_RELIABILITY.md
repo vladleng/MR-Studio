@@ -309,7 +309,7 @@ Full local Release and 109/109 CTest passed (58.28 s), including seven new mixed
 suites, existing P1/P2, VST3 fixture, persistence and GUI checks. Hardware acceptance,
 P4/#16 and isolation remain open. [Ownership, transitions and limits](ENGINE_MIXED_PROCESSING.md).
 
-## 0.1t fix1 — native plugin editor windows
+## 0.1t fix1 â€” native plugin editor windows
 
 The user reports good P3 performance and continues experimenting. This does not
 close P3/#53 hardware acceptance. The editor window going behind MR Studio on
@@ -320,5 +320,6 @@ same JUCE windows, retaining Pin and avoiding the stale white host. Native child
 HWNDs are recreated. Project/device/structural changes still retire all editors.
 No engine scheduling/buffering or project-schema change; existing Undo persists.
 Local Release + 109/109 CTest (57.09 s), packaged hidden J3 fixture smoke exit 0.
-Actual installed-plugin appearance/ASIO audition remains manual; no special
+User accepted the plugin editor fix on 2026-10-06: plugin behavior is now correct.
+Broader P3 monitoring/recording ASIO acceptance remains separate; no special
 installed TH-U/Nuro test repetition. [Window lifetime and validation](ENGINE_PLUGIN_EDITORS.md).
