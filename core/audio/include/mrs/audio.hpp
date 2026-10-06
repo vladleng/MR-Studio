@@ -95,6 +95,25 @@ struct RenderConfig {
     std::uint32_t worker_wait_ms{20}; // bounded scheduler watchdog, separate from buffer deadline
     bool adaptive_parallel{true}; // skip dispatch if measured savings do not cover calibrated wake cost
 };
+// Prepared P3 candidate ownership; it does not enable mixed rendering yet.
+// Mutable plugin/PDC instances belong to exactly one domain. Never use this
+// snapshot after external scheduling capabilities change without revalidation.
+struct ProcessingDomains {
+    enum class Owner { ahead, device };
+    enum Reason : std::uint8_t { live_input = 1, unsupported_processor = 2 };
+    struct Channel { Owner owner{Owner::ahead}; std::uint8_t reasons{}; };
+    enum class MergeKind { main, send, master, hardware, legacy, master_output };
+    struct Merge {
+        std::size_t source{}, destination{no_mixer_track}, send_index{};
+        MergeKind kind{};
+        std::uint64_t compensation_frames{};
+    };
+    std::vector<Channel> channels;
+    Channel master;
+    std::vector<Merge> merges; // ahead -> device edges, including physical outputs
+    bool raw_capture{}; // capture belongs to the device, never the producer
+    std::uint64_t monitoring_compensation_frames{}; // excludes driver latency
+};
 struct Metrics {
     std::uint64_t callbacks{}, input_overflows{}, input_underflows{};
     std::uint64_t output_underflows{}, output_overflows{}, deadline_misses{};
@@ -171,6 +190,7 @@ public:
     RenderConfig config() const { return config_; }
     struct CompensationReport {std::vector<std::uint64_t> track_paths;std::uint64_t output{},master{};std::size_t memory_bytes{};};
     const CompensationReport& compensation() const {return compensation_;} // prepared, control thread
+    const ProcessingDomains& processing_domains() const {return domains_;} // candidate plan, control thread
 private:
     friend class AheadRenderer;
     bool speculative_{}; // changed only while both device and producer are stopped
@@ -217,6 +237,9 @@ private:
     std::atomic<bool> processing_fault_{};
     std::atomic<std::uint64_t> parallel_batches_{}, worker_timeouts_{};
     CompensationReport compensation_;
+    ProcessingDomains domains_;
+    ProcessingDomains compile_domains(const RenderGraph&, const std::vector<std::size_t>&,
+        const CompensationReport&, const std::vector<std::uint64_t>&) const;
     std::vector<CompensationDelay> route_delays_;
     std::vector<std::vector<CompensationDelay>> send_delays_;
     CompensationDelay legacy_delay_;

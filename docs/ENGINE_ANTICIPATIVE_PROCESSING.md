@@ -128,7 +128,7 @@ Cached offline configure and local Windows x64 Release build passed; CTest
 Existing raw-recording, VST3 fixture/state/editor, native DSP, Undo, reconnect,
 PDC and P1 ownership regressions remain in the full suite. These tests do not
 establish intended-system ASIO audition, long sustained-load acceptance or Fender
-Studio Pro parity. P2/#52 remains open for user review; P3/P4 and 3e2/3e3/#16 remain
+Studio Pro parity. P2/#52 initial slice was accepted and closed on 2026-10-06; P3/P4 and 3e2/3e3/#16 remain
 separate. Previous local packages are preserved.
 
 ## Reproducible measurements
@@ -184,4 +184,17 @@ Package: `MR-Studio-0.1s-P2-anticipative-JUCE-ASIO-Windows-local` in chat Builds
 Launch `Moon River Studio JUCE.exe`; keep `mrs_vst3_scan.exe` beside it. README,
 validation log, CSVs, synthetic fixture/tests/benchmark, licenses and SHA256 hashes
 accompany the local package. Process Buffer remains Off by default. User ASIO
-review of 0.1s and broader sustained-load acceptance remain pending.
+review of 0.1s was accepted on 2026-10-06; broader sustained-load acceptance remains pending.
+
+## User acceptance — 2026-10-06
+
+User reports good results and requests closing the latest delivery and proceeding.
+The message names "0.1c", interpreted in the current delivery context as the latest
+0.1s / P2 package. #52 is closed for this initial native eligibility slice. No new
+exact ASIO settings, duration or sustained hardware matrix is inferred. Previously
+passed 99/99 tests, packaged smoke and binary validation remain applicable to the
+unchanged accepted package; acceptance does not require rebuilding it.
+Generic VST3 anticipation, seamless history/tail transitions and timestamped
+external automation remain tracked under parent #23 / 3e2 and later slices.
+P3/#53 now starts with dependency-domain/merge planning; its runtime mixed graph
+implementation and acceptance remain pending.

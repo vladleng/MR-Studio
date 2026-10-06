@@ -67,6 +67,66 @@ void AudioEngine::process_channel(std::size_t t) noexcept {
         channel_cost_ns_[t]=channel_cost_ns_[t]?(channel_cost_ns_[t]*3+elapsed)/4:elapsed;}
 }
 void AudioEngine::reset_compensation() noexcept {legacy_delay_.reset();for(auto& delay:route_delays_)delay.reset();for(auto& row:send_delays_)for(auto& delay:row)delay.reset();}
+ProcessingDomains AudioEngine::compile_domains(const RenderGraph& graph,
+    const std::vector<std::size_t>& order, const CompensationReport& compensation,
+    const std::vector<std::uint64_t>& arrivals) const {
+    using D = ProcessingDomains;
+    D plan;
+    plan.channels.resize(graph.mixer.size());
+    plan.raw_capture = !graph.recordings.empty();
+    plan.monitoring_compensation_frames = graph.monitor.empty() ? 0 : compensation.output;
+    const auto unsupported = [](const auto& chain) { return chain && !chain->anticipation_safe(); };
+    if (unsupported(graph.processors) || unsupported(graph.master_inserts))
+        plan.master.reasons |= D::unsupported_processor;
+    for (std::size_t t = 0; t < graph.inserts.size(); ++t)
+        if (unsupported(graph.inserts[t])) plan.channels[t].reasons |= D::unsupported_processor;
+    // Reserve ALL prepared input routes, even disabled ones. Monitor/mixer
+    // toggles must not migrate a running plugin or its PDC history between owners.
+    for (const auto& input : graph.monitor) {
+        const auto t = input.mixer_track != no_mixer_track ? input.mixer_track : graph.monitor_track;
+        if (t == no_mixer_track) plan.master.reasons |= D::live_input;
+        else plan.channels[t].reasons |= D::live_input;
+    }
+    for (const auto t : order) {
+        auto& channel = plan.channels[t];
+        channel.owner = channel.reasons ? D::Owner::device : D::Owner::ahead;
+        const auto propagate = [&](std::size_t destination) {
+            plan.channels[destination].reasons |= channel.reasons;
+        };
+        if (graph.outputs[t] != no_mixer_track) propagate(graph.outputs[t]);
+        else if (graph.hardware_outputs[t].empty()) plan.master.reasons |= channel.reasons;
+        for (const auto& send : graph.sends[t]) propagate(send.destination);
+    }
+    plan.master.owner = plan.master.reasons ? D::Owner::device : D::Owner::ahead;
+    const auto master_input = compensation.output - compensation.master;
+    for (const auto t : order) {
+        if (plan.channels[t].owner != D::Owner::ahead) continue;
+        const auto dest = graph.outputs[t];
+        if (!graph.hardware_outputs[t].empty())
+            plan.merges.push_back({t, no_mixer_track, 0, D::MergeKind::hardware,
+                compensation.output - compensation.track_paths[t]});
+        else if (dest == no_mixer_track) {
+            if (plan.master.owner == D::Owner::device)
+                plan.merges.push_back({t, no_mixer_track, 0, D::MergeKind::master,
+                    master_input - compensation.track_paths[t]});
+        } else if (plan.channels[dest].owner == D::Owner::device)
+            plan.merges.push_back({t, dest, 0, D::MergeKind::main,
+                arrivals[dest] - compensation.track_paths[t]});
+        for (std::size_t j = 0; j < graph.sends[t].size(); ++j) {
+            const auto destination = graph.sends[t][j].destination;
+            if (plan.channels[destination].owner == D::Owner::device)
+                plan.merges.push_back({t, destination, j, D::MergeKind::send,
+                    arrivals[destination] - compensation.track_paths[t]});
+        }
+    }
+    if (plan.master.owner == D::Owner::ahead)
+        plan.merges.push_back({no_mixer_track, no_mixer_track, 0, D::MergeKind::master_output, 0});
+    else if (std::any_of(graph.voices.begin(), graph.voices.end(), [](const auto& voice) {
+        return voice.mixer_track == no_mixer_track && !voice.routes.empty();
+    }))
+        plan.merges.push_back({no_mixer_track, no_mixer_track, 0, D::MergeKind::legacy, master_input});
+    return plan;
+}
 void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState initial) {
     if(speculative_)throw std::logic_error("stop the process producer before preparing audio");
     // Caller has stopped the device; this also joins a timed-out worker batch.
@@ -219,6 +279,7 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     }
     CompensationDelay legacy;legacy.prepare(master_input,config.output_channels,delay_budget);
     compensation.memory_bytes=128*1024*1024-delay_budget;
+    auto domains = compile_domains(graph, order, compensation, arrivals);
     std::size_t stream_bytes{}, stream_count{};
     for (auto& voice : graph.voices) if (voice.asset->file) {
         if (config.max_block > static_cast<std::uint32_t>(ReadAhead::page_frames))
@@ -245,6 +306,7 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     config_ = config;
     mix_levels_=std::move(levels);channel_levels_=std::move(channel_levels);
     compensation_=std::move(compensation);route_delays_=std::move(routes);send_delays_=std::move(sends);legacy_delay_=std::move(legacy);
+    domains_=std::move(domains);
     master_envelope_.resize(config.max_block);
     direct_output_.resize(static_cast<std::size_t>(config.max_block)*config.output_channels);
     graph_ = std::move(graph);
