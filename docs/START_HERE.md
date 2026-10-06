@@ -5,6 +5,13 @@ Plan recorded; integration not started. Preferred working UI remains 0.1m upd1 f
 
 Future idea (not started, separate from the current build): [Acoustic space prototype](ACOUSTIC_SPACE_PROTOTYPE.md).
 
+## Planned SHARED Audio capability — Signalsmith Stretch
+
+Decision recorded 2026-10-06; **implementation not started by this documentation update**.
+Signalsmith Stretch (MIT) is the first planned time-stretch/pitch backend behind a replaceable SHARED contract.
+Start from [TIME_STRETCH.md](TIME_STRETCH.md) and parent issue #56; child work is #57–#62.
+Do not wire Signalsmith directly into Clip/Transport/UI types. Current Stage 3 work/order remains unchanged until the user explicitly schedules stretch implementation.
+
 ## 0.1m / Stage 3c — local build ready, 2026-10-04
 
 Cab IR: mono/stereo WAV import, embedded kernel, live Mix/Gain/low-high cuts/polarity,
