@@ -113,6 +113,29 @@ wall time. Сумма пересекающихся jobs не равна process 
 commands, serialization; `tests/` — регрессии. JUCE GUI smoke находится также
 в `apps/studio-juce/src/Smoke.cpp`.
 
+## Пользовательский ASIO CSV: Test 01
+
+2026-10-06: получен `C:/Users/Vladislav/Documents/MR Studio/Projects/Test 01.csv`.
+Только анализ, не пользовательская приёмка P4 и не подтверждение записи.
+Komplete Audio ASIO Driver, 48 kHz, B 256, Workers 4, Process 256, profiling ON.
+Callback load p50/p95/p99 17/24/28%, max 1.8651 ms при deadline 5.3333 ms;
+Late/XR/disk/worker timeout 0. Но Ahead underruns **17 212**, invalidations 5,
+buffered 0, producer max 0.4337 ms. Проверить starvation/учёт очереди отдельно:
+metrics накоплены за engine session, timing cells — только пока profiling ON;
+по CSV нельзя вычислить текущую частоту underrun или акустические последствия.
+7 709 device timing calls соответствуют 41.1147 s обработанных frames; это не
+известная длительность всей сессии/не гарантия непрерывной игры или записи.
+
+Средние device channel jobs: Voc 0.8046 ms, GTR 0.5794 ms, PB 0.4983 ms,
+Keys 0.0067 ms; времена пересекаются, не складывать в callback load.
+Xvox Pro 0.6044 ms, TH-U 0.3725 ms, Xrack Pro 0.4860 ms;
+две Ambiente 0.1867/0.1917 ms. ONE имеет 0 measured calls: report не подтверждает
+его активный DSP; bypass/состояние измерения следует уточнять, не объявлять факт.
+Следующий полезный контроль — свежий session CSV с Process Off / 1024 при
+неизменной остальной нагрузке; текущие данные не являются 128-frame проверкой.
+Исходный CSV и пользовательский проект не изменялись. Code/build/package без
+изменений; #54 не закрывать по этому снимку.
+
 ## Продолжение и обновление этого файла
 
 P4 software slice поставлен и проверен, исходники зафиксированы локально.
