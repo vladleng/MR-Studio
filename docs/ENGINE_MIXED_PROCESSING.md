@@ -180,3 +180,9 @@ Process 1024/4096 >= Device Buffer. Keep scanner beside the JUCE EXE. Validation
 fixture/tests, CSVs, licenses and SHA256 manifest accompany the local package.
 Status: READY WITH MANUAL CHECK; intended-interface playback/live/record audition
 is required for P3 acceptance. Previous packages remain available.
+
+Local source: `e35477c23dd145ab395662bf255543549e37f04a`. Packaged hidden JUCE
+J3 fixture smoke exited 0; packaged capture/lifecycle and concurrent-command tests
+passed. JUCE EXE SHA256:
+`72CA8971FE99B5E3D493E6D128F6081335A2FDE7D54ABFD311E44635B41EF3B2`.
+Package manifest verifies all recorded files and matches original build binaries.
