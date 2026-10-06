@@ -180,6 +180,27 @@ producer timings каналов малы, поэтому выраженного 
 этой нагрузке. #54 остаётся открыт без явной приёмки и более широкой matrix.
 CSV/проект/код/билд/пакет не изменены; результаты сохранены только локально.
 
+## Пользовательский ASIO CSV: Device 128 / Process 1024
+
+2026-10-06: `C:/Users/Vladislav/Documents/MR Studio/Projects/Test 128 dsp 1024.csv`.
+Komplete Audio ASIO Driver, 48 kHz / Device 128 / Workers 4 / Process 1024,
+profiling ON. ONE 0 measured calls, PDC 0; соответствует выбранному live bypass.
+Callback p50/p95/p99 16/27/32%, max 1.4593 ms при deadline 2.6667 ms (54.72%).
+Late/XR/disk/worker timeouts 0. Ahead buffered 1024, producer max 0.6036 ms;
+**Ahead underruns 43 и invalidations 43**. Совпадение totals не устанавливает
+причину или связь каждого события. В mixed code rebase вызывают как command/mix
+revision, так и head.sequence > producer sequence после отставания; поэтому
+нельзя автоматически списать все misses на пользовательский транспорт или
+объявить queue defect. Нужна информация о слышимых щелчках/потере playback,
+Pause/Seek/параметрах в тесте; вопрос задан пользователю, ответ ещё не получен.
+
+Timing содержит 80 135 device calls / 10 257 280 frames = 213.6933 s обработки
+(~3 min 34 s), не полную wall duration сессии или доказательство 5-min continuous
+playing/записи. В producer 80 167 calls: может содержать заранее queued frames.
+Host plugin PDC теперь 0; driver/converter latency остаётся, acoustic не измерена.
+Оснований закрыть P4 или подтвердить record acceptance по этому CSV нет.
+User CSV/проект/код/билд/пакет не изменены; локально сохранён только анализ.
+
 ## Продолжение и обновление этого файла
 
 P4 software slice поставлен и проверен, исходники зафиксированы локально.
