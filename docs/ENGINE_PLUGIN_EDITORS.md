@@ -42,11 +42,12 @@ unpin/open-another, editor reuse and existing presets/DPI conversion checks.
 The toolbar preview is a JUCE software snapshot and does not capture native child
 plugin pixels or establish physical mixed-DPI behavior.
 
-Actual ONE/TH-U/Xvox editor appearance, pointer/focus behavior and an ASIO audition
-remain a user manual check. Existing generic VST3 fixtures run locally; installed
+The user confirmed on 2026-10-06 that plugin behavior is now correct, accepting
+bypass/editor appearance, window ordering and Pin. Broader P3 monitoring/recording
+and sustained ASIO acceptance remain separate. Existing generic VST3 fixtures run locally; installed
 plugin-specific compatibility tests are not run for this fix. P3/#53 remains open.
 
-Result: READY WITH MANUAL CHECK. Cached configure/full Release passed; 109/109
+Result: USER ACCEPTED for the 0.1t fix1 plugin editor scope on 2026-10-06. Cached configure/full Release passed; 109/109
 CTest passed in 57.09 s. Final packaged hidden J3 smoke waited exit 0, including
 both J2 editor regressions and J3 UI checks. Original 0.1t package is preserved.
 Package: MR-Studio-0.1t-fix1-editors-JUCE-ASIO-Windows-local.
