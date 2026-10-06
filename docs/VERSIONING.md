@@ -1,5 +1,28 @@
 # Правила версионирования Moon River Studio
 
+## 0.2f / Stage 4f — 2026-10-06
+
+Piano roll → Controllers...: CC/sustain, pitch bend, channel/poly pressure и
+Program Change. Выбор канала/CC/note, Add/Apply/Delete, графическая lane со snap,
+перемещение позиции/значения одним Undo, Escape отменяет жест. Notes/IDs сохраняются;
+общий SetMidiEvents, Undo/Redo, save/reopen; schema 13 без изменений.
+Controller chase при seek/resume/loop; на границе клипа sustain off/bend center,
+события начала следующего клипа применяются после сброса независимо от порядка clips.
+Запись резервирует завершающие события: базовый raw limit 8144, worst case 8192 compiled.
+Source `e8d714e41a9e0a46f849f0bbbcda30dfe7db12c8`, только локально, ветка `mrs/0.1q-fix3-processing-local`.
+Full Release PASS без warnings; **113/113 CTest PASS (59.31 s)**.
+Packaged recording/clips/live/J3 PASS; controller previews 100%/150% просмотрены.
+Проверены все типы/диапазоны, stable IDs, invalid input atomicity, Undo/serialization,
+seek/loop/boundary ordering, callback allocation 0, полный recording event budget;
+GUI add/apply/delete/drag/single Undo/Escape cancel.
+Пакет `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Builds/MR-Studio-0.2f-Controllers-JUCE-ASIO-Windows-local`; EXE SHA256 `9A3827B6BCF358E6946ABFDA39E69AA1D6081D904DDFA2321D239C8457A69142`.
+FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK.
+Физические MIDI/ASIO/VST3 и Windows mixed DPI для 0.2f NOT RUN.
+[Контракт](MIDI_CONTROLLERS.md), [checklist](MRS_STAGE_4F_CHECKLIST.md).
+#68 открыт до пользовательской приёмки; #24 остаётся открыт. 0.2g/0.2h не начаты.
+0.2e принята: «работает, приступай к 0.2f», #67 закрыт.
+Дополнительные доработки после реализации всех пунктов Stage 4.
+
 ## 0.2e / Stage 4e — 2026-10-06
 
 Piano roll → Musical edit...: Quantize (grid/strength, start/length separately),
@@ -18,7 +41,7 @@ GUI transpose/whole-clip scope/invalid input/empty selection/no-op.
 Пакет `MR-Studio-0.2e-Musical-edit-JUCE-ASIO-Windows-local`; EXE SHA256 `5371EFAA368955563AFCC84184E95CE573F7C8E2C720CB6178C0D891E607FE13`.
 FEATURE READY WITH MANUAL CHECK. Физические ASIO/VST3 и Windows mixed DPI
 для 0.2e не запускались. [Контракт](MIDI_MUSICAL_EDIT.md), [checklist](MRS_STAGE_4E_CHECKLIST.md).
-#67 открыт до приёмки. Следующая реализация — 0.2f, только по запросу пользователя.
+#67 закрыт: пользователь «работает, приступай к 0.2f» подтвердил приёмку 0.2e и запросил 0.2f.
 Дополнительные доработки отложены до реализации всех пунктов Stage 4.
 
 ## 0.2d / Stage 4d — 2026-10-06
