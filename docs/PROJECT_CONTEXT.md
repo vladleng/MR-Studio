@@ -43,12 +43,42 @@ Master. Не превращай их в одну последовательну�
 | P4 / [#54](https://github.com/vladleng/MR-Studio/issues/54) | 0.1u software slice принят пользователем 2026-10-06. #54 открыт для оставшихся проверок; пользователь тестирует P4 параллельно MIDI |
 | Parent Stage 3 / #23, длительная matrix #16 | Не закрыты этой приёмкой |
 | 3e2 / 3e3 | Безопасные переходы/dynamic latency и recovery/isolation остаются отдельными задачами |
-| 4a / [#63](https://github.com/vladleng/MR-Studio/issues/63), 0.2a | Реализован и выпущен локально 2026-10-06. 111/111 CTest и packaged J3 прошли; пользовательская MIDI/ASIO приёмка ожидается |
+| 4a / [#63](https://github.com/vladleng/MR-Studio/issues/63), 0.2a fix1 | Локальный fix1 после замечаний о MIDI Off, editor и тишине с Process Buffer. Tests/package прошли; повторная пользовательская проверка ON/editor ожидается |
 
 В пользовательской переписке «0.1c показывает хорошие результаты» было принято
 как подтверждение тогдашней 0.1s/P2; не возвращай roadmap к старой 0.1c.
 
 ## Последняя поставка
+
+- **0.2a fix1**, 2026-10-06. Пользователь подтвердил загрузку SWAM Alto Flute 3,
+  MIDI connected и звук через Komplete Audio ASIO / B 128 / Workers 2 после
+  отключения Process Buffer («DSP»). Полный checklist 4a и fix1 ещё не приняты.
+- Устранена причина тишины с Process Buffer: live MIDI flags не копируются в
+  ahead producer graph. Инструмент/downstream остаются device-owned; producer
+  больше не отклоняет свой граф по anticipation_safe и не выставляет этот fault.
+- MIDI status сохраняет имя назначенного порта/канал и показывает audio disconnected
+  отдельно от Off. Длинный текст имеет ellipsis с читаемым шрифтом и полный tooltip.
+  Offline clock не выводит звук и не даёт hardware CPU/latency; ASIO подключать явно.
+- Открытие plugin editor без runtime готовит offline graph после Stop; отсутствие
+  runtime больше не выдаётся за отсутствие GUI. Native и generic parameter windows
+  owned by DAW HWND; editor generation обновляется после lazy prepare.
+- Source `8e2c7d48f7a8857469a791ea4ddb18721983894b` (основной fix `0899d1c`),
+  та же локальная ветка. Configure/Release прошли. **111/111 CTest, 58.10 s**;
+  после финальной правки шрифта **4/4 focused, 4.42 s**. Packaged J3 и MIDI — exit 0.
+  Первый GUI test падал из-за отсутствующего DAW peer после J3 cleanup; fixture
+  добавляет scoped peer, повторный общий прогон зелёный. Snapshots 100%/150% просмотрены.
+- MIDI regression: live Notes/Play/panic при Workers 2/4 × Process 1024/4096,
+  host callback allocation 0. GUI: disconnected native view, HWND owner обеих
+  панелей, сохранённый MIDI port/status. Установленный SWAM в этих tests не запускался;
+  физические MIDI/ASIO устройства не открывались.
+- Пакет `Builds/MR-Studio-0.2a-fix1-MIDI-JUCE-ASIO-Windows-local`; старый 0.2a сохранён.
+  EXE SHA256 `F857D4BD6BB8C6BE95BA2B151E012A18EEAA03966EC83924F752C38CDAC52D90`.
+  Проверены совпадение Release/пакета и SHA256 manifest. Core schema остаётся 11.
+- Следующий шаг: повторить физическую игру SWAM с Process 1024/4096 при тех же
+  ASIO/Workers, проверить hover/focus editor, MIDI status, затем остальной
+  [checklist](MRS_STAGE_4A_CHECKLIST.md). #63/#24 остаются открытыми, 4b не начат.
+
+## Исходная поставка 0.2a
 
 - **0.2a / Stage 4a**: MIDI input Windows, instrument tracks, VST3 event input,
   monitoring при Stop/Play, общий mixer/buses/Master/PDC, panic и missing status.
@@ -276,6 +306,13 @@ MRS_STAGE_4A_CHECKLIST. Не закрывать #63 без подтвержде�
 Chord/Arranger остаются Stage 5; метроном/precount — 4h. MIDI-клипы/recording,
 piano roll, external MIDI в 0.2a отсутствуют. Собственный synth не поставляется;
 нужен VST3-инструмент. Callback ingress/worker ownership не менять на UI note pump.
+
+GitHub #63/#24 обновлены результатами 0.2a и остаются открытыми. Шесть выбранных
+docs опубликованы в main отдельным docs-only коммитом
+`5d1908936a3494d53df93fd8d72d14f6b4f5c735` с `[skip ci]`; remote SHA проверен.
+Remote-only time-stretch roadmap сохранён. Source-ветка не отправлялась, Actions
+не запускались. Пакет заморожен с docs `7207ad6` и проверенным manifest 114 файлов;
+эта запись синхронизации не переписывает выпущенный пакет.
 
 P4 теперь остаётся проверкой пользователя параллельно разработке MIDI. Не
 навязывай завершение #54 как условие начала MIDI и не продолжай engine fixes

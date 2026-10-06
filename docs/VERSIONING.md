@@ -1,5 +1,13 @@
 # Правила версионирования Moon River Studio
 
+## 0.2a fix1 — 2026-10-06
+
+Исправлены live MIDI с Process Buffer, статус назначенного входа без audio runtime,
+подготовка native editor из Disconnected и владение окнами редакторов/параметров.
+Configure/Release, 111 CTest и финальные focused/package checks прошли.
+Повторная физическая проверка Process Buffer ON и SWAM editor ожидается.
+Пакет/source/проверки: PROJECT_CONTEXT; schema остаётся 11.
+
 ## Stage 4 / MIDI и метроном — схема от 2026-10-06
 
 По прямой инструкции пользователя MIDI начинается с **0.2a**.
