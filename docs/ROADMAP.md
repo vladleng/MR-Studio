@@ -86,6 +86,25 @@ SHARED не является отдельным продуктом. Это backe
 - autosave/recovery foundation;
 - compatibility tests.
 
+## SHARED Audio capability — Time Stretch / Pitch Shift — #56
+
+Post-stage capability общего Audio Engine. Первый backend — **Signalsmith Stretch** (MIT), но Core остаётся backend-neutral.
+
+Child issues:
+
+- #57 — shared contract/state;
+- #58 — pinned dependency + adapter + licensing;
+- #59 — realtime playback/latency/RT safety;
+- #60 — offline/HQ render/cache;
+- #61 — clip controls/tempo mapping/persistence;
+- #62 — quality/CPU/regression benchmark.
+
+Полный план: `TIME_STRETCH.md`.
+
+Это не часть Plugin/Native DSP #23 и не отдельный Live engine. Arrange/Edit/Mix/Live используют один SHARED stretch path.
+
+---
+
 ### Core rule
 
 ```text
