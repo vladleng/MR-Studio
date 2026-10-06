@@ -1,5 +1,20 @@
 # Правила версионирования Moon River Studio
 
+## 0.2c fix1 — косметический фикс, 2026-10-06
+
+По запросу пользователя: transport buttons рисуют только SVG без фона/рамки;
+области нажатия, layout, tooltips и accessibility names сохранены. Hover/press,
+keyboard focus и toggle отражаются цветом glyph. Названия треков/каналов, dB,
+кнопки и insert names в Strip используют общий с VST3 tree системный шрифт 13 px
+(ранее Noto Sans 13 pt). Остальная типографика не изменена.
+Source `d3da9f739915103e9952a641c154b167cf436cbf`, только локально. Release GUI build PASS без предупреждений;
+packaged J3 PASS (MIDI 4a/4b/4c, transport/Arm/Record/Stop/Undo/Redo).
+Software Arrange/Mix previews 100%/150% просмотрены. Полный CTest не повторялся:
+113/113 PASS относится к базовой 0.2c. Физические MIDI/ASIO и Windows mixed DPI
+для косметического фикса не запускались; пользовательская визуальная приёмка ожидается.
+Пакет `MR-Studio-0.2c-fix1-UI-JUCE-ASIO-Windows-local`; EXE SHA256 `DA313BC3E7A1E176B26DC60AD16ACC93BC67947C3E9A4A671E46563A53CAC236`.
+0.2c/#65 ещё не принята целиком; 4d не начат, schema 13 и engine без изменений.
+
 ## 0.2c — 2026-10-06
 
 Stage 4c: линейная MIDI recording, instrument Arm, timestamp/sample→tick,
