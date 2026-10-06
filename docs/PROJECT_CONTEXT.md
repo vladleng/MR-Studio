@@ -158,6 +158,28 @@ ONE: 385 вызовов, mean 0.4243 ms, max 0.8427 ms. Prepared graph PDC 2465 
 P4 остаётся открыт. Исходные CSV/проект/код/билд/пакет не изменены; только анализ
 и локальная запись контекста.
 
+## Пользовательский ASIO CSV: Process 1024
+
+2026-10-06: `C:/Users/Vladislav/Documents/MR Studio/Projects/Test dsp 1024.csv`.
+Komplete Audio ASIO Driver, 48 kHz / Device 256 / Workers 4 / Process 1024,
+profiling ON. ONE активен: 9 410 measured calls. PDC прежний: 2465 samples.
+Callback p50/p95/p99 25/33/37%, max 2.7451 ms (51.47% deadline 5.3333 ms).
+Late/XR/disk/worker timeouts и Ahead underruns/invalidations **0**;
+queued 1024 frames в момент snapshot, producer max 0.4354 ms.
+Timing содержит 2 408 960 frames = 50.1867 s обработки при profiling; это не
+доказательство wall duration всей сессии, записи или непрерывного транспорта.
+
+С Test 02 (Process Off, ONE active): p50 24->25%, p95 34->33%, p99 37->37%,
+max 2.3907->2.7451 ms. Ускорение callback не установлено; окна сбора различаются
+(~2.05 vs ~50.19 processed s), max нельзя трактовать как доказанное ухудшение.
+ONE mean 0.4676 ms, max 1.2369 ms. Основные VST3 inserts остаются device-owned;
+producer timings каналов малы, поэтому выраженного выигрыша anticipation тут
+не видно. Test 01 Process 256 имел 17 212 накопленных underruns и ONE bypass;
+при 1024 текущие counters чистые, но это не доказательство найденной/исправленной
+причины прежних misses. Снимок поддерживает работоспособность очереди 1024 на
+этой нагрузке. #54 остаётся открыт без явной приёмки и более широкой matrix.
+CSV/проект/код/билд/пакет не изменены; результаты сохранены только локально.
+
 ## Продолжение и обновление этого файла
 
 P4 software slice поставлен и проверен, исходники зафиксированы локально.
