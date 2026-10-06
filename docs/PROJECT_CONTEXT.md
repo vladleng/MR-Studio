@@ -32,7 +32,35 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2c fix1
+## Актуальная сборка для продолжения: 0.2d / Stage 4d
+
+Piano roll: клавиатура/ruler, zoom/scroll, snap, создание/удаление и групповое
+выделение/перемещение/длина/velocity, copy/paste, audition. Один жест — один
+общий Undo; stable IDs/проект/события контроллеров сохраняются. Точная note form
+остаётся. Editing и audition после Pause/Stop. Отдельная bounded UI SPSC для
+preview MIDI; driver bridge не получает второго producer, audition не записывается.
+Семь transport hit regions одинаковые: 42×30 logical px, gap 3, icon-only.
+Source `92ac0f2fceea2a79bdd7d77873a199ee87fe7c45`, локально, ветка `mrs/0.1q-fix3-processing-local`.
+Full Release PASS без warnings; **113/113 CTest PASS, 59.81 s**.
+Packaged recording/clips/live/J3 PASS. Piano roll/Arrange/Mix software previews
+100%/150% просмотрены. Checked callback host allocation 0; Workers 1/2/4,
+stale generation, invalid track, audition overflow/panic и exclusion из recording.
+GUI: snapped move/group single Undo, fresh paste IDs, delete, Escape, resize,
+velocity и pitch/clip edge clamp. Схема 13 без изменений, читает 1–12.
+Пакет `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Builds/MR-Studio-0.2d-Piano-roll-JUCE-ASIO-Windows-local`; EXE SHA256 `BED650A86669056C81F1F5B471BE257D10BC925BBA1DAB6C917751C52202582D`.
+FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK. Физические ASIO/VST3
+и Windows mixed DPI для 0.2d не запускались. [Пользовательская проверка](MRS_STAGE_4D_CHECKLIST.md),
+[архитектура/ограничения](PIANO_ROLL.md). #66 открыт до приёмки; 0.2e не начинать автоматически.
+
+## Пользовательская приёмка 0.2c fix1
+
+Пользователь: «Вроде все работает» и «Поехали 0.2d». На присланном скриншоте
+два MIDI take, connected Komplete Kontrol и Komplete Audio ASIO. Визуальный фикс
+и показанный рабочий сценарий приняты; равные transport bounds включены в 0.2d.
+Отдельные sustain/bend, joint recording, unplug и полный 4c hardware checklist
+не перечислены; #65 остаётся открытым для этих проверок. #24/#54/#16 не закрываются.
+
+## Предыдущая поставка: 0.2c fix1
 
 По запросу пользователя: transport buttons рисуют только SVG без фона/рамки;
 области нажатия, layout, tooltips и accessibility names сохранены. Hover/press,
@@ -43,7 +71,7 @@ Source `d3da9f739915103e9952a641c154b167cf436cbf`, только локально
 packaged J3 PASS (MIDI 4a/4b/4c, transport/Arm/Record/Stop/Undo/Redo).
 Software Arrange/Mix previews 100%/150% просмотрены. Полный CTest не повторялся:
 113/113 PASS относится к базовой 0.2c. Физические MIDI/ASIO и Windows mixed DPI
-для косметического фикса не запускались; пользовательская визуальная приёмка ожидается.
+для косметического фикса не запускались; визуальная приёмка впоследствии получена (см. выше).
 Пакет `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Builds/MR-Studio-0.2c-fix1-UI-JUCE-ASIO-Windows-local`; EXE SHA256 `DA313BC3E7A1E176B26DC60AD16ACC93BC67947C3E9A4A671E46563A53CAC236`.
 0.2c/#65 ещё не принята целиком; 4d не начат, schema 13 и engine без изменений.
 

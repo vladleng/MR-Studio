@@ -1,5 +1,25 @@
 # Правила версионирования Moon River Studio
 
+## 0.2d / Stage 4d — 2026-10-06
+
+Piano roll: клавиатура/ruler, zoom/scroll, snap, создание/удаление и групповое
+выделение/перемещение/длина/velocity, copy/paste, audition. Один жест — один
+общий Undo; stable IDs/проект/события контроллеров сохраняются. Точная note form
+остаётся. Editing и audition после Pause/Stop. Отдельная bounded UI SPSC для
+preview MIDI; driver bridge не получает второго producer, audition не записывается.
+Семь transport hit regions одинаковые: 42×30 logical px, gap 3, icon-only.
+Source `92ac0f2fceea2a79bdd7d77873a199ee87fe7c45`, локально, ветка `mrs/0.1q-fix3-processing-local`.
+Full Release PASS без warnings; **113/113 CTest PASS, 59.81 s**.
+Packaged recording/clips/live/J3 PASS. Piano roll/Arrange/Mix software previews
+100%/150% просмотрены. Checked callback host allocation 0; Workers 1/2/4,
+stale generation, invalid track, audition overflow/panic и exclusion из recording.
+GUI: snapped move/group single Undo, fresh paste IDs, delete, Escape, resize,
+velocity и pitch/clip edge clamp. Схема 13 без изменений, читает 1–12.
+Пакет `MR-Studio-0.2d-Piano-roll-JUCE-ASIO-Windows-local`; EXE SHA256 `BED650A86669056C81F1F5B471BE257D10BC925BBA1DAB6C917751C52202582D`.
+FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK. Физические ASIO/VST3
+и Windows mixed DPI для 0.2d не запускались. [Пользовательская проверка](MRS_STAGE_4D_CHECKLIST.md),
+[архитектура/ограничения](PIANO_ROLL.md). #66 открыт до приёмки; 0.2e не начинать автоматически.
+
 ## 0.2c fix1 — косметический фикс, 2026-10-06
 
 По запросу пользователя: transport buttons рисуют только SVG без фона/рамки;
