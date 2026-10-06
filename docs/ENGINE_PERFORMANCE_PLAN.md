@@ -26,8 +26,8 @@ click resolution was unconfirmed at this baseline; P1 later removed regular clic
 |---|---|---|---|
 | 1 | 3e-P1: parallel channel processing and dependency scheduler | [#51](https://github.com/vladleng/MR-Studio/issues/51) | 0.1r user-accepted at 128 frames on 2026-10-05; closed |
 | 2 | 3e-P2: anticipative playback and separate process buffer | [#52](https://github.com/vladleng/MR-Studio/issues/52) | 0.1s initial native whole-graph slice accepted 2026-10-06; closed; VST3/live stay direct |
-| 3 | 3e-P3: separate low-latency monitoring | [#53](https://github.com/vladleng/MR-Studio/issues/53) | 0.1t mixed renderer ready locally; user ASIO review pending |
-| 4 | 3e-P4: detailed profiling and sustained-load acceptance | [#54](https://github.com/vladleng/MR-Studio/issues/54) | Planned; depends on P3 |
+| 3 | 3e-P3: separate low-latency monitoring | [#53](https://github.com/vladleng/MR-Studio/issues/53) | 0.1t mixed renderer accepted 2026-10-06; closed |
+| 4 | 3e-P4: detailed profiling and sustained-load acceptance | [#54](https://github.com/vladleng/MR-Studio/issues/54) | 0.1u profiling/software matrix delivered; sustained ASIO acceptance pending |
 
 Minimal measurement hooks accompany P1 so scheduling decisions have evidence;
 full diagnostics/UI and broad acceptance belong to P4. Each slice receives local
@@ -172,8 +172,20 @@ Success requires preserved correctness and measured improvements without hiding
 regressions; no fabricated performance percentage or universal no-click guarantee.
 The broader #16 hardware gate remains separate until its own matrix is executed.
 
+### 0.1u software delivery — 2026-10-06
+
+P3/#53 accepted: user reports stable P3 and requests the next stage. #53 is closed
+for the delivered slice; no session duration or recording matrix is inferred.
+P4 adds optional per-channel/processor/worker timing and UI CSV snapshots, alongside
+serial/parallel/anticipative fixtures and sustained synthetic raw-capture checks.
+The first estimate is dependency job cost, excluding source/reduction/waits; it is
+not a complete critical-path measurement or process CPU meter. #54 remains open
+for sustained ASIO/representative-effects acceptance. Full behavior and boundaries:
+[profiling](ENGINE_PROFILING.md).
+
 ## Delivery policy
 
 All implementation, configure/build/tests and packages stay local with cached
 dependencies. GitHub receives issues and documentation only, with skip-ci doc
 commits. No source push, PR, merge, Actions, downloads or installations.
+
