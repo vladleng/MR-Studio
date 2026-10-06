@@ -27,7 +27,7 @@ click resolution was unconfirmed at this baseline; P1 later removed regular clic
 | 1 | 3e-P1: parallel channel processing and dependency scheduler | [#51](https://github.com/vladleng/MR-Studio/issues/51) | 0.1r user-accepted at 128 frames on 2026-10-05; closed |
 | 2 | 3e-P2: anticipative playback and separate process buffer | [#52](https://github.com/vladleng/MR-Studio/issues/52) | 0.1s initial native whole-graph slice accepted 2026-10-06; closed; VST3/live stay direct |
 | 3 | 3e-P3: separate low-latency monitoring | [#53](https://github.com/vladleng/MR-Studio/issues/53) | 0.1t mixed renderer accepted 2026-10-06; closed |
-| 4 | 3e-P4: detailed profiling and sustained-load acceptance | [#54](https://github.com/vladleng/MR-Studio/issues/54) | 0.1u profiling/software matrix delivered; sustained ASIO acceptance pending |
+| 4 | 3e-P4: detailed profiling and sustained-load acceptance | [#54](https://github.com/vladleng/MR-Studio/issues/54) | 0.1u software slice user-accepted 2026-10-06; #54 stays open for follow-up testing alongside MIDI |
 
 Minimal measurement hooks accompany P1 so scheduling decisions have evidence;
 full diagnostics/UI and broad acceptance belong to P4. Each slice receives local
@@ -188,3 +188,15 @@ for sustained ASIO/representative-effects acceptance. Full behavior and boundari
 All implementation, configure/build/tests and packages stay local with cached
 dependencies. GitHub receives issues and documentation only, with skip-ci doc
 commits. No source push, PR, merge, Actions, downloads or installations.
+
+## 0.1u accepted; MIDI next — 2026-10-06
+
+User accepts the delivered 0.1u software/profiling slice and wants MIDI development
+in the next chat while continuing P4 testing. #54 stays open for the remaining
+queue-event diagnosis, recording and sustained transport/reconnect/state checks;
+these checks do not block the user-authorized MIDI focus. ASIO CSV at 128 frames,
+Workers 4, Process 1024 and ONE bypass reports Late/XR/D/worker timeouts 0 and
+43 ahead underruns + 43 invalidations. User reports no audible issues or manual
+transport/parameter changes, with a small pause in the multitrack material.
+Cause/timing of those events is unproven. No full #16/3e2/3e3 acceptance inferred.
+See [current handoff](PROJECT_CONTEXT.md) for the next-chat entry point.

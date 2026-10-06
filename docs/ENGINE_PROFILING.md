@@ -107,3 +107,14 @@ that acceptance; broader #16 and 3e2/3e3 recovery/isolation remain separate.
 [Local measurements](ENGINE_PROFILING_BENCHMARK.md) and package provenance are in the delivery VALIDATION.md and
 CSV files; no universal speedup, Fender-equivalent efficiency or no-click guarantee
 is inferred from these fixtures.
+
+## User acceptance of initial 0.1u slice — 2026-10-06
+
+The user accepts 0.1u as delivered and requests MIDI development in the next
+chat, with P4 testing continuing alongside it. #54 remains open for queue-event
+diagnosis (43 underruns/invalidations in the 128-frame user CSV), recording and
+sustained transport/reconnect/state checks. No audible issue was reported in that
+live test; the user mentions a small pause in the multitrack material, which does
+not establish the cause of queue events. The remaining P4 tests are not a gate
+for starting MIDI. #16 and 3e2/3e3 remain separate. No code/build/package change;
+previous immutable package hashes remain. [Handoff](PROJECT_CONTEXT.md).
