@@ -185,12 +185,13 @@ void Application::replace(persistence::ProjectDocument next) {
     engine_->prepare({document_.project.sample_rate,0,2,8192},{});
     start_empty_clock(); transport_->poll(); musical_->refresh();
 }
-void Application::start_empty_clock() {
+void Application::start_empty_clock(bool prepare_plugins) {
     auto device = audio::make_offline_device();
     audio::DeviceConfig c{0,document_.project.sample_rate,128,{}, {0,1}};
     audio::RenderGraph graph;
     const auto p = services_.projects->state().project;
     prepare_mixer(graph);
+    if(prepare_plugins)prepare_inserts(graph,c);
     engine_->prepare({p->sample_rate,0,2,8192},std::move(graph));
     const auto clock_infos = device->enumerate(); device_info_ = clock_infos.front();
     device->open(c,engine_); device->start(); device_ = std::move(device); device_config_ = c; default_inputs_.clear(); audio_name_ = "Offline clock (no sound)";
@@ -444,7 +445,13 @@ void Application::load_insert_preset(std::optional<Id> track,NativeInsert preset
     // controller/DSP may have been edited since the last project snapshot.
     edit(SetInserts{track,std::move(effects)},id);
 }
-bool Application::open_plugin_editor(std::optional<Id> track,const Id& slot,void* parent,int& w,int& h){auto it=insert_runtime_.find(track?track->value:std::string{});return it!=insert_runtime_.end() && it->second.graph && it->second.graph->open_editor(slot,parent,w,h);}
+bool Application::open_plugin_editor(std::optional<Id> track,const Id& slot,void* parent,int& w,int& h){
+    if(!device_){require_not_playing();start_empty_clock(true);}
+    auto it=insert_runtime_.find(track?track->value:std::string{});
+    if(it==insert_runtime_.end()){require_not_playing();rebuild_audio();it=insert_runtime_.find(track?track->value:std::string{});}
+    if(it==insert_runtime_.end()||!it->second.graph)throw std::runtime_error("Plugin is not prepared: "+(track?midi_status(*track):std::string{"connect audio or offline clock"}));
+    return it->second.graph->open_editor(slot,parent,w,h);
+}
 void Application::close_plugin_editors(){for(auto& [key,r]:insert_runtime_){(void)key;if(r.graph)r.graph->close_editors();}}
 void Application::close_plugin_editor(std::optional<Id> track,const Id& slot){auto it=insert_runtime_.find(track?track->value:std::string{});if(it!=insert_runtime_.end()&&it->second.graph)it->second.graph->close_editor(slot);}
 std::uint32_t Application::plugin_latency(std::optional<Id> track,const Id& slot) const{auto it=insert_runtime_.find(track?track->value:std::string{});return it==insert_runtime_.end()||!it->second.graph?0:it->second.graph->node_latency(slot);}
@@ -549,7 +556,12 @@ std::string Application::midi_status(const Id& id)const{
     if(auto error=instrument_errors_.find(id.value);error!=instrument_errors_.end())return "Instrument unavailable: "+error->second;
     if(t->inserts.empty())return "Choose instrument in Mix";
     if(!t->midi_monitor)return "MIDI: monitor off";
-    return midi_inputs_?midi_inputs_->status(t->midi_input):"MIDI: off";
+    if(t->midi_input.empty())return "MIDI: off";
+    auto name=t->midi_input;
+    if(name.starts_with("winmm:")){auto begin=std::size_t{0};for(int part=0;part<3&&begin!=std::string::npos;++part){const auto colon=name.find(':',begin);begin=colon==std::string::npos?colon:colon+1;}const auto end=name.rfind(':');if(begin!=std::string::npos&&end>=begin)name=name.substr(begin,end-begin);}
+    const auto channel=t->midi_channel<0?std::string{"All"}:std::to_string(t->midi_channel+1);
+    if(!device_config_)return "MIDI: "+name+" / "+channel+" | audio disconnected";
+    return (midi_inputs_?midi_inputs_->status(t->midi_input):"MIDI: opening")+" | "+name+" / "+channel;
 }
 void Application::publish_midi_routes(){
     const auto snapshot=services_.projects->state();const auto generation=engine_->midi_generation();

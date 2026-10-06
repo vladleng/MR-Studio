@@ -3,6 +3,32 @@
 Issue #63, parent Stage 4 / #24. Windows JUCE/ASIO, один Core/Transport/Mixer.
 Дата: 2026-10-06. Пользовательская/физическая MIDI-приёмка ожидается.
 
+## 0.2a fix1 — замечания пользователя
+
+Пользователь сообщил MIDI Off после выбора Komplete Kontrol A49, общую панель
+вместо инструмента и уход окна за DAW. Затем SWAM Alto Flute 3 загрузился,
+MIDI стал connected; снимок показывал Offline clock (no sound). Позже пользователь
+подтвердил звук через Komplete Audio ASIO / B 128 / Workers 2 после отключения
+Process Buffer («DSP»). Это подтверждение игры в сообщённом режиме, не весь checklist.
+
+fix1 сохраняет в MIDI status имя выбранного входа/канал и отдельно audio disconnected;
+Off означает отсутствие назначения. При открытии редактора без runtime безопасно
+готовится offline graph, без автоматического открытия ASIO. Native editor и общая
+панель параметров имеют владельца DAW HWND; Pin сохраняет прежний смысл.
+Offline clock не выводит звук на устройство: выбрать ASIO и Connect в Audio settings.
+CPU/driver latency в offline показываются `--` по прежнему контракту.
+
+Исправлена причина тишины с Process Buffer: producer-копия mixed graph ошибочно
+сохраняла live MIDI flags и проваливала anticipation_safe(), выставляя device fault.
+Теперь live flags отсутствуют только в producer-копии; инструмент и downstream
+остаются device-owned. Добавлены регрессии live Notes/Play/panic при Workers 2/4
+и Process 1024/4096, а также disconnected native/generic editor ownership/status.
+Cached configure/Release fix1 прошли; финальный **111/111 CTest, 58.10 s**.
+Первый прогон fix1: 110/111; новый GUI test обращался к отсутствующему peer
+после J3 cleanup. В тесте добавлен scoped DAW peer, повторный полный прогон прошёл.
+Результаты fix1 package — в PROJECT_CONTEXT. Физическая повторная
+проверка Process Buffer ON и поведения SWAM окна ожидается.
+
 ## Пользовательский сценарий
 
 1. Подключить ASIO через Transport → Audio settings.

@@ -206,6 +206,6 @@ private:
     void rebuild_audio();
     void replace(persistence::ProjectDocument);
     audio::RenderGraph render(const audio::DeviceConfig&);
-    void start_empty_clock();
+    void start_empty_clock(bool prepare_plugins=false);
 };
 } // namespace mrs::desktop

@@ -1,5 +1,6 @@
 #include <mrs/desktop.hpp>
 #include <mrs/vst3.hpp>
+#include <mrs/ahead_renderer.hpp>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -48,10 +49,20 @@ void engine(const std::filesystem::path& fixture){
     engine.prepare({48000,0,2,128},{});
     RenderGraph routed;routed.mixer.resize(2);routed.mixer[0].gain=.5f;routed.mixer[1].gain=.5f;routed.outputs={1,no_mixer_track};routed.buses={false,true};routed.live_midi={true,false};routed.inserts={synth,{}};
     engine.prepare({48000,0,2,128,128,1},routed);engine.midi_panic();engine.process(nullptr,output.data(),128);engine.enqueue_live_midi({engine.midi_generation(),0,{0,MidiKind::note_on,0,60,127}});engine.process(nullptr,output.data(),128);CHECK(std::abs(output.back()-.125f)<.0001f);engine.midi_panic();engine.process(nullptr,output.data(),128);CHECK(output.back()==0);engine.prepare({48000,0,2,128},{});routed.inserts.clear();
+    for(auto workers:{2U,4U})for(auto window:{1024U,4096U}){
+        auto shared=std::make_shared<AudioEngine>();auto mixed=graph;mixed.mixer.resize(2);mixed.live_midi={true,false};mixed.inserts={synth,{}};
+        auto asset=std::make_shared<AudioData>(sine_fixture(48000,2,1024,440));std::fill(asset->samples.begin(),asset->samples.end(),0.f);
+        mixed.voices={{asset,0,0,1024,{{0,0,1},{1,1,1}},{},1}};
+        shared->prepare({48000,0,2,128,128,workers},mixed);AheadRenderer renderer(shared,128,window);renderer.start();CHECK(shared->metrics().mixed_anticipation&&!shared->metrics().processing_fault);
+        shared->midi_panic();renderer.process(nullptr,output.data(),128);CHECK(shared->enqueue_live_midi({shared->midi_generation(),0,{0,MidiKind::note_on,0,60,127}}));
+        probe=true;renderer.process(nullptr,output.data(),128);probe=false;CHECK(allocations==0&&output.back()>.49f);
+        CHECK(shared->enqueue({ControlKind::play}));renderer.process(nullptr,output.data(),128);CHECK(output.back()>.49f);
+        shared->midi_panic();renderer.process(nullptr,output.data(),128);CHECK(output.back()==0&&!shared->metrics().processing_fault);renderer.stop();
+    }
     Application app;app.new_project();auto track=app.add_instrument_track("Keys");app.set_inserts(track,{fx});app.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1},1});
     app.set_midi_input(track,"missing-port",2,true);CHECK(app.services().projects->state().project->tracks.back().midi_channel==2);CHECK(app.undo());CHECK(app.redo());
     const auto project=dir.path/"keys.mrsproject";app.save_project(project);app.open_project(project);const auto saved=app.services().projects->state().project->tracks.back();CHECK(saved.kind==TrackKind::instrument&&saved.midi_input=="missing-port"&&saved.inserts.front().class_id==fx.class_id&&!saved.inserts.front().component_state.empty());
-    app.poll();for(int attempt=0;attempt<200&&app.midi_status(track)!="MIDI: missing";++attempt)std::this_thread::sleep_for(std::chrono::milliseconds(10));if(app.midi_status(track)!="MIDI: missing")throw std::runtime_error(app.midi_status(track));app.disconnect();
+    app.poll();for(int attempt=0;attempt<200&&!app.midi_status(track).starts_with("MIDI: missing");++attempt)std::this_thread::sleep_for(std::chrono::milliseconds(10));if(!app.midi_status(track).starts_with("MIDI: missing"))throw std::runtime_error(app.midi_status(track));app.disconnect();
     engine.prepare({48000,0,2,128},{});graph.inserts.clear();synth.reset();std::filesystem::remove(plugin);app.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1},1});CHECK(app.midi_status(track).find("Instrument unavailable:")==0);CHECK(app.services().projects->state().project->tracks.back().inserts.front().class_id==fx.class_id);
 }
 }

@@ -17,6 +17,7 @@ public:
     EditorWindow(juce::String,juce::Component*,bool show=true);
     void closeButtonPressed() override;
     void fitNativeEditor(int,int);
+    void setOwner(juce::Component&);
     std::function<void()> onClose;
 };
 class Desktop final : public juce::Component, private juce::Timer,

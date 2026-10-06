@@ -6,14 +6,29 @@
 #include <chrono>
 namespace ui {
 void midi4aSmoke(Desktop& d,const juce::File& fixture){
+    auto stage=[](const char* text){juce::File::getCurrentWorkingDirectory().getChildFile("midi-fix1-smoke-stage.txt").replaceWithText(text);};stage("begin");
     auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
     if(fixture==juce::File())return;
+    const bool addedPeer=!d.getPeer();if(addedPeer)d.addToDesktop(0);
     const auto folder=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("mrs-midi4a","",false);folder.createDirectory();
     const auto generator=folder.getChildFile("instrument.vst3");check(fixture.copyFileTo(generator),"instrument fixture copied");
     d.closeEditors();d.app.new_project();d.refresh(true);d.action(28);
     check(d.project()->tracks.size()==1&&d.project()->tracks.front().kind==mrs::TrackKind::instrument,"instrument track menu");
     const auto id=d.project()->tracks.front().id;
-    auto original=d.catalog;d.catalog=mrs::processing::probe_vst3(generator.getFullPathName().toStdString());d.addPlugin(id,0);d.closeEditors();
+    d.app.disconnect(); // reproduce the user's disconnected editor path
+    stage("add disconnected instrument");
+    auto original=d.catalog;d.catalog=mrs::processing::probe_vst3(generator.getFullPathName().toStdString());d.addPlugin(id,0);
+    check(d.message.isEmpty()&&!d.windows.empty(),"instrument opens from disconnected state");
+    auto* editor=d.windows.back().get();check(static_cast<bool>(editor->getProperties()["mrs-native-editor"]),"disconnected instrument gets native GUI, not generic fallback");
+    stage("native owner");
+    const auto editorHwnd=static_cast<HWND>(editor->getPeer()->getNativeHandle());const auto dawHwnd=GetAncestor(static_cast<HWND>(d.getPeer()->getNativeHandle()),GA_ROOT);
+    check(GetWindow(editorHwnd,GW_OWNER)==dawHwnd,"instrument editor owned by DAW");
+    auto host=reinterpret_cast<HWND>(static_cast<std::intptr_t>(static_cast<juce::int64>(editor->getProperties()["mrs-native-host"])));check(IsWindow(GetWindow(host,GW_CHILD)),"instrument native child attached");
+    for(int i=0;i<editor->getContentComponent()->getNumChildComponents();++i)if(auto* b=dynamic_cast<juce::TextButton*>(editor->getContentComponent()->getChildComponent(i));b&&b->getButtonText()=="Parameters")b->onClick();
+    stage("generic owner");
+    auto* generic=d.windows.back().get();check(generic!=editor&&GetWindow(static_cast<HWND>(generic->getPeer()->getNativeHandle()),GW_OWNER)==dawHwnd,"generic parameters also owned by DAW");
+    d.toFront(false);check(editor->isVisible()&&generic->isVisible()&&IsWindow(GetWindow(host,GW_CHILD)),"DAW focus retains both editor views");d.closeEditors();
+    stage("manual device");
     d.app.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1},1});
     d.app.set_midi_input(id,"unavailable-fixture-port",-1,true);d.refresh(true);
     check(d.app.engine()->enqueue_live_midi({d.app.engine()->midi_generation(),0,{0,mrs::processing::MidiKind::note_on,0,60,127}}),"live note ingress");
@@ -22,9 +37,15 @@ void midi4aSmoke(Desktop& d,const juce::File& fixture){
     d.app.engine()->enqueue_live_midi({d.app.engine()->midi_generation(),0,{0,mrs::processing::MidiKind::note_on,0,60,127}});d.app.engine()->process(nullptr,audio.data(),128);
     check(audio.back()>0,"instrument sounds while transport stopped");d.action(42);d.app.engine()->process(nullptr,audio.data(),128);check(audio.back()==0,"panic menu");
     d.app.set_midi_input(id,"",-1,false);d.refresh(true);d.arrangement->rows.front()->refreshMidiStatus();
+    stage("disconnected MIDI status");
+    d.app.disconnect();d.app.set_midi_input(id,"winmm:0:0:Komplete Kontrol A49 regression:0",2,true);d.app.poll();
+    const auto status=d.app.midi_status(id);check(status.find("Komplete Kontrol A49 regression")!=std::string::npos&&status.find("audio disconnected")!=std::string::npos&&status!="MIDI: off","selected MIDI port retained while audio disconnected");d.refresh(true);
     d.setWorkspace(mrs::desktop::Workspace::mix);d.selectedTrack=id;d.refresh(true);
+    stage("snapshots");
     for(float scale:{1.f,1.5f}){auto snapshot=d.createComponentSnapshot(d.getLocalBounds(),true,scale,juce::SoftwareImageType{});check(snapshot.getWidth()==juce::roundToInt(d.getWidth()*scale),"MIDI UI DPI snapshot");auto stream=juce::File::getCurrentWorkingDirectory().getChildFile(scale==1.f?"juce-midi-100-preview.png":"juce-midi-150-preview.png").createOutputStream();if(stream){stream->setPosition(0);stream->truncate();juce::PNGImageFormat().writeImageToStream(snapshot,*stream);}}
     d.catalog=original;d.app.disconnect();d.app.new_project();d.refresh(true);check(folder.getParentDirectory()==juce::File::getSpecialLocation(juce::File::tempDirectory)&&folder.getFileName().startsWith("mrs-midi4a"),"MIDI fixture cleanup scope");folder.deleteRecursively();
+    stage("passed");
+    if(addedPeer)d.removeFromDesktop();
 }
 void j2Smoke(Desktop& d,const juce::File& fixture){
     auto check=[](bool b,const char* text){if(!b)throw std::runtime_error(text);};

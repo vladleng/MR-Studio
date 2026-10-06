@@ -3,6 +3,7 @@
 #include <windows.h>
 
 namespace ui {
+void EditorWindow::setOwner(juce::Component& owner){if(getPeer()&&owner.getPeer())SetWindowLongPtrW(static_cast<HWND>(getPeer()->getNativeHandle()),GWLP_HWNDPARENT,reinterpret_cast<LONG_PTR>(GetAncestor(static_cast<HWND>(owner.getPeer()->getNativeHandle()),GA_ROOT)));}
 namespace {
 juce::String label(const std::string& s){return juce::String::fromUTF8(s.c_str());}
 std::filesystem::path path(const juce::File& f){return std::filesystem::path(f.getFullPathName().toWideCharPointer());}
@@ -149,7 +150,7 @@ public:
             if(direction==0)effects.erase(at);else if((direction<0&&pos>0)||(direction>0&&pos+1<static_cast<std::ptrdiff_t>(effects.size())))std::iter_swap(at,at+direction);
             owner.closeEditors();owner.applyChain(target,effects);});};
         remove.onClick=[structure]{structure(0);};up.onClick=[structure]{structure(-1);};down.onClick=[structure]{structure(1);};
-        parameters.onClick=[this]{auto window=std::make_unique<EditorWindow>("Plugin parameters",new FxPanel(owner,target,slot));window->setLookAndFeel(&owner.theme);owner.windows.push_back(std::move(window));};sync();
+        parameters.onClick=[this]{auto window=std::make_unique<EditorWindow>("Plugin parameters",new FxPanel(owner,target,slot));window->setLookAndFeel(&owner.theme);window->setOwner(owner);owner.windows.push_back(std::move(window));};sync();
     }
     ~PluginPanel() override {retire();}
     void retire(){stopTimer();if(host&&IsWindow(host))DestroyWindow(host);host=nullptr;}
@@ -178,8 +179,8 @@ void Desktop::openInsert(std::optional<mrs::Id> target,mrs::Id slot){run([&]{aut
     const auto key=label((target?target->value:"master")+":"+slot.value);for(auto& w:windows)if(w->isVisible()&&w->getProperties()["mrs-slot"].toString()==key){w->toFront(true);return;}
     closeUnpinnedEditors();editorGeneration=app.insert_generation();if(found->kind==mrs::InsertKind::vst3){auto* content=new PluginPanel(*this,target,slot);auto window=std::make_unique<EditorWindow>(label(found->plugin_name),content,false);window->setLookAndFeel(&theme);
         bool attached=false;try{attached=content->attach(*window);}catch(...){app.close_plugin_editor(target,slot);content->retire();throw;}
-        if(attached){if(getPeer())SetWindowLongPtrW(static_cast<HWND>(window->getPeer()->getNativeHandle()),GWLP_HWNDPARENT,reinterpret_cast<LONG_PTR>(getPeer()->getNativeHandle()));window->setVisible(true);window->getProperties().set("mrs-slot",key);window->getProperties().set("mrs-native-editor",true);window->onClose=[this,content,target,slot]{app.close_plugin_editor(target,slot);content->retire();};windows.push_back(std::move(window));return;}}
-    auto fx=std::make_unique<EditorWindow>("Insert editor",new FxPanel(*this,target,slot));fx->setLookAndFeel(&theme);fx->getProperties().set("mrs-slot",key);windows.push_back(std::move(fx));
+        if(attached){window->setOwner(*this);window->setVisible(true);window->getProperties().set("mrs-slot",key);window->getProperties().set("mrs-native-editor",true);window->onClose=[this,content,target,slot]{app.close_plugin_editor(target,slot);content->retire();};windows.push_back(std::move(window));editorGeneration=app.insert_generation();return;}}
+    auto fx=std::make_unique<EditorWindow>("Insert editor",new FxPanel(*this,target,slot));fx->setLookAndFeel(&theme);fx->setOwner(*this);fx->getProperties().set("mrs-slot",key);windows.push_back(std::move(fx));editorGeneration=app.insert_generation();
 });}
 
 class AudioPanel final : public juce::Component {
