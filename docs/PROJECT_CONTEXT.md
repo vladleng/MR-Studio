@@ -336,3 +336,22 @@ reconnect/state checks. #54/#16 не закрывать автоматическ
 результат, незавершённое, ветку/source commit, пакет/проверки, приёмку и следующий шаг.
 При передаче незавершённого кода укажи файлы/ошибку/последнюю команду и безопасное
 продолжение. Не копируй весь журнал чата и не запускай старые patch-скрипты.
+
+
+## Decision: instrument parallelism in P4
+
+Recorded 2026-10-06 after the user's Omnisphere piano comparison at 48 kHz / 128 frames.
+
+P4 / #54 now also owns **Instrument Parallelism / multi-instance VSTi sharding**. Existing
+P1 already parallelizes independent tracks/nodes, but one VST3 instrument instance remains
+one host scheduling node. The new goal is to let one logical instrument track optionally use
+2/4 synchronized hidden instances, distribute MIDI note ownership, process them on existing
+workers, deterministically sum audio, then run the shared post-instrument FX chain once.
+
+Initial policy is opt-in/capability-gated with Single Instance fallback; do not force this on
+mono/legato/sequenced/random/global-state instruments. Never make scheduling depend on the
+Omnisphere name/vendor. Omnisphere piano/high-polyphony is only the first representative
+hardware benchmark.
+
+No implementation was started by this documentation update. Code/build/test work remains
+local; GitHub receives issues/docs only.
