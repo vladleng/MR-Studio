@@ -198,6 +198,9 @@ Routing graph принадлежит SHARED Core и позднее напрям�
 ## MRS Stage 4 -> MRS 0.2a–0.2h — MIDI / метроном — #24
 
 Актуальное разбиение от 2026-10-06: [MRS_STAGE_4_PLAN](MRS_STAGE_4_PLAN.md).
+4a реализован локально: [MIDI input/VST3](MIDI_LIVE_INPUT.md); Release/111 CTest
+и packaged GUI smoke прошли. [Физическая приёмка](MRS_STAGE_4A_CHECKLIST.md)
+ожидается; #63 и весь #24 открыты. 4b–4h ещё не реализованы.
 4a / 0.2a — MIDI-вход и VST3-инструменты; 4b / 0.2b — клипы/playback;
 4c / 0.2c — запись; 4d / 0.2d — piano roll; 4e / 0.2e — quantize/transpose;
 4f / 0.2f — CC/Program Change; 4g / 0.2g — внешний MIDI;

@@ -43,11 +43,38 @@ Master. Не превращай их в одну последовательну�
 | P4 / [#54](https://github.com/vladleng/MR-Studio/issues/54) | 0.1u software slice принят пользователем 2026-10-06. #54 открыт для оставшихся проверок; пользователь тестирует P4 параллельно MIDI |
 | Parent Stage 3 / #23, длительная matrix #16 | Не закрыты этой приёмкой |
 | 3e2 / 3e3 | Безопасные переходы/dynamic latency и recovery/isolation остаются отдельными задачами |
+| 4a / [#63](https://github.com/vladleng/MR-Studio/issues/63), 0.2a | Реализован и выпущен локально 2026-10-06. 111/111 CTest и packaged J3 прошли; пользовательская MIDI/ASIO приёмка ожидается |
 
 В пользовательской переписке «0.1c показывает хорошие результаты» было принято
 как подтверждение тогдашней 0.1s/P2; не возвращай roadmap к старой 0.1c.
 
 ## Последняя поставка
+
+- **0.2a / Stage 4a**: MIDI input Windows, instrument tracks, VST3 event input,
+  monitoring при Stop/Play, общий mixer/buses/Master/PDC, panic и missing status.
+- Пакет: `Builds/MR-Studio-0.2a-MIDI-input-JUCE-ASIO-Windows-local` в папке чатов.
+  Запуск: `Moon River Studio JUCE.exe`; scanner рядом. Старые пакеты сохранены.
+- Source: `ee55afc9384c99695c8e582d51da60cabc681616`, ветка
+  `mrs/0.1q-fix3-processing-local`, только локально.
+- Cached configure/Release build прошли. Финальный **111/111 CTest, 57.15 s**;
+  packaged hidden J3 с MIDI smoke — **exit 0**. MIDI snapshots 100%/150% просмотрены.
+  SHA256 EXE: `654675B8BB474F3E617B9FF829B7C129E1683D5C9AAA810157E0E343116D402F`.
+  EXE совпадает с Release; package SHA256 manifest включает файлы/логи/документы.
+- `midi_live`: decoder, Notes/velocity/sustain/bend, controller burst/release,
+  Stop/panic/overflow/stale generation, short blocks, bus/gain/PDC, save/open,
+  Undo/Redo и missing plugin/port. В проверенных host callbacks allocation 0.
+  Первый общий прогон: 109/111, два parallel-теста падали из-за stack overflow;
+  MIDI buffers перенесены в heap на stopped prepare, финальный прогон весь зелёный.
+- Core schema **11** читает 1–10; MIDI input/channel/monitor и instrument/state
+  сохраняются. Старые сборки не читают 11 — проверять на копиях проектов.
+- Basic live MIDI имеет offset 0 следующего callback; sample-accurate timestamp
+  recording не реализован. Controllers зависят от IMidiMapping инструмента.
+  Структура цепи и MIDI input/channel/monitor меняются после Pause/Stop.
+- Физические MIDI/ASIO устройства тестами не открывались. [Workflow/RT contract](MIDI_LIVE_INPUT.md),
+  [пользовательский checklist](MRS_STAGE_4A_CHECKLIST.md). #63/#24 открыты;
+  приёмка пользователя ещё не получена. P4/#54/#16 этим выпуском не закрываются.
+
+## Предыдущая принятая поставка — 0.1u
 
 - Пакет: `Builds/MR-Studio-0.1u-P4-profiling-JUCE-ASIO-Windows-local` в папке чатов.
 - Запуск: `Moon River Studio JUCE.exe`; `mrs_vst3_scan.exe` рядом.
@@ -237,18 +264,18 @@ Arranger Track, Chord Track и остальная музыкальная стр�
 План и критерии: [MRS_STAGE_4_PLAN](MRS_STAGE_4_PLAN.md), схема — VERSIONING.
 GitHub: parent #24 обновлён; созданы issues #63–#70 для 4a–4h соответственно.
 Stage 5 / #25 сохраняет Chord/Arranger и музыкальную структуру; его scope не менялся.
-Это планирование, не реализация/приёмка. Следующий конкретный подэтап — 4a / 0.2a
-после запроса на начало реализации. Source/build/package без изменений;
-ветка `mrs/0.1q-fix3-processing-local`, source `ef11071bd221e30f822c2fd09e4689bfbf0b98ad`.
-Проверка документации: diff и согласованность версий; сборка не требуется.
-
-Следующий чат: **MIDI**. Сначала прочитай AGENTS.md, этот контекст и существующие
-[MIDI processor graph](MIDI_PROCESSOR_GRAPH.md), [musical timeline](MUSICAL_TIMELINE.md),
-затем проверь текущую MIDI реализацию и выбери конкретный объём с пользователем.
-Не считать словом «MIDI» уже согласованную реализацию всех инструментов, piano
-roll, hardware routing или иной конкретной функции. Новая MIDI задача не начата
-в этом чате: source edits отсутствуют, последнее изменение — docs/приёмка.
-Сохраняй принятые аудио/редакторные границы, применяй соответствующие навыки.
+План, roadmap, VERSIONING и этот контекст опубликованы отдельным docs-only
+коммитом `dcd2dad1b5dbd5dd95199d8071af0daf18955e69` в GitHub main с `[skip ci]`;
+remote SHA проверен. Локальная source-ветка не отправлялась, код/пакет не менялись.
+Планирование завершено, по запросу «Приступай к 0.2a» реализован 4a и выпущен
+локальный пакет выше. Следующий шаг — пользовательская игра через MIDI/ASIO:
+проверить клавиатуру, выбранный канал, sustain/bend, Stop/panic/reconnect,
+save/open и прежние audio/plugin editors. Прочитать MIDI_LIVE_INPUT и
+MRS_STAGE_4A_CHECKLIST. Не закрывать #63 без подтверждения физической приёмки.
+4b / 0.2b — следующий запланированный подэтап, не начинать автоматически.
+Chord/Arranger остаются Stage 5; метроном/precount — 4h. MIDI-клипы/recording,
+piano roll, external MIDI в 0.2a отсутствуют. Собственный synth не поставляется;
+нужен VST3-инструмент. Callback ingress/worker ownership не менять на UI note pump.
 
 P4 теперь остаётся проверкой пользователя параллельно разработке MIDI. Не
 навязывай завершение #54 как условие начала MIDI и не продолжай engine fixes
