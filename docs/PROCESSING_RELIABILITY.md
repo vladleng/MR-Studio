@@ -341,3 +341,14 @@ cover profiling; existing ownership and raw capture boundaries remain unchanged.
 See [profiling contract and load methodology](ENGINE_PROFILING.md). P4 remains
 open pending physical ASIO sustained sessions; no isolation/3e2 gate is closed.
 
+## User acceptance of initial 0.1u slice — 2026-10-06
+
+The user accepts 0.1u as delivered and requests MIDI development in the next
+chat, with P4 testing continuing alongside it. #54 remains open for queue-event
+diagnosis (43 underruns/invalidations in the 128-frame user CSV), recording and
+sustained transport/reconnect/state checks. No audible issue was reported in that
+live test; the user mentions a small pause in the multitrack material, which does
+not establish the cause of queue events. The remaining P4 tests are not a gate
+for starting MIDI. #16 and 3e2/3e3 remain separate. No code/build/package change;
+previous immutable package hashes remain. [Handoff](PROJECT_CONTEXT.md).
+
