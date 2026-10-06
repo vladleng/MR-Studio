@@ -25,8 +25,8 @@ click resolution was unconfirmed at this baseline; P1 later removed regular clic
 | Order | Slice | Issue | Status |
 |---|---|---|---|
 | 1 | 3e-P1: parallel channel processing and dependency scheduler | [#51](https://github.com/vladleng/MR-Studio/issues/51) | 0.1r user-accepted at 128 frames on 2026-10-05; closed |
-| 2 | 3e-P2: anticipative playback and separate process buffer | [#52](https://github.com/vladleng/MR-Studio/issues/52) | 0.1s conservative whole-graph native playback implementation ready locally; user review pending; VST3/live stay direct |
-| 3 | 3e-P3: separate low-latency monitoring | [#53](https://github.com/vladleng/MR-Studio/issues/53) | Planned; depends on P2 |
+| 2 | 3e-P2: anticipative playback and separate process buffer | [#52](https://github.com/vladleng/MR-Studio/issues/52) | 0.1s initial native whole-graph slice accepted 2026-10-06; closed; VST3/live stay direct |
+| 3 | 3e-P3: separate low-latency monitoring | [#53](https://github.com/vladleng/MR-Studio/issues/53) | Started 2026-10-06: prepared domain/merge plan; mixed execution remains pending |
 | 4 | 3e-P4: detailed profiling and sustained-load acceptance | [#54](https://github.com/vladleng/MR-Studio/issues/54) | Planned; depends on P3 |
 
 Minimal measurement hooks accompany P1 so scheduling decisions have evidence;
@@ -97,6 +97,53 @@ recording must remain before effects/compensation.
 
 Acceptance: mixed playback/live paths, sends/buses/Master/direct outputs, unequal
 latency and monitoring toggles, followed by intended-system ASIO timing/audition.
+
+### First P3 implementation step — prepared ownership plan
+
+`AudioEngine::prepare` now compiles a candidate `ProcessingDomains` report from
+the validated DAG and its fixed PDC plan. It reserves all prepared input routes,
+including disabled monitoring, and propagates live/unsupported processor reasons
+downstream through main outputs and pre/post sends. Independent upstream native
+channels retain candidate producer ownership even when a shared bus or Master has
+device ownership. Direct hardware monitoring does not unnecessarily contaminate
+the Master closure. This uses generic capability checks, never plugin brands.
+
+The report lists producer-to-device main/send/Master/physical-output boundaries,
+legacy unassigned playback and producer Master output, preserving the prepared
+topological order. Each edge records the existing compensation delay; it must be
+applied once by its owner, never added again at consumption. Shared plugin graph
+aliases and routing cycles remain rejected. Capture is explicitly device-owned.
+Monitoring compensation is the current fixed end-to-end PDC in samples, separate
+from driver latency; no effect bypass or extra Process Buffer delay is implied.
+
+This is a prepared candidate plan, not an active mixed renderer. The accepted P2
+runtime eligibility/fallback stays unchanged. A capability change (external MIDI
+or offset automation) requires revalidation before using this snapshot. Monitor
+toggles cannot migrate plugin/PDC history; structural Arm/route changes require
+the existing stop/quiesce/reprepare boundary.
+
+Next implementation: preallocated per-boundary PCM packets with generation AND
+monotonic render-sequence identity (loop sample position alone is insufficient),
+isolated producer/device transport/mix scratch and immutable heard-context handoff.
+The callback owns controls, live capture and shared DSP; the producer owns eligible
+upstream DSP and its outgoing PDC histories. Reduce contributions in the original
+channel/send order to preserve summation. Producer starvation must silence only
+the missing playback contribution while live DSP/capture and device time continue;
+never wait for/retry the same stateful instance on the other owner. Seek, toggles,
+parameters, partial callbacks, stream cursors, meter publication, teardown and
+recovery need reference/ownership/allocation tests before mixed mode is enabled.
+P3 remains open; this step adds no new performance claim or user package.
+
+Validation of this foundation on 2026-10-06: cached offline configure, full local
+Windows x64 Release build and 102/102 CTest passed (48.59 s), including three new
+domain suites and existing P1/P2/VST3/persistence/GUI checks. Explicit hidden JUCE
+J3 fixture smoke exited 0. Tests cover disabled/legacy input, direct hardware live
+isolation, shared live/unsupported closure, upstream ownership, main/pre/post send
+and legacy/Master terminal boundaries, unequal latency, cycle/alias rejection,
+Monitor toggles and raw stereo capture before effects/PDC. The initial raw-capture
+test incorrectly used mono selectors for a stereo assertion; corrected to explicit
+0/1 selectors before the final full green run. No installed TH-U/Nuro repetition,
+hardware opening, mixed-render speedup measurement or new distributable package.
 
 ## P4: measurement and universal load validation
 
