@@ -18,7 +18,7 @@ using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 11;
+inline constexpr std::uint32_t schema_version = 12;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -118,6 +118,17 @@ struct Track {
     bool midi_monitor{true}; // instrument live ingress; no MIDI recording in 4a
     bool operator==(const Track&) const = default;
 };
+struct MidiNote {
+    Id id;
+    Tick start{}, length{ppq}; // source-relative ticks
+    int pitch{60}, velocity{100}, channel{}; // channel zero-based
+    bool operator==(const MidiNote&) const = default;
+};
+struct MidiClip {
+    Tick start{}, length{4*ppq}, source_offset{};
+    std::vector<MidiNote> notes;
+    bool operator==(const MidiClip&) const = default;
+};
 struct Clip {
     Id id;
     Id track;
@@ -126,6 +137,7 @@ struct Clip {
     Sample length{1};
     Sample source_offset{};
     std::string source; // opaque asset reference, Stage 0 does not open it
+    std::optional<MidiClip> midi{}; // when present, sample fields stay at defaults
     bool operator==(const Clip&) const = default;
 };
 struct Marker {
@@ -185,6 +197,9 @@ private:
     std::vector<MeterSegment> meters_;
     std::uint32_t rate_;
 };
+// Non-RT projections. MIDI ticks are authoritative; audio sample ranges unchanged.
+Sample clip_start(const Clip&, const Timeline&);
+Sample clip_end(const Clip&, const Timeline&);
 class Connection {
 public:
     explicit Connection(std::function<void()> disconnect = {});

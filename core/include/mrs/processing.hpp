@@ -10,7 +10,7 @@ inline constexpr std::size_t event_capacity = 256;
 inline constexpr std::size_t max_nodes = 32;
 enum class MidiKind { note_off, note_on, cc, program, pressure, pitch_bend, poly_pressure };
 struct MidiEvent {
-    std::uint32_t offset{}; // sample offset within the NEXT callback block
+    std::uint32_t offset{}; // sample offset within the processing block; live ingress targets next callback
     MidiKind kind{MidiKind::note_on};
     std::uint8_t channel{}, data1{}, data2{}; // channel 0..15, MIDI data 0..127
     bool operator==(const MidiEvent&) const = default;

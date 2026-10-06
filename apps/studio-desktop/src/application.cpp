@@ -169,6 +169,7 @@ void Application::replace(persistence::ProjectDocument next) {
     for (const auto& m : next.mixer) for (auto& t : next.project.tracks) if (t.id == m.track)
         t.mix = {m.gain,m.pan,m.mute,m.solo};
     // Build application models before releasing the old session.
+    {std::vector<Id> tracks;for(const auto& t:next.project.tracks)if(t.kind!=TrackKind::midi)tracks.push_back(t.id);(void)audio::compile_midi_clips(next.project,tracks);}
     auto projects = std::make_shared<ProjectStore>(next.project);
     auto graphs = std::make_shared<processing::GraphStore>(next.graph);
     disconnect();
@@ -191,6 +192,7 @@ void Application::start_empty_clock(bool prepare_plugins) {
     audio::RenderGraph graph;
     const auto p = services_.projects->state().project;
     prepare_mixer(graph);
+    prepare_midi_clips(graph);
     if(prepare_plugins)prepare_inserts(graph,c);
     engine_->prepare({p->sample_rate,0,2,8192},std::move(graph));
     const auto clock_infos = device->enumerate(); device_info_ = clock_infos.front();
@@ -226,6 +228,7 @@ persistence::ProjectDocument Application::snapshot() const {
     for (const auto& t : result.project.tracks)
         result.mixer.push_back({t.id,t.mix.gain,t.mix.pan,t.mix.mute,t.mix.solo});
     for (auto& clip : result.project.clips) {
+        if(clip.midi)continue;
         if (const auto found = owned_media_.find(clip.source); found != owned_media_.end())
             clip.source = media_ref(found->second.lexically_relative(asset_root_));
         else if (!asset_root_.empty()) {
@@ -251,7 +254,7 @@ void Application::save_project(const std::filesystem::path& requested) {
     const auto root = path.parent_path();
     const bool relocating = !asset_root_.empty() && root != asset_root_;
     std::set<std::string> keys, current;
-    for (const auto& clip : services_.projects->state().project->clips) if (clip.source != "mrs:demo-tone") { keys.insert(clip.source); current.insert(clip.source); }
+    for (const auto& clip : services_.projects->state().project->clips) if (!clip.midi && clip.source != "mrs:demo-tone") { keys.insert(clip.source); current.insert(clip.source); }
     for (const auto& [key,value] : assets_) { (void)value; if (key != "mrs:demo-tone") keys.insert(key); }
     const auto resolve = [&](const std::string& key) {
         if (const auto found = owned_media_.find(key); found != owned_media_.end()) return found->second;
@@ -274,7 +277,7 @@ void Application::save_project(const std::filesystem::path& requested) {
     }
     for (std::size_t i=0; i<document.project.clips.size(); ++i) {
         const auto& original = services_.projects->state().project->clips[i].source;
-        if (original != "mrs:demo-tone") document.project.clips[i].source = media_ref(owned.at(original).lexically_relative(root));
+        if (!document.project.clips[i].midi && original != "mrs:demo-tone") document.project.clips[i].source = media_ref(owned.at(original).lexically_relative(root));
     }
     document.validate();
     if (copies.copied()) require_not_playing();
@@ -346,7 +349,7 @@ std::shared_ptr<const audio::AudioData> Application::asset(const std::string& so
     auto ptr = std::make_shared<const audio::AudioData>(std::move(data)); cache_asset(source,ptr); return ptr;
 }
 void Application::prepare_waveforms() {
-    for (const auto& clip : services_.projects->state().project->clips) (void)asset(clip.source);
+    for (const auto& clip : services_.projects->state().project->clips) if(!clip.midi)(void)asset(clip.source);
 }
 const audio::Waveform* Application::waveform(std::string_view source) const {
     const auto it = assets_.find(std::string(source));
@@ -509,7 +512,7 @@ void Application::rebuild_audio() {
         const auto position = engine_->state();
         if (reopen) device_->close();
         audio::RenderGraph graph;
-        if (audio_name_ == "Offline clock (no sound)") { prepare_mixer(graph); prepare_inserts(graph,c); }
+        if (audio_name_ == "Offline clock (no sound)") { prepare_mixer(graph); prepare_midi_clips(graph); prepare_inserts(graph,c); }
         else graph = render(c);
         engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192,c.buffer_frames,c.processing_workers},std::move(graph),position);
         if (reopen) device_->open(c,engine_);
@@ -520,6 +523,7 @@ void Application::edit(const ICommand& command,std::optional<Id> authoritative) 
     require_not_playing();
     auto candidate = *services_.projects->state().project;
     command.apply(candidate); candidate.validate();
+    {std::vector<Id> tracks;for(const auto& t:candidate.tracks)if(t.kind!=TrackKind::midi)tracks.push_back(t.id);(void)audio::compile_midi_clips(candidate,tracks);}
     capture_insert_state(candidate,authoritative);candidate.validate();
     if (device_config_ && audio_name_ != "Offline clock (no sound)") validate_hardware(candidate,*device_config_);
     if (device_ && device_config_ && audio_name_ != "Offline clock (no sound)") {
@@ -530,6 +534,7 @@ void Application::edit(const ICommand& command,std::optional<Id> authoritative) 
     require(std::count_if(candidate.tracks.begin(),candidate.tracks.end(),[](const auto& t) { return t.kind != TrackKind::midi; }) <= static_cast<std::ptrdiff_t>(audio::max_mixer_tracks),"mixer supports up to 128 audio tracks and buses");
     std::size_t streamed{}, bytes{};
     for (const auto& clip : candidate.clips) {
+        if(clip.midi)continue;
         const auto data = asset(clip.source);
         require(data->sample_rate == candidate.sample_rate,"WAV/project sample-rate mismatch");
         require(clip.source_offset <= data->frames() && clip.length <= data->frames()-clip.source_offset,"clip exceeds source audio");
@@ -664,15 +669,24 @@ Sample Application::source_frames(const Id& id) {
     require(it != p->clips.end(),"unknown clip");
     return asset(it->source)->frames();
 }
-void Application::move_clip(const Id& id, const Id& track, Sample start) { edit(MoveAudioClip{id,track,start}); }
+void Application::move_clip(const Id& id, const Id& track, Sample start) {
+    const auto p=services_.projects->state().project;const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});require(c!=p->clips.end(),"unknown clip");
+    if(c->midi)edit(MoveMidiClip{id,track,Timeline(p->time,p->sample_rate).to_ticks(start)});else edit(MoveAudioClip{id,track,start});
+}
 void Application::trim_clip(const Id& id, Sample start, Sample end) {
-    require_not_playing(); const auto frames = source_frames(id); edit(TrimAudioClip{id,start,end,frames});
+    require_not_playing();const auto p=services_.projects->state().project;const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});require(c!=p->clips.end(),"unknown clip");
+    if(c->midi){const Timeline t(p->time,p->sample_rate);edit(TrimMidiClip{id,t.to_ticks(start),t.to_ticks(end)});}else {const auto frames=source_frames(id);edit(TrimAudioClip{id,start,end,frames});}
 }
 Id Application::split_clip(const Id& id, Sample position) {
     require(services_.projects->state().project->clips.size() < audio::max_voices,"too many playback clips to split");
-    const auto right = new_id(); edit(SplitAudioClip{id,position,right}); return right;
+    const auto p=services_.projects->state().project;const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});require(c!=p->clips.end(),"unknown clip");const auto right=new_id();
+    if(c->midi)edit(SplitMidiClip{id,Timeline(p->time,p->sample_rate).to_ticks(position),right});else edit(SplitAudioClip{id,position,right});return right;
 }
-void Application::remove_clip(const Id& id) { edit(RemoveAudioClip{id}); }
+void Application::remove_clip(const Id& id) { edit(RemoveClip{id}); }
+Id Application::create_midi_clip(const Id& track,Tick start,Tick length){Clip c;c.id=new_id();c.track=track;c.name="MIDI clip";c.midi=MidiClip{start,length,0,{}};edit(AddMidiClip{c});return c.id;}
+void Application::set_midi_notes(const Id& id,std::vector<MidiNote> notes){edit(SetMidiNotes{id,std::move(notes)});}
+Id Application::duplicate_clip(const Id& id){const auto duplicate=new_id();edit(DuplicateClip{id,duplicate});return duplicate;}
+void Application::set_time_map(TimeMap time){const auto p=services_.projects->state().project;edit(SetMusicalData{std::move(time),p->chords,p->sections,p->markers});}
 void Application::import_wavs(const std::vector<std::filesystem::path>& paths,std::optional<Id> target,Sample start) {
     require_not_playing(); require(!paths.empty() && paths.size() <= audio::max_voices,"select 1..128 WAV files");
     const auto current = services_.projects->state().project;
@@ -739,6 +753,10 @@ void Application::prepare_mixer(audio::RenderGraph& result) {
     result.master_gain = project->master_gain;
     applied_mix_revision_ = services_.projects->state().revision;
 }
+void Application::prepare_midi_clips(audio::RenderGraph& graph){
+    const auto p=services_.projects->state().project;const Timeline time(p->time,p->sample_rate);graph.midi_notes=audio::compile_midi_clips(*p,mixer_tracks_);
+    for(const auto& tempo:p->time.tempos)graph.tempos.push_back({time.to_samples(tempo.tick),tempo.bpm,static_cast<double>(tempo.tick)/ppq});
+}
 audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     require(c.sample_rate == services_.projects->state().project->sample_rate,"device/project rate mismatch; choose the project rate (resampling is a later stage)");
     require(!c.outputs.empty() && c.outputs.size() <= audio::max_channels && c.inputs.size() <= audio::max_channels,"invalid channel selection");
@@ -751,7 +769,7 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     result.processors = prepared_;
     const auto project = services_.projects->state().project;
     prepare_mixer(result);
-    const Timeline timeline(project->time,project->sample_rate);for(const auto& tempo:project->time.tempos)result.tempos.push_back({timeline.to_samples(tempo.tick),tempo.bpm,static_cast<double>(tempo.tick)/ppq});
+    prepare_midi_clips(result);
     prepare_inserts(result,c);
     const auto mapped = [&](const std::vector<int>& outputs) {
         std::vector<std::size_t> result;
@@ -766,6 +784,7 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     if (project->master_outputs.empty() && c.outputs.size()>1) result.master_outputs.push_back(1);
     for (const auto& track : project->tracks) if (track.kind != TrackKind::midi) result.hardware_outputs.push_back(mapped(track.hardware_outputs));
     for (const auto& clip : project->clips) {
+        if(clip.midi)continue;
         require(result.voices.size() < audio::max_voices,"too many playback voices");
         auto asset_data = asset(clip.source);
         require(asset_data->sample_rate == c.sample_rate,"WAV/project sample-rate mismatch");
@@ -849,7 +868,7 @@ void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::De
     const auto previous_defaults=default_inputs_; default_inputs_=defaults;
     try {
         audio::RenderGraph graph;
-        if (offline) { prepare_mixer(graph); prepare_inserts(graph,c); }
+        if (offline) { prepare_mixer(graph); prepare_midi_clips(graph); prepare_inserts(graph,c); }
         else graph = render(c);
         engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192,c.buffer_frames,c.processing_workers},std::move(graph),position);
         device->open(c,engine_); device->start(); audio_name_ = info->name; device_ = std::move(device); device_config_ = c; device_info_ = *info; default_inputs_ = defaults; poll();
@@ -936,7 +955,7 @@ void Application::start_recording(const std::filesystem::path& destination) {
     const auto p=services_.projects->state().project;
     require(p->clips.size()+armed_tracks_.size() <= audio::max_voices && assets_.size()+armed_tracks_.size() <= 128,"no free clip/source capacity for recording");
     std::size_t disk{}, bytes{};
-    for (const auto& clip : p->clips) { const auto data=asset(clip.source); if (data->file) { ++disk; bytes+=8*8192*static_cast<std::size_t>(data->channels)*sizeof(float); } }
+    for (const auto& clip : p->clips) if(!clip.midi){ const auto data=asset(clip.source); if (data->file) { ++disk; bytes+=8*8192*static_cast<std::size_t>(data->channels)*sizeof(float); } }
     struct Pending { Id track; std::vector<std::uint32_t> selectors; std::filesystem::path path; };
     std::vector<Pending> pending;
     for (std::size_t i=0; i<armed_tracks_.size(); ++i) {

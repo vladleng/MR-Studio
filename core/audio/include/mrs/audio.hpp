@@ -1,5 +1,6 @@
 #pragma once
 #include <mrs/delay.hpp>
+#include <mrs/midi_playback.hpp>
 #include <mrs/core.hpp>
 #include <mrs/processing.hpp>
 #include <mrs/profiling.hpp>
@@ -87,6 +88,7 @@ struct RenderGraph {
     std::vector<TempoSegment> tempos{};
     std::vector<bool> buses{}; // same indices as mixer; no clips/input directly on buses
     std::vector<bool> live_midi{}; // reserves device ownership even with monitoring disabled
+    std::vector<std::vector<PlaybackMidiNote>> midi_notes{}; // sample projection of immutable tick data
 };
 struct RenderConfig {
     std::uint32_t sample_rate{48000};
@@ -218,6 +220,8 @@ public:
 private:
     SpscQueue<LiveMidi,1024> live_midi_queue_;
     std::vector<processing::MidiBuffer> live_midi_buffers_; // allocated only by quiescent prepare
+    std::vector<processing::MidiBuffer> chunk_midi_buffers_;
+    std::vector<MidiPlayback> midi_playback_;
     std::atomic<std::uint64_t> midi_generation_{},midi_dropped_{};
     std::atomic<bool> midi_panic_{};
     friend class AheadRenderer;

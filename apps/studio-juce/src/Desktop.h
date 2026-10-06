@@ -55,10 +55,11 @@ public:
     bool shortcutAllowed() const;
     bool shortcutAllowedFor(juce::Component*) const;
     ViewSettings view;
-    void closeEditors();
+    void closeEditors(bool keepMidi=false);
     void closeUnpinnedEditors();
     void audioSettings();
     void showProfiling();
+    void openMidiClip(mrs::Id);
     void insertMenu(std::optional<mrs::Id>);
     void openInsert(std::optional<mrs::Id>,mrs::Id);
     void savePreset(std::optional<mrs::Id>,mrs::Id);
@@ -170,6 +171,7 @@ public:
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
     void mouseWheelMove(const juce::MouseEvent&,const juce::MouseWheelDetails&) override;
+    void mouseDoubleClick(const juce::MouseEvent&) override;
     bool isInterestedInFileDrag(const juce::StringArray&) override;
     void filesDropped(const juce::StringArray&,int,int) override;
     bool isInterestedInDragSource(const SourceDetails&) override;
@@ -233,6 +235,7 @@ void j2Smoke(Desktop&,const juce::File& fixture={});
 void j2PluginSmoke(Desktop&,const juce::File&);
 void j3Smoke(Desktop&);
 void midi4aSmoke(Desktop&,const juce::File&);
+void midi4bSmoke(Desktop&,const juce::File&);
 void j3AudioSmoke(Desktop&);
 void profilingSmoke(Desktop&);
 void thuDiagnostic(const juce::File&);

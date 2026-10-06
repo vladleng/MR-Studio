@@ -232,8 +232,9 @@ void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,b
     const bool profiling=p.profiling.load(std::memory_order_relaxed);
     if (!audio || !frames || frames > p.config.max_block) { ++p.invalid; return; }
     for (auto& node : p.nodes) { node.midi.clear(); node.output.clear(); node.parameter_count = 0; }
-    if(live_midi.size()>event_capacity){++p.dropped_midi;p.panic_requested=true;}
-    if(p.config.instrument&&!p.nodes.empty())for(const auto& event:live_midi.first(std::min(live_midi.size(),event_capacity))){if(event.offset>=frames||event.channel>15||event.data1>127||event.data2>127||static_cast<int>(event.kind)<0||event.kind>MidiKind::poly_pressure||!p.nodes.front().midi.push(event)){++p.dropped_midi;p.panic_requested=true;}}
+    bool incoming_valid=live_midi.size()<=event_capacity;
+    for(const auto& event:live_midi.first(std::min(live_midi.size(),event_capacity)))if(event.offset>=frames||event.channel>15||event.data1>127||event.data2>127||static_cast<int>(event.kind)<0||event.kind>MidiKind::poly_pressure)incoming_valid=false;
+    if(!incoming_valid){++p.dropped_midi;p.panic_requested=true;}
     MidiCommand midi;
     // Bound the drain even if producer keeps writing.
     for (int i = 0; i < 1023 && p.midi_queue.pop(midi); ++i) {
@@ -252,6 +253,9 @@ void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,b
         }
         for(auto& delay:p.output_delays)delay.reset();
     }
+    // New timeline/chased notes belong AFTER a pending Seek/Stop reset.
+    // Queued old graph MIDI is still cleared by panic above.
+    if(incoming_valid&&p.config.instrument&&!p.nodes.empty())for(const auto& event:live_midi)if(!p.nodes.front().midi.push(event)){++p.dropped_midi;p.panic_requested=true;p.nodes.front().midi.clear();break;}
     ParamCommand param;
     for (int i = 0; i < 1023 && p.parameter_queue.pop(param); ++i) {
         auto& node = p.nodes[param.node];

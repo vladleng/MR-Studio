@@ -156,10 +156,22 @@ void Project::validate() const {
             if (color[bus->id.value] == 0) { color[bus->id.value] = 1; stack.emplace_back(bus,0); }
         }
     }
+    std::size_t midi_notes{};
     for (const auto& clip : clips) {
         add_id(clip.id);
         require(track_ids.contains(clip.track.value), "missing clip track");
         require(channels.at(clip.track.value)->kind != TrackKind::bus, "bus cannot contain clips");
+        if (clip.midi) {
+            const auto& m=*clip.midi;
+            require(channels.at(clip.track.value)->kind==TrackKind::instrument,"MIDI clip requires an instrument track");
+            require(clip.start==0 && clip.length==1 && clip.source_offset==0 && clip.source.empty(),"MIDI clip sample fields must be defaults");
+            require(m.start>=0 && m.start<=max_tick && m.length>0 && m.length<=max_tick-m.start,"invalid MIDI clip range");
+            require(m.source_offset>=0 && m.source_offset<=max_tick-m.length,"invalid MIDI source offset");
+            midi_notes+=m.notes.size();
+            require(m.notes.size()<=4096 && midi_notes<=32768,"too many MIDI notes");
+            for(const auto& n:m.notes){add_id(n.id);require(n.start>=0 && n.start<=max_tick && n.length>0 && n.length<=max_tick-n.start,"invalid MIDI note range");require(n.pitch>=0&&n.pitch<=127&&n.velocity>=1&&n.velocity<=127&&n.channel>=0&&n.channel<=15,"invalid MIDI note data");}
+            continue;
+        }
         require(clip.start >= 0 && clip.start <= max_sample, "invalid clip start");
         require(clip.length > 0 && clip.length <= max_sample - clip.start, "invalid clip length");
         require(clip.source_offset >= 0 && clip.source_offset <= max_sample - clip.length,

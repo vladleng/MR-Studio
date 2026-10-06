@@ -33,10 +33,11 @@ public:
         else if(text=="Stop"){g.setColour(juce::Colour(0xffc6d3df));g.fillRect(centre.x-6,centre.y-6,12.f,12.f);}
         else if(text=="Pause"){g.setColour(juce::Colour(0xffc6d3df));g.fillRect(centre.x-6,centre.y-6,4.f,12.f);g.fillRect(centre.x+2,centre.y-6,4.f,12.f);}
         else if(text=="Record (R)"){g.setColour(juce::Colour(0xffe64b54));g.fillEllipse(centre.x-6,centre.y-6,12,12);}
-        else if(button.getComponentID()=="midi-input-status"){g.setFont(font(12));g.setColour(button.findColour(juce::TextButton::textColourOffId).withMultipliedAlpha(button.isEnabled()?1.f:.5f));g.drawText(text,button.getLocalBounds().reduced(6,2),juce::Justification::centred,true);}
-        else juce::LookAndFeel_V4::drawButtonText(g,button,hover,down);
+        else {juce::ignoreUnused(hover,down);g.setFont(font(13));g.setColour(button.findColour(button.getToggleState()?juce::TextButton::textColourOnId:juce::TextButton::textColourOffId).withMultipliedAlpha(button.isEnabled()?1.f:.5f));g.drawText(text,button.getLocalBounds().reduced(3,1),juce::Justification::centred,true);}
     }
-    juce::Font getTextButtonFont(juce::TextButton&, int) override { return font(12); }
+    juce::Font getTextButtonFont(juce::TextButton&, int) override { return font(13); }
+    juce::Font getMenuBarFont(juce::MenuBarComponent&, int, const juce::String&) override { return font(13); }
+    juce::Font getPopupMenuFont() override { return font(13); }
     juce::Font font(float size) const { return juce::Font(juce::FontOptions(face).withPointHeight(size)); }
     void drawButtonBackground(juce::Graphics& g, juce::Button& b, const juce::Colour& c,
                               bool hover, bool down) override {
@@ -79,16 +80,20 @@ public:
     }
     juce::Rectangle<float> knob() const {
         if(rotary){const float side=static_cast<float>(juce::jmin(getWidth(),getHeight())-8);return getLocalBounds().toFloat().withSizeKeepingCentre(side,side);}
-        if (vertical_) return {7.f, 12.f + static_cast<float>(1-value) * travel(),
-                               static_cast<float>(getWidth()-14), 18.f};
+        if (vertical_) return {static_cast<float>(getWidth()/2-8), 12.f + static_cast<float>(1-value) * travel(),
+                               16.f, 18.f};
         return {8.f + static_cast<float>(value)*travel(), 8.f, 18.f, static_cast<float>(getHeight()-16)};
     }
     void paint(juce::Graphics& g) override {
         if(rotary){auto r=knob();g.setColour(juce::Colour(0xff20262b));g.fillEllipse(r);g.setColour(hasKeyboardFocus(true)?juce::Colours::skyblue:juce::Colours::grey);g.drawEllipse(r,1);
             const float angle=static_cast<float>((value-.5)*4.7);auto c=r.getCentre();g.setColour(juce::Colours::skyblue);g.drawLine(c.x,c.y,c.x+std::sin(angle)*r.getWidth()*.38f,c.y-std::cos(angle)*r.getHeight()*.38f,2);return;}
-        g.setColour(juce::Colour(0xff171b1e));
-        g.fillRect(getLocalBounds().reduced(vertical_ ? 20 : 8, vertical_ ? 12 : 17));
-        g.setColour(hasKeyboardFocus(true) ? juce::Colours::skyblue : juce::Colour(0xffbbc4cd));
+        const auto rail=getLocalBounds().reduced(vertical_ ? 12 : 8, vertical_ ? 10 : 17);
+        g.setColour(juce::Colour(0xff15191c));
+        g.fillRect(rail);
+        g.setColour(juce::Colour(0xff485159));
+        if(vertical_) g.drawVerticalLine(rail.getCentreX(),static_cast<float>(rail.getY()),static_cast<float>(rail.getBottom()));
+        else g.drawHorizontalLine(rail.getCentreY(),static_cast<float>(rail.getX()),static_cast<float>(rail.getRight()));
+        g.setColour(hasKeyboardFocus(true) ? juce::Colours::skyblue : juce::Colour(0xffb7c2cb));
         g.fillRect(knob()); g.setColour(juce::Colour(0xff4e5963));
         auto k=knob(); g.drawLine(k.getX(),k.getCentreY(),k.getRight(),k.getCentreY(),2);
     }

@@ -98,10 +98,13 @@ std::string serialize(const Project& p) {
         out << std::quoted(track.midi_input) << ' ' << track.midi_channel << ' ' << track.midi_monitor << '\n';
     }
     section(out, "CLIPS", p.clips);
-    for (const auto& clip : p.clips)
+    for (const auto& clip : p.clips) {
         out << std::quoted(clip.id.value) << ' ' << std::quoted(clip.track.value) << ' '
             << std::quoted(clip.name) << ' ' << clip.start << ' ' << clip.length << ' '
             << clip.source_offset << ' ' << std::quoted(clip.source) << '\n';
+        out << "MIDI " << static_cast<int>(clip.midi.has_value()) << '\n';
+        if(clip.midi){const auto& m=*clip.midi;out<<m.start<<' '<<m.length<<' '<<m.source_offset<<' '<<m.notes.size()<<'\n';for(const auto& n:m.notes)out<<std::quoted(n.id.value)<<' '<<n.start<<' '<<n.length<<' '<<n.pitch<<' '<<n.velocity<<' '<<n.channel<<'\n';}
+    }
     section(out, "MARKERS", p.markers);
     for (const auto& marker : p.markers)
         out << std::quoted(marker.id.value) << ' ' << std::quoted(marker.name) << ' '
@@ -221,6 +224,7 @@ Project deserialize(std::string_view bytes) {
         in >> clip.start >> clip.length >> clip.source_offset;
         check_stream(in);
         clip.source = quoted(in);
+        if(input_version>=12){tag(in,"MIDI");int present{};in>>present;check_stream(in);if(present!=0&&present!=1)throw std::invalid_argument("invalid MIDI clip flag");if(present){clip.midi.emplace();auto& m=*clip.midi;in>>m.start>>m.length>>m.source_offset;check_stream(in);const auto notes=count(in);if(notes>4096)throw std::invalid_argument("too many MIDI notes");for(std::size_t j=0;j<notes;++j){MidiNote note;note.id={quoted(in)};in>>note.start>>note.length>>note.pitch>>note.velocity>>note.channel;check_stream(in);m.notes.push_back(std::move(note));}}}
         p.clips.push_back(std::move(clip));
     }
     tag(in, "MARKERS");

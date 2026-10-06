@@ -1,0 +1,59 @@
+#include <mrs/desktop.hpp>
+#include <mrs/vst3.hpp>
+#include <mrs/ahead_renderer.hpp>
+#include <cstdlib>
+#include <iostream>
+#include <new>
+#include <cmath>
+namespace {
+using namespace mrs;using namespace mrs::audio;using namespace mrs::processing;using namespace mrs::desktop;
+thread_local bool probe{};std::atomic<unsigned> allocations{};
+void check(bool b,const char* s){if(!b)throw std::runtime_error(s);}
+#define CHECK(...) check(static_cast<bool>((__VA_ARGS__)),#__VA_ARGS__)
+template<class F>void rejects(F f){bool caught=false;try{f();}catch(const std::exception&){caught=true;}CHECK(caught);}
+struct Directory{std::filesystem::path path=std::filesystem::temp_directory_path()/("mrs-midi-clips-"+new_id().value);Directory(){std::filesystem::create_directory(path);}~Directory(){std::error_code e;std::filesystem::remove_all(path,e);}};
+struct ManualDevice final:IAudioDevice{
+    DevicePhase phase{DevicePhase::closed};std::vector<DeviceInfo> enumerate()override{return {{0,"MIDI clip fixture",{"Mic"}, {"L","R"},16,8192,128,1}};}
+    void control_panel(int)override{}void open(const DeviceConfig&,std::shared_ptr<AudioEngine>)override{phase=DevicePhase::open;}void start()override{phase=DevicePhase::running;}void stop()override{phase=DevicePhase::stopped;}void close()noexcept override{phase=DevicePhase::closed;}DeviceStatus status()override{return {phase,48000};}
+};
+struct Synth final:IProcessor{
+    std::array<float,2048> held{};
+    std::vector<ParameterInfo> parameters()const override{return {};}
+    void prepare(ProcessConfig)override{}void restore(const PluginState&)override{}PluginState capture()const override{return {};}
+    bool set_parameter(std::uint32_t,float)noexcept override{return false;}std::optional<float> parameter_value(std::uint32_t)const noexcept override{return {};}
+    std::uint32_t latency()const noexcept override{return 0;}bool live_safe()const noexcept override{return true;}void warm()override{}void reset()noexcept override{held.fill(0);}
+    void process(ProcessBlock b)noexcept override{for(std::uint32_t f=0;f<b.frames;++f){for(const auto& e:b.midi)if(e.offset==f){auto& n=held[e.channel*128+e.data1];if(e.kind==MidiKind::note_on)n=e.data2/127.f*.25f;else if(e.kind==MidiKind::note_off)n=0;else if(e.kind==MidiKind::cc&&(e.data1==120||e.data1==123))for(int pitch=0;pitch<128;++pitch)held[e.channel*128+pitch]=0;}float sum=0;for(const auto n:held)sum+=n;for(std::uint32_t c=0;c<b.channels;++c)b.audio[f*b.channels+c]=sum;}}
+};
+std::shared_ptr<PreparedGraph> synth(){GraphState g;g.id=new_id();NodeState n;n.id=new_id();n.processor_id="timeline-synth";g.nodes={n};g.outputs={n.id};return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(g),0,false,false},ProcessConfig{48000,2,128,128,true},[](const NodeState&){return std::make_unique<Synth>();});}
+Project project(){Project p;p.id=new_id();p.title="MIDI test";Track t;t.id=new_id();t.name="Keys";t.kind=TrackKind::instrument;p.tracks={t};Clip c;c.id=new_id();c.track=t.id;c.name="Phrase";c.midi=MidiClip{0,4*ppq,0,{{new_id(),0,2*ppq,60,127,0},{new_id(),2*ppq,ppq,64,90,2}}};p.clips={c};p.validate();return p;}
+void model(){auto p=project();ProjectStore s(p);auto id=p.clips.front().id,track=p.tracks.front().id;const auto note=p.clips.front().midi->notes.front().id;
+    s.execute(TrimMidiClip{id,ppq,4*ppq});CHECK(s.state().project->clips.front().midi->source_offset==ppq);CHECK(s.undo());CHECK(s.redo());CHECK(s.undo());
+    auto right=new_id();s.execute(SplitMidiClip{id,ppq,right});CHECK(s.state().project->clips.size()==2&&s.state().project->clips.front().midi->length==ppq);CHECK(s.state().project->clips.back().midi->notes.front().id!=note);CHECK(s.state().project->clips.back().midi->source_offset==ppq);CHECK(s.undo());
+    auto duplicate=new_id();s.execute(DuplicateClip{id,duplicate});CHECK(s.state().project->clips.back().midi->start==4*ppq);CHECK(s.undo());s.execute(MoveMidiClip{id,track,8*ppq});CHECK(s.state().project->clips.front().midi->start==8*ppq);CHECK(s.undo());
+    auto notes=p.clips.front().midi->notes;notes[0].pitch=72;s.execute(SetMidiNotes{id,notes});CHECK(s.state().project->clips.front().midi->notes.front().id==note);auto bytes=serialize(*s.state().project);CHECK(deserialize(bytes)==*s.state().project);CHECK(s.undo());CHECK(s.redo());
+    auto rev=s.state().revision;notes[0].velocity=0;rejects([&]{s.execute(SetMidiNotes{id,notes});});CHECK(s.state().revision==rev);rejects([&]{s.execute(MoveMidiClip{id,Id{"missing"},0});});rejects([&]{s.execute(TrimMidiClip{id,-1,1});});
+    s.execute(RemoveClip{id});CHECK(s.state().project->clips.empty());CHECK(s.undo());
+    auto old=serialize(demo_project());const std::string line="MIDI 0\n";for(auto at=old.find(line);at!=std::string::npos;at=old.find(line))old.erase(at,line.size());old.replace(0,std::string("MRS_CORE_SNAPSHOT 12").size(),"MRS_CORE_SNAPSHOT 11");CHECK(deserialize(old)==demo_project());
+    p.time.tempos={{0,120},{ppq,60}};auto compiled=compile_midi_clips(p,std::array{track});CHECK(compiled[0][0].start==0&&compiled[0][0].end==72000);CHECK(compiled[0][1].start==72000&&compiled[0][1].end==120000);
+    ProjectStore trimmed(p);trimmed.execute(SplitMidiClip{id,ppq,new_id()});compiled=compile_midi_clips(*trimmed.state().project,std::array{track});CHECK(compiled[0][0].end==24000&&compiled[0][1].start==24000);MidiPlayback scheduler;scheduler.prepare(compiled[0]); // shared boundary is off then on
+}
+void schedule(){MidiPlayback p;p.prepare({{63,64,60,127,0},{64,128,60,100,0}});MidiBuffer b;CHECK(p.render(0,64,true,b));CHECK(b.size==1&&b.events[0].offset==63&&b.events[0].kind==MidiKind::note_on);b.clear();CHECK(p.render(64,64,true,b));CHECK(b.size==2&&b.events[0].kind==MidiKind::note_off&&b.events[1].kind==MidiKind::note_on);b.clear();CHECK(p.render(128,17,true,b)&&b.size==1&&b.events[0].kind==MidiKind::note_off);
+    p.prepare({{0,200,60,127,0},{50,250,60,80,0}});b.clear();CHECK(p.render(100,17,true,b)&&b.size==1&&b.events[0].kind==MidiKind::note_on);b.clear();CHECK(p.render(0,17,true,b)&&b.size==2&&b.events[0].kind==MidiKind::note_off&&b.events[1].kind==MidiKind::note_on);b.clear();CHECK(p.render(17,17,false,b)&&b.size==1);b.clear();CHECK(p.render(17,17,false,b)&&b.size==0);b.clear();CHECK(p.render(17,17,true,b)&&b.size==1);
+    std::vector<PlaybackMidiNote> crowded;for(int i=0;i<129;++i)crowded.push_back({0,100,static_cast<std::uint8_t>(i%128),100,static_cast<std::uint8_t>(i/128)});rejects([&]{p.prepare(crowded);});
+    crowded.clear();for(int i=0;i<128;++i){crowded.push_back({0,96,static_cast<std::uint8_t>(i),100,0});crowded.push_back({96,192,static_cast<std::uint8_t>(i),100,0});}p.prepare(crowded);b.clear();CHECK(p.render(0,96,true,b)&&b.size==128);b.clear();CHECK(p.render(96,32,true,b)&&b.size==256);b.clear();CHECK(p.render(96,32,true,b)&&b.size==256); // loop/seek head: no duplicate obsolete offs
+    crowded.clear();for(int i=0;i<300;++i)crowded.push_back({i*2,i*2+1,60,100,0});p.prepare(crowded);b.clear();allocations=0;probe=true;CHECK(!p.render(0,1024,true,b));probe=false;CHECK(allocations==0);
+}
+void engine(){for(auto workers:{1U,2U,4U}){auto e=std::make_shared<AudioEngine>();RenderGraph g;g.mixer.resize(2);g.inserts={synth(),{}};g.midi_notes={{{63,64,60,127,0},{64,128,60,127,0}}, {}};g.live_midi={true,false};e->prepare({48000,0,2,128,17,workers},g);std::array<float,256> out{};e->enqueue({ControlKind::play});allocations=0;probe=true;e->process(nullptr,out.data(),128);probe=false;CHECK(allocations==0);for(int f=0;f<128;++f)CHECK(out[f*2]==(f>=63?.25f:0.f));e->process(nullptr,out.data(),17);CHECK(out[0]==0);
+        e->enqueue({ControlKind::seek,80});probe=true;e->process(nullptr,out.data(),17);probe=false;CHECK(allocations==0&&out[0]==.25f);e->enqueue({ControlKind::pause});e->process(nullptr,out.data(),17);CHECK(out[0]==0);e->enqueue({ControlKind::play});e->process(nullptr,out.data(),17);CHECK(out[0]==.25f);e->enqueue({ControlKind::stop});e->process(nullptr,out.data(),17);CHECK(out[0]==0);
+        e->enqueue({ControlKind::seek,0});e->enqueue({ControlKind::loop,0,96});e->enqueue({ControlKind::play});e->process(nullptr,out.data(),128);for(int f=0;f<128;++f)CHECK(out[f*2]==(f>=63&&f<96?.25f:0.f));CHECK(!e->metrics().processing_fault);
+    }
+    auto e=std::make_shared<AudioEngine>();RenderGraph g;g.mixer.resize(3);g.inserts={synth(),{}, {}};g.live_midi={true,false,false};g.midi_notes={{{0,10000,60,127,0}}, {}, {}};g.outputs={2,2,no_mixer_track};g.buses={false,false,true};auto data=std::make_shared<AudioData>(sine_fixture(48000,2,10000,440));std::fill(data->samples.begin(),data->samples.end(),0.f);g.voices={{data,0,0,10000,{{0,0,1},{1,1,1}},{},1}};
+    e->prepare({48000,0,2,128,128,4},g);AheadRenderer ahead(e,128,1024);ahead.start();CHECK(e->metrics().mixed_anticipation);e->enqueue({ControlKind::play});std::array<float,256> out{};probe=true;ahead.process(nullptr,out.data(),128);probe=false;CHECK(allocations==0&&out.back()==.25f&&!e->metrics().processing_fault);e->enqueue({ControlKind::seek,500});ahead.process(nullptr,out.data(),128);CHECK(out.back()==.25f);e->enqueue({ControlKind::stop});ahead.process(nullptr,out.data(),128);CHECK(out.back()==0);ahead.stop();
+}
+void application(const std::filesystem::path& fixture){Directory dir;const auto plugin=dir.path/"instrument.vst3";std::filesystem::copy_file(fixture,plugin);auto u=plugin.u8string();auto info=probe_vst3(std::string(u.begin(),u.end())).front();NativeInsert fx;fx.id=new_id();fx.kind=InsertKind::vst3;fx.plugin_path=info.path;fx.class_id=info.class_id;fx.plugin_name=info.name;
+    Application a;a.new_project();auto track=a.add_instrument_track("Keys");a.set_inserts(track,{fx});a.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1},2});auto clip=a.create_midi_clip(track,0,4*ppq);a.set_midi_notes(clip,{{new_id(),0,ppq,60,127,0}});auto time=a.services().projects->state().project->time;time.tempos={{0,60}};a.set_time_map(time);CHECK(a.services().projects->state().project->clips.front().midi->length==4*ppq);CHECK(a.undo());CHECK(a.redo());CHECK(a.undo());a.play();std::array<float,256> out{};a.engine()->process(nullptr,out.data(),128);CHECK(out.back()>.2f);rejects([&]{a.remove_clip(clip);});a.pause();a.engine()->process(nullptr,out.data(),128);a.poll();CHECK(out.back()==0);a.seek(24000);a.engine()->process(nullptr,out.data(),128);a.poll();a.split_clip(clip,24000);CHECK(a.services().projects->state().project->clips.size()==2);CHECK(a.undo());CHECK(a.redo());CHECK(a.undo());a.duplicate_clip(clip);CHECK(a.undo());
+    const auto file=dir.path/"song.mrsproject";a.save_project(file);a.save_project(dir.path/"copy"/"song.mrsproject");a.open_project(file);CHECK(a.services().projects->state().project->clips[0].midi->notes.size()==1);a.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1},2});a.play();a.engine()->process(nullptr,out.data(),128);check(out.back()>.2f,"reopened MIDI clip audio");a.pause();a.engine()->process(nullptr,out.data(),128);a.poll();auto audioTrack=a.add_audio_track("Raw input");a.set_track_input(audioTrack,0);a.connect(std::make_unique<ManualDevice>(),{0,48000,128,{0}, {0,1},2});a.set_track_armed(audioTrack,true);a.start_recording(dir.path/"raw.wav");std::array<float,128> input;input.fill(.125f);a.engine()->process(input.data(),out.data(),128);a.stop_recording();CHECK(a.services().projects->state().project->clips.size()==2);auto raw=open_wav(dir.path/"raw.wav");CHECK(raw.frames()==128&&std::abs(raw.samples[0]-.125f)<.00001f);a.disconnect();
+}
+}
+void* operator new(std::size_t n){if(probe)++allocations;if(auto p=std::malloc(n?n:1))return p;throw std::bad_alloc{};}void operator delete(void* p)noexcept{std::free(p);}void operator delete(void* p,std::size_t)noexcept{std::free(p);}
+int main(int argc,char** argv){try{CHECK(argc==2);model();schedule();engine();application(argv[1]);std::cout<<"PASS MIDI clips\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

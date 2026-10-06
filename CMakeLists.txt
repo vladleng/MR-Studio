@@ -6,7 +6,7 @@ if(MSVC)
 endif()
 add_library(mrs_core STATIC
   core/src/model.cpp core/src/timeline.cpp core/src/transport.cpp
-  core/src/project_store.cpp core/src/serialization.cpp core/src/fixtures.cpp core/src/musical.cpp core/src/arrangement.cpp)
+  core/src/project_store.cpp core/src/serialization.cpp core/src/fixtures.cpp core/src/musical.cpp core/src/arrangement.cpp core/src/midi_clips.cpp)
 target_include_directories(mrs_core PUBLIC core/include)
 target_compile_features(mrs_core PUBLIC cxx_std_20)
 set_target_properties(mrs_core PROPERTIES CXX_EXTENSIONS OFF)
@@ -34,7 +34,7 @@ include(cmake/Vst3.cmake)
 
 find_package(Threads REQUIRED)
 add_library(mrs_audio STATIC
-  core/audio/src/engine.cpp core/audio/src/channel_workers.cpp core/audio/src/ahead_renderer.cpp core/audio/src/mixed_renderer.cpp core/audio/src/wav.cpp core/audio/src/device.cpp core/audio/src/offline_device.cpp core/audio/src/waveform.cpp core/audio/src/read_ahead.cpp core/audio/src/recording.cpp)
+  core/audio/src/engine.cpp core/audio/src/midi_playback.cpp core/audio/src/channel_workers.cpp core/audio/src/ahead_renderer.cpp core/audio/src/mixed_renderer.cpp core/audio/src/wav.cpp core/audio/src/device.cpp core/audio/src/offline_device.cpp core/audio/src/waveform.cpp core/audio/src/read_ahead.cpp core/audio/src/recording.cpp)
 target_include_directories(mrs_audio PUBLIC core/audio/include)
 target_link_libraries(mrs_audio PUBLIC mrs_core Threads::Threads mrs_processing)
 if(WIN32)

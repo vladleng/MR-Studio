@@ -5,6 +5,7 @@
 #include <mrs/device.hpp>
 #include <fstream>
 #include <mrs/arrangement.hpp>
+#include <mrs/midi_clips.hpp>
 #include <mrs/waveform.hpp>
 #include <future>
 #include <mrs/recording.hpp>
@@ -95,6 +96,10 @@ public:
     void trim_clip(const Id&, Sample start, Sample end);
     Id split_clip(const Id&, Sample position);
     void remove_clip(const Id&);
+    Id create_midi_clip(const Id& track,Tick start,Tick length=4*ppq);
+    void set_midi_notes(const Id&,std::vector<MidiNote>);
+    Id duplicate_clip(const Id&);
+    void set_time_map(TimeMap);
     Sample source_frames(const Id&);
     void prepare_waveforms();
     const audio::Waveform* waveform(std::string_view source) const;
@@ -175,6 +180,7 @@ private:
     std::uint64_t applied_mix_revision_{};
     void publish_mix();
     void prepare_mixer(audio::RenderGraph&);
+    void prepare_midi_clips(audio::RenderGraph&);
     void prepare_inserts(audio::RenderGraph&,const audio::DeviceConfig&);
     bool history(bool redo);
     void sync_arm();
