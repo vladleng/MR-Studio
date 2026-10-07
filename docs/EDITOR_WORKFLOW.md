@@ -73,3 +73,29 @@ MIDI/ASIO/VST3 и Windows mixed DPI для upd1 NOT RUN. #68/#24 открыты 
 [Workflow](EDITOR_WORKFLOW.md), [checklist](MRS_STAGE_4F_CHECKLIST.md).
 Общее откладывание остальных доработок сохраняется; эти семь запрошены отдельно.
 0.2g/0.2h не начаты.
+
+## 0.2f upd1 fix1 — 2026-10-07
+
+По пяти замечаниям пользователя выпущена **0.2f upd1 fix1**.
+Record сохраняет красный цвет при фокусе; после отказа UI показывает фактический
+статус записи. На скриншоте обе R выключены: перед Record включить R нужной дорожки.
+Автоматического Arm нет. Проверены отказ без Arm и успешная запись с Arm.
+Piano roll использует глобальные ticks проекта. Play/Pause/Stop в редакторе и
+Space управляют общим транспортом; белые плейхэды piano roll/контроллеров берут
+позицию engine. Нажатие на линейку piano roll выполняет общий seek.
+Все MIDI-клипы той же дорожки видны на общей шкале: активный светлее, остальные
+затемнены и доступны только для просмотра; промежутки тёмные. Source offsets
+сохраняются для нот/контроллеров и точных форм. Zoom/scroll обеих областей общий.
+ПКМ больше не удаляет ноты. Двойной левый клик/Delete и общий Undo сохранены.
+При вертикальном переносе ноты audition выключает старую высоту и включает новую;
+отпускание мыши, Escape, скрытие и потеря фокуса выключают ноту. Один Undo на жест.
+Source `68f1dc5968e89254213cfe48e899b877e1fadd1f`, только локально; schema 13 без изменений. Новые callback
+allocation/locks/I/O не добавлены; используется существующая очередь audition.
+Release без warnings; **113/113 CTest PASS (60.06 s)**; packaged recording/clips/live/J3 PASS.
+Регрессии: отказ Record без Arm, real state UI, global timeline/Play/Pause,
+ghost clips read-only, ПКМ без mutation, drag retune одной voice, Escape release PASS.
+Software previews 100%/150% просмотрены. Физическая MIDI/ASIO/VST3 и mixed DPI
+для fix1 NOT RUN; #68/#24 остаются открыты до пользовательской приёмки.
+Пакет `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Builds/MR-Studio-0.2f-upd1-fix1-Editor-JUCE-ASIO-Windows-local`; EXE SHA256 `D67EE9F15146E770F7A9A307FBC5F9A451854C36E1F7F31E357DA54C4D1C2090`.
+0.2g/0.2h не начаты. Следующий шаг: пользователь проверяет пять исправлений,
+затем продолжение Stage 4. Остальные доработки по прежней договорённости отложены.
