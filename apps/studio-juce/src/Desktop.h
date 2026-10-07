@@ -66,7 +66,7 @@ public:
     void toggleEditor();
     bool clipEditorOpen() const;
     void activateClip(mrs::Id);
-    void attachClipEditor(juce::Component*,mrs::Id,bool);
+    void attachClipEditor(juce::Component*,mrs::Id,bool,bool persist=true);
     std::unique_ptr<juce::Component> dockedEditor;
     std::optional<mrs::Id> dockedClip;
     std::vector<mrs::Clip> recordingPreview;
