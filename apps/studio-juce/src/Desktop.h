@@ -32,6 +32,7 @@ public:
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
     bool keyPressed(const juce::KeyPress&) override;
+    bool workspaceShortcut(const juce::KeyPress&);
     bool keyStateChanged(bool) override;
     void spaceKey(bool);
     void focusLost(FocusChangeType) override;

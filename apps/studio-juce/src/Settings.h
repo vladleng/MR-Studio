@@ -10,7 +10,7 @@ inline juce::String deviceLayout(const mrs::audio::DeviceInfo& info) {
 }
 struct ViewSettings {
     bool sidebar{true},snap{},controllersOpen{true},editorAttached{};
-    int browserWidth{260},trackHeight{128},mixerHeight{365};
+    int browserWidth{260},trackHeight{128},mixerHeight{365},editorHeight{500};
     double pixelsPerSecond{30};
     juce::String windowState,inputs,deviceChannels;
     juce::String encode() const {
@@ -18,7 +18,7 @@ struct ViewSettings {
         object->setProperty("version",1);object->setProperty("sidebar",sidebar);
         object->setProperty("snap",snap);object->setProperty("browserWidth",browserWidth);
         object->setProperty("trackHeight",trackHeight);object->setProperty("pixelsPerSecond",pixelsPerSecond);
-        object->setProperty("mixerHeight",mixerHeight);object->setProperty("controllersOpen",controllersOpen);object->setProperty("editorAttached",editorAttached);
+        object->setProperty("mixerHeight",mixerHeight);object->setProperty("editorHeight",editorHeight);object->setProperty("controllersOpen",controllersOpen);object->setProperty("editorAttached",editorAttached);
         object->setProperty("windowState",windowState);object->setProperty("inputs",inputs);
         object->setProperty("deviceChannels",deviceChannels);
         return juce::JSON::toString(juce::var(object));
@@ -32,6 +32,7 @@ struct ViewSettings {
         result.browserWidth=juce::jlimit(200,700,static_cast<int>(value["browserWidth"]));
         result.trackHeight=juce::jlimit(128,360,static_cast<int>(value["trackHeight"]));
         if(value.hasProperty("mixerHeight"))result.mixerHeight=juce::jlimit(260,1400,static_cast<int>(value["mixerHeight"]));
+        if(value.hasProperty("editorHeight"))result.editorHeight=juce::jlimit(500,1400,static_cast<int>(value["editorHeight"]));
         auto scale=static_cast<double>(value["pixelsPerSecond"]);
         result.pixelsPerSecond=std::isfinite(scale)?juce::jlimit(2.,2400.,scale):30.;
         result.windowState=value["windowState"].toString().substring(0,1024);

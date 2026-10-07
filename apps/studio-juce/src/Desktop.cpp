@@ -167,7 +167,7 @@ void Desktop::resized(){menu.setBounds(0,0,getWidth(),26);projectTitle.setBounds
     int insertHeight=0;for(const auto& track:project()->tracks)insertHeight=juce::jmax(insertHeight,static_cast<int>(track.inserts.size())*22);
     insertHeight=juce::jmax(insertHeight,static_cast<int>(project()->master_inserts.size())*22);
     faderHeight=juce::jmax(40,baseHeight-220);
-    const int mixerHeight=showEdit?juce::jmin(maxHeight,juce::jmax(500,view.mixerHeight)):showMix ? juce::jmin(maxHeight,baseHeight+insertHeight) : 0;
+    const int mixerHeight=showEdit?juce::jmin(maxHeight,view.editorHeight):showMix ? juce::jmin(maxHeight,baseHeight+insertHeight) : 0;
     arrangeArea={8,70,available,getHeight()-128-mixerHeight};arrangement->setBounds(arrangeArea);
     mixArea={8,arrangeArea.getBottom()+6,available,mixerHeight-6};
     mixerDivider.setVisible(showMix||showEdit);mixerDivider.setBounds(8,arrangeArea.getBottom(),available,6);
@@ -199,9 +199,9 @@ void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFon
     if(mixerDivider.isVisible()){g.setColour(juce::Colour(0xff697580));g.fillRect(mixerDivider.getBounds().withHeight(1).translated(0,2));}
     g.setColour(juce::Colours::whitesmoke);g.drawText(juce::String(static_cast<double>(app.engine()->state().sample)/project()->sample_rate,2)+" s",(getWidth()-420)/2-86,getHeight()-44,80,28,juce::Justification::right);
 }
-void Desktop::mouseDown(const juce::MouseEvent& e){const auto local=e.getEventRelativeTo(this);resizingBrowser=sidebar&&browserDivider.getBounds().contains(local.getPosition());resizingMixer=mixerDivider.isVisible()&&mixerDivider.getBounds().contains(local.getPosition());mixerDragHeight=app.workspace()==mrs::desktop::Workspace::edit?mixArea.getHeight()+6:view.mixerHeight;mixerDragY=local.y;}
+void Desktop::mouseDown(const juce::MouseEvent& e){const auto local=e.getEventRelativeTo(this);resizingBrowser=sidebar&&browserDivider.getBounds().contains(local.getPosition());resizingMixer=mixerDivider.isVisible()&&mixerDivider.getBounds().contains(local.getPosition());mixerDragHeight=app.workspace()==mrs::desktop::Workspace::edit?view.editorHeight:view.mixerHeight;mixerDragY=local.y;}
 void Desktop::resizeBrowser(int width){browserWidth=juce::jlimit(200,juce::jmax(200,juce::jmin(700,getWidth()-700)),width);resized();repaint();}
-void Desktop::resizeMixer(int height){view.mixerHeight=juce::jlimit(260,juce::jmax(260,getHeight()-290),height);resized();repaint();}
+void Desktop::resizeMixer(int height){auto& panelHeight=app.workspace()==mrs::desktop::Workspace::edit?view.editorHeight:view.mixerHeight;const int minimum=app.workspace()==mrs::desktop::Workspace::edit?500:260;panelHeight=juce::jlimit(minimum,juce::jmax(minimum,getHeight()-290),height);resized();repaint();}
 void Desktop::updatePerformance(const mrs::audio::DeviceStatus& status,bool hardware){
     const bool running=hardware&&status.phase==mrs::audio::DevicePhase::running;
     const bool measured=running&&std::isfinite(status.cpu_load)&&status.cpu_load>=0;
@@ -244,7 +244,9 @@ bool Desktop::shortcutAllowedFor(juce::Component* focused) const {
     for(auto* c=focused;c&&c!=this;c=c->getParentComponent())if(dynamic_cast<juce::TextEditor*>(c)||dynamic_cast<juce::ComboBox*>(c))return false;
     return true;
 }
-bool Desktop::keyPressed(const juce::KeyPress& k){if(!shortcutAllowed())return false;
+bool Desktop::workspaceShortcut(const juce::KeyPress& k){if(k.getModifiers().isAnyModifierKeyDown()||juce::Component::getCurrentlyModalComponent())return false;
+    if(k.getKeyCode()==juce::KeyPress::F2Key){run([&]{toggleEditor();});return true;}if(k.getKeyCode()==juce::KeyPress::F3Key){const bool open=app.workspace()!=mrs::desktop::Workspace::mix;if(open&&clipEditorOpen())toggleEditor();setWorkspace(open?mrs::desktop::Workspace::mix:mrs::desktop::Workspace::arrange);return true;}if(k.getKeyCode()==juce::KeyPress::F5Key){sidebar=!sidebar;resized();repaint();return true;}return false;}
+bool Desktop::keyPressed(const juce::KeyPress& k){if(workspaceShortcut(k))return true;if(!shortcutAllowed())return false;
     auto c=k.getKeyCode();if(k.getModifiers().isAltDown())return false;if(k.getModifiers().isCtrlDown()){if(c=='Z'){action(10);return true;}if(c=='Y'){action(11);return true;}if(c=='S'){action(3);return true;}if(c=='O'){action(2);return true;}if(c=='N'){action(1);return true;}return false;}
     if(k.getModifiers().isShiftDown())return false;
     if(c=='S'){action(24);return true;}if(c=='R'){action(33);return true;}if(c==juce::KeyPress::backspaceKey||c==juce::KeyPress::deleteKey){action(25);return true;}return c==juce::KeyPress::spaceKey;

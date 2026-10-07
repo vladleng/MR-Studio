@@ -5,6 +5,7 @@
 #include <mrs/processing.hpp>
 #include <mrs/profiling.hpp>
 #include <array>
+#include <bitset>
 #include <atomic>
 #include <filesystem>
 #include <span>
@@ -186,7 +187,7 @@ struct RealtimeState {
 };
 class AudioEngine {
 public:
-    struct LiveMidi {std::uint64_t generation{};std::size_t track{};processing::MidiEvent event;std::uint64_t timestamp_ns{};};
+    struct LiveMidi {std::uint64_t generation{};std::size_t track{};processing::MidiEvent event;std::uint64_t timestamp_ns{};std::uint32_t audition_release_ms{};};
     // Single non-RT MIDI bridge producer, device callback consumer. No graph access here.
     bool enqueue_live_midi(const LiveMidi& event) noexcept {if(live_midi_queue_.push(event))return true;++midi_dropped_;midi_panic_=true;midi_record_fault_=true;return false;}
     // Message-thread producer only; independent of the driver bridge SPSC. Audition is not recorded.
@@ -228,6 +229,12 @@ public:
 private:
     SpscQueue<LiveMidi,1024> live_midi_queue_;
     SpscQueue<LiveMidi,128> audition_midi_queue_;
+    struct AuditionTail {processing::MidiEvent off;std::uint32_t remaining{},fade{};bool active{},pending{};};
+    // Callback prepares each track's tail; its channel worker alone advances it, then joins.
+    std::array<AuditionTail,max_mixer_tracks> audition_tails_{};
+    std::array<std::uint32_t,max_mixer_tracks> audition_live_busy_{};
+    std::array<std::bitset<2048>,max_mixer_tracks> audition_live_notes_{};
+    std::array<std::bitset<32>,max_mixer_tracks> audition_live_sustain_{};
     std::vector<processing::MidiBuffer> live_midi_buffers_; // allocated only by quiescent prepare
     std::vector<processing::MidiBuffer> chunk_midi_buffers_;
     std::vector<MidiPlayback> midi_playback_;

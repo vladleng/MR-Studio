@@ -73,7 +73,7 @@ public:
     Id add_instrument_track(std::string name);
     void set_midi_input(const Id&,std::string port,int channel=-1,bool monitor=true);
     std::string midi_status(const Id&) const;
-    bool audition_note(const Id& track,int pitch,int velocity,int channel=0,bool on=true);
+    bool audition_note(const Id& track,int pitch,int velocity,int channel=0,bool on=true,bool soft_release=false);
     void midi_panic() noexcept {engine_->midi_panic();}
     Id add_bus(std::string name);
     Id add_return_send(const Id& source, std::string name);

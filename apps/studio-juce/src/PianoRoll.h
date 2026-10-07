@@ -55,12 +55,12 @@ public:
     void mouseDrag(const juce::MouseEvent& e) override{
         if(!gesture)return;if(gesture==4){box=juce::Rectangle<float>(origin,e.position);selected=initialSelection;for(const auto& n:notes)if(noteRect(n).intersects(box))selected.insert(n.id.value);repaint();return;}
         notes=before;const auto dt=static_cast<mrs::Tick>(std::llround((e.position.x-origin.x)/beatWidth*mrs::ppq));mrs::Tick snapped=grid>0?static_cast<mrs::Tick>(std::llround(static_cast<double>(dt)/grid))*grid:dt;
-        if(gesture==1){if(std::abs(e.position.x-origin.x)<3.f)snapped=0;else if(grid>0){const auto anchor=std::find_if(before.begin(),before.end(),[&](const auto& n){return n.id==dragNote;});if(anchor!=before.end()){const auto global=clip.start+anchor->start-clip.source_offset;snapped=static_cast<mrs::Tick>(std::llround(static_cast<double>(global+dt)/grid))*grid-global;}}}
+        if(gesture==1){if(std::abs(e.position.x-origin.x)<12.f)snapped=0;else if(grid>0){const auto anchor=std::find_if(before.begin(),before.end(),[&](const auto& n){return n.id==dragNote;});if(anchor!=before.end()){const auto global=clip.start+anchor->start-clip.source_offset;snapped=static_cast<mrs::Tick>(std::llround(static_cast<double>(global+dt)/grid))*grid-global;}}}
         if(gesture==3){const int dv=static_cast<int>(std::lround((origin.y-e.position.y)*.7f));for(auto& n:notes)if(selected.contains(n.id.value))n.velocity=juce::jlimit(1,127,n.velocity+dv);}
         else {mrs::Tick low=-mrs::max_tick,high=mrs::max_tick;int pitchLow=-127,pitchHigh=127;for(const auto& n:before)if(selected.contains(n.id.value)){low=std::max(low,gesture==2?1-n.length:std::min(clip.source_offset,n.start)-n.start);high=std::min(high,std::max(clip.source_offset+clip.length,n.start+n.length)-n.start-n.length);pitchLow=std::max(pitchLow,-n.pitch);pitchHigh=std::min(pitchHigh,127-n.pitch);}
             const auto delta=std::clamp(snapped,low,std::max(low,high));const int dp=juce::jlimit(pitchLow,pitchHigh,static_cast<int>(std::lround((origin.y-e.position.y)/rowHeight)));for(auto& n:notes)if(selected.contains(n.id.value)){if(gesture==2)n.length+=delta;else{n.start+=delta;n.pitch+=dp;}}}if(gesture==1)for(const auto& n:notes)if(n.id==dragNote&&n.pitch!=sounding){releaseNote();audition(n.pitch,n.velocity,n.channel);break;}repaint();
     }
-    void mouseUp(const juce::MouseEvent&) override{releaseNote();if(gesture&&gesture!=4){auto next=notes;notes=before;gesture=0;const auto p=owner.project();const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(at!=p->clips.end()&&at->midi&&*at->midi==beforeClip)submit(std::move(next));else{report("Notes changed during gesture; preview cancelled");sync();}}gesture=0;repaint();}
+    void mouseUp(const juce::MouseEvent&) override{releaseNote(true);if(gesture&&gesture!=4){auto next=notes;notes=before;gesture=0;const auto p=owner.project();const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(at!=p->clips.end()&&at->midi&&*at->midi==beforeClip)submit(std::move(next));else{report("Notes changed during gesture; preview cancelled");sync();}}gesture=0;repaint();}
     void visibilityChanged() override{if(!isShowing())cancel();}
     void focusLost(FocusChangeType) override{cancel();}
     bool keyPressed(const juce::KeyPress& key) override{
@@ -86,6 +86,6 @@ private:
     int hitNote(juce::Point<float> p) const{if(!insideActive(p.x))return -1;if(p.x<scrollX()+keys||p.y<scrollY()+ruler)return -1;for(std::size_t i=notes.size();i>0;--i)if(noteRect(notes[i-1]).contains(p))return static_cast<int>(i-1);return -1;}
     void submit(std::vector<mrs::MidiNote> next){try{releaseNote();if(next==notes)return;owner.app.set_midi_notes(id,std::move(next));owner.refresh();sync();if(changed)changed();}catch(const std::exception& e){report(juce::String::fromUTF8(e.what()));sync();}}
     void audition(int pitch,int velocity,int channel){if(owner.app.audition_note(track,pitch,velocity,channel)){sounding=pitch;soundChannel=channel;}}
-    void releaseNote(){if(sounding>=0){owner.app.audition_note(track,sounding,100,soundChannel,false);sounding=-1;}}
+    void releaseNote(bool soft=false){if(sounding>=0){owner.app.audition_note(track,sounding,100,soundChannel,false,soft);sounding=-1;}}
 };
 }
