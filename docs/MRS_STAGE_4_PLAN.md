@@ -78,3 +78,7 @@ Live foot-controller/section automation не включены в эти подэ
 Основа: [MIDI_PROCESSOR_GRAPH](MIDI_PROCESSOR_GRAPH.md),
 [MUSICAL_TIMELINE](MUSICAL_TIMELINE.md), [VERSIONING](VERSIONING.md).
 Актуальная сборка и незавершённые проверки: [PROJECT_CONTEXT](PROJECT_CONTEXT.md).
+
+0.2f upd1 (2026-10-07): отдельно запрошены семь изменений
+[editor workflow](EDITOR_WORKFLOW.md), Release/113 CTest/package PASS; #68 ожидает
+приёмку. Остальные доработки отложены; 0.2g/0.2h не начаты.
