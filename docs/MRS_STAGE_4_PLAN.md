@@ -1,5 +1,24 @@
 # MRS Stage 4 — MIDI и метроном: подэтапы
 
+## 0.2f upd3 fix1 — 2026-10-07
+
+Пользователь подтвердил 0.2f upd3: «Теперь запись работает как надо», перетаскивание
+работает и перемещение клипов отображается в редакторе. Это приёмка указанных
+исправлений, а не всех remaining hardware checklist пунктов Stage 4.
+Косметический фикс: MIDI clip fill в Arrange 72%, ноты piano roll 78% (ghost 65%);
+сетка слегка просвечивает. Выбранные клипы/активные ноты рисуются последними,
+полупрозрачная заливка показывает нижний MIDI-клип/ноты при перекрытии.
+Окантовка audio/MIDI/recording preview clips уменьшена с 1.5 до 0.75 logical px,
+углы скруглены на 2 logical px. MIDI notes без окантовки, velocity marker сохранён.
+Hit bounds, selection/drag/trim, Undo, transport, DSP и schema 13 не менялись.
+Source `2c573f0ea85b1277792078b383d906b3bba23987` локально; пакет `MR-Studio-0.2f-upd3-fix1-UI-JUCE-ASIO-Windows-local`;
+EXE SHA256 `1E4701808151314524515D1EE5471DA59548A2525E20441C118C8A5EF1AB3B8A`. Release GUI build PASS без warnings; packaged recording/clips/live/J3 PASS.
+Software previews Arrange/piano roll 100%/150% просмотрены. Полный 113-test CTest
+для косметического фикса не повторялся: 113/113 относится к базовой upd3.
+Physical mixed DPI и визуальная пользовательская приёмка fix1 ожидаются.
+Следующий шаг — пользователь проверяет оформление; 0.2g/0.2h не начаты.
+
+
 План зафиксирован 2026-10-06 по запросу пользователя. Parent: MRS #24.
 Это MIDI-этап DAW, отдельный от исторического SHARED Stage 4 / #19.
 Каждый подэтап получает следующую букву версии, отдельный локальный пакет,
