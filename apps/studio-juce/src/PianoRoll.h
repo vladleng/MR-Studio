@@ -19,6 +19,7 @@ public:
     int auditionPitch() const{return sounding;}
     mrs::Tick playheadTick() const{const auto p=owner.project();return mrs::Timeline(p->time,p->sample_rate).to_ticks(owner.app.engine()->state().sample);}
     void transport(int command){cancel();owner.action(command);repaint();}
+    void activate(mrs::Id next){cancel();id=std::move(next);selected.clear();cursor=0;setEnabled(true);sync();}
     mrs::MidiClip clip;
     void sync(){if(gesture)return;const auto p=owner.project();const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(at==p->clips.end()||!at->midi){setEnabled(false);releaseNote();return;}track=at->track;clip=*at->midi;notes=clip.notes;contextClips.clear();timelineEnd=clip.start+clip.length;for(const auto& c:p->clips)if(c.midi&&c.track==track){contextClips.push_back(c);timelineEnd=std::max(timelineEnd,c.midi->start+c.midi->length);}timelineEnd=std::min(mrs::max_tick,timelineEnd+4*mrs::ppq);if(cursor<clip.source_offset)cursor=clip.source_offset;std::erase_if(selected,[&](const auto& value){return std::none_of(notes.begin(),notes.end(),[&](const auto& n){return n.id.value==value;});});setSize(keys+static_cast<int>(std::min(1000000.,std::ceil(static_cast<double>(timelineEnd)/mrs::ppq*beatWidth)))+2,ruler+128*static_cast<int>(rowHeight));repaint();if(viewChanged)viewChanged();}
     juce::Rectangle<float> noteRect(const mrs::MidiNote& n) const{return {keys+static_cast<float>(static_cast<double>(clip.start+n.start-clip.source_offset)/mrs::ppq)*beatWidth,ruler+(127-n.pitch)*rowHeight,static_cast<float>(static_cast<double>(n.length)/mrs::ppq)*beatWidth,rowHeight-1};}
@@ -38,7 +39,7 @@ public:
         if(hasKeyboardFocus(true)){g.setColour(juce::Colours::skyblue);g.drawRect(getLocalBounds(),1);}
     }
     void mouseDown(const juce::MouseEvent& e) override{
-        grabKeyboardFocus();sync();releaseNote();if(!e.mods.isLeftButtonDown())return;if(e.y<scrollY()+ruler&&e.x>=scrollX()+keys){const auto p=owner.project();const auto tick=std::clamp(static_cast<mrs::Tick>(std::llround((e.x-keys)/beatWidth*mrs::ppq)),mrs::Tick{0},mrs::max_tick);owner.run([&]{owner.app.seek(mrs::Timeline(p->time,p->sample_rate).to_samples(tick));});repaint();return;}if(!editable())return;
+        grabKeyboardFocus();sync();releaseNote();if(!e.mods.isLeftButtonDown())return;if(e.y<scrollY()+ruler&&e.x>=scrollX()+keys){const auto p=owner.project();const auto tick=std::clamp(static_cast<mrs::Tick>(std::llround((e.x-keys)/beatWidth*mrs::ppq)),mrs::Tick{0},mrs::max_tick);owner.run([&]{owner.app.seek(mrs::Timeline(p->time,p->sample_rate).to_samples(tick));});repaint();return;}if(e.x>=scrollX()+keys&&e.y>=scrollY()+ruler){for(const auto& c:contextClips)if(c.id!=id&&e.x>=keys+static_cast<double>(c.midi->start)/mrs::ppq*beatWidth&&e.x<keys+static_cast<double>(c.midi->start+c.midi->length)/mrs::ppq*beatWidth){cancel();owner.activateClip(c.id);return;}}if(!editable())return;
         if(e.x<scrollX()+keys){if(e.y>=scrollY()+ruler)audition(juce::jlimit(0,127,127-(e.y-ruler)/static_cast<int>(rowHeight)),100,0);return;}
         cursor=position(static_cast<float>(e.x));const auto hit=hitNote(e.position);
         if(!insideActive(e.position.x))return;

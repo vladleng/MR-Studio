@@ -5,6 +5,7 @@
 #include <mrs/offline_device.hpp>
 #include <mrs/vst3.hpp>
 #include <future>
+#include <set>
 
 namespace ui {
 class Desktop;
@@ -62,6 +63,9 @@ public:
     void openMidiClip(mrs::Id);
     void openClipEditor(mrs::Id);
     void openSelectedEditor();
+    void toggleEditor();
+    bool clipEditorOpen() const;
+    void activateClip(mrs::Id);
     void attachClipEditor(juce::Component*,mrs::Id,bool);
     std::unique_ptr<juce::Component> dockedEditor;
     std::optional<mrs::Id> dockedClip;
@@ -93,6 +97,7 @@ public:
     Theme theme;
     std::vector<mrs::MidiNote> noteClipboard;
     std::optional<mrs::Id> selectedTrack,selectedClip;
+    std::set<std::string> selectedClips;
     std::vector<mrs::processing::VstPlugin> catalog;
     std::array<mrs::audio::StereoPeak,mrs::audio::max_mixer_tracks> peaks{};
     mrs::audio::StereoPeak masterPeak{};
@@ -200,6 +205,7 @@ private:
     mrs::Sample dragStart{};
     float dragX{};
     int trim{};
+    bool selecting{};juce::Point<float> selectionOrigin;juce::Rectangle<float> selectionBox;
     static constexpr int header=70,left=250;
 };
 

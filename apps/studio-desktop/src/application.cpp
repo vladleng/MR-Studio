@@ -683,6 +683,7 @@ Id Application::split_clip(const Id& id, Sample position) {
     if(c->midi)edit(SplitMidiClip{id,Timeline(p->time,p->sample_rate).to_ticks(position),right});else edit(SplitAudioClip{id,position,right});return right;
 }
 void Application::remove_clip(const Id& id) { edit(RemoveClip{id}); }
+void Application::remove_clips(std::vector<Id> ids){struct RemoveClips final:ICommand{std::vector<Id> ids;std::string_view name()const override{return "Remove selected clips";}void apply(Project& p)const override{for(const auto& id:ids)RemoveClip{id}.apply(p);}} command;command.ids=std::move(ids);require(!command.ids.empty(),"Select clips to delete");edit(command);}
 Id Application::create_midi_clip(const Id& track,Tick start,Tick length){Clip c;c.id=new_id();c.track=track;c.name="MIDI clip";c.midi=MidiClip{start,length,0,{}};edit(AddMidiClip{c});return c.id;}
 bool Application::audition_note(const Id& track,int pitch,int velocity,int channel,bool on){
     if(recording()||pitch<0||pitch>127||velocity<1||velocity>127||channel<0||channel>15)return false;
@@ -963,7 +964,7 @@ std::vector<Clip> Application::midi_recording_preview() const {
     for(const auto& capture:midi_captures_){Clip c;c.id=Id{"record-preview-"+capture.track.value};c.track=capture.track;c.name="Recording MIDI";c.midi=capture.recorder->preview(time);result.push_back(std::move(c));}return result;
 }
 void Application::start_recording(const std::filesystem::path& destination) {
-    require_not_playing(); sync_arm(); require(!armed_tracks_.empty(),"Arm one or more audio/instrument tracks before recording");
+    require_not_recording(); sync_arm(); require(!armed_tracks_.empty(),"Arm one or more audio/instrument tracks before recording");
     require(audio_running() && device_config_,"connect audio before recording");
     require(audio_name_ != "Offline clock (no sound)","recording needs a hardware input; Offline clock cannot record");
     auto position=engine_->state(); require(!position.loop,"turn off loop before recording");
@@ -984,7 +985,7 @@ void Application::start_recording(const std::filesystem::path& destination) {
         bytes+=8*8192*inputs.size()*sizeof(float); pending.push_back(std::move(take));
     }
     require(disk+pending.size() <= 32 && bytes <= 256*1024*1024,"no disk voice capacity for recording");
-    device_->stop(); position=engine_->state();
+    device_->stop(); position=engine_->state();if(position.playback==PlaybackState::playing)position.playback=PlaybackState::paused;
     try {
         recording_error_.clear(); last_take_.clear(); last_takes_.clear(); last_recording_status_={};
         for (const auto& take : pending) captures_.push_back({take.track,std::make_shared<audio::Recorder>(take.path,p->sample_rate,position.sample,take.selectors)});

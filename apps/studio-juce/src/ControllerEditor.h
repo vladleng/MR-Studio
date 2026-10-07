@@ -18,6 +18,7 @@ public:
         add.onClick=[this]{edit(0);};apply.onClick=[this]{edit(1);};remove.onClick=[this]{edit(2);};reload();setSize(900,500);startTimer(150);
     }
     ~ControllerPanel() override{setLookAndFeel(nullptr);}
+    void activate(mrs::Id next){cancel();id=std::move(next);selected.reset();setEnabled(true);reload();}
     void setEmbedded(){embedded=true;resized();}
     void resized() override{const int width=(getWidth()-32)/5;std::array<juce::Component*,5> fields{&kind,&channel,&number,&position,&value};for(std::size_t i=0;i<fields.size();++i){const int x=16+static_cast<int>(i)*width;labels[i].setBounds(x,8,width-8,20);fields[i]->setBounds(x,30,width-8,28);}selector.setBounds(16,68,getWidth()-32,28);snap.setBounds(16,104,120,26);add.setBounds(146,104,110,26);apply.setBounds(266,104,110,26);remove.setBounds(386,104,110,26);graph.setBounds(16,140,getWidth()-32,getHeight()-(embedded?166:216));hint.setBounds(16,getHeight()-(embedded?24:68),getWidth()-32,embedded?20:60);}
     void paint(juce::Graphics& g) override{g.fillAll(juce::Colour(background));}

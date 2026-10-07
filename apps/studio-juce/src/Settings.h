@@ -9,7 +9,7 @@ inline juce::String deviceLayout(const mrs::audio::DeviceInfo& info) {
     juce::Array<juce::var> layout;layout.add(inputs);layout.add(outputs);return juce::JSON::toString(layout,true);
 }
 struct ViewSettings {
-    bool sidebar{true},snap{};
+    bool sidebar{true},snap{},controllersOpen{true},editorAttached{};
     int browserWidth{260},trackHeight{128},mixerHeight{365};
     double pixelsPerSecond{30};
     juce::String windowState,inputs,deviceChannels;
@@ -18,7 +18,7 @@ struct ViewSettings {
         object->setProperty("version",1);object->setProperty("sidebar",sidebar);
         object->setProperty("snap",snap);object->setProperty("browserWidth",browserWidth);
         object->setProperty("trackHeight",trackHeight);object->setProperty("pixelsPerSecond",pixelsPerSecond);
-        object->setProperty("mixerHeight",mixerHeight);
+        object->setProperty("mixerHeight",mixerHeight);object->setProperty("controllersOpen",controllersOpen);object->setProperty("editorAttached",editorAttached);
         object->setProperty("windowState",windowState);object->setProperty("inputs",inputs);
         object->setProperty("deviceChannels",deviceChannels);
         return juce::JSON::toString(juce::var(object));
@@ -27,6 +27,7 @@ struct ViewSettings {
         ViewSettings result;juce::var value;
         if(bytes.length()>65536||juce::JSON::parse(bytes,value).failed()||!value.isObject()||static_cast<int>(value["version"])!=1)
             throw std::runtime_error("Invalid JUCE view settings");
+        if(value.hasProperty("controllersOpen"))result.controllersOpen=static_cast<bool>(value["controllersOpen"]);if(value.hasProperty("editorAttached"))result.editorAttached=static_cast<bool>(value["editorAttached"]);
         result.sidebar=static_cast<bool>(value["sidebar"]);result.snap=static_cast<bool>(value["snap"]);
         result.browserWidth=juce::jlimit(200,700,static_cast<int>(value["browserWidth"]));
         result.trackHeight=juce::jlimit(128,360,static_cast<int>(value["trackHeight"]));
