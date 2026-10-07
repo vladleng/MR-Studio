@@ -69,7 +69,7 @@ Desktop::Desktop(bool test):testing(test){
 }
 Desktop::~Desktop(){try{saveSettings();}catch(...){}stopTimer();*scanCancel=true;chooser.reset();closeEditors();dockedEditor.reset();
     if(scanner.valid())scanner.wait();setLookAndFeel(nullptr);mixerViewport.setViewedComponent(nullptr,false);}
-void Desktop::run(std::function<void()> f){try{f();message.clear();refresh();}catch(const std::exception& e){message=label(e.what());repaint();}}
+void Desktop::run(std::function<void()> f){try{f();message.clear();refresh();}catch(const std::exception& e){refresh();message=label(e.what());repaint();}}
 void Desktop::resetDevice(){app.connect(mrs::audio::make_offline_device(),{0,project()->sample_rate,128,{}, {0,1}});}
 void Desktop::saveSettings(){if(testing)return;
     prefs.workspace=app.workspace();view.sidebar=sidebar;view.browserWidth=browserWidth;view.snap=snap;

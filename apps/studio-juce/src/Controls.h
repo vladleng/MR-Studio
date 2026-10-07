@@ -37,10 +37,10 @@ public:
         if(const auto at=transport.find(text.toStdString());at!=transport.end()){
             auto colour=text=="Record (R)"?juce::Colour(0xffe64b54):button.getToggleState()?juce::Colour(0xff31b7dd):juce::Colour(0xffc6d3df);
             if(text=="Record (R)"&&button.getToggleState())colour=colour.brighter(.35f);
-            if(button.hasKeyboardFocus(true))colour=juce::Colours::skyblue;
+            if(button.hasKeyboardFocus(true)&&text!="Record (R)")colour=juce::Colours::skyblue;
             if(hover||down)colour=colour.brighter(down?.4f:.2f);if(!button.isEnabled())colour=colour.withAlpha(.35f);
             at->second->replaceColour(transportColours[text.toStdString()],colour);transportColours[text.toStdString()]=colour;
-            at->second->drawWithin(g,area.withSizeKeepingCentre(20,20),juce::RectanglePlacement::centred,1.f);
+            at->second->drawWithin(g,area.withSizeKeepingCentre(20,20),juce::RectanglePlacement::centred,1.f);if(text=="Record (R)"&&button.hasKeyboardFocus(true)){g.setColour(juce::Colours::skyblue);g.drawRect(button.getLocalBounds().reduced(5),1);}
         }else {g.setFont(getTextButtonFont(button,button.getHeight()));g.setColour(button.findColour(button.getToggleState()?juce::TextButton::textColourOnId:juce::TextButton::textColourOffId).withMultipliedAlpha(button.isEnabled()?1.f:.5f));g.drawText(text,button.getLocalBounds().reduced(3,1),juce::Justification::centred,true);}
     }
     juce::Font getTextButtonFont(juce::TextButton& button, int) override { return button.getProperties()["channelFont"] ? channelFont() : font(13); }
