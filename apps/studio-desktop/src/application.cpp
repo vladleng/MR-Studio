@@ -498,7 +498,7 @@ void Application::set_send_gain(const Id& id, std::size_t index, float gain) {
     auto sends = t->sends; sends[index].gain = gain;
     services_.projects->execute(SetTrackSends{id,std::move(sends)}); cancel_mix_preview();
 }
-void Application::rebuild_audio() {
+void Application::rebuild_audio(bool retain_inserts) {
     if (!device_ || !device_config_) return;
     auto c = *device_config_;
     c.inputs = audio_name_ == "Offline clock (no sound)" ? std::vector<int>{} : selected_inputs(*services_.projects->state().project);
@@ -512,19 +512,19 @@ void Application::rebuild_audio() {
         const auto position = engine_->state();
         if (reopen) device_->close();
         audio::RenderGraph graph;
-        if (audio_name_ == "Offline clock (no sound)") { prepare_mixer(graph); prepare_midi_clips(graph); prepare_inserts(graph,c); }
-        else graph = render(c);
+        if (audio_name_ == "Offline clock (no sound)") { prepare_mixer(graph); prepare_midi_clips(graph); prepare_inserts(graph,c,retain_inserts); }
+        else graph = render(c,retain_inserts);
         engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192,c.buffer_frames,c.processing_workers},std::move(graph),position);
         if (reopen) device_->open(c,engine_);
         device_config_ = c; device_->start(); poll();
     } catch (...) { disconnect(); throw; }
 }
-void Application::edit(const ICommand& command,std::optional<Id> authoritative) {
+void Application::edit(const ICommand& command,std::optional<Id> authoritative,bool retain_inserts) {
     require_not_playing();
     auto candidate = *services_.projects->state().project;
     command.apply(candidate); candidate.validate();
     {std::vector<Id> tracks;for(const auto& t:candidate.tracks)if(t.kind!=TrackKind::midi)tracks.push_back(t.id);(void)audio::compile_midi_clips(candidate,tracks);(void)audio::compile_midi_events(candidate,tracks);}
-    capture_insert_state(candidate,authoritative);candidate.validate();
+    if(!retain_inserts)capture_insert_state(candidate,authoritative);candidate.validate();
     if (device_config_ && audio_name_ != "Offline clock (no sound)") validate_hardware(candidate,*device_config_);
     if (device_ && device_config_ && audio_name_ != "Offline clock (no sound)") {
         auto c = *device_config_; c.inputs = selected_inputs(candidate);
@@ -544,7 +544,7 @@ void Application::edit(const ICommand& command,std::optional<Id> authoritative) 
     }
     require(streamed <= 32 && bytes <= 256*1024*1024,"disk voice budget exceeded (32 voices / 256 MiB)");
     class PreparedEdit final:public ICommand{Project project_;std::string name_;public:PreparedEdit(Project p,std::string_view name):project_(std::move(p)),name_(name){}std::string_view name() const override{return name_;}void apply(Project& p) const override{p=project_;}};
-    services_.projects->execute(PreparedEdit{std::move(candidate),command.name()}); sync_arm(); rebuild_audio();
+    services_.projects->execute(PreparedEdit{std::move(candidate),command.name()}); sync_arm(); rebuild_audio(retain_inserts);
 }
 Id Application::add_audio_track(std::string name) {
     require(!name.empty() && name.size() <= 4096,"enter a track name");
@@ -605,6 +605,7 @@ bool Application::history(bool redo) {
     const auto target = services_.projects->history_target(redo);
     if (!target) return false;
     auto before = *services_.projects->state().project, after = *target;
+    auto clip_before=before,clip_after=after;clip_before.clips.clear();clip_after.clips.clear();const bool clips_only=clip_before==clip_after;
     before.master_gain = after.master_gain = 1;
     const bool partitioned=device_config_&&device_config_->process_buffer_frames&&device_config_->processing_workers>=2&&audio_name_!="Offline clock (no sound)";
     for (auto& t : before.tracks) { t.mix = {}; if(!partitioned||track_armed(t.id))t.input_monitor=false; for (auto& send : t.sends) send.gain = 1; }
@@ -625,7 +626,7 @@ bool Application::history(bool redo) {
         }
     }
     const bool changed = redo ? services_.projects->redo() : services_.projects->undo();
-    if (changed) { sync_arm(); if (mix_only) {publish_mix();cancel_insert_preview();} else rebuild_audio(); }
+    if (changed) { sync_arm(); if (mix_only) {publish_mix();cancel_insert_preview();} else rebuild_audio(clips_only); }
     return changed;
 }
 bool Application::undo() { return history(false); }
@@ -683,6 +684,10 @@ Id Application::split_clip(const Id& id, Sample position) {
     if(c->midi)edit(SplitMidiClip{id,Timeline(p->time,p->sample_rate).to_ticks(position),right});else edit(SplitAudioClip{id,position,right});return right;
 }
 void Application::remove_clip(const Id& id) { edit(RemoveClip{id}); }
+void Application::move_clips(std::vector<Id> ids,Sample delta,int track_delta){
+    struct MoveClips final:ICommand{std::vector<Id> ids;Sample delta;int track_delta;std::string_view name()const override{return "Move selected clips";}void apply(Project& p)const override{const Timeline time(p.time,p.sample_rate);for(const auto& id:ids){const auto c=std::find_if(p.clips.begin(),p.clips.end(),[&](const auto& clip){return clip.id==id;});require(c!=p.clips.end(),"unknown selected clip");const auto t=std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& track){return track.id==c->track;});const auto index=static_cast<int>(t-p.tracks.begin())+track_delta;require(index>=0&&index<static_cast<int>(p.tracks.size()),"group exceeds track range");const auto start=clip_start(*c,time);require(delta>=-start&&delta<=max_sample-start,"group exceeds timeline range");if(c->midi)MoveMidiClip{id,p.tracks[static_cast<std::size_t>(index)].id,time.to_ticks(start+delta)}.apply(p);else MoveAudioClip{id,p.tracks[static_cast<std::size_t>(index)].id,start+delta}.apply(p);}}} command;require(!ids.empty(),"Select clips to move");command.ids=std::move(ids);command.delta=delta;command.track_delta=track_delta;if(delta||track_delta)edit(command,{},true);
+}
+
 void Application::remove_clips(std::vector<Id> ids){struct RemoveClips final:ICommand{std::vector<Id> ids;std::string_view name()const override{return "Remove selected clips";}void apply(Project& p)const override{for(const auto& id:ids)RemoveClip{id}.apply(p);}} command;command.ids=std::move(ids);require(!command.ids.empty(),"Select clips to delete");edit(command);}
 Id Application::create_midi_clip(const Id& track,Tick start,Tick length){Clip c;c.id=new_id();c.track=track;c.name="MIDI clip";c.midi=MidiClip{start,length,0,{}};edit(AddMidiClip{c});return c.id;}
 bool Application::audition_note(const Id& track,int pitch,int velocity,int channel,bool on){
@@ -768,7 +773,7 @@ void Application::prepare_midi_clips(audio::RenderGraph& graph){
     const auto p=services_.projects->state().project;const Timeline time(p->time,p->sample_rate);graph.midi_events=audio::compile_midi_events(*services_.projects->state().project,mixer_tracks_);graph.midi_notes=audio::compile_midi_clips(*p,mixer_tracks_);
     for(const auto& tempo:p->time.tempos)graph.tempos.push_back({time.to_samples(tempo.tick),tempo.bpm,static_cast<double>(tempo.tick)/ppq});
 }
-audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
+audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_inserts) {
     require(c.sample_rate == services_.projects->state().project->sample_rate,"device/project rate mismatch; choose the project rate (resampling is a later stage)");
     require(!c.outputs.empty() && c.outputs.size() <= audio::max_channels && c.inputs.size() <= audio::max_channels,"invalid channel selection");
     validate_hardware(*services_.projects->state().project,c);
@@ -782,7 +787,7 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     const auto project = services_.projects->state().project;
     prepare_mixer(result);
     prepare_midi_clips(result);
-    prepare_inserts(result,c);
+    prepare_inserts(result,c,retain_inserts);
     const auto mapped = [&](const std::vector<int>& outputs) {
         std::vector<std::size_t> result;
         for (const auto channel : outputs) {
@@ -830,8 +835,10 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c) {
     }
     return result;
 }
-void Application::prepare_inserts(audio::RenderGraph& result,const audio::DeviceConfig& c) {
+void Application::prepare_inserts(audio::RenderGraph& result,const audio::DeviceConfig& c,bool retain) {
     const auto project=services_.projects->state().project;
+    // Recording and clip-only transitions retain instances: chains and device configuration are unchanged.
+    if(retain){for(const auto& t:project->tracks)if(t.kind!=TrackKind::midi){const auto at=insert_runtime_.find(t.id.value);require(at!=insert_runtime_.end(),"missing retained insert runtime");result.inserts.push_back(at->second.graph);}const auto master=insert_runtime_.find(std::string{});require(master!=insert_runtime_.end(),"missing retained master runtime");result.master_inserts=master->second.graph;return;}
     ++insert_generation_;insert_runtime_.clear();instrument_errors_.clear();
     const auto chain=[&](const std::vector<NativeInsert>& effects,std::uint32_t block,bool instrument=false) -> std::shared_ptr<processing::PreparedGraph> {
         if (effects.empty()) return {};
@@ -976,7 +983,7 @@ void Application::start_recording(const std::filesystem::path& destination) {
     std::vector<Pending> pending;std::vector<Id> midi_pending;
     for (std::size_t i=0; i<armed_tracks_.size(); ++i) {
         const auto& id=armed_tracks_[i]; const auto track=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t) { return t.id == id; });
-        if(track->kind==TrackKind::instrument){const Timeline time(p->time,p->sample_rate);require(std::none_of(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.track==id&&clip.midi&&clip_end(clip,time)>position.sample;}),"Linear MIDI recording: move the cursor after existing clips or use a new instrument track");require(!track->midi_input.empty(),"select a MIDI input for the armed instrument track");midi_pending.push_back(id);continue;}
+        if(track->kind==TrackKind::instrument){require(!track->midi_input.empty(),"select a MIDI input for the armed instrument track");midi_pending.push_back(id);continue;}
         const auto inputs=track_inputs(*track,default_inputs_); require(!inputs.empty(),"armed track has no selected input");
         Pending take{id,{},destination};
         for (const auto input : inputs) { const auto found=std::find(device_config_->inputs.begin(),device_config_->inputs.end(),input); require(found != device_config_->inputs.end(),"armed input is not active"); take.selectors.push_back(static_cast<std::uint32_t>(found-device_config_->inputs.begin())); }
@@ -996,7 +1003,7 @@ void Application::start_recording(const std::filesystem::path& destination) {
             midi_captures_.push_back({id,std::make_shared<audio::MidiRecorder>(position.sample,note_limit,std::min<std::size_t>(8144,event_limit-48),std::move(keys))});
         }
         if(!captures_.empty())recording_=captures_.front().recorder;
-        engine_->prepare({device_config_->sample_rate,static_cast<std::uint32_t>(device_config_->inputs.size()),static_cast<std::uint32_t>(device_config_->outputs.size()),8192,device_config_->buffer_frames,device_config_->processing_workers},render(*device_config_),position);
+        engine_->prepare({device_config_->sample_rate,static_cast<std::uint32_t>(device_config_->inputs.size()),static_cast<std::uint32_t>(device_config_->outputs.size()),8192,device_config_->buffer_frames,device_config_->processing_workers},render(*device_config_,true),position);
         publish_midi_routes();transport_->play(); device_->start();
     } catch (...) {
         if (device_) device_->close();
@@ -1037,7 +1044,7 @@ bool Application::stop_recording() {
         }
         const auto project=services_.projects->state().project;const Timeline time(project->time,project->sample_rate);
         for(const auto& capture:midi_sessions){auto data=capture.recorder->finish(time);if(capture.recorder->fault())recording_error_="MIDI recording interrupted (input/queue/capacity); captured prefix retained";if(data.notes.empty()&&data.events.empty())continue;Clip clip;clip.id=new_id();clip.track=capture.track;clip.name="MIDI take";clip.midi=std::move(data);command.clips.push_back(std::move(clip));}
-        if (!command.clips.empty()) edit(command); else rebuild_audio();
+        if (!command.clips.empty()) edit(command,{},true); else rebuild_audio(true);
         if (!failure.empty()) throw std::runtime_error(failure);
         return !command.clips.empty();
     } catch (const std::exception& e) {

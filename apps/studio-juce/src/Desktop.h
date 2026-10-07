@@ -182,6 +182,7 @@ public:
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
+    bool keyPressed(const juce::KeyPress&) override;
     void mouseWheelMove(const juce::MouseEvent&,const juce::MouseWheelDetails&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
     bool isInterestedInFileDrag(const juce::StringArray&) override;
@@ -204,7 +205,7 @@ private:
     std::optional<mrs::Id> dragTrack;
     mrs::Sample dragStart{};
     float dragX{};
-    int trim{};
+    int trim{};std::vector<mrs::Clip> dragGroup;int dragTrackDelta{};
     bool selecting{};juce::Point<float> selectionOrigin;juce::Rectangle<float> selectionBox;
     static constexpr int header=70,left=250;
 };

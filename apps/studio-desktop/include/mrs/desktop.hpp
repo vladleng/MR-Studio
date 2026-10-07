@@ -99,6 +99,7 @@ public:
     Id split_clip(const Id&, Sample position);
     void remove_clip(const Id&);
     void remove_clips(std::vector<Id>);
+    void move_clips(std::vector<Id>,Sample delta,int track_delta=0);
     Id create_midi_clip(const Id& track,Tick start,Tick length=4*ppq);
     void edit_midi_notes(const Id&,std::vector<Id>,const NoteEdit&);
     void set_midi_events(const Id&,std::vector<MidiChannelEvent>);
@@ -189,7 +190,7 @@ private:
     void publish_mix();
     void prepare_mixer(audio::RenderGraph&);
     void prepare_midi_clips(audio::RenderGraph&);
-    void prepare_inserts(audio::RenderGraph&,const audio::DeviceConfig&);
+    void prepare_inserts(audio::RenderGraph&,const audio::DeviceConfig&,bool retain=false);
     bool history(bool redo);
     void sync_arm();
     void require_not_recording() const;
@@ -215,11 +216,11 @@ private:
     std::vector<int> selected_inputs(const Project&, const std::vector<int>&) const;
     std::shared_ptr<const audio::AudioData> asset(const std::string&);
     void cache_asset(std::string, std::shared_ptr<const audio::AudioData>);
-    void edit(const ICommand&,std::optional<Id> authoritative={});
+    void edit(const ICommand&,std::optional<Id> authoritative={},bool retain_inserts=false);
     void require_not_playing() const;
-    void rebuild_audio();
+    void rebuild_audio(bool retain_inserts=false);
     void replace(persistence::ProjectDocument);
-    audio::RenderGraph render(const audio::DeviceConfig&);
+    audio::RenderGraph render(const audio::DeviceConfig&,bool retain_inserts=false);
     void start_empty_clock(bool prepare_plugins=false);
 };
 } // namespace mrs::desktop
