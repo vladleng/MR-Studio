@@ -1,5 +1,36 @@
 # 0.2f upd3 — редакторы и визуализация записи
 
+## 0.2f upd5 — 2026-10-07
+
+По четырём новым замечаниям выпущена **0.2f upd5**.
+Mouse-up audition имеет хвост 70 ms: около 35 ms удержания и 35 ms линейного fade out,
+затем sample-offset Note Off. Короткая огибающая действует только на paused/stopped
+isolated audition track; live held notes, CC64/66, недавний MIDI input (200 ms),
+активный audio monitor и Play используют обычный Note Off без изменения live signal.
+Новый audition/hardware input/Play отменяет хвост, pending old off идёт перед new on;
+retune/active gesture cancellation сохраняют немедленный Note Off.
+RT: fixed-capacity queue + arrays/bitsets, callback prepares per-track state,
+единственный channel worker продвигает envelope и joins до следующего callback.
+Prepare/Stop/panic очищают состояние; нет новых host allocation/locks/I/O в callback.
+Preview tail не записывается в take/проект, схема 13 не меняется.
+Допуск бокового движения vertical note drag увеличен с 3 до 12 logical px;
+ниже порога off-grid start сохраняется. Horizontal drag по-прежнему snap anchor start.
+Высоты docked editor и Mix независимы: juce-view.json editorHeight (default/min 500)
+и mixerHeight (default 365/min 260); общая доступная высота ограничивается окном.
+Старые view settings без editorHeight читаются с default 500. Floating size отдельно.
+F2 toggle Edit, F3 toggle Mix, F5 toggle browser; работают в основном окне и
+через MIDI/audio editor, без modified keys/modal interception; обычные text/transport shortcut guards сохранены.
+Source `7a35904d0260ec807cced5b2792966c4c6d58804`, ветка `mrs/0.1q-fix3-processing-local`, код локально.
+Full Release PASS без warnings; **113/113 CTest PASS (61.41 s)**;
+packaged recording/clips/live/J3 PASS. Tail fade/zero/retrigger/live protection на
+44.1/48/96 kHz, 256-frame callbacks/128-frame chunks, 1/4 workers и checked host
+callback allocations 0 PASS. 8 px vertical jitter/time preservation, independent
+panel resize/settings roundtrip и F2/F3/F5 toggles PASS. Software snapshots 100%/150%
+просмотрены. Пользовательская проверка звучания на Komplete/ASIO/VST3 и mixed DPI ожидается.
+Пакет `MR-Studio-0.2f-upd5-Editor-JUCE-ASIO-Windows-local`, EXE SHA256 `C766772EA358B07678AFB55F14C34842FBD0AB9FDAB1DE5B0794993D87E4CA29`.
+Следующий шаг: проверить четыре изменения на пользовательской системе; 0.2g/0.2h не начаты.
+
+
 ## 0.2f upd4 — 2026-10-07
 
 Пользователь принял оформление 0.2f upd3 fix1: «Все отлично!».
