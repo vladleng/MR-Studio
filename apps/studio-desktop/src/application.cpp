@@ -958,6 +958,10 @@ void Application::monitoring(bool enabled) {
     monitoring_ = enabled;
 }
 audio::RecordStatus Application::recording_status() const {if(recording_)return recording_->status();if(!midi_captures_.empty()){audio::RecordStatus status;status.frames=static_cast<std::uint64_t>(midi_captures_.front().recorder->end()-midi_captures_.front().recorder->start());if(midi_captures_.front().recorder->fault())status.fault=audio::RecordFault::overflow;return status;}return last_recording_status_;}
+std::vector<Clip> Application::midi_recording_preview() const {
+    const auto p=services_.projects->state().project;const Timeline time(p->time,p->sample_rate);std::vector<Clip> result;
+    for(const auto& capture:midi_captures_){Clip c;c.id=Id{"record-preview-"+capture.track.value};c.track=capture.track;c.name="Recording MIDI";c.midi=capture.recorder->preview(time);result.push_back(std::move(c));}return result;
+}
 void Application::start_recording(const std::filesystem::path& destination) {
     require_not_playing(); sync_arm(); require(!armed_tracks_.empty(),"Arm one or more audio/instrument tracks before recording");
     require(audio_running() && device_config_,"connect audio before recording");

@@ -8,6 +8,8 @@ public:
     PianoRoll(Desktop& d,mrs::Id clip):owner(d),id(std::move(clip)){setName("Piano roll");setComponentID("piano-roll");setWantsKeyboardFocus(true);sync();startTimer(120);}
     ~PianoRoll() override{releaseNote();}
     std::function<void()> changed;
+    std::function<void(float,juce::ModifierKeys,float,float)> wheel;
+    void mouseWheelMove(const juce::MouseEvent& e,const juce::MouseWheelDetails& w) override{if(wheel)wheel(w.deltaY,e.mods,e.position.x,e.position.y);}
     std::function<void(juce::String)> error;
     std::set<std::string> selected;
     mrs::Tick grid{mrs::ppq/4},cursor{};
@@ -42,7 +44,7 @@ public:
         else {if(!e.mods.isCtrlDown()&&!e.mods.isShiftDown())selected.clear();initialSelection=selected;origin=e.position;gesture=4;box={e.position,e.position};}repaint();
     }
     void mouseDoubleClick(const juce::MouseEvent& e) override{
-        cancel();if(!editable()||e.x<scrollX()+keys||e.y<scrollY()+ruler)return;if(hitNote(e.position)>=0)return;
+        cancel();if(!editable()||e.x<scrollX()+keys||e.y<scrollY()+ruler)return;if(!e.mods.isLeftButtonDown())return;const auto hit=hitNote(e.position);if(hit>=0){selected={notes[static_cast<std::size_t>(hit)].id.value};erase();return;}
         auto next=notes;mrs::MidiNote n;n.id=mrs::new_id();n.start=position(static_cast<float>(e.x));n.length=std::min(grid>0?grid:mrs::ppq/4,clip.source_offset+clip.length-n.start);n.pitch=juce::jlimit(0,127,127-(e.y-ruler)/static_cast<int>(rowHeight));n.velocity=100;n.channel=0;if(n.length<1)return;next.push_back(n);selected={n.id.value};submit(std::move(next));
     }
     void mouseDrag(const juce::MouseEvent& e) override{

@@ -60,6 +60,12 @@ public:
     void audioSettings();
     void showProfiling();
     void openMidiClip(mrs::Id);
+    void openClipEditor(mrs::Id);
+    void openSelectedEditor();
+    void attachClipEditor(juce::Component*,mrs::Id,bool);
+    std::unique_ptr<juce::Component> dockedEditor;
+    std::optional<mrs::Id> dockedClip;
+    std::vector<mrs::Clip> recordingPreview;
     void insertMenu(std::optional<mrs::Id>);
     void openInsert(std::optional<mrs::Id>,mrs::Id);
     void savePreset(std::optional<mrs::Id>,mrs::Id);
@@ -110,7 +116,7 @@ public:
 private:
     void timerCallback() override;
     void remember();
-    bool spaceHeld{};
+    bool spaceHeld{};unsigned previewTick{};
     bool resizingBrowser{},resizingMixer{};
     int mixerDragHeight{},mixerDragY{};
     std::shared_ptr<mrs::IProjectStore> displayedStore;

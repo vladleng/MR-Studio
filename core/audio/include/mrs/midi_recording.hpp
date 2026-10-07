@@ -19,7 +19,11 @@ public:
     Sample end() const noexcept {return end_.load();}
     // Callback must be stopped and joined before finish reads entries.
     MidiClip finish(const Timeline&) const;
+    // Message-thread copy of the immutable published prefix; never reads live counters.
+    MidiClip preview(const Timeline&) const;
 private:
+    MidiClip materialize(const Timeline&,std::size_t,Sample) const;
+    std::atomic<std::size_t> published_{};
     Sample start_{};
     std::atomic<Sample> end_{};
     std::vector<Entry> entries_;

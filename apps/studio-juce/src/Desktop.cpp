@@ -57,7 +57,7 @@ Desktop::Desktop(bool test):testing(test){
     bind(play,30);bind(pause,31);bind(stop,32);bind(record,33);bind(previous,34);bind(next,35);bind(loop,36);
     bind(addTrack,20);bind(addBus,21);bind(undo,10);bind(redo,11);bind(split,24);bind(remove,25);bind(audio,40);
     arrangeButton.onClick=[this]{setWorkspace(mrs::desktop::Workspace::arrange);};
-    editButton.onClick=[this]{setWorkspace(mrs::desktop::Workspace::edit);};
+    editButton.onClick=[this]{run([&]{openSelectedEditor();});};
     mixButton.onClick=[this]{setWorkspace(app.workspace()==mrs::desktop::Workspace::mix?mrs::desktop::Workspace::arrange:mrs::desktop::Workspace::mix);};
     brows.onClick=[this]{sidebar=!sidebar;resized();repaint();};
     zoomIn.onClick=[this]{arrangement->zoom(1.25);};zoomOut.onClick=[this]{arrangement->zoom(.8);};fit.onClick=[this]{arrangement->fit();};
@@ -67,7 +67,7 @@ Desktop::Desktop(bool test):testing(test){
     snapButton.onClick=[this]{snap=!snap;snapButton.setButtonText(snap ? "Snap on" : "Snap off");};
     setSize(1400,850);refresh(true);setWorkspace(testing?mrs::desktop::Workspace::mix:prefs.workspace==mrs::desktop::Workspace::live?mrs::desktop::Workspace::arrange:prefs.workspace);if(!testing)try{reconnectDevice();}catch(const std::exception& e){message=label(e.what());}startTimerHz(30);
 }
-Desktop::~Desktop(){try{saveSettings();}catch(...){}stopTimer();*scanCancel=true;chooser.reset();closeEditors();
+Desktop::~Desktop(){try{saveSettings();}catch(...){}stopTimer();*scanCancel=true;chooser.reset();closeEditors();dockedEditor.reset();
     if(scanner.valid())scanner.wait();setLookAndFeel(nullptr);mixerViewport.setViewedComponent(nullptr,false);}
 void Desktop::run(std::function<void()> f){try{f();message.clear();refresh();}catch(const std::exception& e){message=label(e.what());repaint();}}
 void Desktop::resetDevice(){app.connect(mrs::audio::make_offline_device(),{0,project()->sample_rate,128,{}, {0,1}});}
@@ -131,7 +131,7 @@ void Desktop::action(int n){if(busyGesture())return;run([&]{
     else if(n==3){if(app.path().empty())action(4);else saveFile(juce::File(juce::String(app.path().wstring().c_str())));}
     else if(n==4)choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& f){saveFile(f.withFileExtension("mrsproject"));},"*.mrsproject");
     else if(n==5)choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){importFiles({f.getFullPathName()});},"*.wav");
-    else if(n==10 || n==11){closeEditors();if(n==10)app.undo();else app.redo();refresh(true);}
+    else if(n==10 || n==11){closeEditors(true);if(n==10)app.undo();else app.redo();refresh(true);}
     else if(n==20)selectedTrack=app.add_audio_track("Audio "+std::to_string(project()->tracks.size()+1));
     else if(n==28)selectedTrack=app.add_instrument_track("Instrument "+std::to_string(project()->tracks.size()+1));
     else if(n==42)app.midi_panic();
@@ -153,7 +153,7 @@ void Desktop::action(int n){if(busyGesture())return;run([&]{
     else if(n==40)audioSettings();
     else if(n==41)showProfiling();
 });}
-void Desktop::setWorkspace(mrs::desktop::Workspace w){app.workspace(w);prefs.workspace=w;resized();refresh();}
+void Desktop::setWorkspace(mrs::desktop::Workspace w){app.workspace(w);prefs.workspace=w;if(dockedEditor&&dockedClip)dockedEditor->setVisible(w==mrs::desktop::Workspace::edit);resized();refresh();}
 juce::String Desktop::projectCaption() const{return (app.path().empty()?label(project()->title):juce::String(app.path().stem().wstring().c_str()))+(app.dirty()?" *":"");}
 void Desktop::resized(){menu.setBounds(0,0,getWidth(),26);projectTitle.setBounds(300,0,juce::jmax(0,getWidth()-600),26);int x=8;
     for(auto* b:{&undo,&redo,&addTrack,&addBus,&split,&remove,&zoomIn,&zoomOut,&fit,&snapButton}){const int width=(b==&snapButton?86:78);b->setBounds(x,34,width,28);x+=width+5;}
@@ -161,15 +161,17 @@ void Desktop::resized(){menu.setBounds(0,0,getWidth(),26);projectTitle.setBounds
     browserWidth=juce::jlimit(200,juce::jmax(200,juce::jmin(700,getWidth()-700)),browserWidth);
     const int available=getWidth()-(sidebar?browserWidth:0)-16;
     const bool showMix=app.workspace()==mrs::desktop::Workspace::mix;
+    const bool showEdit=app.workspace()==mrs::desktop::Workspace::edit&&dockedClip&&dockedEditor&&dockedEditor->isVisible();
     const int maxHeight=juce::jmax(260,getHeight()-268);
     const int baseHeight=juce::jlimit(260,juce::jmax(260,maxHeight-22),view.mixerHeight);
     int insertHeight=0;for(const auto& track:project()->tracks)insertHeight=juce::jmax(insertHeight,static_cast<int>(track.inserts.size())*22);
     insertHeight=juce::jmax(insertHeight,static_cast<int>(project()->master_inserts.size())*22);
     faderHeight=juce::jmax(40,baseHeight-220);
-    const int mixerHeight=showMix ? juce::jmin(maxHeight,baseHeight+insertHeight) : 0;
+    const int mixerHeight=showEdit?juce::jmin(maxHeight,juce::jmax(500,view.mixerHeight)):showMix ? juce::jmin(maxHeight,baseHeight+insertHeight) : 0;
     arrangeArea={8,70,available,getHeight()-128-mixerHeight};arrangement->setBounds(arrangeArea);
     mixArea={8,arrangeArea.getBottom()+6,available,mixerHeight-6};
-    mixerDivider.setVisible(showMix);mixerDivider.setBounds(8,arrangeArea.getBottom(),available,6);
+    mixerDivider.setVisible(showMix||showEdit);mixerDivider.setBounds(8,arrangeArea.getBottom(),available,6);
+    if(dockedEditor){dockedEditor->setVisible(showEdit);if(showEdit)dockedEditor->setBounds(mixArea);}
     mixerViewport.setVisible(showMix);if(master)master->setVisible(showMix);
     if(showMix){mixerViewport.setBounds(mixArea.withTrimmedRight(88));mixerBody.setSize(juce::jmax(mixerViewport.getWidth(),static_cast<int>(mixer.size())*88),mixArea.getHeight()-14);
         for(std::size_t i=0;i<mixer.size();++i){mixer[i]->setBounds(static_cast<int>(i)*88,0,86,mixerBody.getHeight());mixer[i]->resized();}
@@ -197,7 +199,7 @@ void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFon
     if(mixerDivider.isVisible()){g.setColour(juce::Colour(0xff697580));g.fillRect(mixerDivider.getBounds().withHeight(1).translated(0,2));}
     g.setColour(juce::Colours::whitesmoke);g.drawText(juce::String(static_cast<double>(app.engine()->state().sample)/project()->sample_rate,2)+" s",(getWidth()-420)/2-86,getHeight()-44,80,28,juce::Justification::right);
 }
-void Desktop::mouseDown(const juce::MouseEvent& e){const auto local=e.getEventRelativeTo(this);resizingBrowser=sidebar&&browserDivider.getBounds().contains(local.getPosition());resizingMixer=mixerDivider.isVisible()&&mixerDivider.getBounds().contains(local.getPosition());mixerDragHeight=view.mixerHeight;mixerDragY=local.y;}
+void Desktop::mouseDown(const juce::MouseEvent& e){const auto local=e.getEventRelativeTo(this);resizingBrowser=sidebar&&browserDivider.getBounds().contains(local.getPosition());resizingMixer=mixerDivider.isVisible()&&mixerDivider.getBounds().contains(local.getPosition());mixerDragHeight=app.workspace()==mrs::desktop::Workspace::edit?mixArea.getHeight()+6:view.mixerHeight;mixerDragY=local.y;}
 void Desktop::resizeBrowser(int width){browserWidth=juce::jlimit(200,juce::jmax(200,juce::jmin(700,getWidth()-700)),width);resized();repaint();}
 void Desktop::resizeMixer(int height){view.mixerHeight=juce::jlimit(260,juce::jmax(260,getHeight()-290),height);resized();repaint();}
 void Desktop::updatePerformance(const mrs::audio::DeviceStatus& status,bool hardware){
@@ -251,7 +253,7 @@ bool Desktop::keyStateChanged(bool){if(!shortcutAllowed()){spaceHeld=false;retur
     const bool down=juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey);spaceKey(down);return down;}
 void Desktop::spaceKey(bool down){if(down&&!spaceHeld)action(app.engine()->state().playback==mrs::PlaybackState::playing?32:30);spaceHeld=down;}
 void Desktop::focusLost(FocusChangeType){spaceHeld=false;}
-void Desktop::timerCallback(){try{app.poll();if(preview){if(preview->active())app.preview_mix(preview->target,preview->mix,preview->master);else preview.reset();}
+void Desktop::timerCallback(){try{app.poll();if(++previewTick%3==0)recordingPreview=app.midi_recording_preview();if(!app.recording())recordingPreview.clear();if(dockedEditor&&!dockedClip)dockedEditor.reset();if(preview){if(preview->active())app.preview_mix(preview->target,preview->mix,preview->master);else preview.reset();}
     updatePerformance(app.device_status(),app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected");
     if(editorGeneration!=app.insert_generation()){closeEditors(true);editorGeneration=app.insert_generation();}
     std::erase_if(windows,[](const auto& w){return !w->isVisible();});
@@ -391,6 +393,7 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(0xff373b3f));g
             for(int x=juce::jmax(left,static_cast<int>(r.getX()));x<juce::jmin(getWidth(),static_cast<int>(r.getRight()));++x){const auto begin=c.source_offset+static_cast<mrs::Sample>((x-r.getX())/pixelsPerSecond*p->sample_rate);const auto end=begin+juce::jmax<mrs::Sample>(1,static_cast<mrs::Sample>(p->sample_rate/pixelsPerSecond));auto peak=wave->range(begin,end,static_cast<std::uint32_t>(channel));const float top=centre-peak.maximum*lane*.45f;const float bottom=centre-peak.minimum*lane*.45f;g.fillRect(juce::Rectangle<float>(static_cast<float>(x),top,1,juce::jmax(1.f,bottom-top)));}}
         }
     }
+    for(const auto& c:owner.recordingPreview){auto r=clipRect(c);g.setColour(juce::Colour(0xff683741));g.fillRect(r);g.setColour(juce::Colours::salmon);g.drawRect(r,1.5f);g.drawText("Recording MIDI",r.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);g.saveState();g.reduceClipRegion(r.toNearestInt().reduced(1));for(const auto& n:c.midi->notes){const float x=static_cast<float>(left+static_cast<double>(time.to_samples(c.midi->start+n.start))/p->sample_rate*pixelsPerSecond-horizontal);const float width=static_cast<float>(static_cast<double>(time.to_samples(c.midi->start+n.start+n.length)-time.to_samples(c.midi->start+n.start))/p->sample_rate*pixelsPerSecond);g.fillRect(x,r.getY()+25+(127-n.pitch)/127.f*juce::jmax(1.f,r.getHeight()-32),juce::jmax(2.f,width),3.f);}g.restoreState();}
     g.setColour(juce::Colours::white);const int playhead=left+static_cast<int>(static_cast<double>(owner.app.engine()->state().sample)/p->sample_rate*pixelsPerSecond-horizontal);g.drawVerticalLine(playhead,static_cast<float>(header),static_cast<float>(getHeight()));g.restoreState();
 }
 void Arrangement::mouseDown(const juce::MouseEvent& e){grabKeyboardFocus();if(e.position.x<left)return;const auto p=owner.project();if(e.position.y<header){owner.run([&]{owner.app.seek(sampleAt(e.position.x));});return;}
@@ -408,7 +411,7 @@ void Arrangement::wheel(float delta,juce::ModifierKeys mods,float x){if(mods.isC
     else if(mods.isShiftDown())horizontal=juce::jmax(0.,horizontal-delta*160);else vertical=juce::jmax(0.f,vertical-delta*128);
     resized();repaint();}
 void Arrangement::mouseWheelMove(const juce::MouseEvent& e,const juce::MouseWheelDetails& w){wheel(w.deltaY,e.mods,e.position.x);}
-void Arrangement::mouseDoubleClick(const juce::MouseEvent& e){drag.reset();dragTrack.reset();owner.run([&]{const auto p=owner.project();for(const auto& c:p->clips)if(clipRect(c).contains(e.position)){if(c.midi)owner.openMidiClip(c.id);return;}const int at=trackAt(e.position.y);if(e.x<left||e.y<header||at<0||at>=static_cast<int>(p->tracks.size()))return;const auto& track=p->tracks[static_cast<std::size_t>(at)];if(track.kind==mrs::TrackKind::instrument){const mrs::Timeline t(p->time,p->sample_rate);owner.selectedClip=owner.app.create_midi_clip(track.id,t.to_ticks(sampleAt(e.position.x)));owner.openMidiClip(*owner.selectedClip);}});}
+void Arrangement::mouseDoubleClick(const juce::MouseEvent& e){drag.reset();dragTrack.reset();owner.run([&]{const auto p=owner.project();for(const auto& c:p->clips)if(clipRect(c).contains(e.position)){owner.selectedClip=c.id;owner.openClipEditor(c.id);return;}const int at=trackAt(e.position.y);if(e.x<left||e.y<header||at<0||at>=static_cast<int>(p->tracks.size()))return;const auto& track=p->tracks[static_cast<std::size_t>(at)];if(track.kind==mrs::TrackKind::instrument){const mrs::Timeline t(p->time,p->sample_rate);owner.selectedClip=owner.app.create_midi_clip(track.id,t.to_ticks(sampleAt(e.position.x)));owner.openMidiClip(*owner.selectedClip);}});}
 void Arrangement::zoom(double factor){pixelsPerSecond=juce::jlimit(2.,2400.,pixelsPerSecond*factor);repaint();}
 void Arrangement::fit(){const auto p=owner.project();const mrs::Timeline t(p->time,p->sample_rate);mrs::Sample end=p->sample_rate*16;for(const auto& c:p->clips)end=juce::jmax(end,mrs::clip_end(c,t));horizontal=0;pixelsPerSecond=juce::jlimit(2.,2400.,(getWidth()-left)*static_cast<double>(p->sample_rate)/end);repaint();}
 bool Arrangement::isInterestedInFileDrag(const juce::StringArray& files){for(const auto& f:files)if(!f.endsWithIgnoreCase(".wav"))return false;return !files.isEmpty();}
@@ -491,7 +494,7 @@ void Browser::rebuild(){tree.setRootItem(nullptr);root=std::make_unique<BrowserN
 void Desktop::scan(const juce::File& root){if(scanner.valid())throw std::runtime_error("Scan already running");*scanCancel=false;const auto folder=path(root);const auto helper=path(juce::File::getSpecialLocation(juce::File::currentExecutableFile).getSiblingFile("mrs_vst3_scan.exe"));
     auto cache=cacheFile;auto cancel=scanCancel;scanner=std::async(std::launch::async,[folder,helper,cache,cancel]{return mrs::processing::scan_vst3(folder,helper,cache,cancel);});}
 std::vector<mrs::NativeInsert> Desktop::chain(std::optional<mrs::Id> t) const{const auto p=project();if(!t)return p->master_inserts;for(const auto& track:p->tracks)if(track.id==t)return track.inserts;throw std::runtime_error("Track no longer exists");}
-void Desktop::closeEditors(bool keepMidi){app.engine()->set_profiling(false);app.close_plugin_editors();for(auto& w:windows){if(keepMidi&&static_cast<bool>(w->getProperties()["mrs-midi-clip"]))continue;retirePluginWindow(*w);w->setVisible(false);
+void Desktop::closeEditors(bool keepMidi){if(!keepMidi&&dockedEditor){dockedEditor->setVisible(false);dockedClip.reset();}app.engine()->set_profiling(false);app.close_plugin_editors();for(auto& w:windows){if(keepMidi&&static_cast<bool>(w->getProperties()["mrs-midi-clip"]))continue;retirePluginWindow(*w);w->setVisible(false);
     // Retire the native parent HWND while its plugin module is still alive.
     // Keep the C++ window until the next timer turn so an editor callback can return safely.
     if(static_cast<bool>(w->getProperties()["mrs-native-editor"]))w->removeFromDesktop();}}

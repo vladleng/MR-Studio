@@ -18,13 +18,15 @@ void MidiRecorder::capture(Sample sample,processing::MidiEvent event) noexcept {
     else if(event.kind!=processing::MidiKind::note_off){if(event_count_>=event_limit_){fail();return;}const auto key=static_cast<std::uint16_t>((static_cast<int>(event.kind)*16+event.channel)*128+((event.kind==processing::MidiKind::cc||event.kind==processing::MidiKind::poly_pressure)?event.data1:0));const auto end=keys_.begin()+static_cast<std::ptrdiff_t>(key_count_);if(std::find(keys_.begin(),end,key)==end){if(key_count_==keys_.size()){fail();return;}keys_[key_count_++]=key;}++event_count_;}
     if(event.kind==processing::MidiKind::note_off){auto& held=held_[static_cast<std::size_t>(event.channel)*128+event.data1];if(held){held=false;--held_count_;}}
     if(event.kind==processing::MidiKind::cc&&(event.data1==120||event.data1==123))for(std::size_t n=0;n<128;++n){auto& held=held_[event.channel*128+n];if(held){held=false;--held_count_;}}
-    entries_[count_++]={std::max(start_,sample),event,false};
+    entries_[count_++]={std::max(start_,sample),event,false};published_.store(count_,std::memory_order_release);
 }
-void MidiRecorder::cut(Sample sample) noexcept {if(count_==entries_.size()){fail();return;}if(event_count_+16>event_limit_){fail();return;}event_count_+=16;held_.fill(false);held_count_=0;entries_[count_++]={std::max(start_,sample),{},true};}
-MidiClip MidiRecorder::finish(const Timeline& time) const {
+void MidiRecorder::cut(Sample sample) noexcept {if(count_==entries_.size()){fail();return;}if(event_count_+16>event_limit_){fail();return;}event_count_+=16;held_.fill(false);held_count_=0;entries_[count_++]={std::max(start_,sample),{},true};published_.store(count_,std::memory_order_release);}
+MidiClip MidiRecorder::finish(const Timeline& time) const {return materialize(time,count_,end());}
+MidiClip MidiRecorder::preview(const Timeline& time) const {const auto count=published_.load(std::memory_order_acquire);return materialize(time,count,end());}
+MidiClip MidiRecorder::materialize(const Timeline& time,std::size_t count,Sample head) const {
     using processing::MidiKind;
-    MidiClip clip;clip.start=time.to_ticks(start_);clip.length=std::max<Tick>(1,time.to_ticks(end())-clip.start);
-    auto entries=std::vector<Entry>(entries_.begin(),entries_.begin()+static_cast<std::ptrdiff_t>(count_));
+    MidiClip clip;clip.start=time.to_ticks(start_);clip.length=std::max<Tick>(1,time.to_ticks(head)-clip.start);
+    auto entries=std::vector<Entry>(entries_.begin(),entries_.begin()+static_cast<std::ptrdiff_t>(count));
     std::stable_sort(entries.begin(),entries.end(),[](const auto& a,const auto& b){return a.sample<b.sample;});
     std::array<std::optional<std::size_t>,2048> open{};
     const auto close=[&](std::size_t key,Tick tick){if(open[key]){auto& note=clip.notes[*open[key]];note.length=std::max<Tick>(0,tick-note.start);open[key].reset();}};

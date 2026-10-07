@@ -144,6 +144,7 @@ public:
     bool stop_recording();
     bool recording() const { return static_cast<bool>(recording_)||!midi_captures_.empty(); }
     audio::RecordStatus recording_status() const;
+    std::vector<Clip> midi_recording_preview() const;
     Sample recording_start() const { return recording_ ? recording_->start() : midi_captures_.empty()?0:midi_captures_.front().recorder->start(); }
     const std::string& recording_error() const { return recording_error_; }
     const std::vector<std::filesystem::path>& last_takes() const { return last_takes_; }
