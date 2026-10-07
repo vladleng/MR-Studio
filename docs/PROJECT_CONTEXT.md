@@ -32,7 +32,42 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2f upd3 fix1
+## Актуальная сборка для продолжения: 0.2f upd4
+
+## 0.2f upd4 — 2026-10-07
+
+Пользователь принял оформление 0.2f upd3 fix1: «Все отлично!».
+По семи новым требованиям выпущена **0.2f upd4**:
+- MIDI notes alpha 72%, ghost 58%: сетка слегка видна, рамки отсутствуют.
+- Horizontal note drag привязывает глобальное начало якорной ноты к выбранной
+  сетке (Snap off сохраняет свободное перемещение). Общий сдвиг группы сохраняет
+  интервалы; vertical drag с горизонтальным отклонением менее 3 logical px не
+  меняет start, даже у записанной ноты вне сетки. Trim/velocity gestures сохранены.
+- Up/Down в piano roll меняют pitch выбранных нот на один полутон, без изменения
+  времени/длины; границы 0..127 отклоняют весь шаг группы. Один shared Undo на шаг.
+- Full screen / Restore и F11 в MIDI editor. Тот же component/selection/zoom;
+  attached editor временно отделяется и при Restore возвращается в панель.
+  Переход fullscreen сам по себе не сохраняет временный Detach в settings.
+  Fullscreen и selection — временный UI state, не поля проекта.
+- Горизонтальные grid lines controller lane убраны; числовые подписи сохранены.
+- ЛКМ + drag в пустой lane выделяет точки текущего вида/канала/CC рамкой;
+  Ctrl/Shift дополняют выбор. Selected points белые. ПКМ не начинает жест.
+- Drag выбранной точки переносит выделенную группу по времени/значению с общим
+  ограничением границ clip/value и сохранением расстояний. Preview не меняет
+  проект; release — один SetMidiEvents/Undo. Escape/focus loss отменяют gesture;
+  stale clip отменяет commit. Delete удаляет выбранную группу одной command.
+Shared model/commands/serialization/playback существующие; schema 13 неизменна.
+Новых изменений callback/DSP/transport нет; editing требует Pause/Stop.
+Source `20f78183b9cd77678c35deb42dd8d24dd6233bb6`, локальная ветка `mrs/0.1q-fix3-processing-local`.
+Release GUI build PASS без warnings; **113/113 CTest PASS (61.56 s)**;
+packaged recording/clips/live/J3 PASS. Регрессии off-grid vertical/horizontal snap,
+Up/Down, CC group preview/common time shift/one Undo/Escape, floating full screen
+и attached → fullscreen → attached PASS. Software Arrange/editor/controllers
+100%/150% просмотрены. Physical mixed DPI и пользовательская приёмка upd4 ожидаются.
+Пакет `MR-Studio-0.2f-upd4-Editor-JUCE-ASIO-Windows-local`, EXE SHA256 `B266F149AA523B27FF17FF1280AB2C445765B31214C5CB64DA24756E693C3959`.
+Следующий шаг: проверить новые семь взаимодействий; 0.2g/0.2h не начаты.
+
+## Предыдущая поставка: 0.2f upd3 fix1
 
 ## 0.2f upd3 fix1 — 2026-10-07
 
