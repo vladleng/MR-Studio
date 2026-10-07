@@ -1,9 +1,14 @@
-# 0.2f upd2 — редакторы и визуализация записи
+# 0.2f upd3 — редакторы и визуализация записи
 
 Запрос пользователя 2026-10-07: семь изменений редактора/записи, несмотря на общий
 план отложить остальные доработки до завершения Stage 4. 0.2g/0.2h не входят сюда.
 
 ## Управление
+
+ЛКМ + drag из пустой области Arrange выделяет clips; drag выбранного clips двигает
+всю группу одним Undo, Escape отменяет. ПКМ selection заменена по уточнению пользователя.
+Record добавляет take в выбранной позиции без append-only ограничения; loop off.
+Start/Stop сохраняет plugin instances, Stop сразу очищает recording preview.
 
 - Выберите audio/MIDI clip и нажмите Edit. Без выбора используется клип под курсором
   выбранной дорожки; если клипа нет, интерфейс просит выбрать его.
@@ -138,3 +143,41 @@ Software previews 100%/150% просмотрены. Физическая Komplet
 Пакет `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Builds/MR-Studio-0.2f-upd2-Editor-JUCE-ASIO-Windows-local`; EXE SHA256 `31D3B7114017C018DF9516640EBAF5E3C1829E5D8404BB9FED248B3EC188D161`. #68/#24 открыты до приёмки.
 Следующий шаг: пользователь проверяет семь изменений, особенно R → Play → Record
 и R → Record из Stop. 0.2g/0.2h не начаты; остальные доработки после Stage 4.
+
+## 0.2f upd3 — 2026-10-07
+
+По четырём замечаниям пользователя выпущена **0.2f upd3**.
+Запись MIDI больше не запрещена до конца существующих клипов: новый take добавляется
+в выбранной позиции, включая перекрытие; прежние клипы не удаляются. Loop recording
+ещё не реализована: loop off, R, выбранный MIDI input и работающий hardware audio
+остаются требованиями. Ошибки запуска/остановки отображаются в строке статуса.
+Start/Stop записи сохраняют существующие track/master PreparedGraph/VST3 instances,
+когда chains и device config неизменны. Не выполняется новый probe/load/restore плагинов.
+После stop/join callbacks материализуется take, выполняется один command/Undo и
+обновляется playback graph с теми же processors. Clip-only Undo/Redo и grouped move
+также сохраняют runtime instances; plugin/track/device edits используют прежний rebuild.
+Не требуется сериализовать plugin state ради clip-only recording commit; Save/capture
+по-прежнему читает состояние действующих processors. Schema 13 без изменений.
+Desktop очищает красный recording preview синхронно после завершения Stop, вместо
+ожидания timer; лишняя пауза загрузки VST3 устранена. Stop/join driver, audio file flush
+и обработка большого take остаются необходимы; нулевая hardware latency не обещается.
+ЛКМ в пустой Arrange-области + drag выделяет audio/MIDI-клипы рамкой. ПКМ рамку
+больше не создаёт. Обычный клик без drag сохраняет seek по пустой области.
+ЛКМ на выбранном клипе сохраняет группу и перемещает её целиком. Preview локальный;
+release выполняет Application::move_clips одной атомарной command/Undo. Общий
+sample shift сохраняет относительные позиции, MIDI ticks вычисляются Timeline;
+snap по якорному клипу, общая граница timeline, track shift сохраняет относительные
+номера дорожек. Несовместимые destination tracks отклоняются атомарно. Escape отменяет.
+Source `6a38c765a2c884271a45628862664fa4f371a446`, только локально. Release без warnings; **113/113 CTest PASS (60.73 s)**;
+packaged recording/clips/live/J3 PASS. Десять повторных Record/Stop в одной позиции
+поверх существующих clips, stable insert_generation Start/Stop/Undo/Redo, immediate
+preview clear PASS. MIDI/audio recording, monitor on/off, 4 workers и callback allocation 0 PASS.
+Mixed group selection/move preview/commit, relative shift, one Undo/Redo, Escape и
+atomic negative-start rejection PASS. Software previews selection/move 100%/150% просмотрены.
+Физическая Komplete Kontrol/ASIO/VST3 и Windows mixed DPI для upd3 NOT RUN.
+Пользователь подтвердил звук при переносе в upd1 fix1; в upd2 сообщил повторные отказы
+Record и задержку red → blue. Эти аппаратные жалобы остаются на ручной проверке,
+не объявляются полностью закрытыми лишь по offline regression PASS.
+Пакет `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Builds/MR-Studio-0.2f-upd3-Editor-JUCE-ASIO-Windows-local`; EXE SHA256 `73C70F432A099AF12B854D484E4F418A9A6A8833240A2A2B597BDB52EB479359`. #68/#24/#65 открыты до соответствующей приёмки.
+Следующий шаг: пользователь проверяет повторную запись в выбранной позиции,
+Stop → blue clip, ЛКМ selection и grouped move. 0.2g/0.2h не начаты.
