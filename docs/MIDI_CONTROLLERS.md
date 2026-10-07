@@ -96,3 +96,41 @@ Software previews 100%/150% просмотрены. Физическая MIDI/AS
 Пакет `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Builds/MR-Studio-0.2f-upd1-fix1-Editor-JUCE-ASIO-Windows-local`; EXE SHA256 `D67EE9F15146E770F7A9A307FBC5F9A451854C36E1F7F31E357DA54C4D1C2090`.
 0.2g/0.2h не начаты. Следующий шаг: пользователь проверяет пять исправлений,
 затем продолжение Stage 4. Остальные доработки по прежней договорённости отложены.
+
+## 0.2f upd2 — 2026-10-07
+
+По семи новым требованиям пользователя выпущена **0.2f upd2**.
+Убраны отдельные Play/Pause/Stop редактора; общий транспорт и Space сохранены.
+ЛКМ по области соседнего MIDI-клипа в piano roll делает его активным в том же
+редакторе. ЛКМ по audio/MIDI-клипу в Arrange переключает открытый редактор;
+при закрытом редакторе только выбирает клип. Глобальная шкала, темные промежутки
+и затемнённые неактивные MIDI-клипы сохранены.
+Controllers open/closed — общая настройка MIDI-редактора; Attach/Detach — общая
+настройка audio/MIDI-редактора. Оба флага сохраняются в локальный juce-view.json,
+применяются ко всем клипам и после перезапуска. Старые settings без новых полей
+совместимы: Controllers open, редактор detached. Project schema 13 не меняется.
+Повторный Edit закрывает floating или attached редактор, следующий открывает его
+с запомненным размещением. Смена клипа не создаёт второй параллельный редактор.
+Удержание ПКМ и drag в Arrange выделяет пересекающиеся audio/MIDI-клипы рамкой;
+не меняет transport/model. Delete/Backspace удаляет всю выбранную группу одной
+shared Application command, один Undo восстанавливает клипы и IDs.
+Record теперь может запускаться во время Play: device stop/join, фактическая позиция,
+quiescent Pause, подготовка recorder/graph, Play и device start. Структурные изменения
+по-прежнему запрещены при playback/recording. MIDI-only и совместная audio/MIDI
+запись проверены из Stop и Play, с/без monitor, 4 processing workers, callback allocation 0.
+Статус RECORDING виден текстом; ошибка автоматической остановки выводится в строку
+статуса. Arm, MIDI input, hardware audio, loop off и linear append после существующих
+MIDI-клипов остаются необходимы. Изменение лечит воспроизведённый отказ Play → Record;
+причина конкретного аппаратного случая на скриншоте без runtime диагностики не доказана.
+Пользователь по 0.2f upd1 fix1 подтвердил изменение звука при переносе и «всё остальное
+работает», но сообщил повторный отказ записи при включённой R. Общая hardware
+приёмка записи и текущих новых требований не объявляется пройденной.
+Source `b2975843459c20685e9d20364787ee3159be386b`, только локально. Release без warnings; **113/113 CTest PASS (61.22 s)**;
+packaged recording/clips/live/J3 PASS. UI регрессии: shared settings roundtrip,
+ghost/Arrange activation, Edit close/reopen attached/detached, mixed clip rectangle,
+Delete group/one Undo, отсутствие отдельных transport buttons PASS.
+Software previews 100%/150% просмотрены. Физическая Komplete/MIDI/ASIO/VST3,
+перезапуск пользовательского приложения и Windows mixed DPI для upd2 NOT RUN.
+Пакет `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Builds/MR-Studio-0.2f-upd2-Editor-JUCE-ASIO-Windows-local`; EXE SHA256 `31D3B7114017C018DF9516640EBAF5E3C1829E5D8404BB9FED248B3EC188D161`. #68/#24 открыты до приёмки.
+Следующий шаг: пользователь проверяет семь изменений, особенно R → Play → Record
+и R → Record из Stop. 0.2g/0.2h не начаты; остальные доработки после Stage 4.
