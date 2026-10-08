@@ -325,7 +325,7 @@ void Application::require_not_playing() const {
 void Application::new_project(std::uint32_t rate, std::string title) {
     require_not_recording();
     auto d = foundation_demo(); d.project.id = new_id(); d.project.title = std::move(title);
-    d.project.sample_rate = rate; d.project.tracks.clear(); d.project.clips.clear();
+    d.project.sample_rate = rate; d.project.time = TimeMap{}; d.project.tracks.clear(); d.project.clips.clear();
     d.project.chords.clear(); d.project.sections.clear(); d.project.markers.clear(); d.mixer.clear(); d.live_notes.clear();
     d.validate(); replace(std::move(d)); path_.clear(); asset_root_.clear();
 }
@@ -701,10 +701,10 @@ bool Application::audition_note(const Id& track,int pitch,int velocity,int chann
 }
 void Application::edit_midi_notes(const Id& id,std::vector<Id> selected,const NoteEdit& settings){
     require_not_recording();require_not_playing();const auto p=services_.projects->state().project;const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});require(at!=p->clips.end()&&at->midi.has_value(),"select a MIDI clip");
-    if(transform_midi_notes(*at->midi,selected,settings)==at->midi->notes)return;edit(EditMidiNotes{id,std::move(selected),settings});
+    if(transform_midi_notes(*at->midi,selected,settings)==at->midi->notes)return;edit(EditMidiNotes{id,std::move(selected),settings},{},true);
 }
 void Application::set_midi_events(const Id& id,std::vector<MidiChannelEvent> events){require_not_recording();require_not_playing();const auto p=services_.projects->state().project;const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});require(at!=p->clips.end()&&at->midi.has_value(),"select a MIDI clip");if(events==at->midi->events)return;edit(SetMidiEvents{id,std::move(events)});}
-void Application::set_midi_notes(const Id& id,std::vector<MidiNote> notes){edit(SetMidiNotes{id,std::move(notes)});}
+void Application::set_midi_notes(const Id& id,std::vector<MidiNote> notes){edit(SetMidiNotes{id,std::move(notes)},{},true);}
 Id Application::duplicate_clip(const Id& id){const auto duplicate=new_id();edit(DuplicateClip{id,duplicate});return duplicate;}
 void Application::set_time_map(TimeMap time){const auto p=services_.projects->state().project;edit(SetMusicalData{std::move(time),p->chords,p->sections,p->markers});}
 void Application::import_wavs(const std::vector<std::filesystem::path>& paths,std::optional<Id> target,Sample start) {

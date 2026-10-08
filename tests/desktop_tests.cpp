@@ -644,7 +644,12 @@ void project_folders() {
     const auto file = project_folder_file(studio.projects()/(name.native()+std::filesystem::path(".mrsproject").native()));
     CHECK(file.parent_path() == studio.projects()/name && file.filename().stem() == name);
     CHECK(project_folder_file(file) == file);
-    Application app; app.new_project(44100,"Song"); app.save_project(file);
+    Application app; app.demo(); app.new_project(44100,"Song");
+    CHECK(app.services().projects->state().project->time == TimeMap{});
+    const Timeline blankTime(app.services().projects->state().project->time,44100);
+    CHECK(blankTime.to_samples(4*ppq)==88200 && blankTime.to_samples(8*ppq)==176400);
+    app.save_project(file);
+    CHECK(persistence::load_project(file).project.time == TimeMap{});
     CHECK(std::filesystem::exists(file) && std::filesystem::is_directory(file.parent_path()/"Media") && std::filesystem::is_directory(file.parent_path()/"Mixdown"));
     std::filesystem::create_directory(originals.path/"A"); std::filesystem::create_directory(originals.path/"B");
     const auto a = originals.path/"A"/"same.wav", b = originals.path/"B"/"same.wav"; wav(a,1); wav(b);

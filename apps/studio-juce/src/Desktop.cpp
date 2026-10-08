@@ -59,7 +59,8 @@ Desktop::Desktop(bool test,bool startAtHome):testing(test){
     auto bind=[this](juce::TextButton& b,int cmd){b.onClick=[this,cmd]{action(cmd);};};
     bind(play,30);bind(pause,31);bind(stop,32);bind(record,33);bind(previous,34);bind(next,35);bind(loop,36);
     bind(addTrack,20);bind(addBus,21);bind(undo,10);bind(redo,11);bind(split,24);bind(remove,25);bind(audio,40);
-    for(auto* b:{&clickButton,&countButton}){addAndMakeVisible(b);b->setTitle(b==&clickButton?"Metronome settings":"Recording count-in settings");b->setTooltip("Metronome / count-in — application preferences");b->onClick=[this]{auto menu=getMenuForIndex(3,"Transport");juce::Component::SafePointer<Desktop> safe(this);menu.showMenuAsync(popup(&clickButton),[safe](int id){if(safe&&id)safe->action(id);});};}
+    for(auto* b:{&clickButton,&countButton}){addAndMakeVisible(b);b->setTitle(b==&clickButton?"Toggle metronome":"Toggle recording count-in");b->setTooltip("Toggle on/off. Settings: Transport → Metronome / count-in");}
+    clickButton.onClick=[this]{action(503);};countButton.onClick=[this]{action(504);};
     arrangeButton.onClick=[this]{setWorkspace(mrs::desktop::Workspace::arrange);};
     editButton.onClick=[this]{run([&]{toggleEditor();});};
     mixButton.onClick=[this]{setWorkspace(app.workspace()==mrs::desktop::Workspace::mix?mrs::desktop::Workspace::arrange:mrs::desktop::Workspace::mix);};
@@ -140,7 +141,7 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
 }
 void Desktop::menuItemSelected(int n,int){action(n);}
 void Desktop::action(int n){if(busyGesture())return;run([&]{
-    if(n>=500&&n<=700){auto c=app.click_settings();if(n==500)c.playback=!c.playback;else if(n==501)c.recording=!c.recording;else if(n==502)c.accent=!c.accent;else if(n>=510&&n<=514)c.count_bars=n-510;else if(n>=600)c.level=n-600;else return;app.set_click_settings(c);prefs.click=c;saveSettings();return;}
+    if(n>=500&&n<=700){auto c=app.click_settings();if(n==500)c.playback=!c.playback;else if(n==501)c.recording=!c.recording;else if(n==502)c.accent=!c.accent;else if(n==503)c.playback=c.recording=!(c.playback||c.recording);else if(n==504){if(c.count_bars){lastCountBars=c.count_bars;c.count_bars=0;}else c.count_bars=lastCountBars;}else if(n>=510&&n<=514)c.count_bars=n-510;else if(n>=600)c.level=n-600;else return;app.set_click_settings(c);if(c.count_bars)lastCountBars=c.count_bars;prefs.click=c;saveSettings();return;}
     if(n==6){app.pause();showProjectHome(true);home->rescan();return;}
     if(n>=1000){auto at=static_cast<std::size_t>(n-1000);if(at<prefs.recent_projects.size()){const auto f=juce::File(label(prefs.recent_projects[at]));confirmDiscard([this,f]{run([&]{openFile(f);});});}return;}
     if(n==1 || n==2){confirmDiscard([this,n]{run([&]{if(n==1){const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();app.new_project(session?prefs.rate:48000);resetDevice();selectedClip.reset();selectedTrack.reset();refresh(true);showProjectHome(false);reconnectDevice(session);}else choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){openFile(f);},"*.mrsproject");});});}

@@ -154,6 +154,7 @@ private:
         arrangeButton{"Arrange"},editButton{"Edit"},mixButton{"Mix"},brows{"BROWS"},
         addTrack{"+ Track"},addBus{"+ Bus"},undo{"Undo"},redo{"Redo"},split{"Split (S)"},
         remove{"Del clip"},zoomIn{"Zoom +"},zoomOut{"Zoom -"},fit{"Fit"},audio{"Audio settings"},snapButton{"Snap off"},clickButton{"Click"},countButton{"Count off"};
+    int lastCountBars{1}; // Toolbar off/on restores the last enabled count in this session.
     struct MixPreview {std::optional<mrs::Id> target;mrs::Track::Mix mix;float master;std::function<bool()> active;};
     std::optional<MixPreview> preview;
 };
