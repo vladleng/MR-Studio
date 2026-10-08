@@ -41,6 +41,7 @@ Desktop::Desktop(bool test,bool startAtHome):testing(test){
     if(!testing)try{juce::File file(juce::String(viewFile.wstring().c_str()));if(file.existsAsFile())view=ViewSettings::decode(file.loadFileAsString());}catch(const std::exception& e){message=label(e.what());}
     sidebar=view.sidebar;browserWidth=view.browserWidth;snap=view.snap;
     projectSessionStarted=testing&&!startAtHome;if(projectSessionStarted)app.demo();else app.new_project();resetDevice();
+    app.set_click_settings(prefs.click);
     arrangement=std::make_unique<Arrangement>(*this);browser=std::make_unique<Browser>(*this);
     addAndMakeVisible(browserDivider);browserDivider.setTitle("Resize browser");browserDivider.setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);browserDivider.addMouseListener(this,false);
     addAndMakeVisible(mixerDivider);mixerDivider.setTitle("Resize mixer");mixerDivider.setMouseCursor(juce::MouseCursor::UpDownResizeCursor);mixerDivider.addMouseListener(this,false);
@@ -58,6 +59,7 @@ Desktop::Desktop(bool test,bool startAtHome):testing(test){
     auto bind=[this](juce::TextButton& b,int cmd){b.onClick=[this,cmd]{action(cmd);};};
     bind(play,30);bind(pause,31);bind(stop,32);bind(record,33);bind(previous,34);bind(next,35);bind(loop,36);
     bind(addTrack,20);bind(addBus,21);bind(undo,10);bind(redo,11);bind(split,24);bind(remove,25);bind(audio,40);
+    for(auto* b:{&clickButton,&countButton}){addAndMakeVisible(b);b->setTitle(b==&clickButton?"Metronome settings":"Recording count-in settings");b->setTooltip("Metronome / count-in — application preferences");b->onClick=[this]{auto menu=getMenuForIndex(3,"Transport");juce::Component::SafePointer<Desktop> safe(this);menu.showMenuAsync(popup(&clickButton),[safe](int id){if(safe&&id)safe->action(id);});};}
     arrangeButton.onClick=[this]{setWorkspace(mrs::desktop::Workspace::arrange);};
     editButton.onClick=[this]{run([&]{toggleEditor();});};
     mixButton.onClick=[this]{setWorkspace(app.workspace()==mrs::desktop::Workspace::mix?mrs::desktop::Workspace::arrange:mrs::desktop::Workspace::mix);};
@@ -128,11 +130,17 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
         juce::PopupMenu recent;for(std::size_t i=0;i<prefs.recent_projects.size();++i)recent.addItem(1000+static_cast<int>(i),label(prefs.recent_projects[i]));m.addSubMenu("Open recent project",recent);}
     if(n==1){m.addItem(10,"Undo",app.services().projects->state().can_undo);m.addItem(11,"Redo",app.services().projects->state().can_redo);m.addItem(24,"Split selected clip (S)");m.addItem(25,"Delete selected clip (Backspace)");m.addItem(43,"Create MIDI clip at cursor",selectedTrack.has_value());m.addItem(44,"Edit MIDI clip notes",selectedClip.has_value());m.addItem(45,"Duplicate selected clip",selectedClip.has_value());m.addItem(46,"Loop selected clip",selectedClip.has_value());}
     if(n==2){m.addItem(20,"Add audio track");m.addItem(28,"Add instrument track");m.addItem(21,"Add bus");m.addItem(22,"Rename track");m.addItem(23,"Delete track");m.addItem(26,"Move track up");m.addItem(27,"Move track down");}
-    if(n==3){m.addItem(30,"Play");m.addItem(31,"Pause");m.addItem(32,"Stop");m.addItem(33,"Record");m.addItem(34,"Previous section");m.addItem(35,"Next section");m.addItem(36,"Loop section");m.addItem(40,"Audio settings...");m.addItem(41,"Engine profiling...");m.addItem(42,"MIDI panic / all notes off");m.addItem(47,"Project tempo...");}
+    if(n==3){m.addItem(30,"Play");m.addItem(31,"Pause");m.addItem(32,"Stop");m.addItem(33,"Record");m.addItem(34,"Previous section");m.addItem(35,"Next section");m.addItem(36,"Loop section");m.addItem(40,"Audio settings...");m.addItem(41,"Engine profiling...");m.addItem(42,"MIDI panic / all notes off");m.addItem(47,"Project tempo...");
+        const auto c=app.click_settings();juce::PopupMenu click,count,level;const bool enabled=!app.recording();
+        click.addItem(500,"During playback",enabled,c.playback);click.addItem(501,"During recording",enabled,c.recording);click.addItem(502,"Accent first beat",enabled,c.accent);
+        for(const auto value:{10,20,35,50,75,100})level.addItem(600+value,juce::String(value)+"%",enabled,c.level==value);click.addSubMenu("Level",level);
+        for(int bars=0;bars<=4;++bars)count.addItem(510+bars,bars?juce::String(bars)+" bar(s)":"Off",enabled,c.count_bars==bars);
+        click.addSubMenu("Count-in before recording",count);m.addSubMenu("Metronome / count-in",click);}
     return m;
 }
 void Desktop::menuItemSelected(int n,int){action(n);}
 void Desktop::action(int n){if(busyGesture())return;run([&]{
+    if(n>=500&&n<=700){auto c=app.click_settings();if(n==500)c.playback=!c.playback;else if(n==501)c.recording=!c.recording;else if(n==502)c.accent=!c.accent;else if(n>=510&&n<=514)c.count_bars=n-510;else if(n>=600)c.level=n-600;else return;app.set_click_settings(c);prefs.click=c;saveSettings();return;}
     if(n==6){app.pause();showProjectHome(true);home->rescan();return;}
     if(n>=1000){auto at=static_cast<std::size_t>(n-1000);if(at<prefs.recent_projects.size()){const auto f=juce::File(label(prefs.recent_projects[at]));confirmDiscard([this,f]{run([&]{openFile(f);});});}return;}
     if(n==1 || n==2){confirmDiscard([this,n]{run([&]{if(n==1){const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();app.new_project(session?prefs.rate:48000);resetDevice();selectedClip.reset();selectedTrack.reset();refresh(true);showProjectHome(false);reconnectDevice(session);}else choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){openFile(f);},"*.mrsproject");});});}
@@ -166,6 +174,7 @@ juce::String Desktop::projectCaption() const{return (app.path().empty()?label(pr
 void Desktop::resized(){if(homeVisible&&home){for(auto* child:getChildren())if(child!=home.get())child->setVisible(false);home->setBounds(getLocalBounds());home->toFront(false);return;}menu.setBounds(0,0,getWidth(),26);projectTitle.setBounds(300,0,juce::jmax(0,getWidth()-600),26);int x=8;
     for(auto* b:{&undo,&redo,&addTrack,&addBus,&split,&remove,&zoomIn,&zoomOut,&fit,&snapButton}){const int width=(b==&snapButton?86:78);b->setBounds(x,34,width,28);x+=width+5;}
     audio.setBounds(getWidth()-148,34,140,28);
+    clickButton.setBounds(getWidth()-322,34,78,28);countButton.setBounds(getWidth()-239,34,86,28);
     browserWidth=juce::jlimit(200,juce::jmax(200,juce::jmin(700,getWidth()-700)),browserWidth);
     const int available=getWidth()-(sidebar?browserWidth:0)-16;
     const bool showMix=app.workspace()==mrs::desktop::Workspace::mix;
@@ -194,6 +203,7 @@ void Desktop::resized(){if(homeVisible&&home){for(auto* child:getChildren())if(c
 }
 void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFont(theme.font(12));g.setColour(message.isEmpty()?juce::Colours::lightgrey:juce::Colours::orange);
     auto s=message.isEmpty()?(app.recording()?juce::String("RECORDING | ")+label(app.audio_name()):label(app.audio_name())):message;
+    const auto head=app.engine()->state();if(head.count_remaining)s="COUNT-IN "+juce::String(static_cast<double>(head.count_remaining)/project()->sample_rate,1)+" s | "+label(app.audio_name());
     if(app.engine()->profile().enabled)s+=" | PROF";
     if(message.isEmpty()){const auto samples=app.engine()->compensation().output;s+="  |  PDC "+juce::String(static_cast<double>(samples)*1000/project()->sample_rate,2)+" ms";
         const auto metrics=app.engine()->metrics();const bool hardware=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
@@ -239,6 +249,7 @@ void Desktop::refresh(bool force){if(!app.recording()){recordingPreview.clear();
     editButton.setToggleState(clipEditorOpen(),juce::dontSendNotification);
     mixButton.setToggleState(app.workspace()==mrs::desktop::Workspace::mix,juce::dontSendNotification);
     record.setToggleState(app.recording(),juce::dontSendNotification);loop.setToggleState(app.engine()->state().loop.has_value(),juce::dontSendNotification);
+    const auto click=app.click_settings();clickButton.setToggleState(click.playback||click.recording,juce::dontSendNotification);clickButton.setEnabled(!app.recording());countButton.setEnabled(!app.recording());countButton.setButtonText(click.count_bars?"Count "+juce::String(click.count_bars):"Count off");countButton.setToggleState(click.count_bars>0,juce::dontSendNotification);
     brows.setToggleState(sidebar,juce::dontSendNotification);repaint();arrangement->repaint();
 }
 bool Desktop::busyGesture() const{if(resizingMixer||resizingBrowser)return true;if(preview&&preview->active())return true;return false;}

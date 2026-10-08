@@ -723,6 +723,7 @@ void project_folders() {
 
 void config() {
     Preferences p; p.workspace = Workspace::live; p.device_name = "Komplete Audio ASIO Driver"; p.reconnect_audio = true;
+    p.click={true,true,false,35,2};
     p.process_buffer_frames=1024;
     CHECK(decode_preferences(encode_preferences(p)) == p);
     auto disabled = p; disabled.reconnect_audio = false;
@@ -730,6 +731,7 @@ void config() {
     const auto legacy = decode_preferences("MRS_DESKTOP_CONFIG 1\n0 48000 128 -1 \"Komplete Audio ASIO Driver\" 2 0 1\n");
     CHECK(legacy.reconnect_audio && legacy.device_name == p.device_name);
     CHECK(legacy.process_buffer_frames==0);
+    CHECK(legacy.click==audio::ClickSettings{});auto bad_click=p;bad_click.click.count_bars=5;rejects([&]{encode_preferences(bad_click);});bad_click=p;bad_click.click.level=-1;rejects([&]{encode_preferences(bad_click);});
     auto invalid_process=p;invalid_process.process_buffer_frames=64;rejects([&]{(void)encode_preferences(invalid_process);});
     CHECK(!decode_preferences("MRS_DESKTOP_CONFIG 1\n0 48000 128 -1 \"\" 2 0 1\n").reconnect_audio);
     rejects([&] { (void)decode_preferences("MRS_DESKTOP_CONFIG 2\n0 48000 128 -1 \"\" 2 0 1 2\n"); });

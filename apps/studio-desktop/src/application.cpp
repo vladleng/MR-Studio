@@ -53,6 +53,7 @@ audio::DeviceConfig resolve_profile(const DeviceProfile& profile, const audio::D
     return result;
 }
 void Preferences::validate() const {
+    click.validate();
     (void)workspace_name(workspace); require(rate >= 8000 && rate <= 768000,"invalid sample rate");
     require(buffer >= 8 && buffer <= 8192,"invalid buffer"); require(monitor_input >= -1 && monitor_input < 64,"invalid monitor input");
     require(processing_workers>=1&&processing_workers<=8,"invalid audio worker limit (1..8)");
@@ -68,7 +69,7 @@ void Preferences::validate() const {
 }
 std::string encode_preferences(const Preferences& p) {
     p.validate(); std::ostringstream out;
-    out << "MRS_DESKTOP_CONFIG 6\n" << static_cast<int>(p.workspace) << ' ' << p.rate << ' ' << p.buffer << ' ' << p.monitor_input
+    out << "MRS_DESKTOP_CONFIG 7\n" << static_cast<int>(p.workspace) << ' ' << p.rate << ' ' << p.buffer << ' ' << p.monitor_input
         << ' ' << std::quoted(p.device_name) << ' ' << p.outputs.size();
     for (auto o : p.outputs) out << ' ' << o;
     out << ' ' << p.reconnect_audio << "\n" << p.recent_projects.size() << '\n';
@@ -80,12 +81,13 @@ std::string encode_preferences(const Preferences& p) {
         out << '\n';
     }
     out << p.processing_workers << ' ' << p.process_buffer_frames << '\n';
+    out << p.click.playback << ' ' << p.click.recording << ' ' << p.click.accent << ' ' << p.click.level << ' ' << p.click.count_bars << '\n';
     const auto bytes = out.str(); require(bytes.size() <= 524288,"config too large"); return bytes;
 }
 Preferences decode_preferences(std::string_view bytes) {
     require(bytes.size() <= 524288,"config too large"); std::istringstream in{std::string(bytes)};
     std::string magic; int version{},workspace{}; std::size_t count{}; Preferences p;
-    require(static_cast<bool>(in >> magic >> version) && magic == "MRS_DESKTOP_CONFIG" && (version >= 1 && version <= 6),"unsupported config");
+    require(static_cast<bool>(in >> magic >> version) && magic == "MRS_DESKTOP_CONFIG" && (version >= 1 && version <= 7),"unsupported config");
     require(static_cast<bool>(in >> workspace >> p.rate >> p.buffer >> p.monitor_input >> std::quoted(p.device_name) >> count) && workspace >= 0 && workspace <= 3 && count > 0 && count <= 64,"invalid config");
     p.workspace = static_cast<Workspace>(workspace); p.outputs.clear();
     for (std::size_t i = 0; i < count; ++i) { int o{}; require(static_cast<bool>(in >> o),"truncated config"); p.outputs.push_back(o); }
@@ -115,6 +117,7 @@ Preferences decode_preferences(std::string_view bytes) {
     }
     if(version>=5)require(static_cast<bool>(in>>p.processing_workers),"truncated audio worker limit");
     if(version>=6)require(static_cast<bool>(in>>p.process_buffer_frames),"truncated Process Buffer");
+    if(version>=7){int play{},record{},accent{};require(static_cast<bool>(in>>play>>record>>accent>>p.click.level>>p.click.count_bars)&&play>=0&&play<=1&&record>=0&&record<=1&&accent>=0&&accent<=1,"invalid metronome preferences");p.click.playback=play!=0;p.click.recording=record!=0;p.click.accent=accent!=0;}
     in >> std::ws; require(in.eof(),"extra config data"); p.validate(); return p;
 }
 void remember_project(Preferences& p, const std::filesystem::path& path) {
@@ -779,6 +782,12 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_
     require(!c.outputs.empty() && c.outputs.size() <= audio::max_channels && c.inputs.size() <= audio::max_channels,"invalid channel selection");
     validate_hardware(*services_.projects->state().project,c);
     audio::RenderGraph result;
+    result.click=click_settings_;result.click_time=services_.projects->state().project->time;
+    if(recording()&&click_settings_.count_bars){const auto p=services_.projects->state().project;const Timeline timeline(p->time,p->sample_rate);const auto tick=timeline.to_ticks(engine_->state().sample);const auto musical=timeline.musical_position(tick);
+        auto meter=p->time.meters.front();for(const auto& m:p->time.meters){if(m.bar>musical.bar)break;meter=m;}
+        auto tempo=p->time.tempos.front();for(const auto& t:p->time.tempos){if(t.tick>tick)break;tempo=t;}
+        result.count_beats=meter.numerator;result.count_beat_frames=60.*p->sample_rate/tempo.bpm*4/meter.denominator;
+        result.count_frames=static_cast<Sample>(std::llround(result.count_beat_frames*meter.numerator*click_settings_.count_bars));}
     for (const auto& capture : captures_) result.recordings.push_back(capture.recorder);
     for(const auto& capture:midi_captures_){const auto at=std::find(mixer_tracks_.begin(),mixer_tracks_.end(),capture.track);require(at!=mixer_tracks_.end(),"missing MIDI record track");result.midi_recordings.push_back({static_cast<std::size_t>(at-mixer_tracks_.begin()),capture.recorder});}
     result.monitoring = monitoring_;
@@ -925,6 +934,7 @@ void Application::poll() {
 audio::DeviceStatus Application::device_status() { return device_ ? device_->status() : audio::DeviceStatus{}; }
 bool Application::audio_running() { return device_status().phase == audio::DevicePhase::running; }
 void Application::play() { require(audio_running(),"connect audio or choose Offline clock first"); transport_->play(); }
+void Application::set_click_settings(audio::ClickSettings settings){settings.validate();require_not_recording();if(settings==click_settings_)return;require(engine_->enqueue({audio::ControlKind::click,(settings.playback?1:0)|(settings.recording?2:0)|(settings.accent?4:0),settings.level}),"transport control queue full");click_settings_=settings;}
 void Application::pause() { if (recording()) (void)stop_recording(); else transport_->pause(); }
 void Application::stop() { if (recording()) (void)stop_recording(); transport_->stop(); }
 void Application::seek(Sample sample) { require_not_recording(); transport_->seek(sample); }
@@ -968,10 +978,12 @@ void Application::monitoring(bool enabled) {
 }
 audio::RecordStatus Application::recording_status() const {if(recording_)return recording_->status();if(!midi_captures_.empty()){audio::RecordStatus status;status.frames=static_cast<std::uint64_t>(midi_captures_.front().recorder->end()-midi_captures_.front().recorder->start());if(midi_captures_.front().recorder->fault())status.fault=audio::RecordFault::overflow;return status;}return last_recording_status_;}
 std::vector<Clip> Application::midi_recording_preview() const {
+    if(engine_->state().count_remaining)return {};
     const auto p=services_.projects->state().project;const Timeline time(p->time,p->sample_rate);std::vector<Clip> result;
     for(const auto& capture:midi_captures_){Clip c;c.id=Id{"record-preview-"+capture.track.value};c.track=capture.track;c.name="Recording MIDI";c.midi=capture.recorder->preview(time);result.push_back(std::move(c));}return result;
 }
 std::vector<AudioRecordingPreview> Application::audio_recording_preview() const {
+    if(engine_->state().count_remaining)return {};
     std::vector<AudioRecordingPreview> result;result.reserve(captures_.size());
     for(const auto& capture:captures_){const auto frames=static_cast<Sample>(capture.recorder->status().frames);
         Clip clip;clip.id=Id{"audio-record-preview-"+capture.track.value+"-"+utf8(capture.recorder->destination().filename())};clip.track=capture.track;clip.name="Recording audio";

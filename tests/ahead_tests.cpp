@@ -34,6 +34,7 @@ std::shared_ptr<PreparedGraph> delay(unsigned frames){auto state=demo_graph();st
 std::shared_ptr<PreparedGraph> gain(){const std::array<NativeInsert,1> fx{{{new_id(),InsertKind::gain,.75f}}};
     return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(insert_graph(fx)),0,false,false},ProcessConfig{48000,2,128});}
 RenderGraph graph(bool pdc=true){RenderGraph g;g.mixer.resize(4);g.buses={false,false,true,false};g.outputs={2,2,no_mixer_track,no_mixer_track};g.hardware_outputs={{},{},{},{1}};
+    g.click.playback=true;g.click.level=13;
     g.sends={{{2,.2f,true}}, {}, {},{{2,.1f,false}}};g.master_gain=.7f;
     auto asset=std::make_shared<AudioData>(sine_fixture(48000,2,16384,300));
     g.voices={{asset,0,0,16384,{{0,0,.1f},{1,1,.1f}},{},0},{asset,0,0,16384,{{0,0,.2f},{1,1,.2f}},{},1},{asset,0,0,16384,{{0,0,.1f},{1,1,.1f}},{},3}};

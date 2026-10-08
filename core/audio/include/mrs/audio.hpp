@@ -1,5 +1,6 @@
 #pragma once
 #include <mrs/delay.hpp>
+#include <mrs/metronome.hpp>
 #include <mrs/midi_playback.hpp>
 #include <mrs/core.hpp>
 #include <mrs/processing.hpp>
@@ -95,6 +96,11 @@ struct RenderGraph {
     std::vector<bool> buses{}; // same indices as mixer; no clips/input directly on buses
     std::vector<bool> live_midi{}; // reserves device ownership even with monitoring disabled
     std::vector<std::vector<PlaybackMidiNote>> midi_notes{}; // sample projection of immutable tick data
+    ClickSettings click{};
+    TimeMap click_time{};
+    Sample count_frames{};
+    double count_beat_frames{};
+    int count_beats{4};
 };
 struct RenderConfig {
     std::uint32_t sample_rate{48000};
@@ -177,13 +183,14 @@ public:
         return true;
     }
 };
-enum class ControlKind { play, pause, stop, seek, loop, monitor, prepared_seek };
+enum class ControlKind { play, pause, stop, seek, loop, monitor, prepared_seek, click };
 struct Control { ControlKind kind{}; Sample a{}, b{}; std::uint64_t serial{}; };
 struct RealtimeState {
     PlaybackState playback{PlaybackState::stopped};
     Sample sample{};
     std::optional<LoopRange> loop;
     Sample play_start{};
+    Sample count_remaining{};
 };
 class AudioEngine {
 public:
@@ -227,6 +234,12 @@ public:
     const CompensationReport& compensation() const {return compensation_;} // prepared, control thread
     const ProcessingDomains& processing_domains() const {return domains_;} // candidate plan, control thread
 private:
+    void process_block(const float*,float*,std::uint32_t,std::uint32_t) noexcept;
+    Metronome metronome_;
+    ClickSettings click_;
+    bool count_started_{};
+    std::uint64_t record_start_ns_{};
+    std::atomic<Sample> published_count_{};
     SpscQueue<LiveMidi,1024> live_midi_queue_;
     SpscQueue<LiveMidi,128> audition_midi_queue_;
     struct AuditionTail {processing::MidiEvent off;std::uint32_t remaining{},fade{};bool active{},pending{};};

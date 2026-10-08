@@ -28,6 +28,7 @@ struct DeviceProfile {
 DeviceProfile capture_profile(std::string, const audio::DeviceInfo&, const audio::DeviceConfig&);
 audio::DeviceConfig resolve_profile(const DeviceProfile&, const audio::DeviceInfo&);
 struct Preferences {
+    audio::ClickSettings click{};
     Workspace workspace{Workspace::arrange};
     std::uint32_t rate{48000}, buffer{128};
     std::vector<int> outputs{0,1};
@@ -147,6 +148,8 @@ public:
     // Control thread: managed Media destination; an unsaved session gets its own project.
     void start_project_recording(const std::filesystem::path& projects_folder);
     bool stop_recording();
+    void set_click_settings(audio::ClickSettings);
+    audio::ClickSettings click_settings() const {return click_settings_;}
     bool recording() const { return static_cast<bool>(recording_)||!midi_captures_.empty(); }
     audio::RecordStatus recording_status() const;
     std::vector<Clip> midi_recording_preview() const;
@@ -168,6 +171,7 @@ private:
     std::uint64_t midi_route_revision_{~std::uint64_t{}},midi_route_generation_{};
     void publish_midi_routes();
     std::shared_ptr<audio::EngineTransport> transport_;
+    audio::ClickSettings click_settings_{};
     std::unique_ptr<MusicalTimeline> musical_;
     std::unique_ptr<audio::IAudioDevice> device_;
     std::shared_ptr<processing::PreparedGraph> prepared_;

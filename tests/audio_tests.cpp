@@ -753,11 +753,41 @@ void stop_anchor() {
     rejects([&] { engine.prepare({48000,0,2,8},{},{PlaybackState::paused,0,{},-1}); });
 }
 
+void metronome(){
+    for(const auto rate:{44100U,48000U,96000U}){
+        TimeMap map;map.tempos={{0,123},{4*ppq,91}};map.meters={{1,3,4},{3,5,8}};Timeline time(map,rate);
+        Metronome click;click.prepare(map,rate);const auto end=time.to_samples(9*ppq);
+        std::vector<Sample> starts;bool active=false;float first_peak=0,second_peak=0;
+        allocation_check::count=0;allocation_check::enabled=true;
+        for(Sample i=0;i<end;++i){const auto value=click.sample(i,true,true,.5f);const bool nonzero=std::abs(value)>1e-7f;
+            // Onset has a zero first sample and half-ms attack; use expected beat windows.
+            if(i<static_cast<Sample>(rate/40))first_peak=std::max(first_peak,std::abs(value));
+            if(i>=time.to_samples(ppq)&&i<time.to_samples(ppq)+rate/40)second_peak=std::max(second_peak,std::abs(value));
+            if(nonzero&&!active){allocation_check::enabled=false;starts.push_back(i);allocation_check::enabled=true;}active=nonzero;
+        }
+        allocation_check::enabled=false;CHECK(allocation_check::count==0);CHECK(first_peak>second_peak*1.2f);
+        for(const Tick tick:{0LL,ppq,2*ppq,3*ppq,4*ppq,5*ppq,6*ppq,6*ppq+ppq/2,7*ppq,7*ppq+ppq/2,8*ppq,8*ppq+ppq/2}){
+            click.reset();const auto at=time.to_samples(tick);CHECK(click.sample(at,true,true,.5f)==0);CHECK(std::abs(click.sample(at+1,true,true,.5f))>0);
+        }
+        CHECK(click.sample(end,false,true,1)==0);
+    }
+    TempFile count_file,cancel_file;auto recorder=std::make_shared<Recorder>(count_file.path,48000,500);
+    RenderGraph graph;graph.recordings={recorder};graph.click.recording=true;graph.count_frames=193;graph.count_beat_frames=48.25;graph.count_beats=4;
+    AudioEngine engine;engine.prepare({48000,1,2,256},graph,{PlaybackState::paused,500});std::array<float,512> output{};std::array<float,256> input{};for(std::size_t i=0;i<input.size();++i)input[i]=static_cast<float>(i)/512;
+    CHECK(engine.enqueue({ControlKind::play}));allocation_check::count=0;allocation_check::enabled=true;
+    engine.process(input.data(),output.data(),128);allocation_check::enabled=false;CHECK(allocation_check::count==0);CHECK(engine.state().sample==500&&engine.state().count_remaining==65);CHECK(recorder->status().frames==0);
+    CHECK(std::any_of(output.begin(),output.begin()+256,[](float value){return value!=0;}));
+    allocation_check::enabled=true;engine.process(input.data(),output.data(),128);allocation_check::enabled=false;CHECK(allocation_check::count==0);
+    CHECK(engine.state().count_remaining==0&&engine.state().sample==563);auto take=recorder->finish();CHECK(take.frames==63);auto raw=load_wav(take.path);CHECK(raw.samples.front()==input[65]&&raw.samples.back()==input[127]);
+    auto canceled=std::make_shared<Recorder>(cancel_file.path,48000,0);graph.recordings={canceled};engine.prepare({48000,1,2,256},graph);CHECK(engine.enqueue({ControlKind::play}));engine.process(input.data(),output.data(),64);CHECK(engine.enqueue({ControlKind::stop}));engine.process(input.data(),output.data(),128);CHECK(engine.state().count_remaining==0&&engine.state().sample==0&&engine.state().playback==PlaybackState::stopped);CHECK(canceled->finish().frames==0&&!std::filesystem::exists(cancel_file.path));
+    RenderGraph loop;loop.click.playback=true;loop.click_time.tempos={{0,120}};engine.prepare({48000,0,2,256},loop,{PlaybackState::paused,0,LoopRange{0,128}});CHECK(engine.enqueue({ControlKind::play}));std::array<float,256> first{};engine.process(nullptr,first.data(),128);engine.process(nullptr,output.data(),128);CHECK(std::equal(first.begin(),first.end(),output.begin()));CHECK(engine.enqueue({ControlKind::click,0,20}));engine.process(nullptr,output.data(),128);CHECK(std::all_of(output.begin(),output.begin()+256,[](float value){return value==0;}));
+}
+
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
-        if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();

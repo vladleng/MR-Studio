@@ -142,6 +142,9 @@ ProcessingDomains AudioEngine::compile_domains(const RenderGraph& graph,
 }
 void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState initial) {
     if(speculative_||mixed_owner_)throw std::logic_error("stop the process producer before preparing audio");
+    graph.click.validate();metronome_.prepare(graph.click_time,config.sample_rate);click_=graph.click;
+    if(graph.count_frames<0||graph.count_frames>max_sample||(graph.count_frames&&(!std::isfinite(graph.count_beat_frames)||graph.count_beat_frames<1||graph.count_beats<1||graph.count_beats>64)))throw std::invalid_argument("invalid precount");
+    count_started_=false;record_start_ns_=0;initial.count_remaining=graph.count_frames;
     // Caller has stopped the device; this also joins a timed-out worker batch.
     workers_.reset();
     midi_record_fault_=false;
@@ -449,6 +452,7 @@ void AudioEngine::publish_delivered(const RealtimeState& delivered,const MixerMe
     sequence_.fetch_add(1, std::memory_order_acq_rel);
     published_sample_.store(delivered.sample, std::memory_order_relaxed);
     published_play_start_.store(delivered.play_start, std::memory_order_relaxed);
+    published_count_.store(delivered.count_remaining,std::memory_order_relaxed);
     published_loop_start_.store(delivered.loop ? delivered.loop->start : 0, std::memory_order_relaxed);
     published_loop_end_.store(delivered.loop ? delivered.loop->end : 0, std::memory_order_relaxed);
     published_playback_.store(static_cast<int>(delivered.playback), std::memory_order_relaxed);
@@ -463,6 +467,7 @@ bool AudioEngine::try_state(RealtimeState& result) const noexcept {
         const auto before = sequence_.load(std::memory_order_acquire);
         if (before & 1U) continue;
         result.play_start=published_play_start_.load(std::memory_order_relaxed);
+        result.count_remaining=published_count_.load(std::memory_order_relaxed);
         result.sample = published_sample_.load(std::memory_order_relaxed);
         result.playback = static_cast<PlaybackState>(published_playback_.load(std::memory_order_relaxed));
         const auto start = published_loop_start_.load(std::memory_order_relaxed);
@@ -496,7 +501,7 @@ std::uint64_t AudioEngine::control_revision() const noexcept {
     return revision;
 }
 void AudioEngine::rebase_head(const RealtimeState& head) noexcept {
-    rt_=head;pending_seek_.reset();pending_play_anchor_=false;reset_compensation();
+    rt_=head;metronome_.reset();pending_seek_.reset();pending_play_anchor_=false;reset_compensation();
     if(graph_.processors)graph_.processors->reset_anticipation();if(graph_.master_inserts)graph_.master_inserts->reset_anticipation();
     for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.inserts[t])graph_.inserts[t]->reset_anticipation();
 }
@@ -508,14 +513,18 @@ void AudioEngine::restore_mix(const MixHead& mix) noexcept {
     gate_=mix.gate;gate_target_=mix.gate_target;gate_step_=mix.gate_step;master_gain_=mix.master;master_target_=mix.master_target;master_step_=mix.master_step;mix_ramp_=mix.ramp;
 }
 void AudioEngine::apply_control(const Control& control) noexcept {
+    if(control.kind==ControlKind::seek||control.kind==ControlKind::prepared_seek)metronome_.reset();
     if(control.kind==ControlKind::stop||control.kind==ControlKind::seek){for(auto& lane:midi_playback_)lane.forget();}
     switch (control.kind) {
+        case ControlKind::click: click_.playback=(control.a&1)!=0;click_.recording=(control.a&2)!=0;click_.accent=(control.a&4)!=0;click_.level=static_cast<int>(std::clamp(control.b,Sample{0},Sample{100}));metronome_.reset();break;
         case ControlKind::monitor: monitor_enabled_ = control.a != 0; break;
-        case ControlKind::play: if (rt_.playback != PlaybackState::playing) { rt_.play_start=rt_.sample; pending_play_anchor_=pending_seek_.has_value(); } rt_.playback = PlaybackState::playing; break;
+        case ControlKind::play: if (rt_.playback != PlaybackState::playing) { rt_.play_start=rt_.sample; pending_play_anchor_=pending_seek_.has_value(); } if(rt_.count_remaining){count_started_=true;rt_.playback=PlaybackState::paused;}else rt_.playback = PlaybackState::playing; break;
         case ControlKind::pause:
+            rt_.count_remaining=0;count_started_=false;metronome_.reset();
             if (rt_.playback == PlaybackState::playing) rt_.playback = PlaybackState::paused;
             break;
         case ControlKind::stop:
+            rt_.count_remaining=0;count_started_=false;metronome_.reset();
             audition_tails_={};audition_live_busy_={};audition_live_notes_={};audition_live_sustain_={};
             reset_compensation();
             pending_seek_.reset(); pending_play_anchor_=false; rt_.playback = PlaybackState::stopped; rt_.sample = rt_.play_start;
@@ -552,9 +561,30 @@ void AudioEngine::consume_controls() noexcept {
 }
 void AudioEngine::process(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags) noexcept {
     const ScopedNoDenormals no_denormals;
+    if(!speculative_)callbacks_.fetch_add(1,std::memory_order_relaxed);
+    if(!output||!frames||frames>config_.max_block){process_block(input,output,frames,input_flags);return;}
+    if(!speculative_){const auto minimum=min_frames_.load(std::memory_order_relaxed);if(!minimum||frames<minimum)min_frames_=frames;if(frames>max_frames_.load(std::memory_order_relaxed))max_frames_=frames;}
+    consume_controls();
+    if(count_started_&&rt_.count_remaining&&!processing_fault_.load()){
+        const auto count=static_cast<std::uint32_t>(std::min<Sample>(frames,rt_.count_remaining));
+        const auto elapsed=graph_.count_frames-rt_.count_remaining;const auto now=midi_clock_ns();
+        process_block(input,output,count,input_flags);
+        if(processing_fault_.load()){rt_.count_remaining=0;count_started_=false;rt_.playback=PlaybackState::paused;publish();return;}
+        for(std::uint32_t i=0;i<count;++i){const auto click=metronome_.count_sample(elapsed+i,graph_.count_beat_frames,graph_.count_beats,click_.accent,click_.level/100.f)*master_envelope_[i];
+            const auto add=[&](std::size_t c){auto& value=output[static_cast<std::size_t>(i)*config_.output_channels+c];value=std::clamp(value+click,-1.f,1.f);};
+            if(graph_.master_outputs.empty()){for(std::uint32_t c=0;c<std::min(2U,config_.output_channels);++c)add(c);}else for(const auto c:graph_.master_outputs)add(c);
+        }
+        rt_.count_remaining-=count;
+        if(!rt_.count_remaining){count_started_=false;rt_.playback=PlaybackState::playing;record_start_ns_=now+static_cast<std::uint64_t>(1e9*count/config_.sample_rate);metronome_.reset();if(mixed_owner_)++control_revision_;}
+        if(count<frames)process_block(input?input+static_cast<std::size_t>(count)*config_.input_channels:nullptr,output+static_cast<std::size_t>(count)*config_.output_channels,frames-count,input_flags);
+        publish();return;
+    }
+    process_block(input,output,frames,input_flags);
+}
+void AudioEngine::process_block(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags) noexcept {
+    const ScopedNoDenormals no_denormals;
     profile_block_=profile_->enabled.load(std::memory_order_relaxed);
     std::uint64_t critical_ns{};
-    if(!speculative_)callbacks_.fetch_add(1, std::memory_order_relaxed);
     if (!output || frames == 0 || frames > config_.max_block) {
         for (const auto& recorder : graph_.recordings) recorder->input_dropout();
         for(const auto& capture:graph_.midi_recordings)capture.recorder->fail();
@@ -571,10 +601,6 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         return;
     }
     std::fill_n(direct_output_.data(),static_cast<std::size_t>(frames)*config_.output_channels,0.0f);
-    auto minimum = min_frames_.load(std::memory_order_relaxed);
-    if (!speculative_ && (minimum == 0 || frames < minimum)) min_frames_.store(frames, std::memory_order_relaxed);
-    if (!speculative_ && frames > max_frames_.load(std::memory_order_relaxed)) max_frames_.store(frames, std::memory_order_relaxed);
-    consume_controls();
     for(auto& buffer:live_midi_buffers_)buffer.clear();
     if(rt_.loop)for(const auto& capture:graph_.midi_recordings)capture.recorder->fail();
     const auto midi_now=graph_.midi_recordings.empty()?0:midi_clock_ns();
@@ -582,7 +608,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     for(int n=0;n<1023&&live_midi_queue_.pop(midi);++n){
         if(midi.generation!=midi_generation_.load(std::memory_order_relaxed))continue;
         if(midi.track>=graph_.live_midi.size()||!graph_.live_midi[midi.track]||midi.event.channel>15||midi.event.data1>127||midi.event.data2>127||static_cast<int>(midi.event.kind)<0||midi.event.kind>processing::MidiKind::poly_pressure){++midi_dropped_;continue;}
-        if(rt_.playback==PlaybackState::playing)for(const auto& capture:graph_.midi_recordings)if(capture.track==midi.track)capture.recorder->capture(midi_record_sample(rt_.sample,capture.recorder->start(),midi_now,midi.timestamp_ns,config_.sample_rate),midi.event);
+        if(rt_.playback==PlaybackState::playing&&(!record_start_ns_||!midi.timestamp_ns||midi.timestamp_ns>=record_start_ns_))for(const auto& capture:graph_.midi_recordings)if(capture.track==midi.track)capture.recorder->capture(midi_record_sample(rt_.sample,capture.recorder->start(),midi_now,midi.timestamp_ns,config_.sample_rate),midi.event);
         if(!graph_.midi_monitor[midi.track])continue;
         auto& tail=audition_tails_[midi.track];if(tail.pending){tail.off.offset=0;if(!live_midi_buffers_[midi.track].push(tail.off)){++midi_dropped_;midi_panic_=true;}}tail={};
         audition_live_busy_[midi.track]=config_.sample_rate/5;
@@ -776,9 +802,12 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         (speculative_?profile_->ahead_path:profile_->device_path).record(critical_ns+ns,frames);}
     for (std::uint32_t frame=0; frame<frames; ++frame) {
         const auto offset = static_cast<std::size_t>(frame)*config_.output_channels;
+        auto click_position=block_position+frame;if(rt_.loop&&click_position>=rt_.loop->end)click_position=rt_.loop->start+(click_position-rt_.loop->start)%(rt_.loop->end-rt_.loop->start);
+        const bool capturing=!graph_.recordings.empty()||!graph_.midi_recordings.empty();
+        const auto click=rt_.count_remaining?0.f:metronome_.sample(click_position,block_playing&&(capturing?click_.recording:click_.playback),click_.accent,click_.level/100.f);
         std::array<float,max_channels> master{};
         for (std::uint32_t c=0; c<config_.output_channels; ++c) {
-            auto sample = output[offset+c]*master_envelope_[frame];
+            auto sample = (output[offset+c]+(c<2?click:0.f))*master_envelope_[frame];
             if (!std::isfinite(sample)) sample = 0;
             master[c] = sample;
             if (c<2) block_peaks[max_mixer_tracks][c] = std::max(block_peaks[max_mixer_tracks][c],std::abs(sample));

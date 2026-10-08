@@ -58,6 +58,7 @@ std::shared_ptr<PreparedGraph> chain(unsigned delay,Trace& trace,bool safe){auto
         [&,delay,safe](const auto&){return std::make_unique<Effect>(delay,trace,safe);});}
 RenderGraph graph(Traces& traces,bool pdc=true){
     RenderGraph g;g.mixer.resize(4);g.buses={false,false,true,false};g.outputs={2,2,no_mixer_track,no_mixer_track};g.hardware_outputs={{},{},{},{1}};
+    g.click.playback=g.click.recording=true;g.click.level=13;
     g.sends={{{2,.2f,true}}, {}, {},{{2,.1f,false}}};g.master_gain=.7f;
     auto asset=std::make_shared<AudioData>(sine_fixture(48000,2,32768,300));
     for(auto t:{0U,1U,3U})g.voices.push_back({asset,0,0,32768,{{0,0,.1f},{1,1,.1f}},{},t});
@@ -148,13 +149,16 @@ void parameters(){
     Traces traces,reference_traces;
     const auto gain=[](float value){const std::array<NativeInsert,1> fx{{{new_id(),InsertKind::gain,value}}};
         return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(insert_graph(fx)),0,false,false},ProcessConfig{48000,2,512});};
-    auto g=graph(traces,false);auto processor=gain(.75f);g.inserts[0]=processor;
+    // This test compares a fresh mid-beat DSP reference: it cannot reproduce
+    // the independent click tail carried across a parameter edit. Click-enabled
+    // sample equivalence and raw capture are covered by the other suites.
+    auto g=graph(traces,false);g.click.playback=g.click.recording=false;auto processor=gain(.75f);g.inserts[0]=processor;
     auto e=engine(g,2);e->enqueue({ControlKind::play});AheadRenderer renderer(e,128,1024);renderer.start();settle();
     std::array<float,256> in{},out{},expected{};in.fill(.2f);renderer.process(in.data(),out.data(),17);
     const auto node=processor->snapshot().graph->nodes.front().id;
     const auto info=processor->parameter_infos(node).front().id;
     check(processor->enqueue_parameter(node,{0,info,0.f}),"native parameter enqueue");renderer.process(in.data(),out.data(),128);settle();
-    auto reference_graph=graph(reference_traces,false);reference_graph.inserts[0]=gain(0.f);
+    auto reference_graph=graph(reference_traces,false);reference_graph.click.playback=reference_graph.click.recording=false;reference_graph.inserts[0]=gain(0.f);
     auto reference=engine(reference_graph,1,{PlaybackState::paused,e->state().sample});reference->enqueue({ControlKind::play});
     reference->process(in.data(),expected.data(),128);renderer.process(in.data(),out.data(),128);
     check(out==expected,"native edit consumed stale partial playback packet");
