@@ -32,7 +32,44 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2f upd7
+## Актуальная сборка для продолжения: 0.2f upd8
+
+Upd7 принята пользователем 2026-10-08: «По всем предыдущим пунктам тесты пройдены».
+Точные hardware settings и отдельная mixed-DPI matrix этой репликой не перечислены.
+По пяти заключительным замечаниям реализована upd8:
+
+- Arrange ruler font — тот же 13 px, что VST3 Browser. Mouse seek/drag только
+  на верхней линейке тактов; sections/chords/клипы/пустые дорожки не делают seek.
+- Split audio/MIDI оставляет выделенным только правый фрагмент.
+- Edge hover — bracket cursor, зона 7 logical px. Trim выделяет один клип из
+  группы; preview/commit совпадают, Escape отменяет, один Undo/Redo.
+  Audio clamped к исходному файлу; MIDI расширяется за содержимое, влево до
+  timeline zero. Shared MIDI empty-prefix trim сохраняет позиции notes/events.
+- Audio Record показывает растущий красный клип с raw-input waveform. Fixed
+  2048 peak bins/channel, adaptive width; disk worker считает extrema, UI получает
+  versioned atomic snapshot с bounded retries. Callback capture не изменён,
+  новых callback allocations/locks/I/O нет; Stop немедленно очищает preview.
+- Project schema 13 прежняя, trim/takes используют существующие commands,
+  Undo и persistence; временные preview/cursor/selection не сохраняются.
+
+Контракт: [ARRANGE_FINAL_UPD8](ARRANGE_FINAL_UPD8.md).
+Source `6c91cffdf375cd0ec8b1e44857f990a5b8ac70c3`, только локально, ветка
+`mrs/0.1q-fix3-processing-local`. Cached configure и full Release PASS;
+**113/113 CTest PASS (63.30 s)**. Packaged J3 exit 0, MIDI clips/live/recording,
+desktop waveform/recording/project_folders/clip_edits, audio recording/multi_input
+PASS. Проверены bounds/selection/ruler-only, Escape/Undo/Redo, Save/Open,
+mono/stereo preview, repeated takes, adaptive peak reduction и raw samples.
+Software Arrange/audio recording previews 100%/150% просмотрены.
+Пакет `MR-Studio-0.2f-upd8-Final-Arrange-JUCE-ASIO-Windows-local` в папке чатов
+`Builds`; прежние пакеты сохранены. EXE SHA256
+`B97492492098364601CAB3049B01D58DA35EDE16C960A5CE07022B05E7A17258`.
+FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK. Реальные ASIO takes,
+cursor feel и Windows mixed-DPI upd8 ещё NOT RUN. Следующий шаг — пять пунктов
+[MRS_STAGE_4F_CHECKLIST](MRS_STAGE_4F_CHECKLIST.md) на пользовательской системе.
+GitHub/source push/Actions не выполнялись; Stage 4/P4/#68/#24 не закрываются,
+0.2g/0.2h не начаты. Новая пользовательская приёмка upd8 ожидается.
+
+## Предыдущая принятая поставка: 0.2f upd7
 
 Пользователь принял upd6 2026-10-08: «Теперь все в порядке. Тест пройден!».
 Не расширять эту приёмку на весь Stage 4/P4 или отдельную hardware/DPI matrix.
@@ -68,7 +105,8 @@ Software arrangement 1200×700 и high-zoom waveform 100%/150% просмотр�
 `826C488C03F0B1B6F342D2B024658ABE402F5C16337AA34EB75586CC8A09CFB6`, совпадает с
 Release; SHA256 manifest 96 файлов проверен. Логи и fresh previews внутри пакета.
 FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK. ASIO hardware/manual
-acceptance upd7 ещё NOT RUN. Следующий шаг — пять проверок нового пакета из
+acceptance при выпуске upd7 была NOT RUN; впоследствии пользователь принял пять
+пунктов (см. актуальную запись upd8 выше). Исторический checklist выпуска:
 [MRS_STAGE_4F_CHECKLIST](MRS_STAGE_4F_CHECKLIST.md) на пользовательской системе:
 cursor/ruler, seek, реальные audio takes в Media, прозрачность и waveform zoom.
 GitHub/source push/Actions не выполнялись; #68/#24/P4 не закрываются, 0.2g/0.2h

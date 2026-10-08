@@ -48,3 +48,12 @@ Save/Open clip bounds; audio preview mono/stereo, repeated recordings, silence,
 nonfinite sanitization, adaptive reduction, and no new callback allocations.
 GUI smoke and software snapshots 100%/150%; full local Release/CTest and packaged
 smoke. Physical ASIO recording/edge cursor and monitor DPI need user acceptance.
+
+## Local results — 2026-10-08
+
+Cached configure/full Release PASS. Full 113/113 CTest PASS (63.30 s).
+Packaged J3 exit 0; MIDI clips/live/recording, desktop waveform/recording/
+project_folders/clip_edits and audio recording/multi_input PASS. Software Arrange
+and audio recording snapshots reviewed at 100%/150%. Actual ASIO/cursor feel and
+monitor DPI NOT RUN. FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK.
+Upd7 accepted by user; upd8 acceptance pending. Schema 13 unchanged.
