@@ -32,7 +32,42 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2h
+## Актуальная сборка для продолжения: 0.2h fix1
+
+2026-10-08: пользователь сообщил «Все работает» по 0.2h и запросил три
+исправления. По уточнению Click/Count должны быть кнопками, настройки Transport
+уже правильные. Реализованы переключатели без popup: Click включает/выключает
+playback+recording click, Count возвращает последний включённый bar count
+(первоначально 1). Transport submenu не менялся; Preferences v7/schema 13 прежние.
+Новый проект больше не наследует foundation_demo tempo/meter: TimeMap{} =
+постоянные 120 BPM, 4/4. Сохранённые карты темпа не меняются.
+
+Пользователь уточнил вылет: Omnisphere 3, после отпускания перенесённой ноты,
+замечен после переключения на ChatGPT. Note replacement / musical transforms
+теперь используют clip-only rebuild с сохранением VST3 instances вместо capture/
+пересоздания на каждом commit. Остановка callback/producer перед rebuild сохранена.
+Причина редкого вылета НЕ доказана; совпадающего нового Windows stack/dump нет.
+Не объявлять исправленным старый isolated heap-corruption exit только по PASS.
+Следующий ручной шаг: повторить переносы с Omnisphere 3, переключение окон и
+ожидание после отпускания, проверить audition/Undo/Redo. Контракт: METRONOME_FIX1.md.
+
+Source `4d718a38019456e1471ea14f75a21ed076d4d896`, ветка прежняя.
+Cached configure/full Release PASS; **114/114 CTest PASS (63.41 s)**.
+Toolbar callbacks, count restore, New после Demo / uniform timing / Save,
+stable insert_generation и 32 auditioned alternating drags PASS; существующие
+Undo/Redo/Save/Open/audio/MIDI/RT-regressions PASS. Packaged J3 три раза exit 0
+(96 дополнительных drag gestures суммарно). Software count UI 150% просмотрен,
+равномерная линейка и кнопки без overlap; physical mixed-DPI/Omnisphere/ASIO
+delayed-crash reproduction NOT RUN. READY WITH MANUAL CHECK; RT SAFE WITH MANUAL
+CHECK для изменённых путей, root-cause crash investigation остаётся открытым.
+
+Пакет `MR-Studio-0.2h-fix1-Toolbar-Tempo-MIDI-JUCE-ASIO-Windows-local` в Builds
+папки чатов; прежние пакеты сохранены. EXE SHA256
+`FE00D69DCDC49BE317B61D000BA060A251CC892BCD03D639C06F24D9CE4A1160`.
+GitHub/source push/Actions не выполнялись; #70/#24/P4 не закрыты, 4g не начат.
+Навыки определили полный state/lifetime regression scope без изменений RT DSP.
+
+## Предыдущая поставка: 0.2h
 
 Пользователь принял upd8 («Все тесты прошли»), поменял порядок на 4h → 4g и
 разрешил «Поехали 0.2h делать». Реализованы метроном и precount, scope 4h / #70:
