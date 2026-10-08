@@ -34,6 +34,12 @@ Master. Не превращай их в одну последовательну�
 
 ## Актуальная сборка для продолжения: 0.2h upd1 — копирование клипов
 
+Приёмка 2026-10-08: «Все работает, вылетов пока не было обнаружено».
+Upd1 принят в сообщённом объёме; отсутствие замеченных вылетов не доказывает
+универсальную crash-free стабильность или прохождение отдельной hardware matrix.
+Следующий согласованный подэтап — 4g / 0.2g, внешний MIDI; затем совместная
+проверка Stage 4. Реализацию начинать по запросу пользователя, не автоматически.
+
 2026-10-08: пользователь сообщает «Пока вылетов нет» после fix3 и запрашивает
 Duplicate / Alt-копирование аудио и MIDI как update. Не утверждать отсутствие
 всех возможных crashes или приёмку всего parent-этапа. 0.2g не начинать.
@@ -57,8 +63,9 @@ Undo/Redo/serialization, Duplicate/Alt preview/commit/Escape/no-motion.
 Три packaged J3+diagnostics smoke exit 0; packaged crash tests PASS. Matching
 EXE/PDB сохранены; manifest SHA256 проверяется при упаковке.
 Software snapshots 100/150% inspected. Физическая ASIO/ручная приёмка upd1
-NOT RUN: следующий шаг — пользовательские Duplicate/Alt audio+MIDI,
-off-grid/occupied bar, Undo/Redo, Escape и Save/Open на обычном проекте.
+не детализирована: пользователь подтвердил работу upd1, но точные сценарии,
+настройки и длительность сессии не перечислены. Отдельная hardware/DPI matrix
+остаётся NOT RUN; следующий шаг разработки — 0.2g по отдельному запросу.
 READY WITH MANUAL CHECK / FEATURE READY WITH MANUAL CHECK /
 RT SAFE WITH MANUAL CHECK. Предыдущие пакеты и пользовательские данные сохранены.
 
