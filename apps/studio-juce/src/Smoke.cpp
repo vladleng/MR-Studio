@@ -7,6 +7,46 @@
 #include <thread>
 #include <chrono>
 namespace ui {
+void arrangeFinalGesturesSmoke(){
+    const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    struct Clock final:mrs::audio::IAudioDevice{
+        std::vector<mrs::audio::DeviceInfo> enumerate()override{return {{0,"Arrange fixture",{}, {"L","R"},16,8192,128,1}};}
+        void control_panel(int)override{}void open(const mrs::audio::DeviceConfig&,std::shared_ptr<mrs::audio::AudioEngine>)override{}
+        void start()override{}void stop()override{}void close()noexcept override{}mrs::audio::DeviceStatus status()override{return {mrs::audio::DevicePhase::running,48000};}
+    };
+    Desktop d(true);d.app.new_project();const auto instrument=d.app.add_instrument_track("Gesture MIDI");const auto midi=d.app.create_midi_clip(instrument,0,4*mrs::ppq);
+    d.app.connect(std::make_unique<Clock>(),{0,48000,128,{}, {0,1}});d.setWorkspace(mrs::desktop::Workspace::arrange);d.refresh(true);d.setSize(1200,700);d.setVisible(true);d.snap=false;
+    auto& a=*d.arrangement;a.pixelsPerSecond=100.;
+    auto mouse=[&](juce::Point<float> point,int mods){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(mods),1,0,0,0,0,&a,&a,juce::Time::getCurrentTime(),point,juce::Time::getCurrentTime(),1,true);};
+    std::array<float,256> out{};auto flush=[&]{d.app.engine()->process(nullptr,out.data(),128);};
+    a.mouseDown(mouse({450,8},juce::ModifierKeys::leftButtonModifier));flush();const auto rulerSample=d.app.engine()->state().sample;check(rulerSample==a.seekSampleAt(450),"ruler click seeks");
+    a.mouseDrag(mouse({480,8},juce::ModifierKeys::leftButtonModifier));flush();check(d.app.engine()->state().sample==a.seekSampleAt(480),"ruler drag seeks");
+    const auto beforeBody=d.app.engine()->state().sample;a.mouseDrag(mouse({550,100},juce::ModifierKeys::leftButtonModifier));a.mouseUp(mouse({550,100},0));flush();check(d.app.engine()->state().sample==beforeBody,"ruler drag outside ruler does not seek");
+    for(float y:{32.f,52.f,230.f}){a.mouseDown(mouse({750,y},juce::ModifierKeys::leftButtonModifier));a.mouseUp(mouse({750,y},0));flush();check(d.app.engine()->state().sample==beforeBody,"section/chord/empty body clicks do not seek");}
+    auto stored=[&](mrs::Id id){const auto p=d.project();return *std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});};
+    auto resize=[&](mrs::Id id,bool right,float shift,bool cancel=false){
+        d.selectedClip=id;d.selectedClips={id.value};const auto c=stored(id);const auto r=a.clipRect(c);const juce::Point<float> point{right?r.getRight()-2:r.getX()+2,r.getCentreY()};
+        check(a.edgeAt(c,point)==(right?1:-1),"audio/MIDI edge hit area");a.mouseMove(mouse(point,0));check(!(a.getMouseCursor()==juce::MouseCursor(juce::MouseCursor::NormalCursor)),"bracket hover replaces normal pointer");
+        const auto revision=d.app.services().projects->state().revision;a.mouseDown(mouse(point,juce::ModifierKeys::leftButtonModifier));a.mouseDrag(mouse(point.translated(shift,0),juce::ModifierKeys::leftButtonModifier));check(d.app.services().projects->state().revision==revision,"edge drag is preview only");
+        if(cancel)a.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));a.mouseUp(mouse(point.translated(shift,0),0));
+    };
+    const auto initial=stored(midi);resize(midi,true,900);if(stored(midi).midi->length<=initial.midi->length*2)throw std::runtime_error("MIDI resize length "+std::to_string(stored(midi).midi->length)+", initial "+std::to_string(initial.midi->length)+", message: "+d.message.toStdString());d.action(10);check(stored(midi)==initial,"one Undo restores MIDI edge trim");
+    resize(midi,true,-50,true);check(stored(midi)==initial,"Escape cancels MIDI edge preview");
+    d.app.move_clip(midi,instrument,mrs::Timeline(d.project()->time,48000).to_samples(4*mrs::ppq));d.refresh();resize(midi,false,-1000);
+    check(stored(midi).midi->start==0&&stored(midi).midi->length==8*mrs::ppq,"MIDI left edge extends beyond source toward timeline zero");d.action(10);d.action(10);check(stored(midi)==initial,"MIDI left extension and move each have one Undo");
+    d.selectedClip=midi;d.selectedClips={midi.value};d.app.seek(mrs::Timeline(d.project()->time,48000).to_samples(mrs::ppq));flush();d.action(24);const auto midiRight=*d.selectedClip;
+    check(midiRight!=midi&&d.selectedClips==std::set<std::string>{midiRight.value},"MIDI split selects only right clip");d.action(10);
+    d.app.demo();d.app.connect(std::make_unique<Clock>(),{0,48000,128,{}, {0,1}});d.refresh(true);a.pixelsPerSecond=8.;a.horizontal=0;const auto audio=d.project()->clips.front().id;const auto original=stored(audio);
+    resize(audio,true,-40);check(stored(audio).length<original.length,"audio edge shortens");resize(audio,true,900);check(stored(audio)==original&&d.message.isEmpty(),"audio extension clamps to original source without error");
+    resize(audio,false,32);check(stored(audio).source_offset>0,"audio left trim advances source offset");resize(audio,false,-900);check(stored(audio)==original,"audio left edge restores original source only");
+    const auto other=d.app.add_instrument_track("Other selected");const auto otherClip=d.app.create_midi_clip(other,0);d.refresh(true);d.selectedClip=audio;d.selectedClips={audio.value,otherClip.value};
+    const auto edge=a.clipRect(stored(audio)).getTopRight().translated(-2,30);a.mouseDown(mouse(edge,juce::ModifierKeys::leftButtonModifier));check(d.selectedClips==std::set<std::string>{audio.value},"edge trim isolates target from group selection");a.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+    d.app.seek(48000);flush();d.action(24);const auto audioRight=*d.selectedClip;check(audioRight!=audio&&d.selectedClips==std::set<std::string>{audioRight.value},"audio split selects only right clip");
+    const auto before=stored(audioRight);resize(audioRight,true,-24);const auto shortened=stored(audioRight);check(shortened.length<before.length,"split audio right trim");d.action(10);check(stored(audioRight)==before,"one Undo restores audio trim");d.action(11);check(stored(audioRight)==shortened,"Redo restores audio trim");
+    const auto temp=juce::File::getSpecialLocation(juce::File::tempDirectory),folder=temp.getNonexistentChildFile("mrs-upd8-gestures","",false);const auto file=folder.getChildFile("Gestures.mrsproject");
+    d.app.save_project(std::filesystem::path(file.getFullPathName().toWideCharPointer()));d.app.open_project(d.app.path());d.refresh(true);check(stored(audioRight)==shortened,"trim survives Save/Open");d.app.disconnect();d.app.new_project();
+    check(folder.getParentDirectory()==temp&&folder.getFileName().startsWith("mrs-upd8-gestures"),"gesture cleanup scope");folder.deleteRecursively();
+}
 void arrangeAudioSmoke(){
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
     Desktop d(true);d.app.disconnect();d.app.new_project();auto initial=d.project()->time;initial.tempos={{0,120}};initial.meters={{1,4,4}};d.app.set_time_map(initial);d.app.add_audio_track("Audio");d.refresh(true);d.setSize(1200,700);d.setVisible(true);
@@ -34,7 +74,7 @@ void arrangeAudioSmoke(){
     const auto fill=juce::Colour(0xff373b3f).overlaidWith(juce::Colour(0xff294d7e).withAlpha(.72f));
     const auto actual=translucent.getPixelAt(static_cast<int>(clip.getX()+17),static_cast<int>(clip.getY()+21));
     if(std::abs(actual.getRed()-fill.getRed())>2||std::abs(actual.getGreen()-fill.getGreen())>2||std::abs(actual.getBlue()-fill.getBlue())>2)throw std::runtime_error("audio clip opacity: got "+actual.toString().toStdString()+", expected "+fill.toString().toStdString());
-    for(float scale:{1.f,1.5f}){auto picture=d.createComponentSnapshot(d.getLocalBounds(),true,scale,juce::SoftwareImageType{});auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-arrange-upd7-"+juce::String(static_cast<int>(scale*100))+"-preview.png").createOutputStream();check(stream!=nullptr,"arrangement preview stream");stream->setPosition(0);stream->truncate();check(juce::PNGImageFormat().writeImageToStream(picture,*stream),"arrangement snapshot");}
+    for(float scale:{1.f,1.5f}){auto picture=d.createComponentSnapshot(d.getLocalBounds(),true,scale,juce::SoftwareImageType{});auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-arrange-upd8-"+juce::String(static_cast<int>(scale*100))+"-preview.png").createOutputStream();check(stream!=nullptr,"arrangement preview stream");stream->setPosition(0);stream->truncate();check(juce::PNGImageFormat().writeImageToStream(picture,*stream),"arrangement snapshot");}
     struct Preview final:juce::Component{
         mrs::audio::Waveform peaks;Preview():peaks(mrs::audio::AudioData{48000,1,[]{std::vector<float> s(512);for(int i=0;i<512;++i)s[i]=static_cast<float>(std::sin(i*.03)*(.2+i/700.));return s;}()}){}
         void paint(juce::Graphics& g)override{g.fillAll(juce::Colour(0xff373b3f));g.setColour(juce::Colours::skyblue);drawWaveform(g,peaks,getLocalBounds().toFloat(),0,.5);}
@@ -42,6 +82,7 @@ void arrangeAudioSmoke(){
     for(float scale:{1.f,1.5f}){auto picture=preview.createComponentSnapshot(preview.getLocalBounds(),true,scale,juce::SoftwareImageType{});auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-waveform-smooth-"+juce::String(static_cast<int>(scale*100))+"-preview.png").createOutputStream();check(stream!=nullptr,"smooth waveform preview stream");stream->setPosition(0);stream->truncate();check(juce::PNGImageFormat().writeImageToStream(picture,*stream),"smooth waveform snapshot");}
 }
 void projectHomeSmoke(){
+    arrangeFinalGesturesSmoke();
     arrangeAudioSmoke();
     auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
     juce::Component canvas;canvas.setSize(100,40);canvas.setVisible(true);float cursorX=10.25f;PlayheadLine line([&]{return juce::Rectangle<float>{cursorX,5.f,1.f,20.f};});canvas.addAndMakeVisible(line);line.update();auto first=canvas.createComponentSnapshot(canvas.getLocalBounds(),true,1.f,juce::SoftwareImageType{});check(first.getPixelAt(10,15).getAlpha()>0,"fractional cursor renders");cursorX=30.75f;line.update();auto moved=canvas.createComponentSnapshot(canvas.getLocalBounds(),true,1.f,juce::SoftwareImageType{});check(moved.getPixelAt(10,15).getAlpha()==0,"moving cursor clears old stripe");check(moved.getPixelAt(31,15).getAlpha()>0,"moving cursor paints new stripe");check(canvas.getComponentAt(31,15)==&canvas,"cursor does not intercept gestures");

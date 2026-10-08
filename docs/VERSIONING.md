@@ -1,5 +1,14 @@
 # Правила версионирования Moon River Studio
 
+## 0.2f upd8 — 2026-10-08
+
+Upd7 принята: «По всем предыдущим пунктам тесты пройдены».
+Пять заключительных уточнений Arrange: размер ruler font, ruler-only seek,
+right-only Split selection, bracket trim с source bounds, growing audio Record
+preview. MIDI empty-prefix extension сохраняет позиции source notes/events.
+Schema 13 без изменений; preview не сохраняется. Не начало 0.2g/0.2h.
+Контракт: [ARRANGE_FINAL_UPD8](ARRANGE_FINAL_UPD8.md).
+
 ## 0.2f upd7 — 2026-10-08
 
 Upd6 принята пользователем: «Теперь все в порядке. Тест пройден!».

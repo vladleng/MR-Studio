@@ -25,7 +25,21 @@ void midi4cSmoke(Desktop& d,const juce::File& fixture){
     d.app.save_project(std::filesystem::path(folder.getChildFile("Audio.mrsproject").getFullPathName().toWideCharPointer()));
     d.app.connect(std::make_unique<RecordDevice>(),{0,48000,128,{0},{0,1},2});d.refresh(true);
     std::array<float,128> input;input.fill(.125f);std::filesystem::path previousTake;
-    for(int take=0;take<2;++take){d.action(33);check(d.app.recording()&&d.message.isEmpty(),"audio Record action starts synchronously without file chooser");d.app.engine()->process(input.data(),out.data(),128);d.action(32);check(!d.app.recording()&&d.project()->clips.size()==static_cast<std::size_t>(take+1),"audio Stop commits take");const auto file=d.app.last_take();check(file.parent_path()==d.app.path().parent_path()/"Media"&&file!=previousTake,"GUI audio take auto-destination and unique name");check(mrs::audio::open_wav(file).samples.front()==.125f,"GUI capture is raw input");previousTake=file;d.app.engine()->process(input.data(),out.data(),128);}
+    d.arrangement->pixelsPerSecond=160.;
+    for(int take=0;take<2;++take){
+        d.action(33);check(d.app.recording()&&d.message.isEmpty(),"audio Record action starts synchronously without file chooser");
+        check(d.audioRecordingPreview.size()==1&&d.audioRecordingPreview.front().clip.length==1,"audio red preview starts without stale previous take");
+        const auto revision=d.app.services().projects->state().revision;
+        for(int block=0;block<256;++block){input.fill(block==0?.125f:static_cast<float>(std::sin(block*.07)*.65));d.app.engine()->process(input.data(),out.data(),128);}
+        for(int attempt=0;attempt<100;++attempt){d.updateRecordingPreview();if(d.audioRecordingPreview.front().waveform&&d.audioRecordingPreview.front().waveform->frames==32768)break;juce::Thread::sleep(5);}
+        check(d.audioRecordingPreview.front().clip.length==32768&&d.audioRecordingPreview.front().waveform&&d.audioRecordingPreview.front().waveform->frames==32768,"growing audio preview has captured duration and waveform");
+        check(d.app.services().projects->state().revision==revision&&d.project()->clips.size()==static_cast<std::size_t>(take),"audio preview does not commit a clip or Undo step");
+        if(take==0){d.setWorkspace(mrs::desktop::Workspace::arrange);save("juce-audio-record-100-preview.png",1.);save("juce-audio-record-150-preview.png",1.5);}
+        d.action(32);check(d.audioRecordingPreview.empty(),"Stop immediately clears audio red preview");
+        check(!d.app.recording()&&d.project()->clips.size()==static_cast<std::size_t>(take+1),"audio Stop commits take");
+        const auto file=d.app.last_take();check(file.parent_path()==d.app.path().parent_path()/"Media"&&file!=previousTake,"GUI audio take auto-destination and unique name");
+        check(mrs::audio::open_wav(file).samples.front()==.125f,"GUI capture is raw input");previousTake=file;d.app.engine()->process(input.data(),out.data(),128);
+    }
     d.app.disconnect();d.app.new_project();d.refresh(true);
     check(folder.getParentDirectory()==temp&&folder.getFileName().startsWith("mrs-midi-record-ui"),"record cleanup scope");folder.deleteRecursively();log.appendText("passed\n");
 }

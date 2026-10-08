@@ -971,6 +971,14 @@ std::vector<Clip> Application::midi_recording_preview() const {
     const auto p=services_.projects->state().project;const Timeline time(p->time,p->sample_rate);std::vector<Clip> result;
     for(const auto& capture:midi_captures_){Clip c;c.id=Id{"record-preview-"+capture.track.value};c.track=capture.track;c.name="Recording MIDI";c.midi=capture.recorder->preview(time);result.push_back(std::move(c));}return result;
 }
+std::vector<AudioRecordingPreview> Application::audio_recording_preview() const {
+    std::vector<AudioRecordingPreview> result;result.reserve(captures_.size());
+    for(const auto& capture:captures_){const auto frames=static_cast<Sample>(capture.recorder->status().frames);
+        Clip clip;clip.id=Id{"audio-record-preview-"+capture.track.value+"-"+utf8(capture.recorder->destination().filename())};clip.track=capture.track;clip.name="Recording audio";
+        clip.start=capture.recorder->start();clip.length=std::max(Sample{1},frames);
+        result.push_back({std::move(clip),capture.recorder->preview()});}
+    return result;
+}
 void Application::start_project_recording(const std::filesystem::path& projects_folder) {
     require_not_recording(); sync_arm();
     const auto p=services_.projects->state().project;

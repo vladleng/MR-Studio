@@ -72,7 +72,7 @@ Desktop::Desktop(bool test,bool startAtHome):testing(test){
 }
 Desktop::~Desktop(){try{saveSettings();}catch(...){}stopTimer();*scanCancel=true;chooser.reset();closeEditors();dockedEditor.reset();home.reset();
     if(scanner.valid())scanner.wait();setLookAndFeel(nullptr);mixerViewport.setViewedComponent(nullptr,false);}
-void Desktop::run(std::function<void()> f){try{f();message.clear();if(!app.recording())recordingPreview.clear();refresh();}catch(const std::exception& e){refresh();message=label(e.what());repaint();}}
+void Desktop::run(std::function<void()> f){try{f();message.clear();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}else if(recordingPreview.empty()&&audioRecordingPreview.empty())updateRecordingPreview();refresh();}catch(const std::exception& e){refresh();message=label(e.what());repaint();}}
 void Desktop::resetDevice(){visualTransport.reset();app.connect(mrs::audio::make_offline_device(),{0,project()->sample_rate,128,{}, {0,1}});}
 double Desktop::visualSample(){const auto* engine=app.engine().get();if(engine!=visualEngine){visualEngine=engine;visualTransport.reset();}mrs::audio::RealtimeState state;if(!engine->try_state(state))return lastVisualSample;return lastVisualSample=visualTransport.sample(state,project()->sample_rate,juce::Time::getMillisecondCounterHiRes());}
 double Desktop::visualTick(){const auto p=project();double sample=visualSample(),tick=0;for(std::size_t i=0;i<p->time.tempos.size();++i){const auto& tempo=p->time.tempos[i];const double perTick=60.*p->sample_rate/(tempo.bpm*mrs::ppq);if(i+1==p->time.tempos.size())return tick+sample/perTick;const double length=static_cast<double>(p->time.tempos[i+1].tick-tempo.tick),frames=length*perTick;if(sample<frames)return tick+sample/perTick;sample-=frames;tick+=length;}return 0;}
@@ -152,7 +152,7 @@ void Desktop::action(int n){if(busyGesture())return;run([&]{
     else if(n==44 && selectedClip){openMidiClip(*selectedClip);}
     else if(n==45 && selectedClip){selectedClip=app.duplicate_clip(*selectedClip);}
     else if(n==46 && selectedClip){if(app.recording())throw std::runtime_error("Stop recording before changing loop");const auto p=project();const mrs::Timeline t(p->time,p->sample_rate);auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==*selectedClip;});if(c!=p->clips.end())app.services().transport->set_loop(mrs::LoopRange{mrs::clip_start(*c,t),mrs::clip_end(*c,t)});}
-    else if(n==24 && selectedClip){auto id=app.split_clip(*selectedClip,app.engine()->state().sample);selectedClip=id;}
+    else if(n==24 && selectedClip){auto id=app.split_clip(*selectedClip,app.engine()->state().sample);activateClip(id);}
     else if(n==25 && selectedClip){std::vector<mrs::Id> clips;for(const auto& c:project()->clips)if(selectedClips.contains(c.id.value)||c.id==selectedClip)clips.push_back(c.id);app.remove_clips(std::move(clips));selectedClip.reset();selectedClips.clear();}
     else if(n==30)app.play();else if(n==31)app.pause();else if(n==32){if(app.recording())app.stop_recording();app.stop();}
     else if(n==33){if(app.recording()){app.stop_recording();app.stop();refresh(true);}else app.start_project_recording(path(juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio").getChildFile("Projects")));}
@@ -226,7 +226,7 @@ void Desktop::updatePerformance(const mrs::audio::DeviceStatus& status,bool hard
 }
 void Desktop::mouseDrag(const juce::MouseEvent& e){if(resizingBrowser)resizeBrowser(getWidth()-e.getEventRelativeTo(this).x);if(resizingMixer)resizeMixer(mixerDragHeight+mixerDragY-e.getEventRelativeTo(this).y);}
 void Desktop::mouseUp(const juce::MouseEvent&){if(resizingBrowser||resizingMixer)saveSettings();resizingBrowser=resizingMixer=false;}
-void Desktop::refresh(bool force){std::erase_if(selectedClips,[&](const auto& value){const auto p=project();return std::none_of(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id.value==value;});});const auto p=project();const auto state=app.services().projects->state();
+void Desktop::refresh(bool force){if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}std::erase_if(selectedClips,[&](const auto& value){const auto p=project();return std::none_of(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id.value==value;});});const auto p=project();const auto state=app.services().projects->state();
     std::vector<mrs::Id> current;for(const auto& t:p->tracks)current.push_back(t.id);
     const bool replaced=displayedStore!=app.services().projects;
     if(replaced){displayedStore=app.services().projects;visualTransport.reset();revision=~0ULL;peaks={};masterPeak={};arrangement->horizontal=0;arrangement->vertical=0;mixerViewport.setViewPosition(0,0);}
@@ -263,8 +263,13 @@ bool Desktop::keyPressed(const juce::KeyPress& k){if(workspaceShortcut(k))return
 bool Desktop::keyStateChanged(bool){if(homeVisible||!shortcutAllowed()){spaceHeld=false;return false;}
     const bool down=juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey);spaceKey(down);return down;}
 void Desktop::spaceKey(bool down){if(down&&!spaceHeld)action(app.engine()->state().playback==mrs::PlaybackState::playing?32:30);spaceHeld=down;}
+void Desktop::updateRecordingPreview(){
+    recordingPreview=app.midi_recording_preview();auto nextWaveforms=app.audio_recording_preview();
+    for(auto& takePreview:nextWaveforms)if(!takePreview.waveform){const auto old=std::find_if(audioRecordingPreview.begin(),audioRecordingPreview.end(),[&](const auto& item){return item.clip.id==takePreview.clip.id;});if(old!=audioRecordingPreview.end())takePreview.waveform=old->waveform;}
+    audioRecordingPreview=std::move(nextWaveforms);
+}
 void Desktop::focusLost(FocusChangeType){spaceHeld=false;}
-void Desktop::timerCallback(){try{const bool wasRecording=app.recording();app.poll();if(wasRecording&&!app.recording()&&!app.recording_error().empty())message=label(app.recording_error());if(++previewTick%3==0)recordingPreview=app.midi_recording_preview();if(!app.recording())recordingPreview.clear();if(dockedEditor&&!dockedClip)dockedEditor.reset();if(preview){if(preview->active())app.preview_mix(preview->target,preview->mix,preview->master);else preview.reset();}
+void Desktop::timerCallback(){try{const bool wasRecording=app.recording();app.poll();if(wasRecording&&!app.recording()&&!app.recording_error().empty())message=label(app.recording_error());if(++previewTick%3==0)updateRecordingPreview();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}if(dockedEditor&&!dockedClip)dockedEditor.reset();if(preview){if(preview->active())app.preview_mix(preview->target,preview->mix,preview->master);else preview.reset();}
     updatePerformance(app.device_status(),app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected");
     if(editorGeneration!=app.insert_generation()){closeEditors(true);editorGeneration=app.insert_generation();}
     std::erase_if(windows,[](const auto& w){return !w->isVisible();});
@@ -380,6 +385,46 @@ void Arrangement::resized(){vertical=juce::jlimit(0.f,static_cast<float>(juce::j
     rowsBody.setBounds(0,header,left-6,getHeight()-header);
     for(std::size_t i=0;i<rows.size();++i){const int y=static_cast<int>(i)*trackHeight-static_cast<int>(vertical);rows[i]->setBounds(0,y,left-6,trackHeight-4);rows[i]->setVisible(y+trackHeight>0 && y<rowsBody.getHeight());}playhead.update();}
 int Arrangement::trackAt(float y) const{return static_cast<int>((y-header+vertical)/trackHeight);}
+namespace {
+juce::MouseCursor bracketCursor(bool right){
+    static const auto create=[](bool reverse){juce::Image image(juce::Image::ARGB,24,24,true);juce::Graphics g(image);juce::Path p;
+        const float stem=reverse?14.f:10.f,arm=reverse?8.f:16.f;p.startNewSubPath(arm,4);p.lineTo(stem,4);p.lineTo(stem,20);p.lineTo(arm,20);
+        g.setColour(juce::Colours::black);g.strokePath(p,juce::PathStrokeType(4.f));g.setColour(juce::Colours::white);g.strokePath(p,juce::PathStrokeType(2.f));return juce::MouseCursor(image,static_cast<int>(stem),12);};
+    static const auto left=create(false),rightCursor=create(true);return right?rightCursor:left;
+}
+}
+int Arrangement::edgeAt(const mrs::Clip& c,juce::Point<float> point) const{
+    const auto r=clipRect(c);if(!r.contains(point))return 0;
+    const auto l=point.x-r.getX(),right=r.getRight()-point.x;
+    return std::min(l,right)<7.f?(l<=right?-1:1):0;
+}
+std::optional<mrs::Id> Arrangement::clipAt(juce::Point<float> point) const{
+    if(point.x<left||point.y<header)return {};
+    const auto p=owner.project();
+    // Match paint order: selected clips on top, then reverse insertion order.
+    for(bool selected:{true,false})for(auto i=p->clips.rbegin();i!=p->clips.rend();++i){const bool active=i->id==owner.selectedClip||owner.selectedClips.contains(i->id.value);if(active==selected&&clipRect(*i).contains(point))return i->id;}
+    return {};
+}
+void Arrangement::mouseMove(const juce::MouseEvent& e){
+    if(owner.app.recording()){setMouseCursor(juce::MouseCursor::NormalCursor);return;}
+    if(const auto id=clipAt(e.position)){const auto p=owner.project();const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==*id;});const auto edge=edgeAt(*c,e.position);setMouseCursor(edge?bracketCursor(edge>0):juce::MouseCursor(juce::MouseCursor::NormalCursor));}
+    else setMouseCursor(juce::MouseCursor::NormalCursor);
+}
+void Arrangement::mouseExit(const juce::MouseEvent&){if(!drag)setMouseCursor(juce::MouseCursor::NormalCursor);}
+void Arrangement::updateTrim(mrs::Sample delta){
+    const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);
+    if(drag->midi){const auto& m=*drag->midi;auto tick=time.to_ticks(std::max(mrs::Sample{0},(trim<0?drag->start:drag->start+drag->length)+delta));
+        if(owner.snap)tick=((tick+mrs::ppq/8)/(mrs::ppq/4))*(mrs::ppq/4);
+        if(trim<0){mrs::Tick prefix=mrs::max_tick;for(const auto& n:m.notes)prefix=std::min(prefix,mrs::max_tick-n.start-n.length);for(const auto& e:m.events)prefix=std::min(prefix,mrs::max_tick-e.start);tick=std::clamp(tick,std::max(mrs::Tick{0},m.start-m.source_offset-prefix),m.start+m.length-1);}
+        else tick=std::clamp(tick,m.start+1,std::min(mrs::max_tick,m.start+mrs::max_tick-m.source_offset));
+        trimStart=trim<0?time.to_samples(tick):drag->start;trimEnd=trim>0?time.to_samples(tick):drag->start+drag->length;
+    }else{
+        auto sample=std::max(mrs::Sample{0},(trim<0?drag->start:drag->start+drag->length)+delta);
+        if(owner.snap)sample=mrs::snap_to_grid(*p,sample,mrs::ppq/4);
+        trimStart=trim<0?std::clamp(sample,std::max(mrs::Sample{0},drag->start-drag->source_offset),drag->start+drag->length-1):drag->start;
+        trimEnd=trim>0?std::clamp(sample,drag->start+1,std::min(mrs::max_sample,drag->start+dragSourceFrames-drag->source_offset)):drag->start+drag->length;
+    }
+}
 mrs::Sample Arrangement::sampleAt(float x) const{auto sample=static_cast<mrs::Sample>(juce::jmax(0.,(x-left+horizontal)/pixelsPerSecond)*owner.project()->sample_rate);
     if(owner.snap){mrs::Timeline time(owner.project()->time,owner.project()->sample_rate);auto tick=time.to_ticks(sample);sample=time.to_samples((tick/(mrs::ppq/4))*(mrs::ppq/4));}return sample;}
 mrs::Sample Arrangement::seekSampleAt(float x) const{
@@ -405,10 +450,12 @@ juce::Rectangle<float> Arrangement::clipRect(const mrs::Clip& c) const{int index
 void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(0xff373b3f));g.setColour(juce::Colour(surface));g.fillRect(0,0,left,getHeight());g.setFont(owner.theme.font(13));g.setColour(juce::Colours::lightgrey);
     const auto p=owner.project();mrs::Timeline time(p->time,p->sample_rate);
     g.drawText("Tracks / input / monitor",8,5,left-10,22,juce::Justification::left);
+    g.setFont(ui::Theme::channelFont());
     mrs::Tick grid=mrs::ppq/4;double fastest=0;for(const auto& tempo:p->time.tempos)fastest=juce::jmax(fastest,tempo.bpm);
     while(grid<mrs::max_tick/2&&grid*60.*pixelsPerSecond/(fastest*mrs::ppq)<14)grid*=2;
     const auto first=time.to_ticks(sampleAt(static_cast<float>(left)));const auto last=time.to_ticks(sampleAt(static_cast<float>(getWidth())));int lastLabel=left-70;
     for(auto tick=(first/grid)*grid;tick<=last&&tick<=mrs::max_tick-grid;tick+=grid){const int x=left+static_cast<int>(static_cast<double>(time.to_samples(tick))/p->sample_rate*pixelsPerSecond-horizontal);if(x<left)continue;const auto pos=time.musical_position(tick);g.setColour(juce::Colour(pos.tick==0?0xff4a5259:0xff40454a));g.drawVerticalLine(x,20,static_cast<float>(getHeight()));if(pos.tick==0&&x-lastLabel>=60){g.setColour(juce::Colours::lightgrey);g.drawText(juce::String(pos.bar)+":"+juce::String(pos.beat),x+2,0,58,20,juce::Justification::left);lastLabel=x;}}
+    g.setFont(owner.theme.font(13));
     for(const auto& section:p->sections){const float x=static_cast<float>(left+static_cast<double>(time.to_samples(section.start))/p->sample_rate*pixelsPerSecond-horizontal);const float width=static_cast<float>(static_cast<double>(time.to_samples(section.end)-time.to_samples(section.start))/p->sample_rate*pixelsPerSecond);
         g.setColour(juce::Colour(section.color).withAlpha(1.f));g.fillRect(juce::Rectangle<float>(x,22,width,22));g.setColour(juce::Colours::white);g.drawText(label(section.name),static_cast<int>(x)+4,22,static_cast<int>(width)-4,22,juce::Justification::left);}
     for(const auto& chord:p->chords){int x=left+static_cast<int>(static_cast<double>(time.to_samples(chord.start))/p->sample_rate*pixelsPerSecond-horizontal);g.setColour(juce::Colours::lightgrey);g.drawText(label(chord.symbol),x,46,80,20,juce::Justification::left);}
@@ -416,28 +463,56 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(0xff373b3f));g
     for(std::size_t i=0;i<p->tracks.size();++i){int y=header+static_cast<int>(i)*trackHeight-static_cast<int>(vertical);g.setColour(juce::Colour(0xff465058));g.drawHorizontalLine(y,static_cast<float>(left),static_cast<float>(getWidth()));g.setColour(juce::Colours::lightgrey);g.drawText(label(p->tracks[i].name),left+8,y+2,200,20,juce::Justification::left);}
     // Paint selected clips last; both audio and MIDI reveal overlapping clips.
     auto paintedClips=p->clips;std::stable_partition(paintedClips.begin(),paintedClips.end(),[&](const auto& c){return c.id!=owner.selectedClip&&!owner.selectedClips.contains(c.id.value);});
-    for(const auto& stored:paintedClips){auto c=stored;const auto midi=c.midi;if(drag&&(drag->id==c.id||(!trim&&std::any_of(dragGroup.begin(),dragGroup.end(),[&](const auto& item){return item.id==c.id;})))){c.start=mrs::clip_start(stored,time);c.length=mrs::clip_end(stored,time)-c.start;c.midi.reset();const auto delta=dragStart-drag->start;if(trim<0){const auto start=juce::jlimit<mrs::Sample>(0,c.start+c.length-1,c.start+delta);c.source_offset+=start-c.start;c.length-=start-c.start;c.start=start;}else if(trim>0)c.length=juce::jmax<mrs::Sample>(1,c.length+delta);else{c.start+=delta;const auto at=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==c.track;});c.track=p->tracks[static_cast<std::size_t>(static_cast<int>(at-p->tracks.begin())+dragTrackDelta)].id;}}
+    for(const auto& stored:paintedClips){auto c=stored;
+        if(drag&&(drag->id==c.id||(!trim&&std::any_of(dragGroup.begin(),dragGroup.end(),[&](const auto& item){return item.id==c.id;})))){
+            if(trim){
+                if(c.midi)mrs::trim_midi_source(*c.midi,time.to_ticks(trimStart),time.to_ticks(trimEnd));
+                else{c.source_offset+=trimStart-c.start;c.start=trimStart;c.length=trimEnd-trimStart;}
+            }else{c.start=mrs::clip_start(stored,time);c.length=mrs::clip_end(stored,time)-c.start;c.midi.reset();c.start+=dragStart-drag->start;const auto at=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==c.track;});c.track=p->tracks[static_cast<std::size_t>(static_cast<int>(at-p->tracks.begin())+dragTrackDelta)].id;}
+        }
+        const auto midi=c.midi?c.midi:stored.midi;
         auto r=clipRect(c);if(!r.intersects(getLocalBounds().toFloat()))continue;g.setColour(juce::Colour((c.id==owner.selectedClip||owner.selectedClips.contains(c.id.value))?0xff3266ac:0xff294d7e).withAlpha(.72f));g.fillRoundedRectangle(r,2.f);g.setColour(juce::Colour(0xff8ac3ff));g.drawRoundedRectangle(r.reduced(.375f),2.f,.75f);
         g.drawText(label(c.name),r.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);
         if(midi){g.saveState();g.reduceClipRegion(r.toNearestInt().reduced(1));for(const auto& n:midi->notes){const auto begin=std::max(n.start,midi->source_offset),end=std::min(n.start+n.length,midi->source_offset+midi->length);if(begin>=end)continue;const double total=static_cast<double>(time.to_samples(midi->start+midi->length)-time.to_samples(midi->start));const float x=r.getX()+static_cast<float>((time.to_samples(midi->start+begin-midi->source_offset)-time.to_samples(midi->start))/juce::jmax(1.,total)*r.getWidth());const float w=static_cast<float>((time.to_samples(midi->start+end-midi->source_offset)-time.to_samples(midi->start+begin-midi->source_offset))/juce::jmax(1.,total)*r.getWidth());const float y=r.getY()+25+(127-n.pitch)/127.f*juce::jmax(1.f,r.getHeight()-32);g.fillRect(x,y,juce::jmax(2.f,w),3.f);}g.restoreState();continue;}
         if(const auto* wave=owner.app.waveform(c.source))drawWaveform(g,*wave,r.withTrimmedTop(22),static_cast<double>(c.source_offset),p->sample_rate/pixelsPerSecond);
     }
     for(const auto& c:owner.recordingPreview){auto r=clipRect(c);g.setColour(juce::Colour(0xff683741).withAlpha(.72f));g.fillRoundedRectangle(r,2.f);g.setColour(juce::Colours::salmon);g.drawRoundedRectangle(r.reduced(.375f),2.f,.75f);g.drawText("Recording MIDI",r.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);g.saveState();g.reduceClipRegion(r.toNearestInt().reduced(1));for(const auto& n:c.midi->notes){const float x=static_cast<float>(left+static_cast<double>(time.to_samples(c.midi->start+n.start))/p->sample_rate*pixelsPerSecond-horizontal);const float width=static_cast<float>(static_cast<double>(time.to_samples(c.midi->start+n.start+n.length)-time.to_samples(c.midi->start+n.start))/p->sample_rate*pixelsPerSecond);g.fillRect(x,r.getY()+25+(127-n.pitch)/127.f*juce::jmax(1.f,r.getHeight()-32),juce::jmax(2.f,width),3.f);}g.restoreState();}
+    for(const auto& preview:owner.audioRecordingPreview){auto r=clipRect(preview.clip);g.setColour(juce::Colour(0xff683741).withAlpha(.72f));g.fillRoundedRectangle(r,2.f);g.setColour(juce::Colours::salmon);g.drawRoundedRectangle(r.reduced(.375f),2.f,.75f);g.drawText("Recording audio",r.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);if(preview.waveform)drawRecordingWaveform(g,*preview.waveform,r.withTrimmedTop(22),p->sample_rate/pixelsPerSecond);}
     if(selecting){g.setColour(juce::Colours::skyblue.withAlpha(.12f));g.fillRect(selectionBox);g.setColour(juce::Colours::skyblue);g.drawRect(selectionBox,1.f);}
     g.restoreState();
 }
-void Arrangement::mouseDown(const juce::MouseEvent& e){grabKeyboardFocus();if(e.x<left||!e.mods.isLeftButtonDown())return;const auto p=owner.project();if(e.y<header){owner.run([&]{owner.app.seek(seekSampleAt(e.position.x));});return;}
-    const int index=trackAt(e.position.y);if(index>=0&&index<static_cast<int>(p->tracks.size()))owner.selectedTrack=p->tracks[static_cast<std::size_t>(index)].id;
-    dragGroup.clear();dragTrackDelta=0;for(const auto& c:p->clips)if(clipRect(c).contains(e.position)){auto selection=owner.selectedClips;if(!selection.contains(c.id.value))selection={c.id.value};owner.activateClip(c.id);owner.selectedClips=std::move(selection);for(const auto& item:p->clips)if(owner.selectedClips.contains(item.id.value))dragGroup.push_back(item);drag=c;const mrs::Timeline t(p->time,p->sample_rate);drag->start=mrs::clip_start(c,t);drag->length=mrs::clip_end(c,t)-drag->start;dragX=e.position.x;dragStart=drag->start;const auto r=clipRect(c);trim=dragGroup.size()>1?0:e.x-r.getX()<7?-1:r.getRight()-e.x<7?1:0;repaint();return;}
+void Arrangement::mouseDown(const juce::MouseEvent& e){
+    grabKeyboardFocus();rulerSeeking=false;if(e.x<left||!e.mods.isLeftButtonDown())return;
+    if(e.y<header){if(e.y<20){rulerSeeking=!owner.app.recording();owner.run([&]{owner.app.seek(seekSampleAt(e.position.x));});}return;}
+    const auto p=owner.project();const int index=trackAt(e.position.y);if(index>=0&&index<static_cast<int>(p->tracks.size()))owner.selectedTrack=p->tracks[static_cast<std::size_t>(index)].id;
+    dragGroup.clear();dragTrackDelta=0;
+    if(const auto id=clipAt(e.position)){
+        const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==*id;});
+        trim=edgeAt(*c,e.position);auto selection=owner.selectedClips;if(trim||!selection.contains(c->id.value))selection={c->id.value};
+        owner.activateClip(c->id);owner.selectedClips=std::move(selection);if(owner.app.recording())return;
+        for(const auto& item:p->clips)if(owner.selectedClips.contains(item.id.value))dragGroup.push_back(item);
+        drag=*c;const mrs::Timeline time(p->time,p->sample_rate);drag->start=mrs::clip_start(*c,time);drag->length=mrs::clip_end(*c,time)-drag->start;
+        dragX=e.position.x;dragStart=trimStart=drag->start;trimEnd=drag->start+drag->length;
+        if(trim&&!c->midi){bool ready=false;owner.run([&]{dragSourceFrames=owner.app.source_frames(c->id);ready=true;});if(!ready){drag.reset();dragGroup.clear();return;}}
+        setMouseCursor(trim?bracketCursor(trim>0):juce::MouseCursor(juce::MouseCursor::NormalCursor));repaint();return;
+    }
     drag.reset();dragTrack.reset();selecting=true;selectionOrigin=e.position;selectionBox={e.position,e.position};owner.selectedClips.clear();owner.selectedClip.reset();repaint();
 }
-void Arrangement::mouseDrag(const juce::MouseEvent& e){if(selecting){selectionBox=juce::Rectangle<float>(selectionOrigin,e.position).getIntersection(juce::Rectangle<float>(static_cast<float>(left),static_cast<float>(header),static_cast<float>(getWidth()-left),static_cast<float>(getHeight()-header)));owner.selectedClips.clear();owner.selectedClip.reset();for(const auto& c:owner.project()->clips)if(clipRect(c).intersects(selectionBox)){owner.selectedClips.insert(c.id.value);if(!owner.selectedClip)owner.selectedClip=c.id;}repaint();return;}if(!drag)return;
-    const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);auto delta=static_cast<mrs::Sample>((e.x-dragX)/pixelsPerSecond*p->sample_rate);if(!trim){mrs::Sample low=-mrs::max_sample,high=mrs::max_sample;for(const auto& c:dragGroup){const auto start=mrs::clip_start(c,time);low=std::max(low,-start);high=std::min(high,mrs::max_sample-mrs::clip_end(c,time));}delta=std::clamp(delta,low,high);if(owner.snap){const auto snapped=sampleAt(static_cast<float>(left+static_cast<double>(drag->start+delta)/p->sample_rate*pixelsPerSecond-horizontal));delta=std::clamp(snapped-drag->start,low,high);}}dragStart=juce::jmax<mrs::Sample>(0,drag->start+delta);
+void Arrangement::mouseDrag(const juce::MouseEvent& e){if(rulerSeeking){if(e.x>=left&&e.y>=0&&e.y<20)owner.run([&]{owner.app.seek(seekSampleAt(e.position.x));});return;}if(selecting){selectionBox=juce::Rectangle<float>(selectionOrigin,e.position).getIntersection(juce::Rectangle<float>(static_cast<float>(left),static_cast<float>(header),static_cast<float>(getWidth()-left),static_cast<float>(getHeight()-header)));owner.selectedClips.clear();owner.selectedClip.reset();for(const auto& c:owner.project()->clips)if(clipRect(c).intersects(selectionBox)){owner.selectedClips.insert(c.id.value);if(!owner.selectedClip)owner.selectedClip=c.id;}repaint();return;}if(!drag)return;
+    const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);auto delta=static_cast<mrs::Sample>((e.x-dragX)/pixelsPerSecond*p->sample_rate);if(trim){updateTrim(delta);repaint();return;}if(!trim){mrs::Sample low=-mrs::max_sample,high=mrs::max_sample;for(const auto& c:dragGroup){const auto start=mrs::clip_start(c,time);low=std::max(low,-start);high=std::min(high,mrs::max_sample-mrs::clip_end(c,time));}delta=std::clamp(delta,low,high);if(owner.snap){const auto snapped=sampleAt(static_cast<float>(left+static_cast<double>(drag->start+delta)/p->sample_rate*pixelsPerSecond-horizontal));delta=std::clamp(snapped-drag->start,low,high);}}dragStart=juce::jmax<mrs::Sample>(0,drag->start+delta);
     const auto anchor=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==drag->track;});int wanted=trackAt(e.position.y)-static_cast<int>(anchor-p->tracks.begin()),low=0,high=static_cast<int>(p->tracks.size())-1;if(!dragGroup.empty()){low=-static_cast<int>(p->tracks.size());high=static_cast<int>(p->tracks.size());for(const auto& c:dragGroup){const auto t=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& item){return item.id==c.track;});const int at=static_cast<int>(t-p->tracks.begin());low=std::max(low,-at);high=std::min(high,static_cast<int>(p->tracks.size())-1-at);}}dragTrackDelta=std::clamp(wanted,low,high);dragTrack=p->tracks[static_cast<std::size_t>(static_cast<int>(anchor-p->tracks.begin())+dragTrackDelta)].id;repaint();
 }
-void Arrangement::mouseUp(const juce::MouseEvent& e){if(selecting){selecting=false;selectionBox={};if(e.position.getDistanceFrom(selectionOrigin)<2)owner.run([&]{owner.app.seek(seekSampleAt(e.position.x));});owner.refresh();return;}if(!drag)return;const auto c=*drag;const auto delta=dragStart-c.start;const auto trackDelta=dragTrackDelta;std::vector<mrs::Id> group;for(const auto& clip:dragGroup)group.push_back(clip.id);drag.reset();dragTrack.reset();dragGroup.clear();dragTrackDelta=0;if(std::abs(e.x-dragX)<2&&trackDelta==0){repaint();return;}owner.run([&]{if(trim){if(trim<0)owner.app.trim_clip(c.id,juce::jlimit<mrs::Sample>(0,c.start+c.length-1,c.start+delta),c.start+c.length);else owner.app.trim_clip(c.id,c.start,juce::jmax(c.start+1,c.start+c.length+delta));}else owner.app.move_clips(std::move(group),delta,trackDelta);});repaint();
+void Arrangement::mouseUp(const juce::MouseEvent& e){
+    if(rulerSeeking){rulerSeeking=false;return;}
+    if(selecting){selecting=false;selectionBox={};owner.refresh();return;}
+    if(!drag)return;const auto c=*drag;const auto delta=dragStart-c.start,begin=trimStart,end=trimEnd;const auto trackDelta=dragTrackDelta,edge=trim;
+    std::vector<mrs::Id> group;for(const auto& clip:dragGroup)group.push_back(clip.id);
+    drag.reset();dragTrack.reset();dragGroup.clear();dragTrackDelta=0;trim=0;setMouseCursor(juce::MouseCursor::NormalCursor);
+    if(edge){if(begin!=c.start||end!=c.start+c.length)owner.run([&]{owner.app.trim_clip(c.id,begin,end);});}
+    else if(std::abs(e.x-dragX)>=2||trackDelta!=0)owner.run([&]{owner.app.move_clips(std::move(group),delta,trackDelta);});
+    repaint();
 }
-bool Arrangement::keyPressed(const juce::KeyPress& key){if(key.getKeyCode()!=juce::KeyPress::escapeKey)return false;drag.reset();dragTrack.reset();dragGroup.clear();selecting=false;selectionBox={};repaint();return true;}
+bool Arrangement::keyPressed(const juce::KeyPress& key){if(key.getKeyCode()!=juce::KeyPress::escapeKey)return false;rulerSeeking=false;setMouseCursor(juce::MouseCursor::NormalCursor);drag.reset();dragTrack.reset();dragGroup.clear();selecting=false;selectionBox={};repaint();return true;}
 void Arrangement::wheel(float delta,juce::ModifierKeys mods,float x){if(mods.isCtrlDown()){if(mods.isShiftDown()){const auto before=sampleAt(x);pixelsPerSecond=juce::jlimit(2.,2400.,pixelsPerSecond*std::pow(1.25,delta*4));horizontal=juce::jmax(0.,static_cast<double>(before)/owner.project()->sample_rate*pixelsPerSecond-(x-left));}
     else {const float before=(vertical+getHeight()/2.f-header)/trackHeight;trackHeight=juce::jlimit(128,360,trackHeight+static_cast<int>(delta*96));vertical=juce::jmax(0.f,before*trackHeight-(getHeight()/2.f-header));}}
     else if(mods.isShiftDown())horizontal=juce::jmax(0.,horizontal-delta*160);else vertical=juce::jmax(0.f,vertical-delta*128);

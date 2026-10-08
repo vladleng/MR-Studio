@@ -2,6 +2,8 @@
 #include <mrs/core.hpp>
 #include <span>
 namespace mrs {
+// Non-RT source-preserving trim; extending before source adds empty prefix.
+void trim_midi_source(MidiClip&,Tick start,Tick end);
 class AddMidiClip final : public ICommand {
 public:
     explicit AddMidiClip(Clip c):clip_(std::move(c)){}

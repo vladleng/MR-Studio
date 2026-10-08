@@ -27,6 +27,12 @@ struct Synth final:IProcessor{
 std::shared_ptr<PreparedGraph> synth(std::uint32_t rate=48000){GraphState g;g.id=new_id();NodeState n;n.id=new_id();n.processor_id="timeline-synth";g.nodes={n};g.outputs={n.id};return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(g),0,false,false},ProcessConfig{rate,2,128,128,true},[](const NodeState&){return std::make_unique<Synth>();});}
 Project project(){Project p;p.id=new_id();p.title="MIDI test";Track t;t.id=new_id();t.name="Keys";t.kind=TrackKind::instrument;p.tracks={t};Clip c;c.id=new_id();c.track=t.id;c.name="Phrase";c.midi=MidiClip{0,4*ppq,0,{{new_id(),0,2*ppq,60,127,0},{new_id(),2*ppq,ppq,64,90,2}}};p.clips={c};p.validate();return p;}
 void model(){auto p=project();ProjectStore s(p);auto id=p.clips.front().id,track=p.tracks.front().id;const auto note=p.clips.front().midi->notes.front().id;
+    {auto later=p;auto& m=*later.clips.front().midi;m.start=4*ppq;m.events={{new_id(),ppq,2,0,64,127}};ProjectStore extended(later);
+        const auto before=compile_midi_clips(later,std::array{track});extended.execute(TrimMidiClip{id,0,8*ppq});
+        const auto& after=*extended.state().project->clips.front().midi;CHECK(after.start==0&&after.source_offset==0&&after.length==8*ppq);
+        CHECK(after.notes.front().id==note&&after.notes.front().start==4*ppq&&after.events.front().start==5*ppq);
+        const auto played=compile_midi_clips(*extended.state().project,std::array{track});CHECK(played[0][0].start==before[0][0].start&&played[0][0].end==before[0][0].end);
+        CHECK(deserialize(serialize(*extended.state().project))==*extended.state().project);CHECK(extended.undo()&&*extended.state().project==later);CHECK(extended.redo());}
     s.execute(TrimMidiClip{id,ppq,4*ppq});CHECK(s.state().project->clips.front().midi->source_offset==ppq);CHECK(s.undo());CHECK(s.redo());CHECK(s.undo());
     auto right=new_id();s.execute(SplitMidiClip{id,ppq,right});CHECK(s.state().project->clips.size()==2&&s.state().project->clips.front().midi->length==ppq);CHECK(s.state().project->clips.back().midi->notes.front().id!=note);CHECK(s.state().project->clips.back().midi->source_offset==ppq);CHECK(s.undo());
     auto duplicate=new_id();s.execute(DuplicateClip{id,duplicate});CHECK(s.state().project->clips.back().midi->start==4*ppq);CHECK(s.undo());s.execute(MoveMidiClip{id,track,8*ppq});CHECK(s.state().project->clips.front().midi->start==8*ppq);CHECK(s.undo());

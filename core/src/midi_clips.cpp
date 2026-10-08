@@ -38,7 +38,18 @@ std::vector<MidiNote> transform_midi_notes(const MidiClip& clip,std::span<const 
 }
 void EditMidiNotes::apply(Project& p) const{auto& clip=*midi_clip(p,clip_)->midi;clip.notes=transform_midi_notes(clip,selected_,edit_);}
 void MoveMidiClip::apply(Project& p) const{instrument(p,track_);auto i=midi_clip(p,id_);i->track=track_;i->midi->start=start_;}
-void TrimMidiClip::apply(Project& p) const{auto& m=*midi_clip(p,id_)->midi;if(start_<0||end_<=start_||end_>max_tick)throw std::invalid_argument("invalid MIDI trim bounds");const auto offset=m.source_offset+start_-m.start;if(offset<0)throw std::invalid_argument("trim precedes MIDI source");m.source_offset=offset;m.start=start_;m.length=end_-start_;}
+void trim_midi_source(MidiClip& m,Tick start,Tick end){
+    if(start<0||end<=start||end>max_tick)throw std::invalid_argument("invalid MIDI trim bounds");
+    const auto offset=m.source_offset+start-m.start;
+    if(std::max(Tick{0},offset)>max_tick-(end-start))throw std::invalid_argument("MIDI trim exceeds source range");
+    if(offset<0){const auto prefix=-offset;
+        for(const auto& n:m.notes)if(n.start>max_tick-n.length-prefix)throw std::invalid_argument("MIDI prefix exceeds note range");
+        for(const auto& e:m.events)if(e.start>max_tick-prefix)throw std::invalid_argument("MIDI prefix exceeds event range");
+        for(auto& n:m.notes)n.start+=prefix;for(auto& e:m.events)e.start+=prefix;
+    }
+    m.source_offset=std::max(Tick{0},offset);m.start=start;m.length=end-start;
+}
+void TrimMidiClip::apply(Project& p) const{trim_midi_source(*midi_clip(p,id_)->midi,start_,end_);}
 void SplitMidiClip::apply(Project& p) const{auto i=midi_clip(p,id_);auto& m=*i->midi;if(at_<=m.start||at_>=m.start+m.length)throw std::invalid_argument("split cursor must be inside MIDI clip");auto right=*i;right.id=right_;fresh_notes(right);const auto left=at_-m.start;right.midi->start=at_;right.midi->length-=left;right.midi->source_offset+=left;m.length=left;p.clips.insert(i+1,std::move(right));}
 void DuplicateClip::apply(Project& p) const{auto c=*find_clip(p,id_);c.id=duplicate_;fresh_notes(c);if(c.midi)c.midi->start+=c.midi->length;else c.start+=c.length;p.clips.push_back(std::move(c));}
 void RemoveClip::apply(Project& p) const{p.clips.erase(find_clip(p,id_));}

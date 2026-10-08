@@ -1,5 +1,18 @@
 # Редакторы и визуализация записи
 
+## 0.2f upd8 — 2026-10-08
+
+Upd7 принята: «По всем предыдущим пунктам тесты пройдены».
+Цифры Arrange ruler используют тот же 13 px шрифт, что VST3 Browser.
+Seek мышью — только верхняя линейка тактов (клик/drag); sections/chords и
+пустые дорожки не перемещают плейхэд. После Split выделен только правый клип.
+Края audio/MIDI: bracket cursor, зона 7 logical px, отдельный trim вместо
+group move; один Undo, Escape отменяет. MIDI расширяется за исходные ноты,
+влево до нуля; audio только в пределах исходного файла. Общая схема 13 прежняя.
+Во время audio Record растёт красный клип с raw-input waveform: bounded peaks
+считает disk worker, UI получает atomic snapshot, callback не изменён.
+Контракт и проверки: [ARRANGE_FINAL_UPD8](ARRANGE_FINAL_UPD8.md).
+
 ## 0.2f upd7 — 2026-10-08
 
 Upd6 принята: «Теперь все в порядке. Тест пройден!».

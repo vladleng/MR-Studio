@@ -1,5 +1,6 @@
 #pragma once
 #include <mrs/audio.hpp>
+#include <mrs/waveform.hpp>
 #include <fstream>
 #include <thread>
 namespace mrs::audio {
@@ -9,6 +10,11 @@ struct RecordStatus {
     RecordFault fault{};
 };
 struct RecordedFile { std::filesystem::path path; Sample frames{}; RecordStatus status; };
+struct RecordPreview {
+    Sample frames{}, bin_frames{};
+    std::uint32_t channels{};
+    std::vector<Peak> peaks; // interleaved channels; disk-worker-generated envelope
+};
 class Recorder {
 public:
     static constexpr std::size_t capacity = 262144; // 1 MiB mono float ring
@@ -20,11 +26,14 @@ public:
     std::uint32_t channels() const { return static_cast<std::uint32_t>(selectors_.size()); }
     std::uint32_t rate() const { return rate_; }
     Sample start() const { return start_; }
+    const std::filesystem::path& destination() const { return destination_; } // immutable, control thread
     // One audio producer only. Raw selected mono input, before monitor/processors.
     void capture(const float*, std::uint32_t input_channels, std::uint32_t frames, Sample position) noexcept;
     void input_dropout() noexcept;
     void discontinuity() noexcept;
     RecordStatus status() const noexcept;
+    // Message/control thread only. Bounded coherent snapshot, no waiting for writer.
+    std::optional<RecordPreview> preview() const;
     RecordedFile finish(); // ONLY after callback stops: drain, repair header, publish
 private:
     std::filesystem::path destination_, temporary_;
@@ -42,5 +51,9 @@ private:
     void fail(RecordFault) noexcept;
     void header(std::uint32_t samples);
     void run() noexcept;
+    static constexpr std::size_t preview_bins=2048;
+    std::array<std::atomic<std::uint64_t>,preview_bins*2> preview_peaks_{};
+    std::atomic<std::uint64_t> preview_version_{},preview_frames_{},preview_bin_frames_{256};
+    void update_preview(std::uint64_t first_sample,std::size_t count) noexcept; // disk worker only
 };
 }

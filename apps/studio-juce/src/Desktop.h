@@ -78,6 +78,8 @@ public:
     std::unique_ptr<juce::Component> dockedEditor;
     std::optional<mrs::Id> dockedClip;
     std::vector<mrs::Clip> recordingPreview;
+    std::vector<mrs::desktop::AudioRecordingPreview> audioRecordingPreview;
+    void updateRecordingPreview();
     void insertMenu(std::optional<mrs::Id>);
     void openInsert(std::optional<mrs::Id>,mrs::Id);
     void savePreset(std::optional<mrs::Id>,mrs::Id);
@@ -194,6 +196,8 @@ public:
     void resized() override;
     void rebuild();
     void mouseDown(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseExit(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
     bool keyPressed(const juce::KeyPress&) override;
@@ -208,6 +212,8 @@ public:
     juce::Rectangle<float> clipRect(const mrs::Clip&) const;
     mrs::Sample sampleAt(float) const;
     mrs::Sample seekSampleAt(float) const;
+    int edgeAt(const mrs::Clip&,juce::Point<float>) const;
+    std::optional<mrs::Id> clipAt(juce::Point<float>) const;
     int trackAt(float) const;
     std::vector<std::unique_ptr<Strip>> rows;
     juce::Component rowsBody;
@@ -219,6 +225,9 @@ private:
     std::optional<mrs::Clip> drag;
     std::optional<mrs::Id> dragTrack;
     mrs::Sample dragStart{};
+    mrs::Sample trimStart{},trimEnd{},dragSourceFrames{};
+    void updateTrim(mrs::Sample delta);
+    bool rulerSeeking{};
     float dragX{};
     int trim{};std::vector<mrs::Clip> dragGroup;int dragTrackDelta{};
     bool selecting{};juce::Point<float> selectionOrigin;juce::Rectangle<float> selectionBox;

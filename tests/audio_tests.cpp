@@ -322,6 +322,7 @@ void streaming() {
 void recording() {
     TempFile file;
     auto recorder = std::make_shared<Recorder>(file.path,48000,100);
+    const auto emptyPreview=recorder->preview();CHECK(emptyPreview&&emptyPreview->frames==0&&emptyPreview->peaks.empty());
     auto engine = std::make_shared<AudioEngine>();
     auto graph = basic(); graph.voices.front().start = 100; graph.recording = recorder;
     engine->prepare({48000,1,2,8},graph,{PlaybackState::paused,100,{}});
@@ -347,6 +348,8 @@ void recording() {
     graph.recording.reset();
     engine->prepare({48000,1,2,8},graph);
     auto result = recorder->finish();
+    const auto peaks=recorder->preview();CHECK(peaks&&peaks->frames==8&&peaks->channels==1&&peaks->peaks.size()==1);
+    CHECK(peaks->peaks.front().minimum==-.5f&&peaks->peaks.front().maximum==.75f);
     CHECK(result.frames == 8 && result.status.fault == RecordFault::none && !result.path.empty());
     const auto data = load_wav(file.path);
     CHECK(data.channels == 1 && data.sample_rate == 48000 && data.frames() == 8);
@@ -400,6 +403,7 @@ void recording() {
         std::array<float,4> samples{std::numeric_limits<float>::infinity(),0.25f,std::numeric_limits<float>::quiet_NaN(),-0.5f};
         take.capture(samples.data(),1,4,0);
         CHECK(take.finish().status.nonfinite_samples == 2);
+        const auto finitePreview=take.preview();CHECK(finitePreview&&finitePreview->peaks.front().minimum==-.5f&&finitePreview->peaks.front().maximum==.25f);
         CHECK(load_wav(finite.path).samples == std::vector<float>({0,0.25f,0,-0.5f}));
     }
     {
@@ -412,15 +416,18 @@ void recording() {
         TempFile wrap; Recorder take(wrap.path,48000,0);
         std::array<float,8192> block{};
         Sample position{};
-        for (int n=0; n<40; ++n) {
+        for (int n=0; n<80; ++n) {
             std::fill(block.begin(),block.end(),static_cast<float>(n)/64);
             take.capture(block.data(),1,static_cast<std::uint32_t>(block.size()),position);
             position += static_cast<Sample>(block.size());
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            if(const auto snapshot=take.preview()){CHECK(snapshot->frames<=position&&snapshot->peaks.size()<=2048);for(const auto p:snapshot->peaks)CHECK(std::isfinite(p.minimum)&&std::isfinite(p.maximum)&&p.minimum<=p.maximum);}
         }
         auto saved = take.finish(); CHECK(saved.status.fault == RecordFault::none && saved.frames == position);
+        const auto reduced=take.preview();CHECK(reduced&&reduced->frames==position&&reduced->bin_frames==512&&reduced->peaks.size()==1280);
+        CHECK(reduced->peaks.front().minimum==0&&reduced->peaks.back().maximum==79.f/64);
         const auto roundtrip = load_wav(wrap.path);
-        for (int n=0; n<40; ++n) {
+        for (int n=0; n<80; ++n) {
             CHECK(roundtrip.samples[static_cast<std::size_t>(n)*8192] == static_cast<float>(n)/64);
             CHECK(roundtrip.samples[static_cast<std::size_t>(n+1)*8192-1] == static_cast<float>(n)/64);
         }
@@ -708,6 +715,8 @@ void multi_input() {
     CHECK(first->status().frames == 8 && second->status().frames == 8);
     engine.prepare({48000,0,2,8},{});
     CHECK(first->finish().frames == 8 && second->finish().frames == 8);
+    const auto stereoPreview=second->preview();CHECK(stereoPreview&&stereoPreview->frames==8&&stereoPreview->channels==2&&stereoPreview->peaks.size()==2);
+    CHECK(stereoPreview->peaks[0].minimum==.1f&&stereoPreview->peaks[0].maximum==.4f&&stereoPreview->peaks[1].minimum==.3f&&stereoPreview->peaks[1].maximum==.6f);
     const auto a=load_wav(mono.path), b=load_wav(stereo.path);
     CHECK(a.channels == 1 && b.channels == 2 && a.frames() == b.frames());
     for (std::size_t f=0; f<8; ++f) {
