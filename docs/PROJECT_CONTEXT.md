@@ -34,6 +34,15 @@ Master. Не превращай их в одну последовательну�
 
 ## Актуальная сборка для продолжения: 0.2g — внешний MIDI
 
+2026-10-08, после release: по запросу пользователя #55 декомпозирован в native
+GitHub sub-issues #91–#100: transport focus, presets, mixer bypass/height/sends,
+hidden audio/MIDI pre-record, track rename/drop instrument, Note Editor layout
+и controller horizontal scroll. Parent содержит исходные требования и индекс;
+детальные критерии — в каждой child issue. Это межэтапные доработки, не Stage 5.
+**ТОЛЬКО ПЛАНИРОВАНИЕ**, код/сборка/пакеты не изменены. Реализацию пользователь
+запретил начинать сейчас; следующий шаг — ждать отдельного выбора/запроса.
+#96 потребует отдельного дизайна изменения pre-count/hidden source contract.
+
 2026-10-08: по запросу «Приступай к 0.2g» реализован Stage 4g / #69 локально.
 Source `959ffbc`, исходная ветка `mrs/0.1q-fix3-processing-local`.
 2026-10-08: пользователь прямо разрешил документацию/issues, merge в main и
