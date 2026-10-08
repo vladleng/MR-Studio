@@ -32,7 +32,53 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2h fix2 — crash diagnostics
+## Актуальная сборка для продолжения: 0.2h fix3 — state snapshot crash
+
+2026-10-08: пользователь разрешил исправление после анализа приложенного fix2
+дампа. Source `2659a17`, ветка прежняя; контракт STATE_SNAPSHOT_FIX3.md.
+Пакет chat Builds: `MR-Studio-0.2h-fix3-State-Snapshot-JUCE-ASIO-Windows-local`.
+EXE SHA256 `02FF65C0DD1A3BE04B78CF8389B0F17554427844CA1882061A585C9F67CCD495`.
+Paint/refresh и piano playhead держат последний корректный UI snapshot при
+занятости mailbox. MIDI/controller timers безопасно отменяют gesture, busy
+не разрешает note edit; Space strict-read exceptions обрабатываются UI.
+try_state сохраняет output при failure и сбрасывает снятый loop при success.
+EngineTransport UI/control projection возвращает последний published state
+при contention. RT publisher/callback/DSP/scheduling/plugin lifetime не менялись;
+нет новых locks/allocation/I/O/retries на RT. Cache только message-thread display,
+не persisted/undoable, resetDevice очищает его; schema 13 / Preferences v7 прежние.
+
+Cached configure/full local Release PASS; CTest 117/117 PASS (74.10 s).
+audio_state_snapshot + diagnostics GUI focused 2/2 PASS (7.70 s); deterministic
+odd-sequence regression воспроизводит прежний throw, проверяет новые paint,
+refresh/timers/Space, fresh-state MIDI guard, неизменную revision и recovery.
+50,000 producer callbacks/concurrent reads проверяют coherence/unchanged failure;
+busy projection allocation probe = 0. Три packaged J3+diagnostics exit 0,
+packaged crash tests PASS, software preview inspected. Final matching PDB сохранён.
+READY WITH MANUAL CHECK / FEATURE READY WITH MANUAL CHECK /
+RT SAFE WITH MANUAL CHECK: физическая ASIO сессия и пользовательская приёмка
+fix3 ещё не выполнялись. Следующий шаг — обычный проект Omnisphere/TH-U на
+Komplete ASIO 48 kHz/128/Workers 8/Process Off, переключение окон и ожидание.
+Найденный state-read crash path устранён; не утверждать, что все исторические
+вылеты имели эту причину. Crash logging продолжает работать, старые пакеты,
+пользовательские проекты/настройки/логи не переписаны. 0.2g не начинать автоматически.
+
+## Предыдущая сборка: 0.2h fix2 — crash diagnostics
+
+Получен пользовательский crash `mr-session-1791441386160-12772-1` (Logs,
+2026-10-08). Диагностика с Symbols fix2: exception 0xe06d7363, main/UI thread
+6912; raw stack содержит std::runtime_error, AudioEngine::state (engine.cpp:483)
+и Desktop::paint (Desktop.cpp:220). Исходник подтверждает throw
+«audio state busy; poll again» при 32 неудачных чтениях согласованного snapshot;
+paint вызывает throwing state() без обработки. Это конкретный host UI/state
+failure path, не доказательство crash в Omnisphere/TH-U. Стек утилиты — raw
+candidates, не полный unwind. Лог: Komplete ASIO, 48 kHz, buffer 128, Workers 8,
+Process Off; последняя heartbeat playback=2, recording=0. clean_shutdown в конце
+не отменяет native unhandled-exception report (возможен unwind logger).
+Код/пакет не менялись при анализе. Следующий предлагаемый fix: nonthrowing,
+bounded UI snapshot reads с последним корректным состоянием/пропуском кадра;
+аудит остальных state() consumers и детерминированная contention regression.
+RT boundary: аудиопоток публикует snapshot, UI читает; RT RISK FOUND на
+RT-adjacent UI consumer, hardware validation нового fix ещё не выполнялась.
 
 2026-10-08: по запросу «Приступай, это будет фикс» добавлена локальная
 диагностика. Source `0caf858`, ветка прежняя; контракт CRASH_DIAGNOSTICS.md.
