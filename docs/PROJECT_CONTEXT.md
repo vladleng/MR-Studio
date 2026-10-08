@@ -32,7 +32,49 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2f upd6
+## Актуальная сборка для продолжения: 0.2f upd7
+
+Пользователь принял upd6 2026-10-08: «Теперь все в порядке. Тест пройден!».
+Не расширять эту приёмку на весь Stage 4/P4 или отдельную hardware/DPI matrix.
+
+По пяти следующим замечаниям реализована upd7:
+
+- Arrange плейхэд проходит через chords/sections до линейки тактов, сохраняя
+  общую 60 Hz интерполяцию и mouse passthrough.
+- Seek округляет к ближайшей шестнадцатой, не вниз. Тактовые линии захватываются
+  в пределах ±6 logical px, с учётом scroll/zoom/tempo/meter. Snap off вне захвата
+  использует точный sample под кликом. Clip drag/drop/trim snap не менялся.
+- Audio Record без WAV chooser: уникальные Take-ID WAV в Media текущего проекта.
+  Первая запись несохранённой сессии создаёт Untitled-ID проект в
+  Documents/MR Studio/Projects, включая импортированные media. MIDI-only
+  не создаёт WAV/автопроект. Raw recording, один Undo/Redo и portable Save/Open
+  прежние; дубли сохраняются на диске после Undo, clips остаются dirty до Save.
+- Audio/MIDI fill одинаково 0.72, остальные детали клипа не становятся прозрачнее.
+- Arrange/Audio editor waveform используют общие antialiased envelope paths,
+  cached extrema с bounded smoothstep на high zoom. PCM/DSP не меняется;
+  это envelope, не sample-accurate oscilloscope. Worker peak cache остаётся
+  ограниченным 65536 total base bins, начальная детализация 16 frames.
+- Перенос media при Save сохраняет подготовленные processors/editors; если
+  offline graph ещё не был подготовлен, bootstrap остаётся прежним.
+
+Контракт: [ARRANGE_AUDIO_UPD7](ARRANGE_AUDIO_UPD7.md).
+Source `97d08be8ccc2393043143ecdf61f442354ff15e2`, локальная ветка
+`mrs/0.1q-fix3-processing-local`. Cached configure/full Release PASS, без compiler
+warnings/errors. Финальный **113/113 CTest PASS (62.85 s)**. Packaged J3 exit 0;
+MIDI clips/live/recording и desktop waveform/recording/project_folders PASS.
+Software arrangement 1200×700 и high-zoom waveform 100%/150% просмотрены.
+Пакет `MR-Studio-0.2f-upd7-Arrange-Audio-JUCE-ASIO-Windows-local` в папке чатов
+`Builds`; прежние пакеты сохранены. EXE SHA256
+`826C488C03F0B1B6F342D2B024658ABE402F5C16337AA34EB75586CC8A09CFB6`, совпадает с
+Release; SHA256 manifest 96 файлов проверен. Логи и fresh previews внутри пакета.
+FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK. ASIO hardware/manual
+acceptance upd7 ещё NOT RUN. Следующий шаг — пять проверок нового пакета из
+[MRS_STAGE_4F_CHECKLIST](MRS_STAGE_4F_CHECKLIST.md) на пользовательской системе:
+cursor/ruler, seek, реальные audio takes в Media, прозрачность и waveform zoom.
+GitHub/source push/Actions не выполнялись; #68/#24/P4 не закрываются, 0.2g/0.2h
+не начаты. Визуальный peak envelope не обещает sample-accurate editing.
+
+## Предыдущая принятая поставка: 0.2f upd6
 
 ## 0.2f upd6 — 2026-10-08
 
