@@ -32,17 +32,47 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2h upd1 — копирование клипов
+## Актуальная сборка для продолжения: 0.2g — внешний MIDI
+
+2026-10-08: по запросу «Приступай к 0.2g» реализован Stage 4g / #69 локально.
+Source `959ffbc`, ветка `mrs/0.1q-fix3-processing-local`; GitHub code не отправлялся.
+Пакет chat Builds: `MR-Studio-0.2g-External-MIDI-JUCE-ASIO-Windows-local`.
+EXE SHA256 `89E8E76EE6282E8D1B7930F4AA52C9110DA85402FE4CB753ECFCC0E8D0C8D1FA`.
+Instrument track: Windows MIDI output/Original либо channel 1–16; playback,
+monitored live thru, notes/CC/PC/bend/pressure, missing/unavailable status,
+Panic и stopped Reconnect. Выбор в Arrange через MIDI input/status button.
+VST3 необязателен; возврат audio — обычная audio track. Undo/Redo и Save/Open.
+Схема 14 читает 1–13 с output Off; старые сборки не читают 14 — Save As копию.
+Preferences v7 прежние. Accepted 0.2h upd1/fix1–fix3 сохранены.
+
+RT: device-owned scheduler, bounded SPSC, output driver calls только отдельным
+worker; epoch/generation защищают replace/transport, overflow fail-closed/Panic.
+Прямой совпадающий input/output endpoint запрещён, сложные кабельные петли
+не определяются. WinMM jitter не sample-accurate, hardware latency не калибруется.
+Контракт [MIDI_EXTERNAL.md](MIDI_EXTERNAL.md), [ручная проверка](MRS_STAGE_4G_CHECKLIST.md).
+
+Cached Windows x64 Release build PASS без compiler warnings; CTest **118/118 PASS
+(76.42 s)**. Новые fake backend тесты: model/schema/Undo/Save/Open, output channel,
+overlapping notes, playback/thru/record-monitor-off, loop/Mute/audition/transport,
+stale generation/epoch, overflow, missing/busy/reconnect/send failure/shutdown,
+44.1/48/96 kHz, 1/4 workers, checked callback allocations 0.
+Три packaged J3+diagnostics smoke exit 0, packaged crash tests PASS.
+Software snapshots 100/150% просмотрены; matching EXE/PDB и SHA256 manifest в пакете.
+Физический MIDI output / ASIO routing/timing **NOT RUN**, пользовательская приёмка
+0.2g ожидается. Stage 4 не закрыт. Следующий шаг — checklist 4g на внешнем
+устройстве, затем совместная проверка Stage 4; Stage 5 автоматически не начинать.
+
+## Предыдущая принятая сборка: 0.2h upd1 — копирование клипов
 
 Приёмка 2026-10-08: «Все работает, вылетов пока не было обнаружено».
 Upd1 принят в сообщённом объёме; отсутствие замеченных вылетов не доказывает
 универсальную crash-free стабильность или прохождение отдельной hardware matrix.
-Следующий согласованный подэтап — 4g / 0.2g, внешний MIDI; затем совместная
-проверка Stage 4. Реализацию начинать по запросу пользователя, не автоматически.
+Следующий согласованный подэтап был 4g / 0.2g, внешний MIDI; реализован выше
+по следующему прямому запросу пользователя. Затем совместная проверка Stage 4.
 
 2026-10-08: пользователь сообщает «Пока вылетов нет» после fix3 и запрашивает
 Duplicate / Alt-копирование аудио и MIDI как update. Не утверждать отсутствие
-всех возможных crashes или приёмку всего parent-этапа. 0.2g не начинать.
+всех возможных crashes или приёмку всего parent-этапа. Это историческая запись upd1.
 
 Пакет chat Builds: `MR-Studio-0.2h-upd1-Clip-Copy-JUCE-ASIO-Windows-local`.
 EXE SHA256 `4CAA43511630D59DC04CE915791F55DBC2FB9501E7AA91AF145A73A0DAF3F6CC`.
