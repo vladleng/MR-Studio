@@ -5,7 +5,8 @@ namespace ui {
 // All gestures are local previews. Only release submits one shared SetMidiNotes command.
 class PianoRoll final : public juce::Component, private juce::Timer {
 public:
-    PianoRoll(Desktop& d,mrs::Id clip):owner(d),id(std::move(clip)){setName("Piano roll");setComponentID("piano-roll");setWantsKeyboardFocus(true);sync();startTimer(120);}
+    PianoRoll(Desktop& d,mrs::Id clip):owner(d),id(std::move(clip)),playhead([this]{const float x=keys+static_cast<float>(owner.visualTick()/mrs::ppq)*beatWidth;const int top=scrollY()+ruler;return x>=scrollX()+keys&&x<getWidth()?juce::Rectangle<float>{x,static_cast<float>(top),1.f,static_cast<float>(juce::jmax(0,getHeight()-top))}:juce::Rectangle<float>{};}){setName("Piano roll");setComponentID("piano-roll");setWantsKeyboardFocus(true);addAndMakeVisible(playhead);sync();startTimer(120);}
+    void resized() override{playhead.update();}
     ~PianoRoll() override{releaseNote();}
     std::function<void()> changed,viewChanged;
     std::function<void(float,juce::ModifierKeys,float,float)> wheel;
@@ -34,7 +35,7 @@ public:
         g.saveState();g.reduceClipRegion(juce::Rectangle<int>(keyboardX+keys,headerY+ruler,getWidth()-keyboardX-keys,getHeight()-headerY-ruler));
         for(const auto& c:contextClips){const bool active=c.id==id;const auto& midi=*c.midi;const auto& visibleNotes=active?notes:midi.notes;g.saveState();g.reduceClipRegion(juce::Rectangle<float>{xAt(midi.start),static_cast<float>(ruler),xAt(midi.start+midi.length)-xAt(midi.start),static_cast<float>(getHeight()-ruler)}.toNearestInt());for(const auto& n:visibleNotes){auto rect=juce::Rectangle<float>{xAt(midi.start+n.start-midi.source_offset),ruler+(127-n.pitch)*rowHeight,static_cast<float>(static_cast<double>(n.length)/mrs::ppq)*beatWidth,rowHeight-1};if(!rect.intersects(bounds.toFloat()))continue;const bool chosen=active&&selected.contains(n.id.value);g.setColour(juce::Colour(active?(chosen?0xff43bde0:0xff5786b9):0xff3d5267).withAlpha(active?.72f:.58f));g.fillRoundedRectangle(rect,2);g.setColour(juce::Colour(0xff203d57).withAlpha(.6f));g.fillRect(rect.withHeight(3).withY(rect.getBottom()-3).withWidth(rect.getWidth()*n.velocity/127.f));}g.restoreState();}
         if(gesture==4){g.setColour(juce::Colours::skyblue.withAlpha(.15f));g.fillRect(box);g.setColour(juce::Colours::skyblue);g.drawRect(box,1);}
-        g.setColour(juce::Colours::white);g.drawVerticalLine(static_cast<int>(xAt(playheadTick())),ruler,static_cast<float>(getHeight()));g.restoreState();
+        g.restoreState();
         g.setColour(juce::Colour(surface));g.fillRect(keyboardX,headerY,getWidth(),ruler);const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);for(int i=first;i<=last;++i){const auto tick=static_cast<mrs::Tick>(i)*step;if(tick>timelineEnd)break;if(tick%mrs::ppq==0){const auto pos=time.musical_position(tick);g.setColour(juce::Colours::lightgrey);g.drawText(juce::String(pos.bar)+":"+juce::String(pos.beat),static_cast<int>(xAt(tick))+3,headerY,60,ruler,juce::Justification::centredLeft);}}
         if(hasKeyboardFocus(true)){g.setColour(juce::Colours::skyblue);g.drawRect(getLocalBounds(),1);}
     }
@@ -76,6 +77,7 @@ public:
 private:
     Desktop& owner;mrs::Id id,track,dragNote;int gesture{};juce::Point<float> origin;juce::Rectangle<float> box;std::set<std::string> initialSelection;std::vector<mrs::MidiNote> before;mrs::MidiClip beforeClip;
     int sounding{-1},soundChannel{};
+    PlayheadLine playhead;
     void timerCallback() override{if(gesture&&(owner.app.recording()||owner.app.engine()->state().playback==mrs::PlaybackState::playing))cancel();repaint();if(!gesture){const auto previous=notes;sync();if(notes!=previous&&changed)changed();}}
     void report(const juce::String& text){if(error)error(text);}
     bool editable(){if(owner.app.recording()||owner.app.engine()->state().playback==mrs::PlaybackState::playing){report("Pause or stop before editing / auditioning notes");return false;}return isEnabled();}

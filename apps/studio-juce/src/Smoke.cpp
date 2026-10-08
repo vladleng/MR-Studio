@@ -1,10 +1,40 @@
 #include "PianoRoll.h"
 #include "J1Smoke.h"
 #include "PluginPreset.h"
+#include "ProjectHome.h"
 #include <windows.h>
 #include <thread>
 #include <chrono>
 namespace ui {
+void projectHomeSmoke(){
+    auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    juce::Component canvas;canvas.setSize(100,40);canvas.setVisible(true);float cursorX=10.25f;PlayheadLine line([&]{return juce::Rectangle<float>{cursorX,5.f,1.f,20.f};});canvas.addAndMakeVisible(line);line.update();auto first=canvas.createComponentSnapshot(canvas.getLocalBounds(),true,1.f,juce::SoftwareImageType{});check(first.getPixelAt(10,15).getAlpha()>0,"fractional cursor renders");cursorX=30.75f;line.update();auto moved=canvas.createComponentSnapshot(canvas.getLocalBounds(),true,1.f,juce::SoftwareImageType{});check(moved.getPixelAt(10,15).getAlpha()==0,"moving cursor clears old stripe");check(moved.getPixelAt(31,15).getAlpha()>0,"moving cursor paints new stripe");check(canvas.getComponentAt(31,15)==&canvas,"cursor does not intercept gestures");
+    for(double rate:{44100.,48000.,96000.}){
+        VisualTransport visual;mrs::audio::RealtimeState state;state.playback=mrs::PlaybackState::playing;
+        check(visual.sample(state,rate,0)==0,"visual starts at audio head");state.sample=static_cast<mrs::Sample>(rate*.02);visual.sample(state,rate,20);
+        const auto middle=visual.sample(state,rate,30);check(middle>0&&middle<state.sample,"visual interpolates between observed samples");
+        check(visual.sample(state,rate,200)==state.sample,"stalled audio does not extrapolate");state.playback=mrs::PlaybackState::paused;state.sample=123;check(visual.sample(state,rate,201)==123,"Pause exact sample");
+        state.playback=mrs::PlaybackState::playing;visual.sample(state,rate,202);state.sample=120;check(visual.sample(state,rate,203)==120,"backward Seek snaps");
+        state.sample=static_cast<mrs::Sample>(rate*10);check(visual.sample(state,rate,204)==state.sample,"forward Seek snaps");state.loop=mrs::LoopRange{0,1000};state.sample=990;visual.sample(state,rate,205);state.sample=10;check(visual.sample(state,rate,206)==10,"loop wrap snaps instead of sweeping backward");
+        state.playback=mrs::PlaybackState::stopped;state.sample=0;check(visual.sample(state,rate,207)==0,"Stop exact return");
+        for(int frames:{128,256,2048}){visual.reset();state={};state.playback=mrs::PlaybackState::playing;double previous=0;for(int frame=0;frame<180;++frame){const double now=frame*1000./60;state.sample=static_cast<mrs::Sample>(std::floor(now*.001*rate/frames))*frames;const auto head=visual.sample(state,rate,now);check(std::isfinite(head)&&head>=previous&&head<=state.sample,"60Hz visual bounded monotonic for callback size");previous=head;}}
+    }
+    const auto folder=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("mrs-home-upd6","",false);check(folder.createDirectory().wasOk(),"home temporary root");
+    Desktop home(true,true);check(home.projectHomeVisible()&&home.project()->tracks.empty()&&!home.arrangement->isVisible(),"startup home without demo tracks");bool initialClose=false;home.confirmDiscard([&]{initialClose=true;});check(initialClose,"initial home has no invisible-project save prompt");
+    home.app.new_project(48000,"First project");const auto a=folder.getChildFile("Projects/First/First.mrsproject");home.app.save_project(std::filesystem::path(a.getFullPathName().toWideCharPointer()));
+    home.app.new_project(48000,"Duplicate name");const auto b=folder.getChildFile("Projects/Second/First.MRSPROJECT");home.app.save_project(std::filesystem::path(b.getFullPathName().toWideCharPointer()));
+    check(folder.getChildFile("directory.mrsproject").createDirectory().wasOk(),"folder with project suffix");check(folder.getChildFile("notes.txt").replaceWithText("not a project"),"home unrelated file fixture");
+    auto found=findHomeProjects(folder);check(found.error.isEmpty()&&found.files.size()==2&&found.files[0].relative!=found.files[1].relative,"recursive case-insensitive files only, duplicates retained");
+    home.home->scanRoot(folder);for(int attempt=0;attempt<200&&home.home->loading();++attempt){std::this_thread::sleep_for(std::chrono::milliseconds(5));home.home->pollScan();}check(!home.home->loading()&&home.home->projectCount()==2,"asynchronous library scan");
+    for(auto* c:home.home->getChildren())if(c->getComponentID()=="home-search"){auto* search=dynamic_cast<juce::TextEditor*>(c);search->setText("Second",false);search->onTextChange();check(home.home->projectCount()==1,"home filter matches relative path");search->clear();search->onTextChange();}
+    for(auto size:std::array<juce::Point<int>,2>{juce::Point<int>{1200,700},juce::Point<int>{1400,850}}){home.setSize(size.x,size.y);for(float scale:{1.f,1.5f}){auto image=home.createComponentSnapshot(home.getLocalBounds(),true,scale,juce::SoftwareImageType{});auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-home-"+juce::String(size.x)+"-"+juce::String(static_cast<int>(scale*100))+"-preview.png").createOutputStream();check(stream!=nullptr,"home preview stream");stream->setPosition(0);stream->truncate();check(juce::PNGImageFormat().writeImageToStream(image,*stream),"home snapshot");}}
+    home.home->openRow(0);const auto until=juce::Time::getMillisecondCounter()+30;while(juce::Time::getMillisecondCounter()<until){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}juce::Thread::sleep(1);}check(!home.projectHomeVisible()&&!home.app.path().empty()&&home.arrangement->isVisible(),"single library click opens project via shared loading");
+    home.action(6);check(home.projectHomeVisible()&&home.canReturnToProject(),"File Project home returns to library");for(auto* c:home.home->getChildren())if(c->getComponentID()=="home-resume"){check(c->isVisible(),"Resume available for loaded project");dynamic_cast<juce::TextButton*>(c)->onClick();}check(!home.projectHomeVisible(),"Resume returns to same project");home.action(6);const auto previous=home.app.path();home.run([&]{home.openFile(folder.getChildFile("missing.mrsproject"));});check(home.projectHomeVisible()&&home.app.path()==previous&&!home.message.isEmpty(),"missing project preserves session and library error");
+    const auto bad=folder.getChildFile("corrupt.mrsproject");check(bad.replaceWithText("not a project"),"corrupt fixture");home.run([&]{home.openFile(bad);});check(home.projectHomeVisible()&&home.app.path()==previous&&!home.message.isEmpty(),"corrupt project preserves loaded session");
+    home.action(1);check(!home.projectHomeVisible()&&home.app.path().empty()&&home.project()->tracks.empty(),"New project leaves home with empty workspace");
+    auto map=home.project()->time;map.tempos={{0,120},{mrs::ppq,60},{2*mrs::ppq,180}};home.app.set_time_map(map);home.app.seek(36025);std::array<float,256> silence{};home.app.engine()->process(nullptr,silence.data(),128);check(std::abs(home.visualTick()-1200.5)<.001,"visual MIDI position keeps fractional ticks across tempo change");
+    home.home.reset();check(folder.deleteRecursively(),"home fixture cleanup");
+}
 void midi4bSmoke(Desktop& d,const juce::File& fixture){
     auto check=[](bool b,const char* text){if(!b)throw std::runtime_error(text);};
     if(!fixture.existsAsFile())return; auto stage=[](const char* text){juce::File::getCurrentWorkingDirectory().getChildFile("midi-clips-smoke-stage.txt").replaceWithText(text);};stage("begin");
@@ -277,6 +307,7 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     check(folder.getParentDirectory()==juce::File::getSpecialLocation(juce::File::tempDirectory)&&folder.getFileName().startsWith("mrs-juce-j2"),"fixture cleanup scope");folder.deleteRecursively();
 }
 void j3Smoke(Desktop& d){
+    projectHomeSmoke();
     auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
     mrs::audio::DeviceStatus performance{mrs::audio::DevicePhase::running,48000,2.7,5.4,.5,{}};
     d.updatePerformance(performance,true);check(d.cpuReadout.getText()=="CPU 50.0%"&&d.audioCpu==.5&&d.latencyReadout.getText()=="Latency I 2.70 / O 5.40 ms","driver load and latency readouts");

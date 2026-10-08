@@ -1,6 +1,7 @@
 #pragma once
 #include "Controls.h"
 #include "Settings.h"
+#include "Playhead.h"
 #include <mrs/desktop.hpp>
 #include <mrs/offline_device.hpp>
 #include <mrs/vst3.hpp>
@@ -13,6 +14,7 @@ class Arrangement;
 class Strip;
 class Browser;
 class FxPanel;
+class ProjectHome;
 class EditorWindow final : public juce::DocumentWindow {
 public:
     EditorWindow(juce::String,juce::Component*,bool show=true);
@@ -24,7 +26,7 @@ public:
 class Desktop final : public juce::Component, private juce::Timer,
                       public juce::MenuBarModel, public juce::DragAndDropContainer, public juce::DragAndDropTarget {
 public:
-    explicit Desktop(bool testing=false);
+    explicit Desktop(bool testing=false,bool startAtHome=false);
     ~Desktop() override;
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -47,6 +49,11 @@ public:
     void confirmDiscard(std::function<void()>);
     void openFile(const juce::File&);
     void saveFile(const juce::File&);
+    void showProjectHome(bool);
+    bool projectHomeVisible() const{return homeVisible;}
+    bool canReturnToProject() const{return projectSessionStarted;}
+    double visualSample();
+    double visualTick();
     void importFiles(const juce::StringArray&);
     void resetDevice();
     void reconnectDevice(bool session=false);
@@ -113,6 +120,7 @@ public:
     std::vector<std::unique_ptr<Strip>> mixer;
     std::unique_ptr<Strip> master;
     std::unique_ptr<Browser> browser;
+    std::unique_ptr<ProjectHome> home;
     std::vector<std::unique_ptr<EditorWindow>> windows;
     mrs::desktop::Preferences prefs;
     std::filesystem::path prefsFile,cacheFile,viewFile;
@@ -122,6 +130,11 @@ public:
 private:
     void timerCallback() override;
     void remember();
+    bool homeVisible{};
+    bool projectSessionStarted{};
+    VisualTransport visualTransport;
+    const mrs::audio::AudioEngine* visualEngine{};
+    double lastVisualSample{};
     bool spaceHeld{};unsigned previewTick{};
     bool resizingBrowser{},resizingMixer{};
     int mixerDragHeight{},mixerDragY{};
@@ -209,6 +222,7 @@ private:
     int trim{};std::vector<mrs::Clip> dragGroup;int dragTrackDelta{};
     bool selecting{};juce::Point<float> selectionOrigin;juce::Rectangle<float> selectionBox;
     static constexpr int header=70,left=250;
+    PlayheadLine playhead;
 };
 
 class Browser final : public juce::Component,private juce::FileBrowserListener,private juce::Timer {
