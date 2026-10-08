@@ -1,6 +1,6 @@
 # MR Studio: текущий контекст разработки
 
-Обновлено: **2026-10-07**, Asia/Krasnoyarsk. Это основной краткий снимок для нового
+Обновлено: **2026-10-08**, Asia/Krasnoyarsk. Это основной краткий снимок для нового
 чата. Постоянные правила: [AGENTS.md](../AGENTS.md). Подробная история остаётся
 в тематических документах; старые верхние записи README/START_HERE не являются
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
@@ -32,7 +32,50 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2f upd5
+## Актуальная сборка для продолжения: 0.2f upd6
+
+## 0.2f upd6 — 2026-10-08
+
+Пользователь принял upd5: «Тесты прошли успешно». Точные hardware settings,
+длительности и отдельная mixed-DPI matrix этой репликой не перечислены.
+По трём новым требованиям выпущена **0.2f upd6**:
+
+- При запуске Project home вместо demo: фоновый поиск `.mrsproject` рекурсивно
+  в Windows `Документы/MR Studio`, только файлы; папки/symlinks не отображаются.
+  ЛКМ/Enter открывают проект. Сортировка по изменению, поиск по имени/относительному
+  пути, New/Open/Refresh; одинаковые имена различаются путями. Missing/corrupt
+  оставляют текущий проект и показывают ошибку. Начальный home не просит сохранять
+  невидимый пустой проект. Saved audio reconnect выполняется после New/Open.
+  File → Project home сохраняет текущую сессию и ставит Pause; Continue current
+  project возвращает её. Прежняя защита несохранённых изменений при замене/закрытии.
+- Плейхэды Arrange (включая запись), piano roll и controller lane обновляются
+  отдельными прозрачными компонентами на 60 Hz, только узкие old/new полосы.
+  Общая message-thread интерполяция к existing coherent engine snapshot,
+  fractional samples/ticks/pixels. Обычно около одного UI frame визуального отставания,
+  окно сглаживания не больше 50 ms, без ухода дальше последнего observed sample.
+  Stop/Pause/backward/loop/large seek/reset немедленно re-anchor; малый forward seek
+  сходится за короткое UI-окно. Tempo segments учитываются с дробными ticks.
+  30 Hz meters/content polling и MIDI preview rate сохранены; callback/DSP/recording
+  timestamps/audio buffering/Undo/schema 13 не менялись. UI state transient.
+
+Source `89987a78a35694585a7f6ed84c95b759d28d7210`, локальная ветка
+`mrs/0.1q-fix3-processing-local`. Cached configure/full Release PASS без warnings.
+**113/113 CTest PASS (72.65 s)**; после финальных UI дополнений **J2/J3 2/2 PASS
+(7.84 s)**. Packaged J3 и recording/clips/live PASS. Home nested/case-insensitive/
+duplicate/filter/async/open/resume/new/missing/corrupt checks PASS. Fractional cursor
+paint/old stripe clear/mouse passthrough и 44.1/48/96 kHz, 128/256/2048 frames,
+60 Hz bounded monotonic display, stalls/Stop/Pause/Seek/loop/tempo changes PASS.
+Software home 1200×700/1400×850 100%/150% и MIDI 150% просмотрены.
+Пакет `MR-Studio-0.2f-upd6-Home-JUCE-ASIO-Windows-local` в папке чатов `Builds`;
+EXE SHA256 `AFD9B7B9EAB87F6BE4C609AB95F4BA035ED4B688AEBB209FBDC2A71D1339FB44`.
+Контракт: [PROJECT_HOME](PROJECT_HOME.md); [ручная проверка](MRS_STAGE_4F_CHECKLIST.md).
+FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK. Физическая ASIO
+плавность записи/редактора и mixed DPI ожидают пользователя. #68/#24/P4 scope
+этой поставкой не закрывается. GitHub/source push/Actions не выполнялись.
+Следующий шаг: проверить новый стартовый экран и плейхэды на пользовательской
+системе; 0.2g/0.2h не начаты, автоматически не начинать.
+
+## Предыдущая принятая поставка: 0.2f upd5
 
 ## 0.2f upd5 — 2026-10-07
 
