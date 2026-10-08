@@ -32,7 +32,51 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2f upd8
+## Актуальная сборка для продолжения: 0.2h
+
+Пользователь принял upd8 («Все тесты прошли»), поменял порядок на 4h → 4g и
+разрешил «Поехали 0.2h делать». Реализованы метроном и precount, scope 4h / #70:
+
+- Click/Count в toolbar и Transport → Metronome / count-in: отдельные playback/
+  recording switches, Accent first beat, Level, count Off или 1–4 такта.
+  По умолчанию Click/Count выключены, accent on, level 20%. Настройки общие:
+  Preferences v7 читает v1–6 с Off; не dirty/Undo, project schema 13 прежняя.
+- Prepared click tones и timing projections следуют tempo/meter/loop; после
+  Master inserts/PDC, перед Master gain, в Master hardware outputs. Host click
+  не добавляется в raw capture; акустическая/аппаратная петля требует наушников.
+- Precount использует темп/размер в позиции старта, полные такты без отрицательных
+  samples. Cursor удерживается, мониторинг работает, COUNT-IN показывает seconds.
+  Запись начинается точно после отсчёта с исходной позиции, даже внутри callback;
+  prefix samples/notes не входят в дубль. Stop/Pause отменяет без пустого WAV/clip.
+  Count audible независимо от recording click; настройки заморожены до Stop.
+- Shared Application/engine; RT tone/capture gating без allocations/locks/I/O/UI.
+  Существующие SPSC controls и coherent state mailbox; stop/join перед prepare.
+  Whole-graph producer рендерит click, mixed producer выключает его; device
+  рендерит один раз. Take command/Undo/portable Save/Open и plugin instances сохранены.
+
+Контракт: [METRONOME_PRECOUNT](METRONOME_PRECOUNT.md); проверка:
+[MRS_STAGE_4H_CHECKLIST](MRS_STAGE_4H_CHECKLIST.md).
+Source `1c954595786a19abc571e391fdf8b2b1e8f1fdfe`, локальная ветка
+`mrs/0.1q-fix3-processing-local`. Cached configure/full Release PASS без compiler
+warnings/errors; **114/114 CTest PASS (64.41 s)**. Packaged J3 три раза exit 0;
+MIDI clips/live/recording, desktop config/recording/project_folders/clip_edits,
+audio metronome/recording/multi_input, mixed/ahead equivalence PASS. Tone 44.1/48/96
+kHz; accented meter/tempo/loop/seek, allocation 0; mid-callback 193-frame count
+сохраняет только 63-frame input suffix. Combined audio/MIDI count/cancel/start0,
+stable insert_generation, one Undo/Redo и Save/Open PASS. Software count UI
+100%/150% просмотрены. В раннем промежуточном J3 был единичный exit 0xc0000374;
+причина не установлена, позднее три последовательных и три packaged запуска PASS;
+не объявлять доказанно исправленным. Детали разработки в контракте.
+Пакет `MR-Studio-0.2h-Metronome-Precount-JUCE-ASIO-Windows-local` в папке чатов
+`Builds`; прежние сохранены. EXE SHA256
+`327F72581776C7558ED2845BC2614267617557E140F95F0C238280C28CE4CCB8`.
+FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK. Реальные ASIO audition,
+record-start timing и physical mixed-DPI NOT RUN; следующая работа — пользовательская
+проверка 0.2h. После приёмки по отдельному запросу — 0.2g внешний MIDI, затем
+совместная Stage 4 проверка. #70/#24/P4 не закрыты, 4g не начат; GitHub/source
+push/Actions и специальные installed TH-U/Nuro проверки не выполнялись.
+
+## Предыдущая принятая поставка: 0.2f upd8
 
 Upd7 принята пользователем 2026-10-08: «По всем предыдущим пунктам тесты пройдены».
 Точные hardware settings и отдельная mixed-DPI matrix этой репликой не перечислены.
