@@ -1,5 +1,34 @@
 # Moon River Studio
 
+<!-- DEVELOPMENT_PROGRESS_START -->
+## Development Progress
+
+Прогресс ниже рассчитывается по **закрытым дочерним GitHub issues**. Индикаторы получают процент выполнения из [GitHub Sub-issues](https://github.com/vladleng/MR-Studio/issues/1) через Shields.io и обновляются при открытии страницы с учётом кеширования. Это прогресс **задач**, а не оценка готовности к релизу или объёма написанного кода.
+
+| Основные направления | Выполнение |
+| :--- | :--- |
+| [MRS — DAW Development](https://github.com/vladleng/MR-Studio/issues/12) | [![Прогресс #12](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F12&query=%24.sub_issues_summary.percent_completed&suffix=%25&label=progress&color=64748b&style=flat-square)](https://github.com/vladleng/MR-Studio/issues/12) |
+| [SHARED — Core / Engine](https://github.com/vladleng/MR-Studio/issues/13) | [![Прогресс #13](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F13&query=%24.sub_issues_summary.percent_completed&suffix=%25&label=progress&color=3f8c76&style=flat-square)](https://github.com/vladleng/MR-Studio/issues/13) |
+| [LIVE — Performance Mode](https://github.com/vladleng/MR-Studio/issues/14) | [![Прогресс #14](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F14&query=%24.sub_issues_summary.percent_completed&suffix=%25&label=progress&color=64748b&style=flat-square)](https://github.com/vladleng/MR-Studio/issues/14) |
+
+<details>
+<summary><strong>Прогресс отдельных этапов</strong></summary>
+
+| Этап | Выполнение |
+| :--- | :--- |
+| [Stage 3 — Plugins / Native DSP](https://github.com/vladleng/MR-Studio/issues/23) | [![Прогресс #23](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F23&query=%24.sub_issues_summary.percent_completed&suffix=%25&label=progress&color=64748b&style=flat-square)](https://github.com/vladleng/MR-Studio/issues/23) |
+| [Stage 4 — MIDI / Metronome](https://github.com/vladleng/MR-Studio/issues/24) | [![Прогресс #24](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F24&query=%24.sub_issues_summary.percent_completed&suffix=%25&label=progress&color=3f8c76&style=flat-square)](https://github.com/vladleng/MR-Studio/issues/24) |
+| [Stage 5 — Musical Structure](https://github.com/vladleng/MR-Studio/issues/25) | [![Прогресс #25](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F25&query=%24.sub_issues_summary.percent_completed&suffix=%25&label=progress&color=64748b&style=flat-square)](https://github.com/vladleng/MR-Studio/issues/25) |
+| [Stage 7 — Advanced Features](https://github.com/vladleng/MR-Studio/issues/78) | [![Прогресс #78](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F78&query=%24.sub_issues_summary.percent_completed&suffix=%25&label=progress&color=64748b&style=flat-square)](https://github.com/vladleng/MR-Studio/issues/78) |
+| [SHARED — Time Stretch / Pitch Shift](https://github.com/vladleng/MR-Studio/issues/56) | [![Прогресс #56](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F56&query=%24.sub_issues_summary.percent_completed&suffix=%25&label=progress&color=64748b&style=flat-square)](https://github.com/vladleng/MR-Studio/issues/56) |
+
+</details>
+
+[Общий roadmap](https://github.com/vladleng/MR-Studio/issues/1) · [Все issues](https://github.com/vladleng/MR-Studio/issues) · [План разработки](docs/ROADMAP.md) · [Старт для разработчика](docs/START_HERE.md)
+
+> **Источник истины — GitHub Issues.** При закрытии или добавлении sub-issues проценты изменяются без редактирования README, но отображение может запаздывать из-за кеша GitHub/Shields.io. Код, сборки и тестирование по-прежнему выполняются локально; этот раздел не использует GitHub Actions.
+<!-- DEVELOPMENT_PROGRESS_END -->
+
 Локальная **0.1i upd1** готова: компоновка по пользовательскому референсу Studio Pro,
 вертикальный зум дорожек и четыре сочетания колеса мыши. Только работающие controls.
 **69/69 CTest**, GUI smoke и visual review пройдены; **0.1i upd1 принята** пользователем 2026-10-04.
