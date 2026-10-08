@@ -32,7 +32,48 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2h fix1
+## Актуальная сборка для продолжения: 0.2h fix2 — crash diagnostics
+
+2026-10-08: по запросу «Приступай, это будет фикс» добавлена локальная
+диагностика. Source `0caf858`, ветка прежняя; контракт CRASH_DIAGNOSTICS.md.
+Пакет в chat Builds: `MR-Studio-0.2h-fix2-Crash-Diagnostics-JUCE-ASIO-Windows-local`.
+EXE SHA256 `7C0AB8AAF46C4963B572F2239B17F18E36A24E8A2E99C2E2B433FE4862C78984`.
+Обычные сессии пишут Documents/MR Studio/Logs; File → Open diagnostics folder.
+Скрытый helper сохраняет локальные crash text/minidump с exception/thread/module,
+при следующем запуске есть уведомление. Журнал ограничен, старые сессии очищаются
+в пределах отдельной Logs-папки; нет сетевой отправки, registry/WER changes,
+восстановления проекта или новых I/O/locks/allocation в audio processing.
+Schema 13 / Preferences v7 / принятые настройки транспорта прежние.
+
+Full Release build PASS; финальный CTest 116/116 PASS (43.38 s), три packaged
+J3 diagnostics smoke exit 0, packaged native crash tests PASS, software preview
+проверен. Новые тесты проверяют main/worker dumps, abrupt exit, clean shutdown,
+retention/live lock, saturation/missing helper/unwritable folder/menu.
+Первый packaged smoke реально упал; лог/дамп с совпадающими EXE/PDB сохранены
+в пакете. Адрес: AudioEngine::process_channel, engine.cpp:48, повреждённый индекс.
+В J2 обнаружен конкурентный запуск ручного render и threaded Offline clock после
+resetDevice; fixture теперь снова подключает ManualDevice перед ручным render.
+Production audio engine не менялся. Это отдельная ошибка теста, не доказанная
+причина пользовательского вылета. Символы финальной сборки сохранены в Symbols,
+старой — Evidence/pre-test-owner-fix; не смешивать их при анализе.
+
+Ручная приёмка fix2 ожидается. Следующий шаг: использовать обычный проект и при
+повторном вылете получить соответствующие .log/.crash.txt/.dmp. Реальный вылет
+пользователя НЕ объявлен исправленным; Omnisphere не объявлена причиной.
+0.2g автоматически не начинать. Старые пакеты и пользовательские данные сохранены.
+
+## Предыдущая принятая сборка: 0.2h fix1
+
+Приёмка 2026-10-08: «Все работает по последним правкам». Toolbar/темп/изменения
+note-edit приняты в сообщённом объёме, но crash НЕ принят как устранённый.
+Пользователь сообщает спонтанный вылет при просто открытом проекте; неизвестно,
+был ли транспорт остановлен и происходила ли фоновая обработка. По его опыту
+те же используемые плагины никогда не вызывают вылетов в Studio Pro. Не считать
+перенос ноты необходимым trigger и не приписывать причину Omnisphere/другому
+плагину без stack/dump. Следующий фокус — диагностика устойчивости MR Studio
+в открытом/idle/background проекте, получение exception/module/stack и проверка
+host lifetime/thread ownership. Код/пакет/старые manifest не менялись по этой
+приёмке; точные ASIO settings/duration не сообщены. 4g автоматически не начинать.
 
 2026-10-08: пользователь сообщил «Все работает» по 0.2h и запросил три
 исправления. По уточнению Click/Count должны быть кнопками, настройки Transport
