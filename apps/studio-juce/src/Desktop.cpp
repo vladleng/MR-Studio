@@ -75,7 +75,7 @@ Desktop::Desktop(bool test,bool startAtHome):testing(test){
 }
 Desktop::~Desktop(){try{saveSettings();}catch(...){}stopTimer();*scanCancel=true;chooser.reset();closeEditors();dockedEditor.reset();home.reset();
     if(scanner.valid())scanner.wait();setLookAndFeel(nullptr);mixerViewport.setViewedComponent(nullptr,false);}
-void Desktop::run(std::function<void()> f){try{f();message.clear();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}else if(recordingPreview.empty()&&audioRecordingPreview.empty())updateRecordingPreview();refresh();}catch(const std::exception& e){refresh();message=label(e.what());repaint();}}
+void Desktop::run(std::function<void()> f){try{f();message.clear();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}else if(recordingPreview.empty()&&audioRecordingPreview.empty())updateRecordingPreview();refresh();}catch(const std::exception& e){mrs::diagnostics::event(std::string("ui_error ")+e.what());refresh();message=label(e.what());repaint();}}
 void Desktop::resetDevice(){visualTransport.reset();app.connect(mrs::audio::make_offline_device(),{0,project()->sample_rate,128,{}, {0,1}});}
 double Desktop::visualSample(){const auto* engine=app.engine().get();if(engine!=visualEngine){visualEngine=engine;visualTransport.reset();}mrs::audio::RealtimeState state;if(!engine->try_state(state))return lastVisualSample;return lastVisualSample=visualTransport.sample(state,project()->sample_rate,juce::Time::getMillisecondCounterHiRes());}
 double Desktop::visualTick(){const auto p=project();double sample=visualSample(),tick=0;for(std::size_t i=0;i<p->time.tempos.size();++i){const auto& tempo=p->time.tempos[i];const double perTick=60.*p->sample_rate/(tempo.bpm*mrs::ppq);if(i+1==p->time.tempos.size())return tick+sample/perTick;const double length=static_cast<double>(p->time.tempos[i+1].tick-tempo.tick),frames=length*perTick;if(sample<frames)return tick+sample/perTick;sample-=frames;tick+=length;}return 0;}
@@ -100,7 +100,7 @@ void Desktop::reconnectDevice(bool session){if(testing||(!session&&!prefs.reconn
     try{app.connect(std::move(device),config);prefs.rate=config.sample_rate;saveSettings();}catch(...){resetDevice();throw;}
 #endif
 }
-void Desktop::openFile(const juce::File& f){const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();cancelPreview();app.open_project(path(f));resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();showProjectHome(false);reconnectDevice(session);}
+void Desktop::openFile(const juce::File& f){mrs::diagnostics::event("project_open_begin "+f.getFullPathName().toStdString());const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();cancelPreview();app.open_project(path(f));resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();showProjectHome(false);reconnectDevice(session);mrs::diagnostics::event("project_open_end");}
 void Desktop::saveFile(const juce::File& f){auto destination=path(f);if(destination!=app.path())destination=mrs::desktop::project_folder_file(destination);app.save_project(destination);remember();refresh();}
 void Desktop::importFiles(const juce::StringArray& files){closeEditors();std::vector<std::filesystem::path> paths;for(const auto& f:files)paths.push_back(path(juce::File(f)));app.import_wavs(paths);refresh(true);}
 void Desktop::choose(int chooserOptions,std::function<void(const juce::File&)> callback,juce::String pattern){
@@ -128,7 +128,7 @@ void Desktop::confirmDiscard(std::function<void()> nextAction){if(app.recording(
 juce::StringArray Desktop::getMenuBarNames(){return {"File","Edit","Track","Transport"};}
 juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupMenu m;
     if(n==0){m.addItem(6,"Project home");m.addItem(1,"New project");m.addItem(2,"Open project...");m.addItem(3,"Save");m.addItem(4,"Save as...");m.addItem(5,"Import WAV...");
-        juce::PopupMenu recent;for(std::size_t i=0;i<prefs.recent_projects.size();++i)recent.addItem(1000+static_cast<int>(i),label(prefs.recent_projects[i]));m.addSubMenu("Open recent project",recent);}
+        juce::PopupMenu recent;for(std::size_t i=0;i<prefs.recent_projects.size();++i)recent.addItem(1000+static_cast<int>(i),label(prefs.recent_projects[i]));m.addSubMenu("Open recent project",recent);m.addSeparator();m.addItem(7,"Open diagnostics folder");}
     if(n==1){m.addItem(10,"Undo",app.services().projects->state().can_undo);m.addItem(11,"Redo",app.services().projects->state().can_redo);m.addItem(24,"Split selected clip (S)");m.addItem(25,"Delete selected clip (Backspace)");m.addItem(43,"Create MIDI clip at cursor",selectedTrack.has_value());m.addItem(44,"Edit MIDI clip notes",selectedClip.has_value());m.addItem(45,"Duplicate selected clip",selectedClip.has_value());m.addItem(46,"Loop selected clip",selectedClip.has_value());}
     if(n==2){m.addItem(20,"Add audio track");m.addItem(28,"Add instrument track");m.addItem(21,"Add bus");m.addItem(22,"Rename track");m.addItem(23,"Delete track");m.addItem(26,"Move track up");m.addItem(27,"Move track down");}
     if(n==3){m.addItem(30,"Play");m.addItem(31,"Pause");m.addItem(32,"Stop");m.addItem(33,"Record");m.addItem(34,"Previous section");m.addItem(35,"Next section");m.addItem(36,"Loop section");m.addItem(40,"Audio settings...");m.addItem(41,"Engine profiling...");m.addItem(42,"MIDI panic / all notes off");m.addItem(47,"Project tempo...");
@@ -140,7 +140,8 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
     return m;
 }
 void Desktop::menuItemSelected(int n,int){action(n);}
-void Desktop::action(int n){if(busyGesture())return;run([&]{
+void Desktop::action(int n){if(busyGesture())return;mrs::diagnostics::event("ui_action="+std::to_string(n));run([&]{
+    if(n==7){const auto logs=mrs::diagnostics::folder();if(logs.empty())throw std::runtime_error("Diagnostics unavailable; see package README");if(!testing)juce::File(juce::String(logs.wstring().c_str())).revealToUser();return;}
     if(n>=500&&n<=700){auto c=app.click_settings();if(n==500)c.playback=!c.playback;else if(n==501)c.recording=!c.recording;else if(n==502)c.accent=!c.accent;else if(n==503)c.playback=c.recording=!(c.playback||c.recording);else if(n==504){if(c.count_bars){lastCountBars=c.count_bars;c.count_bars=0;}else c.count_bars=lastCountBars;}else if(n>=510&&n<=514)c.count_bars=n-510;else if(n>=600)c.level=n-600;else return;app.set_click_settings(c);if(c.count_bars)lastCountBars=c.count_bars;prefs.click=c;saveSettings();return;}
     if(n==6){app.pause();showProjectHome(true);home->rescan();return;}
     if(n>=1000){auto at=static_cast<std::size_t>(n-1000);if(at<prefs.recent_projects.size()){const auto f=juce::File(label(prefs.recent_projects[at]));confirmDiscard([this,f]{run([&]{openFile(f);});});}return;}
@@ -243,7 +244,11 @@ void Desktop::refresh(bool force){if(!app.recording()){recordingPreview.clear();
     if(replaced){displayedStore=app.services().projects;visualTransport.reset();revision=~0ULL;peaks={};masterPeak={};arrangement->horizontal=0;arrangement->vertical=0;mixerViewport.setViewPosition(0,0);}
     if(replaced||current!=ids){closeEditors();cancelPreview();ids=current;mixer.clear();for(const auto& t:p->tracks){auto s=std::make_unique<Strip>(*this,t.id);mixerBody.addAndMakeVisible(*s);mixer.push_back(std::move(s));}
         master=std::make_unique<Strip>(*this,std::nullopt);addAndMakeVisible(*master);arrangement->rebuild();resized();}
-    if(force || revision!=state.revision){app.prepare_waveforms();for(auto& s:mixer)s->sync();for(auto& s:arrangement->rows)s->sync();if(master)master->sync();revision=state.revision;resized();}
+    if(force || revision!=state.revision){
+        mrs::diagnostics::event("project_snapshot title="+p->title+" tracks="+std::to_string(p->tracks.size())+" clips="+std::to_string(p->clips.size())+" revision="+std::to_string(state.revision)+" insert_generation="+std::to_string(app.insert_generation()));
+        for(const auto& t:p->tracks)for(const auto& fx:t.inserts)if(fx.kind==mrs::InsertKind::vst3)mrs::diagnostics::event("plugin track="+t.name+" name="+fx.plugin_name+" path="+fx.plugin_path+" class="+fx.class_id);
+        for(const auto& fx:p->master_inserts)if(fx.kind==mrs::InsertKind::vst3)mrs::diagnostics::event("plugin master name="+fx.plugin_name+" path="+fx.plugin_path+" class="+fx.class_id);
+        app.prepare_waveforms();for(auto& s:mixer)s->sync();for(auto& s:arrangement->rows)s->sync();if(master)master->sync();revision=state.revision;resized();}
     projectTitle.setText(projectCaption(),juce::dontSendNotification);
     undo.setEnabled(state.can_undo);redo.setEnabled(state.can_redo);
     arrangeButton.setToggleState(app.workspace()==mrs::desktop::Workspace::arrange,juce::dontSendNotification);
@@ -283,6 +288,7 @@ void Desktop::updateRecordingPreview(){
 void Desktop::focusLost(FocusChangeType){spaceHeld=false;}
 void Desktop::timerCallback(){try{const bool wasRecording=app.recording();app.poll();if(wasRecording&&!app.recording()&&!app.recording_error().empty())message=label(app.recording_error());if(++previewTick%3==0)updateRecordingPreview();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}if(dockedEditor&&!dockedClip)dockedEditor.reset();if(preview){if(preview->active())app.preview_mix(preview->target,preview->mix,preview->master);else preview.reset();}
     updatePerformance(app.device_status(),app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected");
+    if(++diagnosticTick%150==0){mrs::audio::RealtimeState head;if(app.engine()->try_state(head))mrs::diagnostics::event("heartbeat device="+app.audio_name()+" rate="+std::to_string(project()->sample_rate)+" requested_buffer="+std::to_string(prefs.buffer)+" workers="+std::to_string(prefs.processing_workers)+" process="+std::to_string(prefs.process_buffer_frames)+" playback="+std::to_string(static_cast<int>(head.playback))+" sample="+std::to_string(head.sample)+" recording="+std::to_string(app.recording()));}
     if(editorGeneration!=app.insert_generation()){closeEditors(true);editorGeneration=app.insert_generation();}
     std::erase_if(windows,[](const auto& w){return !w->isVisible();});
     if(scanner.valid()&&scanner.wait_for(std::chrono::seconds(0))==std::future_status::ready){catalog=scanner.get();browser->rebuild();}

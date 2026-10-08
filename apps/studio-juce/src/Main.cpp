@@ -1,6 +1,7 @@
 #include "Desktop.h"
 #include "J1Smoke.h"
 #include <mrs/version.hpp>
+#include <mrs/diagnostics.hpp>
 namespace {
 class Window final : public juce::DocumentWindow {
 public:
@@ -21,6 +22,14 @@ public:
     const juce::String getApplicationName() override {return "Moon River Studio JUCE";}
     const juce::String getApplicationVersion() override {return juce::String(mrs::desktop::application_version.data());}
     void initialise(const juce::String& args) override {
+        const bool smoke=args.contains("--j3-smoke")||args.contains("--j1-smoke")||args.contains("--smoke-test")||args.contains("--plugin-smoke")||args.contains("--thu-diagnostic");
+        if(!smoke||args.contains("--diagnostics-smoke")){
+            const auto logs=args.contains("--diagnostics-smoke")?juce::File::getCurrentWorkingDirectory().getChildFile("diagnostics-gui-smoke"):
+                juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio").getChildFile("Logs");
+            const auto helper=juce::File::getSpecialLocation(juce::File::currentExecutableFile).getSiblingFile("mrs_crash_reporter.exe");
+            diagnostics=std::make_unique<mrs::diagnostics::Session>(std::filesystem::path(logs.getFullPathName().toWideCharPointer()),std::filesystem::path(helper.getFullPathName().toWideCharPointer()),mrs::desktop::application_version.data());
+            mrs::diagnostics::event("application_initialise");
+        }
         if(args.contains("--thu-diagnostic") || args.contains("--j3-smoke") || args.contains("--smoke-test") || args.contains("--j1-smoke") || args.contains("--plugin-smoke")) {
             juce::File::getCurrentWorkingDirectory().getChildFile("juce-j2-failure.txt").deleteFile();
             try {
@@ -42,10 +51,15 @@ public:
             quit();return;
         }
         window=std::make_unique<Window>();
+        if(diagnostics){
+            if(!diagnostics->available()||!diagnostics->crash_capture_available())juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Diagnostics",juce::String(mrs::diagnostics::status()),"OK");
+            else if(!diagnostics->previous_report().empty())juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Previous session ended unexpectedly","A local crash report is available. File → Open diagnostics folder.\nReports may contain project/plugin paths and private stack data. No automatic upload.","OK");
+        }
     }
-    void shutdown() override {window.reset();}
+    void shutdown() override {mrs::diagnostics::event("application_shutdown_begin");window.reset();mrs::diagnostics::event("application_shutdown_end");diagnostics.reset();}
 private:
     std::unique_ptr<Window> window;
+    std::unique_ptr<mrs::diagnostics::Session> diagnostics;
 };
 }
 START_JUCE_APPLICATION(Studio)

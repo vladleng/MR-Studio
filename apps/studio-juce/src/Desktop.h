@@ -3,6 +3,7 @@
 #include "Settings.h"
 #include "Playhead.h"
 #include <mrs/desktop.hpp>
+#include <mrs/diagnostics.hpp>
 #include <mrs/offline_device.hpp>
 #include <mrs/vst3.hpp>
 #include <future>
@@ -155,6 +156,7 @@ private:
         addTrack{"+ Track"},addBus{"+ Bus"},undo{"Undo"},redo{"Redo"},split{"Split (S)"},
         remove{"Del clip"},zoomIn{"Zoom +"},zoomOut{"Zoom -"},fit{"Fit"},audio{"Audio settings"},snapButton{"Snap off"},clickButton{"Click"},countButton{"Count off"};
     int lastCountBars{1}; // Toolbar off/on restores the last enabled count in this session.
+    unsigned diagnosticTick{};
     struct MixPreview {std::optional<mrs::Id> target;mrs::Track::Mix mix;float master;std::function<bool()> active;};
     std::optional<MixPreview> preview;
 };

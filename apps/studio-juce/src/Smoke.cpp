@@ -280,7 +280,11 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
         juce::DragAndDropTarget::SourceDetails drop("vst3:0",d.browser.get(),{50,50});
         const auto revision=d.app.services().projects->state().revision;d.mixer[1]->itemDropped(drop);
         check(d.app.services().projects->state().revision==revision+1,"plugin drop commits once");
-        d.closeEditors();d.resetDevice();d.applyChain(second,d.chain(second));
+        d.closeEditors();d.resetDevice();
+        // resetDevice starts the threaded Offline clock. All render() calls in
+        // this regression must instead have a single, manually driven owner.
+        d.app.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1}});
+        d.applyChain(second,d.chain(second));
         auto plugin=d.chain(second).back();d.openInsert(second,plugin.id);check(d.windows.back()->isVisible()&&static_cast<bool>(d.windows.back()->getProperties()["mrs-native-editor"]),"VST3 HWND bridge after offline insert rebuild");
         auto* pluginWindow=d.windows.back().get();
         RECT client{};GetClientRect(reinterpret_cast<HWND>(static_cast<std::intptr_t>(static_cast<juce::int64>(pluginWindow->getProperties()["mrs-native-host"]))),&client);
@@ -395,6 +399,10 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
 void j3Smoke(Desktop& d){
     projectHomeSmoke();
     auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    const auto fileMenu=d.getMenuForIndex(0,"File");bool diagnosticEntry=false;juce::PopupMenu::MenuItemIterator menuItems(fileMenu);
+    while(menuItems.next())if(menuItems.getItem().itemID==7)diagnosticEntry=menuItems.getItem().isEnabled&&menuItems.getItem().text=="Open diagnostics folder";
+    check(diagnosticEntry,"File diagnostics entry");
+    if(!mrs::diagnostics::folder().empty()){const auto revision=d.app.services().projects->state().revision;d.action(7);check(d.message.isEmpty()&&d.app.services().projects->state().revision==revision,"diagnostics action is not a project edit");mrs::diagnostics::event("gui_diagnostics_menu_smoke");}
     mrs::audio::DeviceStatus performance{mrs::audio::DevicePhase::running,48000,2.7,5.4,.5,{}};
     d.updatePerformance(performance,true);check(d.cpuReadout.getText()=="CPU 50.0%"&&d.audioCpu==.5&&d.latencyReadout.getText()=="Latency I 2.70 / O 5.40 ms","driver load and latency readouts");
     performance.cpu_load=1.25;d.updatePerformance(performance,true);check(d.cpuReadout.getText()=="CPU 125.0%"&&d.audioCpu==1.,"overload readout exceeds 100 while bar saturates");

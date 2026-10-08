@@ -86,7 +86,7 @@ private:
     int scrollY() const{if(auto* viewport=findParentComponentOfClass<juce::Viewport>())return viewport->getViewPositionY();return 0;}
     bool insideActive(float x) const{return x>=keys+static_cast<double>(clip.start)/mrs::ppq*beatWidth&&x<keys+static_cast<double>(clip.start+clip.length)/mrs::ppq*beatWidth;}
     int hitNote(juce::Point<float> p) const{if(!insideActive(p.x))return -1;if(p.x<scrollX()+keys||p.y<scrollY()+ruler)return -1;for(std::size_t i=notes.size();i>0;--i)if(noteRect(notes[i-1]).contains(p))return static_cast<int>(i-1);return -1;}
-    void submit(std::vector<mrs::MidiNote> next){try{releaseNote();if(next==notes)return;owner.app.set_midi_notes(id,std::move(next));owner.refresh();sync();if(changed)changed();}catch(const std::exception& e){report(juce::String::fromUTF8(e.what()));sync();}}
+    void submit(std::vector<mrs::MidiNote> next){try{releaseNote();if(next==notes)return;mrs::diagnostics::event("midi_note_commit_begin clip="+id.value+" count="+std::to_string(next.size()));owner.app.set_midi_notes(id,std::move(next));owner.refresh();sync();if(changed)changed();mrs::diagnostics::event("midi_note_commit_end");}catch(const std::exception& e){mrs::diagnostics::event(std::string("midi_note_error ")+e.what());report(juce::String::fromUTF8(e.what()));sync();}}
     void audition(int pitch,int velocity,int channel){if(owner.app.audition_note(track,pitch,velocity,channel)){sounding=pitch;soundChannel=channel;}}
     void releaseNote(bool soft=false){if(sounding>=0){owner.app.audition_note(track,sounding,100,soundChannel,false,soft);sounding=-1;}}
 };

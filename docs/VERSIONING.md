@@ -1,5 +1,13 @@
 # Правила версионирования Moon River Studio
 
+## 0.2h fix2 — локальные журналы и аварийные отчёты
+
+Windows JUCE: session journal, out-of-process crash reporter/minidump, File →
+Open diagnostics folder и уведомление после предыдущего аварийного завершения.
+Release PDB сохраняется вместе с EXE. Без telemetry, registry/WER изменений,
+project/Preferences schema изменений или RT logging. Это диагностический фикс,
+не доказанное устранение спонтанного вылета. Контракт: CRASH_DIAGNOSTICS.md.
+
 ## 0.2h fix1 — кнопки, темп нового проекта, lifetime VST3
 
 Click/Count — переключатели без popup; настройки остаются в Transport.
