@@ -7,6 +7,10 @@ hardware external MIDI timing/routing не проверен: внешнего у
 118/118 локальных CTest PASS. [Актуальный контекст](docs/PROJECT_CONTEXT.md),
 [релиз](https://github.com/vladleng/MR-Studio/releases/tag/v0.2g),
 [ограничения внешнего MIDI](docs/MIDI_EXTERNAL.md).
+Последняя принятая локальная сборка: **0.2g fix2**, #91 — пробел в редакторах VST3
+и встроенного EQ; 118/118 CTest PASS. На GitHub опубликована только документация
+fix1/fix2, исходники и пакеты fix остаются локально. Следующая задача — #92
+(пресеты), реализация не начата.
 Stage 5 **не начат**, ожидает прямого запроса. Ниже сохранена история.
 
 <!-- DEVELOPMENT_PROGRESS_START -->

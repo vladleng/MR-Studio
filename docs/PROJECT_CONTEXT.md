@@ -12,7 +12,7 @@
 | Исходники, Git, CMake, tests, docs | `C:/Users/Vladislav/Documents/GitHub/MR-Studio` |
 | Папка чатов, Builds, Saves, навыки | `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio` |
 | Навыки проекта | Рабочая папка чатов: `.codex/skills/<имя>/SKILL.md` |
-| Активная ветка | `main` после согласованного слияния; исходная `mrs/0.1q-fix3-processing-local` сохранена |
+| Активная ветка | `mrs/0.2g-fix1-editor-space-local`; опубликованный main/release v0.2g сохранён |
 | Существующая сборочная папка | Репозиторий: `build/asio-local` |
 | GitHub для issues/docs | `vladleng/MR-Studio` |
 
@@ -32,15 +32,63 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2g — внешний MIDI
+## Актуальная локальная сборка: 0.2g fix2 — #91, Space во встроенном EQ
+
+2026-10-08: пользователь принял fix1 («Это заработало»), уточнил: обычные VST3
+работают, пробел не работал во встроенном эквалайзере. Source `7b702c2`, та же
+локальная ветка. FxPanel встроенных эффектов и окно VST3 Parameters теперь
+используют общий scoped Space handler: Play/Stop, repeat/text/modifier/modal guards,
+снятие регистрации и отмена queued action при закрытии. DSP/model/schema не менялись.
+Контракт [EDITOR_SPACE_FIX2.md](EDITOR_SPACE_FIX2.md).
+Пакет chat Builds: `MR-Studio-0.2g-fix2-Audio-Editor-Space-JUCE-ASIO-Windows-local`.
+EXE SHA256 `8497CA520BBFEAAA05BA0B3B8F5FEEE24F37D7CBF4CDCE5871BD0DC2D3402AD4`.
+Windows x64 Release build PASS; **118/118 CTest PASS (78.83 s)**, включая actual
+posted Space в EQ: Play/Stop/repeat/text/queued-close. Три packaged J3+diagnostics
+smoke exit 0; packaged crash tests PASS. Matching EXE/PDB, SHA256 manifest.
+2026-10-08: пользователь подтвердил fix2: «Тест пройден». Исправление #91 принято
+в пользовательском объёме (VST3 и встроенный EQ); это не универсальная проверка
+всех opaque text widgets. Следующая предлагаемая задача — #92: компактный выбор
+пресетов, текущий пресет и папки; начинать только по запросу. Stage 5/#92–#100 не начаты;
+source push/merge/release не выполнялись. Старые пакеты/проекты/настройки сохранены.
+
+## Предыдущая локальная сборка: 0.2g fix1 — #91, Space в редакторе VST3
+
+2026-10-08: пользователь разрешил «Тогда поехали issue #91». Только эта подзадача;
+#92–#100 и Stage 5 не начаты. Source `887bd41`, код остаётся локально;
+разовое разрешение предыдущего merge/release не переносится на этот fix.
+Пакет chat Builds: `MR-Studio-0.2g-fix1-Editor-Space-JUCE-ASIO-Windows-local`.
+EXE SHA256 `67D32CA24C386ECD57FEA953D056F7E8E8F8F23A957EDEE7DA1FC39BA305E6B1`.
+Контракт [EDITOR_SPACE_FIX1.md](EDITOR_SPACE_FIX1.md). Native VST3 HWND bypasses
+JUCE keyboard route; message-thread WH_GETMESSAGE bridge ограничен visible plugin
+editor windows. Space → async существующий основной Play/Stop action; repeats
+подавлены, modifiers/modal/посторонние окна не перехватываются. SafePointer и
+attachment generation отменяют stale async action; retire снимает регистрацию,
+последний editor снимает hook. Нативные HWND плагина не subclassed.
+Текстовые JUCE/native Edit/RichEdit/ComboBox и OS caret защищены. Opaque custom
+text fields без caret и отдельный plugin UI thread — ограничения, не заявлять
+универсальную защиту text input. DSP/callback/model/Undo/schema14/preferencesv7
+не изменены. Тема/геометрия прежние; существующий транспорт — единственный owner.
+
+Cached configure/Windows x64 Release PASS без compiler warnings; **118/118 CTest
+PASS (78.42 s)**. Реальные posted keydown/up на native fixture: Play/Stop, repeat,
+text input, Ctrl, modal и unrelated window PASS. Existing editor Pin/reconnect/
+presets/DPI/main Space и audio/VST3 regressions сохранены. Три packaged J3+
+diagnostics smoke exit 0; packaged crash tests PASS; matching EXE/PDB + manifest.
+Installed Omnisphere/physical ASIO/real keyboard acceptance **NOT RUN**.
+Историческая поставка требовала manual check; пользователь принял fix1, затем
+fix2 (актуальная запись выше). #91 завершён в принятом объёме. Ограничения opaque
+text/separate UI thread сохранены. Старые пакеты и пользовательские проекты/
+настройки не изменены; не переходить автоматически к #92 или Stage 5.
+
+## Опубликованная сборка: 0.2g — внешний MIDI
 
 2026-10-08, после release: по запросу пользователя #55 декомпозирован в native
 GitHub sub-issues #91–#100: transport focus, presets, mixer bypass/height/sends,
 hidden audio/MIDI pre-record, track rename/drop instrument, Note Editor layout
 и controller horizontal scroll. Parent содержит исходные требования и индекс;
 детальные критерии — в каждой child issue. Это межэтапные доработки, не Stage 5.
-**ТОЛЬКО ПЛАНИРОВАНИЕ**, код/сборка/пакеты не изменены. Реализацию пользователь
-запретил начинать сейчас; следующий шаг — ждать отдельного выбора/запроса.
+На момент декомпозиции — **ТОЛЬКО ПЛАНИРОВАНИЕ**; позднее отдельным запросом
+разрешена #91 (реализация выше). Остальные sub-issues остаются не начатыми.
 #96 потребует отдельного дизайна изменения pre-count/hidden source contract.
 
 2026-10-08: по запросу «Приступай к 0.2g» реализован Stage 4g / #69 локально.

@@ -1,5 +1,21 @@
 # Правила версионирования Moon River Studio
 
+## 0.2g fix2 — #91: Space во встроенном эквалайзере
+
+После пользовательской приёмки fix1: scoped transport handler добавлен в FxPanel
+и окно Parameters. Обычные VST3 уже работают по сообщению пользователя.
+Контракт: [EDITOR_SPACE_FIX2](EDITOR_SPACE_FIX2.md). EQ принят пользователем
+2026-10-08: «Тест пройден». #91 завершён в принятом объёме.
+Схема 14/preferences v7 неизменны; отдельный локальный пакет, без merge/release.
+
+## 0.2g fix1 — #91: Space в нативном редакторе VST3
+
+Локальный fix после опубликованной v0.2g. Общий transport из editor HWND,
+repeat/focus/text/modifier guards; схема 14/preferences v7 неизменны.
+Контракт: [EDITOR_SPACE_FIX1](EDITOR_SPACE_FIX1.md). Пользователь подтвердил работу
+обычных VST3; opaque custom text input остаётся ограничением, не универсальным PASS.
+#92–#100/Stage 5 не начинать автоматически.
+
 ## 0.2g — внешний MIDI, после 0.2h по согласованному порядку
 
 Windows output port/channel на instrument track, playback/live thru, Panic,
