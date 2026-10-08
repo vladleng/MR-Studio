@@ -2,10 +2,11 @@
 #include <algorithm>
 #include <stdexcept>
 #include <limits>
+#include <cmath>
 namespace mrs::audio {
 Waveform::Waveform(const AudioData& data, std::shared_ptr<std::atomic<bool>> cancel) : frames_(data.frames()), channels_(data.channels) {
     data.validate();
-    // Cap peak storage to <= 65536 base bins per channel, independent of duration.
+    // Cap peak storage to <= 65536 total base bins, independent of duration.
     while ((frames_+bin_frames_-1)/bin_frames_ > 65536/channels_) bin_frames_ *= 2;
     const auto count = static_cast<std::size_t>((frames_+bin_frames_-1)/bin_frames_);
     levels_.emplace_back(count*channels_,Peak{std::numeric_limits<float>::max(),std::numeric_limits<float>::lowest()});
@@ -36,6 +37,18 @@ Waveform::Waveform(const AudioData& data, std::shared_ptr<std::atomic<bool>> can
         }
         levels_.push_back(std::move(level)); bins = next;
     }
+}
+Peak Waveform::display(double begin, double end, std::uint32_t channel) const {
+    if(channel>=channels_)throw std::invalid_argument("invalid waveform channel");
+    if(!std::isfinite(begin)||!std::isfinite(end)||end<=begin||end<=0||begin>=frames_)return {};
+    begin=std::max(0.,begin);end=std::min(static_cast<double>(frames_),end);
+    if(end-begin>=bin_frames_)return range(static_cast<Sample>(std::floor(begin)),static_cast<Sample>(std::ceil(end)),channel);
+    const auto& bins=levels_.front();const auto count=bins.size()/channels_;
+    const double at=std::clamp((begin+end)*.5/bin_frames_-.5,0.,static_cast<double>(count-1));
+    const auto index=static_cast<std::size_t>(at),next=std::min(index+1,count-1);
+    const auto a=bins[index*channels_+channel],b=bins[next*channels_+channel];
+    const double fraction=at-index,w=fraction*fraction*(3.-2.*fraction);
+    return {static_cast<float>(a.minimum+(b.minimum-a.minimum)*w),static_cast<float>(a.maximum+(b.maximum-a.maximum)*w)};
 }
 Peak Waveform::range(Sample begin, Sample end, std::uint32_t channel) const {
     if (channel >= channels_) throw std::invalid_argument("invalid waveform channel");

@@ -293,7 +293,8 @@ void Application::save_project(const std::filesystem::path& requested) {
             cached.data = std::make_shared<const audio::AudioData>(std::move(data));
             if (!cached.peaks) cached.pending = std::async(std::launch::async,[data=cached.data,cancel=cached.cancel] { return audio::Waveform(*data,cancel); });
         }
-        rebuild_audio(); // same device handle, paused/stopped position and loop
+        const bool retain=insert_runtime_.contains(std::string{})&&std::all_of(document.project.tracks.begin(),document.project.tracks.end(),[&](const auto& t){return t.kind==TrackKind::midi||insert_runtime_.contains(t.id.value);});
+        rebuild_audio(retain); // retain prepared processors; bootstrap an empty offline graph if needed
     }
     saved_project_revision_ = services_.projects->state().revision;
     saved_graph_revision_ = graphs_->state().revision; unsaved_ = false;
@@ -969,6 +970,36 @@ audio::RecordStatus Application::recording_status() const {if(recording_)return 
 std::vector<Clip> Application::midi_recording_preview() const {
     const auto p=services_.projects->state().project;const Timeline time(p->time,p->sample_rate);std::vector<Clip> result;
     for(const auto& capture:midi_captures_){Clip c;c.id=Id{"record-preview-"+capture.track.value};c.track=capture.track;c.name="Recording MIDI";c.midi=capture.recorder->preview(time);result.push_back(std::move(c));}return result;
+}
+void Application::start_project_recording(const std::filesystem::path& projects_folder) {
+    require_not_recording(); sync_arm();
+    const auto p=services_.projects->state().project;
+    const bool audio=std::any_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.kind==TrackKind::audio&&track_armed(t.id);});
+    if(!audio){start_recording({});return;}
+    require(audio_running()&&device_config_,"connect audio before recording");
+    require(audio_name_!="Offline clock (no sound)","recording needs a hardware input; Offline clock cannot record");
+    require(!engine_->state().loop,"turn off loop before recording");
+    for(const auto& t:p->tracks)if(track_armed(t.id)){
+        if(t.kind==TrackKind::instrument){require(!t.midi_input.empty(),"select a MIDI input for the armed instrument track");continue;}
+        const auto inputs=track_inputs(t,default_inputs_);require(!inputs.empty(),"armed track has no selected input");
+        for(const auto input:inputs)require(std::find(device_config_->inputs.begin(),device_config_->inputs.end(),input)!=device_config_->inputs.end(),"armed input is not active");
+    }
+    if(path_.empty()) {
+        // Saving imported media requires quiescent callbacks. Keep sample position,
+        // processors and device configuration; Record then resumes from this point.
+        const bool playing=engine_->state().playback==PlaybackState::playing;
+        if(playing){device_->stop();auto position=engine_->state();position.playback=PlaybackState::paused;
+            try{engine_->prepare({device_config_->sample_rate,static_cast<std::uint32_t>(device_config_->inputs.size()),static_cast<std::uint32_t>(device_config_->outputs.size()),8192,device_config_->buffer_frames,device_config_->processing_workers},render(*device_config_,true),position);device_->start();}
+            catch(...){disconnect();throw;}}
+        try {
+            const auto name="Untitled-"+new_id().value;
+            const auto file=projects_folder/name/(name+".mrsproject");
+            require(!std::filesystem::exists(file.parent_path()),"automatic project directory already exists");
+            save_project(file);
+        } catch(...){if(playing)play();throw;}
+    }
+    ensure_project_folders(path_);
+    start_recording(path_.parent_path()/"Media"/("Take-"+new_id().value+".wav"));
 }
 void Application::start_recording(const std::filesystem::path& destination) {
     require_not_recording(); sync_arm(); require(!armed_tracks_.empty(),"Arm one or more audio/instrument tracks before recording");

@@ -1,5 +1,17 @@
 # Редакторы и визуализация записи
 
+## 0.2f upd7 — 2026-10-08
+
+Upd6 принята: «Теперь все в порядке. Тест пройден!».
+Arrange плейхэд продолжен до линейки тактов; клик округляется к ближайшей
+шестнадцатой, не вниз, и захватывает такт в пределах ±6 logical px. Snap off
+вне этого захвата устанавливает точный sample. Audio/MIDI fill одинаково 0.72.
+Record не спрашивает WAV: уникальные дубли в Media проекта; первая запись
+несохранённой сессии создаёт проект в Documents/MR Studio/Projects.
+Waveform: общие antialiased envelope paths в Arrange/Audio editor и ограниченная
+интерполяция cached extrema при zoom; PCM/DSP не изменяются.
+Контракт, границы и проверки: [ARRANGE_AUDIO_UPD7](ARRANGE_AUDIO_UPD7.md).
+
 ## 0.2f upd6 — 2026-10-08
 
 Стартовый Project home показывает кликабельные `.mrsproject` из `Документы/MR Studio`

@@ -207,6 +207,7 @@ public:
     void wheel(float,juce::ModifierKeys,float);
     juce::Rectangle<float> clipRect(const mrs::Clip&) const;
     mrs::Sample sampleAt(float) const;
+    mrs::Sample seekSampleAt(float) const;
     int trackAt(float) const;
     std::vector<std::unique_ptr<Strip>> rows;
     juce::Component rowsBody;

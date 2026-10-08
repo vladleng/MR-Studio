@@ -1,5 +1,14 @@
 # Правила версионирования Moon River Studio
 
+## 0.2f upd7 — 2026-10-08
+
+Upd6 принята пользователем: «Теперь все в порядке. Тест пройден!».
+Новая локальная поставка — пять уточнений Arrange/audio: плейхэд до ruler,
+nearest seek и ±6 px bar capture, Record в Media без WAV chooser, прозрачность
+audio/MIDI 0.72 и smooth cached waveform envelope. Без изменения schema 13,
+PCM/DSP и callback; initial unsaved audio session автоматически получает проект.
+Контракт: [ARRANGE_AUDIO_UPD7](ARRANGE_AUDIO_UPD7.md). Не начало 0.2g/0.2h.
+
 ## 0.2f upd5 — 2026-10-07
 
 По четырём новым замечаниям выпущена **0.2f upd5**.

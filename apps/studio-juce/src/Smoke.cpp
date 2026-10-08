@@ -2,11 +2,47 @@
 #include "J1Smoke.h"
 #include "PluginPreset.h"
 #include "ProjectHome.h"
+#include "WaveformView.h"
 #include <windows.h>
 #include <thread>
 #include <chrono>
 namespace ui {
+void arrangeAudioSmoke(){
+    const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    Desktop d(true);d.app.disconnect();d.app.new_project();auto initial=d.project()->time;initial.tempos={{0,120}};initial.meters={{1,4,4}};d.app.set_time_map(initial);d.app.add_audio_track("Audio");d.refresh(true);d.setSize(1200,700);d.setVisible(true);
+    auto& a=*d.arrangement;const mrs::Timeline time(d.project()->time,d.project()->sample_rate);
+    for(double zoom:{30.,123.45,2400.})for(double scroll:{0.,37.25}){
+        a.pixelsPerSecond=zoom;a.horizontal=scroll;const auto bar=time.to_samples(4*mrs::ppq);
+        const int x=250+static_cast<int>(static_cast<double>(bar)/d.project()->sample_rate*zoom-scroll);
+        for(bool snap:{false,true}){d.snap=snap;for(int dx:{-6,-3,0,3,6})check(a.seekSampleAt(static_cast<float>(x+dx))==bar,"bar captures both sides in six-pixel area");}
+    }
+    a.pixelsPerSecond=240.;a.horizontal=0;d.snap=false;
+    check(a.seekSampleAt(279.5f)==5900,"Snap off exact off-grid sample instead of truncation to ticks");
+    d.snap=true;check(a.seekSampleAt(279.5f)==6000,"Snap uses nearest sixteenth, not previous one");
+    auto map=d.project()->time;map.tempos={{0,120},{4*mrs::ppq,90}};map.meters={{1,4,4},{3,3,4}};d.app.set_time_map(map);
+    const mrs::Timeline changed(map,d.project()->sample_rate);const auto tick=changed.to_ticks(mrs::MusicalPosition{4,1,0}),sample=changed.to_samples(tick);
+    a.horizontal=777.25;const int pixel=250+static_cast<int>(static_cast<double>(sample)/d.project()->sample_rate*a.pixelsPerSecond-a.horizontal);
+    check(a.seekSampleAt(static_cast<float>(pixel-5))==sample&&a.seekSampleAt(static_cast<float>(pixel+5))==sample,"bar capture follows tempo and meter changes");
+    a.horizontal=0;a.resized();const auto image=a.createComponentSnapshot(a.getLocalBounds(),true,1.,juce::SoftwareImageType{});
+    check(image.getPixelAt(250,5)==juce::Colours::white&&image.getPixelAt(250,48)==juce::Colours::white,"playhead spans ruler and chord track");
+    check(a.getComponentAt(250,48)==&a,"extended playhead does not intercept seek");
+    d.app.demo();d.selectedClip.reset();d.selectedClips.clear();d.setWorkspace(mrs::desktop::Workspace::arrange);d.refresh(true);a.pixelsPerSecond=240.;a.horizontal=0;
+    const auto source=d.project()->clips.front().source;
+    for(int attempt=0;attempt<200&&!d.app.waveform(source);++attempt){std::this_thread::sleep_for(std::chrono::milliseconds(5));d.app.poll();}
+    check(d.app.waveform(source)!=nullptr,"arrangement waveform prepared before visual check");
+    const auto clip=a.clipRect(d.project()->clips.front());const auto translucent=a.createComponentSnapshot(a.getLocalBounds(),true,1.,juce::SoftwareImageType{});
+    const auto fill=juce::Colour(0xff373b3f).overlaidWith(juce::Colour(0xff294d7e).withAlpha(.72f));
+    const auto actual=translucent.getPixelAt(static_cast<int>(clip.getX()+17),static_cast<int>(clip.getY()+21));
+    if(std::abs(actual.getRed()-fill.getRed())>2||std::abs(actual.getGreen()-fill.getGreen())>2||std::abs(actual.getBlue()-fill.getBlue())>2)throw std::runtime_error("audio clip opacity: got "+actual.toString().toStdString()+", expected "+fill.toString().toStdString());
+    for(float scale:{1.f,1.5f}){auto picture=d.createComponentSnapshot(d.getLocalBounds(),true,scale,juce::SoftwareImageType{});auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-arrange-upd7-"+juce::String(static_cast<int>(scale*100))+"-preview.png").createOutputStream();check(stream!=nullptr,"arrangement preview stream");stream->setPosition(0);stream->truncate();check(juce::PNGImageFormat().writeImageToStream(picture,*stream),"arrangement snapshot");}
+    struct Preview final:juce::Component{
+        mrs::audio::Waveform peaks;Preview():peaks(mrs::audio::AudioData{48000,1,[]{std::vector<float> s(512);for(int i=0;i<512;++i)s[i]=static_cast<float>(std::sin(i*.03)*(.2+i/700.));return s;}()}){}
+        void paint(juce::Graphics& g)override{g.fillAll(juce::Colour(0xff373b3f));g.setColour(juce::Colours::skyblue);drawWaveform(g,peaks,getLocalBounds().toFloat(),0,.5);}
+    } preview;preview.setSize(1024,180);
+    for(float scale:{1.f,1.5f}){auto picture=preview.createComponentSnapshot(preview.getLocalBounds(),true,scale,juce::SoftwareImageType{});auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-waveform-smooth-"+juce::String(static_cast<int>(scale*100))+"-preview.png").createOutputStream();check(stream!=nullptr,"smooth waveform preview stream");stream->setPosition(0);stream->truncate();check(juce::PNGImageFormat().writeImageToStream(picture,*stream),"smooth waveform snapshot");}
+}
 void projectHomeSmoke(){
+    arrangeAudioSmoke();
     auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
     juce::Component canvas;canvas.setSize(100,40);canvas.setVisible(true);float cursorX=10.25f;PlayheadLine line([&]{return juce::Rectangle<float>{cursorX,5.f,1.f,20.f};});canvas.addAndMakeVisible(line);line.update();auto first=canvas.createComponentSnapshot(canvas.getLocalBounds(),true,1.f,juce::SoftwareImageType{});check(first.getPixelAt(10,15).getAlpha()>0,"fractional cursor renders");cursorX=30.75f;line.update();auto moved=canvas.createComponentSnapshot(canvas.getLocalBounds(),true,1.f,juce::SoftwareImageType{});check(moved.getPixelAt(10,15).getAlpha()==0,"moving cursor clears old stripe");check(moved.getPixelAt(31,15).getAlpha()>0,"moving cursor paints new stripe");check(canvas.getComponentAt(31,15)==&canvas,"cursor does not intercept gestures");
     for(double rate:{44100.,48000.,96000.}){

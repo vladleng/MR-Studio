@@ -429,6 +429,16 @@ void waveform() {
     CHECK(peaks.range(0,0,0).maximum == 0);
     CHECK(peaks.range(-10,99999,1).minimum == -0.9f);
     rejects([&] { (void)peaks.range(0,1,2); });
+    rejects([&] { (void)peaks.display(0,1,2); });
+    CHECK(peaks.display(0,0,0).maximum==0);
+    CHECK(peaks.display(9999,10000,0).maximum==0);
+    audio::AudioData ramp{48000,1,std::vector<float>(32)};
+    std::fill(ramp.samples.begin()+16,ramp.samples.end(),1.f);
+    audio::Waveform smooth(ramp);
+    float previous=-1;bool fractional=false;
+    for(int x=0;x<64;++x){const auto p=smooth.display(x*.5,x*.5+.5,0);CHECK(p.minimum>=0&&p.maximum<=1&&p.minimum==p.maximum&&p.maximum>=previous);previous=p.maximum;fractional|=p.maximum>0&&p.maximum<1;}
+    CHECK(fractional);CHECK(smooth.display(0,32,0).maximum==1&&smooth.display(0,32,0).minimum==0);
+    CHECK(smooth.range(16,17,0).maximum==1); // smoothing never changes conservative extrema
 }
 void streaming() {
     Directory dir; const auto file = dir.path / "long.wav";
@@ -474,6 +484,41 @@ void streaming() {
 
 
 void recording() {
+    { // First automatic save while playing also manages imported media.
+        Directory imported;const auto source=imported.path/"External.wav";wav(source);
+        Application a;a.new_project(44100);a.import_wavs({source});a.arm_track(a.services().projects->state().project->tracks.front().id);
+        a.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});
+        std::array<float,128> in;in.fill(.125f);std::array<float,256> out{};
+        a.play();a.engine()->process(in.data(),out.data(),128);const auto generation=a.insert_generation();
+        a.start_project_recording(imported.path/"Projects");CHECK(a.recording()&&a.insert_generation()==generation);
+        CHECK(persistence::load_project(a.path()).project.clips.front().source.starts_with("Media/"));
+        a.engine()->process(in.data(),out.data(),128);CHECK(a.stop_recording()&&a.insert_generation()==generation);a.disconnect();
+    }
+    { // Managed destinations: no chooser, never overwrite, raw input, portable references.
+        Directory managed;Application a;a.new_project(44100);
+        const auto one=a.add_audio_track("One"),two=a.add_audio_track("Two");
+        a.set_track_armed(one,true);a.set_track_armed(two,true);
+        rejects([&]{a.start_project_recording(managed.path/"Projects");});
+        CHECK(a.path().empty()&&!std::filesystem::exists(managed.path/"Projects"));
+        a.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});
+        std::array<float,128> in;in.fill(.25f);std::array<float,256> out{};
+        a.play();a.engine()->process(in.data(),out.data(),128);const auto start=a.engine()->state().sample;
+        a.start_project_recording(managed.path/"Projects");CHECK(a.recording()&&!a.path().empty());
+        const auto file=a.path();CHECK(std::filesystem::exists(file));
+        a.engine()->process(in.data(),out.data(),128);CHECK(a.stop_recording());
+        CHECK(a.services().projects->state().project->clips.size()==2);
+        const auto takes=a.last_takes();CHECK(takes.size()==2&&takes[0]!=takes[1]);
+        for(const auto& take:takes){CHECK(take.parent_path()==file.parent_path()/"Media");const auto raw=audio::open_wav(take);CHECK(raw.frames()==128&&raw.samples.front()==.25f);}
+        CHECK(a.services().projects->state().project->clips.front().start==start);
+        CHECK(a.undo()&&a.services().projects->state().project->clips.empty());
+        CHECK(std::filesystem::exists(takes[0])&&a.redo());
+        a.start_project_recording(managed.path/"unused");a.engine()->process(in.data(),out.data(),128);CHECK(a.stop_recording());
+        CHECK(a.path()==file&&a.last_takes()[0]!=takes[0]&&!std::filesystem::exists(managed.path/"unused"));
+        CHECK(audio::open_wav(takes[0]).samples.front()==.25f);
+        a.save_project(file);const auto saved=persistence::load_project(file);
+        for(const auto& c:saved.project.clips)CHECK(c.source.starts_with("Media/")&&!std::filesystem::path(c.source).is_absolute());
+        a.open_project(file);CHECK(a.services().projects->state().project->clips.size()==4);a.disconnect();
+    }
     Directory dir; Application app; app.new_project(44100);
     const auto backing = dir.path/"Backing.wav"; wav(backing);
     app.import_wavs({backing});

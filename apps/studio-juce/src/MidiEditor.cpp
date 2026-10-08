@@ -1,6 +1,7 @@
 #include "PianoRoll.h"
 #include "MusicalEdit.h"
 #include "ControllerEditor.h"
+#include "WaveformView.h"
 #include <sstream>
 #include <cmath>
 namespace ui {
@@ -76,7 +77,7 @@ public:
     void resized() override{attach.setBounds(getWidth()-130,8,114,26);attach.setButtonText(static_cast<bool>(getProperties()["mrs-attached"])?"Detach":"Attach");wave.setBounds(16,44,getWidth()-32,getHeight()-132);start.setBounds(16,getHeight()-76,150,26);end.setBounds(174,getHeight()-76,150,26);apply.setBounds(332,getHeight()-76,160,26);hint.setBounds(16,getHeight()-40,getWidth()-32,28);}
     void paint(juce::Graphics& g) override{g.fillAll(juce::Colour(background));g.setColour(juce::Colours::white);g.drawText("Audio editor - "+juce::String::fromUTF8(clip.name.c_str()),16,8,getWidth()-160,26,juce::Justification::left);}
 private:
-    struct Wave final:juce::Component {AudioClipPanel& owner;explicit Wave(AudioClipPanel& p):owner(p){}void paint(juce::Graphics& g) override{g.fillAll(juce::Colour(surface));if(const auto* waveform=owner.owner.app.waveform(owner.clip.source)){const int channels=static_cast<int>(waveform->channels());for(int ch=0;ch<channels;++ch){const float height=static_cast<float>(getHeight())/channels,centre=(ch+.5f)*height;g.setColour(juce::Colours::skyblue);for(int x=0;x<getWidth();++x){const auto begin=owner.clip.source_offset+owner.clip.length*x/juce::jmax(1,getWidth()),rangeEnd=owner.clip.source_offset+owner.clip.length*(x+1)/juce::jmax(1,getWidth());const auto peak=waveform->range(begin,std::max(begin+1,rangeEnd),static_cast<unsigned>(ch));g.drawVerticalLine(x,centre-peak.maximum*height*.45f,centre-peak.minimum*height*.45f);}}}else{g.setColour(juce::Colours::lightgrey);g.drawText("Waveform unavailable",getLocalBounds(),juce::Justification::centred);}}};
+    struct Wave final:juce::Component {AudioClipPanel& owner;explicit Wave(AudioClipPanel& p):owner(p){}void paint(juce::Graphics& g) override{g.fillAll(juce::Colour(surface));if(const auto* waveform=owner.owner.app.waveform(owner.clip.source)){g.setColour(juce::Colours::skyblue);drawWaveform(g,*waveform,getLocalBounds().toFloat(),static_cast<double>(owner.clip.source_offset),static_cast<double>(owner.clip.length)/juce::jmax(1,getWidth()));}else{g.setColour(juce::Colours::lightgrey);g.drawText("Waveform unavailable",getLocalBounds(),juce::Justification::centred);}}};
     Desktop& owner;mrs::Id id;mrs::Clip clip;Wave wave;juce::TextButton attach{"Attach"},apply{"Apply trim"};juce::TextEditor start,end;juce::Label hint;
     void reload(){const auto p=owner.project();const auto it=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(it==p->clips.end()||it->midi){setEnabled(false);return;}clip=*it;start.setText(juce::String(static_cast<double>(clip.start)/p->sample_rate,6));end.setText(juce::String(static_cast<double>(clip.start+clip.length)/p->sample_rate,6));hint.setText("Start / end in project seconds. Apply trim: one Undo. Ctrl+Z/Y in main window.",juce::dontSendNotification);wave.repaint();}
     void timerCallback() override{const auto p=owner.project();const auto it=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(it==p->clips.end()){setEnabled(false);return;}if(it->start!=clip.start||it->length!=clip.length||it->source_offset!=clip.source_offset)reload();wave.repaint();}

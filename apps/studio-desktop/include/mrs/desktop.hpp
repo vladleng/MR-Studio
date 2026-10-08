@@ -143,6 +143,8 @@ public:
     void arm_track(std::optional<Id>);
     const std::optional<Id>& armed_track() const { return armed_; }
     void start_recording(const std::filesystem::path& destination);
+    // Control thread: managed Media destination; an unsaved session gets its own project.
+    void start_project_recording(const std::filesystem::path& projects_folder);
     bool stop_recording();
     bool recording() const { return static_cast<bool>(recording_)||!midi_captures_.empty(); }
     audio::RecordStatus recording_status() const;
