@@ -32,7 +32,37 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2h fix3 — state snapshot crash
+## Актуальная сборка для продолжения: 0.2h upd1 — копирование клипов
+
+2026-10-08: пользователь сообщает «Пока вылетов нет» после fix3 и запрашивает
+Duplicate / Alt-копирование аудио и MIDI как update. Не утверждать отсутствие
+всех возможных crashes или приёмку всего parent-этапа. 0.2g не начинать.
+
+Пакет chat Builds: `MR-Studio-0.2h-upd1-Clip-Copy-JUCE-ASIO-Windows-local`.
+EXE SHA256 `4CAA43511630D59DC04CE915791F55DBC2FB9501E7AA91AF145A73A0DAF3F6CC`.
+Source `f86f14c`, ветка прежняя; контракт [CLIP_COPY_UPD1.md](CLIP_COPY_UPD1.md).
+Duplicate в общей панели ищет свободный такт после оригинала на той же дорожке,
+сохраняет внутритактовое смещение. Alt при захвате показывает движущуюся копию,
+оригинал остаётся; release создаёт одну undoable команду. Escape/focus loss
+отменяют preview. Копии выделяются; новые clip/note/event IDs, source references
+и hidden source content сохранены. Группа копируется атомарно. WAV не размножается.
+Редактирование только Stop/Pause; обычный Snap. Schema 13 / Preferences v7 прежние.
+Preview только UI; Application candidate + playback rebuild retains plugins,
+без новых RT allocations/locks/I/O или смены DSP ownership. Fix1–fix3 сохранены.
+
+Cached configure/full Windows x64 Release PASS; CTest 117/117 PASS (73.25 s).
+Новые проверки встроены в midi_clips, desktop_clip_edits и J3: off-grid,
+занятый такт, tempo/meter, fresh IDs, audio playback, mixed group rollback,
+Undo/Redo/serialization, Duplicate/Alt preview/commit/Escape/no-motion.
+Три packaged J3+diagnostics smoke exit 0; packaged crash tests PASS. Matching
+EXE/PDB сохранены; manifest SHA256 проверяется при упаковке.
+Software snapshots 100/150% inspected. Физическая ASIO/ручная приёмка upd1
+NOT RUN: следующий шаг — пользовательские Duplicate/Alt audio+MIDI,
+off-grid/occupied bar, Undo/Redo, Escape и Save/Open на обычном проекте.
+READY WITH MANUAL CHECK / FEATURE READY WITH MANUAL CHECK /
+RT SAFE WITH MANUAL CHECK. Предыдущие пакеты и пользовательские данные сохранены.
+
+## Предыдущая сборка: 0.2h fix3 — state snapshot crash
 
 2026-10-08: пользователь разрешил исправление после анализа приложенного fix2
 дампа. Source `2659a17`, ветка прежняя; контракт STATE_SNAPSHOT_FIX3.md.
