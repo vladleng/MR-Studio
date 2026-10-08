@@ -58,9 +58,15 @@ stale generation/epoch, overflow, missing/busy/reconnect/send failure/shutdown,
 44.1/48/96 kHz, 1/4 workers, checked callback allocations 0.
 Три packaged J3+diagnostics smoke exit 0, packaged crash tests PASS.
 Software snapshots 100/150% просмотрены; matching EXE/PDB и SHA256 manifest в пакете.
-Физический MIDI output / ASIO routing/timing **NOT RUN**, пользовательская приёмка
-0.2g ожидается. Stage 4 не закрыт. Следующий шаг — checklist 4g на внешнем
-устройстве, затем совместная проверка Stage 4; Stage 5 автоматически не начинать.
+Пользовательская приёмка 2026-10-08: «Все работает!» после предложения совместной
+проверки MIDI-записи, редакторов, VST3 playback, метронома/precount и Save/Open.
+Работа доступных MIDI-функций принята в сообщённом объёме; точные настройки и
+длительность проверки не перечислены. У пользователя только MIDI-клавиатура,
+внешнего принимающего устройства нет. Физический MIDI output / external ASIO
+routing/timing **NOT RUN**, отложен до появления устройства; это не отказ теста.
+Не утверждать полную hardware matrix или безусловную приёмку всех требований
+Stage 4 / #24 и 4g / #69. Следующий шаг — согласовать следующий этап по плану;
+Stage 5 автоматически не начинать. Пакет и ранее зафиксированные хеши неизменны.
 
 ## Предыдущая принятая сборка: 0.2h upd1 — копирование клипов
 
