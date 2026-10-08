@@ -49,6 +49,7 @@ MixedRenderer::MixedRenderer(std::shared_ptr<AudioEngine> engine,std::uint32_t f
     output_.resize(static_cast<std::size_t>(frames)*channels);
     packets_.resize(slots);for(auto& p:packets_)p.pcm.resize(edges_*frames*channels);
     auto graph=g;graph.monitor.clear();graph.recording.reset();graph.recordings.clear();graph.midi_recordings.clear();
+    graph.external_midi.reset();graph.external_midi_tracks.clear();graph.external_midi_channels.clear(); // only heard/device scheduler emits hardware events
     graph.click.playback=graph.click.recording=false;graph.count_frames=0;
     // The producer clone owns only prerecorded channels. Retaining live MIDI
     // flags here falsely fails anticipation_safe() and silences the device.

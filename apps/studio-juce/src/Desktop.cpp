@@ -380,8 +380,22 @@ void Strip::inputMenu(){if(!target)return;
         for(std::size_t i=0;i<ports.size();++i)midi.addItem(10+static_cast<int>(i),label(ports[i].name),true,current.midi_input==ports[i].id);
         juce::PopupMenu channels;channels.addItem(1000,"All channels",true,current.midi_channel<0);
         for(int ch=0;ch<16;++ch)channels.addItem(1001+ch,"Channel "+juce::String(ch+1),true,current.midi_channel==ch);
-        midi.addSubMenu("Input channel",channels);midi.addSeparator();midi.addItem(2,label(owner.app.midi_status(current.id)),false);
-        midi.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&input),[safe=juce::Component::SafePointer<Strip>(this),ports,current](int selected){if(!safe||!selected||selected==2)return;safe->owner.run([&]{auto port=current.midi_input;auto channel=current.midi_channel;if(selected==1)port.clear();else if(selected>=1000)channel=selected==1000?-1:selected-1001;else if(selected>=10&&static_cast<std::size_t>(selected-10)<ports.size())port=ports[static_cast<std::size_t>(selected-10)].id;safe->owner.app.set_midi_input(current.id,port,channel,current.midi_monitor);});});return;
+        midi.addSubMenu("Input channel",channels);
+        const auto outputs=mrs::desktop::MidiOutputs::ports();juce::PopupMenu out,outputChannels;
+        out.addItem(2000,"Off",true,current.midi_output.empty());
+        for(std::size_t i=0;i<outputs.size();++i)out.addItem(2010+static_cast<int>(i),label(outputs[i].name),outputs[i].id!=current.midi_input,current.midi_output==outputs[i].id);
+        if(!current.midi_output.empty()&&std::none_of(outputs.begin(),outputs.end(),[&](const auto& p){return p.id==current.midi_output;}))out.addItem(2002,"Missing: "+label(current.midi_output),false,true);
+        outputChannels.addItem(3000,"Original channels",true,current.midi_output_channel<0);
+        for(int ch=0;ch<16;++ch)outputChannels.addItem(3001+ch,"Channel "+juce::String(ch+1),true,current.midi_output_channel==ch);
+        midi.addSubMenu("External MIDI output",out);midi.addSubMenu("Output channel",outputChannels);
+        midi.addItem(4000,"Panic — all notes off");midi.addItem(4001,"Reconnect MIDI ports",!owner.app.recording());
+        midi.addSeparator();midi.addItem(2,label(owner.app.midi_status(current.id)),false);
+        midi.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&input),[safe=juce::Component::SafePointer<Strip>(this),ports,outputs,current](int selected){if(!safe||!selected||selected==2||selected==2002)return;safe->owner.run([&]{
+            if(selected==4000){safe->owner.app.midi_panic();return;}if(selected==4001){safe->owner.app.reconnect_midi();return;}
+            if(selected>=3000){safe->owner.app.set_midi_output(current.id,current.midi_output,selected==3000?-1:selected-3001);return;}
+            if(selected>=2000){auto output=current.midi_output;if(selected==2000)output.clear();else if(static_cast<std::size_t>(selected-2010)<outputs.size())output=outputs[static_cast<std::size_t>(selected-2010)].id;safe->owner.app.set_midi_output(current.id,output,current.midi_output_channel);return;}
+            auto port=current.midi_input;auto channel=current.midi_channel;if(selected==1)port.clear();else if(selected>=1000)channel=selected==1000?-1:selected-1001;else if(selected>=10&&static_cast<std::size_t>(selected-10)<ports.size())port=ports[static_cast<std::size_t>(selected-10)].id;safe->owner.app.set_midi_input(current.id,port,channel,current.midi_monitor);
+        });});return;
     }
 juce::PopupMenu m;m.addItem(1,"Default");m.addItem(2,"Off");const auto names=owner.app.input_names();
     for(std::size_t i=0;i<names.size();++i){m.addItem(10+static_cast<int>(i),"Mono "+label(names[i]));if(i+1<names.size())m.addItem(100+static_cast<int>(i),"Stereo "+label(names[i])+" / "+label(names[i+1]));}

@@ -18,7 +18,7 @@ using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 13;
+inline constexpr std::uint32_t schema_version = 14;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -116,6 +116,8 @@ struct Track {
     std::string midi_input{}; // stable Windows port key; empty = off
     int midi_channel{-1}; // -1 all, otherwise zero-based 0..15
     bool midi_monitor{true}; // instrument live ingress; no MIDI recording in 4a
+    std::string midi_output{}; // external Windows port key; empty = off
+    int midi_output_channel{-1}; // -1 preserve authored channel, otherwise 0..15
     bool operator==(const Track&) const = default;
 };
 struct MidiNote {
@@ -371,6 +373,13 @@ public:
     void apply(Project&) const override;
 private:
     Id track_; std::string port_; int channel_; bool monitor_;
+};
+class SetMidiOutput final : public ICommand {
+public:
+    SetMidiOutput(Id track,std::string port,int channel=-1):track_(std::move(track)),port_(std::move(port)),channel_(channel){}
+    std::string_view name() const override {return "Set external MIDI output";}
+    void apply(Project&) const override;
+private: Id track_;std::string port_;int channel_;
 };
 class SetHardwareOutput final : public ICommand {
 public:

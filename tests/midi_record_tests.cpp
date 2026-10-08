@@ -1,3 +1,4 @@
+#include "legacy_midi_snapshot.hpp"
 #include <mrs/desktop.hpp>
 #include <mrs/vst3.hpp>
 #include <mrs/ahead_renderer.hpp>
@@ -22,7 +23,7 @@ void capture(){
  recorder.capture(4800,{0,MidiKind::note_on,1,60,100});recorder.capture(9600,{0,MidiKind::cc,1,64,127});recorder.capture(12000,{0,MidiKind::pitch_bend,1,0,80});recorder.capture(14400,{0,MidiKind::note_off,1,60,0});recorder.capture(15000,{0,MidiKind::note_on,2,67,90});recorder.advance(24000);
  const auto clip=recorder.finish(time);CHECK(clip.notes.size()==2&&clip.events.size()==3);CHECK(clip.start==time.to_ticks(4800));CHECK(clip.notes[0].length==time.to_ticks(14400)-time.to_ticks(4800));CHECK(clip.notes[1].length==clip.length-clip.notes[1].start);CHECK(clip.events.back().data1==64&&clip.events.back().data2==0&&clip.events.back().start==clip.length);
  Project p;p.id=new_id();Track t;t.id=new_id();t.kind=TrackKind::instrument;t.name="Keys";p.tracks={t};Clip c;c.id=new_id();c.track=t.id;c.name="Take";c.midi=clip;p.clips={c};p.validate();CHECK(deserialize(serialize(p))==p);ProjectStore store(p);store.execute(DuplicateClip{c.id,new_id()});CHECK(store.state().project->clips[1].midi->events[0].id!=clip.events[0].id);CHECK(store.undo());
- auto old=serialize(p);auto at=old.find("MIDIEVENTS ");const auto end=old.find("MARKERS",at);old.erase(at,end-at);old.replace(0,std::string("MRS_CORE_SNAPSHOT 13").size(),"MRS_CORE_SNAPSHOT 12");auto migrated=deserialize(old);CHECK(migrated.clips[0].midi->events.empty()&&migrated.clips[0].midi->notes==clip.notes);
+ auto old=without_midi_outputs(serialize(p));auto at=old.find("MIDIEVENTS ");const auto end=old.find("MARKERS",at);old.erase(at,end-at);old.replace(0,std::string("MRS_CORE_SNAPSHOT 14").size(),"MRS_CORE_SNAPSHOT 12");auto migrated=deserialize(old);CHECK(migrated.clips[0].midi->events.empty()&&migrated.clips[0].midi->notes==clip.notes);
  auto notes=compile_midi_clips(p,std::span<const Id>(&t.id,1));auto events=compile_midi_events(p,std::span<const Id>(&t.id,1));MidiPlayback playback;playback.prepare(notes[0],events[0]);MidiBuffer buffer;probe=true;CHECK(playback.render(13000,100,true,buffer));probe=false;CHECK(allocations==0);CHECK(std::any_of(buffer.view().begin(),buffer.view().end(),[](const auto& e){return e.kind==MidiKind::pitch_bend&&e.data2==80;}));buffer.clear();CHECK(playback.render(13100,100,false,buffer));CHECK(std::any_of(buffer.view().begin(),buffer.view().end(),[](const auto& e){return e.kind==MidiKind::cc&&e.data1==64&&e.data2==0;}));
  MidiRecorder dense(0);for(std::size_t i=0;i<MidiRecorder::capacity+1;++i)dense.capture(static_cast<Sample>(i),{0,MidiKind::cc,0,1,1});CHECK(dense.fault());
 }

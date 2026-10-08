@@ -4,6 +4,11 @@
 #include <utility>
 
 namespace mrs {
+void SetMidiOutput::apply(Project& project) const {
+    auto it=std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t){return t.id==track_;});
+    if(it==project.tracks.end()||it->kind!=TrackKind::instrument)throw std::invalid_argument("MIDI output requires an instrument track");
+    it->midi_output=port_;it->midi_output_channel=channel_;
+}
 void SetMidiInput::apply(Project& project) const {
     auto it=std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t){return t.id==track_;});
     if(it==project.tracks.end()||it->kind!=TrackKind::instrument)throw std::invalid_argument("MIDI input requires an instrument track");

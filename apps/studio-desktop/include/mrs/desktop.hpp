@@ -1,5 +1,6 @@
 #pragma once
 #include <mrs/midi_input.hpp>
+#include <mrs/midi_output.hpp>
 #include <mrs/persistence.hpp>
 #include <mrs/musical.hpp>
 #include <mrs/device.hpp>
@@ -58,7 +59,7 @@ persistence::ProjectDocument foundation_demo();
 // Window/UI state and preferences do not duplicate project/transport/audio state.
 class Application {
 public:
-    Application();
+    explicit Application(std::unique_ptr<IMidiOutputBackend> = {});
     ~Application();
     Application(const Application&) = delete;
     Application& operator=(const Application&) = delete;
@@ -74,9 +75,12 @@ public:
     Id add_audio_track(std::string name);
     Id add_instrument_track(std::string name);
     void set_midi_input(const Id&,std::string port,int channel=-1,bool monitor=true);
+    void set_midi_output(const Id&,std::string port,int channel=-1);
+    std::string midi_output_status(const Id&) const;
+    void reconnect_midi();
     std::string midi_status(const Id&) const;
     bool audition_note(const Id& track,int pitch,int velocity,int channel=0,bool on=true,bool soft_release=false);
-    void midi_panic() noexcept {engine_->midi_panic();}
+    void midi_panic() noexcept {engine_->midi_panic();external_midi_->panic();}
     Id add_bus(std::string name);
     Id add_return_send(const Id& source, std::string name);
     void set_track_output(const Id&, std::optional<Id>);
@@ -168,6 +172,8 @@ private:
     std::shared_ptr<processing::GraphStore> graphs_;
     std::shared_ptr<audio::AudioEngine> engine_;
     std::unique_ptr<MidiInputs> midi_inputs_;
+    std::shared_ptr<audio::ExternalMidiQueue> external_midi_;
+    std::unique_ptr<MidiOutputs> midi_outputs_;
     std::map<std::string,std::string> instrument_errors_;
     std::uint64_t midi_route_revision_{~std::uint64_t{}},midi_route_generation_{};
     void publish_midi_routes();

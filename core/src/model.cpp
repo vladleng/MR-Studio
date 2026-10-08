@@ -117,6 +117,9 @@ void Project::validate() const {
         add_id(track.id);
         require(track.kind == TrackKind::audio || track.kind == TrackKind::midi || track.kind == TrackKind::bus || track.kind == TrackKind::instrument, "invalid track kind");
         require(track.midi_input.size()<=256 && track.midi_channel>=-1 && track.midi_channel<=15,"invalid MIDI input");
+        require(track.midi_output.size()<=256&&track.midi_output_channel>=-1&&track.midi_output_channel<=15,"invalid MIDI output");
+        require(track.kind==TrackKind::instrument||(track.midi_output.empty()&&track.midi_output_channel==-1),"MIDI output requires an instrument track");
+        require(track.midi_output.empty()||track.midi_input!=track.midi_output,"MIDI feedback: input and output cannot use the same endpoint");
         require(track.kind==TrackKind::instrument || (track.midi_input.empty()&&track.midi_channel==-1&&track.midi_monitor),"MIDI input requires an instrument track");
         require(track.kind!=TrackKind::instrument || track.inserts.empty() || track.inserts.front().kind==InsertKind::vst3,"instrument must be the first VST3 insert");
         require(!track.folder || folder_by_id.contains(track.folder->value), "missing track folder");

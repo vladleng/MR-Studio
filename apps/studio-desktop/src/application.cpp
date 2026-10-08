@@ -156,10 +156,11 @@ persistence::ProjectDocument foundation_demo() {
     d.live_notes = "Demo harmony and sections; not inferred from audio.";
     d.validate(); return d;
 }
-Application::Application() : engine_(std::make_shared<audio::AudioEngine>()) { demo(); }
+Application::Application(std::unique_ptr<IMidiOutputBackend> backend) : engine_(std::make_shared<audio::AudioEngine>()),external_midi_(std::make_shared<audio::ExternalMidiQueue>()) {if(backend)midi_outputs_=std::make_unique<MidiOutputs>(external_midi_,std::move(backend));demo();}
 Application::~Application() {
     midi_inputs_.reset(); // joins bridge/closes driver callbacks before engine/device retirement
     if (device_) device_->close();
+    external_midi_->panic();midi_outputs_.reset();
     // Finalize on clean shutdown; a completed file remains recoverable even if
     // the UI did not attach/save its project reference.
     for (auto& capture : captures_) try { (void)capture.recorder->finish(); } catch (const std::exception&) {}
@@ -559,9 +560,18 @@ Id Application::add_instrument_track(std::string name) {
     auto id=new_id();edit(AddTrack{{id,std::move(name),TrackKind::instrument,{}}});return id;
 }
 void Application::set_midi_input(const Id& id,std::string port,int channel,bool monitor){edit(SetMidiInput{id,std::move(port),channel,monitor});publish_midi_routes();}
+void Application::set_midi_output(const Id& id,std::string port,int channel){edit(SetMidiOutput{id,std::move(port),channel},{},true);publish_midi_routes();}
+void Application::reconnect_midi(){require_not_recording();require_not_playing();midi_inputs_.reset();midi_route_revision_=~std::uint64_t{};rebuild_audio(true);if(midi_outputs_)midi_outputs_->reconnect();publish_midi_routes();}
+std::string Application::midi_output_status(const Id& id)const{
+    const auto p=services_.projects->state().project;const auto t=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& track){return track.id==id;});
+    if(t==p->tracks.end()||t->midi_output.empty())return "MIDI out: off";
+    const auto channel=t->midi_output_channel<0?std::string{"Original"}:std::to_string(t->midi_output_channel+1);
+    return (device_config_?(midi_outputs_?midi_outputs_->status(t->midi_output):"MIDI out: opening"):"MIDI out: audio disconnected")+" / "+channel;
+}
 std::string Application::midi_status(const Id& id)const{
     const auto p=services_.projects->state().project;const auto t=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& track){return track.id==id;});
     if(t==p->tracks.end()||t->kind!=TrackKind::instrument)return {};
+    if(!t->midi_output.empty())return midi_output_status(id)+" | "+(t->midi_input.empty()?"Input off":t->midi_monitor?"Thru on":"Thru off");
     if(auto error=instrument_errors_.find(id.value);error!=instrument_errors_.end())return "Instrument unavailable: "+error->second;
     if(t->inserts.empty())return "Choose instrument in Mix";
     if(!t->midi_monitor&&!track_armed(id))return "MIDI: monitor off";
@@ -575,11 +585,13 @@ std::string Application::midi_status(const Id& id)const{
 void Application::publish_midi_routes(){
     const auto snapshot=services_.projects->state();const auto generation=engine_->midi_generation();
     if(snapshot.revision==midi_route_revision_&&generation==midi_route_generation_)return;
-    std::vector<MidiInputRoute> routes;std::size_t index=0;
-    for(const auto& track:snapshot.project->tracks)if(track.kind!=TrackKind::midi){if(track.kind==TrackKind::instrument&&(track.midi_monitor||track_armed(track.id))&&!track.midi_input.empty())routes.push_back({track.midi_input,index,track.midi_channel});++index;}
-    if(!device_config_){routes.clear();}
+    std::vector<MidiInputRoute> routes;std::vector<MidiOutputRoute> outputs;std::size_t index=0;
+    for(const auto& track:snapshot.project->tracks)if(track.kind!=TrackKind::midi){if(track.kind==TrackKind::instrument&&(track.midi_monitor||track_armed(track.id))&&!track.midi_input.empty())routes.push_back({track.midi_input,index,track.midi_channel});if(!track.midi_output.empty())outputs.push_back({track.midi_output,index,track.midi_output_channel});++index;}
+    if(!device_config_){routes.clear();outputs.clear();}
     if(!routes.empty()&&!midi_inputs_)midi_inputs_=std::make_unique<MidiInputs>(engine_);
     if(midi_inputs_)midi_inputs_->routes(std::move(routes),generation);
+    if(!outputs.empty()&&!midi_outputs_)midi_outputs_=std::make_unique<MidiOutputs>(external_midi_);
+    if(midi_outputs_)midi_outputs_->routes(std::move(outputs),generation);
     midi_route_revision_=snapshot.revision;midi_route_generation_=generation;
 }
 Id Application::add_bus(std::string name) {
@@ -763,6 +775,7 @@ void Application::prepare_mixer(audio::RenderGraph& result) {
     for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {
         require(mixer_tracks_.size() < audio::max_mixer_tracks,"mixer supports up to 128 audio tracks and buses");
         mixer_tracks_.push_back(t.id); result.mixer.push_back(t.mix); result.input_monitoring.push_back(t.input_monitor); result.buses.push_back(t.kind == TrackKind::bus);result.live_midi.push_back(t.kind==TrackKind::instrument);result.midi_monitor.push_back(t.midi_monitor);
+        result.external_midi_tracks.push_back(!t.midi_output.empty());result.external_midi_channels.push_back(t.midi_output_channel);if(!t.midi_output.empty())result.external_midi=external_midi_;
     }
     for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {
         const auto destination = t.output ? std::find(mixer_tracks_.begin(),mixer_tracks_.end(),*t.output) : mixer_tracks_.end();
@@ -916,6 +929,7 @@ void Application::disconnect() {
     require_not_recording();
     midi_inputs_.reset();midi_route_revision_=~std::uint64_t{};instrument_errors_.clear();
     if (device_) { device_->close(); device_.reset(); }
+    external_midi_->panic();if(midi_outputs_)midi_outputs_->routes({});
     ++insert_generation_;insert_runtime_.clear(); prepared_.reset(); device_config_.reset(); device_info_.reset(); audio_name_ = "Disconnected";
     if (transport_) { engine_->prepare({engine_->config().sample_rate,0,2,8192},{}); transport_->poll(); }
 }

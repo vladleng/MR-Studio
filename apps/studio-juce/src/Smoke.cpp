@@ -458,7 +458,21 @@ void clipCopySmoke(){
     }
     d.app.disconnect();
 }
+void externalMidiSmoke(){
+    const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    Desktop d(true);d.app.new_project();const auto track=d.app.add_instrument_track("Внешний синтезатор");
+    d.app.set_midi_output(track,"fixture-missing-external-output",4);d.setWorkspace(mrs::desktop::Workspace::arrange);d.refresh(true);d.setSize(1200,700);d.setVisible(true);
+    for(int n=0;n<200&&d.app.midi_output_status(track).find("missing")==std::string::npos;++n){d.app.poll();std::this_thread::sleep_for(std::chrono::milliseconds(2));}
+    check(d.app.midi_output_status(track).find("missing")!=std::string::npos,"missing external output status instead of choose VST3");
+    d.refresh();bool visibleStatus=false;for(auto& row:d.arrangement->rows){row->refreshMidiStatus();for(auto* child:row->getChildren())if(child->getComponentID()=="midi-input-status"){auto* button=dynamic_cast<juce::TextButton*>(child);visibleStatus=button&&button->isVisible()&&button->getButtonText().contains("MIDI out: missing");}}
+    check(visibleStatus,"external MIDI status is visible in Arrange");
+    const auto before=*d.project();d.app.set_midi_output(track,{},-1);d.refresh();check(d.app.undo()&&*d.project()==before,"external MIDI setting Undo");
+    for(int n=0;n<200&&d.app.midi_output_status(track).find("missing")==std::string::npos;++n){d.app.poll();std::this_thread::sleep_for(std::chrono::milliseconds(2));}d.refresh();for(auto& row:d.arrangement->rows)row->refreshMidiStatus();
+    for(float scale:{1.f,1.5f}){auto image=d.createComponentSnapshot(d.getLocalBounds(),true,scale,juce::SoftwareImageType{});auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-external-midi-"+juce::String(static_cast<int>(scale*100))+"-preview.png").createOutputStream();check(stream!=nullptr,"external MIDI preview stream");stream->setPosition(0);stream->truncate();check(juce::PNGImageFormat().writeImageToStream(image,*stream),"external MIDI preview");}
+    d.app.midi_panic();d.app.disconnect();
+}
 void j3Smoke(Desktop& d){
+    externalMidiSmoke();
     clipCopySmoke();
     stateBusySmoke();
     projectHomeSmoke();

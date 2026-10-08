@@ -70,6 +70,7 @@ struct Voice {
 };
 struct MonitorRoute { std::uint32_t input_channel{}, output_channel{}; float gain{1}; std::size_t mixer_track{no_mixer_track}; };
 struct SendRoute { std::size_t destination{}; float gain{1}; bool pre_fader{}; };
+class ExternalMidiQueue;
 struct RenderGraph {
     std::vector<Voice> voices;
     std::vector<MonitorRoute> monitor;
@@ -101,6 +102,9 @@ struct RenderGraph {
     Sample count_frames{};
     double count_beat_frames{};
     int count_beats{4};
+    std::shared_ptr<ExternalMidiQueue> external_midi{};
+    std::vector<bool> external_midi_tracks{};
+    std::vector<int> external_midi_channels{};
 };
 struct RenderConfig {
     std::uint32_t sample_rate{48000};
@@ -184,6 +188,28 @@ public:
     }
 };
 enum class ControlKind { play, pause, stop, seek, loop, monitor, prepared_seek, click };
+// One device producer, one non-RT output worker consumer. Lifetime exceeds callbacks.
+// Epoch changes discard stale scheduled events; overflow latches fail-closed until prepare.
+class ExternalMidiQueue {
+public:
+    struct Packet {std::uint64_t epoch{},due_ns{},generation{};std::size_t track{};processing::MidiEvent event;};
+    bool push(std::size_t track,processing::MidiEvent event,std::uint64_t due,std::uint64_t generation=0) noexcept {
+        if(fault_.load())return false;
+        if(queue_.push({epoch_.load(),due,generation,track,event}))return true;
+        fail();return false;
+    }
+    bool pop(Packet& packet) noexcept {return queue_.pop(packet);}
+    void panic() noexcept {++epoch_;}
+    void fail() noexcept {fault_=true;++dropped_;panic();}
+    void recover() noexcept {panic();fault_=false;} // stopped control thread only
+    bool fault() const noexcept {return fault_.load();}
+    std::uint64_t epoch() const noexcept {return epoch_.load();}
+    std::uint64_t dropped() const noexcept {return dropped_.load();}
+private:
+    SpscQueue<Packet,8192> queue_;
+    std::atomic<std::uint64_t> epoch_{1},dropped_{};
+    std::atomic<bool> fault_{};
+};
 struct Control { ControlKind kind{}; Sample a{}, b{}; std::uint64_t serial{}; };
 struct RealtimeState {
     PlaybackState playback{PlaybackState::stopped};
@@ -252,6 +278,8 @@ private:
     std::vector<processing::MidiBuffer> live_midi_buffers_; // allocated only by quiescent prepare
     std::vector<processing::MidiBuffer> chunk_midi_buffers_;
     std::vector<MidiPlayback> midi_playback_;
+    std::vector<MidiPlayback> external_playback_;
+    std::array<bool,max_mixer_tracks> external_gate_{};
     std::atomic<std::uint64_t> midi_generation_{},midi_dropped_{};
     std::atomic<bool> midi_panic_{},midi_record_fault_{};
     friend class AheadRenderer;

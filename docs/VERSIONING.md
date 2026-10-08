@@ -1,5 +1,13 @@
 # Правила версионирования Moon River Studio
 
+## 0.2g — внешний MIDI, после 0.2h по согласованному порядку
+
+Windows output port/channel на instrument track, playback/live thru, Panic,
+Reconnect, missing/fault status, retained instrument instances. Callback передаёт
+события через fixed queue отдельному output worker. Schema 14 читает 1–13 с
+выходом Off; Preferences v7 прежние. Контракт: [MIDI_EXTERNAL](MIDI_EXTERNAL.md).
+Clock/MTC/SysEx и калибровка external audio latency не входят в этот подэтап.
+
 ## 0.2h upd1 — копирование аудио и MIDI
 
 Duplicate ищет следующий свободный такт с сохранением внутритактового смещения.
