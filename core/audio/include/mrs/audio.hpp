@@ -222,7 +222,7 @@ public:
     // Backend passes measured callback body duration, on the same audio thread.
     void observe(std::uint64_t duration_ns, std::uint32_t frames, std::uint32_t flags) noexcept;
     RealtimeState state() const; // control-thread bounded coherent mailbox read
-    bool try_state(RealtimeState&) const noexcept;
+    bool try_state(RealtimeState&) const noexcept; // failure leaves caller's snapshot unchanged
     bool anticipation_safe() const noexcept;
     std::uint64_t control_revision() const noexcept;
     Metrics metrics() const;
@@ -234,6 +234,7 @@ public:
     const CompensationReport& compensation() const {return compensation_;} // prepared, control thread
     const ProcessingDomains& processing_domains() const {return domains_;} // candidate plan, control thread
 private:
+    friend struct AudioEngineTestAccess; // deterministic stopped-engine mailbox regression
     void process_block(const float*,float*,std::uint32_t,std::uint32_t) noexcept;
     Metronome metronome_;
     ClickSettings click_;

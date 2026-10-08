@@ -1,4 +1,6 @@
 #include "PianoRoll.h"
+#include "ControllerEditor.h"
+#include "../../../tests/audio_state_test_access.hpp"
 #include "J1Smoke.h"
 #include "PluginPreset.h"
 #include "ProjectHome.h"
@@ -396,7 +398,33 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     // Fixture is under a unique temporary directory created by this test only.
     check(folder.getParentDirectory()==juce::File::getSpecialLocation(juce::File::tempDirectory)&&folder.getFileName().startsWith("mrs-juce-j2"),"fixture cleanup scope");folder.deleteRecursively();
 }
+void stateBusySmoke(){
+    const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    Desktop d(true);d.app.new_project();const auto track=d.app.add_instrument_track("Snapshot fixture");const auto clip=d.app.create_midi_clip(track,0,4*mrs::ppq);
+    d.app.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1}});
+    auto* engine=d.app.engine().get();std::array<float,256> out{};
+    d.app.seek(4800);engine->process(nullptr,out.data(),128);d.refresh(true);d.setSize(1200,700);d.setVisible(true);
+    PianoRoll roll(d,clip);ControllerPanel controllers(d,clip);roll.setSize(800,600);controllers.setSize(800,280);
+    const auto expected=d.displayState();const auto visual=d.visualSample();const auto revision=d.app.services().projects->state().revision;
+    {
+        mrs::audio::AudioEngineTestAccess::Busy busy(*engine);
+        bool oldReadThrows=false;try{(void)engine->state();}catch(const std::runtime_error&){oldReadThrows=true;}
+        check(oldReadThrows,"fixture reproduces old throwing state read");
+        check(d.displayState().sample==expected.sample&&d.visualSample()==visual,"busy display retains coherent last head");
+        juce::Image image(juce::Image::ARGB,1200,700,true);juce::Graphics graphics(image);d.paint(graphics);d.refresh();d.timerCallback();
+        check(roll.playheadTick()==mrs::Timeline(d.project()->time,48000).to_ticks(expected.sample),"busy piano playhead holds previous head");
+        check(!roll.editable(),"busy state cannot authorize note editing");
+        roll.gesture=4;roll.timerCallback();check(!roll.gesture,"busy piano timer cancels gesture safely");
+        controllers.selecting=true;controllers.timerCallback();check(!controllers.selecting,"busy controller timer cancels gesture safely");
+        d.spaceKey(true);d.spaceKey(false);check(!d.message.isEmpty(),"busy Space is reported without escaping event callback");
+        roll.keyPressed(juce::KeyPress(juce::KeyPress::spaceKey));
+        check(d.app.services().projects->state().revision==revision,"busy UI does not modify project or Undo");
+    }
+    d.app.seek(9600);engine->process(nullptr,out.data(),128);check(d.displayState().sample==9600,"UI recovers on next coherent publication");
+    d.resetDevice();check(d.lastDisplayState.sample==0,"new session clears display cache");
+}
 void j3Smoke(Desktop& d){
+    stateBusySmoke();
     projectHomeSmoke();
     auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
     const auto fileMenu=d.getMenuForIndex(0,"File");bool diagnosticEntry=false;juce::PopupMenu::MenuItemIterator menuItems(fileMenu);

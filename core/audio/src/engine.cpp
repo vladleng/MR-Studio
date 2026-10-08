@@ -466,15 +466,16 @@ bool AudioEngine::try_state(RealtimeState& result) const noexcept {
     for (int attempt = 0; attempt < 32; ++attempt) {
         const auto before = sequence_.load(std::memory_order_acquire);
         if (before & 1U) continue;
-        result.play_start=published_play_start_.load(std::memory_order_relaxed);
-        result.count_remaining=published_count_.load(std::memory_order_relaxed);
-        result.sample = published_sample_.load(std::memory_order_relaxed);
-        result.playback = static_cast<PlaybackState>(published_playback_.load(std::memory_order_relaxed));
+        RealtimeState candidate;
+        candidate.play_start=published_play_start_.load(std::memory_order_relaxed);
+        candidate.count_remaining=published_count_.load(std::memory_order_relaxed);
+        candidate.sample = published_sample_.load(std::memory_order_relaxed);
+        candidate.playback = static_cast<PlaybackState>(published_playback_.load(std::memory_order_relaxed));
         const auto start = published_loop_start_.load(std::memory_order_relaxed);
         const auto end = published_loop_end_.load(std::memory_order_relaxed);
-        if (end > start) result.loop = LoopRange{start, end};
+        if (end > start) candidate.loop = LoopRange{start, end};
         std::atomic_thread_fence(std::memory_order_acquire);
-        if (before == sequence_.load(std::memory_order_acquire)) return true;
+        if (before == sequence_.load(std::memory_order_acquire)) {result=candidate;return true;}
     }
     return false;
 }
@@ -898,7 +899,8 @@ EngineTransport::EngineTransport(std::shared_ptr<AudioEngine> engine, Timeline t
     last_ = state();
 }
 TransportState EngineTransport::state() const {
-    const auto s = engine_->state();
+    RealtimeState s;
+    if(!engine_->try_state(s))return last_; // control/UI projection, never a processing owner
     return {s.playback, s.sample, timeline_.musical_position(timeline_.to_ticks(s.sample)), s.loop};
 }
 void EngineTransport::rebind_timeline(Timeline timeline) {

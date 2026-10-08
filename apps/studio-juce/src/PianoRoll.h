@@ -18,7 +18,7 @@ public:
     static constexpr int keys=64,ruler=24;
     std::vector<mrs::MidiNote> notes;std::vector<mrs::Clip> contextClips;mrs::Tick timelineEnd{};
     int auditionPitch() const{return sounding;}
-    mrs::Tick playheadTick() const{const auto p=owner.project();return mrs::Timeline(p->time,p->sample_rate).to_ticks(owner.app.engine()->state().sample);}
+    mrs::Tick playheadTick() const{const auto p=owner.project();return mrs::Timeline(p->time,p->sample_rate).to_ticks(owner.displayState().sample);}
     void transport(int command){cancel();owner.action(command);repaint();}
     void activate(mrs::Id next){cancel();id=std::move(next);selected.clear();cursor=0;setEnabled(true);sync();}
     mrs::MidiClip clip;
@@ -65,7 +65,7 @@ public:
     void visibilityChanged() override{if(!isShowing())cancel();}
     void focusLost(FocusChangeType) override{cancel();}
     bool keyPressed(const juce::KeyPress& key) override{
-        const int code=key.getKeyCode();if(code==juce::KeyPress::spaceKey&&!key.getModifiers().isAnyModifierKeyDown()){transport(owner.app.engine()->state().playback==mrs::PlaybackState::playing?31:30);return true;}if(code==juce::KeyPress::escapeKey){cancel();return true;}
+        const int code=key.getKeyCode();if(code==juce::KeyPress::spaceKey&&!key.getModifiers().isAnyModifierKeyDown()){owner.run([&]{transport(owner.app.engine()->state().playback==mrs::PlaybackState::playing?31:30);});return true;}if(code==juce::KeyPress::escapeKey){cancel();return true;}
         if(key.getModifiers().isCtrlDown()){if(code=='A'){for(const auto& n:notes)if(noteRect(n).getRight()>keys&&noteRect(n).getX()<getWidth())selected.insert(n.id.value);repaint();return true;}if(code=='C'){copy();return true;}if(code=='V'){paste();return true;}if(code=='Z'||code=='Y'){cancel();owner.run([&]{if(code=='Y'||key.getModifiers().isShiftDown())owner.app.redo();else owner.app.undo();owner.refresh();});sync();if(changed)changed();return true;}}
         if((code==juce::KeyPress::upKey||code==juce::KeyPress::downKey)&&!key.getModifiers().isAnyModifierKeyDown()){cancel();sync();if(!editable()||selected.empty())return true;auto next=notes;const int delta=code==juce::KeyPress::upKey?1:-1;for(const auto& n:next)if(selected.contains(n.id.value)&&(n.pitch+delta<0||n.pitch+delta>127))return true;for(auto& n:next)if(selected.contains(n.id.value))n.pitch+=delta;submit(std::move(next));return true;}
         if(code==juce::KeyPress::deleteKey||code==juce::KeyPress::backspaceKey){erase();return true;}return false;
@@ -75,12 +75,13 @@ public:
     void erase(){cancel();sync();if(!editable())return;auto next=notes;std::erase_if(next,[&](const auto& n){return selected.contains(n.id.value);});submit(std::move(next));selected.clear();}
     void cancel(){releaseNote();if(gesture&&gesture!=4)notes=before;gesture=0;repaint();}
 private:
+    friend void stateBusySmoke();
     Desktop& owner;mrs::Id id,track,dragNote;int gesture{};juce::Point<float> origin;juce::Rectangle<float> box;std::set<std::string> initialSelection;std::vector<mrs::MidiNote> before;mrs::MidiClip beforeClip;
     int sounding{-1},soundChannel{};
     PlayheadLine playhead;
-    void timerCallback() override{if(gesture&&(owner.app.recording()||owner.app.engine()->state().playback==mrs::PlaybackState::playing))cancel();repaint();if(!gesture){const auto previous=notes;sync();if(notes!=previous&&changed)changed();}}
+    void timerCallback() override{mrs::audio::RealtimeState state;if(gesture&&(owner.app.recording()||!owner.app.engine()->try_state(state)||state.playback==mrs::PlaybackState::playing))cancel();repaint();if(!gesture){const auto previous=notes;sync();if(notes!=previous&&changed)changed();}}
     void report(const juce::String& text){if(error)error(text);}
-    bool editable(){if(owner.app.recording()||owner.app.engine()->state().playback==mrs::PlaybackState::playing){report("Pause or stop before editing / auditioning notes");return false;}return isEnabled();}
+    bool editable(){mrs::audio::RealtimeState state;if(!owner.app.engine()->try_state(state)){report("Audio state updating; try again");return false;}if(owner.app.recording()||state.playback==mrs::PlaybackState::playing){report("Pause or stop before editing / auditioning notes");return false;}return isEnabled();}
     mrs::Tick position(float x) const{auto tick=static_cast<mrs::Tick>(std::llround((x-keys)/beatWidth*mrs::ppq));if(grid>0)tick=static_cast<mrs::Tick>(std::llround(static_cast<double>(tick)/grid))*grid;return clip.source_offset+std::clamp(tick-clip.start,mrs::Tick{0},std::max(mrs::Tick{0},clip.length-1));}
     int scrollX() const{if(auto* viewport=findParentComponentOfClass<juce::Viewport>())return viewport->getViewPositionX();return 0;}
     int scrollY() const{if(auto* viewport=findParentComponentOfClass<juce::Viewport>())return viewport->getViewPositionY();return 0;}

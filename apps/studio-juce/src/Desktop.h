@@ -54,6 +54,7 @@ public:
     bool projectHomeVisible() const{return homeVisible;}
     bool canReturnToProject() const{return projectSessionStarted;}
     double visualSample();
+    mrs::audio::RealtimeState displayState() const noexcept;
     double visualTick();
     void importFiles(const juce::StringArray&);
     void resetDevice();
@@ -131,6 +132,8 @@ public:
     int browserWidth{260};
     juce::String message;
 private:
+    friend void stateBusySmoke();
+    mutable mrs::audio::RealtimeState lastDisplayState;
     void timerCallback() override;
     void remember();
     bool homeVisible{};

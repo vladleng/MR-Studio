@@ -76,7 +76,8 @@ Desktop::Desktop(bool test,bool startAtHome):testing(test){
 Desktop::~Desktop(){try{saveSettings();}catch(...){}stopTimer();*scanCancel=true;chooser.reset();closeEditors();dockedEditor.reset();home.reset();
     if(scanner.valid())scanner.wait();setLookAndFeel(nullptr);mixerViewport.setViewedComponent(nullptr,false);}
 void Desktop::run(std::function<void()> f){try{f();message.clear();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}else if(recordingPreview.empty()&&audioRecordingPreview.empty())updateRecordingPreview();refresh();}catch(const std::exception& e){mrs::diagnostics::event(std::string("ui_error ")+e.what());refresh();message=label(e.what());repaint();}}
-void Desktop::resetDevice(){visualTransport.reset();app.connect(mrs::audio::make_offline_device(),{0,project()->sample_rate,128,{}, {0,1}});}
+void Desktop::resetDevice(){visualTransport.reset();lastDisplayState={};lastVisualSample=0;app.connect(mrs::audio::make_offline_device(),{0,project()->sample_rate,128,{}, {0,1}});}
+mrs::audio::RealtimeState Desktop::displayState() const noexcept{app.engine()->try_state(lastDisplayState);return lastDisplayState;}
 double Desktop::visualSample(){const auto* engine=app.engine().get();if(engine!=visualEngine){visualEngine=engine;visualTransport.reset();}mrs::audio::RealtimeState state;if(!engine->try_state(state))return lastVisualSample;return lastVisualSample=visualTransport.sample(state,project()->sample_rate,juce::Time::getMillisecondCounterHiRes());}
 double Desktop::visualTick(){const auto p=project();double sample=visualSample(),tick=0;for(std::size_t i=0;i<p->time.tempos.size();++i){const auto& tempo=p->time.tempos[i];const double perTick=60.*p->sample_rate/(tempo.bpm*mrs::ppq);if(i+1==p->time.tempos.size())return tick+sample/perTick;const double length=static_cast<double>(p->time.tempos[i+1].tick-tempo.tick),frames=length*perTick;if(sample<frames)return tick+sample/perTick;sample-=frames;tick+=length;}return 0;}
 void Desktop::showProjectHome(bool visible){if(!home)return;homeVisible=visible;if(!visible)projectSessionStarted=true;for(auto* child:getChildren())if(child!=home.get())child->setVisible(!visible);home->setVisible(visible);if(visible){closeEditors();home->toFront(false);}resized();repaint();}
@@ -205,7 +206,7 @@ void Desktop::resized(){if(homeVisible&&home){for(auto* child:getChildren())if(c
 }
 void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFont(theme.font(12));g.setColour(message.isEmpty()?juce::Colours::lightgrey:juce::Colours::orange);
     auto s=message.isEmpty()?(app.recording()?juce::String("RECORDING | ")+label(app.audio_name()):label(app.audio_name())):message;
-    const auto head=app.engine()->state();if(head.count_remaining)s="COUNT-IN "+juce::String(static_cast<double>(head.count_remaining)/project()->sample_rate,1)+" s | "+label(app.audio_name());
+    const auto head=displayState();if(head.count_remaining)s="COUNT-IN "+juce::String(static_cast<double>(head.count_remaining)/project()->sample_rate,1)+" s | "+label(app.audio_name());
     if(app.engine()->profile().enabled)s+=" | PROF";
     if(message.isEmpty()){const auto samples=app.engine()->compensation().output;s+="  |  PDC "+juce::String(static_cast<double>(samples)*1000/project()->sample_rate,2)+" ms";
         const auto metrics=app.engine()->metrics();const bool hardware=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
@@ -217,7 +218,7 @@ void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));g.setFon
     g.drawText(s,10,getHeight()-62,getWidth()-512,16,juce::Justification::left);
     if(sidebar){g.setColour(juce::Colour(0xff697580));g.fillRect(browserDivider.getX()+3,70,2,getHeight()-128);}
     if(mixerDivider.isVisible()){g.setColour(juce::Colour(0xff697580));g.fillRect(mixerDivider.getBounds().withHeight(1).translated(0,2));}
-    g.setColour(juce::Colours::whitesmoke);g.drawText(juce::String(static_cast<double>(app.engine()->state().sample)/project()->sample_rate,2)+" s",(getWidth()-420)/2-86,getHeight()-44,80,28,juce::Justification::right);
+    g.setColour(juce::Colours::whitesmoke);g.drawText(juce::String(static_cast<double>(head.sample)/project()->sample_rate,2)+" s",(getWidth()-420)/2-86,getHeight()-44,80,28,juce::Justification::right);
 }
 void Desktop::mouseDown(const juce::MouseEvent& e){const auto local=e.getEventRelativeTo(this);resizingBrowser=sidebar&&browserDivider.getBounds().contains(local.getPosition());resizingMixer=mixerDivider.isVisible()&&mixerDivider.getBounds().contains(local.getPosition());mixerDragHeight=app.workspace()==mrs::desktop::Workspace::edit?view.editorHeight:view.mixerHeight;mixerDragY=local.y;}
 void Desktop::resizeBrowser(int width){browserWidth=juce::jlimit(200,juce::jmax(200,juce::jmin(700,getWidth()-700)),width);resized();repaint();}
@@ -254,7 +255,7 @@ void Desktop::refresh(bool force){if(!app.recording()){recordingPreview.clear();
     arrangeButton.setToggleState(app.workspace()==mrs::desktop::Workspace::arrange,juce::dontSendNotification);
     editButton.setToggleState(clipEditorOpen(),juce::dontSendNotification);
     mixButton.setToggleState(app.workspace()==mrs::desktop::Workspace::mix,juce::dontSendNotification);
-    record.setToggleState(app.recording(),juce::dontSendNotification);loop.setToggleState(app.engine()->state().loop.has_value(),juce::dontSendNotification);
+    record.setToggleState(app.recording(),juce::dontSendNotification);loop.setToggleState(displayState().loop.has_value(),juce::dontSendNotification);
     const auto click=app.click_settings();clickButton.setToggleState(click.playback||click.recording,juce::dontSendNotification);clickButton.setEnabled(!app.recording());countButton.setEnabled(!app.recording());countButton.setButtonText(click.count_bars?"Count "+juce::String(click.count_bars):"Count off");countButton.setToggleState(click.count_bars>0,juce::dontSendNotification);
     brows.setToggleState(sidebar,juce::dontSendNotification);repaint();arrangement->repaint();
 }
@@ -279,7 +280,7 @@ bool Desktop::keyPressed(const juce::KeyPress& k){if(workspaceShortcut(k))return
 }
 bool Desktop::keyStateChanged(bool){if(homeVisible||!shortcutAllowed()){spaceHeld=false;return false;}
     const bool down=juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey);spaceKey(down);return down;}
-void Desktop::spaceKey(bool down){if(down&&!spaceHeld)action(app.engine()->state().playback==mrs::PlaybackState::playing?32:30);spaceHeld=down;}
+void Desktop::spaceKey(bool down){if(down&&!spaceHeld)run([&]{action(app.engine()->state().playback==mrs::PlaybackState::playing?32:30);});spaceHeld=down;}
 void Desktop::updateRecordingPreview(){
     recordingPreview=app.midi_recording_preview();auto nextWaveforms=app.audio_recording_preview();
     for(auto& takePreview:nextWaveforms)if(!takePreview.waveform){const auto old=std::find_if(audioRecordingPreview.begin(),audioRecordingPreview.end(),[&](const auto& item){return item.clip.id==takePreview.clip.id;});if(old!=audioRecordingPreview.end())takePreview.waveform=old->waveform;}

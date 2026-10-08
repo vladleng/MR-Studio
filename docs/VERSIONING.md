@@ -1,5 +1,13 @@
 # Правила версионирования Moon River Studio
 
+## 0.2h fix3 — безопасное чтение состояния при отрисовке
+
+По пользовательскому дампу fix2 устранён throwing state-read из Desktop paint.
+UI хранит последний coherent snapshot при занятости; MIDI timers/Space защищены,
+редактирование требует свежего состояния. try_state не портит output при fail
+и очищает снятый loop. Audio publisher/DSP/schema/Preferences прежние.
+Контракт и границы утверждения о crash: STATE_SNAPSHOT_FIX3.md.
+
 ## 0.2h fix2 — локальные журналы и аварийные отчёты
 
 Windows JUCE: session journal, out-of-process crash reporter/minidump, File →

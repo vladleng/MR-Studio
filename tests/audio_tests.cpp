@@ -2,6 +2,7 @@
 #include <mrs/processing.hpp>
 #include <mrs/no_denormals.hpp>
 #include "latency_fixture.hpp"
+#include "audio_state_test_access.hpp"
 #include <mrs/device.hpp>
 #include <mrs/read_ahead.hpp>
 #include <mrs/recording.hpp>
@@ -783,10 +784,32 @@ void metronome(){
     RenderGraph loop;loop.click.playback=true;loop.click_time.tempos={{0,120}};engine.prepare({48000,0,2,256},loop,{PlaybackState::paused,0,LoopRange{0,128}});CHECK(engine.enqueue({ControlKind::play}));std::array<float,256> first{};engine.process(nullptr,first.data(),128);engine.process(nullptr,output.data(),128);CHECK(std::equal(first.begin(),first.end(),output.begin()));CHECK(engine.enqueue({ControlKind::click,0,20}));engine.process(nullptr,output.data(),128);CHECK(std::all_of(output.begin(),output.begin()+256,[](float value){return value==0;}));
 }
 
+void state_snapshot(){
+    auto engine=std::make_shared<AudioEngine>();engine->prepare({48000,0,2,128},{},{PlaybackState::paused,100,LoopRange{100,200},90,7});
+    RealtimeState head;CHECK(engine->try_state(head));CHECK(head.sample==100&&head.loop==LoopRange(100,200));
+    EngineTransport transport(engine,Timeline(TimeMap{},48000));const auto previous=transport.state();
+    {
+        AudioEngineTestAccess::Busy busy(*engine);
+        allocation_check::count=0;allocation_check::enabled=true;
+        const bool read=engine->try_state(head);const auto held=transport.state();transport.poll();
+        allocation_check::enabled=false;
+        CHECK(!read&&head.sample==100&&head.play_start==90&&head.count_remaining==0&&head.loop==LoopRange(100,200));
+        CHECK(held==previous&&allocation_check::count==0);
+        rejects([&]{(void)engine->state();});
+    }
+    engine->prepare({48000,0,2,128},{},{PlaybackState::paused,300});
+    CHECK(engine->try_state(head));CHECK(head.sample==300&&!head.loop&&head.count_remaining==0);
+    engine->prepare({48000,0,2,128},{});CHECK(engine->enqueue({ControlKind::play}));
+    std::atomic<bool> done{};std::atomic<unsigned> bad{};unsigned successes{};
+    std::jthread producer([&]{std::array<float,256> out{};for(unsigned i=0;i<50000;++i)engine->process(nullptr,out.data(),128);done=true;});
+    while(!done){RealtimeState snapshot{PlaybackState::paused,123,LoopRange{12,34},56,78};if(engine->try_state(snapshot)){++successes;if(snapshot.sample%128||snapshot.play_start!=0||snapshot.loop||snapshot.count_remaining)++bad;}else if(snapshot.sample!=123||snapshot.loop!=LoopRange(12,34)||snapshot.play_start!=56||snapshot.count_remaining!=78||snapshot.playback!=PlaybackState::paused)++bad;}
+    producer.join();CHECK(bad==0);CHECK(engine->try_state(head)&&head.sample==50000*128);CHECK(successes>0);
+}
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
+        if(suite=="state_snapshot"){state_snapshot();std::cout<<"PASS state_snapshot: "<<assertions<<" checks\n";return 0;}
         if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
