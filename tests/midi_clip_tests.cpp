@@ -26,7 +26,22 @@ struct Synth final:IProcessor{
 };
 std::shared_ptr<PreparedGraph> synth(std::uint32_t rate=48000){GraphState g;g.id=new_id();NodeState n;n.id=new_id();n.processor_id="timeline-synth";g.nodes={n};g.outputs={n.id};return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(g),0,false,false},ProcessConfig{rate,2,128,128,true},[](const NodeState&){return std::make_unique<Synth>();});}
 Project project(){Project p;p.id=new_id();p.title="MIDI test";Track t;t.id=new_id();t.name="Keys";t.kind=TrackKind::instrument;p.tracks={t};Clip c;c.id=new_id();c.track=t.id;c.name="Phrase";c.midi=MidiClip{0,4*ppq,0,{{new_id(),0,2*ppq,60,127,0},{new_id(),2*ppq,ppq,64,90,2}}};p.clips={c};p.validate();return p;}
-void model(){auto p=project();ProjectStore s(p);auto id=p.clips.front().id,track=p.tracks.front().id;const auto note=p.clips.front().midi->notes.front().id;
+void copies(){
+    auto p=project();p.clips.front().midi->start=ppq/3;p.clips.front().midi->length=ppq;
+    p.clips.front().midi->events={{new_id(),50,2,0,64,127}};
+    auto blocker=p.clips.front();blocker.id=new_id();blocker.midi->start=4*ppq;blocker.midi->length=1;
+    for(auto& n:blocker.midi->notes)n.id=new_id();for(auto& e:blocker.midi->events)e.id=new_id();p.clips.push_back(blocker);
+    ProjectStore store(p);const auto id=new_id();store.execute(DuplicateClip{p.clips.front().id,id});
+    const auto after=*store.state().project;const auto& copy=after.clips.back();
+    CHECK(copy.id==id&&copy.track==p.clips.front().track&&copy.midi->start==8*ppq+ppq/3);
+    CHECK(copy.midi->length==ppq&&copy.midi->notes.front().id!=p.clips.front().midi->notes.front().id);
+    CHECK(copy.midi->notes.front().pitch==60&&copy.midi->events.front().id!=p.clips.front().midi->events.front().id);
+    CHECK(deserialize(serialize(after))==after);CHECK(store.undo()&&*store.state().project==p);CHECK(store.redo()&&*store.state().project==after);
+    p=project();p.clips.front().midi->start=ppq/3;p.clips.front().midi->length=ppq;
+    p.time.tempos={{0,120},{4*ppq,60}};p.time.meters={{1,4,4},{2,3,4}};
+    ProjectStore changed(p);changed.execute(DuplicateClip{p.clips.front().id,new_id()});CHECK(changed.state().project->clips.back().midi->start==4*ppq+ppq/3);
+}
+void model(){copies();auto p=project();ProjectStore s(p);auto id=p.clips.front().id,track=p.tracks.front().id;const auto note=p.clips.front().midi->notes.front().id;
     {auto later=p;auto& m=*later.clips.front().midi;m.start=4*ppq;m.events={{new_id(),ppq,2,0,64,127}};ProjectStore extended(later);
         const auto before=compile_midi_clips(later,std::array{track});extended.execute(TrimMidiClip{id,0,8*ppq});
         const auto& after=*extended.state().project->clips.front().midi;CHECK(after.start==0&&after.source_offset==0&&after.length==8*ppq);

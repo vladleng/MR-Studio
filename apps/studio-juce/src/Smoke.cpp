@@ -423,7 +423,43 @@ void stateBusySmoke(){
     d.app.seek(9600);engine->process(nullptr,out.data(),128);check(d.displayState().sample==9600,"UI recovers on next coherent publication");
     d.resetDevice();check(d.lastDisplayState.sample==0,"new session clears display cache");
 }
+void clipCopySmoke(){
+    const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    struct Clock final:mrs::audio::IAudioDevice{
+        std::vector<mrs::audio::DeviceInfo> enumerate()override{return {{0,"Copy fixture",{}, {"L","R"},16,8192,128,1}};}
+        void control_panel(int)override{}void open(const mrs::audio::DeviceConfig&,std::shared_ptr<mrs::audio::AudioEngine>)override{}
+        void start()override{}void stop()override{}void close()noexcept override{}mrs::audio::DeviceStatus status()override{return {mrs::audio::DevicePhase::running,48000};}
+    };
+    Desktop d(true);d.app.demo();d.app.connect(std::make_unique<Clock>(),{0,48000,128,{}, {0,1}});
+    const auto keys=d.app.add_instrument_track("Copy MIDI"),midi=d.app.create_midi_clip(keys,mrs::ppq/3,mrs::ppq);
+    d.app.set_midi_notes(midi,{{mrs::new_id(),0,mrs::ppq/2,60,90,0}});
+    d.setWorkspace(mrs::desktop::Workspace::arrange);d.refresh(true);d.setSize(1200,900);d.setVisible(true);d.snap=false;
+    auto& a=*d.arrangement;a.pixelsPerSecond=30.;
+    auto mouse=[&](juce::Point<float> point,int mods){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(mods),1,0,0,0,0,&a,&a,juce::Time::getCurrentTime(),point,juce::Time::getCurrentTime(),1,true);};
+    auto stored=[&](mrs::Id id){const auto p=d.project();return *std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});};
+    check(d.duplicate.isVisible()&&d.duplicate.getComponentID()=="duplicate-clip","Duplicate toolbar available");
+    const auto audio=d.project()->clips.front().id;
+    for(const auto id:{audio,midi}){
+        d.activateClip(id);const auto original=stored(id);const auto count=d.project()->clips.size();
+        d.duplicate.onClick();check(d.message.isEmpty()&&d.project()->clips.size()==count+1&&d.selectedClip!=id,"Duplicate button copies audio/MIDI and selects copy");
+        d.action(10);check(d.project()->clips.size()==count&&stored(id)==original,"Duplicate one Undo");
+        d.selectedClip=id;d.selectedClips={id.value};const auto r=a.clipRect(original);const auto point=r.getCentre();const auto moved=point.translated(180,0);
+        const auto revision=d.app.services().projects->state().revision;
+        a.mouseDown(mouse(point,juce::ModifierKeys::leftButtonModifier|juce::ModifierKeys::altModifier));a.mouseDrag(mouse(moved,juce::ModifierKeys::leftButtonModifier|juce::ModifierKeys::altModifier));
+        check(stored(id)==original&&d.app.services().projects->state().revision==revision,"Alt drag keeps source/model unchanged");
+        const auto preview=a.createComponentSnapshot(a.getLocalBounds(),true,1.,juce::SoftwareImageType{});
+        check(preview.getPixelAt(static_cast<int>(r.getX()+181),static_cast<int>(r.getY()+2)).getBrightness()>.7f,"Alt copy ghost white outline is visible");
+        for(float scale:{1.f,1.5f}){const auto image=d.createComponentSnapshot(d.getLocalBounds(),true,scale,juce::SoftwareImageType{});auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-clip-copy-"+juce::String(id==midi?"midi":"audio")+"-"+juce::String(static_cast<int>(scale*100))+"-preview.png").createOutputStream();check(stream!=nullptr,"copy preview stream");stream->setPosition(0);stream->truncate();check(juce::PNGImageFormat().writeImageToStream(image,*stream),"copy preview image");}
+        a.mouseUp(mouse(moved,0));check(d.message.isEmpty()&&d.project()->clips.size()==count+1&&stored(id)==original,"Alt release commits copy only");
+        const auto copy=stored(*d.selectedClip);check(copy.id!=id&&copy.track==original.track,"Alt copied selection and track");
+        d.action(10);check(d.project()->clips.size()==count,"Alt one Undo");d.action(11);check(stored(copy.id)==copy,"Alt Redo stable IDs");d.action(10);
+        d.selectedClip=id;d.selectedClips={id.value};a.mouseDown(mouse(point,juce::ModifierKeys::leftButtonModifier|juce::ModifierKeys::altModifier));a.mouseDrag(mouse(moved,juce::ModifierKeys::leftButtonModifier|juce::ModifierKeys::altModifier));a.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));a.mouseUp(mouse(moved,0));check(d.project()->clips.size()==count,"Escape cancels copy");
+        a.mouseDown(mouse(point,juce::ModifierKeys::leftButtonModifier|juce::ModifierKeys::altModifier));a.mouseUp(mouse(point,0));check(d.project()->clips.size()==count,"Alt click without movement makes no copy");
+    }
+    d.app.disconnect();
+}
 void j3Smoke(Desktop& d){
+    clipCopySmoke();
     stateBusySmoke();
     projectHomeSmoke();
     auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};

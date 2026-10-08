@@ -705,7 +705,12 @@ void Application::edit_midi_notes(const Id& id,std::vector<Id> selected,const No
 }
 void Application::set_midi_events(const Id& id,std::vector<MidiChannelEvent> events){require_not_recording();require_not_playing();const auto p=services_.projects->state().project;const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});require(at!=p->clips.end()&&at->midi.has_value(),"select a MIDI clip");if(events==at->midi->events)return;edit(SetMidiEvents{id,std::move(events)});}
 void Application::set_midi_notes(const Id& id,std::vector<MidiNote> notes){edit(SetMidiNotes{id,std::move(notes)},{},true);}
-Id Application::duplicate_clip(const Id& id){const auto duplicate=new_id();edit(DuplicateClip{id,duplicate});return duplicate;}
+Id Application::duplicate_clip(const Id& id){const auto duplicate=new_id();edit(DuplicateClip{id,duplicate},{},true);return duplicate;}
+std::vector<Id> Application::copy_clips(std::vector<Id> ids,Sample delta,int track_delta){
+    struct Copies final:ICommand{std::vector<Id> source,created;Sample delta{};int track_delta{};std::string_view name()const override{return "Copy selected clips";}void apply(Project& p)const override{const Timeline time(p.time,p.sample_rate);for(std::size_t i=0;i<source.size();++i){const auto c=std::find_if(p.clips.begin(),p.clips.end(),[&](const auto& item){return item.id==source[i];});require(c!=p.clips.end(),"unknown source clip");const auto t=std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& item){return item.id==c->track;});const auto index=static_cast<int>(t-p.tracks.begin())+track_delta;require(index>=0&&index<static_cast<int>(p.tracks.size()),"copy exceeds track range");const auto start=clip_start(*c,time);require(delta>=-start&&delta<=max_sample-start,"copy exceeds timeline range");DuplicateClip{source[i],created[i],p.tracks[static_cast<std::size_t>(index)].id,start+delta}.apply(p);}}} command;
+    require(!ids.empty(),"Select clips to copy");std::set<std::string> unique;for(const auto& id:ids)require(unique.insert(id.value).second,"duplicate source clip");
+    command.source=std::move(ids);for(std::size_t i=0;i<command.source.size();++i)command.created.push_back(new_id());command.delta=delta;command.track_delta=track_delta;edit(command,{},true);return command.created;
+}
 void Application::set_time_map(TimeMap time){const auto p=services_.projects->state().project;edit(SetMusicalData{std::move(time),p->chords,p->sections,p->markers});}
 void Application::import_wavs(const std::vector<std::filesystem::path>& paths,std::optional<Id> target,Sample start) {
     require_not_playing(); require(!paths.empty() && paths.size() <= audio::max_voices,"select 1..128 WAV files");

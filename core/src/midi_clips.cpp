@@ -8,6 +8,32 @@ auto find_clip(Project& p,const Id& id){auto i=std::find_if(p.clips.begin(),p.cl
 auto midi_clip(Project& p,const Id& id){auto i=find_clip(p,id);if(!i->midi)throw std::invalid_argument("select a MIDI clip");return i;}
 void instrument(const Project& p,const Id& id){auto i=std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t){return t.id==id;});if(i==p.tracks.end()||i->kind!=TrackKind::instrument)throw std::invalid_argument("MIDI clip needs an instrument track");}
 void fresh_notes(Clip& c){if(c.midi){for(auto& n:c.midi->notes)n.id=new_id();for(auto& e:c.midi->events)e.id=new_id();}}
+Sample free_copy_start(const Project& p,const Clip& source){
+    const Timeline time(p.time,p.sample_rate);const auto original=clip_start(source,time),end=clip_end(source,time);
+    auto tick=source.midi?source.midi->start:time.to_ticks(original);
+    if(!source.midi&&tick&&time.to_samples(tick)>original)--tick;
+    const auto originBar=time.musical_position(tick).bar;
+    const auto offset=tick-time.to_ticks(MusicalPosition{originBar,1,0});
+    const auto remainder=source.midi?Sample{0}:original-time.to_samples(tick);
+    auto bar=time.musical_position(time.to_ticks(end)).bar;
+    if(time.to_samples(time.to_ticks(MusicalPosition{bar,1,0}))<end)++bar;
+    // Skip past blockers/meter segments, rather than scanning empty bars.
+    for(std::size_t attempt=0;attempt<p.clips.size()+p.time.meters.size()+2;++attempt){
+        const auto begin=time.to_ticks(MusicalPosition{bar,1,0}),next=time.to_ticks(MusicalPosition{bar+1,1,0});
+        if(offset>=next-begin){auto meter=std::find_if(p.time.meters.begin(),p.time.meters.end(),[&](const auto& m){return m.bar>bar;});if(meter==p.time.meters.end())break;bar=meter->bar;continue;}
+        if(begin>max_tick-offset)break;const auto targetTick=begin+offset;
+        const auto target=time.to_samples(targetTick)+remainder;
+        if(target>max_sample||(source.midi&&targetTick>max_tick-source.midi->length)||(!source.midi&&target>max_sample-source.length))break;
+        const auto copyEnd=source.midi?time.to_samples(targetTick+source.midi->length):target+source.length;
+        const auto reservedEnd=std::max(copyEnd,time.to_samples(next));
+        Sample blockedUntil{};for(const auto& c:p.clips)if(c.track==source.track&&clip_start(c,time)<reservedEnd&&clip_end(c,time)>time.to_samples(begin))blockedUntil=std::max(blockedUntil,clip_end(c,time));
+        if(!blockedUntil)return target;
+        const auto previous=bar;bar=time.musical_position(time.to_ticks(blockedUntil)).bar;
+        if(time.to_samples(time.to_ticks(MusicalPosition{bar,1,0}))<blockedUntil)++bar;
+        bar=std::max(bar,previous+1);
+    }
+    throw std::invalid_argument("no free bar for clip copy within timeline range");
+}
 }
 void AddMidiClip::apply(Project& p) const{instrument(p,clip_.track);if(!clip_.midi)throw std::invalid_argument("missing MIDI clip data");p.clips.push_back(clip_);}
 void SetMidiNotes::apply(Project& p) const{midi_clip(p,id_)->midi->notes=notes_;}
@@ -51,6 +77,6 @@ void trim_midi_source(MidiClip& m,Tick start,Tick end){
 }
 void TrimMidiClip::apply(Project& p) const{trim_midi_source(*midi_clip(p,id_)->midi,start_,end_);}
 void SplitMidiClip::apply(Project& p) const{auto i=midi_clip(p,id_);auto& m=*i->midi;if(at_<=m.start||at_>=m.start+m.length)throw std::invalid_argument("split cursor must be inside MIDI clip");auto right=*i;right.id=right_;fresh_notes(right);const auto left=at_-m.start;right.midi->start=at_;right.midi->length-=left;right.midi->source_offset+=left;m.length=left;p.clips.insert(i+1,std::move(right));}
-void DuplicateClip::apply(Project& p) const{auto c=*find_clip(p,id_);c.id=duplicate_;fresh_notes(c);if(c.midi)c.midi->start+=c.midi->length;else c.start+=c.length;p.clips.push_back(std::move(c));}
+void DuplicateClip::apply(Project& p) const{auto c=*find_clip(p,id_);const auto start=start_?*start_:free_copy_start(p,c);if(start<0||start>max_sample)throw std::invalid_argument("invalid copy position");c.id=duplicate_;if(track_)c.track=*track_;fresh_notes(c);if(c.midi){instrument(p,c.track);c.midi->start=Timeline(p.time,p.sample_rate).to_ticks(start);}else c.start=start;p.clips.push_back(std::move(c));}
 void RemoveClip::apply(Project& p) const{p.clips.erase(find_clip(p,id_));}
 }

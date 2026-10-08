@@ -107,6 +107,7 @@ public:
     void set_midi_events(const Id&,std::vector<MidiChannelEvent>);
     void set_midi_notes(const Id&,std::vector<MidiNote>);
     Id duplicate_clip(const Id&);
+    std::vector<Id> copy_clips(std::vector<Id>,Sample delta,int track_delta=0);
     void set_time_map(TimeMap);
     Sample source_frames(const Id&);
     void prepare_waveforms();

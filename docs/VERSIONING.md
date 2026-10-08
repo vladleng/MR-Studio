@@ -1,5 +1,12 @@
 # Правила версионирования Moon River Studio
 
+## 0.2h upd1 — копирование аудио и MIDI
+
+Duplicate ищет следующий свободный такт с сохранением внутритактового смещения.
+Alt-drag создаёт transient copy preview и одну undoable команду при отпускании.
+Новые clip/note/event IDs, обычное сохранение без schema change, retained plugins.
+Контракт: [CLIP_COPY_UPD1](CLIP_COPY_UPD1.md). Это update, не следующий 0.2g.
+
 ## 0.2h fix3 — безопасное чтение состояния при отрисовке
 
 По пользовательскому дампу fix2 устранён throwing state-read из Desktop paint.

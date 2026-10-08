@@ -133,6 +133,7 @@ public:
     juce::String message;
 private:
     friend void stateBusySmoke();
+    friend void clipCopySmoke();
     mutable mrs::audio::RealtimeState lastDisplayState;
     void timerCallback() override;
     void remember();
@@ -157,7 +158,7 @@ private:
         previous{"< Section"},next{"Section >"},loop{"Loop section"},
         arrangeButton{"Arrange"},editButton{"Edit"},mixButton{"Mix"},brows{"BROWS"},
         addTrack{"+ Track"},addBus{"+ Bus"},undo{"Undo"},redo{"Redo"},split{"Split (S)"},
-        remove{"Del clip"},zoomIn{"Zoom +"},zoomOut{"Zoom -"},fit{"Fit"},audio{"Audio settings"},snapButton{"Snap off"},clickButton{"Click"},countButton{"Count off"};
+        duplicate{"Duplicate"},remove{"Del clip"},zoomIn{"Zoom +"},zoomOut{"Zoom -"},fit{"Fit"},audio{"Audio settings"},snapButton{"Snap off"},clickButton{"Click"},countButton{"Count off"};
     int lastCountBars{1}; // Toolbar off/on restores the last enabled count in this session.
     unsigned diagnosticTick{};
     struct MixPreview {std::optional<mrs::Id> target;mrs::Track::Mix mix;float master;std::function<bool()> active;};
@@ -206,6 +207,7 @@ public:
     void mouseExit(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
+    void focusLost(FocusChangeType) override;
     bool keyPressed(const juce::KeyPress&) override;
     void mouseWheelMove(const juce::MouseEvent&,const juce::MouseWheelDetails&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
@@ -236,6 +238,7 @@ private:
     bool rulerSeeking{};
     float dragX{};
     int trim{};std::vector<mrs::Clip> dragGroup;int dragTrackDelta{};
+    bool copyDrag{},dragMoved{};
     bool selecting{};juce::Point<float> selectionOrigin;juce::Rectangle<float> selectionBox;
     static constexpr int header=70,left=250;
     PlayheadLine playhead;

@@ -377,6 +377,24 @@ void clip_edits() {
     auto clip = projects->state().project->clips.front();
     CHECK(clip.start == 200 && clip.track == destination && clip.source == original.source && clip.source_offset == 0);
     CHECK(app.engine()->state().sample == 700);
+    const Timeline copyTime(projects->state().project->time,44100);
+    const auto copied=app.duplicate_clip(original.id);
+    const auto copiedAudio=projects->state().project->clips.back();
+    CHECK(copiedAudio.id==copied&&copiedAudio.track==destination&&copiedAudio.start==copyTime.to_samples(4*ppq)+200);
+    CHECK(copiedAudio.source==original.source&&copiedAudio.length==original.length);
+    app.seek(copiedAudio.start);app.play();app.engine()->process(nullptr,output.data(),128);
+    CHECK(output[0]==0.06103515625f);app.pause();app.engine()->process(nullptr,output.data(),128);
+    CHECK(app.undo()&&projects->state().project->clips.size()==1);CHECK(app.redo()&&projects->state().project->clips.back()==copiedAudio);CHECK(app.undo());
+    const auto midiTrack=app.add_instrument_track("Copy keys");const auto midi=app.create_midi_clip(midiTrack,ppq/3,ppq);
+    app.set_midi_notes(midi,{{new_id(),0,ppq/2,67,90,3}});
+    const auto copyBefore=*projects->state().project;
+    const auto group=app.copy_clips({original.id,midi},copyTime.to_samples(4*ppq));
+    const auto copyAfter=*projects->state().project;CHECK(group.size()==2&&copyAfter.clips.size()==4);
+    CHECK(copyAfter.clips[2].start==200+copyTime.to_samples(4*ppq));
+    CHECK(copyAfter.clips[3].midi->start==4*ppq+ppq/3&&copyAfter.clips[3].midi->notes.front().id!=copyBefore.clips[1].midi->notes.front().id);
+    CHECK(deserialize(serialize(copyAfter))==copyAfter);CHECK(app.undo()&&*projects->state().project==copyBefore);CHECK(app.redo()&&*projects->state().project==copyAfter);CHECK(app.undo());
+    rejects([&]{app.copy_clips({original.id,midi},-1000);});rejects([&]{app.copy_clips({original.id,midi},100,1);});rejects([&]{app.copy_clips({original.id,original.id},100);});CHECK(*projects->state().project==copyBefore);
+    CHECK(app.undo());CHECK(app.undo());CHECK(app.undo()); // notes, MIDI clip, track
     app.trim_clip(original.id,300,1000);
     clip = projects->state().project->clips.front();
     CHECK(clip.start == 300 && clip.length == 700 && clip.source_offset == 100);

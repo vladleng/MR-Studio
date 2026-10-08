@@ -67,9 +67,10 @@ private: Id id_,right_;Tick at_;
 class DuplicateClip final : public ICommand {
 public:
     DuplicateClip(Id id,Id duplicate):id_(std::move(id)),duplicate_(std::move(duplicate)){}
+    DuplicateClip(Id id,Id duplicate,Id track,Sample start):id_(std::move(id)),duplicate_(std::move(duplicate)),track_(std::move(track)),start_(start){}
     std::string_view name() const override{return "Duplicate clip";}
     void apply(Project&) const override;
-private: Id id_,duplicate_;
+private: Id id_,duplicate_;std::optional<Id> track_;std::optional<Sample> start_;
 };
 class RemoveClip final : public ICommand {
 public:
