@@ -63,11 +63,15 @@ Software Arrange/audio recording previews 100%/150% просмотрены.
 Пакет `MR-Studio-0.2f-upd8-Final-Arrange-JUCE-ASIO-Windows-local` в папке чатов
 `Builds`; прежние пакеты сохранены. EXE SHA256
 `B97492492098364601CAB3049B01D58DA35EDE16C960A5CE07022B05E7A17258`.
-FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK. Реальные ASIO takes,
-cursor feel и Windows mixed-DPI upd8 ещё NOT RUN. Следующий шаг — пять пунктов
-[MRS_STAGE_4F_CHECKLIST](MRS_STAGE_4F_CHECKLIST.md) на пользовательской системе.
+Пользователь принял upd8 2026-10-08: «Все тесты прошли. Что у нас дальше?».
+Пять заключительных исправлений приняты; точные ASIO settings и отдельная
+mixed-DPI matrix не перечислены. Предыдущая отметка manual checks относилась
+к моменту выпуска. Следующий плановый подэтап — 4g / 0.2g, внешний MIDI:
+Windows output ports/channels, live thru и playback Notes/CC/PC, сохранение
+routes, missing/reconnect/panic и предотвращение feedback. Затем 4h / 0.2h —
+метроном и precount audio/MIDI. Начать реализацию только по запросу пользователя.
 GitHub/source push/Actions не выполнялись; Stage 4/P4/#68/#24 не закрываются,
-0.2g/0.2h не начаты. Новая пользовательская приёмка upd8 ожидается.
+0.2g/0.2h не начаты. Выпущенный пакет и manifest не изменены после приёмки.
 
 ## Предыдущая принятая поставка: 0.2f upd7
 
