@@ -419,3 +419,28 @@ This preserves existing Studio Pro projects while keeping Moon River Studio self
 Номерные MRS version targets выше — прежние ориентиры функциональных milestones;
 они не задают имя текущего артефакта. Текущий tracks/import/waveform — 0.1b,
 clip editing — следующая 0.1c. Stage IDs не перенумеровываются.
+
+## Актуальное продолжение — 2026-10-04
+Пользователь принял локальную 0.1f / Stage 2a; PR #48/#47 интегрированы в main.
+Следующий подтверждённый подэтап: 0.1g / Stage 2b — buses/subgroups,
+track/bus outputs, cycle-safe shared routing, bus controls/meters, Undo/persistence.
+Локальные ASIO Release configure/build, 62/62 CTest и GUI smoke пройдены.
+Пользовательская приёмка локальной 0.1g пройдена. Сборки/пакеты выполняются локально,
+без GitHub Actions; на GitHub обновляются только issues и документация.
+Отправка кода, создание PR и слияние — только по отдельной просьбе пользователя.
+Существующий PR #49 не слит; 0.1h реализована локально и ожидает приёмку.
+Sends/returns, hardware multi-output и profiles — последующие slices #22.
+
+
+## Локальная 0.1h / MRS Stage 2c готова к проверке — 2026-10-04
+Посылы/возвраты (до 8 на канал, pre/post-fader, уровни, nested buses, cycle rejection),
+вертикальные фейдеры/стереометры, Mix поверх аранжировки, мини-панели дорожек
+(горизонтальные gain/meters, колесо pan, mono input selection), Files → Open recent project.
+Core snapshot v5 читает v1–v4; desktop config v3 читает v1/v2. Undo и сохранение общие.
+Локальные Windows x64 ASIO Release configure/build, 65/65 CTest и расширенный GUI smoke
+пройдены; зависимости использованы из кеша, GitHub Actions не использовались.
+Контракты: SENDS.md; пользовательская проверка: MRS_STAGE_2C_CHECKLIST.md.
+Пользовательская/физическая ASIO приёмка 0.1h ожидается; последняя принятая версия — 0.1g.
+Ветка mrs/0.1h-sends-ui-local остаётся локальной. На GitHub — только issues/docs;
+код push/PR/merge исключительно по отдельной просьбе. #22 и отложенный #16 остаются открыты.
+Далее в #22: hardware multi-output и device profiles. Multi-input recording — будущая работа.

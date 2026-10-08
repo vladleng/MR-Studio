@@ -115,6 +115,10 @@ AudioData load_wav(const std::filesystem::path& path, std::size_t max_decoded_by
     }
     result.validate(); return result;
 }
+CabIr load_cab_ir(const std::filesystem::path& path){
+    const auto file=inspect_wav(path);if(file.channels>2||file.sample_rate>192000||file.frame_count>file.sample_rate)throw std::invalid_argument("Cab IR requires mono/stereo WAV, 8–192 kHz, at most one second");
+    const auto decoded=load_wav(path,192000*2*sizeof(float));CabIr result;const auto name=path.filename().u8string();result.name.assign(name.begin(),name.end());result.sample_rate=decoded.sample_rate;result.channels=decoded.channels;result.samples=decoded.samples;result.validate();return result;
+}
 AudioData open_wav(const std::filesystem::path& path, std::size_t preload_bytes) {
     auto file = std::make_shared<const WavFile>(inspect_wav(path));
     if (static_cast<std::uint64_t>(file->frame_count)*file->channels <= preload_bytes/sizeof(float))

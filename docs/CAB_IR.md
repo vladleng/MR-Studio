@@ -63,4 +63,3 @@ Tests cover direct/tail exactness, stereo independence, dry mix/gain/polarity, f
 responses, resampling, zero host RT allocation, live updates/Undo/Redo with unchanged
 device opens, embedded save/reopen after deleting source, and raw capture invariance.
 User acceptance on intended ASIO hardware is pending; #16 not implicitly passed.
-

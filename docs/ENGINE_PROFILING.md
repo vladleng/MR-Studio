@@ -118,4 +118,3 @@ live test; the user mentions a small pause in the multitrack material, which doe
 not establish the cause of queue events. The remaining P4 tests are not a gate
 for starting MIDI. #16 and 3e2/3e3 remain separate. No code/build/package change;
 previous immutable package hashes remain. [Handoff](PROJECT_CONTEXT.md).
-

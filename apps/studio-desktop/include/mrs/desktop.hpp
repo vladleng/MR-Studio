@@ -1,28 +1,51 @@
 #pragma once
+#include <mrs/midi_input.hpp>
+#include <mrs/midi_output.hpp>
 #include <mrs/persistence.hpp>
 #include <mrs/musical.hpp>
 #include <mrs/device.hpp>
 #include <fstream>
 #include <mrs/arrangement.hpp>
+#include <mrs/midi_clips.hpp>
 #include <mrs/waveform.hpp>
 #include <future>
 #include <mrs/recording.hpp>
+#include <mrs/midi_recording.hpp>
 #include <mrs/project_folders.hpp>
 namespace mrs::desktop {
 enum class Workspace { arrange, edit, mix, live };
+struct AudioRecordingPreview { Clip clip; std::optional<audio::RecordPreview> waveform; };
 std::string_view workspace_name(Workspace);
+struct DeviceProfile {
+    std::string name, device_name;
+    std::uint32_t rate{48000}, buffer{128};
+    std::vector<int> outputs{0,1};
+    int monitor_input{-1};
+    std::vector<std::string> output_labels{};
+    std::string input_label;
+    bool operator==(const DeviceProfile&) const = default;
+    void validate() const;
+};
+DeviceProfile capture_profile(std::string, const audio::DeviceInfo&, const audio::DeviceConfig&);
+audio::DeviceConfig resolve_profile(const DeviceProfile&, const audio::DeviceInfo&);
 struct Preferences {
+    audio::ClickSettings click{};
     Workspace workspace{Workspace::arrange};
     std::uint32_t rate{48000}, buffer{128};
     std::vector<int> outputs{0,1};
     int monitor_input{-1}; // -1 disabled; other values are zero-based
     std::string device_name;
     bool reconnect_audio{};
+    std::vector<std::string> recent_projects{};
+    std::vector<DeviceProfile> profiles{};
+    std::uint32_t processing_workers{2};
+    std::uint32_t process_buffer_frames{};
     bool operator==(const Preferences&) const = default;
     void validate() const;
 };
 std::string encode_preferences(const Preferences&);
 Preferences decode_preferences(std::string_view);
+void remember_project(Preferences&, const std::filesystem::path&);
 std::vector<int> parse_outputs(std::string_view); // one-based comma list -> zero-based
 class Logger {
 public:
@@ -36,7 +59,7 @@ persistence::ProjectDocument foundation_demo();
 // Window/UI state and preferences do not duplicate project/transport/audio state.
 class Application {
 public:
-    Application();
+    explicit Application(std::unique_ptr<IMidiOutputBackend> = {});
     ~Application();
     Application(const Application&) = delete;
     Application& operator=(const Application&) = delete;
@@ -50,14 +73,46 @@ public:
     void demo();
     void new_project(std::uint32_t rate = 48000, std::string title = "Untitled");
     Id add_audio_track(std::string name);
+    Id add_instrument_track(std::string name);
+    void set_midi_input(const Id&,std::string port,int channel=-1,bool monitor=true);
+    void set_midi_output(const Id&,std::string port,int channel=-1);
+    std::string midi_output_status(const Id&) const;
+    void reconnect_midi();
+    std::string midi_status(const Id&) const;
+    bool audition_note(const Id& track,int pitch,int velocity,int channel=0,bool on=true,bool soft_release=false);
+    void midi_panic() noexcept {engine_->midi_panic();external_midi_->panic();}
+    Id add_bus(std::string name);
+    Id add_return_send(const Id& source, std::string name);
+    void set_track_output(const Id&, std::optional<Id>);
+    void set_track_sends(const Id&, std::vector<Track::Send>);
+    void set_send_gain(const Id&, std::size_t, float);
+    void set_track_input(const Id&, int, bool stereo = false);
+    void set_track_monitoring(const Id&, bool);
+    bool stereo_track(const Id&) const;
+    void set_track_armed(const Id&, bool);
+    bool track_armed(const Id&) const;
+    const std::vector<Id>& armed_tracks() const { return armed_tracks_; }
+    std::vector<std::string> input_names();
+    std::vector<std::string> output_names() const;
+    std::vector<int> active_outputs() const;
+    void set_hardware_output(std::optional<Id>, std::vector<int>);
     void remove_track(const Id&);
     void reorder_track(const Id&, std::size_t index);
-    void import_wavs(const std::vector<std::filesystem::path>&);
+    void import_wavs(const std::vector<std::filesystem::path>&,std::optional<Id> target={},Sample start=0);
     bool undo(); bool redo();
     void move_clip(const Id&, const Id& track, Sample start);
     void trim_clip(const Id&, Sample start, Sample end);
     Id split_clip(const Id&, Sample position);
     void remove_clip(const Id&);
+    void remove_clips(std::vector<Id>);
+    void move_clips(std::vector<Id>,Sample delta,int track_delta=0);
+    Id create_midi_clip(const Id& track,Tick start,Tick length=4*ppq);
+    void edit_midi_notes(const Id&,std::vector<Id>,const NoteEdit&);
+    void set_midi_events(const Id&,std::vector<MidiChannelEvent>);
+    void set_midi_notes(const Id&,std::vector<MidiNote>);
+    Id duplicate_clip(const Id&);
+    std::vector<Id> copy_clips(std::vector<Id>,Sample delta,int track_delta=0);
+    void set_time_map(TimeMap);
     Sample source_frames(const Id&);
     void prepare_waveforms();
     const audio::Waveform* waveform(std::string_view source) const;
@@ -70,6 +125,19 @@ public:
     void rename_track(const Id&, std::string);
     void set_track_mix(const Id&, Track::Mix);
     void set_master_gain(float);
+    void set_inserts(std::optional<Id>, std::vector<NativeInsert>);
+    void load_insert_preset(std::optional<Id>,NativeInsert);
+    void preview_inserts(std::optional<Id>, const std::vector<NativeInsert>&);
+    void cancel_insert_preview();
+    std::uint64_t insert_generation() const {return insert_generation_;}
+    bool open_plugin_editor(std::optional<Id>,const Id&,void*,int&,int&);
+    void close_plugin_editors();
+    void close_plugin_editor(std::optional<Id>,const Id&);
+    bool plugin_failed() const;
+    std::uint32_t plugin_latency(std::optional<Id>,const Id&) const;
+    std::vector<processing::ParameterInfo> plugin_parameters(std::optional<Id>,const Id&) const;
+    void set_plugin_parameter(std::optional<Id>,const Id&,std::uint32_t,float);
+    NativeInsert capture_insert(std::optional<Id>,const Id&);
     bool preview_mix(std::optional<Id>, Track::Mix, float master_gain);
     void cancel_mix_preview();
     void connect(std::unique_ptr<audio::IAudioDevice>, audio::DeviceConfig);
@@ -82,11 +150,18 @@ public:
     void arm_track(std::optional<Id>);
     const std::optional<Id>& armed_track() const { return armed_; }
     void start_recording(const std::filesystem::path& destination);
+    // Control thread: managed Media destination; an unsaved session gets its own project.
+    void start_project_recording(const std::filesystem::path& projects_folder);
     bool stop_recording();
-    bool recording() const { return static_cast<bool>(recording_); }
+    void set_click_settings(audio::ClickSettings);
+    audio::ClickSettings click_settings() const {return click_settings_;}
+    bool recording() const { return static_cast<bool>(recording_)||!midi_captures_.empty(); }
     audio::RecordStatus recording_status() const;
-    Sample recording_start() const { return recording_ ? recording_->start() : 0; }
+    std::vector<Clip> midi_recording_preview() const;
+    std::vector<AudioRecordingPreview> audio_recording_preview() const;
+    Sample recording_start() const { return recording_ ? recording_->start() : midi_captures_.empty()?0:midi_captures_.front().recorder->start(); }
     const std::string& recording_error() const { return recording_error_; }
+    const std::vector<std::filesystem::path>& last_takes() const { return last_takes_; }
     const std::filesystem::path& last_take() const { return last_take_; }
     void monitoring(bool);
     bool monitoring() const { return monitoring_; }
@@ -96,13 +171,31 @@ private:
     Services services_;
     std::shared_ptr<processing::GraphStore> graphs_;
     std::shared_ptr<audio::AudioEngine> engine_;
+    std::unique_ptr<MidiInputs> midi_inputs_;
+    std::shared_ptr<audio::ExternalMidiQueue> external_midi_;
+    std::unique_ptr<MidiOutputs> midi_outputs_;
+    std::map<std::string,std::string> instrument_errors_;
+    std::uint64_t midi_route_revision_{~std::uint64_t{}},midi_route_generation_{};
+    void publish_midi_routes();
     std::shared_ptr<audio::EngineTransport> transport_;
+    audio::ClickSettings click_settings_{};
     std::unique_ptr<MusicalTimeline> musical_;
     std::unique_ptr<audio::IAudioDevice> device_;
     std::shared_ptr<processing::PreparedGraph> prepared_;
+    struct InsertRuntime {std::shared_ptr<processing::PreparedGraph> graph;std::optional<processing::GraphState> pending;};
+    std::map<std::string,InsertRuntime> insert_runtime_;
+    std::uint64_t insert_generation_{};
+    void publish_inserts();
+    void capture_insert_state(Project&,std::optional<Id> authoritative={},bool callbacks_stopped=false);
     Workspace workspace_{Workspace::arrange};
     std::shared_ptr<audio::Recorder> recording_;
     std::optional<Id> armed_;
+    std::vector<Id> armed_tracks_;
+    struct Capture { Id track; std::shared_ptr<audio::Recorder> recorder; };
+    std::vector<Capture> captures_;
+    std::vector<std::filesystem::path> last_takes_;
+    struct MidiCapture {Id track;std::shared_ptr<audio::MidiRecorder> recorder;};
+    std::vector<MidiCapture> midi_captures_;
     std::string recording_error_;
     std::filesystem::path last_take_;
     audio::RecordStatus last_recording_status_{};
@@ -110,6 +203,9 @@ private:
     std::vector<Id> mixer_tracks_;
     std::uint64_t applied_mix_revision_{};
     void publish_mix();
+    void prepare_mixer(audio::RenderGraph&);
+    void prepare_midi_clips(audio::RenderGraph&);
+    void prepare_inserts(audio::RenderGraph&,const audio::DeviceConfig&,bool retain=false);
     bool history(bool redo);
     void sync_arm();
     void require_not_recording() const;
@@ -128,13 +224,18 @@ private:
     // Runtime source aliases preserve ProjectStore Undo while archives use Media/... paths.
     std::map<std::string,std::filesystem::path> owned_media_;
     std::optional<audio::DeviceConfig> device_config_;
+    std::vector<int> default_inputs_;
+    std::optional<audio::DeviceInfo> device_info_;
+    void validate_hardware(const Project&, const audio::DeviceConfig&) const;
+    std::vector<int> selected_inputs(const Project&) const;
+    std::vector<int> selected_inputs(const Project&, const std::vector<int>&) const;
     std::shared_ptr<const audio::AudioData> asset(const std::string&);
     void cache_asset(std::string, std::shared_ptr<const audio::AudioData>);
-    void edit(const ICommand&);
+    void edit(const ICommand&,std::optional<Id> authoritative={},bool retain_inserts=false);
     void require_not_playing() const;
-    void rebuild_audio();
+    void rebuild_audio(bool retain_inserts=false);
     void replace(persistence::ProjectDocument);
-    audio::RenderGraph render(const audio::DeviceConfig&);
-    void start_empty_clock();
+    audio::RenderGraph render(const audio::DeviceConfig&,bool retain_inserts=false);
+    void start_empty_clock(bool prepare_plugins=false);
 };
 } // namespace mrs::desktop

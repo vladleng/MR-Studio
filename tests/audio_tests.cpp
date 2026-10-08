@@ -1,4 +1,8 @@
 #include <mrs/audio.hpp>
+#include <mrs/processing.hpp>
+#include <mrs/no_denormals.hpp>
+#include "latency_fixture.hpp"
+#include "audio_state_test_access.hpp"
 #include <mrs/device.hpp>
 #include <mrs/read_ahead.hpp>
 #include <mrs/recording.hpp>
@@ -319,6 +323,7 @@ void streaming() {
 void recording() {
     TempFile file;
     auto recorder = std::make_shared<Recorder>(file.path,48000,100);
+    const auto emptyPreview=recorder->preview();CHECK(emptyPreview&&emptyPreview->frames==0&&emptyPreview->peaks.empty());
     auto engine = std::make_shared<AudioEngine>();
     auto graph = basic(); graph.voices.front().start = 100; graph.recording = recorder;
     engine->prepare({48000,1,2,8},graph,{PlaybackState::paused,100,{}});
@@ -344,6 +349,8 @@ void recording() {
     graph.recording.reset();
     engine->prepare({48000,1,2,8},graph);
     auto result = recorder->finish();
+    const auto peaks=recorder->preview();CHECK(peaks&&peaks->frames==8&&peaks->channels==1&&peaks->peaks.size()==1);
+    CHECK(peaks->peaks.front().minimum==-.5f&&peaks->peaks.front().maximum==.75f);
     CHECK(result.frames == 8 && result.status.fault == RecordFault::none && !result.path.empty());
     const auto data = load_wav(file.path);
     CHECK(data.channels == 1 && data.sample_rate == 48000 && data.frames() == 8);
@@ -397,6 +404,7 @@ void recording() {
         std::array<float,4> samples{std::numeric_limits<float>::infinity(),0.25f,std::numeric_limits<float>::quiet_NaN(),-0.5f};
         take.capture(samples.data(),1,4,0);
         CHECK(take.finish().status.nonfinite_samples == 2);
+        const auto finitePreview=take.preview();CHECK(finitePreview&&finitePreview->peaks.front().minimum==-.5f&&finitePreview->peaks.front().maximum==.25f);
         CHECK(load_wav(finite.path).samples == std::vector<float>({0,0.25f,0,-0.5f}));
     }
     {
@@ -409,15 +417,18 @@ void recording() {
         TempFile wrap; Recorder take(wrap.path,48000,0);
         std::array<float,8192> block{};
         Sample position{};
-        for (int n=0; n<40; ++n) {
+        for (int n=0; n<80; ++n) {
             std::fill(block.begin(),block.end(),static_cast<float>(n)/64);
             take.capture(block.data(),1,static_cast<std::uint32_t>(block.size()),position);
             position += static_cast<Sample>(block.size());
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            if(const auto snapshot=take.preview()){CHECK(snapshot->frames<=position&&snapshot->peaks.size()<=2048);for(const auto p:snapshot->peaks)CHECK(std::isfinite(p.minimum)&&std::isfinite(p.maximum)&&p.minimum<=p.maximum);}
         }
         auto saved = take.finish(); CHECK(saved.status.fault == RecordFault::none && saved.frames == position);
+        const auto reduced=take.preview();CHECK(reduced&&reduced->frames==position&&reduced->bin_frames==512&&reduced->peaks.size()==1280);
+        CHECK(reduced->peaks.front().minimum==0&&reduced->peaks.back().maximum==79.f/64);
         const auto roundtrip = load_wav(wrap.path);
-        for (int n=0; n<40; ++n) {
+        for (int n=0; n<80; ++n) {
             CHECK(roundtrip.samples[static_cast<std::size_t>(n)*8192] == static_cast<float>(n)/64);
             CHECK(roundtrip.samples[static_cast<std::size_t>(n+1)*8192-1] == static_cast<float>(n)/64);
         }
@@ -477,6 +488,88 @@ void independence() {
     CHECK(control.state().playback == PlaybackState::playing);
 }
 }
+void hardware() {
+    auto asset = std::make_shared<AudioData>(); asset->channels = 2;
+    for (int i=0; i<8192; ++i) { asset->samples.push_back(0.25f); asset->samples.push_back(0.5f); }
+    RenderGraph graph; graph.mixer = {{},{},{}}; graph.buses = {false,true,false};
+    graph.outputs = {1,no_mixer_track,no_mixer_track}; graph.hardware_outputs = {{},{4,5},{}}; graph.master_outputs = {2,3}; graph.master_gain = 0.5f;
+    graph.voices = {{asset,0,0,8192,{{0,0,1},{1,1,1}}},{asset,0,0,8192,{{0,0,1},{1,1,1}}}};
+    graph.voices[0].mixer_track=0; graph.voices[1].mixer_track=2;
+    AudioEngine engine; engine.prepare({48000,0,6,512},graph); CHECK(engine.enqueue({ControlKind::play})); std::array<float,3072> out{};
+    allocation_check::count=0; allocation_check::enabled=true; engine.process(nullptr,out.data(),512); allocation_check::enabled=false;
+    CHECK(allocation_check::count == 0);
+    for (std::size_t i=0; i<512; ++i) { const auto offset=i*6; CHECK(out[offset] == 0 && out[offset+1] == 0 && out[offset+2] == 0.125f && out[offset+3] == 0.25f && out[offset+4] == 0.25f && out[offset+5] == 0.5f); }
+    MixerUpdate mix; mix.count=3; mix.master_gain=0; CHECK(engine.enqueue_mix(mix)); engine.process(nullptr,out.data(),512);
+    CHECK(out[3068] == 0 && out[3069] == 0 && out[3070] == 0.25f && out[3071] == 0.5f);
+    graph.hardware_outputs[1]={3}; graph.master_outputs={3}; engine.prepare({48000,0,6,512},graph); CHECK(engine.enqueue({ControlKind::play})); engine.process(nullptr,out.data(),512);
+    CHECK(out[3] == 0.5625f && out[0] == 0 && out[4] == 0); // mono average direct .375 + master .1875
+    engine.process(nullptr,out.data(),512); CHECK(out[3] == 0.5625f); // direct buffer cleared every callback
+    graph.master_gain=4; engine.prepare({48000,0,6,512},graph); CHECK(engine.enqueue({ControlKind::play})); engine.process(nullptr,out.data(),512); CHECK(out[3] == 1 && engine.metrics().clipped_samples > 0);
+    auto bad=graph; bad.hardware_outputs[1]={6}; rejects([&] { engine.prepare({48000,0,6,512},bad); });
+    bad=graph; bad.hardware_outputs[0]={0}; rejects([&] { engine.prepare({48000,0,6,512},bad); });
+    bad=graph; bad.master_outputs={0,0}; rejects([&] { engine.prepare({48000,0,6,512},bad); });
+    // Monitoring reaches an independently routed cue bus while transport is stopped.
+    graph.voices.clear(); graph.master_gain=1; graph.monitor={{0,0,1},{0,1,1}}; graph.monitor_track=0;
+    engine.prepare({48000,1,6,512},graph); std::array<float,512> input{}; input.fill(0.25f); engine.process(input.data(),out.data(),512); CHECK(out[3] == 0.25f && out[0] == 0);
+}
+void sends() {
+    auto asset = std::make_shared<AudioData>(); asset->channels = 1; asset->samples.assign(16384,0.25f);
+    RenderGraph graph; graph.mixer = {{0.5f,0,false,false},{0.5f,0,false,false},{},{}};
+    graph.buses = {false,true,true,false}; graph.outputs = {no_mixer_track,no_mixer_track,1,no_mixer_track};
+    graph.sends = {{{1,0.5f,true},{2,0.25f,false}},{},{},{}};
+    graph.voices = {{asset,0,0,16384,{{0,0,1},{0,1,1}}}}; graph.voices.front().mixer_track = 0;
+    AudioEngine engine; engine.prepare({48000,0,2,512},graph); CHECK(engine.enqueue({ControlKind::play}));
+    std::array<float,1024> out{};
+    allocation_check::count = 0; allocation_check::enabled = true; engine.process(nullptr,out.data(),512); allocation_check::enabled = false;
+    CHECK(allocation_check::count == 0 && out[0] == 0.203125f); // dry .125 + return (.125 + .03125)*.5
+    MixerUpdate update; update.count=4; std::copy(graph.mixer.begin(),graph.mixer.end(),update.tracks.begin());
+    update.send_gains[0] = {0.5f,0.25f}; update.tracks[0].gain=0; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512);
+    CHECK(out[1022] == 0.0625f); // pre remains; post and dry follow zero fader
+    update.tracks[0].mute=true; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512); CHECK(out[1022] == 0);
+    update.tracks[0].mute=false; update.tracks[0].gain=0.5f; update.tracks[1].solo=true;
+    CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512); CHECK(out[1022] == 0.203125f);
+    update.tracks[1].mute=true; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512); CHECK(out[1022] == 0.125f);
+    update.tracks[1].mute=false; update.send_gains[0][0]=0; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512); CHECK(out[1022] == 0.140625f);
+    update.send_gains[0][0]=std::numeric_limits<float>::quiet_NaN(); CHECK(!engine.enqueue_mix(update));
+    auto bad=graph; bad.sends[1]={{2,1,false}}; rejects([&] { engine.prepare({48000,0,2,512},bad); });
+    bad=graph; bad.sends[0][0].destination=0; rejects([&] { engine.prepare({48000,0,2,512},bad); });
+    bad=graph; bad.sends[0].push_back(bad.sends[0][0]); rejects([&] { engine.prepare({48000,0,2,512},bad); });
+    graph.voices.clear(); graph.monitor={{0,0,1},{0,1,1}}; graph.monitor_track=0;
+    engine.prepare({48000,1,2,512},graph); std::array<float,512> input{}; input.fill(0.25f); engine.process(input.data(),out.data(),512); CHECK(out[0] == 0.203125f);
+}
+void buses() {
+    using namespace mrs; using namespace mrs::audio;
+    auto a = std::make_shared<AudioData>(); a->channels = 1; a->samples.assign(8192,0.25f);
+    auto b = std::make_shared<AudioData>(*a); b->samples.assign(8192,0.125f);
+    RenderGraph graph;
+    graph.mixer = {{0.5f,0,false,false},{0.5f,0,false,false},{},{},{}};
+    graph.buses = {true,true,false,false,false};
+    graph.outputs = {no_mixer_track,0,1,1,no_mixer_track};
+    graph.voices = {{a,0,0,8192,{{0,0,1},{0,1,1}}},{b,0,0,8192,{{0,0,1},{0,1,1}}},{b,0,0,8192,{{0,0,1},{0,1,1}}}};
+    for (std::size_t i=0; i<3; ++i) graph.voices[i].mixer_track = i+2;
+    AudioEngine engine; engine.prepare({48000,1,2,512},graph); CHECK(engine.enqueue({ControlKind::play}));
+    std::array<float,1024> output{};
+    allocation_check::count = 0; allocation_check::enabled = true; engine.process(nullptr,output.data(),512); allocation_check::enabled = false;
+    CHECK(allocation_check::count == 0 && output[0] == 0.21875f && output[1] == output[0]);
+    const auto meters = engine.take_meters(); CHECK(meters.tracks[1].left == 0.1875f && meters.tracks[0].left == 0.09375f);
+    MixerUpdate update; update.count = graph.mixer.size(); std::copy(graph.mixer.begin(),graph.mixer.end(),update.tracks.begin());
+    update.tracks[1].solo = true; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,output.data(),512);
+    CHECK(output[1022] == 0.09375f); // bus solo admits all its inputs and output chain
+    update.tracks[1].solo = false; update.tracks[2].solo = true; CHECK(engine.enqueue_mix(update));
+    allocation_check::count = 0; allocation_check::enabled = true; engine.process(nullptr,output.data(),512); allocation_check::enabled = false;
+    CHECK(allocation_check::count == 0 && output[1022] == 0.0625f); // track solo admits its buses, no siblings
+    update.tracks[0].mute = true; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,output.data(),512); CHECK(output[1022] == 0);
+    update.tracks[0].mute = false; update.tracks[2].solo = false; update.tracks[1].pan = -1;
+    CHECK(engine.enqueue_mix(update)); engine.process(nullptr,output.data(),512); CHECK(output[1022] == 0.21875f && output[1023] == 0.125f);
+    auto invalid = graph; invalid.outputs[0] = 1; rejects([&] { engine.prepare({48000,1,2,512},invalid); });
+    invalid = graph; invalid.outputs[1] = 2; rejects([&] { engine.prepare({48000,1,2,512},invalid); });
+    invalid = graph; invalid.outputs.pop_back(); rejects([&] { engine.prepare({48000,1,2,512},invalid); });
+    invalid = graph; invalid.voices[0].mixer_track = 0; rejects([&] { engine.prepare({48000,1,2,512},invalid); });
+    // Stopped monitor also reaches the same subgroup chain.
+    graph.voices.clear(); graph.monitor = {{0,0,1},{0,1,1}}; graph.monitor_track = 2;
+    engine.prepare({48000,1,2,512},graph); std::array<float,512> input{}; input.fill(0.25f);
+    engine.process(input.data(),output.data(),512); CHECK(output[0] == 0.0625f && output[1] == 0.0625f);
+}
 void mixer() {
     using namespace mrs; using namespace mrs::audio;
     auto data = std::make_shared<AudioData>(); data->channels = 2; data->samples.assign(4096*2,0.25f);
@@ -512,11 +605,212 @@ void mixer() {
     engine.process(input.data(),out.data(),512); CHECK(std::abs(out[0]-0.1f)<0.00001f && out[1] == 0);
     graph.monitor_track = 2; rejects([&] { engine.prepare({48000,1,2,512},graph); });
 }
+
+
+void pdc() {
+    using namespace mrs::processing;
+    const auto prepared=[](std::uint32_t latency,std::uint32_t block){auto state=demo_graph();state.nodes.front().parameters.clear();return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(state),0,false,false},ProcessConfig{48000,2,block},[latency](const auto&){return std::make_unique<LatencyFixture>(latency);});};
+    RenderGraph graph;graph.mixer.resize(4);graph.buses={false,false,true,false};graph.outputs={no_mixer_track,no_mixer_track,no_mixer_track,no_mixer_track};
+    graph.sends={{{2,1,false}},{{2,1,true}},{},{}};graph.hardware_outputs={{},{},{},{1}};graph.master_outputs={0};
+    graph.inserts={prepared(7,17),{},prepared(23,17),prepared(5,17)};graph.master_inserts=prepared(11,128);
+    graph.monitor={{0,0,1,0},{0,1,1,0},{0,0,1,1},{0,1,1,1},{0,0,1,3},{0,1,1,3}};graph.input_monitoring={true,true,false,true};
+    AudioEngine engine;engine.prepare({48000,1,2,128},graph);CHECK(engine.compensation().output==41&&engine.compensation().track_paths==std::vector<std::uint64_t>({7,0,30,5}));
+    std::array<float,128> in{};std::array<float,256> out{};std::size_t position=0;const auto before=allocation_check::count.load();
+    while(position<400){const auto frames=static_cast<std::uint32_t>(std::min<std::size_t>(1+position%127,400-position));in.fill(0);if(!position)in[0]=.1f;
+        allocation_check::enabled=true;engine.process(in.data(),out.data(),frames);allocation_check::enabled=false;
+        for(std::uint32_t f=0;f<frames;++f){CHECK(std::abs(out[f*2]-(position+f==41?.4f:0.f))<1e-6f);CHECK(std::abs(out[f*2+1]-(position+f==41?.1f:0.f))<1e-6f);}position+=frames;}
+    CHECK(allocation_check::count.load()==before);
+    in.fill(0);in[0]=.1f;engine.process(in.data(),out.data(),1);CHECK(engine.enqueue({ControlKind::stop}));in.fill(0);engine.process(in.data(),out.data(),128);for(float sample:out)CHECK(sample==0);
+    position=0;while(position<300){const auto frames=static_cast<std::uint32_t>(std::min<std::size_t>(1+position%127,300-position));for(std::uint32_t f=0;f<frames;++f)in[f]=static_cast<float>(.05*std::sin((position+f)*.13));engine.process(in.data(),out.data(),frames);
+        for(std::uint32_t f=0;f<frames;++f){const float expected=position+f<41?0.f:static_cast<float>(.05*std::sin((position+f-41)*.13));CHECK(std::abs(out[f*2]-expected*4)<1e-6f);CHECK(std::abs(out[f*2+1]-expected)<1e-6f);}position+=frames;}
+    auto oversized=graph;oversized.master_inserts=prepared(262140,128);rejects([&]{engine.prepare({48000,1,2,128},oversized);});
+    RenderGraph many;many.mixer.resize(40);many.inserts.resize(40);many.inserts[0]=prepared(262144,128);rejects([&]{engine.prepare({48000,1,2,128},many);});
+    // The capture tap remains at raw input, before any DSP/PDC delay.
+    TempFile file;auto recorder=std::make_shared<Recorder>(file.path,48000,0);
+    graph.recording=recorder;engine.prepare({48000,1,2,128},graph);CHECK(engine.enqueue({ControlKind::play}));in.fill(0);in[0]=.1f;
+    engine.process(in.data(),out.data(),128);CHECK(recorder->status().frames==128);engine.prepare({48000,0,2,128},{});CHECK(recorder->finish().frames==128);
+    const auto raw=load_wav(file.path);CHECK(std::abs(raw.samples.front()-.1f)<1e-6f);for(std::size_t i=1;i<raw.samples.size();++i)CHECK(raw.samples[i]==0);
+}
+void inserts() {
+    using namespace mrs::processing;
+    const auto prepared=[](float gain,std::uint32_t block) {
+        const std::array<NativeInsert,1> fx{{{new_id(),InsertKind::gain,gain}}};
+        auto saved=std::make_shared<const GraphState>(insert_graph(fx));
+        return std::make_shared<PreparedGraph>(GraphSnapshot{saved,0,false,false},ProcessConfig{48000,2,block});
+    };
+    RenderGraph graph; graph.mixer={{1,0,false,false},{1,0,false,false}}; graph.buses={false,true}; graph.outputs={1,no_mixer_track};
+    graph.monitor={{0,0,1,0},{0,1,1,0}}; graph.input_monitoring={true,false}; graph.inserts={prepared(.5f,1),prepared(.5f,1)}; graph.master_inserts=prepared(.5f,128);
+    AudioEngine engine; engine.prepare({48000,1,2,128},graph); std::array<float,128> in{}; in.fill(.4f); std::array<float,256> out{};
+    const auto before=allocation_check::count.load(); allocation_check::enabled=true; engine.process(in.data(),out.data(),128); allocation_check::enabled=false;
+    CHECK(allocation_check::count.load()==before); CHECK(std::abs(out[0]-.05f)<1e-6f && out[0]==out[1]);
+    graph.hardware_outputs={{},{1}}; engine.prepare({48000,1,2,128},graph); engine.process(in.data(),out.data(),128);
+    CHECK(out[0]==0 && std::abs(out[1]-.1f)<1e-6f); // direct bus bypasses Master inserts
+    graph.inserts.pop_back(); rejects([&] { engine.prepare({48000,1,2,128},graph); });
+}
+
+void callback_blocks(){
+    using namespace mrs::processing;
+    struct Observed {std::array<std::uint32_t,32> frames{};std::array<Sample,32> positions{};std::size_t calls{};unsigned fp_mode{};} observed;
+    struct Probe final:IProcessor {
+        Observed& seen;explicit Probe(Observed& s):seen(s){}
+        std::vector<ParameterInfo> parameters() const override{return {};}
+        void prepare(ProcessConfig) override{}
+        void restore(const PluginState&) override{}
+        PluginState capture() const override{return {};}
+        bool set_parameter(std::uint32_t,float) noexcept override{return false;}
+        std::optional<float> parameter_value(std::uint32_t) const noexcept override{return {};}
+        std::uint32_t latency() const noexcept override{return 0;}
+        bool live_safe() const noexcept override{return true;}
+        void warm() override{}
+        void reset() noexcept override{}
+        void process(ProcessBlock b) noexcept override{if(seen.calls<seen.frames.size()){seen.frames[seen.calls]=b.frames;seen.positions[seen.calls]=b.position;}++seen.calls;
+#if defined(_M_X64) || defined(_M_IX86) || defined(__SSE2__)
+            seen.fp_mode=_mm_getcsr();
+#endif
+        }
+    };
+    auto saved=demo_graph();saved.nodes.front().parameters.clear();const auto state=std::make_shared<const GraphState>(saved);
+    auto chain=std::make_shared<PreparedGraph>(GraphSnapshot{state,0,false,false},ProcessConfig{48000,2,256},[&](const auto&){return std::make_unique<Probe>(observed);});
+    RenderGraph graph;graph.mixer.resize(1);graph.inserts={chain};
+    AudioEngine engine;engine.prepare({48000,0,2,8192,128},graph);
+#if defined(_M_X64) || defined(_M_IX86) || defined(__SSE2__)
+    const auto original_mode=_mm_getcsr();_mm_setcsr(original_mode&~0x8040U);const auto caller_mode=_mm_getcsr();
+#endif
+    std::array<float,1024> audio{};const auto allocations=allocation_check::count.load();allocation_check::enabled=true;
+    engine.process(nullptr,audio.data(),128);allocation_check::enabled=false;
+#if defined(_M_X64) || defined(_M_IX86) || defined(__SSE2__)
+    CHECK((observed.fp_mode&0x8040U)==0x8040U&&_mm_getcsr()==caller_mode);_mm_setcsr(original_mode);
+#endif
+    CHECK(observed.calls==1&&observed.frames[0]==128&&allocation_check::count.load()==allocations);
+    observed={};engine.prepare({48000,0,2,8192,256},graph);engine.process(nullptr,audio.data(),256);CHECK(observed.calls==1&&observed.frames[0]==256);
+    observed={};engine.prepare({48000,0,2,8192,128},graph);engine.process(nullptr,audio.data(),299);CHECK(observed.calls==3&&observed.frames[0]==128&&observed.frames[1]==128&&observed.frames[2]==43);
+    observed={};engine.prepare({48000,0,2,8192,128},graph,{PlaybackState::paused,10,LoopRange{10,27}});
+    CHECK(engine.enqueue({ControlKind::play}));engine.process(nullptr,audio.data(),128);
+    CHECK(observed.calls==8&&observed.frames[0]==17&&observed.frames[7]==9);
+    for(std::size_t i=0;i<observed.calls;++i)CHECK(observed.positions[i]==10);
+    CHECK(engine.state().sample==19);
+    rejects([&]{engine.prepare({48000,0,2,128,256},graph);});
+    RenderGraph oversized;oversized.mixer.resize(max_mixer_tracks);
+    rejects([&]{engine.prepare({48000,0,max_channels,65536},oversized);});
+}
+
+void multi_input() {
+    TempFile mono, stereo;
+    auto first=std::make_shared<Recorder>(mono.path,48000,100,std::vector<std::uint32_t>{2});
+    auto second=std::make_shared<Recorder>(stereo.path,48000,100,std::vector<std::uint32_t>{0,1});
+    RenderGraph graph; graph.recordings={first,second}; graph.mixer={{1,0,false,false},{1,0,false,false}};
+    graph.monitor={{2,0,1,0},{2,1,1,0},{0,0,1,1},{1,1,1,1}};
+    graph.input_monitoring={false,true};
+    AudioEngine engine; engine.prepare({48000,3,2,8},graph,{PlaybackState::paused,100,{}});
+    std::array<float,12> in{.1f,.6f,.8f, .2f,.5f,.7f, .3f,.4f,.6f, .4f,.3f,.5f};
+    std::array<float,8> out{};
+    engine.process(in.data(),out.data(),4); CHECK(first->status().frames == 0 && out[0] == .1f && out[1] == .6f);
+    CHECK(engine.enqueue({ControlKind::play}));
+    const auto allocations=allocation_check::count.load(); allocation_check::enabled=true;
+    engine.process(in.data(),out.data(),4); allocation_check::enabled=false;
+    CHECK(allocation_check::count.load() == allocations);
+    CHECK(first->status().frames == 4 && second->status().frames == 4);
+    const auto peaks=engine.take_meters(); CHECK(peaks.tracks[1].left == .4f && peaks.tracks[1].right == .6f);
+    MixerUpdate update; update.count=2; update.tracks[0]={0,0,true,false}; update.tracks[1]={0,0,true,false}; update.master_gain=0;
+    CHECK(engine.enqueue_mix(update)); engine.process(in.data(),out.data(),4);
+    CHECK(first->status().frames == 8 && second->status().frames == 8);
+    engine.prepare({48000,0,2,8},{});
+    CHECK(first->finish().frames == 8 && second->finish().frames == 8);
+    const auto stereoPreview=second->preview();CHECK(stereoPreview&&stereoPreview->frames==8&&stereoPreview->channels==2&&stereoPreview->peaks.size()==2);
+    CHECK(stereoPreview->peaks[0].minimum==.1f&&stereoPreview->peaks[0].maximum==.4f&&stereoPreview->peaks[1].minimum==.3f&&stereoPreview->peaks[1].maximum==.6f);
+    const auto a=load_wav(mono.path), b=load_wav(stereo.path);
+    CHECK(a.channels == 1 && b.channels == 2 && a.frames() == b.frames());
+    for (std::size_t f=0; f<8; ++f) {
+        CHECK(a.samples[f] == in[(f%4)*3+2]);
+        CHECK(b.samples[f*2] == in[(f%4)*3] && b.samples[f*2+1] == in[(f%4)*3+1]);
+    }
+    TempFile bad; auto invalid=std::make_shared<Recorder>(bad.path,48000,0,std::vector<std::uint32_t>{1,2});
+    RenderGraph capture; capture.recordings={invalid}; rejects([&] { engine.prepare({48000,2,2,8},capture); });
+    capture.recordings={invalid,invalid}; rejects([&] { engine.prepare({48000,3,2,8},capture); });
+    CHECK(invalid->finish().frames == 0 && !std::filesystem::exists(bad.path));
+    TempFile dropout; Recorder pair(dropout.path,48000,0,{0,1});
+    pair.capture(in.data(),3,4,0); pair.capture(nullptr,3,4,4); CHECK(pair.finish().frames == 4);
+    CHECK(load_wav(dropout.path).channels == 2);
+}
+void stop_anchor() {
+    AudioEngine engine; engine.prepare({48000,0,2,8},{}); std::array<float,8> out{};
+    CHECK(engine.enqueue({ControlKind::seek,100})); CHECK(engine.enqueue({ControlKind::play}));
+    engine.process(nullptr,out.data(),4); CHECK(engine.state().sample == 104 && engine.state().play_start == 100);
+    CHECK(engine.enqueue({ControlKind::play})); engine.process(nullptr,out.data(),4);
+    CHECK(engine.enqueue({ControlKind::stop})); engine.process(nullptr,out.data(),4);
+    CHECK(engine.state().sample == 100 && engine.state().playback == PlaybackState::stopped);
+    CHECK(engine.enqueue({ControlKind::play})); engine.process(nullptr,out.data(),4);
+    CHECK(engine.enqueue({ControlKind::pause})); engine.process(nullptr,out.data(),4);
+    CHECK(engine.state().sample == 104);
+    engine.prepare({48000,0,2,8},{},engine.state()); // graph rebuild must retain the anchor
+    CHECK(engine.enqueue({ControlKind::stop})); engine.process(nullptr,out.data(),4); CHECK(engine.state().sample == 100);
+    CHECK(engine.enqueue({ControlKind::seek,200})); CHECK(engine.enqueue({ControlKind::loop,200,204}));
+    CHECK(engine.enqueue({ControlKind::play})); engine.process(nullptr,out.data(),4);
+    CHECK(engine.state().sample == 200);
+    CHECK(engine.enqueue({ControlKind::stop})); engine.process(nullptr,out.data(),4); CHECK(engine.state().sample == 200);
+    CHECK(engine.enqueue({ControlKind::loop,0,0})); CHECK(engine.enqueue({ControlKind::prepared_seek,300}));
+    CHECK(engine.enqueue({ControlKind::play})); engine.process(nullptr,out.data(),4); CHECK(engine.state().play_start == 300);
+    CHECK(engine.enqueue({ControlKind::stop})); engine.process(nullptr,out.data(),4); CHECK(engine.state().sample == 300);
+    rejects([&] { engine.prepare({48000,0,2,8},{},{PlaybackState::paused,0,{},-1}); });
+}
+
+void metronome(){
+    for(const auto rate:{44100U,48000U,96000U}){
+        TimeMap map;map.tempos={{0,123},{4*ppq,91}};map.meters={{1,3,4},{3,5,8}};Timeline time(map,rate);
+        Metronome click;click.prepare(map,rate);const auto end=time.to_samples(9*ppq);
+        std::vector<Sample> starts;bool active=false;float first_peak=0,second_peak=0;
+        allocation_check::count=0;allocation_check::enabled=true;
+        for(Sample i=0;i<end;++i){const auto value=click.sample(i,true,true,.5f);const bool nonzero=std::abs(value)>1e-7f;
+            // Onset has a zero first sample and half-ms attack; use expected beat windows.
+            if(i<static_cast<Sample>(rate/40))first_peak=std::max(first_peak,std::abs(value));
+            if(i>=time.to_samples(ppq)&&i<time.to_samples(ppq)+rate/40)second_peak=std::max(second_peak,std::abs(value));
+            if(nonzero&&!active){allocation_check::enabled=false;starts.push_back(i);allocation_check::enabled=true;}active=nonzero;
+        }
+        allocation_check::enabled=false;CHECK(allocation_check::count==0);CHECK(first_peak>second_peak*1.2f);
+        for(const Tick tick:{0LL,ppq,2*ppq,3*ppq,4*ppq,5*ppq,6*ppq,6*ppq+ppq/2,7*ppq,7*ppq+ppq/2,8*ppq,8*ppq+ppq/2}){
+            click.reset();const auto at=time.to_samples(tick);CHECK(click.sample(at,true,true,.5f)==0);CHECK(std::abs(click.sample(at+1,true,true,.5f))>0);
+        }
+        CHECK(click.sample(end,false,true,1)==0);
+    }
+    TempFile count_file,cancel_file;auto recorder=std::make_shared<Recorder>(count_file.path,48000,500);
+    RenderGraph graph;graph.recordings={recorder};graph.click.recording=true;graph.count_frames=193;graph.count_beat_frames=48.25;graph.count_beats=4;
+    AudioEngine engine;engine.prepare({48000,1,2,256},graph,{PlaybackState::paused,500});std::array<float,512> output{};std::array<float,256> input{};for(std::size_t i=0;i<input.size();++i)input[i]=static_cast<float>(i)/512;
+    CHECK(engine.enqueue({ControlKind::play}));allocation_check::count=0;allocation_check::enabled=true;
+    engine.process(input.data(),output.data(),128);allocation_check::enabled=false;CHECK(allocation_check::count==0);CHECK(engine.state().sample==500&&engine.state().count_remaining==65);CHECK(recorder->status().frames==0);
+    CHECK(std::any_of(output.begin(),output.begin()+256,[](float value){return value!=0;}));
+    allocation_check::enabled=true;engine.process(input.data(),output.data(),128);allocation_check::enabled=false;CHECK(allocation_check::count==0);
+    CHECK(engine.state().count_remaining==0&&engine.state().sample==563);auto take=recorder->finish();CHECK(take.frames==63);auto raw=load_wav(take.path);CHECK(raw.samples.front()==input[65]&&raw.samples.back()==input[127]);
+    auto canceled=std::make_shared<Recorder>(cancel_file.path,48000,0);graph.recordings={canceled};engine.prepare({48000,1,2,256},graph);CHECK(engine.enqueue({ControlKind::play}));engine.process(input.data(),output.data(),64);CHECK(engine.enqueue({ControlKind::stop}));engine.process(input.data(),output.data(),128);CHECK(engine.state().count_remaining==0&&engine.state().sample==0&&engine.state().playback==PlaybackState::stopped);CHECK(canceled->finish().frames==0&&!std::filesystem::exists(cancel_file.path));
+    RenderGraph loop;loop.click.playback=true;loop.click_time.tempos={{0,120}};engine.prepare({48000,0,2,256},loop,{PlaybackState::paused,0,LoopRange{0,128}});CHECK(engine.enqueue({ControlKind::play}));std::array<float,256> first{};engine.process(nullptr,first.data(),128);engine.process(nullptr,output.data(),128);CHECK(std::equal(first.begin(),first.end(),output.begin()));CHECK(engine.enqueue({ControlKind::click,0,20}));engine.process(nullptr,output.data(),128);CHECK(std::all_of(output.begin(),output.begin()+256,[](float value){return value==0;}));
+}
+
+void state_snapshot(){
+    auto engine=std::make_shared<AudioEngine>();engine->prepare({48000,0,2,128},{},{PlaybackState::paused,100,LoopRange{100,200},90,7});
+    RealtimeState head;CHECK(engine->try_state(head));CHECK(head.sample==100&&head.loop==LoopRange(100,200));
+    EngineTransport transport(engine,Timeline(TimeMap{},48000));const auto previous=transport.state();
+    {
+        AudioEngineTestAccess::Busy busy(*engine);
+        allocation_check::count=0;allocation_check::enabled=true;
+        const bool read=engine->try_state(head);const auto held=transport.state();transport.poll();
+        allocation_check::enabled=false;
+        CHECK(!read&&head.sample==100&&head.play_start==90&&head.count_remaining==0&&head.loop==LoopRange(100,200));
+        CHECK(held==previous&&allocation_check::count==0);
+        rejects([&]{(void)engine->state();});
+    }
+    engine->prepare({48000,0,2,128},{},{PlaybackState::paused,300});
+    CHECK(engine->try_state(head));CHECK(head.sample==300&&!head.loop&&head.count_remaining==0);
+    engine->prepare({48000,0,2,128},{});CHECK(engine->enqueue({ControlKind::play}));
+    std::atomic<bool> done{};std::atomic<unsigned> bad{};unsigned successes{};
+    std::jthread producer([&]{std::array<float,256> out{};for(unsigned i=0;i<50000;++i)engine->process(nullptr,out.data(),128);done=true;});
+    while(!done){RealtimeState snapshot{PlaybackState::paused,123,LoopRange{12,34},56,78};if(engine->try_state(snapshot)){++successes;if(snapshot.sample%128||snapshot.play_start!=0||snapshot.loop||snapshot.count_remaining)++bad;}else if(snapshot.sample!=123||snapshot.loop!=LoopRange(12,34)||snapshot.play_start!=56||snapshot.count_remaining!=78||snapshot.playback!=PlaybackState::paused)++bad;}
+    producer.join();CHECK(bad==0);CHECK(engine->try_state(head)&&head.sample==50000*128);CHECK(successes>0);
+}
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
-        if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if(suite=="state_snapshot"){state_snapshot();std::cout<<"PASS state_snapshot: "<<assertions<<" checks\n";return 0;}
+        if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();

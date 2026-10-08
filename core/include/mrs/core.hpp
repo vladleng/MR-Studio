@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -16,7 +18,7 @@ using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 3;
+inline constexpr std::uint32_t schema_version = 14;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -46,13 +48,46 @@ struct TimeMap {
     void validate() const;
     bool operator==(const TimeMap&) const = default;
 };
-enum class TrackKind { audio, midi };
+enum class TrackKind { audio, midi, bus, instrument };
 enum class MarkerKind { generic, cue, warning, lyric, action, navigation };
 struct Folder {
     Id id;
     std::string name;
     std::optional<Id> parent;
     bool operator==(const Folder&) const = default;
+};
+enum class InsertKind { gain, highpass, lowpass, eq, channel_eq, vst3, cab_ir };
+struct CabIr {
+    std::string name;
+    std::uint32_t sample_rate{48000}, channels{1};
+    std::vector<float> samples; // embedded original, mono or independent L/R kernels
+    float mix{1}, low_cut{20}, high_cut{20000};
+    bool invert{};
+    void validate() const;
+    bool operator==(const CabIr&) const = default;
+};
+struct EqBand {
+    float frequency{1000}, gain{}, q{0.70710678f};
+    bool enabled{true};
+    bool operator==(const EqBand&) const = default;
+};
+struct InsertParameter {
+    std::uint32_t id{}; float value{};
+    bool operator==(const InsertParameter&) const = default;
+};
+struct NativeInsert {
+    Id id;
+    InsertKind kind{InsertKind::gain};
+    float gain{1}, frequency{1000}, q{0.70710678f}; // gain: linear trim or EQ dB
+    bool bypass{};
+    // HP, three bell bands, LP. Filters initially off, bell bands flat.
+    std::array<EqBand,5> bands{{{40,0,0.70710678f,false},{150,0,0.70710678f,true},{1000,0,0.70710678f,true},{6000,0,0.70710678f,true},{16000,0,0.70710678f,false}}};
+    std::string plugin_path, class_id, plugin_name;
+    std::vector<std::byte> component_state, controller_state;
+    std::vector<InsertParameter> parameters;
+    CabIr ir;
+    void validate() const;
+    bool operator==(const NativeInsert&) const = default;
 };
 struct Track {
     Id id;
@@ -65,7 +100,41 @@ struct Track {
         bool operator==(const Mix&) const = default;
         void validate() const;
     } mix{};
+    std::optional<Id> output{}; // no destination means master; otherwise a shared bus
+    struct Send {
+        Id bus;
+        float gain{1};
+        bool pre_fader{};
+        bool operator==(const Send&) const = default;
+    };
+    std::vector<Send> sends{}; // up to eight independent sends to shared buses/returns
+    int input{-2}; // audio only: -2 default device input, -1 off, otherwise physical index
+    bool input_stereo{};
+    bool input_monitor{};
+    std::vector<int> hardware_outputs{}; // mono or stereo physical channels; exclusive with output bus
+    std::vector<NativeInsert> inserts{}; // pre-fader; at most eight, 32 total in project
+    std::string midi_input{}; // stable Windows port key; empty = off
+    int midi_channel{-1}; // -1 all, otherwise zero-based 0..15
+    bool midi_monitor{true}; // instrument live ingress; no MIDI recording in 4a
+    std::string midi_output{}; // external Windows port key; empty = off
+    int midi_output_channel{-1}; // -1 preserve authored channel, otherwise 0..15
     bool operator==(const Track&) const = default;
+};
+struct MidiNote {
+    Id id;
+    Tick start{}, length{ppq}; // source-relative ticks
+    int pitch{60}, velocity{100}, channel{}; // channel zero-based
+    bool operator==(const MidiNote&) const = default;
+};
+struct MidiChannelEvent {
+    Id id; Tick start{}; int kind{2},channel{},data1{},data2{}; // MidiKind ordinals 2..6
+    bool operator==(const MidiChannelEvent&) const = default;
+};
+struct MidiClip {
+    Tick start{}, length{4*ppq}, source_offset{};
+    std::vector<MidiNote> notes;
+    std::vector<MidiChannelEvent> events{};
+    bool operator==(const MidiClip&) const = default;
 };
 struct Clip {
     Id id;
@@ -75,6 +144,7 @@ struct Clip {
     Sample length{1};
     Sample source_offset{};
     std::string source; // opaque asset reference, Stage 0 does not open it
+    std::optional<MidiClip> midi{}; // when present, sample fields stay at defaults
     bool operator==(const Clip&) const = default;
 };
 struct Marker {
@@ -114,6 +184,8 @@ struct Project {
     std::vector<Chord> chords;
     std::vector<ArrangerSection> sections;
     float master_gain{1};
+    std::vector<int> master_outputs{}; // empty = first selected mono/stereo hardware outputs
+    std::vector<NativeInsert> master_inserts{};
     void validate() const;
     bool operator==(const Project&) const = default;
 };
@@ -132,6 +204,9 @@ private:
     std::vector<MeterSegment> meters_;
     std::uint32_t rate_;
 };
+// Non-RT projections. MIDI ticks are authoritative; audio sample ranges unchanged.
+Sample clip_start(const Clip&, const Timeline&);
+Sample clip_end(const Clip&, const Timeline&);
 class Connection {
 public:
     explicit Connection(std::function<void()> disconnect = {});
@@ -257,6 +332,71 @@ public:
     void apply(Project& p) const override { p.master_gain = gain_; }
 private:
     float gain_;
+};
+class SetTrackSends final : public ICommand {
+public:
+    SetTrackSends(Id track, std::vector<Track::Send> sends) : track_(std::move(track)), sends_(std::move(sends)) {}
+    std::string_view name() const override { return "Set track sends"; }
+    void apply(Project&) const override;
+private:
+    Id track_; std::vector<Track::Send> sends_;
+};
+class SetInserts final : public ICommand {
+public:
+    SetInserts(std::optional<Id> track, std::vector<NativeInsert> inserts) : track_(std::move(track)), inserts_(std::move(inserts)) {}
+    std::string_view name() const override { return "Set insert chain"; }
+    void apply(Project&) const override;
+private:
+    std::optional<Id> track_; std::vector<NativeInsert> inserts_;
+};
+class SetTrackInput final : public ICommand {
+public:
+    SetTrackInput(Id track, int input, bool stereo = false) : track_(std::move(track)), input_(input), stereo_(stereo) {}
+    std::string_view name() const override { return "Set track input"; }
+    void apply(Project&) const override;
+private:
+    Id track_; int input_; bool stereo_;
+};
+class SetTrackMonitoring final : public ICommand {
+public:
+    SetTrackMonitoring(Id track, bool enabled) : track_(std::move(track)), enabled_(enabled) {}
+    std::string_view name() const override { return "Set track monitoring"; }
+    void apply(Project&) const override;
+private:
+    Id track_; bool enabled_;
+};
+class SetMidiInput final : public ICommand {
+public:
+    SetMidiInput(Id track, std::string port, int channel, bool monitor)
+        : track_(std::move(track)), port_(std::move(port)), channel_(channel), monitor_(monitor) {}
+    std::string_view name() const override { return "Set MIDI input"; }
+    void apply(Project&) const override;
+private:
+    Id track_; std::string port_; int channel_; bool monitor_;
+};
+class SetMidiOutput final : public ICommand {
+public:
+    SetMidiOutput(Id track,std::string port,int channel=-1):track_(std::move(track)),port_(std::move(port)),channel_(channel){}
+    std::string_view name() const override {return "Set external MIDI output";}
+    void apply(Project&) const override;
+private: Id track_;std::string port_;int channel_;
+};
+class SetHardwareOutput final : public ICommand {
+public:
+    SetHardwareOutput(std::optional<Id> track, std::vector<int> outputs) : track_(std::move(track)), outputs_(std::move(outputs)) {}
+    std::string_view name() const override { return "Set hardware output"; }
+    void apply(Project&) const override;
+private:
+    std::optional<Id> track_; std::vector<int> outputs_;
+};
+class SetTrackOutput final : public ICommand {
+public:
+    SetTrackOutput(Id track, std::optional<Id> output) : track_(std::move(track)), output_(std::move(output)) {}
+    std::string_view name() const override { return "Channel output"; }
+    void apply(Project&) const override;
+private:
+    Id track_;
+    std::optional<Id> output_;
 };
 class AddTrack final : public ICommand {
 public:

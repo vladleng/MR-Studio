@@ -92,4 +92,3 @@ callback gaps: 3858 us (mixed record), 3696 us (playback); no burst callbacks.
 
 Hardware ASIO monitoring/recording, representative installed effects and sustained
 transport/reconnect/automation acceptance remain open on #54 / broader #16.
-

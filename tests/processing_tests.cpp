@@ -1,9 +1,11 @@
 #include <mrs/processing.hpp>
+#include "latency_fixture.hpp"
 #include <mrs/audio.hpp>
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdlib>
+#include <cmath>
 #include <iostream>
 #include <limits>
 #include <new>
@@ -162,13 +164,25 @@ public:
     }
 };
 void latency() {
+    auto wire=two_nodes();for(auto& n:wire.nodes){n.parameters.clear();n.processor_id="fixture";}wire.edges[1].from.reset();wire.outputs={wire.nodes[0].id,wire.nodes[1].id};
+    const auto factory=[](const NodeState& n){return std::make_unique<LatencyFixture>(n.id==mrs::Id{"gain"}?7U:n.id==mrs::Id{"sum"}?0U:31U);};
+    for(bool merge:{false,true}){
+        auto state=wire;if(merge){auto sum=state.nodes[0];sum.id={"sum"};state.nodes.push_back(sum);state.edges.push_back({state.nodes[0].id,sum.id,1});state.edges.push_back({state.nodes[1].id,sum.id,1});state.outputs={sum.id};}
+        PreparedGraph graph{snapshot(state),{48000,2,17,128},factory};CHECK(graph.latency().output==31&&graph.latency().compensation_applied);
+        std::array<float,34> block{};std::size_t position=0;const auto before=allocations.load();
+        while(position<200){const auto count=static_cast<std::uint32_t>(std::min<std::size_t>(1+position%17,200-position));block.fill(0);if(!position){block[0]=.125f;block[1]=-.25f;}probing=true;graph.process(block.data(),count);probing=false;
+            for(std::uint32_t f=0;f<count;++f){CHECK(block[f*2]==(position+f==31?.25f:0.f));CHECK(block[f*2+1]==(position+f==31?-.5f:0.f));}position+=count;}
+        CHECK(allocations.load()==before);block.fill(0);block[0]=.125f;graph.process(block.data(),1);graph.panic();block.fill(0);for(int i=0;i<40;++i){graph.process(block.data(),1);CHECK(block[0]==0&&block[1]==0);}
+        auto bypass=state;bypass.nodes[0].bypass=true;rejects([&]{graph.enqueue_parameters(bypass);});
+    }
+    rejects([&]{PreparedGraph bad{snapshot(wire),{48000,2,17},[](const auto&){return std::make_unique<LatencyFixture>(262145);}};});
     auto g = two_nodes();
     for (auto& n : g.nodes) { n.parameters.clear(); n.processor_id = "mock"; }
     PreparedGraph serial{snapshot(g),{48000,2,8,128},[](const auto&) { return std::make_unique<MockProcessor>(80); }};
     CHECK(serial.latency().output == 160 && !serial.latency().live_safe);
     g.edges[1].from.reset(); g.outputs = {g.nodes[0].id,g.nodes[1].id};
     PreparedGraph parallel{snapshot(g),{48000,2,8,128},[](const auto& n) { return std::make_unique<MockProcessor>(n.id == mrs::Id{"gain"} ? 20U : 80U); }};
-    CHECK(parallel.latency().output == 80 && parallel.latency().parallel_paths_need_compensation && !parallel.latency().live_safe);
+    CHECK(parallel.latency().output == 80 && !parallel.latency().parallel_paths_need_compensation && parallel.latency().compensation_applied && parallel.latency().live_safe);
     auto vst = demo_graph(); vst.nodes[0].format = ProcessorFormat::vst3;
     vst.nodes[0].parameters.clear(); vst.nodes[0].plugin.class_id = "0123456789ABCDEF0123456789ABCDEF";
     vst.nodes[0].plugin.component = {std::byte{1},std::byte{2}};
@@ -216,12 +230,76 @@ void realtime() {
     for (int i = 0; i < 140; ++i) { graph.panic(); graph.process(audio.data(),128); }
     CHECK(graph.metrics().output_overflows > 0);
 }
+
+void filters() {
+    using namespace mrs;
+    const auto response=[](InsertKind kind,float db,double hz) {
+        NativeInsert fx{new_id(),kind,db,1000,0.70710678f};
+        PreparedGraph graph{snapshot(insert_graph(std::array{fx})),{48000,2,128}};
+        std::array<float,256> audio{}; double sum{},reference{};
+        for (int block=0;block<96;++block) {
+            for (int f=0;f<128;++f) { const auto value=static_cast<float>(0.1*std::sin(2*3.141592653589793*hz*(block*128+f)/48000)); audio[static_cast<std::size_t>(f)*2]=value; audio[static_cast<std::size_t>(f)*2+1]=0; if (block>=32) reference+=value*value; }
+            const auto before=allocations.load(); probing=true; graph.process(audio.data(),128); probing=false; CHECK(allocations.load()==before);
+            for (int f=0;f<128;++f) { CHECK(std::isfinite(audio[static_cast<std::size_t>(f)*2]) && audio[static_cast<std::size_t>(f)*2+1]==0); if (block>=32) sum+=audio[static_cast<std::size_t>(f)*2]*audio[static_cast<std::size_t>(f)*2]; }
+        }
+        PreparedGraph restored{snapshot(graph.capture()),{48000,2,128}}; // opaque native state restore
+        return std::sqrt(sum/reference);
+    };
+    CHECK(std::abs(response(InsertKind::lowpass,1,100)-1)<0.03); CHECK(response(InsertKind::lowpass,1,8000)<0.03);
+    CHECK(response(InsertKind::highpass,1,100)<0.03); CHECK(response(InsertKind::highpass,1,8000)>0.95);
+    CHECK(std::abs(response(InsertKind::eq,6,1000)-std::pow(10.0,6.0/20))<0.03);
+    CHECK(std::abs(response(InsertKind::eq,0,1000)-1)<0.001);
+    NativeInsert bypass{new_id(),InsertKind::lowpass,1,20,10,true}; PreparedGraph wire{snapshot(insert_graph(std::array{bypass})),{8000,2,128}};
+    std::array<float,256> audio{}; audio[0]=.25f; audio[1]=-.75f; const auto exact=audio; wire.process(audio.data(),128); CHECK(audio==exact);
+    bypass.bypass=false; bypass.frequency=20000; PreparedGraph low_rate{snapshot(insert_graph(std::array{bypass})),{8000,2,128}};
+    for (int n=0;n<8;++n) { low_rate.process(audio.data(),128); for (auto sample:audio) CHECK(std::isfinite(sample)); }
+}
+
+void channel_eq(){
+    mrs::NativeInsert fx;fx.id={"channel-eq"};fx.kind=mrs::InsertKind::channel_eq;
+    auto g=insert_graph(std::array{fx});PreparedGraph runtime{snapshot(g),{48000,2,128}};
+    std::array<float,256> buffer{};buffer[0]=1;runtime.process(buffer.data(),128);CHECK(buffer[0]==1&&buffer[1]==0);CHECK(std::abs(eq_response_db(fx,1000,48000))<1e-8);
+    fx.bands[2].gain=12;fx.bands[2].q=1;CHECK(std::abs(eq_response_db(fx,1000,48000)-12)<0.00001);
+    fx.bands[0].enabled=true;fx.bands[0].frequency=200;fx.bands[4].enabled=true;fx.bands[4].frequency=5000;
+    CHECK(eq_response_db(fx,20,48000)<-35&&eq_response_db(fx,18000,48000)<-25);
+    auto changed=insert_graph(std::array{fx});CHECK(runtime.enqueue_parameters(changed));allocations=0;probing=true;
+    for(int n=0;n<64;++n){for(std::size_t i=0;i<buffer.size();i+=2){buffer[i]=static_cast<float>(std::sin((n*128+i/2)*0.1));buffer[i+1]=0;}runtime.process(buffer.data(),128);for(std::size_t i=0;i<buffer.size();i+=2){if(!std::isfinite(buffer[i])||buffer[i+1]!=0)std::abort();}}
+    probing=false;CHECK(allocations==0);
+    fx.bypass=true;CHECK(runtime.enqueue_parameters(insert_graph(std::array{fx})));buffer.fill(0.25f);runtime.process(buffer.data(),128);for(auto v:buffer)CHECK(v==0.25f);
+    fx.bypass=false;fx.bands[2].frequency=20000;fx.bands[2].q=10;PreparedGraph low{snapshot(insert_graph(std::array{fx})),{8000,2,128}};for(int n=0;n<64;++n){buffer.fill(0.25f);low.process(buffer.data(),128);for(auto v:buffer)CHECK(std::isfinite(v));}
+    auto p=mrs::demo_project();p.tracks.front().inserts={fx};CHECK(mrs::deserialize(mrs::serialize(p))==p);
+    CHECK(runtime.enqueue_parameters(changed));for(int n=0;n<62;++n)CHECK(runtime.enqueue_parameters(changed));CHECK(!runtime.enqueue_parameters(changed));runtime.process(buffer.data(),128);CHECK(runtime.enqueue_parameters(changed));
+}
+
+void cab_ir(){
+    using namespace mrs;NativeInsert fx;fx.id={"cab"};fx.kind=InsertKind::cab_ir;fx.ir.name="Known stereo kernel";fx.ir.channels=2;fx.ir.samples.assign(1400,0.f);
+    fx.ir.samples[0]=.5f;fx.ir.samples[1]=-.25f;fx.ir.samples[2*127]=.125f;fx.ir.samples[2*128]=.25f;fx.ir.samples[2*255+1]=.5f;fx.ir.samples[2*256]=-.125f;fx.ir.samples[2*699]=.1f;
+    auto state=insert_graph(std::array{fx});PreparedGraph graph{snapshot(state),{48000,2,257}};CHECK(graph.latency().output==0);
+    std::vector<float> actual(2200);actual[0]=actual[1]=1;allocations=0;probing=true;
+    for(std::size_t first=0;first<1100;){const auto count=std::min<std::size_t>(first%3==0?17:257,1100-first);graph.process(actual.data()+first*2,static_cast<std::uint32_t>(count));first+=count;}
+    probing=false;CHECK(allocations==0);for(std::size_t i=0;i<actual.size();++i)CHECK(std::abs(actual[i]-(i<fx.ir.samples.size()?fx.ir.samples[i]:0.f))<2e-6f);
+    // Dense reference convolution across partition boundaries, no L/R crosstalk.
+    fx.ir.channels=1;fx.ir.samples.resize(531);for(std::size_t j=0;j<fx.ir.samples.size();++j)fx.ir.samples[j]=static_cast<float>(.02*std::cos(j*.13)*std::exp(-static_cast<double>(j)/100.));
+    PreparedGraph dense{snapshot(insert_graph(std::array{fx})),{48000,2,113}};std::vector<float> input(1700),expected(1700);for(std::size_t f=0;f<400;++f)input[f*2]=static_cast<float>(.2*std::sin(f*.37));
+    for(std::size_t f=0;f<850;++f){double value{};for(std::size_t j=0;j<fx.ir.samples.size()&&j<=f;++j)value+=fx.ir.samples[j]*input[(f-j)*2];expected[f*2]=static_cast<float>(value);}
+    for(std::size_t f=0;f<850;f+=113)dense.process(input.data()+f*2,static_cast<std::uint32_t>(std::min<std::size_t>(113,850-f)));for(std::size_t j=0;j<input.size();++j)CHECK(std::abs(input[j]-expected[j])<2e-6f);
+    auto captured=dense.capture();PreparedGraph restored{snapshot(captured),{48000,2,128}};CHECK(restored.latency().output==0);
+    fx.ir.mix=0;PreparedGraph dry{snapshot(insert_graph(std::array{fx})),{48000,2,128}};std::array<float,256> buffer{};buffer.fill(.25f);dry.process(buffer.data(),128);for(auto v:buffer)CHECK(v==.25f);
+    fx.ir.mix=1;fx.ir.invert=true;fx.gain=2;fx.ir.samples={.5f};PreparedGraph inverted{snapshot(insert_graph(std::array{fx})),{48000,2,128}};buffer.fill(.25f);inverted.process(buffer.data(),128);for(auto v:buffer)CHECK(std::abs(v+.25f)<1e-6f);
+    fx.ir.invert=false;fx.gain=1;fx.ir.samples={1};auto wire=insert_graph(std::array{fx});PreparedGraph live{snapshot(wire),{48000,2,128}};fx.ir.mix=.3f;fx.ir.low_cut=100;fx.ir.high_cut=6000;fx.gain=.5f;CHECK(live.enqueue_parameters(insert_graph(std::array{fx})));allocations=0;probing=true;for(int n=0;n<100;++n){buffer.fill(.1f);live.process(buffer.data(),128);}probing=false;CHECK(allocations==0);for(float v:buffer)CHECK(std::isfinite(v));
+    auto project=demo_project();project.tracks.front().inserts={fx};CHECK(deserialize(serialize(project))==project);
+    fx.ir.sample_rate=24000;fx.ir.samples.assign(500,0.f);fx.ir.samples[200]=1;fx.ir.low_cut=20;fx.ir.high_cut=20000;fx.ir.mix=1;fx.gain=1;PreparedGraph resample{snapshot(insert_graph(std::array{fx})),{48000,1,128}};std::array<float,128> mono{};double integral{};std::size_t maximum{};float peak{};for(int n=0;n<10;++n){mono.fill(0);if(n==0)mono[0]=1;resample.process(mono.data(),128);for(std::size_t f=0;f<128;++f){integral+=mono[f];if(mono[f]>peak){peak=mono[f];maximum=n*128+f;}}}CHECK(maximum==400&&std::abs(integral-1)<.003);
+    const auto response=[](float low,float high,double hz){NativeInsert filter;filter.id={"cab-filter"};filter.kind=InsertKind::cab_ir;filter.ir.samples={1};filter.ir.low_cut=low;filter.ir.high_cut=high;PreparedGraph runtime{snapshot(insert_graph(std::array{filter})),{48000,1,128}};std::array<float,128> wave{};double output{},reference{};for(int n=0;n<100;++n){for(std::size_t j=0;j<128;++j){wave[j]=static_cast<float>(.1*std::sin(2*3.141592653589793*hz*(n*128+j)/48000));if(n>32)reference+=wave[j]*wave[j];}runtime.process(wave.data(),128);if(n>32)for(float v:wave)output+=v*v;}return std::sqrt(output/reference);};CHECK(response(500,20000,50)<.12&&response(20,1000,10000)<.12&&response(20,20000,1000)>.99);
+    auto invalid=fx;invalid.ir.samples.clear();rejects([&]{invalid.validate();});invalid=fx;invalid.ir.channels=3;rejects([&]{invalid.validate();});invalid=fx;invalid.ir.samples[0]=std::numeric_limits<float>::quiet_NaN();rejects([&]{invalid.validate();});invalid=fx;invalid.ir.low_cut=10000;invalid.ir.high_cut=5000;rejects([&]{invalid.validate();});
+    auto truncated=cab_ir_state(fx.ir);truncated.component.pop_back();auto processor=cab_ir_factory();processor->prepare({48000,2,128});rejects([&]{processor->restore(truncated);});rejects([&]{PreparedGraph unsupported{snapshot(insert_graph(std::array{fx})),{384000,2,128}};});
+}
+
 }
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected suite");
         const std::string suite = argv[1];
-        if (suite == "midi") midi(); else if (suite == "model") model();
+        if(suite=="cab_ir")cab_ir();else if (suite == "channel_eq") channel_eq(); else if (suite == "filters") filters(); else if (suite == "midi") midi(); else if (suite == "model") model();
         else if (suite == "graph") graph(); else if (suite == "parameters") parameters();
         else if (suite == "state") state(); else if (suite == "latency") latency();
         else if (suite == "engine") engine(); else if (suite == "realtime") realtime();

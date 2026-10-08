@@ -30,4 +30,3 @@ older builds cannot read newly saved v7 snapshots. Limits: 64 physical channels,
 pairs, resampling, punch/loop recording or automatic latency compensation.
 
 See [recording](RECORDING.md) and [acceptance](MRS_STAGE_2E_CHECKLIST.md).
-

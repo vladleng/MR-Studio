@@ -50,7 +50,8 @@ Legacy recent projects and VST3 cache are read from the existing local data fold
 JUCE preferences use a separate file. Profile-management UI is not exposed yet.
 
 User accepted J2 on 2026-10-05: «Отлично! Все работает».
-This general confirmation does not enumerate individual device/preset checks. Windows hardware recording/playback, the intended
+This general confirmation does not enumerate individual device/preset checks.
+Windows hardware recording/playback, the intended
 TH-U preset/sound, physical multiple-monitor DPI, complete accessibility and the
 remaining preference/profile polish are J3 parity gates before switching defaults.
 VST3 runtime remains in process; full isolation/PDC remain Stage 3e, not this UI port.
@@ -94,7 +95,6 @@ automatic public source/binary release.
   between editor cleanup and module reload. Timed test now dispatches deferred UI
   cleanup messages before reloading; successful runs supersede those timeouts.
 - Existing hidden Win32 GUI smoke exited 0. Core/ASIO/VST3/persistence source unchanged.
-
 
 ## J2 acceptance — 2026-10-05
 

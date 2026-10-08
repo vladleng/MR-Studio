@@ -4,6 +4,16 @@
 #include <utility>
 
 namespace mrs {
+void SetMidiOutput::apply(Project& project) const {
+    auto it=std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t){return t.id==track_;});
+    if(it==project.tracks.end()||it->kind!=TrackKind::instrument)throw std::invalid_argument("MIDI output requires an instrument track");
+    it->midi_output=port_;it->midi_output_channel=channel_;
+}
+void SetMidiInput::apply(Project& project) const {
+    auto it=std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t){return t.id==track_;});
+    if(it==project.tracks.end()||it->kind!=TrackKind::instrument)throw std::invalid_argument("MIDI input requires an instrument track");
+    it->midi_input=port_;it->midi_channel=channel_;it->midi_monitor=monitor_;
+}
 namespace {
 struct EditGuard {
     bool& editing;
@@ -17,8 +27,40 @@ struct EditGuard {
 AddTrack::AddTrack(Track track) : track_(std::move(track)) {}
 void SetTrackMix::apply(Project& project) const {
     auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
-    if (track == project.tracks.end() || track->kind != TrackKind::audio) throw std::invalid_argument("unknown audio mixer track");
+    if (track == project.tracks.end() || track->kind == TrackKind::midi) throw std::invalid_argument("unknown audio mixer channel");
     mix_.validate(); track->mix = mix_;
+}
+void SetTrackSends::apply(Project& project) const {
+    auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
+    if (track == project.tracks.end() || track->kind == TrackKind::midi) throw std::invalid_argument("unknown audio mixer channel");
+    track->sends = sends_;
+}
+void SetInserts::apply(Project& project) const {
+    if (!track_) { project.master_inserts=inserts_; return; }
+    const auto track=std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == *track_; });
+    if (track == project.tracks.end() || track->kind == TrackKind::midi) throw std::invalid_argument("inserts require an existing audio track or bus");
+    track->inserts=inserts_;
+}
+void SetTrackInput::apply(Project& project) const {
+    auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
+    if (track == project.tracks.end() || track->kind != TrackKind::audio) throw std::invalid_argument("input requires an audio track");
+    track->input = input_; track->input_stereo = stereo_;
+}
+void SetTrackMonitoring::apply(Project& project) const {
+    const auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
+    if (track == project.tracks.end() || track->kind != TrackKind::audio) throw std::invalid_argument("monitor requires an audio track");
+    track->input_monitor = enabled_;
+}
+void SetHardwareOutput::apply(Project& project) const {
+    if (!track_) { project.master_outputs = outputs_; return; }
+    auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == *track_; });
+    if (track == project.tracks.end() || track->kind == TrackKind::midi) throw std::invalid_argument("unknown audio mixer channel");
+    track->output.reset(); track->hardware_outputs = outputs_;
+}
+void SetTrackOutput::apply(Project& project) const {
+    auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });
+    if (track == project.tracks.end() || track->kind == TrackKind::midi) throw std::invalid_argument("unknown audio mixer channel");
+    track->hardware_outputs.clear(); track->output = output_; // candidate validation checks type, references and cycles atomically
 }
 std::string_view AddTrack::name() const { return "Add track"; }
 void AddTrack::apply(Project& project) const { project.tracks.push_back(track_); }

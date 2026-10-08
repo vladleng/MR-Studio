@@ -41,44 +41,30 @@ the captured WAV stays raw. Undo/Redo and saving remain disabled while recording
 
 ## UI
 
-Mix shows channel strips and a fixed master strip. Drag horizontal gain/pan
+Mix shows channel strips and a fixed master strip. In the original 0.1f UI, drag horizontal gain/pan
 controls; double-click resets to 0 dB/center. Gain covers silence to +12 dB;
 shared contracts accept gain 0..16. Mute and Solo toggle independently.
 Mouse wheel scrolls channel strips. The two bars and dBFS readout show output
 levels; red indicates overload. Files/ASIO/transport controls remain shared.
 
-Buses, sends/returns, arbitrary routing, device profiles and multi-input
-recording are subsequent work. #22 remains open until its full scope is accepted.
+Buses and track/bus outputs are implemented by the subsequent 0.1g slice;
+see BUSES.md for snapshot v4, routing and solo semantics. Sends/returns,
+hardware output routing, device profiles and multi-input recording remain future
+work. #22 remains open until its full scope is accepted.
 
-## 0.1m upd2 fix1 — dark reference skin
 
-The user supplied a dark studio/mixer reference and requested the last build's footer
-Arrange / Edit / Mix / BROWS placement to remain. The local update applies graphite/navy
-rounded panels and buttons, subtle vertical gradients, cyan highlights and blue clips,
-metallic faders, green/yellow/red level scales and familiar Play/Pause/Stop/Record symbols.
-Control window labels remain present for keyboard/accessibility behavior.
+## Current local 0.1h
 
-Mixer strips are wider; L/R meters sit to the left, faders to the right and M/S below.
-Pointer handlers use the same shared rectangles as painting. Handle-only relative
-regulator movement, fine Ctrl drag, routing/sends, native plugin editors, browser drag/drop
-and footer BROWS arrangement resizing remain functional. Vendor groups remain collapsed
-at initial load. The skin paints without moving, enabling or rewriting native controls
-inside paint; inherited clipping and DPI-scaled rectangles are retained.
+Mix overlays the arrangement, with vertical gain/master faders and stereo meters.
+Track mini panels expose horizontal gain/meters, a pan knob and a mono input menu.
+Sends/returns, pre/post levels, snapshot v5 and recent projects are implemented;
+see SENDS.md and MRS_STAGE_2C_CHECKLIST.md. User acceptance is pending.
 
-AI Assist (Reserved) is disabled. Effects*, Loops* and Samples* are visual reservations
-alongside the working VST3 tab, with an explicit Reserved legend; their click area performs
-no navigation/function. There is no assistant, loop/sample browser or native-effect tab
-implementation in this build. Native Win32 menus, edit fields and plugin windows retain
-their operating-system/plugin behavior. No decorative plugin list or fake signal is added.
-
-Local offline configure/build, 87/87 CTest, GUI exit 0 and inspected software preview.
-GUI includes DPI/minimum-window bounds, stereo meter independence, handle/rail/Undo,
-flicker regressions, browser default/BROWS resize, plugin drop/editor/reuse coverage.
-Software GUI checks do not replace user audition of their TH-U preset.
-Code 6b937cc6284c75481a28efe4e6f150fe7c830c86, local branch mrs/0.1m-upd2-skin-local.
-Package MR-Studio-0.1m-upd2-fix1-ASIO-Windows-local. No schema or audio processing change.
-Code/builds local; GitHub issues/docs only, no push/PR/merge/Actions or installations.
 
 ## UI choice — 2026-10-04
 
-User preferred the previous interface over the approximate reference skin. Working branch and local development build returned to mrs/0.1m-upd1-fix1-local; GUI exit 0 after rebuilding. Use MR-Studio-0.1m-upd1-fix1-ASIO-Windows-local. The upd2 skin remains a separate experimental branch/package and is not the current UI direction. Full custom UI design/renderer migration is under discussion only; nothing installed or migrated.
+User preferred the previous interface over the approximate reference skin.
+Working branch and local development build returned to mrs/0.1m-upd1-fix1-local.
+Use MR-Studio-0.1m-upd1-fix1-ASIO-Windows-local. The upd2 skin remains an
+experimental branch/package, not the current UI direction. Full custom UI
+architecture/design is a proposal only; no renderer migration or installation started.

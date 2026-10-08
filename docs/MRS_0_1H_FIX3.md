@@ -1,5 +1,9 @@
 # 0.1h fix3 — Audio settings flicker
 
+Accepted locally by the user on 2026-10-04: no flicker, everything works.
+Code 0911855dce7d179e03df33f05a120684e4637d37. This acceptance supersedes
+the pending verification wording below. Publication still requires a separate request.
+
 User accepted fix2's fader-release fix and reported continuous Audio settings
 flicker. The shared 33 ms UI timer invalidated the entire audio dialog. Its
 paint handler filled the window directly, without buffering or WS_CLIPCHILDREN,

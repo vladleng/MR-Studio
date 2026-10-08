@@ -60,4 +60,3 @@ Physical multi-monitor DPI, hardware audio and full accessibility acceptance rem
 was rerun successfully after font/readout/snapshot export corrections. Existing hidden
 Win32 GUI smoke exited 0. Reviewed 900x600 preview; 1.5x snapshot dimensions checked.
 User J1 acceptance pending. No processing/persistence or existing host source changes.
-

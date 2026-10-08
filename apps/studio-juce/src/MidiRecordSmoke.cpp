@@ -1,0 +1,58 @@
+#include "Desktop.h"
+namespace ui {
+namespace {
+struct RecordDevice final:mrs::audio::IAudioDevice {
+    mrs::audio::DevicePhase phase{mrs::audio::DevicePhase::closed};
+    std::vector<mrs::audio::DeviceInfo> enumerate() override{return {{0,"MIDI record fixture",{"Input"}, {"L","R"},16,8192,128,1}};}
+    void control_panel(int)override{}void open(const mrs::audio::DeviceConfig&,std::shared_ptr<mrs::audio::AudioEngine>)override{phase=mrs::audio::DevicePhase::open;}
+    void start()override{phase=mrs::audio::DevicePhase::running;}void stop()override{phase=mrs::audio::DevicePhase::stopped;}void close()noexcept override{phase=mrs::audio::DevicePhase::closed;}mrs::audio::DeviceStatus status()override{return {phase,48000};}
+};
+juce::Button* armControl(juce::Component& component){if(auto* button=dynamic_cast<juce::Button*>(&component);button&&button->getTitle()=="Arm recording"&&button->isVisible())return button;for(auto* child:component.getChildren())if(auto* result=armControl(*child))return result;return nullptr;}
+}
+void midi4cSmoke(Desktop& d,const juce::File& fixture){
+    const auto check=[](bool value,const char* message){if(!value)throw std::runtime_error(message);};
+    const auto log=juce::File::getCurrentWorkingDirectory().getChildFile("midi-record-smoke-stage.txt");log.replaceWithText("start\n");
+    const auto temp=juce::File::getSpecialLocation(juce::File::tempDirectory);const auto folder=temp.getNonexistentChildFile("mrs-midi-record-ui","",false);check(folder.createDirectory(),"record UI temp folder");const auto module=folder.getChildFile("instrument.vst3");check(fixture.copyFileTo(module),"record UI fixture copy");
+    d.closeEditors();d.app.disconnect();d.app.new_project();const auto track=d.app.add_instrument_track("Recorded keys");d.selectedTrack=track;
+    const auto info=mrs::processing::probe_vst3(module.getFullPathName().toStdString()).front();mrs::NativeInsert fx;fx.id=mrs::new_id();fx.kind=mrs::InsertKind::vst3;fx.plugin_path=info.path;fx.class_id=info.class_id;fx.plugin_name=info.name;d.app.set_inserts(track,{fx});d.app.set_midi_input(track,"fixture:record",-1,true);d.app.connect(std::make_unique<RecordDevice>(),{0,48000,128,{}, {0,1},2});d.setWorkspace(mrs::desktop::Workspace::arrange);d.refresh(true);
+    d.action(33);check(!d.app.recording()&&!d.message.isEmpty(),"unarmed Record rejected with explicit message");for(auto* child:d.getChildren())if(auto* button=dynamic_cast<juce::TextButton*>(child);button&&button->getButtonText()=="Record (R)")check(!button->getToggleState(),"failed Record stays inactive");
+    auto* arm=armControl(d);check(arm!=nullptr,"instrument arm visible");arm->onClick();check(d.app.track_armed(track),"instrument arm click");
+    std::array<float,256> out{};d.action(30);d.app.engine()->process(nullptr,out.data(),128);check(d.app.engine()->state().playback==mrs::PlaybackState::playing,"playing before Record");d.action(33);check(d.app.recording()&&d.message.isEmpty(),"Record starts MIDI during Play without file dialog");d.app.engine()->process(nullptr,out.data(),128);check(d.app.engine()->enqueue_live_midi({d.app.engine()->midi_generation(),0,{0,mrs::processing::MidiKind::note_on,0,60,110}}),"UI note ingress");d.app.engine()->process(nullptr,out.data(),128);for(int i=0;i<128;++i)d.app.engine()->process(nullptr,out.data(),128);d.recordingPreview=d.app.midi_recording_preview();check(d.recordingPreview.size()==1&&d.recordingPreview.front().midi->notes.size()==1&&d.project()->clips.empty(),"live recording clip preview before Stop");d.arrangement->pixelsPerSecond=500;d.refresh();
+    const auto save=[&](const char* name,double scale){auto image=d.createComponentSnapshot(d.getLocalBounds(),true,static_cast<float>(scale),juce::SoftwareImageType{});juce::FileOutputStream stream(juce::File::getCurrentWorkingDirectory().getChildFile(name));stream.setPosition(0);stream.truncate();juce::PNGImageFormat format;check(format.writeImageToStream(image,stream),"record UI preview");};
+    save("juce-midi-record-100-preview.png",1.);save("juce-midi-record-150-preview.png",1.5);
+    d.action(32);check(d.recordingPreview.empty(),"Stop clears red preview synchronously");check(!d.app.recording()&&d.project()->clips.size()==1&&d.project()->clips.front().midi->notes.size()==1,"Stop commits recorded MIDI");d.app.engine()->process(nullptr,out.data(),128);d.app.poll();const auto beforeHistory=d.app.insert_generation();d.action(10);check(d.project()->clips.empty(),"record single Undo");d.action(11);check(d.project()->clips.size()==1,"record Redo");check(d.app.insert_generation()==beforeHistory,"record Undo Redo retains plugin instances");for(int take=0;take<10;++take){d.app.seek(0);d.app.engine()->process(nullptr,out.data(),128);const auto insertGeneration=d.app.insert_generation();d.action(33);check(d.app.recording()&&d.message.isEmpty(),"repeat Record starts over existing MIDI clips");check(d.app.insert_generation()==insertGeneration,"Record retains plugin instances");d.app.engine()->process(nullptr,out.data(),128);check(d.app.engine()->enqueue_live_midi({d.app.engine()->midi_generation(),0,{0,mrs::processing::MidiKind::note_on,0,static_cast<std::uint8_t>(60+take),100}}),"repeat note ingress");d.app.engine()->process(nullptr,out.data(),128);d.recordingPreview=d.app.midi_recording_preview();d.action(32);check(d.recordingPreview.empty()&&!d.app.recording()&&d.project()->clips.size()==static_cast<std::size_t>(take+2),"repeat Stop commits and immediately clears preview");check(d.app.insert_generation()==insertGeneration,"Stop retains plugin instances");d.app.engine()->process(nullptr,out.data(),128);} d.app.disconnect();d.app.new_project();d.refresh(true);
+    const auto audio=d.app.add_audio_track("Raw audio");d.app.arm_track(audio);
+    d.app.save_project(std::filesystem::path(folder.getChildFile("Audio.mrsproject").getFullPathName().toWideCharPointer()));
+    d.app.connect(std::make_unique<RecordDevice>(),{0,48000,128,{0},{0,1},2});d.refresh(true);
+    std::array<float,128> input;input.fill(.125f);std::filesystem::path previousTake;
+    d.arrangement->pixelsPerSecond=160.;
+    for(int take=0;take<2;++take){
+        d.action(33);check(d.app.recording()&&d.message.isEmpty(),"audio Record action starts synchronously without file chooser");
+        check(d.audioRecordingPreview.size()==1&&d.audioRecordingPreview.front().clip.length==1,"audio red preview starts without stale previous take");
+        const auto revision=d.app.services().projects->state().revision;
+        for(int block=0;block<256;++block){input.fill(block==0?.125f:static_cast<float>(std::sin(block*.07)*.65));d.app.engine()->process(input.data(),out.data(),128);}
+        for(int attempt=0;attempt<100;++attempt){d.updateRecordingPreview();if(d.audioRecordingPreview.front().waveform&&d.audioRecordingPreview.front().waveform->frames==32768)break;juce::Thread::sleep(5);}
+        check(d.audioRecordingPreview.front().clip.length==32768&&d.audioRecordingPreview.front().waveform&&d.audioRecordingPreview.front().waveform->frames==32768,"growing audio preview has captured duration and waveform");
+        check(d.app.services().projects->state().revision==revision&&d.project()->clips.size()==static_cast<std::size_t>(take),"audio preview does not commit a clip or Undo step");
+        if(take==0){d.setWorkspace(mrs::desktop::Workspace::arrange);save("juce-audio-record-100-preview.png",1.);save("juce-audio-record-150-preview.png",1.5);}
+        d.action(32);check(d.audioRecordingPreview.empty(),"Stop immediately clears audio red preview");
+        check(!d.app.recording()&&d.project()->clips.size()==static_cast<std::size_t>(take+1),"audio Stop commits take");
+        const auto file=d.app.last_take();check(file.parent_path()==d.app.path().parent_path()/"Media"&&file!=previousTake,"GUI audio take auto-destination and unique name");
+        check(mrs::audio::open_wav(file).samples.front()==.125f,"GUI capture is raw input");previousTake=file;d.app.engine()->process(input.data(),out.data(),128);
+    }
+    d.app.disconnect();d.app.new_project();d.refresh(true);
+    d.app.new_project();const auto countAudio=d.app.add_audio_track("Count audio"),countMidi=d.app.add_instrument_track("Count MIDI");d.app.set_midi_input(countMidi,"mock-midi",-1,true);d.app.set_track_armed(countAudio,true);d.app.set_track_armed(countMidi,true);
+    d.app.save_project(std::filesystem::path(folder.getChildFile("Count.mrsproject").getFullPathName().toWideCharPointer()));d.app.connect(std::make_unique<RecordDevice>(),{0,48000,128,{0},{0,1},2});d.refresh(true);
+    d.action(501);d.action(512);check(d.app.click_settings().recording&&d.prefs.click.count_bars==2,"click/count settings actions persist preference projection");
+    const auto generation=d.app.insert_generation();d.action(33);check(d.app.recording()&&d.app.engine()->state().count_remaining>0,"Record begins count-in");d.app.engine()->process(input.data(),out.data(),128);d.updateRecordingPreview();check(d.recordingPreview.empty()&&d.audioRecordingPreview.empty()&&d.app.recording_status().frames==0&&d.app.engine()->state().sample==0,"count-in has no take content and holds cursor");
+    check(d.app.engine()->enqueue_live_midi({d.app.engine()->midi_generation(),1,{0,mrs::processing::MidiKind::note_on,0,40,110}}),"count-in live note");d.app.engine()->process(input.data(),out.data(),128);d.refresh();save("juce-count-in-100-preview.png",1.);save("juce-count-in-150-preview.png",1.5);
+    d.action(32);check(!d.app.recording()&&d.project()->clips.empty()&&d.app.last_takes().empty(),"Stop cancels count-in without clips/files");d.app.engine()->process(input.data(),out.data(),128);
+    d.action(33);while(d.app.engine()->state().count_remaining>=128)d.app.engine()->process(input.data(),out.data(),128);
+    if(d.app.engine()->state().count_remaining)d.app.engine()->process(input.data(),out.data(),static_cast<std::uint32_t>(d.app.engine()->state().count_remaining));
+    check(d.app.engine()->state().sample==0&&d.app.recording_status().frames==0,"count ends exactly before record sample zero");
+    check(d.app.engine()->enqueue_live_midi({d.app.engine()->midi_generation(),1,{0,mrs::processing::MidiKind::note_on,0,65,100}}),"post-count note ingress");input.fill(.125f);for(int block=0;block<16;++block)d.app.engine()->process(input.data(),out.data(),128);d.action(32);
+    check(d.project()->clips.size()==2&&d.app.insert_generation()==generation,"combined takes commit after count and retain processors");const auto recordedMidi=std::find_if(d.project()->clips.begin(),d.project()->clips.end(),[](const auto& c){return c.midi.has_value();});check(recordedMidi!=d.project()->clips.end()&&recordedMidi->midi->start==0&&recordedMidi->midi->notes.size()==1&&recordedMidi->midi->notes.front().pitch==65,"precount note excluded, post-count MIDI recorded");
+    const auto raw=mrs::audio::open_wav(d.app.last_take());check(raw.frames()==2048&&std::all_of(raw.samples.begin(),raw.samples.end(),[](float v){return v==.125f;}),"count/click not mixed into raw audio");d.action(10);check(d.project()->clips.empty(),"combined count takes one Undo");d.action(11);check(d.project()->clips.size()==2,"combined count takes Redo");d.app.save_project(d.app.path());const auto saved=d.app.path();d.app.open_project(saved);check(d.project()->clips.size()==2&&d.app.click_settings().count_bars==2&&!d.app.recording(),"Save/Open keeps takes and preferences, not count phase");d.app.disconnect();d.app.new_project();d.refresh(true);
+    check(folder.getParentDirectory()==temp&&folder.getFileName().startsWith("mrs-midi-record-ui"),"record cleanup scope");folder.deleteRecursively();log.appendText("passed\n");
+}
+}

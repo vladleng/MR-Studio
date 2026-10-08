@@ -99,6 +99,7 @@ from 0.1l remain applicable. Full runtime isolation/PDC belongs to 3e.
 Prepared-graph generations close obsolete host editor windows after structural Undo,
 Redo, reconnect/disconnect or chain rebuild. Live parameter edits keep the editor open.
 
+
 ## 0.1m upd1 fix1 — Nuro buses, authoritative state and browser controls
 
 Nuro Audio effects declare auxiliary buses. The host now sends an arrangement for

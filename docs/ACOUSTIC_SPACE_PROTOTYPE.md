@@ -63,4 +63,3 @@
 - [Audio Modeling: обзор Ambiente](https://kb.audiomodeling.com/support/solutions/articles/206000041743-getting-started-with-ambiente-an-overview) — общая комната и централизованное управление источниками и микрофонами.
 - [Audio Modeling: модель помещений Ambiente](https://kb.audiomodeling.com/support/solutions/articles/206000067923-ambiente-update-1-4) — геометрия и поглощение поверхностей; модель не основана на статичных записанных импульсах.
 - [DAFx: гибридное моделирование акустики с FDN](https://www.dafx.de/paper-archive/2025/DAFx25_paper_17.pdf) — пример сочетания геометрических методов для ранних отражений с алгоритмическим хвостом. Предлагаемый выше метод мнимых источников является самостоятельным выбором для прототипа.
-

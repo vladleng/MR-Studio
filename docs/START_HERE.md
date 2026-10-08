@@ -1,16 +1,15 @@
 # Moon River Studio — START HERE
 
+> Current development context (2026-10-08): [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
+> Start with that file and the repository AGENTS.md. It records the current
+> 0.2g delivery, MIDI acceptance and deferred external hardware validation.
+> Entries below are historical snapshots; their old “pending/not started”
+> labels do not override the current context.
+
 Selected UI direction: [JUCE migration](JUCE_MIGRATION.md), Windows-only active scope.
 Plan recorded; integration not started. Preferred working UI remains 0.1m upd1 fix1.
 
 Future idea (not started, separate from the current build): [Acoustic space prototype](ACOUSTIC_SPACE_PROTOTYPE.md).
-
-## Planned SHARED Audio capability — Signalsmith Stretch
-
-Decision recorded 2026-10-06; **implementation not started by this documentation update**.
-Signalsmith Stretch (MIT) is the first planned time-stretch/pitch backend behind a replaceable SHARED contract.
-Start from [TIME_STRETCH.md](TIME_STRETCH.md) and parent issue #56; child work is #57–#62.
-Do not wire Signalsmith directly into Clip/Transport/UI types. Current Stage 3 work/order remains unchanged until the user explicitly schedules stretch implementation.
 
 ## 0.1m / Stage 3c — local build ready, 2026-10-04
 
@@ -30,7 +29,6 @@ Latest accepted: 0.1l / 3b. Whole #23 open; 3d/3e planned, #16 deferred.
 Code/builds local; GitHub issues/docs only; no code push/PR/merge/Actions/install.
 See [Cab IR](CAB_IR.md), [3c checklist](MRS_STAGE_3C_CHECKLIST.md).
 
-
 ## 0.1l / Stage 3b — локальная сборка готова, 2026-10-04
 
 VST3 effects: scan/cache в отдельном процессе с timeout, загрузка/удаление/bypass,
@@ -49,7 +47,6 @@ Blue Cat Gain 3 Stereo проверен на обработку, gain automation
 Код/пакеты только локально, GitHub только issues/docs; без code push/PR/merge/Actions.
 См. [VST3](VST3_HOSTING.md), [Channel EQ](NATIVE_INSERTS.md),
 [приёмка 3b](MRS_STAGE_3B_CHECKLIST.md).
-
 
 
 ## 0.1k / Stage 3a accepted — 2026-10-04
@@ -78,12 +75,19 @@ Local cached offline-dependency ASIO configure/build, 77/77 CTest, expanded GUI 
 Код/пакеты локально; GitHub только issues/docs. Без code push/new PR/merge/Actions.
 Исторические статусы ниже заменены этой записью.
 
-## 0.1j accepted; Mixer / Routing completed — 2026-10-04
-Пользователь подтвердил: «Все проверил, все работает!». Принята локальная 0.1j / Stage 2e: mono/stereo inputs, simultaneous multitrack capture, per-track Arm/Monitor, L/R meters и возврат Stop к старту. Принятый код 43fe2b510f14e77453a5e5f68e0659621f0c80bf; пакет MR-Studio-0.1j-ASIO-Windows-local. Локальные configure/build, 73/73 CTest и GUI smoke прошли ранее; при этой отметке проверки не повторялись.
-Весь scope #22 принят по проверенному пользователем workflow; Mixer / Routing завершён. Детальная длительная hardware/performance matrix #16 остаётся отложенной и не отмечается пройденной. Исторические pending/one-mono/not-started записи выше заменены этой приёмкой.
-Следующий этап: #23 Plugins / Native DSP. Предлагаемый первый подэтап 0.1k: insert-chain UI на дорожках/шинах/Master, добавление/удаление/порядок/bypass, интеграция native utility gain/filter/EQ, параметры и сохранение/Undo. Затем VST3 scan/load/editor/state/latency; IR и amp/model foundation — последующие slices. Новая реализация пока не начата.
-Код/сборки локально. GitHub только issues/docs; приёмка не разрешает code push/новый PR/merge. GitHub Actions не используются.
-
+## 0.1j принята; Mixer / Routing завершён — 2026-10-04
+Пользователь: «Все проверил, все работает!». Последняя принятая локальная сборка —
+0.1j / Stage 2e; код 43fe2b510f14e77453a5e5f68e0659621f0c80bf,
+пакет MR-Studio-0.1j-ASIO-Windows-local. Mono/stereo inputs, simultaneous multitrack
+capture, R/I на дорожках, L/R meters и Stop return приняты. Ранее прошли локальные
+configure/build, 73/73 CTest и GUI smoke; при отметке приёмки проверки не повторялись.
+Весь #22 Mixer / Routing завершён. #16 длительная matrix остаётся отложенной.
+Следующий этап — #23 Plugins / Native DSP. Предлагаемый первый подэтап 0.1k:
+insert chains на дорожках/шинах/Master, add/remove/reorder/bypass, native utility
+gain/filter/EQ, параметры, Undo и сохранение. Далее VST3 workflow, IR и amp foundation.
+Реализация следующего подэтапа ещё не начата. Старые pending/not-started статусы ниже
+заменены этой приёмкой. Код/пакеты локально; GitHub issues/docs only;
+приёмка не разрешает code push/new PR/merge. GitHub Actions не используются.
 
 ## 0.1j / Stage 2e — локальная реализация готова, 2026-10-04
 Mono/stereo inputs на дорожках, одновременная запись нескольких дорожек,
@@ -579,4 +583,3 @@ the current position and retries on its next block; worker retry pages remain
 protected. This closes the queued-command handoff race without blocking RT.
 The concurrent seek exact-sample/zero-underrun/zero-RT-allocation regression is
 repeated eight times in every Debug/Release CI job for this fix.
-

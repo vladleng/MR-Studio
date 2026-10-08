@@ -4,6 +4,8 @@
 #include <stdexcept>
 
 namespace mrs {
+Sample clip_start(const Clip& c,const Timeline& t){return c.midi?t.to_samples(c.midi->start):c.start;}
+Sample clip_end(const Clip& c,const Timeline& t){return c.midi?t.to_samples(c.midi->start+c.midi->length):c.start+c.length;}
 namespace {
 void valid_tick(Tick tick) {
     if (tick < 0 || tick > max_tick) throw std::invalid_argument("tick out of range");

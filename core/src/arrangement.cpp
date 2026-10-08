@@ -6,6 +6,11 @@ namespace mrs {
 void RemoveTrack::apply(Project& p) const {
     const auto it = std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t) { return t.id == id_; });
     if (it == p.tracks.end()) throw std::invalid_argument("unknown track");
+    const auto destination = it->output; const auto hardware = it->hardware_outputs;
+    for (auto& track : p.tracks) {
+        if (track.output == id_) { track.output = destination; track.hardware_outputs = hardware; }
+        std::erase_if(track.sends,[&](const auto& send) { return send.bus == id_; });
+    }
     p.tracks.erase(it);
     std::erase_if(p.clips,[&](const auto& c) { return c.track == id_; });
 }
@@ -16,9 +21,15 @@ void ReorderTrack::apply(Project& p) const {
     p.tracks.insert(p.tracks.begin()+static_cast<std::ptrdiff_t>(index_),std::move(track));
 }
 void ImportAudio::apply(Project& p) const {
-    if (tracks_.empty() || tracks_.size() != clips_.size()) throw std::invalid_argument("empty/invalid audio batch");
-    for (std::size_t i = 0; i < tracks_.size(); ++i)
-        if (tracks_[i].kind != TrackKind::audio || clips_[i].track != tracks_[i].id) throw std::invalid_argument("invalid audio import");
+    if (clips_.empty() || (!tracks_.empty() && tracks_.size() != clips_.size())) throw std::invalid_argument("empty/invalid audio batch");
+    for (std::size_t i = 0; i < clips_.size(); ++i) {
+        if(!tracks_.empty()) {
+            if(tracks_[i].kind!=TrackKind::audio||clips_[i].track!=tracks_[i].id)throw std::invalid_argument("invalid audio import");
+        } else {
+            const auto track=std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t){return t.id==clips_[i].track;});
+            if(track==p.tracks.end()||track->kind!=TrackKind::audio)throw std::invalid_argument("audio import requires an audio track");
+        }
+    }
     p.tracks.insert(p.tracks.end(),tracks_.begin(),tracks_.end());
     p.clips.insert(p.clips.end(),clips_.begin(),clips_.end());
 }

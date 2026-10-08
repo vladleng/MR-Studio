@@ -1,6 +1,7 @@
 #include <mrs/desktop.hpp>
 #include <mrs/offline_device.hpp>
 #include <chrono>
+#include <cmath>
 #include <thread>
 #include <fstream>
 #include <iostream>
@@ -75,9 +76,11 @@ void wav(const std::filesystem::path& path, std::uint16_t channels = 2) {
 }
 class ManualDevice final : public audio::IAudioDevice {
 public:
-    std::vector<audio::DeviceInfo> enumerate() override { return {{0,"Manual render test",{"Mic"},{"L","R","Cue 1","Cue 2"},32,2048,128,-1}}; }
+    std::vector<audio::DeviceInfo> enumerate() override { if (phase_ != audio::DevicePhase::closed) throw std::runtime_error("driver cannot enumerate an open stream"); return {{0,"Manual render test",{"Mic","Line","DI","Aux"},{"L","R","Cue 1","Cue 2"},32,2048,128,-1}}; }
     void control_panel(int) override {}
-    void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>) override { phase_ = audio::DevicePhase::open; }
+    audio::DeviceConfig last_config{};
+    unsigned opens{};
+    void open(const audio::DeviceConfig& c,std::shared_ptr<audio::AudioEngine>) override { last_config=c; ++opens; phase_ = audio::DevicePhase::open; }
     void start() override { phase_ = audio::DevicePhase::running; }
     void stop() override { if (fail_stop_) throw std::runtime_error("test driver stop failure"); phase_ = audio::DevicePhase::stopped; }
     void fail_driver() { phase_ = audio::DevicePhase::error; fail_stop_ = true; }
@@ -110,6 +113,113 @@ void mono_route() {
         for (std::size_t frame = 0; frame < 128; ++frame) for (std::size_t channel = 0; channel < outputs.size(); ++channel)
             CHECK(buffer[frame*outputs.size()+channel] == (channel < 2 ? 0.06103515625f : 0.0f));
     }
+}
+void hardware() {
+    Directory dir; const auto file = dir.path/"hardware.wav"; wav(file);
+    Application app; app.import_wav(file); const auto id = app.services().projects->state().project->tracks.front().id;
+    const auto bus=app.add_bus("Cue"); app.set_track_output(id,bus); app.set_hardware_output(bus,{2,3}); app.set_hardware_output(std::nullopt,{0,1});
+    // Offline clock remains running while unavailable hardware routes are edited/saved.
+    CHECK(app.audio_running()); app.rename_track(bus,"Monitor"); CHECK(app.audio_running());
+    app.save_project(dir.path/"routes.mrsproject"); app.open_project(dir.path/"routes.mrsproject"); CHECK(app.audio_running());
+    auto device=std::make_unique<ManualDevice>(); const auto driver=device.get(); app.connect(std::move(device),{0,44100,128,{}, {3,1,0,2}});
+    CHECK(app.input_names().size() == 4 && app.output_names().size() == 4);
+    app.play(); std::array<float,512> out{}; app.engine()->process(nullptr,out.data(),128);
+    CHECK(out[0] == 0.1220703125f && out[1] == 0 && out[2] == 0 && out[3] == 0.1220703125f); // selected physical order, bypass master FX
+    app.pause(); app.engine()->process(nullptr,out.data(),128); const auto position=app.engine()->state().sample;
+    app.set_hardware_output(bus,{3}); CHECK(app.engine()->state().sample == position && driver->opens == 1);
+    CHECK(app.undo() && app.redo() && app.engine()->state().sample == position);
+    const auto before=app.services().projects->state().revision; rejects([&] { app.set_hardware_output(id,{4}); }); CHECK(app.services().projects->state().revision == before && app.audio_running());
+    rejects([&] { app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}}); }); CHECK(app.audio_running() && app.active_outputs() == std::vector<int>{3,1,0,2});
+    rejects([&] { app.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1,2,3}}); }); CHECK(app.audio_running());
+    app.remove_track(bus); CHECK(app.services().projects->state().project->tracks.front().hardware_outputs == std::vector<int>{3}); CHECK(app.undo());
+    app.set_hardware_output(bus,{}); app.set_track_output(id,std::nullopt); app.set_hardware_output(std::nullopt,{2,3});
+    app.seek(0); app.play(); app.engine()->process(nullptr,out.data(),128); CHECK(out[0] == 0.06103515625f && out[3] == 0.06103515625f && out[1] == 0 && out[2] == 0);
+    rejects([&] { app.set_hardware_output(id,{0}); });
+}
+void profiles() {
+    ManualDevice driver; auto info=driver.enumerate().front(); auto profile=capture_profile("Stage",info,{0,44100,128,{1},{2,3,0,1}});
+    info.index=7; CHECK(resolve_profile(profile,info).device == 7 && resolve_profile(profile,info).inputs == std::vector<int>{1});
+    Preferences prefs; prefs.profiles={profile}; CHECK(decode_preferences(encode_preferences(prefs)) == prefs);
+    CHECK(decode_preferences("MRS_DESKTOP_CONFIG 3\n0 48000 128 -1 \"\" 2 0 1 0\n0\n").profiles.empty());
+    auto bad=info; bad.name="Another interface"; rejects([&] { (void)resolve_profile(profile,bad); });
+    bad=info; bad.outputs.resize(2); rejects([&] { (void)resolve_profile(profile,bad); });
+    bad=info; std::swap(bad.outputs[2],bad.outputs[3]); rejects([&] { (void)resolve_profile(profile,bad); });
+    bad=info; bad.inputs[1]="Renamed"; rejects([&] { (void)resolve_profile(profile,bad); });
+    bad=info; bad.max_buffer=64; rejects([&] { (void)resolve_profile(profile,bad); });
+    prefs.profiles.push_back(profile); rejects([&] { (void)encode_preferences(prefs); });
+    rejects([&] { (void)capture_profile("",info,{7,44100,128,{}, {0,1}}); });
+    rejects([&] { (void)decode_preferences("MRS_DESKTOP_CONFIG 4\n0 48000 128 -1 \"\" 2 0 1 0\n0\n17\n"); });
+}
+void sends() {
+    Directory dir; Application app; app.new_project(44100);
+    const auto id = app.add_audio_track("Audio"), bus=app.add_bus("Return"), second=app.add_bus("Return 2");
+    auto device=std::make_unique<ManualDevice>(); const auto driver=device.get();
+    app.connect(std::move(device),{0,44100,128,{0},{0,1}});
+    app.set_track_input(id,1); CHECK(driver->last_config.inputs == std::vector<int>{0});
+    app.arm_track(id); CHECK(driver->last_config.inputs == std::vector<int>{1} && driver->opens == 2);
+    app.set_track_sends(id,{{bus,0.5f,true},{second,0.25f,false}}); CHECK(driver->opens == 2);
+    const auto return_count=app.services().projects->state().project->tracks.size();
+    (void)app.add_return_send(id,"Atomic return");
+    CHECK(app.services().projects->state().project->tracks.size() == return_count+1);
+    CHECK(app.undo() && app.services().projects->state().project->tracks.size() == return_count && app.services().projects->state().project->tracks.front().sends.size() == 2);
+    const auto position=app.engine()->state().sample; app.set_track_input(id,-1);
+    CHECK(!app.has_input() && driver->last_config.inputs.empty() && app.engine()->state().sample == position);
+    CHECK(app.undo() && app.has_input() && driver->last_config.inputs == std::vector<int>{1});
+    const auto revision=app.services().projects->state().revision;
+    rejects([&] { app.set_track_input(id,7); }); CHECK(app.services().projects->state().revision == revision);
+    app.play(); std::array<float,256> output{}; app.engine()->process(nullptr,output.data(),128);
+    app.set_send_gain(id,0,0.75f); CHECK(app.undo() && app.redo());
+    rejects([&] { app.set_track_sends(id,{}); }); rejects([&] { app.set_track_input(id,0); });
+    app.pause(); app.engine()->process(nullptr,output.data(),128);
+    const auto file=dir.path/"sends.mrsproject"; app.save_project(file);
+    const auto saved=*app.services().projects->state().project; app.open_project(file); CHECK(*app.services().projects->state().project == saved);
+    CHECK(saved.tracks.front().input == 1 && saved.tracks.front().sends.front().gain == 0.75f);
+    app.remove_track(bus); CHECK(app.services().projects->state().project->tracks.front().sends.size() == 1);
+    CHECK(app.undo() && app.services().projects->state().project->tracks.front().sends.size() == 2);
+    Preferences p; for (int n=0; n<12; ++n) remember_project(p,dir.path/(std::to_string(n)+".mrsproject"));
+    CHECK(p.recent_projects.size() == 10); const auto last=p.recent_projects.front();
+    remember_project(p,dir.path/"11.mrsproject"); CHECK(p.recent_projects.front() == last && p.recent_projects.size() == 10);
+    CHECK(decode_preferences(encode_preferences(p)) == p);
+    CHECK(decode_preferences("MRS_DESKTOP_CONFIG 2\n0 48000 128 -1 \"\" 2 0 1 0\n").recent_projects.empty());
+    rejects([&] { (void)decode_preferences("MRS_DESKTOP_CONFIG 3\n0 48000 128 -1 \"\" 2 0 1 0\n11\n"); });
+}
+void buses() {
+    Directory dir; const auto file = dir.path / "bus.wav"; wav(file,1);
+    Application app; app.import_wav(file);
+    const auto track = app.services().projects->state().project->tracks.front().id;
+    const auto bus = app.add_bus("Drums"), parent = app.add_bus("Band");
+    app.set_track_output(track,bus); app.set_track_output(bus,parent);
+    app.set_track_mix(bus,{0.5f,0,false,false}); app.set_track_mix(parent,{0.5f,0,false,false});
+    auto before = app.services().projects->state();
+    rejects([&] { app.set_track_output(parent,bus); });
+    rejects([&] { app.arm_track(bus); });
+    CHECK(app.services().projects->state().revision == before.revision);
+    app.save_project(dir.path / "bus.mrsproject");
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}});
+    const auto engine = app.engine(); app.play(); std::array<float,1024> output{}; engine->process(nullptr,output.data(),512);
+    CHECK(output[0] == 0.0152587890625f);
+    rejects([&] { app.set_track_output(track,std::nullopt); }); rejects([&] { (void)app.add_bus("Blocked"); });
+    app.set_track_mix(bus,{0.5f,0,true,false}); engine->process(nullptr,output.data(),512); CHECK(output[1022] == 0);
+    CHECK(app.undo()); engine->process(nullptr,output.data(),512); CHECK(output[1022] == 0.0152587890625f);
+    app.pause(); engine->process(nullptr,output.data(),128); const auto position = engine->state().sample;
+    app.remove_track(bus); CHECK(app.engine() == engine && engine->state().sample == position);
+    CHECK(app.services().projects->state().project->tracks.front().output == parent);
+    CHECK(app.undo()); CHECK(app.services().projects->state().project->tracks.front().output == bus);
+    app.save_project(dir.path / "bus.mrsproject"); const auto snapshot = app.snapshot();
+    app.open_project(dir.path / "bus.mrsproject"); CHECK(app.snapshot().project == snapshot.project);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{}, {0,1}}); app.play(); engine->process(nullptr,output.data(),512);
+    CHECK(output[0] == 0.0152587890625f);
+    app.stop(); engine->process(nullptr,output.data(),128); app.new_project(44100);
+    const auto vocal = app.add_audio_track("Raw"), monitor_bus = app.add_bus("Monitor");
+    app.set_track_output(vocal,monitor_bus); app.arm_track(vocal);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});
+    const auto take = dir.path / "raw-bus.wav"; app.start_recording(take);
+    std::array<float,512> input{}; input.fill(0.25f); engine->process(input.data(),output.data(),512);
+    CHECK(output[0] == 0.125f); // existing demo master processor has gain 0.5
+    app.set_track_mix(monitor_bus,{0,1,true,true}); engine->process(input.data(),output.data(),512);
+    CHECK(output[1022] == 0 && output[1023] == 0);
+    CHECK(app.stop_recording()); const auto raw = audio::load_wav(take);
+    CHECK(raw.frames() == 1024); for (const auto value : raw.samples) CHECK(value == 0.25f);
 }
 void mixer() {
     Directory dir; const auto file = dir.path / "mix.wav"; wav(file,1);
@@ -159,8 +269,8 @@ void audio_settings() {
     app.connect(audio::make_offline_device(),{0,48000,128,{}, {0,1}}); CHECK(app.audio_running());
     app.connect(audio::make_offline_device(),{0,48000,64,{0}, {0,1}}); CHECK(app.audio_running() && app.engine()->config().input_channels == 1);
     rejects([&] { app.connect(audio::make_offline_device(),{0,48000,63,{}, {0,1}}); }); CHECK(app.audio_running()); // validate before closing
-    rejects([&] { app.connect(audio::make_offline_device(),{0,44100,128,{}, {0,1}}); }); CHECK(!app.audio_running());
-    rejects([&] { app.play(); });
+    rejects([&] { app.connect(audio::make_offline_device(),{0,44100,128,{}, {0,1}}); });
+    CHECK(app.audio_running() && app.engine()->config().sample_rate == 48000 && app.engine()->config().input_channels == 1);
     app.connect(audio::make_offline_device(),{0,48000,128,{}, {0,1}}); CHECK(app.audio_running());
     app.disconnect(); CHECK(!app.audio_running() && app.engine()->state().sample == 0);
 }
@@ -200,6 +310,19 @@ void arrangement() {
     app.stop(); app.engine()->process(nullptr,output.data(),128); app.poll();
     app.save_project(saved); auto snapshot = app.snapshot(); app.open_project(saved);
     CHECK(app.snapshot().project == snapshot.project);
+    // Reopen a session whose monitored input/output selectors exceed the offline clock.
+    Application session;session.new_project(44100);const auto mic=session.add_audio_track("Stereo input");
+    session.connect(std::make_unique<ManualDevice>(),{0,44100,256,{}, {0,1,2,3}});
+    session.set_track_input(mic,2,true);session.set_track_monitoring(mic,true);session.set_hardware_output({}, {2,3});
+    const auto sessionFile=dir.path/"hardware-session.mrsproject";session.save_project(sessionFile);session.open_project(sessionFile);
+    session.connect(audio::make_offline_device(),{0,44100,128,{}, {0,1}});
+    CHECK(session.audio_running() && session.audio_name()=="Offline clock (no sound)");
+    CHECK(session.services().projects->state().project->tracks.front().input==2);
+    CHECK(session.services().projects->state().project->master_outputs==std::vector<int>({2,3}));
+    auto reconnected=std::make_unique<ManualDevice>();auto* driver=reconnected.get();
+    session.connect(std::move(reconnected),{0,44100,256,{0}, {0,1,2,3}});
+    CHECK(session.audio_running() && driver->last_config.inputs==std::vector<int>({2,3}));
+    CHECK(driver->last_config.buffer_frames==256 && driver->last_config.outputs==std::vector<int>({0,1,2,3}));
     Application other; auto p = *other.services().projects->state().project;
     rejects([&] { other.import_wavs({a}); }); CHECK(*other.services().projects->state().project == p); // rate mismatch
 }
@@ -254,6 +377,24 @@ void clip_edits() {
     auto clip = projects->state().project->clips.front();
     CHECK(clip.start == 200 && clip.track == destination && clip.source == original.source && clip.source_offset == 0);
     CHECK(app.engine()->state().sample == 700);
+    const Timeline copyTime(projects->state().project->time,44100);
+    const auto copied=app.duplicate_clip(original.id);
+    const auto copiedAudio=projects->state().project->clips.back();
+    CHECK(copiedAudio.id==copied&&copiedAudio.track==destination&&copiedAudio.start==copyTime.to_samples(4*ppq)+200);
+    CHECK(copiedAudio.source==original.source&&copiedAudio.length==original.length);
+    app.seek(copiedAudio.start);app.play();app.engine()->process(nullptr,output.data(),128);
+    CHECK(output[0]==0.06103515625f);app.pause();app.engine()->process(nullptr,output.data(),128);
+    CHECK(app.undo()&&projects->state().project->clips.size()==1);CHECK(app.redo()&&projects->state().project->clips.back()==copiedAudio);CHECK(app.undo());
+    const auto midiTrack=app.add_instrument_track("Copy keys");const auto midi=app.create_midi_clip(midiTrack,ppq/3,ppq);
+    app.set_midi_notes(midi,{{new_id(),0,ppq/2,67,90,3}});
+    const auto copyBefore=*projects->state().project;
+    const auto group=app.copy_clips({original.id,midi},copyTime.to_samples(4*ppq));
+    const auto copyAfter=*projects->state().project;CHECK(group.size()==2&&copyAfter.clips.size()==4);
+    CHECK(copyAfter.clips[2].start==200+copyTime.to_samples(4*ppq));
+    CHECK(copyAfter.clips[3].midi->start==4*ppq+ppq/3&&copyAfter.clips[3].midi->notes.front().id!=copyBefore.clips[1].midi->notes.front().id);
+    CHECK(deserialize(serialize(copyAfter))==copyAfter);CHECK(app.undo()&&*projects->state().project==copyBefore);CHECK(app.redo()&&*projects->state().project==copyAfter);CHECK(app.undo());
+    rejects([&]{app.copy_clips({original.id,midi},-1000);});rejects([&]{app.copy_clips({original.id,midi},100,1);});rejects([&]{app.copy_clips({original.id,original.id},100);});CHECK(*projects->state().project==copyBefore);
+    CHECK(app.undo());CHECK(app.undo());CHECK(app.undo()); // notes, MIDI clip, track
     app.trim_clip(original.id,300,1000);
     clip = projects->state().project->clips.front();
     CHECK(clip.start == 300 && clip.length == 700 && clip.source_offset == 100);
@@ -306,6 +447,16 @@ void waveform() {
     CHECK(peaks.range(0,0,0).maximum == 0);
     CHECK(peaks.range(-10,99999,1).minimum == -0.9f);
     rejects([&] { (void)peaks.range(0,1,2); });
+    rejects([&] { (void)peaks.display(0,1,2); });
+    CHECK(peaks.display(0,0,0).maximum==0);
+    CHECK(peaks.display(9999,10000,0).maximum==0);
+    audio::AudioData ramp{48000,1,std::vector<float>(32)};
+    std::fill(ramp.samples.begin()+16,ramp.samples.end(),1.f);
+    audio::Waveform smooth(ramp);
+    float previous=-1;bool fractional=false;
+    for(int x=0;x<64;++x){const auto p=smooth.display(x*.5,x*.5+.5,0);CHECK(p.minimum>=0&&p.maximum<=1&&p.minimum==p.maximum&&p.maximum>=previous);previous=p.maximum;fractional|=p.maximum>0&&p.maximum<1;}
+    CHECK(fractional);CHECK(smooth.display(0,32,0).maximum==1&&smooth.display(0,32,0).minimum==0);
+    CHECK(smooth.range(16,17,0).maximum==1); // smoothing never changes conservative extrema
 }
 void streaming() {
     Directory dir; const auto file = dir.path / "long.wav";
@@ -351,6 +502,41 @@ void streaming() {
 
 
 void recording() {
+    { // First automatic save while playing also manages imported media.
+        Directory imported;const auto source=imported.path/"External.wav";wav(source);
+        Application a;a.new_project(44100);a.import_wavs({source});a.arm_track(a.services().projects->state().project->tracks.front().id);
+        a.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});
+        std::array<float,128> in;in.fill(.125f);std::array<float,256> out{};
+        a.play();a.engine()->process(in.data(),out.data(),128);const auto generation=a.insert_generation();
+        a.start_project_recording(imported.path/"Projects");CHECK(a.recording()&&a.insert_generation()==generation);
+        CHECK(persistence::load_project(a.path()).project.clips.front().source.starts_with("Media/"));
+        a.engine()->process(in.data(),out.data(),128);CHECK(a.stop_recording()&&a.insert_generation()==generation);a.disconnect();
+    }
+    { // Managed destinations: no chooser, never overwrite, raw input, portable references.
+        Directory managed;Application a;a.new_project(44100);
+        const auto one=a.add_audio_track("One"),two=a.add_audio_track("Two");
+        a.set_track_armed(one,true);a.set_track_armed(two,true);
+        rejects([&]{a.start_project_recording(managed.path/"Projects");});
+        CHECK(a.path().empty()&&!std::filesystem::exists(managed.path/"Projects"));
+        a.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});
+        std::array<float,128> in;in.fill(.25f);std::array<float,256> out{};
+        a.play();a.engine()->process(in.data(),out.data(),128);const auto start=a.engine()->state().sample;
+        a.start_project_recording(managed.path/"Projects");CHECK(a.recording()&&!a.path().empty());
+        const auto file=a.path();CHECK(std::filesystem::exists(file));
+        a.engine()->process(in.data(),out.data(),128);CHECK(a.stop_recording());
+        CHECK(a.services().projects->state().project->clips.size()==2);
+        const auto takes=a.last_takes();CHECK(takes.size()==2&&takes[0]!=takes[1]);
+        for(const auto& take:takes){CHECK(take.parent_path()==file.parent_path()/"Media");const auto raw=audio::open_wav(take);CHECK(raw.frames()==128&&raw.samples.front()==.25f);}
+        CHECK(a.services().projects->state().project->clips.front().start==start);
+        CHECK(a.undo()&&a.services().projects->state().project->clips.empty());
+        CHECK(std::filesystem::exists(takes[0])&&a.redo());
+        a.start_project_recording(managed.path/"unused");a.engine()->process(in.data(),out.data(),128);CHECK(a.stop_recording());
+        CHECK(a.path()==file&&a.last_takes()[0]!=takes[0]&&!std::filesystem::exists(managed.path/"unused"));
+        CHECK(audio::open_wav(takes[0]).samples.front()==.25f);
+        a.save_project(file);const auto saved=persistence::load_project(file);
+        for(const auto& c:saved.project.clips)CHECK(c.source.starts_with("Media/")&&!std::filesystem::path(c.source).is_absolute());
+        a.open_project(file);CHECK(a.services().projects->state().project->clips.size()==4);a.disconnect();
+    }
     Directory dir; Application app; app.new_project(44100);
     const auto backing = dir.path/"Backing.wav"; wav(backing);
     app.import_wavs({backing});
@@ -420,9 +606,10 @@ void recording() {
     app.engine()->process(input.data(),output.data(),128);
     rejects([&] { app.start_recording(dir.path/"Loop.wav"); });
     app.services().transport->set_loop({}); app.engine()->process(input.data(),output.data(),128);
+    const auto stop_start=app.engine()->state().sample;
     app.start_recording(dir.path/"Stop.wav"); app.engine()->process(input.data(),output.data(),128);
     app.stop(); CHECK(!app.recording() && app.services().projects->state().project->clips.size() == count+1);
-    app.engine()->process(input.data(),output.data(),128); CHECK(app.engine()->state().sample == 0);
+    app.engine()->process(input.data(),output.data(),128); CHECK(app.engine()->state().sample == stop_start);
     app.remove_track(armed); CHECK(!app.armed_track()); CHECK(app.undo());
     app.arm_track(armed); app.redo(); CHECK(!app.armed_track());
     CHECK(app.undo()); app.arm_track(armed);
@@ -475,7 +662,12 @@ void project_folders() {
     const auto file = project_folder_file(studio.projects()/(name.native()+std::filesystem::path(".mrsproject").native()));
     CHECK(file.parent_path() == studio.projects()/name && file.filename().stem() == name);
     CHECK(project_folder_file(file) == file);
-    Application app; app.new_project(44100,"Song"); app.save_project(file);
+    Application app; app.demo(); app.new_project(44100,"Song");
+    CHECK(app.services().projects->state().project->time == TimeMap{});
+    const Timeline blankTime(app.services().projects->state().project->time,44100);
+    CHECK(blankTime.to_samples(4*ppq)==88200 && blankTime.to_samples(8*ppq)==176400);
+    app.save_project(file);
+    CHECK(persistence::load_project(file).project.time == TimeMap{});
     CHECK(std::filesystem::exists(file) && std::filesystem::is_directory(file.parent_path()/"Media") && std::filesystem::is_directory(file.parent_path()/"Mixdown"));
     std::filesystem::create_directory(originals.path/"A"); std::filesystem::create_directory(originals.path/"B");
     const auto a = originals.path/"A"/"same.wav", b = originals.path/"B"/"same.wav"; wav(a,1); wav(b);
@@ -554,11 +746,16 @@ void project_folders() {
 
 void config() {
     Preferences p; p.workspace = Workspace::live; p.device_name = "Komplete Audio ASIO Driver"; p.reconnect_audio = true;
+    p.click={true,true,false,35,2};
+    p.process_buffer_frames=1024;
     CHECK(decode_preferences(encode_preferences(p)) == p);
     auto disabled = p; disabled.reconnect_audio = false;
     CHECK(decode_preferences(encode_preferences(disabled)) == disabled);
     const auto legacy = decode_preferences("MRS_DESKTOP_CONFIG 1\n0 48000 128 -1 \"Komplete Audio ASIO Driver\" 2 0 1\n");
     CHECK(legacy.reconnect_audio && legacy.device_name == p.device_name);
+    CHECK(legacy.process_buffer_frames==0);
+    CHECK(legacy.click==audio::ClickSettings{});auto bad_click=p;bad_click.click.count_bars=5;rejects([&]{encode_preferences(bad_click);});bad_click=p;bad_click.click.level=-1;rejects([&]{encode_preferences(bad_click);});
+    auto invalid_process=p;invalid_process.process_buffer_frames=64;rejects([&]{(void)encode_preferences(invalid_process);});
     CHECK(!decode_preferences("MRS_DESKTOP_CONFIG 1\n0 48000 128 -1 \"\" 2 0 1\n").reconnect_audio);
     rejects([&] { (void)decode_preferences("MRS_DESKTOP_CONFIG 2\n0 48000 128 -1 \"\" 2 0 1 2\n"); });
     CHECK(parse_outputs("1, 2,6") == std::vector<int>({0,1,5}));
@@ -568,12 +765,106 @@ void config() {
     auto bad = p; bad.outputs = {0,0}; rejects([&] { (void)encode_preferences(bad); });
     Directory dir; Logger log(dir.path / "app.log"); log.write("control-thread log");
 }
+
+
+void inserts() {
+    {Application live;const auto id=live.services().projects->state().project->tracks.front().id;NativeInsert eq;eq.id=new_id();eq.kind=InsertKind::channel_eq;live.set_inserts(id,{eq});auto device=std::make_unique<ManualDevice>();auto* driver=device.get();live.connect(std::move(device),{0,48000,128,{}, {0,1}});live.play();std::array<float,256> out{};live.engine()->process(nullptr,out.data(),128);const auto at=live.engine()->state().sample;
+        eq.bands[2].gain=6;live.preview_inserts(id,{eq});CHECK(live.services().projects->state().project->tracks.front().inserts.front().bands[2].gain==0);live.set_inserts(id,{eq});live.engine()->process(nullptr,out.data(),128);CHECK(live.engine()->state().sample==at+128&&live.engine()->state().playback==PlaybackState::playing&&driver->opens==1);CHECK(live.undo());live.engine()->process(nullptr,out.data(),128);CHECK(live.services().projects->state().project->tracks.front().inserts.front().bands[2].gain==0);CHECK(live.redo());live.engine()->process(nullptr,out.data(),128);CHECK(driver->opens==1);rejects([&]{live.set_inserts(id,{});});}
+
+    Directory dir; Application app; app.new_project(44100);
+    const auto track=app.add_audio_track("Mic"), bus=app.add_bus("Bus"); app.set_track_output(track,bus);
+    NativeInsert a{new_id(),InsertKind::gain,.5f}, b{new_id(),InsertKind::gain,.25f}, c{new_id(),InsertKind::gain,.5f};
+    app.set_inserts(track,{a,b}); CHECK(app.undo() && app.services().projects->state().project->tracks.front().inserts.empty()); CHECK(app.redo());
+    app.set_inserts(track,{b,a}); CHECK(app.services().projects->state().project->tracks.front().inserts.front().id==b.id);
+    app.set_inserts(bus,{c}); app.set_inserts(std::nullopt,{NativeInsert{new_id(),InsertKind::gain,.5f}});
+    app.arm_track(track); app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});
+    std::array<float,128> in{}; in.fill(.8f); std::array<float,256> out{};
+    app.engine()->process(in.data(),out.data(),128); CHECK(std::abs(out[0]-.0125f)<1e-6f && out[0]==out[1]);
+    app.seek(500); app.engine()->process(in.data(),out.data(),128);
+    a.bypass=true; app.set_inserts(track,{b,a}); CHECK(app.engine()->state().sample==500);
+    app.engine()->process(in.data(),out.data(),128); CHECK(std::abs(out[0]-.025f)<1e-6f);
+    app.start_recording(dir.path/"Raw.wav"); app.engine()->process(in.data(),out.data(),128);
+    rejects([&] { app.set_inserts(bus,{}); }); app.stop(); app.engine()->process(in.data(),out.data(),128);
+    CHECK(app.engine()->state().sample==500 && audio::load_wav(dir.path/"Raw.wav").samples.front()==.8f);
+    app.play(); app.engine()->process(in.data(),out.data(),128); rejects([&] { app.set_inserts(track,{}); });
+    app.pause(); app.engine()->process(in.data(),out.data(),128);
+    app.save_project(dir.path/"FX.mrsproject"); const auto saved=app.snapshot(); app.open_project(dir.path/"FX.mrsproject");
+    CHECK(app.snapshot().project==saved.project && app.snapshot().graph==saved.graph);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}}); app.engine()->process(in.data(),out.data(),128); CHECK(std::abs(out[0]-.025f)<1e-6f);
+}
+
+void multi_input() {
+    {
+        Directory dir;const auto source=dir.path/"Playback.wav";wav(source);Application mixed;mixed.import_wav(source);
+        const auto playback=mixed.services().projects->state().project->tracks.front().id;
+        const auto live=mixed.add_audio_track("Live input");mixed.set_track_monitoring(live,true);
+        auto device=std::make_unique<ManualDevice>();auto* driver=device.get();mixed.connect(std::move(device),{0,44100,128,{0},{0,1},2,1024});
+        const auto owner=[&]{return mixed.engine()->processing_domains().channels.front().owner;};
+        CHECK(owner()==audio::ProcessingDomains::Owner::ahead);
+        CHECK(mixed.engine()->processing_domains().channels[1].owner==audio::ProcessingDomains::Owner::device);
+        std::array<float,256> output{};mixed.play();mixed.engine()->process(nullptr,output.data(),128);
+        rejects([&]{mixed.set_track_monitoring(playback,true);});
+        mixed.pause();mixed.engine()->process(nullptr,output.data(),128);mixed.set_track_monitoring(playback,true);
+        CHECK(owner()==audio::ProcessingDomains::Owner::device&&driver->opens==1);
+        mixed.set_track_monitoring(playback,false);CHECK(owner()==audio::ProcessingDomains::Owner::ahead);
+        CHECK(mixed.undo()&&owner()==audio::ProcessingDomains::Owner::device);
+        CHECK(mixed.redo()&&owner()==audio::ProcessingDomains::Owner::ahead);
+        mixed.set_track_armed(playback,true);CHECK(owner()==audio::ProcessingDomains::Owner::device);
+        mixed.play();mixed.engine()->process(nullptr,output.data(),128);mixed.set_track_monitoring(playback,true);
+        mixed.engine()->process(nullptr,output.data(),128);CHECK(owner()==audio::ProcessingDomains::Owner::device&&driver->opens==1);
+        mixed.pause();mixed.engine()->process(nullptr,output.data(),128);mixed.set_track_monitoring(playback,false);mixed.set_track_armed(playback,false);
+        CHECK(owner()==audio::ProcessingDomains::Owner::ahead);
+    }
+    Directory dir; Application app; app.new_project(44100);
+    const auto mono=app.add_audio_track("Mic"), stereo=app.add_audio_track("Keys");
+    auto device=std::make_unique<ManualDevice>(); auto* manual=device.get();
+    app.connect(std::move(device),{0,44100,128,{2},{0,1}});
+    app.set_track_input(mono,3); app.set_track_input(stereo,0,true);
+    app.set_track_monitoring(stereo,true); CHECK(app.stereo_track(stereo) && !app.stereo_track(mono));
+    app.set_track_armed(mono,true); app.set_track_armed(stereo,true);
+    CHECK(app.track_armed(mono) && app.track_armed(stereo));
+    CHECK(manual->last_config.inputs == std::vector<int>({3,0,1}));
+    std::array<float,384> input{}; for (std::size_t n=0; n<128; ++n) { input[n*3]=.8f; input[n*3+1]=.1f; input[n*3+2]=.4f; }
+    std::array<float,256> out{}; app.seek(500); app.engine()->process(input.data(),out.data(),128);
+    CHECK(out[0] == .05f && out[1] == .2f);
+    rejects([&] { app.set_track_input(stereo,3,true); }); CHECK(app.stereo_track(stereo));
+    app.start_recording(dir.path/"Take.wav"); app.engine()->process(input.data(),out.data(),128);
+    app.set_track_monitoring(stereo,false); app.engine()->process(input.data(),out.data(),128);
+    CHECK(out[0] == 0 && out[1] == 0); // monitoring off, both raw captures keep running
+    app.stop(); app.engine()->process(input.data(),out.data(),128);
+    CHECK(!app.recording() && app.engine()->state().sample == 500);
+    const auto p=app.services().projects->state().project;
+    CHECK(p->clips.size() == 2 && p->clips[0].start == 500 && p->clips[1].start == 500);
+    const auto a=audio::load_wav(dir.path/"Take-1.wav"), b=audio::load_wav(dir.path/"Take-2.wav");
+    CHECK(a.channels == 1 && b.channels == 2 && a.frames() == 256 && b.frames() == 256);
+    CHECK(a.samples.front() == .8f && b.samples[0] == .1f && b.samples[1] == .4f);
+    CHECK(app.last_takes().size() == 2);
+    CHECK(app.undo() && app.services().projects->state().project->clips.empty());
+    CHECK(std::filesystem::exists(dir.path/"Take-1.wav") && std::filesystem::exists(dir.path/"Take-2.wav"));
+    CHECK(app.redo() && app.services().projects->state().project->clips.size() == 2);
+    app.save_project(dir.path/"Session.mrsproject"); app.open_project(dir.path/"Session.mrsproject");
+    CHECK(app.stereo_track(stereo) && app.armed_tracks().empty());
+    app.set_track_monitoring(stereo,true); CHECK(app.undo() && !app.services().projects->state().project->tracks[1].input_monitor);
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});
+    app.set_track_input(mono,-1); app.set_track_armed(mono,true);
+    rejects([&] { app.start_recording(dir.path/"Off.wav"); }); CHECK(!std::filesystem::exists(dir.path/"Off.wav"));
+}
+
+void cab_ir(){
+    Directory dir;const auto path=dir.path/"Test.wav";wav(path,2);auto ir=audio::load_cab_ir(path);CHECK(ir.channels==2&&!ir.samples.empty());
+    Application app;app.new_project(44100);const auto track=app.add_audio_track("IR"),bus=app.add_bus("Cab bus");app.set_track_output(track,bus);NativeInsert fx;fx.id=new_id();fx.kind=InsertKind::cab_ir;fx.ir=ir;app.set_inserts(track,{fx});auto busfx=fx;busfx.id=new_id();app.set_inserts(bus,{busfx});auto masterfx=fx;masterfx.id=new_id();app.set_inserts(std::nullopt,{masterfx});
+    auto device=std::make_unique<ManualDevice>();auto* driver=device.get();app.connect(std::move(device),{0,44100,128,{}, {0,1}});app.play();std::array<float,256> out{};app.engine()->process(nullptr,out.data(),128);const auto at=app.engine()->state().sample;fx.ir.mix=.25f;fx.ir.low_cut=80;fx.ir.high_cut=5000;fx.ir.invert=true;app.set_inserts(track,{fx});app.engine()->process(nullptr,out.data(),128);CHECK(driver->opens==1&&app.engine()->state().sample==at+128&&app.engine()->state().playback==PlaybackState::playing);CHECK(app.undo());app.engine()->process(nullptr,out.data(),128);CHECK(app.redo());app.engine()->process(nullptr,out.data(),128);CHECK(driver->opens==1);rejects([&]{auto changed=fx;changed.ir.samples[0]+=.1f;app.set_inserts(track,{changed});});app.stop();app.engine()->process(nullptr,out.data(),128);app.save_project(dir.path/"Cab.mrsproject");std::filesystem::remove(path);app.open_project(dir.path/"Cab.mrsproject");CHECK(app.services().projects->state().project->tracks.front().inserts.front().ir==fx.ir);
+    rejects([&]{audio::load_cab_ir(path);});
+    Application record;record.new_project(44100);const auto mic=record.add_audio_track("Mic");record.set_track_input(mic,0);record.set_track_monitoring(mic,true);NativeInsert half;half.id=new_id();half.kind=InsertKind::cab_ir;half.ir.name="Half";half.ir.sample_rate=44100;half.ir.samples={.5f};record.set_inserts(mic,{half});record.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});record.set_track_armed(mic,true);std::array<float,128> input{};input.fill(.8f);record.start_recording(dir.path/"RawCab.wav");record.engine()->process(input.data(),out.data(),128);record.stop();record.engine()->process(input.data(),out.data(),128);const auto raw=audio::load_wav(dir.path/"RawCab.wav");CHECK(raw.samples.front()==.8f&&raw.samples.back()==.8f);
+
+}
+
 }
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected suite");
         std::string name = argv[1];
-        if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
+        if(name=="cab_ir")cab_ir();else if (name == "inserts") inserts(); else if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
         else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else if (name == "recording") recording(); else if (name == "project_folders") project_folders(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;

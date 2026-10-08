@@ -53,16 +53,47 @@ void Track::Mix::validate() const {
     require(std::isfinite(gain) && gain >= 0 && gain <= 16 &&
         std::isfinite(pan) && pan >= -1 && pan <= 1, "invalid track mix");
 }
+void CabIr::validate() const {
+    require(name.size()<=4096 && sample_rate>=8000 && sample_rate<=192000 && (channels==1 || channels==2), "Cab IR requires mono/stereo at 8–192 kHz");
+    require(!samples.empty() && samples.size()%channels==0 && samples.size()/channels<=sample_rate, "Cab IR length must be greater than zero and at most one second");
+    bool nonzero=false; for(float v:samples){require(std::isfinite(v) && std::abs(v)<=16,"invalid Cab IR sample");nonzero|=v!=0;}require(nonzero,"Cab IR is silent");
+    require(std::isfinite(mix)&&mix>=0&&mix<=1&&std::isfinite(low_cut)&&low_cut>=20&&low_cut<=20000&&std::isfinite(high_cut)&&high_cut>=20&&high_cut<=20000&&low_cut<high_cut,"invalid Cab IR controls");
+}
+void NativeInsert::validate() const {
+    if(kind==InsertKind::cab_ir)ir.validate();
+    for (const auto& b : bands) require(std::isfinite(b.frequency) && b.frequency>=20 && b.frequency<=20000 && std::isfinite(b.gain) && b.gain>=-24 && b.gain<=24 && std::isfinite(b.q) && b.q>=0.1f && b.q<=10,"invalid EQ band");
+    require(component_state.size()<=1024*1024 && controller_state.size()<=1024*1024 && parameters.size()<=4096,"plugin state budget exceeded");
+    if (kind==InsertKind::vst3) {
+        require(!plugin_path.empty() && plugin_path.size()<=32768 && plugin_name.size()<=4096 && class_id.size()==32 && class_id.find_first_not_of("0123456789abcdefABCDEF")==std::string::npos,"invalid VST3 identity");
+        for (std::size_t i=0;i<parameters.size();++i) { const auto& p=parameters[i]; require(std::isfinite(p.value) && p.value>=0 && p.value<=1,"invalid VST3 parameter"); for(std::size_t j=0;j<i;++j) require(p.id!=parameters[j].id,"duplicate VST3 parameter"); }
+    }
+    require(kind >= InsertKind::gain && kind <= InsertKind::cab_ir,"invalid insert kind");
+    require(std::isfinite(gain) && (kind == InsertKind::eq ? gain >= -24 && gain <= 24 : gain >= 0 && gain <= 4),"invalid insert gain");
+    require(std::isfinite(frequency) && frequency >= 20 && frequency <= 20000 && std::isfinite(q) && q >= 0.1f && q <= 10,"invalid filter frequency/Q");
+}
 void Project::validate() const {
     require(version == schema_version, "unsupported project schema");
     require(sample_rate >= 8000 && sample_rate <= 768000, "invalid sample rate");
     time.validate();
     require(std::isfinite(master_gain) && master_gain >= 0 && master_gain <= 16, "invalid master gain");
+    const auto physical = [](const std::vector<int>& outputs) {
+        require(outputs.size() <= 2,"output route must be mono/stereo");
+        for (const auto index : outputs) require(index >= 0 && index < 64,"invalid physical output index");
+        require(outputs.size() != 2 || outputs[0] != outputs[1],"duplicate physical output");
+    };
+    physical(master_outputs);
     std::unordered_set<std::string> ids;
     const auto add_id = [&ids](const Id& entity) {
         require(!entity.value.empty() && entity.value.size() <= 128, "invalid entity ID");
         require(ids.insert(entity.value).second, "duplicate entity ID");
     };
+    std::size_t insert_count{};
+    const auto inserts = [&](const std::vector<NativeInsert>& chain) {
+        require(chain.size() <= 8,"insert chain supports up to eight effects"); insert_count += chain.size();
+        require(insert_count <= 32,"project supports up to 32 native inserts");
+        for (const auto& effect : chain) { effect.validate(); add_id(effect.id); }
+    };
+    inserts(master_inserts);
     add_id(id);
     std::unordered_map<std::string, const Folder*> folder_by_id;
     for (const auto& folder : folders) {
@@ -80,15 +111,72 @@ void Project::validate() const {
     }
     std::unordered_set<std::string> track_ids;
     for (const auto& track : tracks) {
-        track.mix.validate();
+        track.mix.validate(); physical(track.hardware_outputs); inserts(track.inserts);
+        require(track.kind != TrackKind::midi || track.inserts.empty(),"audio inserts require an audio track or bus");
+        require(track.hardware_outputs.empty() || (!track.output && track.kind != TrackKind::midi),"hardware output conflicts with bus/MIDI routing");
         add_id(track.id);
-        require(track.kind == TrackKind::audio || track.kind == TrackKind::midi, "invalid track kind");
+        require(track.kind == TrackKind::audio || track.kind == TrackKind::midi || track.kind == TrackKind::bus || track.kind == TrackKind::instrument, "invalid track kind");
+        require(track.midi_input.size()<=256 && track.midi_channel>=-1 && track.midi_channel<=15,"invalid MIDI input");
+        require(track.midi_output.size()<=256&&track.midi_output_channel>=-1&&track.midi_output_channel<=15,"invalid MIDI output");
+        require(track.kind==TrackKind::instrument||(track.midi_output.empty()&&track.midi_output_channel==-1),"MIDI output requires an instrument track");
+        require(track.midi_output.empty()||track.midi_input!=track.midi_output,"MIDI feedback: input and output cannot use the same endpoint");
+        require(track.kind==TrackKind::instrument || (track.midi_input.empty()&&track.midi_channel==-1&&track.midi_monitor),"MIDI input requires an instrument track");
+        require(track.kind!=TrackKind::instrument || track.inserts.empty() || track.inserts.front().kind==InsertKind::vst3,"instrument must be the first VST3 insert");
         require(!track.folder || folder_by_id.contains(track.folder->value), "missing track folder");
         track_ids.insert(track.id.value);
     }
+    std::unordered_map<std::string, const Track*> channels;
+    for (const auto& track : tracks) channels.emplace(track.id.value,&track);
+    std::unordered_map<std::string,int> color;
+    for (const auto& track : tracks) {
+        require(track.kind != TrackKind::midi || (!track.output && track.sends.empty()), "MIDI audio routing is not supported");
+        require(!track.input_stereo || (track.kind == TrackKind::audio && track.input >= 0 && track.input < 63),"stereo input requires adjacent physical channels");
+        require(!track.input_monitor || track.kind == TrackKind::audio,"only audio tracks can monitor input");
+        require(track.input >= -2 && track.input < 64 && (track.kind == TrackKind::audio || track.input == -2), "invalid track input");
+        require(track.sends.size() <= 8, "at most eight sends per channel");
+        std::unordered_set<std::string> destinations;
+        for (const auto& send : track.sends) {
+            require(std::isfinite(send.gain) && send.gain >= 0 && send.gain <= 16, "invalid send gain");
+            require(destinations.insert(send.bus.value).second, "duplicate send destination");
+        }
+    }
+    // Iterative DFS avoids recursion limits for imported projects. Main output and
+    // sends participate in the same DAG, including disabled/zero-level sends.
+    for (const auto& root : tracks) {
+        std::vector<std::pair<const Track*,std::size_t>> stack;
+        if (color[root.id.value] == 2) continue;
+        color[root.id.value] = 1; stack.emplace_back(&root,0);
+        while (!stack.empty()) {
+            auto& [track,index] = stack.back();
+            if (index == track->sends.size()+1) { color[track->id.value] = 2; stack.pop_back(); continue; }
+            const auto edge_index = index++;
+            const auto destination = edge_index == 0 ? track->output : std::optional<Id>{track->sends[edge_index-1].bus};
+            if (!destination) continue;
+            require(channels.contains(destination->value), "missing output/send bus");
+            const auto* bus = channels.at(destination->value);
+            require(bus->kind == TrackKind::bus, "output/send destination must be a bus");
+            require(color[bus->id.value] != 1, "audio routing cycle");
+            if (color[bus->id.value] == 0) { color[bus->id.value] = 1; stack.emplace_back(bus,0); }
+        }
+    }
+    std::size_t midi_notes{},midi_events{};
     for (const auto& clip : clips) {
         add_id(clip.id);
         require(track_ids.contains(clip.track.value), "missing clip track");
+        require(channels.at(clip.track.value)->kind != TrackKind::bus, "bus cannot contain clips");
+        if (clip.midi) {
+            const auto& m=*clip.midi;
+            require(channels.at(clip.track.value)->kind==TrackKind::instrument,"MIDI clip requires an instrument track");
+            require(clip.start==0 && clip.length==1 && clip.source_offset==0 && clip.source.empty(),"MIDI clip sample fields must be defaults");
+            require(m.start>=0 && m.start<=max_tick && m.length>0 && m.length<=max_tick-m.start,"invalid MIDI clip range");
+            require(m.source_offset>=0 && m.source_offset<=max_tick-m.length,"invalid MIDI source offset");
+            midi_notes+=m.notes.size();
+            require(m.notes.size()<=4096 && midi_notes<=32768,"too many MIDI notes");
+            for(const auto& n:m.notes){add_id(n.id);require(n.start>=0 && n.start<=max_tick && n.length>0 && n.length<=max_tick-n.start,"invalid MIDI note range");require(n.pitch>=0&&n.pitch<=127&&n.velocity>=1&&n.velocity<=127&&n.channel>=0&&n.channel<=15,"invalid MIDI note data");}
+            midi_events+=m.events.size();require(m.events.size()<=8192&&midi_events<=65536,"too many MIDI channel events");
+            for(const auto& e:m.events){add_id(e.id);require(e.start>=0&&e.start<=max_tick&&e.kind>=2&&e.kind<=6&&e.channel>=0&&e.channel<16&&e.data1>=0&&e.data1<128&&e.data2>=0&&e.data2<128,"invalid MIDI channel event");}
+            continue;
+        }
         require(clip.start >= 0 && clip.start <= max_sample, "invalid clip start");
         require(clip.length > 0 && clip.length <= max_sample - clip.start, "invalid clip length");
         require(clip.source_offset >= 0 && clip.source_offset <= max_sample - clip.length,

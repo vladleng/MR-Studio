@@ -30,4 +30,3 @@ Accepted baseline 0.1k. Stage #23 stays open; see MRS_STAGE_3_PLAN.md.
 
 VST3/IR/model hosting and latency compensation belong to later slices; #16 remains
 deferred. Code/builds local; GitHub issues/docs only.
-

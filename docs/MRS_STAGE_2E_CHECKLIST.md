@@ -35,4 +35,3 @@ deferred #16 physical/performance matrix is not claimed passed.
 
 Next roadmap stage after acceptance: #23 Plugins / Native DSP.
 Code/builds local; GitHub issues/docs only; no code push/PR/merge/Actions.
-

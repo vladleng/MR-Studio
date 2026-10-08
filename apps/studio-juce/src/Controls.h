@@ -1,0 +1,147 @@
+#pragma once
+#include <juce_gui_basics/juce_gui_basics.h>
+#include <BinaryData.h>
+#include <cmath>
+#include <map>
+namespace ui {
+constexpr auto background = 0xff303438;
+constexpr auto panel = 0xff393e43;
+constexpr auto surface = 0xff25282b;
+constexpr auto accent = 0xff006dcc;
+
+class Theme final : public juce::LookAndFeel_V4 {
+public:
+    Theme() : face(juce::Typeface::createSystemTypefaceFor(BinaryData::NotoSans_ttf,
+                                                         BinaryData::NotoSans_ttfSize)) {
+        const auto add=[&](const char* label,const char* data,int size){auto icon=juce::Drawable::createFromImageData(data,static_cast<std::size_t>(size));if(!icon)throw std::runtime_error("Invalid transport SVG");transport[label]=std::move(icon);transportColours[label]=juce::Colours::white;};
+        add("Play",BinaryData::play_svg,BinaryData::play_svgSize);add("Pause",BinaryData::pause_svg,BinaryData::pause_svgSize);add("Stop",BinaryData::stop_svg,BinaryData::stop_svgSize);add("Record (R)",BinaryData::record_svg,BinaryData::record_svgSize);
+        add("< Section",BinaryData::previous_svg,BinaryData::previous_svgSize);add("Section >",BinaryData::next_svg,BinaryData::next_svgSize);add("Loop section",BinaryData::loop_svg,BinaryData::loop_svgSize);
+        setColour(juce::TextButton::buttonColourId, juce::Colour(panel));
+        setColour(juce::TextButton::buttonOnColourId, juce::Colour(accent));
+        setColour(juce::TextButton::textColourOffId, juce::Colours::whitesmoke);
+        setColour(juce::ComboBox::backgroundColourId,juce::Colour(background));setColour(juce::ComboBox::outlineColourId,juce::Colour(0xff51565c));
+        setColour(juce::TextEditor::backgroundColourId,juce::Colour(surface));setColour(juce::TextEditor::outlineColourId,juce::Colour(0xff51565c));
+        setColour(juce::TreeView::linesColourId,juce::Colour(0xff858d94));setColour(juce::ScrollBar::thumbColourId,juce::Colour(0xff62686e));
+    }
+    void drawMenuBarBackground(juce::Graphics& g,int,int,bool,juce::MenuBarComponent&) override {g.fillAll(juce::Colour(surface));}
+    void drawTreeviewPlusMinusBox(juce::Graphics& g,const juce::Rectangle<float>& area,juce::Colour,bool open,bool hover) override {
+        g.setColour(hover?juce::Colours::white:juce::Colour(0xffb8bdc2));
+        const auto centre=area.getCentre();const float size=juce::jmin(5.f,area.getWidth()*.3f);juce::Path arrow;
+        if(open){arrow.startNewSubPath(centre.x-size,centre.y-size*.5f);arrow.lineTo(centre.x,centre.y+size*.5f);arrow.lineTo(centre.x+size,centre.y-size*.5f);}
+        else {arrow.startNewSubPath(centre.x-size*.5f,centre.y-size);arrow.lineTo(centre.x+size*.5f,centre.y);arrow.lineTo(centre.x-size*.5f,centre.y+size);}
+        g.strokePath(arrow,juce::PathStrokeType(1.5f));
+    }
+    void drawButtonText(juce::Graphics& g,juce::TextButton& button,bool hover,bool down) override {
+        const auto text=button.getButtonText();auto area=button.getLocalBounds().toFloat().reduced(8);auto centre=area.getCentre();
+        juce::ignoreUnused(centre);
+        if(const auto at=transport.find(text.toStdString());at!=transport.end()){
+            auto colour=text=="Record (R)"?juce::Colour(0xffe64b54):button.getToggleState()?juce::Colour(0xff31b7dd):juce::Colour(0xffc6d3df);
+            if(text=="Record (R)"&&button.getToggleState())colour=colour.brighter(.35f);
+            if(button.hasKeyboardFocus(true)&&text!="Record (R)")colour=juce::Colours::skyblue;
+            if(hover||down)colour=colour.brighter(down?.4f:.2f);if(!button.isEnabled())colour=colour.withAlpha(.35f);
+            at->second->replaceColour(transportColours[text.toStdString()],colour);transportColours[text.toStdString()]=colour;
+            at->second->drawWithin(g,area.withSizeKeepingCentre(20,20),juce::RectanglePlacement::centred,1.f);if(text=="Record (R)"&&button.hasKeyboardFocus(true)){g.setColour(juce::Colours::skyblue);g.drawRect(button.getLocalBounds().reduced(5),1);}
+        }else {g.setFont(getTextButtonFont(button,button.getHeight()));g.setColour(button.findColour(button.getToggleState()?juce::TextButton::textColourOnId:juce::TextButton::textColourOffId).withMultipliedAlpha(button.isEnabled()?1.f:.5f));g.drawText(text,button.getLocalBounds().reduced(3,1),juce::Justification::centred,true);}
+    }
+    juce::Font getTextButtonFont(juce::TextButton& button, int) override { return button.getProperties()["channelFont"] ? channelFont() : font(13); }
+    static juce::Font channelFont() { return juce::Font(juce::FontOptions(13.f)); }
+    juce::Font getMenuBarFont(juce::MenuBarComponent&, int, const juce::String&) override { return font(13); }
+    juce::Font getPopupMenuFont() override { return font(13); }
+    juce::Font font(float size) const { return juce::Font(juce::FontOptions(face).withPointHeight(size)); }
+    void drawButtonBackground(juce::Graphics& g, juce::Button& b, const juce::Colour& c,
+                              bool hover, bool down) override {
+        if(transport.contains(b.getButtonText().toStdString()))return;
+        g.setColour(c.brighter(down ? .18f : hover ? .09f : 0.f));
+        g.fillRoundedRectangle(b.getLocalBounds().reduced(1).toFloat(),3.f);
+        g.setColour(b.hasKeyboardFocus(true) ? juce::Colours::skyblue : juce::Colour(0xff525a62));
+        g.drawRoundedRectangle(b.getLocalBounds().reduced(1).toFloat(),3.f,1.f);
+    }
+private:
+    juce::Typeface::Ptr face;
+    std::map<std::string,std::unique_ptr<juce::Drawable>> transport;
+    std::map<std::string,juce::Colour> transportColours;
+};
+
+// Pointer gestures start only on the handle. Relative movement never jumps to a rail click.
+// Preview runs through Application's bounded mixer queue; release creates one history entry.
+class Handle final : public juce::Component {
+public:
+    explicit Handle(bool vertical) : vertical_(vertical) { setWantsKeyboardFocus(true); }
+    std::function<void(double)> preview, commit;
+    std::function<void()> cancel;
+    double value{.8};
+    bool rotary{};
+    bool dragging() const { return active; }
+    void notifyValue() {if(auto* handler=getAccessibilityHandler())handler->notifyAccessibilityEvent(juce::AccessibilityEvent::valueChanged);}
+    std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override {
+        struct Value final : juce::AccessibilityRangedNumericValueInterface {
+            explicit Value(Handle& c):control(c){}
+            bool isReadOnly() const override {return !control.isEnabled()||control.dragging();}
+            double getCurrentValue() const override {return control.value;}
+            void setValue(double v) override {
+                if(isReadOnly()||!std::isfinite(v))return;
+                const auto next=juce::jlimit(0.,1.,v);
+                if(next==control.value)return;control.value=next;
+                if(control.commit)control.commit(next);control.notifyValue();control.repaint();
+            }
+            AccessibleValueRange getRange() const override {return {{0.,1.},.001};}
+            Handle& control;
+        };
+        return std::make_unique<juce::AccessibilityHandler>(*this,juce::AccessibilityRole::slider,
+            juce::AccessibilityActions{},juce::AccessibilityHandler::Interfaces(std::make_unique<Value>(*this)));
+    }
+    juce::Rectangle<float> knob() const {
+        if(rotary){const float side=static_cast<float>(juce::jmin(getWidth(),getHeight())-8);return getLocalBounds().toFloat().withSizeKeepingCentre(side,side);}
+        if (vertical_) return {static_cast<float>(getWidth()/2-8), 12.f + static_cast<float>(1-value) * travel(),
+                               16.f, 18.f};
+        return {8.f + static_cast<float>(value)*travel(), 8.f, 18.f, static_cast<float>(getHeight()-16)};
+    }
+    void paint(juce::Graphics& g) override {
+        if(rotary){auto r=knob();g.setColour(juce::Colour(0xff20262b));g.fillEllipse(r);g.setColour(hasKeyboardFocus(true)?juce::Colours::skyblue:juce::Colours::grey);g.drawEllipse(r,1);
+            const float angle=static_cast<float>((value-.5)*4.7);auto c=r.getCentre();g.setColour(juce::Colours::skyblue);g.drawLine(c.x,c.y,c.x+std::sin(angle)*r.getWidth()*.38f,c.y-std::cos(angle)*r.getHeight()*.38f,2);return;}
+        const auto rail=getLocalBounds().reduced(vertical_ ? 12 : 8, vertical_ ? 10 : 17);
+        g.setColour(juce::Colour(0xff15191c));
+        g.fillRect(rail);
+        g.setColour(juce::Colour(0xff485159));
+        if(vertical_) g.drawVerticalLine(rail.getCentreX(),static_cast<float>(rail.getY()),static_cast<float>(rail.getBottom()));
+        else g.drawHorizontalLine(rail.getCentreY(),static_cast<float>(rail.getX()),static_cast<float>(rail.getRight()));
+        g.setColour(hasKeyboardFocus(true) ? juce::Colours::skyblue : juce::Colour(0xffb7c2cb));
+        g.fillRect(knob()); g.setColour(juce::Colour(0xff4e5963));
+        auto k=knob(); g.drawLine(k.getX(),k.getCentreY(),k.getRight(),k.getCentreY(),2);
+    }
+    void mouseDown(const juce::MouseEvent& e) override {
+        if (!e.mods.isLeftButtonDown() || !knob().contains(e.position)) return;
+        if(rotary && e.position.getDistanceFrom(knob().getCentre())>knob().getWidth()/2)return;
+        grabKeyboardFocus(); active=true; origin=value; last=vertical_ ? e.position.y : e.position.x;
+    }
+    void mouseDrag(const juce::MouseEvent& e) override {
+        if (!active) return;
+        const auto position=vertical_ ? e.position.y : e.position.x;
+        const auto delta=(position-last)*(vertical_ ? -1.f : 1.f); last=position;
+        value=juce::jlimit(0.,1.,value+delta/travel()*(e.mods.isCtrlDown() ? .1 : 1.));
+        if(preview) preview(value); repaint();
+    }
+    void mouseUp(const juce::MouseEvent&) override {
+        if(!active) return; active=false;
+        if(value!=origin && commit) commit(value); else if(cancel) cancel(); notifyValue();repaint();
+    }
+    bool keyPressed(const juce::KeyPress& key) override {
+        if(key==juce::KeyPress::escapeKey && active) { abort(); return true; }
+        if(active) return false;
+        const int k=key.getKeyCode();
+        if(k!=juce::KeyPress::upKey && k!=juce::KeyPress::rightKey &&
+           k!=juce::KeyPress::downKey && k!=juce::KeyPress::leftKey) return false;
+        const auto step=key.getModifiers().isCtrlDown() ? .001 : .01;
+        value=juce::jlimit(0.,1.,value+((k==juce::KeyPress::upKey || k==juce::KeyPress::rightKey) ? step : -step));
+        if(commit) commit(value); notifyValue();repaint(); return true;
+    }
+    void focusLost(FocusChangeType) override { abort(); }
+private:
+    float travel() const { return rotary ? 240.f : static_cast<float>(juce::jmax(1,(vertical_ ? getHeight()-42 : getWidth()-34))); }
+    void abort() { if(active) {active=false; value=origin; if(cancel)cancel(); repaint();} }
+    bool vertical_, active{};
+    double origin{};
+    float last{};
+};
+
+}

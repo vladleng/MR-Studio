@@ -1,6 +1,6 @@
 # MR Studio: текущий контекст разработки
 
-Обновлено: **2026-10-07**, Asia/Krasnoyarsk. Это основной краткий снимок для нового
+Обновлено: **2026-10-08**, Asia/Krasnoyarsk. Это основной краткий снимок для нового
 чата. Постоянные правила: [AGENTS.md](../AGENTS.md). Подробная история остаётся
 в тематических документах; старые верхние записи README/START_HERE не являются
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
@@ -12,7 +12,7 @@
 | Исходники, Git, CMake, tests, docs | `C:/Users/Vladislav/Documents/GitHub/MR-Studio` |
 | Папка чатов, Builds, Saves, навыки | `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio` |
 | Навыки проекта | Рабочая папка чатов: `.codex/skills/<имя>/SKILL.md` |
-| Активная ветка | `mrs/0.1q-fix3-processing-local` |
+| Активная ветка | `main` после согласованного слияния; исходная `mrs/0.1q-fix3-processing-local` сохранена |
 | Существующая сборочная папка | Репозиторий: `build/asio-local` |
 | GitHub для issues/docs | `vladleng/MR-Studio` |
 
@@ -32,7 +32,378 @@ Project Model/Transport/Core. Активная разработка — Windows 
 В пользовательском примере TH-U и Xvox находятся на разных каналах, ONE — на
 Master. Не превращай их в одну последовательную цепь при оценке параллелизма.
 
-## Актуальная сборка для продолжения: 0.2f upd5
+## Актуальная сборка для продолжения: 0.2g — внешний MIDI
+
+2026-10-08: по запросу «Приступай к 0.2g» реализован Stage 4g / #69 локально.
+Source `959ffbc`, исходная ветка `mrs/0.1q-fix3-processing-local`.
+2026-10-08: пользователь прямо разрешил документацию/issues, merge в main и
+GitHub release. Это разовое разрешение публикации текущего кода и пакета;
+GitHub Actions по-прежнему не запускать. Stage 5 не начинать.
+Пакет chat Builds: `MR-Studio-0.2g-External-MIDI-JUCE-ASIO-Windows-local`.
+EXE SHA256 `89E8E76EE6282E8D1B7930F4AA52C9110DA85402FE4CB753ECFCC0E8D0C8D1FA`.
+Instrument track: Windows MIDI output/Original либо channel 1–16; playback,
+monitored live thru, notes/CC/PC/bend/pressure, missing/unavailable status,
+Panic и stopped Reconnect. Выбор в Arrange через MIDI input/status button.
+VST3 необязателен; возврат audio — обычная audio track. Undo/Redo и Save/Open.
+Схема 14 читает 1–13 с output Off; старые сборки не читают 14 — Save As копию.
+Preferences v7 прежние. Accepted 0.2h upd1/fix1–fix3 сохранены.
+
+RT: device-owned scheduler, bounded SPSC, output driver calls только отдельным
+worker; epoch/generation защищают replace/transport, overflow fail-closed/Panic.
+Прямой совпадающий input/output endpoint запрещён, сложные кабельные петли
+не определяются. WinMM jitter не sample-accurate, hardware latency не калибруется.
+Контракт [MIDI_EXTERNAL.md](MIDI_EXTERNAL.md), [ручная проверка](MRS_STAGE_4G_CHECKLIST.md).
+
+Cached Windows x64 Release build PASS без compiler warnings; CTest **118/118 PASS
+(76.42 s)**. Новые fake backend тесты: model/schema/Undo/Save/Open, output channel,
+overlapping notes, playback/thru/record-monitor-off, loop/Mute/audition/transport,
+stale generation/epoch, overflow, missing/busy/reconnect/send failure/shutdown,
+44.1/48/96 kHz, 1/4 workers, checked callback allocations 0.
+Три packaged J3+diagnostics smoke exit 0, packaged crash tests PASS.
+Software snapshots 100/150% просмотрены; matching EXE/PDB и SHA256 manifest в пакете.
+Пользовательская приёмка 2026-10-08: «Все работает!» после предложения совместной
+проверки MIDI-записи, редакторов, VST3 playback, метронома/precount и Save/Open.
+Работа доступных MIDI-функций принята в сообщённом объёме; точные настройки и
+длительность проверки не перечислены. У пользователя только MIDI-клавиатура,
+внешнего принимающего устройства нет. Физический MIDI output / external ASIO
+routing/timing **NOT RUN**, отложен до появления устройства; это не отказ теста.
+Не утверждать полную hardware matrix или безусловную приёмку всех требований
+Stage 4 / #24 и 4g / #69. Следующий шаг — согласовать следующий этап по плану;
+Stage 5 автоматически не начинать. Пакет и ранее зафиксированные хеши неизменны.
+
+## Предыдущая принятая сборка: 0.2h upd1 — копирование клипов
+
+Приёмка 2026-10-08: «Все работает, вылетов пока не было обнаружено».
+Upd1 принят в сообщённом объёме; отсутствие замеченных вылетов не доказывает
+универсальную crash-free стабильность или прохождение отдельной hardware matrix.
+Следующий согласованный подэтап был 4g / 0.2g, внешний MIDI; реализован выше
+по следующему прямому запросу пользователя. Затем совместная проверка Stage 4.
+
+2026-10-08: пользователь сообщает «Пока вылетов нет» после fix3 и запрашивает
+Duplicate / Alt-копирование аудио и MIDI как update. Не утверждать отсутствие
+всех возможных crashes или приёмку всего parent-этапа. Это историческая запись upd1.
+
+Пакет chat Builds: `MR-Studio-0.2h-upd1-Clip-Copy-JUCE-ASIO-Windows-local`.
+EXE SHA256 `4CAA43511630D59DC04CE915791F55DBC2FB9501E7AA91AF145A73A0DAF3F6CC`.
+Source `f86f14c`, ветка прежняя; контракт [CLIP_COPY_UPD1.md](CLIP_COPY_UPD1.md).
+Duplicate в общей панели ищет свободный такт после оригинала на той же дорожке,
+сохраняет внутритактовое смещение. Alt при захвате показывает движущуюся копию,
+оригинал остаётся; release создаёт одну undoable команду. Escape/focus loss
+отменяют preview. Копии выделяются; новые clip/note/event IDs, source references
+и hidden source content сохранены. Группа копируется атомарно. WAV не размножается.
+Редактирование только Stop/Pause; обычный Snap. Schema 13 / Preferences v7 прежние.
+Preview только UI; Application candidate + playback rebuild retains plugins,
+без новых RT allocations/locks/I/O или смены DSP ownership. Fix1–fix3 сохранены.
+
+Cached configure/full Windows x64 Release PASS; CTest 117/117 PASS (73.25 s).
+Новые проверки встроены в midi_clips, desktop_clip_edits и J3: off-grid,
+занятый такт, tempo/meter, fresh IDs, audio playback, mixed group rollback,
+Undo/Redo/serialization, Duplicate/Alt preview/commit/Escape/no-motion.
+Три packaged J3+diagnostics smoke exit 0; packaged crash tests PASS. Matching
+EXE/PDB сохранены; manifest SHA256 проверяется при упаковке.
+Software snapshots 100/150% inspected. Физическая ASIO/ручная приёмка upd1
+не детализирована: пользователь подтвердил работу upd1, но точные сценарии,
+настройки и длительность сессии не перечислены. Отдельная hardware/DPI matrix
+остаётся NOT RUN; следующий шаг разработки — 0.2g по отдельному запросу.
+READY WITH MANUAL CHECK / FEATURE READY WITH MANUAL CHECK /
+RT SAFE WITH MANUAL CHECK. Предыдущие пакеты и пользовательские данные сохранены.
+
+## Предыдущая сборка: 0.2h fix3 — state snapshot crash
+
+2026-10-08: пользователь разрешил исправление после анализа приложенного fix2
+дампа. Source `2659a17`, ветка прежняя; контракт STATE_SNAPSHOT_FIX3.md.
+Пакет chat Builds: `MR-Studio-0.2h-fix3-State-Snapshot-JUCE-ASIO-Windows-local`.
+EXE SHA256 `02FF65C0DD1A3BE04B78CF8389B0F17554427844CA1882061A585C9F67CCD495`.
+Paint/refresh и piano playhead держат последний корректный UI snapshot при
+занятости mailbox. MIDI/controller timers безопасно отменяют gesture, busy
+не разрешает note edit; Space strict-read exceptions обрабатываются UI.
+try_state сохраняет output при failure и сбрасывает снятый loop при success.
+EngineTransport UI/control projection возвращает последний published state
+при contention. RT publisher/callback/DSP/scheduling/plugin lifetime не менялись;
+нет новых locks/allocation/I/O/retries на RT. Cache только message-thread display,
+не persisted/undoable, resetDevice очищает его; schema 13 / Preferences v7 прежние.
+
+Cached configure/full local Release PASS; CTest 117/117 PASS (74.10 s).
+audio_state_snapshot + diagnostics GUI focused 2/2 PASS (7.70 s); deterministic
+odd-sequence regression воспроизводит прежний throw, проверяет новые paint,
+refresh/timers/Space, fresh-state MIDI guard, неизменную revision и recovery.
+50,000 producer callbacks/concurrent reads проверяют coherence/unchanged failure;
+busy projection allocation probe = 0. Три packaged J3+diagnostics exit 0,
+packaged crash tests PASS, software preview inspected. Final matching PDB сохранён.
+READY WITH MANUAL CHECK / FEATURE READY WITH MANUAL CHECK /
+RT SAFE WITH MANUAL CHECK: физическая ASIO сессия и пользовательская приёмка
+fix3 ещё не выполнялись. Следующий шаг — обычный проект Omnisphere/TH-U на
+Komplete ASIO 48 kHz/128/Workers 8/Process Off, переключение окон и ожидание.
+Найденный state-read crash path устранён; не утверждать, что все исторические
+вылеты имели эту причину. Crash logging продолжает работать, старые пакеты,
+пользовательские проекты/настройки/логи не переписаны. 0.2g не начинать автоматически.
+
+## Предыдущая сборка: 0.2h fix2 — crash diagnostics
+
+Получен пользовательский crash `mr-session-1791441386160-12772-1` (Logs,
+2026-10-08). Диагностика с Symbols fix2: exception 0xe06d7363, main/UI thread
+6912; raw stack содержит std::runtime_error, AudioEngine::state (engine.cpp:483)
+и Desktop::paint (Desktop.cpp:220). Исходник подтверждает throw
+«audio state busy; poll again» при 32 неудачных чтениях согласованного snapshot;
+paint вызывает throwing state() без обработки. Это конкретный host UI/state
+failure path, не доказательство crash в Omnisphere/TH-U. Стек утилиты — raw
+candidates, не полный unwind. Лог: Komplete ASIO, 48 kHz, buffer 128, Workers 8,
+Process Off; последняя heartbeat playback=2, recording=0. clean_shutdown в конце
+не отменяет native unhandled-exception report (возможен unwind logger).
+Код/пакет не менялись при анализе. Следующий предлагаемый fix: nonthrowing,
+bounded UI snapshot reads с последним корректным состоянием/пропуском кадра;
+аудит остальных state() consumers и детерминированная contention regression.
+RT boundary: аудиопоток публикует snapshot, UI читает; RT RISK FOUND на
+RT-adjacent UI consumer, hardware validation нового fix ещё не выполнялась.
+
+2026-10-08: по запросу «Приступай, это будет фикс» добавлена локальная
+диагностика. Source `0caf858`, ветка прежняя; контракт CRASH_DIAGNOSTICS.md.
+Пакет в chat Builds: `MR-Studio-0.2h-fix2-Crash-Diagnostics-JUCE-ASIO-Windows-local`.
+EXE SHA256 `7C0AB8AAF46C4963B572F2239B17F18E36A24E8A2E99C2E2B433FE4862C78984`.
+Обычные сессии пишут Documents/MR Studio/Logs; File → Open diagnostics folder.
+Скрытый helper сохраняет локальные crash text/minidump с exception/thread/module,
+при следующем запуске есть уведомление. Журнал ограничен, старые сессии очищаются
+в пределах отдельной Logs-папки; нет сетевой отправки, registry/WER changes,
+восстановления проекта или новых I/O/locks/allocation в audio processing.
+Schema 13 / Preferences v7 / принятые настройки транспорта прежние.
+
+Full Release build PASS; финальный CTest 116/116 PASS (43.38 s), три packaged
+J3 diagnostics smoke exit 0, packaged native crash tests PASS, software preview
+проверен. Новые тесты проверяют main/worker dumps, abrupt exit, clean shutdown,
+retention/live lock, saturation/missing helper/unwritable folder/menu.
+Первый packaged smoke реально упал; лог/дамп с совпадающими EXE/PDB сохранены
+в пакете. Адрес: AudioEngine::process_channel, engine.cpp:48, повреждённый индекс.
+В J2 обнаружен конкурентный запуск ручного render и threaded Offline clock после
+resetDevice; fixture теперь снова подключает ManualDevice перед ручным render.
+Production audio engine не менялся. Это отдельная ошибка теста, не доказанная
+причина пользовательского вылета. Символы финальной сборки сохранены в Symbols,
+старой — Evidence/pre-test-owner-fix; не смешивать их при анализе.
+
+Ручная приёмка fix2 ожидается. Следующий шаг: использовать обычный проект и при
+повторном вылете получить соответствующие .log/.crash.txt/.dmp. Реальный вылет
+пользователя НЕ объявлен исправленным; Omnisphere не объявлена причиной.
+0.2g автоматически не начинать. Старые пакеты и пользовательские данные сохранены.
+
+## Предыдущая принятая сборка: 0.2h fix1
+
+Приёмка 2026-10-08: «Все работает по последним правкам». Toolbar/темп/изменения
+note-edit приняты в сообщённом объёме, но crash НЕ принят как устранённый.
+Пользователь сообщает спонтанный вылет при просто открытом проекте; неизвестно,
+был ли транспорт остановлен и происходила ли фоновая обработка. По его опыту
+те же используемые плагины никогда не вызывают вылетов в Studio Pro. Не считать
+перенос ноты необходимым trigger и не приписывать причину Omnisphere/другому
+плагину без stack/dump. Следующий фокус — диагностика устойчивости MR Studio
+в открытом/idle/background проекте, получение exception/module/stack и проверка
+host lifetime/thread ownership. Код/пакет/старые manifest не менялись по этой
+приёмке; точные ASIO settings/duration не сообщены. 4g автоматически не начинать.
+
+2026-10-08: пользователь сообщил «Все работает» по 0.2h и запросил три
+исправления. По уточнению Click/Count должны быть кнопками, настройки Transport
+уже правильные. Реализованы переключатели без popup: Click включает/выключает
+playback+recording click, Count возвращает последний включённый bar count
+(первоначально 1). Transport submenu не менялся; Preferences v7/schema 13 прежние.
+Новый проект больше не наследует foundation_demo tempo/meter: TimeMap{} =
+постоянные 120 BPM, 4/4. Сохранённые карты темпа не меняются.
+
+Пользователь уточнил вылет: Omnisphere 3, после отпускания перенесённой ноты,
+замечен после переключения на ChatGPT. Note replacement / musical transforms
+теперь используют clip-only rebuild с сохранением VST3 instances вместо capture/
+пересоздания на каждом commit. Остановка callback/producer перед rebuild сохранена.
+Причина редкого вылета НЕ доказана; совпадающего нового Windows stack/dump нет.
+Не объявлять исправленным старый isolated heap-corruption exit только по PASS.
+Следующий ручной шаг: повторить переносы с Omnisphere 3, переключение окон и
+ожидание после отпускания, проверить audition/Undo/Redo. Контракт: METRONOME_FIX1.md.
+
+Source `4d718a38019456e1471ea14f75a21ed076d4d896`, ветка прежняя.
+Cached configure/full Release PASS; **114/114 CTest PASS (63.41 s)**.
+Toolbar callbacks, count restore, New после Demo / uniform timing / Save,
+stable insert_generation и 32 auditioned alternating drags PASS; существующие
+Undo/Redo/Save/Open/audio/MIDI/RT-regressions PASS. Packaged J3 три раза exit 0
+(96 дополнительных drag gestures суммарно). Software count UI 150% просмотрен,
+равномерная линейка и кнопки без overlap; physical mixed-DPI/Omnisphere/ASIO
+delayed-crash reproduction NOT RUN. READY WITH MANUAL CHECK; RT SAFE WITH MANUAL
+CHECK для изменённых путей, root-cause crash investigation остаётся открытым.
+
+Пакет `MR-Studio-0.2h-fix1-Toolbar-Tempo-MIDI-JUCE-ASIO-Windows-local` в Builds
+папки чатов; прежние пакеты сохранены. EXE SHA256
+`FE00D69DCDC49BE317B61D000BA060A251CC892BCD03D639C06F24D9CE4A1160`.
+GitHub/source push/Actions не выполнялись; #70/#24/P4 не закрыты, 4g не начат.
+Навыки определили полный state/lifetime regression scope без изменений RT DSP.
+
+## Предыдущая поставка: 0.2h
+
+Пользователь принял upd8 («Все тесты прошли»), поменял порядок на 4h → 4g и
+разрешил «Поехали 0.2h делать». Реализованы метроном и precount, scope 4h / #70:
+
+- Click/Count в toolbar и Transport → Metronome / count-in: отдельные playback/
+  recording switches, Accent first beat, Level, count Off или 1–4 такта.
+  По умолчанию Click/Count выключены, accent on, level 20%. Настройки общие:
+  Preferences v7 читает v1–6 с Off; не dirty/Undo, project schema 13 прежняя.
+- Prepared click tones и timing projections следуют tempo/meter/loop; после
+  Master inserts/PDC, перед Master gain, в Master hardware outputs. Host click
+  не добавляется в raw capture; акустическая/аппаратная петля требует наушников.
+- Precount использует темп/размер в позиции старта, полные такты без отрицательных
+  samples. Cursor удерживается, мониторинг работает, COUNT-IN показывает seconds.
+  Запись начинается точно после отсчёта с исходной позиции, даже внутри callback;
+  prefix samples/notes не входят в дубль. Stop/Pause отменяет без пустого WAV/clip.
+  Count audible независимо от recording click; настройки заморожены до Stop.
+- Shared Application/engine; RT tone/capture gating без allocations/locks/I/O/UI.
+  Существующие SPSC controls и coherent state mailbox; stop/join перед prepare.
+  Whole-graph producer рендерит click, mixed producer выключает его; device
+  рендерит один раз. Take command/Undo/portable Save/Open и plugin instances сохранены.
+
+Контракт: [METRONOME_PRECOUNT](METRONOME_PRECOUNT.md); проверка:
+[MRS_STAGE_4H_CHECKLIST](MRS_STAGE_4H_CHECKLIST.md).
+Source `1c954595786a19abc571e391fdf8b2b1e8f1fdfe`, локальная ветка
+`mrs/0.1q-fix3-processing-local`. Cached configure/full Release PASS без compiler
+warnings/errors; **114/114 CTest PASS (64.41 s)**. Packaged J3 три раза exit 0;
+MIDI clips/live/recording, desktop config/recording/project_folders/clip_edits,
+audio metronome/recording/multi_input, mixed/ahead equivalence PASS. Tone 44.1/48/96
+kHz; accented meter/tempo/loop/seek, allocation 0; mid-callback 193-frame count
+сохраняет только 63-frame input suffix. Combined audio/MIDI count/cancel/start0,
+stable insert_generation, one Undo/Redo и Save/Open PASS. Software count UI
+100%/150% просмотрены. В раннем промежуточном J3 был единичный exit 0xc0000374;
+причина не установлена, позднее три последовательных и три packaged запуска PASS;
+не объявлять доказанно исправленным. Детали разработки в контракте.
+Пакет `MR-Studio-0.2h-Metronome-Precount-JUCE-ASIO-Windows-local` в папке чатов
+`Builds`; прежние сохранены. EXE SHA256
+`327F72581776C7558ED2845BC2614267617557E140F95F0C238280C28CE4CCB8`.
+FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK. Реальные ASIO audition,
+record-start timing и physical mixed-DPI NOT RUN; следующая работа — пользовательская
+проверка 0.2h. После приёмки по отдельному запросу — 0.2g внешний MIDI, затем
+совместная Stage 4 проверка. #70/#24/P4 не закрыты, 4g не начат; GitHub/source
+push/Actions и специальные installed TH-U/Nuro проверки не выполнялись.
+
+## Предыдущая принятая поставка: 0.2f upd8
+
+Upd7 принята пользователем 2026-10-08: «По всем предыдущим пунктам тесты пройдены».
+Точные hardware settings и отдельная mixed-DPI matrix этой репликой не перечислены.
+По пяти заключительным замечаниям реализована upd8:
+
+- Arrange ruler font — тот же 13 px, что VST3 Browser. Mouse seek/drag только
+  на верхней линейке тактов; sections/chords/клипы/пустые дорожки не делают seek.
+- Split audio/MIDI оставляет выделенным только правый фрагмент.
+- Edge hover — bracket cursor, зона 7 logical px. Trim выделяет один клип из
+  группы; preview/commit совпадают, Escape отменяет, один Undo/Redo.
+  Audio clamped к исходному файлу; MIDI расширяется за содержимое, влево до
+  timeline zero. Shared MIDI empty-prefix trim сохраняет позиции notes/events.
+- Audio Record показывает растущий красный клип с raw-input waveform. Fixed
+  2048 peak bins/channel, adaptive width; disk worker считает extrema, UI получает
+  versioned atomic snapshot с bounded retries. Callback capture не изменён,
+  новых callback allocations/locks/I/O нет; Stop немедленно очищает preview.
+- Project schema 13 прежняя, trim/takes используют существующие commands,
+  Undo и persistence; временные preview/cursor/selection не сохраняются.
+
+Контракт: [ARRANGE_FINAL_UPD8](ARRANGE_FINAL_UPD8.md).
+Source `6c91cffdf375cd0ec8b1e44857f990a5b8ac70c3`, только локально, ветка
+`mrs/0.1q-fix3-processing-local`. Cached configure и full Release PASS;
+**113/113 CTest PASS (63.30 s)**. Packaged J3 exit 0, MIDI clips/live/recording,
+desktop waveform/recording/project_folders/clip_edits, audio recording/multi_input
+PASS. Проверены bounds/selection/ruler-only, Escape/Undo/Redo, Save/Open,
+mono/stereo preview, repeated takes, adaptive peak reduction и raw samples.
+Software Arrange/audio recording previews 100%/150% просмотрены.
+Пакет `MR-Studio-0.2f-upd8-Final-Arrange-JUCE-ASIO-Windows-local` в папке чатов
+`Builds`; прежние пакеты сохранены. EXE SHA256
+`B97492492098364601CAB3049B01D58DA35EDE16C960A5CE07022B05E7A17258`.
+Пользователь принял upd8 2026-10-08: «Все тесты прошли. Что у нас дальше?».
+Пять заключительных исправлений приняты; точные ASIO settings и отдельная
+mixed-DPI matrix не перечислены. Предыдущая отметка manual checks относилась
+к моменту выпуска. По решению пользователя 2026-10-08 порядок изменён:
+сначала 4h / 0.2h — метроном и precount audio/MIDI, затем 4g / 0.2g — внешний
+MIDI (Windows output ports/channels, live thru, playback Notes/CC/PC,
+routes, missing/reconnect/panic и защита от feedback). Названия, номера и scope
+сохранены; итоговая проверка Stage 4 после обоих подэтапов, последним идёт 4g.
+Начать реализацию только по запросу пользователя.
+GitHub/source push/Actions не выполнялись; Stage 4/P4/#68/#24 не закрываются,
+0.2g/0.2h не начаты. Выпущенный пакет и manifest не изменены после приёмки.
+
+## Предыдущая принятая поставка: 0.2f upd7
+
+Пользователь принял upd6 2026-10-08: «Теперь все в порядке. Тест пройден!».
+Не расширять эту приёмку на весь Stage 4/P4 или отдельную hardware/DPI matrix.
+
+По пяти следующим замечаниям реализована upd7:
+
+- Arrange плейхэд проходит через chords/sections до линейки тактов, сохраняя
+  общую 60 Hz интерполяцию и mouse passthrough.
+- Seek округляет к ближайшей шестнадцатой, не вниз. Тактовые линии захватываются
+  в пределах ±6 logical px, с учётом scroll/zoom/tempo/meter. Snap off вне захвата
+  использует точный sample под кликом. Clip drag/drop/trim snap не менялся.
+- Audio Record без WAV chooser: уникальные Take-ID WAV в Media текущего проекта.
+  Первая запись несохранённой сессии создаёт Untitled-ID проект в
+  Documents/MR Studio/Projects, включая импортированные media. MIDI-only
+  не создаёт WAV/автопроект. Raw recording, один Undo/Redo и portable Save/Open
+  прежние; дубли сохраняются на диске после Undo, clips остаются dirty до Save.
+- Audio/MIDI fill одинаково 0.72, остальные детали клипа не становятся прозрачнее.
+- Arrange/Audio editor waveform используют общие antialiased envelope paths,
+  cached extrema с bounded smoothstep на high zoom. PCM/DSP не меняется;
+  это envelope, не sample-accurate oscilloscope. Worker peak cache остаётся
+  ограниченным 65536 total base bins, начальная детализация 16 frames.
+- Перенос media при Save сохраняет подготовленные processors/editors; если
+  offline graph ещё не был подготовлен, bootstrap остаётся прежним.
+
+Контракт: [ARRANGE_AUDIO_UPD7](ARRANGE_AUDIO_UPD7.md).
+Source `97d08be8ccc2393043143ecdf61f442354ff15e2`, локальная ветка
+`mrs/0.1q-fix3-processing-local`. Cached configure/full Release PASS, без compiler
+warnings/errors. Финальный **113/113 CTest PASS (62.85 s)**. Packaged J3 exit 0;
+MIDI clips/live/recording и desktop waveform/recording/project_folders PASS.
+Software arrangement 1200×700 и high-zoom waveform 100%/150% просмотрены.
+Пакет `MR-Studio-0.2f-upd7-Arrange-Audio-JUCE-ASIO-Windows-local` в папке чатов
+`Builds`; прежние пакеты сохранены. EXE SHA256
+`826C488C03F0B1B6F342D2B024658ABE402F5C16337AA34EB75586CC8A09CFB6`, совпадает с
+Release; SHA256 manifest 96 файлов проверен. Логи и fresh previews внутри пакета.
+FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK. ASIO hardware/manual
+acceptance при выпуске upd7 была NOT RUN; впоследствии пользователь принял пять
+пунктов (см. актуальную запись upd8 выше). Исторический checklist выпуска:
+[MRS_STAGE_4F_CHECKLIST](MRS_STAGE_4F_CHECKLIST.md) на пользовательской системе:
+cursor/ruler, seek, реальные audio takes в Media, прозрачность и waveform zoom.
+GitHub/source push/Actions не выполнялись; #68/#24/P4 не закрываются, 0.2g/0.2h
+не начаты. Визуальный peak envelope не обещает sample-accurate editing.
+
+## Предыдущая принятая поставка: 0.2f upd6
+
+## 0.2f upd6 — 2026-10-08
+
+Пользователь принял upd5: «Тесты прошли успешно». Точные hardware settings,
+длительности и отдельная mixed-DPI matrix этой репликой не перечислены.
+По трём новым требованиям выпущена **0.2f upd6**:
+
+- При запуске Project home вместо demo: фоновый поиск `.mrsproject` рекурсивно
+  в Windows `Документы/MR Studio`, только файлы; папки/symlinks не отображаются.
+  ЛКМ/Enter открывают проект. Сортировка по изменению, поиск по имени/относительному
+  пути, New/Open/Refresh; одинаковые имена различаются путями. Missing/corrupt
+  оставляют текущий проект и показывают ошибку. Начальный home не просит сохранять
+  невидимый пустой проект. Saved audio reconnect выполняется после New/Open.
+  File → Project home сохраняет текущую сессию и ставит Pause; Continue current
+  project возвращает её. Прежняя защита несохранённых изменений при замене/закрытии.
+- Плейхэды Arrange (включая запись), piano roll и controller lane обновляются
+  отдельными прозрачными компонентами на 60 Hz, только узкие old/new полосы.
+  Общая message-thread интерполяция к existing coherent engine snapshot,
+  fractional samples/ticks/pixels. Обычно около одного UI frame визуального отставания,
+  окно сглаживания не больше 50 ms, без ухода дальше последнего observed sample.
+  Stop/Pause/backward/loop/large seek/reset немедленно re-anchor; малый forward seek
+  сходится за короткое UI-окно. Tempo segments учитываются с дробными ticks.
+  30 Hz meters/content polling и MIDI preview rate сохранены; callback/DSP/recording
+  timestamps/audio buffering/Undo/schema 13 не менялись. UI state transient.
+
+Source `89987a78a35694585a7f6ed84c95b759d28d7210`, локальная ветка
+`mrs/0.1q-fix3-processing-local`. Cached configure/full Release PASS без warnings.
+**113/113 CTest PASS (72.65 s)**; после финальных UI дополнений **J2/J3 2/2 PASS
+(7.84 s)**. Packaged J3 и recording/clips/live PASS. Home nested/case-insensitive/
+duplicate/filter/async/open/resume/new/missing/corrupt checks PASS. Fractional cursor
+paint/old stripe clear/mouse passthrough и 44.1/48/96 kHz, 128/256/2048 frames,
+60 Hz bounded monotonic display, stalls/Stop/Pause/Seek/loop/tempo changes PASS.
+Software home 1200×700/1400×850 100%/150% и MIDI 150% просмотрены.
+Пакет `MR-Studio-0.2f-upd6-Home-JUCE-ASIO-Windows-local` в папке чатов `Builds`;
+EXE SHA256 `AFD9B7B9EAB87F6BE4C609AB95F4BA035ED4B688AEBB209FBDC2A71D1339FB44`.
+Контракт: [PROJECT_HOME](PROJECT_HOME.md); [ручная проверка](MRS_STAGE_4F_CHECKLIST.md).
+FEATURE READY WITH MANUAL CHECK; RT SAFE WITH MANUAL CHECK. Физическая ASIO
+плавность записи/редактора и mixed DPI ожидают пользователя. #68/#24/P4 scope
+этой поставкой не закрывается. GitHub/source push/Actions не выполнялись.
+Следующий шаг: проверить новый стартовый экран и плейхэды на пользовательской
+системе; 0.2g/0.2h не начаты, автоматически не начинать.
+
+## Предыдущая принятая поставка: 0.2f upd5
 
 ## 0.2f upd5 — 2026-10-07
 
@@ -712,7 +1083,8 @@ manifest не переписываются после новой пользов�
 0.2a MIDI-вход/VST3-инструменты; 0.2b клипы/playback; 0.2c запись;
 0.2d piano roll; 0.2e quantize/transpose; 0.2f CC/PC;
 0.2g внешний MIDI; **4h / 0.2h — метроном и precount для audio/MIDI записи**.
-Итоговая проверка Stage 4 — после 4h. По последнему уточнению пользователя
+Порядок уточнён 2026-10-08: сначала 4h, затем 4g; итоговая проверка после обоих.
+По последнему уточнению пользователя
 Arranger Track, Chord Track и остальная музыкальная структура остаются в Stage 5 / #25.
 Доработки — updN, исправления — fixN;
 независимые счётчики сбрасываются при переходе к новой букве.

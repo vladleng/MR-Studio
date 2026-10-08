@@ -2,7 +2,9 @@
 
 Artifact: `MR-Studio-0.1f-ASIO-Windows`. Run `MoonRiverStudio.exe`.
 Automated CI covers audio mixing, RT allocation checks, persistence and GUI smoke.
-Physical ASIO acceptance is pending user testing.
+User accepted the local ASIO build on 2026-10-04. Local configure/build,
+59/59 CTest and GUI smoke passed; no GitHub Actions used for that build.
+PR #48 and included #47 merged. Sustained performance benchmark remains deferred.
 
 1. Open an existing 0.1e project with two audio tracks, or import two WAVs.
    Connect the usual vendor ASIO driver and main output pair. Open Mix.

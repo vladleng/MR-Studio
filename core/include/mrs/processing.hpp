@@ -1,5 +1,6 @@
 #pragma once
 #include <mrs/core.hpp>
+#include <mrs/profiling.hpp>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -9,7 +10,7 @@ inline constexpr std::size_t event_capacity = 256;
 inline constexpr std::size_t max_nodes = 32;
 enum class MidiKind { note_off, note_on, cc, program, pressure, pitch_bend, poly_pressure };
 struct MidiEvent {
-    std::uint32_t offset{}; // sample offset within the NEXT callback block
+    std::uint32_t offset{}; // sample offset within the processing block; live ingress targets next callback
     MidiKind kind{MidiKind::note_on};
     std::uint8_t channel{}, data1{}, data2{}; // channel 0..15, MIDI data 0..127
     bool operator==(const MidiEvent&) const = default;
@@ -63,6 +64,8 @@ struct ParameterInfo {
     std::uint32_t id{};
     float minimum{}, maximum{1}, initial{};
     bool automatable{true};
+    std::string name{};
+    bool hidden{};
 };
 struct ParameterValue {
     std::uint32_t id{};
@@ -128,6 +131,7 @@ private:
 };
 struct ProcessConfig {
     std::uint32_t sample_rate{48000}, channels{2}, max_block{8192}, live_latency_budget{128};
+    bool instrument{}; // first node receives device-owned live MIDI
 };
 struct ProcessBlock {
     std::span<float> audio; // interleaved, in-place, frames * channels
@@ -135,6 +139,7 @@ struct ProcessBlock {
     std::span<const MidiEvent> midi;
     std::span<const ParameterChange> parameters;
     MidiBuffer& midi_output;
+    Sample position{};bool playing{};double tempo{120}, quarter{};
 };
 class IProcessor {
 public:
@@ -147,12 +152,24 @@ public:
     virtual std::optional<float> parameter_value(std::uint32_t) const noexcept = 0;
     virtual std::uint32_t latency() const noexcept = 0;
     virtual bool live_safe() const noexcept = 0;
+    // Opt in only when reset_anticipation clears DSP history while retaining parameter
+    // targets, device-sized packet rendering is valid, and all external edits are
+    // represented in PreparedGraph revisions. Unsupported processors stay direct.
+    virtual bool anticipation_safe() const noexcept { return false; }
+    virtual void reset_anticipation() noexcept { reset(); }
     virtual void warm() = 0; // off-thread after prepare/restore
     virtual void reset() noexcept = 0;
     virtual void process(ProcessBlock) noexcept = 0; // bounded RT implementation required
+    virtual bool open_editor(void*,int&,int&) { return false; }
+    virtual void close_editor() noexcept {}
+    virtual bool edited() noexcept { return false; }
+    virtual bool failed() const noexcept { return false; }
+    virtual void sync_controller(std::uint32_t,float) {}
 };
 using ProcessorFactory = std::function<std::unique_ptr<IProcessor>(const NodeState&)>;
 std::unique_ptr<IProcessor> native_factory(const NodeState&);
+std::unique_ptr<IProcessor> cab_ir_factory();
+PluginState cab_ir_state(const CabIr&);
 struct NodeLatency {
     Id id;
     std::uint32_t own{};
@@ -164,6 +181,7 @@ struct LatencyReport {
     std::uint64_t output{};
     bool live_safe{true};
     bool parallel_paths_need_compensation{};
+    bool compensation_applied{};
 };
 struct GraphMetrics {
     std::uint64_t dropped_midi{}, dropped_parameters{}, invalid_events{}, output_overflows{}, panics{};
@@ -178,18 +196,34 @@ public:
     // Single application-thread producer; buffers refer to the next block.
     bool enqueue_midi(const Id& source_port, MidiEvent);
     bool enqueue_parameter(const Id& node, ParameterChange);
+    bool enqueue_parameters(const GraphState&); // atomic bounded parameter/bypass update
     void panic() noexcept;
+    void reset_anticipation() noexcept; // single quiescent DSP owner, retain parameter targets
     // Single audio-thread consumer; no allocation, locks or I/O.
-    void process(float* interleaved, std::uint32_t frames) noexcept;
+    void process(float* interleaved, std::uint32_t frames, Sample position=0,bool playing=false,double tempo=120,double quarter=0,std::span<const MidiEvent> live_midi={}) noexcept;
     bool pop_midi_output(MidiOutput&) noexcept; // single control-thread consumer
     const GraphSnapshot& snapshot() const;
     ProcessConfig config() const;
     const LatencyReport& latency() const;
     GraphMetrics metrics() const noexcept;
+    void set_profiling(bool) noexcept;
+    std::array<TimingSample,max_nodes> profile() const noexcept; // immutable node order
     GraphState capture() const; // quiescent: reads processor state
+    std::uint32_t node_latency(const Id&) const;
+    std::vector<ParameterInfo> parameter_infos(const Id&) const;
+    bool open_editor(const Id&,void*,int&,int&);
+    void close_editor(const Id&) noexcept;
+    void close_editors() noexcept;
+    void restore_node(const NodeState&); // quiescent: retain processor/editor instance
+    bool consume_edits() noexcept;
+    bool failed() const noexcept;
+    bool anticipation_safe() const noexcept;
+    std::uint64_t control_revision() const noexcept;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+double eq_response_db(const NativeInsert&, double frequency, std::uint32_t sample_rate);
+GraphState insert_graph(std::span<const NativeInsert>);
 GraphState demo_graph();
 } // namespace mrs::processing

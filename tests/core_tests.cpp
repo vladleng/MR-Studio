@@ -1,4 +1,6 @@
+#include "legacy_midi_snapshot.hpp"
 #include <mrs/core.hpp>
+#include <mrs/arrangement.hpp>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -23,6 +25,123 @@ template<class F> void invalid_project(F edit) {
     auto project = mrs::demo_project();
     edit(project);
     rejects([&] { project.validate(); });
+}
+
+
+void inserts() {
+    using namespace mrs;
+    auto p=demo_project(); const auto track=p.tracks.front().id; ProjectStore store{p};
+    NativeInsert gain{new_id(),InsertKind::gain,0.5f}, eq{new_id(),InsertKind::eq,6,1000,1};
+    store.execute(SetInserts{track,{gain,eq}}); store.execute(SetInserts{std::nullopt,{NativeInsert{new_id(),InsertKind::highpass}}});
+    const auto saved=*store.state().project; CHECK(deserialize(serialize(saved)) == saved);
+    CHECK(store.undo() && store.state().project->master_inserts.empty()); CHECK(store.undo() && *store.state().project == p);
+    CHECK(store.redo() && store.redo() && *store.state().project == saved);
+    auto invalid=gain; invalid.gain=5; rejects([&] { store.execute(SetInserts{track,{invalid}}); });
+    invalid=eq; invalid.frequency=0; rejects([&] { store.execute(SetInserts{track,{invalid}}); });
+    rejects([&] { store.execute(SetInserts{track,{gain,gain}}); });
+    rejects([&] { store.execute(SetInserts{Id{"absent"},{gain}}); });
+    CHECK(*store.state().project == saved);
+    p.tracks.push_back({new_id(),"MIDI",TrackKind::midi,{}}); ProjectStore midi{p}; rejects([&] { midi.execute(SetInserts{p.tracks.back().id,{gain}}); });
+    std::vector<NativeInsert> excess; for (int n=0;n<9;++n) excess.push_back({new_id()}); rejects([&] { store.execute(SetInserts{track,excess}); });
+    auto legacy=without_midi_outputs(serialize(demo_project())); const std::string clipMidi="MIDI 0\nMIDIEVENTS 0\n";for(auto pos=legacy.find(clipMidi);pos!=std::string::npos;pos=legacy.find(clipMidi))legacy.erase(pos,clipMidi.size()); const std::string midiLine="\"\" -1 1\n";for(auto pos=legacy.find(midiLine);pos!=std::string::npos;pos=legacy.find(midiLine))legacy.erase(pos,midiLine.size()); legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 14").size(),"MRS_CORE_SNAPSHOT 7");
+    const std::string line="INSERTS 0\n"; for (auto pos=legacy.find(line);pos!=std::string::npos;pos=legacy.find(line)) legacy.erase(pos,line.size());
+    CHECK(deserialize(legacy) == demo_project());
+    auto v9project=demo_project();NativeInsert channel;channel.id=new_id();channel.kind=InsertKind::channel_eq;channel.bands[2].gain=4;v9project.tracks.front().inserts={channel};auto v9=without_midi_outputs(serialize(v9project));for(auto pos=v9.find(clipMidi);pos!=std::string::npos;pos=v9.find(clipMidi))v9.erase(pos,clipMidi.size());for(auto pos=v9.find(midiLine);pos!=std::string::npos;pos=v9.find(midiLine))v9.erase(pos,midiLine.size());v9.replace(0,std::string("MRS_CORE_SNAPSHOT 14").size(),"MRS_CORE_SNAPSHOT 9");const std::string irline="\"\" 48000 1 1 20 20000 0 0\n";for(auto pos=v9.find(irline);pos!=std::string::npos;pos=v9.find(irline))v9.erase(pos,irline.size());CHECK(deserialize(v9)==v9project);
+
+}
+
+void inputs() {
+    using namespace mrs;
+    auto p=demo_project(); const auto id=p.tracks.front().id; ProjectStore store{p};
+    store.execute(SetTrackInput{id,4,true}); store.execute(SetTrackMonitoring{id,true});
+    CHECK(store.state().project->tracks.front().input_stereo && store.state().project->tracks.front().input_monitor);
+    CHECK(deserialize(serialize(*store.state().project)) == *store.state().project);
+    CHECK(store.undo() && !store.state().project->tracks.front().input_monitor);
+    CHECK(store.redo() && store.state().project->tracks.front().input_monitor);
+    CHECK(store.undo() && store.undo() && *store.state().project == p);
+    const auto before=*store.state().project;
+    rejects([&] { store.execute(SetTrackInput{id,63,true}); });
+    rejects([&] { store.execute(SetTrackInput{id,-2,true}); });
+    rejects([&] { store.execute(SetTrackMonitoring{Id{"missing"},true}); });
+    CHECK(*store.state().project == before);
+    p.tracks.push_back({{"bus"},"Bus",TrackKind::bus,{}}); ProjectStore buses{p};
+    rejects([&] { buses.execute(SetTrackMonitoring{Id{"bus"},true}); });
+    rejects([&] { buses.execute(SetTrackInput{Id{"bus"},0,true}); });
+}
+
+void hardware() {
+    using namespace mrs;
+    auto p = demo_project(); const auto id = p.tracks.front().id;
+    p.tracks.push_back({{"cue"},"Cue",TrackKind::bus,{}}); ProjectStore store{p};
+    store.execute(SetTrackOutput{id,Id{"cue"}}); store.execute(SetHardwareOutput{Id{"cue"},{4,5}});
+    store.execute(SetHardwareOutput{std::nullopt,{2,3}});
+    CHECK(deserialize(serialize(*store.state().project)) == *store.state().project);
+    store.execute(RemoveTrack{Id{"cue"}}); CHECK(store.state().project->tracks.front().hardware_outputs == std::vector<int>{4,5});
+    CHECK(store.undo() && store.state().project->tracks.front().output == Id{"cue"});
+    store.execute(SetHardwareOutput{id,{7}}); CHECK(!store.state().project->tracks.front().output);
+    CHECK(store.undo() && store.state().project->tracks.front().hardware_outputs.empty()); CHECK(store.redo());
+    const auto before = store.state();
+    rejects([&] { store.execute(SetHardwareOutput{id,{1,1}}); });
+    rejects([&] { store.execute(SetHardwareOutput{id,{-1}}); });
+    rejects([&] { store.execute(SetHardwareOutput{std::nullopt,{64}}); });
+    rejects([&] { store.execute(SetHardwareOutput{id,{0,1,2}}); });
+    rejects([&] { store.execute(SetHardwareOutput{Id{"missing"},{0}}); });
+    CHECK(store.state().revision == before.revision);
+    store.execute(SetTrackOutput{id,Id{"cue"}}); CHECK(store.state().project->tracks.front().hardware_outputs.empty());
+    const std::string old = "MRS_CORE_SNAPSHOT 5\nPROJECT \"old\" \"Old\" \"\" 48000\nTEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n\"a\" \"Audio\" 0 \"\"\n1 0 0 0\n\"\"\n-2 0\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nMASTER 1\nEND\n";
+    const auto migrated = deserialize(old); CHECK(migrated.master_outputs.empty() && migrated.tracks.front().hardware_outputs.empty());
+}
+void sends() {
+    using namespace mrs;
+    auto p = demo_project(); const auto id = p.tracks.front().id;
+    p.tracks.push_back({{"r1"},"Return 1",TrackKind::bus,{}});
+    p.tracks.push_back({{"r2"},"Return 2",TrackKind::bus,{}});
+    ProjectStore store{p};
+    store.execute(SetTrackSends{id,{{{"r1"},0.5f,true},{{"r2"},0.25f,false}}});
+    store.execute(SetTrackInput{id,3});
+    const auto saved = *store.state().project;
+    CHECK(deserialize(serialize(saved)) == saved);
+    store.execute(SetTrackOutput{Id{"r1"},Id{"r2"}});
+    const auto before = store.state();
+    rejects([&] { store.execute(SetTrackSends{Id{"r2"},{{{"r1"},0,false}}}); });
+    rejects([&] { store.execute(SetTrackSends{id,{{{"r1"},1,false},{{"r1"},1,true}}}); });
+    rejects([&] { store.execute(SetTrackSends{id,{{id,1,false}}}); });
+    rejects([&] { store.execute(SetTrackSends{id,{{{"absent"},1,false}}}); });
+    rejects([&] { store.execute(SetTrackSends{id,{{{"r1"},-1,false}}}); });
+    rejects([&] { store.execute(SetTrackInput{Id{"r1"},0}); });
+    CHECK(store.state().revision == before.revision && store.state().project == before.project);
+    store.execute(RemoveTrack{Id{"r1"}});
+    CHECK(store.state().project->tracks.front().sends.size() == 1);
+    CHECK(store.undo() && store.state().project->tracks.front().sends.size() == 2);
+    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT 14"); CHECK(head == 0);
+    const std::string old = "MRS_CORE_SNAPSHOT 4\nPROJECT \"old\" \"Old\" \"\" 48000\nTEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n\"a\" \"Audio\" 0 \"\"\n1 0 0 0\n\"\"\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nMASTER 1\nEND\n";
+    const auto migrated = deserialize(old); CHECK(migrated.tracks.front().sends.empty() && migrated.tracks.front().input == -2);
+}
+void buses() {
+    using namespace mrs;
+    auto p = demo_project();
+    const auto track = p.tracks.front().id;
+    p.tracks.push_back({{"sub"},"Subgroup",TrackKind::bus,{}});
+    p.tracks.push_back({{"sum"},"Sum",TrackKind::bus,{}});
+    ProjectStore store{p};
+    store.execute(SetTrackOutput{track,Id{"sub"}});
+    store.execute(SetTrackOutput{Id{"sub"},Id{"sum"}});
+    const auto before = store.state();
+    rejects([&] { store.execute(SetTrackOutput{Id{"sum"},Id{"sub"}}); });
+    rejects([&] { store.execute(SetTrackOutput{Id{"sub"},Id{"sub"}}); });
+    rejects([&] { store.execute(SetTrackOutput{track,Id{"absent"}}); });
+    rejects([&] { store.execute(SetTrackOutput{Id{"sub"},track}); });
+    CHECK(store.state().revision == before.revision && store.state().project == before.project);
+    store.execute(SetTrackMix{Id{"sub"},{0.5f,-0.5f,true,true}});
+    CHECK(deserialize(serialize(*store.state().project)) == *store.state().project);
+    const auto routed = *store.state().project;
+    store.execute(RemoveTrack{Id{"sub"}});
+    CHECK(store.state().project->tracks.front().output == Id{"sum"});
+    CHECK(store.undo() && *store.state().project == routed);
+    auto bad = routed; bad.clips.front().track = {"sub"}; rejects([&] { bad.validate(); });
+    const std::string v3 = "MRS_CORE_SNAPSHOT 3\nPROJECT \"old\" \"Old\" \"\" 48000\nTEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n\"a\" \"Audio\" 0 \"\"\n0.5 -0.25 1 0\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nMASTER 0.75\nEND\n";
+    const auto migrated = deserialize(v3);
+    CHECK(!migrated.tracks.front().output && migrated.tracks.front().mix.gain == 0.5f && migrated.master_gain == 0.75f);
 }
 void model() {
     auto p = mrs::demo_project();
@@ -234,7 +353,7 @@ void serialization() {
     CHECK(mrs::deserialize(bytes) == project);
     CHECK(mrs::serialize(mrs::deserialize(bytes)) == bytes); // canonical, locale independent
     rejects([] { (void)mrs::deserialize(""); });
-    rejects([] { (void)mrs::deserialize("MRS_CORE_SNAPSHOT 99\n"); });
+    rejects([] { (void)mrs::deserialize("MRS_CORE_SNAPSHOT 129\n"); });
     rejects([&] { (void)mrs::deserialize(bytes + "UNKNOWN\n"); });
     rejects([&] { (void)mrs::deserialize(bytes.substr(0, bytes.size() / 2)); });
     for (const auto& replacement : {"TEMPOS -1", "TEMPOS 100001", "TEMPOS abc"}) {
@@ -284,7 +403,9 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected test suite");
         const std::string suite = argv[1];
-        if (suite == "model") model();
+        if (suite == "inserts") inserts(); else if (suite == "inputs") inputs(); else if (suite == "hardware") hardware(); else if (suite == "sends") sends();
+        else if (suite == "buses") buses();
+        else if (suite == "model") model();
         else if (suite == "timeline") timeline();
         else if (suite == "transport") transport();
         else if (suite == "commands") commands();
