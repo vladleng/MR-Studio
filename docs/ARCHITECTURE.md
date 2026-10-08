@@ -136,6 +136,29 @@ Arrange playback, Mix и Live Mode используют **один и тот ж�
 
 Подробнее: `AUDIO_ENGINE.md`.
 
+## 6.1. Time Stretch / Pitch Shift
+
+Time-stretch / pitch-shift является возможностью **SHARED Audio Engine**, а не функцией отдельного workspace.
+
+Первый backend: **Signalsmith Stretch** (MIT), tracking #56.
+
+```text
+Clip / Timeline / Transport / Render
+              |
+       ITimeStretchEngine
+              |
+     +--------+---------+
+     |                  |
+Signalsmith          future backends
+(first)             Rubber Band / élastique / ...
+```
+
+Signalsmith не должен протекать типами или preset names в Project Model, Transport, clip serialization или UI. Сохраняется пользовательское намерение — ratio/pitch/formant policy — а backend остаётся заменяемым.
+
+Realtime path подчиняется общим правилам Audio Engine: prepare/reconfigure вне callback, bounded/preallocated buffers, no blocking locks/file I/O/heap growth в callback и явный latency accounting.
+
+Подробнее: `TIME_STRETCH.md`.
+
 ## 7. Low-latency path и process path
 
 Архитектура должна позволять разделять интерактивный live monitoring и тяжёлую обработку/playback.

@@ -1,8 +1,8 @@
 # Moon River Studio — START HERE
 
-> Current development context (2026-10-06): [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
+> Current development context (2026-10-08): [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
 > Start with that file and the repository AGENTS.md. It records the current
-> 0.1t fix1 delivery, user acceptance and remaining P3 work.
+> 0.2g delivery, MIDI acceptance and deferred external hardware validation.
 > Entries below are historical snapshots; their old “pending/not started”
 > labels do not override the current context.
 

@@ -72,4 +72,3 @@ Keep mrs_vst3_scan.exe beside Moon River Studio JUCE.exe.
 Existing 0.1p and Win32 packages are preserved. User review of this update and
 remaining physical J3 gates remain open. Code/builds local; GitHub issues/docs only,
 no code push/PR/merge/Actions or installations.
-

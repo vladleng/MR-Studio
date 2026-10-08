@@ -12,7 +12,7 @@
 | Исходники, Git, CMake, tests, docs | `C:/Users/Vladislav/Documents/GitHub/MR-Studio` |
 | Папка чатов, Builds, Saves, навыки | `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio` |
 | Навыки проекта | Рабочая папка чатов: `.codex/skills/<имя>/SKILL.md` |
-| Активная ветка | `mrs/0.1q-fix3-processing-local` |
+| Активная ветка | `main` после согласованного слияния; исходная `mrs/0.1q-fix3-processing-local` сохранена |
 | Существующая сборочная папка | Репозиторий: `build/asio-local` |
 | GitHub для issues/docs | `vladleng/MR-Studio` |
 
@@ -35,7 +35,10 @@ Master. Не превращай их в одну последовательну�
 ## Актуальная сборка для продолжения: 0.2g — внешний MIDI
 
 2026-10-08: по запросу «Приступай к 0.2g» реализован Stage 4g / #69 локально.
-Source `959ffbc`, ветка `mrs/0.1q-fix3-processing-local`; GitHub code не отправлялся.
+Source `959ffbc`, исходная ветка `mrs/0.1q-fix3-processing-local`.
+2026-10-08: пользователь прямо разрешил документацию/issues, merge в main и
+GitHub release. Это разовое разрешение публикации текущего кода и пакета;
+GitHub Actions по-прежнему не запускать. Stage 5 не начинать.
 Пакет chat Builds: `MR-Studio-0.2g-External-MIDI-JUCE-ASIO-Windows-local`.
 EXE SHA256 `89E8E76EE6282E8D1B7930F4AA52C9110DA85402FE4CB753ECFCC0E8D0C8D1FA`.
 Instrument track: Windows MIDI output/Original либо channel 1–16; playback,

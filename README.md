@@ -1,5 +1,63 @@
 # Moon River Studio
 
+Текущий релиз: **0.2g — MIDI workflow / Windows x64 JUCE + ASIO**.
+MIDI input, VST3 instruments, recording, piano roll, controllers, метроном/precount,
+копирование клипов и внешний MIDI output. Принятые пользовательские сценарии работают;
+hardware external MIDI timing/routing не проверен: внешнего устройства нет.
+118/118 локальных CTest PASS. [Актуальный контекст](docs/PROJECT_CONTEXT.md),
+[релиз](https://github.com/vladleng/MR-Studio/releases/tag/v0.2g),
+[ограничения внешнего MIDI](docs/MIDI_EXTERNAL.md).
+Stage 5 **не начат**, ожидает прямого запроса. Ниже сохранена история.
+
+<!-- DEVELOPMENT_PROGRESS_START -->
+## Development Progress
+
+Прогресс автоматически рассчитывается по закрытым **GitHub sub-issues**. Каждая полоса ведёт к соответствующей задаче. Это прогресс выполнения задач, а не оценка готовности релиза.
+
+### Основные направления
+
+**[MRS — DAW Development](https://github.com/vladleng/MR-Studio/issues/12)**
+
+[![Прогресс MRS — DAW Development](https://progress-bar.xyz/dynamic/json/?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F12&query=%24.sub_issues_summary.percent_completed&width=360&style=flat&progress_color=5c98bb&progress_background=30363d&progress_number_color=ffffff&cache=900)](https://github.com/vladleng/MR-Studio/issues/12)
+
+**[SHARED — Core / Engine](https://github.com/vladleng/MR-Studio/issues/13)**
+
+[![Прогресс SHARED — Core / Engine](https://progress-bar.xyz/dynamic/json/?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F13&query=%24.sub_issues_summary.percent_completed&width=360&style=flat&progress_color=3f9d85&progress_background=30363d&progress_number_color=ffffff&cache=900)](https://github.com/vladleng/MR-Studio/issues/13)
+
+**[LIVE — Performance Mode](https://github.com/vladleng/MR-Studio/issues/14)**
+
+[![Прогресс LIVE — Performance Mode](https://progress-bar.xyz/dynamic/json/?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F14&query=%24.sub_issues_summary.percent_completed&width=360&style=flat&progress_color=8679ab&progress_background=30363d&progress_number_color=ffffff&cache=900)](https://github.com/vladleng/MR-Studio/issues/14)
+
+<details>
+<summary><strong>Прогресс отдельных этапов</strong></summary>
+
+**[Stage 3 — Plugins / Native DSP](https://github.com/vladleng/MR-Studio/issues/23)**
+
+[![Прогресс Stage 3 — Plugins / Native DSP](https://progress-bar.xyz/dynamic/json/?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F23&query=%24.sub_issues_summary.percent_completed&width=320&style=flat&progress_color=5c98bb&progress_background=30363d&progress_number_color=ffffff&cache=900)](https://github.com/vladleng/MR-Studio/issues/23)
+
+**[Stage 4 — MIDI / Metronome](https://github.com/vladleng/MR-Studio/issues/24)**
+
+[![Прогресс Stage 4 — MIDI / Metronome](https://progress-bar.xyz/dynamic/json/?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F24&query=%24.sub_issues_summary.percent_completed&width=320&style=flat&progress_color=3f9d85&progress_background=30363d&progress_number_color=ffffff&cache=900)](https://github.com/vladleng/MR-Studio/issues/24)
+
+**[Stage 5 — Musical Structure](https://github.com/vladleng/MR-Studio/issues/25)**
+
+[![Прогресс Stage 5 — Musical Structure](https://progress-bar.xyz/dynamic/json/?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F25&query=%24.sub_issues_summary.percent_completed&width=320&style=flat&progress_color=5c98bb&progress_background=30363d&progress_number_color=ffffff&cache=900)](https://github.com/vladleng/MR-Studio/issues/25)
+
+**[Stage 7 — Advanced Features](https://github.com/vladleng/MR-Studio/issues/78)**
+
+[![Прогресс Stage 7 — Advanced Features](https://progress-bar.xyz/dynamic/json/?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F78&query=%24.sub_issues_summary.percent_completed&width=320&style=flat&progress_color=5c98bb&progress_background=30363d&progress_number_color=ffffff&cache=900)](https://github.com/vladleng/MR-Studio/issues/78)
+
+**[SHARED — Time Stretch / Pitch Shift](https://github.com/vladleng/MR-Studio/issues/56)**
+
+[![Прогресс SHARED — Time Stretch / Pitch Shift](https://progress-bar.xyz/dynamic/json/?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fvladleng%2FMR-Studio%2Fissues%2F56&query=%24.sub_issues_summary.percent_completed&width=320&style=flat&progress_color=3f9d85&progress_background=30363d&progress_number_color=ffffff&cache=900)](https://github.com/vladleng/MR-Studio/issues/56)
+
+</details>
+
+[Общий roadmap](https://github.com/vladleng/MR-Studio/issues/1) · [Все issues](https://github.com/vladleng/MR-Studio/issues) · [План разработки](docs/ROADMAP.md) · [Старт для разработчика](docs/START_HERE.md)
+
+> Полосы генерируются из актуальных данных GitHub API; обновление на странице может запаздывать из-за кеширования. GitHub Actions не используются. Код, сборки и тестирование по-прежнему выполняются локально.
+<!-- DEVELOPMENT_PROGRESS_END -->
+
 > Current development context (2026-10-06): [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md).
 > Start with that file and the repository AGENTS.md. It records the current
 > 0.1t fix1 delivery, user acceptance and remaining P3 work.

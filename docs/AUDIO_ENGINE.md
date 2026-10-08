@@ -388,7 +388,29 @@ Live Mode использует тот же engine, но может включа�
 
 ---
 
-## 17. Licensing / release check
+## 17. Time Stretch / Pitch Shift
+
+Tracking: #56; design: `TIME_STRETCH.md`.
+
+Первый time-stretch/pitch backend MRS — **Signalsmith Stretch**. Он подключается через backend-neutral SHARED contract и не становится типовой зависимостью Project Model/Clip/Transport.
+
+Для realtime stretch обязательны те же performance rules, что и для остального Audio Engine:
+
+- prepare/configure и allocation вне callback;
+- bounded/preallocated buffers;
+- no blocking locks/file I/O/UI/network/logging в callback;
+- явные input/output latency;
+- safe seek/loop/reset;
+- измерение max callback time и spectral CPU spikes;
+- hardware check сначала на 48 kHz / 128 frames, затем 64 frames где поддерживается.
+
+Signalsmith split computation должен сравниваться по CPU-spikes **и** дополнительной latency, а не включаться автоматически.
+
+Offline/HQ path может использовать другую buffering policy, но тот же backend contract. Cache должен учитывать source identity, stretch parameters и backend/version.
+
+---
+
+## 18. Licensing / release check
 
 Перед публичным распространением необходимо отдельно проверять актуальные лицензионные условия ASIO SDK, VST3 и выбранного framework/toolchain.
 
@@ -401,3 +423,46 @@ ring and background WAV writer, independent monitoring and one-step take attachm
 through the existing ProjectStore/Undo. Same engine/device/transport, archive schema
 unchanged. See [recording contracts](RECORDING.md) and
 [Windows checklist](MRS_STAGE_1D_CHECKLIST.md). Hardware acceptance pending.
+
+
+## 19. Instrument Parallelism / multi-instance VSTi sharding
+
+Tracked in P4 / #54.
+
+Parallel channel scheduling does not by itself split one heavy stateful VST3 instrument.
+MR Studio must not concurrently process one arbitrary plugin instance from several host
+workers unless the plugin/API explicitly provides such a contract.
+
+For polyphonic instruments that are safe to clone, the planned host-level strategy is one
+logical instrument track backed by multiple synchronized plugin instances. MIDI notes are
+assigned to stable per-note owners, instances run on existing RT workers, their audio is
+summed deterministically, and the common post-instrument insert chain runs once after the sum.
+
+The first supported modes should be explicit:
+
+```text
+Instrument Processing
+- Single Instance
+- Parallel x2
+- Parallel x4
+```
+
+An Auto mode may follow only after compatibility and profiling evidence.
+
+The sharding layer must preserve:
+- note-on/note-off pairing, repeated-note identity and sustain behavior;
+- relevant global MIDI controller synchronization;
+- plugin state/preset and parameter/automation coherence;
+- transport/timeline context;
+- reported latency/PDC and routing semantics;
+- deterministic audio reduction;
+- realtime safety and safe teardown/rebuild.
+
+Compatibility is not assumed. Mono/legato, portamento, internal sequencers/arpeggiators,
+round-robin/global voice management, random/shared state and global effects may prevent
+behavioral equivalence. Such instruments stay on Single Instance.
+
+Performance acceptance belongs to #54: compare Single vs x2/x4 using callback percentiles,
+max deadline time, Late/XR/D and worker balance. The first representative case is a high-
+polyphony Omnisphere piano at 48 kHz / 128 frames, matched against Fender Studio Pro where
+possible. This does not permit plugin-brand-specific scheduling logic.
