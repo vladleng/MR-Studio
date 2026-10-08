@@ -39,6 +39,17 @@ Source `959ffbc`, исходная ветка `mrs/0.1q-fix3-processing-local`.
 2026-10-08: пользователь прямо разрешил документацию/issues, merge в main и
 GitHub release. Это разовое разрешение публикации текущего кода и пакета;
 GitHub Actions по-прежнему не запускать. Stage 5 не начинать.
+Merge в main: `6d61355` (предварительно сохранены remote docs/dashboard).
+Post-merge cached configure + clean-first Windows x64 Release PASS без compiler
+warnings; повторный CTest **118/118 PASS (47.46 s)**, включая GUI/crash smoke.
+Исходники apps/core/tests/CMake/cmake идентичны принятой `88c2e99`.
+GitHub release/tag: [v0.2g](https://github.com/vladleng/MR-Studio/releases/tag/v0.2g).
+Публикуется ранее проверенный EXE, не новая сборка с другими symbols.
+Windows ZIP SHA256 `3377515AE685404B0EC752F867287E743A718BF83586806DAAF6371451A9087A`;
+отдельный Symbols ZIP `2FAEBDAFF5CE4AA7F1DCB856E632629C88650F79055529F7F095380BD6074EC8`.
+ZIP manifest 32 runtime files проверен; upload digests совпадают. Старый пакет
+не изменён. Issues #24/#69 актуализированы и открыты только для remaining gate;
+#63–#68/#70 уже закрыты, их приёмка не отменяется. Stage 5 остаётся НЕ НАЧАТ.
 Пакет chat Builds: `MR-Studio-0.2g-External-MIDI-JUCE-ASIO-Windows-local`.
 EXE SHA256 `89E8E76EE6282E8D1B7930F4AA52C9110DA85402FE4CB753ECFCC0E8D0C8D1FA`.
 Instrument track: Windows MIDI output/Original либо channel 1–16; playback,
