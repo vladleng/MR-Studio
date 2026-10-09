@@ -200,3 +200,11 @@ Workers 4, Process 1024 and ONE bypass reports Late/XR/D/worker timeouts 0 and
 transport/parameter changes, with a small pause in the multitrack material.
 Cause/timing of those events is unproven. No full #16/3e2/3e3 acceptance inferred.
 See [current handoff](PROJECT_CONTEXT.md) for the next-chat entry point.
+
+## Scope clarification — 2026-10-09
+
+P4 [#54](https://github.com/vladleng/MR-Studio/issues/54) теперь строго про profiling/performance validation: принятое программное 0.1u и две отдельные открытые проверки [#113](https://github.com/vladleng/MR-Studio/issues/113) (physical ASIO/stress) и [#114](https://github.com/vladleng/MR-Studio/issues/114) (Ahead queue counter triage). [Acceptance log](ENGINE_P4_ACCEPTANCE.md).
+
+Новая capability [#112](https://github.com/vladleng/MR-Studio/issues/112) — параллелизация одного VSTi через несколько синхронизированных экземпляров — вынесена из P4 в SHARED Audio roadmap #13. [Dedicated architecture](ENGINE_INSTRUMENT_PARALLELISM.md). Она не блокирует закрытие #54. Эта запись отражает лишь backlog, не реализацию и не разрешение начинать #112.
+
+Исторические «#16 остаётся open» выше относятся к старым снимкам; по состоянию на 2026-10-09 #16 закрыта. Новые аппаратные проверки не меняют это, они явно описаны в #113.
