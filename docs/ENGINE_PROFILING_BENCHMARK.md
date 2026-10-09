@@ -92,3 +92,7 @@ callback gaps: 3858 us (mixed record), 3696 us (playback); no burst callbacks.
 
 Hardware ASIO monitoring/recording, representative installed effects and sustained
 transport/reconnect/automation acceptance remain open on #54 / broader #16.
+
+## 2026-10-09 tracking note
+
+These numbers remain historic, measured in the accepted 0.1u software slice. Current P4 status and the user's observed 43 ahead underruns/invalidations: [ENGINE_P4_ACCEPTANCE.md](ENGINE_P4_ACCEPTANCE.md), follow-ups #113 and #114. New VSTi multi-instance sharding is independently tracked by #112 and has **not** been implemented. Historical broader #16 references do not imply #16 is currently open; it is closed in GitHub.
