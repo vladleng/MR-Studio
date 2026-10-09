@@ -3,7 +3,7 @@
 **Статус:** концепция / backlog; **реализация не начата**. **Продукт:** Moon River Studio (MRS).  
 **Дата:** 2026-10-09. **Источник:** обсуждение пользователя о нативном сатураторе, качестве DSP и разделении Studio / Live.  
 **Связанные документы:** [DSP modeling](DSP_MODELING.md), [Native Inserts](NATIVE_INSERTS.md), [Processing Reliability](PROCESSING_RELIABILITY.md), [Performance plan](ENGINE_PERFORMANCE_PLAN.md), [Development tracks](DEVELOPMENT_TRACKS.md), [Project context](PROJECT_CONTEXT.md).  
-**Трекинг:** отдельная parent issue MR Saturator в направлении [MRS FEATURES #78](https://github.com/vladleng/MR-Studio/issues/78); ссылки на задачи — в parent issue. Это **будущая собственная функция**; не означает запуск Stage 3d/3e, смену активного этапа или изменение текущего состояния проекта.
+**Трекинг:** отдельная parent issue MR Saturator в направлении [NATIVE PLUGINS #111](https://github.com/vladleng/MR-Studio/issues/111); ссылки на задачи — в parent issue. Это **будущая собственная функция**; не означает запуск Stage 3d/3e, смену активного этапа или изменение текущего состояния проекта.
 
 ## 1. Задача и продуктовая граница
 
