@@ -1224,3 +1224,7 @@ docs опубликованы отдельным docs-only main commit `0d1720e0
 с [skip ci], remote SHA проверен. Remote-only P4/multi-instance VSTi контекст сохранён.
 Source-ветка не отправлялась, Actions не запускались. Пакет заморожен с docs
 `4a87c66`: manifest 48 файлов проверен, EXE совпадает с Release. Эта запись пакет не меняет.
+
+## Documentation-only issue split — 2026-10-09
+
+По запросу пользователя #54 очищена от несвязанной многопоточности одного инструмента. Принятая пользователем 0.1u профилирования сохранена, а новые проверки связаны как #113 (physical ASIO sustained) и #114 (43 Ahead underruns/invalidations, причина неизвестна). Подробности: [ENGINE_P4_ACCEPTANCE.md](ENGINE_P4_ACCEPTANCE.md). Новый будущий SHARED Audio feature #112 — single logical track / multi-instance VSTi, без реализации: [ENGINE_INSTRUMENT_PARALLELISM.md](ENGINE_INSTRUMENT_PARALLELISM.md). #54 по-прежнему OPEN, software part accepted; #112 not started. Нативные sub-issue отношения нужно проверить через GitHub UI, текстовые ссылки сами не создают их. Source code и текущие локальные сборки не изменялись этой записью; существующий workflow/порядок разработки не меняется.
