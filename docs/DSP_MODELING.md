@@ -215,7 +215,7 @@ set_processor_model(track, "MR Cab", "MR 1x12 Warm")
 
 ## 12. Planned MR Saturator — Studio vs Live quality separation (2026-10-09)
 
-Спецификация отдельного будущего нативного эффекта: **[MR Saturator](MR_SATURATOR.md)**; parent issue [#105](https://github.com/vladleng/MR-Studio/issues/105), feature track [#78](https://github.com/vladleng/MR-Studio/issues/78).
+Спецификация отдельного будущего нативного эффекта: **[MR Saturator](MR_SATURATOR.md)**; parent issue [#105](https://github.com/vladleng/MR-Studio/issues/105), native plugins track [#111](https://github.com/vladleng/MR-Studio/issues/111).
 
 - На **Studio Mix** приоритет — качество DSP при корректно компенсированной задержке: oversampling, нелинейные многокаскадные/динамические модели и исследование ADAA допустимы по результатам измерений. Типичный буфер сведения может быть больше 128 frames.
 - На **Studio Record/Monitor** низкий буфер (например 128 frames) нужен для записи/мониторинга; profile/latency/PDC учитываются отдельно, без молчаливого обхода эффектов и без изменения raw recording.
