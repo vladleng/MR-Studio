@@ -212,3 +212,14 @@ set_processor_model(track, "MR Cab", "MR 1x12 Warm")
 6. neural model player;
 7. собственные Moon River models/captures;
 8. advanced hybrid amp system.
+
+## 12. Planned MR Saturator — Studio vs Live quality separation (2026-10-09)
+
+Спецификация отдельного будущего нативного эффекта: **[MR Saturator](MR_SATURATOR.md)**; parent issue [#105](https://github.com/vladleng/MR-Studio/issues/105), feature track [#78](https://github.com/vladleng/MR-Studio/issues/78).
+
+- На **Studio Mix** приоритет — качество DSP при корректно компенсированной задержке: oversampling, нелинейные многокаскадные/динамические модели и исследование ADAA допустимы по результатам измерений. Типичный буфер сведения может быть больше 128 frames.
+- На **Studio Record/Monitor** низкий буфер (например 128 frames) нужен для записи/мониторинга; profile/latency/PDC учитываются отдельно, без молчаливого обхода эффектов и без изменения raw recording.
+- **Live Mode** остаётся режимом той же DAW на едином SHARED backend; live-safe классификация относится к конкретной модели/профилю и не ограничивает все Studio-модели.
+- **Realtime safety** остаётся общей для всех DSP — больший Studio buffer не оправдывает allocations, locks и I/O в callback.
+
+Это backlog, не команда начинать реализацию и не новое завершение Stage 3. Возможный внешний VST3/встроенный channel-strip рассматривается позже, но не входит в MVP.
