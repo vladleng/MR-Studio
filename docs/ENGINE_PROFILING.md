@@ -118,3 +118,7 @@ live test; the user mentions a small pause in the multitrack material, which doe
 not establish the cause of queue events. The remaining P4 tests are not a gate
 for starting MIDI. #16 and 3e2/3e3 remain separate. No code/build/package change;
 previous immutable package hashes remain. [Handoff](PROJECT_CONTEXT.md).
+
+## Tracking update — 2026-10-09
+
+Scope #54 ограничен **профайлером и его performance validation**; 0.1u software slice accepted 2026-10-06. Последующие физические ASIO тесты — [#113](https://github.com/vladleng/MR-Studio/issues/113), диагностика ahead underruns/invalidations — [#114](https://github.com/vladleng/MR-Studio/issues/114). История пользовательского CSV, контрольные проверки и условия закрытия: [ENGINE_P4_ACCEPTANCE.md](ENGINE_P4_ACCEPTANCE.md). Архитектура multi-instance VSTi шардирования вынесена в отдельную будущую [#112](https://github.com/vladleng/MR-Studio/issues/112), см. [ENGINE_INSTRUMENT_PARALLELISM.md](ENGINE_INSTRUMENT_PARALLELISM.md); не ждать #112 для закрытия P4. #16 в GitHub закрыт, прежние упоминания его незакрытой матрицы исторические.
