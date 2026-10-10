@@ -2,6 +2,7 @@
 
 **Status:** user-approved design direction / architecture backlog; **not implemented**.  
 **Decision date:** 2026-10-10.  
+**Tracking issue:** [#133 Pre-Spatial Routing](https://github.com/vladleng/MR-Studio/issues/133) (architecture backlog, no code started).  
 **Scope:** SHARED Audio Engine, Project Model, Mixer, future MR Strip, MR Spatial and FX bus/send integration. Applies to Studio Mix and future Live Mode through **one common processor/routing graph**, not two audio backends.
 
 ## 1. Intent and non-negotiable rules
