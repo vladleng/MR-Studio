@@ -2,11 +2,13 @@
 
 Дата решения: 2026-10-10. Parent [MRS #115](https://github.com/vladleng/MR-Studio/issues/115). Статус всех **MRS** задач: *planned / not implemented*, пока пользователь не принял конкретную локальную сборку. Stable **Smart-Voicing 0.5** относится к другому репозиторию и другим host tests.
 
+> **Важное уточнение 2026-10-10 — миграция актуальной версии:** source Smart-Voicing GitHub main документирует stable 0.5, но это **не предел переноса**. В задаче [#116](https://github.com/vladleng/MR-Studio/issues/116) Codex обязан проверить все **локальные** ветки/checkpoints и конкретно наличие **Harma Waves 0.5g**. Если local 0.5g существует и проверена, переносить именно её полностью, а 0.5 использовать для регрессий. Если local 0.5g не найдена, не подменять её молча stable 0.5, а зафиксировать blocker и фактические версии. Не путать с 0.5g из отдельного проекта Smart-Improviser.
+
 ## 1. Какие исходные задачи сохраняем и куда переносим
 
 | MRS issue | Новый объем, фактический статус | Source Smart-Voicing |
 |---|---|---|
-| [#116](https://github.com/vladleng/MR-Studio/issues/116) | P0 / migration & 0.5 parity, not started | [#1](https://github.com/vladleng/Smart-Voicing/issues/1), [#2](https://github.com/vladleng/Smart-Voicing/issues/2), [#17](https://github.com/vladleng/Smart-Voicing/issues/17), [#3](https://github.com/vladleng/Smart-Voicing/issues/3), [#8](https://github.com/vladleng/Smart-Voicing/issues/8), [#9](https://github.com/vladleng/Smart-Voicing/issues/9) **accepted in old VST3** |
+| [#116](https://github.com/vladleng/MR-Studio/issues/116) | P0 / migration of latest local 0.5g if verified; stable 0.5 parity regression, not started | [#1](https://github.com/vladleng/Smart-Voicing/issues/1), [#2](https://github.com/vladleng/Smart-Voicing/issues/2), [#17](https://github.com/vladleng/Smart-Voicing/issues/17), [#3](https://github.com/vladleng/Smart-Voicing/issues/3), [#8](https://github.com/vladleng/Smart-Voicing/issues/8), [#9](https://github.com/vladleng/Smart-Voicing/issues/9) **accepted in old VST3** |
 | [#117](https://github.com/vladleng/MR-Studio/issues/117) | Native project harmonic context, processor/MIDI routing, not started | #3, #17; MRS Stage 5 [#25](https://github.com/vladleng/MR-Studio/issues/25) |
 | [#118](https://github.com/vladleng/MR-Studio/issues/118) | Native UI/state/keyswitch, not started | #9, [#21](https://github.com/vladleng/Smart-Voicing/issues/21) |
 | [#119](https://github.com/vladleng/MR-Studio/issues/119) | First NEW musical development: Voice Leading + Color/Rich, not started | [#10](https://github.com/vladleng/Smart-Voicing/issues/10) **open** |
@@ -50,10 +52,12 @@ MRS [#25 Chord Track]/[SHARED MIDI infrastructure]
 ## 3. G0–G4 checkpoints для первого native MVP
 
 **G0 / Audit** (#116):
+- проверить latest local checkpoint (включая 0.5g); source stable 0.5 не заменяет актуальные локальные функции;
 - подтвердить фактические локальные ветки/изменения обоих репозиториев, лицензии/интерфейсы и CMake targets;
 - сохранить source Smart-Voicing 0.5 musical reference/golden tests, не пытаться «улучшить» voicing при переносе.
 
 **G1 / Portable Core** (#116):
+- перенести **все** функции и тесты подтверждённой последней local версии, сохраняя 0.5 как сравнительный baseline;
 - build и tests source-neutral Harmony/Core внутри MRS;
 - 0.5 parity: 4 voice, key/chord normalization, 11 voicing/texture modes, Clean/Color/Rich, keyswitch semantics;
 - ни одного ARA/Fender/VST3 type в harmonic engine API.
