@@ -430,10 +430,14 @@ through the existing ProjectStore/Undo. Same engine/device/transport, archive sc
 unchanged. See [recording contracts](RECORDING.md) and
 [Windows checklist](MRS_STAGE_1D_CHECKLIST.md). Hardware acceptance pending.
 
-## 2026-10-10 — Pre-Spatial Routing: dry group processing + independent FX Sends
+## 2026-10-10 — Revised architecture: MR Strip Link + Pre-Spatial FX Sends
 
-**Архитектурный контракт будущего микшера:** [docs/PRE_SPATIAL_ROUTING.md](PRE_SPATIAL_ROUTING.md), [#133](https://github.com/vladleng/MR-Studio/issues/133) в FEATURES #78. Не считать реализованным.
+**Authoritative contracts:** [PRE_SPATIAL_ROUTING.md](PRE_SPATIAL_ROUTING.md) and [MR_STRIP_LINK.md](MR_STRIP_LINK.md); tracking [#133](https://github.com/vladleng/MR-Studio/issues/133). **Future design only, not implemented.**
 
-После дорожечных вставок/будущего MR Strip и **сухого Group Bus** (EQ/компрессия) аудио по явному маршруту поступает либо в общую сцену **MR Spatial**, либо в **Direct**. Sends дорожки/сухой группы подают сигнал на FX Bus и FX Returns, которые по умолчанию **обходят MR Spatial**; сцена и Returns суммируются перед Master. У Spatial нет права добавлять второй экземпляр исходного dry, а групповой компрессор по умолчанию не получает room tail.
+The earlier plan for a special Dry Group Bus that would process a sum and send the result **back to individual sources**, or general per-track/bus `Spatial / Direct` output switches, is **cancelled**. Traditional audio buses remain unchanged and available, but their sums become **one composite source** if spatialized; they cannot reconstruct individual positions after group saturation/compression.
 
-Реальная компрессия суммы нескольких инструментов перед Spatial означает, что группа пространственно становится **одним источником**. Индивидуальное позиционирование тех же инструментов требует отдельных входов сцены и альтернативных общих регуляторов (VCA/linked detection), которые не равнозначны сжатию суммы. Существующая Pre/Post-Fader семантика Sends не меняется. Требуются routing-DAG, PDC/latency, Undo/persistence, mute/solo и realtime regression gates. #22 / #16 не переоткрывать; архитектура и будущий Spatial не входят в активный MR Reverb #129.
+**Preferred group processing/control:** each instrument owns a normal native **MR Strip** instance, and a project-owned **MR Strip Link Group** lets the editor of one member control linked EQ/Dynamics/Saturation parameters on other members. Link is **control-only**; no audio summing, no extra path, no duplicate dry. Each track retains its own Spatial source/position. Linked compressor settings do **not** imply a shared bus-compressor detector or processing of the summed audio.
+
+**Only the FX Sends / Returns receive a special bypass around MR Spatial.** Send tap is before the spatial scene (while preserving existing Pre/Post-Fader semantics), FX Return comes to final mix independently of MR Spatial. For reverb send returns, wet-only processing prevents accidentally duplicating dry. Ordinary main paths go through shared spatial scene when enabled; bypassing the scene globally must retain FX returns/tails. No hidden second copy of instrument direct signal.
+
+Preserve existing SHARED Audio Engine / #22 Mixer graph, legacy session compatibility, DAG validation, mute/solo, PDC/latency, host automation and Undo/Redo. MR Reverb #128–#132 is independent and should not be interrupted to implement this future routing plan.
