@@ -1,163 +1,153 @@
-# MR Studio — Pre-Spatial Routing (architectural contract)
+# MR Studio — Pre-Spatial FX Sends + MR Strip Link (architecture contract)
 
-**Status:** user-approved design direction / architecture backlog; **not implemented**.  
-**Decision date:** 2026-10-10.  
-**Tracking issue:** [#133 Pre-Spatial Routing](https://github.com/vladleng/MR-Studio/issues/133) (architecture backlog, no code started).  
-**Scope:** SHARED Audio Engine, Project Model, Mixer, future MR Strip, MR Spatial and FX bus/send integration. Applies to Studio Mix and future Live Mode through **one common processor/routing graph**, not two audio backends.
+**Decision:** 2026-10-10, revised after design discussion. **Status: agreed future architecture / backlog, NOT implemented.**  
+**Issue:** [#133 — Pre-Spatial Routing / MR Strip Link](https://github.com/vladleng/MR-Studio/issues/133).  
+**Companion specification:** [MR_STRIP_LINK.md](MR_STRIP_LINK.md).  
+**Applies to:** SHARED Audio Engine, Studio Mix, future MR Spatial, native MR Strip and ordinary FX Returns. All DAW workspaces and Live Mode use the **same** backend.
 
-## 1. Intent and non-negotiable rules
+## 1. Superseding decision — what is changing
 
-The user wants the ability to shape instruments and **dry group buses before acoustic-room processing**, while independent sends may feed reverbs or other FX **without passing through MR Spatial**. A group compressor must not be *forced* to compress the spatial room's reverb tail. Post-reverb processing is a valid artistic option, but never an unavoidable consequence of normal grouping.
+The previous proposal to use dry **audio group buses** as the preferred pre-Spatial group processor, add general `Spatial / Direct` per-track/bus selectors, or **return** the processed bus sum back into separate channels is **rejected for this architecture**. It would unnecessarily complicate the routing graph and cannot generally reconstruct each independently positioned instrument after nonlinear bus processing.
 
-**Product principle:** `Source / dry processing → dry group processing (optional) → spatial scene (optional) → final mix`; independent `pre-spatial sends → FX buses → final mix`. This is a **routing topology contract**, not a fixed new plugin chain; users can explicitly bypass Spatial, route effect returns into Spatial or process the summed mix when they choose.
+The user-approved, simpler plan:
 
-In particular:
-1. MR Strip: future channel-strip UI/native DSP for instrument **dry** tone/dynamics, within existing insert architecture; not a separate engine.
-2. Dry Group Bus: real audio subgroup sum for shared EQ, compression, saturation etc., **before** MR Spatial. The group compressor receives no room tail unless the user explicitly routes a wet source into that group.
-3. MR Spatial: a **spatial mixing stage/scene service** with several independent sources sharing one virtual room; it must not be implemented as a mandatory normal track insert placed before/after arbitrary buses. Sources can also be routed directly to destination without spatialization.
-4. Sends/AUX: draw from a defined **pre-spatial dry tap** of source tracks **or** processed dry groups, with independent pre/post-fader settings; send signal may reach FX inserts while bypassing MR Spatial.
-5. FX Return: **Direct / bypass Spatial by default** for traditional wet reverb/delay returns; explicit opt-in to Spatial is a future routing option with cycle safeguards and no double counting.
-6. Master: collects Spatial output, Direct paths and FX Returns; optional final mastering dynamics on the combined signal is allowed and distinct from dry group processing.
-7. No implicit copy of wet room tails into a dry group compressor; no unrequested dry signal duplication; no gratuitous cross-routing between scenes/returns.
+1. **Each instrument has its own MR Strip DSP on its own audio channel.**
+2. **MR Strip Link** lets one MR Strip editor control the parameters of multiple independent MR Strip instances, **without audio summing**. This is the preferred group-control workflow.
+3. Main audio from individual instruments enters a **shared MR Spatial scene**, preserving each instrument as an independent source and spatial position.
+4. **Only an FX Send → FX Return has a special bypass around MR Spatial.** Track/channel FX send taps are taken **before spatial processing** (after the relevant dry insert stage); they reach MR Reverb, delay and other AUX effects outside Spatial. FX Returns merge after the scene.
+5. **Existing traditional audio buses/subgroups remain supported**, with unchanged semantics. They are not the solution for keeping separate instrument positions, are not automatically redirected back into individual tracks, and are not given any special new `return from bus to Spatial sources` function.
+6. The master final sum may deliberately include mastering processors acting on direct sound and reverberation together. This is not the same as forcing reverb tails through every instrument/group dynamics processor.
 
-This design **extends** existing #22 sends/buses and SHARED #13; does not reopen completed #16/#22 or change accepted existing audio behavior.
+This revision **supersedes all earlier proposals in this issue/document** concerning Group-as-Source as the **primary** workflow, dedicated `Direct / Spatial` channel-output selector, and linked group-audio signal return. Group-as-Source remains a *normal consequence* of intentionally using an ordinary audio bus, not a new special topology.
 
-## 2. Logical signal flow (target architecture, not current implementation)
+## 2. Target signal flow (conceptual; no code is implemented yet)
 
 ```text
- Audio/MIDI Instrument Track A                         Track B
-           │                                               │
-           ▼                                               ▼
-   Native Inserts / MR Strip                      Native Inserts / MR Strip
-           │                                               │
-           ├───── pre/post-fader SEND ─────────────────────┬──► FX BUS 1
-           │                                              │    MR Reverb (wet)
-       Fader/Pan                                      Fader/Pan │
-           │                                              │    FX Return:
-           └────┬─────────────────────────────────────────┘      Direct
-                ▼                                                   │
-      DRY GROUP BUS (optional)                                     │
-        EQ / Compression / Saturation                              │
-        Fader/Pan                                                  │
-           │                                                       │
-           ├── Group pre-spatial SEND ───► FX BUS 2 (Delay etc.) ──┤
-           │                                                       │
-           ▼                                                       │
-     [Output Route]                                                │
-      │          │                                                 │
-      ▼          └──────────────► DIRECT ─────────────────────────┤
-   MR SPATIAL                                                      │
-   Source(s) → scene →                                            │
-   Direct + early/late room output                                  │
-      │                                                            │
-      └──────────────────────► FINAL SUM ◄─────────────────────────┘
-                                        │
-                              MASTER INSERTS / GAIN
-                                        │
-                                  Hardware / Export
+  GUITAR TRACK                    KEYS TRACK                   BASS TRACK
+  Audio/MIDI                      Audio/MIDI                   Audio/MIDI
+      │                                │                            │
+  MR Strip A                      MR Strip B                   MR Strip C
+      │                                │                            │
+      │           MR STRIP LINK GROUP  │                            │
+      │      (control-only, e.g. EQ / Dynamics / Saturation)         │
+      │<·········· shared parameter updates ·······················>│
+      │                                │                            │
+      ├── FX Send ───┐                 ├── FX Send ───┐             ├─ FX Send ──┐
+      │              │                 │              │             │            │
+      ▼              │                 ▼              │             ▼            │
+  Spatial A          │             Spatial B          │         Spatial C        │
+      │              │                 │              │             │            │
+      └──────────────┼─────────────────┴──────────────┼─────────────┘            │
+                     │                                │                          │
+             SHARED MR SPATIAL SCENE                   │                          │
+             (one combined dry + room output)          │                          │
+                     │                                │                          │
+                     │     [ALL FX SENDS bypass Spatial]                           │
+                     │                                │                          │
+                     │           FX BUS / MR Reverb / Delay (wet) ◄───────────────┤
+                     │                     │                                      │
+                     │                FX RETURN                                   │
+                     │                     │                                      │
+                     └─────────────────────┴──────────────────────────────────────┘
+                                           │
+                                    FINAL MIX SUM
+                                           │
+                                MASTER inserts / gain
+                                           │
+                                 Hardware / Mixdown
 ```
 
-**Illustrative ordering**, not an exact current fader position contract. The default post-fader send must actually be sampled *after* that source's fader; the pre-fader option must retain the currently accepted MRS behavior. For FX return processors requiring a 100%-wet insert, e.g. a reverb on a traditional send bus, the user configures Mix=100% or equivalent to avoid a duplicated dry path. A send with 0 level is not an extra audible path.
+The diagram is a **logical** diagram, not an assertion that the current renderer supports post-insert taps or spatial-scene nodes. A real implementation will establish accurate insert, pre/post-fader tap and pan ordering by a local code audit.
 
-**Critical:** Spatial output is an agreed combined scene output (**direct source + scene reflections/reverb**), not merely an additional wet tap sent alongside an unchanged dry copy. The final sum must **not** receive a second duplicate of the same direct source. The engine may internally split/direct-process independently as long as the observable result is identical. With Spatial bypass, the source goes to Direct at matched gain/latency without causing a duplicate or truncating unrelated FX tails.
+**Signal conservation:** spatial scene produces the intended direct instrument + room contribution exactly once. A normal FX Return should contribute **wet-only** signal (e.g. MR Reverb Mix=100% when used as send effect); otherwise adding another dry copy is an expected audible doubling that must be prevented by design/user guidance. Sends are intentional parallel effect branches, not an additional dry subgroup output. Spatial bypass/off must not cut off FX tails.
 
-## 3. Grouping and positioning — do not promise impossible behavior
+## 3. MR Strip Link — the preferred grouped-processing interface
 
-Nonlinear processing of the **sum** of instruments (e.g. bus compression) and retaining all the instruments' exact **independent** spatial-input signals after that single mono/stereo processed sum are generally incompatible. Do not silently claim both.
+See [MR_STRIP_LINK.md](MR_STRIP_LINK.md) for the authoritative detailed specification.
 
-The routing model must explicitly distinguish:
+- A Link Group comprises **several regular MR Strip instances on separate channels**. One participating MR Strip's **editor** can be used to adjust linked modules on all members. The project owns linkage; no permanent special master audio channel is needed.
+- Link can cover selected compatible **EQ, Dynamics, Saturation** controls and parameters. Each strip **processes its own audio only**. Link is a control/data relationship, not an audio graph edge. Therefore it does **not** duplicate audio or change its spatial destination.
+- **MVP: Link Parameters** with per-module link mask; **Relative Link** to preserve per-track adjustments, optional **Absolute Link** when compatible. Member-local parameters not linked continue to operate independently.
+- Compressor instances with shared **settings** have **separate sidechain detectors**. This is **not the same as a real summed-bus compressor**. Separate saturation is likewise not saturation of the group sum. Do not market it as equivalent bus processing.
+- A more complex **Link Dynamics / shared detector** could be considered later as a separate DSP feature, not included in routing MVP. Do not use it as a pretext to implement audio send-back.
+- Link group membership/settings belong to the **shared Project Model**, with per-group automation conflict handling, Undo/Redo, save/restore, safe missing-member behavior and sample-aligned bounded parameter updates. No allocation, file I/O, locking or editor calls from audio callback.
 
-### A. Group As Source (first implementation candidate)
+## 4. Traditional audio buses — retain, do not special-case
 
-```text
-Track A dry ─┐
-Track B dry ─┼─► Group EQ/Compressor ─► One MR Spatial source ─► Scene
-Track C dry ─┘
-```
+Existing buses and sends from [BUSES.md](BUSES.md) and [SENDS.md](SENDS.md) continue behaving as previously accepted. They may be used where a **true submix** is intended (stems, drum groups, specific mastering chains etc.). Their bus inserts may legitimately EQ/compress/saturate the summed sound.
 
-A **genuine subgroup compression** (full summed signal) occurs before Spatial; the group occupies **one location** in the virtual room. Internal A/B/C independent positions are no longer available at that spatial input. This is suitable for e.g. an instrument stack, multiple drum mics treated as one acoustic source, or stereo stems.
+However:
 
-### B. Individual Spatial Sources (independent instruments)
+- When instruments are *summed* to an audio bus, that result is **one composite source** to a subsequent Spatial scene. Individual member positions cannot be recovered from an arbitrary bus output.
+- **Do not invent** a `bus → return to member channels → Spatial` pathway or use it to claim the original sources are independent.
+- **Do not create** an alternative general-purpose per-track/bus Direct output toggle for bypassing Spatial as part of this feature. The **specific intentional bypass** is for parallel **Sends → FX Returns**, as requested.
+- Ordinary bus-to-bus/output routing, sends from a bus if already supported, mute/solo and graph cycle rules remain conventional. A bus FX Send may follow the same pre-Spatial FX rule, but it does not split its composite output back into members.
+- Legacy projects with no Spatial or Link features must retain identical audible routing.
 
-```text
-Track A dry ─► Spatial source A ─┐
-Track B dry ─► Spatial source B ─┼─► Shared room scene
-Track C dry ─► Spatial source C ─┘
-         + linked grouping via VCA / shared parameter / optional detector
-```
+## 5. FX Sends: sole special spatial bypass
 
-Independent source positions are preserved. **VCA-like gain control or a linked sidechain/detector** can be applied before Spatial without converting to a summed-bus audio compressor. Linked per-track gain control is **not mathematically equivalent** to full mixed-bus compression in general; communicate this honestly in GUI/docs.
+1. Send audio is tapped from the dry channel/group **before MR Spatial**; exact post-insert/pre-/post-fader position is defined by existing send semantics and verified in code.
+2. Existing **Pre-Fader / Post-Fader** are **not** synonyms for `Pre-Spatial / Post-Spatial`: both send types bypass Spatial in the proposed architecture, but differ in their current relationship to the originating channel's fader.
+3. FX Bus hosts ordinary insert effects, e.g. [MR Reverb](MR_REVERB.md), Delay, Chorus. Its normal **FX Return bypasses MR Spatial and goes to final sum**, preserving artificial-effect processing independent from acoustic scene coloration.
+4. The main signal of a track **continues along its normal path** to MR Spatial. Sends do not steal/mute or create a second copy of the audible dry source. An FX Return with Mix<100% can generate unwanted duplicate dry; define clear wet-only guidance.
+5. Do not insert the FX Return implicitly into MR Spatial. Optional advanced spatial placement for returns is **out of scope**, not part of this requested simple default topology.
+6. Master may process the final summed material; any compression of added reverb at that point is an intentional mastering action, not an accidental dry-group compressor.
+7. No feedback loops via FX Bus/Return and no unbounded fanout; preserve validated routing DAG and mute/solo admission. Maintain tail playback and latency compensation at merge.
 
-A mixed scheme is valid (some grouped-as-one, some individual), provided each track reaches the scene exactly once by the selected output path. No implicit duplication just to preserve per-track panners.
+## 6. MR Spatial boundary and implementation constraints
 
-**Decision required before implementation:** UI name and exact semantics of group-as-source vs independent sources; define upgrade-safe defaults and test both. For MVP implement one straightforward path rather than fake both.
+MR Spatial is envisioned as a **shared scene/spatial render stage**, not as a mandatory plugin inserted into each source chain. Each individually routed track should be positionable separately. A regular audio bus, when used as a submix source, supplies one source. Spatial renders the scene's direct component plus early/late reflections coherently, without summing an extra uneffected direct copy.
 
-## 4. Send semantics and bus routing contract
+No requirement to invent HRTF/immersive formats; [ACOUSTIC_SPACE_PROTOTYPE.md](ACOUSTIC_SPACE_PROTOTYPE.md) retains its stereo listening/microphone prototype and real listening/CPU tests. **MR Reverb #128 is a separate convolution FX insert**, not the Spatial renderer.
 
-Existing MRS baseline ([SENDS.md](SENDS.md)) supports ordinary pre-fader/post-fader sends and bus returns. Those fader settings **do not automatically mean pre/post-Spatial**; this proposal adds an **independent spatial boundary**. Do not redefine legacy send terminology or silently migrate old sessions.
+MVP routing is deliberately narrow:
+- No per-instrument Direct/Spatial selector just to achieve bypass.
+- No audio return from a group bus to all original channels.
+- No forced FX Return pass through Spatial.
+- No requirement to emulate arbitrary nonlinear bus processing in Linked Parameters mode.
+- No separate Studio-vs-Live core; Studio Mix may use higher audio buffers than Live recording/monitoring.
 
-- Source tap may be in a track after native inserts/MR Strip, or in a dry **group** after group processing. At either location, use the existing pre/post-fader distinction so a post-fader send follows that channel's gain. Determine exact ordering relative to pan and insert chain by local code audit.
-- Main output path is **not disabled** by choosing a send. Default source output may go to a dry bus, individual Spatial input, or direct destination according to explicit route.
-- A group send sees **processed dry group audio** at its source tap, not final acoustic output from Spatial.
-- FX sends and returns use **existing validated directed acyclic graph** rules. New spatial routes must participate in cycle rejection, mute/solo admission, lifecycle and plugin state dependencies; do not introduce feedback by accident.
-- FX return's normal Direct destination bypasses Spatial; a user-selected spatialized effect return is optional follow-up, not an implicit default, and never fed recursively to its own return path.
-- A mono track/bus to stereo room must have an explicit and tested channel-layout conversion. There is no blanket assumption that any stereo signal can be restored to individual internal sources.
-- Concurrency/PDC: both split paths must align at the final sum across plugin reported latencies, spatial render latency, send/return latency and parallel routing. Do not silently compromise raw recording, playback timing or offline tails.
-- Mute/solo: preserve existing semantics for upstream sources and return buses; test scenes/Direct/return admission together. Spatial bypass must be local to its selected route/scene, not a global FX bus mute.
+## 7. Project, lifecycle and safety contract
 
-## 5. Separation of responsibilities
+**Shared ownership:** Link groups and new routing state use the same Project Model, Commands, Undo/Redo, plugin/native insert state, automation engine and snapshot migration. No private cross-plugin messaging or UI-owned link state. An MR Strip editor may close without terminating group linkage.
 
-| Area | Owns | Must not own |
-|---|---|---|
-| SHARED audio/routing graph | ordered taps, buses, processing edges, safe graph preparation, PDC, mix sum | a second Live-only audio engine |
-| MR Strip (future native DSP/UI) | instrument/channel tone/dynamics and automation | global room positioning or hidden wet tails |
-| MR Spatial (future scene service) | source coordinates, shared virtual acoustic space and room output | mandated dry group compression or ordinary AUX/FX return |
-| FX buses/returns | auxiliary inserts e.g. MR Reverb/delay, optional Direct/Spatial destination | forced traversal through room or double dry mixing |
-| Mixer UI / Project Model | editable routing selectors, shared command validation, Undo/Redo, persistence/migration | callback-side file operations or separate unsaved UI-only route model |
+**Real-time safety:** prepare graph/state changes on control thread; bounded parameter queues, no audio-thread allocations, locks, file operations, non-RT destructor work, or callbacks into GUI. Structural topology edits obey existing engine Pause/Stop constraints until a separately audited safe hot-swap exists.
 
-**MR Reverb #128** stays an independent native convolution reverb for artistic FX; it is **not MR Spatial** and must not acquire new mandatory spatial-routing requirements while its current DSP work is in progress. MR Strip and MR Spatial are future independent product directions built on SHARED routing.
+**Latency and rendering:** account for every FX branch and Spatial render latency with PDC; verify sample coherence at final sum, correctly report plugin/native DSP latency and tail lengths on playback, seek/stop and offline export. Test mono/stereo and differing block sizes.
 
-## 6. UX contract and defaults (proposal, not implemented)
+**Compatibility:** projects created before this feature play identically when reopened; missing or incompatible linked MR Strip does not stop another channel's audio. Do not automatically link users' existing strip instances, buses or routing.
 
-- A normal **Dry Group Bus** visibly remains a bus with standard inserts, gain and sends; processing its audio must be upstream of Spatial.
-- Source or group **Output** has future explicit destination choices: `Spatial / Direct / another dry group` with legal DAG validation. Avoid ambiguous stacked sends that appear as destinations.
-- A send has `Pre-fader / Post-fader` **plus** a clearly determined `Pre-Spatial` tap (the default for FX sends). Do not overload the existing Pre/Post toggle to mean placement in the room.
-- FX Return: `Direct` default; `Spatial` advanced opt-in if supported. When Spatial disabled, Direct paths + effect returns keep behaving.
-- Where a grouped source is one spatial object, label it **Group as one source**; where multiple tracks keep independent positions, make clear that group linked controls are not a summed-bus compressor.
-- Existing projects: **identical routing/audio when reopened** with no MR Spatial used. New spatial routing serialization must be versioned and Undo/Redo-supported, with sensible Direct fallback when the module is unavailable and no silent duplicate paths.
-- An acoustic on/off button is an explicitly testable bypass, not automatic sends/returns bypass.
+## 8. Acceptance / Codex handoff checklist — NOT STARTED
 
-## 7. Engineering gates before claiming implementation
+### Phase A — audit / architecture
+- [ ] Read `AGENTS.md`, `docs/PROJECT_CONTEXT.md`, [SENDS.md](SENDS.md), [BUSES.md](BUSES.md), native inserts, [ARCHITECTURE.md](ARCHITECTURE.md) and this doc. Check actual **local** implementation versus GitHub documentation.
+- [ ] Trace main and sends graph/fader/insert ordering, find safe pre-Spatial FX tap, choose single scene input/final mix topology with no dry double count.
+- [ ] Keep accepted #22 behavior; spec optional project-state versioning and PDC rules without reworking the full mixer.
 
-### Routing correctness
-- [ ] Audio references: single track Spatial/Direct, dry group → Spatial, track/group sends → direct FX return, effect wet returns independent of dry group compression.
-- [ ] Stereo & mono routing, nested buses, inserted processors, overlapping sends, bus removal/reconnect and DAG cycle errors.
-- [ ] Verify **the group compressor does not react to MR Spatial's reverb tail**. Render a transient with very long scene tail and compare group dynamics with Spatial on/off.
-- [ ] Verify **no double dry path** at final output in Spatial on/off and external reverb mixes; gain/phase tests and mono fold-down.
-- [ ] Test group-as-source spatial image, and independent-source mode (if implemented) without falsely claiming real summed compression on same input.
-- [ ] FX Return via Direct maintains level & reverb tail while moving the dry source in Spatial.
+### Phase B — MR Strip Link control group (independent future feature)
+- [ ] Confirm native MR Strip instances/modules exist before implementing; design group IDs, membership, masks, Relative Link and optionally Absolute Link.
+- [ ] One member's MR Strip editor controls the group; each DSP instance keeps **separate audio** and separate Spatial coordinates.
+- [ ] Undo/Redo one gesture, parameter compatibility, automation conflict handling, missing members and project reload tests. No recursive link events.
 
-### Engine/UX reliability
-- [ ] No RT allocation/locks/disk access. No graph rebuild in callback. PDC and latency on Spatial/Direct/FX merge, including long tails, transport, seek, offline exports.
-- [ ] Existing accepted pre/post-fader Sends, channel/bus/Master inserts and Undo/Redo remain intact. No behavior change to legacy projects.
-- [ ] Routing automation or control changes respect current safe hot-update semantics; graph structural changes require the engine's existing Pause/Stop rules until explicit validated hot-swap is delivered.
-- [ ] Save/reopen/migration/preset states, missing processors, reloading a project on the other machine, Live Mode use of same SHARED graph.
-- [ ] Report real Windows/ASIO measurement results rather than assumed low-latency fitness. Studio Mix high-buffer use is not constrained by Live's monitoring targets.
+### Phase C — Spatial + parallel FX sends integration
+- [ ] Multiple independent Spatial sources sharing one room; no source duplication.
+- [ ] Track (and compatible existing bus) sends pre-Spatial to FX, **return direct** to mix; no extra channel Direct output workflow.
+- [ ] Check FX wet-only path, Spatial bypass/off without loss of FX tail, mono/stereo, PDC/latency and protection against cycles.
 
-## 8. Implementation boundaries and work order
+### Phase D — regression / manual listening / acceptance
+- [ ] Link group control changes strip parameters but **not** audio paths, track faders/pans or Spatial positions. Audio sum/level matches nonlinked case for identical effective DSP values.
+- [ ] Linked compressor settings do **not** claim bus-compressor parity; same for nonlinear saturation.
+- [ ] FX send can add Bricasti-style reverb while dry track stays in Spatial; no dry boost, wrong phase, or unintended extra compression.
+- [ ] Existing buses, pre/post-fader sends, mute/solo, realtime reliability, cross-project persistence and Studio/Live shared graph remain intact.
+- [ ] Capture local CMake/build/tests, Windows ASIO profiling, GUI observations and **explicit user acceptance** before closing #133.
 
-**Do not implement as part of ongoing MR Reverb #129–#132.** This is a future architecture requirement, not authorisation to refactor the active local branch.
+**Do not start or scope-creep the active MR Reverb #129–#132 implementation.** This is documentation/backlog only. All code/build/tests remain local; GitHub documents/issues only; commits `[skip ci]`, no GitHub Actions, PR or source merge without instruction.
 
-1. **Architecture/code audit:** compare existing local mixer graph/tap sites with [SENDS.md](SENDS.md), [BUSES.md](BUSES.md), [NATIVE_INSERTS.md](NATIVE_INSERTS.md), [ARCHITECTURE.md](ARCHITECTURE.md), and [ACOUSTIC_SPACE_PROTOTYPE.md](ACOUSTIC_SPACE_PROTOTYPE.md). Propose additive state model with validated migration and exact processor order.
-2. **Dry routing feature:** introduce explicit Spatial/Direct boundary and dry track/group sends and group-as-source contract, preserving accepted legacy output/sends behavior.
-3. **MR Spatial prototype integration:** one scene with independent sources, after-dry group source when chosen, one nonduplicated direct+room output, direct FX-return exclusion by default. Benchmark and listen.
-4. **GUI and user acceptance:** compact visible controls for output/spatial routes, project persistence, QA/regression; defer complex advanced grouping UX.
+## 9. Ownership / related work
 
-All new code/build/tests/packages occur in the local checkout. GitHub docs/issues only; documentation commits `[skip ci]`; no GitHub Actions, code push, PR or merge without explicit permission. At implementation time consult local `AGENTS.md`, `docs/PROJECT_CONTEXT.md`, realtime safety, performance plan and UI-design skills.
-
-## Related sources / scope separation
-
-- [#13 SHARED Core](https://github.com/vladleng/MR-Studio/issues/13), [#16 Audio Engine](https://github.com/vladleng/MR-Studio/issues/16) and [#22 Mixer/Routing](https://github.com/vladleng/MR-Studio/issues/22) — existing base. This new feature does **not** reopen accepted or closed stages.
-- [#78 FEATURES](https://github.com/vladleng/MR-Studio/issues/78) — appropriate track for routing and MR Spatial capabilities, distinct from [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111).
-- [Acoustic Space Prototype](ACOUSTIC_SPACE_PROTOTYPE.md) — scene modelling idea; future prototype must follow this routing contract.
-- [MR Reverb #128](https://github.com/vladleng/MR-Studio/issues/128) — independent convolution insert for FX returns, not equivalent to MR Spatial.
+- [#133 Pre-Spatial Routing / MR Strip Link](https://github.com/vladleng/MR-Studio/issues/133) — architectural tracking.
+- [#78 FEATURES](https://github.com/vladleng/MR-Studio/issues/78), [#13 SHARED Core](https://github.com/vladleng/MR-Studio/issues/13), [#22 Mixer](https://github.com/vladleng/MR-Studio/issues/22) — routing infrastructure, no reopened completed stages.
+- [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111) — future native MR Strip module; Link project-state contract must align with its plugin architecture.
+- [MR_STRIP_LINK.md](MR_STRIP_LINK.md) — Link specific control/automation/QA details.
+- [ACOUSTIC_SPACE_PROTOTYPE.md](ACOUSTIC_SPACE_PROTOTYPE.md) — room renderer concept.
+- [MR Reverb #128](https://github.com/vladleng/MR-Studio/issues/128) — reverb effect for parallel sends; no scope changes.
