@@ -1,5 +1,7 @@
 # MR Studio: текущий контекст разработки
 
+> **План Harma Waves / 2026-10-10:** создано направление [#115](https://github.com/vladleng/MR-Studio/issues/115) с issues #116–#127 и [архитектурой](HARMA_WAVES_NATIVE.md), [roadmap](HARMA_WAVES_ROADMAP.md), [handoff](HARMA_WAVES_CODEX_HANDOFF.md). Это **только перенос планирования/документации**; код Smart-Voicing 0.5 не импортирован в локальную MRS и native Harma Waves не собран. Порядок действующих MRS работ ниже не изменён. Первое действие только по отдельному поручению — #116 (аудит, Core extraction, parity tests).
+
 Обновлено: **2026-10-08**, Asia/Krasnoyarsk. Это основной краткий снимок для нового
 чата. Постоянные правила: [AGENTS.md](../AGENTS.md). Подробная история остаётся
 в тематических документах; старые верхние записи README/START_HERE не являются
