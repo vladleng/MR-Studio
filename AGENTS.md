@@ -47,6 +47,13 @@
   билде: они приняты. Повтор нужен по запросу или новой проблеме именно этих плагинов.
   Обычные синтетические VST3-регрессии сохраняются.
 
+## Harma Waves Native — только по запросу
+
+- Направление планирования: [#115](https://github.com/vladleng/MR-Studio/issues/115). Если пользователь поручил Harma Waves/Smart Voicing внутри MR Studio, сначала прочитай [архитектуру](docs/HARMA_WAVES_NATIVE.md), [roadmap](docs/HARMA_WAVES_ROADMAP.md), [Codex handoff](docs/HARMA_WAVES_CODEX_HANDOFF.md), затем конкретный issue #116–#127 и исходную принятую документацию Smart-Voicing.
+- Первый slice — аудит/перенос host-neutral Core Smart-Voicing stable 0.5, без переписывания правил и **без преждевременного нового Voice Leading**. Native MRS не равен VST3/ARA adapter. Не путать Smart-Voicing с отдельным Smart-Improviser.
+- Никакая из новых задач Harma Waves не считается реализованной/принятой в MRS по факту успешного Smart-Voicing CI. Актуальный MRS Stage 5/#25 сохраняет собственные зависимости. Не переключай активный roadmap без прямого запроса пользователя.
+- GitHub issue links/checklists не являются native GitHub sub-issues: проверяй фактические parent links до заявлений о процентах прогресса.
+
 ## Реализация и проверка
 
 - Применяй подходящие навыки из рабочей папки чатов `.codex/skills/` (путь в контексте):
