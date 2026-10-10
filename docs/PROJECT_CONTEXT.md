@@ -1,5 +1,7 @@
 # MR Studio: текущий контекст разработки
 
+> **План MR Reverb / 2026-10-10:** заведены [#128](https://github.com/vladleng/MR-Studio/issues/128) и связанные задачи [#129–#132](https://github.com/vladleng/MR-Studio/issues/129) в направлении [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111). Новый канонический [MR_REVERB.md](MR_REVERB.md) и [flat GUI-wireframe](design/MR_REVERB_GUI.svg). Это только концепция/задачи; **native reverb DSP/UI не реализованы и не тестировались**. Не меняет активный stage; начало реализации — по отдельному запросу. Существующий Cab IR 0.1m ≤1s — ограниченная foundation, не готовый long-hall reverb.
+
 > **План Harma Waves / 2026-10-10:** создано направление [#115](https://github.com/vladleng/MR-Studio/issues/115) с issues #116–#127 и [архитектурой](HARMA_WAVES_NATIVE.md), [roadmap](HARMA_WAVES_ROADMAP.md), [handoff](HARMA_WAVES_CODEX_HANDOFF.md). Это **только перенос планирования/документации**; код Smart-Voicing 0.5 не импортирован в локальную MRS и native Harma Waves не собран. Порядок действующих MRS работ ниже не изменён. Первое действие только по отдельному поручению — #116 (аудит последней локальной Smart-Voicing/Harma Waves, проверка 0.5g, перенос фактического Core и всех функций, parity tests). В GitHub source main пока stable 0.5; это не доказательство, что локально нет более новой версии.
 
 Обновлено: **2026-10-08**, Asia/Krasnoyarsk. Это основной краткий снимок для нового
