@@ -1,9 +1,11 @@
 # Codex Handoff — Harma Waves Native / начало работы в MR Studio
 > 2026-10-10. **План подготовлен, код не переносился, сборки не выполнялись.** Главная задача [#115](https://github.com/vladleng/MR-Studio/issues/115). Первое локальное задание [#116](https://github.com/vladleng/MR-Studio/issues/116). Перенос VST3 host layer не является первым действием.
 
+> **Важное уточнение 2026-10-10 — миграция актуальной версии:** source Smart-Voicing GitHub main документирует stable 0.5, но это **не предел переноса**. В задаче [#116](https://github.com/vladleng/MR-Studio/issues/116) Codex обязан проверить все **локальные** ветки/checkpoints и конкретно наличие **Harma Waves 0.5g**. Если local 0.5g существует и проверена, переносить именно её полностью, а 0.5 использовать для регрессий. Если local 0.5g не найдена, не подменять её молча stable 0.5, а зафиксировать blocker и фактические версии. Не путать с 0.5g из отдельного проекта Smart-Improviser.
+
 ## Задача нового рабочего чата
 
-Основная разработка Harma Waves (бывший Smart Voicing) теперь в **локальном MR Studio**. Использовать accepted **Smart-Voicing 0.5** как reference, **не переписывать с нуля** Core/voicing. Сделать сначала безопасный inventory + перенос portable Core и parity tests. После отдельной приёмки перейти к native context/MIDI и UI, затем Voice Leading/Color-Rich. Не приступать к остальным задачам просто потому, что они указаны в roadmap.
+Основная разработка Harma Waves (бывший Smart Voicing) теперь в **локальном MR Studio**. Использовать **последнюю проверенную локальную версию Smart-Voicing/Harma Waves (0.5g, если доступна)** как источник миграции, а stable 0.5 GitHub — как baseline regression. **Не переписывать с нуля** Core/voicing. Сделать сначала безопасный inventory + перенос portable Core и parity tests. После отдельной приёмки перейти к native context/MIDI и UI, затем Voice Leading/Color-Rich. Не приступать к остальным задачам просто потому, что они указаны в roadmap.
 
 ## Прежде чем что-либо менять
 
@@ -31,7 +33,7 @@
 1. В локальном MRS tree добавить isolated library/target и необходимый Core/fixtures. Имена файлов/каталогов определяются текущей структурой; **не создавай заранее выдуманный API**. CMake link отдельно от UI, VST3 и audio engine. Временное vendor-копирование возможно только с version pin/provenance и явным планом одинарного source of truth.
 2. Сохранить public boundary `HarmonicContextSnapshot → Harmonic Decision/VoicingStrategy → VoiceOutput[4]`. Реальный C++ API брать из исходников, а не из условных названий этого документа.
 3. Добавить parity golden tests 0.5: key/chord, explicit slash, altered dominant, sample chord change, stage5 voicings, tension policies, keyswitch state/control notes, sustain/panic. Для логики tests не требуется ASIO или native editor.
-4. Сначала получить **одинаковый вывод**, не добавлять Voice Leading и новые Color/Rich heuristics в этом slice. Документировать target CPU/RT constraints и куда не разрешено помещать allocation/locks.
+4. Сначала получить **одинаковый вывод с выбранной последней локальной версией**; не изобретать новые Voice Leading или Color/Rich heuristics сверх того, что уже реализовано в этом source checkpoint. Документировать target CPU/RT constraints и куда не разрешено помещать allocation/locks.
 5. Пройти локальную сборку и test suite MRS; если зависимостей/локального исходника нет — зафиксировать blocker, не подменять remote documentation доказательством кода. Preserve existing MRS tests.
 6. Отметить issue #116 выполненным только после требуемых локальных gates + пользовательской приёмки; проектный контекст обновить с branch/head/tests/package/ограничениями.
 
@@ -46,14 +48,14 @@
 
 ## MVP acceptance snapshot
 
-- **Source accepted:** 0.5 Smart Voicing Stable, Studio Pro host-specific.
+- **Source accepted:** GitHub main документирует 0.5; **local 0.5g** требует аудита кода, локальных тестов и подтверждения. Если есть, миграция берёт 0.5g, не 0.5.
 - **MRS code migrated:** NO (на момент создания).
 - **Native MIDI engine integration:** NO.
 - **Native Harma UI:** NO.
 - **MRS ASIO musical acceptance:** NO.
 - **Core future VST3 sync:** planned.
 - **Current MRS Stage 5:** #25 planned as documented, не считать завершённым.
-- **Первое допустимое действие после команды пользователя:** #116 — local audit → isolated portable Core migration → golden parity regression.
+- **Первое допустимое действие после команды пользователя:** #116 — local source version audit (0.5g verification) → latest Core migration → baseline+latest parity regression.
 
 ## Workflow и handoff в конце каждого slice
 
