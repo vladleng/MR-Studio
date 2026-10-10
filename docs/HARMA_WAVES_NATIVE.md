@@ -1,6 +1,8 @@
 # Harma Waves Native — архитектура интеграции в MR Studio
 > Решение пользователя: 2026-10-10. **Статус: PLANNED, реализация в MRS не начата.** Parent issue [#115](https://github.com/vladleng/MR-Studio/issues/115). Это продуктовый/native MIDI engine track внутри [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111), а не аудиоэффект в обычной FX chain.
 
+> **Важное уточнение 2026-10-10 — миграция актуальной версии:** source Smart-Voicing GitHub main документирует stable 0.5, но это **не предел переноса**. В задаче [#116](https://github.com/vladleng/MR-Studio/issues/116) Codex обязан проверить все **локальные** ветки/checkpoints и конкретно наличие **Harma Waves 0.5g**. Если local 0.5g существует и проверена, переносить именно её полностью, а 0.5 использовать для регрессий. Если local 0.5g не найдена, не подменять её молча stable 0.5, а зафиксировать blocker и фактические версии. Не путать с 0.5g из отдельного проекта Smart-Improviser.
+
 ## 1. Принятое продуктовое решение
 
 - **MR Studio — основная среда дальнейшей разработки Harma Waves** (ранее Smart Voicing): музыкальное ядро, новые режимы, native UI и интеграция с DAW/MIDI.
