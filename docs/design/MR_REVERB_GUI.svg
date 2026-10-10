@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1020" height="438" viewBox="0 0 1020 438" role="img" aria-labelledby="t d">
+<title id="t">MR Reverb — compact flat GUI wireframe</title>
+<desc id="d">Minimal native convolution reverb with built-in IR browser and Pre-delay, Tone, Mix sliders; no skeuomorphic controls.</desc>
+<rect x="0" y="0" width="1020" height="438" rx="11" fill="#111315"/>
+<rect x="1" y="1" width="1018" height="436" rx="10" fill="none" stroke="#343940"/>
+<g font-family="Inter,Segoe UI,Arial,sans-serif">
+<!-- top -->
+<text x="24" y="40" font-size="24" font-weight="620" fill="#E8E9EA">MR <tspan fill="#8DBAF2">Reverb</tspan></text>
+<text x="204" y="40" font-size="11" font-weight="540" letter-spacing="2" fill="#919AA5">CONVOLUTION</text>
+<text x="680" y="39" font-size="16" fill="#E5E9ED">Hall — Natural Wide</text>
+<rect x="944" y="19" width="53" height="28" rx="7" fill="#213346"/>
+<circle cx="979" cy="33" r="8" fill="#8DBAF2"/><text x="954" y="37" font-size="11" fill="#C7D2DB">ON</text>
+<line x1="18" y1="60" x2="1002" y2="60" stroke="#2E3338"/>
+<!-- folder -->
+<text x="24" y="90" font-size="11" font-weight="650" letter-spacing="1.3" fill="#9DA5AC">IR FOLDER</text>
+<rect x="122" y="72" width="763" height="29" rx="5" fill="#1A1E22" stroke="#3A4147"/>
+<path d="M137 85h9l3 3h9v7h-21z" fill="none" stroke="#A9B5C1" stroke-width="1.4"/>
+<text x="170" y="92" font-size="13" fill="#D5D9DD">D:/IR Libraries/Bricasti M7</text>
+<rect x="893" y="72" width="104" height="29" rx="5" fill="#313B46"/>
+<text x="945" y="91" text-anchor="middle" font-size="12" fill="#E6EDF5">Choose…</text>
+<!-- upper content section -->
+<line x1="18" y1="114" x2="1002" y2="114" stroke="#2E3338"/>
+<rect x="18" y="125" width="236" height="194" rx="6" fill="#171A1E"/>
+<rect x="262" y="125" width="415" height="194" rx="6" fill="#171A1E"/>
+<rect x="685" y="125" width="317" height="194" rx="6" fill="#171A1E"/>
+<text x="32" y="149" font-size="11" letter-spacing="1.2" fill="#9DA5AC">FOLDERS</text>
+<text x="276" y="149" font-size="11" letter-spacing="1.2" fill="#9DA5AC">IMPULSE RESPONSES</text>
+<text x="699" y="149" font-size="11" letter-spacing="1.2" fill="#9DA5AC">SELECTED IR</text>
+<line x1="30" y1="159" x2="242" y2="159" stroke="#2E3439"/>
+<line x1="274" y1="159" x2="665" y2="159" stroke="#2E3439"/>
+<line x1="697" y1="159" x2="990" y2="159" stroke="#2E3439"/>
+<g fill="#CDD3D9" font-size="14">
+<text x="37" y="185">▾  Halls</text><text x="37" y="215">▸  Rooms</text><text x="37" y="245">▸  Chambers</text><text x="37" y="275">▸  Plates</text>
+</g>
+<rect x="29" y="286" width="214" height="25" rx="5" fill="#23282D"/>
+<text x="41" y="303" font-size="12" fill="#8A939D">⌕  Search impulses…</text>
+<!-- list -->
+<rect x="271" y="166" width="398" height="32" rx="5" fill="#29435A"/>
+<rect x="271" y="167" width="3" height="30" rx="1.5" fill="#8DBAF2"/>
+<text x="286" y="186" font-size="14" fill="#F2F6FA">Hall — Natural Wide</text><text x="652" y="186" text-anchor="end" font-size="12" fill="#C1D9EE">3.2 s</text>
+<g font-size="13" fill="#C1C6CC">
+<text x="286" y="218">Hall — Warm</text><text x="286" y="246">Large Concert Hall</text><text x="286" y="274">Room — Small Studio</text><text x="286" y="302">Chamber — Smooth</text>
+</g>
+<g font-size="12" text-anchor="end" fill="#838F9C"><text x="652" y="218">2.9 s</text><text x="652" y="246">5.1 s</text><text x="652" y="274">0.9 s</text><text x="652" y="302">2.6 s</text></g>
+<!-- info -->
+<text x="699" y="185" font-size="16" fill="#E6E9ED">Hall — Natural Wide</text>
+<text x="699" y="210" font-size="11" fill="#8DA0B2">CHANNELS</text><text x="807" y="210" font-size="13" fill="#D7E1EB">TRUE STEREO</text>
+<text x="699" y="236" font-size="11" fill="#8DA0B2">SOURCE</text><text x="807" y="236" font-size="13" fill="#D7E1EB">48 kHz / WAV</text>
+<text x="699" y="261" font-size="11" fill="#8DA0B2">LENGTH</text><text x="807" y="261" font-size="13" fill="#D7E1EB">3.2 s</text>
+<circle cx="703" cy="291" r="4" fill="#81B89D"/><text x="714" y="295" font-size="12" fill="#A6CDBB">Ready</text>
+<!-- controls -->
+<line x1="18" y1="330" x2="1002" y2="330" stroke="#2E3338"/>
+<g font-size="11" letter-spacing="1.1" font-weight="600" fill="#9EA7B0">
+<text x="36" y="358">PRE-DELAY</text><text x="371" y="358">TONE</text><text x="704" y="358">MIX</text>
+</g>
+<g font-size="13" fill="#E5E9ED" text-anchor="end">
+<text x="316" y="358">0 ms</text><text x="649" y="358">0 dB</text><text x="982" y="358">25%</text>
+</g>
+<g stroke="#3B454E" stroke-width="6" stroke-linecap="round">
+<line x1="36" y1="387" x2="316" y2="387"/><line x1="370" y1="387" x2="649" y2="387"/><line x1="703" y1="387" x2="983" y2="387"/>
+</g>
+<g stroke="#8DBAF2" stroke-width="6" stroke-linecap="round">
+<line x1="36" y1="387" x2="36" y2="387"/><line x1="370" y1="387" x2="509" y2="387"/><line x1="703" y1="387" x2="773" y2="387"/>
+</g>
+<g fill="#CFE6FF" stroke="#111315" stroke-width="3">
+<circle cx="38" cy="387" r="9"/><circle cx="509" cy="387" r="9"/><circle cx="773" cy="387" r="9"/>
+</g>
+<text x="36" y="420" font-size="11" fill="#76818D">MR Studio · Native Insert · GUI concept v1 (minimal controls)</text>
+</g></svg>
