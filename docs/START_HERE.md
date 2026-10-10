@@ -1,5 +1,7 @@
 # Moon River Studio — START HERE
 
+**Harma Waves (new planned direction, no MRS implementation yet):** [native architecture](HARMA_WAVES_NATIVE.md) · [roadmap and Smart-Voicing source mapping](HARMA_WAVES_ROADMAP.md) · [Codex handoff / first #116 slice](HARMA_WAVES_CODEX_HANDOFF.md) · [parent issue #115](https://github.com/vladleng/MR-Studio/issues/115). This plan does not override the active local development status below.
+
 > Current development context (2026-10-08): [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
 > Start with that file and the repository AGENTS.md. It records the current
 > 0.2g delivery, MIDI acceptance and deferred external hardware validation.
