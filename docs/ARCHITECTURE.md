@@ -429,3 +429,11 @@ ring and background WAV writer, independent monitoring and one-step take attachm
 through the existing ProjectStore/Undo. Same engine/device/transport, archive schema
 unchanged. See [recording contracts](RECORDING.md) and
 [Windows checklist](MRS_STAGE_1D_CHECKLIST.md). Hardware acceptance pending.
+
+## 2026-10-10 — Pre-Spatial Routing: dry group processing + independent FX Sends
+
+**Архитектурный контракт будущего микшера:** [docs/PRE_SPATIAL_ROUTING.md](PRE_SPATIAL_ROUTING.md), [#133](https://github.com/vladleng/MR-Studio/issues/133) в FEATURES #78. Не считать реализованным.
+
+После дорожечных вставок/будущего MR Strip и **сухого Group Bus** (EQ/компрессия) аудио по явному маршруту поступает либо в общую сцену **MR Spatial**, либо в **Direct**. Sends дорожки/сухой группы подают сигнал на FX Bus и FX Returns, которые по умолчанию **обходят MR Spatial**; сцена и Returns суммируются перед Master. У Spatial нет права добавлять второй экземпляр исходного dry, а групповой компрессор по умолчанию не получает room tail.
+
+Реальная компрессия суммы нескольких инструментов перед Spatial означает, что группа пространственно становится **одним источником**. Индивидуальное позиционирование тех же инструментов требует отдельных входов сцены и альтернативных общих регуляторов (VCA/linked detection), которые не равнозначны сжатию суммы. Существующая Pre/Post-Fader семантика Sends не меняется. Требуются routing-DAG, PDC/latency, Undo/persistence, mute/solo и realtime regression gates. #22 / #16 не переоткрывать; архитектура и будущий Spatial не входят в активный MR Reverb #129.
