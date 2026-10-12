@@ -13,7 +13,7 @@ GitHub — главный источник информации проекта (
 
 ## Текущая музыкальная структура
 
-0.3f/#83 на пользовательской приёмке; последняя принятая0.3e upd2/#81.
+0.3f/#83 принят2026-10-12; далее рекомендован #84/0.3g, пока не начат.
 
 - [Chord Track/#79](CHORD_TRACK_79.md), [Markers/#82](MARKER_TRACK_82.md).
 - [Sections/colors/bounds/#81](SECTION_COLORS_BOUNDS_81.md), [context/#85](MUSICAL_CONTEXT_85.md).

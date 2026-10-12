@@ -1,7 +1,7 @@
 # Stage 5 / #25: рабочий план музыкальной структуры
 
-Актуально2026-10-12. Stage5/#25 выполняется: #79/#81/#82/#85/#86 приняты и закрыты;
-#83/0.3f реализован, full129 PASS, пакет выдан, пользовательская ASIO приёмка ожидается.
+Актуально2026-10-12. Stage5/#25 выполняется: #79/#81/#82/#83/#85/#86 приняты и закрыты;
+#83/0.3f принят2026-10-12: «#83 прошел приемку, что у нас дальше?». Full129 PASS.
 #80/#84/#87 остаются открыты; автоматически к ним не переходить. Current schema20/archive1.
 Первоначальная спецификация подготовлена2026-10-09 на0.2g upd10/schema15/source15afe65;
 требования и архитектурные ограничения ниже сохранены, исторические чекбоксы сверять
@@ -330,21 +330,21 @@ C0 #87, общая stopped preparation с #84; metronome/pre-count #96 уже п
 
 - [x] C0: time anchoring и prepare/commit/failure contract.
 - [x] C1: UI/map validation, history и save/open.
-- [ ] C2: boundary engine/MIDI/click/VST3 tests и локальная ASIO приёмка.
+- [x] C2: boundary engine/MIDI/click/VST3 tests и локальная ASIO приёмка.
 
 ## Условия приёмки
 
-- [ ] Карта 120→90→140 BPM: точное редактирование, Undo/Redo, Save/Open сохраняют points и IDs остальных musical objects.
-- [ ] Tempo boundary внутри блока: MIDI/click и synthetic VST3 context соответствуют одной карте на корректном участке; master/insert не расходятся.
-- [ ] WAV samples и sample playhead неизменны; новая musical позиция и текущие контексты пересчитаны. Нет заявленного time stretch.
-- [ ] Удаление tick 0, duplicate tick, NaN/invalid BPM, active loop/recording либо failure подготовки отклоняются атомарно.
-- [ ] Playback/seek/record после успешного commit работают; pre-count следует своему принятому контракту темпа в точке начала.
+- [x] Карта 120→90→140 BPM: точное редактирование, Undo/Redo, Save/Open сохраняют points и IDs остальных musical objects.
+- [x] Tempo boundary внутри блока: MIDI/click и synthetic VST3 context соответствуют одной карте на корректном участке; master/insert не расходятся.
+- [x] WAV samples и sample playhead неизменны; новая musical позиция и текущие контексты пересчитаны. Нет заявленного time stretch.
+- [x] Удаление tick 0, duplicate tick, NaN/invalid BPM, active loop/recording либо failure подготовки отклоняются атомарно.
+- [x] Playback/seek/record после успешного commit работают; pre-count следует своему принятому контракту темпа в точке начала.
 
 ## Проверки и завершение
 
 TimeMap conversion/boundaries/round-trip; failure-path history; MIDI/click/transport и synthetic VST3 tempo context; GUI + ASIO smoke. Callback allocations/locks не добавлены.
 
-Код, build/tests, документация и пакет — локально. На GitHub фиксируются результаты и пользовательская приёмка; без push/merge/Actions. 2026-10-12: локальная0.3f реализована, Release/full129 PASS146.00s; packaged diagnostics/J3 PASSexit0, snapshots100/150 inspected. C0/C1 пройдены; C2 автоматическая часть PASS, реальная ASIO и пользовательская приёмка ещё pending. Детали — docs/TEMPO_MAP_83.md; source eb2f30e. Условия приёмки остаются открытыми до проверки пользователя.
+Код, build/tests, документация и пакет — локально. На GitHub фиксируются результаты и пользовательская приёмка; без push/merge/Actions. 2026-10-12: локальная0.3f реализована, Release/full129 PASS146.00s; packaged diagnostics/J3 PASSexit0, snapshots100/150 inspected. C0/C1 пройдены; C2 автоматическая часть PASS, пользовательская приёмка подтверждена2026-10-12. Подробная ASIO/DPI матрица не предоставлена. Детали — docs/TEMPO_MAP_83.md; source eb2f30e. Пользователь подтвердил общий PASS; новые измерения не приписываются. #83 закрыт completed.
 
 ---
 

@@ -14,7 +14,7 @@ ProjectStore staged transaction / Engine TimingPlan, rollback on backend/publish
 MIDI/click schedules prepared before commit, no plugin/asset recreation. Sample playhead
 and WAV positions unchanged; MIDI/music ticks preserved. Callback chunks stop at
 next tempo/loop boundary; channel/instrument/Master share position/BPM/quarter.
-Release/full129 PASS; ASIO acceptance pending. #81 accepted/closed0.3e upd2:
+Release/full129 PASS; user acceptance confirmed2026-10-12. Detailed ASIO/DPI matrix not supplied. #81 accepted/closed0.3e upd2:
 marker optionalRGB is schema20; legacy1–19 migration and archive1 retained.
 
 ## Текущий контракт Stage 5 / 2026-10-09

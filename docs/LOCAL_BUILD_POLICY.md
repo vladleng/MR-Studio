@@ -15,9 +15,9 @@ Release/full129 PASS146.00s including GUI6 and new desktop_tempo/VST3/MIDI/click
 Logs validation/tempo83 retain earlier compile/test-fixture/GUI geometry/callback-count
 failures. Final tests verify frame budgets/exact PCM/no host RT allocations; no broad
 rerun of installed TH-U/Nuro diagnostics. Screenshots100/150 inspected. Packaged diagnostics/J3 PASSexit0;
-actual ASIO/physical DPI NOT RUN, #83 acceptance pending, #80 remains open.
+detailed ASIO/physical DPI matrix NOT RUN; #83 accepted2026-10-12: «#83 прошел приемку, что у нас дальше?». #80 remains open.
 Preserve accepted0.3e upd2 and older packages; persistent shortcut now0.3f/icon retained/target verified.
-No push/merge/Actions. GitHub #83 final delivery update confirmed after initial transport failures; open pending acceptance.
+No push/merge/Actions. GitHub #83 final delivery update confirmed after initial transport failures; closed completed after user acceptance.
 
 ## Current 0.3e upd2/#81 — 2026-10-12
 

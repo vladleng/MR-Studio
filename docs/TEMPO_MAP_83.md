@@ -40,10 +40,10 @@ Mixed equivalence — побитовое сравнение с serial, кажд�
 J3 popup/drag/invalid/Undo/anchor и screenshots100/150 просмотрены. Ранние compile/
 fixture/geometry/callback-count отказы сохранены в validation/tempo83; после исправлений
 финальный полный прогон зелёный. GUI J2 окно учитывает новую полосу; DSP не исправлялся
-ради старого call-count предположения. Actual ASIO/physical DPI NOT RUN; acceptance pending.
-FEATURE READY WITH MANUAL CHECK. Схема20/archive1 и старые packages не изменены.
+ради старого call-count предположения. Отдельная подробная ASIO/physical DPI матрица NOT RUN; пользовательская приёмка подтверждена2026-10-12.
+FEATURE ACCEPTED. Схема20/archive1 и старые packages не изменены.
 
-Ручная приёмка после выдачи:
+Сценарии выданной приёмки (пользователь сообщил общий PASS без отдельного протокола каждого пункта):
 1. В Pause/Stop создать120→90→140 через Tempo, переместить/удалить/изменить BPM;
    anchor0 не двигается/не удаляется. Дубликат позиции/BPM0 отклоняются.
 2. Проверить MIDI+Click при Play/seek и через обе границы; WAV не растягивается,
@@ -57,4 +57,5 @@ FEATURE READY WITH MANUAL CHECK. Схема20/archive1 и старые packages 
 GUI SHA256 `8591719AB45ABF2E1893AE9F04D139A57EA21E8ABB816FBAC353B7AC9A46FDA7`. Packaged diagnostics/J3 PASSexit0;
 13 runtime files/12 hashes reverified. Прежний ярлык обновлён/иконка сохранена,
 старые пакеты остаются. Symbols deliveries/0.3f-tempo-map.
-#83 open до пользовательской приёмки; #80 open. Без push/merge/Actions.
+#83 accepted/closed completed2026-10-12: «#83 прошел приемку, что у нас дальше?».
+#80 open. Пакет, manifest и ярлык прежние; новая сборка не требуется. Без push/merge/Actions.

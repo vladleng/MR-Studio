@@ -39,7 +39,7 @@ upd13 не менялись; никакой push/merge/Actions.
 
 ## Продукт и активное направление
 
-Активно **#83 /0.3f**, 2026-10-12: «Поехали #83», user выбирает tempo до #80.
+Принято **#83 /0.3f**, 2026-10-12: «Поехали #83», user выбирает tempo до #80.
 #80 остаётся open. База sourcec871edc/accepted0.3e upd2; HEADdf94aef, checkout clean
 перед работой. Реализованы Core staged transaction/UpdateTempoMap, Engine TimingPlan,
 callback splits at tempo/loop, Application time-only edit/history и TempoTrack UI.
@@ -48,19 +48,19 @@ sample head сохраняются. [TEMPO_MAP_83.md](TEMPO_MAP_83.md). Schema20
 Release/full129 PASS146.00s (GUI6 включены), новые desktop_tempo/MIDI/VST3/click,
 atomic rollback/backend/publish/overflow/history и mixed sample-budget checks.
 Логи build/asio-local/validation/tempo83; первые compile/fixture/geometry/callback-count
-отказы сохранены и исправлены. Screenshots100/150 просмотрены. #83 ждёт ручной
-ASIO приёмки; FEATURE READY WITH MANUAL CHECK. Source `eb2f30e53406d87402803b6b1ab0aaa353992df7`.
+отказы сохранены и исправлены. Screenshots100/150 просмотрены. Пользователь2026-10-12: «#83 прошел приемку, что у нас дальше?».
+FEATURE ACCEPTED; новые ASIO/DPI измерения и подробная матрица не предоставлены. Source `eb2f30e53406d87402803b6b1ab0aaa353992df7`.
 Package `MR-Studio-0.3f-Tempo-Map-JUCE-ASIO-Windows-local`:13 runtime files/12 hashes reverified;
 GUI SHA256 `8591719AB45ABF2E1893AE9F04D139A57EA21E8ABB816FBAC353B7AC9A46FDA7`.
 Packaged diagnostics/J3 PASSexit0, свежие Tempo100/150 и editor snapshots просмотрены.
 Symbols `build/asio-local/deliveries/0.3f-tempo-map`; старые packages сохранены.
 Прежний MR Studio.lnk теперь0.3f, рабочая папка/пустые args/иконка/существование EXE проверены.
-После transport errors GitHub #83 обновлён итоговыми проверками/package/shortcut; остаётся open до приёмки.
-Следующий шаг — пользовательская ASIO/визуальная приёмка #83 (120→90→140, MIDI/Click,
-Undo/Redo/SaveOpen, guards/WAV/sample head/plugin editors); #83 не закрывать до неё. Следующие issues не начинать автоматически.
+Приёмка документальная: исходники, проверки, пакет/manifest/ярлык неизменны; rebuild не нужен.
+#83 закрывается completed; parent#25 отмечает6/9. Следующий рекомендованный шаг —
+#84 /0.3g, карта размера. Пока не начат: ждать прямого выбора пользователя.
 Без push/merge/Actions.
 
-## Последняя принятая сборка и оставшийся план
+## Предыдущая принятая сборка и оставшийся план
 
 **0.3e upd2 / #81** принята2026-10-12: «Отлично принимаю! Что дальше?».
 #81 closed completed. Sections/markers: drag, inline rename, palettes, alpha0.72;
@@ -69,8 +69,8 @@ final GUI6 PASS76.10s, packaged diagnostics/J3 PASSexit0.
 Пакет `MR-Studio-0.3e-upd2-Sections-Markers-JUCE-ASIO-Windows-local` сохранён;
 [контракт и приёмка](SECTION_COLORS_BOUNDS_81.md).
 
-GitHub states проверены2026-10-12: #25 open; #79/#81/#82/#85/#86 closed;
-#80/#83/#84/#87 open. #83 сейчас тестирует пользователь; не закрывать до ответа.
+GitHub states проверены2026-10-12: #25 open; #79/#81/#82/#83/#85/#86 closed;
+#80/#84/#87 open. #83 принят по сообщению пользователя.
 #80 — полный Arranger/copy, #84 — meter, #87 — общая финальная сверка;
 порядок следующей работы определяет пользователь, не начинать автоматически.
 MR Reverb #128–132 закрыты completed: [реализация/приёмка](REVERB_VALIDATION.md),
