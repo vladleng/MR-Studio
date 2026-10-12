@@ -1,5 +1,9 @@
 # Moon River Studio — Live Mode UI / UX Concept
 
+Stage 5 / #25: [STAGE_5_PLAN.md](STAGE_5_PLAN.md) задаёт production musical editors
+и shared current/next. Этот документ описывает целевой Live UI; весь show workspace
+не входит в Stage 5. Общие lanes/context используют те же IDs и timeline.
+
 ## 1. Назначение
 
 Live Mode — встроенный performance/show workspace Moon River Studio.

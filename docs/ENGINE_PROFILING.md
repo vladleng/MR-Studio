@@ -119,6 +119,18 @@ not establish the cause of queue events. The remaining P4 tests are not a gate
 for starting MIDI. #16 and 3e2/3e3 remain separate. No code/build/package change;
 previous immutable package hashes remain. [Handoff](PROJECT_CONTEXT.md).
 
-## Tracking update — 2026-10-09
+## Subsequent P4 user acceptance —2026-10-09
+
+User reports no failures for #113 and considers clicks occurring only at high
+load within normal tolerance for #114. #113 closed completed; #114 closed
+not_planned after this user triage, with no new diagnostic/bugfix work; #54
+closed completed in the accepted scope. Historical43+43 counter root cause
+and relationship to clicks remain unestablished. No detailed measurement matrix
+or new performance/latency numbers inferred. Earlier open-status passages are
+historical. See [current acceptance record](ENGINE_P4_ACCEPTANCE.md).
+Current accepted build0.2g upd10 and package hashes unchanged; code/build/tests
+not repeated. Stage5 and separate recovery/isolation/VSTi scope not started.
+
+## Historical scope split — 2026-10-09
 
 Scope #54 ограничен **профайлером и его performance validation**; 0.1u software slice accepted 2026-10-06. Последующие физические ASIO тесты — [#113](https://github.com/vladleng/MR-Studio/issues/113), диагностика ahead underruns/invalidations — [#114](https://github.com/vladleng/MR-Studio/issues/114). История пользовательского CSV, контрольные проверки и условия закрытия: [ENGINE_P4_ACCEPTANCE.md](ENGINE_P4_ACCEPTANCE.md). Архитектура multi-instance VSTi шардирования вынесена в отдельную будущую [#112](https://github.com/vladleng/MR-Studio/issues/112), см. [ENGINE_INSTRUMENT_PARALLELISM.md](ENGINE_INSTRUMENT_PARALLELISM.md); не ждать #112 для закрытия P4. #16 в GitHub закрыт, прежние упоминания его незакрытой матрицы исторические.

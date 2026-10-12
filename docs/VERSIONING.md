@@ -1,5 +1,101 @@
 # Правила версионирования Moon River Studio
 
+## Текущая линия0.3 — 2026-10-12
+
+Каждая новая sub-issue Stage5 добавляет букву; обновления внутри неё — updN,
+исправления — fixN. Версия не означает автоматическую приёмку и не равна schema.
+0.3a Chord/#79, 0.3b Markers/#82, 0.3c Context/#85 (с последующими локальными upd),
+0.3d Navigation/#86 (с upd1–3), 0.3e Sections/#81 (принятаupd2),
+0.3f Tempo/#83 (сейчас пользовательская приёмка). #80 не получил новую версию:
+следующим выбран #83. GitHub release остаётсяv0.2g, код0.3f только локально.
+Ниже — исторические записи версий, не текущий статус.
+
+
+## 0.2g upd4 — #96: скрытая audio/MIDI-предзапись
+
+До2 секунд в конце Count, ограничение count/позицией0. Source prefix сохраняется
+через existing source_offset, visible clip start прежний, раскрытие left trim.
+Preview, take commit, Undo/Redo/Save/Open согласованы; schema15/preferencesv7
+без изменений. Контракт/RT/проверки: [PRERECORD_96](PRERECORD_96.md).
+Приёмка ожидается; Stage5/следующий issue не начинаются.
+
+## 0.2g upd3 fix7 — единая тема меню и фон Mix
+
+Host выпадающие меню: фон surface как Browser VST3, тонкая слабая рамка,
+прежние пункты/подменю/disabled/ticks. Фон Mix/Master panel как mini track
+channel; selected header/accent сохранены. Только UI, принято 2026-10-09.
+
+## 0.2g upd3 fix6 — hover проектов и плоские кнопки Mix
+
+Подсветка имени .mrsproject, hand cursor только над именем; кнопки Mix/Master
+без объёмного контура, fill brighter(.15f), без изменения фоновых панелей.
+Только UI; schema/preferences/DSP/Undo не меняются. Fix6 принят 2026-10-09.
+
+## 0.2g upd3 fix5 — crash notice и яркость power
+
+После приёмки #94: предупреждение о старом вылете подтверждается локальным .seen
+marker при закрытии диалога, не повторяется при clean restart, новый report
+снова предупреждает. Логи/дампы не удаляются; callback не держит app/session.
+Power icon чуть ярче: blue3098ee/neutralbdc6cf, прежние размеры/интеракции.
+Schema/preferences/RT capture/DSP без изменений. Контракт: [CRASH_NOTICE_FIX5](CRASH_NOTICE_FIX5.md).
+Fix5 принят 2026-10-09; #94 также принят, следующие issues не начаты.
+
+## 0.2g upd3 fix4 — #94: свободная область Inserts
+
+Уточнённый пользователем контракт: растягивается пустая область Inserts,
+плагины закреплены сверху, длина фейдеров постоянная. Высота ограничена окном,
+не числом плагинов; Sends не менять. Сохранены принятые #91–93, включая fix4.
+Project schema15/preferencesv7 прежние; view JSON version1, mixerHeight сохраняет
+base-height семантику, повышен предел decode для высоких окон. Только layout/UI.
+Контракт и проверки: [MIXER_LAYOUT_UPD3](MIXER_LAYOUT_UPD3.md).
+Upd3 fix4 принят пользователем 2026-10-09: «Этот тест прошел», #94 completed.
+GitHub только issues, без релиза.
+
+## 0.2g upd2 fix4 — #93: выключатель внутри кнопки плагина
+
+По скриншоту пользователя: общая поверхность строки, power icon внутри слева,
+отдельная область клика, отступ надписи x=17 и шрифт11px. Blue=active/grey=off
+прежние; изменения только UI, без schema/DSP/Undo/PDC изменений.
+Итоговый fix4 принят 2026-10-08: «Принято!», #93 завершён.
+
+## 0.2g upd2 fix3 — #93: компактный power icon
+
+По запросу после успешной функциональной проверки: невидимая кнопка 13×13,
+значок питания; синий = плагин работает, нейтральный = bypass. Только UI;
+схема, DSP, Undo/PDC и безопасный Pause/Stop для VST3 прежние.
+
+## 0.2g upd2 fix2 — #93: bypass на кнопке плагина микшера
+
+Отдельная кнопка B слева на insert-row, отражение NativeInsert.bypass,
+existing command/Undo/persistence/PDC и editor reconnect. Сохранены #91/#92;
+schema15/preferencesv7 неизменны. Native realtime bypass, VST3 — Pause/Stop.
+Контракт: [MIXER_BYPASS_UPD2](MIXER_BYPASS_UPD2.md). Приёмка ожидается.
+
+## 0.2g upd1 fix2 — #92: библиотека пресетов
+
+Компактный селектор, вложенные папки каждого плагина, название последнего
+сохранённого/загруженного MR-пресета в проекте. Сохранены принятые fix1/fix2 #91.
+Schema15 читает 1–14; старые пресеты остаются на месте. Preferences v7 прежние.
+Контракт: [PRESET_LIBRARY_UPD1](PRESET_LIBRARY_UPD1.md). Пользовательская приёмка
+подтверждена 2026-10-08: «Тест пройден». Код/пакет/документы локально;
+GitHub issues обновляются по ходу работы.
+
+## 0.2g fix2 — #91: Space во встроенном эквалайзере
+
+После пользовательской приёмки fix1: scoped transport handler добавлен в FxPanel
+и окно Parameters. Обычные VST3 уже работают по сообщению пользователя.
+Контракт: [EDITOR_SPACE_FIX2](EDITOR_SPACE_FIX2.md). EQ принят пользователем
+2026-10-08: «Тест пройден». #91 завершён в принятом объёме.
+Схема 14/preferences v7 неизменны; отдельный локальный пакет, без merge/release.
+
+## 0.2g fix1 — #91: Space в нативном редакторе VST3
+
+Локальный fix после опубликованной v0.2g. Общий transport из editor HWND,
+repeat/focus/text/modifier guards; схема 14/preferences v7 неизменны.
+Контракт: [EDITOR_SPACE_FIX1](EDITOR_SPACE_FIX1.md). Пользователь подтвердил работу
+обычных VST3; opaque custom text input остаётся ограничением, не универсальным PASS.
+#92–#100/Stage 5 не начинать автоматически.
+
 ## 0.2g fix2 — #91: Space во встроенном эквалайзере
 
 После пользовательской приёмки fix1: scoped transport handler добавлен в FxPanel

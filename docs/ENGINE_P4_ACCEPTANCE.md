@@ -1,6 +1,51 @@
-# Shared Audio P4 — profiling acceptance and remaining hardware checks
+# P4 acceptance — #54 / #113 / #114
 
-**Status:** 2026-10-09; P4 issue #54 remains open **only for verification and profiling follow-ups**, not for implementing new engine features. Historical delivery: 0.1u, accepted software portion on 2026-10-06.
+Updated2026-10-09, Asia/Krasnoyarsk. P4 acceptance recorded at local build0.2g upd10,
+source15afe65; branch `mrs/0.2g-fix1-editor-space-local`.
+
+## Historical accepted software evidence
+
+Initial0.1u profiling slice accepted2026-10-06: channel/processor/worker profiler,
+GUI snapshots/CSV, callback/deadline/ahead metrics;110/110 local CTest PASS.
+Synthetic64/128/256/512 and two60-second paced sessions do not constitute
+physical ASIO measurements. See ENGINE_PROFILING.md and
+ENGINE_PROFILING_BENCHMARK.md for implementation/methodology.
+
+Historical user CSV: Komplete Audio ASIO,48k/Device128,Workers4/Process1024,
+ONE bypass,PDC0; Late/XR/D/worker timeouts0, callbackp99=32%,43 Ahead underruns
+and43 invalidations. No audible clicks reported in that session; a pause in
+material did not establish counter causation. These are historical settings,
+not assumed settings for the latest user report.
+
+## User outcome and triage —2026-10-09
+
+User: «#113 сбоев не обнаружено. #114 щелчки появляются только при высокой
+нагрузке, я считаю в пределах нормы».
+
+- #113 closed completed: accepted no-failure result from the user's use.
+- #114 closed not_planned after user triage: clicks at high load are within the
+  user's tolerance; further diagnosis not performed/planned under accepted scope.
+- #54 closed completed: accepted #113 outcome and #114 triage satisfy closure.
+
+No new settings/buffer matrix, CPU/driver versions, duration, CSV or high-load
+threshold supplied. Do not mark the detailed measurement checklist as measured.
+The cause of historical43+43 counters and their relationship to high-load clicks
+remain unestablished. No counters changed, reset or hidden; no diagnosis/bugfix
+or universal no-click/throughput/Fender parity/round-trip latency claim.
+Revisit on a new problem, reproducible evidence or explicit user request.
+
+## Local handoff
+
+No code/build/test or package change for this acceptance record. Keep immutable
+upd10 package/SHA256 and all earlier packages. #16 and #53 already closed;
+parent Stage3/#23, #112 and3e2/3e3 remain separate. Stage5 had not started at that acceptance; current status: [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
+Acceptance originally recorded locally; now synchronized as documentation only. No source push/merge/Actions.
+
+## Historical profiling evidence and proposed measurement scope
+
+The following pre-acceptance plan is retained for methodology. Its unchecked hardware
+items were not measured by the acceptance; #54/#113 are closed, #114 triaged not_planned.
+#112 is an independent future capability, not a requirement to reopen P4.
 
 ## 1. What was already done and accepted
 
@@ -30,7 +75,7 @@ Reported in #54 after initial acceptance:
 - User reported **no audible clicks or dropout**, and a small pause within multitrack material. CSV alone cannot correlate that silence to queue events.
 - It is **not established** whether the queue events are expected priming/invalidation, transitions, producer starvation or a defect. No automatic corrective patch is authorized by this report.
 
-## 3. What remains
+## 3. Historical proposed checks (not a current open gate)
 
 ### A. Hardware sustained-load acceptance (separate issue linked from #54)
 
@@ -56,7 +101,7 @@ Reported in #54 after initial acceptance:
 - #16 is **closed** in GitHub; older narrative referring to its pending broader matrix is historical and does not redefine the state of #16. Any new stress coverage is precisely defined in active P4 follow-ups.
 - No auto-start of new software stages, changes to current MIDI/DAW development order, or requirement for GitHub Actions/source push.
 
-## 5. Completion conditions for #54
+## 5. Historical proposed completion checklist
 
 #54 may be closed **only after** the remaining agreed ASIO/stress validation is accepted and the ahead queue observation is triaged/documented. Do not require #112 implementation for P4 closure. Preserve accepted 0.1u state; never retroactively downgrade it because broader testing remains open.
 

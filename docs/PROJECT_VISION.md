@@ -41,7 +41,12 @@ Moon River Studio
 Arrange / Edit / Mix -> Live
 ```
 
-должен менять представление, show-state и доступные performance-команды, но не создавать вторую копию песни и не запускать отдельный engine.
+должен менять представление, show-state и доступные performance-команды, сохраняя
+общую модель активной песни и общий engine. Это концептуальная связь режимов,
+а не требование кнопки Live рядом с Arrange/Edit/Mix. Будущий .mrlive — show-документ
+со ссылками на .mrsproject; вход через Files описан в
+[LIVE_WORKFLOW.md](LIVE_WORKFLOW.md). Stage 5 готовит musical editors/shared context,
+полный show workflow остаётся в LIVE stages.
 
 Live Mode читает тот же открытый проект:
 

@@ -1,5 +1,11 @@
 # Moon River Studio — Roadmap
 
+Актуальные состояния — [GitHub issues](https://github.com/vladleng/MR-Studio/issues) и
+[PROJECT_CONTEXT](PROJECT_CONTEXT.md). Stage5 активен;0.3f/#83 на приёмке,
+#80/#84/#87 далее по запросу. MR Reverb завершён. Разделы ниже описывают общий план,
+не доказывают приёмку и не назначают автоматически следующий этап.
+
+
 ## 1. Главный принцип
 
 **Moon River Studio** (рабочее сокращение `MRS` / `MR Studio`) — единственная DAW и единственный продукт проекта.
@@ -236,8 +242,17 @@ Routing graph принадлежит SHARED Core и позднее напрям�
 ### Acceptance
 Проект MRS сам содержит музыкальную структуру, необходимую Live Mode.
 
+Рабочая спецификация #79–87, зависимости, чек-поинты и приёмка:
+[STAGE_5_PLAN.md](STAGE_5_PLAN.md). Arranger первого объёма редактирует metadata
+секций без переноса clips. Tempo/meter не растягивают WAV. #87 проверяется в
+каждом feature slice; текущая Project schema 15.
+MRS 0.6 выше — исторический ориентир roadmap, не назначение следующей сборки.
+
 ### Live integration point
-На этом этапе LIVE Stage 1 #29 получает реальный Chord/Arranger/Transport context открытого проекта. С этого момента Live Mode становится не только UI prototype, а нативным режимом реального MRS project.
+Этап предоставляет shared Chord/Arranger/Transport context активного проекта для
+будущего LIVE Stage 1 #29 без экспорта/копирования. Готовность этих данных не означает
+готовность всего Live/show UI: .mrlive, setlist и performance workflow относятся
+к LIVE stages и описаны в [LIVE_WORKFLOW.md](LIVE_WORKFLOW.md).
 
 ---
 

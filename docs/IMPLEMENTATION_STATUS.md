@@ -1,10 +1,11 @@
 # MR Studio — implementation status
 
-> Current development context (2026-10-06): [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
-> Start with that file and the repository AGENTS.md. It records the current
-> 0.1t fix1 delivery, user acceptance and remaining P3 work.
-> Entries below are historical snapshots; their old “pending/not started”
-> labels do not override the current context.
+Актуально2026-10-12: GitHub — главный источник информации проекта.
+[Текущий контекст](PROJECT_CONTEXT.md), [индекс](README.md), [правила](../AGENTS.md).
+0.3f/#83 Tempo map: full129 PASS, пакет выдан, пользовательская приёмка ожидается.
+Последняя принятая0.3e upd2/#81. Stage5 начат; MR Reverb принят. Windows JUCE/ASIO.
+Source main/releasev0.2g отстают от локального кода; документация не является публикацией кода.
+Ниже — исторические записи; прежние pending/not started не переопределяют контекст.
 
 ## 0.1m upd1 fix1 — local compatibility/UI update, 2026-10-04
 

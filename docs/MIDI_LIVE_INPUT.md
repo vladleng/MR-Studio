@@ -1,5 +1,11 @@
 # 4a / 0.2a — MIDI input и VST3-инструменты
 
+Актуальная доработка 0.3c upd6/#135: MIDI I/port/channel меняются через model
+command и bounded MixerUpdate без plugin/editor reload. Выбранный MIDI port
+остаётся открытым при I/R; R включает I, I можно выключать отдельно до записи.
+Подробности и фактическая validation: [MIXER_IR_INSERTS_UPD6.md](MIXER_IR_INSERTS_UPD6.md).
+
+
 Issue #63, parent Stage 4 / #24. Windows JUCE/ASIO, один Core/Transport/Mixer.
 Дата: 2026-10-06. Пользовательская/физическая MIDI-приёмка ожидается.
 

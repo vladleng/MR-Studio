@@ -1,5 +1,23 @@
 # Stage 3e — Processing reliability
 
+## Insert structural loading — 2026-10-11
+
+upd8/#137 prepares the affected insert chain once and retains other channels'
+DSP/IR loaders. Stop + engine quiesce precede capture and graph replacement;
+unchanged instruments are released before MIDI generation reset. Other structural
+edits/Undo still use the general rebuild path. Send bypass preserves configured
+gain and PDC route, publishing effective gain0 through the mixer queue. Validation
+status and limitations: [INSERT_LOADING_SEND_BYPASS_UPD8.md](INSERT_LOADING_SEND_BYPASS_UPD8.md).
+
+## Current Bypass correction — 2026-10-11
+
+0.3c upd5/#134 retains processor latency in PDC while bypassed, with a prepared,
+continuously fed dry delay. Live parameter queue toggles bypass without processor
+reload/editor detach. Earlier bypass-dependent latency behavior below is superseded
+by [BYPASS_CPU_UPD5.md](BYPASS_CPU_UPD5.md). User accepted upd5/#134 on
+2026-10-11; plugin latency changes remain structural transitions. I/R retention
+and mixer updates are tracked separately in [MIXER_IR_INSERTS_UPD6.md](MIXER_IR_INSERTS_UPD6.md).
+
 Started locally on 2026-10-05 after accepted 0.1p fix3. Own effects/instruments
 and Amp/Preamp (3d) are deferred until the DAW foundation is ready.
 

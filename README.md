@@ -1,17 +1,15 @@
 # Moon River Studio
 
-Текущий релиз: **0.2g — MIDI workflow / Windows x64 JUCE + ASIO**.
-MIDI input, VST3 instruments, recording, piano roll, controllers, метроном/precount,
-копирование клипов и внешний MIDI output. Принятые пользовательские сценарии работают;
-hardware external MIDI timing/routing не проверен: внешнего устройства нет.
-118/118 локальных CTest PASS. [Актуальный контекст](docs/PROJECT_CONTEXT.md),
-[релиз](https://github.com/vladleng/MR-Studio/releases/tag/v0.2g),
-[ограничения внешнего MIDI](docs/MIDI_EXTERNAL.md).
-Последняя принятая локальная сборка: **0.2g fix2**, #91 — пробел в редакторах VST3
-и встроенного EQ; 118/118 CTest PASS. На GitHub опубликована только документация
-fix1/fix2, исходники и пакеты fix остаются локально. Следующая задача — #92
-(пресеты), реализация не начата.
-Stage 5 **не начат**, ожидает прямого запроса. Ниже сохранена история.
+GitHub — главный источник документации, плана и статусов проекта.
+Начать с [текущего контекста](docs/PROJECT_CONTEXT.md) и [индекса документов](docs/README.md).
+
+Последняя локальная сборка — **0.3f / #83 Tempo map**, пользователь тестирует её.
+Release и **129/129 CTest PASS**, packaged diagnostics/J3 PASS; реальная ASIO приёмка ожидается.
+Последняя принятая локальная версия — **0.3e upd2 / #81 Sections/Markers**.
+Stage5/#25 начат; остаются #80/#83/#84/#87. MR Reverb #128–132 завершён и принят.
+Опубликованный код и [GitHub releasev0.2g](https://github.com/vladleng/MR-Studio/releases/tag/v0.2g)
+отстают от локальной разработки. Документальные commits не публикуют новые исходники/бинарники.
+Код/build/tests/packages локально; без source push/merge/GitHub Actions.
 
 <!-- DEVELOPMENT_PROGRESS_START -->
 ## Development Progress
@@ -62,7 +60,7 @@ Stage 5 **не начат**, ожидает прямого запроса. Ни�
 > Полосы генерируются из актуальных данных GitHub API; обновление на странице может запаздывать из-за кеширования. GitHub Actions не используются. Код, сборки и тестирование по-прежнему выполняются локально.
 <!-- DEVELOPMENT_PROGRESS_END -->
 
-> Current development context (2026-10-06): [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md).
+> Current development context (2026-10-12): [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md).
 > Start with that file and the repository AGENTS.md. It records the current
 > 0.1t fix1 delivery, user acceptance and remaining P3 work.
 > Entries below are historical snapshots; their old “pending/not started”
@@ -84,7 +82,7 @@ No project schema change (v10). Local package: MR-Studio-0.1m-upd1-fix1-ASIO-Win
 load, finite processing and opaque-state restore checks. TH-U selected-preset auditory
 comparison in the user's project remains pending. Stage 3c stays open until acceptance.
 Code/builds local; GitHub issues/docs only, no code push/PR/merge/Actions/install.
-See [VST3 workflow](VST3_HOSTING.md) and [3c checklist](MRS_STAGE_3C_CHECKLIST.md).
+See [VST3 workflow](docs/VST3_HOSTING.md) and [3c checklist](docs/MRS_STAGE_3C_CHECKLIST.md).
 
 ## 0.1m / Stage 3c — local build ready, 2026-10-04
 
@@ -102,7 +100,7 @@ Celestion WAV is obtained separately via user email subscription; no signup or r
 performed and no Celestion-specific audition claimed. Physical user check of 0.1m pending.
 Latest accepted: 0.1l / 3b. Whole #23 open; 3d/3e planned, #16 deferred.
 Code/builds local; GitHub issues/docs only; no code push/PR/merge/Actions/install.
-See [Cab IR](CAB_IR.md), [3c checklist](MRS_STAGE_3C_CHECKLIST.md).
+See [Cab IR](docs/CAB_IR.md), [3c checklist](docs/MRS_STAGE_3C_CHECKLIST.md).
 
 ## 0.1l / Stage 3b — локальная сборка готова, 2026-10-04
 
@@ -120,8 +118,8 @@ Blue Cat Gain 3 Stereo проверен на обработку, gain automation
 0.1l / 3b ожидает пользовательской приёмки. #23 открыт; #16 остаётся отложенным.
 Следующие подэтапы: 3c Cab IR, 3d Amp/Preamp, 3e Processing Reliability.
 Код/пакеты только локально, GitHub только issues/docs; без code push/PR/merge/Actions.
-См. [VST3](VST3_HOSTING.md), [Channel EQ](NATIVE_INSERTS.md),
-[приёмка 3b](MRS_STAGE_3B_CHECKLIST.md).
+См. [VST3](docs/VST3_HOSTING.md), [Channel EQ](docs/NATIVE_INSERTS.md),
+[приёмка 3b](docs/MRS_STAGE_3B_CHECKLIST.md).
 
 
 ## 0.1k / Stage 3a accepted — 2026-10-04

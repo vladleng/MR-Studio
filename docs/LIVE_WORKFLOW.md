@@ -1,5 +1,10 @@
 # Moon River Studio — Live Mode Workflow
 
+Stage 5 / #25: [рабочий план #79–87](STAGE_5_PLAN.md) подготавливает shared musical
+editors/context/navigation. Полная реализация show/setlist/performance UI остаётся
+в LIVE stages; описания ниже — целевой workflow. Первый Arranger редактор изменяет
+section metadata, без перестановки clips; edit/load/seek не исполняют LiveAction.
+
 ## 1. Что такое Live Mode
 
 Live Mode — встроенный performance/show режим Moon River Studio.

@@ -23,7 +23,11 @@ Live Mode — встроенный Performance / Show режим этой же D
 └───────────────────────────────────────────────┘
 ```
 
-Live Mode не является отдельным приложением, не открывает отдельный project format и не имеет собственного realtime engine.
+Live Mode — встроенный режим той же DAW с общим realtime engine. Активная песня
+использует тот же .mrsproject/Project Model. Будущий .mrlive — show-документ
+со ссылками на проекты и параметрами выступления.
+Схема выше показывает продуктовые режимы, не текущие кнопки header. Вход в show
+планируется через Files; детали — [LIVE_WORKFLOW.md](LIVE_WORKFLOW.md).
 
 ## 2. Главная архитектурная граница
 
@@ -106,7 +110,11 @@ Command
 - tempo/meter sync;
 - section/marker navigation.
 
-Переключение `Arrange -> Live` не создаёт новый transport и не перезапускает project engine.
+Активация подготовленной песни в будущем Live/show workflow использует общий
+transport и project engine. Это архитектурное требование, а не утверждение о
+реализованном переключателе Arrange -> Live. Stage 5 предоставляет shared musical
+data/context; полный show UI реализуется в LIVE stages.
+Рабочие контракты редакторов — [STAGE_5_PLAN.md](STAGE_5_PLAN.md).
 
 ## 6. Audio Engine
 

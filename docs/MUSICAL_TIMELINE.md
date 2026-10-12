@@ -4,6 +4,40 @@ Issue #17. API: `mrs/core.hpp`, `mrs/musical.hpp`.
 One ProjectStore, ITransport and MusicalTimeline instance are shared by Arrange/Edit/Mix/Live.
 No Live project copy or separate clock.
 
+2026-10-12: #86 /0.3d in progress, [NAVIGATION_86.md](NAVIGATION_86.md).
+Application binds a shared control-thread navigation guard for recording/count-in;
+existing prepared seek and engine-confirmed context retained. Current schema20,
+archive1; older numbered schemas below describe historical milestones.
+
+2026-10-12: #83 /0.3f — [TEMPO_MAP_83.md](TEMPO_MAP_83.md): stopped time-only
+ProjectStore staged transaction / Engine TimingPlan, rollback on backend/publish failure,
+MIDI/click schedules prepared before commit, no plugin/asset recreation. Sample playhead
+and WAV positions unchanged; MIDI/music ticks preserved. Callback chunks stop at
+next tempo/loop boundary; channel/instrument/Master share position/BPM/quarter.
+Release/full129 PASS; ASIO acceptance pending. #81 accepted/closed0.3e upd2:
+marker optionalRGB is schema20; legacy1–19 migration and archive1 retained.
+
+## Текущий контракт Stage 5 / 2026-10-09
+
+2026-10-10: [Chord Track #79](CHORD_TRACK_79.md) принят на 0.3a upd1 и закрыт;
+[Markers #82](MARKER_TRACK_82.md) приняты как 0.3b и закрыты (пакет 0.3a upd2).
+[Current/next #85](MUSICAL_CONTEXT_85.md) принят на 0.3c и закрыт: компактные подписи и
+lane highlights из единого control snapshot подтверждённого transport.
+Shared Add/Update/RemoveChord и Add/Update/RemoveMarker применяются к
+ID/expected baseline, не заменяя другие musical lanes. Metadata-only
+Application/history для chords/markers не rebuilds DSP и допускает playback/loop;
+recording/pre-count запрещены. Marker edit сохраняет project order при equal ticks.
+Application preflight проверяет полный candidate ProjectDocument, marker delete
+с LiveAction отклоняется до mutation. Action/cue — metadata, без trigger executor.
+Полный #85/#87 и другие editors остаются отдельными задачами.
+
+[STAGE_5_PLAN.md](STAGE_5_PLAN.md) задаёт редакторы #79–87, checkpoint/acceptance
+и tick/sample, loop, history и reference policy. Текущий writer — schema **20**,
+core readers поддерживают **1–20**. Схема 2 ниже — история появления musical lanes.
+Arranger первого объёма меняет section metadata, без переноса содержимого.
+Tempo/meter edits сохраняют musical ticks и WAV samples, без time stretch.
+Удаление связанного section/marker в первом объёме отклоняется до mutation.
+
 ## Model and time
 
 PPQ 960. Timeline compiles tempo/meter segments on construction; queries use binary search,
@@ -13,17 +47,18 @@ Samples and ticks are rounded to nearest integer; this is not a promise of exact
 round-trips at low rates/high tempos where multiple ticks share a sample.
 Ranges and conversion limits remain the Stage 0 limits.
 
-Project schema 2 adds Chord and ArrangerSection lanes with stable globally unique IDs.
+Historical Project schema 2 introduced Chord and ArrangerSection lanes with stable globally unique IDs.
 Lanes must be ordered and non-overlapping. Ranges are [start,end); gaps have no current
 chord/section. Chord symbol preserves authored spelling; no harmonic parser or inference.
 Section color is 0xRRGGBB. Markers reuse existing typed Marker model; they may be unordered
 and multiple markers may share a tick. Editing via SetMusicalData uses the existing
 atomic candidate validation and snapshot Undo/Redo.
 
-Snapshot writer emits v2. Reader migrates exact v1 grammar to v2 with empty new lanes,
+At SHARED Stage 2, the snapshot writer emitted v2. That reader migrated exact v1 grammar to v2 with empty new lanes,
 retaining all old IDs, markers, time maps and media references. Unknown versions/data,
 malformed, truncated and over-limit snapshots still fail explicitly.
-This is a text development snapshot, not a final DAW project package.
+This describes the historical text development snapshot. Current .mrsproject embeds
+the schema 15 core snapshot in the archive documented in PERSISTENCE.md.
 
 ## Shared context
 

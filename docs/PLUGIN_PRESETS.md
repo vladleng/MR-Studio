@@ -1,5 +1,9 @@
 # 0.1p upd1 — plugin presets, editor shell and TH-U audible state
 
+Current library follow-up: [0.2g upd1 fix2 / #92](PRESET_LIBRARY_UPD1.md).
+Compact folder menu and durable MR preset label, schema15 reading older snapshots.
+The remainder records the original preset implementation and its historical tests.
+
 Local Windows JUCE J3 follow-up, 2026-10-05. User confirms the interface works and
 Nuro Audio project-state restore works. Nuro is accepted; do not run special installed
 Nuro tests for each build unless the user reports a new Nuro problem or asks for it.

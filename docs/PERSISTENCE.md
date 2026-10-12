@@ -1,5 +1,20 @@
 # SHARED Stage 4 — persistence/state/recovery
 
+## Актуализация 2026-10-12
+
+Текущая core Project schema — **20**, поддерживаемые readers — **1–20**;
+binary archive envelope остаётся **1**. Исторический Stage 4 scope ниже не является
+перечнем уже реализованных production-функций. Для редакторов Stage 5 действует
+[STAGE_5_PLAN.md](STAGE_5_PLAN.md): stable IDs, Undo/Redo/save в каждом slice,
+отказ до mutation при удалении связанных section/marker и сохранение unknown
+chunks/plugin state/preset names. Полный .mrlive/show UI остаётся будущим workflow.
+
+0.3e upd2: Marker.color — optional24-bit RGB, сериализация20 добавляет presence
+и RGB после kind в MARKERS. Readers1–19 оставляют цвет unset, сохраняя IDs,
+имена/позиции/kind/порядок/связи; UI использует legacy kind fallback. Новые
+сохранения используют20, старые приложения <20 их не читают. Цвет/rename/move
+имеют shared metadata commands/history; chunks/extensions/envelope1 прежние.
+
 One ProjectDocument is used by Arrange, Edit, Mix and Live. There is no export to
 a separate Live project. A ShowDocument stores a setlist of project ID/path
 references; two entries may refer to the same song. Relative paths are interpreted
@@ -26,7 +41,8 @@ u32 IEEE CRC32 of all preceding bytes. Each chunk has a four-byte ASCII tag,
 u64 payload length, payload. Checksums detect accidental corruption, not tampering.
 
 Project requires exactly one PROJ, GRPH, MIXR, MIDI and LIVE chunk. Show requires
-one SHOW. PROJ embeds the existing schema 2 core snapshot. Known binary payloads
+one SHOW. PROJ embeds the current schema 15 core snapshot (schema 2 at the original
+SHARED Stage 4 implementation). Known binary payloads
 use little-endian u32 counts, length-prefixed UTF-8 strings and opaque blobs,
 u32 booleans, IEEE float32 and signed int32 MIDI route settings. IDs are strings.
 The implementation in archive.cpp is authoritative for field order.
@@ -34,7 +50,8 @@ The implementation in archive.cpp is authoritative for field order.
 Unrecognized chunks are retained byte-for-byte in their original relative order,
 including repeated unknown tags. Known chunks are emitted in canonical order.
 Unexpected fields inside known chunks and unknown archive versions are rejected
-rather than silently dropped. Legacy core text snapshot v1/v2 migrates into a
+rather than silently dropped. Supported legacy core snapshots migrate to the
+current schema with defaults for absent fields; original v1/v2 snapshots enter a
 document with transparent empty graph and empty added state; stable IDs survive.
 
 Limits: complete archive <=64 MiB, text <=1 MiB, collection count <=65,536,

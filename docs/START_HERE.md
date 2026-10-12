@@ -1,15 +1,11 @@
 # Moon River Studio — START HERE
 
-**Harma Waves (new planned direction, no MRS implementation yet):** [native architecture](HARMA_WAVES_NATIVE.md) · [roadmap and Smart-Voicing source mapping](HARMA_WAVES_ROADMAP.md) · [Codex handoff / first #116 slice](HARMA_WAVES_CODEX_HANDOFF.md) · [parent issue #115](https://github.com/vladleng/MR-Studio/issues/115). This plan does not override the active local development status below.
-
-> Current development context (2026-10-08): [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
-> Start with that file and the repository AGENTS.md. It records the current
-> 0.2g delivery, MIDI acceptance and deferred external hardware validation.
-> Entries below are historical snapshots; their old “pending/not started”
-> labels do not override the current context.
-
-Selected UI direction: [JUCE migration](JUCE_MIGRATION.md), Windows-only active scope.
-Plan recorded; integration not started. Preferred working UI remains 0.1m upd1 fix1.
+Актуально2026-10-12: GitHub — главный источник информации проекта.
+[Текущий контекст](PROJECT_CONTEXT.md), [индекс](README.md), [правила](../AGENTS.md).
+0.3f/#83 Tempo map: full129 PASS, пакет выдан, пользовательская приёмка ожидается.
+Последняя принятая0.3e upd2/#81. Stage5 начат; MR Reverb принят. Windows JUCE/ASIO.
+Source main/releasev0.2g отстают от локального кода; документация не является публикацией кода.
+Ниже — исторические записи; прежние pending/not started не переопределяют контекст.
 
 Future idea (not started, separate from the current build): [Acoustic space prototype](ACOUSTIC_SPACE_PROTOTYPE.md).
 

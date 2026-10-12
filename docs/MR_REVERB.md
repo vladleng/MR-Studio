@@ -1,6 +1,9 @@
 # MR Reverb — native convolution reverb (MVP / Codex handoff)
 
-**Статус:** согласованная концепция и backlog, **реализация не начиналась**. Дата: 2026-10-10.  
+**Статус2026-10-12:** MR Reverb реализован локально и принят; #128–132 closed completed.
+Исходная концепция ниже сохранена. Фактический контракт и проверки: [REVERB_VALIDATION.md](REVERB_VALIDATION.md),
+[IR library](REVERB_LIBRARY_IMPLEMENTATION.md), [GUI/state](REVERB_EDITOR_IMPLEMENTATION.md),
+[оптимизация](REVERB_OPTIMIZATION.md), [активный CPU](REVERB_ACTIVE_CPU.md), [gate/Mix](REVERB_GATE_MIX.md).
 **Parent:** [#128 MR Reverb](https://github.com/vladleng/MR-Studio/issues/128), направление [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111).  
 **Рабочие задачи:** [#129 DSP](https://github.com/vladleng/MR-Studio/issues/129) → [#130 IR library](https://github.com/vladleng/MR-Studio/issues/130) → [#131 GUI/state](https://github.com/vladleng/MR-Studio/issues/131) → [#132 QA](https://github.com/vladleng/MR-Studio/issues/132). Это связанные issues; **нативные GitHub sub-issues не предполагаются только по ссылкам**.  
 **Редактируемый компактный GUI-wireframe:** [docs/design/MR_REVERB_GUI.svg](design/MR_REVERB_GUI.svg).
@@ -55,7 +58,7 @@
 
 Для **two-channel stereo IR**: диагональная свёртка (L→L, R→R), честное обозначение **Stereo**, не **True Stereo**.
 
-Для **True Stereo**: четыре ядра `h_LL, h_LR, h_RL, h_RR`; индекс 1 — *вход*, индекс 2 — *выход*. 
+Для **True Stereo**: четыре ядра `h_LL, h_LR, h_RL, h_RR`; индекс 1 — *вход*, индекс 2 — *выход*.
 ```text
 wet_L = conv(in_L, h_LL) + conv(in_R, h_RL)
 wet_R = conv(in_L, h_LR) + conv(in_R, h_RR)

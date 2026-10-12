@@ -9,8 +9,12 @@ Every normal JUCE session writes a bounded local journal in Documents/MR Studio/
 Version, UTC time/PID, UI actions/errors, note commits, periodic transport/device
 configuration and project/plugin inventory are diagnostic projections, not project
 state. Files share a unique `mr-session-*` prefix: `.log`, `.crash.txt`, `.dmp`.
-File → Open diagnostics folder exposes reports; the next launch warns if a prior
-report exists. No network upload, telemetry or automatic project recovery.
+File → Open diagnostics folder exposes reports. Since upd3 fix5, the next launch
+warns only if the latest report has not been acknowledged: dismissing the notice
+creates a local `.seen` sidecar without deleting log/report/dump. A later report
+triggers a new notice; old retained reports do not resurface after acknowledgement.
+Sidecars follow the same group retention; older apps ignore them. See
+[CRASH_NOTICE_FIX5.md](CRASH_NOTICE_FIX5.md). No network upload, telemetry or automatic project recovery.
 
 An out-of-process helper is started hidden using an explicit inherited handle
 allowlist. It waits without polling CPU. An unhandled-exception filter copies
