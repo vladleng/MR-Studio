@@ -98,7 +98,12 @@ P4 #54/#113 закрыты completed, #114 closed not_planned; подробна�
 ## Документация и история
 
 [Индекс документов](README.md), [Stage5](STAGE_5_PLAN.md), [правила разработки](../AGENTS.md).
-Сверка выполняется docs-only поверх GitHub main690f1bd; remote-only документы сохранены.
+Сверка завершена2026-10-12:58 документов опубликованы docs-only commit
+[`4dbc7e5`](https://github.com/vladleng/MR-Studio/commit/4dbc7e5827f2f3294233a4cdb2773192167b0ba4)
+поверх main690f1bd с [skip ci]. Remote HEAD и совпадение58 документов с локальной копией
+проверены; remote-only планы сохранены. Apps/Core/tests/build config/workflows/assets
+не изменены; пакет0.3f и его12 хешей проверены повторно. Docs-only работа: rebuild не нужен.
+Логи сверки: `build/asio-local/validation/docs-sync-20261012`; source main по-прежнему0.2g.
 Последний запрос пользователя: «Я хочу чтобы гитхаб был главным источником информации для проекта».
 Код/сборки/пакеты/ярлык этой синхронизацией не меняются, Actions не запускаются.
 [Локальная история поставок](history/PROJECT_CONTEXT_LOCAL_BEFORE_SYNC_20261012.md)
