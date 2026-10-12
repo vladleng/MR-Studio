@@ -6,6 +6,22 @@
 Исторические local-only/only-at-release правила ниже заменены этой записью.
 
 
+## Current 0.3g/#84 — 2026-10-12
+
+Meter map editor; existing stopped timing transaction, no new schema.
+Prepared denominator/bar-quarter segments reach VST3 timeSig/barPosition valid flags;
+callback splits at meter/tempo/loop. Quarter-based MIDI snap/quantize retained;
+Arrange/piano beat labels follow denominator. Release/full130 PASS140.74s including
+GUI6 and new desktop_meter/MIDI/VST3/Click/precount/record tests. Logs validation/meter84;
+first CMake registration/linker and GUI blank-drop viewport failures fixed, retained.
+Main100/editor150 snapshots inspected; hardware ASIO/physical DPI NOT RUN. Packaged diagnostics/J3 PASSexit0.
+#84 remains open pending acceptance, previous0.3f package unchanged. No source push/merge/Actions.
+
+Source `7d90ad2478c0cb4de792dcb9a2df9f976b26ef40`; package `MR-Studio-0.3g-Meter-Map-JUCE-ASIO-Windows-local`,
+GUI SHA256 `39D65DE7DC63DC42928DD4E0F399B67AC9B5CAD88417DBAEBC5348F8D9899304`;13 files/12 hashes reverified.
+Symbols deliveries/0.3g-meter-map; previous MR shortcut updated/icon retained/target verified.
+Previous packages preserved. GitHub docs/issues sync, source code stays local.
+
 ## Current 0.3f/#83 — 2026-10-12
 
 Stopped tempo-map editor, Core staged transaction and Engine TimingPlan preserve

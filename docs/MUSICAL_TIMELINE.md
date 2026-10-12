@@ -9,6 +9,13 @@ Application binds a shared control-thread navigation guard for recording/count-i
 existing prepared seek and engine-confirmed context retained. Current schema20,
 archive1; older numbered schemas below describe historical milestones.
 
+2026-10-12: #84 /0.3g — [METER_MAP_84.md](METER_MAP_84.md). MeterPoint remains
+bar-based; early edits reproject later points, other musical ticks and WAV samples stay.
+Stopped UpdateMeterMap/App history uses the accepted #83 transaction; SDK receives
+numerator/denominator/barPositionMusic with valid flags on channel/instrument/Master.
+Callback stops at meter boundaries; denominator beats project into ruler/piano labels,
+while MIDI snap/quantize retains quarter ticks. Release/full130 PASS; manual ASIO pending.
+
 2026-10-12: #83 /0.3f — [TEMPO_MAP_83.md](TEMPO_MAP_83.md): stopped time-only
 ProjectStore staged transaction / Engine TimingPlan, rollback on backend/publish failure,
 MIDI/click schedules prepared before commit, no plugin/asset recreation. Sample playhead

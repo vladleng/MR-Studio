@@ -13,11 +13,12 @@ GitHub — главный источник информации проекта (
 
 ## Текущая музыкальная структура
 
-0.3f/#83 принят2026-10-12; далее рекомендован #84/0.3g, пока не начат.
+0.3g/#84 Meter map реализован, full130 PASS, пользовательская приёмка ожидается.
+Последняя принятая0.3f/#83.
 
 - [Chord Track/#79](CHORD_TRACK_79.md), [Markers/#82](MARKER_TRACK_82.md).
 - [Sections/colors/bounds/#81](SECTION_COLORS_BOUNDS_81.md), [context/#85](MUSICAL_CONTEXT_85.md).
-- [Navigation/#86](NAVIGATION_86.md), [Tempo/#83](TEMPO_MAP_83.md), [shared timeline](MUSICAL_TIMELINE.md).
+- [Navigation/#86](NAVIGATION_86.md), [Tempo/#83](TEMPO_MAP_83.md), [Meter/#84](METER_MAP_84.md), [shared timeline](MUSICAL_TIMELINE.md).
 - [Persistence](PERSISTENCE.md): текущая локальная schema20/archive1, legacy migration.
 
 ## Движок, плагины, интерфейс

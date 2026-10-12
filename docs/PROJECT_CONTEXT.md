@@ -10,7 +10,7 @@
 Правило пользователя 2026-10-12: **GitHub — главный источник информации о проекте**.
 Документацию и issues синхронизировать после содержательной работы/приёмки, а не только
 при релизах; прежнее правило 2026-10-08 заменено. Локальный checkout — фактические
-исходники и результаты тестов. Source main отстаёт от локальной0.3f: публикация документов
+исходники и результаты тестов. Source main отстаёт от локальной0.3g: публикация документов
 не публикует код/пакеты. Более новые remote планы сохраняются при сверке.
 
 | Назначение | Локальный путь |
@@ -29,7 +29,7 @@ GitHub source может отставать от локальной разраб
 ## Постоянный ярлык — 2026-10-12
 
 По запросу пользователя создан `C:/Users/Vladislav/Desktop/MR Studio.lnk`:
-первая цель — принятая 0.3c upd13, текущая — 0.3f в отдельном package; рабочая папка — этот package,
+первая цель — принятая 0.3c upd13, текущая — 0.3g в отдельном package; рабочая папка — этот package,
 аргументы пустые. Значок MR + голубая waveform:
 `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Launchers/MR Studio.ico`
 (16/24/32/48/64/128/256px, PNG preview рядом). Link target/icon проверены,
@@ -38,6 +38,24 @@ preview просмотрен; DAW не запускалась. При выдач
 upd13 не менялись; никакой push/merge/Actions.
 
 ## Продукт и активное направление
+
+Активно **#84 /0.3g**, 2026-10-12: «Начинай работу на #84».
+Clean HEAD8a1b1fb перед работой; baseaccepted0.3f. Core/App meter command и существующая
+time-only transaction; подготовленные meter segments/SDK meter+bar context,
+callback boundary split, MeterTrack под Tempo и denominator-aware grid/piano labels.
+[Контракт/RT classification](METER_MAP_84.md). Schema20/archive1, musical ticks/WAV/
+sample head unchanged. Release/full130 PASS140.74s, включая GUI6, новые meter/App/MIDI/VST3/Click/count/record
+и существующие mixed/ahead/RT/persistence регрессии. Первый linker/J3 geometry failure
+исправлены, логи validation/meter84 сохранены. Main100/editor150 inspected.
+FEATURE READY WITH MANUAL CHECK; hardware ASIO/physical DPI NOT RUN. Source `7d90ad2478c0cb4de792dcb9a2df9f976b26ef40`.
+Package `MR-Studio-0.3g-Meter-Map-JUCE-ASIO-Windows-local`;13 files/12 hashes reverified.
+GUI SHA256 `39D65DE7DC63DC42928DD4E0F399B67AC9B5CAD88417DBAEBC5348F8D9899304`; packaged diagnostics/J3 PASSexit0.
+Symbols deliveries/0.3g-meter-map. Свежий packaged150 snapshot inspected.
+Прежний ярлык MR Studio теперь0.3g/icon retained/target+workingdir+emptyargs verified.
+Пакеты0.3f и все более старые сохранены. #84 open до ручной пользовательской приёмки;
+#80/#87 не начинать. Дальше: пользователь проверяет4/4→6/8→3/4, раннюю правку,
+MIDI+Click/piano/ruler/Undo/Redo/SaveOpen/record/count, WAV/sample head/plugin state.
+Документация и issues синхронизируются docs-only с GitHub; source/пакеты только локально.
 
 Принято **#83 /0.3f**, 2026-10-12: «Поехали #83», user выбирает tempo до #80.
 #80 остаётся open. База sourcec871edc/accepted0.3e upd2; HEADdf94aef, checkout clean

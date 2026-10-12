@@ -2,7 +2,8 @@
 
 Актуально2026-10-12. Stage5/#25 выполняется: #79/#81/#82/#83/#85/#86 приняты и закрыты;
 #83/0.3f принят2026-10-12: «#83 прошел приемку, что у нас дальше?». Full129 PASS.
-#80/#84/#87 остаются открыты; автоматически к ним не переходить. Current schema20/archive1.
+#84/0.3g реализован: full130 PASS140.74s, packaged diagnostics/J3 exit0; приёмка ожидается.
+#80/#84/#87 открыты; к #80/#87 автоматически не переходить. Current schema20/archive1.
 Первоначальная спецификация подготовлена2026-10-09 на0.2g upd10/schema15/source15afe65;
 требования и архитектурные ограничения ниже сохранены, исторические чекбоксы сверять
 с текущими issues и тематическими отчётами. [Контекст](PROJECT_CONTEXT.md).
@@ -374,8 +375,8 @@ Parent: #25
 
 ## Контрольные точки
 
-- [ ] C0: bar→tick contract, отображение beats и VST3 context.
-- [ ] C1: UI/validation/history/persistence.
+- [x] C0: bar→tick contract, отображение beats и VST3 context.
+- [x] C1: UI/validation/history/persistence.
 - [ ] C2: 4/4→6/8→3/4, boundary/click/grid/plugin и ASIO smoke.
 
 ## Условия приёмки
@@ -390,7 +391,7 @@ Parent: #25
 
 Meter/BBT conversions, denominator beats, map validation/history/persistence; MIDI/click/VST3 bar/meter boundary; UI/ASIO. Pre-count не запускает project content раньше принятого момента.
 
-Код, build/tests, документация и пакет — локально. На GitHub фиксируются результаты и пользовательская приёмка; без push/merge/Actions. Чекбоксы пока не пройдены: это требования, а не отчёт о реализации.
+Код, build/tests, документация и пакет — локально. На GitHub фиксируются результаты и пользовательская приёмка; без push/merge/Actions. 2026-10-12: C0/C1 и автоматическая частьC2 реализованы и проверены на0.3g; full130 PASS140.74s, packaged diagnostics/J3 exit0. Подробности docs/METER_MAP_84.md, source7d90ad2. Пользовательская ASIO/DPI приёмка ожидается; acceptance чекбоксы не закрывать автоматически.
 
 ---
 
@@ -495,7 +496,7 @@ Parent: #25
 ## Объём и поведение
 
 - Начать с C0 до первого editor: command validation/dirty/history и metadata-only application path. Не отправлять устаревшие полные musical vectors из открытого popup поверх актуальной модели.
-- Использовать текущую schema 15 и archive envelope 1, existing readers 1–15. Не вводить новую схему для UI selection или существующих musical полей.
+- Использовать текущую schema 20 и archive envelope 1, existing readers 1–20. Исходный план был на15; marker RGB добавлен на принятом #81. Не вводить новую схему для UI selection или существующих musical полей.
 - Стабильные global IDs, точные time/color/symbol/kind/order values; SectionPatch/LiveAction references проверяются перед commit/save.
 - Первый объём: запрещать удаление связанной section/marker, не терять внешние ProjectDocument bindings. Если реализуется связанное удаление, command/history должен охватывать весь документ атомарно.
 - Rename/move не ломают bindings; копия получает новый ID без автоматического клонирования bindings. Невалидный/no-op/cancel не создаёт dirty/history.
