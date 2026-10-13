@@ -53,6 +53,26 @@ upd13 не менялись; никакой push/merge/Actions.
 
 ## Продукт и активное направление
 
+**Stage5/#25 и #87 приняты/закрыты completed**, 2026-10-13: **9/9** native sub-issues.
+Точная пользовательская приёмка: «#87 пройдено, все сохраняется, undo/redo работает.». #79–#86 приняты ранее;
+#87 завершает общую модель/history/persistence, выполнявшиеся в каждом feature slice.
+Read-only audit прежних tests/артефактов: musical shared consumers/revision/ack/history;
+persistence mixed ProjectDocument с musical lanes/SectionPatch/LiveAction/unknown chunks/
+plugin state/preset names; desktop chord/marker/section group/history/reference tests,
+tempo/meter stopped transaction/rollback/SaveOpen; GUI всех редакторов и history.
+Full130 PASS148.13s до final marker marquee bounds; finalfocused3 PASS43.39s,
+Core/persistence29 PASS0.55s, packaged diagnostics/J3 exit0 — прежние результаты,
+новых configure/build/tests не запускали. Приёмка docs/issues-only.
+Source `803774d1df9b7a7554550530b5b500f37ec170cc`; package MR-Studio-0.3h-upd2-Unified-Lanes-JUCE-ASIO-Windows-local;
+GUI SHA25601538A2CD57ACE48093BF3116145C9A8F18BD1E294BE4DCF6694E83D056E9080;13files/12hashes reverified.
+Source/package/manifest/MR shortcut и старые packages неизменны. Schema21/archive1;
+legacy1–20, RGB/IDs/order/bindings preserved. Подробная ASIO/physical DPI матрица
+не предоставлена; новых аппаратных измерений не заявляем.
+GitHub docs/issues синхронизируются docs-only; source/build/packages local,
+без source push/merge/Actions. Чужие AI docs сохранены.
+Следующий этап/задачу выбирает пользователь. #26/AI Foundation — backlog с
+декомпозицией, реализацию не начинать автоматически; другой roadmap не переключён.
+
 **#80 /0.3h upd2 принят и закрыт completed**, 2026-10-13.
 Точная приёмка пользователя: «Все работает - закрывай!». Принят полный Arranger editor и
 дополнения: lane icons/headers, section/chord/marker group selection/copy/ghosts,

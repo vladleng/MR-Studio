@@ -9,7 +9,7 @@ GitHub — главный источник документации, плана 
 Release и **130/130 CTest PASS**, packaged diagnostics/J3 PASS; пользовательская приёмка подтверждена: «Все работает - закрывай!».
 [Контракт и проверки](docs/ARRANGER_EDITOR_80.md). Hardware ASIO/physical DPI отдельно не проверены.
 Последняя принятая локальная версия — **0.3h upd2 / #80 Unified musical lanes**.
-Stage5/#25: **8/9** принято; #80 закрыт, остаётся #87, не начат. MR Reverb #128–132 завершён и принят.
+Stage5/#25 **завершён и принят: 9/9**. #87 и parent#25 закрыты2026-10-13: сохранение и Undo/Redo подтверждены пользователем. MR Reverb #128–132 завершён и принят.
 Опубликованный код и [GitHub releasev0.2g](https://github.com/vladleng/MR-Studio/releases/tag/v0.2g)
 отстают от локальной разработки. Документальные commits не публикуют новые исходники/бинарники.
 Код/build/tests/packages локально; без source push/merge/GitHub Actions.

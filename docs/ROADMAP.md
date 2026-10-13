@@ -1,8 +1,15 @@
 # Moon River Studio — Roadmap
 
+**Stage5/#25 завершён2026-10-13 — 9/9**, #87 accepted/closed completed.
+Пользователь: «#87 пройдено, все сохраняется, undo/redo работает.». Все редакторы и #80 приняты ранее.
+Последняя принятая сборка0.3h upd2/source803774d, schema21/archive1; package/manifest/
+shortcut/source прежние. Использованы прежние full130/finalfocused3/persistence/GUI
+результаты; новых build/tests/аппаратных измерений не заявляем. [Контекст](PROJECT_CONTEXT.md).
+Следующий этап — только по выбору пользователя; AI Foundation пока backlog.
+
 Актуальные состояния — [GitHub issues](https://github.com/vladleng/MR-Studio/issues) и
-[PROJECT_CONTEXT](PROJECT_CONTEXT.md). Stage5 активен;0.3f/#83 на приёмке,
-#80/#84/#87 далее по запросу. MR Reverb завершён. Разделы ниже описывают общий план,
+[PROJECT_CONTEXT](PROJECT_CONTEXT.md). Stage5/#25 завершён и принят на0.3h upd2; #79–#87 закрыты.
+Следующее направление выбирает пользователь. MR Reverb завершён. Разделы ниже описывают общий план,
 не доказывают приёмку и не назначают автоматически следующий этап.
 
 

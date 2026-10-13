@@ -1,5 +1,12 @@
 # SHARED Stage 4 — persistence/state/recovery
 
+**Stage5/#25 завершён2026-10-13 — 9/9**, #87 accepted/closed completed.
+Пользователь: «#87 пройдено, все сохраняется, undo/redo работает.». Все редакторы и #80 приняты ранее.
+Последняя принятая сборка0.3h upd2/source803774d, schema21/archive1; package/manifest/
+shortcut/source прежние. Использованы прежние full130/finalfocused3/persistence/GUI
+результаты; новых build/tests/аппаратных измерений не заявляем. [Контекст](PROJECT_CONTEXT.md).
+Следующий этап — только по выбору пользователя; AI Foundation пока backlog.
+
 0.3h upd2/#80: Chord.color optional24-bit RGB, schema21 добавляет presence/RGB
 в CHORDS records. Legacy1–20 defaults unset, прежнее оформление; archive1 и unknown
 chunks/plugin state сохраняются. Старые builds schema21 не читают.

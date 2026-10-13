@@ -1,5 +1,12 @@
 # Moon River Studio — START HERE
 
+**Stage5/#25 завершён2026-10-13 — 9/9**, #87 accepted/closed completed.
+Пользователь: «#87 пройдено, все сохраняется, undo/redo работает.». Все редакторы и #80 приняты ранее.
+Последняя принятая сборка0.3h upd2/source803774d, schema21/archive1; package/manifest/
+shortcut/source прежние. Использованы прежние full130/finalfocused3/persistence/GUI
+результаты; новых build/tests/аппаратных измерений не заявляем. [Контекст](PROJECT_CONTEXT.md).
+Следующий этап — только по выбору пользователя; AI Foundation пока backlog.
+
 Принято2026-10-13: **0.3h upd2/#80**, «Все работает - закрывай!».
 #80 closed completed; parent#25 актуально8/9, остаётся#87 (не начат).
 Приёмка docs/issues-only, source/пакет/manifest/ярлык и прежние проверки неизменны;

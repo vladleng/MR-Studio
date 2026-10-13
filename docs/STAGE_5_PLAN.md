@@ -1,5 +1,12 @@
 # Stage 5 / #25: рабочий план музыкальной структуры
 
+**Stage5/#25 завершён2026-10-13 — 9/9**, #87 accepted/closed completed.
+Пользователь: «#87 пройдено, все сохраняется, undo/redo работает.». Все редакторы и #80 приняты ранее.
+Последняя принятая сборка0.3h upd2/source803774d, schema21/archive1; package/manifest/
+shortcut/source прежние. Использованы прежние full130/finalfocused3/persistence/GUI
+результаты; новых build/tests/аппаратных измерений не заявляем. [Контекст](PROJECT_CONTEXT.md).
+Следующий этап — только по выбору пользователя; AI Foundation пока backlog.
+
 Принято2026-10-13: **0.3h upd2/#80**, «Все работает - закрывай!».
 #80 closed completed; parent#25 актуально8/9, остаётся#87 (не начат).
 Приёмка docs/issues-only, source/пакет/manifest/ярлык и прежние проверки неизменны;
@@ -510,7 +517,7 @@ Parent: #25
 ## Объём и поведение
 
 - Начать с C0 до первого editor: command validation/dirty/history и metadata-only application path. Не отправлять устаревшие полные musical vectors из открытого popup поверх актуальной модели.
-- Использовать текущую schema 20 и archive envelope 1, existing readers 1–20. Исходный план был на15; marker RGB добавлен на принятом #81. Не вводить новую схему для UI selection или существующих musical полей.
+- Использовать текущую schema21 и archive envelope1, existing readers1–21. Исходный план был на15; marker RGB добавлен на принятом #81; chord RGB добавлен вschema21 по запросу в0.3h upd2. Не вводить новую схему для UI selection или существующих musical полей.
 - Стабильные global IDs, точные time/color/symbol/kind/order values; SectionPatch/LiveAction references проверяются перед commit/save.
 - Первый объём: запрещать удаление связанной section/marker, не терять внешние ProjectDocument bindings. Если реализуется связанное удаление, command/history должен охватывать весь документ атомарно.
 - Rename/move не ломают bindings; копия получает новый ID без автоматического клонирования bindings. Невалидный/no-op/cancel не создаёт dirty/history.
@@ -526,20 +533,20 @@ Parent: #25
 
 ## Контрольные точки
 
-- [ ] C0: command/history/reference/compatibility contract и fixtures.
-- [ ] C1–C5: в каждом slice edit→Undo→Redo→Save→Open и invalid/failure checks.
-- [ ] C6: единый mixed project, необходимые регрессии, локальный пакет и пользовательская приёмка.
+- [x] C0: command/history/reference/compatibility contract и fixtures.
+- [x] C1–C5: в каждом slice edit→Undo→Redo→Save→Open и invalid/failure checks.
+- [x] C6: единый mixed project, необходимые регрессии, локальный пакет и пользовательская приёмка.
 
 ## Условия приёмки
 
-- [ ] Проект с chords/sections/colors/markers/tempo/meter проходит весь цикл с точными values/IDs/order и валидными bindings.
-- [ ] Нельзя получить orphan или несохраняемый документ удалением, Undo/Redo, cancel либо stale UI edit.
-- [ ] Schema 15 с preset names и поддерживаемые legacy fixtures открываются/сохраняются; неизвестные chunks и plugin state не теряются.
-- [ ] Production и shared consumer видят одну ревизию/контекст; второго engine/timeline нет.
-- [ ] Локальная сборка, затронутые проверки и общая регрессия этапа подтверждены отдельно от GUI/ASIO и пользовательской приёмки. Issue не закрывать по одной только сериализации.
+- [x] Проект с chords/sections/colors/markers/tempo/meter проходит весь цикл с точными values/IDs/order и валидными bindings.
+- [x] Нельзя получить orphan или несохраняемый документ удалением, Undo/Redo, cancel либо stale UI edit.
+- [x] Schema 15 с preset names и поддерживаемые legacy fixtures открываются/сохраняются; неизвестные chunks и plugin state не теряются.
+- [x] Production и shared consumer видят одну ревизию/контекст; второго engine/timeline нет.
+- [x] Локальная сборка, затронутые проверки и общая регрессия этапа подтверждены отдельно от GUI/ASIO и пользовательской приёмки. Issue не закрывать по одной только сериализации.
 
 ## Проверки и завершение
 
 Project/ProjectDocument commands/history/validation/archive migrations/unknown chunk retention; mixed fixture всех lanes; engine/GUI regression по изменённым слоям. Не менять пользовательские проекты/настройки.
 
-Код, build/tests, документация и пакет — локально. На GitHub фиксируются результаты и пользовательская приёмка; без push/merge/Actions. Чекбоксы пока не пройдены: это требования, а не отчёт о реализации.
+Код, build/tests, документация и пакет — локально. На GitHub фиксируются результаты и пользовательская приёмка; без push/merge/Actions. C0/C1–C5/C6 завершены: реализация/регрессии предыдущих slices и пользовательская приёмка2026-10-13; #87/#25 закрыты completed.
