@@ -121,3 +121,16 @@ Wire mock matrix: Luna tools → none, Luna READ → no tools/no effort, other m
 → no effort, short Luna ID → none. Release build/focused11 PASS3.49s; package smoke exit0.
 Source/package hashes: PROJECT_CONTEXT. Успешный live ответ после fix и ASIO acceptance
 ещё не подтверждены; перезапустить0.3i upd2 и repeat Send. Key/settings сохранены.
+
+## Пользовательский live smoke — 2026-10-13
+
+3 screenshots от пользователя подтверждают real ProxyAPI/Luna text response по
+контексту пустого проекта и2 валидированных add_marker proposals (4такт→11520ticks
+при4/4/960PPQ, explicit50ticks→50). Model=openai/gpt-5.6-luna;
+usage1873/23/1896 и1869/22/1891 input/output/total, reasoning0, tool_calls finish.
+HTTP400 прежнего tools/reasoning конфликта не повторился в этих scenarios.
+Changes locked/project unchanged ожидаемы: actual Apply не подключён. Screenshot
+текста модели не доказывает её заявленный охват MIDI и других tools.
+Стоимость неизвестна, key не показан. ASIO с network и live cancel/revoke/error
+не подтверждены; полная приёмка не заявлена, issues open. Source/package unchanged,
+docs-only evidence, новых build/tests/API calls нет.

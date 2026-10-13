@@ -6,6 +6,25 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## AI live READ/SUGGEST evidence / 0.3i upd2 — 2026-10-13
+
+Пользователь отправил3 screenshots и сообщил «Отправил скрины». После upd2 real
+ProxyAPI / openai/gpt-5.6-luna отвечает: текстовое описание пустого проекта и2
+structured add_marker proposals с UI «Validated proposal (changes locked)».
+«Один» на4такте → tick11520 (4/4,960PPQ:3×4×960); marker на50тике → tick50.
+Первый tool response usage: input1873/output23/total1896; второй1869/22/1891;
+reasoning_tokens0, finish_reason=tool_calls. Стоимость unknown; screenshot usage
+не доказывает тариф/денежные расходы. Ключ на screenshots отсутствует.
+HTTP400 tools/reasoning после fix в этих сценариях устранён; live response/model/
+usage и proposal validation подтверждены пользовательскими скринами.
+Текст модели о своих возможностях не является доказательством MIDI/tool coverage.
+Apply отсутствует и изменения locked — ожидаемый READ/SUGGEST scope, не новый дефект.
+Это свидетельство функционального теста, НЕ явная приёмка всего #167/#26:
+ASIO+network/playback, live cancel/error/revoke и physical DPI ещё не подтверждены.
+Issues open. Source fbdbbda/package0.3i upd2/GUI hash/manifest/shortcut прежние;
+docs/issues-only запись, новых build/tests/paid calls нет. Следующий шаг —
+ASIO+AI/manual failure/cancel проверки; #163–#165 только отдельным поручением.
+
 ## AI Luna tools/reasoning HTTP400 / 0.3i upd2 — 2026-10-13
 
 Пользователь получил конкретный provider error после upd1: «Function tools with
