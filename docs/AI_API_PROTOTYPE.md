@@ -109,3 +109,15 @@ parallel_tool_calls (поддержка model-specific). Token limit field ос�
 Final focused11/11 PASS3.53s, GUI100/150 diagnostics inspected, packaged smoke exit0.
 Ключ/реальные settings не менялись; платные calls не выполнялись. Причина400 и успешный
 реальный ответ остаются MANUAL CHECK; перезапустить0.3i upd1 и повторить Send один раз.
+
+## Luna tools/reasoning / 0.3i upd2
+
+После upd1 пользователь передал provider error: function tools с reasoning effort
+не поддерживаются для gpt-5.6-luna на chat/completions; provider предлагает Responses
+либо reasoning_effort=none. Выбран второй путь: adapter отправляет none только для
+Luna full/short ID при tools. READ и другие модели не меняются; сеть остаётся на
+chat/completions, один call/message, без automatic fallback/retries.
+Wire mock matrix: Luna tools → none, Luna READ → no tools/no effort, other model tools
+→ no effort, short Luna ID → none. Release build/focused11 PASS3.49s; package smoke exit0.
+Source/package hashes: PROJECT_CONTEXT. Успешный live ответ после fix и ASIO acceptance
+ещё не подтверждены; перезапустить0.3i upd2 и repeat Send. Key/settings сохранены.

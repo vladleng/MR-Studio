@@ -6,6 +6,26 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## AI Luna tools/reasoning HTTP400 / 0.3i upd2 — 2026-10-13
+
+Пользователь получил конкретный provider error после upd1: «Function tools with
+reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions.
+To use function tools, use /v1/responses or set reasoning_effort to 'none'.»
+Причина подтверждена: default reasoning конфликтует с tools. Adapter теперь явно
+ставит reasoning_effort=none только для Luna (full/short model ID) при suggestions.
+READ и другие модели не получают этот параметр; Core/permissions/edits прежние,
+Responses migration/automatic retries не добавлены. Ключ/реальные settings сохранены.
+Source `fbdbbda4740fc7c551a72a9e7228afa44937b5b6`, local branch прежняя.
+Release build PASS; final focused11/11 PASS3.49s, включая wire matrix Luna+tools,
+Luna READ, short ID, other-model+tools; existing protocol/permissions/GUI suites.
+Packaged AI smoke exit0; package `MR-Studio-0.3i-upd2-AI-Prototype-JUCE-ASIO-Windows-local`,
+13files/12hashes; GUI SHA256 `F5803D3D7D67A68B25E1ADA3DF42AA10BD97B4ADEB8DEA75E2B2B8340E9EB4E6`.
+Matching PDB deliveries/0.3i-upd2-ai-prototype; MR shortcut обновлён/icon сохранён,
+старые packages сохранены. Логи ai-luna-reasoning-build.log / focused.log в build/asio-local.
+READY WITH MANUAL CHECK: successful live Luna response после fix и ASIO ещё ожидаются.
+Следующий шаг — перезапуск через MR Studio и один repeat Send. #167/#26 open;
+source/build/package local, docs/issues GitHub, без source push/Actions.
+
 ## AI API HTTP400 follow-up / 0.3i upd1 — 2026-10-13
 
 Пользователь сообщил HTTP400 при Send «Привет»; screenshot: правильные default base/model,
