@@ -6,6 +6,19 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## #164 / 0.3k принят — 2026-10-13
+
+Пользовательская приёмка: «#164 принимаю». Принят AI transaction/history contract
+и accompanying chat UX сборки0.3k в описанном ниже объёме. #164 закрывается completed;
+native parent#26:1/11 completed, parent остаётся open. #163 и другие AI issues этой
+приёмкой не закрываются. MIDI Application/GUI Apply остаётся #165, не начат.
+Source ff3aa538/package0.3k/13files/12hashes/GUI hash/PDB/MR shortcut прежние;
+прежние full143/finalfocused13/packaged smoke результаты сохранены. Это docs/issues-
+only приёмка, новых build/tests/paid calls нет. Подробные ASIO+network/physical DPI
+измерения пользователь не предоставлял; новых аппаратных результатов не заявляем.
+Следующий roadmap пункт #165 — только по отдельному запросу пользователя.
+Source/build/package local, docs/issues GitHub, без source push/PR/merge/Actions.
+
 ## AI transactions/history #164 + chat UX / 0.3k — 2026-10-13
 
 Пользователь: «Начинай #164», screenshot пустого footer и «просто опусти клавиши вниз».
@@ -38,10 +51,10 @@ Package `MR-Studio-0.3k-AI-History-Chat-JUCE-ASIO-Windows-local`,13files/12hashe
 GUI SHA256 `8F6221E56080DAF0F5118F330CE9975756888688F1F1305A2667F316E1E0B344`.
 Packaged AI smoke exit0; matching PDB deliveries/0.3k-ai-history-chat. MR shortcut
 обновлён на0.3k/icon сохранён; старые packages и реальные settings/key/projects сохранены.
-FEATURE READY WITH MANUAL CHECK: real provider marker group Apply→Undo→Redo→Save/Open,
-ASIO+network и physical DPI ещё требуют пользовательской проверки. #164/#163/#26 open
-до приёмки, #165 не начат автоматически. Следующий шаг: перезапустить через MR Studio,
-Browser→AI; EDIT до запроса, проверить новую ленту/Enter и marker group/history.
+FEATURE ACCEPTED2026-10-13: «#164 принимаю», #164 closed completed.
+ASIO+network/physical DPI подробная матрица не предоставлена; прежние автоматические
+результаты выше не заменяются новыми аппаратными заявлениями. #163/#26 open,
+#165 не начат автоматически; следующий шаг — #165 по выбору пользователя.
 Source/build/package local, docs/issues GitHub отдельно, без source push/PR/merge/Actions.
 
 ## AI chat UX — требования к следующему билду, 2026-10-13 (реализованы в0.3k выше)

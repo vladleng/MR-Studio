@@ -1,5 +1,11 @@
 # AI transactions / history — #164, 2026-10-13
 
+**ACCEPTED2026-10-13:** пользователь «#164 принимаю». #164 closed completed,
+parent#26:1/11 completed. Принят описанный transaction/history+chat UX объём0.3k;
+Application/GUI MIDI Apply остаётся #165. Source/build/package/manifest/shortcut
+и прежние результаты проверок сохранены, новых build/tests/paid calls нет.
+Подробная аппаратная ASIO/physical DPI матрица приёмкой не предоставлена.
+
 Пользователь поручил #164 и попросил опустить Send/Cancel к нижнему краю AI tab.
 В этот билд входят ранее запрошенные лента чата, очистка composer и Enter=Send,
 Shift+Enter=newline. Предыдущая база: local source69e8e4c, package0.3j.
@@ -72,6 +78,6 @@ collapsed/expanded Connection at192×570/404×720/620×720, bottom anchor,100/15
 обнаружено восстановление старого composer text асинхронным JUCE Value notification:
 перед clear синхронизируется text Value; отдельная post-async regression добавлена.
 Итоговые build/test/package/source evidence: [PROJECT_CONTEXT](PROJECT_CONTEXT.md).
-Physical DPI и real provider→Apply→Undo/Redo/SaveOpen/ASIO требуют пользовательской
-проверки. #164 остаётся open до приёмки. Source/build/package local, docs/issues
+Пользователь принял #164: «#164 принимаю». Подробные physical DPI/ASIO измерения
+не предоставлены, новых аппаратных результатов не заявляем. Source/build/package local, docs/issues
 GitHub отдельно, без source push/PR/merge/Actions.

@@ -381,6 +381,11 @@ docs/issues GitHub, без source push/Actions.
 
 ## 20. AI transactions/history #164 + chat UX / 0.3k — 2026-10-13
 
+**Принято2026-10-13:** «#164 принимаю». #164 closed completed; native parent#26:
+1/11 completed. #163/#26 остаются open; MIDI Application/GUI Apply остаётся #165.
+Source/package/manifest/shortcut и прежние проверки сохранены; docs/issues-only
+приёмка, новых build/tests/аппаратных измерений нет.
+
 По прямому запросу пользователя #164: shared trusted ProjectEdit, preflight1–8
 Core commands на private candidate, immutable exact before/after/label, одна общая
 Undo/Redo без network/tool reexecution. Marker Application path сохраняет staged
@@ -394,5 +399,5 @@ Enter=Send/ShiftEnter=newline, bottom composer/Send/Cancel по screenshot по�
 Release full build/full143 CTest PASS173.34s до final composer Value fix/version;
 final build/focused13 PASS3.96s. Package0.3k/12hashes/packaged AI smoke exit0,
 Browser100/150 inspected. Real provider Apply/Undo/Redo/SaveOpen, ASIO/physical DPI
-manual acceptance pending; #164/#163/#26 open. Source/build/package local,
+подробная аппаратная матрица не предоставлена; #164 принят, #163/#26 open. Source/build/package local,
 docs/issues GitHub, без source push/PR/merge/Actions.
