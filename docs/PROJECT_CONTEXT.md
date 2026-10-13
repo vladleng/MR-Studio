@@ -18,6 +18,7 @@
 Проверки: 11/11 дочерних задач и parent#26; build/tests не требуются для документации.
 Следующий шаг — пользователь выбирает задачу; текущий roadmap не переключён автоматически.
 
+
 ## Где работать
 
 Правило пользователя 2026-10-12: **GitHub — главный источник информации о проекте**.
@@ -52,7 +53,7 @@ upd13 не менялись; никакой push/merge/Actions.
 
 ## Продукт и активное направление
 
-Активно **#84 /0.3g**, 2026-10-12: «Начинай работу на #84».
+Принято **#84 /0.3g**, 2026-10-12: «Начинай работу на #84».
 Clean HEAD8a1b1fb перед работой; baseaccepted0.3f. Core/App meter command и существующая
 time-only transaction; подготовленные meter segments/SDK meter+bar context,
 callback boundary split, MeterTrack под Tempo и denominator-aware grid/piano labels.
@@ -60,14 +61,15 @@ callback boundary split, MeterTrack под Tempo и denominator-aware grid/piano
 sample head unchanged. Release/full130 PASS140.74s, включая GUI6, новые meter/App/MIDI/VST3/Click/count/record
 и существующие mixed/ahead/RT/persistence регрессии. Первый linker/J3 geometry failure
 исправлены, логи validation/meter84 сохранены. Main100/editor150 inspected.
-FEATURE READY WITH MANUAL CHECK; hardware ASIO/physical DPI NOT RUN. Source `7d90ad2478c0cb4de792dcb9a2df9f976b26ef40`.
+FEATURE ACCEPTED2026-10-13: «Принимаю. Что у нас дальше?». Подробная ASIO/DPI матрица не предоставлена. Source `7d90ad2478c0cb4de792dcb9a2df9f976b26ef40`.
 Package `MR-Studio-0.3g-Meter-Map-JUCE-ASIO-Windows-local`;13 files/12 hashes reverified.
 GUI SHA256 `39D65DE7DC63DC42928DD4E0F399B67AC9B5CAD88417DBAEBC5348F8D9899304`; packaged diagnostics/J3 PASSexit0.
 Symbols deliveries/0.3g-meter-map. Свежий packaged150 snapshot inspected.
 Прежний ярлык MR Studio теперь0.3g/icon retained/target+workingdir+emptyargs verified.
-Пакеты0.3f и все более старые сохранены. #84 open до ручной пользовательской приёмки;
-#80/#87 не начинать. Дальше: пользователь проверяет4/4→6/8→3/4, раннюю правку,
-MIDI+Click/piano/ruler/Undo/Redo/SaveOpen/record/count, WAV/sample head/plugin state.
+Пакеты0.3f и все более старые сохранены. #84 закрыт completed; parent#25 отмечает7/9.
+Приёмка docs-only: source/full130/package/manifest/shortcut прежние, rebuild не нужен.
+Следующий рекомендованный шаг — #80 /0.3h: copy/дублирование секций и завершение Arranger;
+затем #87 — общая финальная проверка. Новую реализацию пока не начинать автоматически.
 Документация и issues синхронизируются docs-only с GitHub; source/пакеты только локально.
 
 Принято **#83 /0.3f**, 2026-10-12: «Поехали #83», user выбирает tempo до #80.
@@ -100,9 +102,9 @@ final GUI6 PASS76.10s, packaged diagnostics/J3 PASSexit0.
 Пакет `MR-Studio-0.3e-upd2-Sections-Markers-JUCE-ASIO-Windows-local` сохранён;
 [контракт и приёмка](SECTION_COLORS_BOUNDS_81.md).
 
-GitHub states проверены2026-10-12: #25 open; #79/#81/#82/#83/#85/#86 closed;
-#80/#84/#87 open. #83 принят по сообщению пользователя.
-#80 — полный Arranger/copy, #84 — meter, #87 — общая финальная сверка;
+GitHub states проверены2026-10-12: #25 open; #79/#81/#82/#83/#84/#85/#86 closed;
+#80/#87 open. #83 принят по сообщению пользователя.
+#80 — полный Arranger/copy, #84 принят, #87 — общая финальная сверка;
 порядок следующей работы определяет пользователь, не начинать автоматически.
 MR Reverb #128–132 закрыты completed: [реализация/приёмка](REVERB_VALIDATION.md),
 [gate/Mix](REVERB_GATE_MIX.md), [исходный дизайн](MR_REVERB.md).

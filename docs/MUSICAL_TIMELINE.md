@@ -14,7 +14,7 @@ bar-based; early edits reproject later points, other musical ticks and WAV sampl
 Stopped UpdateMeterMap/App history uses the accepted #83 transaction; SDK receives
 numerator/denominator/barPositionMusic with valid flags on channel/instrument/Master.
 Callback stops at meter boundaries; denominator beats project into ruler/piano labels,
-while MIDI snap/quantize retains quarter ticks. Release/full130 PASS; manual ASIO pending.
+while MIDI snap/quantize retains quarter ticks. Release/full130 PASS; user accepted2026-10-13, detailed ASIO/DPI matrix not supplied.
 
 2026-10-12: #83 /0.3f — [TEMPO_MAP_83.md](TEMPO_MAP_83.md): stopped time-only
 ProjectStore staged transaction / Engine TimingPlan, rollback on backend/publish failure,

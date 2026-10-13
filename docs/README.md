@@ -13,8 +13,7 @@ GitHub — главный источник информации проекта (
 
 ## Текущая музыкальная структура
 
-0.3g/#84 Meter map реализован, full130 PASS, пользовательская приёмка ожидается.
-Последняя принятая0.3f/#83.
+0.3g/#84 Meter map принят2026-10-13, full130 PASS; далее рекомендован #80/0.3h, пока не начат.
 
 - [Chord Track/#79](CHORD_TRACK_79.md), [Markers/#82](MARKER_TRACK_82.md).
 - [Sections/colors/bounds/#81](SECTION_COLORS_BOUNDS_81.md), [context/#85](MUSICAL_CONTEXT_85.md).

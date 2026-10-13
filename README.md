@@ -3,10 +3,10 @@
 GitHub — главный источник документации, плана и статусов проекта.
 Начать с [текущего контекста](docs/PROJECT_CONTEXT.md) и [индекса документов](docs/README.md).
 
-Последняя локальная сборка — **0.3g / #84 Meter map**, ожидает пользовательской приёмки.
-Release и **130/130 CTest PASS**, packaged diagnostics/J3 PASS; отдельная ASIO/physical DPI приёмка ожидается.
-Последняя принятая локальная версия — **0.3f / #83 Tempo map**.
-Stage5/#25 начат; остаются #80/#84/#87. MR Reverb #128–132 завершён и принят.
+Последняя локальная сборка — **0.3g / #84 Meter map**, принята2026-10-13.
+Release и **130/130 CTest PASS**, packaged diagnostics/J3 PASS; пользовательская приёмка подтверждена; подробная ASIO/DPI матрица не предоставлена.
+Последняя принятая локальная версия — **0.3g / #84 Meter map**.
+Stage5/#25 начат; остаются #80/#87. MR Reverb #128–132 завершён и принят.
 Опубликованный код и [GitHub releasev0.2g](https://github.com/vladleng/MR-Studio/releases/tag/v0.2g)
 отстают от локальной разработки. Документальные commits не публикуют новые исходники/бинарники.
 Код/build/tests/packages локально; без source push/merge/GitHub Actions.

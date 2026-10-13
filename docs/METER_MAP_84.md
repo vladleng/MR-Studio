@@ -45,8 +45,8 @@ projections. Свежие main100/editor150 snapshots inspected. Физичес�
 Первый J3 failure: тестовая пустая область оказалась вне уменьшенного viewport;
 увеличено только тестовое окно. Логи validation/meter84 сохранены.
 
-FEATURE READY WITH MANUAL CHECK. Schema20/archive1 прежние. Пакет `MR-Studio-0.3g-Meter-Map-JUCE-ASIO-Windows-local`; #84 open до пользовательской приёмки.
-Ручная приёмка:
+FEATURE ACCEPTED2026-10-13: «Принимаю. Что у нас дальше?». Schema20/archive1 прежние. Пакет `MR-Studio-0.3g-Meter-Map-JUCE-ASIO-Windows-local`; #84 closed completed по пользовательской приёмке.
+Сценарии выданной приёмки (пользователь сообщил общий PASS без отдельной матрицы):
 1. В Pause/Stop/loop off создать4/4→6/8→3/4 через Meter, изменить Bar/numerator/denominator,
    переместить точку по тактам, Undo/Redo/Delete. Bar1 не двигается/не удаляется.
 2. Проверить ruler/BBT/piano-roll и MIDI+Click; в6/8 шесть восьмых долей, quarter snap и
@@ -60,3 +60,5 @@ FEATURE READY WITH MANUAL CHECK. Schema20/archive1 прежние. Пакет `M
 Packaged diagnostics/J3 PASSexit0,13 files/12 hashes reverified; symbols
 build/asio-local/deliveries/0.3g-meter-map. MR shortcut0.3g/icon retained/target verified.
 Код/build/tests/package локально; docs/issues на GitHub, без source push/merge/Actions.
+
+2026-10-13: приёмка записана без изменений source/package/manifest/shortcut. Новые ASIO/DPI измерения не заявляются; rebuild не нужен. Следующим рекомендован #80/0.3h, пока не начат.

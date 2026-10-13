@@ -1,9 +1,9 @@
 # Stage 5 / #25: рабочий план музыкальной структуры
 
-Актуально2026-10-12. Stage5/#25 выполняется: #79/#81/#82/#83/#85/#86 приняты и закрыты;
+Актуально2026-10-12. Stage5/#25 выполняется: #79/#81/#82/#83/#84/#85/#86 приняты и закрыты;
 #83/0.3f принят2026-10-12: «#83 прошел приемку, что у нас дальше?». Full129 PASS.
-#84/0.3g реализован: full130 PASS140.74s, packaged diagnostics/J3 exit0; приёмка ожидается.
-#80/#84/#87 открыты; к #80/#87 автоматически не переходить. Current schema20/archive1.
+#84/0.3g принят2026-10-13: «Принимаю. Что у нас дальше?». Full130 PASS140.74s, packaged diagnostics/J3 exit0.
+#80/#87 открыты; к #80/#87 автоматически не переходить. Current schema20/archive1.
 Первоначальная спецификация подготовлена2026-10-09 на0.2g upd10/schema15/source15afe65;
 требования и архитектурные ограничения ниже сохранены, исторические чекбоксы сверять
 с текущими issues и тематическими отчётами. [Контекст](PROJECT_CONTEXT.md).
@@ -377,21 +377,21 @@ Parent: #25
 
 - [x] C0: bar→tick contract, отображение beats и VST3 context.
 - [x] C1: UI/validation/history/persistence.
-- [ ] C2: 4/4→6/8→3/4, boundary/click/grid/plugin и ASIO smoke.
+- [x] C2: 4/4→6/8→3/4, boundary/click/grid/plugin и ASIO smoke.
 
 ## Условия приёмки
 
-- [ ] Создать 4/4→6/8→3/4: BBT/ruler/grid и click accent/beat count соответствуют map; проверены границы тактов.
-- [ ] Изменить ранний размер: более поздние meter points остаются на заданных bar numbers; остальные musical ticks и WAV samples неизменны.
-- [ ] Invalid denominator/duplicate bar/удаление bar 1/recording/active loop и prepare failure не дают частичной карты.
-- [ ] Undo/Redo и Save/Open точны; plugin time signature/bar context и valid flags соответствуют новой карте.
-- [ ] 6/8 beat labels и snap согласованы, существующее MIDI quantize не меняет семантику.
+- [x] Создать 4/4→6/8→3/4: BBT/ruler/grid и click accent/beat count соответствуют map; проверены границы тактов.
+- [x] Изменить ранний размер: более поздние meter points остаются на заданных bar numbers; остальные musical ticks и WAV samples неизменны.
+- [x] Invalid denominator/duplicate bar/удаление bar 1/recording/active loop и prepare failure не дают частичной карты.
+- [x] Undo/Redo и Save/Open точны; plugin time signature/bar context и valid flags соответствуют новой карте.
+- [x] 6/8 beat labels и snap согласованы, существующее MIDI quantize не меняет семантику.
 
 ## Проверки и завершение
 
 Meter/BBT conversions, denominator beats, map validation/history/persistence; MIDI/click/VST3 bar/meter boundary; UI/ASIO. Pre-count не запускает project content раньше принятого момента.
 
-Код, build/tests, документация и пакет — локально. На GitHub фиксируются результаты и пользовательская приёмка; без push/merge/Actions. 2026-10-12: C0/C1 и автоматическая частьC2 реализованы и проверены на0.3g; full130 PASS140.74s, packaged diagnostics/J3 exit0. Подробности docs/METER_MAP_84.md, source7d90ad2. Пользовательская ASIO/DPI приёмка ожидается; acceptance чекбоксы не закрывать автоматически.
+Код, build/tests, документация и пакет — локально. На GitHub фиксируются результаты и пользовательская приёмка; без push/merge/Actions. 2026-10-12: C0/C1 и автоматическая частьC2 реализованы и проверены на0.3g; full130 PASS140.74s, packaged diagnostics/J3 exit0. Подробности docs/METER_MAP_84.md, source7d90ad2. Пользовательская приёмка подтверждена2026-10-13, #84 closed completed. Подробная ASIO/DPI матрица не предоставлена, новые измерения не заявляются.
 
 ---
 
