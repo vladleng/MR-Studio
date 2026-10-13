@@ -1,5 +1,12 @@
 # AI tool contracts / permissions — #161/#162
 
+Текущий contract0.3l/#165:7 Core tools /5 wire suggestions, новый `midi_draft` с
+INSERT/REPLACE/EDIT. EDIT разрешает MIDI после stopped/loop-off preview confirmation.
+AUTO config8 mask31 сохраняет прежние bits: marker/transpose/velocity после review;
+draft требует EDIT. Selection unsupported. [MIDI/границы](AI_MIDI_CONTRACT.md).
+Legacy ai_apply(ToolPlan) не исполняет mutation, writes только trusted Preview.
+Ранние closed MIDI gates ниже — история прежних slices, не текущий scope0.3l.
+
 Текущий follow-up0.3j/#163: появился Application-owned preview и marker Apply через
 ai_accept_preview с identity/key/epoch/runtime guards, explicit confirmation и
 staged metadata transaction/Undo. Legacy ai_apply(ToolPlan) по-прежнему закрыт.

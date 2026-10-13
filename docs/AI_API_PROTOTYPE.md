@@ -1,5 +1,11 @@
 # AI API prototype #167 — 2026-10-13
 
+Текущее дополнение0.3l/#165: [MIDI draft contract](AI_MIDI_CONTRACT.md), INSERT/
+REPLACE/EDIT и note transpose/velocity доступны через Preview/Apply в разрешённом
+режиме. Snapshot32KiB включает selection/tempo/meter/selected clip MIDI; output
+budget64–4096 выбирается в Connection (default1024). Truncated tool group не Apply.
+Сеть/credentials/retry guards прежние. Исторические gates0.3i/0.3j ниже сохранены.
+
 Текущий follow-up0.3j/#163: Assistant перенесён во вкладку native Browser AI;
 добавлены local diff/Apply для marker groups при EDIT/allowlist+ручном подтверждении.
 MIDI Apply остаётся locked, selection не объявляется provider tools. Историческое

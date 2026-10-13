@@ -401,3 +401,22 @@ final build/focused13 PASS3.96s. Package0.3k/12hashes/packaged AI smoke exit0,
 Browser100/150 inspected. Real provider Apply/Undo/Redo/SaveOpen, ASIO/physical DPI
 подробная аппаратная матрица не предоставлена; #164 принят, #163/#26 open. Source/build/package local,
 docs/issues GitHub, без source push/PR/merge/Actions.
+
+## 21. MIDI draft / #165 / 0.3l — 2026-10-13
+
+По запросу пользователя реализован closed MIDI draft JSON для INSERT нового clip
+на existing instrument track, scoped REPLACE и EDIT по existing note/CC IDs.
+Range conversion/source trim preservation, pitch/velocity/channel/CC/duration/
+overflow/overlap/project+playback budgets validation; before/after, confirmation,
+stopped/loop-off shared prepared MIDI transaction, exact one-Undo/Redo/rollback,
+Save/Open. Existing transpose/velocity Apply также открыт. Runtime/plugins/routes/
+MIDI generation сохраняются; callback/DSP не изменены. Human MIDI history сохраняет
+прежний путь, AI history выбирает staged plan по центральному history name.
+Selected track/clip+MIDI/tempo/meter context, explicit output budget64–4096(default1024),
+whole-group truncation guard. Missing harmony/drum maps не выдумываются; map/pitches
+и style/density пользователь может указать в сообщении. Marker badge fill alpha0.5,
+caption/flag без изменений. [Контракт/границы/RT](AI_MIDI_CONTRACT.md),
+[source/package/checks](PROJECT_CONTEXT.md). #165 open до пользовательской приёмки;
+#164 accepted, native parent#26:1/11. Source/build/package local, docs/issues GitHub,
+без source push/PR/merge/Actions. Actual provider musical quality/playback/ASIO/DPI
+не подменяется synthetic fixture результатами.

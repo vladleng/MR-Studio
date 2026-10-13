@@ -1,5 +1,11 @@
 # AI Preview / Browser tab — #163, 2026-10-13
 
+Текущее дополнение0.3l/#165: [MIDI INSERT/REPLACE/EDIT + playback/history](AI_MIDI_CONTRACT.md).
+Preview показывает note/CC before/after и confirmed range; MIDI Apply enabled при
+разрешённом режиме и stopped/loop off. Output budget в Connection, scoped selected
+MIDI snapshot и whole-group truncation guard добавлены. Marker fill alpha0.5;
+caption/flag прежние. Исторические MIDI gates0.3j/0.3k ниже сохраняют свои версии.
+
 Текущее дополнение0.3k/#164: [AI transactions/history и chat UX](AI_TRANSACTIONS_HISTORY.md).
 Лента сообщений, очистка ввода, Enter/ShiftEnter и bottom composer реализованы;
 старые0.3j результаты ниже сохраняют собственные границы.

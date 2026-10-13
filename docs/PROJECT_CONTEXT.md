@@ -6,6 +6,55 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## MIDI draft #165 + marker fill / 0.3l — 2026-10-13
+
+Пользователь: «Приступай к #165 и в этом билде сделай фон маркеров на50процентов
+прозрачным, не затрагивая текст и сам флажок». main/docs/issue165 сверены с принятой
+0.3k/#164, checkout clean. Closed MIDI draft v1 INSERT/REPLACE/EDIT,7 Core tools/
+5 wire suggestions; pitch/channel/velocity/range/duration/CC/overflow/overlap и
+project+playback budgets validation. INSERT на existing instrument track; REPLACE
+только confirmed visible range, boundary-crossing note=whole reject; EDIT сохраняет
+existing IDs. Hidden trimmed source/outside notes/non-CC events сохраняются.
+Preview note/CC before/after/range, whole-group truncation guard, snapshot32KiB:
+selected track/clip + selected clip MIDI, tempos/meters/chords/sections. Style/
+density/drum mapping/pitches через user message; separate native Drum Map/key
+signature нет, не выдумываются. Output64–4096 в Connection, default1024 прежний.
+Existing transpose/velocity Apply открыт. EDIT draft/manual confirmation; AUTO
+прежний mask31 только allowlisted marker/transpose/velocity, draft требует EDIT.
+Prepared MIDI TimingPlan/staged Store transaction, stopped/loop-off guard, one
+shared Undo/Redo/rollback без сети, runtime/plugins/routes/MIDI generation retained.
+Target history name в центральном Store отделяет AI playback transaction от прежнего
+human MIDI history path. Callback/DSP не изменены; postpublish throwing work перед
+ledger не выполняется. Marker fill alpha0.5, caption/flag непрозрачные/прежние;
+other lanes/clip fill и Alt-copy ghost0.35 сохранены. Schema21/archive1/config8 прежние.
+[Контракт/слои/RT/ограничения](AI_MIDI_CONTRACT.md).
+Source `5914a611877b41fcd53f5a169fcb0d82a8217ba3`,14 code/test/build files,
+local branch `mrs/0.2g-fix1-editor-space-local`. Release configure/final full build PASS;
+final144/144 CTest PASS179.49s после всех изменений. Intermediate focused14/14
+PASS4.43s до final history routing/grouped diff/mixed fixture/smoke diagnostics.
+Independent JSON parse7tools/closed draft modes PASS. MIDI/Browser100/150 inspected:
+clear composer, grouped diff/CC visible, controls readable, marker alpha0.5.
+Tests: mixed MIDI+marker atomicity/backend restart rollback, exact IDs/Undo/Redo/
+SaveOpen, tempo/meter/missing harmony, CC/hidden source/non-CC/boundary/empty scoped
+replace/overlap/257events/32768note limit, playback note+CC emission, generation
+retention, stopped guards, GUI captured selection/budget/truncated whole group.
+Initial namespace compile error исправлен; fixture index-order assumption и residual
+CC edit ID при переключении fixture на INSERT исправлены. Intermediate full J3 и
+J2 GUI failures не повторились отдельно (27.04s/3.89s); сообщение общего failure
+file затиралось последующими smokes. Main теперь сохраняет timestamped per-smoke
+failure diagnostics; final full144 зелёный. Logs ai-midi-* в build/asio-local.
+Package `MR-Studio-0.3l-AI-MIDI-Drafts-JUCE-ASIO-Windows-local`,13files/12hashes verified;
+GUI SHA256 `57B4281271DA366BBCC6C17F480B7D241E67230B6C8013C7A83BAF3EAC7291F7`.
+Packaged AI smoke exit0, matching PDB deliveries/0.3l-ai-midi-drafts. MR shortcut
+обновлён на0.3l/icon сохранён; previous packages и real projects/settings/keys сохранены.
+FEATURE READY WITH MANUAL CHECK / RT SAFE WITH MANUAL CHECK: actual provider bass/
+drums/voicing quality→Apply→instrument playback→Undo/Redo→Save/Open, ASIO+network и
+physical DPI NOT RUN. #165 open до приёмки, #164 closed; native parent#26:1/11.
+Следующий шаг: перезапустить через MR Studio, existing instrument track/clip→AI,
+EDIT до запроса, указать range/pitches/style, review→Apply; stopped/loop off.
+#166 не начат автоматически. Source/build/package local, docs/issues GitHub,
+без source push/PR/merge/Actions.
+
 ## #164 / 0.3k принят — 2026-10-13
 
 Пользовательская приёмка: «#164 принимаю». Принят AI transaction/history contract
