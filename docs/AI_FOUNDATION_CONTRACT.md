@@ -1,5 +1,9 @@
 # AI Foundation: worker и Project Context v1
 
+Актуальное дополнение 2026-10-13: #159/#160 реализуют entity_queries и snapshots;
+подробности и текущие limits/serialization/invalidation — [AI_QUERIES_SNAPSHOT.md](AI_QUERIES_SNAPSHOT.md).
+Описанные ниже unsupported query/snapshot статусы относятся к исходному #157/#158 slice.
+
 2026-10-13. Parent [#26](https://github.com/vladleng/MR-Studio/issues/26),
 первый локальный slice [#157](https://github.com/vladleng/MR-Studio/issues/157) /
 [#158](https://github.com/vladleng/MR-Studio/issues/158).

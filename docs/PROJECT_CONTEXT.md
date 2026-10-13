@@ -6,6 +6,36 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## AI Foundation: Query API / Snapshot #159/#160 — 2026-10-13
+
+Пользователь: «Понял, переходи к #159/#160». База source0359a72/docs40ab35b,
+checkout clean; GitHub AGENTS/PROJECT_CONTEXT/AI_INTEGRATION совпадали с локальными.
+Application control-thread capture + immutable ReadView/JSON Pages: tracks/folders/clips,
+видимые MIDI notes/CC с trim/source offset, musical lanes/time maps, mixer/routing,
+plugin metadata и policy-gated authored native/VST3/graph parameters, logical MIDI
+ports и project-owned Live descriptors. ID/selection/range, bounded scan/cursor/output;
+not_found/invalid/unsupported/permission_denied/stale errors без DSP/editor/device reads.
+Snapshot v1: const fields, одна project/graph revision, allowlist JSON, explicit scopes,
+query names/counts, truncation/continuations, byte/conservative token budgets.
+Worker принимает Snapshot с суммарным prompt+JSON лимитом; сохраняет captured transport,
+project/graph subscriptions отменяют jobs при edits/Undo/Redo; late key guard прежний.
+Snapshot не содержит media/plugin paths, blobs/IR, device keys, archive extensions/keys.
+Подробности/границы: [AI_QUERIES_SNAPSHOT.md](AI_QUERIES_SNAPSHOT.md).
+Release configure/full build PASS; final CTest136/136 PASS140.83s, включая6 AI suites,
+GUI/audio/MIDI/VST3/persistence/history регрессии. Independent Python JSON PASS:
+21 pages/14290bytes, UTF-8/control escaping, keys/counts/MIDI/Live references/privacy.
+Предыдущий full136 PASS101.54s до final scoped/privacy guards; focused6 PASS0.48s до них.
+Source `5beabc6ab7ca49f8284d860978894f14336e5302` (9 code/test/build files).
+MSVC class/struct warning, test source assertion/transport stop-poll fixtures и
+C1041 при перекрытии build процессов исправлены; final build/tests последовательные,
+без workaround flags. Логи `build/asio-local/validation/ai-queries-snapshot` сохранены.
+Source/ветка local `mrs/0.2g-fix1-editor-space-local`; schema21/archive1 без миграции.
+Принятый package0.3h upd2/manifest/ярлык и старые packages сохранены; нового package нет.
+HTTP/provider/AI UI/commands/permissions остаются будущими slices; ASIO/network/balance
+smoke NOT RUN (gate #167). #159/#160/#26 остаются open до приёмки, parent не завершён.
+Следующий блок #161/#162: Command/Tool contracts и permissions, затем READ+SUGGEST #167.
+Docs/issues GitHub; source/build/tests local, без source push/merge/Actions.
+
 ## AI Foundation: первый foundation slice #157/#158 — 2026-10-13
 
 Пользователь: «Изучи AGENTS.md и PROJECT_CONTEXT.md и приступаем к #26».

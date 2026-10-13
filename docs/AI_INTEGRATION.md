@@ -256,3 +256,19 @@ Capabilities подробных queries/tools/analysis честно unsupported;
 Parent и sub-issues остаются open до соответствующей приёмки. Следующий блок:
 #159/#160 (query DTO и согласованный snapshot), затем #161/#162. Пользовательский
 пакет0.3h upd2/ярлык сохраняются; невидимый foundation не выдаётся как готовый AI.
+
+## 15. Query API / Project Snapshot #159/#160 — 2026-10-13
+
+По прямому запросу пользователя реализован следующий локальный slice: единый read-only
+Application/query path, immutable ReadView, фильтры ID/selection/range, pagination и
+allowlist JSON snapshot v1. Подробные сущности включают clips/MIDI, musical lanes/time,
+mixer/routing/plugin chains, разрешённые authored parameters и сохранённые Live descriptors.
+Неподдерживаемые automation/analysis/current Live state — unsupported. Snapshot содержит
+один ContextKey, byte/token budgets, scope/cursors/truncation; project/graph edits,
+Undo/Redo/switch отменяют worker jobs, stale replies не доставляются. DSP/editor capture,
+пути/секреты/blobs/audio assets в экспорт не включены.
+[Контракт и ограничения](AI_QUERIES_SNAPSHOT.md), [проверки/source](PROJECT_CONTEXT.md).
+Это внутренняя подготовка: provider/chat UI ещё нет; первый пользовательский READ+SUGGEST
+prototype остаётся #167 после #161/#162. Schema21/archive1/package0.3h upd2/ярлык прежние.
+#159/#160 открыты до приёмки; parent #26 не завершён. Code/build/tests local, docs/issues
+синхронизируются с GitHub отдельно, без source push/Actions.
