@@ -17,16 +17,16 @@ validation; фактические edits locked до #163–#165. Cancel/revoke/
 HTTPS/no redirects, finite deadline/read budgets, один model call/message без retries.
 Usage/model/finish видны; стоимость unknown, monthly monitor/history не реализованы.
 [Контракт/лимиты/ручной тест](AI_API_PROTOTYPE.md). Source
-`c1ec8427113466291f1e37d9c809381a8bb776aa`, local `mrs/0.2g-fix1-editor-space-local`.
+`f16bfb9fd03394be1f46e7dfe5b6e23c919c9bfc`, local `mrs/0.2g-fix1-editor-space-local`.
 Release configure/build PASS; full141/141 CTest PASS159.60s до финальных расширений
 GUI proposal/revoke теста и redirect-option guard/version. Final build + focused11/11
-PASS3.40s после них (GUI0.32s). GUI100/150 software PNG inspected, Cyrillic verified.
+PASS3.45s после них и async buffer-lifetime fix. GUI100/150 software PNG inspected, Cyrillic verified.
 Credential fixture roundtrip/isolation/delete PASS; реальные user settings/keys не тронуты.
 Initial syntax/const redaction/UTF8 mock errors исправлены. Логи build/asio-local/
 ai-prototype-build-final.log, ai-prototype-ctest.log, ai-prototype-focused.log.
 Package `MR-Studio-0.3i-AI-Prototype-JUCE-ASIO-Windows-local`,13files/12hashes,
-GUI SHA256 `36A31D43133CC25EE42233E84ECD6A198A56680AE540B9DCD363B6FFC1F563AF`.
-Packaged AI smoke exit0; matching GUI PDB deliveries/0.3i-ai-prototype, old packages сохранены.
+GUI SHA256 `AC0853BEF4C4761F777868255F747232A90DD9763AEC0ED5EA61891E8BA38C36`.
+Packaged AI smoke exit0; matching GUI PDB deliveries/0.3i-ai-prototype, old packages сохранены. Ярлык MR Studio обновлён/icon сохранён.
 Schema21/archive1 прежние; permissions config8, provider nonsecret settings отдельно.
 READY WITH MANUAL CHECK: Luna availability/tools, paid live response/model/usage,
 ASIO playback+network/cancel/error, physical DPI NOT RUN — до #167 приёмки.
