@@ -1,5 +1,10 @@
 # AI API prototype #167 — 2026-10-13
 
+Текущий follow-up0.3j/#163: Assistant перенесён во вкладку native Browser AI;
+добавлены local diff/Apply для marker groups при EDIT/allowlist+ручном подтверждении.
+MIDI Apply остаётся locked, selection не объявляется provider tools. Историческое
+описание0.3i ниже сохранено; актуальный [контракт preview](AI_PREVIEW_BROWSER.md).
+
 По запросу «Отлично, приступай к #167». Локальный прототип READ/SUGGEST;
 приёмка реального API и ASIO ожидается. EDIT/AUTO project Apply остаётся закрыт
 до #163–#165. UI и сеть не исполняют Core commands напрямую.

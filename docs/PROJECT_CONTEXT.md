@@ -6,6 +6,44 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## AI Preview / Browser tab #163 / 0.3j — 2026-10-13
+
+Пользователь: «Начинай работу над #163. Я бы окно для ассистента сделал в браузере
+отдельной вкладкой». GitHub main AGENTS/context/AI integration и issue163 сверены;
+база source fbdbbda/docs264b3a3, checkout clean. Native Browser вкладка AI рядом с
+VST3/Files, lazy persistent component, Connection collapsed; menu открывает tab,
+responsive192–620px, prompt typing guard, прежние credentials/provider settings.
+Application-owned bounded preview1–8plans/1024fields/64KiB с локальным candidate,
+before/after/target/range; pending/preview/accepted/rejected/stale/failed UI состояния.
+Apply/Reject/Refresh, key/policy/Live/record/count-in guards, local explicit rebase
+без сети, нельзя перенести grant между project sessions/permissions. Marker add/
+rename groups Apply через shared metadata path, staged transaction/одна Undo;
+preview=actual candidate, session-local replay ledger (до1024 request/operation pairs).
+READ/SUGGEST без writes; EDIT требует Apply, AUTO только allowlisted markers с ручным
+Apply. MIDI diff доступен, MIDI Apply blocked #165; selection preview unsupported,
+wire больше не объявляет selection (4 suggestion tools). Mixed group не применяется
+частично. Supporting transaction/Undo для #163 не означает приёмку полного #164.
+[Контракт/границы/проверки](AI_PREVIEW_BROWSER.md). Schema21/archive1/config8 прежние.
+Source `69e8e4c4085eb02eb1ef5daf71852d6248e7a983` (11 code/test/build files),
+ветка local `mrs/0.2g-fix1-editor-space-local`. Release configure/full build PASS;
+full142/142 CTest PASS143.92s до final MenuBarModel async screenshot pump fixture и UI name escaping;
+final GUI rebuild/focused12/12 PASS3.92s после них и уточнения session-limit message. Names quoted/escaped в diff, control characters не создают ложные строки. Initial focused4 PASS0.36s,
+intermediate focused12 PASS3.68s, до final scope/ledger/SaveOpen guards.
+Cancel/no history/dirty, exact diff/one Undo/Redo/SaveOpen, conflict/duplicate group,
+stale/rebuild/replay-after-Undo, MIDI diff/gate, Live/revoke/session и Browser GUI PASS.
+Final Browser100/150 images inspected: no clipping, EDIT menu synced, controls readable.
+Initial hidden connection-field overlap/offscreen parent resize and async menu snapshot
+fixture corrected. Логи ai-preview-build-final.log/focused-final.log/full.log в build/asio-local.
+Package `MR-Studio-0.3j-AI-Preview-Browser-JUCE-ASIO-Windows-local`,13files/12hashes;
+GUI SHA256 `0BAB70BBFE10BA0B07D8E70CF7F0A3A405DF9E564A5AEA025948BA15BE72C293`.
+Packaged AI smoke exit0, matching PDB deliveries/0.3j-ai-preview-browser; MR shortcut
+обновлён/icon сохранён, старые packages сохранены. Реальные settings/key/projects не тронуты.
+READY WITH MANUAL CHECK / RT SAFE WITH MANUAL CHECK: user API→preview→marker Apply/
+Undo/Redo/SaveOpen, ASIO+network и physical DPI NOT RUN. #163/#26 open до приёмки;
+#164/#165 не завершены автоматически. Следующий шаг: перезапустить0.3j, Browser→AI,
+Permissions→EDIT до запроса, review→Apply; проверить Reject/stale/Undo/SaveOpen.
+Source/build/package local; docs/issues GitHub, без source push/merge/Actions.
+
 ## AI live READ/SUGGEST evidence / 0.3i upd2 — 2026-10-13
 
 Пользователь отправил3 screenshots и сообщил «Отправил скрины». После upd2 real

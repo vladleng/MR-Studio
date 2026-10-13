@@ -361,3 +361,20 @@ Release build/full141 CTest PASS; final focused11 PASS после последн
 0.3i package/packaged AI smoke exit0. Реальный Luna/model/tools/usage и ASIO с network
 NOT RUN: READY WITH MANUAL CHECK, #167/#26 open. Monthly Monitor/Skills план§16 сохранён.
 Code/build/package local; docs/issues GitHub, без source push/Actions.
+
+## 19. Preview / Browser AI tab #163 / 0.3j — 2026-10-13
+
+По прямому запросу пользователя Assistant перенесён во вкладку AI native Browser
+рядом с VST3/Files; responsive layout и Connection collapse. Application строит
+bounded immutable before/after diff из registered tools и текущего Project без мутации.
+Marker groups Apply после explicit confirmation при EDIT/AUTO allowlist через shared
+metadata path/staged transaction/одну Undo. Reject/no dirty; stale Refresh локально,
+новый diff требует review; session/policy не переносится. Session-local replay ledger
+предотвращает duplicate Apply/rebuild даже после Undo. READ/SUGGEST не пишут.
+MIDI diff есть, Apply locked до #165; selection unsupported и не объявляется wire.
+Mixed groups не применяются частично. Это supporting Undo для #163, не принятие #164.
+[Контракт](AI_PREVIEW_BROWSER.md), [source/package/validation](PROJECT_CONTEXT.md).
+Release build/full142 CTest PASS; final focused12 PASS3.92s после screenshot menu fixture/name escaping/session-limit message.
+Package0.3j/packaged AI smoke exit0, Browser100/150 inspected; user API→Apply/Undo,
+ASIO+network/physical DPI acceptance pending. #163/#26 open, source/build/package local,
+docs/issues GitHub, без source push/Actions.

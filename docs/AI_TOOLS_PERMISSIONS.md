@@ -1,5 +1,12 @@
 # AI tool contracts / permissions — #161/#162
 
+Текущий follow-up0.3j/#163: появился Application-owned preview и marker Apply через
+ai_accept_preview с identity/key/epoch/runtime guards, explicit confirmation и
+staged metadata transaction/Undo. Legacy ai_apply(ToolPlan) по-прежнему закрыт.
+READ/SUGGEST не пишут; EDIT/AUTO только marker groups после review. MIDI Apply и
+bound editor selection остаются будущими contracts. [Preview / Browser](AI_PREVIEW_BROWSER.md).
+Описанные ниже ранние closed gates — история первого slice, не текущая UI marker gate.
+
 2026-10-13. Пользователь: «Хорошо, приступай к #161/#162».
 База source5beabc6/docs c5fe3a4; checkout clean, AGENTS/PROJECT_CONTEXT/AI_INTEGRATION
 GitHub main сверены с локальными. Parent [#26](https://github.com/vladleng/MR-Studio/issues/26).
