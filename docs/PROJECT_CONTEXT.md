@@ -53,11 +53,28 @@ upd13 не менялись; никакой push/merge/Actions.
 
 ## Продукт и активное направление
 
+**#80 /0.3h upd2 принят и закрыт completed**, 2026-10-13.
+Точная приёмка пользователя: «Все работает - закрывай!». Принят полный Arranger editor и
+дополнения: lane icons/headers, section/chord/marker group selection/copy/ghosts,
+ПКМ chord colors/radius3, history и SaveOpen. Source803774d1df9b7a7554550530b5b500f37ec170cc;
+package MR-Studio-0.3h-upd2-Unified-Lanes-JUCE-ASIO-Windows-local.
+GUI SHA25601538A2CD57ACE48093BF3116145C9A8F18BD1E294BE4DCF6694E83D056E9080;
+13files/12hashes reverified, package/manifest/shortcut/source неизменны.
+Full130 PASS148.13s до final marquee bounds; finalfocused3 PASS43.39s,
+packaged diagnostics/J3 exit0, GUI100/150 inspected — результаты прежние.
+Приёмка docs/issues-only, rebuild не нужен. Подробная ASIO/physical DPI матрица
+не предоставлена; новых измерений не заявляем. Schema21/archive1 прежние.
+Parent#25: фактические9 sub-issues,8/9 completed; остаётся#87, не начат.
+#150 в актуальном native parent list отсутствует (исторические7/10 заменены).
+Следующий шаг — #87: общая модель/history/persistence и итоговая проверка Stage5.
+Не начинать автоматически. Docs/issues GitHub, source/build/packages local;
+без source push/merge/Actions. Чужие AI docs сохраняются.
+
 **#80 /0.3h upd2**, 2026-10-13: unified chord/marker gestures+chord colors/corners.
 Пользователь принял sliceupd1: «Отлично! Теперь сделай такие же способы копирования,
 выделения shift + ЛКМ и тень при alt + ЛКМ копировании для маркеров и аккордов»;
 дополнительно запросил выпадающее меню аккордов с палитрой и такое же скругление.
-Новаяupd2 ожидает приёмки. Shared MusicalSelection UI: marquee/Shift toggle,
+Новаяupd2 принята2026-10-13: «Все работает - закрывай!». Shared MusicalSelection UI: marquee/Shift toggle,
 group body move/Alt-copy ghost0.35/Escape/toolbar+Ctrl+D Duplicate/Backspace, одна Undo.
 Shared EditChordGroup/EditMarkerGroup+App metadata path; порядок/ties/IDs/клипы/
 LiveAction bindings preserved, copies newIDs/unbound; linked group delete atomic reject.
@@ -75,10 +92,9 @@ packaged150 inspected; packaged diagnostics/J3 PASSexit0. Hardware ASIO/physical
 Source `803774d1df9b7a7554550530b5b500f37ec170cc`; package `MR-Studio-0.3h-upd2-Unified-Lanes-JUCE-ASIO-Windows-local`;
 GUI SHA256 `01538A2CD57ACE48093BF3116145C9A8F18BD1E294BE4DCF6694E83D056E9080`;13files/12hashes verified, oldupd1 preserved.
 Symbols deliveries/0.3h-upd2-unified-lanes; прежний MR shortcutupd2/icon retained/
-target+workingdir+emptyargs verified. FEATURE READY WITH MANUAL CHECK.
+target+workingdir+emptyargs verified. FEATURE ACCEPTED2026-10-13.
 GitHub docs/issues sync, source/build/tests/packages local. Чужие AI docs сохранены.
-#80 open до приёмки upd2; #87 не начат. Следующий шаг — проверка uniform gestures,
-палитры/цветов/радиуса3/Undo/SaveOpen пользователем; новые задачи не начинать автоматически.
+#80 closed completed; parent#25 актуально8/9. Следующий шаг#87; не начат.
 
 **#80 /0.3h upd1**, 2026-10-13: follow-up по screenshot, приёмка ожидается.
 Markers caption+compact list; Sections/Chord Track короткие+ на x208/width34.

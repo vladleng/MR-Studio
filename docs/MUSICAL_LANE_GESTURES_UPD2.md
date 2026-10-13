@@ -1,5 +1,10 @@
 # Musical lanes: unified gestures — 0.3h upd2 / #80
 
+Принято2026-10-13: **0.3h upd2/#80**, «Все работает - закрывай!».
+#80 closed completed; parent#25 актуально8/9, остаётся#87 (не начат).
+Приёмка docs/issues-only, source/пакет/manifest/ярлык и прежние проверки неизменны;
+новая ASIO/physical DPI матрица не предоставлена. [Контекст](PROJECT_CONTEXT.md).
+
 Пользователь2026-10-13 принял дополнения секций0.3h upd1 («Отлично!») и запросил
 такие же copy/group/ghost gestures у маркеров и аккордов, меню цветов и radius3
 у аккордов. Новое обновление не закрывает#80 до своей приёмки; #87 не начат.
@@ -40,7 +45,7 @@ Hardware ASIO/physical DPI отдельно; результат добавляе
 
 ## Результат2026-10-13
 
-FEATURE READY WITH MANUAL CHECK. Source `803774d1df9b7a7554550530b5b500f37ec170cc`.
+FEATURE ACCEPTED2026-10-13: «Все работает - закрывай!». Source `803774d1df9b7a7554550530b5b500f37ec170cc`.
 Release/full130 PASS148.13s до final marker marquee bounds; finalfocused3 PASS43.39s.
 Initialfocused3 PASS42.41s, Core/persistence29 PASS0.55s.
 GUI100/150 inspected; packaged diagnostics/J3 exit0. Новые group/Shift/marquee/
@@ -53,4 +58,4 @@ GUI SHA256 `01538A2CD57ACE48093BF3116145C9A8F18BD1E294BE4DCF6694E83D056E9080`. S
 MR shortcutupd2/icon retained, oldupd1 package unchanged. ASIO/physical DPI NOT RUN.
 Приёмка: группы обоих lanes рамкой/Shift, move/Alt-shadow/Duplicate/Ctrl+D/Delete/
 Undo/Redo; chord touching/overlap, marker ties/list, ПКМ colors и radius3, SaveOpen.
-#80 open до приёмки нового slice/#87 не начат; source/build/packages local, docs/issues GitHub.
+#80 closed completed; parent#25:8/9, #87 не начат; source/build/packages local, docs/issues GitHub.

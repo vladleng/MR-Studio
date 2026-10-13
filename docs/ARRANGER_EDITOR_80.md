@@ -1,5 +1,10 @@
 # Arranger editor #80 — 0.3h
 
+Принято2026-10-13: **0.3h upd2/#80**, «Все работает - закрывай!».
+#80 closed completed; parent#25 актуально8/9, остаётся#87 (не начат).
+Приёмка docs/issues-only, source/пакет/manifest/ярлык и прежние проверки неизменны;
+новая ASIO/physical DPI матрица не предоставлена. [Контекст](PROJECT_CONTEXT.md).
+
 ## Дополнения0.3h upd1 — 2026-10-13
 
 По пользовательскому screenshot: Markers получает подпись и компактный list
@@ -14,7 +19,7 @@ Backspace работают с группой атомарно через shared 
 одна Undo, stale/overlap/overflow/binding/transport guards действуют на всю группу.
 Name/color/bounds popup остаётся редактором конкретной секции.
 Слои UI/Core/App/history/tests/docs затронуты; engine/DSP/schema не изменены.
-FEATURE READY WITH MANUAL CHECK. Source `9ab296b5e91614ac814f21fd70d75a1b788458ac`.
+FEATURE ACCEPTED2026-10-13: «Все работает - закрывай!». Source `9ab296b5e91614ac814f21fd70d75a1b788458ac`.
 Release/full130 PASS136.47s до final UI boundary clamp; finalfocused2 PASS26.14s.
 Final GUI100/150 inspected; packaged diagnostics/J3 exit0.
 Новые GUI regression: Shift toggle/marquee/group Alt copy/touch/offgrid+coarseSnap/
@@ -62,7 +67,7 @@ physical DPI/ASIO проверка отдельно от автоматичес�
 
 ## Результат — 2026-10-13
 
-FEATURE READY WITH MANUAL CHECK. Source `57c329ecc6e637edbdbcc6651e767a0c54ec0f36`.
+FEATURE ACCEPTED2026-10-13: «Все работает - закрывай!». Source `57c329ecc6e637edbdbcc6651e767a0c54ec0f36`.
 Release/full130 PASS98.38s, focused2 PASS25.44s; core/App copy guards, exact Undo/
 Redo/SaveOpen/content/binding retention; GUI Alt-copy/cancel/overlap/toolbar Duplicate,
 все32 masks/compact geometry/clip hit/preferences, legacydefault/invalidmask/inline
