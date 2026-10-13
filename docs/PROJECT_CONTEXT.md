@@ -6,6 +6,31 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## AI API HTTP400 follow-up / 0.3i upd1 — 2026-10-13
+
+Пользователь сообщил HTTP400 при Send «Привет»; screenshot: правильные default base/model,
+приложение скрывало provider error body. Причина конкретного отказа НЕ установлена;
+не объявлять ключ/баланс/модель неверными и не объявлять HTTP400 исправленным без live PASS.
+Выводим только JSON error.message/detail + param/code, bounded1024chars, exact key/prompt/
+snapshot redaction до truncation, control filtering, без headers/raw HTML/body/logging.
+Опциональный parallel_tool_calls убран: provider docs отмечают model-specific support.
+max_completion_tokens1024 сохранён, model/permissions не переключаются автоматически.
+Никаких платных диагностических calls или retries; требуется пользовательский repeat Send.
+Source `0271e538a01f61dadb07e2692b5e52d9e93eda28` (fix a5d81f2 + PNG overwrite fixture).
+Release build PASS; final focused11/11 AI CTest PASS3.53s (GUI0.36s, permissions0.14s).
+400 message/param/code/redaction, ProxyAPI detail, nonJSON/oversize privacy и request
+omission tests PASS. GUI fresh100/150 diagnostics PNG inspected; export truncate fixed.
+Full141 PASS159.60s — прежний prototype результат, не повторён для этого NON-RT patch.
+Package `MR-Studio-0.3i-upd1-AI-Prototype-JUCE-ASIO-Windows-local`,13files/12hashes,
+GUI SHA256 `A1CF97676371E8A57BB91FC2205604E8C8DEA46044015859198A51B1C61B3B26`.
+Packaged AI smoke exit0, matching PDB deliveries/0.3i-upd1-ai-prototype; MR shortcut
+обновлён/icon сохранён. Старые packages, реальный credential/provider settings сохранены.
+Логи ai-http400-build.log / ai-http400-focused.log в build/asio-local.
+READY WITH MANUAL CHECK: реальная причина HTTP400 и Luna/ASIO acceptance ожидаются;
+#167/#26 open. Следующий шаг: перезапуск через MR Studio, repeat Send и новый текст ошибки.
+Schema21/archive1/config8 прежние; source/build/package local, docs/issues GitHub,
+без source push/Actions. [Контракт и follow-up](AI_API_PROTOTYPE.md).
+
 ## AI API prototype #167 / 0.3i — 2026-10-13
 
 Пользователь: «Отлично, приступай к #167». Main AGENTS/PROJECT_CONTEXT/AI_INTEGRATION

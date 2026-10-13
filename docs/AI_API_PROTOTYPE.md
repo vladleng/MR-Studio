@@ -34,7 +34,8 @@ OpenAI-compatible GET `/models`, POST `/chat/completions`, non-streaming.
 Один model call/message, tool-loop budget1 (нет дополнительных query round trips),
 max_completion_tokens1024, prompt<=8192 UTF8bytes, response<=256KiB,
 до8 proposals, до32 requests/panel session. В Core нет model/provider dependency.
-Tool schemas формируются из existing closed registry; parallel_tool_calls=false.
+Tool schemas формируются из existing closed registry; с upd1 опциональный
+parallel_tool_calls не отправляется. Host по-прежнему ограничивает ответ8 proposals.
 Provider rejecting parameter/tool support returns error; silent model fallback нет.
 
 60s job deadline, WinHTTP resolve/connect/send5s/receive30s, async completion wait
@@ -42,8 +43,10 @@ Provider rejecting parameter/tool support returns error; silent model fallback �
 освобождением callback context. Нет detach/thread callback в UI, сеть вне RT.
 HTTPS/TLS OS validation, redirects disabled, response read bounded. Transport
 injectable для deterministic mocks. Нет balance/price lookup или paid retries.
-401/402/403/404/429/5xx отображаются как HTTP errors с советом проверить ключ,
-баланс, model и лимиты; body/headers ошибки не экспортируются в UI/logs.
+С upd1 400/401/402/403/404/429/5xx показывают JSON error.message либо detail,
+param/code. Известные key/prompt/snapshot удаляются до ограничения1024chars;
+control characters фильтруются. Raw body/HTML/headers не экспортируются, ошибка
+не логируется. Malformed/nonJSON → только status + generic unreadable diagnostic.
 Success strings проходят key redaction; пользовательские prompts/snapshots не логируются.
 Usage отдаётся ровно как provider вернул (включая nested reasoning/cached categories
 при наличии), model и finish_reason видны. Стоимость неизвестна: актуальный tariff
@@ -93,3 +96,16 @@ Initial syntax/redaction constness and UTF8 mock conversion errors исправ�
    измерить отдельно. Offline CTest не заменяет этот hardware scenario.
 
 #167/#26 остаются open до live/API/ASIO приёмки. Никаких source push/Actions.
+
+## HTTP400 / 0.3i upd1
+
+Пользовательский Send «Привет» вернул400 при default base/model. Первоначальный
+диагностический код скрывал причину сервера; screenshot не доказывает ошибку ключа,
+баланса или конкретного параметра. Добавлена безопасная диагностика и убран optional
+parallel_tool_calls (поддержка model-specific). Token limit field остаётся прежним;
+без фактического error message не менять max_completion_tokens вслепую на max_tokens.
+[Provider error format](https://proxyapi.ru/docs/errors),
+[tool parameter support](https://proxyapi.ru/docs/tools) сверены2026-10-13.
+Final focused11/11 PASS3.53s, GUI100/150 diagnostics inspected, packaged smoke exit0.
+Ключ/реальные settings не менялись; платные calls не выполнялись. Причина400 и успешный
+реальный ответ остаются MANUAL CHECK; перезапустить0.3i upd1 и повторить Send один раз.
