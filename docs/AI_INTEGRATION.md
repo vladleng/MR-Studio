@@ -217,3 +217,26 @@ AI может быть доступен и в Live Mode, но только ка�
 - понятные semantic names для track/clip/section/chord entities.
 
 Это позволит добавить AI без переписывания DAW Core.
+
+
+## 13. Декомпозиция AI Foundation — 2026-10-13
+
+Parent: [#26](https://github.com/vladleng/MR-Studio/issues/26). Все задачи — BACKLOG, не реализованы; реализация только по отдельному запросу пользователя. Исходные 11 чек-поинтов преобразованы в native GitHub sub-issues.
+
+- [#158](https://github.com/vladleng/MR-Studio/issues/158) — Project Context API — контракт контекста проекта
+- [#159](https://github.com/vladleng/MR-Studio/issues/159) — Query API — дорожки, клипы, аккорды, микшер, MIDI и плагины
+- [#161](https://github.com/vladleng/MR-Studio/issues/161) — Command/Tool API — безопасные изменения проекта
+- [#162](https://github.com/vladleng/MR-Studio/issues/162) — Permissions — READ / SUGGEST / EDIT / AUTO
+- [#163](https://github.com/vladleng/MR-Studio/issues/163) — Preview / diff — просмотр и применение AI-предложений
+- [#164](https://github.com/vladleng/MR-Studio/issues/164) — Undo / Redo — транзакции AI-изменений
+- [#165](https://github.com/vladleng/MR-Studio/issues/165) — MIDI contract — генерация, замена и редактирование партий
+- [#160](https://github.com/vladleng/MR-Studio/issues/160) — Project snapshot — согласованный снимок для AI
+- [#166](https://github.com/vladleng/MR-Studio/issues/166) — Analysis hooks — контекст аранжировки и микса
+- [#167](https://github.com/vladleng/MR-Studio/issues/167) — API prototype — ProxyAPI / Luna и настройки подключения
+- [#157](https://github.com/vladleng/MR-Studio/issues/157) — AI worker — изоляция сети и AI от аудиопотока
+
+Порядок: worker/context contracts → queries/snapshot → tools/permissions → READ + SUGGEST prototype; preview/Undo/MIDI до включения edits; analysis summaries и сквозная приёмка. Зависимости и критерии проверки указаны в каждой задаче.
+
+Первый провайдер прототипа — ProxyAPI, базовый адрес `https://api.proxyapi.ru/v1`, выбранная модель `openai/gpt-5.6-luna`. Provider/base URL/model должны быть сменными; доступность, capabilities и фактические расходы проверяются при реализации. Секрет вводится в приложении и хранится защищённо вне project/source/logs/snapshot. Настройка ключа/баланса пользователем не подтверждает готовность интеграции.
+
+Планирование не запускает новые feature stages автоматически и не меняет статус текущей сборки. Source/build/packages локально, GitHub Actions не использовать.
