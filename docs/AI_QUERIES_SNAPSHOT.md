@@ -7,6 +7,18 @@ GitHub main AGENTS/PROJECT_CONTEXT/AI_INTEGRATION сверены с локаль
 Используются действующие mr-feature-implementation, mr-realtime-audio-safety,
 mr-studio-build-test. Этот slice не подключает provider/UI/tools и не принимает parent.
 
+## Дополнение #161/#162 — централизованные permissions
+
+Текущий Application capture содержит ReadAccess с policy epoch и host grant на
+saved plugin parameters. Caller ReadPolicy не может повысить этот grant. Read/query/
+snapshot проверяют разрешение до и после сериализации; Worker не принимает revoked
+snapshot. Mode/revoke/project switch/shutdown отзывают прежние grants, отменяют jobs
+и блокируют late results. Immutable данные сохраняются, но новый анализ старого view
+после этих событий permission_denied. Описание lifetime первого slice ниже относится
+к прежнему контракту и дополнено этим ограничением. Project edits/Undo/Redo сохраняют
+immutable view, current-key guard предотвращает применение stale proposals.
+[Tool API / permission authority и UI](AI_TOOLS_PERMISSIONS.md).
+
 ## Безопасная граница чтения
 
 Application предоставляет `ai_read_view`, `ai_query`, `ai_snapshot` всем workspace/Live.

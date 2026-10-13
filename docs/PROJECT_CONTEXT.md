@@ -6,6 +6,33 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## AI Foundation: Tool API / Permissions #161/#162 — 2026-10-13
+
+Пользователь: «Хорошо, приступай к #161/#162». GitHub main/docs/issues сверены,
+локальный checkout clean на source5beabc6/docs c5fe3a4 перед реализацией.
+Закрытый registry из6 tools, bounded strict JSON/schema, typed arguments/results,
+ContextKey/request/operation guards; proposals компилируют existing Core commands.
+Application — единая authority READ/SUGGEST/EDIT/AUTO: default SUGGEST, explicit AUTO
+allowlist, saved-parameter opt-in; request привязан к выданному snapshot и policy epoch.
+Mode/revoke/project switch/shutdown инвалидируют grants/receipts/jobs/plans; stale и
+late replies отбрасываются. Same operation proposal идемпотентен, conflict denied.
+JUCE AI menu показывает режим; Permissions panel меняет/revokes policy и сохраняет
+Preferences config8 (reader1–8, legacy1–7 default SUGGEST). Schema21/archive1 прежние.
+AI project Apply закрыт: preview/confirmation/Undo/MIDI readiness — #163–#165.
+Фактическое применение команд и exactly-once mutation ещё не заявлены.
+Подробности: [AI_TOOLS_PERMISSIONS.md](AI_TOOLS_PERMISSIONS.md).
+Source `f7b78e379d5d9cbecf9c69339498d564c28eff0e` (16 code/test/build files).
+Release configure/full build PASS; final CTest140/140 PASS99.94s, focused AI9/9
+PASS0.55s, GUI permissions1/1 PASS0.17s; independent JSON schema parser PASS.
+GUI software100/150 PNG inspected: readable controls, no clipping; physical mixed-DPI,
+ASIO/network/provider/balance NOT RUN. Логи `build/asio-local/validation/ai-tools-permissions`.
+Final build/tests последовательные; compiler/test fixture errors исправлены.
+Ветка local `mrs/0.2g-fix1-editor-space-local`; source/build/tests local, docs/issues GitHub.
+Accepted package0.3h upd2/manifest/ярлык/старые packages сохранены; нового package нет.
+#161/#162/#26 open до приёмки. Следующий пользовательский тестовый slice — #167:
+ProxyAPI / AI panel READ+SUGGEST; EDIT/AUTO только после #163–#165.
+Без source push/merge/GitHub Actions.
+
 ## AI Foundation: Query API / Snapshot #159/#160 — 2026-10-13
 
 Пользователь: «Понял, переходи к #159/#160». База source0359a72/docs40ab35b,

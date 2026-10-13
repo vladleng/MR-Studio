@@ -330,3 +330,20 @@ prototype остаётся #167 после #161/#162. Schema21/archive1/package0
 - **После foundation acceptance** — при необходимости отдельные задачи для Skill Registry/Loader, AI Orchestrator и полноценного AI Usage Monitor; не считать их выполненными или частью минимальных acceptance-критериев #167 без явного решения.
 
 Приоритет: **безопасные Tools → ограниченные Skills → выбор моделей/стоимость → сложные автоматизированные workflows**. Для Live Mode — особенно строгие ограничения на автоматическое выполнение команд.
+
+## 17. Tool API / Permissions #161/#162 — 2026-10-13
+
+По прямому запросу пользователя реализованы6 закрытых typed tools и strict bounded
+JSON/schema, ContextKey/request/operation guards и подготовка existing Core commands.
+Application централизует READ/SUGGEST/EDIT/AUTO, explicit AUTO allowlist и saved-parameter
+opt-in. Receipts привязаны к выданному snapshot и host policy epoch; смена режима,
+revoke/project switch/shutdown отзывают grants и отменяют jobs. Repeat proposal возвращает
+тот же plan, conflicting operation denied. Permissions не экспортируются в snapshot.
+JUCE AI menu показывает текущий режим; Permissions panel применяет и отзывает доступ,
+Preferences config8 читает legacy1–7 с безопасными defaults. Schema21/archive1 прежние.
+[Контракт и ограничения](AI_TOOLS_PERMISSIONS.md), [source и проверки](PROJECT_CONTEXT.md).
+Release build и140/140 CTest PASS; GUI100/150 software snapshots inspected.
+Это READ+SUGGEST foundation: project Apply закрыт до preview/confirmation/Undo/MIDI
+из #163–#165, проверки фактических writes/exactly-once mutation ещё не заявлены.
+Следующий пользовательский prototype #167 (ProxyAPI / AI panel); package0.3h upd2 прежний.
+Issues open до приёмки; source/build/tests local, docs/issues GitHub, без Actions/source push.
