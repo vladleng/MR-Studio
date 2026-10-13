@@ -1,0 +1,55 @@
+# Arranger editor #80 — 0.3h
+
+Начато 2026-10-13 по прямому запросу пользователя. База: принятая0.3g/#84.
+
+## Контракт
+
+Принятые CRUD/rename/move/bounds/colors/delete из #81 сохраняются. Duplicate
+(toolbar/ПКМ/Ctrl+D) создаёт секцию сразу после выбранной, как Duplicate для
+аккордов. Alt+drag тела копирует секцию в указанное место, с preview до отпускания
+ЛКМ, Escape отменяет. При overlap копия отклоняется, секции не сдвигаются.
+Имя/цвет/длина сохраняются, ID новый, SectionPatch не наследуется. Содержимое
+дорожек, аккорды, маркеры, tempo/meter и sample playhead не изменяются командой.
+Create/copy/move/bounds/delete: Pause/Stop, loop off, без recording/pre-count.
+Одна завершённая операция — одна запись общей Undo; invalid/stale — без публикации.
+
+Пять иконок в левом заголовке линейки переключают Markers, Sections, Chord Track,
+Tempo, Meter. Активные — синие, с tooltip/accessibility name. Скрытая полоса
+освобождает место; painting/hit/drop/scroll используют общую динамическую геометрию.
+Все полосы по умолчанию видны. Битовая маска сохраняется в UI preferences version1,
+legacy default31; проект и Undo не меняются. Смена видимости отменяет previews/
+inline editing/popups/выделение полос. Chord Track caption — Theme::browserFont,
+как Sections; стиль остальных компонентов сохраняется.
+
+## Слои и проверки
+
+UI/commands/shared Core/Application/history/tests/docs: AFFECTED. Persistence:
+existing sections schema20/archive1, новый проектный формат не нужен. Preferences:
+новый optional key. Engine/DSP/audio callback/routing/transport: NOT AFFECTED;
+используется существующий control-thread metadata-only path, без graph rebuild.
+Studio/Live: shared model/command, Arrange UI Studio; Live bindings сохраняются.
+Clipboard Ctrl+C/V и content rearrangement/ripple: вне этого slice.
+
+Проверки: copy stale/overlap/overflow/uniqueID/Undo/Redo/SaveOpen/binding/guards,
+GUI Alt-copy/cancel/Duplicate, все32 комбинации видимости/layout/hit, legacy prefs,
+100/150% snapshots, Release/CTest/package smoke. Пользовательская приёмка и
+physical DPI/ASIO проверка отдельно от автоматических результатов.
+
+## Результат — 2026-10-13
+
+FEATURE READY WITH MANUAL CHECK. Source `57c329ecc6e637edbdbcc6651e767a0c54ec0f36`.
+Release/full130 PASS98.38s, focused2 PASS25.44s; core/App copy guards, exact Undo/
+Redo/SaveOpen/content/binding retention; GUI Alt-copy/cancel/overlap/toolbar Duplicate,
+все32 masks/compact geometry/clip hit/preferences, legacydefault/invalidmask/inline
+rename cancellation. GUI100/150 screenshots inspected, packaged diagnostics/J3 exit0.
+Нет engine/DSP/routing изменений. Initial compile warning/private-test-access и
+build-overlap/PDB отказ исправлены, логи validation/arranger80 сохранены.
+Package MR-Studio-0.3h-Arranger-Editor-JUCE-ASIO-Windows-local,13files/12hashes verified;
+GUI SHA256 `F2CC9919AC24EA07629519B8E63AD308262ECDEB798C69BB76482F097DAB3511`. Symbols deliveries/0.3h-arranger-editor.
+Прежний MR shortcut0.3h/icon retained/target+workingdir+emptyargs verified;
+старые packages сохранены. Hardware ASIO/physical DPI NOT RUN.
+
+Приёмка: включить/скрыть каждую полосу, перезапустить и проверить сохранение;
+Alt-drag секции в gap, Duplicate toolbar/ПКМ/Ctrl+D, overlap/Escape, Undo/Redo,
+Save/Open. Проверить обычное clip dragging и MIDI/VSTi drop при скрытых полосах.
+#80 открыт до приёмки; #87 отдельно, не начат. GitHub docs/issues, код/пакеты локально.

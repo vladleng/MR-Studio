@@ -13,7 +13,9 @@ GitHub — главный источник информации проекта (
 
 ## Текущая музыкальная структура
 
-0.3g/#84 Meter map принят2026-10-13, full130 PASS; далее рекомендован #80/0.3h, пока не начат.
+0.3h/#80 Arranger editor готов2026-10-13, full130 PASS98.38s, packaged diagnostics/J3 exit0; приёмка ожидается. Последняя принятая0.3g/#84.
+
+- [Arranger editor/#80](ARRANGER_EDITOR_80.md): copy/duplicate, lane visibility, контракт и проверки.
 
 - [Chord Track/#79](CHORD_TRACK_79.md), [Markers/#82](MARKER_TRACK_82.md).
 - [Sections/colors/bounds/#81](SECTION_COLORS_BOUNDS_81.md), [context/#85](MUSICAL_CONTEXT_85.md).

@@ -24,7 +24,7 @@
 Правило пользователя 2026-10-12: **GitHub — главный источник информации о проекте**.
 Документацию и issues синхронизировать после содержательной работы/приёмки, а не только
 при релизах; прежнее правило 2026-10-08 заменено. Локальный checkout — фактические
-исходники и результаты тестов. Source main отстаёт от локальной0.3g: публикация документов
+исходники и результаты тестов. Source main отстаёт от локальной0.3h: публикация документов
 не публикует код/пакеты. Более новые remote планы сохраняются при сверке.
 
 | Назначение | Локальный путь |
@@ -43,7 +43,7 @@ GitHub source может отставать от локальной разраб
 ## Постоянный ярлык — 2026-10-12
 
 По запросу пользователя создан `C:/Users/Vladislav/Desktop/MR Studio.lnk`:
-первая цель — принятая 0.3c upd13, текущая — 0.3g в отдельном package; рабочая папка — этот package,
+первая цель — принятая 0.3c upd13, текущая — 0.3h в отдельном package; рабочая папка — этот package,
 аргументы пустые. Значок MR + голубая waveform:
 `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Launchers/MR Studio.ico`
 (16/24/32/48/64/128/256px, PNG preview рядом). Link target/icon проверены,
@@ -52,6 +52,32 @@ preview просмотрен; DAW не запускалась. При выдач
 upd13 не менялись; никакой push/merge/Actions.
 
 ## Продукт и активное направление
+
+Начато **#80 /0.3h**, 2026-10-13 по прямому запросу пользователя.
+База: принятая0.3g/source7d90ad2; local HEAD1641da3, ветка прежняя.
+Чужие AI planning изменения docs/AI_INTEGRATION.md и AI блок контекста сохранены,
+не включены в собственные source/docs commits; они уже соответствуют remote main.
+CopySection/App metadata path: new ID/name/color/duration, без клипов/других lanes/
+Live binding; Alt+drag preview/Escape, toolbar/ПКМ/Ctrl+D Duplicate после source,
+overlap/stale/range/loop/play/record guards, одна Undo, SaveOpen. Пять иконок
+Markers/Sections/Chord Track/Tempo/Meter слева от ruler, active blue/tooltips;
+динамическая высота всех paint/hit/drop/scroll paths, preferences mask/default31,
+не проект/Undo. Caption Chord Track теперь Theme::browserFont, как Sections.
+[Контракт и приёмка](ARRANGER_EDITOR_80.md). Schema20/archive1 прежние.
+Release/full130 PASS98.38s, focused2 PASS25.44s, GUI all32 masks/Alt-copy/cancel/
+duplicate/legacyprefs, plugin binding/guards/history/SaveOpen. Snapshots100/150 inspected.
+Начальные compile warning/private-test-access и наложение build процессов исправлены;
+логи validation/arranger80 сохранены. Hardware ASIO/physical DPI NOT RUN.
+Source `57c329ecc6e637edbdbcc6651e767a0c54ec0f36`. FEATURE READY WITH MANUAL CHECK; пользовательская приёмка ожидается.
+Package `MR-Studio-0.3h-Arranger-Editor-JUCE-ASIO-Windows-local`;13files/12hashes verified;
+GUI SHA256 `F2CC9919AC24EA07629519B8E63AD308262ECDEB798C69BB76482F097DAB3511`; packaged diagnostics/J3 PASSexit0.
+Symbols deliveries/0.3h-arranger-editor. Прежний MR Studio.lnk обновлён на0.3h,
+icon retained/target+workingdir+emptyargs verified; старые packages сохранены.
+#80 open до приёмки; #87 не начат. Исходные Stage5 tasks:7/9 приняты;
+native parent#25 также содержит дополнительный#150, фактический счёт7/10.
+GitHub docs/issues синхронизируются docs-only; source/build/tests/packages локальны.
+Следующий шаг: пользователь проверяет0.3h; после приёмки закрыть#80, затем
+выбор#87 для итоговой интеграционной проверки. Автоматически#87/AI не начинать.
 
 Принято **#84 /0.3g**, 2026-10-12: «Начинай работу на #84».
 Clean HEAD8a1b1fb перед работой; baseaccepted0.3f. Core/App meter command и существующая
@@ -69,7 +95,7 @@ Symbols deliveries/0.3g-meter-map. Свежий packaged150 snapshot inspected.
 Пакеты0.3f и все более старые сохранены. #84 закрыт completed; parent#25 отмечает7/9.
 Приёмка docs-only: source/full130/package/manifest/shortcut прежние, rebuild не нужен.
 Следующий рекомендованный шаг — #80 /0.3h: copy/дублирование секций и завершение Arranger;
-затем #87 — общая финальная проверка. Новую реализацию пока не начинать автоматически.
+затем #87 — общая финальная проверка. #80 начат по запросу2026-10-13; актуальный результат выше.
 Документация и issues синхронизируются docs-only с GitHub; source/пакеты только локально.
 
 Принято **#83 /0.3f**, 2026-10-12: «Поехали #83», user выбирает tempo до #80.

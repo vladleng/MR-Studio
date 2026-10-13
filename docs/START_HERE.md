@@ -2,7 +2,8 @@
 
 Актуально2026-10-12: GitHub — главный источник информации проекта.
 [Текущий контекст](PROJECT_CONTEXT.md), [индекс](README.md), [правила](../AGENTS.md).
-0.3g/#84 Meter map: full130 PASS, пакет принят2026-10-13.
+0.3h/#80 Arranger editor: copy/duplicate+lane icons, full130 PASS98.38s, packaged diagnostics/J3 exit0; приёмка ожидается.
+[Контракт/проверки](ARRANGER_EDITOR_80.md), #87 не начат.
 Последняя принятая0.3g/#84. Stage5 начат; MR Reverb принят. Windows JUCE/ASIO.
 Source main/releasev0.2g отстают от локального кода; документация не является публикацией кода.
 Ниже — исторические записи; прежние pending/not started не переопределяют контекст.

@@ -6,6 +6,20 @@
 Исторические local-only/only-at-release правила ниже заменены этой записью.
 
 
+## Current 0.3h/#80 — 2026-10-13
+
+Arranger copy/duplicate, musical lane visibility; [contract/results](ARRANGER_EDITOR_80.md).
+Metadata-only control thread, no engine/DSP edits. Schema20/archive1 unchanged;
+UI prefs optional musicalLanes/default31. Release/full130 PASS98.38s, focused2
+PASS25.44s; all32 masks/paint-hit/history/copy/binding/guards/SaveOpen covered.
+GUI100/150 snapshots inspected; packaged diagnostics/J3 PASSexit0. Hardware ASIO/
+physical DPI NOT RUN; user acceptance pending, #80 open, #87 not started.
+Source `57c329ecc6e637edbdbcc6651e767a0c54ec0f36`; package `MR-Studio-0.3h-Arranger-Editor-JUCE-ASIO-Windows-local`,
+GUI SHA256 `F2CC9919AC24EA07629519B8E63AD308262ECDEB798C69BB76482F097DAB3511`;13files/12hashes verified.
+Persistent shortcut0.3h/icon retained; older packages unchanged. Symbols deliveries/
+0.3h-arranger-editor. Initial compile/test-access/build-overlap failures corrected,
+logs validation/arranger80. Docs/issues GitHub, source/build/tests/packages local.
+
 ## Current 0.3g/#84 — 2026-10-12
 
 Meter map editor; existing stopped timing transaction, no new schema.
