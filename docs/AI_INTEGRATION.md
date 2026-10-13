@@ -221,7 +221,7 @@ AI может быть доступен и в Live Mode, но только ка�
 
 ## 13. Декомпозиция AI Foundation — 2026-10-13
 
-Parent: [#26](https://github.com/vladleng/MR-Studio/issues/26). Все задачи — BACKLOG, не реализованы; реализация только по отдельному запросу пользователя. Исходные 11 чек-поинтов преобразованы в native GitHub sub-issues.
+Parent: [#26](https://github.com/vladleng/MR-Studio/issues/26). На момент декомпозиции задачи — BACKLOG. Реализация начата отдельным поручением пользователя 2026-10-13; актуальный первый slice описан ниже. Исходные 11 чек-поинтов преобразованы в native GitHub sub-issues.
 
 - [#158](https://github.com/vladleng/MR-Studio/issues/158) — Project Context API — контракт контекста проекта
 - [#159](https://github.com/vladleng/MR-Studio/issues/159) — Query API — дорожки, клипы, аккорды, микшер, MIDI и плагины
@@ -240,3 +240,19 @@ Parent: [#26](https://github.com/vladleng/MR-Studio/issues/26). Все зада�
 Первый провайдер прототипа — ProxyAPI, базовый адрес `https://api.proxyapi.ru/v1`, выбранная модель `openai/gpt-5.6-luna`. Provider/base URL/model должны быть сменными; доступность, capabilities и фактические расходы проверяются при реализации. Секрет вводится в приложении и хранится защищённо вне project/source/logs/snapshot. Настройка ключа/баланса пользователем не подтверждает готовность интеграции.
 
 Планирование не запускает новые feature stages автоматически и не меняет статус текущей сборки. Source/build/packages локально, GitHub Actions не использовать.
+
+## 14. Начало реализации — worker/context v1, 2026-10-13
+
+По прямому запросу «приступаем к #26» начат первый foundation slice #157/#158.
+Prerequisites #15/#17/#18/#19 приняты/closed completed; Stage5/#25 также принят.
+Локально реализованы `mrs::ai` Context v1 и bounded worker, Application read/request/
+cancel/result APIs, session/revision guards и lazy lifetime. [Контракт, RT boundaries,
+слои и проверки](AI_FOUNDATION_CONTRACT.md); [текущий результат](PROJECT_CONTEXT.md).
+Чтение и jobs не меняют project/history/persistence: schema21/archive1 прежние.
+Capabilities подробных queries/tools/analysis честно unsupported; HTTP/JSON/ключи,
+чат UI и редактирование ещё не подключены. Используются mock Tasks; автоматических
+платных retries нет. Cancel/deadline кооперативны, network adapter обязан обеспечить
+конечные interruptible I/O и bounded read — этот критерий проверяется в #167.
+Parent и sub-issues остаются open до соответствующей приёмки. Следующий блок:
+#159/#160 (query DTO и согласованный snapshot), затем #161/#162. Пользовательский
+пакет0.3h upd2/ярлык сохраняются; невидимый foundation не выдаётся как готовый AI.

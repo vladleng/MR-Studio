@@ -6,11 +6,38 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
-## AI Foundation: декомпозиция #26 — 2026-10-13
+## AI Foundation: первый foundation slice #157/#158 — 2026-10-13
+
+Пользователь: «Изучи AGENTS.md и PROJECT_CONTEXT.md и приступаем к #26».
+GitHub main/docs сверены с локальными: rules, AI_INTEGRATION и PROJECT_CONTEXT совпадали;
+чужие AI planning изменения сохранены. Prerequisites #15/#17/#18/#19 accepted/closed,
+Stage5/#25 завершён. Реализация #26 начата по этому прямому запросу.
+`mrs::ai`: Context v1 (metadata/time/counts/typed selection/capabilities/errors),
+bounded worker (8 outstanding/1MiB input/output, cancel/deadline/shutdown/no retry).
+Application shared read/request/cancel/result APIs: control-thread guard, lazy worker,
+session/project/graph revision key, discard late/stale replies даже при том жеID+revision.
+Никаких AI calls/dependencies на audio path; DTO не содержит plugin/engine pointers.
+Сеть/JSON/ключи/chat UI/edits пока не подключены; это foundation #157/#158, не готовый #26.
+Подробности: [AI_FOUNDATION_CONTRACT.md](AI_FOUNDATION_CONTRACT.md).
+Release configure/full build PASS; final CTest133/133 PASS97.44s, включая3 AI suites,
+обычные audio/mixed/persistence/history/MIDI/VST3 и GUI smoke. Первый full133 PASS112.96s
+до final version guard; initial focused3 PASS2.48s. На version-guard rebuild возник
+LNK1104 из-за ещё запущенного GUI smoke: дождались завершения и повторили build/tests
+последовательно — PASS. Логи `build/asio-local/validation/ai-foundation` сохранены.
+Source commit `0359a72bc0d578a922047c0daad1ccf66d757897` (только6 code/test/build files).
+Source local, ветка `mrs/0.2g-fix1-editor-space-local`; schema21/archive1 прежние.
+Пакет0.3h upd2, manifest/ярлык/старые пакеты не изменены; новый package не создавался.
+Hardware ASIO/network/balance smoke NOT RUN: network adapter/UI относятся к #167.
+Cancel кооперативный: adapter обязан обеспечить конечные interruptible I/O/bounded read;
+uncooperative C++ calls безопасно прервать нельзя. Приёмка #157/#158/#26 ожидается,
+issues остаются open. Следующий блок #159/#160 — подробные query DTO/project snapshot.
+Source/build/tests локально; docs/issues синхронизируются отдельно, без Actions/source push.
+
+## AI Foundation: исходная декомпозиция #26 — 2026-10-13
 
 По запросу пользователя создано 11 native sub-issues #157–#167 для исходных чек-поинтов #26.
 Требования, зависимости, scope и критерии приёмки заполнены; parent links проверены через GitHub API.
-Все задачи открыты/BACKLOG, код интеграции не реализован и реализация не начата.
+На момент планирования все задачи открыты/BACKLOG, код интеграции не реализован; текущий первый slice указан выше.
 Первый API prototype #167: ProxyAPI / `openai/gpt-5.6-luna`, сменные provider/base URL/model,
 защищённое хранение ключа, READ + SUGGEST; edits после permissions/preview/Undo/MIDI.
 Порядок и ссылки: [AI_INTEGRATION.md](AI_INTEGRATION.md#13-декомпозиция-ai-foundation--2026-10-13).
