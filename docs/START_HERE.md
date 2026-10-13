@@ -1,5 +1,7 @@
 # Moon River Studio — START HERE
 
+0.3h upd1/#80 готов2026-10-13: compact headers, Alt-copy shadow/touch, group selection/operations; full130 PASS136.47s, packaged diagnostics/J3 exit0. Приёмка ожидается; #87 не начат. [Контракт](ARRANGER_EDITOR_80.md).
+
 Актуально2026-10-12: GitHub — главный источник информации проекта.
 [Текущий контекст](PROJECT_CONTEXT.md), [индекс](README.md), [правила](../AGENTS.md).
 0.3h/#80 Arranger editor: copy/duplicate+lane icons, full130 PASS98.38s, packaged diagnostics/J3 exit0; приёмка ожидается.

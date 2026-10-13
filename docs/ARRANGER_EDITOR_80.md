@@ -1,5 +1,30 @@
 # Arranger editor #80 — 0.3h
 
+## Дополнения0.3h upd1 — 2026-10-13
+
+По пользовательскому screenshot: Markers получает подпись и компактный list
+на x70/width132; Sections и Chord Track используют отдельный «+» x208/width34,
+как Tempo/Meter. Прежние add/navigation/edit semantics сохраняются.
+Alt-copy preview всегда видим, alpha0.35; invalid overlap — salmon outline,
+release без commit. Границы в пределах7 logical px захватываются точно встык,
+с сохранением длины и внутреннего расстояния между выбранными секциями.
+Рамка из пустой области полосы выбирает группу; Shift+ЛКМ добавляет/убирает
+конкретную секцию. Выделение transient, не Save/Undo. Move/Alt-copy/Duplicate/
+Backspace работают с группой атомарно через shared EditSectionGroup/Application;
+одна Undo, stale/overlap/overflow/binding/transport guards действуют на всю группу.
+Name/color/bounds popup остаётся редактором конкретной секции.
+Слои UI/Core/App/history/tests/docs затронуты; engine/DSP/schema не изменены.
+FEATURE READY WITH MANUAL CHECK. Source `9ab296b5e91614ac814f21fd70d75a1b788458ac`.
+Release/full130 PASS136.47s до final UI boundary clamp; finalfocused2 PASS26.14s.
+Final GUI100/150 inspected; packaged diagnostics/J3 exit0.
+Новые GUI regression: Shift toggle/marquee/group Alt copy/touch/offgrid+coarseSnap/
+invalid-shadow/group Delete/one Undo; App group copy/move/atomic stale/overlap/binding.
+Package MR-Studio-0.3h-upd1-Arranger-Editor-JUCE-ASIO-Windows-local,13files/12hashes;
+GUI SHA256 `A00C08B3D39E640EA40433044AABCB738EFAB7708EA5626D804C743234CE310C`. Old0.3h package preserved; MR shortcutupd1/icon retained.
+Приёмка: компактные headers, копия встык с Snap/on/off и off-grid bounds, видимая
+тень на overlap, рамка/Shift toggle, group move/Alt-copy/Duplicate/Delete/Undo/SaveOpen.
+Hardware ASIO/physical DPI NOT RUN. #80 open, #87 не начат.
+
 Начато 2026-10-13 по прямому запросу пользователя. База: принятая0.3g/#84.
 
 ## Контракт

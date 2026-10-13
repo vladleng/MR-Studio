@@ -6,6 +6,19 @@
 Исторические local-only/only-at-release правила ниже заменены этой записью.
 
 
+## Current 0.3h upd1/#80 — 2026-10-13
+
+Compact lane headers, continuous translucent Alt-copy shadow/exact edge capture,
+marquee/Shift selection and atomic group operations. Core/App metadata only;
+no engine/DSP/schema changes. Full130 PASS136.47s before final UI bound clamp;
+finalfocused2 PASS26.14s; group stale/overlap/
+linked rejection and GUI exact/off-grid/coarseSnap touching. GUI100/150 inspected,
+packaged diagnostics/J3 PASSexit0. Hardware ASIO/physical DPI NOT RUN.
+Source `9ab296b5e91614ac814f21fd70d75a1b788458ac`; package MR-Studio-0.3h-upd1-Arranger-Editor-JUCE-ASIO-Windows-local;
+GUI SHA256 `A00C08B3D39E640EA40433044AABCB738EFAB7708EA5626D804C743234CE310C`;13files/12hashes, old0.3h preserved.
+MR shortcutupd1/icon retained, symbols deliveries/0.3h-upd1-arranger-editor.
+User acceptance pending, #80 open/#87 not started. Docs/issues GitHub, source local.
+
 ## Current 0.3h/#80 — 2026-10-13
 
 Arranger copy/duplicate, musical lane visibility; [contract/results](ARRANGER_EDITOR_80.md).

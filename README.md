@@ -3,8 +3,8 @@
 GitHub — главный источник документации, плана и статусов проекта.
 Начать с [текущего контекста](docs/PROJECT_CONTEXT.md) и [индекса документов](docs/README.md).
 
-Последняя локальная сборка — **0.3h / #80 Arranger editor**, готова к приёмке2026-10-13.
-Copy/duplicate секций, пять иконок видимости lanes, Chord Track font как Sections.
+Последняя локальная сборка — **0.3h upd1 / #80 Arranger editor**, готова к приёмке2026-10-13.
+Унифицированные headers, прозрачная Alt-copy тень/точная стыковка, group marquee/Shift и атомарные операции; пять иконок lanes.
 Release и **130/130 CTest PASS**, packaged diagnostics/J3 PASS; пользовательская приёмка ожидается.
 [Контракт и проверки](docs/ARRANGER_EDITOR_80.md). Hardware ASIO/physical DPI отдельно не проверены.
 Последняя принятая локальная версия — **0.3g / #84 Meter map**.

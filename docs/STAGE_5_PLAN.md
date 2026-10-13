@@ -1,5 +1,7 @@
 # Stage 5 / #25: рабочий план музыкальной структуры
 
+0.3h upd1/#80 готов2026-10-13: compact headers, Alt-copy shadow/touch, group selection/operations; full130 PASS136.47s, packaged diagnostics/J3 exit0. Приёмка ожидается; #87 не начат. [Контракт](ARRANGER_EDITOR_80.md).
+
 Актуально2026-10-12. Stage5/#25 выполняется: #79/#81/#82/#83/#84/#85/#86 приняты и закрыты;
 #83/0.3f принят2026-10-12: «#83 прошел приемку, что у нас дальше?». Full129 PASS.
 #84/0.3g принят2026-10-13: «Принимаю. Что у нас дальше?». Full130 PASS140.74s, packaged diagnostics/J3 exit0.

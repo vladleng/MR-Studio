@@ -43,7 +43,7 @@ GitHub source может отставать от локальной разраб
 ## Постоянный ярлык — 2026-10-12
 
 По запросу пользователя создан `C:/Users/Vladislav/Desktop/MR Studio.lnk`:
-первая цель — принятая 0.3c upd13, текущая — 0.3h в отдельном package; рабочая папка — этот package,
+первая цель — принятая 0.3c upd13, текущая — 0.3h upd1 в отдельном package; рабочая папка — этот package,
 аргументы пустые. Значок MR + голубая waveform:
 `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Launchers/MR Studio.ico`
 (16/24/32/48/64/128/256px, PNG preview рядом). Link target/icon проверены,
@@ -52,6 +52,29 @@ preview просмотрен; DAW не запускалась. При выдач
 upd13 не менялись; никакой push/merge/Actions.
 
 ## Продукт и активное направление
+
+**#80 /0.3h upd1**, 2026-10-13: follow-up по screenshot, приёмка ожидается.
+Markers caption+compact list; Sections/Chord Track короткие+ на x208/width34.
+Alt-copy shadow alpha0.35 не исчезает при overlap, salmon border/без commit;
+capture7logicalpx от raw pointer позволяет точную стыковку и off-grid при Snap.
+Рамка из пустой области Sections и Shift+ЛКМ toggle выбирают группу, transient.
+Shared EditSectionGroup/App: group move/copy/Duplicate/delete, одна Undo;
+duration/gaps/IDs/bindings/content/guards/stale/atomic rejection preserved.
+Новые копии не наследуют Live binding; linked group delete отклоняется целиком.
+Schema20/archive1/prefs прежние, engine/DSP не менялись. [Контракт](ARRANGER_EDITOR_80.md).
+Release/full130 PASS136.47s до final UI boundary clamp; finalfocused2 PASS26.14s.
+GUI group/Shift/marquee/touch/offgrid/coarseSnap/
+invalid-shadow/Delete/Undo/Redo; Core group move/copy/stale/overlap/binding checked.
+Сборки без ошибок; intermediate full130 PASS136.44s до final raw-pointer capture.
+GUI100/150 и свежий packaged150 inspected; packaged diagnostics/J3 PASSexit0.
+Hardware ASIO/physical DPI NOT RUN. FEATURE READY WITH MANUAL CHECK.
+Source `9ab296b5e91614ac814f21fd70d75a1b788458ac`; package `MR-Studio-0.3h-upd1-Arranger-Editor-JUCE-ASIO-Windows-local`;
+GUI SHA256 `A00C08B3D39E640EA40433044AABCB738EFAB7708EA5626D804C743234CE310C`;13files/12hashes verified, old0.3h unchanged.
+Symbols deliveries/0.3h-upd1-arranger-editor. Прежний MR shortcutupd1/icon retained/
+target+workingdir+emptyargs verified. Логи validation/arranger80-upd1.
+GitHub docs/issues sync; source/build/tests/packages local. Чужие AI docs сохранены.
+#80 open до приёмки; #87 не начат. Следующий шаг — пользовательская проверка
+унификации/прозрачной тени/стыковки/групп; автоматически новых задач не начинать.
 
 Начато **#80 /0.3h**, 2026-10-13 по прямому запросу пользователя.
 База: принятая0.3g/source7d90ad2; local HEAD1641da3, ветка прежняя.
