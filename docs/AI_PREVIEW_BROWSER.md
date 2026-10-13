@@ -86,6 +86,18 @@ NOT AFFECTED. Project schema/archive: NOT AFFECTED. Existing user prefs width:
 REUSED; AI chat/proposal persistence NOT APPLICABLE. Studio/Live shared authority.
 #164 broader history/#165 MIDI application: DEFERRED.
 
+## Chat UX следующего билда — запрос 2026-10-13
+
+Пользователь попросил очищать поле после отправки, переносить сообщение в ленту
+и отправлять по Enter. Следующий билд должен показывать последовательную ленту
+сообщений пользователя и ассистента вместо замены единственного ответа.
+После принятия сообщения на отправку composer очищается; отказ до отправки
+сохраняет draft. Enter=Send, Shift+Enter=newline; существующие Send/Cancel и
+блокировка DAW shortcuts при вводе сохраняются. Preview/Apply остаются отдельными
+от сообщений, технический результат не должен заменять текст пользователя.
+Это требования, ещё не реализованные в0.3j. Передача всей истории провайдеру
+и сохранение переписки в project этим запросом не определены.
+
 ## Проверки и приёмка
 
 ai_preview: batch diff vs actual IDs/values, Cancel/no Undo/dirty, one Undo/Redo,

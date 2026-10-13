@@ -6,6 +6,20 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## AI chat UX — требования к следующему билду, 2026-10-13
+
+Пользователь по screenshot0.3j попросил обычную ленту чата: отправленный текст
+переходит в ленту, поле ввода очищается; Enter отправляет сообщение.
+Для следующего билда зафиксированы chronological user/assistant messages,
+Enter=Send, Shift+Enter=newline; очищать composer после принятия сообщения
+на отправку, при отказе до отправки сохранять draft. Детали: [AI UI](AI_PREVIEW_BROWSER.md).
+Screenshot подтверждает отображение add_marker preview tick7680/name «Маркер 2:3»,
+но не Apply/Undo/Redo или корректность musical position без project time map.
+Приёмка #163/#26 не заявлена. Source/package0.3j/settings/keys прежние;
+это docs/issues-only запись, без build/tests. Следующий roadmap пункт #164:
+расширенный AI transaction/history contract поверх existing marker one-Undo;
+затем #165 MIDI Apply. Нового поручения начать #164 пока нет.
+
 ## AI Preview / Browser tab #163 / 0.3j — 2026-10-13
 
 Пользователь: «Начинай работу над #163. Я бы окно для ассистента сделал в браузере
