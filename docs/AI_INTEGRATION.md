@@ -347,3 +347,17 @@ Release build и140/140 CTest PASS; GUI100/150 software snapshots inspected.
 из #163–#165, проверки фактических writes/exactly-once mutation ещё не заявлены.
 Следующий пользовательский prototype #167 (ProxyAPI / AI panel); package0.3h upd2 прежний.
 Issues open до приёмки; source/build/tests local, docs/issues GitHub, без Actions/source push.
+
+## 18. Первый API prototype #167 / 0.3i — 2026-10-13
+
+По прямому запросу пользователя добавлены AI Assistant и сменные HTTPS provider/base/model,
+Windows Credential Manager (endpoint-bound key), GET models/POST chat completions через
+bounded async WinHTTP на existing worker. Snapshot-scoped READ/SUGGEST; typed proposals
+проходят host context/request binding и Application validation без mutations.
+Cancel/revoke/stale guards, byte/token/call limits; usage/model/finish видны, цена unknown.
+Один call/message, без automatic retries/query loop/history; EDIT/AUTO locked до #163–#165.
+[Контракт и ручная приёмка](AI_API_PROTOTYPE.md), [source/package/checks](PROJECT_CONTEXT.md).
+Release build/full141 CTest PASS; final focused11 PASS после последних GUI/redirect guards.
+0.3i package/packaged AI smoke exit0. Реальный Luna/model/tools/usage и ASIO с network
+NOT RUN: READY WITH MANUAL CHECK, #167/#26 open. Monthly Monitor/Skills план§16 сохранён.
+Code/build/package local; docs/issues GitHub, без source push/Actions.

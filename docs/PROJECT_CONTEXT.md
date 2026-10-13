@@ -6,6 +6,34 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## AI API prototype #167 / 0.3i — 2026-10-13
+
+Пользователь: «Отлично, приступай к #167». Main AGENTS/PROJECT_CONTEXT/AI_INTEGRATION
+сверены с checkout: совпадали, issue167 open. Реализованы AI → Assistant, сменные
+provider/base/model, Test/models, password field/Windows Credential Manager с binding
+к base URL, Save/Delete key, snapshot message→worker→async WinHTTP→UI.
+READ/SUGGEST:5 typed suggestion tools, host request/context binding и Application
+validation; фактические edits locked до #163–#165. Cancel/revoke/stale guards,
+HTTPS/no redirects, finite deadline/read budgets, один model call/message без retries.
+Usage/model/finish видны; стоимость unknown, monthly monitor/history не реализованы.
+[Контракт/лимиты/ручной тест](AI_API_PROTOTYPE.md). Source
+`c1ec8427113466291f1e37d9c809381a8bb776aa`, local `mrs/0.2g-fix1-editor-space-local`.
+Release configure/build PASS; full141/141 CTest PASS159.60s до финальных расширений
+GUI proposal/revoke теста и redirect-option guard/version. Final build + focused11/11
+PASS3.40s после них (GUI0.32s). GUI100/150 software PNG inspected, Cyrillic verified.
+Credential fixture roundtrip/isolation/delete PASS; реальные user settings/keys не тронуты.
+Initial syntax/const redaction/UTF8 mock errors исправлены. Логи build/asio-local/
+ai-prototype-build-final.log, ai-prototype-ctest.log, ai-prototype-focused.log.
+Package `MR-Studio-0.3i-AI-Prototype-JUCE-ASIO-Windows-local`,13files/12hashes,
+GUI SHA256 `36A31D43133CC25EE42233E84ECD6A198A56680AE540B9DCD363B6FFC1F563AF`.
+Packaged AI smoke exit0; matching GUI PDB deliveries/0.3i-ai-prototype, old packages сохранены.
+Schema21/archive1 прежние; permissions config8, provider nonsecret settings отдельно.
+READY WITH MANUAL CHECK: Luna availability/tools, paid live response/model/usage,
+ASIO playback+network/cancel/error, physical DPI NOT RUN — до #167 приёмки.
+Ключ вводит пользователь локально в приложении, не в чате. #167/#26 open;
+source/build/package local, docs/issues GitHub, без source push/merge/Actions.
+Следующий шаг — пользовательский API/ASIO тест0.3i; edits #163–#165 отдельным поручением.
+
 ## AI Foundation: Tool API / Permissions #161/#162 — 2026-10-13
 
 Пользователь: «Хорошо, приступай к #161/#162». GitHub main/docs/issues сверены,
