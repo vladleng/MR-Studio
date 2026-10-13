@@ -1,5 +1,10 @@
 # Приёмка 2026-10-10 — 0.3b
 
+0.3h upd2/#80, 2026-10-13: uniform marker/chord group gestures, chord color palette/radius3.
+Schema21 (legacy1–20), archive1. Full130 PASS148.13s, packaged diagnostics/J3 exit0;
+GUI100/150 inspected. Newupd2 user acceptance pending; upd1 accepted («Отлично!»).
+[Контракт/проверки](MUSICAL_LANE_GESTURES_UPD2.md). #87 не начат; code/build/package local.
+
 Пользователь: «Маркеры работают. Закрывай». #82 закрыт completed. Правильная версия
 среза 0.3b; исторический runtime package и embedded version 0.3a upd2 не переписаны.
 Новый sub-issue увеличивает букву, следующий #85 — 0.3c. Ниже отчёт о выданном пакете.

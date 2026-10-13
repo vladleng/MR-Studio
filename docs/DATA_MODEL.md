@@ -1,5 +1,9 @@
 # Moon River Studio — Project / Data Model
 
+0.3h upd2: Chord optional RGB в schema21, stable IDs и shared group commands.
+Маркерные ties/project order сохраняются, copies unbound. Selection/ghosts — UI-only.
+[Контракт](MUSICAL_LANE_GESTURES_UPD2.md), [формат](PERSISTENCE.md).
+
 ## 1. Главный принцип
 
 Moon River Studio использует **один Project Model** для Arrange, Edit, Mix и Live Mode.

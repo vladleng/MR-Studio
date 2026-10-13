@@ -1,8 +1,13 @@
 # SHARED Stage 4 — persistence/state/recovery
 
+0.3h upd2/#80: Chord.color optional24-bit RGB, schema21 добавляет presence/RGB
+в CHORDS records. Legacy1–20 defaults unset, прежнее оформление; archive1 и unknown
+chunks/plugin state сохраняются. Старые builds schema21 не читают.
+[Регрессии/контракт](MUSICAL_LANE_GESTURES_UPD2.md).
+
 ## Актуализация 2026-10-12
 
-Текущая core Project schema — **20**, поддерживаемые readers — **1–20**;
+Текущая core Project schema — **21**, поддерживаемые readers — **1–21**;
 binary archive envelope остаётся **1**. Исторический Stage 4 scope ниже не является
 перечнем уже реализованных production-функций. Для редакторов Stage 5 действует
 [STAGE_5_PLAN.md](STAGE_5_PLAN.md): stable IDs, Undo/Redo/save в каждом slice,

@@ -43,7 +43,7 @@ GitHub source может отставать от локальной разраб
 ## Постоянный ярлык — 2026-10-12
 
 По запросу пользователя создан `C:/Users/Vladislav/Desktop/MR Studio.lnk`:
-первая цель — принятая 0.3c upd13, текущая — 0.3h upd1 в отдельном package; рабочая папка — этот package,
+первая цель — принятая 0.3c upd13, текущая — 0.3h upd2 в отдельном package; рабочая папка — этот package,
 аргументы пустые. Значок MR + голубая waveform:
 `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio/Launchers/MR Studio.ico`
 (16/24/32/48/64/128/256px, PNG preview рядом). Link target/icon проверены,
@@ -52,6 +52,33 @@ preview просмотрен; DAW не запускалась. При выдач
 upd13 не менялись; никакой push/merge/Actions.
 
 ## Продукт и активное направление
+
+**#80 /0.3h upd2**, 2026-10-13: unified chord/marker gestures+chord colors/corners.
+Пользователь принял sliceupd1: «Отлично! Теперь сделай такие же способы копирования,
+выделения shift + ЛКМ и тень при alt + ЛКМ копировании для маркеров и аккордов»;
+дополнительно запросил выпадающее меню аккордов с палитрой и такое же скругление.
+Новаяupd2 ожидает приёмки. Shared MusicalSelection UI: marquee/Shift toggle,
+group body move/Alt-copy ghost0.35/Escape/toolbar+Ctrl+D Duplicate/Backspace, одна Undo.
+Shared EditChordGroup/EditMarkerGroup+App metadata path; порядок/ties/IDs/клипы/
+LiveAction bindings preserved, copies newIDs/unbound; linked group delete atomic reject.
+ПКМ chord menu в точке нажатия, палитра как markers/sections; radius3/тонкий stroke,
+authoredRGB/active context. Chord optionalRGB сохраняется: schema21, legacy1–20 reader,
+unset прежнийfill; archive1/prefs прежние. Старые builds schema21 не читают.
+[Контракт](MUSICAL_LANE_GESTURES_UPD2.md). Engine/DSP/callback/routing не изменены.
+Release/full130 PASS148.13s до final marker marquee bounds; finalfocused3 PASS43.39s,
+initialfocused3 PASS42.41s, Core/persistence29 PASS0.55s;
+group history/stale/overlap/IDs/order/bindings/SaveOpen/RGB validation/schema20 migration,
+GUI Shift/marquee/copy/Escape/negative/Duplicate/Delete/palette. Initial test compile
+и неверный overlap fixture исправлены, логи validation/arranger80-upd2 сохранены.
+J3 timeout75s для расширенного smoke (focused J342.23s). GUI100/150 и свежий
+packaged150 inspected; packaged diagnostics/J3 PASSexit0. Hardware ASIO/physical DPI NOT RUN.
+Source `803774d1df9b7a7554550530b5b500f37ec170cc`; package `MR-Studio-0.3h-upd2-Unified-Lanes-JUCE-ASIO-Windows-local`;
+GUI SHA256 `01538A2CD57ACE48093BF3116145C9A8F18BD1E294BE4DCF6694E83D056E9080`;13files/12hashes verified, oldupd1 preserved.
+Symbols deliveries/0.3h-upd2-unified-lanes; прежний MR shortcutupd2/icon retained/
+target+workingdir+emptyargs verified. FEATURE READY WITH MANUAL CHECK.
+GitHub docs/issues sync, source/build/tests/packages local. Чужие AI docs сохранены.
+#80 open до приёмки upd2; #87 не начат. Следующий шаг — проверка uniform gestures,
+палитры/цветов/радиуса3/Undo/SaveOpen пользователем; новые задачи не начинать автоматически.
 
 **#80 /0.3h upd1**, 2026-10-13: follow-up по screenshot, приёмка ожидается.
 Markers caption+compact list; Sections/Chord Track короткие+ на x208/width34.

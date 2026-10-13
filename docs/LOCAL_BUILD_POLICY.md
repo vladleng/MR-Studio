@@ -1,5 +1,10 @@
 # Local development and build policy
 
+0.3h upd2/#80, 2026-10-13: uniform marker/chord group gestures, chord color palette/radius3.
+Schema21 (legacy1–20), archive1. Full130 PASS148.13s, packaged diagnostics/J3 exit0;
+GUI100/150 inspected. Newupd2 user acceptance pending; upd1 accepted («Отлично!»).
+[Контракт/проверки](MUSICAL_LANE_GESTURES_UPD2.md). #87 не начат; code/build/package local.
+
 Правило2026-10-12: GitHub — основной источник информации; документы/issues синхронизировать
 после содержательной работы/приёмки, не только при релизах. Source/build/tests/packages
 локально. Docs-only commit поверх актуальногоmain с [skip ci], без code push/merge/Actions.

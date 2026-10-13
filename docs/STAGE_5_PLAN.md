@@ -1,5 +1,10 @@
 # Stage 5 / #25: рабочий план музыкальной структуры
 
+0.3h upd2/#80, 2026-10-13: uniform marker/chord group gestures, chord color palette/radius3.
+Schema21 (legacy1–20), archive1. Full130 PASS148.13s, packaged diagnostics/J3 exit0;
+GUI100/150 inspected. Newupd2 user acceptance pending; upd1 accepted («Отлично!»).
+[Контракт/проверки](MUSICAL_LANE_GESTURES_UPD2.md). #87 не начат; code/build/package local.
+
 0.3h upd1/#80 готов2026-10-13: compact headers, Alt-copy shadow/touch, group selection/operations; full130 PASS136.47s, packaged diagnostics/J3 exit0. Приёмка ожидается; #87 не начат. [Контракт](ARRANGER_EDITOR_80.md).
 
 Актуально2026-10-12. Stage5/#25 выполняется: #79/#81/#82/#83/#84/#85/#86 приняты и закрыты;

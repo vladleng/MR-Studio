@@ -3,11 +3,12 @@
 GitHub — главный источник документации, плана и статусов проекта.
 Начать с [текущего контекста](docs/PROJECT_CONTEXT.md) и [индекса документов](docs/README.md).
 
-Последняя локальная сборка — **0.3h upd1 / #80 Arranger editor**, готова к приёмке2026-10-13.
-Унифицированные headers, прозрачная Alt-copy тень/точная стыковка, group marquee/Shift и атомарные операции; пять иконок lanes.
+Последняя локальная сборка — **0.3h upd2 / #80 Unified musical lanes**, готова к приёмке2026-10-13.
+Маркеры/аккорды: group marquee/Shift, Alt-copy shadows, atomic group operations; chord palette и radius3.
+[Контракт/совместимость](docs/MUSICAL_LANE_GESTURES_UPD2.md): schema21, читает старые1–20, archive1.
 Release и **130/130 CTest PASS**, packaged diagnostics/J3 PASS; пользовательская приёмка ожидается.
 [Контракт и проверки](docs/ARRANGER_EDITOR_80.md). Hardware ASIO/physical DPI отдельно не проверены.
-Последняя принятая локальная версия — **0.3g / #84 Meter map**.
+Последняя принятая локальная версия — **0.3h upd1 / #80 refinements** («Отлично!», 2026-10-13); новый sliceupd2 ждёт приёмки.
 Stage5/#25 начат; #80 готов к приёмке, #87 не начат. MR Reverb #128–132 завершён и принят.
 Опубликованный код и [GitHub releasev0.2g](https://github.com/vladleng/MR-Studio/releases/tag/v0.2g)
 отстают от локальной разработки. Документальные commits не публикуют новые исходники/бинарники.
