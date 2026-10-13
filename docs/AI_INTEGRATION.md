@@ -378,3 +378,21 @@ Release build/full142 CTest PASS; final focused12 PASS3.92s после screensho
 Package0.3j/packaged AI smoke exit0, Browser100/150 inspected; user API→Apply/Undo,
 ASIO+network/physical DPI acceptance pending. #163/#26 open, source/build/package local,
 docs/issues GitHub, без source push/Actions.
+
+## 20. AI transactions/history #164 + chat UX / 0.3k — 2026-10-13
+
+По прямому запросу пользователя #164: shared trusted ProjectEdit, preflight1–8
+Core commands на private candidate, immutable exact before/after/label, одна общая
+Undo/Redo без network/tool reexecution. Marker Application path сохраняет staged
+rollback, confirmation/policy/session/Live/replay guards. Mixed metadata/MIDI/gain
+composition проверена Core fixture; MIDI Application/GUI Apply остаётся #165.
+Manual/AI history, dirty policy и Save/Open прежние; transient drafts/chat excluded.
+В AI Browser добавлены sequential chat feed, composer clear after submit,
+Enter=Send/ShiftEnter=newline, bottom composer/Send/Cancel по screenshot пользователя.
+Лента bounded96entries/256KiB, не передаётся как conversation history провайдеру.
+[Контракт](AI_TRANSACTIONS_HISTORY.md), [source/package/проверки](PROJECT_CONTEXT.md).
+Release full build/full143 CTest PASS173.34s до final composer Value fix/version;
+final build/focused13 PASS3.96s. Package0.3k/12hashes/packaged AI smoke exit0,
+Browser100/150 inspected. Real provider Apply/Undo/Redo/SaveOpen, ASIO/physical DPI
+manual acceptance pending; #164/#163/#26 open. Source/build/package local,
+docs/issues GitHub, без source push/PR/merge/Actions.

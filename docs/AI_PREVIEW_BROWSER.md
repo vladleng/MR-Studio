@@ -1,5 +1,9 @@
 # AI Preview / Browser tab — #163, 2026-10-13
 
+Текущее дополнение0.3k/#164: [AI transactions/history и chat UX](AI_TRANSACTIONS_HISTORY.md).
+Лента сообщений, очистка ввода, Enter/ShiftEnter и bottom composer реализованы;
+старые0.3j результаты ниже сохраняют собственные границы.
+
 Запрос пользователя: «Начинай работу над #163. Я бы окно для ассистента сделал
 в браузере отдельной вкладкой». Native Browser MR Studio получил вкладку AI рядом
 с VST3/Files. Это не внешний веб-браузер. AI menu → Assistant открывает эту вкладку,
@@ -86,7 +90,7 @@ NOT AFFECTED. Project schema/archive: NOT AFFECTED. Existing user prefs width:
 REUSED; AI chat/proposal persistence NOT APPLICABLE. Studio/Live shared authority.
 #164 broader history/#165 MIDI application: DEFERRED.
 
-## Chat UX следующего билда — запрос 2026-10-13
+## Chat UX — запрос 2026-10-13, реализовано в0.3k/#164
 
 Пользователь попросил очищать поле после отправки, переносить сообщение в ленту
 и отправлять по Enter. Следующий билд должен показывать последовательную ленту
@@ -95,8 +99,9 @@ REUSED; AI chat/proposal persistence NOT APPLICABLE. Studio/Live shared authorit
 сохраняет draft. Enter=Send, Shift+Enter=newline; существующие Send/Cancel и
 блокировка DAW shortcuts при вводе сохраняются. Preview/Apply остаются отдельными
 от сообщений, технический результат не должен заменять текст пользователя.
-Это требования, ещё не реализованные в0.3j. Передача всей истории провайдеру
-и сохранение переписки в project этим запросом не определены.
+В0.3j этого поведения нет; в0.3k реализовано с bounded transient display history.
+Composer и Send/Cancel закреплены снизу по дополнительному screenshot пользователя.
+Передача всей истории провайдеру и сохранение переписки в project не добавлены.
 
 ## Проверки и приёмка
 

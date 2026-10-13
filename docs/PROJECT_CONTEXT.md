@@ -6,7 +6,45 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
-## AI chat UX — требования к следующему билду, 2026-10-13
+## AI transactions/history #164 + chat UX / 0.3k — 2026-10-13
+
+Пользователь: «Начинай #164», screenshot пустого footer и «просто опусти клавиши вниз».
+Предыдущие UX требования включены: последовательная лента You/Assistant/System,
+Enter=Send, ShiftEnter=newline, очистка composer после worker submit, draft сохранён
+при отказе до отправки и во время ответа. Send/Cancel/composer закреплены снизу,
+diff занимает прежний пустой footer. Native Browser tab/typing guard сохранены.
+Trusted Core ai::ProjectEdit preflights1–8commands once на private candidate,
+immutable before/after и label; Preview/Apply используют exact stored result.
+Existing staged ProjectStore сохраняет одну shared Undo, rollback model/revision/
+label/Undo/Redo; Redo без tool execution/network. Manual/AI interleaving, revision-
+based dirty, Save/Open history reset сохранены. MIDI+metadata+gain composition
+проверена Core fixture; Application/GUI MIDI Apply остаётся locked #165.
+Display history bounded96entries/256KiB, max32768chars/entry; transient, не provider
+conversation и не project persistence. Schema21/archive1/config8 прежние.
+[Контракт/слои/границы](AI_TRANSACTIONS_HISTORY.md). Engine/DSP/device/callback не изменены.
+Source `ff3aa538b634ac99346bd3ac058578fe7a1c2509`,7 code/test/build files,
+local branch `mrs/0.2g-fix1-editor-space-local`. Release configure/full build PASS.
+Full143/143 CTest PASS173.34s до final composer Value fix/post-async regression и version;
+final full incremental build/focused13/13 PASS3.96s после всех изменений.
+Mixed typed history/exact values/IDs, late command failure, abandonment/postcommit
+rollback, no-op/Redo/stale, manual/AI/dirty/revoke/SaveOpen и Browser GUI PASS.
+Initial focused12/13: ShiftEnter JUCE failure исправлен; затем13/13 PASS4.03s.
+Visual review обнаружил old text restore через async Value notification; fixed,
+post-async empty composer regression PASS. Final100/150 images inspected, no clipping;
+Connection collapsed/expanded при192×570/404×720/620×720 и bottom anchor PASS.
+Logs ai-history-configure.log/build.log/gui-build.log/full.log/build-final.log/
+focused-verified.log в build/asio-local; исходный failed focused.log сохранён.
+Package `MR-Studio-0.3k-AI-History-Chat-JUCE-ASIO-Windows-local`,13files/12hashes verified;
+GUI SHA256 `8F6221E56080DAF0F5118F330CE9975756888688F1F1305A2667F316E1E0B344`.
+Packaged AI smoke exit0; matching PDB deliveries/0.3k-ai-history-chat. MR shortcut
+обновлён на0.3k/icon сохранён; старые packages и реальные settings/key/projects сохранены.
+FEATURE READY WITH MANUAL CHECK: real provider marker group Apply→Undo→Redo→Save/Open,
+ASIO+network и physical DPI ещё требуют пользовательской проверки. #164/#163/#26 open
+до приёмки, #165 не начат автоматически. Следующий шаг: перезапустить через MR Studio,
+Browser→AI; EDIT до запроса, проверить новую ленту/Enter и marker group/history.
+Source/build/package local, docs/issues GitHub отдельно, без source push/PR/merge/Actions.
+
+## AI chat UX — требования к следующему билду, 2026-10-13 (реализованы в0.3k выше)
 
 Пользователь по screenshot0.3j попросил обычную ленту чата: отправленный текст
 переходит в ленту, поле ввода очищается; Enter отправляет сообщение.
