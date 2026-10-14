@@ -6,6 +6,10 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## MR Cab IR profiles — решение 2026-10-14
+
+Для запланированной #182 закреплено: **48 kHz / 200 ms** — основной Cab (Studio/Record/Live), **48 kHz / 500 ms** — Room и сравнительные тесты 200↔500. `44.1 kHz` для проектов 44.1, `96 kHz` для 96k/quality tests, `88.2 kHz` для 88.2k — **опционально**, полный оригинальный архив Celestion не удалять. Частота проекта определяет DSP rate: exact-source при наличии или off-thread resample того же IR, не менять mic/room/length тихо. 200/500 ms не обозначает задержку; CPU/PDC нужно мерить. Канон — [MR_CAB_COLLECTIONS.md §3.4](MR_CAB_COLLECTIONS.md), связанные задачи #183–#187. **Documentation update only**: реализации, сборки и прослушивания не проводились.
+
 ## MR Cab 2.0 / #182 — проектирование Universal IR Collections, 2026-10-14
 
 По явному запросу пользователя подготовлен **новый этап после закрытого #23**, родитель [#182](https://github.com/vladleng/MR-Studio/issues/182) в [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111), задачи [#183](https://github.com/vladleng/MR-Studio/issues/183)–[#188](https://github.com/vladleng/MR-Studio/issues/188): аудит **локально уже скачанного Celestion** → универсальная Collection/Cabinet/Variant схема и importer → компактный MR Reverb-style Simple GUI/presets → Advanced multi-mic/room → TONEX **WAV**/другие библиотеки и manual mapping → модульные extension contracts/сквозная QA. [Архитектура](MR_CAB_COLLECTIONS.md), [roadmap](MR_CAB_ROADMAP.md), [handoff для Codex P1](MR_CAB_CODEX_HANDOFF.md).
