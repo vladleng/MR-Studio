@@ -47,9 +47,10 @@ Selection по-прежнему unsupported для preview. Полный parent 
 Последовательная лента `You / Assistant / System / Connection` сохраняет сообщения
 при следующих запросах и переключении Browser tabs. Лента ограничена96 entries/
 256KiB UTF-8; один entry отображает до32768 characters. Старые entries удаляются
-при лимите; max32 calls/session прежний. Это display history, не provider context:
+при лимите; max32 calls/session прежний. В0.3k это была только display history:
 на каждый запрос отправляется текущий prompt+bounded snapshot, без всей переписки.
-Лента transient и не сохраняется в project или credentials.
+Лента transient и не сохраняется в project или credentials. С0.3l upd2 отдельный
+bounded conversation context описан ниже и заменяет прежний stateless provider path.
 
 После принятия worker request пользовательский текст добавляется в ленту, composer
 очищается вместе с локальным editor Undo. До успешного submit draft и старый preview
@@ -81,3 +82,19 @@ collapsed/expanded Connection at192×570/404×720/620×720, bottom anchor,100/15
 Пользователь принял #164: «#164 принимаю». Подробные physical DPI/ASIO измерения
 не предоставлены, новых аппаратных результатов не заявляем. Source/build/package local, docs/issues
 GitHub отдельно, без source push/PR/merge/Actions.
+
+## Follow-up context / 0.3l upd2 — 2026-10-14
+
+Provider context is separate from display transcript: last8 completed HTTP200 user/
+assistant text pairs,16KiB UTF8 total. Earlier assistant text shortened at2048chars
+with explicit notice; discard oldest whole pairs at budget. No usage/model metadata,
+connection/system errors, raw tool arguments or earlier snapshots. Current snapshot
+sent once on each request and takes precedence over historical facts/IDs.
+Values copied into immutable worker closure, no access to live UI in worker.
+Memory-only, not Save/Open/project schema/history/credentials. Reset on changed
+project session/access revocation/key removal/provider base or model change.
+HTTP errors/cancelled requests are not completed turns. Existing proposal ledger,
+permissions/review/stale/Apply/history remain authoritative; text cannot bypass them.
+GUI follow-up/UTF8/no telemetry/session+revocation reset and budgets PASS; final
+affected14/14 CTest PASS4.68s. Exact delivery in PROJECT_CONTEXT; real provider
+conversation behavior remains manual check. No #164 acceptance status change.

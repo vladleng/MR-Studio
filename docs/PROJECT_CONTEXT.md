@@ -6,6 +6,45 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## Chat follow-ups + empty MIDI INSERT / 0.3l upd2 — 2026-10-14
+
+User actual provider transcript confirms schema fix works (HTTP200), but each follow-up
+lost prior user parameters and empty INSERT was locally rejected. Empty MIDI INSERT
+now accepts notes=[]/cc=[] with valid existing instrument track/name/positive range;
+empty EDIT still rejected. Normal Core AddMidiClip→Preview→prepared TimingPlan Apply,
+shared Undo/Redo/SaveOpen and device restart rollback reused; no callback/DSP changes.
+Provider receives recent completed HTTP200 user/assistant text pairs: max8turns and
+16KiB UTF8, earlier assistant reply max2048characters+shortening notice; old whole
+pairs dropped at budget. UI display feed remains96entries/256KiB. Telemetry, system/
+connection errors, snapshots and raw tool arguments are not retained in conversation.
+Current snapshot sent once/new request; historical project facts/IDs never authoritative.
+Conversation is immutable copied values in worker closure, transient/not project state;
+reset on project session/permission revocation/credential removal/base or model change.
+No new model/schema/history system. UI/provider/domain/tests/docs AFFECTED;
+engine/RT-critical/serialization/durable model/project format unchanged. Existing
+RT-adjacent stopped/joined MIDI publication path reused and rollback tested.
+Prompt clarifies empty clip needs only target/start/length, selected track by default,
+carry prior user parameters, project-origin one-based bars, meter-aware ticks:
+4/4 at960PPQ=3840ticks/bar,2bars=7680; bar29=107520. Truncated query is not project end.
+These instructions are not a guarantee of model musical/time reasoning; real provider
+behavior remains manual acceptance. No automatic paid request or retry performed.
+Source `a5a59591304d2b5738035c9d269fff091c047ce5`,6code/test files, local branch unchanged.
+Release configure/full incremental build PASS, finalaffected14/14 CTest PASS4.68s.
+GUI request round-trip remembers Russian follow-up/no telemetry; byte/turn bounds,
+revocation/session reset; empty GUI Preview/Apply/Undo/Redo and Core SaveOpen/staged
+backend failure rollback PASS. Initial GUI fixtures failed: implicit JUCE ASCII
+construction of Russian literals and empty snapshot-query fixture; corrected to
+explicit fromUTF8/nonempty query. Logs ai-chat-upd2-*. No full144 rerun; base below.
+Package `MR-Studio-0.3l-upd2-AI-Chat-Empty-MIDI-JUCE-ASIO-Windows-local`,13files/12hashes
+verified, packaged AI smoke exit0, matching PDB deliveries/0.3l-upd2-ai-chat-empty-midi.
+GUI SHA256 `4128DA09D32B7842CC641E61CECB95F2001A3EA0C232F6F93AA7245DF8DE07E2`.
+Desktop MR Studio shortcut updated/icon retained; prior packages/settings/keys/projects
+preserved. Real provider follow-up→empty clip→Apply/Undo/Redo/SaveOpen, musical quality,
+ASIO+network/physical DPI NOT RUN; #165 open, no acceptance inferred/#166 not started.
+Next: restart via MR Studio and repeat user request: empty Piano clip from bar1,
+length2bars; EDIT, review then Apply with stopped transport/loop off. Source/build/
+packages local, docs/issues GitHub, no source push/PR/merge/Actions.
+
 ## MIDI tool schema HTTP400 fix / 0.3l upd1 — 2026-10-14
 
 Пользователь прислал actual provider error: `Invalid schema for function midi_draft`:

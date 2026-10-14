@@ -52,7 +52,8 @@ program/pressure/pitch bend events сохраняются, этим draft не �
 
 - INSERT: required track_id/name, clip_id запрещён. Новые host IDs, один новый MIDI
   clip [tick_start,tick_end) на existing instrument track. Existing clips не удаляются;
-  временное перекрытие clips возможно, как при обычном human insert.
+  временное перекрытие clips возможно, как при обычном human insert. С0.3l upd2
+  notes=[]/cc=[] допустимы для явно запрошенного пустого клипа.
 - REPLACE: required clip_id, track_id/name запрещены. Только существующий MIDI clip
   и range внутри его visible project range. Удаляются ноты в подтверждённом range
   и только CC этого range; остальные notes/events/source trim/clip geometry/IDs
@@ -141,3 +142,15 @@ MIDI/GUI checks: affected14/14 PASS4.63s, Release configure/build PASS; packaged
 smoke exit0. Actual provider paid request is NOT RUN; user retry/acceptance pending.
 Empty INSERT remains rejected by the existing contract; use at least one note/CC.
 Exact source/package/hash: PROJECT_CONTEXT.md. #165 remains open.
+
+## Empty INSERT and dialogue / 0.3l upd2 — 2026-10-14
+
+Empty insert now uses existing AddMidiClip, exact range and one shared Undo/Redo;
+no notes/CC or musical style required. Positive range and valid target/name remain
+mandatory; empty EDIT still rejected. GUI+Core preview/apply/history/SaveOpen and
+backend rollback PASS. Last8 completed dialogue turns/max16KiB are sent with one
+fresh snapshot; previous proposals are historical, never authority for Apply.
+Current selection/meter map governs target/time.4/4 at960PPQ=3840ticks/bar.
+Provider schema projection fix from upd1 retained. Final affected14/14 PASS4.68s;
+source/package/hash in PROJECT_CONTEXT. Real provider follow-ups and music quality
+manual check; #165 remains open. Earlier upd1 empty-INSERT limitation is superseded.
