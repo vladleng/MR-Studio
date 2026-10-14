@@ -8,10 +8,10 @@
 Старый DSP можно переиспользовать после аудита; обязательного legacy adapter нет.
 Общая совместимость других функций проекта и MR Reverb сохраняются; неподдерживаемый
 старый Cab показывать явно, без подмены IR. #23/#128 не переоткрывать.
-P1/#183 audit завершён, ждёт приёмки; #184 не начат. [Отчёт](MR_CAB_AUDIT_183.md).
+P1/#183, P2/#184 и Simple/#185 приняты/закрыты; текущий новый scope — #196 Full Combo. [Отчёт](MR_CAB_AUDIT_183.md).
 
 
-**Status:** backlog / план без кода, 2026-10-14. **Parent:** [#182](https://github.com/vladleng/MR-Studio/issues/182) → category [#111](https://github.com/vladleng/MR-Studio/issues/111).
+**Status:** #183/#184/#185 приняты и закрыты; #196 реализована локально в0.4b и ожидает ручной приёмки, 2026-10-14. #186/#187/#188 не начаты. [Поставка #196](MR_CAB_FULL_COMBO_196_DELIVERY.md). **Parent:** [#182](https://github.com/vladleng/MR-Studio/issues/182) → category [#111](https://github.com/vladleng/MR-Studio/issues/111).
 **Главное ТЗ:** [MR_CAB_COLLECTIONS.md](MR_CAB_COLLECTIONS.md), [передача рабочему Codex](MR_CAB_CODEX_HANDOFF.md).
 **Важно:** `#183–#188` ниже созданы как самостоятельные GitHub issues и пока отслеживаются **Markdown-чеклистом**. Только родительская связь, проверенная через GitHub API/UI, даёт настоящий sub-issue progress; ссылки и чекбоксы не создают native hierarchy.
 
@@ -47,7 +47,7 @@ P1/#183 audit завершён, ждёт приёмки; #184 не начат. [
 - **[#196 — Full Combo IR Polytone/Fender](https://github.com/vladleng/MR-Studio/issues/196)** — новое аддитивное расширение поверх **принятого и закрытого #185**, не часть уже проведённой приёмки.
 - В одном MR Cab: Cabinet (Celestion) / Full Combo (WAV полного измеренного тракта) / Unknown. Одна WAV свёртка без второго cabin/room. Сохранять classification, file identity, preset/source metadata/Undo/SaveOpen, сортировка/фильтр и честное описание линейных ограничений.
 - Использовать [existing generic importer #187](https://github.com/vladleng/MR-Studio/issues/187) вместо дубля; не блокировать начатые P4/P5 при отсутствии у пользователя платных Combo WAV. Для реальных испытаний пользователь должен предоставить file path, иначе synthetic fixture/NOT TESTED. Согласовывать #196 с #188 QA, но не вплетать NAM как готовую функцию.
-- **[Полное техническое задание](MR_CAB_FULL_COMBO_IR.md)**. Статус: запланировано, код/сборки не менялись этой задачей. GitHub-native sub-issue links требуют отдельной привязки.
+- **[Полное техническое задание](MR_CAB_FULL_COMBO_IR.md)**. Статус: реализовано локально0.4b (source2fbe90e), full149/149 PASS; ожидает ручной приёмки. [Поставка/инструкция](MR_CAB_FULL_COMBO_196_DELIVERY.md). GitHub-native sub-issue links требуют отдельной привязки.
 
 ## Definition of Done общего продукта
 
