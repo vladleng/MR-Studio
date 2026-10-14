@@ -134,3 +134,7 @@ effects passed load/process/state restore. Installed TH-U passed load/process/st
 and a synthesized legacy snapshot check (2546 declared parameters, 178 automatable).
 The exact user-selected TH-U preset and its sound after reopen still require user audition.
 No new plugin/tool installation, code publication or GitHub Actions.
+
+## Future ARA2 integration (planning only)
+
+Внешние ARA2 плагины — [#88 ARA2 Host](https://github.com/vladleng/MR-Studio/issues/88), [спецификация](ARA2_HOSTING.md), задачи #177–#181. АRA не является обычным VST3 insert и требует отдельной document/source/region модели, жизненного цикла ARA extension, сериализации и проверки совместимости. Существующий VST3 scanner/editor/state используется повторно только в допустимых границах. **ARA hosting пока не реализован; стандартный VST3 hosting этого не доказывает.**
