@@ -1,5 +1,22 @@
 # MR Studio: текущий контекст разработки
 
+## Full Combo IR / #196 — инструкции изучены, 2026-10-14
+
+Пользователь уточнил: нужны готовые комбики, а не только кабинеты; попросил изучить #196.
+Прочитаны issue/body/comments и MR_CAB_FULL_COMBO_IR.md, коллекционный канон/roadmap
+получены из актуального GitHub main. Принятая #185/0.4a upd1 не переоткрывается.
+Новый сценарий: один existing MR Cab, роли Cabinet / Full Combo / Unknown,
+Collection→Combo Model→Capture Variant; один WAV полного измеренного линейного пути,
+без второго cab/room. Celestion Cabinet не заменяет Full Combo capture Polytone/Fender.
+No nonlinear amp/NAM behavior claimed; neural backend — отдельный будущий scope.
+Current code has no explicit role/project role metadata; generic scan/model limit <=1s
+needs audit against actual Combo files. Reuse existing loader/convolver, no new processor.
+Study/docs-only: implementation NOT STARTED, builds/tests/listening NOT RUN;
+user path to actual Full Combo WAV not provided. User asked «Глянь», not separate
+implementation command. Next: user-authorized #196 slice + real source path when available.
+Existing package/source/shortcut/accepted tests unchanged; vendor WAV untouched.
+
+
 ## MR Cab Full Combo IR / #196 — спланировано, 2026-10-14
 
 По просьбе пользователя созданы [#196 — Full Combo WAV IR](https://github.com/vladleng/MR-Studio/issues/196) и [docs/MR_CAB_FULL_COMBO_IR.md](MR_CAB_FULL_COMBO_IR.md); дополнены [#182](https://github.com/vladleng/MR-Studio/issues/182), [#187](https://github.com/vladleng/MR-Studio/issues/187), [#188](https://github.com/vladleng/MR-Studio/issues/188), [архитектура](MR_CAB_COLLECTIONS.md), [roadmap](MR_CAB_ROADMAP.md). Пользователю не нужен отдельный кабинет с Polytone/Fender: нужны готовые **Full Combo WAV** (линейный отклик цепочки, без динамики/нелинейного перегруза) внутри уже имеющегося MR Cab. Новая библиотечная роль `cabinet/full_combo/unknown`, optional amp/capture metadata; существующий один convolver/async/crossfade, без нового DSP/дублирующего generic parser. NAM отложен в отдельное будущее направление. **#185 принят/закрыт; не переоткрывать и не менять его исходный дизайн этой документацией**. #196 backlog, не реализован, source/build/CTest не выполнялись; no vendor WAV copied. Только GitHub docs/issues; native subissue attachment ещё не подтверждено.
