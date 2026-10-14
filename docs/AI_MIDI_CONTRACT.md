@@ -154,3 +154,12 @@ Current selection/meter map governs target/time.4/4 at960PPQ=3840ticks/bar.
 Provider schema projection fix from upd1 retained. Final affected14/14 PASS4.68s;
 source/package/hash in PROJECT_CONTEXT. Real provider follow-ups and music quality
 manual check; #165 remains open. Earlier upd1 empty-INSERT limitation is superseded.
+
+## User empty-clip verification — 2026-10-14
+
+Actual0.3l upd2 screenshot: Piano empty INSERT from bar2 for2bars, ticks[3840,11520),
+provider validated, Apply accepted and clip visible. User: «undo/redo и сохранения работают».
+Confirms empty clip creation/history/saving scenario; no separate explicit reopen
+confirmation or musical notes/CC generation/replace/edit/instrument audition report.
+#165 remains open for broader musical acceptance; source/package/tests unchanged.
+Docs/issues-only, no rebuild or new provider calls. Current details in PROJECT_CONTEXT.

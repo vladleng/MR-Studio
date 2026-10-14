@@ -6,6 +6,23 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## #165 empty clip — user verification, 2026-10-14
+
+User screenshot shows0.3l upd2, selected Piano, actual provider validated midi_draft,
+Applied shown changes/Accepted, and visible Empty MIDI clip from bar2 for2bars:
+[3840,11520) at4/4,960PPQ. User then reports: «undo/redo и сохранения работают».
+Confirmed actual empty INSERT→Apply, Undo/Redo and saving in that tested scenario.
+Reopen/load success was not explicitly stated separately; do not invent it, musical
+note/CC generation/replace/edit quality and actual instrument audition remain untested
+by user. #165 remains open for its broader bass/drums/voicing acceptance; no #166 start.
+This is docs/issues-only verification: sourcea5a5959/package0.3l upd2/hash/shortcut,
+automated14/14 and packaged smoke results below unchanged; no rebuild/paid call.
+Conversation context resets on project reopen/session change; existing UI feed may
+remain visible until app restart, but old-session text is not sent to provider.
+Next user check: short explicit note party→Preview→Apply→instrument playback,
+Undo/Redo and Save/Open; remaining modes/music quality assessed in #165 scope.
+Source/build/package local, docs/issues GitHub; no source push/PR/merge/Actions.
+
 ## Chat follow-ups + empty MIDI INSERT / 0.3l upd2 — 2026-10-14
 
 User actual provider transcript confirms schema fix works (HTTP200), but each follow-up
