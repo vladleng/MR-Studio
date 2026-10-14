@@ -6,6 +6,8 @@ Baseline: принятая 0.4 Editing; branch `mrs/0.2g-fix1-editor-space-local
 HEAD `26c9dac`, source `1b69cf1`. До аудита checkout чистый.
 JUCE **9.0.3** подтверждён cmake/Juce.cmake, CMakeCache и SDK CMakeLists.
 GitHub source main отстаёт; три новых MR_CAB документа получены из main.
+Уточнение пользователя: «Не нужна совместимость со старым Cab». Это заменяет
+legacy-compatibility guardrails исходного плана: миграция/старые Cab projects не обязательны.
 Закрытые #23/#128 не переоткрыты; #182–188 остаются открытыми.
 
 ## Фактическая коллекция
@@ -61,8 +63,8 @@ Baseline 48k/200 dry, 48k/500 Room/A-B остаётся; никаких silent l
 | Компонент / файл | Подтверждённый контракт | Решение |
 |---|---|---|
 | core/audio/src/wav.cpp | inspect_wav, WavFile::read; PCM16/24/32, float32; bounded chunked Reverb decode | Общий decoder/header layer; добавить Cab worker adapter с stop_token, без второго decoder |
-| core/include/mrs/core.hpp, core/src/serialization.cpp | schema22; CabIr embedded original; Reverb external identity, REVERB 2 (gate) | Legacy unchanged; новые catalog metadata отдельно; не копировать устаревший REVERB 1 из старого handoff |
-| core/processing/src/cab_ir.cpp | mrs.cab-ir / CIR1; <=1s, mono/diagonal stereo; 128 direct + 128 FFT tail; 64MiB spectra budget; latency0 | Сохранить ID, embedded restore, controls, leading delay и без normalization |
+| core/include/mrs/core.hpp, core/src/serialization.cpp | schema22; CabIr embedded original; Reverb external identity, REVERB 2 (gate) | Legacy compatibility не требуется; новые catalog metadata отдельно; не копировать устаревший REVERB 1 из старого handoff |
+| core/processing/src/cab_ir.cpp | mrs.cab-ir / CIR1; <=1s, mono/diagonal stereo; 128 direct + 128 FFT tail; 64MiB spectra budget; latency0 | Переиспользовать DSP при parity; сохранение старого ID/embedded restore не требуется |
 | core/processing/src/ir_resample.hpp | shared windowed-sinc preparation | Переиспользовать off-thread для того же source IR/rate/length |
 | core/audio/src/reverb_library.cpp | 10000-file cap, immutable snapshots, generation/cancel, identity size/stamp/FNV, root-relative refs | Общие scanner/identity helpers; отдельный Cab semantic manifest, не Reverb-specific pair classification |
 | core/audio/include/mrs/reverb_library.hpp | per-node ReverbLoader graph lease, shutdown/join, active_revision, last good kernel | Повторить lifecycle/publication pattern; нынешний loader жёстко связан с ReverbKernel, не подключается напрямую к Cab |
@@ -88,12 +90,14 @@ Premixed vs component и room_included независимы от stereo.
 Exact project rate или off-thread resample того же WAV; selected length сохраняется.
 
 P3/#185: **предлагается** новый InsertKind, добавленный в конец enum,
-processor ID `mrs.cab-v2` и versioned external CabState; старый `mrs.cab-ir`
-и embedded fields остаются. Это выбранное направление, ID пока не зарегистрирован.
+processor ID `mrs.cab-v2` и versioned external CabState. Старые `mrs.cab-ir`
+и embedded fields не являются контрактом совместимости; окончательный replacement/удаление
+определить при реализации. Это выбранное направление, ID пока не зарегистрирован.
 Schema bump потребуется при записи нового project insert (текущее значение22
-не менять в P1/P2 metadata-only); старые1–22 читаются с прежней семантикой.
-Preset native shell использует тот же versioned state. Никакой автоматической legacy migration;
-upgrade лишь явной Undoable командой с подтверждённой parity.
+не менять в P1/P2 metadata-only). Общая project compatibility других функций сохраняется;
+старые embedded Cab inserts/presets не обязаны восстанавливаться или мигрировать.
+Для неподдерживаемого старого Cab показать явную ошибку, не подменять его другим IR.
+Preset native shell использует новый versioned state. Legacy upgrade не требуется.
 App-global roots/manifest/manual overrides — preferences; project — variant reference,
 source identity и DSP; runtime cache не сериализовать.
 Missing/changed не удаляет durable selection, не подставляет похожий файл;
@@ -116,7 +120,7 @@ changed/missing/relink, deterministic IDs/reindex. Не импортироват
 P3: direct+partition impulse parity/leading delay/no normalization, mono/stereo
 independence, resampling44.1/48/96, rapid switching/play/stopped acknowledge,
 last-good on failure, per-node retirement, no RT allocation/free/lock/I/O,
-SaveOpen/preset/UndoRedo/missing references, legacy schema1–22 migrations,
+SaveOpen/preset/UndoRedo/missing references, общая project schema migration без legacy Cab parity,
 Reverb library/true-stereo regression, track/bus/Master/raw recording/PDC/bypass.
 Opt-in реальная коллекция: обе длины одного mic и Room; fixed project rates,
 128/256/512/1024 blocks, 1/2/4/8 instances, callback max/xruns/CPU/peak RAM/PDC
