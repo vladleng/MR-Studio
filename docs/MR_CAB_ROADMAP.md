@@ -1,5 +1,16 @@
 # MR Cab 2.0 — roadmap, приёмка и взаимосвязи
 
+## Уточнение пользователя, 2026-10-14 — Legacy Cab compatibility
+
+Пользователь: «Не нужна совместимость со старым Cab». Эта инструкция заменяет
+прежние требования ниже о сохранении старого Cab ID/embedded state/presets,
+миграции и legacy Cab regression/parity как обязательной приёмке MR Cab2.0.
+Старый DSP можно переиспользовать после аудита; обязательного legacy adapter нет.
+Общая совместимость других функций проекта и MR Reverb сохраняются; неподдерживаемый
+старый Cab показывать явно, без подмены IR. #23/#128 не переоткрывать.
+P1/#183 audit завершён, ждёт приёмки; #184 не начат. [Отчёт](MR_CAB_AUDIT_183.md).
+
+
 **Status:** backlog / план без кода, 2026-10-14. **Parent:** [#182](https://github.com/vladleng/MR-Studio/issues/182) → category [#111](https://github.com/vladleng/MR-Studio/issues/111).
 **Главное ТЗ:** [MR_CAB_COLLECTIONS.md](MR_CAB_COLLECTIONS.md), [передача рабочему Codex](MR_CAB_CODEX_HANDOFF.md).
 **Важно:** `#183–#188` ниже созданы как самостоятельные GitHub issues и пока отслеживаются **Markdown-чеклистом**. Только родительская связь, проверенная через GitHub API/UI, даёт настоящий sub-issue progress; ссылки и чекбоксы не создают native hierarchy.
