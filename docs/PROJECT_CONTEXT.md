@@ -1,5 +1,18 @@
 # MR Studio: текущий контекст разработки
 
+## MR Cab #185 / 0.4a upd1 — принято, 2026-10-14
+
+Пользователь: «Принимаю» после исправления active/Ready mismatch, unavailable rows
+и native window ownership. #185 accepted/closed completed в поставленном Simple scope.
+Автоподбор IR через меню явно отложен; текущие меню фильтруют WAV список,
+эта функция не объявляется реализованной. #186 НЕ НАЧАТ.
+Source8aec161/package0.4a upd1/12hashes/shortcut/PDB и прежние результаты2/2 GUI
+и packaged smoke сохранены. Приёмка docs/issues-only: новых builds/tests/ASIO/
+CPU/listening measurements и изменений пользовательских WAV/settings нет.
+Подробная hardware/focus/DPI матрица не предоставлена; не выводить её из «Принимаю».
+[Принятая поставка](MR_CAB_UI_UPD1_185.md). Source local, GitHub docs/issues [skip ci].
+
+
 ## MR Cab / #185 — 0.4a upd1 UI fixes, 2026-10-14
 
 Пользователь: сначала несовпадение выделения/Ready и оранжевые записи,
