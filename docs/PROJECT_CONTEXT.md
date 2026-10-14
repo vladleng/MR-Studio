@@ -6,6 +6,11 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## ARA2 Host / #88 — документация и декомпозиция, 2026-10-14
+
+По запросу пользователя ARA2 выделена в существующую [#88](https://github.com/vladleng/MR-Studio/issues/88), GitHub-native parent [#78](https://github.com/vladleng/MR-Studio/issues/78). Созданы **отдельные issues #177–#181**, последовательность P1 SDK/JUCE → P2 Clip/Timeline → P3 Plugin UX/compatibility → P4 Archive/Undo/Recovery → P5 MR AI tools. [Спецификация и acceptance](ARA2_HOSTING.md), [roadmap](ROADMAP.md), [VST3 boundary](VST3_HOSTING.md).
+**Только план:** код, build, tests, ASIO и пользовательская приёмка ARA2 не выполнялись. Первой для Codex является #177, запуск реализации только по отдельному запросу. Issues #177–#181 связаны с #88 через Markdown, пока **не прикреплены как GitHub-native sub-issues**, поэтому автоматический progress не заявляется. Не путать ARA host с нативным MR Pitch #73 или общим VST3 insert.
+
 ## 0.4 Editing / #150 — принято, 2026-10-14
 
 Прямой запрос: завершить все правки #150 и выпустить0.4. Все7 пунктов реализованы:
