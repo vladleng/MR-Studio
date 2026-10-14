@@ -23,10 +23,18 @@ Skill — инструкции/данные; модель выдаёт толь�
 
 ## База и ограничения
 
-**Номер следующей delivery — 0.4**, по уточнению пользователя2026-10-14:
+Актуальная delivery2026-10-14: **0.4 Editing / #150**, source
+`1b69cf16e9c95cbf1c6aa2685410938db914259b`, schema22/archive1/preferences8,
+final145/145 PASS107.69s; package MR-Studio-0.4-Editing-JUCE-ASIO-Windows-local.
+READY WITH MANUAL CHECK, user acceptance #150 pending. Добавлены ClipRGB и optional
+sectionTemplates ViewSettings JSONv1; учитывать при storage/SaveOpen compatibility.
+Прежняя0.3m upd4 ниже — принятая историческая база плана. Current PROJECT_CONTEXT
+и actual local HEAD приоритетнее исходных baseline записей.
+
+**Номер delivery после Foundation — 0.4**, по уточнению пользователя2026-10-14:
 «билд ... после уже сделанного #26 ... должен иметь номер0.4». Старый принятый
-0.3m upd4 не переименовывать/перепаковывать;0.4 ещё не собрана. Обновить source
-version/title/new package/PDB/manifest/shortcut согласованно при следующем выпуске.
+0.3m upd4 не переименовывать/перепаковывать;0.4 Editing выпущена локально в #150.
+Source version/title/new package/PDB/manifest/shortcut согласованы; подробности выше.
 
 - Исходники: C:/Users/Vladislav/Documents/GitHub/MR-Studio; рабочая папка чатов:
   C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio. Не клонировать старый main.

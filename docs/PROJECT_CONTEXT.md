@@ -6,6 +6,28 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## 0.4 Editing / #150 — готово к ручной приёмке, 2026-10-14
+
+Прямой запрос: завершить все правки #150 и выпустить0.4. Все7 пунктов реализованы:
+global section Text+RGB templates в popup/settings, Pointer1/Knife3, chord/section S/click
+split, selected audio/MIDI group split и edge resize с общей legal delta/одной Undo,
+popup30%transparent, context clip operations +14bright colors/contrast-aware ink.
+Shift free drag/Smart Snap/прошлая AI Foundation сохранены. [Контракт](EDITING_BACKLOG_150.md).
+Source `1b69cf16e9c95cbf1c6aa2685410938db914259b`, branch mrs/0.2g-fix1-editor-space-local.
+Schema22/archive1/preferences8: optional ClipRGB, reader1–22; старые проекты defaultblue,
+новые schema22 файлы не читаются старым0.3m. Templates optional ViewSettings JSONv1.
+Release configure/full build PASS; final145/145 CTest PASS107.69s после всех правок,
+GUI100/150 inspected, packaged AI startup smoke exit0. Initial compile/fixture failures
+исправлены, логи backlog150-* сохранены; никаких новых callback/paid network операций.
+Package MR-Studio-0.4-Editing-JUCE-ASIO-Windows-local,13files/12hashes verified;
+GUI SHA25681594312AF44DBFB7894CBC0B9C184E6C16C3EF78F6ECBD641F82801EB5BAD5F.
+PDB deliveries/0.4-editing-150. Прежний MR Studio shortcut→0.4/workingdir/emptyargs/icon
+verified, previous0.3m upd4 manifest12/12 unchanged. Settings/keys/user projects preserved.
+FEATURE READY WITH MANUAL CHECK; #150 open до приёмки, physical ASIO/DPI NOT RUN.
+Следующий шаг — пользователь проверяет0.4, затем по выбору #168/#170 Memory.
+#26 children11/11 accepted, parent audit отдельно. #168 links пока0native (user добавляет).
+GitHub docs/issues синхронизируются, source/build/package local; без Actions/source push.
+
 ## Skills and Memory #168 запланированы — 2026-10-14
 
 Версия по прямому уточнению пользователя: после выполненного #26 следующий
