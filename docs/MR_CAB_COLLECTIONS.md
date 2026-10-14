@@ -1,5 +1,16 @@
 # MR Cab 2.0 — Universal IR Collections: архитектура и продуктовый контракт
 
+## Уточнение пользователя, 2026-10-14 — Legacy Cab compatibility
+
+Пользователь: «Не нужна совместимость со старым Cab». Эта инструкция заменяет
+прежние требования ниже о сохранении старого Cab ID/embedded state/presets,
+миграции и legacy Cab regression/parity как обязательной приёмке MR Cab2.0.
+Старый DSP можно переиспользовать после аудита; обязательного legacy adapter нет.
+Общая совместимость других функций проекта и MR Reverb сохраняются; неподдерживаемый
+старый Cab показывать явно, без подмены IR. #23/#128 не переоткрывать.
+P1/#183 audit завершён, ждёт приёмки; #184 не начат. [Отчёт](MR_CAB_AUDIT_183.md).
+
+
 **Статус:** design/backlog, реализация НЕ начата; 2026-10-14.
 **Parent issue:** [#182](https://github.com/vladleng/MR-Studio/issues/182), направление [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111).
 **План:** [MR_CAB_ROADMAP.md](MR_CAB_ROADMAP.md). **Codex handoff:** [MR_CAB_CODEX_HANDOFF.md](MR_CAB_CODEX_HANDOFF.md).
