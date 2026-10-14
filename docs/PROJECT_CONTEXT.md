@@ -6,6 +6,24 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## MR Cab P1/#183 — аудит завершён, ожидает приёмки, 2026-10-14
+
+По прямому запросу выполнен только P1/#183: локальный Cab/Reverb/schema/RT audit
+и read-only Celestion G12M-50 Hempback Open1x12 (корень предоставлен пользователем).
+68 WAV PCM24/48k:34×200ms/9600frames +34×500ms/24000frames,62mono/6stereo,
+34 matched filename pairs, ошибок чтения0. Factory12/mic19/Room3 на каждую длину;
+RoomL/R моно, не Reverb true-stereo pair. Все200 отличаются от prefix500.
+Late energy Room0.0611–0.0763%, All+Room0.00111–0.00181%; слышимость НЕ ПРОВЕРЕНА.
+[Отчёт/архитектура/test plan](MR_CAB_AUDIT_183.md); metadata/script локально
+build/asio-local/validation/cab183. WAV не менялись/не копировались/не публиковались.
+Предложен отдельный mrs.cab-v2/external state + reuse shared decoder/scanner/handoff
+без изменения mrs.cab-ir/CIR1; новые ID/schema/GUI/runtime ещё НЕ реализованы.
+JUCE9.0.3/schema22/REVERB2 подтверждены по коду. Branch mrs/0.2g-fix1-editor-space-local,
+HEAD26c9dac/source1b69cf1/accepted0.4 пакет прежние. Audit-only: новых build/CTest/
+GUI/ASIO/listening/CPU benchmark нет. GitHub #182–188 проверены; #23/#128 не открывались.
+#183 ожидает отдельной приёмки пользователя; #184 НЕ НАЧАТ. Только docs/issues GitHub,
+[skip ci], source/build/package local, без Actions/source push/PR/merge.
+
 ## MR Cab IR profiles — решение 2026-10-14
 
 Для запланированной #182 закреплено: **48 kHz / 200 ms** — основной Cab (Studio/Record/Live), **48 kHz / 500 ms** — Room и сравнительные тесты 200↔500. `44.1 kHz` для проектов 44.1, `96 kHz` для 96k/quality tests, `88.2 kHz` для 88.2k — **опционально**, полный оригинальный архив Celestion не удалять. Частота проекта определяет DSP rate: exact-source при наличии или off-thread resample того же IR, не менять mic/room/length тихо. 200/500 ms не обозначает задержку; CPU/PDC нужно мерить. Канон — [MR_CAB_COLLECTIONS.md §3.4](MR_CAB_COLLECTIONS.md), связанные задачи #183–#187. **Documentation update only**: реализации, сборки и прослушивания не проводились.
