@@ -23,6 +23,11 @@ Skill — инструкции/данные; модель выдаёт толь�
 
 ## База и ограничения
 
+**Номер следующей delivery — 0.4**, по уточнению пользователя2026-10-14:
+«билд ... после уже сделанного #26 ... должен иметь номер0.4». Старый принятый
+0.3m upd4 не переименовывать/перепаковывать;0.4 ещё не собрана. Обновить source
+version/title/new package/PDB/manifest/shortcut согласованно при следующем выпуске.
+
 - Исходники: C:/Users/Vladislav/Documents/GitHub/MR-Studio; рабочая папка чатов:
   C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio. Не клонировать старый main.
 - Source: `66b712fa2a66b6c8e3d2c1627e6caacf167c4348`, ветка

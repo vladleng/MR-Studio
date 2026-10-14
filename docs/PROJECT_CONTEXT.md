@@ -8,6 +8,12 @@
 
 ## Skills and Memory #168 запланированы — 2026-10-14
 
+Версия по прямому уточнению пользователя: после выполненного #26 следующий
+выпускаемый билд должен иметь номер **0.4**. Текущий принятый0.3m upd4 остаётся
+историческим пакетом с прежними именем/manifest/hash; версия0.4 ещё не собрана.
+При следующей delivery согласовать source version/title/package/symbols/manifest/shortcut
+на0.4, без переименования старых пакетов. Это требование версии, не старт новой сборки.
+
 Прямой запрос создать parent/sub-issues и handoff для следующего чата. Parent#168
 «[MRS AI] Skills and Memory», семь задач #170–176: storage, restore/context,
 memory/history UI, Skill Registry, Skill editor/library, execution, integration.
