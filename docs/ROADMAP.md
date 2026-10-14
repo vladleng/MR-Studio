@@ -295,6 +295,16 @@ MRS 0.6 выше — исторический ориентир roadmap, не н�
 
 ---
 
+## Future MRS Feature — ARA2 Host / #88 (не реализовано)
+
+**Решение 2026-10-14:** реализовать ARA2 Host поверх существующих JUCE/VST3, Audio Clip/Timeline/Project и SHARED Engine для внешних вокальных/аудиоредакторов. Это будущая функция из [#78 FEATURES](https://github.com/vladleng/MR-Studio/issues/78), а не переоткрытие принятого VST3 Stage 3 или отдельный Live engine. Она не входит автоматически в версию сборки, заданную историческими MRS Stage N.
+
+**Source of truth:** [docs/ARA2_HOSTING.md](ARA2_HOSTING.md), [#88](https://github.com/vladleng/MR-Studio/issues/88). Порядок задач: [#177](https://github.com/vladleng/MR-Studio/issues/177) SDK/JUCE host → [#178](https://github.com/vladleng/MR-Studio/issues/178) clip/timeline/ARA regions → [#179](https://github.com/vladleng/MR-Studio/issues/179) редактор/compatibility → [#180](https://github.com/vladleng/MR-Studio/issues/180) project state/Undo/recovery → [#181](https://github.com/vladleng/MR-Studio/issues/181) AI Tool API.
+
+AI использует текущий #26 Foundation и управляет только разрешёнными host-level операциями; ARA2 не обещает стандартного доступа к внутренним pitch blobs. Отдельный native MR Pitch #73 не входит в этот план. **Все 5 задач backlog, без implementation/build/user acceptance.** Начинать первый slice лишь по отдельному запросу.
+
+---
+
 # LIVE — встроенный Live Mode
 
 Parent: #14
