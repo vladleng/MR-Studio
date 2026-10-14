@@ -75,6 +75,10 @@ upd9 и более ранние пакеты сохраняются.
 фон mixer channels/track headers, окантовка/скругления, мелкий шрифт, разделители,
 native/host plugin editors, VST3/Files text, audio/MIDI clip и marker edges.
 
+## MR UI Kit / Gallery — future extension (2026-10-14)
+
+Новая инфраструктурная задача [#189 MR UI Kit + Gallery](https://github.com/vladleng/MR-Studio/issues/189), [спецификация](MR_UI_KIT.md), [интерактивный конструктор](MR_UI_GALLERY.md), [этапы](MR_UI_KIT_ROADMAP.md). **Этот документ остаётся каноническим источником принятых цветов/шрифтов и исключений #145/#146**, не заменяется будущим Kit. На первом этапе новый дизайн не применяется глобально; экспериментальные изменения действуют только в scoped preview Gallery. Code/build/test не выполнялись.
+
 ## Общие роли
 
 Владелец — существующий `ui::Theme` / `Controls.h`, отдельной темы нет.
