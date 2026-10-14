@@ -1,5 +1,15 @@
 # AI tool contracts / permissions — #161/#162
 
+## Permissions приняты — 2026-10-14
+
+После checklist #162 пользователь: «Все работает. А есть режим без подтверждения -
+просто пишешь и он выполнят?». #162 closed completed в текущем объёме0.3m upd4.
+AUTO остаётся allowlisted с ручным Apply; автономное исполнение не добавлено.
+Подробная ручная матрица/новые hardware измерения не предоставлены, прежние локальные
+policy/authorization/preferences/preview tests сохранены. Parent#26 open10/11,
+осталось #163. Source66b712f/package прежние, docs/issues-only без build/tests/paid calls.
+Предыдущие записи о pending #162 исторические и заменены этим подтверждением.
+
 ## Command/Tool API принят — 2026-10-14
 
 В ответ на checklist #161 пользователь: «Все работает, на undo/redo тоже проверил».

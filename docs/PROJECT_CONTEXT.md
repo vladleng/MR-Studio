@@ -6,6 +6,18 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## Permissions #162 приняты — 2026-10-14
+
+В ответ на checklist READ/SUGGEST/EDIT/revoke/mode-switch/AUTO/preferences пользователь:
+«Все работает. А есть режим без подтверждения - просто пишешь и он выполнят?».
+#162 closed completed в текущем объёме0.3m upd4; AUTO требует ручного Apply, режим
+без подтверждения не реализован и этой приёмкой не добавлен. Отдельная подробная
+матрица screenshots/hardware измерений не предоставлена; локальные policy/authorization/
+preferences/preview tests сохранены. Native #26 completion10/11; осталось #163,
+parent open. Следующий шаг — приёмка Preview/diff, включая Reject и stale Refresh.
+Source66b712f/package/manifest/shortcut прежние; docs/issues-only без новых build/tests/
+paid calls/source push/Actions. Старые awaiting-acceptance записи ниже исторические.
+
 ## Command/Tool API #161 принят — 2026-10-14
 
 После checklist #161 пользователь: «Все работает, на undo/redo тоже проверил».
