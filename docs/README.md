@@ -51,6 +51,8 @@ GitHub — главный источник информации проекта (
 - [MR Reverb дизайн](MR_REVERB.md), [реализация/приёмка](REVERB_VALIDATION.md), [gate/Mix](REVERB_GATE_MIX.md).
 - [UI reference](UI_REFERENCE_UPD9.md), [plugin loading/send bypass](INSERT_LOADING_SEND_BYPASS_UPD8.md).
 
+- **MR Cab Full Combo IR [#196](https://github.com/vladleng/MR-Studio/issues/196):** [Full Combo IR](MR_CAB_FULL_COMBO_IR.md) — будущее аддитивное расширение принятого #185: WAV записанной цепочки Polytone/Fender без второго кабинета; neural amp DSP отдельно.
+
 ## Будущие концепции — не реализованы в текущей сборке
 
 - [Spatial](ACOUSTIC_SPACE_PROTOTYPE.md), [FX routing](PRE_SPATIAL_ROUTING.md), [MR Strip Link](MR_STRIP_LINK.md).
