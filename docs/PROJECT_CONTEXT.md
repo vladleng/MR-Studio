@@ -6,7 +6,7 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
-## 0.4 Editing / #150 — готово к ручной приёмке, 2026-10-14
+## 0.4 Editing / #150 — принято, 2026-10-14
 
 Прямой запрос: завершить все правки #150 и выпустить0.4. Все7 пунктов реализованы:
 global section Text+RGB templates в popup/settings, Pointer1/Knife3, chord/section S/click
@@ -23,9 +23,13 @@ Package MR-Studio-0.4-Editing-JUCE-ASIO-Windows-local,13files/12hashes verified;
 GUI SHA25681594312AF44DBFB7894CBC0B9C184E6C16C3EF78F6ECBD641F82801EB5BAD5F.
 PDB deliveries/0.4-editing-150. Прежний MR Studio shortcut→0.4/workingdir/emptyargs/icon
 verified, previous0.3m upd4 manifest12/12 unchanged. Settings/keys/user projects preserved.
-FEATURE READY WITH MANUAL CHECK; #150 open до приёмки, physical ASIO/DPI NOT RUN.
-Следующий шаг — пользователь проверяет0.4, затем по выбору #168/#170 Memory.
-#26 children11/11 accepted, parent audit отдельно. #168 links пока0native (user добавляет).
+FEATURE ACCEPTED: пользователь «Все принимаю, закрывай» —0.4 и все7 пунктов #150.
+#150 closed completed. Приёмка docs/issues-only, прежние source/tests/package/manifest/
+shortcut сохранены; новых build/tests/paid calls/hardware измерений нет.
+Подробная physical ASIO/DPI матрица не предоставлена, новые измерения не заявлены.
+Следующий шаг по выбору пользователя — #168/#170 Memory; автоматически не начат.
+#26 уже closed при сверке GitHub, children11/11 accepted; прежние parent-open записи
+ниже исторические. #168 native links сверять по GitHub, а не по старым checklist.
 GitHub docs/issues синхронизируются, source/build/package local; без Actions/source push.
 
 ## Skills and Memory #168 запланированы — 2026-10-14

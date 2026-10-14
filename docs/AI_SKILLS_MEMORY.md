@@ -26,7 +26,8 @@ Skill — инструкции/данные; модель выдаёт толь�
 Актуальная delivery2026-10-14: **0.4 Editing / #150**, source
 `1b69cf16e9c95cbf1c6aa2685410938db914259b`, schema22/archive1/preferences8,
 final145/145 PASS107.69s; package MR-Studio-0.4-Editing-JUCE-ASIO-Windows-local.
-READY WITH MANUAL CHECK, user acceptance #150 pending. Добавлены ClipRGB и optional
+FEATURE ACCEPTED: «Все принимаю, закрывай», #150 closed completed2026-10-14.
+#26 также closed при свежей сверке GitHub, children11/11 accepted. Добавлены ClipRGB и optional
 sectionTemplates ViewSettings JSONv1; учитывать при storage/SaveOpen compatibility.
 Прежняя0.3m upd4 ниже — принятая историческая база плана. Current PROJECT_CONTEXT
 и actual local HEAD приоритетнее исходных baseline записей.
@@ -45,7 +46,7 @@ Source version/title/new package/PDB/manifest/shortcut согласованы; �
   `Builds/MR-Studio-0.3m-upd4-Grid-Shift-Drag-JUCE-ASIO-Windows-local`.
   GUI SHA256 `3A0964BD615FBA1BA21BC2C30FC4421796A86487F0B20EB8159E5B1551C86BC0`;
  13runtime files/12hashes, symbols build/asio-local/deliveries/0.3m-upd4-grid-shift-drag.
-- #26 native children11/11 приняты; parent остаётся open до финального аудита.
+- #26 native children11/11 приняты; parent closed при сверке2026-10-14.
   Memory/Skills — отдельный новый объём, не часть прежней приёмки.
 - Последние affected6/6 CTest PASS91.01s вupd4; full145 последний раз PASS160.58s
   вupd2. Не выдавать эти старые проверки за validation новых функций.

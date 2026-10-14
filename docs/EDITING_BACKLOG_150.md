@@ -2,7 +2,9 @@
 
 2026-10-14. По прямому запросу пользователя реализовать все7 пунктов #150 и выпустить
 билд0.4 после принятой AI Foundation. База accepted0.3m upd4/source66b712f.
-FEATURE READY WITH MANUAL CHECK; пользовательская приёмка #150 не заявлена.
+FEATURE ACCEPTED2026-10-14: пользователь «Все принимаю, закрывай» —0.4 и все7 пунктов
+#150. Issue closed completed, прежние source/tests/package/manifest/shortcut сохранены.
+Приёмка docs/issues-only без новой сборки/tests/paid calls/hardware измерений.
 
 ## Пользовательский контракт
 
@@ -78,5 +80,6 @@ No real paid requests/physical ASIO/mixed-DPI measurements; local packages/sourc
 marquee group→S/group left/right trim→Shift/cancel; ПКМ color14/default→UndoRedo/SaveOpen;
 меню читаются на реальном DPI. Проверять в копии проекта, новые schema22 файлы не открывать
 старым0.3m. Physical ASIO/DPI и real-user acceptance отдельно; не подменять GUI fixtures.
-#150 остаётся open до принятого пользователем объёма. #26 children11/11 приняты, parent
-финальный audit отдельно. Следующий roadmap #168/SM01 только по прямому выбору пользователя.
+#150 closed completed после явной приёмки всего объёма. #26 при свежей сверке уже closed,
+children11/11 приняты. Подробная новая ASIO/DPI матрица не предоставлена. Следующий roadmap
+#168/SM01 только по прямому выбору пользователя.
