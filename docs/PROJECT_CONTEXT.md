@@ -19,6 +19,10 @@ CPU/max callback/real Celestion A-B/physical DPI NOT RUN. #185 open awaiting acc
 #186 NOT STARTED. Source/build/package local; GitHub docs/issues [skip ci], no Actions/source push.
 
 
+## MR UI Kit + Gallery / #189 — инфраструктурный план 2026-10-14
+
+По прямому запросу пользователя оформлен [#189](https://github.com/vladleng/MR-Studio/issues/189) в категории [#78](https://github.com/vladleng/MR-Studio/issues/78): **общая библиотека JUCE MR Controls и отдельное MR UI Gallery preview window**. Этапы [#190](https://github.com/vladleng/MR-Studio/issues/190) Theme/Controls audit → [#191](https://github.com/vladleng/MR-Studio/issues/191) design tokens/scoped LookAndFeel → [#192](https://github.com/vladleng/MR-Studio/issues/192) reusable Knob/Fader/Buttons/Selector → [#193](https://github.com/vladleng/MR-Studio/issues/193) Gallery controls/inspector/DPI/drafts → [#194](https://github.com/vladleng/MR-Studio/issues/194) native parameter bindings/Undo → [#195](https://github.com/vladleng/MR-Studio/issues/195) pilot plugin/QA. Канон: [MR_UI_KIT.md](MR_UI_KIT.md), [MR_UI_GALLERY.md](MR_UI_GALLERY.md), [MR_UI_KIT_ROADMAP.md](MR_UI_KIT_ROADMAP.md), [MR_UI_KIT_CODEX_HANDOFF.md](MR_UI_KIT_CODEX_HANDOFF.md). `ui::Theme`/`Controls.h` и [UI_REFERENCE_UPD9](UI_REFERENCE_UPD9.md), принятые GUI #145/#146 остаются исходной точкой. Gallery sandbox state не меняет проект/аудио. **Только docs/issues; source/build/tests не выполнялись.** Не блокировать текущую разработку MR Cab и не навязывать редизайн его GUI. Реализация стартует только по отдельной команде. Нативные sub-issue связи необходимо подтвердить/прикрепить через GitHub UI, Markdown ссылки не заменяют parent.
+
 ## MR Cab P2/#184 готов к приёмке, 2026-10-14
 
 #183 accepted/closed по «#183 принимаю, начинай #184». P2 local source28c30a7,
