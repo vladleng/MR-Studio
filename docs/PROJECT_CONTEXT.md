@@ -1,5 +1,16 @@
 # MR Studio: текущий контекст разработки
 
+## MR Cab P2/#184 готов к приёмке, 2026-10-14
+
+#183 accepted/closed по «#183 принимаю, начинай #184». P2 local source28c30a7,
+docs cb739c6: manifest v1/facets/tags/manual overrides, Celestion parser,
+immutable async preview, fingerprint/integrity/missing/relink, same-length SR selector.
+Full Release build PASS; final targeted4/4 PASS18.89s; real Hempback68/68 classified.
+[Результат и границы](MR_CAB_MANIFEST_184.md). No PCM distribution/source push/Actions.
+No GUI/DSP/schema changes; accepted0.4 package preserved. #184 open awaiting acceptance;
+#185 not started. Legacy Cab compatibility waived. Source/build local; docs/issues GitHub.
+
+
 ## Уточнение MR Cab2.0, 2026-10-14
 
 Пользователь: «Не нужна совместимость со старым Cab». Legacy Cab ID/embedded state/
