@@ -6,6 +6,11 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## MR Cab 2.0 / #182 — проектирование Universal IR Collections, 2026-10-14
+
+По явному запросу пользователя подготовлен **новый этап после закрытого #23**, родитель [#182](https://github.com/vladleng/MR-Studio/issues/182) в [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111), задачи [#183](https://github.com/vladleng/MR-Studio/issues/183)–[#188](https://github.com/vladleng/MR-Studio/issues/188): аудит **локально уже скачанного Celestion** → универсальная Collection/Cabinet/Variant схема и importer → компактный MR Reverb-style Simple GUI/presets → Advanced multi-mic/room → TONEX **WAV**/другие библиотеки и manual mapping → модульные extension contracts/сквозная QA. [Архитектура](MR_CAB_COLLECTIONS.md), [roadmap](MR_CAB_ROADMAP.md), [handoff для Codex P1](MR_CAB_CODEX_HANDOFF.md).
+**Status:** PLAN ONLY, ни код, ни build, ни tests, ни прослушивание местной Celestion в этой работе не выполнялись. Исходники/build/packages остаются локальными и не менялись. Закрытые #23 и #128 не открывались. #183–#188 существуют как отдельные issues и отмечены в #182 текстовым чеклистом; **GitHub-native sub-issue attachments пока не сделаны/не подтверждены**. Следующий шаг — только по явной команде пользователя: локальный audit #183. Не публиковать Celestion/Tonex WAV, не разрабатывать TONEX Tone Models/.txm/.txp или Amp DSP в рамках этой задачи.
+
 ## ARA2 Host / #88 — документация и декомпозиция, 2026-10-14
 
 По запросу пользователя ARA2 выделена в существующую [#88](https://github.com/vladleng/MR-Studio/issues/88), GitHub-native parent [#78](https://github.com/vladleng/MR-Studio/issues/78). Созданы **отдельные issues #177–#181**, последовательность P1 SDK/JUCE → P2 Clip/Timeline → P3 Plugin UX/compatibility → P4 Archive/Undo/Recovery → P5 MR AI tools. [Спецификация и acceptance](ARA2_HOSTING.md), [roadmap](ROADMAP.md), [VST3 boundary](VST3_HOSTING.md).
