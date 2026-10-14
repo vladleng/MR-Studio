@@ -1,5 +1,24 @@
 # MR Studio: текущий контекст разработки
 
+## MR Cab Simple / #185 — 0.4a готов к ручной приёмке, 2026-10-14
+
+#184 accepted («#184 принимаю. Пререходи к #185»), closed completed.
+P3 local source ae9800c05e501fdc5fcde24ee22ec1a6e4b4eb03:
+native MR Cab editor/facets/search/Favorites, external state/presets/Undo,
+async expected-identity loading, shared convolution80ms crossfade +20ms controls.
+Schema23/archive1/reader1–23; no mandatory old Cab compatibility.
+[Контракт/проверки](MR_CAB_SIMPLE_185.md). Full148/148 PASS188.24s,
+final enhanced Cab/Reverb GUI2/2 PASS3.03s; packaged Cab smoke exit0,
+loaded synthetic200/500 + previews100/150 inspected. RT hostalloc/free0 probes PASS.
+Early macros/PDB/fixture/Windows1251 errors fixed; final no failures.
+Package MR-Studio-0.4a-MR-Cab-JUCE-ASIO-Windows-local13files/12hashes verified;
+GUI SHA25605EB2DBBBA1E6227352CB303E844C502EC5F2690E37C5B2DEDE01023F6D41CF5.
+Symbols deliveries/0.4a-mr-cab-185; existing MR shortcut updated/icon retained.
+Accepted0.4 preserved; vendor WAV untouched/not distributed. Physical ASIO/listening/
+CPU/max callback/real Celestion A-B/physical DPI NOT RUN. #185 open awaiting acceptance;
+#186 NOT STARTED. Source/build/package local; GitHub docs/issues [skip ci], no Actions/source push.
+
+
 ## MR Cab P2/#184 готов к приёмке, 2026-10-14
 
 #183 accepted/closed по «#183 принимаю, начинай #184». P2 local source28c30a7,
