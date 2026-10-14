@@ -54,6 +54,7 @@ GitHub — главный источник информации проекта (
 - [Spatial](ACOUSTIC_SPACE_PROTOTYPE.md), [FX routing](PRE_SPATIAL_ROUTING.md), [MR Strip Link](MR_STRIP_LINK.md).
 - [Harma Waves](HARMA_WAVES_NATIVE.md), [roadmap](HARMA_WAVES_ROADMAP.md), [handoff](HARMA_WAVES_CODEX_HANDOFF.md).
 - [Parallel VSTi](ENGINE_INSTRUMENT_PARALLELISM.md), [MR Saturator](MR_SATURATOR.md).
+- [MR Cab 2.0](MR_CAB_COLLECTIONS.md) — [roadmap](MR_CAB_ROADMAP.md), [Codex P1](MR_CAB_CODEX_HANDOFF.md); универсальные WAV IR-коллекции, сначала Celestion, затем TONEX WAV и другие (backlog #182, без реализации).
 - [ARA2 Hosting](ARA2_HOSTING.md) — внешний ARA2 editor host (#88; stages #177–#181), **план / не реализовано**.
 
 ## История
