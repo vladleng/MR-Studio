@@ -1,6 +1,6 @@
 # MR Cab 2.0 — Full Combo IR (Polytone / Fender / generic full-chain WAV)
 
-**Дата решения:** 2026-10-14. **Статус:** запланированное расширение, **не реализовано**.
+**Дата решения:** 2026-10-14. **Статус:** реализовано локально в **0.4b Full Combo IR**, ожидает ручной приёмки #196. [Поставка/проверки/инструкция](MR_CAB_FULL_COMBO_196_DELIVERY.md).
 **Issue:** [#196 — Full Combo IR](https://github.com/vladleng/MR-Studio/issues/196), логический parent [#182](https://github.com/vladleng/MR-Studio/issues/182) в [#111 Native Plugins](https://github.com/vladleng/MR-Studio/issues/111).
 **Готовый baseline:** [#185 — Simple GUI, preset/state, smooth IR switching](https://github.com/vladleng/MR-Studio/issues/185), **accepted/closed 2026-10-14**, локальная версия 0.4a upd1; не открывать/переписывать.
 **Параллельное развитие:** [#187 — generic WAV importer](https://github.com/vladleng/MR-Studio/issues/187) и [#188 — modular/QA](https://github.com/vladleng/MR-Studio/issues/188).
