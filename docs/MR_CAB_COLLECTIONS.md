@@ -95,6 +95,14 @@ User folder(s) → Async headers-only scanner (with cancellation/generation)
 7. **Manifest:** сохранять `original_rate_hz`, `source_duration_samples`/`duration_ms`, `chosen_length_profile`, `source_identity`, `prepared_project_rate_hz` (runtime metadata) и точный выбранный variant. Preserve `200/500 ms` как альтернативы одного артикула, не как независимые коллекции, при одинаковых остальных фасетах.
 8. **Приёмка:** на конкретных WAV Celestion измерить сравнимые варианты 48k/200 и 48k/500, room/close mic и exact-rate/resample; тестировать clickless IR swap, resampling correctness, SaveOpen, fallback, CPU/RAM/memory/headroom и RT callback; оригиналы не публиковать. Только после базового Celestion gate переносить эти правила на TONEX WAV/generic.
 
+## 3.5 Full Combo IR — решение 2026-10-14
+
+**Additive feature #196:** [Full Combo IR specification](MR_CAB_FULL_COMBO_IR.md), логический parent [#182](https://github.com/vladleng/MR-Studio/issues/182). Текущий MR Cab P3 [#185](https://github.com/vladleng/MR-Studio/issues/185) **принят/закрыт**, менять его существующий конвольвер, Celestion presets/UX и исходные IR не нужно.
+
+В рамках **того же** MR Cab разрешить два разных библиотечных типа WAV: `Cabinet IR` (реальный speaker/cab/mic) и `Full Combo IR` (линейная запись полной цепочки Polytone/Fender и др., **если source цепочка подтверждена**), плюс безопасный `unknown`. Один Full Combo WAV → один existing convolver, без второго Cab IR/Room. Внешние VST3/host inserts автоматически не обходить. Навигация может иметь фильтр All/Cabinet/Full Combo/Unknown и metadata `amp_model`, `capture_settings`, `cabinet_included`, `mic`, `provenance`; unknown нельзя объявлять combo по одному имени.
+
+WAV IR **не** является реальной нелинейной моделью преампа/комбо; NAM/Neural Combo (отдельная технология/движок) **не входит** в scope #196. Размер/частота generic Combo WAV не ограничены Celestion default `48 kHz / 200/500 ms`: выбирать реальные physical source rate/duration, prepared off-RT. Persist `ir_role` и manual overrides, не ломать Celestion #185 SaveOpen/Undo. Импорт generic WAV координировать с #187, не писать новый второй parser. Реализация только после отдельного запроса пользователя.
+
 ## 4. GUI и поведение
 
 **Основной стиль:** MR Reverb/JUCE Theme, graphite flat/compact, reusable native editor shell и компоненты `ReverbBrowser`; минимум декоративных рамок. Не выдумывать второй дизайн-язык.
