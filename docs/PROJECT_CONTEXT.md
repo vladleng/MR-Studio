@@ -6,6 +6,21 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## Skills and Memory #168 запланированы — 2026-10-14
+
+Прямой запрос создать parent/sub-issues и handoff для следующего чата. Parent#168
+«[MRS AI] Skills and Memory», семь задач #170–176: storage, restore/context,
+memory/history UI, Skill Registry, Skill editor/library, execution, integration.
+Native sub-issue links пользователь добавляет сам: «Я сам сделаю sub-issues»;
+issues созданы, actual relationships до добавления не заявлены.
+Спецификация/порядок/приёмка/карта кода: [AI_SKILLS_MEMORY.md](AI_SKILLS_MEMORY.md).
+PLANNED / NOT IMPLEMENTED; первый slice #170, только после запроса на реализацию.
+База source66b712f/accepted0.3m upd4; #26 children11/11, parent всё ещё open для аудита.
+Current memory-only dialogue не persistent memory, MRS Skill Registry отсутствует;
+AUTO manual Apply сохраняется, autonomous mode/сложный orchestrator вне scope.
+Новых source/build/tests/packages/paid calls нет, docs/issues синхронизируются.
+Не запускать старые scripts/Actions, не клонировать source main, сохранить чужую работу.
+
 ## Preview #163 принят; планы Memory/Skills уточнены — 2026-10-14
 
 Пользователь явно: «#163 тоже принимай». #163 closed completed в текущей0.3m upd4;

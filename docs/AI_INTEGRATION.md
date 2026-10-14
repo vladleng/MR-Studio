@@ -280,6 +280,10 @@ prototype остаётся #167 после #161/#162. Schema21/archive1/package0
 
 ### 16.1. AI Assistant / Orchestrator / Tools / Skills / Memory
 
+Конкретный backlog2026-10-14: [#168 Skills and Memory](https://github.com/vladleng/MR-Studio/issues/168),
+семь slices #170–176. [Спецификация и handoff](AI_SKILLS_MEMORY.md). PLANNED / NOT IMPLEMENTED;
+не смешивать с принятыми11 child tasks Foundation #26. Первый slice — storage #170.
+
 - **AI Assistant (чат)** — понимает запрос пользователя и показывает результат.
 - **AI Orchestrator** — подбирает разрешённые инструменты, подходящий Skill и модель, применяет лимиты расходов/времени и управляет ограниченным tool loop.
 - **Tools** — типизированные функции MRS Context/Query/Command API: чтение треков/клипов/микшера, MIDI, управление параметрами MR Strip/Spatial/VST3, маркерами и маршрутизацией. Запись только через MRS Command, validation, permissions, Preview/Diff и Undo/Redo.
