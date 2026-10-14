@@ -43,6 +43,8 @@ GitHub — главный источник информации проекта (
 
 ## Движок, плагины, интерфейс
 
+- **MR UI Kit / UI Gallery (plan #189):** [компоненты/дизайн-система](MR_UI_KIT.md), [интерактивная Gallery](MR_UI_GALLERY.md), [этапы](MR_UI_KIT_ROADMAP.md), [handoff для Codex](MR_UI_KIT_CODEX_HANDOFF.md). Общее JUCE UI-направление, не реализовано; принятый [UI reference](UI_REFERENCE_UPD9.md) сохраняется.
+
 - [Архитектура](ARCHITECTURE.md), [контракты Core](CORE_CONTRACTS.md), [модель](DATA_MODEL.md).
 - [Engine plan](ENGINE_PERFORMANCE_PLAN.md), [reliability](PROCESSING_RELIABILITY.md), [профайлер](ENGINE_PROFILING.md), [приёмка P4](ENGINE_P4_ACCEPTANCE.md).
 - [VST3](VST3_HOSTING.md), [MIDI](MIDI_CLIPS.md), [native inserts](NATIVE_INSERTS.md), [sends](MIXER_SENDS_95.md).
