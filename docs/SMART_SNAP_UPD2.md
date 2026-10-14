@@ -1,6 +1,40 @@
 # Arrangement grid / Smart Snap — 0.3m upd2, 2026-10-14
 
 
+## Current correction / 0.3m upd4 — 2026-10-14
+
+User screenshot shows crowded grid at wide zoom; wants half/whole divisions, and
+Shift held after LMB drag begins to bypass snap for audio/MIDI clips and piano notes.
+Nominal display/snap spacing10px instead5px; same1/16 minimum/ladder/bar boundaries.
+At80BPM/7pixels-per-second choose half-note step1920 (bar21px, half10.5px), matching
+the supplied scale; quarter/eighth lines disappear. Paint and Smart Snap stay shared.
+During clip move/trim and piano note move/resize use current mouse-event Shift state
+as temporary snap bypass. Plain mouse-down starts gesture; later Shift disables,
+release during drag restores snapping. Piano small-horizontal deadzone also bypassed
+with Shift; horizontal tick precision, vertical semitone and range limits retained.
+Existing Shift-at-mouse-down selection toggles, Alt velocity/copy, cancel/preview/
+common Undo/Redo and persistence retained. Snap flag/piano grid preferences untouched;
+modifier is transient and never stored. UI/gesture tests affected, existing commands/
+model/engine/serialization reused; DSP/network not changed.
+Source `66b712fa2a66b6c8e3d2c1627e6caacf167c4348`,5source/test files; branch unchanged.
+Release build PASS; final affected6/6 CTest PASS91.01s (MIDI/native Arrange/clip/nonplaying
+and J3+diagnostics GUI) after all changes. Audio/MIDI Shift-after-down free drag,
+preview-only before commit, unchanged Snap setting, one Undo/Redo; releasing Shift
+mid-drag resumes grid; piano7px free movement/deadzone bypass and release-to-snap
+without grid-setting mutation PASS. Free MIDI still uses natural tick rounding;
+fixture expectations account for that. Grid ladder10px/bar boundaries and existing
+Undo/SaveOpen/audition/selection/cancel tested. Previews7/30 and other scales100/150
+inspected. Logs grid-shift-upd4-*; no test failures/timeout changes. Full145 last
+passedupd2/160.58s, not rerun in full for this UI-only change.
+Package `MR-Studio-0.3m-upd4-Grid-Shift-Drag-JUCE-ASIO-Windows-local`,13files/12hashes
+verified, packaged AI smoke exit0; GUI SHA256
+`3A0964BD615FBA1BA21BC2C30FC4421796A86487F0B20EB8159E5B1551C86BC0`.
+PDB deliveries/0.3m-upd4-grid-shift-drag, MR shortcut target/workingdir/emptyargs/icon
+verified; previousupd3 manifest12/12 unchanged. FEATURE READY WITH MANUAL CHECK:
+actual user-project grid/Shift and physical DPI pending. Save/restart via MR Studio,
+repeat supplied zoom, LMB then Shift clips/notes, release Shift, Undo/Redo/SaveOpen.
+Native parent26 remains open5/11; no extra acceptance/source push/PR/merge/Actions.
+
 ## Current correction / 0.3m upd3 — 2026-10-14
 
 User: minimum grid1/16 and missing half notes before whole notes; asks conventional

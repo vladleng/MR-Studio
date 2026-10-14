@@ -6,6 +6,33 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## 0.3m upd4 sparse grid / Shift free drag delivered — 2026-10-14
+
+User requests half/whole grid at screenshot zoom and Shift-after-LMB free drag for
+clips and piano notes. Grid nominal10px (was5),1/16 floor and half/bar ladder retained;
+current mouse-event Shift bypasses clip move/trim and piano note move/resize snapping,
+release resumes. Snap/grid settings unchanged; piano small-horizontal deadzone skipped
+only with Shift. Selection modifiers, range/preview/Undo/SaveOpen retained. UI only,
+no engine/network/schema change. [Contract](SMART_SNAP_UPD2.md). Validation/delivery
+complete: source `66b712fa2a66b6c8e3d2c1627e6caacf167c4348`,5source/test files,
+branch unchanged. Release build PASS, final affected6/6 PASS91.01s after all changes
+(native MIDI/Arrange/clip/nonplaying and full J3+diagnostics GUI). Shift after mouse-down
+free audio/MIDI move, unchanged settings/preview/UndoRedo; release restores grid;
+piano7px fine move/deadzone bypass and release-to-snap PASS. MIDI natural tick precision
+retained; fixture corrected for tick rounding. Grid10px/half-note at80BPM/7pps and
+ladder/bounds/gesture/SaveOpen regressions tested;100/150 previews inspected.
+Logs grid-shift-upd4-*, no test failures/timeout changes. Full145 last passedupd2;
+not rerun in full for this UI-only change. Package
+`MR-Studio-0.3m-upd4-Grid-Shift-Drag-JUCE-ASIO-Windows-local`,13files/12hashes verified,
+packaged AI smoke exit0, GUI SHA256
+`3A0964BD615FBA1BA21BC2C30FC4421796A86487F0B20EB8159E5B1551C86BC0`.
+PDB deliveries/0.3m-upd4-grid-shift-drag; MR shortcut→upd4/workingdir/emptyargs/icon
+verified, previousupd3 manifest12/12 unchanged, settings/keys/projects preserved.
+FEATURE READY WITH MANUAL CHECK: user-project grid/Shift and physical DPI pending.
+Next save/restart via MR Studio, repeat screenshot zoom and LMB→Shift clips/notes,
+release Shift→Undo/Redo→SaveOpen. Parent26 remains5/11, no extra acceptance/source push/
+PR/merge/Actions.
+
 ## 0.3m upd3 Smart Grid correction delivered — 2026-10-14
 
 User requests minimum1/16 and half notes before whole notes / conventional DAW zoom
