@@ -6,6 +6,31 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## 0.3m upd3 Smart Grid correction delivered — 2026-10-14
+
+User requests minimum1/16 and half notes before whole notes / conventional DAW zoom
+progression. Shared grid/snap ladder1/16→1/8→1/4→1/2→measure→multiple measures;
+4/4 measure=whole note. Odd-meter bar boundaries retained by per-bar subdivision
+phase; very short meters use groups of bars. UI-only helper/projection, no engine/
+network/schema changes; existing Smart snap gestures/history/SaveOpen retained.
+[Contract](SMART_SNAP_UPD2.md). Source `fd7785325e5aa606da0d3755f11a05de2415dd8f`,
+3source/test files, branch unchanged. Release build PASS; final affected10/10 PASS91.74s
+(J3+diagnostics and native editing/MIDI), after all code changes. High-zoom1/16 floor,
+all steps/half-note grid/3/4 bar boundaries/tiny meter/spacing/snap membership and
+existing gestures/history/zoom/bounds tested. Previews30/15/12/6/3zoom100/150 inspected.
+Initial8/10 (45.59s) old4pps bar expectation corrected to half/3pps bar; next8/10
+(44.56s) pixel spacing assertion corrected to allow only mandatory odd-meter bar
+remainders, nominal5px checks retained. No timeout changes; logs smart-grid-upd3-*.
+Full145 last passedupd2/160.58s; not rerun for this isolated UI helper correction.
+Package `MR-Studio-0.3m-upd3-Smart-Grid-JUCE-ASIO-Windows-local`,13files/12hashes
+verified, packaged AI smoke exit0. GUI SHA256
+`0F3FEDAAAFD04177AC09602FC400F89648C1298BB156641949909273CD9D4E28`.
+PDB deliveries/0.3m-upd3-smart-grid; MR shortcut→upd3/workingdir/emptyargs/icon verified;
+previousupd2 manifest12/12 unchanged. FEATURE READY WITH MANUAL CHECK: user-project
+grid/zoom/physical DPI pending. Next: restart via MR Studio; confirm1/16 minimum and
+1/8→1/4→1/2→whole/4/4bar progression, Snap smart→Undo/Redo→SaveOpen.
+#26 remains open5/11; no new acceptance or next issue inferred.
+
 ## #167/#157 accepted; 0.3m upd2 Smart Snap delivered — 2026-10-14
 
 User: «Split, Merge G, Duplicate D — все работает» for0.3m upd1; explicitly

@@ -1,5 +1,37 @@
 # Arrangement grid / Smart Snap — 0.3m upd2, 2026-10-14
 
+
+## Current correction / 0.3m upd3 — 2026-10-14
+
+User: minimum grid1/16 and missing half notes before whole notes; asks conventional
+DAW progression. New shared display/snap ladder starts at ppq/4 (1/16), doubles
+through1/8→1/4→1/2→measure→2measures→4measures.4/4 measure is a whole note.
+Odd meter measure caps the last smaller subdivision; subdivision phase restarts
+at each bar, so3/4 still shows/snap captures its bar boundaries with a half-note grid.
+Meters shorter than1/16 use whole groups of bars, never a finer note division.
+Nominal5px threshold/faint subdivisions, labels60px, Smart snap membership and
+cursor anchor/bounds unchanged. Meter boundaries may form a shorter remainder.
+UI/helper only; commands/history/persistence/engine/network unchanged, no migration.
+Piano roll own grid unaffected. Previousupd2 minimum/beat→bar rules below superseded.
+Source `fd7785325e5aa606da0d3755f11a05de2415dd8f`,3source/test files, branch unchanged.
+Release build PASS, final affected10/10 CTest PASS91.74s after all source changes:
+GUI J3+diagnostics/native Arrangement/clip/chord/marker/section/tempo/meter/MIDI;
+explicit1/16 high-zoom floor, all ladder steps, half in3/4 with bar boundaries,
+short meters, rendered spacing/Smart membership/zoom anchor/bounds/history checks.
+Initial8/10 (45.59s): old4pps bar expectation now correctly half; fixture changed to
+3pps bar. Next8/10 (44.56s): universal5px assertion failed mandatory odd-meter bar
+remainder; test now requires5px unless either line is an actual bar boundary.
+Nominal spacing assertions retained; no timeout changes. Logs smart-grid-upd3-* retained.
+Previews30/15/12/6/3zoom at100/150 inspected. Full145 suite last passedupd2/160.58s;
+not rerun in full for this isolated UI helper change.
+Package `MR-Studio-0.3m-upd3-Smart-Grid-JUCE-ASIO-Windows-local`,13files/12hashes
+verified, packaged AI startup smoke exit0. GUI SHA256
+`0F3FEDAAAFD04177AC09602FC400F89648C1298BB156641949909273CD9D4E28`.
+PDB deliveries/0.3m-upd3-smart-grid; MR shortcut target/workingdir/emptyargs/icon
+verified, previousupd2 manifest12/12 unchanged. FEATURE READY WITH MANUAL CHECK:
+user-project zoom/grid and physical DPI pending. Native parent26 remains open5/11;
+source/build/package local, docs/issues GitHub, no source push/PR/merge/Actions.
+
 User confirms Split/Merge G/Duplicate D in0.3m upd1 and explicitly accepts #167/#157.
 Native parent26 completion5/11 (#164/#165/#166/#167/#157), parent and other6 remain
 open. «Все вроде работает» general feedback recorded, no blanket acceptance inferred.
