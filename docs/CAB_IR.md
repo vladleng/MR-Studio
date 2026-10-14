@@ -63,3 +63,7 @@ Tests cover direct/tail exactness, stereo independence, dry mix/gain/polarity, f
 responses, resampling, zero host RT allocation, live updates/Undo/Redo with unchanged
 device opens, embedded save/reopen after deleting source, and raw capture invariance.
 User acceptance on intended ASIO hardware is pending; #16 not implicitly passed.
+
+## Future work: MR Cab 2.0 (plan only)
+
+Этот документ фиксирует **legacy Cab IR baseline** с его сохранением импульса в проекте и текущими лимитами; не переписывать его как уже реализованную коллекционную систему. Новое развитие — [#182 MR Cab 2.0](https://github.com/vladleng/MR-Studio/issues/182), [техническая спецификация](MR_CAB_COLLECTIONS.md), [roadmap](MR_CAB_ROADMAP.md), [передача Codex](MR_CAB_CODEX_HANDOFF.md). Отдельный native insert/adapter, внешние коллекции Celestion → TONEX WAV/generic, быстрые варианты и пресеты. **Не реализовано.** Обратная совместимость старых архивов обязательна, #23 остаётся закрытой.
