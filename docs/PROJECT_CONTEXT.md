@@ -6,6 +6,36 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## #166 accepted; 0.3m upd1 MIDI editing delivered — 2026-10-14
+
+User: «#166 принимаю». #166 closed completed; actual native parent26 progress3/11,
+#164/#165/#166 closed, other8 open; parent remains open.0.3m source/package/tests
+unchanged for acceptance, no new hardware/provider measurements claimed.
+Next requested maintenance build: zoom grid interference, MIDI split delay,
+Merge MIDI Clips (G), Duplicate (D). [Contract](MIDI_EDITING_UPD1.md).
+Implemented Core/App/GUI grid+S/G/D and named history via guarded MIDI-only swap;
+processors/editors/head/loop/generations retained. Merge one-track visible trimmed
+notes/events/chase/former sustain+bend releases; gaps/overlaps and split retriggers
+retained. Hidden source discarded by consolidation; one Undo restores originals.
+Display coherent subdivisions/beats/bars/power-of-two bars, min14px; Snap independent.
+Source `4c1d5baf49a78da39fad7b36b41df9cd1e274e68`,9source/test files; branch unchanged.
+Release configure/build PASS; focused5/5 PASS28.29s before final Snap display bound fix;
+final full145/145 PASS147.23s after all changes. Merge trim/gap/controllers/stale/cross-
+track/history/serialization and App VST3 generation/loop/backend rollback/SaveOpen;
+GUI D/G/real focused typing/7zoom spacing/Snap on+off/meter transitions PASS.
+Fake-device split/merge/history0.6049ms, not actual ASIO latency; grid100/150 inspected.
+Initial strict unused test variables, focusless GUI fixture and native deferred pixel
+read corrected; historical failures retained, no weakened assertions/timeouts.
+Package `MR-Studio-0.3m-upd1-MIDI-Editing-JUCE-ASIO-Windows-local`,13files/12hashes
+verified; packaged AI smoke exit0; symbols deliveries/0.3m-upd1-midi-editing.
+GUI SHA256 `E99E0C830CFEAB7C046C7F46A030E8CD876AB85E74F1AAF79B867B7D2843B465`.
+MR shortcut→upd1/workingdir/emptyargs/icon verified, previous builds/settings/keys/
+projects preserved. FEATURE READY WITH MANUAL CHECK / RT SAFE WITH MANUAL CHECK;
+actual ASIO split latency and physical DPI NOT RUN. Next: restart via MR Studio,
+zoom out, S split→select two MIDI clips same track→G merge→D duplicate, Undo/Redo/
+SaveOpen. This maintenance build awaits user verification.
+No next roadmap issue started; no source push/PR/merge/Actions.
+
 ## #166 analysis + MIDI deletion + marker fill / 0.3m — 2026-10-14
 
 User: «Начинай #166», Backspace MIDI deletion ~3s, marker background75% transparent;

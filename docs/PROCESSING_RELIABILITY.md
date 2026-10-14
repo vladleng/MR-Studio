@@ -1,5 +1,17 @@
 # Stage 3e — Processing reliability
 
+## MIDI split/merge/duplicate — 0.3m upd1, 2026-10-14
+
+S / Split MIDI, G / Merge MIDI Clips and D / MIDI Duplicate now share the guarded
+MIDI-only transaction and named history path. Existing audio commands retain their
+path. No plugin capture/full graph rebuild for those MIDI edits; unchanged timing,
+rates/routes and stopped/no recording/no count-in required. Human edits keep loop;
+backend stop/join → symmetric MIDI plan swap → staged Store → restart; failure
+rolls back model/history/runtime. Editors/head/MIDI and insert generations retained.
+Merge consolidates visible trimmed notes/channel events, chase and original sustain/
+bend releases, with stable boundary ordering. No callback or DSP change.
+[Contract/layers/checks](MIDI_EDITING_UPD1.md). Actual ASIO split latency pending user check.
+
 ## MIDI-only deletion/runtime retention — 0.3m, 2026-10-14
 
 Only-MIDI remove_clip/remove_clips and their named Undo/Redo use staged Store +
