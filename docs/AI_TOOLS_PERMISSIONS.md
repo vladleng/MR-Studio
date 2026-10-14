@@ -1,5 +1,18 @@
 # AI tool contracts / permissions — #161/#162
 
+## Command/Tool API принят — 2026-10-14
+
+В ответ на checklist #161 пользователь: «Все работает, на undo/redo тоже проверил».
+Screenshots0.3m upd4: add_marker «Тест161» tick3840, rename_marker того же объекта
+в «161 тест пройден», Applied/Accepted/one Undo; Undo/Redo подтверждены пользователем.
+Сценарии checklist подтверждены общей фразой; отдельных stale/replay кадров нет,
+локальные registry/authorization/preview/history/MIDI regressions остаются evidence.
+#161 closed completed; #162 остаётся open. Видимый AI:SUGGEST после Applied сам по
+себе не доказывает режим на момент Apply и не является приёмкой permission matrix.
+Parent#26 open9/11, осталось #162/#163. Current source66b712f/package0.3m upd4 прежние;
+docs/issues-only, без новых build/tests/paid calls/hardware measurements.
+Старые closed Apply gates ниже — исторические slices; актуальный Apply через Preview.
+
 Текущий contract0.3l/#165:7 Core tools /5 wire suggestions, новый `midi_draft` с
 INSERT/REPLACE/EDIT. EDIT разрешает MIDI после stopped/loop-off preview confirmation.
 AUTO config8 mask31 сохраняет прежние bits: marker/transpose/velocity после review;

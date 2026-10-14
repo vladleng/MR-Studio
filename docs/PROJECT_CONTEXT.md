@@ -6,6 +6,21 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## Command/Tool API #161 принят — 2026-10-14
+
+После checklist #161 пользователь: «Все работает, на undo/redo тоже проверил».
+Screenshots0.3m upd4 подтверждают add_marker «Тест161» на tick3840, затем
+rename_marker «161 тест пройден» того же маркера, Applied/Accepted и one Undo.
+Пользователь подтвердил предложенные сценарии и Undo/Redo; отдельные кадры stale/
+duplicate delivery не предоставлены, соответствующие локальные тесты сохраняются.
+#161 closed completed. Native #26 completion9/11; parent open, осталось #162/#163.
+Приёмка относится к Tool API; скрин с AI:SUGGEST не доказывает permission matrix
+на момент Apply и не означает приёмку #162. Source66b712f/package0.3m upd4 прежние.
+Прежние registry/authorization/preview/history/MIDI tests/build evidence сохранены;
+документальная приёмка без новой сборки/tests/paid calls/ASIO/DPI измерений.
+Следующий шаг — отдельная приёмка Permissions #162, затем Preview #163.
+Документы/issues синхронизируются, source/build/package local, без Actions.
+
 ## Query API #159 принят — 2026-10-14
 
 Пользователь явно: «#159 тоже прошел». Дополнительный screenshot0.3m upd4 показывает
