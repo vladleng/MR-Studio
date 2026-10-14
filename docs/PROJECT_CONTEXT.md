@@ -1,10 +1,39 @@
 # MR Studio: текущий контекст разработки
 
-Обновлено: **2026-10-13**, Asia/Krasnoyarsk. Это основной краткий снимок для нового
+Обновлено: **2026-10-14**, Asia/Krasnoyarsk. Это основной краткий снимок для нового
 чата. Постоянные правила: [AGENTS.md](../AGENTS.md). Подробная история остаётся
 в тематических документах; старые верхние записи README/START_HERE не являются
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
+
+## MIDI tool schema HTTP400 fix / 0.3l upd1 — 2026-10-14
+
+Пользователь прислал actual provider error: `Invalid schema for function midi_draft`:
+root oneOf запрещён chat/completions. Исправлен только NON-RT provider projection:
+root oneOf исключён из wire parameters MIDI tool, mode/target/event-ID правила
+передаются description. Full Core envelope schema/decoder и INSERT/REPLACE/EDIT
+validation прежние; permissions/Preview/Apply/Undo/Redo/engine/persistence/UI layout
+не менялись. Provider adapter/tests/version/docs AFFECTED; model/commands/history/
+serialization/project files/notifications/RT NOT AFFECTED; shared Core preserved.
+Новая regression проверяет actual serialized request:5 wire tools, closed object,
+no forbidden root combinators, retained note limits/required fields/mode guidance;
+separate check доказывает сохранение local oneOf. Existing MIDI domain tests PASS.
+Source `9e9ed0d69ec144cecfa2b912d1f18c3965c20682`, local branch прежняя.
+Release configure/full incremental build PASS; affected14/14 CTest PASS4.63s,
+including provider/GUI MIDI Apply/Undo/Redo/permissions. Full144 не повторяли:
+ниже сохранён результат base0.3l, не выдаётся за upd1. Logs ai-midi-wire-*.
+Package `MR-Studio-0.3l-upd1-AI-MIDI-Schema-Fix-JUCE-ASIO-Windows-local`,13files/
+12hashes verified, packaged AI smoke exit0; matching PDB deliveries/0.3l-upd1-ai-midi-schema-fix.
+GUI SHA256 `69C9065CA026069F5A001AA43F375D493A62702E7A0EAF8145B60920957DF65F`.
+MR Studio shortcut→upd1, icon retained. Old packages/keys/settings/projects preserved.
+Real paid provider call NOT RUN; correction matches supplied provider error and
+mock request regression. ASIO/music quality/physical DPI NOT RUN; #165 remains open.
+Next: restart via MR Studio, repeat explicit small note/CC MIDI request on selected
+instrument track with EDIT, review→Apply→playback→Undo/Redo→Save/Open. Empty MIDI
+INSERT is not supported by current draft contract; screenshot request for empty
+clip does not establish new contract/acceptance. Additional mixer footer screenshot
+has no written issue/change request; no unrelated mixer/UI changes inferred.
+Docs/issues GitHub, source/build/package local; no source push/PR/merge/Actions.
 
 ## MIDI draft #165 + marker fill / 0.3l — 2026-10-13
 

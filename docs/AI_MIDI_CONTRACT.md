@@ -129,3 +129,15 @@ images inspected. Реальный provider bass/drums/voicing quality→playbac
 Save/Open и physical ASIO/DPI ещё требуют пользовательской приёмки.
 Итоговые source/build/tests/package/status: [PROJECT_CONTEXT](PROJECT_CONTEXT.md).
 Source/build/package local, docs/issues GitHub; без source push/PR/merge/Actions.
+
+## Provider schema compatibility / 0.3l upd1 — 2026-10-14
+
+Actual HTTP400 rejected top-level oneOf in midi_draft chat/completions parameters.
+Provider projection now removes only that root combinator and describes mode/target/ID
+rules in the function description. Closed properties/types/required fields/limits
+remain in wire schema; full Core schema and decoder still enforce mode constraints.
+No project/history/engine/RT changes. Serialized request regression and existing
+MIDI/GUI checks: affected14/14 PASS4.63s, Release configure/build PASS; packaged AI
+smoke exit0. Actual provider paid request is NOT RUN; user retry/acceptance pending.
+Empty INSERT remains rejected by the existing contract; use at least one note/CC.
+Exact source/package/hash: PROJECT_CONTEXT.md. #165 remains open.
