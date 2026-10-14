@@ -1,5 +1,29 @@
 # MR Studio: текущий контекст разработки
 
+## MR Cab Full Combo IR / #196 — 0.4b ready for manual acceptance, 2026-10-14
+
+User authorised implementation: «Переходи к следующему шагу».
+Local source2fbe90ef6ce1877ca77d6fbffdf51d3a209a59ef, version0.4b Full Combo IR.
+Explicit Cabinet/Full Combo/Unknown role, manual whole-collection/active mapping,
+Polytone profile (user-applied), opt-in rate suffix grouping, model/capture menus.
+Catalog v1 tags/overrides and atomic metadata publication; selected role/notes in
+project/preset CAB_SELECTION2 (reader v1/v2), schema23/archive1 unchanged.
+Same loader/one-WAV Cab convolver/controls; active metadata Undo retains graph.
+Global library mapping persists independently of project Undo; existing Celestion IDs
+and accepted185 preserved. Auto-loading from menus remains deferred;186/full187 not started.
+[Delivery, workflow and limits](MR_CAB_FULL_COMBO_196_DELIVERY.md).
+Release configure/build PASS; final targeted6/6 PASS3.54s, final CabGUI1/1 PASS1.64s.
+Full current149/149 PASS149.03s, once on ready candidate. GUI100/150/200 and mapping150 inspected.
+Real Polytone20WAV/10captures and Application44.1/48/96k PASS; Celestion68/68 PASS.
+Real Cab offline profile0/0 RT heap, latency0, full-tail oracle error5.96046e-08;
+offline timings are not ASIO/Live acceptance. Physical ASIO/listening/mixed-DPI NOT TESTED.
+Package MR-Studio-0.4b-Full-Combo-IR-JUCE-ASIO-Windows-local13files/12hashes verified;
+packaged Cab/Combo smoke exit0; GUI SHA256F3DA80610DC3C62C57D2986C5968BF0A13F00A8E62885B7BEB76B9A6652AD190.
+Existing MR shortcut updated/icon retained; old0.4a/upd1 preserved and upd1 hashes checked.
+20 original vendor WAV hashes unchanged; no WAV distribution/download/copy.
+PDB deliveries/0.4b-full-combo; logs validation/combo196.
+#196 open awaiting user acceptance;185 stays closed. Only docs/issues GitHub [skip ci].
+
 ## Full Combo IR / #196 — инструкции и Polytone изучены, 2026-10-14
 
 Пользователь уточнил: нужны готовые комбики, а не только кабинеты; попросил изучить #196.
