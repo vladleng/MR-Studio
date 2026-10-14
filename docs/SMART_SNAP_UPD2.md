@@ -30,9 +30,11 @@ Package `MR-Studio-0.3m-upd4-Grid-Shift-Drag-JUCE-ASIO-Windows-local`,13files/12
 verified, packaged AI smoke exit0; GUI SHA256
 `3A0964BD615FBA1BA21BC2C30FC4421796A86487F0B20EB8159E5B1551C86BC0`.
 PDB deliveries/0.3m-upd4-grid-shift-drag, MR shortcut target/workingdir/emptyargs/icon
-verified; previousupd3 manifest12/12 unchanged. FEATURE READY WITH MANUAL CHECK:
-actual user-project grid/Shift and physical DPI pending. Save/restart via MR Studio,
-repeat supplied zoom, LMB then Shift clips/notes, release Shift, Undo/Redo/SaveOpen.
+verified; previousupd3 manifest12/12 unchanged. FEATURE ACCEPTED2026-10-14.
+User: «Да, сейчас все как надо. 0.3m upd4 принимаю». Grid density/half-bar divisions and
+Shift free-drag delivered scope accepted; no new physical-DPI/extended SaveOpen matrix
+or benchmarks provided. Docs-only acceptance; source/package/manifest/shortcut and
+previous validation unchanged, no rebuild/new tests.
 Native parent26 remains open5/11; no extra acceptance/source push/PR/merge/Actions.
 
 ## Current correction / 0.3m upd3 — 2026-10-14

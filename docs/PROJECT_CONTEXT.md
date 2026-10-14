@@ -6,7 +6,7 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
-## 0.3m upd4 sparse grid / Shift free drag delivered — 2026-10-14
+## 0.3m upd4 sparse grid / Shift free drag accepted — 2026-10-14
 
 User requests half/whole grid at screenshot zoom and Shift-after-LMB free drag for
 clips and piano notes. Grid nominal10px (was5),1/16 floor and half/bar ladder retained;
@@ -28,10 +28,12 @@ packaged AI smoke exit0, GUI SHA256
 `3A0964BD615FBA1BA21BC2C30FC4421796A86487F0B20EB8159E5B1551C86BC0`.
 PDB deliveries/0.3m-upd4-grid-shift-drag; MR shortcut→upd4/workingdir/emptyargs/icon
 verified, previousupd3 manifest12/12 unchanged, settings/keys/projects preserved.
-FEATURE READY WITH MANUAL CHECK: user-project grid/Shift and physical DPI pending.
-Next save/restart via MR Studio, repeat screenshot zoom and LMB→Shift clips/notes,
-release Shift→Undo/Redo→SaveOpen. Parent26 remains5/11, no extra acceptance/source push/
-PR/merge/Actions.
+FEATURE ACCEPTED2026-10-14. User: «Да, сейчас все как надо. 0.3m upd4 принимаю».
+Delivered grid density/half-bar ladder and Shift free-drag scope accepted in user
+project. No separate physical-DPI/extended SaveOpen matrix or new measurements claimed.
+Acceptance docs-only: source/package/manifest/shortcut and prior6/6 checks unchanged;
+no rebuild/new tests needed. Parent26 remains open5/11, other6 not implicitly accepted.
+Next task chosen by user; no new stage/source push/PR/merge/Actions.
 
 ## 0.3m upd3 Smart Grid correction delivered — 2026-10-14
 
