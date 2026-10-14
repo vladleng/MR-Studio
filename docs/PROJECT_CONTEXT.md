@@ -1,5 +1,22 @@
 # MR Studio: текущий контекст разработки
 
+## MR Cab / #185 — 0.4a upd1 UI fixes, 2026-10-14
+
+Пользователь: сначала несовпадение выделения/Ready и оранжевые записи,
+плюс plugin window не уходит за main при кликах. Автоподбор через меню отложен.
+Source8aec1612ad75bf7e80818159616c34d7973ca4d7: verified active path/digest highlight,
+missing hidden by default/Unavailable toggle/error reason, restore selection on rejected click,
+reapply native owner after resizable peer recreation. DSP/schema23/archive1/loader unchanged.
+Read-only user manifest536 records/202 Missing after root switch; user WAV/prefs не переписаны.
+[Отчёт](MR_CAB_UI_UPD1_185.md). ReleaseGUI build PASS; targeted2/2 GUI PASS2.04s;
+owned-HWND/z-order and synthetic missing/unsupported selection regressions PASS.
+Package MR-Studio-0.4a-upd1-MR-Cab-JUCE-ASIO-Windows-local13files/12hashes verified,
+packaged Cab smoke exit0; GUI SHA256AB522B59A9DA77A0271375CF4D483665087324D7A65E307F9DB694CA62DCF391.
+Symbols deliveries/0.4a-upd1-cab-ui; MR shortcut updated/icon retained, prior0.4a/0.4 preserved.
+No full CTest for upd1: earlier148/148 belong to base0.4a. Physical focus/DPI/listening manual.
+#185 awaiting acceptance, #186 NOT STARTED; source local, docs/issues GitHub [skip ci].
+
+
 ## MR Cab Simple / #185 — 0.4a готов к ручной приёмке, 2026-10-14
 
 #184 accepted («#184 принимаю. Пререходи к #185»), closed completed.
