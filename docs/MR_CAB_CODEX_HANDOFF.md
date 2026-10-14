@@ -30,6 +30,17 @@ Vox V412 BN 412 C/
 ```
 Names are **examples from a screenshot**, not a claim about deeper files or all available variants. Inspect actual WAV file headers, channel count, sample rate, duration, names/nesting, duplicate rates, metadata/content rights. At audit stage retain **only metadata and locally stored logs**, not copyrighted PCM in GitHub issues/docs/test assets.
 
+## Утверждённые рабочие IR-профили перед инвентаризацией
+
+Смотри канон [MR_CAB_COLLECTIONS.md, §3.4](MR_CAB_COLLECTIONS.md). Пользователь выбрал:
+- `48.0 kHz / 200 ms` — **основной** кабинет и заводские dry/close-mic ready mixes, основа Studio/Record/Live.
+- `48.0 kHz / 500 ms` — прежде всего Room/Room-included и A/B 200↔500, если реально присутствуют полезные поздние отражения.
+- `44.1 kHz` (оба хвоста) — только если нужны exact-rate исходники для проектов 44.1; `96` и `88.2 kHz` — опциональные original packs для соответствующих проектов/benchmarks, **не MVP mandatory**.
+- Runtime sample rate всегда от проекта. Выбирать exact rate того же микрофона/микса/Room/длительности или worker resample; **не заменять другую длину/IR молча**. 500 ms — длина отклика, не 500 ms delay. Не обещать CPU/latency без измерений.
+- Не удалять/конвертировать исходную полную Celestion; можно пользоваться отдельной рабочей копией 48k 200/500 с сохранением нужных Room вариантов.
+
+**В P1** обязательно проверить, действительно ли есть 200/500 каждого интересующего файла, и сверить 48k/200↔500 на одинаковом Mic/position/Room; записать sample counts, header rates, хвосты, unknown/missing combinations и план A/B. Анализ не является автоматической подрезкой хвостов. Не сканировать/копировать весь пакет без предоставленного пользователем локального пути.
+
 ## Deliverables of P1 / #183
 
 - **Audited code inventory:** classes/ownership & safe reuse mapping for Cab IR, MR Reverb library/loader/editor/state, shared native graph and project persistence. Verify local implementation before choosing IDs/schema.
