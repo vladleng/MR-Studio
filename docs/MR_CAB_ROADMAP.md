@@ -19,6 +19,18 @@
 
 Порядок **P1 → P2 → P3** без автоматического перехода. P4 проверяется на фактическом наличии **компонентных** микрофонных IR. P5 запускается **после приёмки Celestion milestone**, может идти без Advanced режима P4 при согласованной отдельной приёмке. P6 — финальная интеграция/регрессия и модель будущих расширений без нового amp DSP.
 
+## Частоты и хвосты — стандарт MR Cab (решение 2026-10-14)
+
+**Source of truth:** [MR_CAB_COLLECTIONS.md, §3.4](MR_CAB_COLLECTIONS.md#34-утверждённая-политика-частот-и-длительности-ir-2026-10-14).
+
+- **48 kHz / 200 ms:** рабочий default для обычного гитарного Cab, close mic, готовых миксов, Studio/Record/предварительно Live.
+- **48 kHz / 500 ms:** Room и room-included импульсы при существовании такого WAV и полезного хвоста, плюс matched A/B тесты. Не обязательное «HQ» для всех кабинетов.
+- **44.1 kHz:** optional source для проектов 44.1 kHz (200/500 ms по той же функции), иначе offline ресэмплинг 48k.
+- **96 kHz:** optional source для 96k проектов и quality/CPU benchmark; **88.2 kHz:** optional для 88.2k проектов. Для первого Celestion MVP не требуются.
+- Проект определяет runtime sample rate: exact-rate variant при наличии, иначе worker resample **того же** IR; никогда не менять cabinet/mic/room/length ради rate. 200/500 — часть явно выбранного варианта/пресета.
+- Хранить основной 48/200 + 48/500 для Room и сравнительных тестов, **полный оригинал Celestion архивировать отдельно, не удалять**; импорт WAV по metadata, без vendor media в GitHub. Длина IR **не равна latency**; фактические CPU/RAM/PDC/RT измеряются.
+- **P1 #183** — инвентаризация комбинаций и хвостов, **P2 #184** — descriptor/selector exact rate and length, **P3 #185** — defaults/preset/UX, **P4 #186** — same-rate component multi-mic handling, **P5 #187** — перенос правил на generic WAV.
+
 ## Definition of Done общего продукта
 
 - [ ] Точный и безопасный импорт первого **пользовательского Celestion** без копирования WAV в GitHub/дистрибутив.
