@@ -6,6 +6,26 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## #165 accepted / 0.3l upd2 — 2026-10-14
+
+User confirmation: «Все звучит», after actual provider Piano chord generation and
+previous «undo/redo и сохранения работают». Screenshot0.3l upd2 shows MIDI draft
+accepted/applied, visible C major clip on Piano from bar2 for2bars, ticks[3840,11520),
+notes48/52/55/60 with duration7680. User confirms instrument playback; empty clip
+insertion/history/saving verified previously. #165 accepted/closed completed in this
+shown generation/voicing + common editing/history contract scope. REPLACE/EDIT/CC,
+rollback and Save/Open covered by existing synthetic tests; no claim of separate
+user drum/bass/style matrix or explicit reopen confirmation. Hardware ASIO+network/
+physical DPI measurements not provided. Other AI child issues not accepted implicitly.
+Native parent#26 actual11children,2completed (#164/#165), parent remains open.
+Docs/issues-only acceptance: sourcea5a59591304d2b5738035c9d269fff091c047ce5,
+package0.3l upd2/13files12hashes/GUIhash4128DA09D32B7842CC641E61CECB95F2001A3EA0C232F6F93AA7245DF8DE07E2,
+shortcut, finalaffected14/14 PASS4.68s and packaged AI smoke exit0 unchanged.
+No rebuild/new paid request/source push/PR/merge/Actions. Dialogue remains memory-only;
+project-session reopening clears provider context, visible old feed may remain.
+Next suggested issue#166 Analysis hooks (arrangement/mix context), not started:
+wait for user instruction. Details/history in AI_MIDI_CONTRACT and sections below.
+
 ## #165 empty clip — user verification, 2026-10-14
 
 User screenshot shows0.3l upd2, selected Piano, actual provider validated midi_draft,

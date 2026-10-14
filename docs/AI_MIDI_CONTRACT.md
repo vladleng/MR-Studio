@@ -163,3 +163,15 @@ Confirms empty clip creation/history/saving scenario; no separate explicit reope
 confirmation or musical notes/CC generation/replace/edit/instrument audition report.
 #165 remains open for broader musical acceptance; source/package/tests unchanged.
 Docs/issues-only, no rebuild or new provider calls. Current details in PROJECT_CONTEXT.
+
+## User acceptance #165 — 2026-10-14
+
+User: «Все звучит», after actual provider generated/applied C major voicing on Piano:
+bar2 for2bars, ticks[3840,11520), notes48/52/55/60, duration7680; visible Piano Roll.
+Earlier user confirmed empty clip and «undo/redo и сохранения работают». Accept and
+close #165 for the demonstrated generation/voicing/common history contract. Other
+modes/CC/rollback/SaveOpen retain synthetic test evidence; no invented manual bass/
+drum/style matrix, explicit reopen report or ASIO/DPI measurements. Other child
+issues not implicitly accepted. Parent26 remains open, native2/11 completed.
+Docs/issues-only acceptance; existing source/package/hash/tests/shortcut unchanged.
+Next suggested #166 Analysis hooks, not started. Current facts in PROJECT_CONTEXT.
