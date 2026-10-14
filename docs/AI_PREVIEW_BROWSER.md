@@ -1,5 +1,15 @@
 # AI Preview / Browser tab — #163, 2026-10-13
 
+## Приёмка — 2026-10-14
+
+Пользователь явно: «#163 тоже принимай» после checklist Reject/stale/Refresh.
+#163 closed completed в текущей0.3m upd4/source66b712f; прежние manual marker
+add/rename/diff/UndoRedo и local Reject/stale/Refresh/atomic tests сохранены.
+Отдельных новых screenshots Reject/Refresh или hardware измерений не предоставлено.
+Native #26 children11/11 completed, parent open до итоговой сверки/приёмки этапа.
+Source/package/manifest/shortcut прежние; docs/issues-only без новых build/tests/paid calls.
+Старые awaiting-acceptance и MIDI gates ниже — исторические записи прежних slices.
+
 Текущее дополнение0.3l/#165: [MIDI INSERT/REPLACE/EDIT + playback/history](AI_MIDI_CONTRACT.md).
 Preview показывает note/CC before/after и confirmed range; MIDI Apply enabled при
 разрешённом режиме и stopped/loop off. Output budget в Connection, scoped selected

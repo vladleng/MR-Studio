@@ -6,6 +6,21 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## Preview #163 принят; планы Memory/Skills уточнены — 2026-10-14
+
+Пользователь явно: «#163 тоже принимай». #163 closed completed в текущей0.3m upd4;
+прежние manual add/rename/diff/UndoRedo и local Reject/stale/Refresh/atomic tests
+сохранены; отдельные новые кадры Reject/Refresh не предоставлены. Native #26 все
+11/11 children completed; parent остаётся open до итоговой сверки/приёмки этапа.
+Source66b712f/package/manifest/shortcut прежние, docs/issues-only без новых build/tests/
+paid calls/hardware измерений/source push/Actions. Следующий шаг — финальный аудит #26.
+Пользователь вспомнил память проекта при повторном открытии и создание своих Skills
+для частых задач. Оба направления зафиксированы как architecture plan AI_INTEGRATION§16.1;
+уточнены project-scoped persistent context и user-authored reusable workflows.
+Не реализованы, отдельных Memory/Skill Registry issues по title не найдено.
+Существующая переписка memory-only; bounded session context не долговременная память.
+Реализация/новые issues не начаты автоматически. [План](AI_INTEGRATION.md).
+
 ## Permissions #162 приняты — 2026-10-14
 
 В ответ на checklist READ/SUGGEST/EDIT/revoke/mode-switch/AUTO/preferences пользователь:
