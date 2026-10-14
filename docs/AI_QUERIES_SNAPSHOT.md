@@ -1,5 +1,16 @@
 # AI Query API и snapshot v1 — #159/#160
 
+## Актуальная приёмка — 2026-10-14
+
+Пользователь: «#158 - принят», «#160 - принят». #160 closed completed в текущей
+0.3m upd4; source66b712f, прежние build/tests/package evidence сохранены.
+#159: «на первом скрине» — screenshot показывает36 authored chords, первые16,
+sections Verse[15360,61680)/Chorus[61680,107520) и явное предупреждение об усечённом
+снимке/неполном списке. Это подтверждает disclosure ограниченного контекста;
+не доказывает точность всего Query API или dirty/Undo/no-freeze сценарии.
+#159 остаётся open до явной приёмки; parent#26 open7/11. Без новых build/tests,
+paid calls или hardware measurements. Старые записи о приёмке ниже исторические.
+
 2026-10-13. Пользователь: «Понял, переходи к #159/#160».
 Parent [#26](https://github.com/vladleng/MR-Studio/issues/26).
 База: локальный worker/context source0359a72, docs40ab35b, принятый package0.3h upd2.

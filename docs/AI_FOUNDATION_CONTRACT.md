@@ -1,5 +1,13 @@
 # AI Foundation: worker и Project Context v1
 
+## Project Context принят — 2026-10-14
+
+Пользователь явно: «#158 - принят». #158 closed completed; также принят #160.
+Текущая поставка0.3m upd4/source66b712f; прежние Context133/133 и последующие
+регрессии сохраняются, новой сборки/tests/paid calls/hardware measurements нет.
+#159 screenshot — свидетельство ограниченного чтения, не явная приёмка.
+Parent#26 open7/11; открыты #159/#161/#162/#163. Старые статусы ниже исторические.
+
 ## User acceptance — 2026-10-14
 
 Explicit user: «#167 / #157: принимаю». #157 closed completed in delivered scope

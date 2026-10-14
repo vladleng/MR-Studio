@@ -6,6 +6,22 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## Приёмка #158/#160 и свидетельство #159 — 2026-10-14
+
+Пользователь явно: «#158 - принят», «#160 - принят»; обе задачи closed completed.
+Для #159: «на первом скрине». Screenshot0.3m upd4 показывает ответ по проекту:
+36 authored chords, первые16 в ограниченном снимке, sections Verse[15360,61680)
+и Chorus[61680,107520), explicit truncation и предупреждение о неполном списке.
+Это свидетельство bounded read/scope disclosure, не явная полная приёмка #159;
+точность всех перечисленных сущностей, dirty/Undo/no-freeze этим скрином не доказана.
+#159 остаётся open. Native #26 completion7/11 (#157/#158/#160/#164/#165/#166/#167);
+parent open, оставшиеся #159/#161/#162/#163 не приняты автоматически.
+Текущий source66b712f/package0.3m upd4/hash/shortcut прежние. Прежние Context133/133
+и Query/Snapshot136/136 plus последующие регрессии сохраняются как evidence;
+документальная приёмка без новой сборки/tests/paid calls/hardware measurements.
+Следующий шаг: завершить приёмку #159, затем #161/#162/#163 по выбору пользователя.
+GitHub docs/issues синхронизируются; source/build/package local, без Actions.
+
 ## 0.3m upd4 sparse grid / Shift free drag accepted — 2026-10-14
 
 User requests half/whole grid at screenshot zoom and Shift-after-LMB free drag for
