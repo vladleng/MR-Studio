@@ -448,3 +448,13 @@ Requested next maintenance build0.3m upd1: coherent display grid on zoom out,
 MIDI split runtime retention, Merge MIDI Clips (G), Duplicate (D).
 [Contract and delivery](MIDI_EDITING_UPD1.md), [current context](PROJECT_CONTEXT.md).
 No additional roadmap issue started; source/build/packages local, docs/issues GitHub.
+
+## 24. #167/#157 explicit acceptance / Smart Snap — 2026-10-14
+
+User: «#167 / #157: принимаю» and «Split, Merge G, Duplicate D — все работает».
+Both issues closed completed; native parent#26 now5/11 (#164/#165/#166/#167/#157),
+other6 and parent open. «Все вроде работает» general feedback, no blanket closure.
+No new detailed hardware/recording/error/DPI measurements claimed. Next requested
+maintenance0.3m upd2: gradual display subdivisions and zoom-dependent Smart Snap to
+the visible Arrangement grid. [Contract](SMART_SNAP_UPD2.md), [delivery](PROJECT_CONTEXT.md).
+No next roadmap issue started; source/build/packages local, docs/issues GitHub.

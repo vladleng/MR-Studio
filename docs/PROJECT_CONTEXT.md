@@ -6,6 +6,40 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## #167/#157 accepted; 0.3m upd2 Smart Snap delivered — 2026-10-14
+
+User: «Split, Merge G, Duplicate D — все работает» for0.3m upd1; explicitly
+«#167 / #157: принимаю». Both issues closed completed, actual native parent26
+completion5/11 (#164/#165/#166/#167/#157); parent and other6 remain open.
+«Все вроде работает» recorded as general feedback, no blanket acceptance inferred.
+No additional hardware/recording/error/physical-DPI measurements reported.
+Next requested build: longer-visible eighths before quarters/bars and zoom-dependent
+Smart Snap to displayed grid. [Contract](SMART_SNAP_UPD2.md). Single meter-aligned
+sequence, nominal5px threshold/faint subdivisions, quarter/beat→bar progression;
+Snap smart uses same resolution/origin, nearest sample distance, bounds clamped.
+Ruler/clips move+trim/create/import/drop/musical lanes use Smart; existing object-edge
+capture and legal range constraints retained. Piano roll keeps its own grid control.
+Snap-off ruler legacy6px capture retained. Cursor wheel zoom uses raw anchor to avoid
+jump when resolution changes. UI-only coordinates, existing commands/history/persistence;
+engine/DSP/network/schema unchanged; view zoom/Snap bool preferences retained.
+Source `33777d3b6d322f2d5969f407cca0c9d4d855f44b`,10source/test files; branch unchanged.
+Release build PASS; initial focused8/9 PASS with old fixed-grid ruler assertion,
+initial full143/145 (130.95s) second old tempo/meter ruler assertion; assertions updated
+to requested Smart behavior while Snap-off capture still tested. Next GUI exposed
+out-of-range boundary tick; snapTick clamp+negative/overflow regression added.
+Final GUI1/1 PASS44.67s and final full145/145 PASS160.58s after all code changes.
+Grid eighth/quarter/bar/pixel spacing/Snap membership/tempo+meter/zoom anchor/bounds
+and existing editing/history/SaveOpen tested;15/12/4zoom100/150 previews inspected.
+Historical failures/logs smart-snap-* retained; no timeout changes.
+Package `MR-Studio-0.3m-upd2-Smart-Snap-JUCE-ASIO-Windows-local`,13files/12hashes
+verified; packaged AI smoke exit0; symbols deliveries/0.3m-upd2-smart-snap.
+GUI SHA256 `62B95483D171B6C63F3A15002BDBCBA188085F4430B63DE938252A2B5C5199F7`.
+MR shortcut→upd2/workingdir/emptyargs/icon verified; previousupd1 manifest12/12 unchanged.
+FEATURE READY WITH MANUAL CHECK: user-project grid/Snap and physical DPI pending.
+Next: save project/restart via MR Studio, repeat screenshot zooms and move/trim/drop
+with Snap smart→Undo/Redo→SaveOpen. New Smart grid build awaits user verification.
+No next roadmap issue started/source push/PR/merge/Actions.
+
 ## #166 accepted; 0.3m upd1 MIDI editing delivered — 2026-10-14
 
 User: «#166 принимаю». #166 closed completed; actual native parent26 progress3/11,

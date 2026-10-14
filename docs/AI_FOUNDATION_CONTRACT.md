@@ -1,5 +1,17 @@
 # AI Foundation: worker и Project Context v1
 
+## User acceptance — 2026-10-14
+
+Explicit user: «#167 / #157: принимаю». #157 closed completed in delivered scope
+(current0.3m upd1/source4c1d5ba). Existing live text/proposal/model/usage and local
+mock/lifetime/permissions/history/audio regression evidence retained; no new detailed
+ASIO/recording/error/DPI measurements supplied. Other6 child issues and parent#26
+remain open; actual native completion5/11 (#164/#165/#166/#167/#157).
+Split/Merge G/Duplicate D also confirmed working. Next maintenance build requested:
+gradual grid subdivisions and Smart Snap; [current context](PROJECT_CONTEXT.md).
+Older awaiting-acceptance records below are historical and superseded by this statement.
+
+
 Актуальное дополнение 2026-10-13: #159/#160 реализуют entity_queries и snapshots;
 подробности и текущие limits/serialization/invalidation — [AI_QUERIES_SNAPSHOT.md](AI_QUERIES_SNAPSHOT.md).
 Описанные ниже unsupported query/snapshot статусы относятся к исходному #157/#158 slice.

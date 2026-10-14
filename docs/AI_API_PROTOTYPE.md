@@ -1,5 +1,17 @@
 # AI API prototype #167 — 2026-10-13
 
+## User acceptance — 2026-10-14
+
+Explicit user: «#167 / #157: принимаю». #167 closed completed in delivered scope
+(current0.3m upd1/source4c1d5ba). Existing live text/proposal/model/usage and local
+mock/lifetime/permissions/history/audio regression evidence retained; no new detailed
+ASIO/recording/error/DPI measurements supplied. Other6 child issues and parent#26
+remain open; actual native completion5/11 (#164/#165/#166/#167/#157).
+Split/Merge G/Duplicate D also confirmed working. Next maintenance build requested:
+gradual grid subdivisions and Smart Snap; [current context](PROJECT_CONTEXT.md).
+Older awaiting-acceptance records below are historical and superseded by this statement.
+
+
 Текущее дополнение0.3l/#165: [MIDI draft contract](AI_MIDI_CONTRACT.md), INSERT/
 REPLACE/EDIT и note transpose/velocity доступны через Preview/Apply в разрешённом
 режиме. Snapshot32KiB включает selection/tempo/meter/selected clip MIDI; output
