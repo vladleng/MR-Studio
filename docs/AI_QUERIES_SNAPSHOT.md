@@ -1,5 +1,14 @@
 # AI Query API и snapshot v1 — #159/#160
 
+## Query API принят — 2026-10-14
+
+Пользователь явно: «#159 тоже прошел». #159 closed completed в текущей0.3m upd4;
+дополнительный screenshot показывает Em/D/C tick ranges и explicit truncation.
+Вместе с ранее принятой #160 этот контракт принят; прежние test/build evidence
+сохранены, новых build/tests/paid calls/hardware measurements нет. Source66b712f,
+package/manifest/shortcut прежние. Parent#26 open8/11; осталось #161/#162/#163.
+Записи ниже об ожидаемой приёмке #159 исторические и заменены этим подтверждением.
+
 ## Актуальная приёмка — 2026-10-14
 
 Пользователь: «#158 - принят», «#160 - принят». #160 closed completed в текущей
