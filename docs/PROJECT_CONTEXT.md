@@ -1,6 +1,6 @@
 # MR Studio: текущий контекст разработки
 
-## Full Combo IR / #196 — инструкции изучены, 2026-10-14
+## Full Combo IR / #196 — инструкции и Polytone изучены, 2026-10-14
 
 Пользователь уточнил: нужны готовые комбики, а не только кабинеты; попросил изучить #196.
 Прочитаны issue/body/comments и MR_CAB_FULL_COMBO_IR.md, коллекционный канон/roadmap
@@ -9,11 +9,17 @@
 Collection→Combo Model→Capture Variant; один WAV полного измеренного линейного пути,
 без второго cab/room. Celestion Cabinet не заменяет Full Combo capture Polytone/Fender.
 No nonlinear amp/NAM behavior claimed; neural backend — отдельный будущий scope.
-Current code has no explicit role/project role metadata; generic scan/model limit <=1s
-needs audit against actual Combo files. Reuse existing loader/convolver, no new processor.
-Study/docs-only: implementation NOT STARTED, builds/tests/listening NOT RUN;
-user path to actual Full Combo WAV not provided. User asked «Глянь», not separate
-implementation command. Next: user-authorized #196 slice + real source path when available.
+Current code has no explicit role/project role metadata. User supplied
+D:/Samples/Past to Future/Polytone Mini Brute Jazz Guitar Amp.
+Read-only audit:20 PCM24 stereo WAV,10 captures in44.1/96k,632.018–856.760ms.
+All fit current <=1s scan guard; no48k files, existing off-thread resampling applies.
+Supplier PDF supports amp-capture intent/dark-bright/gain-stage variants, but exact
+chain and names1–5/B are undocumented; retain literal names/unknown details.
+[Audit](MR_CAB_FULL_COMBO_IR.md#7-read-only-audit-user-polytone-collection-2026-10-14).
+Current parser leaves these unclassified/rate pairs ungrouped; #196 implementation
+still needed. Reuse existing loader/convolver, no new processor.
+Study/docs-only: implementation NOT STARTED, application load/builds/tests/listening
+NOT RUN. Next: user-directed #196 implementation using supplied collection.
 Existing package/source/shortcut/accepted tests unchanged; vendor WAV untouched.
 
 
