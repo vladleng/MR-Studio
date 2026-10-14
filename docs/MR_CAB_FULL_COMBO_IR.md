@@ -92,3 +92,35 @@ MR Cab
 6. USER ACCEPTANCE отдельная, issue #185 остаётся closed. Другая подкатегория WAV не даёт оснований заявлять реальную эмуляцию усилителя.
 
 **Delivery:** local code/configure/build/tests/packages; GitHub only docs/issues [skip ci], no Actions/source push/PR/merge. Обязательно проверять live local checkout до изменений, не трогать сторонние WAV/готовые сборки и не запускать разработку без отдельной команды пользователя.
+
+## 7. Read-only audit: user Polytone collection, 2026-10-14
+
+User-provided root: `D:/Samples/Past to Future/Polytone Mini Brute Jazz Guitar Amp`.
+20 physical WAV: captures `Polytone 1` through `Polytone 5`, each with a separate
+`B` variant, each supplied at 44,100 and 96,000 Hz. All RIFF PCM format 1,
+24-bit, 2 channels. Actual durations 632.018–856.760 ms; sample counts
+27,872–37,783 at 44.1 kHz and 60,674–82,249 at 96 kHz.
+No 48 kHz files; use existing off-thread resampling for a 48 kHz project.
+Do not trim to the Celestion 200/500 ms profiles.
+
+Included supplier PDF describes IRs of the Polytone Mini Brute jazz guitar amp,
+dark/bright settings and different gain stages, and a DI-to-IR demonstration.
+This is evidence for an amp-capture collection, rather than filename-only inference.
+It does not enumerate the captured preamp/power/speaker/mic/room chain or map
+numbers 1–5 and suffix B to exact settings. Preserve literal variant names;
+do not infer B=Bright, specific model revision, microphones, or gain values.
+Suggested mapping for implementation: vendor Past to Future, amp_make Polytone,
+amp_model Mini Brute, role full_combo with provenance supplier PDF + user intent;
+unreported chain components/settings remain unknown.
+
+All headers fit the current Cab scan guard (<=2 channels, <=192 kHz, <=1 second).
+This is a header/code audit, not a successful application scan/load/listening test.
+Current Celestion-only semantic parser leaves these filenames unclassified and
+does not group the two sample rates as one capture. #196 still needs role metadata,
+manual mapping, rate-pair grouping and Combo labels/persistence on the shared loader.
+Paired durations differ by <0.01 ms; they fit the current same-length selector tolerance
+once semantic mapping groups each capture. No new decoder/convolver is indicated
+by this collection's headers.
+
+Source files were read only; no vendor WAV copied, changed or published.
+Implementation/build/CTest/physical listening not run; accepted #185 unchanged.
