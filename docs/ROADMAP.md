@@ -305,6 +305,14 @@ AI использует текущий #26 Foundation и управляет то
 
 ---
 
+## Future MRS UI Infrastructure — MR UI Kit + Gallery / #189 (backlog, 2026-10-14)
+
+[Parent #189](https://github.com/vladleng/MR-Studio/issues/189) в [#78 FEATURES](https://github.com/vladleng/MR-Studio/issues/78) — единый JUCE design system и controls для основной DAW/всех нативных плагинов, плюс **MR UI Gallery** для настройки крутилок/кнопок/фейдеров, палитры/типографики/density/состояний и проверки 100/125/150/200% preview. Базироваться на **существующих** `ui::Theme`/`Controls.h`, принятом [UI_REFERENCE_UPD9.md](UI_REFERENCE_UPD9.md), не открывать закрытые #145/#146.
+
+[Архитектура](MR_UI_KIT.md), [Gallery UX](MR_UI_GALLERY.md), [roadmap](MR_UI_KIT_ROADMAP.md), [Codex P1](MR_UI_KIT_CODEX_HANDOFF.md). План: [#190](https://github.com/vladleng/MR-Studio/issues/190) Audit → [#191](https://github.com/vladleng/MR-Studio/issues/191) Design Tokens → [#192](https://github.com/vladleng/MR-Studio/issues/192) MR Controls → [#193](https://github.com/vladleng/MR-Studio/issues/193) live Gallery → [#194](https://github.com/vladleng/MR-Studio/issues/194) parameter bindings/Undo → [#195](https://github.com/vladleng/MR-Studio/issues/195) opt-in pilot/QA. **Статус: документация, без реализации**; не блокировать текущую MR Cab/прочие задачи, действующий UI не мигрировать без приёмки. Проектные/звук/DSP state не меняются при просмотре Gallery. Код/builds/tests только локально, GitHub docs/issues [skip ci].
+
+---
+
 ## Future MRS Native Plugin — MR Cab 2.0 / #182 (planned only, 2026-10-14)
 
 **Новый этап [#182](https://github.com/vladleng/MR-Studio/issues/182) в категории [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111)**. Основа — **закрытая инфраструктура Cab IR [#23](https://github.com/vladleng/MR-Studio/issues/23)** и принятый MR Reverb [#128](https://github.com/vladleng/MR-Studio/issues/128); их повторно не открывать. Цель: универсальный каталог комплектов **WAV IR** с импортом фактической локальной Celestion, выбором заводских ready-mixes, compact Simple UI как MR Reverb, затем Advanced mic/phase/room, другие TONEX WAV/generic packs и модульные точки будущих расширений.
