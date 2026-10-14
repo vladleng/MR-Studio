@@ -1,5 +1,16 @@
 # Stage 3e — Processing reliability
 
+## MIDI-only deletion/runtime retention — 0.3m, 2026-10-14
+
+Only-MIDI remove_clip/remove_clips and their named Undo/Redo use staged Store +
+prepared stopped/joined MIDI data swap, without plugin state capture/full DSP reload.
+Rate/routing/time-map equality required; retain metronome/head/loop and generations.
+AI Apply keeps loop-off guard; mixed audio removal/other human MIDI paths unchanged.
+Restart failure rolls back data/model/history. Offline graph copies the authored map/
+click settings consistently. No callback/DSP allocation/locks/I/O/FFT changes.
+[Analysis/MIDI contract](AI_ANALYSIS_CONTRACT.md), [exact validation/package](PROJECT_CONTEXT.md).
+Fake-device removal/history fixture0.337ms; real user ASIO latency not measured.
+
 ## Insert structural loading — 2026-10-11
 
 upd8/#137 prepares the affected insert chain once and retains other channels'

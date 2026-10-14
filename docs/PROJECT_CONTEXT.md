@@ -6,6 +6,54 @@
 текущим статусом. Проверяй ветку, файлы и более новые инструкции пользователя.
 
 
+## #166 analysis + MIDI deletion + marker fill / 0.3m — 2026-10-14
+
+User: «Начинай #166», Backspace MIDI deletion ~3s, marker background75% transparent;
+also asked billing for rejected quantization. Implemented background read-only
+analysis from frozen ReadView/source handles on existing AI worker: note activity/
+density/register/polyphonic ticks by section, authored mixer/routes, bounded dry
+source RMS/peak; explicit unavailable spectrum/VSTi/processed mix. Analysis button
+needs no key/provider call, preserves draft/project/paid counter; summaries by default,
+no raw audio uploads. Cancellable/access-guarded cache: context key/source identity/
+stream file size+mtime; changed formats/read failures/stale media explicitly marked.
+[Contract/limits/units/RT/remaining checks](AI_ANALYSIS_CONTRACT.md). Provider snapshot
+24KiB/global16items2KiB, focused track/clip+MIDI pages retained; detailed global mix/
+plugin pages replaced by summaries. Actual token savings NOT MEASURED. Safe rejection
+reason categories added; actual old quantization rejection cause not known/fixed.
+Verified ProxyAPI successful usage billing vs provider errors; no balance/rate read.
+Only-MIDI Backspace now bypasses plugin capture/full graph rebuild, uses staged
+Store + prepared MIDI swap; common Undo/Redo and rollback retain runtime/editors/
+routes/MIDI generation. Human named removal history uses that path; mixed audio
+removal/other human MIDI paths retained. Engine swap MIDI-only requires unchanged
+map/rate/routing, stopped/joined/no count-in; keeps metronome/head/loop. AI Apply
+still loop-off. Offline graph now carries authored map/click settings, fixing the
+mismatch exposed by strict timing guard. Callback/DSP unchanged. Marker fill alpha
+0.25 only; caption/flag/selection/other lanes/Alt-copy ghost unchanged.
+Source `c429d8dd53794643bcc6c19e6baf169eb771fc70`,16source/test/build files;
+branch `mrs/0.2g-fix1-editor-space-local`. Release configure/build PASS.
+Full145/145 CTest PASS175.35s before final WAV-format guard/media fixture/sharing notice;
+finalaffected15/15 PASS4.72s after all source changes. Core fixture trim/range/pitch/
+privacy/cancel/revision, PCM0.5/0.25 RMS/peak/cache/media change/stale format, GUI
+local/no-key/no-network/read-only/draft and existing MIDI Apply/Undo/Redo PASS.
+Deletion rollback/loop/history/generations/SaveOpen PASS; remove+Undo+Redo fake-device
+fixture0.337ms (not actual ASIO timing). Analysis100/150 and marker150 previews inspected.
+Initial Windows max macro compile fixed; loop-swap guard exposed/fixed with MIDI-only
+path; GUI then exposed offline graph time mismatch fixed. First full144/145 with
+45s diagnostics timeout189.37s; isolated repeat45s timeout, direct same test passed
+33.34s. Diagnostics uses full J3 workload (observed J350.65s); test timeout aligned
+75s with J3, no engine timeout/assertion removed. Final full145 green (diag42.92/J343.28).
+Logs ai-analysis-* in build/asio-local; historical failures retained.
+Package `MR-Studio-0.3m-AI-Analysis-MIDI-Delete-JUCE-ASIO-Windows-local`,13files/12hashes
+verified, packaged AI smoke exit0; PDB deliveries/0.3m-ai-analysis-midi-delete.
+GUI SHA256 `B383D8F9D1F7EEF96A0EF9F66DC51D3FA4F2CD4080F1AE6F36F5B96197E07AFE`.
+MR Studio shortcut→0.3m/icon retained; previous builds/real settings/keys/projects intact.
+FEATURE READY WITH MANUAL CHECK / RT SAFE WITH MANUAL CHECK: actual provider analysis
+explanation, Backspace latency in user project, ASIO+network/recording impact and physical
+DPI NOT RUN. #166 remains open; #164/#165 closed, native parent26 remains2/11.
+Next: restart via MR Studio, test MIDI Backspace→Undo/Redo→Save/Open and local Analysis;
+ask provider to compare section density using the report. No further issue started.
+Source/build/package local, docs/issues GitHub; no source push/PR/merge/Actions.
+
 ## #165 accepted / 0.3l upd2 — 2026-10-14
 
 User confirmation: «Все звучит», after actual provider Piano chord generation and

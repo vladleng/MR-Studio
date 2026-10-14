@@ -420,3 +420,21 @@ caption/flag без изменений. [Контракт/границы/RT](AI_
 #164 accepted, native parent#26:1/11. Source/build/package local, docs/issues GitHub,
 без source push/PR/merge/Actions. Actual provider musical quality/playback/ASIO/DPI
 не подменяется synthetic fixture результатами.
+
+## 22. Local analysis hooks #166 / 0.3m — 2026-10-14
+
+Background summaries are now implemented on the existing AI worker: section note
+activity/density/register/polyphonic ticks, authored mixer/routes and bounded dry
+source RMS/peak. Source/range/units/confidence/partial/unavailable/stale are explicit.
+Spectrum/VSTi/processed mix levels remain unavailable. Analysis button is local/no-key/
+no-provider/read-only; ordinary messages receive summaries and a focused24KiB snapshot.
+No raw audio upload/render/ML/stem separation. Cached by context/source identity and
+stream size/mtime; cancellation/revocation and stale session delivery reused.
+MIDI-only deletion/history avoids plugin capture/reload; stopped MIDI swaps retain
+loop/timing/routing/generations. Marker badge25% opaque, caption/flag unchanged.
+Rejected proposal reasons do not trigger paid retries; successful provider responses
+with usage may be billed even when local validation rejects them (ProxyAPI rules
+verified2026-10-14). Actual token savings/cost not invented. [Contract](AI_ANALYSIS_CONTRACT.md),
+[current source/package/checks/limitations](PROJECT_CONTEXT.md). #166 remains open
+for manual acceptance; #164/#165 accepted. Source/build/package local, docs/issues
+GitHub, no source push/PR/merge/Actions.
