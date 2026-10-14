@@ -42,6 +42,13 @@ P1/#183 audit завершён, ждёт приёмки; #184 не начат. [
 - Хранить основной 48/200 + 48/500 для Room и сравнительных тестов, **полный оригинал Celestion архивировать отдельно, не удалять**; импорт WAV по metadata, без vendor media в GitHub. Длина IR **не равна latency**; фактические CPU/RAM/PDC/RT измеряются.
 - **P1 #183** — инвентаризация комбинаций и хвостов, **P2 #184** — descriptor/selector exact rate and length, **P3 #185** — defaults/preset/UX, **P4 #186** — same-rate component multi-mic handling, **P5 #187** — перенос правил на generic WAV.
 
+## MR Cab: Full Combo IR / #196 (дополнительное направление)
+
+- **[#196 — Full Combo IR Polytone/Fender](https://github.com/vladleng/MR-Studio/issues/196)** — новое аддитивное расширение поверх **принятого и закрытого #185**, не часть уже проведённой приёмки.
+- В одном MR Cab: Cabinet (Celestion) / Full Combo (WAV полного измеренного тракта) / Unknown. Одна WAV свёртка без второго cabin/room. Сохранять classification, file identity, preset/source metadata/Undo/SaveOpen, сортировка/фильтр и честное описание линейных ограничений.
+- Использовать [existing generic importer #187](https://github.com/vladleng/MR-Studio/issues/187) вместо дубля; не блокировать начатые P4/P5 при отсутствии у пользователя платных Combo WAV. Для реальных испытаний пользователь должен предоставить file path, иначе synthetic fixture/NOT TESTED. Согласовывать #196 с #188 QA, но не вплетать NAM как готовую функцию.
+- **[Полное техническое задание](MR_CAB_FULL_COMBO_IR.md)**. Статус: запланировано, код/сборки не менялись этой задачей. GitHub-native sub-issue links требуют отдельной привязки.
+
 ## Definition of Done общего продукта
 
 - [ ] Точный и безопасный импорт первого **пользовательского Celestion** без копирования WAV в GitHub/дистрибутив.
