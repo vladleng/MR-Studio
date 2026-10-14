@@ -1,5 +1,9 @@
 # MR Studio: текущий контекст разработки
 
+## MR Cab Full Combo IR / #196 — спланировано, 2026-10-14
+
+По просьбе пользователя созданы [#196 — Full Combo WAV IR](https://github.com/vladleng/MR-Studio/issues/196) и [docs/MR_CAB_FULL_COMBO_IR.md](MR_CAB_FULL_COMBO_IR.md); дополнены [#182](https://github.com/vladleng/MR-Studio/issues/182), [#187](https://github.com/vladleng/MR-Studio/issues/187), [#188](https://github.com/vladleng/MR-Studio/issues/188), [архитектура](MR_CAB_COLLECTIONS.md), [roadmap](MR_CAB_ROADMAP.md). Пользователю не нужен отдельный кабинет с Polytone/Fender: нужны готовые **Full Combo WAV** (линейный отклик цепочки, без динамики/нелинейного перегруза) внутри уже имеющегося MR Cab. Новая библиотечная роль `cabinet/full_combo/unknown`, optional amp/capture metadata; существующий один convolver/async/crossfade, без нового DSP/дублирующего generic parser. NAM отложен в отдельное будущее направление. **#185 принят/закрыт; не переоткрывать и не менять его исходный дизайн этой документацией**. #196 backlog, не реализован, source/build/CTest не выполнялись; no vendor WAV copied. Только GitHub docs/issues; native subissue attachment ещё не подтверждено.
+
 ## MR Cab #185 / 0.4a upd1 — принято, 2026-10-14
 
 Пользователь: «Принимаю» после исправления active/Ready mismatch, unavailable rows
