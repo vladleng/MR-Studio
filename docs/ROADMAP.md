@@ -305,6 +305,14 @@ AI использует текущий #26 Foundation и управляет то
 
 ---
 
+## Future MRS Native Plugin — MR Cab 2.0 / #182 (planned only, 2026-10-14)
+
+**Новый этап [#182](https://github.com/vladleng/MR-Studio/issues/182) в категории [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111)**. Основа — **закрытая инфраструктура Cab IR [#23](https://github.com/vladleng/MR-Studio/issues/23)** и принятый MR Reverb [#128](https://github.com/vladleng/MR-Studio/issues/128); их повторно не открывать. Цель: универсальный каталог комплектов **WAV IR** с импортом фактической локальной Celestion, выбором заводских ready-mixes, compact Simple UI как MR Reverb, затем Advanced mic/phase/room, другие TONEX WAV/generic packs и модульные точки будущих расширений.
+
+**Source of truth:** [MR_CAB_COLLECTIONS.md](MR_CAB_COLLECTIONS.md), [MR_CAB_ROADMAP.md](MR_CAB_ROADMAP.md), [MR_CAB_CODEX_HANDOFF.md](MR_CAB_CODEX_HANDOFF.md). Этапы: [#183](https://github.com/vladleng/MR-Studio/issues/183) audit/Celestion → [#184](https://github.com/vladleng/MR-Studio/issues/184) manifest/import → [#185](https://github.com/vladleng/MR-Studio/issues/185) Simple/presets → [#186](https://github.com/vladleng/MR-Studio/issues/186) Advanced → [#187](https://github.com/vladleng/MR-Studio/issues/187) TONEX WAV/generic → [#188](https://github.com/vladleng/MR-Studio/issues/188) modular compatibility/QA. Не реализовывать .txm/.txp, Amp DSP или NAM в этом этапе. Пользовательские IR не копировать и не публиковать. **Все этапы backlog, реализация начнётся только по запросу и после аудита локальной коллекции.**
+
+---
+
 # LIVE — встроенный Live Mode
 
 Parent: #14
