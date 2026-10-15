@@ -49,6 +49,10 @@ P1/#183, P2/#184 и Simple/#185 приняты/закрыты; текущий н
 - Использовать [existing generic importer #187](https://github.com/vladleng/MR-Studio/issues/187) вместо дубля; не блокировать начатые P4/P5 при отсутствии у пользователя платных Combo WAV. Для реальных испытаний пользователь должен предоставить file path, иначе synthetic fixture/NOT TESTED. Согласовывать #196 с #188 QA, но не вплетать NAM как готовую функцию.
 - **[Полное техническое задание](MR_CAB_FULL_COMBO_IR.md)**. Статус: реализовано локально0.4b (source2fbe90e), full149/149 PASS; ожидает ручной приёмки. [Поставка/инструкция](MR_CAB_FULL_COMBO_196_DELIVERY.md). GitHub-native sub-issue links требуют отдельной привязки.
 
+## Related product direction MR Rig / #197 (2026-10-15)
+
+[#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197) — новый native guitar rig продукт, использующий этот MR Cab и Full Combo #196 как WAV IR backend. Эти два направления **не объединять в один giant issue**: #182 — Cab/manifest/convolution/Advanced/import, #197 — model cards/cover/library/RigPreset/Pre+Post FX/NAM. Полные спецификации [MR Rig architecture](MR_RIG_ARCHITECTURE.md), [GUI](MR_RIG_GUI.md), [library](MR_RIG_LIBRARY_PRESETS.md), [DSP/Pedals](MR_RIG_AUDIO_PEDALS.md), [roadmap](MR_RIG_ROADMAP.md). Issue #185 accepted closed, #196 implementation 0.4b upd2 awaiting user approval; не откатывать/переписывать. #198 audit determines migration path before code. New Rig never pretends static IR is non-linear amplifier and never forces second cab for full combo. No source changes from this note.
+
 ## Definition of Done общего продукта
 
 - [ ] Точный и безопасный импорт первого **пользовательского Celestion** без копирования WAV в GitHub/дистрибутив.
