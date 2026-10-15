@@ -6,6 +6,10 @@
 **Параллельное развитие:** [#187 — generic WAV importer](https://github.com/vladleng/MR-Studio/issues/187) и [#188 — modular/QA](https://github.com/vladleng/MR-Studio/issues/188).
 **Канон Cab:** [MR_CAB_COLLECTIONS.md](MR_CAB_COLLECTIONS.md); [MR_CAB_ROADMAP.md](MR_CAB_ROADMAP.md). **Рабочие правила:** [AGENTS.md](../AGENTS.md), [LOCAL_BUILD_POLICY.md](LOCAL_BUILD_POLICY.md), [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
 
+## MR Rig #197 — product reuse (2026-10-15)
+
+Текущий Full Combo WAV функционал #196 (локальная 0.4b upd2, ожидает **отдельной** пользовательской приёмки) будет фигурировать как **curated ToneModel** в [#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197): карточка с названием/изображением/метаданными и возможность сохранить **RigPreset** со всей Pre/Core/Post FX цепью. Нельзя считать статический WAV полноценной динамической эмуляцией Fender/Polytone. Вкладка NAM должна использовать отдельный neural runtime, а не здесь. #196 владеет только Full Combo WAV import/role/browser; #197 отвечает за GUI/педали/модельную библиотеку/нейросети; [спецификация](MR_RIG_ARCHITECTURE.md) и [roadmap](MR_RIG_ROADMAP.md). No change to code or 0.4b approval via this note.
+
 ## 1. Что нужно пользователю
 
 Не «преамп + отдельный Celestion», а **записанный звук одного комбоусилителя** Polytone Mini-Brute или Fender Twin/Deluxe одним файлом:
