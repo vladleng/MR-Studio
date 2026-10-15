@@ -1,6 +1,6 @@
 # MR Rig — единый Roadmap (после объединения MR Cab #182)
 
-**Решение 2026-10-15. Канонический активный parent — [#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197).** Отдельное направление [#182 MR Cab 2.0](https://github.com/vladleng/MR-Studio/issues/182) прекращено / закрывается как superseded; **его выполненные результаты сохраняются**, не удаляются и не переписываются. [#111 Native Plugins](https://github.com/vladleng/MR-Studio/issues/111) остаётся категорией. Это перенос roadmap, **не реализация кода**.
+**Решение 2026-10-15. Канонический активный parent — [#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197).** Отдельное направление [#182 MR Cab 2.0](https://github.com/vladleng/MR-Studio/issues/182) прекращено / закрыто как superseded; **его выполненные результаты сохраняются**, не удаляются и не переписываются. [#111 Native Plugins](https://github.com/vladleng/MR-Studio/issues/111) остаётся категорией. Это перенос roadmap, **не реализация кода**.
 
 ## 1. Реализованный фундамент (historical accepted)
 
