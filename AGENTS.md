@@ -15,7 +15,7 @@
 2. Перед изменением кода: `git status --short`, ветка, HEAD. Сохраняй чужие/незакоммиченные изменения; не делай reset, stash, branch switch без согласования.
 3. Используй поиск по классу, функции, номеру Issue и затем чтение **нужного диапазона** кода/документа. Не открывай полностью большие файлы, если достаточно раздела. Не перечитывай неизменённое в одном рабочем контексте.
 4. **Не загружай по умолчанию** целиком `docs/PROJECT_CONTEXT.md`, `docs/LOCAL_BUILD_POLICY.md`, `docs/ROADMAP.md`, все Issues, весь `docs/` или все skills. Статус — из актуального Issue; контекст/политику находи поиском по теме. Для рисковых изменений обязательно читай релевантные правила безопасности.
-5. `.codex/skills/`: открывай **один нужный SKILL.md**, а не всю папку. Для RT/аудиографа — relevant `mr-realtime-audio-safety`, `docs/ENGINE_PERFORMANCE_PLAN.md`, `docs/PROCESSING_RELIABILITY.md`; для сборки — нужный раздел build policy.
+5. `.codex/skills/`: открывай **один нужный SKILL.md**, а не всю папку. Для всего GUI/иконок/SVG — `.codex/skills/mr-unified-gui/SKILL.md` + нужный раздел `docs/MR_UNIFIED_DESIGN_SYSTEM.md` (если skill отсутствует в локальном checkout, сверяй его с GitHub); не загружай все UI docs. Для RT/аудиографа — relevant `mr-realtime-audio-safety`, `docs/ENGINE_PERFORMANCE_PLAN.md`, `docs/PROCESSING_RELIABILITY.md`; для сборки — нужный раздел build policy.
 6. Выполняй **только порученный этап**. Следующую задачу не начинай автоматически. Не требуй повторного разрешения на уже согласованную работу.
 
 **Алгоритм:** `Issue → точечная спецификация → нужный код → локальные проверки → отчёт в Issue`.
@@ -26,7 +26,7 @@
 - Изменения через принятые Commands/Model; сохраняй Undo/Redo, project persistence, plugin/editor lifetime, PDC, transport и raw recording. Миграции и новый формат состояния — только по обоснованной необходимости.
 - **Audio callback:** никаких новых alloc/free, mutex/locks, disk/network I/O, UI calls. IR/NAM decode, подготовка эффектов, пересборка графа — вне callback; безопасный lifecycle worker/DSP и переключение. Не допускай двойного аудиотракта.
 - **Studio mixing ≠ Live/recording:** 128 сэмплов не обязательны для всех студийных эффектов. RT производительность подтверждай callback/xrun измерениями, не одним процентом CPU.
-- UI — текущая принятая тема/контролы; не навязывай редизайн или новые DSP другим принятым модулям.
+- **GUI всей MR Studio (DAW/Live/все native plugins):** пользователь утвердил единый визуальный стиль `docs/MR_UNIFIED_DESIGN_SYSTEM.md` (dark blue-graphite, flat, тонкая светлая SVG-контурная графика) и skill `.codex/skills/mr-unified-gui/SKILL.md`. Реализуй в рамках назначенного GUI Issue с опорой на #189 MR UI Kit. До отдельной приёмки этапа действующая `ui::Theme` и ранее принятые экраны/цвета остаются as-built; не перекрашивай всё сразу, не меняй DSP и сторонние VST3 GUI.
 
 ## Разработка и публикация
 
