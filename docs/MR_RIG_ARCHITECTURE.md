@@ -1,0 +1,60 @@
+# MR Rig — Product/Technical Architecture (canonical)
+
+**Status:** DESIGN / backlog, 2026-10-15. **Parent:** [#197](https://github.com/vladleng/MR-Studio/issues/197), under [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111). **Read with:** [GUI](MR_RIG_GUI.md), [library and presets](MR_RIG_LIBRARY_PRESETS.md), [audio/pedals](MR_RIG_AUDIO_PEDALS.md), [roadmap](MR_RIG_ROADMAP.md), [handoff](MR_RIG_CODEX_HANDOFF.md).
+**Local baseline (GitHub reports):** #185 accepted closed, 0.4a upd1; #196 Full Combo IR implementation 0.4b upd2 **ready, awaiting user acceptance**. Most recent [PROJECT_CONTEXT](PROJECT_CONTEXT.md) has latest local SHA/package; verify it in local checkout before code. Do not imply #196 accepted or start refactoring without user instruction.
+
+## 1. Product charter
+
+**MR Rig = user-facing native Guitar Tone Environment**, not a generic IR file picker. Primary gesture is **select a named/categorized sound (visual Model card), adjust compact signal chain, save as Rig**. Advanced users can import and map raw WAV IR/NAM files as secondary workflow. Natural default for user: jazz clean sounds (Polytone/Fender examples), but product must not be genre/vendor-hardcoded.
+
+Primary workspace:
+```
+ MODEL / RIG BROWSER (IR Models | NAM Models | My Rigs) [Search][Filters]
+ ┌──────────────────────────────────────────────────────────────────┐
+ │ PRE FX [+]  →  RIG CORE [image / model, variants] → POST FX [+] │
+ │  compact chain      active: IR OR NAM             compact chain  │
+ └──────────────────────────────────────────────────────────────────┘
+ [Selected block inspector: values | bypass | preset] [input/output meters]
+```
+One native insert processor in the existing MR Studio SHARED host graph, visual/editor lifetime independent of audio DSP. The central Core is not a parallel DAW/plugin host with a separate device; no auto bypass of external inserts when choosing a full combo.
+
+## 2. Types and ownership contracts
+
+**Three different persistable entities; do not conflate them:**
+1. `SourceAsset`: typed actual on-disk media: `wav_ir` (one validated WAV or approved channel mapping), later `nam_model`. Tracks external identity/root-relative path/fingerprint, rate/length/channels or NAM architecture metadata. No bundled commercial media.
+2. `ToneModel`: **curated presentation + source semantics**: immutable stable model ID (not an absolute path), type IR/NAM, semantic capture role (`cabinet_only`, `full_combo` for WAV; `nam_full_rig`, `nam_amp_only`, `unknown` for NAM), vendor/model/variant/capture provenance and confidence, picture/thumbnail URI as a validated local reference, tags/preset defaults/favorite. One model can map multiple validated source variants. An image is presentation metadata, not DSP.
+3. `RigPreset`: ordered Pre FX `moduleInstance` snapshots + selected ToneModel/SourceAsset variant + Rig Core controls + ordered Post FX snapshots + input/output gains, bypass, version and compatible capability flags. One ToneModel can serve many Rigs, no WAV duplication. RigPreset is **not** a collection-manifest row and not a NAM binary.
+
+Possible later `FactoryCuratedSet`: collections of metadata/bookmarks, only redistributable if rights allow; user must install/source vendor files. Factory app must remain useful with legal placeholders/examples and user's own free/licensed media. Default card image missing → neutral placeholder, not invisible model.
+
+## 3. Core backend selection (actual DSP, not UI theme)
+
+`RigCoreType` = `WAV_IR` or `NAM` (future) with capability negotiation and explicit type. At most one *audible* active core per rig except bounded transition for clickless switching.
+
+- `WAV_IR` with `full_combo` capture role → use existing MR Cab convolution; **no extra cabinet/room automatically**. The WAV is a fixed **linear** captured response, not dynamic Fender/Polytone emulation, no fake interactive preamp knobs. `cabinet_only` is available but **not** a standalone amplified sound: UI labels it accurately; permit users to place separate amp plugin elsewhere or use future onboard amp core only if real DSP exists.
+- `NAM` full-rig → NAM runtime with captured speaker/mic as documented; no additional Cab. `NAM` amp-only → optional post-neural **one** Cabinet IR loader (reuse current Cab convolution, not a second audio engine), before Post FX. Scope unknown → mark `unknown`; ask user to classify, never infer full-rig solely from filename. Don't promise extraction/removal of embedded cabinet from a full-rig model.
+- User-selected Own WAV IR → remains optional `Import My IR` and may be classified as full_combo/cabinet/unknown manually; default unknown until evidence.
+- Generic other rig types future only after explicit product decision. NAM A2 architecture/version compatibility must be audited before promises; non-neural `*.nam` is **not WAV** and requires its own decoder/runtime/inference engine.
+
+**One actual DSP graph** contract: Input utility (meter, optional tuner/gate) → ordered Pre FX → Core (selected model; optional cabinet stage only for explicit NAM amp-only) → ordered Post FX → output meter. Detailed contracts [MR_RIG_AUDIO_PEDALS.md](MR_RIG_AUDIO_PEDALS.md).
+
+## 4. Transform existing MR Cab without regressions
+
+[#182](https://github.com/vladleng/MR-Studio/issues/182) stays owner of Cab & IR collection data/backend; [#196](https://github.com/vladleng/MR-Studio/issues/196) is Full Combo WAV. **MR Rig #197 is new product shell/core abstraction, not a blind rename of `mrs.cab-ir`**. Important: same plugin-ID, schema compatibility, saved MR Cab presets and projects until local audit establishes safe migration; choose one of: (A) wrapper/editor over existing Cab processing retaining ID, (B) separate `mrs.rig` processor with explicit migrate/copy path; choose based on read-only audit and user approval, not assumption.
+
+Data upgrade rules: no silent legacy preset conversion or loss, consistent Source identity/missing/relink; retain current accepted #185 editor as stable migration fallback until replacement is user-approved. Existing MR Reverb remains separate native insert (can share DSP components if contracts allow). #187 generic WAV importer reused; #189 UI Kit components optional until ready. #186 Advanced mic editor is optional independent capability; no requirement to ship mic mixing in MR Rig initial release.
+
+## 5. User workflow
+
+1. Insert MR Rig → default browser IR Models, curated cards with photo/placeholder, labels `Full Combo WAV` or `Cabinet only`, Ready/Missing/Unsupported.
+2. Choose model card → load validated source asynchronously, display photo and model/variation, play without clicks, level match manually/record.
+3. Add (or reorder) one or more left PRE FX and right POST FX. Select a tile → bottom inspector shows **only relevant, real controls**.
+4. Save current chain as `My Rigs / Warm Jazz`, custom image optional; reopen exact state and current render, even if UI was closed.
+5. Advanced option: `Import My IR` / later `Import NAM` → user selects local file, maps role/capture, assigns artwork/tags, then saves Tone Model. Don't overwrite source media.
+6. When model missing/unsupported: show full non-destructive status and original source identity, leave rest of RigPreset intact. **Never auto replace missing Polytone with another Fender file**.
+
+## 6. Acceptance and boundaries
+
+Scope is staged. Design and docs are not proof of a running plugin. Each issue has acceptance gates and no work before user commands. GUI smoke at 100/125/150/200% logical zoom; physical mixed-DPI and actual ASIO require separate manual evidence. CPU/RT deadlines measured for buffers applicable to recording/Live vs larger studio mix buffers; full current CTest at candidate acceptance, targeted during iteration.
+
+No proprietary WAV, NAM or amplifier pictures in repo/packages/fixtures without license; use synthetic WAV and permitted original assets. Direct web downloads, image scraping, new VST3 host or neural training not scope. Host command/Undo/multi-instance/lifetime and realtime audio safety governed by [AGENTS.md](../AGENTS.md) + [LOCAL_BUILD_POLICY](LOCAL_BUILD_POLICY.md).
