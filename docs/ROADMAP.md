@@ -313,6 +313,17 @@ AI использует текущий #26 Foundation и управляет то
 
 ---
 
+## Future MRS Native Plugin — MR Rig / #197 (2026-10-15; planned)
+
+**[#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197)** — отдельная перспективная native guitar sound environment над текущим #182 MR Cab WAV/Full Combo backend. Пользователь сначала выбирает **готовый звук с фотографией**, а не сырой WAV. Библиотеки **IR Models / NAM Models / My Rigs**; собственный IR import — дополнительная опция. GUI: **PRE FX слева → одна модель Rig Core + обложка в центре → POST FX справа**, один inspector, полный RigPreset с упорядоченными реальными педалями. IR Full Combo WAV — один linear convolver без второго кабинета; NAM Full Rig — neural без дополнительного Cab; NAM Amp Only — optional Cab. Не называть кабинетный IR моделью преампа.
+
+**Статус на момент согласования:** #185 Cab Simple принят/закрыт; #196 Full Combo реализован локально как 0.4b upd2 и ожидает отдельной пользовательской приёмки. **Ни один из этапов Rig не реализован данным планом**, #182, #196 не закрывать, accepted GUI/source не заменять автоматически.
+
+**Docs:** [MR_RIG_ARCHITECTURE.md](MR_RIG_ARCHITECTURE.md), [MR_RIG_GUI.md](MR_RIG_GUI.md), [MR_RIG_LIBRARY_PRESETS.md](MR_RIG_LIBRARY_PRESETS.md), [MR_RIG_AUDIO_PEDALS.md](MR_RIG_AUDIO_PEDALS.md), [MR_RIG_ROADMAP.md](MR_RIG_ROADMAP.md), [MR_RIG_CODEX_HANDOFF.md](MR_RIG_CODEX_HANDOFF.md).
+**Stages (logical sub-issues):** [#198](https://github.com/vladleng/MR-Studio/issues/198) audit/migration → [#199](https://github.com/vladleng/MR-Studio/issues/199) library/cards → [#200](https://github.com/vladleng/MR-Studio/issues/200) GUI/RigPreset → [#201](https://github.com/vladleng/MR-Studio/issues/201) Pre/Post chain → [#202](https://github.com/vladleng/MR-Studio/issues/202) pedals → [#203](https://github.com/vladleng/MR-Studio/issues/203) NAM → [#204](https://github.com/vladleng/MR-Studio/issues/204) QA. Native GitHub Sub-issue attachment still needs manual linking. Codex starts **only with audit #198 on separate command**, no source code/GitHub Actions changed by this plan.
+
+---
+
 ## Future MRS Native Plugin — MR Cab 2.0 / #182 (planned only, 2026-10-14)
 
 **Новый этап [#182](https://github.com/vladleng/MR-Studio/issues/182) в категории [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111)**. Основа — **закрытая инфраструктура Cab IR [#23](https://github.com/vladleng/MR-Studio/issues/23)** и принятый MR Reverb [#128](https://github.com/vladleng/MR-Studio/issues/128); их повторно не открывать. Цель: универсальный каталог комплектов **WAV IR** с импортом фактической локальной Celestion, выбором заводских ready-mixes, compact Simple UI как MR Reverb, затем Advanced mic/phase/room, другие TONEX WAV/generic packs и модульные точки будущих расширений.
