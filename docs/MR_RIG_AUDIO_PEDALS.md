@@ -1,0 +1,67 @@
+# MR Rig — DSP Graph, PRE/POST Pedals, NAM Modes and Safety
+
+**Parent [#197](https://github.com/vladleng/MR-Studio/issues/197)**. Planned architecture. **No new DSP has been implemented by this document.** Reuse accepted [#185 Cab](https://github.com/vladleng/MR-Studio/issues/185) and local #196 when accepted; don't rewrite host core just to draw pedals. Base [MR_RIG_ARCHITECTURE](MR_RIG_ARCHITECTURE.md), [MR_RIG_LIBRARY_PRESETS](MR_RIG_LIBRARY_PRESETS.md).
+
+## 1. Processing modes (exclusive active core)
+
+```text
+Input DI → Input Trim / real input meter
+  → PRE FX [0..N ordered DSP modules]
+  → RIG CORE:
+     WAV IR / Full Combo: existing MR Cab convolution once (no extra Cab)
+     WAV IR / Cabinet-only: existing MR Cab convolution (amp modeling outside Rig
+                            or future *real* amp engine; clearly labeled)
+     NAM / Full Rig: neural inference, cabinet baked (no extra Cab)
+     NAM / Amp Only: neural inference → optional *one* CAB convolution
+     NAM / Unknown: UNCLASSIFIED/needs explicit routing choice before Cab addition
+  → POST FX [0..N ordered DSP modules]
+  → Output Trim / Meter → host insert output
+```
+
+**Must avoid** duplicate cab, room, preamp or signal branch when Full Combo/Full Rig selected. The user can knowingly place other native/third-party FX before/after the whole MR Rig in host mixer, but Rig must **not silently bypass external plugin inserts** or change SHARED host routing.
+
+**One host insert vs many:** preferentially one native `MR Rig` container insert owning ordered DSP modules and adapting to existing SHARED processing graph, rather than injecting a separate visible DAW-track insert per pedal. Container may reuse independent DSP processors/classes inside as child nodes **without** opening a second device, second track or nested project history owner. P0 audit must confirm feasible integration; if existing host owns every processor independently, bridge via registered internal node contracts safely rather than inventing a parallel engine. Do not assume arbitrary VST3 pedals hosted inside container; **MVP native-only**. Alternative arrangement needs explicit user approval.
+
+## 2. Pedal position contracts
+
+PRE FX (left): signal conditioning before current amplifier/combo source; preferred examples:
+- `Gate` / `Compressor` / `EQ` / `Drive` (Drive before model only if actual DSP exists).
+POST FX (right): modulation and ambience after core; examples:
+- `EQ` / `Chorus` / `Delay` / `Reverb`, and if appropriate `Tremolo` future.
+
+Position **is user-editable per rig** within compatible slots; default categories guide, don't forbid musically valid move. `Pre`/`Post` have explicit ordered list, enable/bypass/preset/drag/drop/add/remove/replace; when moved across core (if permitted), host command must update graph safely and Undo. No fake pedal module showing a functional icon unless real DSP is wired; grey-out/Coming Later for unimplemented module.
+
+Suggested first DSP cut: **native Compressor, simple Drive, EQ** for Pre, **Chorus, Delay, Reverb** for Post, with smaller initial choice at P4/user approval to avoid scope explosion. Existing MR Reverb/EQ/Saturator processors may share **DSP implementation only after local audit** (and avoid duplicate reverb tails/summed routing). UI panels reuse Theme/UI Kit eventually; no separately instantiated VST3 GUI or standalone ASIO audio device for pedals.
+
+## 3. DSP Module API draft (requires local audit)
+
+```text
+ModuleDescriptor { typeId, version, displayName, prePostCapabilities,
+                   channelLayouts, realtimeSafe, latencyPolicy, parameters[] }
+ModuleInstance { instanceId, typeId, bypass, parameterState, loadStatus }
+RigGraphPlan { inputLayout, preChain[], activeCore, optionalCab, postChain[],
+               outputLayout, reportedLatencySamples, generationId }
+```
+
+P0 must inspect current existing Host native processor registration, command/event flow, sample rate/preparation, ownership, project state, performance instrumentation and decide minimal adapters. New parameters use central host metadata/Undo/automation mechanisms, stable module instance IDs, lifecycle cancellation, serializable versioned descriptors. No DSP state hidden only inside an editor. Real power/bypass off avoids expensive neural processing where safe; when leaving bypass consider release tails and fade policy of time-based effects.
+
+## 4. Realtime / performance contract
+
+- All new IR/NAM/pedal load/alloc/decode/prepare/resample/model warm-up/graph compilation **non-RT**, with atomic/safe generation handoff at defined audio block boundaries; no mutex, allocation/free, GUI/widget access, disk/network I/O in audio callback. Crossfade or discontinuity handling bounded by CPU/RAM; do not run two heavy NAM engines concurrently without measured budget and a fallback strategy (defer/safe bypass for unsupported transitions).
+- Stable plugin states during editor close, project loading, missing assets, reorder, transport Play, changing ASIO sample rate/buffer. No double-audio dry path because bypass/parallel routing; wet/dry explicit for fixed WAV/full combo. No unintended doubling of room (ready-mix IR + another auto-room).
+- Latency = **measured algorithmic latency** across active modules + core, correctly reported to host PDC. IR duration (200/500ms) **not** automatic processing latency. Time-based effects Tail policy (delay/reverb) must survive a preset change appropriately or safely fade, without RT memory growth.
+- CPU bench by core type + number/complexity of pedals, 1/2/4 rigs at 128/256/512/1024 frames; differentiate Studio mixing with typically higher buffer and recording/Live low latency. 96k vs 48k optional benchmarking; no claims lighter NAM until actual core/architecture measured.
+- NAM backend: model format validation and supported architectures require test on actual licensed/open models and runtime; compare A2 Full/Lite only where supported; load/executable compatibility check (Windows/JUCE build) and licensing, no online model training included. Disabled when unsupported, never silently fall back from NAM to wrong WAV.
+
+## 5. Undo/presets/audio-path invariants
+
+`Add/Remove/Reorder/MoveAcrossCore` structural operations commit through host commands, serializable stable IDs, one transaction per gesture, Undo/Redo consistent even while playing. `parameterChange` continuously preview where supported, commit final as one undoable gesture, no callback patch recreation for each drag step. Rebuild/prepare chain asynchronously for structural changes, preserve current audio when pending and show status.
+
+RigPreset includes chain order, module instance/bypass params, selected model/asset, core mode, optional amp-only Cab, gains/output, active image metadata in library. When unrecognized module type/version, preserve unknown state as placeholder (do not delete). Missing source leaves Rig saved state and edits intact. Legacy MR Cab preset compatibility strategy after local P0 and user approval; #185 is accepted closed, #196 pending acceptance.
+
+## 6. QA before acceptance
+
+- Same DRY test stream, output spectrum/level parity against current MR Cab when **no pedals** and selected WAV core; zero secret gain change.
+- 0/1/N pedals, PRE/POST reorder including moving across Core, per-pedal bypass, remove/restore, SaveOpen/Undo/Redo, missing/relink/unsupported, multi-instance/project reopen.
+- Listening A/B stable/level-matched; CPU max callback & xrun under ASIO, NO real ASIO claims unless run; 100/150/200 GUI snapshots plus physical mixed-DPI manual.
+- Full current CTest once per user stage candidate plus affected GUI smoke; targeted tests during development. No commercial source contents or images committed to repo without rights.
