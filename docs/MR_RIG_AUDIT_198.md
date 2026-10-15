@@ -72,41 +72,29 @@ ASIO device, VST3 host либо независимый audible graph. Расши
 памяти/очередей нельзя. Переиспользование IProcessor/подготовленных DSP не означает
 повторный запуск внешнего host graph из callback.
 
-## 4. Варианты миграции и рекомендация
+## 4. Решение после уточнения пользователя
 
-| | A: оболочка поверх cab_collection / mrs.cab-v2 | B: отдельный mrs.rig с явным Convert |
-|---|---|---|
-| Первый WAV shell | Меньше изменений DSP; существующий loader работает | Нужны новый kind/state/factory и адаптер к текущему WAV core |
-| Принятые Cab projects | Автоматически получают новую оболочку; выше риск UI/state регрессий | Открываются прежним стабильным backend без автоматической конверсии |
-| Pre/Post и NAM | Cab ID начинает означать совсем другой контейнер; нужна новая schema/проверка всё равно | Отдельный тип capability и versioned RigState естественны |
-| Старый MR preset | Сразу допустим прежнему kind; нельзя скрыто добавлять Rig-state | Отдельный импорт/конверсия; обычный decodePreset справедливо отвергает другой kind |
-| Риск/цена | Дешевле только для shell, сложнее граница старого и нового state | Больше начальной интеграции, яснее продуктовый и compatibility контракт |
+**Уточнение 2026-10-15:** «Старые проекты сохранять не нужно, они были только для тестов».
+Требование обратной совместимости с тестовыми Cab-проектами снято. Предыдущая
+рекомендация B с Convert/fallback отозвана в этой части.
 
-**Рекомендую B для утверждения пользователем:** один новый MR Rig insert с
-`mrs.rig`, переиспользующий Cab DSP как внутренний WAV core. Старый mrs.cab-v2
-остаётся путём чтения/воспроизведения принятых проектов и fallback editor, **без
-отдельного дальнейшего Cab roadmap**. Новый основной пункт продукта — MR Rig.
-Рекомендация не является уже утверждённым изменением ID или формата.
+Предлагаемый путь: один новый **MR Rig / mrs.rig** с чистым versioned RigState,
+переиспользованием проверенного WAV DSP и одного editor lifecycle. Не нужны:
+Cab→Rig Convert, compatibility wrapper, автоматическая миграция тестовых проектов,
+сохранение старых ID ради их чтения, fallback Cab editor или old-schema acceptance
+matrix как gate нового продукта. Существующие файлы проектов, WAV и принятые
+бинарные пакеты при этом не удаляются и не переписываются.
 
-Предлагаемый Convert to MR Rig:
+Новый processor ID обозначает новую семантику контейнера Pre/Core/Post. Конкретные
+enum/формат и schema выбираются при реализации, без бессмысленного переименования
+внутреннего ReverbProcessor. Никаких ID или source изменений в P0 не выполнено.
 
-1. Явная команда при Pause/Stop, без изменения пользовательского файла на диске.
-   Подготовить кандидат вне callback; заменить один выбранный insert в одном Undo.
-   Сохранить outer slot UUID, создать стабильные internal module IDs. Не добавлять
-   второй звучащий Rig рядом со старым Cab и не менять соседние эффекты/маршруты.
-2. Скопировать **точную** external identity, collection/variant IDs, role/capture
-   snapshot, bypass и все Cab controls. Old wet Gain остаётся wet Core Gain,
-   Mix сохраняется даже если <100%; new Input/Output trims = unity. Не переносить
-   wet Gain во вход и не менять звук «рекомендованными» defaults.
-3. Старые `.mrspreset` импортировать явным Cab→Rig adapter, не ослаблять проверку
-   kind в decodePreset. Undo возвращает исходный Cab state; Redo восстанавливает Rig.
-   Новый Rig preset не выдавать за обратно читаемый старым приложением.
-4. При реализации добавить новый enum **в конец**, не перенумеровывать kind0..8.
-   Versioned RigState и необходимые reader/schema gates вводить в #200 по реальному
-   формату, с old schema23 fixtures. Номер новой schema в P0 не назначается.
-5. Перед заменой kind/processor отсоединить несовместимые editors. Для обычной смены
-   модели/пресета внутри Rig сохранить окно и geometry. Никакой blind rename или
-   обязательной миграции Legacy embedded Cab.
+Сохраняются инженерные требования: точная SourceAsset identity, честные роли,
+безопасная загрузка/переключение, один audible core, команды/Undo, сохранение
+**новых** RigPreset/проектов, один editor без переоткрытия. Input Trim, Core wet Gain,
+Mix и Output Trim имеют независимую семантику; Input/Output trims по умолчанию unity.
+Отказ от старых тестовых проектов не разрешает сбрасывать новые настройки Rig
+при закрытии редактора и не превращает WAV в нелинейную amp-модель.
 
 ## 5. Адаптеры и границы данных
 
@@ -156,7 +144,7 @@ identity/настройки не теряются. Source relink проверя�
 | Этап | Минимальный законченный результат и зависимости |
 |---|---|
 | P1 #199 | Небольшая versioned ModelLibrary, IR Models cards/tags/favorites/cover fallback, точные SourceAsset refs, optional Import My IR/manual role; NAM явно Planned, My Rigs без вымышленных сохранённых chains. Без vendor universal wizard/multi-mic |
-| P2 #200 | Одно Rig window, центр model card, native inspector, WAV-only core; минимальный RigPreset с пустыми Pre/Post; при выборе B — native kind/endpoint/format adapter и explicit conversion. P1 accepted; #189 не blocker |
+| P2 #200 | Одно Rig window, центр model card, native inspector, WAV-only core; минимальный RigPreset с пустыми Pre/Post; native kind/endpoint и новый RigState без legacy migration. P1 accepted; #189 не blocker |
 | P3 #201 | Реальные ordered native Pre/Post instances, parameter preview/commit, bypass/reorder/Undo/PDC; unsupported slots честно недоступны; не рисовать уже работающие несуществующие педали |
 | P4 #202 | Малый согласованный DSP subset. EQ реально переиспользуем; Gate/Drive/Compressor/Chorus/Delay требуют самостоятельной реализации/адаптации. Reverb — реальный IR DSP с отдельным endpoint/state и tail policy |
 | P5 #203 | Dedicated NAM loader/inference и проверка форматов/лицензии/поддерживаемых architectures. Full Rig без второго Cab; Amp Only с optional одним Cab; Unknown с явным routing choice |
@@ -201,10 +189,10 @@ substitution и сохранение nonunity wet Gain/Mix; (2) new preset/file 
 
 ## Решение, переданное на приёмку
 
-Утвердить **B: отдельный mrs.rig, общий WAV DSP, explicit Cab collection→Rig Convert,
-один заменяемый insert и сохранение старых проектов без автоматической миграции**.
-Альтернатива A остаётся допустимым решением пользователя, но не устраняет будущую
-потребность в RigState/container/endpoint. Ни ID, ни schema в этом аудите не изменены.
+Утвердить уточнённую архитектуру: **один MR Rig / mrs.rig, общий WAV DSP,
+чистый RigState, без поддержки/конверсии старых тестовых Cab-проектов**.
+Условия Convert/fallback/old schema fixtures из первоначального предложения сняты.
+Ни ID, ни schema в этом аудите не изменены.
 Новых сборок, запуска приложения, тестов или обращений к аудиоустройству не было.
 Статус RT: **NOT RT-VALIDATED для будущего Rig**; оценена архитектура и найдены
 интеграционные риски, а не измерена безопасность ещё не существующего DSP.
