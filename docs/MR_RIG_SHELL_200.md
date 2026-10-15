@@ -22,7 +22,8 @@ fake active pedals or enabled Add controls before their implementation.
 The central image uses the user's permitted model cover or an original outline
 combo from the user-provided MR SVG kit. Only that unchanged runtime SVG is copied
 into the checkout asset subset; the complete kit remains at the supplied project
-assets/ui/icons/mr-uds location. No generator run, vendor pictures, logos, WAV or
+assets/ui/mr-uds location (confirmed 2026-10-15; the combo SVG matches the embedded
+copy byte-for-byte). No generator run, vendor pictures, logos, WAV or
 NAM files are bundled. Rig cover overrides have a rights note and use the same
 bounded worker thumbnail validation as model covers.
 
