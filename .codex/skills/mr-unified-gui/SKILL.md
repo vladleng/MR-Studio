@@ -25,6 +25,14 @@ This skill is **not execution permission**; use only the assigned issue and phas
 - Device illustrations: original thin-line amplifiers/cabs/pedals/microphones for MR Rig; outline spaces/devices for MR Reverb, not screenshots or third-party branding.
 - Target palette and proportions are in docs/MR_UNIFIED_DESIGN_SYSTEM.md; do not globally overwrite accepted current Theme colors without an approved migration slice.
 
+## Canonical local asset location
+
+- **MR UDS library root:** `assets/ui/mr-uds/`. Expected existing SVG categories: `controls/`, `icons/`, `rig/`, `reverb/`; concepts: `previews/`.
+- Keep **`tokens/` directory, `manifest.json`, `build_kit.py` and the asset-kit `README.md` at the root `assets/ui/mr-uds/`** (not in `.codex/skills/`, not in `docs/`). This keeps the generator's relative paths together. Verify actual generator assumptions before running it.
+- First inspect `assets/ui/mr-uds/manifest.json` and matching SVG files, then `assets/ui/icons/transport/` for existing transport assets; reuse before drawing. Do not silently move/overwrite existing transport icons.
+- Treat this as the **local canonical path**, not proof files are committed on GitHub. If missing, request the kit or verify local checkout; do not invent asset filenames or pretend to have previews.
+- All new art should be added to the same library and its manifest, with original/license notes and size/state variants. Source code/builds/assets remain local by AGENTS policy.
+
 ## Procedure for one screen or SVG
 1. **Inventory first**: show what already exists, what is accepted and the exact scope; locate existing similar components/icons.
 2. **Define roles/states**: component meaning + normal, hover, pressed, focus, selected, enabled, disabled, error, loading/missing as appropriate. Selected is not a synonym for On.
