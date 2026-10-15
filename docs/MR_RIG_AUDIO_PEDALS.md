@@ -2,6 +2,9 @@
 
 **Parent [#197](https://github.com/vladleng/MR-Studio/issues/197)**. Planned architecture. **No new DSP has been implemented by this document.** Reuse accepted [#185 Cab](https://github.com/vladleng/MR-Studio/issues/185) and **accepted #196 Full Combo WAV 0.4b upd3**; former #188 Cab modular contracts/QA are folded into #198/#201/#204, with no separate Cabinet roadmap. Don't rewrite host core just to draw pedals. Base [MR_RIG_ARCHITECTURE](MR_RIG_ARCHITECTURE.md), [MR_RIG_LIBRARY_PRESETS](MR_RIG_LIBRARY_PRESETS.md).
 
+
+**Local P3 / #201, 2026-10-15:** #200 is accepted/closed. **0.4e MR Rig Pre-Post** is READY WITH MANUAL CHECK, awaiting #201 user signoff; [actual chain/state/preparation/validation contract](MR_RIG_CHAINS_201.md). Schema25 / RigState v2 owns ordered native modules (eight per lane), stable identity, bypass/parameters and recoverable unsupported state. Gain/HP/LP/Bell EQ reuse existing native DSP. The fixed utility rack is prepared with the shared host graph; edits use coherent parameter snapshots and 10ms bounded fades around ONE WAV core. Full155/155 PASS207.14s and packaged Rig smoke exit0; hardware ASIO/listening/physical mixed-DPI NOT TESTED. #202 onward not started.
+
 ## 1. Processing modes (exclusive active core)
 
 ```text
