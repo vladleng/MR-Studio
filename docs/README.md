@@ -23,6 +23,10 @@ GitHub — главный источник информации проекта (
 Документы описывают локальные результаты; исходники main/release могут отставать.
 Не путать реализовано, автоматические проверки и пользовательскую приёмку.
 
+## Единый GUI-стандарт (утверждён 2026-10-15)
+
+[MR Studio Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md) — единый визуальный стиль всей DAW, Live и native plugins; [пример SVG](design/MR_UNIFIED_STYLE_REFERENCE.svg), [палитра JSON](design/MR_UNIFIED_TOKENS.json), [GUI skill для Codex](../.codex/skills/mr-unified-gui/SKILL.md). Общая инфраструктура компонентов остаётся в [#189 MR UI Kit](https://github.com/vladleng/MR-Studio/issues/189), а отдельное внедрение — [#205 DAW/Live](https://github.com/vladleng/MR-Studio/issues/205), [#206 native plugins](https://github.com/vladleng/MR-Studio/issues/206), [#207 Reverb](https://github.com/vladleng/MR-Studio/issues/207), [#208 SVG](https://github.com/vladleng/MR-Studio/issues/208). Стиль утверждён, код GUI ещё не обновлён; принятые экраны сохраняются до отдельных этапов.
+
 ## Начать здесь
 
 - [Текущий контекст](PROJECT_CONTEXT.md): версия, source, пакет, подтверждённая приёмка и следующий шаг.
