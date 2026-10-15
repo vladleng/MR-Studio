@@ -1,5 +1,8 @@
 # MR Cab 2.0 — Codex first-slice handoff (issue #183)
 
+> **АРХИВ / 2026-10-15.** Отдельное направление [#182 MR Cab](https://github.com/vladleng/MR-Studio/issues/182) прекращено и закрыто как `not_planned / superseded` в пользу **[#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197)**. #183/#184/#185 и #196 (accepted 0.4b upd3) завершены и сохраняются как IR/WAV backend; #186–188 закрыты как `not_planned`. Старые планы развития кабинетов ниже **не действуют**. Единственный активный план: [MR_RIG_ROADMAP.md](MR_RIG_ROADMAP.md), [MR_RIG_CODEX_HANDOFF.md](MR_RIG_CODEX_HANDOFF.md). Не начинать эту Cab-разработку.
+
+
 ## Уточнение пользователя, 2026-10-14 — Legacy Cab compatibility
 
 Пользователь: «Не нужна совместимость со старым Cab». Эта инструкция заменяет
