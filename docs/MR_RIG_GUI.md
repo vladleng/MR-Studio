@@ -3,9 +3,12 @@
 > **New approved visual direction (2026-10-15):** [MR Studio Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md). MR Rig illustrations should be original thin pale-blue contour art on dark blue-graphite, sharing controls via #189 when ready; keep existing PRE FX / Rig Core / POST FX hierarchy. Existing implemented accepted UI stays untouched until scoped GUI work and user signoff. **Do not change actual DSP/RigPreset in a visual-only redesign.**
 
 
-**Status:** #200 implemented locally / awaiting acceptance; later modules planned, 2026-10-15; [#197](https://github.com/vladleng/MR-Studio/issues/197), [canonical architecture](MR_RIG_ARCHITECTURE.md), [model library](MR_RIG_LIBRARY_PRESETS.md). Uses current **accepted MR Studio JUCE `ui::Theme`**, compact flat graphite; align with [MR UI Kit + Gallery #189](https://github.com/vladleng/MR-Studio/issues/189) once components approved, don't block GUI on Kit's unfinished status.
+**Status:** #200 accepted/closed; #201 implemented locally / awaiting acceptance; later DSP/NAM planned, 2026-10-15; [#197](https://github.com/vladleng/MR-Studio/issues/197), [canonical architecture](MR_RIG_ARCHITECTURE.md), [model library](MR_RIG_LIBRARY_PRESETS.md). Uses current **accepted MR Studio JUCE `ui::Theme`**, compact flat graphite; align with [MR UI Kit + Gallery #189](https://github.com/vladleng/MR-Studio/issues/189) once components approved, don't block GUI on Kit's unfinished status.
 
 **Local #200 / 0.4d:** compact model gallery, PRE/Core/POST shell with empty side lanes, real IO/wet controls, model IR selector, Save IR and My Rigs are implemented. Expand library retains full curation and Manage files is secondary. New preset load/Undo/close/reopen retain native editor ownership/geometry. Initial bounds fit the owner's display work area; minimum logical window940x640. Software100/125/150/200 snapshots are separate from untested physical mixed-DPI/ASIO. [Delivery and exact boundaries](MR_RIG_SHELL_200.md). No active pedals or neural controls before their stages.
+
+
+**Current #201 / 0.4e:** PRE/POST now contain real ordered utility modules. Add Pedal offers Gain/HP/LP/Bell EQ; other pedal families are disabled. Selecting a tile shows its parameter inspector, module bypass, Up/Down, Move across Core and Remove; context menu adds Duplicate. Core controls returns to the IR/Rig inspector. The same native window and accepted Theme remain in use. #200 is accepted; #201 awaits user acceptance. [Implementation, screenshots and checks](MR_RIG_CHAINS_201.md).
 
 ## 1. Main window: hierarchy, not a replica of rack plugins
 
