@@ -5,6 +5,9 @@
 
 **Stage:** staged implementation, 2026-10-15; #199 accepted, #200 local candidate, neural/pedal extensions planned. **Parent [#197](https://github.com/vladleng/MR-Studio/issues/197)**. Technical baseline [MR_RIG_ARCHITECTURE](MR_RIG_ARCHITECTURE.md), GUI [MR_RIG_GUI](MR_RIG_GUI.md). Accepted baseline #185 plus **#196 Full Combo WAV 0.4b upd3**. **#182 and standalone importer #187 are superseded**; only a minimal optional user WAV import / manual mapping is in #199, not universal Cab catalog development.
 
+
+**Local P3 / #201, 2026-10-15:** #200 is accepted/closed. **0.4e MR Rig Pre-Post** is READY WITH MANUAL CHECK, awaiting #201 user signoff; [actual chain/state/preparation/validation contract](MR_RIG_CHAINS_201.md). Schema25 / RigState v2 owns ordered native modules (eight per lane), stable identity, bypass/parameters and recoverable unsupported state. Gain/HP/LP/Bell EQ reuse existing native DSP. The fixed utility rack is prepared with the shared host graph; edits use coherent parameter snapshots and 10ms bounded fades around ONE WAV core. Full155/155 PASS207.14s and packaged Rig smoke exit0; hardware ASIO/listening/physical mixed-DPI NOT TESTED. #202 onward not started.
+
 ## 1. Three library views / what is stored
 
 | UI view | Stored item | What is loaded? | Edit options |
