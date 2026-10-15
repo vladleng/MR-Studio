@@ -1,5 +1,8 @@
 # Moon River Studio — START HERE
 
+**GUI direction approved 2026-10-15:** [MR Studio Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md) governs the **entire DAW, Live and native plugins**. [GUI skill](../.codex/skills/mr-unified-gui/SKILL.md); [#189 UI infrastructure](https://github.com/vladleng/MR-Studio/issues/189), [#205 DAW rollout](https://github.com/vladleng/MR-Studio/issues/205), [#206 native GUI rollout](https://github.com/vladleng/MR-Studio/issues/206). Visual target approved, existing implementation remains unchanged pending staged work.
+
+
 **Stage5/#25 завершён2026-10-13 — 9/9**, #87 accepted/closed completed.
 Пользователь: «#87 пройдено, все сохраняется, undo/redo работает.». Все редакторы и #80 приняты ранее.
 Последняя принятая сборка0.3h upd2/source803774d, schema21/archive1; package/manifest/
