@@ -103,6 +103,12 @@ User folder(s) → Async headers-only scanner (with cancellation/generation)
 
 WAV IR **не** является реальной нелинейной моделью преампа/комбо; NAM/Neural Combo (отдельная технология/движок) **не входит** в scope #196. Размер/частота generic Combo WAV не ограничены Celestion default `48 kHz / 200/500 ms`: выбирать реальные physical source rate/duration, prepared off-RT. Persist `ir_role` и manual overrides, не ломать Celestion #185 SaveOpen/Undo. Импорт generic WAV координировать с #187, не писать новый второй parser. Реализация только после отдельного запроса пользователя.
 
+## 3.6 MR Rig product layer (2026-10-15)
+
+[#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197) будет **продуктовым UI-слоем и новым RigPreset** поверх текущего универсального MR Cab IR backend, а не новым дублирующим конвольвером. Сохранить существующую #185 принятую функциональность и отдельный #196 Full Combo WAV (локально ready, не accepted), #187 generic WAV, #186 Advanced mic. **#182 остаётся Cab/IR технологией**; MR Rig не превращает кабинетный Celestion в модель Fender/Polytone amp.
+
+В Rig: curated `IR Models` (кабинеты/линейные full combo, честно размеченные), future `NAM Models` с самостоятельным нейросетевым runtime, `My Rigs` whole-chain presets; фото и категории — метаданные, Import Own IR вторично. UI PreFX/Core/PostFX, реальные педали отдельно. Роли должны быть явными: cabinet-only vs full-combo WAV и full-rig vs amp-only NAM. Ограничение WAV linear response остаётся. Не добавлять второй Cab/Room к Full Combo или NAM Full Rig; не встраивать чужие WAV/фото в пакеты. Все детали [MR_RIG_ARCHITECTURE.md](MR_RIG_ARCHITECTURE.md), [MR_RIG_LIBRARY_PRESETS.md](MR_RIG_LIBRARY_PRESETS.md), [MR_RIG_AUDIO_PEDALS.md](MR_RIG_AUDIO_PEDALS.md). **P0 #198** решит migration/plugin identity после аудита local code; эти docs не меняют project schema или DSP.
+
 ## 4. GUI и поведение
 
 **Основной стиль:** MR Reverb/JUCE Theme, graphite flat/compact, reusable native editor shell и компоненты `ReverbBrowser`; минимум декоративных рамок. Не выдумывать второй дизайн-язык.
