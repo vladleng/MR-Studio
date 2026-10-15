@@ -3,7 +3,10 @@
 **Status:** staged implementation; later DSP stages remain backlog, 2026-10-15. **Parent:** [#197](https://github.com/vladleng/MR-Studio/issues/197), under [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111). **Read with:** [GUI](MR_RIG_GUI.md), [library and presets](MR_RIG_LIBRARY_PRESETS.md), [audio/pedals](MR_RIG_AUDIO_PEDALS.md), [roadmap](MR_RIG_ROADMAP.md), [handoff](MR_RIG_CODEX_HANDOFF.md).
 **Baseline 2026-10-15:** #183/#184/#185 and **#196 accepted/closed**, last #196 package **0.4b upd3 Native Editors**. **#182 superseded by #197**, no further standalone Cab stages: #186 multi-mic cancelled; only a minimal user WAV import part of #187 flows into #199; #188 graph/QA safeguards flow into #198/#201/#204. Audit local checkout before new code.
 
-**Local P2 / #200, 2026-10-15:** 0.4d MR Rig Shell is READY WITH MANUAL CHECK; [actual state, signal semantics and validation](MR_RIG_SHELL_200.md). #198/#199 are accepted/closed. New native `mrs.rig`, project schema24, RigState v1 and typed RigPreset are implemented on the shared WAV core. PRE/POST arrays remain empty, NAM unavailable; #201 onward has not started. Source/build/package remain local. User acceptance of #200 is pending.
+**Accepted P2 / #200, 2026-10-15:** 0.4d MR Rig Shell is accepted/closed; [actual state, signal semantics and validation](MR_RIG_SHELL_200.md). #198/#199 are accepted/closed. New native `mrs.rig`, project schema24, RigState v1 and typed RigPreset are implemented on the shared WAV core. At that accepted baseline PRE/POST arrays were empty and NAM unavailable; current #201 implementation is described below. Source/build/package remain local. User acceptance of #200 is recorded in the closed issue.
+
+
+**Current P3 / #201 (2026-10-15):** 0.4e MR Rig Pre-Post is implemented locally and awaits user acceptance. Schema25 / RigState v2 owns ordered native modules (eight per lane), stable instance identity, bypass/parameters and recoverable unsupported state. One shared host insert keeps one WAV core; Gain/HP/LP/Bell EQ reuse existing native DSP. The utility rack is preprepared with the graph and edited through coherent bounded snapshots. #200 is accepted/closed; #202 onward not started. [Actual contract and validation](MR_RIG_CHAINS_201.md).
 
 ## 1. Product charter
 
