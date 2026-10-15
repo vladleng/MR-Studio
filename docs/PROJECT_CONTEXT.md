@@ -1,5 +1,13 @@
 # MR Studio: текущий контекст разработки
 
+## MR Rig #197 — product concept / issues, 2026-10-15
+
+По прямому запросу пользователя зафиксировано **новое native направление [#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197)** на базе MR Cab. В качестве основного UX: **готовая отобранная модель звука с обложкой**, вкладки `IR Models`, `NAM Models`, `My Rigs`, **Import My IR/NAM как вторичная опция**; Pre FX слева, в центре Rig Core (фото/тип/вариант), Post FX справа, contextual inspector. `SourceAsset` ≠ `ToneModel` (фотография/role/tags) ≠ `RigPreset` (модель+Pre/Post ordered real pedals/parameters). `Full Combo WAV` — линейная свёртка текущего MR Cab и без второго кабинета; NAM требует отдельного будущего движка: Full Rig без дополнительного Cab, Amp Only с опциональным одним Cab, Unknown не классифицировать автоматически.
+
+Спецификация: [архитектура](MR_RIG_ARCHITECTURE.md), [GUI](MR_RIG_GUI.md), [библиотека/пресеты](MR_RIG_LIBRARY_PRESETS.md), [DSP/педали](MR_RIG_AUDIO_PEDALS.md), [этапы](MR_RIG_ROADMAP.md), [Codex first handoff](MR_RIG_CODEX_HANDOFF.md). Созданы отдельные issues [#198](https://github.com/vladleng/MR-Studio/issues/198) audit → [#199](https://github.com/vladleng/MR-Studio/issues/199) curated library → [#200](https://github.com/vladleng/MR-Studio/issues/200) Rig shell → [#201](https://github.com/vladleng/MR-Studio/issues/201) PrePost rack → [#202](https://github.com/vladleng/MR-Studio/issues/202) real pedals → [#203](https://github.com/vladleng/MR-Studio/issues/203) NAM player → [#204](https://github.com/vladleng/MR-Studio/issues/204) QA. References/checklist only; **GitHub native parent/subissue attachment не установлено**, требуется ручное добавление.
+
+**Current baseline:** #185 accepted/closed, #196 0.4b upd2 ready/user acceptance pending, #182 parent still open, #187/#188 remain independent Cab/generic WAV issues, #189 UI Kit optional not blocker. **MR Rig — только документация/backlog, код/тесты/сборки не запускались этим чатом**. Полный transition/processor-ID compatibility решается после локального P0 #198 и согласования с пользователем. По-прежнему code/build/package local, GitHub docs/issues [skip ci], без Actions/source push/merge/PR. Не публиковать коммерческие WAV/NAM/фото.
+
 ## MR Cab window / #196 — 0.4b upd2 ready, 2026-10-15
 
 User reported apparent double opening and preset reopens; asked Gain placement.
