@@ -81,3 +81,25 @@ Normal, hover, pressed, focused, selected, on, off, disabled, recording/armed, l
 The original 2026-10-15 **MR Plugin GUI SVG Kit 01** contains **65 independent conceptual SVGs** (23 controls, 12 Rig, 11 Reverb, 19 general icons) plus two concept screens. The ZIP was supplied **in conversation** and is **not committed to GitHub**; do not claim it is available in a new Codex session without checking the local workspace. The vector visuals describe styling, not complete interactive JUCE widgets. Supporting repository-only reference: [MR UDS swatch JSON](design/MR_UNIFIED_TOKENS.json). See also the skill and the shared UI Kit.
 
 **Documentation and issues on GitHub only with [skip ci]; source/assets, builds, tests and runtime GUI previews locally unless user explicitly changes publishing policy. Do not begin migration without separate user instruction.**
+
+## 8. Canonical local SVG library and kit distribution
+
+**Required local layout:** `assets/ui/mr-uds/` is the **single canonical asset library** for future MR Studio GUI illustration/icons (separate from existing `assets/ui/icons/transport/`, which must be audited/reused, not moved blindly).
+
+```text
+assets/ui/mr-uds/
+├── controls/       # SVG control visual sources
+├── icons/          # additional MR UDS application/plugin icons
+├── rig/            # amps/cabs/mics/pedals line-art
+├── reverb/         # rooms/plates/racks/space line-art
+├── previews/       # GUI previews and asset contact sheets
+├── tokens/         # kit's original design token files
+├── build_kit.py    # kit generator (inspect before running)
+├── manifest.json   # inventory/asset metadata
+└── README.md       # kit usage, generator instructions
+```
+
+**Placement:** unzip kit, copy complete subdirectories and all four root items (`tokens/`, `build_kit.py`, `manifest.json`, `README.md`) into `assets/ui/mr-uds/`. Keep generator and manifest next to their referenced folders to avoid broken relative paths. `docs/design/MR_UNIFIED_TOKENS.json` remains a **documented draft design reference**, not a replacement for the kit's local `tokens/` source. Do not conflate the two until an audited explicit sync process exists.
+
+**Agent behavior:** first inspect the local path and `manifest.json`, reuse assets, and when adding a new icon update the manifest and generator source if needed; validate whether `build_kit.py` regenerates or overwrites SVGs **before executing**. Running generator is opt-in after audit. Avoid copying generated assets into `.codex/skills/` or `docs/`. The remote GitHub may only contain the documentation, not this local library; do not claim otherwise.
+
