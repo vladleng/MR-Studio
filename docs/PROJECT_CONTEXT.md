@@ -1,5 +1,24 @@
 # MR Studio: текущий контекст разработки
 
+## MR Cab browser / #196 — 0.4b upd1 ready, 2026-10-15
+
+User clarified reset affects Full Combo/model/capture menus and filters, not audio controls.
+Fixed local source eb6d735290b502d9f0440a2bfbe78a2fddecb68d:
+per-insert ViewSettings browser role/facets/search/toggles, delayed-scan restoration,
+debounced preference save/close flush. No DSP/model/project-schema/loader changes.
+[Fix and checks](MR_CAB_BROWSER_STATE_UPD1_196.md).
+Release GUI build PASS; targeted4/4 PASS4.39s; actual close-handler/reopen,
+preferences file roundtrip, legacy prefs, separate instance, delayed scan,
+500ms/Any Length and unchanged IR/controls/history/graph regressions PASS.
+No full CTest for upd1; base0.4b149/149 remains historical evidence.
+Package MR-Studio-0.4b-upd1-Cab-Browser-State-JUCE-ASIO-Windows-local13files/12hashes;
+packaged Cab smoke exit0; GUI SHA2566B42193E08117682EA096331D068ACA32633790DDED4910F2FAF95C35F484C8C.
+Existing MR shortcut updated/icon retained; base0.4b preserved and verified.
+Symbols deliveries/0.4b-upd1-cab-browser; logs validation/cab-browser-upd1.
+User restarts app/selects desired menus once; mapping remains intact.
+No vendor WAV/project changes; no new hardware/listening claims.
+#196 open pending acceptance; #185 closed. Code/build/package local, docs/issues only online.
+
 ## MR Cab Full Combo IR / #196 — 0.4b ready for manual acceptance, 2026-10-14
 
 User authorised implementation: «Переходи к следующему шагу».
