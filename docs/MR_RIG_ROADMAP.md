@@ -1,46 +1,49 @@
-# MR Rig — Roadmap, Acceptance and Dependencies
+# MR Rig — единый Roadmap (после объединения MR Cab #182)
 
-**Status:** planned 2026-10-15. **Parent:** [#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197) under [#111 Native Plugins](https://github.com/vladleng/MR-Studio/issues/111). **Implementation is NOT started by these docs**. Sources: [architecture](MR_RIG_ARCHITECTURE.md), [GUI](MR_RIG_GUI.md), [library/presets](MR_RIG_LIBRARY_PRESETS.md), [DSP/pedals](MR_RIG_AUDIO_PEDALS.md), [handoff](MR_RIG_CODEX_HANDOFF.md).
+**Решение 2026-10-15. Канонический активный parent — [#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197).** Отдельное направление [#182 MR Cab 2.0](https://github.com/vladleng/MR-Studio/issues/182) прекращено / закрывается как superseded; **его выполненные результаты сохраняются**, не удаляются и не переписываются. [#111 Native Plugins](https://github.com/vladleng/MR-Studio/issues/111) остаётся категорией. Это перенос roadmap, **не реализация кода**.
 
-**Latest state read from GitHub:** [#185](https://github.com/vladleng/MR-Studio/issues/185) accepted/closed, [#196](https://github.com/vladleng/MR-Studio/issues/196) local 0.4b upd2 READY awaiting acceptance; linked [#182 Cab](https://github.com/vladleng/MR-Studio/issues/182) still active. Before any implementation, Codex must re-read latest PROJECT_CONTEXT and local source/branch; GitHub may be stale.
+## 1. Реализованный фундамент (historical accepted)
 
-## 1. Stages / issue checklist (logical sub-issues)
+| Issue | Статус | Что переиспользует MR Rig |
+|---|---|---|
+| [#183](https://github.com/vladleng/MR-Studio/issues/183) | **Accepted, closed** | Аудит IR-кода и коллекции Celestion |
+| [#184](https://github.com/vladleng/MR-Studio/issues/184) | **Accepted, closed** | Manifest, импорт/идентификация WAV, Celestion data |
+| [#185](https://github.com/vladleng/MR-Studio/issues/185) | **Accepted, closed** | Существующий IR convolver, async switching, native editor, presets |
+| [#196](https://github.com/vladleng/MR-Studio/issues/196) | **Accepted, closed — 0.4b upd3** | Full Combo WAV, роли cabinet/full_combo/unknown, изменения native editors |
 
-| Stage | Issue | Outcome | Exit gate |
+Принятая локальная поставка #196 — 0.4b upd3 Native Editors; **не** «pending acceptance». Существующий DSP является внутренним переиспользуемым компонентом MR Rig. Кабинетный Celestion IR остаётся как **дополнительный ассет**, а не отдельный пользовательский плагин с новым roadmap; никакие исходные WAV или пользовательские проекты не удалять.
+
+## 2. Старые незавершённые задачи — решение
+
+- **[#186 Advanced mic/phase/room/composite](https://github.com/vladleng/MR-Studio/issues/186)** — **отменить**, не переносить в обязательные функции MR Rig.
+- **[#187 Generic TONEX WAV / IR Collections importer](https://github.com/vladleng/MR-Studio/issues/187)** — **отменить как отдельный продукт**. Только практичный `Import My IR` и manual role/artwork/tags, external asset identity, safe missing/relink и нужные WAV formats идут в [#199](https://github.com/vladleng/MR-Studio/issues/199). **Не переносить** универсальный каталог микрофонов, многофирменные вендорские профили и полноценный import wizard.
+- **[#188 Cab-only modular/QA](https://github.com/vladleng/MR-Studio/issues/188)** — **отменить как отдельный этап**. Общие ограничения RT, shared host, module extension, PDC и QA распределить в [#198](https://github.com/vladleng/MR-Studio/issues/198), [#201](https://github.com/vladleng/MR-Studio/issues/201), [#204](https://github.com/vladleng/MR-Studio/issues/204). Не реализовывать второй аудиодвижок.
+
+Архивные документы [MR_CAB_COLLECTIONS.md](MR_CAB_COLLECTIONS.md), [MR_CAB_ROADMAP.md](MR_CAB_ROADMAP.md), [MR_CAB_CODEX_HANDOFF.md](MR_CAB_CODEX_HANDOFF.md) — **справка о принятых Cab этапах, не активное ТЗ**. Спецификация дальнейшей разработки только в `MR_RIG_*.md` + активных #197–204.
+
+## 3. Единственная активная последовательность
+
+| Этап | Issue | Реальный результат | Dependency / gate |
 |---|---|---|---|
-| **P0** | [#198](https://github.com/vladleng/MR-Studio/issues/198) Audit / migration | MR Cab 0.4b/host/GUI/source and ID compatibility | User accepts specific integration option |
-| **P1** | [#199](https://github.com/vladleng/MR-Studio/issues/199) Tone Model Library | IR/NAM/My Rigs conceptual separation, curated WAV cards/images and optional raw WAV import | Card/metadata/source identity and rights tests |
-| **P2** | [#200](https://github.com/vladleng/MR-Studio/issues/200) MR Rig Shell GUI | Pre/Core/Post layout, real WAV sound source, minimal RigPreset and one-window GUI | Real model card + saved/opened rig, no fake DSP |
-| **P3** | [#201](https://github.com/vladleng/MR-Studio/issues/201) Modular DSP Slots | Actual PRE/POST chain graph, add/remove/reorder/bypass, model/history integration | RT-safe chain 0/1/N & Undo/PDC |
-| **P4** | [#202](https://github.com/vladleng/MR-Studio/issues/202) Pedal DSP | Small accepted set Compressor/Drive/EQ/Chorus/Delay/Reverb incrementally | Real signal processing and user-approved subset |
-| **P5** | [#203](https://github.com/vladleng/MR-Studio/issues/203) NAM Engine | Full Rig vs Amp Only neural models, optional Cab if amp only, CPU strategy | Supported models tested; explicit no-double-cab |
-| **P6** | [#204](https://github.com/vladleng/MR-Studio/issues/204) Final integration/QA | Presets including whole chain, Studio/Live benchmarks, migration, errors | Latest full CTest + GUI + user acceptance |
+| **P0** | [#198](https://github.com/vladleng/MR-Studio/issues/198) | Read-only аудит существующего 0.4b upd3 backend, plugin ID/state, пути перехода к Rig | **Начать только по запросу**, согласовать migration strategy |
+| **P1** | [#199](https://github.com/vladleng/MR-Studio/issues/199) | Curated IR Models / NAM Models / My Rigs с фото, тегами и **опциональным Import My IR** (поглотил нужное из #187) | P0 accepted, реальный файловый asset |
+| **P2** | [#200](https://github.com/vladleng/MR-Studio/issues/200) | Компактный MR Rig Shell: PRE FX слева / модель в центре / POST FX справа, первым реальным backend WAV | P1 accepted, UI acceptance |
+| **P3** | [#201](https://github.com/vladleng/MR-Studio/issues/201) | Reusable ordered Pre/Post module slots, bypass/reorder, one SHARED DSP graph, Undo/PDC | P2 accepted; часть требований бывшего #188 |
+| **P4** | [#202](https://github.com/vladleng/MR-Studio/issues/202) | Нативные педали (компактный сначала утверждённый subset) | P3 accepted |
+| **P5** | [#203](https://github.com/vladleng/MR-Studio/issues/203) | NAM engine, Full Rig/Amp Only/Unknown, optional one Cab only for Amp Only, CPU safety | P0–P3 accepted; необязательно ждать все педали |
+| **P6** | [#204](https://github.com/vladleng/MR-Studio/issues/204) | Сквозной RigPreset/GUI/Studio+Live QA, accepted release | Все согласованные готовые capabilities, user signoff |
 
-**Recommended order:** P0 → P1 → P2 → P3 → P4; P5 may start after the required P1/P2/P3 prerequisites independently of all pedal models. P6 only closes when user accepts implemented scopes **and any deferred promised capabilities are marked incomplete**. Don't treat placeholders as passing NAM/pedal DoD.
+**Не создавать отдельную линию #182/#186–188 в дополнение к таблице**. P1 reusable asset loader не должен становиться бесконечным универсальным IR browser. Не обязателен multi-mic mixing или самостоятельный cabinet editor.
 
-**GitHub-native sub-issues:** these issue hyperlinks and Markdown checkbox states are **logical relationships only**, not verified native GitHub Sub-issues. The current GitHub connector has no POST/PUT native sub-issue parent mutation action. To get automatic progress, in issue [#197](https://github.com/vladleng/MR-Studio/issues/197) choose **Sub-issues → Add existing issue** #198–204; for category relationship add parent #197 to [#111](https://github.com/vladleng/MR-Studio/issues/111) if GitHub permits; **do not relocate #182/#196 from their existing category tree without careful review**. Verify native hierarchy after manual linking, and don't claim GitHub native progress until then.
+## 4. Product/technical invariants
 
-## 2. Milestones and what is already reusable
+- Главный UX **модель звука с обложкой**, а не WAV file picker; full RigPreset = selected ToneModel/source + Pre/Post FX modules/params/output. Artwork user-owned/licensed, fallback safe.
+- WAV Full Combo = статический **линейный** захват целого пути, один existing convolver без второго cabinet; WAV Cabinet Only честно так обозначен и требует реальной amp processing где нужно.
+- NAM — **другой** engine; Full Rig contains cab/mic → no extra Cab; Amp Only → optional single Cabinet IR, Unknown → manual classification. До реализации NAM tab помечен Planned/Unsupported.
+- Не менять вслепую `mrs.cab-ir`, native plugin ID или schema; P0 #198 проверить migration и user preset compatibility. Код/тесты/пакеты локально, GitHub docs/issues [skip ci], сторонние коммерческие WAV/NAM/обложки не публиковать.
+- Realtime no alloc/free/locks/I/O/UI in callback, async prep, no double signal path, command model/Undo/SaveOpen/PDC, качественное измерение studio vs record/live.
+- Начинать новый этап только после команды пользователя, отдельная приёмка каждой ступени. **Ни один MR Rig этап не реализован этим обновлением документации.**
 
-**Approved:** #185 existing MR Cab Simple (async WAV IR load/prepared kernel/crossfade, basic editor/source/preset/Undo). **Pending user acceptance:** #196 Full Combo WAV IR metadata and current window/browser updates. **Planned/independent:** #187 generic WAV importer; #188 Cab future modular contracts/QA; #189 UI Kit and Gallery.
+## 5. Кодекс
 
-Do not change status or scopes of those issues retroactively. **#182 owns the Cab collection/convolver reusable backend**, **#197 owns the new MR Rig product**, and [#196](https://github.com/vladleng/MR-Studio/issues/196) contributes Full Combo WAV source semantics; keep their tasks separate. Migration/rename paths decided by P0 and user approval; no blind hard rename of `mrs.cab-ir`.
-
-## 3. Cross-cutting acceptance criteria
-
-- [ ] Models appear as curated cards with optional licensed/user-supplied image; first workflow does not require choosing raw WAV.
-- [ ] Model (external WAV/NAM asset + metadata/role/image) separate from RigPreset (selected model + actual PRE/POST modules/settings).
-- [ ] Library clearly distinguishes **IR Models**, **NAM Models**, **My Rigs** and WAV `Full Combo` vs `Cabinet only`; unavailable neural backend not advertised as working.
-- [ ] Full Combo WAV is one **linear** existing convolver (no double cabinet), CAB-only is properly labelled; NAM Full Rig includes cab; NAM Amp Only can use one optional CAB, unknown state requires explicit choice.
-- [ ] PRE FX left, center model and photo, POST FX right, per-pedal selection inspector and compact design. Third-party VST3 host GUI not restyled; #189 UI Kit only after approved.
-- [ ] Add/remove/reorder/bypass actual native pedals; no decorative DSP claims, no separate audio engine. Save/Open/Undo/Redo handles entire ordered RigPreset.
-- [ ] Existing MR Cab #185 projects/presets and MR Reverb remain stable according to P0 user-approved migration; #196 and user IR external assets remain usable; no unauthorized commercial content.
-- [ ] No RT callback locks/heap/I/O/UI; output latency/PDC measured, live buffer performance measured separately from higher-buffer Studio mixing, no hidden double DSP.
-- [ ] Local targeted tests during development and full current CTest at candidate before user acceptance; software GUI 100/125/150/200 and physical mixed-DPI/ASIO testing marked separately.
-- [ ] User acceptance per stage and final P6. Underlying #182/#196 not closed by completing MR Rig documentation alone.
-
-## 4. Codex first implementation task
-
-**Start strictly with [#198 P0 audit](https://github.com/vladleng/MR-Studio/issues/198)** after user's explicit command. Read [handoff](MR_RIG_CODEX_HANDOFF.md) and corresponding architecture, current project context, local source. P0 is read-only audit, no changes/code/build/download; user chooses whether to use a wrapper over existing `mrs.cab-ir` or separate insert ID. Then stop for signoff.
-
-**Build rule:** UI paint changes targeted tests, module/model bindings appropriate unit/GUI integration tests, shared audio graph wider DSP regressions. Full CTest once per accepted candidate; do not claim previous full CTest verified newer source. All code/builds/assets remain local, GitHub docs/issues only [skip ci], no Actions/PR/merge/source push.
+Рабочий чат читает **текущий [AGENTS.md](../AGENTS.md) по принципу Issue-first**, [MR_RIG_CODEX_HANDOFF.md](MR_RIG_CODEX_HANDOFF.md) и необходимые разделы спецификаций для **назначенного** issue. Не сканировать `MR_CAB_*` как обязательный roadmap. Начинать с #198, read-only. Старый #182 и его native sub-issues — история; #198–#204 имеют markdown-ссылки на #197, native GitHub sub-issue attachment пока не выполнен и **не должен выдаваться за существующий**.
