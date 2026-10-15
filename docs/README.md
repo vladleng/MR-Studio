@@ -47,7 +47,7 @@ GitHub — главный источник информации проекта (
 
 ### SVG-библиотека MR UDS
 
-**Локальный канонический путь:** `assets/ui/mr-uds/`; внутри `controls/`, `icons/`, `rig/`, `reverb/`, `previews/`, а также **`tokens/`, `build_kit.py`, `manifest.json`, `README.md` непосредственно в корне `mr-uds/`**. Подробные правила: [MR Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md), [Codex GUI skill](../.codex/skills/mr-unified-gui/SKILL.md). Не путать с уже существующим `assets/ui/icons/transport/`; asset ZIP не опубликован в GitHub.
+**Локальный канонический путь:** `assets/ui/mr-uds/`; внутри `svg/controls/`, `svg/icons/`, `svg/rig/`, `svg/reverb/`, `previews/`, а также **`tokens/`, `build_kit.py`, `manifest.json`, `README.md` непосредственно в корне `mr-uds/`**. Подробные правила: [MR Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md), [Codex GUI skill](../.codex/skills/mr-unified-gui/SKILL.md). Не путать с уже существующим `assets/ui/icons/transport/`; asset ZIP не опубликован в GitHub.
 
 ## Движок, плагины, интерфейс
 
