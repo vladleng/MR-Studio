@@ -1,5 +1,8 @@
 # MR Rig — Model Libraries, Curation, Images, Presets & Imports
 
+
+**P1 / #199 implemented locally, 2026-10-15:** 0.4c MR Rig Model Library; [implementation, boundaries and validation](MR_RIG_LIBRARY_199.md). SourceAsset/ToneModel bookmarks, WAV gallery/curation and exact selected-model snapshot are implemented. Full RigPreset/Pre-Core-Post shell and NAM runtime remain later stages. #198 accepted; #199 awaits user acceptance.
+
 **Stage:** DESIGN 2026-10-15. **Parent [#197](https://github.com/vladleng/MR-Studio/issues/197)**. Technical baseline [MR_RIG_ARCHITECTURE](MR_RIG_ARCHITECTURE.md), GUI [MR_RIG_GUI](MR_RIG_GUI.md). Accepted baseline #185 plus **#196 Full Combo WAV 0.4b upd3**. **#182 and standalone importer #187 are superseded**; only a minimal optional user WAV import / manual mapping is in #199, not universal Cab catalog development.
 
 ## 1. Three library views / what is stored
