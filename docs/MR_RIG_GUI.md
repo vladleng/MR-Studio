@@ -1,5 +1,8 @@
 # MR Rig — Native GUI / UX Contract
 
+> **New approved visual direction (2026-10-15):** [MR Studio Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md). MR Rig illustrations should be original thin pale-blue contour art on dark blue-graphite, sharing controls via #189 when ready; keep existing PRE FX / Rig Core / POST FX hierarchy. Existing implemented accepted UI stays untouched until scoped GUI work and user signoff. **Do not change actual DSP/RigPreset in a visual-only redesign.**
+
+
 **Status:** planned, 2026-10-15; [#197](https://github.com/vladleng/MR-Studio/issues/197), [canonical architecture](MR_RIG_ARCHITECTURE.md), [model library](MR_RIG_LIBRARY_PRESETS.md). Uses current **accepted MR Studio JUCE `ui::Theme`**, compact flat graphite; align with [MR UI Kit + Gallery #189](https://github.com/vladleng/MR-Studio/issues/189) once components approved, don't block GUI on Kit's unfinished status.
 
 ## 1. Main window: hierarchy, not a replica of rack plugins
