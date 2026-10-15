@@ -50,7 +50,7 @@ existing user files, vendor WAVs or accepted build packages.
 Reuse the verified WAV convolver, async preparation/switching, source validation,
 shared host commands and safe editor lifetime. P0 #198 now recommends one new
 `mrs.rig` container and a clean versioned RigState, without legacy conversion;
-the audit still awaits architectural acceptance. Internal DSP names need not be renamed.
+the revised audit was accepted by the user on 2026-10-15; #199 was then authorized. Internal DSP names need not be renamed.
 No processor ID or project format is changed by this documentation.
 
 New MR Rig projects and RigPresets must round-trip and support Undo/Redo, stable
