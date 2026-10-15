@@ -29,7 +29,7 @@
 
 ## Coexistence with current work
 
-MR Cab #182/#183–#188 independently continues. **Project context 2026-10-14 has MR Cab P2/#184 work recorded with real Hempback 68/68**, so do not rewrite MR Cab stages as future-only or change local project state. #185 GUI may adopt Kit after P4/P5 if ready, **but it is not a dependency/blocker**. Reverb #128 accepted/closed, #145/#146 accepted/closed and reference UI must remain stable. Future MR Strip, Saturator, Amp and Harma Waves can use Kit as they start.
+**Updated 2026-10-15:** [MR Rig #197](https://github.com/vladleng/MR-Studio/issues/197) supersedes the separate MR Cab #182 product track. Accepted MR Cab #183/#184/#185/#196 remain historical completed foundations; no further Cab-only GUI development. The upcoming [MR Rig shell #200](https://github.com/vladleng/MR-Studio/issues/200) can adopt the approved [MR Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md) without waiting for all of #189, but no fake controls or new DSP. [MR Reverb #128](https://github.com/vladleng/MR-Studio/issues/128) and accepted #145/#146 remain stable until separately approved visual migration. Future MR Strip/Saturator/Harma Waves adopt the shared style when their actual GUI is developed; no mass restyling.
 
 ## Source/collaboration rules
 
