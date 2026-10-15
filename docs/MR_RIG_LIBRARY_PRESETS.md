@@ -1,6 +1,6 @@
 # MR Rig — Model Libraries, Curation, Images, Presets & Imports
 
-**Stage:** DESIGN 2026-10-15. **Parent [#197](https://github.com/vladleng/MR-Studio/issues/197)**. Technical baseline [MR_RIG_ARCHITECTURE](MR_RIG_ARCHITECTURE.md), GUI [MR_RIG_GUI](MR_RIG_GUI.md). Current MR Cab approved #185; #196 Full Combo WAV 0.4b upd2 ready for acceptance (NOT accepted); #187 generic WAV import planned separately.
+**Stage:** DESIGN 2026-10-15. **Parent [#197](https://github.com/vladleng/MR-Studio/issues/197)**. Technical baseline [MR_RIG_ARCHITECTURE](MR_RIG_ARCHITECTURE.md), GUI [MR_RIG_GUI](MR_RIG_GUI.md). Accepted baseline #185 plus **#196 Full Combo WAV 0.4b upd3**. **#182 and standalone importer #187 are superseded**; only a minimal optional user WAV import / manual mapping is in #199, not universal Cab catalog development.
 
 ## 1. Three library views / what is stored
 
