@@ -1,5 +1,25 @@
 # MR Studio: текущий контекст разработки
 
+## MR Cab window / #196 — 0.4b upd2 ready, 2026-10-15
+
+User reported apparent double opening and preset reopens; asked Gain placement.
+Local source1c2ca1807f75e39f466e173e94b29bd11e4082ef:
+Cab configures native frame/owner/Space bridge while hidden, then shows once.
+Preset load retains Cab window/browser/geometry; other external editors detach before
+the existing backend transaction. Controls update in place; active row compares
+path/digest as well as loader revision (new loader can reuse revision1).
+Gain is wet output after IR/cuts, before Mix; added tooltip, no DSP change.
+[Delivery/checks](MR_CAB_WINDOW_UPD2_196.md).
+Release GUI build PASS; targeted5/5 PASS6.05s, including synthetic VST3 J2.
+Preset regression keeps same window/content/HWND/bounds with0 visibility transitions,
+updates alternate IR/Mix and switches back; owner and upd1 state regressions pass.
+No full CTest for upd2, no new physical visual/ASIO/listening claims.
+Package MR-Studio-0.4b-upd2-Cab-Window-JUCE-ASIO-Windows-local13files/12hashes;
+packaged Cab smoke exit0, GUI SHA25622E968638CF68DFAEEA6F2AD1A8296272E8B10CF49F0FA0682C56B466024C786.
+MR shortcut updated/icon retained; upd1 preserved/hash checked.
+Symbols deliveries/0.4b-upd2-cab-window; logs validation/cab-window-upd2.
+#196 open pending acceptance;185 closed. Code/build/package local, docs/issues online.
+
 ## MR Cab browser / #196 — 0.4b upd1 ready, 2026-10-15
 
 User clarified reset affects Full Combo/model/capture menus and filters, not audio controls.
