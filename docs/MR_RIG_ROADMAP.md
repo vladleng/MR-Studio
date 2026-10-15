@@ -46,4 +46,4 @@
 
 ## 5. Кодекс
 
-Рабочий чат читает **текущий [AGENTS.md](../AGENTS.md) по принципу Issue-first**, [MR_RIG_CODEX_HANDOFF.md](MR_RIG_CODEX_HANDOFF.md) и необходимые разделы спецификаций для **назначенного** issue. Не сканировать `MR_CAB_*` как обязательный roadmap. Начинать с #198, read-only. Старый #182 и его native sub-issues — история; #198–#204 имеют markdown-ссылки на #197, native GitHub sub-issue attachment пока не выполнен и **не должен выдаваться за существующий**.
+Рабочий чат читает **текущий [AGENTS.md](../AGENTS.md) по принципу Issue-first**, [MR_RIG_CODEX_HANDOFF.md](MR_RIG_CODEX_HANDOFF.md) и необходимые разделы спецификаций для **назначенного** issue. Не сканировать `MR_CAB_*` как обязательный roadmap. Начинать с #198, read-only. Старый #182 и его native sub-issues — история; #198–#204 **нативно прикреплены к #197 (проверено API, 7/7)**, Markdown-ссылки остаются навигацией. GitHub-progress зависит от реальных состояний задач.
