@@ -1,7 +1,7 @@
 # MR Rig — Model Libraries, Curation, Images, Presets & Imports
 
 
-**P1 / #199 implemented locally, 2026-10-15:** 0.4c MR Rig Model Library; [implementation, boundaries and validation](MR_RIG_LIBRARY_199.md). SourceAsset/ToneModel bookmarks, WAV gallery/curation and exact selected-model snapshot are implemented. Full RigPreset/Pre-Core-Post shell and NAM runtime remain later stages. #198 accepted; #199 awaits user acceptance.
+**P1 / #199 implemented locally, 2026-10-15:** 0.4c upd1 MR Rig Model Variants; [implementation, boundaries and validation](MR_RIG_LIBRARY_199.md). SourceAsset/ToneModel bookmarks, WAV gallery/curation and exact selected-model snapshot are implemented. Full RigPreset/Pre-Core-Post shell and NAM runtime remain later stages. #198 accepted; #199 awaits user acceptance.
 
 **Stage:** DESIGN 2026-10-15. **Parent [#197](https://github.com/vladleng/MR-Studio/issues/197)**. Technical baseline [MR_RIG_ARCHITECTURE](MR_RIG_ARCHITECTURE.md), GUI [MR_RIG_GUI](MR_RIG_GUI.md). Accepted baseline #185 plus **#196 Full Combo WAV 0.4b upd3**. **#182 and standalone importer #187 are superseded**; only a minimal optional user WAV import / manual mapping is in #199, not universal Cab catalog development.
 
@@ -16,6 +16,8 @@
 **Important:** A collection of IRs is not automatically a collection of playable amp emulations. Celestion cabinet-only remains labelled. Full Combo IR is the *linear measured complete chain if documented*. A WAV file alone cannot simulate input-dependent distortion/compression or moving physical tone-stack controls; do not create fake Gain/Bass/Treble for it.
 
 ## 2. Curation first / raw imports optional
+
+**User-approved UX update / #199, 2026-10-15:** one gallery card represents one explicitly identified amplifier model, with its real IR captures selected in the model details. Sample-rate alternatives are not extra cards or capture choices. `Save IR` remembers the verified active capture as that model's library default. The exact sounding capture remains independently stored in project/MR preset with Undo; saved defaults never change other running instances. Search and filters never load audio. Polytone Mini Brute is one card with ten captures, not ten model cards. Current implementation keeps stable capture bookmark IDs and aggregates them by explicit family metadata; see [delivery/schema/validation](MR_RIG_LIBRARY_199.md).
 
 Library first-run may show curated templates or legal example items with explicit **Not installed** status. User browses by cover/genre/type/model, not absolute files. MVP `Add My Model` secondary workflow:
 1. Choose `Import WAV IR` (today) or `Import NAM` (only when NAM engine supported); point to existing local file or collection root; **do not copy vendor files** without explicit consent.
@@ -67,4 +69,4 @@ This is **conceptual**, not a forced new schema; inspect already released CabMan
 - Model and Rig entities round-trip without conflation, no byte copies of vendor files, source identity/fingerprint stable and auditable, unknown role handling preserved.
 - Artwork fallback, huge/invalid image handling, broken external image relink, licensed metadata not enforced by automatic trusted assumptions.
 - Rig duplicate/save/missing/relink/Undo/Redo, two instances independent, editor reopen retains active source/selection, library filters not auto sound changing.
-- Manual user acceptance of initial 6–12 self-curated clean/jazz/demo cards **only with user-supplied/licensed source assets**; can't claim preset audio completeness otherwise.
+- Manual user acceptance of available self-curated model cards and their internal IR choices **only with user-supplied/licensed source assets**; one card per model, no quota filled by duplicate capture cards; can't claim preset audio completeness otherwise.
