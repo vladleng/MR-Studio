@@ -38,11 +38,26 @@ Possible later `FactoryCuratedSet`: collections of metadata/bookmarks, only redi
 
 **One actual DSP graph** contract: Input utility (meter, optional tuner/gate) → ordered Pre FX → Core (selected model; optional cabinet stage only for explicit NAM amp-only) → ordered Post FX → output meter. Detailed contracts [MR_RIG_AUDIO_PEDALS.md](MR_RIG_AUDIO_PEDALS.md).
 
-## 4. Transform existing MR Cab without regressions
+## 4. Transform existing MR Cab: updated compatibility scope
 
-The **completed** [#182](https://github.com/vladleng/MR-Studio/issues/182) documents historical Cab/IR engine work; [#196](https://github.com/vladleng/MR-Studio/issues/196) is an accepted Full Combo WAV backend. **MR Rig #197 is new product shell/core abstraction, not a blind rename of `mrs.cab-ir`**. Important: same plugin-ID, schema compatibility, saved MR Cab presets and projects until local audit establishes safe migration; choose one of: (A) wrapper/editor over existing Cab processing retaining ID, (B) separate `mrs.rig` processor with explicit migrate/copy path; choose based on read-only audit and user approval, not assumption.
+**User decision, 2026-10-15:** «Старые проекты сохранять не нужно, они были только для тестов».
+Backward compatibility with old test Cab projects is **not required**. This replaces
+earlier requirements to retain old Cab processor IDs/schema/presets for project migration.
+Do not implement Cab→Rig Convert, compatibility wrappers or a fallback Cab editor solely
+to keep those test projects working. This does not authorize deletion/modification of
+existing user files, vendor WAVs or accepted build packages.
 
-Data upgrade rules: no silent legacy preset conversion or loss, consistent Source identity/missing/relink; retain current accepted #185 editor as stable migration fallback until replacement is user-approved. Existing MR Reverb remains separate native insert (can share DSP components if contracts allow). Minimal import/manual role mapping from former #187 is scoped within #199; #189 UI Kit components optional until ready. #186 Advanced multi-mic is cancelled and not part of the Rig roadmap.
+Reuse the verified WAV convolver, async preparation/switching, source validation,
+shared host commands and safe editor lifetime. P0 #198 now recommends one new
+`mrs.rig` container and a clean versioned RigState, without legacy conversion;
+the audit still awaits architectural acceptance. Internal DSP names need not be renamed.
+No processor ID or project format is changed by this documentation.
+
+New MR Rig projects and RigPresets must round-trip and support Undo/Redo, stable
+SourceAsset identity, explicit missing/relink and proper GUI persistence. Existing
+MR Reverb remains a separate native insert; shared DSP reuse does not change its
+contract. Minimal Import My IR/manual role mapping belongs to #199; #189 UI Kit is
+optional for the initial shell. #186 Advanced multi-mic remains cancelled.
 
 ## 5. User workflow
 
