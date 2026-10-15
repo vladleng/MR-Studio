@@ -1,5 +1,8 @@
 # MR UI Kit — общий JUCE Design System и компоненты для MR Studio
 
+> **Визуальный стандарт всей MR Studio (approved 2026-10-15):** [MR Studio Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md), [SVG style reference](design/MR_UNIFIED_STYLE_REFERENCE.svg), [visual target tokens](design/MR_UNIFIED_TOKENS.json), [GUI Codex skill](../.codex/skills/mr-unified-gui/SKILL.md). **Этот документ остаётся канонической спецификацией реализации MR UI Kit**, а MR UDS — канонической спецификацией визуального языка. Утверждённое направление не означает немедленного изменения принятой темы/GUI без #190 аудита, этапов #191–#195 и отдельной приёмки.
+
+
 **Документ создан:** 2026-10-14. **Статус:** план, реализация MR UI Kit не начата. **Parent:** [#189](https://github.com/vladleng/MR-Studio/issues/189) (категория [#78 MRS FEATURES](https://github.com/vladleng/MR-Studio/issues/78)); это общая UI-инфраструктура, НЕ модуль #111 Native Plugins.
 **Gallery contract:** [MR_UI_GALLERY.md](MR_UI_GALLERY.md); **этапы:** [MR_UI_KIT_ROADMAP.md](MR_UI_KIT_ROADMAP.md); **handoff:** [MR_UI_KIT_CODEX_HANDOFF.md](MR_UI_KIT_CODEX_HANDOFF.md).
 **База:** [UI_REFERENCE_UPD9.md](UI_REFERENCE_UPD9.md) (действующие `ui::Theme` / `Controls.h`; последние уточнения #145/#146), [REVERB_EDITOR_IMPLEMENTATION.md](REVERB_EDITOR_IMPLEMENTATION.md), [MR_REVERB.md](MR_REVERB.md), [NATIVE_INSERTS.md](NATIVE_INSERTS.md), [AGENTS.md](../AGENTS.md). **Не переписывать принятую тему из эстетического вкуса.**
