@@ -989,12 +989,16 @@ Source/build/tests локально; docs/issues синхронизируютс�
 
 | Назначение | Локальный путь |
 |---|---|
-| Исходники, Git, CMake, tests, docs | `C:/Users/Vladislav/Documents/GitHub/MR-Studio` |
-| Папка чатов, Builds, Saves, навыки | `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio` |
-| Навыки проекта | Рабочая папка чатов: `.codex/skills/<имя>/SKILL.md` |
+| Единый рабочий каталог: исходники, Git, CMake, docs, assets, Builds, Saves | `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio` |
+| Навыки проекта | `.codex/skills/<имя>/SKILL.md` в едином каталоге |
+| Прежний checkout (только резерв для отката) | `C:/Users/Vladislav/Documents/GitHub/MR-Studio`; больше не использовать для разработки/сборки |
 | Активная ветка | `mrs/0.2g-fix1-editor-space-local`; опубликованный main/release v0.2g сохранён |
 | Существующая сборочная папка | Репозиторий: `build/asio-local` |
 | GitHub для issues/docs | `vladleng/MR-Studio` |
+
+Объединение 2026-10-15: [команды и проверка рабочего каталога](LOCAL_WORKSPACE.md).
+Свежая конфигурация использует только зависимости внутри единого каталога;
+старые CMake-кэши сохранены отдельно в `build/legacy-pre-migration/`.
 
 GitHub source может отставать от локальной разработки. Не заменяй локальный код
 клоном/main/pull ради синхронизации документации. Машинные пути выше — текущая
