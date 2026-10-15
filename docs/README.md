@@ -53,6 +53,8 @@ GitHub — главный источник информации проекта (
 
 - **MR Cab Full Combo IR [#196](https://github.com/vladleng/MR-Studio/issues/196):** [Full Combo IR](MR_CAB_FULL_COMBO_IR.md) — будущее аддитивное расширение принятого #185: WAV записанной цепочки Polytone/Fender без второго кабинета; neural amp DSP отдельно.
 
+- **MR Rig / [#197](https://github.com/vladleng/MR-Studio/issues/197) (planned):** [MR_RIG_ARCHITECTURE.md](MR_RIG_ARCHITECTURE.md), [MR_RIG_GUI.md](MR_RIG_GUI.md), [MR_RIG_LIBRARY_PRESETS.md](MR_RIG_LIBRARY_PRESETS.md), [MR_RIG_AUDIO_PEDALS.md](MR_RIG_AUDIO_PEDALS.md), [MR_RIG_ROADMAP.md](MR_RIG_ROADMAP.md), [MR_RIG_CODEX_HANDOFF.md](MR_RIG_CODEX_HANDOFF.md) — визуальные готовые модели IR/NAM с изображениями, My Rigs, Pre/Core/Post chain, педали, NAM отдельным DSP. Планы и задачи #198–204, без реализации; #185 Cab принят, #196 Full Combo готов локально и ждёт приёмки.
+
 ## Будущие концепции — не реализованы в текущей сборке
 
 - [Spatial](ACOUSTIC_SPACE_PROTOTYPE.md), [FX routing](PRE_SPATIAL_ROUTING.md), [MR Strip Link](MR_STRIP_LINK.md).
