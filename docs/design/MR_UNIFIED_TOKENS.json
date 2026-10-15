@@ -1,0 +1,32 @@
+{
+  "schema": "mr-uds.visual-target.v1",
+  "status": "approved-visual-direction-not-yet-deployed-theme",
+  "reference": "docs/MR_UNIFIED_DESIGN_SYSTEM.md",
+  "colors": {
+    "canvas": "#111720",
+    "window": "#171E28",
+    "surface": "#222C3C",
+    "raised": "#2D394E",
+    "deep": "#192333",
+    "bright": "#DAE5F4",
+    "stroke": "#A9BFDC",
+    "muted": "#7188AB",
+    "subtle": "#4B5F7B",
+    "accent": "#91BBEE",
+    "on": "#7AB69E",
+    "error": "#E68F88",
+    "warning": "#E2C070",
+    "violet": "#AB92DD"
+  },
+  "metrics": {
+    "baseUnit": 4,
+    "conceptPluginHeader": 48,
+    "conceptPanelRadius": 15,
+    "conceptCardRadius": 12,
+    "illustrationViewBox": "0 0 320 200",
+    "iconViewBox": "0 0 24 24",
+    "illustrationStroke": "1.1-1.6",
+    "iconStroke": "1.5-1.8"
+  },
+  "note": "Do not override accepted 0.3c colors and typography without scoped user acceptance."
+}
