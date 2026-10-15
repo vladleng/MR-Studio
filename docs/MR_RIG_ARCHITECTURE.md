@@ -1,7 +1,9 @@
 # MR Rig — Product/Technical Architecture (canonical)
 
-**Status:** DESIGN / backlog, 2026-10-15. **Parent:** [#197](https://github.com/vladleng/MR-Studio/issues/197), under [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111). **Read with:** [GUI](MR_RIG_GUI.md), [library and presets](MR_RIG_LIBRARY_PRESETS.md), [audio/pedals](MR_RIG_AUDIO_PEDALS.md), [roadmap](MR_RIG_ROADMAP.md), [handoff](MR_RIG_CODEX_HANDOFF.md).
+**Status:** staged implementation; later DSP stages remain backlog, 2026-10-15. **Parent:** [#197](https://github.com/vladleng/MR-Studio/issues/197), under [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111). **Read with:** [GUI](MR_RIG_GUI.md), [library and presets](MR_RIG_LIBRARY_PRESETS.md), [audio/pedals](MR_RIG_AUDIO_PEDALS.md), [roadmap](MR_RIG_ROADMAP.md), [handoff](MR_RIG_CODEX_HANDOFF.md).
 **Baseline 2026-10-15:** #183/#184/#185 and **#196 accepted/closed**, last #196 package **0.4b upd3 Native Editors**. **#182 superseded by #197**, no further standalone Cab stages: #186 multi-mic cancelled; only a minimal user WAV import part of #187 flows into #199; #188 graph/QA safeguards flow into #198/#201/#204. Audit local checkout before new code.
+
+**Local P2 / #200, 2026-10-15:** 0.4d MR Rig Shell is READY WITH MANUAL CHECK; [actual state, signal semantics and validation](MR_RIG_SHELL_200.md). #198/#199 are accepted/closed. New native `mrs.rig`, project schema24, RigState v1 and typed RigPreset are implemented on the shared WAV core. PRE/POST arrays remain empty, NAM unavailable; #201 onward has not started. Source/build/package remain local. User acceptance of #200 is pending.
 
 ## 1. Product charter
 
