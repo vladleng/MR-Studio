@@ -1,5 +1,8 @@
 # Moon River Studio — Live Mode UI / UX Concept
 
+> **Единый визуальный стандарт (2026-10-15):** [MR Studio Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md). Live Mode сохраняет performance-first, крупную читаемую типографику, cue/ready/error семантику и moving Chord Track; общие иконки, палитра и контролы приходят из MR UI Kit. Палитра и линия — target для последующей миграции, не заявление о готовой реализации.
+
+
 Stage 5 / #25: [STAGE_5_PLAN.md](STAGE_5_PLAN.md) задаёт production musical editors
 и shared current/next. Этот документ описывает целевой Live UI; весь show workspace
 не входит в Stage 5. Общие lanes/context используют те же IDs и timeline.
