@@ -45,6 +45,10 @@ GitHub — главный источник информации проекта (
 - [Navigation/#86](NAVIGATION_86.md), [Tempo/#83](TEMPO_MAP_83.md), [Meter/#84](METER_MAP_84.md), [shared timeline](MUSICAL_TIMELINE.md).
 - [Persistence](PERSISTENCE.md): текущая локальная schema20/archive1, legacy migration.
 
+### SVG-библиотека MR UDS
+
+**Локальный канонический путь:** `assets/ui/mr-uds/`; внутри `controls/`, `icons/`, `rig/`, `reverb/`, `previews/`, а также **`tokens/`, `build_kit.py`, `manifest.json`, `README.md` непосредственно в корне `mr-uds/`**. Подробные правила: [MR Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md), [Codex GUI skill](../.codex/skills/mr-unified-gui/SKILL.md). Не путать с уже существующим `assets/ui/icons/transport/`; asset ZIP не опубликован в GitHub.
+
 ## Движок, плагины, интерфейс
 
 - **MR UI Kit / UI Gallery (plan #189):** [компоненты/дизайн-система](MR_UI_KIT.md), [интерактивная Gallery](MR_UI_GALLERY.md), [этапы](MR_UI_KIT_ROADMAP.md), [handoff для Codex](MR_UI_KIT_CODEX_HANDOFF.md). Общее JUCE UI-направление, не реализовано; принятый [UI reference](UI_REFERENCE_UPD9.md) сохраняется.
