@@ -27,9 +27,9 @@ This skill is **not execution permission**; use only the assigned issue and phas
 
 ## Canonical local asset location
 
-- **MR UDS library root:** `assets/ui/mr-uds/`. Expected existing SVG categories: `controls/`, `icons/`, `rig/`, `reverb/`; concepts: `previews/`.
+- **MR UDS library root:** `assets/ui/mr-uds/`. Existing SVG folders are nested: `svg/controls/`, `svg/icons/`, `svg/rig/`, `svg/reverb/`; concepts: `previews/`. **Do not flatten `svg/`: `manifest.json` and `build_kit.py` require that level.**
 - Keep **`tokens/` directory, `manifest.json`, `build_kit.py` and the asset-kit `README.md` at the root `assets/ui/mr-uds/`** (not in `.codex/skills/`, not in `docs/`). This keeps the generator's relative paths together. Verify actual generator assumptions before running it.
-- First inspect `assets/ui/mr-uds/manifest.json` and matching SVG files, then `assets/ui/icons/transport/` for existing transport assets; reuse before drawing. Do not silently move/overwrite existing transport icons.
+- First inspect `assets/ui/mr-uds/manifest.json` and matching `svg/` files, then `assets/ui/icons/transport/` for existing transport assets; reuse before drawing. Do not silently move/overwrite existing transport icons.
 - Treat this as the **local canonical path**, not proof files are committed on GitHub. If missing, request the kit or verify local checkout; do not invent asset filenames or pretend to have previews.
 - All new art should be added to the same library and its manifest, with original/license notes and size/state variants. Source code/builds/assets remain local by AGENTS policy.
 
