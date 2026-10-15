@@ -60,7 +60,7 @@ This is **conceptual**, not a forced new schema; inspect already released CabMan
 
 ## 6. Test matrix / Acceptance
 
-- Synthetic WAV tests for one Cabernet-only (not real amp), one Full Combo, one unknown, missing/moved/corrupted, rate alternatives; NAM metadata fixture even before runtime but not Ready.
+- Synthetic WAV tests for one cabinet-only (not real amp), one Full Combo, one unknown, missing/moved/corrupted, rate alternatives; NAM metadata fixture even before runtime but not Ready.
 - Model and Rig entities round-trip without conflation, no byte copies of vendor files, source identity/fingerprint stable and auditable, unknown role handling preserved.
 - Artwork fallback, huge/invalid image handling, broken external image relink, licensed metadata not enforced by automatic trusted assumptions.
 - Rig duplicate/save/missing/relink/Undo/Redo, two instances independent, editor reopen retains active source/selection, library filters not auto sound changing.
