@@ -1,6 +1,8 @@
 # MR Cab Full Combo IR / #196 — local delivery
 
-**Current follow-up, 2026-10-15:** [0.4b upd1 — browser menus/filter persistence](MR_CAB_BROWSER_STATE_UPD1_196.md). New package/targeted checks there; base results below remain unchanged.
+**Current follow-up, 2026-10-15:** [0.4b upd2 — stable Cab window/preset switching, Gain explanation](MR_CAB_WINDOW_UPD2_196.md).
+
+**Previous follow-up, 2026-10-15:** [0.4b upd1 — browser menus/filter persistence](MR_CAB_BROWSER_STATE_UPD1_196.md). New package/targeted checks there; base results below remain unchanged.
 
 Date: 2026-10-14. User authorised implementation: «Переходи к следующему шагу».
 Version: **0.4b Full Combo IR**. Status: **READY WITH MANUAL CHECK**, user acceptance pending.
