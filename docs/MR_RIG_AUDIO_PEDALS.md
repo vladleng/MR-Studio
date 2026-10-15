@@ -1,6 +1,6 @@
 # MR Rig — DSP Graph, PRE/POST Pedals, NAM Modes and Safety
 
-**Parent [#197](https://github.com/vladleng/MR-Studio/issues/197)**. Planned architecture. **No new DSP has been implemented by this document.** Reuse accepted [#185 Cab](https://github.com/vladleng/MR-Studio/issues/185) and local #196 when accepted; don't rewrite host core just to draw pedals. Base [MR_RIG_ARCHITECTURE](MR_RIG_ARCHITECTURE.md), [MR_RIG_LIBRARY_PRESETS](MR_RIG_LIBRARY_PRESETS.md).
+**Parent [#197](https://github.com/vladleng/MR-Studio/issues/197)**. Planned architecture. **No new DSP has been implemented by this document.** Reuse accepted [#185 Cab](https://github.com/vladleng/MR-Studio/issues/185) and **accepted #196 Full Combo WAV 0.4b upd3**; former #188 Cab modular contracts/QA are folded into #198/#201/#204, with no separate Cabinet roadmap. Don't rewrite host core just to draw pedals. Base [MR_RIG_ARCHITECTURE](MR_RIG_ARCHITECTURE.md), [MR_RIG_LIBRARY_PRESETS](MR_RIG_LIBRARY_PRESETS.md).
 
 ## 1. Processing modes (exclusive active core)
 
@@ -57,7 +57,7 @@ P0 must inspect current existing Host native processor registration, command/eve
 
 `Add/Remove/Reorder/MoveAcrossCore` structural operations commit through host commands, serializable stable IDs, one transaction per gesture, Undo/Redo consistent even while playing. `parameterChange` continuously preview where supported, commit final as one undoable gesture, no callback patch recreation for each drag step. Rebuild/prepare chain asynchronously for structural changes, preserve current audio when pending and show status.
 
-RigPreset includes chain order, module instance/bypass params, selected model/asset, core mode, optional amp-only Cab, gains/output, active image metadata in library. When unrecognized module type/version, preserve unknown state as placeholder (do not delete). Missing source leaves Rig saved state and edits intact. Legacy MR Cab preset compatibility strategy after local P0 and user approval; #185 is accepted closed, #196 pending acceptance.
+RigPreset includes chain order, module instance/bypass params, selected model/asset, core mode, optional amp-only Cab, gains/output, active image metadata in library. When unrecognized module type/version, preserve unknown state as placeholder (do not delete). Missing source leaves Rig saved state and edits intact. Legacy MR Cab preset compatibility strategy after local P0 and user approval; #185 and #196 are accepted/closed; no independent Cab stages remain.
 
 ## 6. QA before acceptance
 
