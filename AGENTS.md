@@ -20,6 +20,13 @@
 
 **Алгоритм:** `Issue → точечная спецификация → нужный код → локальные проверки → отчёт в Issue`.
 
+## Каноническая библиотека GUI assets
+
+- Локальная библиотека **MR UDS SVG Kit**: `assets/ui/mr-uds/` (controls/, icons/, rig/, reverb/, previews/, tokens/, build_kit.py, manifest.json, README.md). Существующий `assets/ui/icons/transport/` не переносить автоматически.
+- Перед созданием новых GUI-иконок проверяй `assets/ui/mr-uds/manifest.json` и существующие SVG, затем `docs/MR_UNIFIED_DESIGN_SYSTEM.md` и `.codex/skills/mr-unified-gui/SKILL.md`; дубли не создавать.
+- `build_kit.py` — вспомогательный генератор: **не запускать автоматически** до проверки путей, перезаписываемых файлов и зависимостей. GUI assets и generator редактировать/проверять локально по текущей политике исходников.
+- Не путай локальную asset library с GitHub: папка может отсутствовать в удалённом репозитории; перед использованием проверить существование в checkout.
+
 ## Архитектура и безопасность
 
 - MR Studio — **одна** Windows/JUCE/C++/ASIO DAW, Live Mode встроен в тот же Core/проект, не отдельный аудиодвижок.
