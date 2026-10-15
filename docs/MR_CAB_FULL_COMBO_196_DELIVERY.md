@@ -1,11 +1,18 @@
 # MR Cab Full Combo IR / #196 — local delivery
 
-**Current follow-up, 2026-10-15:** [0.4b upd2 — stable Cab window/preset switching, Gain explanation](MR_CAB_WINDOW_UPD2_196.md).
+**Accepted, 2026-10-15:** User confirmed #196 and replied «Принимаю».
+Current accepted package: **0.4b upd3 Native Editors**;
+[audit, exact source/package and 7/7 targeted checks](NATIVE_EFFECT_EDITOR_UNIFICATION.md).
+No new build/tests or physical measurements were performed for this acceptance.
+Older results and NOT TESTED hardware limitations below remain historical facts.
+Other Cab/Rig stages require a separate command; #182 stays open.
+
+**Previous follow-up, 2026-10-15:** [0.4b upd2 — stable Cab window/preset switching, Gain explanation](MR_CAB_WINDOW_UPD2_196.md).
 
 **Previous follow-up, 2026-10-15:** [0.4b upd1 — browser menus/filter persistence](MR_CAB_BROWSER_STATE_UPD1_196.md). New package/targeted checks there; base results below remain unchanged.
 
 Date: 2026-10-14. User authorised implementation: «Переходи к следующему шагу».
-Version: **0.4b Full Combo IR**. Status: **READY WITH MANUAL CHECK**, user acceptance pending.
+Version: **0.4b Full Combo IR**. Status: **ACCEPTED** by user on 2026-10-15 (including upd1–upd3 follow-ups).
 Local source: `2fbe90ef6ce1877ca77d6fbffdf51d3a209a59ef`.
 Baseline #185 remains accepted/closed. #186 and full #187 importer are not started.
 Requirements: [Full Combo contract](MR_CAB_FULL_COMBO_IR.md), [#196](https://github.com/vladleng/MR-Studio/issues/196).
