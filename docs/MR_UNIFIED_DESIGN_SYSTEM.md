@@ -88,10 +88,11 @@ The original 2026-10-15 **MR Plugin GUI SVG Kit 01** contains **65 independent c
 
 ```text
 assets/ui/mr-uds/
-├── controls/       # SVG control visual sources
-├── icons/          # additional MR UDS application/plugin icons
-├── rig/            # amps/cabs/mics/pedals line-art
-├── reverb/         # rooms/plates/racks/space line-art
+├── svg/
+│   ├── controls/   # SVG control visual sources
+│   ├── icons/      # additional MR UDS application/plugin icons
+│   ├── rig/        # amps/cabs/mics/pedals line-art
+│   └── reverb/     # rooms/plates/racks/space line-art
 ├── previews/       # GUI previews and asset contact sheets
 ├── tokens/         # kit's original design token files
 ├── build_kit.py    # kit generator (inspect before running)
@@ -99,7 +100,9 @@ assets/ui/mr-uds/
 └── README.md       # kit usage, generator instructions
 ```
 
-**Placement:** unzip kit, copy complete subdirectories and all four root items (`tokens/`, `build_kit.py`, `manifest.json`, `README.md`) into `assets/ui/mr-uds/`. Keep generator and manifest next to their referenced folders to avoid broken relative paths. `docs/design/MR_UNIFIED_TOKENS.json` remains a **documented draft design reference**, not a replacement for the kit's local `tokens/` source. Do not conflate the two until an audited explicit sync process exists.
+**Placement:** unzip kit, copy the original `svg/` directory with its four child folders, `previews/`, and all four root items (`tokens/`, `build_kit.py`, `manifest.json`, `README.md`) into `assets/ui/mr-uds/`. Keep generator and manifest next to their referenced folders to avoid broken relative paths. `docs/design/MR_UNIFIED_TOKENS.json` remains a **documented draft design reference**, not a replacement for the kit's local `tokens/` source. Do not conflate the two until an audited explicit sync process exists.
 
-**Agent behavior:** first inspect the local path and `manifest.json`, reuse assets, and when adding a new icon update the manifest and generator source if needed; validate whether `build_kit.py` regenerates or overwrites SVGs **before executing**. Running generator is opt-in after audit. Avoid copying generated assets into `.codex/skills/` or `docs/`. The remote GitHub may only contain the documentation, not this local library; do not claim otherwise.
+**Agent behavior:** first inspect the local path and `manifest.json` (paths such as `svg/controls/knob_arc.svg`), reuse assets, and when adding a new icon update the manifest and generator source if needed; validate whether `build_kit.py` regenerates or overwrites SVGs **before executing**. Running generator is opt-in after audit. Avoid copying generated assets into `.codex/skills/` or `docs/`. The remote GitHub may only contain the documentation, not this local library; do not claim otherwise.
 
+
+**Verified source archive (2026-10-15):** `manifest.json` uses `svg/controls/...`, `svg/rig/...`, `svg/reverb/...`, and `svg/icons/...`. `build_kit.py` resolves `ROOT = Path(__file__).resolve().parent` and emits `ROOT / 'svg' / category`. Thus the *extra `svg/` level is REQUIRED* when copying the unmodified kit. If files were previously flattened into `mr-uds/controls` etc., move them back under `mr-uds/svg/` rather than keeping two competing copies. Keep original `previews/`, `tokens/`, `manifest.json`, and script next to `svg/`.
