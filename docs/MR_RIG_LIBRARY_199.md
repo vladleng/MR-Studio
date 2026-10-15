@@ -1,113 +1,99 @@
-# MR Rig P1 / #199 — Model Library
+# MR Rig P1 / #199 - Model Library
 
-**READY WITH MANUAL CHECK**, 2026-10-15. **0.4c MR Rig Model Library**.
-Local source: `806c875b46118eab2d3bbfb1de205a7765395dde`.
-P0 #198 accepted by user («принимаю 198 и поехали 199»). No legacy test-project
-migration, Convert or fallback compatibility is required. This slice implements
-model curation/gallery on the accepted WAV backend; the new mrs.rig processor and
-Pre/Core/Post shell remain #200/#201, actual pedal DSP #202 and NAM runtime #203.
+**READY WITH MANUAL CHECK**, 2026-10-15. **0.4c upd1 MR Rig Model Variants**.
+Local source: `124568b404bee81f0e4924c8c706fcae09a3ce03`.
+This supersedes the original 0.4c gallery of individual capture cards, following
+user feedback: one amplifier model card, select and save an IR inside that model.
+#199 stays open for acceptance of the update. #200 has not started.
 
-## Scope and state ownership
+## Model cards and IR selection
 
-| Layer | Change / owner |
+- One card per explicitly identified amplifier model; **Polytone Mini Brute = one
+  card, ten selectable captures, twenty rate-specific source WAVs**.
+- Select the card, choose **IR variant** in its inline details, wait for Ready,
+  then **Save IR** to remember that capture as the model's library default.
+- A card recalls its saved capture; without a saved default it uses the active
+  capture in that family, otherwise its first capture. Filtering never loads audio.
+- The project and existing MR preset save the exact verified sounding capture
+  independently of the library default. Save IR does not alter other instances.
+- Reopen and Undo/Redo show the actual active capture. Loading is distinct from
+  active; a failed load retains prior sound and returns the selector to it.
+- Name, maker, tags, favorite, role and cover editing apply to the model family;
+  individual capture names/notes/provenance remain capture metadata.
+- Unknown imports are independent cards until explicit model metadata is available.
+  No grouping of arbitrary files based solely on folder or manufacturer guesses.
+
+## Implemented state and boundaries
+
+| Owner | Stored / executed |
 |---|---|
-| Shared model metadata | ToneLibrary1: separate SourceAsset and ToneModel, stable references/roles/curation |
-| Global library/preferences | Model bookmarks, titles, tags, favorites, external image/rights references; no audio Undo |
-| Project / preset | Exact verified source and selected model ID/title/role/provenance snapshot in existing external-selection state |
-| Commands / Undo | One verified card/source transaction, current sonic controls retained; failed load does not commit |
-| UI preferences | Per-insert search/tab/role/tag/favorites/files view, independent of active audio |
-| Runtime / async | Cancellable source validation, existing scanner and ReverbLoader; bounded artwork preparation off UI/audio thread |
-| DSP / audio callback | Existing WAV core unchanged; no pedals, second convolver, device or neural fallback |
-| Host/editor lifecycle | Compatible host-only native editor retained after source Undo/Redo graph generation; external editors retire |
-| Full RigPreset / chain | Deferred to #200 onward; model bookmarks are explicitly not full Rig presets |
+| External SourceAsset | Root, relative path, absolute fallback, fingerprint/bytes and actual format; no media copies |
+| Global library | Stable family identity/title, capture bookmarks, one preferred capture per family, curation and cover references |
+| Project / MR preset | Exact verified capture/source ID, title/role/provenance and existing WAV selection snapshot |
+| Commands / Undo | One verified capture selection; gain/mix/cuts retained, failed load does not commit |
+| Per-insert UI | Search/tab/role/tag/favorites/files view, separate from audio |
+| Async runtime | Cancellable NON-RT source/thumbnail checks with generation and global-library conflict guards |
+| DSP | Accepted single-WAV backend unchanged; no new callback work, pedals, extra cabinet or neural fallback |
 
-IR Models is the default gallery in the existing WAV insert, labelled MR Rig Models.
-Cards select exact WAV captures; search/role/tag/favorites/tab navigation never load
-a source. NAM Models is explicitly unavailable until its runtime; My Rigs states
-that full-chain saving belongs to #200. No fake active pedal or amplifier controls.
-One model can reference actual same-capture rate alternatives; duration/channel
-layout must agree, exact project rate wins, otherwise deterministic source choice
-and the current off-thread SRC apply. Source WAVs are never copied or modified.
+For stable existing project/preset identity, the original ToneModel records remain
+capture bookmarks. Explicit `family`/`family_title` aggregate these into gallery
+models; `preferred` identifies the saved IR. Each capture's source list contains
+only sample-rate alternatives of that same capture. Exact project rate wins,
+otherwise deterministic selection and existing worker SRC apply. Different
+captures may have different lengths or channel layouts; these must match only
+within one capture's rate alternatives.
 
-The existing installed collection contributes metadata bookmarks. Optional Import
-menu adds a WAV, a folder, the user-applied Polytone Mini Brute profile or versioned
-model bookmarks. Unknown WAV remains unknown; profile application is explicit.
-Profile capture grouping uses the accepted opt-in _441 suffix, not brand heuristics.
-Edit model changes name/maker/variant/tags/notes/provenance/role/cover/rights.
-Cabinet-only is labelled as requiring amp processing. Full Combo WAV is static linear
-colour, without nonlinear dynamics or imaginary live amplifier tone controls.
+Metadata format is **MRS_TONE_LIBRARY 2**, bounded to 1000 capture bookmarks,
+8000 source records and 16 MiB. Version 1 remains readable: its original generated
+model/capture titles recover family metadata; existing source/capture IDs remain
+unchanged. Reindex preserves curation, same-file imports do not duplicate bookmarks,
+and exactly matching-content relink preserves identity. Missing/changed files are
+not silently replaced. Fingerprint is FNV1a64, not a rights/security guarantee.
 
-## Persistence and source safety
+The secondary Import menu reuses the scanner for individual WAV/folder/profile
+and .mrmodels bookmarks. The explicit Polytone profile uses the supplied local
+folder and opt-in _441 rate pairing; numbers/B are not inferred amp settings.
+Full Combo WAV is static linear colour. Cabinet-only is labelled accordingly.
+NAM is explicitly unavailable until #203; My Rigs explains the future chain
+preset scope. Existing MR preset is not advertised as a full Pre/Post RigPreset.
 
-ToneLibrary is bounded metadata (max1000 models/8000 source records/16MiB), serialized
-as MRS_TONE_LIBRARY1, and retained in optional view preferences. Model/source IDs
-are separate from editable title, cover and tags. Reindex preserves user curation;
-same exact-file reimport does not duplicate cards. Source bookmark has relative path,
-root, absolute fallback, content fingerprint/bytes and real format metadata. The
-current FNV1a64 identity detects changes; it is not a security or rights guarantee.
+User-selected JPG/PNG covers require rights notes; worker limits compressed size
+8 MiB, dimensions 8192/16 MP, thumbnail 512x384 and total cache 64 MiB. Missing or
+invalid covers fall back safely; a family's available cover is shared by its card.
+No vendor WAVs, photos or logos are bundled. New mrs.rig processor/Pre-Core-Post
+shell belongs to #200/#201, actual pedal DSP #202. #198 is accepted and legacy
+user test-project compatibility is not required.
 
-Relink accepts the exact original bytes/format, preserves source/model identity and
-never substitutes a similarly named capture. Missing/changed content stays visible.
-Source loading and selected model snapshot commit together only after loader success;
-global library edits do not rewrite project sound. A selected active source can be
-explicitly reloaded after relink to update its project reference.
+## Validation of upd1
 
-Model metadata export (.mrmodels) contains bookmarks only. Existing .mrspreset and
-project selection persist the exact WAV/selected model metadata; they do not claim to
-save a future full Pre/Post Rig chain. Input/output gain and full Rig state are #200.
-Multiple editor caches observe the same global library. Optimistic publication and
-job generations reject stale worker results rather than overwrite another editor's
-curation. Display titles may duplicate; IDs remain distinct. Fingerprint validation
-also checks real WAV format metadata and absolute fallback. Source byte budget64MiB.
+- Release affected app/audio/test targets built successfully.
+- All **nine affected tests PASS**: audio_tone_library, juce_tone_library,
+  juce_native_editors, juce_cab_editor, juce_reverb_editor, juce_reverb_browser,
+  juce_j1_smoke, juce_j2_smoke, juce_j3_smoke. Eight GUI tests passed in the first
+  44.44s run; one core negative-test fixture compared separate models and was
+  corrected, rebuilt and rerun successfully (1/1, 0.03s final). No full CTest repeat
+  for this scoped browser update; original 0.4c full suite is historical evidence.
+- New coverage: one family/two distinct captures, selector exact capture, one Undo,
+  unchanged wet controls and HWND/geometry, Save IR without project mutation,
+  saved default after preferences roundtrip, card recall and active selector after
+  editor reopen, version 1 family upgrade, duplicate-default and truncated metadata
+  rejection. Existing preset, failure, filters, concurrent editor and artwork tests pass.
+- Real Polytone read-only test PASS: one family / ten captures / twenty sources;
+  actual source integrity and rate selection verified. All twenty original SHA256
+  match the #196 baseline. No source WAV changes or downloads.
+- Gallery snapshots exported at 100/150/200%; 100/150 inspected.
+- Packaged --tone-library-smoke **exit 0**. **13 files / 12 SHA256 entries verified**.
+- Hardware ASIO/listening and physical mixed-DPI **NOT TESTED** for upd1.
 
-## Artwork
+Local package under the MR Studio project Builds directory:
+`MR-Studio-0.4c-upd1-MR-Rig-Model-Variants-JUCE-ASIO-Windows-local`.
+GUI SHA256: `D16158DB68BE4884FF6C6FEF2C31AC2D2D8B37BB58B955BB4589448C34309C27`.
+Desktop MR Studio shortcut points to upd1; icon retained. Previous 0.4c package
+preserved and all its hashes verified. Symbols:
+`build/asio-local/deliveries/0.4c-upd1-rig-model-variants`.
+Logs/screenshots: `build/asio-local/validation/rig199-upd1`.
 
-Local user-selected JPG/JPEG/PNG only, with a nonempty rights/provenance note; no web
-scraping, bundled vendor photos or media. Worker checks compressed size <=8MiB and
-header dimensions <=8192/16MP before decoding, then reduces to <=512x384; thumbnail
-cache budget64MiB. Missing,
-invalid/oversized art falls back to a neutral drawn speaker tile and reports the
-reason. Artwork cannot make the WAV source invalid. No image decoding in callback
-or on the message thread. Stored image references are not proof of distribution rights.
-
-## Validation / delivery
-
-Release configure and all-target build PASS. Final **full current CTest152/152 PASS,
-157.70s**, run once on the ready candidate. Earlier targeted9/9 PASS42.74s during
-development; final suite includes the updated tests and rebuilt test executables.
-
-New tests cover metadata/roles/IDs/reimport/relink/Unicode/duplicate names/format
-limits; exact same-WAV model metadata changes; one Undo per verified source selection;
-failed selection retaining previous audio/history; preset and preferences roundtrip;
-filter/tab independence from sound; compatible native HWND/geometry across Undo;
-shared library race vs independent per-insert UI state; artwork fallback/oversize
-rejection before decode. Existing Cab/Reverb/host/PDC/RT and GUI regressions pass.
-The first GUI fixture used a wrong test collection ID and was corrected before PASS.
-
-Read-only real Polytone test **PASS:20 WAV /10 rate-paired model captures**, actual
-44.1/96k sources with48k fallback selection. All20 vendor SHA256 values remain
-identical to the #196 baseline. No asset files were downloaded, copied or modified.
-Software gallery snapshots100/150/200 exported,100/150 inspected; no physical DPI claim.
-No source-specific reference gain or artwork was supplied/measured: none invented.
-User may edit capture notes/levels manually and provide their own permitted cover.
-
-Local package: `MR-Studio-0.4c-MR-Rig-Model-Library-JUCE-ASIO-Windows-local` under
-the MR Studio project Builds directory. **13files/12SHA256 entries verified**;
-packaged `--tone-library-smoke` **exit0**. GUI SHA256:
-`230068EBC3296002C419AEFCAA036096940AA2765E31B891DC1EA83FD0BF5B70`.
-Existing desktop shortcut updated, icon retained; previous0.4b upd3 preserved and
-all its hashes verified. Symbols: `build/asio-local/deliveries/0.4c-rig-model-library`.
-Logs: `build/asio-local/validation/rig199`, build logs `rig199-build*.log`.
-
-Manual workflow: restart via the MR Studio shortcut, add/open **MR Rig Models**.
-Existing installed collection yields model cards. If empty: **Import... → Polytone
-Mini Brute profile...** and choose the already supplied local folder. This explicit
-profile creates ten capture cards, labels them Full Combo and applies the user-assigned
-Jazz tag; it does not interpret B/numbers as physical amp settings. Click a card to
-load, Edit model for role/tags/own cover, Relink WAV for an exact-content replacement.
-The source browser remains secondary under Manage files; Models returns to cards.
-
-Hardware ASIO/listening and physical mixed-DPI are **NOT TESTED** for this release;
-automated offline tests do not establish those results. Paid WAV/photos are absent
-from the runtime package. Code/build/tests/package remain local; GitHub docs/issues
-only. #199 stays open until user acceptance; #200 has not started.
+Restart through the MR Studio shortcut, open MR Rig Models, select Polytone Mini
+Brute, choose IR variant and press Save IR. Existing original generated bookmarks
+are grouped when read; optional Import > Polytone Mini Brute profile can apply
+explicit model metadata to an existing user collection without modifying its WAVs.
