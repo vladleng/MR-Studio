@@ -1,5 +1,12 @@
 # MR Studio: текущий контекст разработки
 
+## MR Rig is sole guitar direction — #182 superseded, 2026-10-15
+
+User explicitly retired separate MR Cab development and merged its future into [#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197). [#182](https://github.com/vladleng/MR-Studio/issues/182) closed not_planned/superseded with GitHub native historical sub-issues. Preserved accepted #183 audit, #184 manifest/Celestion, #185 Simple GUI/convolution, #196 Full Combo WAV accepted 0.4b upd3 Native Editors. **#186** Advanced multi-mic cancelled, **#187** generic Cab importer cancelled (only minimal Import My IR in MR Rig [#199](https://github.com/vladleng/MR-Studio/issues/199)), **#188** Cab P6 cancelled (applicable constraints in #198/#201/#204); all three closed not_planned without implementation.
+
+**Active source of truth:** [#197](https://github.com/vladleng/MR-Studio/issues/197) and [MR_RIG_ROADMAP.md](MR_RIG_ROADMAP.md), [MR_RIG_CODEX_HANDOFF.md](MR_RIG_CODEX_HANDOFF.md), staged #198–204. Original MR Cab docs are archival only, NOT a separate roadmap; don't restart them. Native sub-issues under #182 were verified, #197's #198–204 native attach is pending (Markdown checklist exists). No local source/ASIO/test/build performed for this docs/issues-only reorganization. Accepted #196's 7/7 targeted and older full CTest results remain historical evidence. For Codex use Issue-first AGENTS: no blanket reading of long PROJECT_CONTEXT.
+
+
 ## #196 accepted — 2026-10-15
 
 User explicitly accepted #196 («Принимаю») after confirming that #196 was the
