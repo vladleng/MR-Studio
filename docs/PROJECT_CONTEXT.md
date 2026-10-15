@@ -1,5 +1,40 @@
 # MR Studio: текущий контекст разработки
 
+## #196 accepted — 2026-10-15
+
+User explicitly accepted #196 («Принимаю») after confirming that #196 was the
+current task. Acceptance includes Full Combo WAV IR and follow-up fixes through
+0.4b upd3 Native Editors (source ab66a2e34da2f8443df8bd5fef587b585ebffe22).
+Targeted7/7 PASS47.28s and packaged native editor smoke exit0 remain the latest
+checks; base0.4b full149/149 is historical evidence, not a new upd3 run.
+Acceptance does not create new physical ASIO/listening/mixed-DPI measurements.
+Code/build/package remain local; GitHub docs/issues only. #182 remains open;
+#186/#187/#188 and MR Rig #197 stages are not started by this acceptance.
+[Delivery](MR_CAB_FULL_COMBO_196_DELIVERY.md), [native editor audit](NATIVE_EFFECT_EDITOR_UNIFICATION.md).
+
+## Native effect editor unification — 0.4b upd3, 2026-10-15
+
+User requested audit/unification of all native effects against the plugin skill.
+Local source ab66a2e34da2f8443df8bd5fef587b585ebffe22; code/package remain local.
+All eight native effects configure hidden before final owner/hooks/show; compatible
+native preset loads retain window/content/HWND/bounds and update controls in place.
+Reverb search/folder/Options and EQ band restore per insert via optional bounded
+nativeEditorViews; Cab upd1 browser preferences retained. HP/LP unused Gain disabled,
+control labels/tooltips follow actual DSP. Async preset chooser checks project owner.
+New all-native regression exposed queued paint reading a removed insert and terminating
+through Windows dispatch; retired panels now ignore it and close cancels previews.
+Existing older-effect bypass-on-preset policy preserved; no DSP/project schema change.
+[Audit, behavior and checks](NATIVE_EFFECT_EDITOR_UNIFICATION.md).
+Release configure/build PASS; targeted7/7 PASS47.28s, including all-native, Cab/Reverb,
+browser, J1 and synthetic VST3 J2/J3. No full CTest for this UI fix.
+Package MR-Studio-0.4b-upd3-Native-Editors-JUCE-ASIO-Windows-local13files/12hashes;
+packaged native editor smoke exit0; SHA256
+3E0DA57C3CE74FFF4656B8FD8F381705883F9D14A6E01DD50D338D7442C068BD.
+Desktop shortcut updated/icon retained; upd2 unchanged/hash verified.
+Project plugin skill records queued paint/preview retirement; validator PASS.
+READY WITH MANUAL CHECK: physical flashing/mixed-DPI/ASIO/listening not verified.
+No issue closure; #196 acceptance and other Cab stages remain as before.
+
 ## MR Rig #197 — product concept / issues, 2026-10-15
 
 По прямому запросу пользователя зафиксировано **новое native направление [#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197)** на базе MR Cab. В качестве основного UX: **готовая отобранная модель звука с обложкой**, вкладки `IR Models`, `NAM Models`, `My Rigs`, **Import My IR/NAM как вторичная опция**; Pre FX слева, в центре Rig Core (фото/тип/вариант), Post FX справа, contextual inspector. `SourceAsset` ≠ `ToneModel` (фотография/role/tags) ≠ `RigPreset` (модель+Pre/Post ordered real pedals/parameters). `Full Combo WAV` — линейная свёртка текущего MR Cab и без второго кабинета; NAM требует отдельного будущего движка: Full Rig без дополнительного Cab, Amp Only с опциональным одним Cab, Unknown не классифицировать автоматически.
