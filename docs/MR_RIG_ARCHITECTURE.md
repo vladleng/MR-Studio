@@ -1,7 +1,7 @@
 # MR Rig — Product/Technical Architecture (canonical)
 
 **Status:** DESIGN / backlog, 2026-10-15. **Parent:** [#197](https://github.com/vladleng/MR-Studio/issues/197), under [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111). **Read with:** [GUI](MR_RIG_GUI.md), [library and presets](MR_RIG_LIBRARY_PRESETS.md), [audio/pedals](MR_RIG_AUDIO_PEDALS.md), [roadmap](MR_RIG_ROADMAP.md), [handoff](MR_RIG_CODEX_HANDOFF.md).
-**Local baseline (GitHub reports):** #185 accepted closed, 0.4a upd1; #196 Full Combo IR implementation 0.4b upd2 **ready, awaiting user acceptance**. Most recent [PROJECT_CONTEXT](PROJECT_CONTEXT.md) has latest local SHA/package; verify it in local checkout before code. Do not imply #196 accepted or start refactoring without user instruction.
+**Baseline 2026-10-15:** #183/#184/#185 and **#196 accepted/closed**, last #196 package **0.4b upd3 Native Editors**. **#182 superseded by #197**, no further standalone Cab stages: #186 multi-mic cancelled; only a minimal user WAV import part of #187 flows into #199; #188 graph/QA safeguards flow into #198/#201/#204. Audit local checkout before new code.
 
 ## 1. Product charter
 
@@ -40,9 +40,9 @@ Possible later `FactoryCuratedSet`: collections of metadata/bookmarks, only redi
 
 ## 4. Transform existing MR Cab without regressions
 
-[#182](https://github.com/vladleng/MR-Studio/issues/182) stays owner of Cab & IR collection data/backend; [#196](https://github.com/vladleng/MR-Studio/issues/196) is Full Combo WAV. **MR Rig #197 is new product shell/core abstraction, not a blind rename of `mrs.cab-ir`**. Important: same plugin-ID, schema compatibility, saved MR Cab presets and projects until local audit establishes safe migration; choose one of: (A) wrapper/editor over existing Cab processing retaining ID, (B) separate `mrs.rig` processor with explicit migrate/copy path; choose based on read-only audit and user approval, not assumption.
+The **completed** [#182](https://github.com/vladleng/MR-Studio/issues/182) documents historical Cab/IR engine work; [#196](https://github.com/vladleng/MR-Studio/issues/196) is an accepted Full Combo WAV backend. **MR Rig #197 is new product shell/core abstraction, not a blind rename of `mrs.cab-ir`**. Important: same plugin-ID, schema compatibility, saved MR Cab presets and projects until local audit establishes safe migration; choose one of: (A) wrapper/editor over existing Cab processing retaining ID, (B) separate `mrs.rig` processor with explicit migrate/copy path; choose based on read-only audit and user approval, not assumption.
 
-Data upgrade rules: no silent legacy preset conversion or loss, consistent Source identity/missing/relink; retain current accepted #185 editor as stable migration fallback until replacement is user-approved. Existing MR Reverb remains separate native insert (can share DSP components if contracts allow). #187 generic WAV importer reused; #189 UI Kit components optional until ready. #186 Advanced mic editor is optional independent capability; no requirement to ship mic mixing in MR Rig initial release.
+Data upgrade rules: no silent legacy preset conversion or loss, consistent Source identity/missing/relink; retain current accepted #185 editor as stable migration fallback until replacement is user-approved. Existing MR Reverb remains separate native insert (can share DSP components if contracts allow). Minimal import/manual role mapping from former #187 is scoped within #199; #189 UI Kit components optional until ready. #186 Advanced multi-mic is cancelled and not part of the Rig roadmap.
 
 ## 5. User workflow
 
