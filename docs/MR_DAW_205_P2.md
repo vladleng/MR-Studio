@@ -4,7 +4,9 @@ User-authorized 2026-10-16 after acceptance of Palette upd2. This is the Arrange
 
 ## Surfaces and selection
 
-- Channel bodies (Mixer and Arrange headers): #2F3841, the previously accepted text-button background. Channel text/letter buttons and send controls: #39434E, slightly lighter than the body. Other buttons retain the accepted upd2 surface.
+- Channel bodies (Mixer and Arrange headers): #2F3841, the previously accepted text-button background. Channel text buttons and send controls: #39434E, slightly lighter than the body. Other buttons retain the accepted upd2 surface.
+- Screenshot refinement: Mixer and Arrange M/S/record-arm actions use the existing SVG glyphs without sample frames or plates, with restrained on/pressed/focus glow and a keyboard-focus dot. Their 20 px hit areas and actual callbacks remain intact. Text-labelled Monitor/Input/Output controls keep their existing surfaces.
+- Empty Mixer and Browser (VST3/Files lists and file preview) use the same semantic window role #171E28 as the transport footer. Channel surfaces and legacy appearance remain unchanged. This is a scoped palette refinement, not the P4 Browser workflow migration.
 - Channel, clip, lane and range selections use the existing scoped Theme focus role #91BBEE. Legacy appearance retains its earlier palette. Musical current/selected states remain distinct through fill versus outline and dark text on light selections.
 - Fader rail outline: 0.65 logical px; thumb: 0.7; rotary balance outline: 0.75. Value fills, white centre-deviation arc/segment, input ranges, thumb hit testing, keyboard focus and gesture semantics are preserved.
 - Icon-only lane toggles have no button plate, using the glyph and restrained active/focus feedback. The text-labelled meter toggle keeps its button surface. Existing icon paths/meanings and hit areas are reused.
