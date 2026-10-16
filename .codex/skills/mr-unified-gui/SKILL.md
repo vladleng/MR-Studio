@@ -20,10 +20,12 @@ This skill is **not execution permission**; use only the assigned issue and phas
 
 ## Design language
 - Flat dark blue-graphite; neutral text; delicate cool blue-gray 1–1.6 SVG contour art; very restrained pale blue focus/selection. Green enabled, red recording/error, amber cue/warning; no color-only meaning.
-- No skeuomorphic/photoreal physical controls, faux glow, copied amp images/product logos, big gradients or redundant decorative meters.
+- No skeuomorphic/photoreal physical controls, decorative neon glow, copied amp images/product logos, big gradients or redundant decorative meters. Restrained active-icon glow is allowed by the user's button presentation rule below.
 - 4 logical-px rhythm; compact panels + real hit targets/focus and unit legibility. Larger high-priority controls in Live Mode.
 - Device illustrations: original thin-line amplifiers/cabs/pedals/microphones for MR Rig; outline spaces/devices for MR Reverb, not screenshots or third-party branding.
 - Target palette and proportions are in docs/MR_UNIFIED_DESIGN_SYSTEM.md; do not globally overwrite accepted current Theme colors without an approved migration slice.
+
+**Icon and button presentation (user decision, 2026-10-16):** Prefer icons without frames. Icon-only buttons have no visible button rectangle, border or plate; activation highlights the glyph itself with a restrained glow. Text-labelled buttons retain their frames. Preserve clear hover/pressed/disabled and keyboard-focus feedback, accessible names and real hit areas without restoring a persistent icon-button box. This applies to DAW and MR-owned plugin UI in the assigned migration slice, not an automatic global repaint.
 
 ## Canonical local asset location
 
