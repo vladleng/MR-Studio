@@ -23,6 +23,8 @@
 6. **Unified visual identity, differentiated workflow**: MR Rig, MR Reverb, MR Strip, Harma Waves, Arrange, Mixer, Browser and Live Mode share controls/tokens/icons but not an identical fixed layout.
 7. Fonts: neutral installed/fallback sans-serif, readable values, stable digit alignment; respect existing accepted menu/mixer font exceptions until explicitly migrated.
 
+**Icon and button presentation (user decision, 2026-10-16):** Prefer icons without frames. Icon-only buttons have no visible button rectangle, border or plate; activation highlights the glyph itself with a restrained glow. Text-labelled buttons retain their frames. Preserve clear hover/pressed/disabled and keyboard-focus feedback, accessible names and real hit areas without restoring a persistent icon-button box. This applies to DAW and MR-owned plugin UI in the assigned migration slice, not an automatic global repaint.
+
 ## 3. Reference visual tokens
 
 Palette adopted from **MR Plugin GUI SVG Kit 01** as a **target for future MR UI Kit theme mapping**. It is NOT confirmation that the running UI already uses these values.
