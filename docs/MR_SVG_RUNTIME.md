@@ -24,6 +24,8 @@ LED segments consume the existing `peaks` / `masterPeak` data after the unchange
 
 ## Neutral surfaces and object palette refinement (2026-10-16)
 
+Subsequent user-authorized [P2 Arrange/header refinement](MR_DAW_205_P2.md) supersedes the channel/button shades, control outline widths and selection presentation described below. The accepted upd2 object palette and saved RGB/template policy remain unchanged.
+
 The user requested backgrounds closer to the accepted pre-SVG 0.4f build: channel surfaces use #212830, text-button surfaces #2F3841, borders #3D444D. This is scoped to the current asset Theme and strips; the target UDS profile, global Desktop Theme and native/vendor editors are not repainted. Existing geometry and host behavior remain intact.
 
 The catalog's eight track-tag RGB values supply the marker/section choices; clips offer 24 named swatches including all eight base colors. Their common definition is `apps/studio-juce/src/ObjectPalette.h`, with the catalog reference in `assets/ui/mr-uds/tokens/object_palette.json`. Popups use the existing color commands and RGB persistence. New sections and implicit clip/marker colors use this scheme in asset mode. Existing explicit RGB colors and saved section templates are preserved; opening a project does not rewrite its colors. The legacy appearance retains its previous menus/default rendering. Chords are outside this requested slice.
