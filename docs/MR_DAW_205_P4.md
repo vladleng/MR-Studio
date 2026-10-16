@@ -32,5 +32,6 @@ new Browser borrowers. Existing J3 covers file/preset async retirement and edito
 behavior. No full CTest, package generation or shortcut update by default.
 
 Results and local source are reported in #205. Physical ASIO/listening/xruns,
-screen reader and hardware DPI are NOT TESTED. P4 user acceptance is separate;
-P5 does not start automatically. Code/builds/screenshots remain local.
+screen reader and hardware DPI are NOT TESTED. P4 accepted by the user on
+2026-10-16: “принимаю”. Live/P5 subsequently deferred explicitly; P6 limited to
+P1–P4 was authorized. Code/builds/screenshots remain local.
