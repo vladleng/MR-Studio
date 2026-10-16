@@ -60,3 +60,7 @@ This skill is **not execution permission**; use only the assigned issue and phas
 - [ ] local tests/screenshots & user signoff recorded
 
 **GitHub: only docs/issues with [skip ci]. Local code/assets/build/test/package per AGENTS.md.**
+
+## MR Fader visual selection (2026-10-16)
+
+For DAW faders, read **`docs/MR_FADER_SYSTEM.md`** only when task concerns fader design / mixer / track headers. Approved direction: **MR Micro** (thin matte vertical Mixer/Bus), **MR Slide** (strict horizontal Track Header/Send), **MR Precision** (large/expanded, same family). Use existing accepted #192 `MRFader` and #194 bindings; do not rebuild three components. For the user visual gate, prepare BOTH a **vector geometry reference** and a **real JUCE Gallery in-context preview**, with state/DPI variations. Separate fader gain from measured signal meter. Rollout #205 P2/P3, do not start from the skill alone.
