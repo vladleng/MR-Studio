@@ -33,6 +33,14 @@ This skill is **not execution permission**; use only the assigned issue and phas
 - Treat this as the **local canonical path**, not proof files are committed on GitHub. If missing, request the kit or verify local checkout; do not invent asset filenames or pretend to have previews.
 - All new art should be added to the same library and its manifest, with original/license notes and size/state variants. Source code/builds/assets remain local by AGENTS policy.
 
+## Shared DAW and native-plugin catalog
+
+- Develop one catalog for DAW, Live and MR-owned native plugins, with shared palette, contours, control geometry and states. Add plugin-specific controls/art to the same library; reuse existing assets before adding variants. Inspect `previews/concept_pack.html`, `catalogs/fader_control_track_utility_v1.json` and `tokens/concept_pack.json` under the library root for exact ids/paths.
+- A user can select an element by name or screenshot and request replacement in a specific screen. Adapt visible size and layout while preserving actual parameter mapping, gestures, Undo, keyboard focus and accessibility. Catalog inclusion does not mean runtime adoption or acceptance of every screen.
+- Keep previews, manifest and catalog entries consistent when changing assets. For the concept extension use `build_concept_pack.py`, `validate_concept_pack.py` and `render_concept_pack.cjs`; inspect their write scope first. Legacy `build_kit.py` overwrites base library files and must not rebuild the extension.
+- Static meter/waveform examples are design references; runtime displays must reflect actual host data. Follow `docs/MR_SVG_RUNTIME.md` for current adoption boundaries. Catalog expansion and plugin-editor adoption are separate slices (#208 assets, #206 native editors, #205 DAW); a future direction does not start all three.
+- Record dated acceptance and exact source/package scope in the relevant issue, not as a growing history in this skill. Preserve accepted visual changes in later work unless the user requests replacement.
+
 ## Procedure for one screen or SVG
 1. **Inventory first**: show what already exists, what is accepted and the exact scope; locate existing similar components/icons.
 2. **Define roles/states**: component meaning + normal, hover, pressed, focus, selected, enabled, disabled, error, loading/missing as appropriate. Selected is not a synonym for On.
