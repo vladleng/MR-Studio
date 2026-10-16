@@ -31,5 +31,6 @@ send interaction, bypass, routing, scrolling, preset/editor lifetime and host
 behavior. Review fresh Mixer and host captures. Physical ASIO/listening/xruns
 and hardware DPI remain NOT TESTED. Exact results are reported in #205.
 
-P3 visual acceptance remains pending. P4 and native plugin migration do not start
-automatically. Source, assets, tests and builds remain local.
+P3 accepted by the user on 2026-10-16: “принимаю, что дальше?”. P4 was then
+explicitly authorized and accepted separately. Native plugin migration does not
+start automatically. Source, assets, tests and builds remain local.
