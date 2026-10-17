@@ -1,5 +1,18 @@
 # MR Rig — Native GUI / UX Contract
 
+## ACTIVE UX CONTRACT — 2026-10-17: NAM-first ([#226](https://github.com/vladleng/MR-Studio/issues/226))
+
+**Overrides older IR-combo gallery-first layout descriptions below for future GUI development.** MR Rig remains compact, flat and modular under MR UDS/UI Kit, with one editor and **PRE FX → NAM Amp → Cabinet IR (optional) → POST FX**. Existing GUI from accepted #199/#200/#201 is historical as-built, not a mandate to keep Full Combo WAV as the primary amp browser.
+
+- **Primary browser:** NAM amplifiers / capture variants (tags, clean/jazz/rock, favourites, licensed cover art, source status) and **My Rigs**. Import NAM as secondary workflow. Do **not** continue building a first-class `IR Models / Full Combo WAV` amp gallery.
+- **Central card:** named NAM amp/full-rig capture with input/output trim, status/loading/errors and clear `Full Rig / Amp Only / Unknown` role. No imaginary analog amp controls: captures have fixed original hardware settings; level before NAM changes drive.
+- **Cabinet slot:** one minimal tile **after** NAM: `Cabinet: Included in NAM` (Full Rig; no external DSP), `Cabinet: Select IR / Bypass` (Amp Only); Unknown shows manual type selection before auto Cab. Cabinet mini-browser only for actual `cabinet_only` WAV; variant and safe external source relink; no advanced mult-mic/room library backlog.
+- **Workflow:** choose NAM → (if Amp Only) choose optional Cab IR → Pre/Post pedals → save My Rig; accurately restore NAM ID, capture class, optional Cab variant, module state and image. Toggle/bypass must match audio DSP with no invisible stacked convolver.
+- **No unapproved redesign** of accepted standalone components or other MR Studio GUI. Scope is [#226](https://github.com/vladleng/MR-Studio/issues/226), after [#224](https://github.com/vladleng/MR-Studio/issues/224), separate user sign-off. Prior GUI plans below = archive/as-built details where they conflict.
+
+---
+
+
 > **New approved visual direction (2026-10-15):** [MR Studio Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md). MR Rig illustrations should be original thin pale-blue contour art on dark blue-graphite, sharing controls via #189 when ready; keep existing PRE FX / Rig Core / POST FX hierarchy. Existing implemented accepted UI stays untouched until scoped GUI work and user signoff. **Do not change actual DSP/RigPreset in a visual-only redesign.**
 
 
