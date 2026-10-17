@@ -6,7 +6,7 @@
 **Accepted P2 / #200, 2026-10-15:** 0.4d MR Rig Shell is accepted/closed; [actual state, signal semantics and validation](MR_RIG_SHELL_200.md). #198/#199 are accepted/closed. New native `mrs.rig`, project schema24, RigState v1 and typed RigPreset are implemented on the shared WAV core. At that accepted baseline PRE/POST arrays were empty and NAM unavailable; current #201 implementation is described below. Source/build/package remain local. User acceptance of #200 is recorded in the closed issue.
 
 
-**Current P3 / #201 (2026-10-15):** 0.4e MR Rig Pre-Post is implemented locally and awaits user acceptance. Schema25 / RigState v2 owns ordered native modules (eight per lane), stable instance identity, bypass/parameters and recoverable unsupported state. One shared host insert keeps one WAV core; Gain/HP/LP/Bell EQ reuse existing native DSP. The utility rack is preprepared with the graph and edited through coherent bounded snapshots. #200 is accepted/closed; #202 onward not started. [Actual contract and validation](MR_RIG_CHAINS_201.md).
+**Current P3 / #201 (2026-10-15):** 0.4e MR Rig Pre-Post accepted and closed. Schema25 / RigState v2 owns ordered native modules (eight per lane), stable instance identity, bypass/parameters and recoverable unsupported state. One shared host insert keeps one WAV core; Gain/HP/LP/Bell EQ reuse existing native DSP. The utility rack is preprepared with the graph and edited through coherent bounded snapshots. #200 is accepted/closed; #202 has an accepted first subset (Compressor+Drive); #203 not started. [Actual contract and validation](MR_RIG_CHAINS_201.md).
 
 ## 1. Product charter
 
@@ -78,3 +78,10 @@ optional for the initial shell. #186 Advanced multi-mic remains cancelled.
 Scope is staged. Design and docs are not proof of a running plugin. Each issue has acceptance gates and no work before user commands. GUI smoke at 100/125/150/200% logical zoom; physical mixed-DPI and actual ASIO require separate manual evidence. CPU/RT deadlines measured for buffers applicable to recording/Live vs larger studio mix buffers; full current CTest at candidate acceptance, targeted during iteration.
 
 No proprietary WAV, NAM or amplifier pictures in repo/packages/fixtures without license; use synthetic WAV and permitted original assets. Direct web downloads, image scraping, new VST3 host or neural training not scope. Host command/Undo/multi-instance/lifetime and realtime audio safety governed by [AGENTS.md](../AGENTS.md) + [LOCAL_BUILD_POLICY](LOCAL_BUILD_POLICY.md).
+
+
+---
+
+## Текущая стадия / 2026-10-17
+
+**#198–#201 приняты и закрыты.** #202 открыта после принятой первой порции Compressor/Drive (0.4f); другие педали не приняты автоматически. #203 NAM пока не реализован и разбит на логические [#223 — runtime comparison](https://github.com/vladleng/MR-Studio/issues/223), [#224 — Direct native](https://github.com/vladleng/MR-Studio/issues/224), [#225 — performance/Live](https://github.com/vladleng/MR-Studio/issues/225). GitHub-native attachment этих новых issues **не выполнен**. Их рабочие контракты — [#203](https://github.com/vladleng/MR-Studio/issues/203) и [MR_RIG_AUDIO_PEDALS.md](MR_RIG_AUDIO_PEDALS.md) §7. Full Rig / Amp Only routing и shared host graph остаются неизменными. #204 — финальная пользовательская приёмка. Это docs-only изменение, не новое состояние исходников и не разрешение стартовать код.
