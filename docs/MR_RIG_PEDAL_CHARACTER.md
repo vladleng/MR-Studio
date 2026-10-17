@@ -15,9 +15,24 @@ The first character-driven project is **one native MR Pedal Reverb module**, wit
 | Vintage Plate | Smooth dense vintage-like tail, restrained tone and modulation | Efficient FDN + initial diffusion, damping and optional Early Reflections |
 | Vintage Spring | Guitar spring drip, splash, resonances and dispersive decay | Separate dispersive/all-pass/waveguide-like model; plain FDN alone is insufficient |
 | Small Room / Jazz Club | Near natural short space, articulate chords and believable early reflections | Short multi-tap Early Reflections + compact FDN late tail |
-| Modern Ambient | Smooth, spacious stereo long tail, musically useful modulation | Tuned higher-diffusion FDN; Shimmer is out of initial scope |
+| Modern Ambient | Blackhole-inspired immense nonliteral space, smooth bloom, inverse/swell-like envelope and internal modulation (original sound, not clone) | Tuned FDN with structural modulation; Infinite/Freeze optional later, Shimmer outside initial scope |
 
 No four simultaneous hidden wet engines; process **selected** algorithm only. Shared code for parameter smoothing, wet mixer, memory ownership, filtering, serialization, tails and GUI is encouraged, while Spring can use a distinct DSP topology.
+
+## Modern Ambient primary sound benchmark — Eventide Blackhole (2026-10-17)
+
+**User's preferred benchmark:** [Eventide Blackhole](https://www.eventideaudio.com/pedals/blackhole/). This supersedes generic ambient/Neunaber examples for [#230 05D](https://github.com/vladleng/MR-Studio/issues/230). It is an acoustic/functional reference, not authorization to copy Eventide DSP, code, presets, graphics or product identity.
+
+Key sonic goals for an **original** Ambient mode:
+- Immense unreal space, soft attack, rich harmonic bloom, very smooth tail, intelligible clean guitar attack/chords, stereo width with mono compatibility.
+- Original normal-to-inverse/swell-like **perceived envelope** inspired by the expressive role of Gravity; musical interaction of decay/feedback, size and pre-delay.
+- Diffusion and modulation **inside** the reverb/feedback topology, not just a chorus after the wet mix; controlled tone, gentle motion and limited metallic artifacts.
+- Distinguish optional **Infinite** (new signal keeps layering) and **Freeze** (wet state held as the player performs over it). These are later opt-in slices; don't compromise stability or initial lightweight Ambient delivery.
+- A true DSP-backed brand-neutral Character/Space/Swell macro can be explored; avoid unused or misleading knobs. Shimmer/pitch-shift is not required in the initial Ambient.
+
+Reuse and benchmark the Plate FDN core where audibly viable; don't presume a generic longer Hall equals Blackhole-like Ambient. A/B with legally available reference hardware/plugin at matched levels, compare CPU p99/max callback and actual latency at 48kHz/ASIO128, and evaluate half-rate late-tail filtering only if it retains audible character. **Target is a credible original guitar pedal, never a claim of exact Blackhole replication.**
+
+Status: planning only; no benchmark or audio implementation performed.
 
 ## 2. Host signal contract and placement
 
