@@ -1,5 +1,16 @@
 # MR Rig — DSP Graph, PRE/POST Pedals, NAM Modes and Safety
 
+## CHARACTER PEDALS ADDENDUM — 2026-10-17
+
+The current planned [#202 Character Pedals](https://github.com/vladleng/MR-Studio/issues/202) scope is authored in [MR_RIG_PEDAL_CHARACTER.md](MR_RIG_PEDAL_CHARACTER.md), split into [#227–#233](https://github.com/vladleng/MR-Studio/issues/227). This **adds** original guitar pedal-style character to PRE/POST FX; it does **not** change the NAM-first core, replace accepted #128 convolution reverb, overwrite accepted Compressor/Drive v1, or create a new audio graph.
+
+One native algorithmic Pedal Reverb module, modes **Plate (FDN)**, **Spring (separate dispersive DSP)**, **Small Room (ER + FDN)**, **Ambient (FDN diffusion/modulation)**. Single active mode; Simple controls Decay/Tone/Mix/Character, Advanced real DSP-backed controls only. Reverb PRE/POST placement chosen by user, predictable trails and bypass, correct dry/wet, smooth parameter changes, Undo/RigPreset and versioned module state.
+
+48 kHz/ASIO128 Live Direct reference with no new worker-buffer latency. Off-thread preparation, no allocations/waits/locks/I/O/UI in callback. Late-tail 2:1 downsampling is only a measured quality/CPU trade-off (may add filtering latency); no promise of fixed CPU gain. Full Live QA #233 depends on accepted NAM #224/#226; final whole-Rig #204 separately. This is planning only.
+
+---
+
+
 ## ACTIVE DSP GRAPH — 2026-10-17: NAM-only amp core + optional ONE post-NAM Cabinet IR
 
 **Supersedes historical WAV/Core alternatives in §1 below for all future code.** [#197](https://github.com/vladleng/MR-Studio/issues/197) is NAM-first: `Input → PRE → NAM Amp → Cabinet IR? → POST → Output`. Existing WAV convolver is not a second amplifier model. Keep accepted rack/pedal system; no new host engine, duplicated dry path or nested effects graph.
