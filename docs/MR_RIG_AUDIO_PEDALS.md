@@ -1,5 +1,22 @@
 # MR Rig — DSP Graph, PRE/POST Pedals, NAM Modes and Safety
 
+## ACTIVE DSP GRAPH — 2026-10-17: NAM-only amp core + optional ONE post-NAM Cabinet IR
+
+**Supersedes historical WAV/Core alternatives in §1 below for all future code.** [#197](https://github.com/vladleng/MR-Studio/issues/197) is NAM-first: `Input → PRE → NAM Amp → Cabinet IR? → POST → Output`. Existing WAV convolver is not a second amplifier model. Keep accepted rack/pedal system; no new host engine, duplicated dry path or nested effects graph.
+
+| Capture role | NAM processing | Cabinet IR DSP |
+|---|---|---|
+| `amp_only` | One NAM inference | Optional **one** existing convolution; user can select/bypass |
+| `full_rig` | One NAM inference including speaker/mic | **Bypassed/absent from audible path**; preserve selected cab setting for later |
+| `unknown` | Load supported model only with clear role state | Require explicit user classification before automatically using Cab; no inference by filename |
+
+Full Combo WAV linear captures are NOT repackaged as Cab IR and are **not a future amp-core option**. Reuse validated #185/#196 convolver/loading implementation internally as cabinet stage. No automatic reverb/room added to cabinet IR mixes. CAB state/variant and NAM model must persist independently with PRE/POST + bypass + Undo/PDC; any new schema after local audit.
+
+**Realtime:** #223 (NeuralAudio vs NAM Core baseline) → #224 (Direct/async/safe model handoff and one optional Cab) → #225 (CPU optimization/Live 48k ASIO128 testing); [#226](https://github.com/vladleng/MR-Studio/issues/226) owns the NAM amp browser and post-NAM cabinet picker UI. #225 and #226 can be authorized after #224 independently. Direct must add no worker-buffer latency; Live ASIO roundtrip/intrinsic algorithmic latency is distinct. Buffered/Ahead and sub-block are **optional measured research**, not hard acceptance criteria. Earlier dual WAV/NAM graph in this doc records historic as-built / former roadmap only.
+
+---
+
+
 **Parent [#197](https://github.com/vladleng/MR-Studio/issues/197)**. Staged architecture; the current implemented subset is listed below. Other pedals/NAM remain planned. Reuse accepted [#185 Cab](https://github.com/vladleng/MR-Studio/issues/185) and **accepted #196 Full Combo WAV 0.4b upd3**; former #188 Cab modular contracts/QA are folded into #198/#201/#204, with no separate Cabinet roadmap. Don't rewrite host core just to draw pedals. Base [MR_RIG_ARCHITECTURE](MR_RIG_ARCHITECTURE.md), [MR_RIG_LIBRARY_PRESETS](MR_RIG_LIBRARY_PRESETS.md).
 
 
