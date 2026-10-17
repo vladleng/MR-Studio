@@ -1,5 +1,24 @@
 # MR Rig — единый Roadmap (после объединения MR Cab #182)
 
+## ACTIVE ROADMAP — 2026-10-17: NAM-first supersedes Full Combo WAV as Amp Core
+
+**[Parent #197](https://github.com/vladleng/MR-Studio/issues/197): MR Rig = NAM Amp + optional ONE post-NAM Cabinet IR + existing PRE/POST pedals / My Rigs.** Stop developing a first-class IR-combo gallery or dual `WAV Amp Core / NAM Amp Core`. Keep accepted code, assets and prior acceptance #183–185/#196/#198–201; reuse existing IR convolution **only for Cabinet IR** in future sound paths, no independent Cab line #182. Old stage table and WAV-first product claims below = historical development/accepted initial versions, **not target architecture**.
+
+**Current progress:** #198–201 accepted/closed; #202 Compressor+Drive first subset accepted and remaining pedals optional/open, now **lower priority than #203 NAM**; #203 NOT STARTED, #204 final NAM-first QA. Native GitHub #198–204 parent attachments as previously recorded; new #223–226 below **logical only** until manually attached.
+
+| NAM-first P5 work | Issue | Result | Gate |
+|---|---|---|---|
+| 06A | [#223](https://github.com/vladleng/MR-Studio/issues/223) | NeuralAudio vs official NAM Core compatibility/licence/headless benchmark | Separate user authorization, accept before 06B |
+| 06B | [#224](https://github.com/vladleng/MR-Studio/issues/224) | Native NAM Direct DSP (48k/ASIO128 baseline), safe load/swap, semantic Full Rig / Amp Only | 06A accepted |
+| 06C | [#225](https://github.com/vladleng/MR-Studio/issues/225) | Profile guided optimization and true Live load/xrun stress; optional Buffered/Ahead | 06B accepted, separate authorization |
+| 06D | [#226](https://github.com/vladleng/MR-Studio/issues/226) | NAM-first model browser, one post-NAM Cabinet IR slot and RigPreset UI | 06B accepted, separate authorization; can parallel 06C |
+| Final P6 | [#204](https://github.com/vladleng/MR-Studio/issues/204) | NAM-first end-to-end Studio/Live/persistence acceptance | NAM P5 accepted and scoped pedals |
+
+**Routing:** `PRE → NAM Amp Only → [optional Cab IR] → POST` or `PRE → NAM Full Rig → [no external Cab] → POST`; role Unknown → manual decision. Imported WAV Full Combo is **not Cabinet IR** and never double-stacked silently. Existing WAV convolver/source identity is internal reusable code, not an amp product. Old test-only IR projects need no full migration; do not delete user's files or accepted package. Direct no added buffer, measurement before CPU optimization, ASIO128/48k Live baseline including Omnisphere/XVox/playback/recording. **Issues/docs update only, implementation NOT STARTED**.
+
+---
+
+
 **Решение 2026-10-15. Канонический активный parent — [#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197).** Отдельное направление [#182 MR Cab 2.0](https://github.com/vladleng/MR-Studio/issues/182) прекращено / закрыто как superseded; **его выполненные результаты сохраняются**, не удаляются и не переписываются. [#111 Native Plugins](https://github.com/vladleng/MR-Studio/issues/111) остаётся категорией. Это перенос roadmap, **не реализация кода**.
 
 ## 1. Реализованный фундамент (historical accepted)
