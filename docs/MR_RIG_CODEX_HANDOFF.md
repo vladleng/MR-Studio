@@ -1,5 +1,18 @@
 # MR Rig — Codex Handoff (единственный активный гитарный roadmap)
 
+## READ FIRST — active handoff 2026-10-17 (supersedes previous WAV-first stage prompts below)
+
+**Product pivot [#197](https://github.com/vladleng/MR-Studio/issues/197): MR Rig stays a single native guitar rack but becomes NAM-first.** No new `IR Full Combo` amp library or `WAV full-combo alternative core` work. **DSP:** `Input → PRE FX → NAM Amp → [one optional cabinet_only WAV IR for amp_only] → POST FX → Output`. For NAM full_rig (speaker/mic in capture), the external Cab is *not* processed; `unknown` → explicit user role mapping. Do not relabel a full-combo WAV into a cabinet.
+
+**Already accepted:** #198–201 and #202 Compressor+Drive, plus historical Cab #183–185/#196. Preserve accepted code/previous binaries and user WAV/IR/NAM files; older WAV-first descriptions and the original P0 #198 instructions below are **historical, not to be re-run**. #202 open remainder lower priority, no need to finish before NAM.
+
+**Next authorized stage only when asked:** [#223 06A](https://github.com/vladleng/MR-Studio/issues/223) compare NeuralAudio and official NAM Core. After separate acceptance: [#224 06B](https://github.com/vladleng/MR-Studio/issues/224) native NAM Direct, async preparation/RT safety. Then separately [#225 06C](https://github.com/vladleng/MR-Studio/issues/225) performance/Live tests and/or [#226 06D](https://github.com/vladleng/MR-Studio/issues/226) NAM-first GUI/Cab Slot. Final [#204](https://github.com/vladleng/MR-Studio/issues/204) is NAM-first QA. New links #223–226 are logical, not confirmed GitHub-native attached subissues.
+
+**Do not code/compile as a side effect of this docs update**; check current local checkout/AGENTS.md, assigned issue first, relevant section of architecture/audio/GUI/library only, no entire docs scan. Code/build/test local; GitHub docs/Issues [skip ci], not source pushes/Actions/PR. Live Direct target ASIO128/48k with zero **additional buffered latency**; higher I/O/intrinsic model latency measured separately, no worker blocking callback. Optional Buffered/Ahead and ~1 ms subblock feasibility are *nonblocking research*.
+
+---
+
+
 **2026-10-15:** [#197](https://github.com/vladleng/MR-Studio/issues/197) поглощает дальнейшую разработку [#182 MR Cab](https://github.com/vladleng/MR-Studio/issues/182). **#182 и неисполненные #186–188 остановлены; не запускать их реализации.** Завершены и приняты #183/#184/#185 и **#196, включая 0.4b upd3 Native Editors** (исторические свидетельства сохраняются). **Весь будущий гитарный scope — #198–#204 MR Rig.**
 
 ## Начало рабочего чата — дешёвый, безопасный протокол
