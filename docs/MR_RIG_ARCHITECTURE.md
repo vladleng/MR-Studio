@@ -1,5 +1,26 @@
 # MR Rig — Product/Technical Architecture (canonical)
 
+## ACTIVE PRODUCT CONTRACT — 2026-10-17: NAM-first replaces IR-combo Core
+
+**Authoritative decision [#197](https://github.com/vladleng/MR-Studio/issues/197).** MR Rig stays one native guitar processing environment/insert, but **NAM is the sole future user-facing amplifier Core**. Discontinue further product work on `Full Combo WAV / IR Models` as a competing amp selector. Linear WAV convolver survives **only as optional post-NAM Cabinet IR Slot**. All conflicting descriptions in older sections below are historical as-built/accepted states, **not directives to implement a dual-core product**. Source, local user assets, closed issues and accepted binaries are not deleted by this change.
+
+```text
+DI / Input Trim → PRE pedals → NAM Amp
+  NAM amp_only → [optional ONE Cabinet IR, speaker/mic coloration]
+  NAM full_rig → [Cabinet stage skipped; speaker/mic captured in NAM]
+  NAM unknown  → explicit user classification, no silent duplicate Cab
+→ POST pedals → Output Trim / Meter
+```
+
+- No full-combo WAV as active Amp Core; never misclassify a Full Combo WAV response as `cabinet_only`. Cabinet IR has **linear** frequency/time coloration, never neural/amp gain dynamics.
+- Reuse accepted #183–185/#196 and #198–201 code, WAV decoder/convolver, stable asset identity, state/Undo, PRE/POST rack, without reviving separate #182/#186–188. Accepted functionality is historical baseline; new schema changes need scoped local audit (old Cab/Full Combo projects were only test projects; preserve valid current user RigPresets as agreed).
+- Real NAM processing architecture under [#203](https://github.com/vladleng/MR-Studio/issues/203) and substeps [#223](https://github.com/vladleng/MR-Studio/issues/223), [#224](https://github.com/vladleng/MR-Studio/issues/224), [#225](https://github.com/vladleng/MR-Studio/issues/225). NAM-first GUI/Cab Slot refactor in **[#226](https://github.com/vladleng/MR-Studio/issues/226)**. Product acceptance in [#204](https://github.com/vladleng/MR-Studio/issues/204).
+- Performance principle unchanged: Direct at ASIO128/48k without *added* scheduling-buffer latency for Live; measured ASIO I/O/model latency separate; optional Buffered/Ahead for suitable playback, no workers waiting in audio callback.
+- Do not begin implementation by reading old P0-only handoff; begin next authorized [#223](https://github.com/vladleng/MR-Studio/issues/223). **Docs-only decision; implementation NOT TESTED.**
+
+---
+
+
 **Status:** staged implementation; later DSP stages remain backlog, 2026-10-15. **Parent:** [#197](https://github.com/vladleng/MR-Studio/issues/197), under [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111). **Read with:** [GUI](MR_RIG_GUI.md), [library and presets](MR_RIG_LIBRARY_PRESETS.md), [audio/pedals](MR_RIG_AUDIO_PEDALS.md), [roadmap](MR_RIG_ROADMAP.md), [handoff](MR_RIG_CODEX_HANDOFF.md).
 **Baseline 2026-10-15:** #183/#184/#185 and **#196 accepted/closed**, last #196 package **0.4b upd3 Native Editors**. **#182 superseded by #197**, no further standalone Cab stages: #186 multi-mic cancelled; only a minimal user WAV import part of #187 flows into #199; #188 graph/QA safeguards flow into #198/#201/#204. Audit local checkout before new code.
 
