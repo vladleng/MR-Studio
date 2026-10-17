@@ -1,5 +1,16 @@
 # MR Rig — Codex Handoff (единственный активный гитарный roadmap)
 
+## PEDAL CHARACTER HANDOFF — 2026-10-17
+
+Active [#202 Character Pedals](https://github.com/vladleng/MR-Studio/issues/202) is **not** a new independent rig or a revision of already accepted Compressor/Drive v1. Single source of truth: [MR_RIG_PEDAL_CHARACTER.md](MR_RIG_PEDAL_CHARACTER.md). Pedal reverb is a distinct **native algorithmic child FX**; accepted #128 convolution MR Reverb remains separate. Sound reference to external pedal brands does not authorize copying proprietary DSP/graphics/trademark or claim of an exact emulation.
+
+Next pedal planning stage **[#227 05A](https://github.com/vladleng/MR-Studio/issues/227)** only when user explicitly asks. Sequential: [#228 Plate](https://github.com/vladleng/MR-Studio/issues/228) → [#229 Spring](https://github.com/vladleng/MR-Studio/issues/229) → [#230 Room/Ambient](https://github.com/vladleng/MR-Studio/issues/230) → [#231 UI/trails](https://github.com/vladleng/MR-Studio/issues/231) → [#233 Live QA](https://github.com/vladleng/MR-Studio/issues/233); [#232 pedal voicings](https://github.com/vladleng/MR-Studio/issues/232) is optional separate scope. All links are **logical** issue relationships, native GitHub sub-issue attachment is not complete. NAM-first #203 remains higher integration priority, Live QA #233 awaits working #224/#226.
+
+Codex reading budget: assigned issue + only relevant spec section / AGENTS.md; inspect local HEAD/dirty status. No code/build/tests initiated by plan update. Focused regressions during DSP iterations; no automatic L4 full rebuild on docs or cosmetic revisions; source and tests local, GitHub docs/issues [skip ci].
+
+---
+
+
 ## READ FIRST — active handoff 2026-10-17 (supersedes previous WAV-first stage prompts below)
 
 **Product pivot [#197](https://github.com/vladleng/MR-Studio/issues/197): MR Rig stays a single native guitar rack but becomes NAM-first.** No new `IR Full Combo` amp library or `WAV full-combo alternative core` work. **DSP:** `Input → PRE FX → NAM Amp → [one optional cabinet_only WAV IR for amp_only] → POST FX → Output`. For NAM full_rig (speaker/mic in capture), the external Cab is *not* processed; `unknown` → explicit user role mapping. Do not relabel a full-combo WAV into a cabinet.
