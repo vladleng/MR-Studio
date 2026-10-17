@@ -11,7 +11,7 @@ hotkeys, disabled/focus и toggle feedback сохраняются. Отдель�
 возвращается после принятого #211; команда S/меню остаётся.
 
 Click и Count Off перенесены к транспортным кнопкам. Метроном переиспользует
-assets/ui/icons/transport/metronome.svg, Count Off — маленький круг. Области
+assets/ui/icons/transport/metronome.svg, Count Off — круг диаметром 8 px. Области
 нажатия 32 px; смена вида не меняет настройки click/count-in и recording guards.
 Transport selectors/числовые значения не заменяются glyphs.
 
