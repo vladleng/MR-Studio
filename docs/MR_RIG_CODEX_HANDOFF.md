@@ -35,3 +35,16 @@ No GitHub source push/merge/Actions/PR. Local code/build/tests/packages only. Gi
 ## Готовое сообщение Codex
 
 > MR Cab #182 объединён с MR Rig #197; отдельные Cab задачи #186–188 прекращены. Прочитай обновлённый AGENTS.md и **только нужные разделы** MR_RIG_ROADMAP, MR_RIG_ARCHITECTURE и MR_RIG_CODEX_HANDOFF. Последний принятый Cab/Full Combo baseline — #196, версия 0.4b upd3. Проведи **только P0 аудит #198** локального кода: миграция ID/проектов, переиспользование WAV конвольвера и editor, ToneModel/RigPreset и будущие Pre/Core/Post slots. Не выполняй старый roadmap MR Cab; не пиши код и не запускай сборку. Отчёт и рекомендации передай на мою приёмку.
+
+
+---
+
+## Актуальная точка входа — 2026-10-17 (важнее исторического P0 handoff ниже)
+
+**#198–#201 ACCEPTED/CLOSED**; **#202 OPEN**, Compressor+Drive accepted, остаток — отдельные порции; **#203 не начата**; **#204 в backlog**. Архивные инструкции в этом файле про «стартовать #198», «#201 ждёт приёмки» и шаблон P0 внизу относятся к 2026-10-15 — **не выполнять их повторно**.
+
+Для Neural Amp пользователь добавил [#223 06A](https://github.com/vladleng/MR-Studio/issues/223) → [#224 06B](https://github.com/vladleng/MR-Studio/issues/224) → [#225 06C](https://github.com/vladleng/MR-Studio/issues/225), подробно под [#203](https://github.com/vladleng/MR-Studio/issues/203), затем end-to-end [#204](https://github.com/vladleng/MR-Studio/issues/204). Это **логические** issue-linkages (ещё не GitHub-native sub-issues). Каждое запускается **только по отдельному запросу**, после приёмки предыдущего шага. Не менять принятый 0.4f и 0.4e или архивные Cab направления.
+
+**При первом запросе на #223**: issue-first read-only аудит/licence/version/architecture сравнения NeuralAudio vs official NAM Core + isolated headless benchmark только по явной команде; не встроить движок в MR Rig до принятия #223. Следующие #224 Native Direct @48k/ASIO128 без добавочной buffered latency/RT async model lifecycle; #225 profile-guided optimizations и реальный Live тест с Omnisphere/XVox/плейбэком/записью. Studio Buffered/Ahead и sub-block — optional, без обещания 1 мс. Подробные acceptance criteria в issue и [MR_RIG_AUDIO_PEDALS.md](MR_RIG_AUDIO_PEDALS.md) §7. Не копировать целиком NeuralRack; использовать pinned/licensed runtime, когда benchmarking обоснует выбор.
+
+**Напоминание Codex:** сначала назначенный Issue, затем только релевантный раздел docs; локальный git status / HEAD, code/build/tests локально, GitHub issues/docs [skip ci]. На текущую команду пользователя выполнены только документация и задачи, code/ASIO **NOT TESTED**.
