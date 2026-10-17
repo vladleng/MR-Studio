@@ -1,5 +1,20 @@
 # MR Rig — Model Libraries, Curation, Images, Presets & Imports
 
+## ACTIVE LIBRARY/PRESET CONTRACT — 2026-10-17: NAM amp first / Cabinet WAV second
+
+**Decision [#197](https://github.com/vladleng/MR-Studio/issues/197), implementation [#226](https://github.com/vladleng/MR-Studio/issues/226).** Historic #199 accepted a card-based WAV Full Combo gallery; do not undo its acceptance, but **stop treating IR-combo cards as the future primary sound library**. Future product defaults to **NAM Models / My Rigs**; separate compact **Cabinet IR chooser** is only accessed from an Amp Only NAM or explicit optional Cabinet slot. No standalone Cab product, no multi-mic browser.
+
+**Semantic assets (distinct persistent identities):**
+- `NAMSource` / `NAMModel`: .nam file, version/architecture, role `amp_only | full_rig | unknown`, capture variant, provenance, calibrated input/output settings and licensing/artwork (not bundled without permission).
+- `CabinetIRSource`: user-owned **cabinet_only WAV** + selected IR variant, rate/content identity, missing/relink, optional trim/bypass. Imported Full Combo WAV must **not** be silently relabelled or used after NAM as a cabinet.
+- `RigPreset`: NAM choice + explicit role + `optional CabinetIRSource` + cabinet enable/selected-IR memory when bypassed + PRE/POST module arrays, levels, image and parameter state; stable roundtrip/Undo/Redo across mode switches. With Full Rig, external cab is **not processed**, even if last amp-only cabinet remains remembered.
+- Unknown capture role: prompt manual classification, never infer from manufacturer/model/filename or automatically add cabinet. If source is missing/unsupported, preserve state and show explicit status; no silent replacement.
+
+**Migration:** existing WAV full-combo accepted code/files/packages are **preserved as prior as-built**, but not required as a future user-facing amp choice. Old Cab/Full Combo projects were user-declared test-only; don't implement heavyweight compatibility just to preserve them. If **current** valid user Rig project or preset formats need an update, do a targeted versioned conversion plan only after local audit and approval. Actual acceptance of #199–201 stays closed/unchanged. All previous contrary sections below are historic product scope, not future NAM-first directives.
+
+---
+
+
 
 **P1 / #199 implemented locally, 2026-10-15:** 0.4c upd1 MR Rig Model Variants; [implementation, boundaries and validation](MR_RIG_LIBRARY_199.md). SourceAsset/ToneModel bookmarks, WAV gallery/curation and exact selected-model snapshot are implemented. The original P1 scope did not include full RigPreset/shell. Accepted P2 implemented the WAV-only Rig snapshot and shell with empty PRE/POST arrays; NAM remains later. #198 accepted; #199 accepted/closed. Local #200 / 0.4d adds typed RigPreset and working My Rigs; [state and validation](MR_RIG_SHELL_200.md). #200 accepted/closed; current utility chains are covered by #201 below. Other pedal families/NAM remain future stages.
 
