@@ -47,3 +47,17 @@
 ## 5. Кодекс
 
 Рабочий чат читает **текущий [AGENTS.md](../AGENTS.md) по принципу Issue-first**, [MR_RIG_CODEX_HANDOFF.md](MR_RIG_CODEX_HANDOFF.md) и необходимые разделы спецификаций для **назначенного** issue. Не сканировать `MR_CAB_*` как обязательный roadmap. Начинать с #198, read-only. Старый #182 и его native sub-issues — история; #198–#204 **нативно прикреплены к #197 (проверено API, 7/7)**, Markdown-ссылки остаются навигацией. GitHub-progress зависит от реальных состояний задач.
+
+
+---
+
+## 6. Текущий статус / NAM runtime scope — 2026-10-17
+
+**Принято и закрыто:** #198–#201. **#202 открыта:** пользователь принял Compressor+Drive (0.4f), остальные педали — отдельные согласуемые порции. **#203 не начата; #204 — будущий final QA.** Прежний P0 handoff в старых разделах — исторический, не указание запускать аудит заново.
+
+P5 #203 детализирован следующими **логическими** задачами; они **пока не native-attached** в GitHub и не заменяют семь уже прикреплённых к #197 этапов:
+- [#223](https://github.com/vladleng/MR-Studio/issues/223) — 06A **NeuralAudio vs official NAM Core**: supported .nam architectures, pinned dependency/license, comparable model benchmark, DSP parity, CPU p99/max.
+- [#224](https://github.com/vladleng/MR-Studio/issues/224) — 06B **Native MR Neural Amp**: Direct без добавочной buffered latency, async model warm-up/handoff, Full Rig / Amp Only + existing Cabinet IR, preset/Undo/PDC.
+- [#225](https://github.com/vladleng/MR-Studio/issues/225) — 06C **Benchmark-guided optimizations и Live QA**: compiler/SIMD/multiframe/A2 only where supported, 48k ASIO128/Omnisphere/XVox/playback/recording 30–60 min, optional Studio buffered/ahead; 32–64 sub-block только гипотеза, не обещание.
+
+**Live policy:** сохраняем рабочий ASIO 128 сэмплов при 48 кГц. Внешний NeuralRack Direct дал ~13–14% host audio performance на Polytone NAM, Buffered показал ~0% host meter +2.67ms — не системный CPU и не результат MR Studio. Сначала benchmark и direct engine; worker buffering/субблок — только исследование после измерений. Отдельная пользовательская приёмка каждого шага, не запускать их автоматически. Детали — [#203](https://github.com/vladleng/MR-Studio/issues/203) и [#204](https://github.com/vladleng/MR-Studio/issues/204).
