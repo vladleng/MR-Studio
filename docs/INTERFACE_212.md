@@ -25,7 +25,8 @@ SVG переиспользуются из MR UDS и transport; недостаю�
 ## Zoom и сетка
 
 - Высота track pitch: **40–360 px**, прежний минимум **128 px**. Ниже 84 px
-  заголовок сохраняет имя и M/S/R/monitor, скрывает gain/pan/input/meters.
+  заголовок сохраняет имя и M/S/R/monitor. Follow-up [#215](COMPACT_GAIN_215.md)
+  оставляет gain как тонкий fill-фейдер; pan/input/meters остаются скрыты.
 - Горизонтальный zoom: **0,1–2400 px/с**, прежний минимум **2 px/с**.
   При timeline width 674 px это 6740 с вместо 337 с видимого времени.
 - Ctrl-wheel — вертикальный zoom с прежним anchor центра; Ctrl+Shift-wheel —
