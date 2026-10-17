@@ -1,5 +1,17 @@
 # MR Rig — единый Roadmap (после объединения MR Cab #182)
 
+## PEDAL CHARACTER ROADMAP — 2026-10-17 (supplements NAM-first)
+
+[#202](https://github.com/vladleng/MR-Studio/issues/202) now covers **original characterful guitar pedals**, starting with one algorithmic Pedal Reverb: Vintage Plate / Vintage Spring / Small Room / Modern Ambient. Full specification [MR_RIG_PEDAL_CHARACTER.md](MR_RIG_PEDAL_CHARACTER.md). Accepted Compressor+Drive 0.4f remain immutable v1 sound and accepted status; independent convolution [#128 MR Reverb](https://github.com/vladleng/MR-Studio/issues/128) remains unchanged. This is future PEDAL work and does not reopen Cab or supplant NAM Amp as the one core. NAM [#203](https://github.com/vladleng/MR-Studio/issues/203) retains higher integration priority.
+
+**Logical #202 subtask order (native GitHub attachment NOT confirmed):**
+[#227 — 05A contract/audit](https://github.com/vladleng/MR-Studio/issues/227) → [#228 — 05B FDN Plate](https://github.com/vladleng/MR-Studio/issues/228) → [#229 — 05C Spring](https://github.com/vladleng/MR-Studio/issues/229) → [#230 — 05D Room/Ambient](https://github.com/vladleng/MR-Studio/issues/230) → [#231 — 05E UI/trails/state](https://github.com/vladleng/MR-Studio/issues/231) → [#233 — 05G Live QA](https://github.com/vladleng/MR-Studio/issues/233). [#232 — 05F existing Compressor/Drive opt-in voicings and Delay/Chorus plans](https://github.com/vladleng/MR-Studio/issues/232) is a **separately authorized optional branch** (not a forced 05G blocker if outside accepted scope).
+
+Do not start the next subtask automatically. Full Live pedal 05G requires current NAM engine/interface #224/#226 accepted; [#204](https://github.com/vladleng/MR-Studio/issues/204) remains final whole-Rig QA. Each subtask has own acceptance. No new DSP is implemented by documentation.
+
+---
+
+
 ## ACTIVE ROADMAP — 2026-10-17: NAM-first supersedes Full Combo WAV as Amp Core
 
 **[Parent #197](https://github.com/vladleng/MR-Studio/issues/197): MR Rig = NAM Amp + optional ONE post-NAM Cabinet IR + existing PRE/POST pedals / My Rigs.** Stop developing a first-class IR-combo gallery or dual `WAV Amp Core / NAM Amp Core`. Keep accepted code, assets and prior acceptance #183–185/#196/#198–201; reuse existing IR convolution **only for Cabinet IR** in future sound paths, no independent Cab line #182. Old stage table and WAV-first product claims below = historical development/accepted initial versions, **not target architecture**.
