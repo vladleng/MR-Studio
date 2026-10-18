@@ -1,6 +1,8 @@
 # MR Studio — ARA2 Hosting: архитектура и план реализации
 
 **Статус на 2026-10-18:** P1/#177, P2/#178 и текущий объём P3/#179 приняты пользователем и закрыты; ограничения проверок сохраняются. Будущие UX-доработки (double-click, ARA drag/drop, подготовка без постоянного popup, resize/Attach/Full screen) зафиксированы в #88 и ещё не реализованы. P4/#180 принят пользователем и закрыт (`46139b5`), сохранение нот трёх экземпляров Vovious после перезагрузки проекта и раздельные Undo/Redo подтверждены; P5/#181 не начат. Актуальные проверки/совместимость — в соответствующих Issues; этот файл задаёт контракт.
+**Shared-document follow-up (локальный `86d92e3`, ручная приёмка ожидается):** новые source bindings одного плагина объединяются в общий project-local document_id/Session/editor с отдельными track sequences; формат schema29. Legacy28 документы остаются раздельными. Контракт и границы — [ARA2_SHARED_DOCUMENTS_88.md](ARA2_SHARED_DOCUMENTS_88.md); проверки/приёмка — #88. Остальной UX backlog и #181 не начаты.
+
 **Tracking:** [#88 — ARA 2 Интеграция](https://github.com/vladleng/MR-Studio/issues/88), родительский FEATURES [#78](https://github.com/vladleng/MR-Studio/issues/78).
 **Платформа первого этапа:** Windows x64, JUCE/C++, ASIO, существующий VST3 host.
 **Принцип:** ARA2 — расширение хостинга внешних редакторов, а не новый аудиодвижок и не универсальный API управления параметрами плагина.
@@ -59,7 +61,7 @@ Transport start/stop/seek/loop и latency/PDC проходят через общ
 - Не обещать GUI-интеграцию у каждого производителя: native plugin window может иметь ограничения/свой threading. Проверить focus, DPI, teardown/reopen и переключение проектов.
 - Undo/Redo хостовых изменений клипа гарантируется контрактом MRS; undo истории внутренних нот/редакций плагина — только в пределах фактической поддержки стороннего плагина. При необходимости тестировать host restore checkpoint, но не объявлять его гарантией.
 
-**Lazy native editor sizing (follow-up #88, 2026-10-18):** view может возвращать 0×0 до attached(HWND). Хост подключает native view до окончательной проверки размеров, затем читает фактический размер; валидный pre-attach размер допустим как fallback. При отказе показывает этап ошибки отдельно от playback readiness и удаляет пустой native parent. Standalone attachment RePitch/VocAlign/Vovious проверен; ручная проверка нового исправления в проекте ожидается. Отдельный ARA document на bound source не даёт общего просмотра разных источников; multi-source workspace не реализован этим исправлением.
+**Lazy native editor sizing (follow-up #88, 2026-10-18):** view может возвращать 0×0 до attached(HWND). Хост подключает native view до окончательной проверки размеров, затем читает фактический размер; валидный pre-attach размер допустим как fallback. При отказе показывает этап ошибки отдельно от playback readiness и удаляет пустой native parent. Standalone attachment RePitch/VocAlign/Vovious проверен; ручная проверка нового исправления в проекте ожидается. Само исправление lazy editor sizing не меняло document ownership; общий документ для новых bindings добавлен отдельным follow-up `86d92e3`, см. [ARA2_SHARED_DOCUMENTS_88.md](ARA2_SHARED_DOCUMENTS_88.md).
 
 ## 5. Persistence и восстановление
 
