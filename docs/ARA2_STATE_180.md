@@ -3,6 +3,11 @@
 Контракт P4, 2026-10-18. Parent #88; P3/#179 принят. Реальные результаты
 проверок и приёмка публикуются в #180; этот файл описывает формат и ownership.
 
+
+Продолжение #88 добавляет общие документы в schema29; см.
+[ARA2_SHARED_DOCUMENTS_88.md](ARA2_SHARED_DOCUMENTS_88.md). Описанный ниже
+формат schema28 сохраняется как legacy reader с отдельным документом на source.
+
 ## Durable model / migration
 
 Core Project schema28 добавляет `ara_bindings`, независимо от MRS_BUILD_ARA.
