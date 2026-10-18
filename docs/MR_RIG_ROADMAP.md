@@ -1,5 +1,16 @@
 # MR Rig — единый Roadmap (после объединения MR Cab #182)
 
+## ACTIVE NAM BACKEND — 2026-10-18 (overrides earlier candidate-comparison roadmap)
+
+**Chosen baseline:** [official upstream NeuralAmpModelerCore](https://github.com/sdatkinson/NeuralAmpModelerCore) (MIT core, subject to pinned commit and transitive license review) is the sole **default** native NAM DSP for MR Rig. [TONE3000](https://github.com/tone-3000/tone3000-plugin) is a verified JUCE/C++ example using Core **in-tree** and an optional controlled audio/performance comparison reference; do not vendor/copy TONE3000 or its ecosystem. [NeuralAudio](https://github.com/mikeoliphant/NeuralAudio) is a **conditional backup research option** after a reproducible upstream blocker **and** separate user approval, not a parallel-engine deliverable. The original candidate comparison in older sections of this roadmap is **superseded**.
+
+**P5 progression (no new issues needed):** [#223 06A](https://github.com/vladleng/MR-Studio/issues/223) **official-core audit/licensing/pinned version + built-in benchmodel baseline** → [#224 06B](https://github.com/vladleng/MR-Studio/issues/224) **native Direct integration** → [#225 06C](https://github.com/vladleng/MR-Studio/issues/225) **Core-specific optimizations/Live xRun/headroom QA**; [#226 06D](https://github.com/vladleng/MR-Studio/issues/226) NAM-first UX/Cab may follow #224 in parallel with #225. Final acceptance [#204](https://github.com/vladleng/MR-Studio/issues/204). NAM Amp is still the ONLY main amp core; Full Rig no extra Cab; Amp Only optional single Cabinet IR; Live ASIO128/48k Direct without added worker buffer.
+
+**External test evidence is preliminary:** user image TONE3000 shows ~9.3% in its own plugin meter; prior NeuralRack ~13–14% was another host/test. Do **not** infer a percentage speedup without matching model/host/CPU/meters. All new performance/ASIO evidence remains NOT TESTED until performed under #223/#225. Do not begin any stage or rebuild merely from this documentation update.
+
+---
+
+
 ## PEDAL CHARACTER ROADMAP — 2026-10-17 (supplements NAM-first)
 
 [#202](https://github.com/vladleng/MR-Studio/issues/202) now covers **original characterful guitar pedals**, starting with one algorithmic Pedal Reverb: Vintage Plate / Vintage Spring / Small Room / Modern Ambient. Full specification [MR_RIG_PEDAL_CHARACTER.md](MR_RIG_PEDAL_CHARACTER.md). Accepted Compressor+Drive 0.4f remain immutable v1 sound and accepted status; independent convolution [#128 MR Reverb](https://github.com/vladleng/MR-Studio/issues/128) remains unchanged. This is future PEDAL work and does not reopen Cab or supplant NAM Amp as the one core. NAM [#203](https://github.com/vladleng/MR-Studio/issues/203) retains higher integration priority.
@@ -20,7 +31,7 @@ Do not start the next subtask automatically. Full Live pedal 05G requires curren
 
 | NAM-first P5 work | Issue | Result | Gate |
 |---|---|---|---|
-| 06A | [#223](https://github.com/vladleng/MR-Studio/issues/223) | NeuralAudio vs official NAM Core compatibility/licence/headless benchmark | Separate user authorization, accept before 06B |
+| 06A | [#223](https://github.com/vladleng/MR-Studio/issues/223) | **Official NeuralAmpModelerCore** licence/version/compatibility + benchmodel baseline | Separate user authorization, accept before 06B |
 | 06B | [#224](https://github.com/vladleng/MR-Studio/issues/224) | Native NAM Direct DSP (48k/ASIO128 baseline), safe load/swap, semantic Full Rig / Amp Only | 06A accepted |
 | 06C | [#225](https://github.com/vladleng/MR-Studio/issues/225) | Profile guided optimization and true Live load/xrun stress; optional Buffered/Ahead | 06B accepted, separate authorization |
 | 06D | [#226](https://github.com/vladleng/MR-Studio/issues/226) | NAM-first model browser, one post-NAM Cabinet IR slot and RigPreset UI | 06B accepted, separate authorization; can parallel 06C |
@@ -87,8 +98,8 @@ Do not start the next subtask automatically. Full Live pedal 05G requires curren
 **Принято и закрыто:** #198–#201. **#202 открыта:** пользователь принял Compressor+Drive (0.4f), остальные педали — отдельные согласуемые порции. **#203 не начата; #204 — будущий final QA.** Прежний P0 handoff в старых разделах — исторический, не указание запускать аудит заново.
 
 P5 #203 детализирован следующими **логическими** задачами; они **пока не native-attached** в GitHub и не заменяют семь уже прикреплённых к #197 этапов:
-- [#223](https://github.com/vladleng/MR-Studio/issues/223) — 06A **NeuralAudio vs official NAM Core**: supported .nam architectures, pinned dependency/license, comparable model benchmark, DSP parity, CPU p99/max.
+- [#223](https://github.com/vladleng/MR-Studio/issues/223) — 06A **official NAM Core**: supported model architectures, pinned upstream/license, built-in tools and controlled baseline; NeuralAudio fallback only for proven blocker with approval.
 - [#224](https://github.com/vladleng/MR-Studio/issues/224) — 06B **Native MR Neural Amp**: Direct без добавочной buffered latency, async model warm-up/handoff, Full Rig / Amp Only + existing Cabinet IR, preset/Undo/PDC.
-- [#225](https://github.com/vladleng/MR-Studio/issues/225) — 06C **Benchmark-guided optimizations и Live QA**: compiler/SIMD/multiframe/A2 only where supported, 48k ASIO128/Omnisphere/XVox/playback/recording 30–60 min, optional Studio buffered/ahead; 32–64 sub-block только гипотеза, не обещание.
+- [#225](https://github.com/vladleng/MR-Studio/issues/225) — 06C **Core-specific optimizations и Live QA**: compiler/Eigen SIMD/A2 only where official Core supports them, 48k ASIO128/Omnisphere/XVox/playback/recording 30–60 min, optional Studio buffered/ahead; 32–64 sub-block только гипотеза, не обещание.
 
 **Live policy:** сохраняем рабочий ASIO 128 сэмплов при 48 кГц. Внешний NeuralRack Direct дал ~13–14% host audio performance на Polytone NAM, Buffered показал ~0% host meter +2.67ms — не системный CPU и не результат MR Studio. Сначала benchmark и direct engine; worker buffering/субблок — только исследование после измерений. Отдельная пользовательская приёмка каждого шага, не запускать их автоматически. Детали — [#203](https://github.com/vladleng/MR-Studio/issues/203) и [#204](https://github.com/vladleng/MR-Studio/issues/204).
