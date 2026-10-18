@@ -1,5 +1,14 @@
 # MR Rig — Product/Technical Architecture (canonical)
 
+## NAM DSP backend decision — 2026-10-18
+
+**For all new implementation, official upstream [NeuralAmpModelerCore](https://github.com/sdatkinson/NeuralAmpModelerCore) is the sole default NAM inference engine.** It has an MIT core license and official `loadmodel`/`benchmodel` tools; select/pin exact version and review transitive licenses in [#223](https://github.com/vladleng/MR-Studio/issues/223). [TONE3000](https://github.com/tone-3000/tone3000-plugin) is a real C++/JUCE product using official Core, considered a reference for adapter behavior and optional controlled QA, **not a codebase to integrate wholesale**. NeuralAudio is a fallback R&D candidate **only** after recorded unresolvable upstream-Core issue and user approval; no dual runtime or mandatory head-to-head prototype.
+
+The NAM-first route described above remains unchanged: native **NAM Amp** (Full Rig excludes additional Cabinet; Amp Only optional one IR) with reusable PRE/POST effects, host state and RT-safe preparation. **#223 → #224 → #225**, with [#226](https://github.com/vladleng/MR-Studio/issues/226) UX after #224 and [#204](https://github.com/vladleng/MR-Studio/issues/204) final acceptance. Direct Live @48k/ASIO128 seeks no extra worker-buffer latency; intrinsic DSP/model/host interface latency must be measured. No code or hardware tests performed by this docs update.
+
+---
+
+
 ## ACTIVE PRODUCT CONTRACT — 2026-10-17: NAM-first replaces IR-combo Core
 
 **Authoritative decision [#197](https://github.com/vladleng/MR-Studio/issues/197).** MR Rig stays one native guitar processing environment/insert, but **NAM is the sole future user-facing amplifier Core**. Discontinue further product work on `Full Combo WAV / IR Models` as a competing amp selector. Linear WAV convolver survives **only as optional post-NAM Cabinet IR Slot**. All conflicting descriptions in older sections below are historical as-built/accepted states, **not directives to implement a dual-core product**. Source, local user assets, closed issues and accepted binaries are not deleted by this change.
@@ -105,4 +114,4 @@ No proprietary WAV, NAM or amplifier pictures in repo/packages/fixtures without 
 
 ## Текущая стадия / 2026-10-17
 
-**#198–#201 приняты и закрыты.** #202 открыта после принятой первой порции Compressor/Drive (0.4f); другие педали не приняты автоматически. #203 NAM пока не реализован и разбит на логические [#223 — runtime comparison](https://github.com/vladleng/MR-Studio/issues/223), [#224 — Direct native](https://github.com/vladleng/MR-Studio/issues/224), [#225 — performance/Live](https://github.com/vladleng/MR-Studio/issues/225). GitHub-native attachment этих новых issues **не выполнен**. Их рабочие контракты — [#203](https://github.com/vladleng/MR-Studio/issues/203) и [MR_RIG_AUDIO_PEDALS.md](MR_RIG_AUDIO_PEDALS.md) §7. Full Rig / Amp Only routing и shared host graph остаются неизменными. #204 — финальная пользовательская приёмка. Это docs-only изменение, не новое состояние исходников и не разрешение стартовать код.
+**#198–#201 приняты и закрыты.** #202 открыта после принятой первой порции Compressor/Drive (0.4f); другие педали не приняты автоматически. #203 NAM пока не реализован и разбит на логические [#223 — official Core audit/benchmark](https://github.com/vladleng/MR-Studio/issues/223), [#224 — Direct native](https://github.com/vladleng/MR-Studio/issues/224), [#225 — performance/Live](https://github.com/vladleng/MR-Studio/issues/225). GitHub-native attachment этих новых issues **не выполнен**. Их рабочие контракты — [#203](https://github.com/vladleng/MR-Studio/issues/203) и [MR_RIG_AUDIO_PEDALS.md](MR_RIG_AUDIO_PEDALS.md) §7. Full Rig / Amp Only routing и shared host graph остаются неизменными. #204 — финальная пользовательская приёмка. Это docs-only изменение, не новое состояние исходников и не разрешение стартовать код.
