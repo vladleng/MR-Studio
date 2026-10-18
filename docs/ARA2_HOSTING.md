@@ -1,6 +1,6 @@
 # MR Studio — ARA2 Hosting: архитектура и план реализации
 
-**Статус:** проектирование / backlog, **не реализовано и не принято**. Дата: 2026-10-14.
+**Статус на 2026-10-18:** P1/#177 и P2/#178 приняты пользователем; P3/#179 реализован локально и ожидает ручной приёмки с ограничениями. P4/#180 и P5/#181 не начаты. Актуальные проверки/совместимость — в соответствующих Issues; этот файл задаёт контракт.
 **Tracking:** [#88 — ARA 2 Интеграция](https://github.com/vladleng/MR-Studio/issues/88), родительский FEATURES [#78](https://github.com/vladleng/MR-Studio/issues/78).
 **Платформа первого этапа:** Windows x64, JUCE/C++, ASIO, существующий VST3 host.
 **Принцип:** ARA2 — расширение хостинга внешних редакторов, а не новый аудиодвижок и не универсальный API управления параметрами плагина.
@@ -17,7 +17,7 @@ ARA2 **не** предоставляет хосту стандартных ко�
 
 ## 2. Основания и рабочие связи
 
-- JUCE [ARA support](https://github.com/juce-framework/JUCE/blob/master/docs/ARA.md): требует внешний ARA SDK, настройку juce_set_ara_sdk_path в CMake и JUCE_PLUGINHOST_ARA=1; пример AudioPluginHost **демонстрационный**, его хостинг нельзя считать готовой DAW-интеграцией.
+- JUCE [ARA support](https://github.com/juce-framework/JUCE/blob/master/docs/ARA.md) — справка по демонстрационному AudioPluginHost. Фактический MR host использует существующий direct Steinberg VST3 SDK 3.8.1, JUCE 9.0.3 — GUI. `MRS_BUILD_ARA` opt-in/default OFF и pinned внешний SDK; `juce_set_ara_sdk_path` настраивает SDK, но production `JUCE_PLUGINHOST_ARA`/второй JUCE host не включаются.
 - [Celemony ARA_SDK](https://github.com/Celemony/ARA_SDK), [ARA_Examples](https://github.com/Celemony/ARA_Examples): зафиксировать **публичный tagged release** SDK и совместимость с фактически установленной в локальном checkout версией JUCE. По документации JUCE базовый пример использует releases/2.3.0; перед сборкой сверить актуальную поддерживаемую комбинацию, не следовать слепо HEAD.
 - [VST3_HOSTING.md](VST3_HOSTING.md): переиспользовать обнаружение/загрузку VST3, жизненный цикл editor/state, но не считать обычный VST3 insert эквивалентом ARA instance. Изолированный сканер и существующие VST3 регрессии сохраняются.
 - [AUDIO_ARRANGEMENT.md](AUDIO_ARRANGEMENT.md), [DATA_MODEL.md](DATA_MODEL.md), [PERSISTENCE.md](PERSISTENCE.md): Media Asset/Clip/Timeline/Project являются источником истины; уже принятые trim/split/move/copy/loop, Undo/Redo и Save/Open не ломать.
@@ -48,6 +48,8 @@ ARA2 **не** предоставляет хосту стандартных ко�
 Transport start/stop/seek/loop и latency/PDC проходят через общий SHARED Engine. При выключении ARA или отсутствующем плагине предусмотреть детерминированный dry/fallback path и видимую причину, не потеряв сохранённое состояние и ссылку на плагин.
 
 ## 4. UX первой версии
+
+**Локальный контракт P3/#179 (2026-10-18):** обработанный звук готовится на остановке на joined workers и подменяет PCM в существующем Engine один раз. Native editor меняет ARA/VST3 state; уведомления помечают звук устаревшим. Update playback или новый MR Play обновляет его перед стартом. Во время playback звучит последний подготовленный вариант с явным статусом. Vendor-owned audition/playback requests не реализованы — использовать MR transport. Discovery изолирован и cancellable; in-process произвольный зависший vendor call нельзя прервать кнопкой Cancel. Save/Open/archive и долговечный Undo binding относятся к P4; P3 binding временный, об этом есть предупреждение. Missing/incompatible отклоняются при discovery/attach; сохранённые placeholders/relink — P4. Лицензия и коммерческая совместимость не выводятся из наличия ARA factory.
 
 - Контекстное меню аудиоклипа: **Edit with ARA → [поддерживаемые ARA-плагины]**; опционально отдельная вкладка редактора клипа. Не добавлять в обычный VST3 insert скрытую ARA-семантику.
 - Видимые статусы: normal / analysing / ready / offline / missing plugin / incompatible / failed; предупреждения о несохранённых изменениях и об отсутствии плагина.
