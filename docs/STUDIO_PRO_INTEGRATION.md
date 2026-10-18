@@ -1,5 +1,8 @@
 # Moon River Studio — Fender Studio Pro Compatibility / Import
 
+> **Текущий execution plan (2026-10-18):** [#3 Studio Pro Import/Bridge](https://github.com/vladleng/MR-Studio/issues/3), этапы [#234 P1](https://github.com/vladleng/MR-Studio/issues/234) → [#235 P2](https://github.com/vladleng/MR-Studio/issues/235) → [#236 P3](https://github.com/vladleng/MR-Studio/issues/236), затем optional [#237 P4](https://github.com/vladleng/MR-Studio/issues/237). **Все PLANNED / не реализованы.** Приоритет: открытый **DAWproject 1.0** экспорт Studio One/Studio Pro → adapter/DTO → существующий SHARED Project Model MRS; прямой `.song` — отдельный последующий reader, а не обязательный блокер. Старое перечисление вариантов A/B/C в §5 — исторические альтернативы, не текущий приоритет. Реализуем только уже поддержанные MRS функции, unsupported/missing media/plugins/ARA сообщаем явно. ARA state import не обещать до принятия #180 и отдельной проверки переносимости. Код/build/tests локально, не запускались для этих issues.
+
+
 ## 1. Роль Studio Pro
 
 Fender Studio Pro больше не является обязательным authoring environment или runtime dependency.
