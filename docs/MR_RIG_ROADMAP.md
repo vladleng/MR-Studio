@@ -1,5 +1,14 @@
 # MR Rig — единый Roadmap (после объединения MR Cab #182)
 
+## FIRST CHORUS DECISION — Boss CE-1 (2026-10-19)
+
+**User's approved sound direction:** first Chorus for MR Rig is **MR Vintage Chorus**, drawing on BOSS CE-1 Chorus Ensemble (classic colored BBD chorus + authentic-character Vibrato). The implementation has its **own [#238 05H issue](https://github.com/vladleng/MR-Studio/issues/238)** under [#202 Character Pedals](https://github.com/vladleng/MR-Studio/issues/202). This is a **low-overhead original perceptual model**, not an exact BOSS circuit/code clone or an entire Roland JC-120 two-speaker spatial simulator. [#232](https://github.com/vladleng/MR-Studio/issues/232) retains Compressor/Drive optional voicing roadmap + Delay planning; do **not** implement Chorus there.
+
+[#238](https://github.com/vladleng/MR-Studio/issues/238) slices: reference/local API audit (read-only) → playable BBD-inspired Chorus/Vibrato DSP → native PRE/POST compact UI/presets and test/level-matched listening → per-stage user acceptance. Requires **separate authorisation to start**. NAM #203 official Core and performance remain prioritized in the full-Rig path; #233 full pedal Live QA and #204 final integrated release remain unchanged. Source/build/tests local; this documentation update does not run any DSP.
+
+---
+
+
 ## ACTIVE NAM BACKEND — 2026-10-18 (overrides earlier candidate-comparison roadmap)
 
 **Chosen baseline:** [official upstream NeuralAmpModelerCore](https://github.com/sdatkinson/NeuralAmpModelerCore) (MIT core, subject to pinned commit and transitive license review) is the sole **default** native NAM DSP for MR Rig. [TONE3000](https://github.com/tone-3000/tone3000-plugin) is a verified JUCE/C++ example using Core **in-tree** and an optional controlled audio/performance comparison reference; do not vendor/copy TONE3000 or its ecosystem. [NeuralAudio](https://github.com/mikeoliphant/NeuralAudio) is a **conditional backup research option** after a reproducible upstream blocker **and** separate user approval, not a parallel-engine deliverable. The original candidate comparison in older sections of this roadmap is **superseded**.
