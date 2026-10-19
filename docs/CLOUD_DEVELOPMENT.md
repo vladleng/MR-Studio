@@ -1,0 +1,29 @@
+# Облачная разработка и Windows CI/CD
+
+Задача миграции: [#241](https://github.com/vladleng/MR-Studio/issues/241). Baseline0.6 upd1; тематическая ветка `codex/cloud-cicd-migration`, merge после отдельной приёмки.
+
+## Источники и среда
+GitHub main — основа исходников, документации и Issues. Codex Cloud работает в тематической ветке с текущим AGENTS.md и проектными skills. Локальная Windows-машина нужна преимущественно для пользовательской приёмки, физических ASIO/MIDI/DPI и licensed vendor проверок. Исторические local-only записи в LOCAL_BUILD_POLICY/LOCAL_WORKSPACE не являются действующим запретом CI/source push.
+
+В Codex Cloud выбрать репозиторий vladleng/MR-Studio, рабочую ветку задачи и setup command `bash tools/ci/Setup-CodexCloud.sh`. Образ должен предоставлять CMake>=3.22, C++20 compiler и Git. Скрипт конфигурирует Linux Core без закрытых SDK и без запуска полного CTest. Windows GUI нельзя валидировать Linux-компиляцией. Подключение репозитория к персональной среде Codex и доступность её образа проверяются отдельно; наличие этого скрипта не доказывает запуск task в Codex Cloud.
+
+## SDK и кэш
+`tools/ci/sdk-lock.json` закрепляет JUCE9.0.3, VST3 SDK и PortAudio immutable commits; ARA SDK2.3.0 — отдельный профиль. Submodule commits определяются gitlinks закреплённого родителя. Actions также закреплены SHA.
+`Prepare-Sdks.ps1` получает SDK только из указанных официальных origins, проверяет commit/dirty state/submodules. Public-source cache keyed lock hash + ARA profile; без restore-prefix fallback. Fork PR не записывает общий cache. ASIO ZIP скачивается с официального HTTPS endpoint и проверяется существующим SHA256; изменение архива — ошибка с явным review версии/лицензии, не автоматическая смена pin.
+ASIO ZIP и извлечённые ASIO sources находятся вне кэшируемого `build/sdk`, не попадают в Git/artifacts. В package включается license notice, не SDK. Не вносить токены/плагины/пользовательские WAV/NAM в caches. Публичный source cache — оптимизация, а не доказательство корректности: pin checks обязательны на hit.
+
+## Профили проверки
+- Fast Core: Ubuntu Release, без ASIO/VST3/ARA/GUI; Core/AI contracts. Это не Windows product gate.
+- Windows Studio: windows-2022, Visual Studio2022 x64, JUCE9.0.3/VST3/ASIO, Release. Быстрые profile checks включают Core/AI и GUI startup/AI. ARA opt-in добавляет host fixtures, не установленные коммерческие плагины.
+- Full integration: `workflow_dispatch` с integration=true либо commit marker `[ci full]` в migration branch. Полный CTest без исключения #239/J2/J3. Не применять после каждой мелкой правки.
+- ARA: input ara=true либо `[ci ara]`; сборка runtime с ARA. В отчёте указывать, какие plugin/render fixtures были реально созданы, а какие отсутствовали.
+
+Новый workflow в ещё не принятой ветке впервые запускается push trigger; dispatch API требует доступности workflow на default branch. Не merge ради dispatch. Для этой миграции пользователь прямо разрешил контрольные runs.
+
+## Artifacts
+Runtime artifact: EXE, scanners, crash reporter, лицензии, README, source/run provenance, CI-TEST-RESULT.txt и SHA256.json. Символы — отдельным artifact, тестовые logs/JUnit — отдельным. SDK/fixtures/user settings не включаются. Artifact загружается и при test failure после успешной сборки для диагностики, но manifest содержит результат и job остаётся FAIL: такой пакет нельзя объявлять интеграционно принятым.
+Скачать runtime artifact, сверить все SHA256/размеры/Windows version/source, проверить отсутствие SDK/secrets/fixtures/PDB. Затем выполнить user acceptance/hardware проверки. Срок хранения runtime14 дней, symbols7 дней; это Actions Artifact, не автоматический публичный GitHub Release и не подтверждение коммерческой лицензии продукта.
+
+## Риски и приёмка
+Исторический #239 (`reorder synchronizes both views`) не маскировать. Никаких continue-on-error/необоснованного отключения warnings/тестов ради green. Устранять первую содержательную ошибку; повторять затронутый контур, полный — при изменении интеграционного кандидата.
+No alloc/free/locks/I/O/UI в callback; Commands/Undo/project/media сохранены. CI PASS не подтверждает физическую ASIO latency/xruns, слух, native mixed-DPI или совместимость всех vendors. Фактические результаты и ссылка на контрольный artifact ведутся в #241. Merge в main запрещён до отдельной приёмки.

@@ -37,8 +37,8 @@ Write down:
 
 If a prior stage used a target or path that no longer exists, trust the current repository.
 
-## 5. CI is not the local source of truth
+## 5. Cloud validation
 
-CI may help reveal intended commands, but when the project workflow is local-first:
-- validate locally;
-- use CI only if the user asks or if CI is itself part of the task.
+GitHub main owns documentation; Codex Cloud and Actions use current task commits:
+- validate the affected profile in CI;
+- full integration is explicit, not a default for each small change.

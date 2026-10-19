@@ -7,7 +7,7 @@ GitHub main — документальная и исходная основа п
 - [Правила разработки](AGENTS.md), [передача онлайн](docs/ONLINE_DEVELOPMENT_0_6_UPD1.md), [текущие задачи ARA](https://github.com/vladleng/MR-Studio/issues/88).
 - В репозиторий включены код, `.codex/skills`, MR UDS assets, инструменты и тесты. SDK, пользовательские проекты, секреты, EXE/PDB и локальные пакеты не включены.
 - Последние проверки исходной локальной версии: Release GUI build, ARA editor/J1 и packaged J1 PASS. Полный CTest для0.6 upd1 не запускался; физические ASIO/DPI и полная vendor matrix не заявляются.
-- Для текущего snapshot не запускаются GitHub Actions: commit переноса `[skip ci]`. Дальнейшие CI/PR/merge — по поручению.
+- Основная разработка — Codex Cloud; Windows builds/tests/artifacts — GitHub Actions. [Процесс и setup](docs/CLOUD_DEVELOPMENT.md). Миграция #241 в отдельной ветке; merge требует приёмки.
 
 Ниже сохранена историческая сводка; актуальные статусы определяются Issues и ссылками выше.
 <!-- DEVELOPMENT_PROGRESS_START -->

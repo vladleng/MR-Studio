@@ -33,7 +33,7 @@ This skill is **not execution permission**; use only the assigned issue and phas
 - Keep **`tokens/` directory, `manifest.json`, `build_kit.py` and the asset-kit `README.md` at the root `assets/ui/mr-uds/`** (not in `.codex/skills/`, not in `docs/`). This keeps the generator's relative paths together. Verify actual generator assumptions before running it.
 - First inspect `assets/ui/mr-uds/manifest.json` and matching `svg/` files, then `assets/ui/icons/transport/` for existing transport assets; reuse before drawing. Do not silently move/overwrite existing transport icons.
 - Treat this as the **local canonical path**, not proof files are committed on GitHub. If missing, request the kit or verify local checkout; do not invent asset filenames or pretend to have previews.
-- All new art should be added to the same library and its manifest, with original/license notes and size/state variants. Source code/builds/assets remain local by AGENTS policy.
+- All new art should be added to the same library and its manifest, with original/license notes and size/state variants. Source/assets are versioned in GitHub; builds and artifacts follow the cloud CI policy.
 
 ## Shared DAW and native-plugin catalog
 
@@ -79,7 +79,7 @@ For isolated changes to background, color, contour stroke width or icon tint **w
 - [ ] source/license for SVG/icon noted; original and redistributable
 - [ ] checks proportional to V1/component/release gate recorded; user signoff pending until explicitly given
 
-**GitHub: only docs/issues with [skip ci]. Local code/assets/build/test/package per AGENTS.md.**
+**GitHub owns source/docs/assets/skills; Codex Cloud and Actions follow AGENTS.md. Merge requires separate acceptance.**
 
 ## MR Fader visual selection (2026-10-16)
 
