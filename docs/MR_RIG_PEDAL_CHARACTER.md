@@ -1,5 +1,18 @@
 # MR Rig — Character Pedals: pedal-style algorithms and Reverb family
 
+## FIRST CHORUS TARGET — BOSS CE-1 (2026-10-19)
+
+The user chose **BOSS CE-1 Chorus Ensemble** as the **first Chorus musical reference** for MR Character Pedals. Implementation/acceptance scoped separately in [#238 — 05H MR Vintage Chorus](https://github.com/vladleng/MR-Studio/issues/238), logically under [#202](https://github.com/vladleng/MR-Studio/issues/202). This is **not** a decision to clone the entire Roland JC-120 amplifier and two-speaker/room acoustic system. That can be researched later as an optional sound family, not in the first CE-1 Chorus.
+
+**Sonics:** original, CPU-conscious **perceptual BBD** signal path, rounded vintage band-limited chorusing, warm coloration/optional preamp, correctly implemented Chorus and Vibrato mode behaviors, natural modulation without stepping. Investigate actual CE-1 musical behavior from licensed/reference sources (component values/clocking/mono-stereo topology must be confirmed, not guessed). No legal claim of exact BOSS/Roland hardware emulation; no copied trademarked skins/factory assets/proprietary DSP. [maluscomas/JC120-Plugin](https://github.com/maluscomas/JC120-Plugin) is an educational basic modulated-delay reference only, **not** a suitable ready-made BBD emulation to embed.
+
+**DSP/host:** a single native pedal in existing MR Rig PRE/POST child-FX graph, with Rate/Depth/Mix/Chorus-Vibrato as simple controls; advanced analog coloration only where actual DSP exists. Use safe fractional delay interpolation, anti-alias/reconstruction filtering as needed, controlled modulation/parameter smoothing, mono and stereo host behavior without unintended fold-down, predictable bypass/wet tail, preset/Undo/Redo/latency/PDC. No added asynchronous worker buffer or callback allocation, lock, I/O or wait. Real ASIO128/48k and clean guitar level-matched reference listening remain **NOT TESTED** until Codex performs them.
+
+**Planning/gates:** [#232](https://github.com/vladleng/MR-Studio/issues/232) continues to own future opt-in Compressor/Drive character extensions and Delay planning, but **NOT Chorus implementation**. #238 can be separately authorized after local scope audit; official NAM Core #203 stays higher product integration priority. User's selection of CE-1 is approval of the **sound direction**, not permission to start coding. No automatic next stage.
+
+---
+
+
 **Canonical specification / PLANNED, 2026-10-17.** Product owner [#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197); implementation issue parent [#202 native pedals](https://github.com/vladleng/MR-Studio/issues/202); approved first slice Compressor+Drive 0.4f stays accepted. This document covers **future** scope, not implemented DSP. Real code/build/tests are local only. No stage starts automatically.
 
 ## 1. Product purpose and sound
@@ -73,7 +86,8 @@ The list is a **logical breakdown** under the existing [#202](https://github.com
 3. [#229 — 05C: Vintage Spring](https://github.com/vladleng/MR-Studio/issues/229): distinct dispersive reverb model and musical drip.
 4. [#230 — 05D: Small Room and Ambient](https://github.com/vladleng/MR-Studio/issues/230): efficient extension of Plate early/late FDN structure.
 5. [#231 — 05E: unified pedal UI/presets/trails](https://github.com/vladleng/MR-Studio/issues/231): Simple/Advanced, named sound modes, source state, Undo/Redo/reopen, no fake controls.
-6. [#232 — 05F: character expansion for Compressor/Drive and scoped Delay/Chorus contracts](https://github.com/vladleng/MR-Studio/issues/232): only optional versioned voicings after previous-sound parity; Delay/Chorus DSP becomes its **own** future issues when authorized.
+6. [#232 — 05F: optional Compressor/Drive voice enhancements and future Delay contract](https://github.com/vladleng/MR-Studio/issues/232): preserve accepted v1 tone; Chorus implementation was spun off to #238 after user sound-reference approval.
+7. [#238 — 05H: first CE-1-inspired BBD Chorus/Vibrato](https://github.com/vladleng/MR-Studio/issues/238): independent original native pedal; implement only after separate authorization.
 7. [#233 — 05G: integrated pedal/Live QA](https://github.com/vladleng/MR-Studio/issues/233): user-performed long ASIO tests, CPU headroom, sonic references and signoff.
 
 **Priority/dependency:** NAM [#203](https://github.com/vladleng/MR-Studio/issues/203) retains current higher integration priority per product decision 2026-10-17; pedal #05A can be researched independently. Reverb DSP can be developed with synthetic or accepted current Rig core ahead of NAM, but **Live end-to-end** 05G requires working NAM [#224](https://github.com/vladleng/MR-Studio/issues/224) / [#226](https://github.com/vladleng/MR-Studio/issues/226). After accepted 05B, 05C then 05D then 05E; 05F is optional, may be scheduled separately without blocking 05G if not part of accepted scope. [#204](https://github.com/vladleng/MR-Studio/issues/204) remains final *whole Rig* acceptance. Explicit user signoff after **each** subtask, no automatic next work.
