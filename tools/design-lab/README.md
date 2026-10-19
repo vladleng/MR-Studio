@@ -13,7 +13,7 @@ python -m http.server 8000
 
 The HTML and JS need **no npm/CMake/compilation**. Running `index.html` via `file://` is insufficient because browsers commonly block `fetch` of the adjacent SVG manifest; use localhost or GitHub Pages.
 
-**GitHub Pages:** If the repository's Pages is configured to serve the root of `main`, after an approved merge the path will be `https://vladleng.github.io/MR-Studio/tools/design-lab/`. This is a *conditional future URL*; merely having a feature branch does not publish the page. Publishing from another source directory needs corresponding path/asset adjustments. Do not modify Pages settings or merge as part of this prototype.
+**GitHub Pages preview (without merge):** Repository administrator may enable **Settings → Pages → Build and deployment → Deploy from a branch → `feature/mr-design-lab-v1` → `/ (root)` → Save**. Once deployment completes, the preview is expected at `https://vladleng.github.io/MR-Studio/tools/design-lab/`. This is a *conditional URL*, not a verified deployment. **Do not change Pages source if the repository already publishes a different site.** The feature branch includes the same original `assets/ui/mr-uds/` tree, so relative references work. The editor itself needs no Actions/CMake build. After approval, Pages can be switched to `main` following merge; current PR remains draft until acceptance. Publishing to Pages is a separate manual repository-setting operation.
 
 ## Shared MR UDS assets
 
