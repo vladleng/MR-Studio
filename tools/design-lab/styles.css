@@ -8,3 +8,9 @@
 @media(max-width:1250px){.workspace{grid-template-columns:208px minmax(340px,1fr) 236px}.asset-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.header-center{display:none}.editor-center{padding:19px;gap:13px}}@media(max-width:930px){body{overflow:auto;height:auto}.app-header{padding:12px 16px;height:auto;flex-wrap:wrap}.workspace{height:auto;min-height:0;grid-template-columns:minmax(0,1fr)}.editor-center{grid-row:1;min-height:700px}.library-sidebar,.properties-sidebar{border:1px solid #283c4b;min-height:340px}.library-sidebar{grid-row:2}.properties-sidebar{grid-row:3}.asset-grid{grid-template-columns:repeat(6,minmax(0,1fr));max-height:300px}.right-footer{margin-top:20px}.canvas-controls{flex-wrap:wrap}}@media(max-width:520px){.editor-center{padding:12px}.app-header{gap:12px}.mode-tab{padding:8px 6px;gap:7px}.mode-tab strong{font-size:11px}.mode-tab small{font-size:9px}.canvas-toolbar{gap:12px}.asset-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.editor-toolbar h1{font-size:19px}.editor-toolbar .button{font-size:10px}.header-actions{width:100%;flex-wrap:wrap}.header-actions .button{flex:1}.stage-wrap{transform-origin:center}}
 /* HTML hidden attribute must win over the inspector's flex layout. */
 [hidden]{display:none!important}
+
+/* Keep the actual track preview visible near the top of the canvas, even in a tall viewport.
+   The previous centered flex layout could leave users staring at the empty grid. */
+.canvas-surface{align-items:flex-start;justify-content:center;padding:18px 25px 28px}
+.stage-wrap{display:block;position:relative;z-index:2;flex:0 0 auto;width:280px;max-width:none;margin:12px auto 0}
+@media(max-width:520px){.canvas-surface{padding:14px 12px 22px}}
