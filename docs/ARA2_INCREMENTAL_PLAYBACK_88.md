@@ -1,5 +1,9 @@
 # ARA incremental PCM preparation — #88
 
+Этот контракт описывает резервный PCM path. Последующая реализация прямого
+zero-latency playback вынесена в [ARA2_LIVE_PLAYBACK_88.md](ARA2_LIVE_PLAYBACK_88.md).
+В live mode ARA content edits не запускают описанную ниже PCM-подготовку.
+
 Контракт от 2026-10-19. Это оптимизация существующего stopped PCM пути,
 не подключение vendor DSP к AudioEngine callback и не editor audition.
 Исходные WAV, project schema, ARA archive и host/plugin Undo не меняются.
