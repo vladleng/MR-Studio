@@ -449,7 +449,7 @@ void AudioEngine::prime_loop(std::optional<LoopRange> loop) {
 }
 bool AudioEngine::enqueue(Control control) noexcept { control.serial=control_revision_.fetch_add(1,std::memory_order_acq_rel)+1;const auto ok=controls_.push(control);++control_revision_;return ok; }
 bool AudioEngine::enqueue_mix(const MixerUpdate& update) noexcept {
-    if (update.count != graph_.mixer.size() || !std::isfinite(update.master_gain) || update.master_gain < 0 || update.master_gain > 16) return false;
+    if (update.count > update.tracks.size() || update.count != graph_.mixer.size() || !std::isfinite(update.master_gain) || update.master_gain < 0 || update.master_gain > 16) return false;
     for (std::size_t i=0; i<update.count; ++i) {
         const auto& m = update.tracks[i];
         for (std::size_t j=0; j<graph_.sends[i].size(); ++j) if (!std::isfinite(update.send_gains[i][j]) || update.send_gains[i][j] < 0 || update.send_gains[i][j] > 16) return false;
@@ -458,8 +458,10 @@ bool AudioEngine::enqueue_mix(const MixerUpdate& update) noexcept {
     auto message=update;message.serial=control_revision_.fetch_add(1,std::memory_order_acq_rel)+1;const auto ok=mixer_controls_.push(message);++control_revision_;return ok;
 }
 void AudioEngine::set_mix(const MixerUpdate& update, bool ramp) noexcept {
+    if (update.count > update.tracks.size()) return;
     input_monitoring_=update.input_monitoring;
-    for(std::size_t t=0;t<update.count;++t){
+    for(std::size_t t=0;t<max_mixer_tracks;++t){
+        if(t>=update.count)break;
         if(ramp&&graph_.live_midi[t]&&domain_owned_[t]&&graph_.midi_monitor[t]&&!update.midi_monitor[t])midi_monitor_release_[t]=true;
         graph_.midi_monitor[t]=update.midi_monitor[t];
     }

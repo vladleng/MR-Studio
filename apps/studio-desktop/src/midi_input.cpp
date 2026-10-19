@@ -56,7 +56,10 @@ struct MidiInputs::Impl {
     ~Impl(){quit=true;if(worker.joinable())worker.join();engine->midi_panic();}
     void run() noexcept {
         try{
-            std::vector<MidiInputRoute> active;std::uint64_t active_generation=~std::uint64_t{},applied_request=~std::uint64_t{};
+            std::vector<MidiInputRoute> active;std::uint64_t applied_request=~std::uint64_t{};
+#ifdef _WIN32
+            std::uint64_t active_generation=~std::uint64_t{};
+#endif
             std::vector<MidiInputPort> inventory;
             auto check=std::chrono::steady_clock::time_point{};
 #ifdef _WIN32
@@ -64,7 +67,11 @@ struct MidiInputs::Impl {
 #endif
             while(!quit){
                 bool changed=false;
-                {std::lock_guard lock(requests);if(applied_request!=request_serial){changed=active!=requested;active=requested;active_generation=generation;applied_request=request_serial;}}
+                {std::lock_guard lock(requests);if(applied_request!=request_serial){changed=active!=requested;active=requested;
+#ifdef _WIN32
+                    active_generation=generation;
+#endif
+                    applied_request=request_serial;}}
                 const auto now=std::chrono::steady_clock::now();
                 if(now>=check){auto current=ports();changed|=current!=inventory;inventory=std::move(current);check=now+std::chrono::seconds(1);}
                 if(changed){

@@ -42,6 +42,7 @@ public:
         HMIDIOUT handle{};if(midiOutOpen(&handle,port.index,0,0,CALLBACK_NULL)!=MMSYSERR_NOERROR)return false;
         handles.emplace(port.id,handle);return true;
 #else
+        (void)port;
         return false;
 #endif
     }
@@ -49,6 +50,7 @@ public:
 #ifdef _WIN32
         const auto at=handles.find(port);return at!=handles.end()&&midiOutShortMsg(at->second,raw)==MMSYSERR_NOERROR;
 #else
+        (void)port; (void)raw;
         return false;
 #endif
     }
@@ -57,6 +59,8 @@ public:
         const auto at=handles.find(port);if(at==handles.end())return;
         for(unsigned ch=0;ch<16;++ch){for(unsigned cc:{64U,66U,120U,123U})(void)midiOutShortMsg(at->second,0xB0U|ch|(cc<<8));(void)midiOutShortMsg(at->second,0xE0U|ch|(64U<<16));}
         (void)midiOutReset(at->second);
+#else
+        (void)port;
 #endif
     }
     void close()noexcept override{

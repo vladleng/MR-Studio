@@ -1,6 +1,7 @@
 #include <mrs/rig.hpp>
 #include <mrs/processing.hpp>
 #include <algorithm>
+#include <filesystem>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -9,7 +10,7 @@ void check(bool value,const char* why){if(!value)throw std::runtime_error(why);}
 template<class F>void rejects(F f){bool threw{};try{f();}catch(const std::exception&){threw=true;}check(threw,"Invalid Rig accepted");}
 int main(){try{
     NativeInsert fx;fx.id=new_id();fx.kind=InsertKind::rig;fx.rig.name="Warm Jazz";fx.rig.input_gain=.5f;fx.rig.output_gain=2;fx.gain=.75f;fx.ir.mix=.8f;fx.ir.low_cut=80;fx.ir.high_cut=12000;fx.ir.invert=true;fx.bypass=true;
-    fx.reverb.name="External capture";fx.reverb.first={"capture.wav","C:/fixture/capture.wav","fnv1a64:0000000000000001",1000};fx.reverb.sample_rate=48000;fx.reverb.channels=1;fx.reverb.frames=9600;fx.cab_metadata={{"ir_role","full_combo"},{"tone_model_id","test-capture"}};fx.cab_variant_id="capture";fx.rig.artwork="C:/fixture/own.png";fx.rig.artwork_rights="Synthetic fixture";
+    fx.reverb.name="External capture";fx.reverb.first={"capture.wav","C:/fixture/capture.wav","fnv1a64:0000000000000001",1000};fx.reverb.sample_rate=48000;fx.reverb.channels=1;fx.reverb.frames=9600;fx.cab_metadata={{"ir_role","full_combo"},{"tone_model_id","test-capture"}};fx.cab_variant_id="capture";fx.rig.artwork=(std::filesystem::temp_directory_path()/"mrs-rig-fixture"/"own.png").generic_string();fx.rig.artwork_rights="Synthetic fixture";
     RigPreset preset{new_id(),fx};preset.state.preset_name=preset.id.value;preset.validate();
     check(deserialize_rig_preset(serialize_rig_preset(preset))==preset,"RigPreset exact roundtrip");
     check(deserialize_rig_library(serialize_rig_library({preset}))==std::vector<RigPreset>{preset},"Rig library exact roundtrip");

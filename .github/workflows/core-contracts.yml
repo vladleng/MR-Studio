@@ -17,5 +17,5 @@ jobs:
         with:
           persist-credentials: false
       - run: cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_VST3=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=OFF
-      - run: cmake --build build/core --target mrs_core_tests mrs_core_check mrs_ai_tests mrs_ai_query_tests mrs_ai_tool_tests --parallel 2 -- -k
+      - run: cmake --build build/core --target mrs_core_tests mrs_core_check mrs_rig_tests mrs_ai_tests mrs_ai_query_tests mrs_ai_tool_tests --parallel 2 -- -k
       - run: ctest --test-dir build/core --output-on-failure --no-tests=error -R '^(core_.*|ai_.*)$'

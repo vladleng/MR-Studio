@@ -9,6 +9,7 @@
 #endif
 #include <algorithm>
 #include <charconv>
+#include <cmath>
 #include <exception>
 #include <iomanip>
 #include <limits>
@@ -388,7 +389,8 @@ ai::PreparedTool Application::ai_propose(const ai::ToolCall& call,std::shared_pt
     if(ai_operations_.size()>=128)return {ai::Error::busy,ai::Block::none,{}};
     auto result=ai::prepare_tool(call,services_.projects->state(),ai_key(),ai_permissions_,ai_permission_revision_->load(),ai_safety());
     if(result.value&&ai::ara_action(call.tool)){const auto valid=ai_ara_validate(call);if(valid!=ai::Error::none)return {valid,ai::Block::none,{}};}
-    if(result.value)ai_operations_.emplace(call.operation_id,result.value);return result;
+    if(result.value)ai_operations_.emplace(call.operation_id,result.value);
+    return result;
 }
 ai::Decision Application::ai_apply(const std::shared_ptr<const ai::ToolPlan>& plan){
     require_ai_owner();if(!plan)return {ai::Error::invalid_input,ai::Block::none};
@@ -419,7 +421,8 @@ ai::PreviewResult Application::build_ai_preview(const std::vector<std::shared_pt
                 const auto first=std::max(old->start,oldClip->midi->source_offset),last=std::min(old->start+old->length,oldClip->midi->source_offset+oldClip->midi->length);
                 const auto tick=oldClip->midi->start+first-oldClip->midi->source_offset;
                 const auto scope="Clip "+oldClip->name+", note "+id.value+", visible ticks ["+std::to_string(tick)+", "+std::to_string(tick+last-first)+"), channel "+std::to_string(old->channel+1);
-                if(old->pitch!=value->pitch)change(id,"note.pitch",std::to_string(old->pitch),std::to_string(value->pitch),scope);if(old->velocity!=value->velocity)change(id,"note.velocity",std::to_string(old->velocity),std::to_string(value->velocity),scope);}}
+                if(old->pitch!=value->pitch)change(id,"note.pitch",std::to_string(old->pitch),std::to_string(value->pitch),scope);
+                if(old->velocity!=value->velocity)change(id,"note.velocity",std::to_string(old->velocity),std::to_string(value->velocity),scope);}}
         if(std::any_of(plans.begin(),plans.end(),[](const auto& plan){return plan->call.tool==ai::ToolKind::midi_draft;})){
             auto noteValue=[](const auto& n){return "pitch "+std::to_string(n.pitch)+", velocity "+std::to_string(n.velocity)+", channel "+std::to_string(n.channel+1)+", source start "+std::to_string(n.start)+", duration "+std::to_string(n.length);};
             auto eventValue=[](const auto& e){return "CC "+std::to_string(e.data1)+", value "+std::to_string(e.data2)+", channel "+std::to_string(e.channel+1)+", source tick "+std::to_string(e.start);};
@@ -441,7 +444,8 @@ ai::PreviewResult Application::build_ai_preview(const std::vector<std::shared_pt
 ai::PreviewResult Application::ai_preview(const std::vector<std::shared_ptr<const ai::ToolPlan>>& plans){
     require_ai_owner();std::set<std::string> unique;for(const auto& plan:plans){if(!plan||!unique.insert(plan->call.operation_id).second)return {ai::Error::invalid_input,{}};
         const auto at=ai_operations_.find(plan->call.operation_id);if(at==ai_operations_.end()||at->second!=plan||plan->policy_revision!=ai_permission_revision_->load())return {ai::Error::permission_denied,{}};
-        if(plan->call.key!=ai_key())return {ai::Error::stale_context,{}};const auto decision=ai::authorize(ai_permissions_,plan->call.tool,ai::Intent::suggest,ai_safety());if(!decision.allowed())return {decision.error,{}};}
+        if(plan->call.key!=ai_key())return {ai::Error::stale_context,{}};
+        const auto decision=ai::authorize(ai_permissions_,plan->call.tool,ai::Intent::suggest,ai_safety());if(!decision.allowed())return {decision.error,{}};}
     return build_ai_preview(plans);
 }
 ai::Decision Application::ai_preview_status(const std::shared_ptr<ai::Preview>& preview){
@@ -466,7 +470,8 @@ ai::Decision Application::ai_accept_preview(const std::shared_ptr<ai::Preview>& 
     try{if(ai_applied_operations_.size()+preview->plans.size()>1024)return {ai::Error::busy,ai::Block::undo};auto applied=ai_applied_operations_;for(const auto& plan:preview->plans)applied.emplace(plan->call.request_id,plan->call.operation_id);
         const bool midi=std::any_of(preview->plans.begin(),preview->plans.end(),[](const auto& p){return p->call.tool==ai::ToolKind::transpose_notes||p->call.tool==ai::ToolKind::set_note_velocity||p->call.tool==ai::ToolKind::midi_draft;});
         if(preview->plans.size()==1&&ai::ara_action(preview->plans.front()->call.tool))ai_ara_execute(preview->plans.front()->call);
-        else if(midi)edit_timing(*preview->edit_->after(),preview->edit_.get(),{},true);else edit_metadata(*preview->edit_,true);ai_applied_operations_.swap(applied);preview->state_=ai::PreviewState::accepted;return {};}catch(...){preview->state_=ai::PreviewState::failed;return {ai::Error::backend_failure,ai::Block::none};}
+        else if(midi)edit_timing(*preview->edit_->after(),preview->edit_.get(),{},true);else edit_metadata(*preview->edit_,true);
+        ai_applied_operations_.swap(applied);preview->state_=ai::PreviewState::accepted;return {};}catch(...){preview->state_=ai::PreviewState::failed;return {ai::Error::backend_failure,ai::Block::none};}
 }
 ai::Page Application::ai_tool_query(const ai::ToolCall& call,std::shared_ptr<const ai::Snapshot> snapshot) const {
     require_ai_owner();ai::Page error;error.key=call.key;
@@ -703,7 +708,8 @@ std::shared_ptr<audio::ReverbLoader> Application::reverb_loader(std::optional<Id
     if(ensure&&!device_)start_empty_clock(true);
     for(auto& r:reverb_runtime_)if(r.track==track&&r.slot==slot)return r.loader;
     if(ensure){require_not_playing();rebuild_audio();for(auto& r:reverb_runtime_)if(r.track==track&&r.slot==slot)return r.loader;}
-    if(ensure)throw std::invalid_argument("MR Reverb instance is not prepared");return {};
+    if(ensure)throw std::invalid_argument("MR Reverb instance is not prepared");
+    return {};
 }
 void Application::poll_reverbs(){
     for(auto& r:reverb_runtime_){const auto status=r.loader->snapshot();
@@ -772,7 +778,8 @@ void Application::set_inserts(std::optional<Id> track, std::vector<NativeInsert>
     if(permutation&&runtime!=insert_runtime_.end()&&runtime->second.graph){
         require_not_playing();auto candidate=*p;SetInserts{track,inserts}.apply(candidate);candidate.validate();
         std::vector<Id> ids,previous;for(const auto& fx:inserts)ids.push_back(fx.id);for(const auto& fx:old)previous.push_back(fx.id);
-        if(device_)device_->stop();engine_->quiesce();
+        if(device_)device_->stop();
+        engine_->quiesce();
         try{runtime->second.graph->reorder_serial(ids);edit(SetInserts{track,std::move(inserts)},{},true);}
         catch(...){if(services_.projects->state().project==p){runtime->second.graph->reorder_serial(previous);if(device_)device_->start();}throw;}
         return;
@@ -824,7 +831,8 @@ void Application::transfer_insert(std::optional<Id> source,const Id& slot,std::o
     if(source==destination){const auto position=boundary-(index<boundary?1:0);if(position==index)return;auto fx=*at;from.erase(at);from.insert(from.begin()+static_cast<std::ptrdiff_t>(position),std::move(fx));set_inserts(source,std::move(from));return;}
     require(to.size()<8,"Insert chain supports up to eight effects");
     const auto revision=services_.projects->state().revision;
-    if(device_)device_->stop();engine_->quiesce();
+    if(device_)device_->stop();
+    engine_->quiesce();
     try{
         capture_insert_state(candidate,{},true);from=insert_chain(candidate,source);to=insert_chain(candidate,destination);
         auto fx=from[index];if(!move)fx.id=new_id();to.insert(to.begin()+static_cast<std::ptrdiff_t>(boundary),fx);
@@ -901,7 +909,8 @@ void Application::capture_insert_state(Project& project,std::optional<Id> author
     if(!callbacks_stopped){require_not_playing();device_->stop();}
     try{const auto original=services_.projects->state().project;
         for(const auto& [key,r]:insert_runtime_)if(r.graph&&(!staged_insert_target_||key==*staged_insert_target_)){auto* chain=&project.master_inserts;if(!key.empty()){chain=nullptr;for(auto& t:project.tracks)if(t.id.value==key)chain=&t.inserts;}if(!chain)continue;
-            const auto& old_chain=insert_chain(*original,key.empty()?std::nullopt:std::optional<Id>{Id{key}});
+            const auto original_track=key.empty()?std::optional<Id>{}:std::optional<Id>{Id{key}};
+            const auto& old_chain=insert_chain(*original,original_track);
             // No state serialization is needed for a removed/replaced plugin.
             if(std::none_of(chain->begin(),chain->end(),[&](const auto& fx){return fx.kind==InsertKind::vst3&&(!authoritative||fx.id!=*authoritative)&&std::any_of(old_chain.begin(),old_chain.end(),[&](const auto& old){return old.id==fx.id&&old.class_id==fx.class_id&&old.plugin_path==fx.plugin_path&&old.component_state==fx.component_state&&old.controller_state==fx.controller_state;});}))continue;
             const auto saved=r.graph->capture();
@@ -977,7 +986,8 @@ void Application::edit(const ICommand& command,std::optional<Id> authoritative,b
     auto candidate = *services_.projects->state().project;
     command.apply(candidate); candidate.validate();
     {std::vector<Id> tracks;for(const auto& t:candidate.tracks)if(t.kind!=TrackKind::midi)tracks.push_back(t.id);(void)audio::compile_midi_clips(candidate,tracks);(void)audio::compile_midi_events(candidate,tracks);}
-    if(!retain_inserts&&!staged_insert_target_&&staged_insert_graphs_.empty())capture_insert_state(candidate,authoritative);candidate.validate();
+    if(!retain_inserts&&!staged_insert_target_&&staged_insert_graphs_.empty())capture_insert_state(candidate,authoritative);
+    candidate.validate();
     if (device_config_ && audio_name_ != "Offline clock (no sound)") validate_hardware(candidate,*device_config_);
     if (device_ && device_config_ && audio_name_ != "Offline clock (no sound)") {
         auto c = *device_config_; c.inputs = selected_inputs(candidate);
@@ -1276,7 +1286,8 @@ bool Application::history(bool redo) {
             const auto at=insert_runtime_.find(id?id->value:std::string{});require(at!=insert_runtime_.end()&&at->second.graph,"Missing insert runtime");
             Order order{at->second.graph,{},{}};for(const auto& fx:old)order.before.push_back(fx.id);for(const auto& fx:next)order.after.push_back(fx.id);orders.push_back(std::move(order));};
         add({});for(const auto& t:before.tracks)if(t.kind!=TrackKind::midi)add(t.id);
-        if(device_)device_->stop();engine_->quiesce();std::size_t applied{};
+        if(device_)device_->stop();
+        engine_->quiesce();std::size_t applied{};
         try{for(auto& order:orders){order.graph->reorder_serial(order.after);++applied;}
             const bool changed=redo?services_.projects->redo():services_.projects->undo();rebuild_audio(true);return changed;
         }catch(...){if(*services_.projects->state().project==before){while(applied){auto& order=orders[--applied];order.graph->reorder_serial(order.before);}if(device_)device_->start();}throw;}
@@ -1443,7 +1454,8 @@ bool Application::audition_note(const Id& track,int pitch,int velocity,int chann
 }
 void Application::edit_midi_notes(const Id& id,std::vector<Id> selected,const NoteEdit& settings){
     require_not_recording();require_not_playing();const auto p=services_.projects->state().project;const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});require(at!=p->clips.end()&&at->midi.has_value(),"select a MIDI clip");
-    if(transform_midi_notes(*at->midi,selected,settings)==at->midi->notes)return;edit(EditMidiNotes{id,std::move(selected),settings},{},true);
+    if(transform_midi_notes(*at->midi,selected,settings)==at->midi->notes)return;
+    edit(EditMidiNotes{id,std::move(selected),settings},{},true);
 }
 void Application::set_midi_events(const Id& id,std::vector<MidiChannelEvent> events){require_not_recording();require_not_playing();const auto p=services_.projects->state().project;const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});require(at!=p->clips.end()&&at->midi.has_value(),"select a MIDI clip");if(events==at->midi->events)return;edit(SetMidiEvents{id,std::move(events)});}
 void Application::set_midi_notes(const Id& id,std::vector<MidiNote> notes){edit(SetMidiNotes{id,std::move(notes)},{},true);}
@@ -1503,7 +1515,8 @@ bool Application::edit_timing(Project candidate,const ICommand* command,std::opt
     }catch(...){
         const auto error=std::current_exception();bool reopen=false;
         if(device_&&stopped){try{device_->stop();}catch(...){device_->close();reopen=true;}engine_->quiesce();}
-        if(swapped)engine_->swap_timing(*plan,midi);transaction->rollback();
+        if(swapped)engine_->swap_timing(*plan,midi);
+        transaction->rollback();
 #ifdef MRS_HAS_ARA
         if(ara_&&!midi)ara_->synchronize(*before,[this](const auto& source){return asset(source);});
 #endif
@@ -1562,13 +1575,15 @@ void Application::remove_chord(const Chord& expected) { edit_metadata(RemoveChor
 std::vector<Id> Application::transform_chords(const std::vector<Chord>& expected,Tick delta,bool copy){
     require(!expected.empty(),"Select chords first");auto values=expected;std::vector<Id> ids;
     for(auto& s:values){require(s.start>=0&&s.end>s.start&&s.end<=max_tick&&delta>=-s.start&&delta<=max_tick-s.end,"Chord group exceeds timeline range");s.start+=delta;s.end+=delta;if(copy)s.id=new_id();ids.push_back(s.id);}
-    if(copy)values.insert(values.end(),expected.begin(),expected.end());edit_metadata(EditChordGroup{expected,std::move(values)});return ids;
+    if(copy)values.insert(values.end(),expected.begin(),expected.end());
+    edit_metadata(EditChordGroup{expected,std::move(values)});return ids;
 }
 void Application::remove_chords(const std::vector<Chord>& expected){require_not_recording();edit_metadata(EditChordGroup{expected,{}});}
 std::vector<Id> Application::transform_markers(const std::vector<Marker>& expected,Tick delta,bool copy){
     require(!expected.empty(),"Select markers first");auto values=expected;std::vector<Id> ids;
     for(auto& s:values){require(s.tick>=0&&s.tick<=max_tick&&delta>=-s.tick&&delta<=max_tick-s.tick,"Marker group exceeds timeline range");s.tick+=delta;if(copy)s.id=new_id();ids.push_back(s.id);}
-    if(copy)values.insert(values.end(),expected.begin(),expected.end());edit_metadata(EditMarkerGroup{expected,std::move(values)});return ids;
+    if(copy)values.insert(values.end(),expected.begin(),expected.end());
+    edit_metadata(EditMarkerGroup{expected,std::move(values)});return ids;
 }
 void Application::remove_markers(const std::vector<Marker>& expected){require_not_recording();for(const auto& s:expected)require(std::none_of(document_.actions.begin(),document_.actions.end(),[&](const auto& a){return a.marker==s.id;}),"Marker is linked to a LiveAction; remove the binding before deleting the group");edit_metadata(EditMarkerGroup{expected,{}});}
 Id Application::copy_chord(const Chord& expected, Tick start) {
@@ -1796,7 +1811,7 @@ void Application::prepare_inserts(audio::RenderGraph& result,const audio::Device
         const auto block=key.empty()?8192:c.buffer_frames;const auto config=processing::ProcessConfig{c.sample_rate,static_cast<std::uint32_t>(c.outputs.size()),block,c.buffer_frames};
         for(const auto& fx:insert_chain(*project,target))if(fx.kind==InsertKind::reverb||wav_core(fx.kind)){auto loader=std::make_shared<audio::ReverbLoader>(r.graph,fx.id,config,fx.kind==InsertKind::reverb?reverb_library_:nullptr);
             if(!fx.reverb.first.digest.empty())loader->restore(fx.reverb,wav_core(fx.kind)?cab_root_:reverb_library_->snapshot()->root);
-            reverb_runtime_.push_back({std::move(loader),target,fx.id,0});}}
+            reverb_runtime_.push_back({std::move(loader),target,fx.id,0,std::nullopt});}}
 }
 void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::DeviceConfig c) {
     require_not_recording();
