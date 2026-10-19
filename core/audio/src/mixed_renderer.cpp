@@ -134,7 +134,10 @@ void MixedRenderer::run() noexcept {
         if(head.revision!=device_->control_revision()){signals_->wake.wait();continue;}
         if(head.revision!=revision||head.sequence>sequence){
             ahead_->rebase_head(head.head);ahead_->restore_mix(head.mix);sequence=head.sequence;
-            if(primed)++device_->ahead_invalidations_;revision=head.revision;}
+            if (primed)
+              ++device_->ahead_invalidations_;
+            revision = head.revision;
+        }
         const auto w=write_.load(std::memory_order_relaxed),next=(w+1)%static_cast<unsigned>(packets_.size());
         if(next==read_.load(std::memory_order_acquire)){signals_->wake.wait();continue;}
         auto& packet=packets_[w];const auto started=std::chrono::steady_clock::now();

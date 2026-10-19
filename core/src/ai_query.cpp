@@ -393,7 +393,10 @@ Page ReadView::query(const Query& input,ReadPolicy policy) const {
                   page.byte_limited = true;
                   break;
                 }
-                if(items.size()>1)items+=',';items+=value;++page.returned;
+                if (items.size() > 1)
+                  items += ',';
+                items += value;
+                ++page.returned;
             }
             ++page.scanned;page.next_cursor=index+1;
         }
@@ -416,7 +419,13 @@ SnapshotResult ReadView::snapshot(const std::vector<Query>& queries,SnapshotBudg
             if ((q.kind == QueryKind::plugin_parameters || q.kind == QueryKind::graph_parameters) &&
                 (!policy.stored_plugin_parameters || !access_.stored_plugin_parameters))
               return {Error::permission_denied, {}};
-            if(names.size()>1)names+=',';names+='"';names+=query_name(q.kind);names+='"';}names+=']';
+            if (names.size() > 1)
+              names += ',';
+            names += '"';
+            names += query_name(q.kind);
+            names += '"';
+        }
+        names += ']';
         auto envelope=[&](std::string_view values,bool truncated){Json j(cap);j.field("snapshot_version",1);j.raw("context",header);j.field("truncated",truncated);
             j.field("requested_queries",queries.size());j.raw("requested_query_names",names);j.field("emitted_queries",emitted.size());j.field("token_budget_basis","utf8_bytes_upper_bound");j.raw("pages",values);return j.finish();};
         (void)envelope("[]",false);
@@ -440,25 +449,71 @@ std::string ReadView::analysis(const JobControl& control,std::string_view media)
     const auto& p=*project_;const Timeline time(p.time,p.sample_rate);
     const auto clipLimit=std::min<std::size_t>(p.clips.size(),128),sectionLimit=std::min<std::size_t>(p.sections.size(),16);
     std::string rows="[";std::size_t work{};bool partial=clipLimit<p.clips.size()||sectionLimit<p.sections.size()||std::count_if(p.clips.begin(),p.clips.end(),[](const auto& c){return !c.midi;})>16;
-    auto section=[&](const Id& id,Tick start,Tick stop){Json row(4096);std::size_t notes{},clips{},overlaps{};Tick covered{};int low=128,high=-1;std::vector<std::pair<Tick,int>> events;
-        for(std::size_t i=0;i<clipLimit;++i){check();const auto& c=p.clips[i];const auto begin=c.midi?c.midi->start:time.to_ticks(c.start),end=c.midi?c.midi->start+c.midi->length:time.to_ticks(c.start+c.length);if(end<=start||begin>=stop)continue;++clips;
-            if(c.midi)for(const auto& n:c.midi->notes){if(++work>131072){partial=true;break;}if((work&255)==0)check();const auto a=std::max(n.start,c.midi->source_offset),b=std::min(n.start+n.length,c.midi->source_offset+c.midi->length);if(b<=a)continue;const auto s=std::max(start,c.midi->start+a-c.midi->source_offset),e=std::min(stop,c.midi->start+b-c.midi->source_offset);if(e<=s)continue;++notes;low=std::min(low,n.pitch);high=std::max(high,n.pitch);events.emplace_back(s,1);events.emplace_back(e,-1);}
-        }
-        std::sort(events.begin(),events.end());int active{};Tick last=start;for(const auto& [tick,delta]:events){if(active>0)covered+=tick-last;if(active>1)overlaps+=static_cast<std::size_t>(tick-last);active+=delta;last=tick;}
-        row.id("section_id", id);
-        row.field("tick_start", start);
-        row.field("tick_end", stop);
-        row.field("clips_intersecting", clips);
-        row.field("visible_note_intersections", notes);
-        row.field("notes_per_quarter", static_cast<double>(notes) * ppq / static_cast<double>(stop - start));
-        row.field("note_activity_ticks", covered);
-        row.field("polyphonic_ticks", overlaps);
-        if (high >= 0) {
-          row.field("pitch_min", low);
-          row.field("pitch_max", high);
-        } else
-          row.raw("pitch_min", "null");
-        if(rows.size()>1)rows+=',';rows+=row.finish();};
+    auto section = [&](const Id &id, Tick start, Tick stop) {
+      Json row(4096);
+      std::size_t notes{}, clips{}, overlaps{};
+      Tick covered{};
+      int low = 128, high = -1;
+      std::vector<std::pair<Tick, int>> events;
+      for (std::size_t i = 0; i < clipLimit; ++i) {
+        check();
+        const auto &c = p.clips[i];
+        const auto begin = c.midi ? c.midi->start : time.to_ticks(c.start),
+                   end = c.midi ? c.midi->start + c.midi->length : time.to_ticks(c.start + c.length);
+        if (end <= start || begin >= stop)
+          continue;
+        ++clips;
+        if (c.midi)
+          for (const auto &n : c.midi->notes) {
+            if (++work > 131072) {
+              partial = true;
+              break;
+            }
+            if ((work & 255) == 0)
+              check();
+            const auto a = std::max(n.start, c.midi->source_offset),
+                       b = std::min(n.start + n.length, c.midi->source_offset + c.midi->length);
+            if (b <= a)
+              continue;
+            const auto s = std::max(start, c.midi->start + a - c.midi->source_offset),
+                       e = std::min(stop, c.midi->start + b - c.midi->source_offset);
+            if (e <= s)
+              continue;
+            ++notes;
+            low = std::min(low, n.pitch);
+            high = std::max(high, n.pitch);
+            events.emplace_back(s, 1);
+            events.emplace_back(e, -1);
+          }
+      }
+      std::sort(events.begin(), events.end());
+      int active{};
+      Tick last = start;
+      for (const auto &[tick, delta] : events) {
+        if (active > 0)
+          covered += tick - last;
+        if (active > 1)
+          overlaps += static_cast<std::size_t>(tick - last);
+        active += delta;
+        last = tick;
+      }
+      row.id("section_id", id);
+      row.field("tick_start", start);
+      row.field("tick_end", stop);
+      row.field("clips_intersecting", clips);
+      row.field("visible_note_intersections", notes);
+      row.field("notes_per_quarter", static_cast<double>(notes) * ppq / static_cast<double>(stop - start));
+      row.field("note_activity_ticks", covered);
+      row.field("polyphonic_ticks", overlaps);
+      if (high >= 0) {
+        row.field("pitch_min", low);
+        row.field("pitch_max", high);
+      } else
+        row.raw("pitch_min", "null");
+      if (rows.size() > 1)
+        rows += ',';
+      rows += row.finish();
+    };
     for(std::size_t i=0;i<sectionLimit;++i){const auto& s=p.sections[i];section(s.id,s.start,s.end);if(work>131072)break;}
     if(sectionLimit==0){Tick stop=ppq;for(std::size_t i=0;i<clipLimit;++i){const auto& c=p.clips[i];stop=std::max(stop,c.midi?c.midi->start+c.midi->length:time.to_ticks(c.start+c.length));}section({},0,stop);}rows+=']';
     std::string mix="[";for(std::size_t i=0;i<std::min<std::size_t>(p.tracks.size(),16);++i){check();const auto& t=p.tracks[i];Json row(2048);row.id("track_id",t.id);row.field("authored_gain_linear",t.mix.gain);row.field("authored_pan",t.mix.pan);row.field("mute",t.mix.mute);row.field("solo",t.mix.solo);row.id("output_track_id",t.output);row.field("send_count",t.sends.size());std::string sends="[";for(std::size_t s=0;s<std::min<std::size_t>(t.sends.size(),4);++s){const auto& value=t.sends[s];Json send(512);send.id("bus_id",value.bus);send.field("gain_linear",value.gain);send.field("pre_fader",value.pre_fader);send.field("bypass",value.bypass);if(sends.size()>1)sends+=',';sends+=send.finish();}sends+=']';row.raw("sends",sends);partial=partial||t.sends.size()>4;if(mix.size()>1)mix+=',';mix+=row.finish();}mix+=']';partial=partial||p.tracks.size()>16;

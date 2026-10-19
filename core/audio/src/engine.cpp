@@ -58,7 +58,10 @@ void AudioEngine::process_channel(std::size_t t) noexcept {
     for(std::uint32_t local=0;local<job_frames_;++local) {
         const auto at=static_cast<std::size_t>(local)*config_.output_channels;
         auto& tail=audition_tails_[t];const float auditionGain=owned&&tail.active?std::min(1.f,static_cast<float>(tail.remaining)/std::max(1U,tail.fade)):1.f;
-        if(owned&&tail.active&&tail.remaining)--tail.remaining;if(owned&&audition_live_busy_[t])--audition_live_busy_[t];
+        if (owned && tail.active && tail.remaining)
+          --tail.remaining;
+        if (owned && audition_live_busy_[t])
+          --audition_live_busy_[t];
         for(std::uint32_t c=0;c<config_.output_channels;++c) {
             track_block_[t][at+c]*=auditionGain;
             const auto sample=track_block_[t][at+c]*mix_gain_[t][c%2];
@@ -563,7 +566,10 @@ std::uint64_t AudioEngine::control_revision() const noexcept {
 }
 void AudioEngine::rebase_head(const RealtimeState& head) noexcept {
     rt_=head;metronome_.reset();pending_seek_.reset();pending_play_anchor_=false;reset_compensation();
-    if(graph_.processors)graph_.processors->reset_anticipation();if(graph_.master_inserts)graph_.master_inserts->reset_anticipation();
+    if (graph_.processors)
+      graph_.processors->reset_anticipation();
+    if (graph_.master_inserts)
+      graph_.master_inserts->reset_anticipation();
     for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.inserts[t])graph_.inserts[t]->reset_anticipation();
 }
 AudioEngine::MixHead AudioEngine::mix_head() const noexcept {
@@ -962,7 +968,10 @@ void AudioEngine::observe(std::uint64_t ns, std::uint32_t frames, std::uint32_t 
 void AudioEngine::set_profiling(bool enabled) noexcept {
     profile_->enabled.store(enabled,std::memory_order_relaxed);
     for(const auto& chain:graph_.inserts)if(chain)chain->set_profiling(enabled);
-    if(graph_.processors)graph_.processors->set_profiling(enabled);if(graph_.master_inserts)graph_.master_inserts->set_profiling(enabled);
+    if (graph_.processors)
+      graph_.processors->set_profiling(enabled);
+    if (graph_.master_inserts)
+      graph_.master_inserts->set_profiling(enabled);
 }
 EngineProfile AudioEngine::profile() const noexcept {EngineProfile p;p.enabled=profile_->enabled.load(std::memory_order_relaxed);p.channels=graph_.mixer.size();
     for(std::size_t i=0;i<p.channels;++i){p.device[i]=profile_->device[i].read();p.ahead[i]=profile_->ahead[i].read();}
