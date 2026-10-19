@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101923">
+  <meta name="description" content="MR Design Lab — визуальное редактирование адаптивных панелей MR Studio с библиотекой MR UDS.">
+  <title>MR Design Lab · Track Panel Editor</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" type="module"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><span class="moon"></span><span class="reflection"></span></div>
+      <div><div class="brand-title">MR <strong>DESIGN LAB</strong> <span class="version">01</span></div><div class="brand-subtitle">MOON RIVER · UNIFIED DESIGN SYSTEM</div></div>
+    </div>
+    <div class="header-center"><span class="header-indicator"></span> Track Panel / Layout Editor <span class="separator">/</span> <span class="muted">Independent prototype</span></div>
+    <div class="header-actions">
+      <span id="save-status" class="status-pill" role="status">Локальный черновик</span>
+      <button id="import-btn" class="button secondary" type="button">Импорт JSON</button>
+      <button id="export-btn" class="button primary" type="button">Экспорт макета <span aria-hidden="true">↗</span></button>
+      <input id="import-file" type="file" accept=".json,application/json" hidden>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <aside class="sidebar library-sidebar" aria-label="Библиотека SVG">
+      <div class="pane-header"><div><span class="eyebrow">ASSET LIBRARY</span><h2>MR UDS Kit</h2></div><span id="asset-count" class="count">—</span></div>
+      <div class="library-search"><span aria-hidden="true">⌕</span><input id="asset-search" type="search" placeholder="Найти SVG..." aria-label="Поиск SVG" autocomplete="off"></div>
+      <div id="category-tabs" class="category-tabs" role="group" aria-label="Категории SVG">
+        <button type="button" data-category="all" class="selected">Все</button>
+        <button type="button" data-category="icons">Иконки</button>
+        <button type="button" data-category="controls">Контролы</button>
+        <button type="button" data-category="rig">Rig</button>
+        <button type="button" data-category="reverb">Reverb</button>
+      </div>
+      <div class="library-hint">Выбери элемент на макете, затем нажми на SVG, чтобы применить его. Или перетащи SVG на макет для нового элемента.</div>
+      <div id="asset-grid" class="asset-grid" aria-live="polite"></div>
+      <div class="sidebar-footer"><span class="source-dot"></span><span id="asset-source">Подключение каталога…</span></div>
+    </aside>
+
+    <main class="editor-center">
+      <div class="editor-toolbar">
+        <div><div class="eyebrow">ARRANGEMENT · TRACK HEADER</div><h1>Адаптивная панель трека</h1><p>Три макета для трёх уровней высоты · без компиляции JUCE</p></div>
+        <button id="reset-btn" type="button" class="button ghost">Сбросить режим</button>
+      </div>
+      <div class="mode-switcher" role="tablist" aria-label="Режимы панели трека">
+        <button role="tab" type="button" data-mode="compact" class="mode-tab" aria-selected="false"><span class="mode-symbol compact-symbol" aria-hidden="true"></span><span><strong>Compact</strong><small>менее 84 px</small></span></button>
+        <button role="tab" type="button" data-mode="medium" class="mode-tab" aria-selected="false"><span class="mode-symbol medium-symbol" aria-hidden="true"></span><span><strong>Medium</strong><small>84–123 px</small></span></button>
+        <button role="tab" type="button" data-mode="expanded" class="mode-tab" aria-selected="false"><span class="mode-symbol expanded-symbol" aria-hidden="true"></span><span><strong>Expanded</strong><small>от 124 px</small></span></button>
+      </div>
+      <section class="canvas-panel" aria-label="Холст редактора">
+        <div class="canvas-toolbar">
+          <div class="canvas-caption"><span class="live-point"></span> LIVE PREVIEW <span class="divider">·</span> <span id="canvas-mode-label">TRACK / MEDIUM</span></div>
+          <div class="canvas-controls">
+            <label class="toggle-label"><input id="snap-toggle" type="checkbox" checked> Шаг 4 px</label>
+            <label class="toolbar-field">Высота <input id="track-height" type="range" min="40" max="360" value="112" step="1"> <output id="track-height-label">112 px</output></label>
+            <button id="zoom-fit" class="icon-btn" type="button" title="По размеру" aria-label="По размеру">⤢</button>
+          </div>
+        </div>
+        <div class="canvas-surface">
+          <div class="grid-backdrop" aria-hidden="true"></div>
+          <div class="stage-wrap">
+            <div class="ruler-row"><span>0</span><span>50</span><span>100</span><span>150</span><span>200</span><span>244 px</span></div>
+            <div class="stage-meta"><span>TRACK 01 <span class="muted">/ AUDIO</span></span><span id="stage-size">244 × 110</span></div>
+            <div id="track-stage" class="track-stage" tabindex="0" aria-label="Макет панели трека. Выбирайте и перетаскивайте элементы."></div>
+            <div class="stage-measure"><span>↔ 244 logical px</span><span id="stage-height-caption">↕ 110 px</span></div>
+          </div>
+        </div>
+        <div class="canvas-bottom"><span>Перетаскивай элементы · стрелки ±1 px · Shift+стрелка ±4 px · Delete для пользовательского SVG</span><span id="selected-counter">Нет выделения</span></div>
+      </section>
+      <section class="info-row">
+        <div class="info-icon">↕</div><div><strong>Адаптивное поведение сохранено.</strong><p>Высота панели следует за треком. Режим определяется существующими границами 84 / 124 px; макеты редактируются независимо. Предпросмотр иллюстративный: связь с реальным JUCE появится следующим этапом.</p></div>
+      </section>
+    </main>
+
+    <aside class="sidebar properties-sidebar" aria-label="Параметры элемента">
+      <div class="pane-header"><div><span class="eyebrow">INSPECTOR</span><h2>Свойства</h2></div><span class="inspector-icon">⌗</span></div>
+      <div id="empty-properties" class="empty-properties"><span class="empty-cursor">↖</span><strong>Выбери элемент</strong><p>Нажми на фейдер, кнопку, название трека или иконку на макете.</p></div>
+      <form id="properties-form" class="properties-form" hidden>
+        <div class="selection-heading"><span id="selection-dot" class="selection-dot"></span><div><strong id="selection-title">—</strong><small id="selection-type">—</small></div></div>
+        <div class="inspector-section"><h3>Геометрия <span>px</span></h3><div class="two-cols">
+          <label>X <input id="prop-x" type="number" step="1"></label><label>Y <input id="prop-y" type="number" step="1"></label>
+          <label>Ширина <input id="prop-w" type="number" min="8" max="244" step="1"></label><label>Высота <input id="prop-h" type="number" min="8" max="360" step="1"></label>
+        </div></div>
+        <div class="inspector-section"><h3>Отображение</h3>
+          <label class="check-line"><input id="prop-visible" type="checkbox"> Показывать в этом режиме</label>
+          <label class="full-label">Текст / подпись <input id="prop-label" type="text" maxlength="80" placeholder="Название элемента"></label>
+          <label class="full-label">Стиль фейдера <select id="prop-style"><option value="micro">Micro</option><option value="slide">Slide</option><option value="precision">Precision</option></select></label>
+          <label class="full-label">SVG из каталога <select id="prop-asset"><option value="">Без SVG</option></select></label>
+        </div>
+        <div class="inspector-section"><h3>Действия</h3><div class="inspector-actions"><button type="button" id="duplicate-btn" class="button secondary">Дублировать</button><button type="button" id="delete-btn" class="button danger">Удалить</button></div></div>
+      </form>
+      <div class="right-footer"><span class="eyebrow">LAYOUT DATA</span><p>Все изменения автоматически сохраняются в этом браузере. Экспорт JSON не затрагивает код, аудиодвижок и принятые интерфейсы.</p><button id="restore-all-btn" class="text-button" type="button">Восстановить все три макета</button></div>
+    </aside>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
