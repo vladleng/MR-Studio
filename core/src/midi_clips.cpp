@@ -21,7 +21,8 @@ Sample free_copy_start(const Project& p,const Clip& source){
     for(std::size_t attempt=0;attempt<p.clips.size()+p.time.meters.size()+2;++attempt){
         const auto begin=time.to_ticks(MusicalPosition{bar,1,0}),next=time.to_ticks(MusicalPosition{bar+1,1,0});
         if(offset>=next-begin){auto meter=std::find_if(p.time.meters.begin(),p.time.meters.end(),[&](const auto& m){return m.bar>bar;});if(meter==p.time.meters.end())break;bar=meter->bar;continue;}
-        if(begin>max_tick-offset)break;const auto targetTick=begin+offset;
+        if(begin>max_tick-offset){break;}
+        const auto targetTick=begin+offset;
         const auto target=time.to_samples(targetTick)+remainder;
         if(target>max_sample||(source.midi&&targetTick>max_tick-source.midi->length)||(!source.midi&&target>max_sample-source.length))break;
         const auto copyEnd=source.midi?time.to_samples(targetTick+source.midi->length):target+source.length;
@@ -71,7 +72,8 @@ void trim_midi_source(MidiClip& m,Tick start,Tick end){
     if(offset<0){const auto prefix=-offset;
         for(const auto& n:m.notes)if(n.start>max_tick-n.length-prefix)throw std::invalid_argument("MIDI prefix exceeds note range");
         for(const auto& e:m.events)if(e.start>max_tick-prefix)throw std::invalid_argument("MIDI prefix exceeds event range");
-        for(auto& n:m.notes)n.start+=prefix;for(auto& e:m.events)e.start+=prefix;
+        for(auto& n:m.notes){n.start+=prefix;}
+        for(auto& e:m.events){e.start+=prefix;}
     }
     m.source_offset=std::max(Tick{0},offset);m.start=start;m.length=end-start;
 }
@@ -83,7 +85,8 @@ void MergeMidiClips::apply(Project& p) const {
     for(const auto& id:ids_){
         if(std::any_of(sources.begin(),sources.end(),[&](const auto& c){return c.id==id;}))throw std::invalid_argument("duplicate merge source");
         const auto at=midi_clip(p,id);insertion=std::min(insertion,static_cast<std::size_t>(at-p.clips.begin()));
-        if(!sources.empty()&&at->track!=sources.front().track)throw std::invalid_argument("Merge MIDI clips needs one track");sources.push_back(*at);
+        if(!sources.empty()&&at->track!=sources.front().track){throw std::invalid_argument("Merge MIDI clips needs one track");}
+        sources.push_back(*at);
     }
     instrument(p,sources.front().track);
     if(std::any_of(p.clips.begin(),p.clips.end(),[&](const auto& c){return c.id==merged_;}))throw std::invalid_argument("merge ID already exists");
