@@ -9,6 +9,7 @@ const $ = (id) => document.getElementById(id);
 const stage = $('track-stage');
 const canvas = document.querySelector('.canvas-surface');
 const stageWrap = document.querySelector('.stage-wrap');
+const stageFrame = $('stage-frame');
 const properties = $('properties-form');
 const initial = () => ({
   schemaVersion:1,
@@ -321,13 +322,14 @@ function setMode(key){
   renderStage();renderProperties();applyFit();
 }
 function applyFit(){
-  // Show a legible, enlarged track header, rather than a tiny native-size strip
-  // lost in the editor's grid. Limit to the available visible canvas area.
+  // Keep the resized stage inside the canvas via a separate flow-space frame.
+  // Pointer movement remains correct because it reads the actual rendered bounds.
   const r=canvas.getBoundingClientRect();
-  const widthFit=Math.max(.6,(r.width-65)/280);
-  const heightFit=Math.max(.6,(r.height-85)/(profile().height+65));
-  const scale=Math.min(1.8,widthFit,heightFit);
-  stageWrap.style.zoom=String(Math.max(.6,scale));
+  const height=stageWrap.offsetHeight||profile().height+65;
+  const scale=clamp(Math.min(2,(r.width-70)/280,(r.height-75)/height),.6,2);
+  stageWrap.style.transform='scale('+scale+')';
+  stageFrame.style.width=Math.ceil(280*scale)+'px';
+  stageFrame.style.height=Math.ceil(height*scale)+'px';
 }
 document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
 $('track-height').addEventListener('input',event=>{

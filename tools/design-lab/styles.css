@@ -14,3 +14,8 @@
 .canvas-surface{align-items:flex-start;justify-content:center;padding:18px 25px 28px}
 .stage-wrap{display:block;position:relative;z-index:2;flex:0 0 auto;width:280px;max-width:none;margin:12px auto 0}
 @media(max-width:520px){.canvas-surface{padding:14px 12px 22px}}
+
+/* CSS zoom is unreliable in some Chromium browsers. Reserve actual space for the transformed preview. */
+.canvas-surface{display:block;overflow:auto;min-height:290px;padding:18px 22px 35px}
+.stage-frame{position:relative;box-sizing:content-box;display:block;width:280px;height:200px;max-width:none;min-width:0;margin:14px auto 0}
+.stage-frame .stage-wrap{position:absolute;top:0;left:0;display:block;width:280px;max-width:none;margin:0;transform-origin:0 0;zoom:normal!important}
