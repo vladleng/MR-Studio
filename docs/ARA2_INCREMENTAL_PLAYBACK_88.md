@@ -35,8 +35,18 @@ NULL range законен: хост не может угадать внутре�
 В этом случае пересчитывается затронутый source/region целиком; другие source
 кэши могут переиспользоваться. Поэтому popup на тяжёлой реальной правке всё ещё
 возможен, и общий пункт бесшовного playback остаётся открытым до vendor проверки.
-Статус Ready в tooltip содержит full/partial/reused/frames последней подготовки
-общего документа — для проверки фактического использования оптимизации.
+После ручной проверки 2026-10-19: пользователь не наблюдает ускорения, окно
+подготовки сохраняется; vendor seamlessness не принята. Исходная подсказка
+Ready не показывалась, поскольку в ARA panel не было TooltipWindow.
+Диагностика последней подготовки общего документа теперь видна прямо под
+кнопками: full/partial/reused/frames/ms и Update cause. Подсказка также подключена.
+Причины: model/cache changed, VST parameter, analysis, VST restart, host refresh,
+off-thread notification, no precise range, context/tail, latency changed.
+При pending/Play панель сохраняет последнюю успешную статистику; отменённый
+или провалившийся рендер её не заменяет. Причины глобальной инвалидации считаются
+монотонными atomic counters и сравниваются с baseline успешного cache commit:
+отмена/ошибка не теряет события. Диагностика не меняет audio invalidation policy,
+DSP, время появления progress или формат проекта и не решает стоимость full render.
 
 При Play не включается автоматический bypass. Host power/update/remove controls
 заблокированы, статус явно показывает ARA ON либо ARA BYPASSED. Звучит PCM cache.
