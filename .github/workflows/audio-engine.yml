@@ -52,7 +52,7 @@ jobs:
         id: test
         shell: pwsh
         run: |
-          $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit','tests.xml')
+          $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
           if($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(model|transport|commands|serialization)|ai_.*|ara_.*|juce_(j1_smoke|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording))$')}
           & ctest @args
           if($LASTEXITCODE){throw 'CTest failed; full integration never excludes known failures'}
