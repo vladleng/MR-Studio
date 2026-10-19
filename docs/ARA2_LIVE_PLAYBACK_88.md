@@ -27,8 +27,7 @@ latency не реализована. Структурные правки и VST 
 Сохранённый PCM/нулевой geometry placeholder в live mode служит только для
 соответствия voice/clip и не подмешивается к live output. Engine использует
 ровно один источник: renderer вместо asset. Fades/routes/mixer применяются
-после него прежним путём. EditorRenderer audition по-прежнему не подключён
-к выходу; это изменение не добавляет предпрослушку перетаскиваемой ноты.
+после него прежним путём. Отдельный follow-up EditorRenderer audition реализован локально `92e5c06` и описан в [ARA2_EDITOR_AUDITION_88.md](ARA2_EDITOR_AUDITION_88.md); vendor-приёмка preview ожидается, второй playback voice не добавляется.
 
 ## RT и lifetime
 
