@@ -34,7 +34,14 @@ constexpr std::string_view query_schema=R"({"type":"object","additionalPropertie
 bool utf8(std::string_view s){
     for(std::size_t i=0;i<s.size();){const auto a=static_cast<unsigned char>(s[i++]);if(a<128)continue;unsigned n{},cp{};
         if(a>=0xC2 && a<=0xDF){n=1;cp=a&31;}else if(a>=0xE0 && a<=0xEF){n=2;cp=a&15;}else if(a>=0xF0 && a<=0xF4){n=3;cp=a&7;}else return false;
-        if(n>s.size()-i)return false;for(unsigned j=0;j<n;++j){const auto b=static_cast<unsigned char>(s[i++]);if((b&0xC0)!=0x80)return false;cp=(cp<<6)|(b&63);}
+        if (n > s.size() - i)
+          return false;
+        for (unsigned j = 0; j < n; ++j) {
+          const auto b = static_cast<unsigned char>(s[i++]);
+          if ((b & 0xC0) != 0x80)
+            return false;
+          cp = (cp << 6) | (b & 63);
+        }
         if((n==1 && cp<128)||(n==2 && cp<2048)||(n==3 && cp<65536)||cp>0x10FFFF||(cp>=0xD800 && cp<=0xDFFF))return false;
     }return true;
 }
@@ -186,26 +193,66 @@ DecodedTool decode_tool_call(std::string_view bytes){try{
         q.clip=optional_id(args,"clip_id");if(args.object.contains("cursor")){const auto n=integer(member(args,"cursor"));require(n>=0&&n<=65536);q.cursor=static_cast<std::size_t>(n);}if(args.object.contains("limit")){const auto n=integer(member(args,"limit"));require(n>=1&&n<=256);q.limit=static_cast<std::size_t>(n);}call.arguments=std::move(q);break;}
     case ToolKind::open_ara_editor:case ToolKind::attach_ara:case ToolKind::set_ara_bypass:case ToolKind::remove_ara:case ToolKind::reanalyse_ara:{
         if(call.tool==ToolKind::attach_ara)fields(args,{"clip_id","plugin_id"});else if(call.tool==ToolKind::set_ara_bypass)fields(args,{"clip_id","bypass"});else fields(args,{"clip_id"});AraArgs a;a.clip=id(member(args,"clip_id"));
-        if(call.tool==ToolKind::attach_ara)a.plugin=id(member(args,"plugin_id"));if(call.tool==ToolKind::set_ara_bypass){const auto& v=member(args,"bypass");require(v.kind==Value::Kind::boolean);a.bypass=v.boolean;}call.arguments=std::move(a);break;}
+        if (call.tool == ToolKind::attach_ara)
+          a.plugin = id(member(args, "plugin_id"));
+        if (call.tool == ToolKind::set_ara_bypass) {
+          const auto &v = member(args, "bypass");
+          require(v.kind == Value::Kind::boolean);
+          a.bypass = v.boolean;
+        }
+        call.arguments = std::move(a);
+        break;
+    }
     case ToolKind::midi_draft:{fields(args,{"mode","track_id","clip_id","name","tick_start","tick_end","notes","cc"});MidiDraftArgs a;const auto mode=string(member(args,"mode"));require(mode=="insert"||mode=="replace"||mode=="edit");a.mode=mode=="insert"?MidiDraftMode::insert:mode=="replace"?MidiDraftMode::replace:MidiDraftMode::edit;a.track=optional_id(args,"track_id");a.clip=optional_id(args,"clip_id");if(args.object.contains("name"))a.name=string(member(args,"name"));a.start=integer(member(args,"tick_start"));a.end=integer(member(args,"tick_end"));
         auto number=[&](const Value& v){const auto n=integer(v);require(n>=0&&n<=127);return static_cast<int>(n);};
         const auto& notes=member(args,"notes");const auto& events=member(args,"cc");require(notes.kind==Value::Kind::array&&events.kind==Value::Kind::array);
         for(const auto& n:notes.array){fields(n,{"id","start","duration","pitch","velocity","channel"});a.notes.push_back({optional_id(n,"id"),integer(member(n,"start")),integer(member(n,"duration")),number(member(n,"pitch")),number(member(n,"velocity")),number(member(n,"channel"))});}
         for(const auto& e:events.array){fields(e,{"id","start","controller","value","channel"});a.cc.push_back({optional_id(e,"id"),integer(member(e,"start")),number(member(e,"controller")),number(member(e,"value")),number(member(e,"channel"))});}
-        if(a.mode!=MidiDraftMode::insert)require(!args.object.contains("name"));validate_draft(a);call.arguments=std::move(a);break;}
+        if (a.mode != MidiDraftMode::insert)
+          require(!args.object.contains("name"));
+        validate_draft(a);
+        call.arguments = std::move(a);
+        break;
+    }
     case ToolKind::add_marker:fields(args,{"name","tick"});call.arguments=MarkerAddArgs{string(member(args,"name")),integer(member(args,"tick"))};break;
     case ToolKind::rename_marker:fields(args,{"marker_id","name"});call.arguments=MarkerRenameArgs{id(member(args,"marker_id")),string(member(args,"name"))};break;
     case ToolKind::set_selection:{fields(args,{"entities","sample_start","sample_end"});SelectionArgs s;const auto& values=member(args,"entities");require(values.kind==Value::Kind::array);
         for(const auto& value:values.array){fields(value,{"kind","id"});const auto kind=string(member(value,"kind"));const std::array<std::string_view,6> names{"track","folder","clip","chord","section","marker"};const auto at=std::find(names.begin(),names.end(),kind);require(at!=names.end());s.entities.push_back({static_cast<EntityKind>(at-names.begin()),id(member(value,"id"))});}
-        if(args.object.contains("sample_start") || args.object.contains("sample_end"))s.range=LoopRange{integer(member(args,"sample_start")),integer(member(args,"sample_end"))};call.arguments=std::move(s);break;}
+        if (args.object.contains("sample_start") || args.object.contains("sample_end"))
+          s.range = LoopRange{integer(member(args, "sample_start")), integer(member(args, "sample_end"))};
+        call.arguments = std::move(s);
+        break;
+    }
     case ToolKind::transpose_notes:case ToolKind::set_note_velocity:{const auto value_name=call.tool==ToolKind::transpose_notes?"semitones":"velocity";fields(args,{"clip_id","note_ids",value_name});MidiArgs m;m.clip=id(member(args,"clip_id"));const auto& values=member(args,"note_ids");require(values.kind==Value::Kind::array);for(const auto& value:values.array)m.notes.push_back(id(value));const auto number=integer(member(args,value_name));require(number>=-24 && number<=127);m.value=static_cast<int>(number);call.arguments=std::move(m);break;}
     case ToolKind::query:{fields(args,{"query","id","track_id","clip_id","plugin_id","master","selected_only","cursor","limit","tick_start","tick_end"});Query q;bool found{};const auto name=string(member(args,"query"));
-        for(int n=0;n<=static_cast<int>(QueryKind::ara_status);++n)if(query_name(static_cast<QueryKind>(n))==name){q.kind=static_cast<QueryKind>(n);found=true;break;}if(!found)return {Error::unsupported,{}};
-        q.id=optional_id(args,"id");q.track=optional_id(args,"track_id");q.clip=optional_id(args,"clip_id");q.plugin=optional_id(args,"plugin_id");
-        for(const auto flag:{"master","selected_only"})if(args.object.contains(flag)){const auto& v=member(args,flag);require(v.kind==Value::Kind::boolean);if(std::string_view(flag)=="master")q.master=v.boolean;else q.selected_only=v.boolean;}
+      for (int n = 0; n <= static_cast<int>(QueryKind::ara_status); ++n)
+        if (query_name(static_cast<QueryKind>(n)) == name) {
+          q.kind = static_cast<QueryKind>(n);
+          found = true;
+          break;
+        }
+      if (!found)
+        return {Error::unsupported, {}};
+      q.id = optional_id(args, "id");
+      q.track = optional_id(args, "track_id");
+      q.clip = optional_id(args, "clip_id");
+      q.plugin = optional_id(args, "plugin_id");
+      for (const auto flag : {"master", "selected_only"})
+        if (args.object.contains(flag)) {
+          const auto &v = member(args, flag);
+          require(v.kind == Value::Kind::boolean);
+          if (std::string_view(flag) == "master")
+            q.master = v.boolean;
+          else
+            q.selected_only = v.boolean;
+        }
         if(args.object.contains("cursor")){const auto n=integer(member(args,"cursor"));require(n>=0 && n<=65536);q.cursor=static_cast<std::size_t>(n);}
         if(args.object.contains("limit")){const auto n=integer(member(args,"limit"));require(n>=1 && n<=256);q.limit=static_cast<std::size_t>(n);}
-        if(args.object.contains("tick_start") || args.object.contains("tick_end"))q.ticks={{integer(member(args,"tick_start")),integer(member(args,"tick_end"))}};call.arguments=std::move(q);break;}
+        if (args.object.contains("tick_start") || args.object.contains("tick_end"))
+          q.ticks = {{integer(member(args, "tick_start")), integer(member(args, "tick_end"))}};
+        call.arguments = std::move(q);
+        break;
+    }
     }
     // Reject schema-level bounds here; domain/reference checks are repeated at prepare/query.
     if(call.tool==ToolKind::add_marker){const auto& a=std::get<MarkerAddArgs>(call.arguments);require(text_ok(a.name,4096) && a.tick>=0 && a.tick<=max_tick);}

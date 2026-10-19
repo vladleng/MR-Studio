@@ -47,7 +47,15 @@ jobs:
         run: ./tools/ci/Configure-Windows.ps1 -Ara:($env:ARA -eq 'true')
       - name: Build Release
         id: build
-        run: cmake --build build/windows --config Release --parallel 2
+        shell: pwsh
+        run: |
+          $args=@('--build','build/windows','--config','Release','--parallel','2')
+          if($env:INTEGRATION -ne 'true'){
+            $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests')
+            if($env:ARA -eq 'true'){$args+=@('mrs_ara_tests','mrs_ara_clip_tests','mrs_ai_ara_tests')}
+          }
+          & cmake @args
+          if($LASTEXITCODE){throw 'Release build failed'}
       - name: Test profile
         id: test
         shell: pwsh

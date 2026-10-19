@@ -37,8 +37,10 @@ void inserts() {
     marker_colors();
     using namespace mrs;
     auto p=demo_project(); const auto track=p.tracks.front().id; ProjectStore store{p};
-    NativeInsert gain{new_id(),InsertKind::gain,0.5f}, eq{new_id(),InsertKind::eq,6,1000,1};
-    store.execute(SetInserts{track,{gain,eq}}); store.execute(SetInserts{std::nullopt,{NativeInsert{new_id(),InsertKind::highpass}}});
+    NativeInsert gain{};gain.id=new_id();gain.gain=.5f;
+    NativeInsert eq{};eq.id=new_id();eq.kind=InsertKind::eq;eq.gain=6;eq.frequency=1000;eq.q=1;
+    NativeInsert highpass{};highpass.id=new_id();highpass.kind=InsertKind::highpass;
+    store.execute(SetInserts{track,{gain,eq}}); store.execute(SetInserts{std::nullopt,{highpass}});
     const auto saved=*store.state().project; CHECK(deserialize(serialize(saved)) == saved);
     CHECK(store.undo() && store.state().project->master_inserts.empty()); CHECK(store.undo() && *store.state().project == p);
     CHECK(store.redo() && store.redo() && *store.state().project == saved);
@@ -70,7 +72,7 @@ void inserts() {
     badReverb=reverb;badReverb.reverb.gate_threshold=-59;rejects([&]{badReverb.validate();});
     CHECK(store.undo());CHECK(store.undo());CHECK(*store.state().project==saved);
     p.tracks.push_back({new_id(),"MIDI",TrackKind::midi,{}}); ProjectStore midi{p}; rejects([&] { midi.execute(SetInserts{p.tracks.back().id,{gain}}); });
-    std::vector<NativeInsert> excess; for (int n=0;n<9;++n) excess.push_back({new_id()}); rejects([&] { store.execute(SetInserts{track,excess}); });
+    std::vector<NativeInsert> excess; for (int n=0;n<9;++n){NativeInsert insert{};insert.id=new_id();excess.push_back(insert);} rejects([&] { store.execute(SetInserts{track,excess}); });
     auto legacy=without_midi_outputs(serialize(demo_project())); const std::string clipMidi="MIDI 0\nMIDIEVENTS 0\n";for(auto pos=legacy.find(clipMidi);pos!=std::string::npos;pos=legacy.find(clipMidi))legacy.erase(pos,clipMidi.size()); const std::string midiLine="\"\" -1 1\n";for(auto pos=legacy.find(midiLine);pos!=std::string::npos;pos=legacy.find(midiLine))legacy.erase(pos,midiLine.size()); legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 14").size(),"MRS_CORE_SNAPSHOT 7");
     const std::string line="INSERTS 0\n"; for (auto pos=legacy.find(line);pos!=std::string::npos;pos=legacy.find(line)) legacy.erase(pos,line.size());
     CHECK(deserialize(legacy) == demo_project());
