@@ -514,7 +514,10 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
         auto* row=find(strip);check(row!=nullptr,"mixer insert row found by stable slot identity");return row;
     };
     const auto beforeReorder=*d.project();
-    juce::DragAndDropTarget::SourceDetails trackDrop("mrs-track:"+juce::String(first.value),d.arrangement->rows[0].get(),{130,300});
+    const auto targetBounds=d.mixer[2]->getLocalBounds();
+    juce::DragAndDropTarget::SourceDetails outsideDrop("mrs-track:"+juce::String(first.value),d.arrangement->rows[0].get(),{targetBounds.getRight()+1,targetBounds.getCentreY()});
+    d.mixer[2]->itemDropped(outsideDrop);pump();check(*d.project()==beforeReorder,"outside mixer drop cannot reorder tracks");
+    juce::DragAndDropTarget::SourceDetails trackDrop("mrs-track:"+juce::String(first.value),d.arrangement->rows[0].get(),{targetBounds.getRight()-2,targetBounds.getCentreY()});
     check(d.mixer[2]->isInterestedInDragSource(trackDrop),"mixer accepts track drag from arrangement");d.mixer[2]->itemDropped(trackDrop);pump();
     check(d.project()->tracks.back().id==first&&d.mixer.back()->target==first&&d.arrangement->rows.back()->target==first,"reorder synchronizes both views");
     check(d.project()->clips==beforeReorder.clips,"reorder retains clip identities and positions");d.action(10);check(*d.project()==beforeReorder,"reorder undo");
