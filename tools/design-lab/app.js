@@ -321,9 +321,13 @@ function setMode(key){
   renderStage();renderProperties();applyFit();
 }
 function applyFit(){
+  // Show a legible, enlarged track header, rather than a tiny native-size strip
+  // lost in the editor's grid. Limit to the available visible canvas area.
   const r=canvas.getBoundingClientRect();
-  const scale=Math.min(1,(r.width-50)/280,(r.height-60)/(profile().height+70));
-  stageWrap.style.zoom=String(Math.max(.4,scale));
+  const widthFit=Math.max(.6,(r.width-65)/280);
+  const heightFit=Math.max(.6,(r.height-85)/(profile().height+65));
+  const scale=Math.min(1.8,widthFit,heightFit);
+  stageWrap.style.zoom=String(Math.max(.6,scale));
 }
 document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
 $('track-height').addEventListener('input',event=>{
