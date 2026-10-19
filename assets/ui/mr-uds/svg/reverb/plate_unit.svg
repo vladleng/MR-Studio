@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+<title>MR Studio GUI element</title>
+<rect x="44" y="37" width="232" height="126" rx="8" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="57" y="49" width="206" height="102" rx="3" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="65" cy="57" r="5" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="255" cy="57" r="5" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="65" cy="143" r="5" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="255" cy="143" r="5" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="77" y1="100" x2="244" y2="100" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M82 66 Q155 50 237 66" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M82 80 Q155 64 237 80" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M82 94 Q155 78 237 94" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M82 108 Q155 92 237 108" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M82 122 Q155 106 237 122" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M82 136 Q155 120 237 136" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="160" y="175" font-family="Inter,Segoe UI,sans-serif" font-size="9" fill="#DAE5F4" text-anchor="middle" font-weight="400" letter-spacing="2">PLATE</text>
+</svg>

@@ -1,3 +1,7 @@
+# Актуальный указатель — 2026-10-19
+
+Онлайн-разработка, source baseline0.6 upd1/618c3b5. GitHub main — основа документации. См. [передачу](ONLINE_DEVELOPMENT_0_6_UPD1.md), [правила](../AGENTS.md) и [#88](https://github.com/vladleng/MR-Studio/issues/88). P1–P5 ARA приняты; #240 Render and Restore — ТЗ, код не начат; #239 GUI regression вне ARA. Исторические сводки ниже не заменяют актуальные Issues.
+
 # MR Studio: текущий контекст разработки
 
 ## MR Rig is sole guitar direction — #182 superseded, 2026-10-15

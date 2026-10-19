@@ -108,10 +108,13 @@ class Plugin final : public IProcessor, public IComponentHandler, public IPlugFr
     uint32 latency_{};bool active_{},processing_{};
     std::optional<std::size_t> index(ParamID id) const noexcept{auto it=parameter_index_.find(id);return it==parameter_index_.end()?std::nullopt:std::optional<std::size_t>{it->second};}
 public:
-    explicit Plugin(const NodeState& node):uid_(node.plugin.class_id){
+    explicit Plugin(const NodeState& node,bool instrument_only=false):uid_(node.plugin.class_id){
         std::string error;module_=VST3::Hosting::Module::create(node.processor_id,error);if(!module_)throw std::runtime_error("Cannot load VST3: "+error);
         auto factory=module_->getFactory();factory.setHostContext(&host());PluginContextFactory::instance().setPluginContext(&host());
-        for(const auto& info:factory.classInfos())if(info.category()==kVstAudioEffectClass && info.ID().toString()==uid_)provider_=std::make_unique<PlugProvider>(factory,info,true);
+        for(const auto& info:factory.classInfos())if(info.category()==kVstAudioEffectClass && info.ID().toString()==uid_){
+            if(instrument_only&&std::find(info.subCategories().begin(),info.subCategories().end(),"Instrument")==info.subCategories().end())throw std::runtime_error("Choose a VST3 instrument; effects can be dropped onto existing channels");
+            provider_=std::make_unique<PlugProvider>(factory,info,true);
+        }
         if(!provider_ || !provider_->initialize())throw std::runtime_error("VST3 component/controller initialization failed: "+uid_);
         component_=provider_->getComponentPtr();controller_=provider_->getControllerPtr();processor_=FUnknownPtr<IAudioProcessor>(component_);
         if(!processor_ || !controller_)throw std::runtime_error("VST3 requires audio processor and controller");
@@ -206,13 +209,15 @@ public:
         data_.numSamples=static_cast<int32>(block.frames);
         context_.projectTimeSamples=block.position;context_.tempo=block.tempo;context_.projectTimeMusic=block.quarter;
         context_.state=(block.playing?Vst::ProcessContext::kPlaying:0)|Vst::ProcessContext::kTempoValid|Vst::ProcessContext::kProjectTimeMusicValid;
+        if(block.meter.valid){context_.timeSigNumerator=block.meter.numerator;context_.timeSigDenominator=block.meter.denominator;context_.barPositionMusic=block.meter.bar_quarter;context_.state|=Vst::ProcessContext::kTimeSigValid|Vst::ProcessContext::kBarPositionValid;}
         if(!safe_process(processor_,&data_)){fault_=true;return;}
         for(std::uint32_t f=0;f<block.frames;++f)for(int32 c=0;c<data_.outputs[0].numChannels;++c){const auto v=(data_.outputs[0].silenceFlags&(uint64{1}<<c))?0.f:data_.outputs[0].channelBuffers32[c][f];block.audio[static_cast<std::size_t>(f)*block.channels+c]=std::isfinite(v)?v:0;}
         context_.projectTimeSamples+=block.frames;
     }
 };
 }
-std::vector<VstPlugin> probe_vst3(const std::string& path){std::string error;auto m=VST3::Hosting::Module::create(path,error);if(!m)throw std::runtime_error(error);std::vector<VstPlugin> list;for(const auto& c:m->getFactory().classInfos())if(c.category()==kVstAudioEffectClass)list.push_back({path,c.ID().toString(),c.name(),c.vendor(),c.version()});return list;}
+std::vector<VstPlugin> probe_vst3(const std::string& path){std::string error;auto m=VST3::Hosting::Module::create(path,error);if(!m)throw std::runtime_error(error);std::vector<VstPlugin> list;for(const auto& c:m->getFactory().classInfos())if(c.category()==kVstAudioEffectClass)list.push_back({path,c.ID().toString(),c.name(),c.vendor(),c.version(),std::find(c.subCategories().begin(),c.subCategories().end(),"Instrument")!=c.subCategories().end()});return list;}
 std::unique_ptr<IProcessor> vst3_factory(const NodeState& node){return std::make_unique<Plugin>(node);}
+std::unique_ptr<IProcessor> vst3_instrument_factory(const NodeState& node){return std::make_unique<Plugin>(node,true);}
 std::unique_ptr<IProcessor> hosted_factory(const NodeState& node){return node.format==ProcessorFormat::vst3?vst3_factory(node):native_factory(node);}
 }

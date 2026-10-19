@@ -38,11 +38,41 @@ void transitions(){
  MidiRecorder cut(0);cut.capture(0,{0,MidiKind::note_on,0,60,100});cut.capture(100,{0,MidiKind::cc,0,64,127});cut.cut(24000);cut.advance(48000);const auto result=cut.finish(Timeline(TimeMap{},48000));CHECK(result.notes.front().length==ppq&&result.events.back().data2==0&&result.events.back().start==ppq);
  MidiRecorder instant(0);instant.capture(0,{0,MidiKind::note_on,0,60,100});instant.capture(0,{0,MidiKind::note_off,0,60,0});instant.advance(128);CHECK(instant.finish(Timeline(TimeMap{},48000)).notes.empty());
 }
+void precount_poll(){
+ for(const unsigned bars:{1U,2U})for(const bool cancel:{false,true}){
+  Directory dir;Application app;app.new_project();const auto keys=app.add_instrument_track("Count poll");app.set_midi_input(keys,"fixture:unavailable",-1,false);app.set_track_armed(keys,true);
+  app.connect(std::make_unique<Device>(),{0,48000,128,{}, {0,1}});std::array<float,256> output{};app.seek(192000);app.engine()->process(nullptr,output.data(),128);auto click=app.click_settings();click.count_bars=bars;app.set_click_settings(click);app.start_recording(dir.path/"unused.wav");
+  for(unsigned block=0;block<bars*750;++block){app.engine()->process(nullptr,output.data(),128);app.poll();CHECK(app.recording());if(cancel&&block==bars*750-2){CHECK(app.engine()->enqueue({ControlKind::pause}));app.engine()->process(nullptr,output.data(),128);app.poll();CHECK(!app.recording()&&app.services().projects->state().project->clips.empty());break;}}
+  if(!cancel){CHECK(app.engine()->state().playback==PlaybackState::playing);CHECK(app.engine()->enqueue_live_midi({app.engine()->midi_generation(),0,{0,MidiKind::note_on,0,60,100}}));app.engine()->process(nullptr,output.data(),128);app.poll();CHECK(app.recording());CHECK(app.engine()->enqueue({ControlKind::pause}));app.engine()->process(nullptr,output.data(),128);app.poll();CHECK(!app.recording()&&app.services().projects->state().project->clips.size()==1);}
+  app.disconnect();
+ }
+}
+void prerecord(){
+ Directory dir;Application app;app.new_project();const auto keys=app.add_instrument_track("Early keys");app.set_midi_input(keys,"fixture:unavailable",-1,false);app.set_track_armed(keys,true);
+ const auto audio=app.add_audio_track("Early raw");app.set_track_input(audio,0);app.set_track_armed(audio,true);
+ app.connect(std::make_unique<Device>(),{0,48000,128,{0},{0,1}});std::array<float,128> input;input.fill(.125f);std::array<float,256> output{};
+ app.seek(192000);app.engine()->process(input.data(),output.data(),128);auto click=app.click_settings();click.count_bars=1;app.set_click_settings(click);
+ app.start_recording(dir.path/"early.wav");const auto generation=app.engine()->midi_generation();
+ for(int block=0;block<750;++block){if(block==100)CHECK(app.engine()->enqueue_live_midi({generation,0,{0,MidiKind::note_on,0,60,100}}));probe=true;app.engine()->process(input.data(),output.data(),128);probe=false;CHECK(allocations==0);app.poll();CHECK(app.recording());}
+ CHECK(app.engine()->state().sample==192000&&app.engine()->state().count_remaining==0);CHECK(app.recording_start()==192000);
+ app.engine()->process(input.data(),output.data(),128);CHECK(app.engine()->enqueue_live_midi({generation,0,{0,MidiKind::note_off,0,60,0}}));app.engine()->process(input.data(),output.data(),128);
+ CHECK(app.audio_recording_preview().front().clip.start==192000&&app.audio_recording_preview().front().clip.source_offset==96000);
+ CHECK(app.stop_recording());const auto recorded=*app.services().projects->state().project;CHECK(recorded.clips.size()==2);
+ const auto midi=std::find_if(recorded.clips.begin(),recorded.clips.end(),[](const auto& c){return c.midi.has_value();});const auto raw=std::find_if(recorded.clips.begin(),recorded.clips.end(),[](const auto& c){return !c.midi;});
+ CHECK(raw->start==192000&&raw->source_offset==96000&&raw->length==256);CHECK(midi->midi->start==8*ppq&&midi->midi->source_offset==4*ppq&&midi->midi->notes.size()==1);CHECK(midi->midi->notes.front().start<midi->midi->source_offset);
+ const auto wave=open_wav(dir.path/"early.wav");CHECK(wave.frames()==96256&&wave.samples.front()==.125f&&wave.samples.back()==.125f);
+ CHECK(app.undo()&&app.services().projects->state().project->clips.empty());CHECK(app.redo()&&*app.services().projects->state().project==recorded);CHECK(deserialize(serialize(recorded))==recorded);
+ app.services().projects->execute(TrimMidiClip{midi->id,4*ppq,midi->midi->start+midi->midi->length});CHECK(app.services().projects->state().project->clips.back().midi->source_offset==0);
+ app.undo();const auto file=dir.path/"early.mrsproject";app.save_project(file);app.open_project(file);const auto loaded=app.services().projects->state().project;const auto restored=std::find_if(loaded->clips.begin(),loaded->clips.end(),[](const auto& c){return c.midi.has_value();});CHECK(restored!=loaded->clips.end()&&restored->midi==midi->midi);
+ app.set_track_armed(keys,true);app.set_track_armed(audio,true);app.connect(std::make_unique<Device>(),{0,48000,128,{0},{0,1}});app.seek(192000);app.engine()->process(input.data(),output.data(),128);const auto clips_before=loaded->clips.size();app.start_recording(dir.path/"cancel.wav");app.engine()->process(input.data(),output.data(),128);CHECK(!app.stop_recording()&&app.services().projects->state().project->clips.size()==clips_before);
+ app.seek(0);app.engine()->process(input.data(),output.data(),128);app.start_recording(dir.path/"zero.wav");for(int block=0;block<751;++block)app.engine()->process(input.data(),output.data(),128);CHECK(app.stop_recording());const auto zero=app.services().projects->state().project->clips.back();CHECK(!zero.midi&&zero.start==0&&zero.source_offset==0&&zero.length==128);
+ app.disconnect();
+}
 void application(const std::filesystem::path& fixture){
  Directory dir;const auto plugin=dir.path/"instrument.vst3";std::filesystem::copy_file(fixture,plugin);const auto u=plugin.u8string();const auto info=probe_vst3(std::string(u.begin(),u.end())).front();NativeInsert fx;fx.id=new_id();fx.kind=InsertKind::vst3;fx.plugin_path=info.path;fx.class_id=info.class_id;fx.plugin_name=info.name;
  for(const bool combined:{false,true})for(const bool monitor:{false,true}){
- Application app;app.new_project();const auto track=app.add_instrument_track("Keys");app.set_inserts(track,{fx});app.set_midi_input(track,"fixture:unavailable",-1,monitor);app.set_track_armed(track,true);std::optional<Id> audio;
- if(combined){audio=app.add_audio_track("Raw");app.set_track_input(*audio,0);app.set_track_armed(*audio,true);}
+ Application app;app.new_project();const auto track=app.add_instrument_track("Keys");app.set_inserts(track,{fx});app.set_midi_input(track,"fixture:unavailable",-1,monitor);app.set_track_armed(track,true);CHECK(app.services().projects->state().project->tracks.back().midi_monitor);app.set_midi_input(track,"fixture:unavailable",-1,monitor);std::optional<Id> audio;
+ if(combined){audio=app.add_audio_track("Raw");app.set_track_input(*audio,0);app.set_track_armed(*audio,true);app.set_track_monitoring(*audio,false);}
  app.connect(std::make_unique<Device>(),{0,48000,128,combined?std::vector<int>{0}:std::vector<int>{}, {0,1},4});if(monitor){app.play();std::array<float,256> beforeRecord{};app.engine()->process(combined?beforeRecord.data():nullptr,beforeRecord.data(),128);CHECK(app.engine()->state().playback==PlaybackState::playing);}app.start_recording(dir.path/("raw-"+std::to_string(monitor)+".wav"));CHECK(app.recording());rejects([&]{app.seek(0);});rejects([&]{app.undo();});
  std::array<float,256> out{};std::array<float,128> in;in.fill(.125f);app.engine()->process(combined?in.data():nullptr,out.data(),128);const auto generation=app.engine()->midi_generation();CHECK(app.engine()->enqueue_live_midi({generation,0,{0,MidiKind::note_on,0,60,127}}));CHECK(app.engine()->enqueue_live_midi({generation,0,{0,MidiKind::cc,0,64,127}}));CHECK(app.engine()->enqueue_live_midi({generation,0,{0,MidiKind::pitch_bend,0,0,75}}));probe=true;app.engine()->process(combined?in.data():nullptr,out.data(),128);probe=false;CHECK(allocations==0);if(monitor)CHECK(out.back()>.2f);else CHECK(std::abs(out.back())<.01f);
  const auto livePreview=app.midi_recording_preview();CHECK(livePreview.size()==1&&livePreview.front().track==track&&livePreview.front().midi->notes.size()==1&&livePreview.front().midi->notes.front().length>0);CHECK(app.services().projects->state().project->clips.empty());app.engine()->process(combined?in.data():nullptr,out.data(),128);CHECK(app.stop_recording());CHECK(app.midi_recording_preview().empty());CHECK(!app.recording());const auto project=app.services().projects->state().project;CHECK(project->clips.size()==(combined?2U:1U));const auto midi=std::find_if(project->clips.begin(),project->clips.end(),[](const auto& c){return c.midi.has_value();});CHECK(midi!=project->clips.end()&&midi->midi->notes.size()==1);CHECK(midi->midi->notes[0].velocity==127&&midi->midi->events.size()>=3);const auto expected=*project;CHECK(app.undo());CHECK(app.services().projects->state().project->clips.empty());CHECK(app.redo());CHECK(*app.services().projects->state().project==expected);
@@ -52,4 +82,4 @@ void application(const std::filesystem::path& fixture){
 }
 }
 void* operator new(std::size_t n){if(probe)++allocations;if(auto p=std::malloc(n?n:1))return p;throw std::bad_alloc{};}void operator delete(void* p)noexcept{std::free(p);}void operator delete(void* p,std::size_t)noexcept{std::free(p);}
-int main(int argc,char** argv){try{CHECK(argc==2);capture();preview();ordering();transitions();application(argv[1]);std::cout<<"PASS MIDI recording\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(int argc,char** argv){try{CHECK(argc==2);capture();preview();ordering();transitions();precount_poll();prerecord();application(argv[1]);std::cout<<"PASS MIDI recording\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

@@ -1,0 +1,3 @@
+interface:
+  display_name: "MR Plugin Development"
+  short_description: "Plugin windows, presets, state and signal flow"

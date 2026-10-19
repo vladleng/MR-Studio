@@ -1,4 +1,5 @@
 #include <mrs/processing.hpp>
+#include "ir_resample.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -56,14 +57,7 @@ public:
         for(float v:source)if(!std::isfinite(v)||std::abs(v)>16)throw std::invalid_argument("invalid Cab IR kernel sample");
         original_=state;const auto source_frames=h.samples/h.channels;
         const auto frames=static_cast<std::size_t>((static_cast<std::uint64_t>(source_frames)*config_.sample_rate+h.rate-1)/h.rate);
-        std::vector<float> resampled(frames*h.channels);
-        const double ratio=static_cast<double>(h.rate)/config_.sample_rate,cutoff=std::min(1.,1./ratio);
-        for(std::size_t f=0;f<frames;++f)for(std::size_t ch=0;ch<h.channels;++ch){
-            if(h.rate==config_.sample_rate){resampled[f*h.channels+ch]=source[f*h.channels+ch];continue;}
-            const double position=f*ratio;const auto center=static_cast<std::int64_t>(position);double value{};
-            for(std::int64_t k=center-32;k<=center+32;++k){if(k<0||k>=source_frames)continue;const double d=position-k;if(std::abs(d)>=32)continue;const double x=std::numbers::pi*d*cutoff,sinc=std::abs(x)<1e-12?1.:std::sin(x)/x,window=0.5+0.5*std::cos(std::numbers::pi*d/32);value+=source[static_cast<std::size_t>(k)*h.channels+ch]*sinc*window*cutoff*ratio;}
-            resampled[f*h.channels+ch]=static_cast<float>(value);
-        }
+        const auto resampled=detail::resample_ir(source,h.channels,h.rate,config_.sample_rate);
         partitions_=frames>partition?(frames-partition+partition-1)/partition:0;
         const auto bins=partitions_*fft_size*config_.channels;
         if(bins*sizeof(Complex)*2>64*1024*1024)throw std::invalid_argument("Cab IR scratch budget exceeded; reduce output channels or IR duration");

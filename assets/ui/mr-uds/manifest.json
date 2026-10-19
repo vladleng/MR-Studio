@@ -1,0 +1,2720 @@
+{
+  "name": "MR Studio Native Plugin SVG Kit",
+  "version": "0.2",
+  "total_asset_svg": 236,
+  "assets": [
+    {"id":"icons/editor_attach","file":"svg/icons/editor_attach.svg","size":[24,24],"source":"Original MR Studio vector, Issue #88","license":"Same as project; original artwork"},
+    {"id":"icons/editor_detach","file":"svg/icons/editor_detach.svg","size":[24,24],"source":"Original MR Studio vector, Issue #88","license":"Same as project; original artwork"},
+    {"id":"icons/editor_fullscreen","file":"svg/icons/editor_fullscreen.svg","size":[24,24],"source":"Original MR Studio vector, Issue #88","license":"Same as project; original artwork"},
+    {"id":"icons/editor_restore","file":"svg/icons/editor_restore.svg","size":[24,24],"source":"Original MR Studio vector, Issue #88","license":"Same as project; original artwork"},
+    {
+      "id": "controls/knob_arc",
+      "file": "svg/controls/knob_arc.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/knob_minimal",
+      "file": "svg/controls/knob_minimal.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/knob_soft_arc",
+      "file": "svg/controls/knob_soft_arc.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/knob_dual",
+      "file": "svg/controls/knob_dual.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/slider_horizontal",
+      "file": "svg/controls/slider_horizontal.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/slider_vertical",
+      "file": "svg/controls/slider_vertical.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/toggle_on",
+      "file": "svg/controls/toggle_on.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/toggle_off",
+      "file": "svg/controls/toggle_off.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/power_button",
+      "file": "svg/controls/power_button.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/segmented_ab",
+      "file": "svg/controls/segmented_ab.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/preset_selector",
+      "file": "svg/controls/preset_selector.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/status_leds",
+      "file": "svg/controls/status_leds.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/meter_stereo",
+      "file": "svg/controls/meter_stereo.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/eq_curve",
+      "file": "svg/controls/eq_curve.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/envelope",
+      "file": "svg/controls/envelope.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/waveform",
+      "file": "svg/controls/waveform.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/xy_pad",
+      "file": "svg/controls/xy_pad.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/module_tile",
+      "file": "svg/controls/module_tile.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/patch_ports",
+      "file": "svg/controls/patch_ports.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/tabs",
+      "file": "svg/controls/tabs.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/signal_route",
+      "file": "svg/controls/signal_route.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/parameter_readout",
+      "file": "svg/controls/parameter_readout.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "controls/dual_channel",
+      "file": "svg/controls/dual_channel.svg",
+      "size": [
+        160,
+        140
+      ]
+    },
+    {
+      "id": "rig/amp_head",
+      "file": "svg/rig/amp_head.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "rig/combo_amp",
+      "file": "svg/rig/combo_amp.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "rig/cabinet_4x12",
+      "file": "svg/rig/cabinet_4x12.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "rig/cabinet_2x12",
+      "file": "svg/rig/cabinet_2x12.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "rig/pedal_drive",
+      "file": "svg/rig/pedal_drive.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "rig/pedal_delay",
+      "file": "svg/rig/pedal_delay.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "rig/pedal_modulation",
+      "file": "svg/rig/pedal_modulation.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "rig/mic_dynamic",
+      "file": "svg/rig/mic_dynamic.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "rig/mic_ribbon",
+      "file": "svg/rig/mic_ribbon.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "rig/valve_tube",
+      "file": "svg/rig/valve_tube.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "rig/rack_processor",
+      "file": "svg/rig/rack_processor.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "rig/pedalboard",
+      "file": "svg/rig/pedalboard.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "reverb/plate_unit",
+      "file": "svg/reverb/plate_unit.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "reverb/spring_tank",
+      "file": "svg/reverb/spring_tank.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "reverb/hall_space",
+      "file": "svg/reverb/hall_space.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "reverb/chamber_space",
+      "file": "svg/reverb/chamber_space.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "reverb/room_space",
+      "file": "svg/reverb/room_space.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "reverb/cathedral_space",
+      "file": "svg/reverb/cathedral_space.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "reverb/diffusion_field",
+      "file": "svg/reverb/diffusion_field.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "reverb/impulse_response",
+      "file": "svg/reverb/impulse_response.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "reverb/early_reflections",
+      "file": "svg/reverb/early_reflections.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "reverb/echo_taps",
+      "file": "svg/reverb/echo_taps.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "reverb/digital_reverb",
+      "file": "svg/reverb/digital_reverb.svg",
+      "size": [
+        320,
+        200
+      ]
+    },
+    {
+      "id": "icons/chevron_left",
+      "file": "svg/icons/chevron_left.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/chevron_right",
+      "file": "svg/icons/chevron_right.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/close",
+      "file": "svg/icons/close.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/menu",
+      "file": "svg/icons/menu.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/plus",
+      "file": "svg/icons/plus.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/settings",
+      "file": "svg/icons/settings.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/power",
+      "file": "svg/icons/power.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/routing",
+      "file": "svg/icons/routing.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/cabinet",
+      "file": "svg/icons/cabinet.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/mic",
+      "file": "svg/icons/mic.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/reverb",
+      "file": "svg/icons/reverb.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/pedal",
+      "file": "svg/icons/pedal.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/sine",
+      "file": "svg/icons/sine.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/wave",
+      "file": "svg/icons/wave.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/swap",
+      "file": "svg/icons/swap.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/link",
+      "file": "svg/icons/link.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/headphones",
+      "file": "svg/icons/headphones.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/save",
+      "file": "svg/icons/save.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icons/random",
+      "file": "svg/icons/random.svg",
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "controls/concept_pack/fader_micro_normal",
+      "file": "svg/controls/concept_pack/fader_micro_normal.svg",
+      "size": [
+        40,
+        200
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_micro",
+      "state": "normal",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        11.0,
+        77
+      ],
+      "axis": "y"
+    },
+    {
+      "id": "controls/concept_pack/fader_micro_thumb_normal",
+      "file": "svg/controls/concept_pack/fader_micro_thumb_normal.svg",
+      "size": [
+        18,
+        28
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_micro",
+      "state": "normal",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_micro_track",
+      "file": "svg/controls/concept_pack/fader_micro_track.svg",
+      "size": [
+        40,
+        200
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_micro",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_micro_fill_sample",
+      "file": "svg/controls/concept_pack/fader_micro_fill_sample.svg",
+      "size": [
+        40,
+        200
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_micro",
+      "kind": "layer",
+      "sample_normalized": 0.55
+    },
+    {
+      "id": "controls/concept_pack/fader_micro_hover",
+      "file": "svg/controls/concept_pack/fader_micro_hover.svg",
+      "size": [
+        40,
+        200
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_micro",
+      "state": "hover",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        11.0,
+        77
+      ],
+      "axis": "y"
+    },
+    {
+      "id": "controls/concept_pack/fader_micro_thumb_hover",
+      "file": "svg/controls/concept_pack/fader_micro_thumb_hover.svg",
+      "size": [
+        18,
+        28
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_micro",
+      "state": "hover",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_micro_active",
+      "file": "svg/controls/concept_pack/fader_micro_active.svg",
+      "size": [
+        40,
+        200
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_micro",
+      "state": "active",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        11.0,
+        77
+      ],
+      "axis": "y"
+    },
+    {
+      "id": "controls/concept_pack/fader_micro_thumb_active",
+      "file": "svg/controls/concept_pack/fader_micro_thumb_active.svg",
+      "size": [
+        18,
+        28
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_micro",
+      "state": "active",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_micro_focus",
+      "file": "svg/controls/concept_pack/fader_micro_focus.svg",
+      "size": [
+        40,
+        200
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_micro",
+      "state": "focus",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        11.0,
+        77
+      ],
+      "axis": "y"
+    },
+    {
+      "id": "controls/concept_pack/fader_micro_thumb_focus",
+      "file": "svg/controls/concept_pack/fader_micro_thumb_focus.svg",
+      "size": [
+        18,
+        28
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_micro",
+      "state": "focus",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_micro_automation",
+      "file": "svg/controls/concept_pack/fader_micro_automation.svg",
+      "size": [
+        40,
+        200
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_micro",
+      "state": "automation",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        11.0,
+        77
+      ],
+      "axis": "y"
+    },
+    {
+      "id": "controls/concept_pack/fader_micro_thumb_automation",
+      "file": "svg/controls/concept_pack/fader_micro_thumb_automation.svg",
+      "size": [
+        18,
+        28
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_micro",
+      "state": "automation",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_micro_disabled",
+      "file": "svg/controls/concept_pack/fader_micro_disabled.svg",
+      "size": [
+        40,
+        200
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_micro",
+      "state": "disabled",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        11.0,
+        77
+      ],
+      "axis": "y"
+    },
+    {
+      "id": "controls/concept_pack/fader_micro_thumb_disabled",
+      "file": "svg/controls/concept_pack/fader_micro_thumb_disabled.svg",
+      "size": [
+        18,
+        28
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_micro",
+      "state": "disabled",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_precision_normal",
+      "file": "svg/controls/concept_pack/fader_precision_normal.svg",
+      "size": [
+        56,
+        240
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_precision",
+      "state": "normal",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        19.0,
+        95
+      ],
+      "axis": "y"
+    },
+    {
+      "id": "controls/concept_pack/fader_precision_thumb_normal",
+      "file": "svg/controls/concept_pack/fader_precision_thumb_normal.svg",
+      "size": [
+        18,
+        28
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_precision",
+      "state": "normal",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_precision_track",
+      "file": "svg/controls/concept_pack/fader_precision_track.svg",
+      "size": [
+        56,
+        240
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_precision",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_precision_fill_sample",
+      "file": "svg/controls/concept_pack/fader_precision_fill_sample.svg",
+      "size": [
+        56,
+        240
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_precision",
+      "kind": "layer",
+      "sample_normalized": 0.55
+    },
+    {
+      "id": "controls/concept_pack/fader_precision_hover",
+      "file": "svg/controls/concept_pack/fader_precision_hover.svg",
+      "size": [
+        56,
+        240
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_precision",
+      "state": "hover",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        19.0,
+        95
+      ],
+      "axis": "y"
+    },
+    {
+      "id": "controls/concept_pack/fader_precision_thumb_hover",
+      "file": "svg/controls/concept_pack/fader_precision_thumb_hover.svg",
+      "size": [
+        18,
+        28
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_precision",
+      "state": "hover",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_precision_active",
+      "file": "svg/controls/concept_pack/fader_precision_active.svg",
+      "size": [
+        56,
+        240
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_precision",
+      "state": "active",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        19.0,
+        95
+      ],
+      "axis": "y"
+    },
+    {
+      "id": "controls/concept_pack/fader_precision_thumb_active",
+      "file": "svg/controls/concept_pack/fader_precision_thumb_active.svg",
+      "size": [
+        18,
+        28
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_precision",
+      "state": "active",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_precision_focus",
+      "file": "svg/controls/concept_pack/fader_precision_focus.svg",
+      "size": [
+        56,
+        240
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_precision",
+      "state": "focus",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        19.0,
+        95
+      ],
+      "axis": "y"
+    },
+    {
+      "id": "controls/concept_pack/fader_precision_thumb_focus",
+      "file": "svg/controls/concept_pack/fader_precision_thumb_focus.svg",
+      "size": [
+        18,
+        28
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_precision",
+      "state": "focus",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_precision_automation",
+      "file": "svg/controls/concept_pack/fader_precision_automation.svg",
+      "size": [
+        56,
+        240
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_precision",
+      "state": "automation",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        19.0,
+        95
+      ],
+      "axis": "y"
+    },
+    {
+      "id": "controls/concept_pack/fader_precision_thumb_automation",
+      "file": "svg/controls/concept_pack/fader_precision_thumb_automation.svg",
+      "size": [
+        18,
+        28
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_precision",
+      "state": "automation",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_precision_disabled",
+      "file": "svg/controls/concept_pack/fader_precision_disabled.svg",
+      "size": [
+        56,
+        240
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_precision",
+      "state": "disabled",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        19.0,
+        95
+      ],
+      "axis": "y"
+    },
+    {
+      "id": "controls/concept_pack/fader_precision_thumb_disabled",
+      "file": "svg/controls/concept_pack/fader_precision_thumb_disabled.svg",
+      "size": [
+        18,
+        28
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_precision",
+      "state": "disabled",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_slide_normal",
+      "file": "svg/controls/concept_pack/fader_slide_normal.svg",
+      "size": [
+        224,
+        40
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_slide",
+      "state": "normal",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        112,
+        7
+      ],
+      "axis": "x"
+    },
+    {
+      "id": "controls/concept_pack/fader_slide_thumb_normal",
+      "file": "svg/controls/concept_pack/fader_slide_thumb_normal.svg",
+      "size": [
+        20,
+        26
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_slide",
+      "state": "normal",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_slide_track",
+      "file": "svg/controls/concept_pack/fader_slide_track.svg",
+      "size": [
+        224,
+        40
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_slide",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_slide_fill_sample",
+      "file": "svg/controls/concept_pack/fader_slide_fill_sample.svg",
+      "size": [
+        224,
+        40
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_slide",
+      "kind": "layer",
+      "sample_normalized": 0.55
+    },
+    {
+      "id": "controls/concept_pack/fader_slide_hover",
+      "file": "svg/controls/concept_pack/fader_slide_hover.svg",
+      "size": [
+        224,
+        40
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_slide",
+      "state": "hover",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        112,
+        7
+      ],
+      "axis": "x"
+    },
+    {
+      "id": "controls/concept_pack/fader_slide_thumb_hover",
+      "file": "svg/controls/concept_pack/fader_slide_thumb_hover.svg",
+      "size": [
+        20,
+        26
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_slide",
+      "state": "hover",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_slide_active",
+      "file": "svg/controls/concept_pack/fader_slide_active.svg",
+      "size": [
+        224,
+        40
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_slide",
+      "state": "active",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        112,
+        7
+      ],
+      "axis": "x"
+    },
+    {
+      "id": "controls/concept_pack/fader_slide_thumb_active",
+      "file": "svg/controls/concept_pack/fader_slide_thumb_active.svg",
+      "size": [
+        20,
+        26
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_slide",
+      "state": "active",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_slide_focus",
+      "file": "svg/controls/concept_pack/fader_slide_focus.svg",
+      "size": [
+        224,
+        40
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_slide",
+      "state": "focus",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        112,
+        7
+      ],
+      "axis": "x"
+    },
+    {
+      "id": "controls/concept_pack/fader_slide_thumb_focus",
+      "file": "svg/controls/concept_pack/fader_slide_thumb_focus.svg",
+      "size": [
+        20,
+        26
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_slide",
+      "state": "focus",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_slide_automation",
+      "file": "svg/controls/concept_pack/fader_slide_automation.svg",
+      "size": [
+        224,
+        40
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_slide",
+      "state": "automation",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        112,
+        7
+      ],
+      "axis": "x"
+    },
+    {
+      "id": "controls/concept_pack/fader_slide_thumb_automation",
+      "file": "svg/controls/concept_pack/fader_slide_thumb_automation.svg",
+      "size": [
+        20,
+        26
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_slide",
+      "state": "automation",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/fader_slide_disabled",
+      "file": "svg/controls/concept_pack/fader_slide_disabled.svg",
+      "size": [
+        224,
+        40
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_slide",
+      "state": "disabled",
+      "kind": "state_sample",
+      "sample_normalized": 0.55,
+      "thumb_origin": [
+        112,
+        7
+      ],
+      "axis": "x"
+    },
+    {
+      "id": "controls/concept_pack/fader_slide_thumb_disabled",
+      "file": "svg/controls/concept_pack/fader_slide_thumb_disabled.svg",
+      "size": [
+        20,
+        26
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "fader_slide",
+      "state": "disabled",
+      "kind": "layer"
+    },
+    {
+      "id": "controls/concept_pack/scale_db_vertical",
+      "file": "svg/controls/concept_pack/scale_db_vertical.svg",
+      "size": [
+        32,
+        200
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "scales",
+      "kind": "layer",
+      "label_policy": "Host draws labels from the real parameter mapping; ticks have no dB law."
+    },
+    {
+      "id": "controls/concept_pack/scale_fine_vertical",
+      "file": "svg/controls/concept_pack/scale_fine_vertical.svg",
+      "size": [
+        24,
+        200
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "scales",
+      "kind": "layer",
+      "label_policy": "Host draws labels from the real parameter mapping; ticks have no dB law."
+    },
+    {
+      "id": "controls/concept_pack/scale_db_horizontal",
+      "file": "svg/controls/concept_pack/scale_db_horizontal.svg",
+      "size": [
+        200,
+        32
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "scales",
+      "kind": "layer",
+      "label_policy": "Host draws labels from the real parameter mapping; ticks have no dB law."
+    },
+    {
+      "id": "controls/concept_pack/scale_fine_horizontal",
+      "file": "svg/controls/concept_pack/scale_fine_horizontal.svg",
+      "size": [
+        200,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "scales",
+      "kind": "layer",
+      "label_policy": "Host draws labels from the real parameter mapping; ticks have no dB law."
+    },
+    {
+      "id": "controls/concept_pack/meter_empty",
+      "file": "svg/controls/concept_pack/meter_empty.svg",
+      "size": [
+        40,
+        156
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "meters",
+      "kind": "state_sample",
+      "state": "empty",
+      "measured_data": false,
+      "segments_per_channel": 24
+    },
+    {
+      "id": "controls/concept_pack/meter_low",
+      "file": "svg/controls/concept_pack/meter_low.svg",
+      "size": [
+        40,
+        156
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "meters",
+      "kind": "state_sample",
+      "state": "low",
+      "measured_data": false,
+      "segments_per_channel": 24
+    },
+    {
+      "id": "controls/concept_pack/meter_mid",
+      "file": "svg/controls/concept_pack/meter_mid.svg",
+      "size": [
+        40,
+        156
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "meters",
+      "kind": "state_sample",
+      "state": "mid",
+      "measured_data": false,
+      "segments_per_channel": 24
+    },
+    {
+      "id": "controls/concept_pack/meter_high",
+      "file": "svg/controls/concept_pack/meter_high.svg",
+      "size": [
+        40,
+        156
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "meters",
+      "kind": "state_sample",
+      "state": "high",
+      "measured_data": false,
+      "segments_per_channel": 24
+    },
+    {
+      "id": "controls/concept_pack/meter_peak",
+      "file": "svg/controls/concept_pack/meter_peak.svg",
+      "size": [
+        40,
+        156
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "meters",
+      "kind": "state_sample",
+      "state": "peak",
+      "measured_data": false,
+      "segments_per_channel": 24
+    },
+    {
+      "id": "controls/concept_pack/meter_stereo",
+      "file": "svg/controls/concept_pack/meter_stereo.svg",
+      "size": [
+        40,
+        156
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "meters",
+      "kind": "state_sample",
+      "state": "stereo",
+      "measured_data": false,
+      "segments_per_channel": 24
+    },
+    {
+      "id": "controls/concept_pack/meter_input",
+      "file": "svg/controls/concept_pack/meter_input.svg",
+      "size": [
+        40,
+        156
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "meters",
+      "kind": "state_sample",
+      "state": "input",
+      "measured_data": false,
+      "segments_per_channel": 24
+    },
+    {
+      "id": "controls/concept_pack/meter_output",
+      "file": "svg/controls/concept_pack/meter_output.svg",
+      "size": [
+        40,
+        156
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "meters",
+      "kind": "state_sample",
+      "state": "output",
+      "measured_data": false,
+      "segments_per_channel": 24
+    },
+    {
+      "id": "controls/concept_pack/meter_rms",
+      "file": "svg/controls/concept_pack/meter_rms.svg",
+      "size": [
+        40,
+        156
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "meters",
+      "kind": "state_sample",
+      "state": "rms",
+      "measured_data": false,
+      "segments_per_channel": 24
+    },
+    {
+      "id": "controls/concept_pack/meter_clip",
+      "file": "svg/controls/concept_pack/meter_clip.svg",
+      "size": [
+        40,
+        156
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "meters",
+      "kind": "state_sample",
+      "state": "clip",
+      "measured_data": false,
+      "segments_per_channel": 24
+    },
+    {
+      "id": "controls/concept_pack/button_mute_off",
+      "file": "svg/controls/concept_pack/button_mute_off.svg",
+      "size": [
+        40,
+        36
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "channel_buttons",
+      "state": "off"
+    },
+    {
+      "id": "controls/concept_pack/button_mute_on",
+      "file": "svg/controls/concept_pack/button_mute_on.svg",
+      "size": [
+        40,
+        36
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "channel_buttons",
+      "state": "on"
+    },
+    {
+      "id": "controls/concept_pack/button_solo_off",
+      "file": "svg/controls/concept_pack/button_solo_off.svg",
+      "size": [
+        40,
+        36
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "channel_buttons",
+      "state": "off"
+    },
+    {
+      "id": "controls/concept_pack/button_solo_on",
+      "file": "svg/controls/concept_pack/button_solo_on.svg",
+      "size": [
+        40,
+        36
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "channel_buttons",
+      "state": "on"
+    },
+    {
+      "id": "controls/concept_pack/button_record_off",
+      "file": "svg/controls/concept_pack/button_record_off.svg",
+      "size": [
+        40,
+        36
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "channel_buttons",
+      "state": "off"
+    },
+    {
+      "id": "controls/concept_pack/button_record_on",
+      "file": "svg/controls/concept_pack/button_record_on.svg",
+      "size": [
+        40,
+        36
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "channel_buttons",
+      "state": "on"
+    },
+    {
+      "id": "controls/concept_pack/value_capsule_default",
+      "file": "svg/controls/concept_pack/value_capsule_default.svg",
+      "size": [
+        96,
+        36
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "value_capsules",
+      "state": "default",
+      "text_inset": [
+        8,
+        6,
+        70,
+        24
+      ]
+    },
+    {
+      "id": "controls/concept_pack/value_capsule_focus",
+      "file": "svg/controls/concept_pack/value_capsule_focus.svg",
+      "size": [
+        96,
+        36
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "value_capsules",
+      "state": "focus",
+      "text_inset": [
+        8,
+        6,
+        70,
+        24
+      ]
+    },
+    {
+      "id": "controls/concept_pack/value_capsule_automation",
+      "file": "svg/controls/concept_pack/value_capsule_automation.svg",
+      "size": [
+        96,
+        36
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "value_capsules",
+      "state": "automation",
+      "text_inset": [
+        18,
+        6,
+        70,
+        24
+      ]
+    },
+    {
+      "id": "controls/concept_pack/value_capsule_disabled",
+      "file": "svg/controls/concept_pack/value_capsule_disabled.svg",
+      "size": [
+        96,
+        36
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "value_capsules",
+      "state": "disabled",
+      "text_inset": [
+        8,
+        6,
+        70,
+        24
+      ]
+    },
+    {
+      "id": "controls/concept_pack/value_capsule_unit_menu",
+      "file": "svg/controls/concept_pack/value_capsule_unit_menu.svg",
+      "size": [
+        96,
+        36
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "value_capsules",
+      "state": "unit_menu",
+      "text_inset": [
+        8,
+        6,
+        52,
+        24
+      ]
+    },
+    {
+      "id": "controls/concept_pack/value_capsule_error",
+      "file": "svg/controls/concept_pack/value_capsule_error.svg",
+      "size": [
+        96,
+        36
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "value_capsules",
+      "state": "error",
+      "text_inset": [
+        8,
+        6,
+        52,
+        24
+      ]
+    },
+    {
+      "id": "controls/concept_pack/pan_center",
+      "file": "svg/controls/concept_pack/pan_center.svg",
+      "size": [
+        64,
+        64
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "pan",
+      "state": "center",
+      "kind": "state_sample"
+    },
+    {
+      "id": "controls/concept_pack/pan_left",
+      "file": "svg/controls/concept_pack/pan_left.svg",
+      "size": [
+        64,
+        64
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "pan",
+      "state": "left",
+      "kind": "state_sample"
+    },
+    {
+      "id": "controls/concept_pack/pan_right",
+      "file": "svg/controls/concept_pack/pan_right.svg",
+      "size": [
+        64,
+        64
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "pan",
+      "state": "right",
+      "kind": "state_sample"
+    },
+    {
+      "id": "controls/concept_pack/pan_active",
+      "file": "svg/controls/concept_pack/pan_active.svg",
+      "size": [
+        64,
+        64
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "pan",
+      "state": "active",
+      "kind": "state_sample"
+    },
+    {
+      "id": "controls/concept_pack/pan_disabled",
+      "file": "svg/controls/concept_pack/pan_disabled.svg",
+      "size": [
+        64,
+        64
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "pan",
+      "state": "disabled",
+      "kind": "state_sample"
+    },
+    {
+      "id": "controls/concept_pack/toolbar_button_normal",
+      "file": "svg/controls/concept_pack/toolbar_button_normal.svg",
+      "size": [
+        40,
+        40
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "toolbar_buttons",
+      "state": "normal",
+      "icon_slot": [
+        8,
+        8,
+        24,
+        24
+      ]
+    },
+    {
+      "id": "controls/concept_pack/toolbar_button_hover",
+      "file": "svg/controls/concept_pack/toolbar_button_hover.svg",
+      "size": [
+        40,
+        40
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "toolbar_buttons",
+      "state": "hover",
+      "icon_slot": [
+        8,
+        8,
+        24,
+        24
+      ]
+    },
+    {
+      "id": "controls/concept_pack/toolbar_button_pressed",
+      "file": "svg/controls/concept_pack/toolbar_button_pressed.svg",
+      "size": [
+        40,
+        40
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "toolbar_buttons",
+      "state": "pressed",
+      "icon_slot": [
+        8,
+        8,
+        24,
+        24
+      ]
+    },
+    {
+      "id": "controls/concept_pack/toolbar_button_focus",
+      "file": "svg/controls/concept_pack/toolbar_button_focus.svg",
+      "size": [
+        40,
+        40
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "toolbar_buttons",
+      "state": "focus",
+      "icon_slot": [
+        8,
+        8,
+        24,
+        24
+      ]
+    },
+    {
+      "id": "controls/concept_pack/toolbar_button_selected",
+      "file": "svg/controls/concept_pack/toolbar_button_selected.svg",
+      "size": [
+        40,
+        40
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "toolbar_buttons",
+      "state": "selected",
+      "icon_slot": [
+        8,
+        8,
+        24,
+        24
+      ]
+    },
+    {
+      "id": "controls/concept_pack/toolbar_button_disabled",
+      "file": "svg/controls/concept_pack/toolbar_button_disabled.svg",
+      "size": [
+        40,
+        40
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "toolbar_buttons",
+      "state": "disabled",
+      "icon_slot": [
+        8,
+        8,
+        24,
+        24
+      ]
+    },
+    {
+      "id": "controls/concept_pack/transport_button_frame",
+      "file": "svg/controls/concept_pack/transport_button_frame.svg",
+      "size": [
+        56,
+        56
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "transport",
+      "icon_slot": [
+        16,
+        16,
+        24,
+        24
+      ]
+    },
+    {
+      "id": "controls/concept_pack/divider_horizontal_solid",
+      "file": "svg/controls/concept_pack/divider_horizontal_solid.svg",
+      "size": [
+        120,
+        8
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "dividers",
+      "kind": "layout_sample"
+    },
+    {
+      "id": "controls/concept_pack/divider_vertical_solid",
+      "file": "svg/controls/concept_pack/divider_vertical_solid.svg",
+      "size": [
+        8,
+        120
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "dividers",
+      "kind": "layout_sample"
+    },
+    {
+      "id": "controls/concept_pack/divider_horizontal_dotted",
+      "file": "svg/controls/concept_pack/divider_horizontal_dotted.svg",
+      "size": [
+        120,
+        8
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "dividers",
+      "kind": "layout_sample"
+    },
+    {
+      "id": "controls/concept_pack/divider_vertical_dotted",
+      "file": "svg/controls/concept_pack/divider_vertical_dotted.svg",
+      "size": [
+        8,
+        120
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "dividers",
+      "kind": "layout_sample"
+    },
+    {
+      "id": "controls/concept_pack/divider_horizontal_dashed",
+      "file": "svg/controls/concept_pack/divider_horizontal_dashed.svg",
+      "size": [
+        120,
+        8
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "dividers",
+      "kind": "layout_sample"
+    },
+    {
+      "id": "controls/concept_pack/divider_vertical_dashed",
+      "file": "svg/controls/concept_pack/divider_vertical_dashed.svg",
+      "size": [
+        8,
+        120
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "dividers",
+      "kind": "layout_sample"
+    },
+    {
+      "id": "controls/concept_pack/spacer_4",
+      "file": "svg/controls/concept_pack/spacer_4.svg",
+      "size": [
+        4,
+        4
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "spacers",
+      "kind": "layout_sample"
+    },
+    {
+      "id": "controls/concept_pack/spacer_8",
+      "file": "svg/controls/concept_pack/spacer_8.svg",
+      "size": [
+        8,
+        8
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "spacers",
+      "kind": "layout_sample"
+    },
+    {
+      "id": "controls/concept_pack/spacer_16",
+      "file": "svg/controls/concept_pack/spacer_16.svg",
+      "size": [
+        16,
+        16
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "spacers",
+      "kind": "layout_sample"
+    },
+    {
+      "id": "controls/concept_pack/spacer_24",
+      "file": "svg/controls/concept_pack/spacer_24.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "spacers",
+      "kind": "layout_sample"
+    },
+    {
+      "id": "controls/concept_pack/divider_horizontal_2px",
+      "file": "svg/controls/concept_pack/divider_horizontal_2px.svg",
+      "size": [
+        120,
+        8
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "dividers",
+      "kind": "layout_sample"
+    },
+    {
+      "id": "controls/concept_pack/divider_vertical_2px",
+      "file": "svg/controls/concept_pack/divider_vertical_2px.svg",
+      "size": [
+        8,
+        120
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "dividers",
+      "kind": "layout_sample"
+    },
+    {
+      "id": "controls/concept_pack/track_tag_cyan",
+      "file": "svg/controls/concept_pack/track_tag_cyan.svg",
+      "size": [
+        32,
+        32
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "track_tags",
+      "text_slot": [
+        4,
+        4,
+        24,
+        24
+      ],
+      "text_color": "#111720"
+    },
+    {
+      "id": "controls/concept_pack/track_tag_blue",
+      "file": "svg/controls/concept_pack/track_tag_blue.svg",
+      "size": [
+        32,
+        32
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "track_tags",
+      "text_slot": [
+        4,
+        4,
+        24,
+        24
+      ],
+      "text_color": "#111720"
+    },
+    {
+      "id": "controls/concept_pack/track_tag_violet",
+      "file": "svg/controls/concept_pack/track_tag_violet.svg",
+      "size": [
+        32,
+        32
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "track_tags",
+      "text_slot": [
+        4,
+        4,
+        24,
+        24
+      ],
+      "text_color": "#111720"
+    },
+    {
+      "id": "controls/concept_pack/track_tag_red",
+      "file": "svg/controls/concept_pack/track_tag_red.svg",
+      "size": [
+        32,
+        32
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "track_tags",
+      "text_slot": [
+        4,
+        4,
+        24,
+        24
+      ],
+      "text_color": "#111720"
+    },
+    {
+      "id": "controls/concept_pack/track_tag_amber",
+      "file": "svg/controls/concept_pack/track_tag_amber.svg",
+      "size": [
+        32,
+        32
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "track_tags",
+      "text_slot": [
+        4,
+        4,
+        24,
+        24
+      ],
+      "text_color": "#111720"
+    },
+    {
+      "id": "controls/concept_pack/track_tag_yellow",
+      "file": "svg/controls/concept_pack/track_tag_yellow.svg",
+      "size": [
+        32,
+        32
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "track_tags",
+      "text_slot": [
+        4,
+        4,
+        24,
+        24
+      ],
+      "text_color": "#111720"
+    },
+    {
+      "id": "controls/concept_pack/track_tag_green",
+      "file": "svg/controls/concept_pack/track_tag_green.svg",
+      "size": [
+        32,
+        32
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "track_tags",
+      "text_slot": [
+        4,
+        4,
+        24,
+        24
+      ],
+      "text_color": "#111720"
+    },
+    {
+      "id": "controls/concept_pack/track_tag_surface",
+      "file": "svg/controls/concept_pack/track_tag_surface.svg",
+      "size": [
+        32,
+        32
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "track_tags",
+      "text_slot": [
+        4,
+        4,
+        24,
+        24
+      ],
+      "text_color": "#DAE5F4"
+    },
+    {
+      "id": "icons/concept_pack/track_drums",
+      "file": "svg/icons/concept_pack/track_drums.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/track_drums_compact",
+      "file": "svg/icons/concept_pack/track_drums_compact.svg",
+      "size": [
+        16,
+        16
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "compact_16"
+    },
+    {
+      "id": "icons/concept_pack/track_bass",
+      "file": "svg/icons/concept_pack/track_bass.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/track_bass_compact",
+      "file": "svg/icons/concept_pack/track_bass_compact.svg",
+      "size": [
+        16,
+        16
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "compact_16"
+    },
+    {
+      "id": "icons/concept_pack/track_piano",
+      "file": "svg/icons/concept_pack/track_piano.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/track_piano_compact",
+      "file": "svg/icons/concept_pack/track_piano_compact.svg",
+      "size": [
+        16,
+        16
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "compact_16"
+    },
+    {
+      "id": "icons/concept_pack/track_guitar",
+      "file": "svg/icons/concept_pack/track_guitar.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/track_guitar_compact",
+      "file": "svg/icons/concept_pack/track_guitar_compact.svg",
+      "size": [
+        16,
+        16
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "compact_16"
+    },
+    {
+      "id": "icons/concept_pack/track_synth",
+      "file": "svg/icons/concept_pack/track_synth.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/track_synth_compact",
+      "file": "svg/icons/concept_pack/track_synth_compact.svg",
+      "size": [
+        16,
+        16
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "compact_16"
+    },
+    {
+      "id": "icons/concept_pack/track_fx",
+      "file": "svg/icons/concept_pack/track_fx.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/track_fx_compact",
+      "file": "svg/icons/concept_pack/track_fx_compact.svg",
+      "size": [
+        16,
+        16
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "compact_16"
+    },
+    {
+      "id": "icons/concept_pack/track_backing_vocals",
+      "file": "svg/icons/concept_pack/track_backing_vocals.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/track_backing_vocals_compact",
+      "file": "svg/icons/concept_pack/track_backing_vocals_compact.svg",
+      "size": [
+        16,
+        16
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "compact_16"
+    },
+    {
+      "id": "icons/concept_pack/track_master",
+      "file": "svg/icons/concept_pack/track_master.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/track_master_compact",
+      "file": "svg/icons/concept_pack/track_master_compact.svg",
+      "size": [
+        16,
+        16
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "tracks",
+      "kind": "glyph",
+      "lod": "compact_16"
+    },
+    {
+      "id": "icons/concept_pack/folder",
+      "file": "svg/icons/concept_pack/folder.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/folder_open",
+      "file": "svg/icons/concept_pack/folder_open.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/search",
+      "file": "svg/icons/concept_pack/search.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/mixer_params",
+      "file": "svg/icons/concept_pack/mixer_params.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/delete",
+      "file": "svg/icons/concept_pack/delete.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/duplicate",
+      "file": "svg/icons/concept_pack/duplicate.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/more",
+      "file": "svg/icons/concept_pack/more.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/effect_chain",
+      "file": "svg/icons/concept_pack/effect_chain.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/plugin_fx",
+      "file": "svg/icons/concept_pack/plugin_fx.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/third_party",
+      "file": "svg/icons/concept_pack/third_party.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/automation_normal",
+      "file": "svg/icons/concept_pack/automation_normal.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "automation",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/automation_read",
+      "file": "svg/icons/concept_pack/automation_read.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "automation",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/automation_write",
+      "file": "svg/icons/concept_pack/automation_write.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "automation",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/automation_latch",
+      "file": "svg/icons/concept_pack/automation_latch.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "automation",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/automation_touch",
+      "file": "svg/icons/concept_pack/automation_touch.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "automation",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/automation_off",
+      "file": "svg/icons/concept_pack/automation_off.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "automation",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/send",
+      "file": "svg/icons/concept_pack/send.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/bus",
+      "file": "svg/icons/concept_pack/bus.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/group",
+      "file": "svg/icons/concept_pack/group.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/output",
+      "file": "svg/icons/concept_pack/output.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/marker",
+      "file": "svg/icons/concept_pack/marker.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/region",
+      "file": "svg/icons/concept_pack/region.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/locator",
+      "file": "svg/icons/concept_pack/locator.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/playhead",
+      "file": "svg/icons/concept_pack/playhead.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/loop_range",
+      "file": "svg/icons/concept_pack/loop_range.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/favorite",
+      "file": "svg/icons/concept_pack/favorite.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/recent",
+      "file": "svg/icons/concept_pack/recent.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/cloud",
+      "file": "svg/icons/concept_pack/cloud.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/drive",
+      "file": "svg/icons/concept_pack/drive.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/lock",
+      "file": "svg/icons/concept_pack/lock.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/unlock",
+      "file": "svg/icons/concept_pack/unlock.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/show",
+      "file": "svg/icons/concept_pack/show.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/hide",
+      "file": "svg/icons/concept_pack/hide.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/grid",
+      "file": "svg/icons/concept_pack/grid.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "icons/concept_pack/list",
+      "file": "svg/icons/concept_pack/list.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "utilities",
+      "kind": "glyph",
+      "lod": "standard_24"
+    },
+    {
+      "id": "controls/concept_pack/waveform_audio_illustration",
+      "file": "svg/controls/concept_pack/waveform_audio_illustration.svg",
+      "size": [
+        160,
+        56
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "waveforms",
+      "kind": "illustration",
+      "measured_data": false
+    },
+    {
+      "id": "controls/concept_pack/waveform_vocal_illustration",
+      "file": "svg/controls/concept_pack/waveform_vocal_illustration.svg",
+      "size": [
+        160,
+        56
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "waveforms",
+      "kind": "illustration",
+      "measured_data": false
+    },
+    {
+      "id": "controls/concept_pack/waveform_instrument_illustration",
+      "file": "svg/controls/concept_pack/waveform_instrument_illustration.svg",
+      "size": [
+        160,
+        56
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "waveforms",
+      "kind": "illustration",
+      "measured_data": false
+    },
+    {
+      "id": "controls/concept_pack/waveform_loop_illustration",
+      "file": "svg/controls/concept_pack/waveform_loop_illustration.svg",
+      "size": [
+        160,
+        56
+      ],
+      "pack": "fader_control_track_utility_v1",
+      "family": "waveforms",
+      "kind": "illustration",
+      "measured_data": false
+    },
+    {
+      "id": "icons/pin",
+      "file": "svg/icons/pin.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #210",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "icons/tool_pointer",
+      "file": "svg/icons/tool_pointer.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #211"
+    },
+    {
+      "id": "icons/tool_knife",
+      "file": "svg/icons/tool_knife.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #211"
+    },
+    {
+      "id": "icons/tool_split",
+      "file": "svg/icons/tool_split.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #211"
+    },
+    {
+      "id": "icons/action_snap",
+      "file": "svg/icons/action_snap.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #212",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "icons/action_redo",
+      "file": "svg/icons/action_redo.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #212",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "icons/action_zoom_out",
+      "file": "svg/icons/action_zoom_out.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #212",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "icons/action_zoom_in",
+      "file": "svg/icons/action_zoom_in.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #212",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "icons/action_undo",
+      "file": "svg/icons/action_undo.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #212",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "icons/action_fit",
+      "file": "svg/icons/action_fit.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #212",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "icons/count_off",
+      "file": "svg/icons/count_off.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #212",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "icons/assistant",
+      "file": "svg/icons/assistant.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #212",
+      "license": "Same as project; original artwork"
+    }
+  ],
+  "extension_catalog": "catalogs/fader_control_track_utility_v1.json"
+}

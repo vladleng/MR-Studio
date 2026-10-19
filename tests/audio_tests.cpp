@@ -221,6 +221,15 @@ void wav() {
     rejects([&] { (void)load_wav(file.path.string()+".missing"); });
 }
 void streaming() {
+    {TempFile fadeFile;std::string ones;for(int i=0;i<16;++i)put32(ones,std::bit_cast<std::uint32_t>(1.f));fadeFile.write(wav_bytes(3,32,ones));
+        const std::array<float,16> expected{0,1.f/3,2.f/3,1,1,1,1,1,1,1,1,1,1,2.f/3,1.f/3,0};
+        for(bool streamed:{false,true})for(const auto duration:{0,1,4,16}){auto source=std::make_shared<const AudioData>(open_wav(fadeFile.path,streamed?0:1024));RenderGraph graph;graph.voices.push_back({source,0,0,16,{{0,0,1}}});graph.voices.front().fade_in=duration;graph.voices.front().fade_out=duration;
+            AudioEngine faded;faded.prepare({48000,0,1,8},graph);CHECK(faded.enqueue({ControlKind::play}));std::array<float,8> output{};std::size_t position{};const auto allocations=allocation_check::count.load();
+            for(const auto frames:{3u,5u,8u}){allocation_check::enabled=true;faded.process(nullptr,output.data(),frames);allocation_check::enabled=false;for(std::size_t i=0;i<frames;++i){const auto at=position+i;const auto wanted=duration==0?1.f:duration==1?(at==0||at==15?0.f:1.f):duration==16?static_cast<float>(at*(15-at))/225.f:expected[at];CHECK(std::abs(output[i]-wanted)<1e-6f);}position+=frames;}CHECK(allocation_check::count.load()==allocations&&faded.metrics().disk_underruns==0);
+            const auto unmodified=open_wav(fadeFile.path);CHECK(std::all_of(unmodified.samples.begin(),unmodified.samples.end(),[](float v){return v==1.f;}));
+            graph.voices.front().fade_in=17;rejects([&]{faded.prepare({48000,0,1,8},graph);});}
+    }
+
     TempFile file; std::string payload;
     constexpr Sample total = 160123;
     for (Sample f = 0; f < total; ++f) put32(payload,std::bit_cast<std::uint32_t>(static_cast<float>(f%127)/256.0F));
@@ -780,6 +789,9 @@ void metronome(){
     CHECK(std::any_of(output.begin(),output.begin()+256,[](float value){return value!=0;}));
     allocation_check::enabled=true;engine.process(input.data(),output.data(),128);allocation_check::enabled=false;CHECK(allocation_check::count==0);
     CHECK(engine.state().count_remaining==0&&engine.state().sample==563);auto take=recorder->finish();CHECK(take.frames==63);auto raw=load_wav(take.path);CHECK(raw.samples.front()==input[65]&&raw.samples.back()==input[127]);
+    TempFile prefix_file;auto prefix=std::make_shared<Recorder>(prefix_file.path,48000,400);graph.recordings={prefix};engine.prepare({48000,1,2,256},graph,{PlaybackState::paused,500});CHECK(engine.enqueue({ControlKind::play}));
+    allocation_check::count=0;allocation_check::enabled=true;engine.process(input.data(),output.data(),128);engine.process(input.data(),output.data(),128);allocation_check::enabled=false;CHECK(allocation_check::count==0);
+    const auto early=prefix->finish();CHECK(early.frames==163&&early.status.fault==RecordFault::none);const auto prefix_wave=load_wav(early.path);CHECK(prefix_wave.samples.front()==input[93]&&prefix_wave.samples[35]==input[0]&&prefix_wave.samples[100]==input[65]);
     auto canceled=std::make_shared<Recorder>(cancel_file.path,48000,0);graph.recordings={canceled};engine.prepare({48000,1,2,256},graph);CHECK(engine.enqueue({ControlKind::play}));engine.process(input.data(),output.data(),64);CHECK(engine.enqueue({ControlKind::stop}));engine.process(input.data(),output.data(),128);CHECK(engine.state().count_remaining==0&&engine.state().sample==0&&engine.state().playback==PlaybackState::stopped);CHECK(canceled->finish().frames==0&&!std::filesystem::exists(cancel_file.path));
     RenderGraph loop;loop.click.playback=true;loop.click_time.tempos={{0,120}};engine.prepare({48000,0,2,256},loop,{PlaybackState::paused,0,LoopRange{0,128}});CHECK(engine.enqueue({ControlKind::play}));std::array<float,256> first{};engine.process(nullptr,first.data(),128);engine.process(nullptr,output.data(),128);CHECK(std::equal(first.begin(),first.end(),output.begin()));CHECK(engine.enqueue({ControlKind::click,0,20}));engine.process(nullptr,output.data(),128);CHECK(std::all_of(output.begin(),output.begin()+256,[](float value){return value==0;}));
 }

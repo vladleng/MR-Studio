@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140">
+<title>MR Studio GUI element</title>
+<rect x="16" y="32" width="128" height="79" rx="10" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 25 77 C 43 77 47 58 59 58 S 74 95 85 72 S 111 47 135 57" fill="none" stroke="#91BBEE" stroke-width="2"/>
+<line x1="24" y1="87" x2="136" y2="87" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="24" y1="47" x2="136" y2="47" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="80" y="122" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#7188AB" text-anchor="middle" font-weight="400">EQ CURVE</text>
+</svg>

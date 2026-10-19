@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+<title>MR Studio GUI element</title>
+<rect x="32" y="29" width="256" height="139" rx="8" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="67" cy="99" r="7" fill="#DAE5F4" stroke="none"/>
+<circle cx="252" cy="99" r="7" fill="#91BBEE" stroke="none"/>
+<line x1="75" y1="99" x2="244" y2="99" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="91" y1="64" x2="91" y2="135" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="91" cy="99" r="5" fill="none" stroke="#DAE5F4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="114" y1="64" x2="114" y2="135" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="114" cy="99" r="5" fill="none" stroke="#DAE5F4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="137" y1="64" x2="137" y2="135" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="137" cy="99" r="5" fill="none" stroke="#DAE5F4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="160" y1="64" x2="160" y2="135" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="160" cy="99" r="5" fill="none" stroke="#DAE5F4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="183" y1="64" x2="183" y2="135" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="183" cy="99" r="3" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="206" y1="64" x2="206" y2="135" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="206" cy="99" r="3" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="229" y1="64" x2="229" y2="135" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="229" cy="99" r="3" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M67 80 Q160 35 252 80" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M67 121 Q160 167 252 121" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

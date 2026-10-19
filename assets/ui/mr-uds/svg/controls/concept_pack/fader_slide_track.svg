@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="224" height="40" viewBox="0 0 224 40">
+<title>MR Studio fader slide track</title>
+<rect x="8" y="16" width="208" height="8" rx="4" fill="#192333" stroke="#7188AB" stroke-width="1"/>
+<path d="M16 5 L16 10" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M16 30 L16 35" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M32 5 L32 10" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M32 30 L32 35" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M48 5 L48 10" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M48 30 L48 35" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M64 5 L64 10" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M64 30 L64 35" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M80 5 L80 10" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M80 30 L80 35" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M96 5 L96 10" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M96 30 L96 35" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M112 5 L112 10" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M112 30 L112 35" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M128 5 L128 10" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M128 30 L128 35" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M144 5 L144 10" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M144 30 L144 35" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M160 5 L160 10" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M160 30 L160 35" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M176 5 L176 10" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M176 30 L176 35" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M192 5 L192 10" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M192 30 L192 35" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M208 5 L208 10" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M208 30 L208 35" fill="none" stroke="#7188AB" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

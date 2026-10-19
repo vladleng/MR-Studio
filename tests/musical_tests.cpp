@@ -1,9 +1,11 @@
 #include <mrs/musical.hpp>
 #include <mrs/audio.hpp>
+#include "audio_state_test_access.hpp"
 #include <array>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <sstream>
 
 namespace {
 void check(bool ok, const char* msg) { if (!ok) throw std::runtime_error(msg); }
@@ -17,7 +19,14 @@ mrs::Services services(mrs::Project p = mrs::musical_demo_project()) {
     auto transport = std::make_shared<mrs::MockTransport>(mrs::Timeline{p.time, p.sample_rate});
     return {std::make_shared<mrs::ProjectStore>(std::move(p)), transport};
 }
+void chord_color_migration(){
+    auto p=mrs::musical_demo_project();p.chords[0].color=0x287B89;CHECK(mrs::deserialize(mrs::serialize(p))==p);
+    auto plain=p;plain.chords[0].color.reset();const auto bytes=mrs::serialize(plain);std::istringstream in(bytes);std::ostringstream out;std::string line;bool chordRows=false;std::size_t remaining=0;
+    while(std::getline(in,line)){if(line.starts_with("TRACKCOLOR ")||line.starts_with("CLIPCOLOR ")||line.starts_with("AUDIOFADE "))continue;if(line.starts_with("MRS_CORE_SNAPSHOT "))line="MRS_CORE_SNAPSHOT 20";if(line.starts_with("CHORDS ")){remaining=std::stoul(line.substr(7));chordRows=remaining>0;}else if(chordRows){CHECK(line.ends_with(" 0 0"));line.resize(line.size()-4);if(!--remaining)chordRows=false;}out<<line<<'\n';}
+    CHECK(mrs::deserialize(out.str())==plain);
+}
 void model() {
+    chord_color_migration();
     const auto p = mrs::musical_demo_project();
     const auto bad = [&](auto edit) {
         auto q = p; edit(q); rejects([&] { q.validate(); });
@@ -98,6 +107,17 @@ void navigation() {
     rejects([&] { time.seek_section({"missing"}); });
     CHECK(time.state() == before);
 }
+void navigation_edges(){
+    auto p=mrs::musical_demo_project();p.sections={{{"a"},"A",960,1920,0x123456},{{"b"},"B",3840,4800,0x654321}};
+    p.markers={{{"tie-a"},"First",960,mrs::MarkerKind::generic},{{"later"},"Later",3840,mrs::MarkerKind::navigation},{{"tie-b"},"Second",960,mrs::MarkerKind::action}};
+    auto shared=services(p);bool blocked=false;mrs::MusicalTimeline nav(shared,[&]{if(blocked)throw std::runtime_error("recording");});const mrs::Timeline timeline(p.time,p.sample_rate);
+    shared.transport->seek(timeline.to_samples(1500));CHECK(nav.previous_section()&&nav.state().tick==960);CHECK(!nav.previous_section());
+    shared.transport->seek(timeline.to_samples(3000));CHECK(nav.previous_section()&&nav.state().tick==960);CHECK(nav.next_section()&&nav.state().tick==3840);CHECK(!nav.next_section());
+    nav.seek_marker({"tie-a"});const auto position=nav.state().transport.sample;nav.seek_marker({"tie-b"});CHECK(nav.state().transport.sample==position);CHECK(nav.next_marker()&&nav.state().tick==3840);CHECK(!nav.next_marker());CHECK(nav.previous_marker()&&nav.state().tick==960);CHECK(!nav.previous_marker());
+    const auto before=nav.state();blocked=true;rejects([&]{nav.seek_marker({"tie-a"});});rejects([&]{nav.next_section();});rejects([&]{nav.loop_section({"a"});});CHECK(nav.state()==before);blocked=false;
+    shared.transport->play();nav.seek_section({"b"});CHECK(nav.state().transport.playback==mrs::PlaybackState::playing);shared.transport->pause();nav.seek_marker({"tie-a"});CHECK(nav.state().transport.playback==mrs::PlaybackState::paused);
+    auto changed=p;changed.markers.erase(changed.markers.begin());shared.projects->execute(mrs::SetMusicalData{changed.time,changed.chords,changed.sections,changed.markers});const auto stale=nav.state();rejects([&]{nav.seek_marker({"tie-a"});});CHECK(nav.state()==stale);CHECK(shared.projects->undo());nav.seek_marker({"tie-a"});
+}
 void edits() {
     const auto s = services();
     auto shared = std::make_shared<mrs::MusicalTimeline>(s);
@@ -175,6 +195,8 @@ void engine() {
     audio->process(nullptr,output.data(),128); transport->poll();
     CHECK(time.state().current_section->name == "Verse");
     CHECK(time.state().transport.sample == audio->state().sample);
+    const auto beforeQueue=time.state();while(audio->enqueue({mrs::audio::ControlKind::pause})){}rejects([&]{time.seek_marker({"cue-chorus"});});CHECK(time.state()==beforeQueue);audio->process(nullptr,output.data(),128);transport->poll();
+
     time.loop_section({"section-verse"});
     transport->play();
     audio->process(nullptr,output.data(),128); transport->poll();
@@ -189,6 +211,29 @@ void engine() {
     transport->poll();
     CHECK(time.state().transport.sample == audio->state().sample);
     rejects([&] { transport->rebind_timeline(mrs::Timeline{p.time,44100}); });
+    // Shared control consumers see only acknowledged transport, even on full/busy mailboxes.
+    const auto accepted=time.state();
+    std::size_t queued=0;
+    while(audio->enqueue({mrs::audio::ControlKind::play})){++queued;CHECK(queued<100000);}
+    CHECK(queued>0);
+    rejects([&]{time.seek_section({"section-chorus"});});
+    time.refresh();CHECK(time.state()==accepted);
+    {mrs::audio::AudioEngineTestAccess::Busy busy(*audio);transport->poll();time.refresh();CHECK(time.state()==accepted);}
+    audio->process(nullptr,output.data(),128);transport->poll();
+    // A copied immutable snapshot remains valid while both consumers receive a new revision.
+    const auto frozen=time.state();
+    mrs::MusicalContext consumerA,consumerB;
+    auto first=time.subscribe([&](const auto& next){consumerA=next;});
+    auto second=time.subscribe([&](const auto& next){consumerB=next;});
+    auto updated=*s.projects->state().project;updated.markers.back().name="Новый маркер";
+    s.projects->execute(mrs::SetMusicalData{updated.time,updated.chords,updated.sections,updated.markers});
+    CHECK(consumerA==consumerB&&consumerA.project==s.projects->state().project);
+    CHECK(consumerA.revision==s.projects->state().revision);
+    CHECK(frozen.project->markers.back().name!="Новый маркер");
+    CHECK(time.state().transport.sample==frozen.transport.sample);
+    CHECK(s.projects->undo());CHECK(time.state().project->markers.back().name==frozen.project->markers.back().name);
+    CHECK(s.projects->redo());CHECK(time.state().project->markers.back().name=="Новый маркер");
+
 }
 }
 int main(int argc, char** argv) {
@@ -197,7 +242,7 @@ int main(int argc, char** argv) {
         const std::string name = argv[1];
         if (name == "model") model();
         else if (name == "context") context();
-        else if (name == "navigation") navigation();
+        else if (name == "navigation") {navigation();navigation_edges();}
         else if (name == "edits") edits();
         else if (name == "persistence") persistence();
         else if (name == "engine") engine();

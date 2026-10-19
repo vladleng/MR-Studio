@@ -1,0 +1,35 @@
+{
+  "name": "MR Studio / Native Plugin Dark Outline",
+  "colors": {
+    "canvas": "#111720",
+    "window": "#171E28",
+    "surface": "#222C3C",
+    "raised": "#2D394E",
+    "deep": "#192333",
+    "stroke": "#A9BFDC",
+    "bright": "#DAE5F4",
+    "muted": "#7188AB",
+    "subtle": "#4B5F7B",
+    "accent": "#91BBEE",
+    "red": "#E68F88",
+    "yellow": "#E2C070",
+    "green": "#7AB69E",
+    "violet": "#AB92DD"
+  },
+  "density": {
+    "baseUnit": 4,
+    "headerHeight": 48,
+    "panelRadius": 15,
+    "cardRadius": 12,
+    "gap": 12,
+    "hairline": 1,
+    "controlTouchTarget": 32
+  },
+  "states": {
+    "disabledOpacity": 0.34,
+    "hoverOutline": "#DAE5F4",
+    "focus": "#91BBEE",
+    "activeIndicator": "#91BBEE",
+    "warningIndicator": "#E2C070"
+  }
+}

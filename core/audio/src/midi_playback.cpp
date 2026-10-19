@@ -24,7 +24,7 @@ std::vector<std::vector<PlaybackMidiEvent>> compile_midi_events(const Project& p
     for(const auto& lane:result){MidiPlayback check;check.prepare({},lane);}return result;
 }
 void MidiPlayback::prepare(std::vector<PlaybackMidiNote> notes,std::vector<PlaybackMidiEvent> controls){
-    if(notes.size()>4096)throw std::invalid_argument("MIDI playback supports 4096 notes per track");
+    if(notes.size()>max_project_midi_notes)throw std::invalid_argument("MIDI playback supports 32768 notes per track");
     for(const auto& n:notes)if(n.start<0||n.end<=n.start||n.end>max_sample||n.channel>15||n.pitch>127||n.velocity<1||n.velocity>127)throw std::invalid_argument("invalid playback MIDI note");
     std::sort(notes.begin(),notes.end(),[](const auto& a,const auto& b){if(a.channel!=b.channel)return a.channel<b.channel;if(a.pitch!=b.pitch)return a.pitch<b.pitch;return a.start<b.start;});
     notes_.clear();events_.clear();

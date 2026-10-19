@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<title>MR Studio grid</title>
+<rect x="3" y="3" width="4" height="4" rx="0.3" fill="none" stroke="#A9BFDC" stroke-width="1.2"/>
+<rect x="3" y="10" width="4" height="4" rx="0.3" fill="none" stroke="#A9BFDC" stroke-width="1.2"/>
+<rect x="3" y="17" width="4" height="4" rx="0.3" fill="none" stroke="#A9BFDC" stroke-width="1.2"/>
+<rect x="10" y="3" width="4" height="4" rx="0.3" fill="none" stroke="#A9BFDC" stroke-width="1.2"/>
+<rect x="10" y="10" width="4" height="4" rx="0.3" fill="none" stroke="#A9BFDC" stroke-width="1.2"/>
+<rect x="10" y="17" width="4" height="4" rx="0.3" fill="none" stroke="#A9BFDC" stroke-width="1.2"/>
+<rect x="17" y="3" width="4" height="4" rx="0.3" fill="none" stroke="#A9BFDC" stroke-width="1.2"/>
+<rect x="17" y="10" width="4" height="4" rx="0.3" fill="none" stroke="#A9BFDC" stroke-width="1.2"/>
+<rect x="17" y="17" width="4" height="4" rx="0.3" fill="none" stroke="#A9BFDC" stroke-width="1.2"/>
+</svg>

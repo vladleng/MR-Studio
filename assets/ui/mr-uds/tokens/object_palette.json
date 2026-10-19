@@ -1,0 +1,141 @@
+{
+  "scope": "DAW asset mode; existing explicit project RGB and saved templates are preserved",
+  "base": [
+    {
+      "name": "Cyan",
+      "rgb": "#00B8EF"
+    },
+    {
+      "name": "Pale Blue",
+      "rgb": "#91BBEE"
+    },
+    {
+      "name": "Purple",
+      "rgb": "#B45DF0"
+    },
+    {
+      "name": "Rose",
+      "rgb": "#F04459"
+    },
+    {
+      "name": "Amber",
+      "rgb": "#E2B44A"
+    },
+    {
+      "name": "Yellow",
+      "rgb": "#F0D447"
+    },
+    {
+      "name": "Green",
+      "rgb": "#24D67C"
+    },
+    {
+      "name": "Graphite",
+      "rgb": "#192333"
+    }
+  ],
+  "clips": [
+    {
+      "name": "Cyan",
+      "rgb": "#00B8EF"
+    },
+    {
+      "name": "Pale Blue",
+      "rgb": "#91BBEE"
+    },
+    {
+      "name": "Purple",
+      "rgb": "#B45DF0"
+    },
+    {
+      "name": "Rose",
+      "rgb": "#F04459"
+    },
+    {
+      "name": "Amber",
+      "rgb": "#E2B44A"
+    },
+    {
+      "name": "Yellow",
+      "rgb": "#F0D447"
+    },
+    {
+      "name": "Green",
+      "rgb": "#24D67C"
+    },
+    {
+      "name": "Graphite",
+      "rgb": "#192333"
+    },
+    {
+      "name": "Azure",
+      "rgb": "#3797EF"
+    },
+    {
+      "name": "Indigo",
+      "rgb": "#777DE8"
+    },
+    {
+      "name": "Lavender",
+      "rgb": "#C58EE9"
+    },
+    {
+      "name": "Pink",
+      "rgb": "#EC83B8"
+    },
+    {
+      "name": "Orange",
+      "rgb": "#EF934D"
+    },
+    {
+      "name": "Lemon",
+      "rgb": "#D7E46A"
+    },
+    {
+      "name": "Lime",
+      "rgb": "#96D75E"
+    },
+    {
+      "name": "Mint",
+      "rgb": "#77D6AF"
+    },
+    {
+      "name": "Teal",
+      "rgb": "#36B9B7"
+    },
+    {
+      "name": "Ice",
+      "rgb": "#8FD5DF"
+    },
+    {
+      "name": "Periwinkle",
+      "rgb": "#A3B0EC"
+    },
+    {
+      "name": "Mauve",
+      "rgb": "#C578B4"
+    },
+    {
+      "name": "Coral",
+      "rgb": "#EF8274"
+    },
+    {
+      "name": "Sand",
+      "rgb": "#DAC290"
+    },
+    {
+      "name": "Olive",
+      "rgb": "#9CB877"
+    },
+    {
+      "name": "Slate",
+      "rgb": "#8295AD"
+    }
+  ],
+  "backgrounds": {
+    "channel": "#212830",
+    "button": "#2F3841",
+    "border": "#3D444D",
+    "arrange": "#262E37"
+  }
+}

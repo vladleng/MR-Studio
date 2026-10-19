@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140">
+<title>MR Studio GUI element</title>
+<circle cx="52" cy="70" r="23" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="108" cy="70" r="23" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="52" y1="70" x2="38" y2="56" fill="none" stroke="#DAE5F4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="108" y1="70" x2="121" y2="57" fill="none" stroke="#DAE5F4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M75 70 L85 70 M80 65 L80 75" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="80" y="123" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#7188AB" text-anchor="middle" font-weight="400">MID / SIDE</text>
+</svg>

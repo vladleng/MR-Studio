@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -16,9 +17,10 @@ namespace mrs {
 using Sample = std::int64_t;
 using Tick = std::int64_t;
 inline constexpr Tick ppq = 960;
+inline constexpr std::size_t max_project_midi_notes = 32768;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 14;
+inline constexpr std::uint32_t schema_version = 29;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -56,7 +58,23 @@ struct Folder {
     std::optional<Id> parent;
     bool operator==(const Folder&) const = default;
 };
-enum class InsertKind { gain, highpass, lowpass, eq, channel_eq, vst3, cab_ir };
+enum class InsertKind { gain, highpass, lowpass, eq, channel_eq, vst3, cab_ir, reverb, cab_collection, rig };
+struct ReverbReference {
+    std::string relative, absolute, digest;
+    std::uint64_t bytes{};
+    bool operator==(const ReverbReference&) const = default;
+};
+struct ReverbState {
+    float pre_delay{}, tone{}, mix{.25f};
+    bool gate_enabled{};
+    float gate_threshold{-90.f};
+    std::string name;
+    ReverbReference first, second;
+    std::uint32_t sample_rate{}, channels{}, quad_map{};
+    std::uint64_t frames{};
+    void validate() const;
+    bool operator==(const ReverbState&) const = default;
+};
 struct CabIr {
     std::string name;
     std::uint32_t sample_rate{48000}, channels{1};
@@ -75,6 +93,60 @@ struct InsertParameter {
     std::uint32_t id{}; float value{};
     bool operator==(const InsertParameter&) const = default;
 };
+struct RigModule {
+    Id id;
+    std::string type_id;
+    std::uint32_t version{1};
+    bool bypass{};
+    std::vector<InsertParameter> parameters;
+    std::string opaque_state; // Unsupported modules remain recoverable, never substituted.
+    bool operator==(const RigModule&) const = default;
+};
+struct RigParameterDescriptor {
+    std::uint32_t id;
+    std::string_view name, unit;
+    float minimum, maximum, initial;
+};
+struct ModuleDescriptor {
+    std::string_view type_id, name;
+    std::uint32_t version{1};
+    bool pre{true}, post{true};
+    std::uint32_t latency{};
+    std::uint32_t channel_layouts{3}; // mono | stereo
+    bool realtime_safe{true};
+    std::span<const RigParameterDescriptor> parameters;
+};
+inline constexpr std::array<RigParameterDescriptor,1> rig_gain_parameters{{{0,"Gain","linear",0,4,1}}};
+inline constexpr std::array<RigParameterDescriptor,2> rig_filter_parameters{{{0,"Frequency","Hz",20,20000,1000},{1,"Q","",.1f,10,.70710678f}}};
+inline constexpr std::array<RigParameterDescriptor,3> rig_eq_parameters{{{0,"Frequency","Hz",20,20000,1000},{1,"Q","",.1f,10,.70710678f},{2,"Gain","dB",-24,24,0}}};
+inline constexpr std::array<RigParameterDescriptor,5> rig_compressor_parameters{{
+    {0,"Threshold","dB",-60,0,-18},{1,"Ratio",":1",1,20,4},{2,"Attack","ms",.1f,100,10},
+    {3,"Release","ms",10,1000,100},{4,"Output","dB",-24,24,0}
+}};
+inline constexpr std::array<RigParameterDescriptor,3> rig_drive_parameters{{
+    {0,"Gain","dB",0,36,6},{1,"Tone","Hz",200,12000,6000},{2,"Level","dB",-24,12,0}
+}};
+// Private numeric host transport, never a public automation or preset identity.
+inline constexpr std::size_t rig_slot_fields=7; // type, bypass, five descriptor parameters
+inline constexpr std::array<ModuleDescriptor,6> rig_modules{{
+    {"mrs.gain","Gain",1,true,true,0,3,true,rig_gain_parameters},
+    {"mrs.highpass","High pass",1,true,true,0,3,true,rig_filter_parameters},
+    {"mrs.lowpass","Low pass",1,true,true,0,3,true,rig_filter_parameters},
+    {"mrs.eq","Bell EQ",1,true,true,0,3,true,rig_eq_parameters},
+    {"mrs.compressor","Compressor",1,true,true,0,3,true,rig_compressor_parameters},
+    {"mrs.drive","Drive",1,true,true,0,3,true,rig_drive_parameters}
+}};
+inline constexpr std::size_t rig_lane_capacity=8;
+const ModuleDescriptor* rig_module_descriptor(const RigModule&) noexcept;
+RigModule make_rig_module(std::string_view type);
+struct RigState {
+    std::uint32_t version{2};
+    float input_gain{1}, output_gain{1};
+    std::string name, artwork, artwork_rights;
+    std::vector<RigModule> pre_fx, post_fx;
+    void validate() const;
+    bool operator==(const RigState&) const = default;
+};
 struct NativeInsert {
     Id id;
     InsertKind kind{InsertKind::gain};
@@ -86,16 +158,25 @@ struct NativeInsert {
     std::vector<std::byte> component_state, controller_state;
     std::vector<InsertParameter> parameters;
     CabIr ir;
+    ReverbState reverb; // External identity only; global library root belongs to preferences.
+    std::string cab_collection_id, cab_variant_id;
+    std::map<std::string,std::string> cab_metadata; // Selected external IR role/capture; survives absent catalog.
+    std::string preset_name; // Last MR preset saved/loaded; library label, not a file dependency.
+    RigState rig;
     void validate() const;
     bool operator==(const NativeInsert&) const = default;
 };
+inline bool wav_core(InsertKind kind){return kind==InsertKind::cab_collection||kind==InsertKind::rig;}
+void validate_cab_metadata(const std::map<std::string,std::string>&);
 struct Track {
     Id id;
     std::string name;
     TrackKind kind{TrackKind::audio};
     std::optional<Id> folder;
     struct Mix {
-        float gain{1}, pan{};
+        static constexpr float minimum_gain=0,maximum_gain=16,initial_gain=1;
+        static constexpr float minimum_pan=-1,maximum_pan=1,initial_pan=0;
+        float gain{initial_gain}, pan{initial_pan};
         bool mute{}, solo{};
         bool operator==(const Mix&) const = default;
         void validate() const;
@@ -105,6 +186,7 @@ struct Track {
         Id bus;
         float gain{1};
         bool pre_fader{};
+        bool bypass{}; // Preserve the configured gain while the send is off.
         bool operator==(const Send&) const = default;
     };
     std::vector<Send> sends{}; // up to eight independent sends to shared buses/returns
@@ -118,6 +200,8 @@ struct Track {
     bool midi_monitor{true}; // instrument live ingress; no MIDI recording in 4a
     std::string midi_output{}; // external Windows port key; empty = off
     int midi_output_channel{-1}; // -1 preserve authored channel, otherwise 0..15
+    bool fx_channel{}; // FX return role; processing/routing remains TrackKind::bus.
+    std::optional<std::uint32_t> color{}; // Channel RGB; independent of clip colors.
     bool operator==(const Track&) const = default;
 };
 struct MidiNote {
@@ -145,6 +229,8 @@ struct Clip {
     Sample source_offset{};
     std::string source; // opaque asset reference, Stage 0 does not open it
     std::optional<MidiClip> midi{}; // when present, sample fields stay at defaults
+    std::optional<std::uint32_t> color{}; // RGB; absent preserves legacy blue
+    Sample fade_in{},fade_out{}; // Audio only, linear ramps in visible clip samples.
     bool operator==(const Clip&) const = default;
 };
 struct Marker {
@@ -152,6 +238,7 @@ struct Marker {
     std::string name;
     Tick tick{};
     MarkerKind kind{MarkerKind::generic};
+    std::optional<std::uint32_t> color{}; // unset retains the legacy kind color
     bool operator==(const Marker&) const = default;
 };
 // Single non-overlapping lanes. Ranges are [start, end); gaps mean no chord/section.
@@ -160,6 +247,7 @@ struct Chord {
     std::string symbol; // authored spelling, no harmonic inference
     Tick start{};
     Tick end{1};
+    std::optional<std::uint32_t> color{}; // unset retains the legacy neutral fill
     bool operator==(const Chord&) const = default;
 };
 struct ArrangerSection {
@@ -170,7 +258,20 @@ struct ArrangerSection {
     std::uint32_t color{0x4056D6}; // 0xRRGGBB
     bool operator==(const ArrangerSection&) const = default;
 };
+// Durable ARA host binding; runtime handles and prepared PCM are never serialized.
+// Source is a media reference; persistent_id remains stable across Save As/relink.
+struct AraBinding {
+    std::string source,persistent_id,module,class_id,name,factory_id,version,archive_id;
+    bool bypass{};
+    std::vector<std::byte> archive,component_state,controller_state;
+    std::uint64_t checksum{},source_checksum{};
+    // Empty in schema28: legacy isolated source document. A nonempty ID groups
+    // sources of the same plugin within this project.
+    std::string document_id;
+    bool operator==(const AraBinding&) const = default;
+};
 struct Project {
+    static constexpr float minimum_master_gain=0,maximum_master_gain=16,initial_master_gain=1;
     std::uint32_t version{schema_version};
     Id id;
     std::string title;
@@ -183,9 +284,10 @@ struct Project {
     std::vector<Marker> markers;
     std::vector<Chord> chords;
     std::vector<ArrangerSection> sections;
-    float master_gain{1};
+    float master_gain{initial_master_gain};
     std::vector<int> master_outputs{}; // empty = first selected mono/stereo hardware outputs
     std::vector<NativeInsert> master_inserts{};
+    std::vector<AraBinding> ara_bindings;
     void validate() const;
     bool operator==(const Project&) const = default;
 };
@@ -316,6 +418,14 @@ public:
     // A private candidate is validated before committing; rejection is atomic.
     virtual void apply(Project& candidate) const = 0;
 };
+class SetAraBindings final : public ICommand {
+public:
+    explicit SetAraBindings(std::vector<AraBinding> bindings):bindings_(std::move(bindings)){}
+    std::string_view name() const override{return "ARA source bindings";}
+    void apply(Project& p) const override{p.ara_bindings=bindings_;}
+private:
+    std::vector<AraBinding> bindings_;
+};
 class SetTrackMix final : public ICommand {
 public:
     SetTrackMix(Id track, Track::Mix mix) : track_(std::move(track)), mix_(mix) {}
@@ -422,14 +532,25 @@ struct ProjectState {
     bool can_redo{};
     std::string command;
 };
+// Control-thread two-phase edit: preallocate, commit silently, publish only after
+// dependent runtime starts. Destruction rolls back an unfinished transaction.
+class IProjectTransaction {
+public:
+    virtual ~IProjectTransaction()=default;
+    virtual void commit() noexcept=0;
+    virtual void finish()=0;
+    virtual void rollback() noexcept=0;
+};
 class IProjectStore {
 public:
     virtual ~IProjectStore() = default;
     virtual ProjectState state() const = 0;
     virtual void execute(const ICommand&) = 0;
+    virtual std::unique_ptr<IProjectTransaction> prepare_transaction(const ICommand*,std::optional<bool> = {}) {return {}; }
     virtual bool undo() = 0;
     virtual bool redo() = 0;
     virtual std::shared_ptr<const Project> history_target(bool) const { return {}; }
+    virtual std::string_view history_name(bool) const {return {};}
     virtual Connection subscribe(std::function<void(const ProjectState&)>) = 0;
 };
 class ProjectStore final : public IProjectStore {
@@ -437,11 +558,14 @@ public:
     explicit ProjectStore(Project project, std::size_t history_limit = 128);
     ProjectState state() const override;
     void execute(const ICommand&) override;
+    std::unique_ptr<IProjectTransaction> prepare_transaction(const ICommand*,std::optional<bool> = {}) override;
     bool undo() override;
     bool redo() override;
     std::shared_ptr<const Project> history_target(bool redo) const override;
+    std::string_view history_name(bool redo) const override;
     Connection subscribe(std::function<void(const ProjectState&)>) override;
 private:
+    class Transaction;
     struct Edit {
         std::shared_ptr<const Project> before;
         std::shared_ptr<const Project> after;

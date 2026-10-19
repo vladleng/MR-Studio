@@ -1,0 +1,26 @@
+:root {
+  --mr-canvas: #111720;
+  --mr-window: #171E28;
+  --mr-surface: #222C3C;
+  --mr-raised: #2D394E;
+  --mr-deep: #192333;
+  --mr-stroke: #A9BFDC;
+  --mr-bright: #DAE5F4;
+  --mr-muted: #7188AB;
+  --mr-subtle: #4B5F7B;
+  --mr-accent: #91BBEE;
+  --mr-red: #E68F88;
+  --mr-yellow: #E2C070;
+  --mr-green: #7AB69E;
+  --mr-violet: #AB92DD;
+  --mr-radius-panel: 15px;
+  --mr-radius-card: 12px;
+  --mr-header-height: 48px;
+  --mr-line: 1px;
+  --mr-space: 4px;
+}
+.mr-native-panel {background: var(--mr-window);color: var(--mr-bright);font-family: Inter, Segoe UI, sans-serif;}
+.mr-native-card {background: var(--mr-surface);border-radius: var(--mr-radius-card);}
+.mr-native-text-muted {color: var(--mr-muted);}
+.mr-native-control[aria-disabled='true'] {opacity: .34;}
+.mr-native-control:focus-visible {outline: 2px solid var(--mr-accent);outline-offset: 2px;}

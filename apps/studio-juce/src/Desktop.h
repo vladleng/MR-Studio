@@ -1,8 +1,11 @@
 #pragma once
 #include "Controls.h"
+#include "MRControls.h"
+#include "SendLevel.h"
 #include "Settings.h"
 #include "Playhead.h"
 #include <mrs/desktop.hpp>
+#include <mrs/midi_import.hpp>
 #include <mrs/diagnostics.hpp>
 #include <mrs/offline_device.hpp>
 #include <mrs/vst3.hpp>
@@ -10,8 +13,10 @@
 #include <set>
 
 namespace ui {
+namespace kit { class MRNativeParameterHost; }
 class Desktop;
 class Arrangement;
+class ChordTrack;
 class Strip;
 class Browser;
 class FxPanel;
@@ -43,10 +48,16 @@ public:
     juce::PopupMenu getMenuForIndex(int,const juce::String&) override;
     void menuItemSelected(int,int) override;
     void action(int);
+    void navigationMenu(bool sections);
+    juce::ComboBox navigationMode;
+    juce::PopupMenu channelMenu(std::optional<mrs::Id>);
+    void showChannelMenu(std::optional<mrs::Id>,juce::Point<int>);
     void run(std::function<void()>);
     void refresh(bool force=false);
     void choose(int,std::function<void(const juce::File&)>,juce::String pattern="*");
     void textDialog(juce::String,juce::String,std::function<void(juce::String)>);
+    void renameTrack(mrs::Id);
+    void renameClips(std::vector<mrs::Id>);
     void confirmDiscard(std::function<void()>);
     void openFile(const juce::File&);
     void saveFile(const juce::File&);
@@ -57,6 +68,7 @@ public:
     mrs::audio::RealtimeState displayState() const noexcept;
     double visualTick();
     void importFiles(const juce::StringArray&);
+    void importMidiFiles(const juce::StringArray&,std::optional<mrs::Id>,mrs::Tick);
     void resetDevice();
     void reconnectDevice(bool session=false);
     bool isInterestedInDragSource(const SourceDetails&) override;
@@ -66,9 +78,15 @@ public:
     bool shortcutAllowed() const;
     bool shortcutAllowedFor(juce::Component*) const;
     ViewSettings view;
+    bool knifeMode{}; // transient editing tool, never persisted
+    void setKnifeMode(bool enabled);
     void closeEditors(bool keepMidi=false);
+    void refreshInsertEditors();
     void closeUnpinnedEditors();
     void audioSettings();
+    void aiPermissions();
+    void aiAssistant();
+    void setAiPermissions(mrs::ai::PermissionPolicy);
     void showProfiling();
     void openMidiClip(mrs::Id);
     void openClipEditor(mrs::Id);
@@ -83,30 +101,101 @@ public:
     std::vector<mrs::desktop::AudioRecordingPreview> audioRecordingPreview;
     void updateRecordingPreview();
     void insertMenu(std::optional<mrs::Id>);
+    void insertContextMenu(std::optional<mrs::Id>,mrs::Id,juce::Point<int>);
+    void applyInsertChoice(std::optional<mrs::Id>,mrs::Id,int);
     void openInsert(std::optional<mrs::Id>,mrs::Id);
+#ifdef MRS_HAS_ARA
+    struct AraCandidate { std::string module; mrs::ara::Capability capability; };
+    std::vector<AraCandidate> araCatalog;
+    std::filesystem::path araCatalogFile;
+    bool araCatalogScanned{},araScanSingle{};
+    void loadAraCatalog();
+    void publishAraTools();
+    void saveAraCatalog();
+    std::future<std::vector<AraCandidate>> araScanner;
+    std::shared_ptr<std::atomic<bool>> araScanCancel{std::make_shared<std::atomic<bool>>(false)};
+    std::optional<mrs::Id> araScanClip;
+    std::shared_ptr<mrs::IProjectStore> araScanStore;
+    std::shared_ptr<mrs::IProjectStore> araPreparationStore;
+    std::uint64_t araPreparationModel{},araPreparationContent{};
+    double araEditTime{};
+    bool araPreparationAttempted{};
+    void prepareAraWhenIdle(double now,bool interacting);
+    struct AraPluginDrag {
+        std::shared_ptr<mrs::IProjectStore> store;
+        std::uint64_t revision{};
+        mrs::processing::VstPlugin plugin;
+        juce::String description;
+        std::string generation;
+        bool araOnly{};
+    };
+    struct AraDrop { AraPluginDrag drag; mrs::Clip clip; };
+    std::optional<AraPluginDrag> araPluginDrag;
+    std::optional<AraDrop> araDropPending;
+    juce::var beginAraPluginDrag(mrs::processing::VstPlugin,bool araOnly,std::size_t index);
+    bool isAraPluginDrag(const juce::var&) const;
+    bool araDropCurrent(const AraDrop&) const;
+    void dropAraPlugin(mrs::Id,const juce::var&);
+    void applyAraDrop(AraDrop);
+    juce::PopupMenu araMenu(mrs::Id) const;
+    juce::PopupMenu araPluginsMenu(mrs::Id) const;
+    void addAraMenus(juce::PopupMenu&,mrs::Id) const;
+    void araChoice(mrs::Id,int);
+    void scanAra(mrs::Id,std::optional<juce::File> file = {});
+    void pollAra();
+    void openAra(mrs::Id,bool activate=true);
+    void followAra(mrs::Id);
+    void attachAra(juce::Component*,bool);
+    bool araEditorAttached{};
+    void closeAra(const std::string&);
+#endif
     void savePreset(std::optional<mrs::Id>,mrs::Id);
     void loadPreset(std::optional<mrs::Id>,mrs::Id);
     void refreshPresetLists();
     void resizeBrowser(int);
     void resizeMixer(int);
+    void resizeSendArea(int);
+    int sendAreaHeight{-1}; // Transient shared mixer divider; not project state.
+    int mixerInsertHeight() const;
     void updatePerformance(const mrs::audio::DeviceStatus&,bool hardware);
     juce::String projectCaption() const;
     void loadPresetFile(std::optional<mrs::Id>,mrs::Id,const juce::File&);
     juce::PopupMenu pluginMenu(int base=10000) const;
-    void addPlugin(std::optional<mrs::Id>,std::size_t);
+    void addPlugin(std::optional<mrs::Id>,std::size_t,std::optional<std::size_t> position={});
+    void addInstrument(std::size_t);
+    void dropPlugin(std::optional<mrs::Id>,std::size_t,std::optional<std::size_t> position={});
+    void replaceInstrument(mrs::Id,std::size_t);
     void routeMenu(mrs::Id);
-    void sendsMenu(mrs::Id);
+    void sendsMenu(mrs::Id,std::optional<mrs::Id> bus={},juce::Component* anchor=nullptr);
+    juce::PopupMenu sendMenu(mrs::Id,std::optional<mrs::Id>,std::vector<mrs::Id>&) const;
+    void applySendChoice(mrs::Id,std::optional<mrs::Id>,int,const std::vector<mrs::Id>&);
     std::vector<mrs::NativeInsert> chain(std::optional<mrs::Id>) const;
     void applyChain(std::optional<mrs::Id>,std::vector<mrs::NativeInsert>);
+    void toggleInsertPower(std::optional<mrs::Id>);
+    bool insertDropAllowed(std::optional<mrs::Id>) const;
+    struct InsertDrag {std::shared_ptr<mrs::IProjectStore> store;std::uint64_t revision{};std::optional<mrs::Id> source;mrs::Id slot;};
+    std::optional<InsertDrag> insertDrag;
+    std::map<std::string,std::map<std::string,bool>> insertPowerRecall;
+    std::shared_ptr<mrs::IProjectStore> insertPowerProject;
     void scan(const juce::File&);
     void setWorkspace(mrs::desktop::Workspace);
+    void setShellDesign(bool);
+    void setAssetDesign(bool);
+    const ConceptSkin* assetSkin()const{return assetTheme?assetTheme->conceptSkin():nullptr;}
+    Theme* assetLookAndFeel()const{return assetTheme.get();}
+    juce::Colour selectionColour()const{return assetTheme?assetTheme->role(ColourRole::focus,ConceptSkin::selection):juce::Colour(accent);}
+    bool shellDesignEnabled()const{return shellTheme!=nullptr;}
     bool busyGesture() const;
     std::shared_ptr<const mrs::Project> project() const {return app.services().projects->state().project;}
     void setPreview(std::optional<mrs::Id>,mrs::Track::Mix,float,std::function<bool()>);
+    void setSendPreview(mrs::Id,mrs::Id,float,std::function<bool()>);
     void cancelPreview();
     void finishPreview();
     mrs::desktop::Application app;
     Theme theme;
+    bool reverbKitPilot{}; // Opt-in process/session state, never persisted.
+    std::unique_ptr<kit::MRNativeParameterHost> controlHost;
+    kit::MRNativeParameterHost& parameterHost();
     std::vector<mrs::MidiNote> noteClipboard;
     std::optional<mrs::Id> selectedTrack,selectedClip;
     std::set<std::string> selectedClips;
@@ -117,10 +206,15 @@ public:
     juce::Rectangle<int> arrangeArea,mixArea;
     juce::Component browserDivider,mixerDivider;
     juce::Label projectTitle;
+    mrs::MusicalContext displayedMusical; // one control snapshot for labels and all lane highlights
+    std::array<juce::Label,3> contextLabels;
+    void refreshMusicalContext();
     double audioCpu{};
+    double displayedCpu{},cpuUpdateMs{};bool cpuMeasured{};
     juce::ProgressBar audioCpuBar{audioCpu};
     juce::Label cpuReadout,latencyReadout;
-    int faderHeight{160};
+    juce::String footerStatus();
+    static constexpr int faderHeight=145;
     std::vector<std::unique_ptr<Strip>> mixer;
     std::unique_ptr<Strip> master;
     std::unique_ptr<Browser> browser;
@@ -132,6 +226,17 @@ public:
     int browserWidth{260};
     juce::String message;
 private:
+    friend void assetDesignSmoke();
+    std::unique_ptr<Theme> assetTheme;
+    friend void shellDesignSmoke();
+    friend void interface212Smoke();
+    friend void channel213Smoke();
+    friend void pianoRoll214Smoke();
+    void layoutShell();
+    void refreshShell();
+    void paintShell(juce::Graphics&);
+    std::unique_ptr<Theme> shellTheme;
+    juce::Label shellStatus,shellTime;
     friend void stateBusySmoke();
     friend void clipCopySmoke();
     mutable mrs::audio::RealtimeState lastDisplayState;
@@ -145,6 +250,11 @@ private:
     bool spaceHeld{};unsigned previewTick{};
     bool resizingBrowser{},resizingMixer{};
     int mixerDragHeight{},mixerDragY{};
+    void flushAraDockResize();
+    std::optional<int> pendingAraDockHeight;
+    juce::Component::SafePointer<juce::Component> resizingAraDock;
+    juce::VBlankAttachment araDockResizeFrame;
+    friend void araEditorSmoke(const juce::File&);
     std::shared_ptr<mrs::IProjectStore> displayedStore;
     std::uint64_t revision{~0ULL},editorGeneration{};
     std::vector<mrs::Id> ids;
@@ -154,54 +264,88 @@ private:
     juce::MenuBarComponent menu{this};
     juce::Viewport mixerViewport;
     juce::Component mixerBody;
-    juce::TextButton play{"Play"},pause{"Pause"},stop{"Stop"},record{"Record (R)"},
+    kit::MRButton play{"Play"},pause{"Pause"},stop{"Stop"},record{"Record (R)"},
         previous{"< Section"},next{"Section >"},loop{"Loop section"},
-        arrangeButton{"Arrange"},editButton{"Edit"},mixButton{"Mix"},brows{"BROWS"},
+        editButton{"Edit"},mixButton{"Mix"},brows{"BROWS"},
         addTrack{"+ Track"},addBus{"+ Bus"},undo{"Undo"},redo{"Redo"},split{"Split (S)"},
-        duplicate{"Duplicate"},remove{"Del clip"},zoomIn{"Zoom +"},zoomOut{"Zoom -"},fit{"Fit"},audio{"Audio settings"},snapButton{"Snap off"},clickButton{"Click"},countButton{"Count off"};
+        duplicate{"Duplicate"},remove{"Del clip"},zoomIn{"Zoom +"},zoomOut{"Zoom -"},fit{"Fit"},snapButton{"Snap off"},clickButton{"Click"},countButton{"Count off"},pointerTool{"Pointer (1)"},knifeTool{"Knife (3)"};
     int lastCountBars{1}; // Toolbar off/on restores the last enabled count in this session.
     unsigned diagnosticTick{};
-    struct MixPreview {std::optional<mrs::Id> target;mrs::Track::Mix mix;float master;std::function<bool()> active;};
+    struct MixPreview {std::optional<mrs::Id> target;mrs::Track::Mix mix;float master;std::function<bool()> active;std::optional<mrs::Id> sendBus{};float sendGain{};};
     std::optional<MixPreview> preview;
 };
 
-class Strip final : public juce::Component, public juce::DragAndDropTarget {
+class Strip final : public juce::Component, public juce::DragAndDropTarget, public juce::SettableTooltipClient {
+    friend void assetDesignSmoke();
 public:
     Strip(Desktop&,std::optional<mrs::Id>,bool mini=false);
     void mouseDown(const juce::MouseEvent&) override;
+    void mouseDoubleClick(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
+    juce::Rectangle<int> nameBounds() const;
+    void mouseUp(const juce::MouseEvent&) override;
+    void beginNameEdit();
     void resized() override;
     void paint(juce::Graphics&) override;
+    void paintOverChildren(juce::Graphics&) override;
     void sync();
+    void applyAssetDesign();
+    void refreshArmState();
     void refreshMidiStatus();
     bool isInterestedInDragSource(const SourceDetails&) override;
     void itemDropped(const SourceDetails&) override;
     void itemDragMove(const SourceDetails&) override;
+    void itemDragEnter(const SourceDetails& s) override {itemDragMove(s);}
     void itemDragExit(const SourceDetails&) override;
-    bool active() const {return gain.dragging()||pan.dragging();}
+    bool active() const {if(resizingSends||gain.dragging()||pan.dragging())return true;for(const auto& b:sendButtons)if(b->dragging())return true;return false;}
+    std::size_t pluginInsertionAt(juce::Point<int>) const;
+    juce::Rectangle<int> pluginDropArea() const {return insertViewport.getBounds();}
     Handle gain,pan{false};
     std::optional<mrs::Id> target;
 private:
     mrs::Track track() const;
     mrs::Track::Mix adjusted(bool,double) const;
     void preview(bool,double);void commit(bool,double);
-    void inputMenu();void insertList();
+    void inputMenu();void insertList();void colorMenu();void openInstrument();
     Desktop& owner;
     bool mini{};
     bool dragTitle{},dropBefore{},trackHover{};
+    std::optional<std::size_t> pluginHover;
+    bool insertDropValid{true};juce::String insertDropMode;
+    bool editingName{};
+    juce::TextEditor nameEditor;
+    void finishNameEdit(bool);
     juce::TextButton mute{"M"},solo{"S"},arm{"R"},monitor{"I"},input{"Input"},
-        inserts{"Inserts"},output{"Out: Master"},sends{"Sends"},add{"+"};
-    std::vector<std::unique_ptr<juce::TextButton>> insertButtons;
+        output{"Out: Master"},sends{"+ Send"},add{"+"},instrument{"Instrument"},piano{""};
+    class ColorField final:public juce::TextButton{
+    public:std::uint32_t rgb{ObjectPalette::defaultClip};
+        void paintButton(juce::Graphics& g,bool hover,bool down)override{
+            g.setColour(juce::Colour(0xff000000|rgb).withAlpha(isEnabled()?1.f:.35f).withMultipliedBrightness(down?.8f:hover?1.15f:1.f));g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1),2);
+            if(hasKeyboardFocus(true)){g.setColour(juce::Colours::white);g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(.5f),2,1);}
+        }
+    } colorField;
+    InsertPowerButton allPower;
+    std::vector<std::unique_ptr<MixerInsert>> insertButtons;
     juce::Viewport insertViewport;
     juce::Component insertBody;
+    std::vector<std::unique_ptr<SendLevel>> sendButtons;
+    std::vector<mrs::Id> sendDestinations;
+    juce::Viewport sendViewport;
+    juce::Component sendBody;
+    juce::Component sendDivider;
+    bool resizingSends{};
+    int sendDragY{},sendDragHeight{};
+    void sendList();
 };
 
-class Arrangement final : public juce::Component, public juce::FileDragAndDropTarget, public juce::DragAndDropTarget {
+class Arrangement final : public juce::Component, public juce::FileDragAndDropTarget, public juce::DragAndDropTarget, public juce::SettableTooltipClient {
 public:
     explicit Arrangement(Desktop&);
+    ~Arrangement() override;
     void paint(juce::Graphics&) override;
     void resized() override;
     void rebuild();
+    void paintGrid(juce::Graphics&, float top, float bottom, bool labels = false) const;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseMove(const juce::MouseEvent&) override;
     void mouseExit(const juce::MouseEvent&) override;
@@ -213,34 +357,68 @@ public:
     void mouseDoubleClick(const juce::MouseEvent&) override;
     bool isInterestedInFileDrag(const juce::StringArray&) override;
     void filesDropped(const juce::StringArray&,int,int) override;
+    void fileDragEnter(const juce::StringArray& f,int x,int y) override {fileDragMove(f,x,y);}
+    void fileDragMove(const juce::StringArray&,int,int) override;
+    void fileDragExit(const juce::StringArray&) override;
+    void itemDragEnter(const SourceDetails& s) override {itemDragMove(s);}
+    void itemDragMove(const SourceDetails&) override;
+    void itemDragExit(const SourceDetails&) override;
+    std::vector<juce::Rectangle<float>> midiDropRects() const;
     bool isInterestedInDragSource(const SourceDetails&) override;
     void itemDropped(const SourceDetails&) override;
     void zoom(double);void fit();
     void wheel(float,juce::ModifierKeys,float);
     juce::Rectangle<float> clipRect(const mrs::Clip&) const;
+    mrs::Tick displaySpacing() const;
+    mrs::Tick snapTick(mrs::Tick) const;
+    mrs::Sample snapSample(mrs::Sample) const;
     mrs::Sample sampleAt(float) const;
     mrs::Sample seekSampleAt(float) const;
     int edgeAt(const mrs::Clip&,juce::Point<float>) const;
     std::optional<mrs::Id> clipAt(juce::Point<float>) const;
+    void clipMenu(mrs::Id,juce::Point<int>);
     int trackAt(float) const;
     std::vector<std::unique_ptr<Strip>> rows;
     juce::Component rowsBody;
     double pixelsPerSecond{30},horizontal{};
     float vertical{};
     int trackHeight{128};
+    static constexpr int header=165,left=250; // Default all-visible layout (legacy fixtures).
+    int headerHeight()const;
+    bool laneVisible(int index)const;
+    void setLaneVisible(int index,bool visible);
+    std::array<std::unique_ptr<juce::Button>,5> laneButtons;
+    std::unique_ptr<class MeterTrack> meters;
+    std::unique_ptr<class TempoTrack> tempos;
+    std::unique_ptr<class SectionTrack> sections;
+    std::unique_ptr<ChordTrack> chords;
+    std::unique_ptr<class MarkerTrack> markers;
 private:
     Desktop& owner;
+    juce::StringArray dropFiles;
+    std::vector<mrs::MidiPart> dropParts;
+    std::optional<juce::Point<int>> dropPoint;
+    std::optional<mrs::Id> araDropClip;
+    std::optional<mrs::Id> midiDropTarget(int y) const;
+    mrs::Tick midiDropTick(int x) const;
     std::optional<mrs::Clip> drag;
     std::optional<mrs::Id> dragTrack;
     mrs::Sample dragStart{};
     mrs::Sample trimStart{},trimEnd{},dragSourceFrames{};
-    void updateTrim(mrs::Sample delta);
+    void updateTrim(mrs::Sample delta,bool useSnap);
     bool rulerSeeking{};
     float dragX{};
     int trim{};std::vector<mrs::Clip> dragGroup;int dragTrackDelta{};
+    std::vector<mrs::Clip> trimPreviews;
+    std::map<std::string,mrs::Sample> trimFrames;
     bool copyDrag{},dragMoved{};
+    bool shiftRemove{};
+    std::set<std::string> selectionBase;
+    std::optional<mrs::Clip> fadeOriginal;
+    std::shared_ptr<mrs::IProjectStore> fadeStore;
+    mrs::Sample fadeInPreview{},fadeOutPreview{};
+    bool fadeRight{};
     bool selecting{};juce::Point<float> selectionOrigin;juce::Rectangle<float> selectionBox;
-    static constexpr int header=70,left=250;
     PlayheadLine playhead;
 };
 
@@ -249,12 +427,15 @@ public:
     explicit Browser(Desktop&);
     ~Browser() override;
     void showFiles(bool);
+    void showAssistant();
+    juce::Component* assistantComponent() const{return assistant.get();}
     void navigate(const juce::File&);
     juce::StringArray selectedSamples() const;
     bool samplePreviewReady() const {return wantedFile!=juce::File()&&preview.file==wantedFile;}
     void paint(juce::Graphics&) override;
     void resized() override;
     void rebuild();
+    void applyAssetDesign();
     juce::TreeView tree;
 private:
     void selectionChanged() override;
@@ -271,9 +452,12 @@ private:
     juce::TextButton scanButton{"Scan VST3..."};
     juce::TextEditor search;
     juce::TextButton vstTab{"VST3"},filesTab{"Files"},parentFolder{"Up"},chooseFolder{"Folder..."};
+    juce::TextButton aiTab{"AI"};
+    std::unique_ptr<juce::Component> assistant;
+    bool assistantVisible{};
     juce::TextEditor folderPath;
     juce::TimeSliceThread fileThread{"MR Studio file browser"};
-    juce::WildcardFileFilter fileFilter{"*.wav","*","WAV samples"};
+    juce::WildcardFileFilter fileFilter{"*.wav;*.mid;*.midi","*","Audio and MIDI files"};
     juce::DirectoryContentsList directory{&fileFilter,fileThread};
     juce::FileTreeComponent fileTree{directory};
     bool filesVisible{};
@@ -282,12 +466,23 @@ private:
 void j2Smoke(Desktop&,const juce::File& fixture={});
 void j2PluginSmoke(Desktop&,const juce::File&);
 void j3Smoke(Desktop&);
+void controllerScrollSmoke();
+void noteEditorLayoutSmoke();
 void midi4aSmoke(Desktop&,const juce::File&);
 void midi4bSmoke(Desktop&,const juce::File&);
+void pianoRoll214Smoke();
 void midi4cSmoke(Desktop&,const juce::File&);
 void j3AudioSmoke(Desktop&);
 void profilingSmoke(Desktop&);
 void thuDiagnostic(const juce::File&);
 void retirePluginWindow(EditorWindow&);
+void retireAraWindow(EditorWindow&);
+void retireAraComponent(juce::Component&);
+void araEditorSmoke(const juce::File&);
+void performAraOperation(Desktop&,const std::function<void()>&);
+void presetSelectorSmoke(Desktop&,mrs::Id,mrs::Id,const juce::File&);
 void reconnectPluginWindow(EditorWindow&);
+void aiPermissionsSmoke(Desktop&);
+void aiAssistantSmoke(Desktop&);
+std::unique_ptr<juce::Component> makeAiAssistant(Desktop&);
 }

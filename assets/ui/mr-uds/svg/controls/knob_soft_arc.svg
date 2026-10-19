@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140">
+<title>MR Studio GUI element</title>
+<circle cx="80" cy="65" r="36" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="80" cy="65" r="28" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="80" y1="65" x2="101" y2="44" fill="none" stroke="#DAE5F4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M55 90 Q80 116 105 90" fill="none" stroke="#91BBEE" stroke-width="2.8"/>
+<text x="80" y="122" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#7188AB" text-anchor="middle" font-weight="400" letter-spacing="1.2">DRIVE</text>
+</svg>

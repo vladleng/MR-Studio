@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140">
+<title>MR Studio GUI element</title>
+<circle cx="80" cy="67" r="32" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 80 42 L 80 64 M 64 52 A 23 23 0 1 0 96 52" fill="none" stroke="#DAE5F4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="103" cy="43" r="3" fill="#7AB69E" stroke="none"/>
+<text x="80" y="122" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#7188AB" text-anchor="middle" font-weight="400" letter-spacing="1.2">BYPASS</text>
+</svg>

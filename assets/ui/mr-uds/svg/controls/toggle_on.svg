@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140">
+<title>MR Studio GUI element</title>
+<rect x="46" y="49" width="68" height="37" rx="19" fill="#4B5F7B" stroke="#7188AB" stroke-width="1.4"/>
+<circle cx="94" cy="67" r="14" fill="#91BBEE" stroke="none"/>
+<text x="80" y="118" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#7188AB" text-anchor="middle" font-weight="400">ON</text>
+</svg>

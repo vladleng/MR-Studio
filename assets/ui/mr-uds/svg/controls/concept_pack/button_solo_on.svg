@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="36" viewBox="0 0 40 36">
+<title>MR Studio button solo on</title>
+<rect x="2" y="2" width="36" height="32" rx="5" fill="#192333" stroke="#E2B44A" stroke-width="1.2"/>
+<path d="M26 12 C12 6 10 18 20 18 C32 18 26 31 13 24" fill="none" stroke="#E2B44A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M16 30 L24 30" fill="none" stroke="#E2B44A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

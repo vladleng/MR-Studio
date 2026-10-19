@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<title>MR Studio unlock</title>
+<rect x="4" y="10" width="16" height="12" rx="2" fill="none" stroke="#A9BFDC" stroke-width="1.6"/>
+<path d="M8 10 V6 C8 0 16 0 16 6" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="12" cy="15" r="1" fill="#A9BFDC" stroke="#A9BFDC" stroke-width="1"/>
+<path d="M12 16 L12 18" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

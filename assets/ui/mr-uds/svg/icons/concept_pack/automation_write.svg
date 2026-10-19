@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<title>MR Studio automation write</title>
+<path d="M3 19 L11 11 L21 5" fill="none" stroke="#F04459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="3" cy="19" r="2" fill="#F04459" stroke="#F04459" stroke-width="1.2"/>
+<circle cx="11" cy="11" r="2" fill="#F04459" stroke="#F04459" stroke-width="1.2"/>
+<circle cx="21" cy="5" r="2" fill="#F04459" stroke="#F04459" stroke-width="1.2"/>
+<path d="M17 19 L21 15 L22 16 L18 20 Z" fill="#F04459" stroke="#F04459" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

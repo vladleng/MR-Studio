@@ -28,7 +28,13 @@ template<class F> void invalid_project(F edit) {
 }
 
 
+void marker_colors(){
+    auto p=mrs::demo_project();p.markers.front().color=0xAD5677;CHECK(mrs::deserialize(mrs::serialize(p))==p);
+    auto bad=p;bad.markers.front().color=0x1000000;rejects([&]{bad.validate();});
+    p.markers.front().color.reset();auto legacy=without_marker_colors(mrs::serialize(p));legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 20").size(),"MRS_CORE_SNAPSHOT 19");CHECK(mrs::deserialize(legacy)==p);
+}
 void inserts() {
+    marker_colors();
     using namespace mrs;
     auto p=demo_project(); const auto track=p.tracks.front().id; ProjectStore store{p};
     NativeInsert gain{new_id(),InsertKind::gain,0.5f}, eq{new_id(),InsertKind::eq,6,1000,1};
@@ -36,11 +42,33 @@ void inserts() {
     const auto saved=*store.state().project; CHECK(deserialize(serialize(saved)) == saved);
     CHECK(store.undo() && store.state().project->master_inserts.empty()); CHECK(store.undo() && *store.state().project == p);
     CHECK(store.redo() && store.redo() && *store.state().project == saved);
+    auto named=gain;named.preset_name="Keys/Тёплый звук";store.execute(SetInserts{track,{named,eq}});
+    CHECK(deserialize(serialize(*store.state().project))==*store.state().project);
+    CHECK(store.undo()&&*store.state().project==saved);CHECK(store.redo()&&store.state().project->tracks.front().inserts.front().preset_name==named.preset_name);CHECK(store.undo());
+    auto old14=without_fx_roles(serialize(saved));for(auto at=old14.find("PRESET_NAME ");at!=std::string::npos;at=old14.find("PRESET_NAME ")){auto end=old14.find('\n',at);old14.erase(at,end-at+1);}
+    old14.replace(0,std::string("MRS_CORE_SNAPSHOT 15").size(),"MRS_CORE_SNAPSHOT 14");CHECK(deserialize(old14)==saved);
+    auto invalidLabel=gain;invalidLabel.preset_name=std::string(1025,'x');rejects([&]{store.execute(SetInserts{track,{invalidLabel}});});
     auto invalid=gain; invalid.gain=5; rejects([&] { store.execute(SetInserts{track,{invalid}}); });
     invalid=eq; invalid.frequency=0; rejects([&] { store.execute(SetInserts{track,{invalid}}); });
     rejects([&] { store.execute(SetInserts{track,{gain,gain}}); });
     rejects([&] { store.execute(SetInserts{Id{"absent"},{gain}}); });
     CHECK(*store.state().project == saved);
+    NativeInsert reverb;reverb.id=new_id();reverb.kind=InsertKind::reverb;
+    CHECK(reverb.reverb.mix==.25f);store.execute(SetInserts{track,{reverb}});
+    CHECK(deserialize(serialize(*store.state().project))==*store.state().project);
+    auto legacyReverb=without_fx_roles(serialize(*store.state().project));legacyReverb.replace(0,(std::string("MRS_CORE_SNAPSHOT ")+std::to_string(schema_version)).size(),"MRS_CORE_SNAPSHOT 16");
+    const auto stateAt=legacyReverb.find("REVERB 2 "),lineEnd=legacyReverb.find('\n',stateAt);legacyReverb.erase(lineEnd-6,6); // default " 0 -90"
+    legacyReverb.replace(stateAt,std::string("REVERB 2").size(),"REVERB 1");
+    CHECK(deserialize(legacyReverb)==*store.state().project); // legacy gate disabled, default threshold
+    auto& r=reverb.reverb;r.name="Зал / True Stereo";r.pre_delay=199.5f;r.tone=-5.5f;r.mix=1;
+    r.gate_enabled=true;r.gate_threshold=-75.3f;
+    r.first={"Halls/Зал L.wav","D:/IR/Halls/Зал L.wav","fnv1a64:0123456789abcdef",256};r.second={"Halls/Зал R.wav","D:/IR/Halls/Зал R.wav","fnv1a64:fedcba9876543210",256};r.sample_rate=48000;r.channels=4;r.frames=16;
+    reverb.bypass=true;store.execute(SetInserts{track,{reverb}});CHECK(deserialize(serialize(*store.state().project))==*store.state().project);
+    auto invalidGate=serialize(*store.state().project);const auto gateEnd=invalidGate.find('\n',invalidGate.find("REVERB 2 ")),thresholdAt=invalidGate.rfind(' ',gateEnd),enableAt=invalidGate.rfind(' ',thresholdAt-1);invalidGate[enableAt+1]='2';rejects([&]{deserialize(invalidGate);});
+    CHECK(store.undo()&&store.state().project->tracks.front().inserts.front().reverb.name.empty());CHECK(store.redo());
+    auto badReverb=reverb;badReverb.reverb.tone=7;rejects([&]{badReverb.validate();});badReverb=reverb;badReverb.reverb.first.digest="wrong";rejects([&]{badReverb.validate();});
+    badReverb=reverb;badReverb.reverb.gate_threshold=-59;rejects([&]{badReverb.validate();});
+    CHECK(store.undo());CHECK(store.undo());CHECK(*store.state().project==saved);
     p.tracks.push_back({new_id(),"MIDI",TrackKind::midi,{}}); ProjectStore midi{p}; rejects([&] { midi.execute(SetInserts{p.tracks.back().id,{gain}}); });
     std::vector<NativeInsert> excess; for (int n=0;n<9;++n) excess.push_back({new_id()}); rejects([&] { store.execute(SetInserts{track,excess}); });
     auto legacy=without_midi_outputs(serialize(demo_project())); const std::string clipMidi="MIDI 0\nMIDIEVENTS 0\n";for(auto pos=legacy.find(clipMidi);pos!=std::string::npos;pos=legacy.find(clipMidi))legacy.erase(pos,clipMidi.size()); const std::string midiLine="\"\" -1 1\n";for(auto pos=legacy.find(midiLine);pos!=std::string::npos;pos=legacy.find(midiLine))legacy.erase(pos,midiLine.size()); legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 14").size(),"MRS_CORE_SNAPSHOT 7");
@@ -101,6 +129,14 @@ void sends() {
     store.execute(SetTrackInput{id,3});
     const auto saved = *store.state().project;
     CHECK(deserialize(serialize(saved)) == saved);
+    auto disabled=saved;disabled.tracks.front().sends[1].bypass=true;
+    CHECK(deserialize(serialize(disabled))==disabled);
+    auto invalidBypass=serialize(saved);const auto sendLine=invalidBypass.find("\"r2\" 0.25 0 0\n");CHECK(sendLine!=std::string::npos);
+    invalidBypass.replace(sendLine,std::string("\"r2\" 0.25 0 0\n").size(),"\"r2\" 0.25 0 2\n");rejects([&]{deserialize(invalidBypass);});
+    auto legacy=without_marker_colors(serialize(saved));legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 19").size(),"MRS_CORE_SNAPSHOT 17");
+    for(const auto& send:saved.tracks.front().sends){const auto prefix="\""+send.bus.value+"\" ";const auto at=legacy.find(prefix),end=legacy.find('\n',at);CHECK(at!=std::string::npos);legacy.erase(end-2,2);}
+    for(auto at=legacy.find("FX_ROLE ");at!=std::string::npos;at=legacy.find("FX_ROLE "))legacy.erase(at,legacy.find('\n',at)-at+1);
+    CHECK(deserialize(legacy)==saved); // all old sends remain enabled
     store.execute(SetTrackOutput{Id{"r1"},Id{"r2"}});
     const auto before = store.state();
     rejects([&] { store.execute(SetTrackSends{Id{"r2"},{{{"r1"},0,false}}}); });
@@ -113,7 +149,7 @@ void sends() {
     store.execute(RemoveTrack{Id{"r1"}});
     CHECK(store.state().project->tracks.front().sends.size() == 1);
     CHECK(store.undo() && store.state().project->tracks.front().sends.size() == 2);
-    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT 14"); CHECK(head == 0);
+    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT "+std::to_string(schema_version)); CHECK(head == 0);
     const std::string old = "MRS_CORE_SNAPSHOT 4\nPROJECT \"old\" \"Old\" \"\" 48000\nTEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n\"a\" \"Audio\" 0 \"\"\n1 0 0 0\n\"\"\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nMASTER 1\nEND\n";
     const auto migrated = deserialize(old); CHECK(migrated.tracks.front().sends.empty() && migrated.tracks.front().input == -2);
 }
@@ -342,6 +378,28 @@ void commands() {
     CHECK(store.state().project->tracks[3].name == "Still committed");
 }
 void serialization() {
+    {auto project=mrs::demo_project();mrs::AraBinding binding;binding.source=project.clips.front().source;binding.persistent_id="ara-persistent";binding.module="missing.vst3";binding.class_id="saved-class";binding.factory_id="factory";binding.version="1";binding.archive_id="archive";binding.archive={std::byte{0},std::byte{255}};binding.checksum=123;binding.source_checksum=456;project.ara_bindings={binding};
+        CHECK(mrs::deserialize(mrs::serialize(project))==project);mrs::ProjectStore store(mrs::demo_project());store.execute(mrs::SetAraBindings{project.ara_bindings});CHECK(store.state().project->ara_bindings==project.ara_bindings);CHECK(store.undo()&&store.state().project->ara_bindings.empty());CHECK(store.redo()&&store.state().project->ara_bindings==project.ara_bindings);
+        auto duplicate=project;duplicate.ara_bindings.push_back(binding);rejects([&]{duplicate.validate();});auto oversized=project;oversized.ara_bindings.front().archive.resize(1024*1024+1);rejects([&]{oversized.validate();});
+        auto bad=mrs::serialize(project);const auto at=bad.find("ARA_BINDINGS 1");bad.replace(at,std::string("ARA_BINDINGS 1").size(),"ARA_BINDINGS 99");rejects([&]{(void)mrs::deserialize(bad);});
+        auto legacy=mrs::serialize(project);legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 29").size(),"MRS_CORE_SNAPSHOT 28");const auto groupField=legacy.find("\"archive\" \"\" ");CHECK(groupField!=std::string::npos);legacy.erase(groupField+std::string("\"archive\" ").size(),3);CHECK(mrs::deserialize(legacy)==project);
+        project.ara_bindings.front().document_id="shared-document";auto second=project.ara_bindings.front();second.source="second-source";second.persistent_id="second-persistent";project.ara_bindings.push_back(second);CHECK(mrs::deserialize(mrs::serialize(project))==project);
+        project.ara_bindings.back().class_id="different-plugin";rejects([&]{project.validate();});
+    }
+    {auto colored=mrs::demo_project();colored.tracks.front().color=0x36b9b7u;CHECK(mrs::deserialize(mrs::serialize(colored))==colored);
+        auto bad=colored;bad.tracks.front().color=0x1000000u;rejects([&]{bad.validate();});
+        auto legacy=mrs::serialize(mrs::demo_project());for(auto at=legacy.find("TRACKCOLOR ");at!=std::string::npos;at=legacy.find("TRACKCOLOR "))legacy.erase(at,legacy.find('\n',at)-at+1);
+        legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 27").size(),"MRS_CORE_SNAPSHOT 26");CHECK(mrs::deserialize(legacy)==mrs::demo_project());
+        auto invalid=mrs::serialize(colored);auto at=invalid.find("TRACKCOLOR ");invalid.replace(at,invalid.find('\n',at)-at,"TRACKCOLOR 2 0");rejects([&]{(void)mrs::deserialize(invalid);});
+    }
+    {auto faded=mrs::demo_project();auto& audio=faded.clips.front();audio.fade_in=64;audio.fade_out=128;CHECK(mrs::deserialize(mrs::serialize(faded))==faded);
+        auto bad=faded;bad.clips.front().fade_in=bad.clips.front().length+1;rejects([&]{bad.validate();});
+        auto legacy=mrs::serialize(mrs::demo_project());for(auto at=legacy.find("TRACKCOLOR ");at!=std::string::npos;at=legacy.find("TRACKCOLOR "))legacy.erase(at,legacy.find('\n',at)-at+1);for(auto at=legacy.find("AUDIOFADE ");at!=std::string::npos;at=legacy.find("AUDIOFADE "))legacy.erase(at,legacy.find('\n',at)-at+1);
+        legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 26").size(),"MRS_CORE_SNAPSHOT 25");CHECK(mrs::deserialize(legacy)==mrs::demo_project());
+        const auto id=audio.id;const auto length=audio.length;mrs::TrimAudioClip{id,audio.start,audio.start+32,audio.source_offset+length}.apply(faded);CHECK(faded.clips.front().fade_in==32&&faded.clips.front().fade_out==32);faded.validate();
+        faded=mrs::demo_project();faded.clips.front().fade_in=64;faded.clips.front().fade_out=128;const auto right=mrs::new_id();mrs::SplitAudioClip{id,faded.clips.front().start+faded.clips.front().length/2,right}.apply(faded);CHECK(faded.clips.front().fade_in==64&&faded.clips.front().fade_out==0&&faded.clips[1].fade_in==0&&faded.clips[1].fade_out==128);faded.validate();
+    }
+
     auto project = mrs::demo_project();
     project.title = "Лунная река \"кавер\"\n第二行";
     project.artist = "Евгения и Влад";

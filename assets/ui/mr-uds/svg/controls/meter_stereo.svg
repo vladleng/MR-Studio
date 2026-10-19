@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140">
+<title>MR Studio GUI element</title>
+<rect x="69" y="104" width="10" height="5" rx="1" fill="#7AB69E" stroke="none"/>
+<rect x="69" y="97" width="10" height="5" rx="1" fill="#7AB69E" stroke="none"/>
+<rect x="69" y="90" width="10" height="5" rx="1" fill="#7AB69E" stroke="none"/>
+<rect x="69" y="83" width="10" height="5" rx="1" fill="#7AB69E" stroke="none"/>
+<rect x="69" y="76" width="10" height="5" rx="1" fill="#7AB69E" stroke="none"/>
+<rect x="69" y="69" width="10" height="5" rx="1" fill="#7AB69E" stroke="none"/>
+<rect x="69" y="62" width="10" height="5" rx="1" fill="#4B5F7B" stroke="none"/>
+<rect x="69" y="55" width="10" height="5" rx="1" fill="#4B5F7B" stroke="none"/>
+<rect x="69" y="48" width="10" height="5" rx="1" fill="#4B5F7B" stroke="none"/>
+<rect x="69" y="41" width="10" height="5" rx="1" fill="#4B5F7B" stroke="none"/>
+<rect x="69" y="34" width="10" height="5" rx="1" fill="#4B5F7B" stroke="none"/>
+<rect x="91" y="104" width="10" height="5" rx="1" fill="#7AB69E" stroke="none"/>
+<rect x="91" y="97" width="10" height="5" rx="1" fill="#7AB69E" stroke="none"/>
+<rect x="91" y="90" width="10" height="5" rx="1" fill="#7AB69E" stroke="none"/>
+<rect x="91" y="83" width="10" height="5" rx="1" fill="#7AB69E" stroke="none"/>
+<rect x="91" y="76" width="10" height="5" rx="1" fill="#7AB69E" stroke="none"/>
+<rect x="91" y="69" width="10" height="5" rx="1" fill="#7AB69E" stroke="none"/>
+<rect x="91" y="62" width="10" height="5" rx="1" fill="#7AB69E" stroke="none"/>
+<rect x="91" y="55" width="10" height="5" rx="1" fill="#4B5F7B" stroke="none"/>
+<rect x="91" y="48" width="10" height="5" rx="1" fill="#4B5F7B" stroke="none"/>
+<rect x="91" y="41" width="10" height="5" rx="1" fill="#4B5F7B" stroke="none"/>
+<rect x="91" y="34" width="10" height="5" rx="1" fill="#4B5F7B" stroke="none"/>
+<text x="80" y="124" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#7188AB" text-anchor="middle" font-weight="400">STEREO METER</text>
+</svg>

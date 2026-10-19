@@ -23,6 +23,8 @@ private:
     friend std::filesystem::path folder();
 };
 void event(std::string_view text) noexcept;
+// Control-thread only. Acknowledge the displayed report without deleting it.
+bool acknowledge_report(const std::filesystem::path& report) noexcept;
 std::string status();
 std::filesystem::path folder();
 }

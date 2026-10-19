@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140">
+<title>MR Studio GUI element</title>
+<circle cx="29" cy="69" r="5" fill="#E68F88" stroke="none"/>
+<circle cx="50" cy="69" r="5" fill="#AB92DD" stroke="none"/>
+<circle cx="71" cy="69" r="5" fill="#7AB69E" stroke="none"/>
+<circle cx="92" cy="69" r="5" fill="#E2C070" stroke="none"/>
+<circle cx="113" cy="69" r="5" fill="#91BBEE" stroke="none"/>
+<circle cx="134" cy="69" r="5" fill="#E68F88" stroke="none"/>
+<text x="80" y="121" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#7188AB" text-anchor="middle" font-weight="400">STATUS LEDS</text>
+</svg>

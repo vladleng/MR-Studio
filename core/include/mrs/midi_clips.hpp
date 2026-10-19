@@ -64,6 +64,14 @@ public:
     void apply(Project&) const override;
 private: Id id_,right_;Tick at_;
 };
+// Consolidate visible notes/controllers on one instrument track; gaps remain empty.
+class MergeMidiClips final : public ICommand {
+public:
+    MergeMidiClips(std::vector<Id> ids,Id merged):ids_(std::move(ids)),merged_(std::move(merged)){}
+    std::string_view name() const override{return "Merge MIDI clips";}
+    void apply(Project&) const override;
+private: std::vector<Id> ids_;Id merged_;
+};
 class DuplicateClip final : public ICommand {
 public:
     DuplicateClip(Id id,Id duplicate):id_(std::move(id)),duplicate_(std::move(duplicate)){}

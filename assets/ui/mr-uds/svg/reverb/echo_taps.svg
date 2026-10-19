@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+<title>MR Studio GUI element</title>
+<rect x="38" y="31" width="244" height="134" rx="10" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M70 121 a26.0 26.0 0 0 1 52.0 0" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M95 121 a22.88 22.88 0 0 1 45.76 0" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M120 121 a19.76 19.76 0 0 1 39.52 0" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M145 121 a16.64 16.64 0 0 1 33.28 0" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M170 121 a13.52 13.52 0 0 1 27.04 0" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M195 121 a10.4 10.4 0 0 1 20.8 0" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="57" y1="127" x2="266" y2="127" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="160" y="178" font-family="Inter,Segoe UI,sans-serif" font-size="9" fill="#DAE5F4" text-anchor="middle" font-weight="400" letter-spacing="1.5">ECHO</text>
+</svg>

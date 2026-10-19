@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<title>MR Studio list</title>
+<circle cx="3" cy="5" r="1" fill="#A9BFDC" stroke="#A9BFDC" stroke-width="1"/>
+<path d="M8 5 L22 5" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="3" cy="12" r="1" fill="#A9BFDC" stroke="#A9BFDC" stroke-width="1"/>
+<path d="M8 12 L22 12" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="3" cy="19" r="1" fill="#A9BFDC" stroke="#A9BFDC" stroke-width="1"/>
+<path d="M8 19 L22 19" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

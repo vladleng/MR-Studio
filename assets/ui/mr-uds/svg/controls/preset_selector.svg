@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140">
+<title>MR Studio GUI element</title>
+<rect x="8" y="42" width="144" height="52" rx="14" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="23" y="73" font-family="Inter,Segoe UI,sans-serif" font-size="11" fill="#DAE5F4" text-anchor="start" font-weight="400">MR Clean Air</text>
+<path d="M 137 62 L 143 68 L 137 74" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="80" y="120" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#7188AB" text-anchor="middle" font-weight="400">PRESETS</text>
+</svg>

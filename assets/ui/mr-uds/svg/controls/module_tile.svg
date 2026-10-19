@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140">
+<title>MR Studio GUI element</title>
+<rect x="28" y="20" width="104" height="101" rx="13" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="80" y="40" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#DAE5F4" text-anchor="middle" font-weight="400" letter-spacing="1">MODULE</text>
+<circle cx="55" cy="83" r="16" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="55" y1="83" x2="55" y2="69" fill="none" stroke="#DAE5F4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="105" cy="83" r="16" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="105" y1="83" x2="113" y2="74" fill="none" stroke="#DAE5F4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="119" cy="40" r="2.8" fill="#7AB69E" stroke="none"/>
+</svg>

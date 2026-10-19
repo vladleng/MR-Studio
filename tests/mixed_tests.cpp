@@ -28,7 +28,7 @@ namespace {
 using namespace mrs;using namespace mrs::audio;using namespace mrs::processing;
 void check(bool b,const char* why){if(!b)throw std::runtime_error(why);}
 void settle(){std::this_thread::sleep_for(std::chrono::milliseconds(4));}
-struct Trace {std::atomic<unsigned> active{},collisions{},calls{};std::atomic<bool> hold{},entered{};};
+struct Trace {std::atomic<unsigned> active{},collisions{},calls{},frames{};std::atomic<bool> hold{},entered{};};
 class Effect final:public IProcessor {
     LatencyFixture delay_;Trace& trace_;bool safe_;
 public:
@@ -45,7 +45,7 @@ public:
     void warm()override{}
     void reset()noexcept override{if(trace_.active)++trace_.collisions;delay_.reset();}
     void process(ProcessBlock b)noexcept override{
-        if(trace_.active.fetch_add(1))++trace_.collisions;++trace_.calls;trace_.entered=true;
+        if(trace_.active.fetch_add(1))++trace_.collisions;++trace_.calls;trace_.frames+=b.frames;trace_.entered=true;
         while(trace_.hold.load(std::memory_order_acquire))std::this_thread::yield();
         // Stateful delay followed by nonlinear DSP verifies merging BEFORE the
         // shared effect; summing independently processed outputs would differ.
@@ -73,7 +73,8 @@ std::shared_ptr<AudioEngine> engine(RenderGraph graph,unsigned workers=4,Realtim
 void equivalence(){
     for(auto device:{64U,128U,256U,512U})for(auto workers:{2U,4U}){
         Traces a,b;const RealtimeState initial{PlaybackState::paused,0,LoopRange{0,97}};
-        auto direct=engine(graph(a),1,initial),mixed=engine(graph(b),workers,initial);
+        auto serialGraph=graph(a),aheadGraph=graph(b);for(auto* candidate:{&serialGraph,&aheadGraph})for(auto& voice:candidate->voices){voice.length=97;voice.fade_in=31;voice.fade_out=63;}
+        auto direct=engine(std::move(serialGraph),1,initial),mixed=engine(std::move(aheadGraph),workers,initial);
         check(direct->enqueue({ControlKind::play})&&mixed->enqueue({ControlKind::play}),"play queues");
         mixed->set_profiling(true);
         AheadRenderer renderer(mixed,device,2048);renderer.start();check(renderer.active(),"mixed did not start");settle();
@@ -88,7 +89,7 @@ void equivalence(){
         check(probe::allocations==before,"mixed host RT allocation");renderer.stop();
         for(const auto& trace:b)check(trace.collisions==0&&trace.active==0,"mixed instance collision or failed join");
         const auto profile=mixed->profile();check(profile.enabled&&profile.ahead[0].calls>0&&profile.device_master.calls==80,"mixed profiling did not include actual producer owner");
-        check(b[4].calls==80,"shared Master moved off device or processed twice");
+        check(b[4].calls==a[4].calls&&b[4].frames==40*device,"shared Master must render each frame once with the same tempo/loop splits as serial");
         renderer.start();settle();renderer.process(in.data(),actual.data(),device);renderer.stop();
     }
 }
@@ -104,7 +105,7 @@ void recovery(){
     for(unsigned n=0;n<8;++n){live->process(in.data(),reference.data(),128);renderer.process(in.data(),out.data(),128);}
     check(mixed->metrics().ahead_underruns>0,"producer starvation not exercised");
     check(out==reference,"starvation silenced or altered live DSP");check(mixed->state().sample==1024,"starvation held device timeline");
-    check(traces[1].calls==8&&traces[2].calls==8&&traces[4].calls==8,"live/shared DSP lost callbacks");
+    check(traces[1].calls==9&&traces[2].calls==9&&traces[4].calls==9&&traces[1].frames==1024&&traces[2].frames==1024&&traces[4].frames==1024,"live/shared DSP must split once at tempo75 and process every callback frame exactly once");
     traces[0].hold=false;settle();renderer.process(in.data(),out.data(),128);settle();renderer.process(in.data(),out.data(),128);
     check(!mixed->metrics().processing_fault,"starvation latched unnecessary processing fault");
     check(mixed->state().sample==1280,"recovery skipped or doubled device time");renderer.stop();

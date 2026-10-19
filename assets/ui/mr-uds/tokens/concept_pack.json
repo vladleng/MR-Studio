@@ -1,0 +1,55 @@
+{
+  "palette": {
+    "bg": "#111720",
+    "surface": "#192333",
+    "raised": "#2D394E",
+    "line": "#A9BFDC",
+    "muted": "#7188AB",
+    "faint": "#4B5F7B",
+    "bright": "#DAE5F4",
+    "cyan": "#00B8EF",
+    "blue": "#91BBEE",
+    "violet": "#B45DF0",
+    "red": "#F04459",
+    "amber": "#E2B44A",
+    "green": "#24D67C",
+    "yellow": "#F0D447"
+  },
+  "scope": "Concept pack only; does not change ui::Theme",
+  "icon_stroke": 1.6,
+  "spacing": [
+    4,
+    8,
+    16,
+    24
+  ],
+  "host_minimum_target": 32,
+  "mapping_to_uds": {
+    "cyan": "accent",
+    "blue": "accent",
+    "violet": "violet",
+    "red": "red",
+    "amber": "amber",
+    "green": "green",
+    "yellow": "amber"
+  },
+  "fader_geometry": {
+    "micro": {
+      "axis": "y",
+      "start": 188,
+      "end": 12
+    },
+    "precision": {
+      "axis": "y",
+      "start": 228,
+      "end": 12
+    },
+    "slide": {
+      "axis": "x",
+      "start": 12,
+      "end": 212
+    }
+  },
+  "fader_formula": "position = start + normalized * (end - start); normalized is supplied by host mapping.",
+  "fader_sample": "Static examples are 0.55, rounded to logical pixels; not dB values."
+}

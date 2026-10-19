@@ -1,19 +1,15 @@
 # Moon River Studio
 
-GitHub — главный источник документации, плана и статусов проекта.
-Начать с [текущего контекста](docs/PROJECT_CONTEXT.md) и [индекса документов](docs/README.md).
+GitHub main — документальная и исходная основа проекта. С 2026-10-19 разработка переведена в онлайн-режим по прямому решению пользователя.
 
-Последняя локальная сборка — **0.3h upd2 / #80 Unified musical lanes**, принята2026-10-13.
-Маркеры/аккорды: group marquee/Shift, Alt-copy shadows, atomic group operations; chord palette и radius3.
-[Контракт/совместимость](docs/MUSICAL_LANE_GESTURES_UPD2.md): schema21, читает старые1–20, archive1.
-Release и **130/130 CTest PASS**, packaged diagnostics/J3 PASS; пользовательская приёмка подтверждена: «Все работает - закрывай!».
-[Контракт и проверки](docs/ARRANGER_EDITOR_80.md). Hardware ASIO/physical DPI отдельно не проверены.
-Последняя принятая локальная версия — **0.3h upd2 / #80 Unified musical lanes**.
-Stage5/#25 **завершён и принят: 9/9**. #87 и parent#25 закрыты2026-10-13: сохранение и Undo/Redo подтверждены пользователем. MR Reverb #128–132 завершён и принят.
-Опубликованный код и [GitHub releasev0.2g](https://github.com/vladleng/MR-Studio/releases/tag/v0.2g)
-отстают от локальной разработки. Документальные commits не публикуют новые исходники/бинарники.
-Код/build/tests/packages локально; без source push/merge/GitHub Actions.
+Текущий перенесённый baseline: **0.6 upd1**, локальный source `618c3b5`, поверх сборки0.6 `511cd0e`. Включены принятые ARA этапы #177–181, AI Preview/Apply, сохранение смешанного ARA проекта и перенос Update playback в меню клипа. #88 открыта для нового этапа [#240 Render and Restore](https://github.com/vladleng/MR-Studio/issues/240), реализация не начата. Независимый GUI regression — #239.
 
+- [Правила разработки](AGENTS.md), [передача онлайн](docs/ONLINE_DEVELOPMENT_0_6_UPD1.md), [текущие задачи ARA](https://github.com/vladleng/MR-Studio/issues/88).
+- В репозиторий включены код, `.codex/skills`, MR UDS assets, инструменты и тесты. SDK, пользовательские проекты, секреты, EXE/PDB и локальные пакеты не включены.
+- Последние проверки исходной локальной версии: Release GUI build, ARA editor/J1 и packaged J1 PASS. Полный CTest для0.6 upd1 не запускался; физические ASIO/DPI и полная vendor matrix не заявляются.
+- Для текущего snapshot не запускаются GitHub Actions: commit переноса `[skip ci]`. Дальнейшие CI/PR/merge — по поручению.
+
+Ниже сохранена историческая сводка; актуальные статусы определяются Issues и ссылками выше.
 <!-- DEVELOPMENT_PROGRESS_START -->
 ## Development Progress
 

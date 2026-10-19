@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+<title>MR Studio GUI element</title>
+<path d="M29 163 L291 163 L291 41 L29 41 Z" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M29 163 L106 112 L214 112 L291 163 M29 41 L106 69 L214 69 L291 41" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="106" y1="69" x2="106" y2="112" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="214" y1="69" x2="214" y2="112" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="160" y1="69" x2="160" y2="112" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="46.71" y1="151.27" x2="273.29" y2="151.27" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="66.72999999999999" y1="138.01" x2="253.27" y2="138.01" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="86.75" y1="124.75" x2="233.25" y2="124.75" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="120" y="84" width="80" height="27" rx="2" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M137 84 L137 100 L184 100 L184 84" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M71 156 L71 93" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M250 156 L250 93" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -164,6 +164,16 @@ public:
     }
 };
 void latency() {
+    {auto state=two_nodes();for(auto& node:state.nodes){node.parameters.clear();node.processor_id="latency-fixture";}
+        int instances{};PreparedGraph graph{snapshot(state),{48000,2,17,128},[&](const auto& node){++instances;return std::make_unique<LatencyFixture>(node.id==mrs::Id{"gain"}?7:11);}};
+        const std::array<mrs::Id,2> reverse{{{"second"},{"gain"}}},original{{{"gain"},{"second"}}},invalid{{{"gain"},{"gain"}}};
+        for(const auto& order:{reverse,original,reverse}){graph.reorder_serial(order);CHECK(instances==2&&graph.latency().output==18);graph.panic();
+            std::array<float,34> audio{};std::uint32_t position{};const auto count=allocations.load();
+            while(position<40){audio.fill(0);const auto frames=std::min(17u,40-position);if(!position){audio[0]=.25f;audio[1]=-.5f;}probing=true;graph.process(audio.data(),frames);probing=false;
+                for(std::uint32_t f=0;f<frames;++f){CHECK(audio[f*2]==(position+f==18?.25f:0.f));CHECK(audio[f*2+1]==(position+f==18?-.5f:0.f));}position+=frames;}CHECK(allocations.load()==count);}
+        const auto before=graph.snapshot().graph;rejects([&]{graph.reorder_serial(invalid);});CHECK(graph.snapshot().graph==before&&instances==2);
+    }
+
     auto wire=two_nodes();for(auto& n:wire.nodes){n.parameters.clear();n.processor_id="fixture";}wire.edges[1].from.reset();wire.outputs={wire.nodes[0].id,wire.nodes[1].id};
     const auto factory=[](const NodeState& n){return std::make_unique<LatencyFixture>(n.id==mrs::Id{"gain"}?7U:n.id==mrs::Id{"sum"}?0U:31U);};
     for(bool merge:{false,true}){
@@ -173,7 +183,10 @@ void latency() {
         while(position<200){const auto count=static_cast<std::uint32_t>(std::min<std::size_t>(1+position%17,200-position));block.fill(0);if(!position){block[0]=.125f;block[1]=-.25f;}probing=true;graph.process(block.data(),count);probing=false;
             for(std::uint32_t f=0;f<count;++f){CHECK(block[f*2]==(position+f==31?.25f:0.f));CHECK(block[f*2+1]==(position+f==31?-.5f:0.f));}position+=count;}
         CHECK(allocations.load()==before);block.fill(0);block[0]=.125f;graph.process(block.data(),1);graph.panic();block.fill(0);for(int i=0;i<40;++i){graph.process(block.data(),1);CHECK(block[0]==0&&block[1]==0);}
-        auto bypass=state;bypass.nodes[0].bypass=true;rejects([&]{graph.enqueue_parameters(bypass);});
+        auto bypass=state;bypass.nodes[0].bypass=true;CHECK(graph.enqueue_parameters(bypass));
+        CHECK(graph.latency().output==31);graph.panic();position=0;
+        while(position<80){block.fill(0);if(!position){block[0]=.125f;block[1]=-.25f;}probing=true;graph.process(block.data(),1);probing=false;CHECK(block[0]==(position==31?.25f:0.f));CHECK(block[1]==(position==31?-.5f:0.f));++position;}
+        CHECK(allocations.load()==before);CHECK(graph.enqueue_parameters(state));
     }
     rejects([&]{PreparedGraph bad{snapshot(wire),{48000,2,17},[](const auto&){return std::make_unique<LatencyFixture>(262145);}};});
     auto g = two_nodes();

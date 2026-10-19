@@ -63,6 +63,7 @@ void TrimAudioClip::apply(Project& p) const {
     if (offset < 0 || offset > frames_ || end_-start_ > frames_-offset)
         throw std::invalid_argument("trim exceeds original audio source");
     it->start = start_; it->length = end_-start_; it->source_offset = offset;
+    it->fade_in=std::min(it->fade_in,it->length);it->fade_out=std::min(it->fade_out,it->length);
 }
 void SplitAudioClip::apply(Project& p) const {
     auto it = audio_clip(p,id_);
@@ -72,6 +73,7 @@ void SplitAudioClip::apply(Project& p) const {
     const auto left_length = position_-it->start;
     right.id = right_; right.start = position_; right.length -= left_length; right.source_offset += left_length;
     it->length = left_length;
+    it->fade_out=0;it->fade_in=std::min(it->fade_in,it->length);right.fade_in=0;right.fade_out=std::min(right.fade_out,right.length);
     p.clips.insert(it+1,std::move(right));
 }
 void RemoveAudioClip::apply(Project& p) const { p.clips.erase(audio_clip(p,id_)); }

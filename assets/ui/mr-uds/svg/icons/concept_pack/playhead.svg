@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<title>MR Studio playhead</title>
+<path d="M8 2 H16 L12 7 Z" fill="#A9BFDC" stroke="#A9BFDC" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M12 8 V23" fill="none" stroke="#A9BFDC" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 2"/>
+</svg>

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140">
+<title>MR Studio GUI element</title>
+<rect x="20" y="30" width="120" height="82" rx="12" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M37 75 L 62 75 L 76 56 L 93 92 L 107 75 L 127 75" fill="none" stroke="#DAE5F4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="76" cy="56" r="3" fill="#91BBEE" stroke="none"/>
+<text x="80" y="126" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#7188AB" text-anchor="middle" font-weight="400">SIGNAL ROUTE</text>
+</svg>

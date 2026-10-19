@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<title>MR Studio track drums</title>
+<ellipse cx="12" cy="12" rx="5" ry="2" fill="none" stroke="#A9BFDC" stroke-width="1.6"/>
+<path d="M7 12 V19 C7 22 17 22 17 19 V12 M4 5 V19 M20 5 V19" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1.5 5 L4 3.5 L6.5 5 L4 6.5 Z M17.5 5 L20 3.5 L22.5 5 L20 6.5 Z" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

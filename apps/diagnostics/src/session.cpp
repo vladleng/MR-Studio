@@ -30,13 +30,20 @@ void close(HANDLE& h){if(h&&h!=INVALID_HANDLE_VALUE)CloseHandle(h);h=nullptr;}
 std::wstring handleText(HANDLE h){return std::to_wstring(reinterpret_cast<std::uintptr_t>(h));}
 std::string clean(std::string_view text){std::string result(text.substr(0,2048));for(auto& c:result)if(c=='\r'||c=='\n'||c=='\0')c=' ';return result;}
 struct Group {std::vector<std::filesystem::path> files;std::uintmax_t size{};std::filesystem::file_time_type time{};};
+std::filesystem::path seenFile(std::filesystem::path report){report.replace_extension();report.replace_extension(L".seen");return report;}
+bool wasSeen(const std::filesystem::path& report) noexcept {
+    try{const auto marker=seenFile(report);std::error_code ec;
+        if(!std::filesystem::is_regular_file(marker,ec)||ec)return false;
+        return !std::filesystem::is_symlink(marker,ec)&&!ec;
+    }catch(...){return false;}
+}
 void prune(const std::filesystem::path& directory){
     std::map<std::wstring,Group> groups;std::error_code ec;
     for(const auto& entry:std::filesystem::directory_iterator(directory,ec)){
         if(entry.is_symlink(ec)||!entry.is_regular_file(ec))continue;
         const auto name=entry.path().filename().wstring();if(!name.starts_with(L"mr-session-"))continue;
         const auto dot=name.find(L'.');if(dot==std::wstring::npos)continue;
-        const auto suffix=name.substr(dot);if(suffix!=L".log"&&suffix!=L".crash.txt"&&suffix!=L".dmp"&&suffix!=L".lock")continue;
+        const auto suffix=name.substr(dot);if(suffix!=L".log"&&suffix!=L".crash.txt"&&suffix!=L".dmp"&&suffix!=L".lock"&&suffix!=L".seen")continue;
         ec.clear();const auto bytes=entry.file_size(ec);if(ec)continue;const auto time=entry.last_write_time(ec);if(ec)continue;
         auto& group=groups[name.substr(0,dot)];group.files.push_back(entry.path());group.size+=bytes;group.time=std::max(group.time,time);
     }
@@ -117,9 +124,13 @@ Session::Session(std::filesystem::path directory,std::filesystem::path helper,st
     try{
         if(active)return;impl=std::make_unique<Impl>();impl->application=version;impl->directory=std::filesystem::absolute(directory);
         std::filesystem::create_directories(impl->directory);
-        std::filesystem::file_time_type latest{};
-        for(const auto& entry:std::filesystem::directory_iterator(impl->directory))if(entry.is_regular_file()&&entry.path().filename().wstring().starts_with(L"mr-session-")&&entry.path().wstring().ends_with(L".crash.txt"))if(entry.last_write_time()>latest){latest=entry.last_write_time();impl->previous=entry.path();}
-        prune(impl->directory);static std::atomic<unsigned> serial{};
+        prune(impl->directory);
+        std::filesystem::file_time_type latest=std::filesystem::file_time_type::min();
+        for(const auto& entry:std::filesystem::directory_iterator(impl->directory))if(!entry.is_symlink()&&entry.is_regular_file()&&entry.path().filename().wstring().starts_with(L"mr-session-")&&entry.path().wstring().ends_with(L".crash.txt"))if(entry.last_write_time()>latest){latest=entry.last_write_time();impl->previous=entry.path();}
+        // Only the latest report matters: acknowledging it must not surface older
+        // retained reports on subsequent clean launches.
+        if(!impl->previous.empty()&&wasSeen(impl->previous))impl->previous.clear();
+        static std::atomic<unsigned> serial{};
         const auto now=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         impl->stem=impl->directory/(L"mr-session-"+std::to_wstring(now)+L"-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(++serial));
         impl->lock=CreateFileW((impl->stem.wstring()+L".lock").c_str(),GENERIC_WRITE,FILE_SHARE_READ,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
@@ -136,6 +147,16 @@ bool Session::crash_capture_available() const noexcept{return impl&&impl->instal
 std::filesystem::path Session::folder() const{return impl?impl->directory:std::filesystem::path{};}
 std::filesystem::path Session::base() const{return impl?impl->stem:std::filesystem::path{};}
 std::filesystem::path Session::previous_report() const{return impl?impl->previous:std::filesystem::path{};}
+bool acknowledge_report(const std::filesystem::path& report) noexcept {
+    try {
+        const auto name=report.filename().wstring();
+        if(!name.starts_with(L"mr-session-")||!name.ends_with(L".crash.txt")||std::filesystem::is_symlink(report)||!std::filesystem::is_regular_file(report))return false;
+        const auto marker=seenFile(report);
+        const auto handle=CreateFileW(marker.c_str(),GENERIC_WRITE,FILE_SHARE_READ,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
+        if(handle==INVALID_HANDLE_VALUE)return GetLastError()==ERROR_FILE_EXISTS&&std::filesystem::is_regular_file(marker)&&!std::filesystem::is_symlink(marker);
+        CloseHandle(handle);return true;
+    }catch(...){return false;}
+}
 void event(std::string_view text) noexcept{if(Session::active)Session::active->push(text);}
 std::string status(){return !Session::active?"Diagnostics unavailable":Session::active->journalFailed?"Session journal write failed":Session::active->installed?"Session log and crash reporter active":"Session log active; crash reporter unavailable";}
 std::filesystem::path folder(){return Session::active?Session::active->directory:std::filesystem::path{};}

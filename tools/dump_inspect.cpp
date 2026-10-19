@@ -10,7 +10,7 @@
 namespace {
 struct Region {ULONG64 address;ULONG size;ULONG rva;};std::vector<Region> regions;std::vector<char> bytes;
 BOOL WINAPI memory(HANDLE,DWORD64 address,PVOID output,DWORD size,LPDWORD read){
-    for(const auto& r:regions)if(address>=r.address&&address-r.address<=r.size&&size<=r.size-(address-r.address)){
+    for(const auto& r:regions)if(r.rva!=0&&address>=r.address&&address-r.address<=r.size&&size<=r.size-(address-r.address)){
         const auto offset=r.rva+address-r.address;if(offset+size>bytes.size())return FALSE;memcpy(output,bytes.data()+offset,size);*read=size;return TRUE;}
     return FALSE;
 }
@@ -34,6 +34,13 @@ int wmain(int argc,wchar_t** argv){
         if(std::filesystem::is_regular_file(path))SymLoadModuleExW(process,nullptr,path.c_str(),nullptr,module.BaseOfImage,module.SizeOfImage,nullptr,0);}
     for(ULONG i=0;i<threads->NumberOfThreads;++i){const auto& stack=threads->Threads[i].Stack;regions.push_back({stack.StartOfMemoryRange,stack.Memory.DataSize,stack.Memory.Rva});}
     if(auto* list=static_cast<const MINIDUMP_MEMORY_LIST*>(stream(MemoryListStream)))for(ULONG i=0;i<list->NumberOfMemoryRanges;++i){const auto& r=list->MemoryRanges[i];regions.push_back({r.StartOfMemoryRange,r.Memory.DataSize,r.Memory.Rva});}
+    if(auto* list=static_cast<const MINIDUMP_MEMORY64_LIST*>(stream(Memory64ListStream))){
+        auto offset=list->BaseRva;
+        for(ULONG64 i=0;i<list->NumberOfMemoryRanges;++i){const auto& r=list->MemoryRanges[i];
+            if(r.DataSize<=0xffffffffULL&&offset<=0xffffffffULL)regions.push_back({r.StartOfMemoryRange,static_cast<ULONG>(r.DataSize),static_cast<ULONG>(offset)});
+            offset+=r.DataSize;
+        }
+    }
     std::cout<<"exception=0x"<<std::hex<<fault->ExceptionRecord.ExceptionCode<<" thread="<<std::dec<<fault->ThreadId<<'\n';symbol(process,fault->ExceptionRecord.ExceptionAddress);
     CONTEXT context{};if(fault->ThreadContext.Rva+sizeof(context)>bytes.size())return 6;memcpy(&context,bytes.data()+fault->ThreadContext.Rva,sizeof(context));
     std::cout<<"access="<<fault->ExceptionRecord.ExceptionInformation[0]<<" address=0x"<<std::hex<<fault->ExceptionRecord.ExceptionInformation[1]<<" rcx="<<context.Rcx<<" rdx="<<context.Rdx<<" rax="<<context.Rax<<" rsp="<<context.Rsp<<" rdi="<<context.Rdi<<" r15="<<context.R15<<'\n';

@@ -77,6 +77,41 @@ void trim_midi_source(MidiClip& m,Tick start,Tick end){
 }
 void TrimMidiClip::apply(Project& p) const{trim_midi_source(*midi_clip(p,id_)->midi,start_,end_);}
 void SplitMidiClip::apply(Project& p) const{auto i=midi_clip(p,id_);auto& m=*i->midi;if(at_<=m.start||at_>=m.start+m.length)throw std::invalid_argument("split cursor must be inside MIDI clip");auto right=*i;right.id=right_;fresh_notes(right);const auto left=at_-m.start;right.midi->start=at_;right.midi->length-=left;right.midi->source_offset+=left;m.length=left;p.clips.insert(i+1,std::move(right));}
+void MergeMidiClips::apply(Project& p) const {
+    if(ids_.size()<2)throw std::invalid_argument("Select at least two MIDI clips on one track");
+    std::vector<Clip> sources;std::size_t insertion=p.clips.size();
+    for(const auto& id:ids_){
+        if(std::any_of(sources.begin(),sources.end(),[&](const auto& c){return c.id==id;}))throw std::invalid_argument("duplicate merge source");
+        const auto at=midi_clip(p,id);insertion=std::min(insertion,static_cast<std::size_t>(at-p.clips.begin()));
+        if(!sources.empty()&&at->track!=sources.front().track)throw std::invalid_argument("Merge MIDI clips needs one track");sources.push_back(*at);
+    }
+    instrument(p,sources.front().track);
+    if(std::any_of(p.clips.begin(),p.clips.end(),[&](const auto& c){return c.id==merged_;}))throw std::invalid_argument("merge ID already exists");
+    std::stable_sort(sources.begin(),sources.end(),[&](const auto& a,const auto& b){return find_clip(p,a.id)<find_clip(p,b.id);});
+    Tick start=max_tick,end=0;for(const auto& c:sources)start=std::min(start,c.midi->start);
+    for(const auto& c:sources)end=std::max(end,c.midi->start+c.midi->length);
+    Clip result;result.id=merged_;result.track=sources.front().track;result.name="Merged MIDI clip";result.color=sources.front().color;result.midi=MidiClip{start,end-start,0,{},{}};
+    auto& merged=*result.midi;
+    struct OrderedEvent{MidiChannelEvent event;unsigned order;};std::vector<OrderedEvent> controls;
+    for(const auto& c:sources){const auto& m=*c.midi;const auto offset=m.start-start;
+        for(const auto& n:m.notes){const auto a=std::max(n.start,m.source_offset),b=std::min(n.start+n.length,m.source_offset+m.length);if(a>=b)continue;
+            auto note=n;note.id=new_id();note.start=offset+a-m.source_offset;note.length=b-a;merged.notes.push_back(note);}
+        // Materialize the same controller chase as playback of a trimmed clip.
+        std::vector<MidiChannelEvent> chase;
+        for(const auto& e:m.events)if(e.start<m.source_offset){auto at=std::find_if(chase.begin(),chase.end(),[&](const auto& v){return v.kind==e.kind&&v.channel==e.channel&&((e.kind!=2&&e.kind!=6)||v.data1==e.data1);});if(at==chase.end())chase.push_back(e);else if(e.start>=at->start)*at=e;}
+        for(auto i=chase.rbegin();i!=chase.rend();++i){auto e=*i;e.id=new_id();e.start=offset;controls.push_back({e,3U});}
+        for(auto e:m.events)if(e.start>=m.source_offset&&e.start<=m.source_offset+m.length){const auto order=e.start==m.source_offset?3U:1U;e.id=new_id();e.start=offset+e.start-m.source_offset;controls.push_back({e,order});}
+        // Keep sustain/bend releases at former clip ends, including gaps.
+        for(int channel=0;channel<16;++channel){bool sustain=false,bend=false;for(const auto& e:m.events)if(e.channel==channel){sustain|=e.kind==2&&e.data1==64;bend|=e.kind==5;}
+            if(sustain)controls.push_back({{new_id(),offset+m.length,2,channel,64,0},2U});
+            if(bend)controls.push_back({{new_id(),offset+m.length,5,channel,0,64},2U});}
+    }
+    std::stable_sort(merged.notes.begin(),merged.notes.end(),[](const auto& a,const auto& b){return a.start<b.start;});
+    std::stable_sort(controls.begin(),controls.end(),[](const auto& a,const auto& b){return a.event.start!=b.event.start?a.event.start<b.event.start:a.order<b.order;});
+    for(auto& e:controls)merged.events.push_back(std::move(e.event));
+    std::erase_if(p.clips,[&](const auto& c){return std::find(ids_.begin(),ids_.end(),c.id)!=ids_.end();});
+    p.clips.insert(p.clips.begin()+static_cast<std::ptrdiff_t>(insertion),std::move(result));
+}
 void DuplicateClip::apply(Project& p) const{auto c=*find_clip(p,id_);const auto start=start_?*start_:free_copy_start(p,c);if(start<0||start>max_sample)throw std::invalid_argument("invalid copy position");c.id=duplicate_;if(track_)c.track=*track_;fresh_notes(c);if(c.midi){instrument(p,c.track);c.midi->start=Timeline(p.time,p.sample_rate).to_ticks(start);}else c.start=start;p.clips.push_back(std::move(c));}
 void RemoveClip::apply(Project& p) const{p.clips.erase(find_clip(p,id_));}
 }

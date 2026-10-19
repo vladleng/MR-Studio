@@ -41,14 +41,28 @@ int wmain(int argc,wchar_t** argv){
         for(const auto* mode:{L"main",L"worker"}){const auto directory=root/mode;check(run(probe,helper,directory,mode)!=0,"fault exits nonzero");waitReport(directory);const auto reports=files(directory,L".crash.txt");const auto report=read(reports.front());check(report.find("unhandled_exception=0xc0000005")!=std::string::npos&&report.find("dump_written=1")!=std::string::npos&&report.find("fault_module=")!=std::string::npos,"fault report fields");const auto dumps=files(directory,L".dmp");check(dumps.size()==1,"one dump");dump(dumps.front());check(read(files(directory,L".log").front()).find("fixture_action")!=std::string::npos,"last action journal");}
         const auto clean=root/L"clean";check(run(probe,helper,clean,L"clean")==0,"clean exit");check(files(clean,L".crash.txt").empty()&&files(clean,L".dmp").empty(),"clean no false crash");check(read(files(clean,L".log").front()).find("clean_shutdown")!=std::string::npos,"clean log flush");
         const auto abrupt=root/L"abrupt";check(run(probe,helper,abrupt,L"abrupt")!=0,"abrupt exit");waitReport(abrupt);check(read(files(abrupt,L".crash.txt").front()).find("unexpected_process_exit=0xc0000409")!=std::string::npos&&files(abrupt,L".dmp").empty(),"abrupt no fake context/dump");
+        const auto notices=root/L"notices";std::filesystem::create_directory(notices);
+        const auto older=notices/L"mr-session-older.crash.txt",latest=notices/L"mr-session-latest.crash.txt";
+        const auto contents=read(files(root/L"main",L".crash.txt").front());
+        {std::ofstream a(older,std::ios::binary),b(latest,std::ios::binary);a<<contents;b<<contents;}
+        const auto reportTime=std::filesystem::file_time_type::clock::now();std::filesystem::last_write_time(older,reportTime-std::chrono::seconds(1));std::filesystem::last_write_time(latest,reportTime);
+        {mrs::diagnostics::Session session(notices,root/L"missing-helper.exe","fixture");check(session.previous_report()==latest,"new report triggers notice");}
+        check(mrs::diagnostics::acknowledge_report(latest)&&mrs::diagnostics::acknowledge_report(latest),"notice acknowledgement persists and is idempotent");
+        for(int i=0;i<2;++i){mrs::diagnostics::Session session(notices,root/L"missing-helper.exe","fixture");check(session.available()&&session.previous_report().empty(),"clean restart does not repeat old notices");}
+        check(read(older)==contents&&read(latest)==contents,"acknowledgement preserves crash reports");
+        const auto fresh=notices/L"mr-session-fresh.crash.txt";{std::ofstream report(fresh,std::ios::binary);report<<contents;}std::filesystem::last_write_time(fresh,reportTime+std::chrono::seconds(1));
+        {mrs::diagnostics::Session session(notices,root/L"missing-helper.exe","fixture");check(session.previous_report()==fresh,"later crash triggers new notice");}
+        std::filesystem::create_directory(notices/L"mr-session-fresh.seen");check(!mrs::diagnostics::acknowledge_report(fresh),"blocked acknowledgement fails safely");
+        check(!mrs::diagnostics::acknowledge_report(notices/L"missing.crash.txt"),"missing report is not acknowledged");
         const auto scoped=root/L"retention";std::filesystem::create_directory(scoped);{std::ofstream unrelated(scoped/L"user.txt");unrelated<<"preserve";}
         const auto live=scoped/L"mr-session-active.log";{std::ofstream file(live);file<<"active";}
         HANDLE liveLock=CreateFileW((scoped/L"mr-session-active.lock").c_str(),GENERIC_WRITE,FILE_SHARE_READ,nullptr,CREATE_NEW,0,nullptr);check(liveLock!=INVALID_HANDLE_VALUE,"live retention fixture");
-        for(int i=0;i<25;++i){const auto file=scoped/(L"mr-session-old-"+std::to_wstring(i)+L".log");{std::ofstream old(file);old<<"old";}std::filesystem::last_write_time(file,std::filesystem::file_time_type::clock::now()+std::chrono::hours(1));}
+        for(int i=0;i<25;++i){const auto file=scoped/(L"mr-session-old-"+std::to_wstring(i)+L".log");{std::ofstream old(file),seen(scoped/(L"mr-session-old-"+std::to_wstring(i)+L".seen"));old<<"old";}std::filesystem::last_write_time(file,std::filesystem::file_time_type::clock::now()+std::chrono::hours(1));}
         {mrs::diagnostics::Session session(scoped,root/L"missing-helper.exe","fixture");check(session.available()&&!session.crash_capture_available(),"missing helper degrades gracefully");check(files(scoped,L".log").size()<=20,"retention count");mrs::diagnostics::event("line\n\rtest");for(int i=0;i<5000;++i)mrs::diagnostics::event(std::string(3000,'x'));}
         check(read(scoped/L"user.txt")=="preserve","retention preserves unrelated files");for(const auto& log:files(scoped,L".log"))check(std::filesystem::file_size(log)<2*1024*1024+4096,"bounded journal");
+        check(files(scoped,L".seen").size()<20,"acknowledgement markers follow group retention");
         check(read(live)=="active","retention preserves live locked session");CloseHandle(liveLock);
         {mrs::diagnostics::Session blocked(scoped/L"user.txt",helper,"fixture");check(!blocked.available(),"unwritable path is nonfatal");}
-        std::filesystem::remove_all(root);std::cout<<"Crash diagnostics PASS: main/worker dumps, exception/stacks/modules, abrupt/clean, retention, bounds, graceful failure\n";return 0;
+        std::filesystem::remove_all(root);std::cout<<"Crash diagnostics PASS: main/worker dumps, exception/stacks/modules, abrupt/clean, notice acknowledgement/restart/new report, retention, bounds, graceful failure\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<"; fixture preserved at "<<root<<'\n';return 1;}
 }

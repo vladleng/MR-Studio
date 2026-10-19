@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+<title>MR Studio GUI element</title>
+<path d="M119 34 Q119 23 135 23 L185 23 Q201 23 201 34 L201 151 Q201 165 185 165 L135 165 Q119 165 119 151 Z" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M134 40 L134 153 M186 40 L186 153" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M150 64 C 159 79 140 97 150 111 S157 135 150 144" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M160 64 C 169 79 150 97 160 111 S167 135 160 144" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M170 64 C 179 79 160 97 170 111 S177 135 170 144" fill="none" stroke="#A9BFDC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="126" y="32" width="68" height="7" rx="2" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="126" y="152" width="68" height="7" rx="2" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -33,7 +33,7 @@ inline void drawWaveform(juce::Graphics& g,const mrs::audio::Waveform& wave,
     drawPeakEnvelope(g,wave.channels(),[&](double a,double b,std::uint32_t c){return wave.display(a,b,c);},area,offset,samplesPerPixel);
 }
 inline void drawRecordingWaveform(juce::Graphics& g,const mrs::audio::RecordPreview& wave,
-                                  juce::Rectangle<float> area,double samplesPerPixel) {
+                                  juce::Rectangle<float> area,double samplesPerPixel,double sourceOffset=0) {
     if(wave.peaks.empty()||!wave.channels||wave.bin_frames<=0)return;
     auto query=[&](double a,double b,std::uint32_t channel){
         if(b<=0||a>=wave.frames)return mrs::audio::Peak{};
@@ -43,6 +43,6 @@ inline void drawRecordingWaveform(juce::Graphics& g,const mrs::audio::RecordPrev
         auto peak=wave.peaks[first*wave.channels+channel];
         for(auto bin=first+1;bin<last;++bin){const auto other=wave.peaks[bin*wave.channels+channel];peak.minimum=std::min(peak.minimum,other.minimum);peak.maximum=std::max(peak.maximum,other.maximum);}
         return peak;};
-    drawPeakEnvelope(g,wave.channels,query,area,0,samplesPerPixel);
+    drawPeakEnvelope(g,wave.channels,query,area,sourceOffset,samplesPerPixel);
 }
 }

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140">
+<title>MR Studio GUI element</title>
+<rect x="20" y="46" width="120" height="48" rx="10" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="45" y="75" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#DAE5F4" text-anchor="middle" font-weight="400">MAIN</text>
+<text x="83" y="75" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#7188AB" text-anchor="middle" font-weight="400">A</text>
+<text x="121" y="75" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#7188AB" text-anchor="middle" font-weight="400">B</text>
+<line x1="33" y1="86" x2="56" y2="86" fill="none" stroke="#91BBEE" stroke-width="2"/>
+<text x="80" y="119" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#7188AB" text-anchor="middle" font-weight="400">TABS</text>
+</svg>

@@ -1,4 +1,5 @@
 #include <mrs/processing.hpp>
+#include <mrs/reverb.hpp>
 #include <mrs/audio.hpp>
 #include <mrs/delay.hpp>
 #include <algorithm>
@@ -21,7 +22,7 @@ template<class T> void sort_offsets(T* events, std::size_t size) noexcept {
 }
 struct MidiCommand { std::uint16_t node{}; MidiEvent event; };
 struct ParamCommand { std::uint16_t node{}; ParameterChange event; };
-struct ParamBatch {std::array<ParamCommand,256> changes{};std::size_t size{};};
+struct ParamBatch {std::array<ParamCommand,1024> changes{};std::size_t size{};};
 }
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -38,6 +39,7 @@ struct PreparedGraph::Impl {
         std::array<ParameterChange,event_capacity> parameters{};
         std::size_t parameter_count{};
         bool bypass{};
+        CompensationDelay bypass_delay;
     };
     GraphSnapshot snapshot;
     std::atomic<bool> profiling{};
@@ -132,11 +134,12 @@ PreparedGraph::PreparedGraph(GraphSnapshot snapshot, ProcessConfig config, Proce
             if (first && *first != latency) p.report.parallel_paths_need_compensation = true;
             first = latency; upstream = std::max(upstream,latency);
         }
-        const auto own = node.bypass ? 0 : node.processor->latency();
+        const auto own = node.processor->latency();
+        node.bypass_delay.prepare(own,config.channels,delay_budget);
         for(auto& edge:node.inputs)edge.delay.prepare(upstream-(edge.from?paths[*edge.from]:0),config.channels,delay_budget);
         paths[index] = upstream + own;
         if(paths[index]>262144)throw std::invalid_argument("PDC processor path exceeds 262144 samples");
-        const bool safe = node.bypass || node.processor->live_safe();
+        const bool safe = node.processor->live_safe();
         p.report.nodes.push_back({state.nodes[index].id,own,paths[index],safe});
         p.report.live_safe = p.report.live_safe && safe;
     }
@@ -154,6 +157,39 @@ PreparedGraph::PreparedGraph(GraphSnapshot snapshot, ProcessConfig config, Proce
         p.report.live_safe = false;
 }
 PreparedGraph::~PreparedGraph() = default;
+void PreparedGraph::reorder_serial(std::span<const Id> ids) {
+    auto& p=*impl_;
+    if(ids.size()!=p.nodes.size()||ids.empty())throw std::invalid_argument("invalid insert permutation");
+    if(p.outputs.size()!=1||p.outputs.front()!=p.order.back())throw std::invalid_argument("reorder requires a serial chain");
+    for(std::size_t i=0;i<p.order.size();++i){const auto& edges=p.nodes[p.order[i]].inputs;
+        if(edges.size()!=1||edges[0].gain!=1||edges[0].from!=(i?std::optional<std::size_t>{p.order[i-1]}:std::nullopt))throw std::invalid_argument("reorder requires a serial chain");}
+    std::vector<std::size_t> order;
+    for(const auto& id:ids){const auto at=p.index.find(id.value);
+        if(at==p.index.end()||std::find(order.begin(),order.end(),at->second)!=order.end())throw std::invalid_argument("invalid insert permutation");
+        order.push_back(at->second);}
+    if(p.config.instrument&&order.front()!=0)throw std::invalid_argument("instrument must remain first");
+    auto next=std::make_shared<GraphState>(*p.snapshot.graph);
+    next->edges.clear();next->outputs={ids.back()};
+    std::vector<std::vector<Impl::Edge>> inputs(p.nodes.size());
+    LatencyReport report;std::uint64_t path{};
+    for(std::size_t i=0;i<order.size();++i){const auto index=order[i];
+        const auto from=i?std::optional<std::size_t>{order[i-1]}:std::nullopt;
+        inputs[index].push_back({from,1,{}});
+        next->edges.push_back({i?std::optional<Id>{ids[i-1]}:std::nullopt,ids[i],1});
+        const auto own=p.nodes[index].processor->latency();path+=own;
+        if(path>262144)throw std::invalid_argument("PDC processor path exceeds 262144 samples");
+        const auto safe=p.nodes[index].processor->live_safe();
+        report.nodes.push_back({ids[i],own,path,safe});report.live_safe=report.live_safe&&safe;
+    }
+    report.output=path;report.live_safe=report.live_safe&&path<=p.config.live_latency_budget;
+    next->validate();
+    std::vector<std::size_t> outputs{order.back()};std::vector<CompensationDelay> delays(1);
+    // Commit only after every allocating/validating operation succeeds. Existing
+    // per-node bypass delays and all processor-owned memory remain untouched.
+    for(std::size_t i=0;i<p.nodes.size();++i)p.nodes[i].inputs.swap(inputs[i]);
+    p.order.swap(order);p.outputs.swap(outputs);p.output_delays.swap(delays);
+    p.report=std::move(report);p.snapshot.graph=std::move(next);++p.control_revision;
+}
 const GraphSnapshot& PreparedGraph::snapshot() const { return impl_->snapshot; }
 ProcessConfig PreparedGraph::config() const { return impl_->config; }
 const LatencyReport& PreparedGraph::latency() const { return impl_->report; }
@@ -199,11 +235,12 @@ bool PreparedGraph::enqueue_parameter(const Id& node, ParameterChange change) {
 bool PreparedGraph::enqueue_parameters(const GraphState& state) {
     ParamBatch batch;
     for(const auto& saved:state.nodes){const auto at=impl_->index.find(saved.id.value);if(at==impl_->index.end())throw std::invalid_argument("unknown insert node");
-        if(saved.bypass!=impl_->snapshot.graph->nodes[at->second].bypass&&impl_->nodes[at->second].processor->latency())throw std::invalid_argument("Pause/Stop and rebuild to bypass a latency-bearing processor");
         if(batch.size>=batch.changes.size())throw std::invalid_argument("parameter transaction too large");
         batch.changes[batch.size++]={static_cast<std::uint16_t>(at->second),{0,UINT32_MAX,saved.bypass?1.f:0.f}};
         for(const auto& v:saved.parameters){
-            if(saved.format==ProcessorFormat::vst3){const auto& old=impl_->last_parameters.at(saved.id.value);if(std::find(old.begin(),old.end(),v)!=old.end())continue;}
+            // The preprepared Rig rack uses hidden coherent state fields. Avoid
+            // repeatedly queueing its unchanged private fields on every utility drag.
+            if(saved.format==ProcessorFormat::vst3||(saved.processor_id=="mrs.rig"&&v.id>=32)){const auto& old=impl_->last_parameters.at(saved.id.value);if(std::find(old.begin(),old.end(),v)!=old.end())continue;}
             const auto& infos=impl_->nodes[at->second].infos;const auto it=std::find_if(infos.begin(),infos.end(),[&](const auto& p){return p.id==v.id;});
             if(it==infos.end() || !std::isfinite(v.value) || v.value<it->minimum || v.value>it->maximum)throw std::invalid_argument("invalid insert parameter update");
             if(batch.size>=batch.changes.size())throw std::invalid_argument("parameter transaction too large");batch.changes[batch.size++]={static_cast<std::uint16_t>(at->second),{0,v.id,v.value}};
@@ -222,12 +259,49 @@ bool PreparedGraph::enqueue_parameters(const GraphState& state) {
     for(const auto& n:state.nodes)impl_->last_parameters[n.id.value]=n.parameters;
     return true;
 }
+bool PreparedGraph::stage_reverb(const Id& id,const ReverbImpulse& ir){
+    const auto at=impl_->index.find(id.value);if(at==impl_->index.end())throw std::invalid_argument("Unknown MR Reverb node");
+    auto* reverb=dynamic_cast<ReverbProcessor*>(impl_->nodes[at->second].processor.get());
+    if(!reverb)throw std::invalid_argument("Node is not MR Reverb");
+    if(!reverb->stage_impulse(ir))return false;++impl_->control_revision;return true;
+}
+void PreparedGraph::collect_reverb_retired(){for(auto& n:impl_->nodes)if(auto* reverb=dynamic_cast<ReverbProcessor*>(n.processor.get()))reverb->collect_retired();}
+void PreparedGraph::collect_reverb_retired(const Id& id){
+    const auto at=impl_->index.find(id.value);if(at==impl_->index.end())throw std::invalid_argument("Unknown MR Reverb node");
+    auto* reverb=dynamic_cast<ReverbProcessor*>(impl_->nodes[at->second].processor.get());
+    if(!reverb)throw std::invalid_argument("Node is not MR Reverb");reverb->collect_retired();
+}
+bool PreparedGraph::stage_reverb_kernel(const Id& id,ReverbKernel& kernel){
+    const auto at=impl_->index.find(id.value);if(at==impl_->index.end())throw std::invalid_argument("Unknown MR Reverb node");
+    auto* reverb=dynamic_cast<ReverbProcessor*>(impl_->nodes[at->second].processor.get());
+    if(!reverb)throw std::invalid_argument("Node is not MR Reverb");
+    if(!reverb->stage_kernel(kernel))return false;++impl_->control_revision;return true;
+}
+std::array<float,2> PreparedGraph::reverb_levels(const Id& id) const{
+    const auto at=impl_->index.find(id.value);if(at==impl_->index.end())return {};
+    const auto* processor=dynamic_cast<const ReverbProcessor*>(impl_->nodes[at->second].processor.get());return processor?processor->levels():std::array<float,2>{};
+}
+bool PreparedGraph::reverb_switching(const Id& id) const{
+    const auto at=impl_->index.find(id.value);if(at==impl_->index.end())throw std::invalid_argument("Unknown MR Reverb node");
+    const auto* reverb=dynamic_cast<const ReverbProcessor*>(impl_->nodes[at->second].processor.get());
+    if(!reverb)throw std::invalid_argument("Node is not MR Reverb");return reverb->switching();
+}
+void PreparedGraph::warm_reverb(const Id& id){
+    const auto at=impl_->index.find(id.value);if(at==impl_->index.end())throw std::invalid_argument("Unknown MR Reverb node");
+    auto* reverb=dynamic_cast<ReverbProcessor*>(impl_->nodes[at->second].processor.get());
+    if(!reverb)throw std::invalid_argument("Node is not MR Reverb");reverb->warm();
+}
+std::uint64_t PreparedGraph::reverb_tail_frames(const Id& id) const{
+    const auto at=impl_->index.find(id.value);if(at==impl_->index.end())throw std::invalid_argument("Unknown MR Reverb node");
+    const auto* reverb=dynamic_cast<const ReverbProcessor*>(impl_->nodes[at->second].processor.get());
+    if(!reverb)throw std::invalid_argument("Node is not MR Reverb");return reverb->tail_frames();
+}
 void PreparedGraph::panic() noexcept { impl_->panic_requested = true; }
 void PreparedGraph::reset_anticipation() noexcept {
-    for(auto& node:impl_->nodes){node.processor->reset_anticipation();for(auto& edge:node.inputs)edge.delay.reset();}
+    for(auto& node:impl_->nodes){node.processor->reset_anticipation();node.bypass_delay.reset();for(auto& edge:node.inputs)edge.delay.reset();}
     for(auto& delay:impl_->output_delays)delay.reset();
 }
-void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,bool playing,double tempo,double quarter,std::span<const MidiEvent> live_midi) noexcept {
+void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,bool playing,double tempo,double quarter,std::span<const MidiEvent> live_midi,MeterContext meter) noexcept {
     auto& p = *impl_;
     const bool profiling=p.profiling.load(std::memory_order_relaxed);
     if (!audio || !frames || frames > p.config.max_block) { ++p.invalid; return; }
@@ -244,7 +318,7 @@ void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,b
     if (p.panic_requested.exchange(false)) {
         ++p.panics;
         for (auto& node : p.nodes) {
-            node.processor->reset(); node.midi.clear();
+            node.processor->reset();node.bypass_delay.reset(); node.midi.clear();
             for(auto& edge:node.inputs)edge.delay.reset();
             for (std::uint8_t ch = 0; ch < 16; ++ch) {
                 (void)node.midi.push({0,MidiKind::cc,ch,120,0});
@@ -278,14 +352,18 @@ void PreparedGraph::process(float* audio, std::uint32_t frames,Sample position,b
         }
         sort_offsets(node.midi.events.data(),node.midi.size);
         sort_offsets(node.parameters.data(),node.parameter_count);
+        // Keep the dry compensation history warm even while processing wet.
+        // Bypass preserves graph latency and never reloads the processor.
+        for(std::uint32_t f=0;f<frames;++f)for(std::uint32_t ch=0;ch<p.config.channels;++ch){const auto at=static_cast<std::size_t>(f)*p.config.channels+ch;const auto dry=node.bypass_delay.sample(node.audio[at],ch);if(node.bypass)node.audio[at]=dry;}
         if (node.bypass) {
             for (std::size_t i = 0; i < node.parameter_count; ++i)
                 (void)node.processor->set_parameter(node.parameters[i].id,node.parameters[i].value);
+            node.processor->advance_bypass(frames);
             for (auto event : node.midi.view()) (void)node.output.push(event);
         } else {
             const auto start=profiling?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
             node.processor->process({{node.audio.data(),count},frames,p.config.channels,
-                node.midi.view(),{node.parameters.data(),node.parameter_count},node.output,position,playing,tempo,quarter});
+                node.midi.view(),{node.parameters.data(),node.parameter_count},node.output,position,playing,tempo,quarter,meter});
             if(profiling)p.timings[index].record(elapsed_ns(start),frames);
         }
         // Sanitize each node before its output feeds other nodes.
@@ -320,6 +398,7 @@ GraphState PreparedGraph::capture() const {
     auto saved = *impl_->snapshot.graph;
     for (std::size_t i = 0; i < saved.nodes.size(); ++i) {
         const auto& processor = impl_->nodes[i].processor;
+        saved.nodes[i].bypass=impl_->nodes[i].bypass;
         saved.nodes[i].plugin = processor->capture();
         saved.nodes[i].parameters.clear();
         // Opaque VST3 state is authoritative; replaying every normalized parameter
@@ -338,7 +417,7 @@ void PreparedGraph::restore_node(const NodeState& state) {
     auto& p=*impl_;const auto found=p.index.find(state.id.value);
     if(found==p.index.end())throw std::invalid_argument("unknown preset processor");
     const auto index=found->second;const auto& original=p.snapshot.graph->nodes[index];
-    if(state.format!=ProcessorFormat::vst3||state.processor_id!=original.processor_id||state.plugin.class_id!=original.plugin.class_id||state.bypass!=original.bypass)throw std::invalid_argument("preset changes processor structure");
+    if(state.format!=ProcessorFormat::vst3||state.processor_id!=original.processor_id||state.plugin.class_id!=original.plugin.class_id)throw std::invalid_argument("preset changes processor structure");
     auto saved=capture();auto next=std::make_shared<GraphState>(*p.snapshot.graph);next->nodes[index]=state;next->validate();
     auto& node=p.nodes[index];const auto latency=node.processor->latency();
     try {
@@ -351,7 +430,7 @@ void PreparedGraph::restore_node(const NodeState& state) {
         }
         (void)node.processor->capture(); // flush sparse overrides without advancing audio
         if(node.processor->latency()!=latency)throw std::runtime_error("Preset changes plugin latency; reload the insert before using this mode");
-        node.infos=std::move(infos);p.last_parameters[state.id.value]=state.parameters;p.snapshot.graph=std::move(next);
+        node.infos=std::move(infos);node.bypass=state.bypass;p.last_parameters[state.id.value]=state.parameters;p.snapshot.graph=std::move(next);
     }catch(...){node.processor->restore(saved.nodes[index].plugin);throw;}
 }
 bool PreparedGraph::open_editor(const Id& id,void* parent,int& w,int& h){const auto it=impl_->index.find(id.value);if(it==impl_->index.end())return false;return impl_->nodes[it->second].processor->open_editor(parent,w,h);}

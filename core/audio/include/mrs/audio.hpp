@@ -29,6 +29,7 @@ struct MixerUpdate {
     float master_gain{1};
     std::array<std::array<float,8>,max_mixer_tracks> send_gains{};
     std::array<bool,max_mixer_tracks> input_monitoring{};
+    std::array<bool,max_mixer_tracks> midi_monitor = [] { std::array<bool,max_mixer_tracks> v{};v.fill(true);return v; }();
     std::uint64_t serial{};
 };
 struct StereoPeak { float left{}, right{}; };
@@ -61,12 +62,40 @@ struct AudioData {
 };
 struct PlaybackRoute { std::uint32_t source_channel{}, output_channel{}; float gain{1}; };
 class MidiRecorder;
+// Prepared on the control thread. A graph owns the renderer until all DSP
+// owners are quiescent; no preparation or reclamation is performed in render.
+class VoiceRenderer {
+public:
+    virtual ~VoiceRenderer() = default;
+    virtual bool render(Sample position,std::uint32_t frames,double tempo,double quarter,
+                        processing::MeterContext meter,std::optional<LoopRange> loop) noexcept = 0;
+    virtual float sample(std::uint32_t frame,std::uint32_t channel) const noexcept = 0;
+    virtual std::uint32_t channels() const noexcept = 0;
+    virtual bool failed() const noexcept = 0;
+};
+// Optional editor-only preview, prepared/retired on the control thread.
+// The device domain mixes it once before Master; never captured as raw input.
+class EditorRenderer {
+public:
+    virtual ~EditorRenderer() = default;
+    virtual bool mix(float*,std::uint32_t frames,std::uint32_t channels,Sample position,bool playing,
+                     double tempo,double quarter,processing::MeterContext,std::optional<LoopRange>,bool audible) noexcept = 0;
+    virtual void suspend() = 0; // closes the entry gate and quiesces on control thread
+};
 struct Voice {
     std::shared_ptr<const AudioData> asset;
     Sample start{}, source_offset{}, length{};
     std::vector<PlaybackRoute> routes;
     std::shared_ptr<ReadAhead> stream{}; // per-voice cursor, prepared off RT
     std::size_t mixer_track{no_mixer_track};
+    Sample fade_in{},fade_out{};
+    std::shared_ptr<VoiceRenderer> renderer{}; // replaces this voice's asset, never sums a second path
+    float envelope(Sample relative) const noexcept {
+        float gain=1;
+        if(fade_in&&relative<fade_in)gain=fade_in==1?0.f:static_cast<float>(static_cast<double>(relative)/static_cast<double>(fade_in-1));
+        if(fade_out&&length-relative<=fade_out)gain*=fade_out==1?0.f:static_cast<float>(static_cast<double>(length-1-relative)/static_cast<double>(fade_out-1));
+        return gain;
+    }
 };
 struct MonitorRoute { std::uint32_t input_channel{}, output_channel{}; float gain{1}; std::size_t mixer_track{no_mixer_track}; };
 struct SendRoute { std::size_t destination{}; float gain{1}; bool pre_fader{}; };
@@ -94,6 +123,8 @@ struct RenderGraph {
     std::shared_ptr<processing::PreparedGraph> master_inserts{};
     struct TempoSegment{Sample sample{};double bpm{120},quarter{};};
     std::vector<TempoSegment> tempos{};
+    struct MeterSegment{Sample sample{};double quarter{};int numerator{4},denominator{4};};
+    std::vector<MeterSegment> meters{};
     std::vector<bool> buses{}; // same indices as mixer; no clips/input directly on buses
     std::vector<bool> live_midi{}; // reserves device ownership even with monitoring disabled
     std::vector<std::vector<PlaybackMidiNote>> midi_notes{}; // sample projection of immutable tick data
@@ -105,6 +136,7 @@ struct RenderGraph {
     std::shared_ptr<ExternalMidiQueue> external_midi{};
     std::vector<bool> external_midi_tracks{};
     std::vector<int> external_midi_channels{};
+    std::vector<std::shared_ptr<EditorRenderer>> editor_renderers;
 };
 struct RenderConfig {
     std::uint32_t sample_rate{48000};
@@ -236,6 +268,17 @@ public:
     // alive until callback is stopped again. No RT ownership/deallocation.
     // Optional quiescent state retains a stopped/paused position and loop; never autoplay.
     void prepare(RenderConfig, RenderGraph, RealtimeState initial = {});
+    struct TimingPlan {
+        std::uint32_t rate{};TimeMap time;Metronome metronome;
+        std::vector<RenderGraph::TempoSegment> tempos;
+        std::vector<RenderGraph::MeterSegment> meters;
+        std::vector<std::vector<PlaybackMidiNote>> notes;
+        std::vector<std::vector<PlaybackMidiEvent>> events;
+        std::vector<MidiPlayback> playback,external;
+        std::optional<std::vector<Voice>> voices; // optional stopped PCM replacement; swap also rolls back
+    };
+    TimingPlan prepare_timing(const Project&,std::span<const Id>,bool capture_voices=false) const; // control thread; no mutation
+    void swap_timing(TimingPlan&,bool midi_only=false); // stopped/joined; MIDI-only retains timing/loop
     void quiesce() noexcept; // device stopped, before plugin state/editor access
     bool enqueue(Control) noexcept;
     bool enqueue_mix(const MixerUpdate&) noexcept;
@@ -327,6 +370,7 @@ private:
     Sample job_position_{};
     bool job_playing_{};
     double job_tempo_{120}, job_quarter_{};
+    processing::MeterContext job_meter_{};
     static void channel_job(void*, std::uint32_t) noexcept;
     void process_channel(std::size_t) noexcept;
     std::vector<std::vector<float>> route_contributions_;
@@ -357,6 +401,7 @@ private:
     bool monitor_enabled_{true};
     bool pending_play_anchor_{};
     std::array<bool,max_mixer_tracks> input_monitoring_{};
+    std::array<bool,max_mixer_tracks> midi_monitor_release_{}; // device-owned; emit releases after clearing callback MIDI buffers
     std::atomic<Sample> published_play_start_{};
     std::atomic<float> input_peak_{};
     SpscQueue<Control, 64> controls_;

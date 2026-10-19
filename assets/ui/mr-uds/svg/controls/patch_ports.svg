@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140">
+<title>MR Studio GUI element</title>
+<circle cx="35" cy="59" r="10" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="35" cy="59" r="5" fill="#E68F88" stroke="none"/>
+<circle cx="65" cy="59" r="10" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="65" cy="59" r="5" fill="#E2C070" stroke="none"/>
+<circle cx="95" cy="59" r="10" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="95" cy="59" r="5" fill="#7AB69E" stroke="none"/>
+<circle cx="125" cy="59" r="10" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="125" cy="59" r="5" fill="#91BBEE" stroke="none"/>
+<path d="M 35 84 L 125 84" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="80" y="117" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#7188AB" text-anchor="middle" font-weight="400">PATCH PORTS</text>
+</svg>

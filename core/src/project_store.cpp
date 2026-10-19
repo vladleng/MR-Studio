@@ -16,12 +16,12 @@ void SetMidiInput::apply(Project& project) const {
 }
 namespace {
 struct EditGuard {
-    bool& editing;
+    bool& editing;bool transferred{};
     explicit EditGuard(bool& value) : editing(value) {
         if (editing) throw std::logic_error("reentrant project edit");
         editing = true;
     }
-    ~EditGuard() { editing = false; }
+    ~EditGuard() { if(!transferred)editing = false; }
 };
 }
 AddTrack::AddTrack(Track track) : track_(std::move(track)) {}
@@ -86,7 +86,32 @@ std::shared_ptr<const Project> ProjectStore::history_target(bool redo) const {
     if (redo) return redo_.empty() ? nullptr : redo_.back().after;
     return undo_.empty() ? nullptr : undo_.back().before;
 }
+std::string_view ProjectStore::history_name(bool redo) const {
+    const auto& history=redo?redo_:undo_;
+    return history.empty()?std::string_view{}:std::string_view(history.back().name);
+}
 void ProjectStore::publish() { changes_.publish(state()); }
+class ProjectStore::Transaction final:public IProjectTransaction {
+public:
+    Transaction(ProjectStore& owner,std::shared_ptr<const Project> next,std::vector<Edit> undo,std::vector<Edit> redo,std::string name)
+        :owner_(owner),project_(std::move(next)),undo_(std::move(undo)),redo_(std::move(redo)),name_(std::move(name)),revision_(owner.revision_+1),event_{project_,revision_,!undo_.empty(),!redo_.empty(),name_}{}
+    ~Transaction()override{rollback();}
+    void commit()noexcept override{if(committed_||finished_)return;swap();committed_=true;}
+    void finish()override{if(!committed_||finished_)throw std::logic_error("uncommitted project transaction");owner_.changes_.publish(std::move(event_));finished_=true;owner_.editing_=false;}
+    void rollback()noexcept override{if(finished_)return;if(committed_)swap();committed_=false;finished_=true;owner_.editing_=false;}
+private:
+    void swap()noexcept{project_.swap(owner_.project_);undo_.swap(owner_.undo_);redo_.swap(owner_.redo_);name_.swap(owner_.command_);std::swap(revision_,owner_.revision_);}
+    ProjectStore& owner_;std::shared_ptr<const Project> project_;std::vector<Edit> undo_,redo_;std::string name_;std::uint64_t revision_;ProjectState event_;bool committed_{},finished_{};
+};
+std::unique_ptr<IProjectTransaction> ProjectStore::prepare_transaction(const ICommand* command,std::optional<bool> history){
+    EditGuard guard(editing_);auto undo=undo_,redo=redo_;std::shared_ptr<const Project> next;std::string name;
+    if(history){auto& from=*history?redo:undo;auto& to=*history?undo:redo;if(from.empty())return {};
+        const auto item=from.back();next=*history?item.after:item.before;name=(*history?"Redo: ":"Undo: ")+item.name;to.push_back(item);from.pop_back();
+    }else{if(!command)throw std::invalid_argument("missing project command");auto candidate=*project_;command->apply(candidate);candidate.validate();if(candidate==*project_)return {};
+        next=std::make_shared<const Project>(std::move(candidate));name=command->name();if(undo.size()==history_limit_)undo.erase(undo.begin());undo.push_back({project_,next,name});redo.clear();}
+    undo.reserve(history_limit_);redo.reserve(history_limit_);
+    auto result=std::make_unique<Transaction>(*this,std::move(next),std::move(undo),std::move(redo),std::move(name));guard.transferred=true;return result;
+}
 void ProjectStore::execute(const ICommand& command) {
     {
         EditGuard guard(editing_);

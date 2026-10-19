@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+<title>MR Studio pan center</title>
+<path d="M12.9081 51.0919 L11.4939 52.5061" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M8.61731 45.5 L6.88526 46.5" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M5.92 38.9881 L3.98815 39.5058" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M5 32 L3 32" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M5.92 25.0119 L3.98815 24.4942" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M8.61731 18.5 L6.88526 17.5" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M12.9081 12.9081 L11.4939 11.4939" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M18.5 8.61731 L17.5 6.88526" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M25.0119 5.92 L24.4942 3.98815" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M32 5 L32 3" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M38.9881 5.92 L39.5058 3.98815" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M45.5 8.61731 L46.5 6.88526" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M51.0919 12.9081 L52.5061 11.4939" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M55.3827 18.5 L57.1147 17.5" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M58.08 25.0119 L60.0118 24.4942" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M59 32 L61 32" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M58.08 38.9881 L60.0118 39.5058" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M55.3827 45.5 L57.1147 46.5" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M51.0919 51.0919 L52.5061 52.5061" fill="none" stroke="#4B5F7B" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="32" cy="32" r="23" fill="#192333" stroke="#A9BFDC" stroke-width="1.5"/>
+<path d="M32 25 L32 12" fill="none" stroke="#00B8EF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

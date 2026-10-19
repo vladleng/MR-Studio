@@ -133,13 +133,14 @@ struct ProcessConfig {
     std::uint32_t sample_rate{48000}, channels{2}, max_block{8192}, live_latency_budget{128};
     bool instrument{}; // first node receives device-owned live MIDI
 };
+struct MeterContext {int numerator{4},denominator{4};double bar_quarter{};bool valid{};};
 struct ProcessBlock {
     std::span<float> audio; // interleaved, in-place, frames * channels
     std::uint32_t frames{}, channels{};
     std::span<const MidiEvent> midi;
     std::span<const ParameterChange> parameters;
     MidiBuffer& midi_output;
-    Sample position{};bool playing{};double tempo{120}, quarter{};
+    Sample position{};bool playing{};double tempo{120}, quarter{};MeterContext meter{};
 };
 class IProcessor {
 public:
@@ -159,6 +160,7 @@ public:
     virtual void reset_anticipation() noexcept { reset(); }
     virtual void warm() = 0; // off-thread after prepare/restore
     virtual void reset() noexcept = 0;
+    virtual void advance_bypass(std::uint32_t) noexcept {} // RT ownership housekeeping; default retains existing bypass
     virtual void process(ProcessBlock) noexcept = 0; // bounded RT implementation required
     virtual bool open_editor(void*,int&,int&) { return false; }
     virtual void close_editor() noexcept {}
@@ -187,6 +189,8 @@ struct GraphMetrics {
     std::uint64_t dropped_midi{}, dropped_parameters{}, invalid_events{}, output_overflows{}, panics{};
 };
 struct MidiOutput { std::uint16_t node{}; MidiEvent event; };
+struct ReverbImpulse;
+class ReverbKernel;
 class PreparedGraph {
 public:
     PreparedGraph(GraphSnapshot, ProcessConfig, ProcessorFactory = native_factory);
@@ -197,10 +201,18 @@ public:
     bool enqueue_midi(const Id& source_port, MidiEvent);
     bool enqueue_parameter(const Id& node, ParameterChange);
     bool enqueue_parameters(const GraphState&); // atomic bounded parameter/bypass update
+    bool stage_reverb(const Id&,const ReverbImpulse&); // NON-RT preparation + bounded handoff
+    bool stage_reverb_kernel(const Id&,ReverbKernel&); // NON-RT publication of complete kernel
+    std::array<float,2> reverb_levels(const Id&) const;
+    bool reverb_switching(const Id&) const; // atomic ownership acknowledgement
+    void collect_reverb_retired(); // NON-RT reclamation after DSP acknowledgement
+    void collect_reverb_retired(const Id&); // per-node producer; independent loaders may share a graph
+    void warm_reverb(const Id&); // NON-RT, graph/device quiescent: activate staged IR, reset history
+    std::uint64_t reverb_tail_frames(const Id&) const; // quiescent render-range bound, not PDC
     void panic() noexcept;
     void reset_anticipation() noexcept; // single quiescent DSP owner, retain parameter targets
     // Single audio-thread consumer; no allocation, locks or I/O.
-    void process(float* interleaved, std::uint32_t frames, Sample position=0,bool playing=false,double tempo=120,double quarter=0,std::span<const MidiEvent> live_midi={}) noexcept;
+    void process(float* interleaved, std::uint32_t frames, Sample position=0,bool playing=false,double tempo=120,double quarter=0,std::span<const MidiEvent> live_midi={},MeterContext meter={}) noexcept;
     bool pop_midi_output(MidiOutput&) noexcept; // single control-thread consumer
     const GraphSnapshot& snapshot() const;
     ProcessConfig config() const;
@@ -215,6 +227,9 @@ public:
     void close_editor(const Id&) noexcept;
     void close_editors() noexcept;
     void restore_node(const NodeState&); // quiescent: retain processor/editor instance
+    // NON-RT, every DSP owner stopped/joined. Serial insert chains only;
+    // retain node indices, processors, editors and pending parameter queues.
+    void reorder_serial(std::span<const Id>);
     bool consume_edits() noexcept;
     bool failed() const noexcept;
     bool anticipation_safe() const noexcept;

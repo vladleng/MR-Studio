@@ -1,5 +1,6 @@
 #include <mrs/persistence.hpp>
 #include <mrs/musical.hpp>
+#include <algorithm>
 #include <bit>
 #include <array>
 #include <fstream>
@@ -40,6 +41,8 @@ void checksum(std::string& bytes) {
 }
 ProjectDocument fixture() {
     auto d = demo_document(); d.project = musical_demo_project();
+    for(auto& clip:d.project.clips)if(!clip.midi){clip.fade_in=std::min<Sample>(32,clip.length);clip.fade_out=std::min<Sample>(64,clip.length);}
+    NativeInsert named;named.id={"preset-archive-fixture"};named.preset_name="Keys/Тёплый звук";d.project.tracks.front().inserts={named};
     d.mixer = {{d.project.tracks.front().id,0.625f,-0.5f,true,false}};
     d.project.tracks.front().mix = {0.625f,-0.5f,true,false};
     for (std::size_t i=1; i<d.project.tracks.size(); ++i) d.mixer.push_back({d.project.tracks[i].id,1,0,false,false});

@@ -1,4 +1,5 @@
 #include <mrs/audio.hpp>
+#include <mrs/reverb_file.hpp>
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -114,6 +115,24 @@ AudioData load_wav(const std::filesystem::path& path, std::size_t max_decoded_by
         file.read(first,std::span<float>(result.samples).subspan(static_cast<std::size_t>(first)*file.channels,static_cast<std::size_t>(count)*file.channels));
     }
     result.validate(); return result;
+}
+processing::ReverbImpulse load_reverb_ir(const std::filesystem::path& path,processing::ReverbQuadMap map,std::stop_token stop){
+    const auto info=inspect_wav(path);
+    if(info.sample_rate<8000||info.sample_rate>192000||(info.channels!=1&&info.channels!=2&&info.channels!=4))
+        throw std::invalid_argument("MR Reverb requires mono/stereo/confirmed quad WAV at 8–192 kHz");
+    if(info.channels==4&&map!=processing::ReverbQuadMap::ll_lr_rl_rr)
+        throw std::invalid_argument("Confirm quad channel map LL/LR/RL/RR before loading MR Reverb IR");
+    if(static_cast<std::uint64_t>(info.frame_count)*info.channels>64*1024*1024/sizeof(float))throw std::invalid_argument("MR Reverb source memory budget exceeded (64 MiB)");
+    AudioData decoded{info.sample_rate,info.channels,{}};decoded.samples.resize(static_cast<std::size_t>(info.frame_count)*info.channels);
+    for(Sample first=0;first<info.frame_count;first+=8192){
+        if(stop.stop_requested())throw std::runtime_error("IR decode cancelled");const auto count=std::min(Sample{8192},info.frame_count-first);
+        info.read(first,std::span<float>(decoded.samples).subspan(static_cast<std::size_t>(first)*info.channels,static_cast<std::size_t>(count)*info.channels));}
+    if(stop.stop_requested())throw std::runtime_error("IR decode cancelled");
+    return processing::reverb_impulse(decoded.sample_rate,decoded.channels,decoded.samples,map);
+}
+processing::ReverbImpulse load_reverb_pair(const std::filesystem::path& left,const std::filesystem::path& right,std::stop_token stop){
+    const auto l=load_reverb_ir(left,processing::ReverbQuadMap::unspecified,stop);
+    const auto r=load_reverb_ir(right,processing::ReverbQuadMap::unspecified,stop);return processing::reverb_pair(l,r);
 }
 CabIr load_cab_ir(const std::filesystem::path& path){
     const auto file=inspect_wav(path);if(file.channels>2||file.sample_rate>192000||file.frame_count>file.sample_rate)throw std::invalid_argument("Cab IR requires mono/stereo WAV, 8–192 kHz, at most one second");

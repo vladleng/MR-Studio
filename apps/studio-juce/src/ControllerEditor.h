@@ -15,18 +15,55 @@ public:
         kind.setTitle("MIDI event type");channel.setTitle("MIDI channel");number.setTitle("CC number / poly pressure note (0..127)");position.setTitle("Source position in quarter-note beats");value.setTitle("MIDI value / signed pitch bend");selector.setTitle("All recorded controller events");snap.setTitle("Controller position snap");
         const std::array<juce::String,5> names{"Event type","Channel","CC / note #","Source beat","Value"};for(std::size_t i=0;i<labels.size();++i){labels[i].setText(names[i],juce::dontSendNotification);labels[i].setFont(owner.theme.font(12));addAndMakeVisible(labels[i]);}
         for(auto* field:{&number,&position,&value})field->setFont(owner.theme.font(13));hint.setFont(owner.theme.font(12));hint.setJustificationType(juce::Justification::topLeft);
-        kind.onChange=channel.onChange=[this]{cancel();selection.clear();selected.reset();apply.setEnabled(false);remove.setEnabled(false);number.setEnabled(kind.getSelectedId()==2||kind.getSelectedId()==6);graph.repaint();};number.onTextChange=[this]{graph.repaint();};selector.onChange=[this]{cancel();loadSelected();if(selected)selection={selected->value};};
+        kind.onChange=channel.onChange=[this]{cancel();selection.clear();selected.reset();apply.setEnabled(false);remove.setEnabled(false);number.setEnabled(kind.getSelectedId()==2||kind.getSelectedId()==6);graph.repaint();if(laneChanged)laneChanged();};number.onTextChange=[this]{graph.repaint();if(laneChanged)laneChanged();};selector.onChange=[this]{cancel();loadSelected();if(selected)selection={selected->value};};
         add.onClick=[this]{edit(0);};apply.onClick=[this]{edit(1);};remove.onClick=[this]{edit(2);};reload();setSize(900,500);startTimer(150);
     }
     ~ControllerPanel() override{setLookAndFeel(nullptr);}
     void activate(mrs::Id next){cancel();id=std::move(next);selected.reset();selection.clear();setEnabled(true);reload();}
-    void setEmbedded(){embedded=true;resized();}
-    void resized() override{const int width=(getWidth()-32)/5;std::array<juce::Component*,5> fields{&kind,&channel,&number,&position,&value};for(std::size_t i=0;i<fields.size();++i){const int x=16+static_cast<int>(i)*width;labels[i].setBounds(x,8,width-8,20);fields[i]->setBounds(x,30,width-8,28);}selector.setBounds(16,68,getWidth()-32,28);snap.setBounds(16,104,120,26);add.setBounds(146,104,110,26);apply.setBounds(266,104,110,26);remove.setBounds(386,104,110,26);graph.setBounds(16,140,getWidth()-32,getHeight()-(embedded?166:216));hint.setBounds(16,getHeight()-(embedded?24:68),getWidth()-32,embedded?20:60);}
+    void setEmbedded(){
+        embedded=true;form.setName("Controller controls");
+        for(auto* c:std::array<juce::Component*,11>{&kind,&channel,&number,&position,&value,&snap,&selector,&add,&apply,&remove,&hint})form.addAndMakeVisible(c);
+        for(auto& l:labels){form.addAndMakeVisible(l);l.setFont(Theme::channelFont());}
+        for(auto* field:{&number,&position,&value})field->setFont(Theme::channelFont());
+        for(auto* box:{&kind,&channel,&snap,&selector})box->getProperties().set("channelFont",true);
+        // The adjacent label already says Channel; keep its value readable at 720px.
+        const int selectedChannel=channel.getSelectedId();
+        for(int ch=1;ch<=16;++ch)channel.changeItemText(ch,juce::String(ch));
+        channel.setSelectedId(selectedChannel,juce::dontSendNotification);
+        for(auto* button:{&add,&apply,&remove})button->getProperties().set("channelFont",true);
+        selector.setTextWhenNothingSelected("Select event...");hint.setFont(Theme::channelFont());resized();
+    }
+    juce::Component& controlsContent(){return form;}
+    void enablementChanged() override{if(embedded)form.setEnabled(isEnabled());}
+    void layoutControls(int width){
+        form.setSize(width,320);const int w=juce::jmax(80,width-12);
+        labels[0].setBounds(6,0,w,18);kind.setBounds(6,18,w,24);
+        labels[1].setBounds(6,46,66,24);channel.setBounds(72,46,w-66,24);
+        for(int i=2;i<5;++i){const int y=74+(i-2)*28;labels[static_cast<std::size_t>(i)].setBounds(6,y,76,24);}
+        number.setBounds(82,74,w-76,24);position.setBounds(82,102,w-76,24);value.setBounds(82,130,w-76,24);
+        selector.setBounds(6,162,w,24);snap.setBounds(6,190,w,24);
+        add.setBounds(6,218,w,24);apply.setBounds(6,246,(w-4)/2,24);remove.setBounds(10+(w-4)/2,246,(w-4)/2,24);
+        hint.setBounds(6,276,w,42);hint.setTooltip(hint.getText());
+    }
+    void selectCC(int cc){cancel();selection.clear();selected.reset();selector.setSelectedId(0,juce::dontSendNotification);kind.setSelectedId(2,juce::dontSendNotification);number.setText(juce::String(cc),false);number.setEnabled(true);apply.setEnabled(false);remove.setEnabled(false);graph.repaint();if(laneChanged)laneChanged();}
+    int displayedCC() const{return kind.getSelectedId()==2?number.getText().getIntValue():-1;}
+    void cancelGesture(){cancel();}
+    std::function<void()> laneChanged;
+    std::function<void(const juce::MouseEvent&,const juce::MouseWheelDetails&)> wheel;
+    void mouseWheelMove(const juce::MouseEvent& e,const juce::MouseWheelDetails& w) override{if(wheel){cancel();wheel(e,w);}else juce::Component::mouseWheelMove(e,w);}
+    void resized() override{if(embedded){graph.setBounds(getLocalBounds());return;}const int width=(getWidth()-32)/5;std::array<juce::Component*,5> fields{&kind,&channel,&number,&position,&value};for(std::size_t i=0;i<fields.size();++i){const int x=16+static_cast<int>(i)*width;labels[i].setBounds(x,8,width-8,20);fields[i]->setBounds(x,30,width-8,28);}selector.setBounds(16,68,getWidth()-32,28);snap.setBounds(16,104,120,26);add.setBounds(146,104,110,26);apply.setBounds(266,104,110,26);remove.setBounds(386,104,110,26);graph.setBounds(16,140,getWidth()-32,getHeight()-216);hint.setBounds(16,getHeight()-68,getWidth()-32,60);}
     void paint(juce::Graphics& g) override{g.fillAll(juce::Colour(background));}
     bool keyPressed(const juce::KeyPress& key) override{if(key==juce::KeyPress::escapeKey){cancel();return true;}if(key.getModifiers().isCtrlDown()&&(key.getKeyCode()=='Z'||key.getKeyCode()=='Y')){cancel();owner.run([&]{if(key.getKeyCode()=='Y'||key.getModifiers().isShiftDown())owner.app.redo();else owner.app.undo();owner.refresh();});reload();return true;}if(key.getKeyCode()==juce::KeyPress::deleteKey){edit(2);return true;}return false;}
     void setTimeView(double first,double length){viewFirst=first;viewLength=length;if(!dragging&&!selecting){const auto p=owner.project();const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(at!=p->clips.end()&&at->midi&&*at->midi!=clip)reload();}graph.repaint();}
 private:
     friend void stateBusySmoke();
+    friend void controllerScrollSmoke();
+    friend void noteEditorLayoutSmoke();
+    // Reparenting the form must retain its controller shortcuts and ownership.
+    struct Form final : juce::Component {
+        ControllerPanel& owner;explicit Form(ControllerPanel& p):owner(p){}
+        bool keyPressed(const juce::KeyPress& k) override{return owner.keyPressed(k);}
+    } form{*this};
     double viewFirst{},viewLength{};bool embedded{};
     struct Graph final : juce::Component {
         explicit Graph(ControllerPanel& p):owner(p),playhead([this]{if(owner.viewLength<=0)return juce::Rectangle<float>{};const auto r=owner.plot();const float x=static_cast<float>(r.getX()+(owner.owner.visualTick()-owner.clip.start+owner.clip.source_offset-owner.viewFirst)/owner.viewLength*r.getWidth());return x>=r.getX()&&x<r.getRight()?juce::Rectangle<float>{x,r.getY(),1.f,r.getHeight()}:juce::Rectangle<float>{};}){setWantsKeyboardFocus(true);setName("Controller lane");addAndMakeVisible(playhead);}
@@ -37,6 +74,7 @@ private:
         void mouseDown(const juce::MouseEvent& e) override{grabKeyboardFocus();owner.laneDown(e);}
         void mouseDrag(const juce::MouseEvent& e) override{owner.laneDrag(e);}
         void mouseUp(const juce::MouseEvent&) override{owner.laneUp();}
+        void mouseWheelMove(const juce::MouseEvent& e,const juce::MouseWheelDetails& w) override{owner.mouseWheelMove(e.getEventRelativeTo(&owner),w);}
         void mouseDoubleClick(const juce::MouseEvent& e) override{owner.cancel();owner.position.setText(juce::String(static_cast<double>(owner.tickAt(e.position.x))/mrs::ppq,6));owner.value.setText(juce::String(owner.valueAt(e.position.y)));owner.edit(0);}
         void focusLost(FocusChangeType) override{owner.cancel();}
         bool keyPressed(const juce::KeyPress& k) override{return owner.keyPressed(k);}
@@ -46,7 +84,7 @@ private:
     const mrs::MidiClip& current(const mrs::Project& p) const{const auto at=std::find_if(p.clips.begin(),p.clips.end(),[&](const auto& c){return c.id==id;});if(at==p.clips.end()||!at->midi)throw std::runtime_error("MIDI clip no longer exists");return *at->midi;}
     static double numberValue(const juce::TextEditor& field){std::istringstream in(field.getText().toStdString());in.imbue(std::locale::classic());double v{};if(!(in>>v)||!std::isfinite(v))throw std::invalid_argument("Enter a finite number");in>>std::ws;if(!in.eof())throw std::invalid_argument("Unexpected characters in field");return v;}
     bool matches(const mrs::MidiChannelEvent& e) const{const int n=number.getText().getIntValue();return e.kind==kind.getSelectedId()&&e.channel==channel.getSelectedId()-1&&((e.kind!=2&&e.kind!=6)||e.data1==n);}
-    void reload(){try{const auto p=owner.project();clip=current(*p);events=clip.events;selector.clear(juce::dontSendNotification);int chosen=0;for(std::size_t i=0;i<events.size();++i){const auto& e=events[i];selector.addItem("Beat "+juce::String(static_cast<double>(e.start)/mrs::ppq,3)+" | "+kind.getItemText(e.kind-2)+" | ch "+juce::String(e.channel+1)+" | # "+juce::String(e.data1)+" | value "+juce::String(mrs::midi_event_value(e)),static_cast<int>(i)+1);if(selected&&*selected==e.id)chosen=static_cast<int>(i)+1;}selector.setTextWhenNothingSelected("All events - choose one, or add to the displayed lane");selector.setSelectedId(chosen,juce::dontSendNotification);if(!chosen)selected.reset();else loadSelected();std::erase_if(selection,[&](const auto& value){return std::none_of(events.begin(),events.end(),[&](const auto& e){return e.id.value==value;});});apply.setEnabled(selected.has_value());remove.setEnabled(selected.has_value()||!selection.empty());graph.repaint();hint.setText("Double click: add. Left drag empty space: select. Drag selected points: one Undo. Delete: selected points.\nChoose an event above to show its lane. CC64: 0-63 off, 64-127 on. Program is MIDI 0-127.\nSource beats include trim offset. Pause/Stop before editing. Ctrl+Z/Y in lane: Undo/Redo.",juce::dontSendNotification);}catch(const std::exception& e){hint.setText(juce::String::fromUTF8(e.what()),juce::dontSendNotification);setEnabled(false);}}
+    void reload(){try{const auto p=owner.project();clip=current(*p);events=clip.events;selector.clear(juce::dontSendNotification);int chosen=0;for(std::size_t i=0;i<events.size();++i){const auto& e=events[i];selector.addItem("Beat "+juce::String(static_cast<double>(e.start)/mrs::ppq,3)+" | "+kind.getItemText(e.kind-2)+" | ch "+juce::String(e.channel+1)+" | # "+juce::String(e.data1)+" | value "+juce::String(mrs::midi_event_value(e)),static_cast<int>(i)+1);if(selected&&*selected==e.id)chosen=static_cast<int>(i)+1;}selector.setTextWhenNothingSelected(embedded?"Select event...":"All events - choose one, or add to the displayed lane");selector.setSelectedId(chosen,juce::dontSendNotification);if(!chosen)selected.reset();else loadSelected();std::erase_if(selection,[&](const auto& value){return std::none_of(events.begin(),events.end(),[&](const auto& e){return e.id.value==value;});});apply.setEnabled(selected.has_value());remove.setEnabled(selected.has_value()||!selection.empty());graph.repaint();hint.setText("Double click: add. Left drag empty space: select. Drag selected points: one Undo. Delete: selected points.\nChoose an event above to show its lane. CC64: 0-63 off, 64-127 on. Program is MIDI 0-127.\nSource beats include trim offset. Pause/Stop before editing. Ctrl+Z/Y in lane: Undo/Redo.",juce::dontSendNotification);}catch(const std::exception& e){hint.setText(juce::String::fromUTF8(e.what()),juce::dontSendNotification);setEnabled(false);}}
     void loadSelected(){const int at=selector.getSelectedId()-1;if(at<0||at>=static_cast<int>(events.size()))return;const auto& e=events[static_cast<std::size_t>(at)];selected=e.id;kind.setSelectedId(e.kind,juce::dontSendNotification);channel.setSelectedId(e.channel+1,juce::dontSendNotification);number.setText(juce::String(e.kind==2||e.kind==6?e.data1:0));position.setText(juce::String(static_cast<double>(e.start)/mrs::ppq,6));value.setText(juce::String(mrs::midi_event_value(e)));number.setEnabled(e.kind==2||e.kind==6);apply.setEnabled(true);remove.setEnabled(true);graph.repaint();}
     void edit(int operation){try{cancel();const auto p=owner.project();auto next=current(*p).events;auto at=std::find_if(next.begin(),next.end(),[&](const auto& e){return selected&&e.id==*selected;});if(operation!=0&&at==next.end()&&(operation!=2||selection.empty()))throw std::invalid_argument("Select an event");if(operation==2){std::erase_if(next,[&](const auto& e){return selection.contains(e.id.value)||(selected&&e.id==*selected);});selected.reset();selection.clear();}else{mrs::MidiChannelEvent e;e.id=operation==0?mrs::new_id():at->id;e.kind=kind.getSelectedId();e.channel=channel.getSelectedId()-1;const auto beat=numberValue(position),v=numberValue(value);if(beat<0||beat>static_cast<double>(mrs::max_tick)/mrs::ppq||v<-8192||v>8191||std::floor(v)!=v)throw std::invalid_argument("Position/value outside range");e.start=static_cast<mrs::Tick>(std::llround(beat*mrs::ppq));if(e.kind==2||e.kind==6){const auto n=numberValue(number);if(n<0||n>127||std::floor(n)!=n)throw std::invalid_argument("CC/note must be 0..127");e.data1=static_cast<int>(n);}mrs::set_midi_event_value(e,static_cast<int>(v));if(operation==0)next.push_back(e);else *at=e;selected=e.id;selection={e.id.value};}owner.app.set_midi_events(id,std::move(next));owner.refresh();reload();}catch(const std::exception& e){hint.setText(juce::String::fromUTF8(e.what()),juce::dontSendNotification);}}
     juce::Rectangle<float> plot() const{return juce::Rectangle<float>{viewLength>0?64.f:45.f,26.f,static_cast<float>(graph.getWidth())-(viewLength>0?80.f:90.f),static_cast<float>(graph.getHeight())-52.f};}

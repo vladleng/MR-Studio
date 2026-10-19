@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140">
+<title>MR Studio GUI element</title>
+<rect x="28" y="25" width="104" height="92" rx="12" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="42" y="40" width="76" height="18" rx="4" fill="none" stroke="#4B5F7B" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="80" y="53" font-family="Inter,Segoe UI,sans-serif" font-size="12" fill="#DAE5F4" text-anchor="middle" font-weight="400">-12.6 dB</text>
+<line x1="42" y1="73" x2="118" y2="73" fill="none" stroke="#7188AB" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="42" y="71" width="43" height="4" rx="2" fill="#91BBEE" stroke="none"/>
+<text x="80" y="125" font-family="Inter,Segoe UI,sans-serif" font-size="10" fill="#7188AB" text-anchor="middle" font-weight="400">READOUT</text>
+</svg>
