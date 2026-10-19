@@ -1,3 +1,15 @@
+# Актуальный контракт / решение пользователя — 2026-10-19
+
+P1–P5/#177–181 приняты и закрыты; общий документ, live playback, editor audition и workspace приняты в проверенных сценариях. Пользователь подтвердил Save/Open смешанного проекта с тремя разными ARA-приложениями. Это заменяет прежние ожидания этих проверок в исторических разделах ниже; полная vendor/physical ASIO/DPI матрица не заявляется. Текущий статус и ограничения — [#88](https://github.com/vladleng/MR-Studio/issues/88).
+
+**Update playback** — резервная команда **ПКМ audio clip → ARA editor → Update playback**; отдельной кнопки в toolbar редактора нет (локальный `618c3b5`). Автоматический live ARA, PCM fallback, preparation/focus/Space сохраняют существующий контракт.
+
+**Новый обязательный этап [#240 — Render and Restore](https://github.com/vladleng/MR-Studio/issues/240), реализация не начата:** ARA как Event FX должна обратимо фиксироваться в аудио отдельного event, с оригиналом и durable архивом правок для Restore после Save/Open. Render/Restore — команды ПКМ и иконка восстановимого rendered event, host Undo/Redo, без track/bus/master FX и без молчаливой замены shared source copies. Это отличается от автоматического PCM cache и Remove. Точный scope/DoD — в #240; #88 остаётся открытым до отдельной приёмки.
+
+Baseline GUI J2/J3 вынесен в самостоятельную [#239](https://github.com/vladleng/MR-Studio/issues/239) вне ARA. Дрожание границ vendor GUI при resize не дорабатывать по решению пользователя; host flicker fix принят. Vovious internal track selection не объявляется универсально исправленным.
+
+Остальные разделы ниже сохраняют архитектурные решения и исторические checkpoint-данные; актуальный статус приёмки определяется Issues и блоком выше.
+
 # Follow-up 2026-10-19 — ARA editor workspace
 
 Локальный `b67256a`, готов к ручной проверке: resize, Attach/Detach в общий editor slot, Full screen/Restore (иконка и F11). Attach расположен справа сверху рядом с Pin. Сохраняются тот же AraPanel/native HWND и ARA Session; view/DSP не пересоздаются. Resizable vendor получает checkSizeConstraint/onSize; fixed-size GUI сохраняет размер с прокруткой контейнера. Full screen из docked режима возвращается в dock; Pin/follow-selection и Space работают в обоих режимах. Геометрия/Attach — UI session-only, без новой project schema/archive/Undo. Исправлен возврат native focus после Cancel preparation, когда Windows уже активировала другое окно MR; внешнее приложение не перехватывается.
