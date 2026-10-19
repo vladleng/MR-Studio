@@ -237,7 +237,7 @@ DecodedTool decode_tool_call(std::string_view bytes){try{
       q.track = optional_id(args, "track_id");
       q.clip = optional_id(args, "clip_id");
       q.plugin = optional_id(args, "plugin_id");
-      for (const auto flag : {"master", "selected_only"})
+      for (const auto flag : {"master", "selected_only"}) {
         if (args.object.contains(flag)) {
           const auto &v = member(args, flag);
           require(v.kind == Value::Kind::boolean);
@@ -246,6 +246,7 @@ DecodedTool decode_tool_call(std::string_view bytes){try{
           else
             q.selected_only = v.boolean;
         }
+      }
         if(args.object.contains("cursor")){const auto n=integer(member(args,"cursor"));require(n>=0 && n<=65536);q.cursor=static_cast<std::size_t>(n);}
         if(args.object.contains("limit")){const auto n=integer(member(args,"limit"));require(n>=1 && n<=256);q.limit=static_cast<std::size_t>(n);}
         if (args.object.contains("tick_start") || args.object.contains("tick_end"))

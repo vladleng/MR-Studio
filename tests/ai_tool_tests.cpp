@@ -21,7 +21,8 @@ void registry(){
     CHECK(decode_tool_call(envelope("edit_ara_note",R"({"clip_id":"clip","note":3,"cents":20})")).error==Error::unsupported);
     CHECK(decode_tool_call(envelope("add_marker",R"({"name":"Verse","tick":0})")).value);
     auto unicode=decode_tool_call(envelope("add_marker",R"({"name":"\uD83C\uDFB5","tick":1})"));CHECK(unicode.value && std::get<MarkerAddArgs>(unicode.value->arguments).name=="🎵");
-    CHECK(decode_tool_call(envelope("add_marker",R"({"name":"\uD800","tick":1})")).error==Error::invalid_input);
+    const auto unpairedSurrogate=envelope("add_marker",R"({"name":"\uD800","tick":1})");
+    CHECK(decode_tool_call(unpairedSurrogate).error==Error::invalid_input);
     CHECK(decode_tool_call(envelope("add_marker",R"({"name":"\u0000","tick":1})")).error==Error::invalid_input);
     CHECK(decode_tool_call(envelope("add_marker",R"({"name":"","tick":1})")).error==Error::invalid_input);
     CHECK(decode_tool_call(envelope("add_marker",R"({"name":"x","tick":-1})")).error==Error::invalid_input);
