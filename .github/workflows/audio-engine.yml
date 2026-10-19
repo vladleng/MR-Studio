@@ -65,13 +65,14 @@ jobs:
           & ctest @args
           if($LASTEXITCODE){throw 'CTest failed; full integration never excludes known failures'}
       - name: Package development acceptance candidate
+        id: package
         if: always() && steps.build.outcome == 'success'
         shell: pwsh
         env:
           CI_TEST_RESULT: ${{ steps.test.outcome }}
         run: ./tools/ci/Package-Windows.ps1 -Ara:($env:ARA -eq 'true')
       - name: Upload Windows runtime
-        if: always() && steps.build.outcome == 'success'
+        if: always() && steps.package.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: MR-Studio-0.6-upd1-Windows-${{ github.sha }}-ara-${{ env.ARA }}
