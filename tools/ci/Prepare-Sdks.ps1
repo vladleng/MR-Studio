@@ -15,6 +15,9 @@ foreach($name in $names){
  if($name -eq 'ara'){Git-Checked @('-C',$path,'submodule','update','--init','--recursive','--depth','1')}
  $sha=& git -C $path rev-parse HEAD;if($sha -ne $sdk.commit){throw "SDK pin mismatch: $name"}
  Git-Checked @('-C',$path,'diff','--exit-code','HEAD')
+ Git-Checked @('-C',$path,'fsck','--no-dangling')
+ $extra=& git -C $path status --porcelain --untracked-files=all
+ if($extra){throw "SDK cache contains modified or untracked content: $name"}
  $modules=& git -C $path submodule status --recursive
  if($LASTEXITCODE){throw "Cannot validate SDK submodules: $name"}
  if(@($modules | Where-Object {$_ -match '^[+U]'}).Count){throw "Modified SDK submodule: $name"}
