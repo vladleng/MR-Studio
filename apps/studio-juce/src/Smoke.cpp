@@ -559,9 +559,12 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     // A channel colour swatch is a deliberately custom-painted TextButton,
     // not a flat mixer button. All ordinary buttons still share flat chrome.
     auto checkFlatButtons=[&](Strip& strip,const char* failure){
-        check(strip.colorField.getComponentID()=="channel-color","Channel custom swatch identity");
+        // Locate the deliberately custom-painted swatch through Component's public API;
+        // this smoke test must not depend on Strip's private implementation details.
+        auto* swatch=strip.findChildWithID("channel-color");
+        check(swatch!=nullptr&&dynamic_cast<juce::TextButton*>(swatch)!=nullptr,"Channel custom swatch identity");
         for(auto* child:strip.getChildren())if(auto* button=dynamic_cast<juce::TextButton*>(child)){
-            if(button==&strip.colorField)continue;
+            if(child==swatch)continue;
             check(static_cast<bool>(button->getProperties()["flatMixerButton"]),failure);
         }
     };
