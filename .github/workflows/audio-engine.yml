@@ -11,9 +11,9 @@ on:
         type: boolean
         default: false
       ara:
-        description: Optional ARA profile
+        description: Include ARA2 in Windows Release (disable only for diagnostic builds)
         type: boolean
-        default: false
+        default: true
 permissions:
   contents: read
 concurrency:
@@ -23,18 +23,20 @@ jobs:
   studio:
     # Migration branch with an open PR would otherwise launch two identical
     # Windows builds on each ordinary commit. The PR is the quick acceptance
-    # gate. Keep push runs for explicit ARA/full integration markers and main.
+    # gate WITH ARA2; extra push runs are only for explicit full integration.
+    # Main push release always retains ARA2.
     if: >-
       ${{
         github.event_name != 'push' ||
         github.ref_name != 'codex/cloud-cicd-migration' ||
-        contains(github.event.head_commit.message, '[ci full]') ||
-        contains(github.event.head_commit.message, '[ci ara]')
+        contains(github.event.head_commit.message, '[ci full]')
       }}
     runs-on: windows-2022
     timeout-minutes: 60
     env:
-      ARA: ${{ inputs.ara || contains(github.event.head_commit.message, '[ci ara]') }}
+      # PR and push always produce a complete ARA2-enabled Windows build.
+      # Manual dispatch defaults ON but permits a deliberate ARA-OFF diagnostic.
+      ARA: ${{ github.event_name != 'workflow_dispatch' || inputs.ara }}
       INTEGRATION: ${{ inputs.integration || contains(github.event.head_commit.message, '[ci full]') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
