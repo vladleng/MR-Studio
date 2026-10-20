@@ -541,9 +541,17 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     d.setWorkspace(mrs::desktop::Workspace::arrange);check(!d.master->isVisible(),"arrange hides docked mixer");
     d.setWorkspace(mrs::desktop::Workspace::mix);check(d.master->isVisible(),"mix shows docked mixer");
     d.sidebar=false;d.resized();int width=d.arrangeArea.getWidth();d.sidebar=true;d.resized();check(d.arrangeArea.getWidth()<width,"browser resizes arrangement");
-    check(d.browser->tree.getRootItem()->getNumSubItems()==0,"empty browser");
+    // An ARA-enabled build always has an empty ARA 2 category, even when no
+    // plugins are scanned. Only vendor/plugin entries must be absent here.
+    auto* emptyRoot=d.browser->tree.getRootItem();
+#ifdef MRS_HAS_ARA
+    check(emptyRoot->getNumSubItems()==1&&emptyRoot->getSubItem(0)->getUniqueName()=="ARA 2"&&emptyRoot->getSubItem(0)->getNumSubItems()==0,"empty ARA browser category");
+#else
+    check(emptyRoot->getNumSubItems()==0,"empty browser");
+#endif
     d.catalog={{"missing.vst3","00000000000000000000000000000001","Example","Example vendor","1"}};d.browser->rebuild();
-    check(!d.browser->tree.getRootItem()->getSubItem(0)->isOpen(),"vendors initially collapsed");d.catalog.clear();d.browser->rebuild();
+    auto* populatedRoot=d.browser->tree.getRootItem();
+    check(populatedRoot->getNumSubItems()>0&&!populatedRoot->getSubItem(populatedRoot->getNumSubItems()-1)->isOpen(),"vendors initially collapsed");d.catalog.clear();d.browser->rebuild();
     auto originalClip=d.project()->clips.front();d.app.move_clip(originalClip.id,second,4800);d.selectedClip=originalClip.id;d.app.seek(10000);
     std::array<float,256> audio{};auto render=[&]{d.app.engine()->process(nullptr,audio.data(),128);d.app.poll();};render();d.action(24);
     check(d.project()->clips.size()==2,"split binding");d.action(10);check(d.project()->clips.size()==1,"split undo");
