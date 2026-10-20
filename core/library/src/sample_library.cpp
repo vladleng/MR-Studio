@@ -1,4 +1,5 @@
 #include <mrs/sample_library.hpp>
+#include <mrs/sample_tag_rules.hpp>
 #include <mrs/audio.hpp>
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -14,6 +15,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <optional>
 #include <limits>
 #include <mutex>
 #include <stdexcept>
@@ -90,10 +92,11 @@ struct Statement {
 void create_schema(Database& d) {
     Statement version(d, "PRAGMA user_version");
     const auto v = version.next() ? sqlite3_column_int(version.stmt, 0) : -1;
-    if (v != 0 && v != 1) throw std::runtime_error("Unsupported MR Library database schema");
-    if (v == 1) return;
+    if (v != 0 && v != 1 && v != 2) throw std::runtime_error("Unsupported MR Library database schema");
+    if (v == 2) return;
     d.exec("BEGIN IMMEDIATE");
     try {
+        if (v == 0) {
         d.exec("CREATE TABLE IF NOT EXISTS sources (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, enabled INTEGER NOT NULL DEFAULT 1)");
         d.exec("CREATE TABLE IF NOT EXISTS assets ("
                "id INTEGER PRIMARY KEY, source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,"
@@ -102,7 +105,26 @@ void create_schema(Database& d) {
                "status TEXT NOT NULL, error TEXT NOT NULL DEFAULT '', seen INTEGER NOT NULL DEFAULT 0,"
                "UNIQUE(source_id,relative_path))");
         d.exec("CREATE INDEX IF NOT EXISTS assets_status_idx ON assets(source_id,status)");
-        d.exec("PRAGMA user_version=1");
+        }
+        d.exec("ALTER TABLE assets ADD COLUMN bpm_auto INTEGER NOT NULL DEFAULT 0");
+        d.exec("ALTER TABLE assets ADD COLUMN bpm_manual INTEGER NOT NULL DEFAULT 0");
+        d.exec("ALTER TABLE assets ADD COLUMN key_auto TEXT NOT NULL DEFAULT ''");
+        d.exec("ALTER TABLE assets ADD COLUMN key_manual TEXT NOT NULL DEFAULT ''");
+        d.exec("CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY, group_name TEXT NOT NULL, label TEXT NOT NULL, UNIQUE(group_name,label))");
+        d.exec("CREATE TABLE IF NOT EXISTS asset_tags (asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,"
+               " tag_id INTEGER NOT NULL REFERENCES tags(id), origin TEXT NOT NULL, status TEXT NOT NULL,"
+               " confidence REAL NOT NULL, PRIMARY KEY(asset_id,tag_id))");
+        d.exec("CREATE INDEX IF NOT EXISTS asset_tags_tag_idx ON asset_tags(tag_id,status)");
+        d.exec("CREATE TABLE IF NOT EXISTS classification_rules (id INTEGER PRIMARY KEY,"
+               " group_name TEXT NOT NULL, phrase TEXT NOT NULL, label TEXT NOT NULL,"
+               " in_folder INTEGER NOT NULL DEFAULT 0, UNIQUE(group_name,phrase,in_folder))");
+        d.exec("CREATE TABLE IF NOT EXISTS edit_batches (id INTEGER PRIMARY KEY)");
+        d.exec("CREATE TABLE IF NOT EXISTS tag_edit_history (batch_id INTEGER NOT NULL REFERENCES edit_batches(id) ON DELETE CASCADE,"
+               " asset_id INTEGER NOT NULL,tag_id INTEGER NOT NULL,existed INTEGER NOT NULL,"
+               " prior_origin TEXT,prior_status TEXT,prior_confidence REAL)");
+        d.exec("CREATE TABLE IF NOT EXISTS metadata_edit_history (batch_id INTEGER NOT NULL REFERENCES edit_batches(id) ON DELETE CASCADE,"
+               " asset_id INTEGER NOT NULL,prior_bpm INTEGER,prior_key TEXT)");
+        d.exec("PRAGMA user_version=2");
         d.exec("COMMIT");
     } catch (...) { d.exec("ROLLBACK"); throw; }
 }
