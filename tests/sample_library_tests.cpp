@@ -1,4 +1,9 @@
 #include <mrs/sample_library.hpp>
+#ifdef _WIN32
+#include <winsqlite/winsqlite3.h>
+#else
+#include <sqlite3.h>
+#endif
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -175,4 +180,51 @@ void tagging() {
     }
     std::cout<<"MR Library #253: filename proposals, provenance, veto, manual/undo, rules, persistence PASS\\n";
 }
-int main() { try {test();tagging();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void migration_v1() {
+    Fixture f;
+    const auto libraryRoot=f.root/"sounds";
+    wav(libraryRoot/"Jazz"/"Jazz_Brush_120BPM_Loop.wav");
+    const auto file=f.root/"db"/"legacy.sqlite";
+    fs::create_directories(file.parent_path());
+    sqlite3* db{};
+    const auto u=file.u8string();
+    const std::string filename(u.begin(),u.end());
+    check(sqlite3_open(filename.c_str(),&db)==SQLITE_OK,"Create legacy database");
+    const auto exec=[&](const char* sql){
+        char* error=nullptr;
+        if(sqlite3_exec(db,sql,nullptr,nullptr,&error)!=SQLITE_OK){
+            const std::string why=error?error:"SQLite test setup";
+            sqlite3_free(error);throw std::runtime_error(why);
+        }
+    };
+    exec("CREATE TABLE sources (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, enabled INTEGER NOT NULL DEFAULT 1)");
+    exec("CREATE TABLE assets (id INTEGER PRIMARY KEY, source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,"
+         " relative_path TEXT NOT NULL,bytes INTEGER NOT NULL,modified INTEGER NOT NULL,rate INTEGER,"
+         " channels INTEGER,bits INTEGER,frames INTEGER,status TEXT NOT NULL,error TEXT NOT NULL DEFAULT '',"
+         " seen INTEGER NOT NULL DEFAULT 0,UNIQUE(source_id,relative_path))");
+    exec("CREATE INDEX assets_status_idx ON assets(source_id,status)");
+    exec("PRAGMA user_version=1");
+    sqlite3_stmt* stmt{};
+    check(sqlite3_prepare_v2(db,"INSERT INTO sources(id,path) VALUES(7,?)",-1,&stmt,nullptr)==SQLITE_OK,
+          "Prepare legacy source insert");
+    const auto root8=libraryRoot.u8string();
+    const std::string root(root8.begin(),root8.end());
+    sqlite3_bind_text(stmt,1,root.c_str(),-1,SQLITE_TRANSIENT);
+    check(sqlite3_step(stmt)==SQLITE_DONE,"Insert legacy source");
+    sqlite3_finalize(stmt);
+    exec("INSERT INTO assets(id,source_id,relative_path,bytes,modified,rate,channels,bits,frames,status)"
+         " VALUES(81,7,'Jazz/Jazz_Brush_120BPM_Loop.wav',0,0,48000,1,16,400,'ok')");
+    sqlite3_close(db);
+    {
+        SampleLibrary lib(file);
+        auto snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle;});
+        check(snap->sources.size()==1&&snap->sources[0].id==7,"Migration lost source ID");
+        check(snap->assets.size()==1&&snap->assets[0].id==81,"Migration lost asset ID");
+        check(snap->assets[0].detected_bpm==120,"Migration failed to backfill proposals");
+        check(std::any_of(snap->assets[0].tags.begin(),snap->assets[0].tags.end(),
+              [](const auto& tag){return tag.group=="Genre"&&tag.label=="Jazz"&&tag.status=="proposed";}),
+              "Migration dropped auto tags");
+    }
+    std::cout<<"MR Library #253: schema v1 to v2 migration keeps legacy IDs and fills tags PASS\\n";
+}
+int main() { try {test();tagging();migration_v1();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
