@@ -66,6 +66,29 @@ public:
                 juce::String invalidError;
                 if(ui::TrackHeaderLayout::parse("{}",invalidError))
                     throw std::runtime_error("invalid layout accepted");
+                // Verify the new top-level Options menu and the toggle contract
+                // using a local/offline Desktop fixture; no ASIO device required.
+                ui::Desktop desktop(true);
+                if(desktop.getMenuBarNames()[1]!="Options" || desktop.getMenuForIndex(1,{}).getNumItems()!=3)
+                    throw std::runtime_error("Options menu or Track Header actions missing");
+                if(desktop.isTrackHeaderReloadEnabled())
+                    throw std::runtime_error("Hot Reload must default OFF in Release");
+                if(!desktop.enableTrackHeaderLayout(file,error))
+                    throw std::runtime_error("cannot activate valid layout in Desktop: "+error.toStdString());
+                const auto* lastGood=desktop.trackLayout();
+                juce::String failure;
+                if(desktop.enableTrackHeaderLayout(file.getSiblingFile("not-a-real-layout.json"),failure)
+                   || desktop.trackLayout()!=lastGood)
+                    throw std::runtime_error("invalid layout replaced the last-good GUI state");
+                desktop.action(711);
+                if(!desktop.isTrackHeaderReloadEnabled())
+                    throw std::runtime_error("Options Hot Reload toggle failed to enable");
+                desktop.action(711);
+                if(desktop.isTrackHeaderReloadEnabled())
+                    throw std::runtime_error("Options Hot Reload toggle failed to disable");
+                desktop.clearTrackHeaderLayout();
+                if(desktop.trackLayout()!=nullptr || desktop.isTrackHeaderReloadEnabled())
+                    throw std::runtime_error("Options restore-default failed");
                 setApplicationReturnValue(0);
             }catch(const std::exception& e){
                 juce::File::getCurrentWorkingDirectory().getChildFile("track-layout-smoke-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));

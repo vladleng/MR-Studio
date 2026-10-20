@@ -41,3 +41,20 @@ Bad/missing/unsupported JSON is rejected with a message in the application log. 
 ## Deployment boundary
 
 The GitHub Pages site remains a browser-only design tool. Exporting its JSON neither commits to GitHub nor updates a running Windows executable; an explicit JSON file and the `--track-layout` flag are required for this pilot. No changes were made to the separate `gh-pages` snapshot.
+
+
+## Options menu / B2 file Hot Reload — opt-in
+
+The top-level DAW menu now has **File | Options | Edit | Track | Transport | AI**. The Options items are:
+
+- **Load Track Header JSON...**: choose an exported `.json` via a file picker. The file is loaded once; Hot Reload is left OFF. `--track-layout "<path>"` at startup remains supported.
+- **Hot Reload Track Header JSON**: checkbox. Available after a valid file has been loaded. Default **OFF** on every startup, including packaged Release builds. This is a **session-only switch**, never stored in the project file, preferences or recent-project list.
+- **Restore Default Track Header**: stop watching and restore the previous hardcoded Strip geometry.
+
+When explicitly checked, the UI checks the source file's modification time and size roughly every **500 ms**. It waits for the same metadata across two checks before parsing. Reload is deferred during recording, active controls, name editing or other GUI gestures. Only a valid JSON document is applied on the JUCE message thread. Missing/replaced files and parse failures retain the last valid layout and report the problem in the UI/log; there is no network, socket bridge, background audio thread access or automatic repository write.
+
+**Release behavior:** production launch does not load a development JSON or poll any source file. Explicitly selecting a file and enabling the checkbox allows *opt-in developer inspection*, even when the Windows acceptance candidate is compiled in Release configuration. A **hard compile-time exclusion** of live reload from externally distributed end-user packages can be introduced once the distribution policy is formalized; it is not implemented in this pilot. An approved static layout may later be bundled with Release independently of Hot Reload.
+
+The static browser site remains isolated. A user must export **to the watched file path** (not just download a renamed copy) before the file watcher sees edits. Future direct browser bridge is a separate feature and is not delivered by this change.
+
+**Acceptance checks:** `juce_track_header_layout` now includes Options menu presence, OFF default, ON/OFF toggle, invalid-file last-good fallback and Restore Default, in addition to schema/geometry. Actual Windows compilation/CTest and GUI/hardware tests must be reported from CI/user acceptance, not assumed.

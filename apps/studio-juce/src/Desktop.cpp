@@ -185,19 +185,28 @@ void Desktop::confirmDiscard(std::function<void()> nextAction){if(app.recording(
             else safe->choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[safe,nextAction](auto f){if(safe){safe->saveFile(f.withFileExtension("mrsproject"));nextAction();}},"*.mrsproject");});
     }),true);
 }
-juce::StringArray Desktop::getMenuBarNames(){return {"File","Edit","Track","Transport","AI: "+label(std::string(app.ai_permissions().enabled?mrs::ai::permission_name(app.ai_permissions().mode):std::string_view("OFF")))};}
+juce::StringArray Desktop::getMenuBarNames(){return {"File","Options","Edit","Track","Transport","AI: "+label(std::string(app.ai_permissions().enabled?mrs::ai::permission_name(app.ai_permissions().mode):std::string_view("OFF")))};}
 juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupMenu m;
-    if(n==0){m.addItem(6,"Project home");m.addItem(8,"Close project",projectSessionStarted);m.addItem(1,"New project");m.addItem(2,"Open project...");m.addItem(3,"Save");m.addItem(4,"Save as...");m.addItem(5,"Import WAV...");
+    if(n==1){
+        m.addItem(710,"Load Track Header JSON...",!app.recording());
+        m.addItem(711,"Hot Reload Track Header JSON",trackHeaderLayout.has_value() && !app.recording(),
+                  trackHeaderHotReload);
+        m.addItem(712,"Restore Default Track Header",trackHeaderLayout.has_value() && !app.recording());
+        return m;
+    }
+    // Existing menus retain their action IDs after inserting Options next to File.
+    const int originalIndex = n > 1 ? n - 1 : n;
+    if(originalIndex==0){m.addItem(6,"Project home");m.addItem(8,"Close project",projectSessionStarted);m.addItem(1,"New project");m.addItem(2,"Open project...");m.addItem(3,"Save");m.addItem(4,"Save as...");m.addItem(5,"Import WAV...");
         juce::PopupMenu recent;for(std::size_t i=0;i<prefs.recent_projects.size();++i)recent.addItem(1000+static_cast<int>(i),label(prefs.recent_projects[i]));m.addSubMenu("Open recent project",recent);m.addSeparator();m.addItem(7,"Open diagnostics folder");}
-    if(n==1){m.addItem(10,"Undo",app.services().projects->state().can_undo);m.addItem(11,"Redo",app.services().projects->state().can_redo);m.addItem(24,"Split selected clip (S)");m.addItem(25,"Delete selected clip (Backspace)");m.addItem(43,"Create MIDI clip at cursor",selectedTrack.has_value());m.addItem(44,"Edit MIDI clip notes",selectedClip.has_value());m.addItem(45,"Duplicate selected clip (D)",selectedClip.has_value());m.addItem(52,"Merge MIDI clips (G)",selectedClips.size()>=2);m.addItem(46,"Loop selected clip",selectedClip.has_value());}
-    if(n==2){m.addItem(20,"Add audio track");m.addItem(28,"Add instrument track");m.addItem(21,"Add bus");m.addItem(22,"Rename track");m.addItem(23,"Delete track");m.addItem(26,"Move track up");m.addItem(27,"Move track down");}
-    if(n==3){m.addItem(30,"Play");m.addItem(31,"Pause");m.addItem(32,"Stop");m.addItem(33,"Record");m.addItem(34,"Previous section");m.addItem(35,"Next section");m.addItem(36,"Loop section");m.addItem(48,"Previous marker",!app.recording());m.addItem(49,"Next marker",!app.recording());m.addItem(50,"Go to section...",!app.recording());m.addItem(51,"Go to marker...",!app.recording());m.addItem(40,"Audio settings...");m.addItem(41,"Engine profiling...");m.addItem(42,"MIDI panic / all notes off");m.addItem(47,"Project tempo...");
+    if(originalIndex==1){m.addItem(10,"Undo",app.services().projects->state().can_undo);m.addItem(11,"Redo",app.services().projects->state().can_redo);m.addItem(24,"Split selected clip (S)");m.addItem(25,"Delete selected clip (Backspace)");m.addItem(43,"Create MIDI clip at cursor",selectedTrack.has_value());m.addItem(44,"Edit MIDI clip notes",selectedClip.has_value());m.addItem(45,"Duplicate selected clip (D)",selectedClip.has_value());m.addItem(52,"Merge MIDI clips (G)",selectedClips.size()>=2);m.addItem(46,"Loop selected clip",selectedClip.has_value());}
+    if(originalIndex==2){m.addItem(20,"Add audio track");m.addItem(28,"Add instrument track");m.addItem(21,"Add bus");m.addItem(22,"Rename track");m.addItem(23,"Delete track");m.addItem(26,"Move track up");m.addItem(27,"Move track down");}
+    if(originalIndex==3){m.addItem(30,"Play");m.addItem(31,"Pause");m.addItem(32,"Stop");m.addItem(33,"Record");m.addItem(34,"Previous section");m.addItem(35,"Next section");m.addItem(36,"Loop section");m.addItem(48,"Previous marker",!app.recording());m.addItem(49,"Next marker",!app.recording());m.addItem(50,"Go to section...",!app.recording());m.addItem(51,"Go to marker...",!app.recording());m.addItem(40,"Audio settings...");m.addItem(41,"Engine profiling...");m.addItem(42,"MIDI panic / all notes off");m.addItem(47,"Project tempo...");
         const auto c=app.click_settings();juce::PopupMenu click,count,level;const bool enabled=!app.recording();
         click.addItem(500,"During playback",enabled,c.playback);click.addItem(501,"During recording",enabled,c.recording);click.addItem(502,"Accent first beat",enabled,c.accent);
         for(const auto value:{10,20,35,50,75,100})level.addItem(600+value,juce::String(value)+"%",enabled,c.level==value);click.addSubMenu("Level",level);
         for(int bars=0;bars<=4;++bars)count.addItem(510+bars,bars?juce::String(bars)+" bar(s)":"Off",enabled,c.count_bars==bars);
         click.addSubMenu("Count-in before recording",count);m.addSubMenu("Metronome / count-in",click);}
-    if(n==4){m.addItem(54,"Assistant...");m.addItem(52,"Permissions...");m.addItem(53,"Marker Apply requires preview",false);}
+    if(originalIndex==4){m.addItem(54,"Assistant...");m.addItem(52,"Permissions...");m.addItem(53,"Marker Apply requires preview",false);}
     return m;
 }
 juce::PopupMenu Desktop::channelMenu(std::optional<mrs::Id> target){
@@ -223,6 +232,35 @@ void Desktop::navigationMenu(bool sections){
 }
 void Desktop::menuItemSelected(int n,int){action(n);}
 void Desktop::action(int n){if(busyGesture()){if(n==34||n==35||n==48||n==49||n==50||n==51){message="Finish editing before navigating";repaint();}return;}mrs::diagnostics::event("ui_action="+std::to_string(n));run([&]{
+    if(n==710){
+        if(app.recording())return;
+        choose(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+               [this](const juce::File& file){
+                   juce::String error;
+                   if(!enableTrackHeaderLayout(file,error)){
+                       message="Track Header layout rejected: "+error;
+                       repaint();
+                   } else {
+                       trackHeaderHotReload=false; // Choosing a file never silently starts watching.
+                       message="Track Header JSON loaded. Options > Hot Reload to watch for edits.";
+                       repaint();
+                   }
+               },"*.json");
+        return;
+    }
+    if(n==711){
+        if(!app.recording()&&trackHeaderLayout&&trackHeaderLayoutSource.existsAsFile()){
+            trackHeaderHotReload=!trackHeaderHotReload;
+            trackHeaderPendingBytes=-1;
+            message=trackHeaderHotReload?"Track Header Hot Reload ON":"Track Header Hot Reload OFF";
+            repaint();
+        }
+        return;
+    }
+    if(n==712){
+        if(!app.recording())clearTrackHeaderLayout();
+        return;
+    }
     if(n==7){const auto logs=mrs::diagnostics::folder();if(logs.empty())throw std::runtime_error("Diagnostics unavailable; see package README");if(!testing)juce::File(juce::String(logs.wstring().c_str())).revealToUser();return;}
     if(n>=500&&n<=700){auto c=app.click_settings();if(n==500)c.playback=!c.playback;else if(n==501)c.recording=!c.recording;else if(n==502)c.accent=!c.accent;else if(n==503)c.playback=c.recording=!(c.playback||c.recording);else if(n==504){if(c.count_bars){lastCountBars=c.count_bars;c.count_bars=0;}else c.count_bars=lastCountBars;}else if(n>=510&&n<=514)c.count_bars=n-510;else if(n>=600)c.level=n-600;else return;app.set_click_settings(c);if(c.count_bars)lastCountBars=c.count_bars;prefs.click=c;saveSettings();return;}
     if(n==8){confirmDiscard([this]{run([&]{closeEditors();cancelPreview();app.pause();app.new_project();resetDevice();selectedTrack.reset();selectedClip.reset();selectedClips.clear();refresh(true);showProjectHome(true);projectSessionStarted=false;home->rescan();});});return;}
@@ -474,7 +512,9 @@ void Desktop::updateRecordingPreview(){
     audioRecordingPreview=std::move(nextWaveforms);
 }
 void Desktop::focusLost(FocusChangeType){spaceHeld=false;}
-void Desktop::timerCallback(){try{const bool wasRecording=app.recording();app.poll();if(wasRecording&&!app.recording()&&!app.recording_error().empty())message=label(app.recording_error());if(++previewTick%3==0)updateRecordingPreview();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}if(dockedEditor&&!dockedClip)dockedEditor.reset();if(preview){if(preview->active()){if(preview->sendBus&&preview->target)app.preview_send_gain(*preview->target,*preview->sendBus,preview->sendGain);else app.preview_mix(preview->target,preview->mix,preview->master);}else cancelPreview();}
+void Desktop::timerCallback(){try{const bool wasRecording=app.recording();app.poll();
+    // One cheap metadata check every 500ms, and only if explicitly enabled.
+    if(++trackHeaderPollTick>=15){trackHeaderPollTick=0;pollTrackHeaderLayout();}if(wasRecording&&!app.recording()&&!app.recording_error().empty())message=label(app.recording_error());if(++previewTick%3==0)updateRecordingPreview();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}if(dockedEditor&&!dockedClip)dockedEditor.reset();if(preview){if(preview->active()){if(preview->sendBus&&preview->target)app.preview_send_gain(*preview->target,*preview->sendBus,preview->sendGain);else app.preview_mix(preview->target,preview->mix,preview->master);}else cancelPreview();}
     updatePerformance(app.device_status(),app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected");
     if(++diagnosticTick%150==0){mrs::audio::RealtimeState head;if(app.engine()->try_state(head))mrs::diagnostics::event("heartbeat device="+app.audio_name()+" rate="+std::to_string(project()->sample_rate)+" requested_buffer="+std::to_string(prefs.buffer)+" workers="+std::to_string(prefs.processing_workers)+" process="+std::to_string(prefs.process_buffer_frames)+" playback="+std::to_string(static_cast<int>(head.playback))+" sample="+std::to_string(head.sample)+" recording="+std::to_string(app.recording()));}
     if(editorGeneration!=app.insert_generation()){refreshInsertEditors();editorGeneration=app.insert_generation();}
@@ -495,11 +535,62 @@ bool Desktop::enableTrackHeaderLayout(const juce::File& file, juce::String& erro
     auto candidate = TrackHeaderLayout::readFile(file, error);
     if (!candidate) return false; // Atomic last-known-good / built-in fallback.
     trackHeaderLayout = std::move(*candidate);
+    trackHeaderLayoutSource = file;
+    trackHeaderObservedStamp = file.getLastModificationTime();
+    trackHeaderObservedBytes = file.getSize();
+    trackHeaderPendingBytes = -1;
     if (arrangement) {
         for (auto& row : arrangement->rows) row->sync();
         arrangement->resized();
     }
     return true;
+}
+
+void Desktop::clearTrackHeaderLayout(){
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+    trackHeaderHotReload=false;
+    trackHeaderLayout.reset();
+    trackHeaderLayoutSource=juce::File();
+    trackHeaderObservedBytes=trackHeaderPendingBytes=-1;
+    if(arrangement){
+        for(auto& row:arrangement->rows)row->sync();
+        arrangement->resized();
+    }
+    message="Default Track Header restored";
+    repaint();
+}
+
+void Desktop::pollTrackHeaderLayout(){
+    // Development-only opt-in behavior; never active at default Release startup.
+    // Do not apply new bounds while recording, editing names or dragging controls.
+    if(!trackHeaderHotReload || !trackHeaderLayout || trackHeaderLayoutSource==juce::File()
+       || app.recording() || busyGesture() || !arrangement) return;
+    for(const auto& strip:arrangement->rows)
+        if(strip && (strip->active() || strip->isEditingTrackName()))return;
+    const auto file=trackHeaderLayoutSource;
+    if(!file.existsAsFile())return; // Deleted/temporarily renamed by atomic save: retain last good.
+    const auto stamp=file.getLastModificationTime();
+    const auto size=file.getSize();
+    if(stamp==trackHeaderObservedStamp && size==trackHeaderObservedBytes){
+        trackHeaderPendingBytes=-1;
+        return;
+    }
+    // Observe the same metadata twice before parsing, to avoid partially written
+    // exports during file replacement. Failed JSON never touches the active layout.
+    if(stamp!=trackHeaderPendingStamp || size!=trackHeaderPendingBytes){
+        trackHeaderPendingStamp=stamp;
+        trackHeaderPendingBytes=size;
+        return;
+    }
+    trackHeaderObservedStamp=stamp;
+    trackHeaderObservedBytes=size;
+    trackHeaderPendingBytes=-1;
+    juce::String error;
+    if(!enableTrackHeaderLayout(file,error)){
+        message="Hot Reload rejected JSON; previous Track Header retained: "+error;
+        juce::Logger::writeToLog(message);
+    }else message="Track Header layout reloaded";
+    repaint();
 }
 
 Strip::Strip(Desktop& d,std::optional<mrs::Id> id,bool small):gain(!small),target(id),owner(d),mini(small){
