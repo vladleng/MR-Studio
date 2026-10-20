@@ -556,8 +556,17 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     std::array<float,256> audio{};auto render=[&]{d.app.engine()->process(nullptr,audio.data(),128);d.app.poll();};render();d.action(24);
     check(d.project()->clips.size()==2,"split binding");d.action(10);check(d.project()->clips.size()==1,"split undo");
     const auto emptyFaderHeight=d.mixer[1]->gain.getHeight();const auto emptyMixerHeight=d.mixArea.getHeight();
-    for(const auto& strip:d.mixer)for(auto* child:strip->getChildren())if(auto* button=dynamic_cast<juce::TextButton*>(child))check(static_cast<bool>(button->getProperties()["flatMixerButton"]),"channel buttons use flat mixer style");
-    for(auto* child:d.master->getChildren())if(auto* button=dynamic_cast<juce::TextButton*>(child))check(static_cast<bool>(button->getProperties()["flatMixerButton"]),"Master buttons use flat mixer style");
+    // A channel colour swatch is a deliberately custom-painted TextButton,
+    // not a flat mixer button. All ordinary buttons still share flat chrome.
+    auto checkFlatButtons=[&](Strip& strip,const char* failure){
+        check(strip.colorField.getComponentID()=="channel-color","Channel custom swatch identity");
+        for(auto* child:strip.getChildren())if(auto* button=dynamic_cast<juce::TextButton*>(child)){
+            if(button==&strip.colorField)continue;
+            check(static_cast<bool>(button->getProperties()["flatMixerButton"]),failure);
+        }
+    };
+    for(const auto& strip:d.mixer)checkFlatButtons(*strip,"channel buttons use flat mixer style");
+    checkFlatButtons(*d.master,"Master buttons use flat mixer style");
     {juce::TextButton flat;flat.setLookAndFeel(&d.theme);flat.getProperties().set("flatMixerButton",true);flat.setSize(80,28);const auto picture=flat.createComponentSnapshot(flat.getLocalBounds(),true,1.f,juce::SoftwareImageType{});const auto expected=juce::Colour(raised);check(picture.getPixelAt(4,8)==expected&&picture.getPixelAt(4,20)==expected,"flat mixer button uses reference raised fill without bevel");flat.setLookAndFeel(nullptr);}
     for(auto* strip:std::array<Strip*,3>{d.mixer[0].get(),d.mixer[1].get(),d.master.get()}){
         const auto snapshot=strip->createComponentSnapshot(strip->getLocalBounds(),true,1.f,juce::SoftwareImageType{});

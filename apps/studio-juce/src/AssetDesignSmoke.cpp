@@ -57,7 +57,10 @@ void assetDesignSmoke(){
             // Asset skin intentionally keeps accepted neutral surface colours, not the target UDS background.
             const auto window=DesignTokens{}.colour(ColourRole::window);
             const auto desktopImage=d.createComponentSnapshot(d.getLocalBounds());
-            require(desktopImage.getPixelAt(d.mixArea.getCentreX(),d.mixArea.getCentreY())==window,"Empty mixer matches transport background");
+            if(scene==0){
+                require(d.mixerViewport.isVisible(),"Mix workspace exposes the mixer");
+                require(desktopImage.getPixelAt(d.mixArea.getCentreX(),d.mixArea.getCentreY())==window,"Empty mixer matches transport background");
+            }else require(!d.mixerViewport.isVisible(),"Arrange workspace hides the mixer");
             const auto browserImage=d.browser->createComponentSnapshot(d.browser->getLocalBounds());
             require(browserImage.getPixelAt(12,d.browser->getHeight()-28)==window,"Browser matches transport background");
             for(auto* action:{&d.mixer.front()->mute,&d.mixer.front()->solo,&d.mixer.front()->arm}){

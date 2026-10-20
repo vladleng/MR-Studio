@@ -513,6 +513,8 @@ Strip::Strip(Desktop& d,std::optional<mrs::Id> id,bool small):gain(!small),targe
     for(auto* b:{&instrument,&piano}){addAndMakeVisible(b);b->onClick=[this]{openInstrument();};}
     instrument.setComponentID("channel-instrument");piano.setComponentID("channel-piano");piano.setTitle("Open instrument");piano.setTooltip("Open or raise this channel's instrument");
     instrument.getProperties().set("stripFont",true);instrument.getProperties().set("flatMixerButton",true);
+    // The instrument shortcut uses the same flat mixer chrome in normal mode.
+    piano.getProperties().set("stripFont",true);piano.getProperties().set("flatMixerButton",true);
     colorField.setComponentID("channel-color");colorField.setTitle("Channel color");colorField.setTooltip("Choose channel color (32 colors)");addAndMakeVisible(colorField);colorField.onClick=[this]{colorMenu();};
     output.onClick=[this]{if(target)owner.routeMenu(*target);else owner.textDialog("Master hardware outputs (1,2...)","1,2",[this](auto s){owner.app.set_hardware_output({},mrs::desktop::parse_outputs(s.toStdString()));});};
     sends.getProperties().set("stripFont",true);sends.getProperties().set("flatMixerButton",true);
