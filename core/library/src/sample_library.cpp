@@ -194,14 +194,23 @@ struct Cancelled : std::runtime_error { Cancelled() : std::runtime_error("Scan c
 } // namespace
 
 struct SampleLibrary::Impl {
-    enum class Kind { add, relink, remove, enable, rescan };
-    struct Command { Kind kind; std::int64_t id{}; fs::path root; bool enabled{true}; };
+    enum class Kind { add, relink, remove, enable, rescan, view, tag, tag_status, bpm, key, rule, undo };
+    struct Command {
+        Kind kind;std::int64_t id{};fs::path root;bool enabled{true};
+        std::vector<std::int64_t> ids;
+        std::string group,label,status,phrase;
+        int number{};bool folder{};
+        explicit Command(Kind k,std::int64_t n=0,fs::path p={},bool e=true)
+            :kind(k),id(n),root(std::move(p)),enabled(e){}
+    };
     fs::path database;
     mutable std::mutex mutex;
     std::condition_variable wake;
     std::deque<Command> commands;
     std::shared_ptr<const Snapshot> state{std::make_shared<Snapshot>()};
     std::uint64_t revision{};
+    std::int64_t viewSource{};
+    std::string viewFilter;
     std::atomic<bool> cancel{false}, scanning{false};
     std::jthread worker;
 
@@ -245,6 +254,36 @@ struct SampleLibrary::Impl {
             source.invalid = static_cast<std::uint64_t>(sqlite3_column_int64(entries.stmt, 5));
             next->sources.push_back(std::move(source));
         }
+        // All catalogue queries happen on the worker; the JUCE thread only reads snapshots.
+        Statement assets(d,"SELECT id,source_id,relative_path,status,bpm_auto,bpm_manual,key_auto,key_manual"
+            " FROM assets WHERE (?=0 OR source_id=?) AND instr(lower(relative_path),lower(?))>0"
+            " ORDER BY relative_path,id LIMIT 300");
+        assets.number(1,viewSource);assets.number(2,viewSource);assets.str(3,viewFilter);
+        Statement tags(d,"SELECT t.group_name,t.label,at.origin,at.status,at.confidence"
+            " FROM asset_tags at JOIN tags t ON t.id=at.tag_id WHERE at.asset_id=?"
+            " ORDER BY t.group_name,t.label");
+        while(assets.next()){
+            AudioAsset item;
+            item.id=sqlite3_column_int64(assets.stmt,0);
+            item.source_id=sqlite3_column_int64(assets.stmt,1);
+            const auto text_column=[&](int index){const auto* p=sqlite3_column_text(assets.stmt,index);
+                return p?std::string(reinterpret_cast<const char*>(p)):std::string{};};
+            item.relative_path=text_column(2);item.status=text_column(3);
+            item.detected_bpm=sqlite3_column_int(assets.stmt,4);
+            item.manual_bpm=sqlite3_column_int(assets.stmt,5);
+            item.detected_key=text_column(6);item.manual_key=text_column(7);
+            tags.reset();tags.number(1,item.id);
+            while(tags.next()){
+                const auto field=[&](int index){const auto* p=sqlite3_column_text(tags.stmt,index);
+                    return p?std::string(reinterpret_cast<const char*>(p)):std::string{};};
+                item.tags.push_back({field(0),field(1),field(2),field(3),sqlite3_column_double(tags.stmt,4)});
+            }
+            next->assets.push_back(std::move(item));
+        }
+        Statement count(d,"SELECT COUNT(*) FROM assets WHERE (?=0 OR source_id=?)"
+            " AND instr(lower(relative_path),lower(?))>0");
+        count.number(1,viewSource);count.number(2,viewSource);count.str(3,viewFilter);
+        if(count.next())next->visible_assets=static_cast<std::uint64_t>(sqlite3_column_int64(count.stmt,0));
         { std::lock_guard lock(mutex); next->revision = ++revision; state = std::move(next); }
     }
     void scan_one(Database& d, std::int64_t source_id, const fs::path& root, std::stop_token stop) {
@@ -324,6 +363,7 @@ struct SampleLibrary::Impl {
             if (stop.stop_requested() || cancel.load()) throw Cancelled();
             Statement missing(d, "UPDATE assets SET status='missing',error='Missing from latest scan' WHERE source_id=? AND seen=0");
             missing.number(1,source_id); missing.done();
+            classify_assets(d,source_id); // proposals refresh, manual confirmed/rejected preserved
             d.exec("COMMIT");
         } catch (...) {
             d.exec("ROLLBACK"); // rollback keeps the previous complete catalogue
@@ -375,6 +415,9 @@ struct SampleLibrary::Impl {
         try {
             Database db(database);
             create_schema(db);
+            db.exec("BEGIN IMMEDIATE");
+            try { classify_assets(db);db.exec("COMMIT"); }
+            catch (...){db.exec("ROLLBACK");throw;}
             publish(db,Phase::idle);
             while (!stop.stop_requested()) {
                 Command c;
