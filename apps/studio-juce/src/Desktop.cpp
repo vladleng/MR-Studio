@@ -1,6 +1,7 @@
 #include "MusicalGrid.h"
 #include "MeterTrack.h"
 #include "Desktop.h"
+#include "LibraryFoundationPanel.h"
 #include <MRTrackHeaderAssets.h>
 #include "MRControlBinding.h"
 #include "ChordTrack.h"
@@ -1305,6 +1306,9 @@ Browser::Browser(Desktop& d):owner(d){
     search.setComponentID("browser-search");folderPath.setComponentID("browser-folder-path");fileTree.setComponentID("browser-files");
     for(auto item:{std::pair{&vstTab,"browser_fx"},std::pair{&filesTab,"browser_folder"},std::pair{&aiTab,"assistant"}}){item.first->getProperties().set("mrHostIcon",item.second);item.first->getProperties().set("mrSmallToolbarIcon",true);item.first->setTooltip(item.first==&vstTab?"FX plugins":item.first==&filesTab?"Files":"AI assistant");}vstTab.setComponentID("browser-vst-tab");filesTab.setComponentID("browser-files-tab");aiTab.setComponentID("browser-ai-tab");
     addAndMakeVisible(aiTab);aiTab.setTitle("AI Assistant tab");aiTab.onClick=[this]{showAssistant();};
+    addAndMakeVisible(libraryTab);libraryTab.setComponentID("browser-library-tab");
+    libraryTab.setTitle("MR Library WAV sources");libraryTab.setTooltip("Local WAV catalogue");
+    libraryTab.onClick=[this]{showLibrary();};
     addAndMakeVisible(locations);addAndMakeVisible(breadcrumbView);breadcrumbView.setViewedComponent(&breadcrumbBody,false);breadcrumbView.setScrollBarsShown(false,false);
     auto addLocation=[&](juce::String name,juce::File file){if(file.isDirectory()){locationPaths.push_back(file);locations.addItem(name,static_cast<int>(locationPaths.size()));}};
     addLocation("Desktop",juce::File::getSpecialLocation(juce::File::userDesktopDirectory));addLocation("Documents",juce::File::getSpecialLocation(juce::File::userDocumentsDirectory));
@@ -1343,12 +1347,30 @@ void Browser::timerCallback(){
     }catch(const std::exception& e){result.info=label(e.what());}return result;});
 }
 
-void Browser::showFiles(bool files){filesVisible=files;locations.setVisible(files);breadcrumbView.setVisible(files);for(auto* component:{static_cast<juce::Component*>(&fileTree),static_cast<juce::Component*>(&folderPath),static_cast<juce::Component*>(&parentFolder),static_cast<juce::Component*>(&chooseFolder)})component->setVisible(files);
+void Browser::showFiles(bool files){filesVisible=files;libraryVisible=false;
+    if(libraryPanel)libraryPanel->setVisible(false);
+    libraryTab.setToggleState(false,juce::dontSendNotification);locations.setVisible(files);breadcrumbView.setVisible(files);for(auto* component:{static_cast<juce::Component*>(&fileTree),static_cast<juce::Component*>(&folderPath),static_cast<juce::Component*>(&parentFolder),static_cast<juce::Component*>(&chooseFolder)})component->setVisible(files);
     assistantVisible=false;if(assistant)assistant->setVisible(false);aiTab.setToggleState(false,juce::dontSendNotification);
     tree.setVisible(!files);scanButton.setVisible(!files);search.setVisible(!files);vstTab.setToggleState(!files,juce::dontSendNotification);filesTab.setToggleState(files,juce::dontSendNotification);repaint();}
 juce::StringArray Browser::selectedSamples() const {juce::StringArray files;for(int i=0;i<fileTree.getNumSelectedFiles();++i){auto file=fileTree.getSelectedFile(i);if(file.existsAsFile()&&file.hasFileExtension("wav;mid;midi"))files.add(file.getFullPathName());}return files;}
+void Browser::showLibrary(){
+    showFiles(false);
+    libraryVisible=true;
+    tree.setVisible(false);scanButton.setVisible(false);search.setVisible(false);
+    vstTab.setToggleState(false,juce::dontSendNotification);
+    filesTab.setToggleState(false,juce::dontSendNotification);
+    aiTab.setToggleState(false,juce::dontSendNotification);
+    libraryTab.setToggleState(true,juce::dontSendNotification);
+    if(!libraryPanel){
+        libraryPanel=std::make_unique<LibraryFoundationPanel>();
+        addChildComponent(libraryPanel.get());
+        libraryPanel->setLookAndFeel(owner.assetLookAndFeel());
+    }
+    libraryPanel->setVisible(true);
+    resized();repaint();
+}
 void Browser::showAssistant(){showFiles(false);assistantVisible=true;if(!assistant){assistant=makeAiAssistant(owner);addChildComponent(assistant.get());}assistant->setVisible(true);tree.setVisible(false);scanButton.setVisible(false);search.setVisible(false);vstTab.setToggleState(false,juce::dontSendNotification);aiTab.setToggleState(true,juce::dontSendNotification);resized();repaint();}
-void Browser::resized(){vstTab.setBounds(8,0,32,28);filesTab.setBounds(42,0,32,28);aiTab.setBounds(76,0,32,28);if(assistant)assistant->setBounds(4,30,getWidth()-8,getHeight()-34);scanButton.setBounds(8,32,getWidth()-16,26);search.setBounds(8,64,getWidth()-16,26);tree.setBounds(8,98,getWidth()-16,getHeight()-122);
+void Browser::resized(){vstTab.setBounds(8,0,32,28);filesTab.setBounds(42,0,32,28);aiTab.setBounds(76,0,32,28);libraryTab.setBounds(110,0,44,28);if(libraryPanel)libraryPanel->setBounds(4,30,getWidth()-8,getHeight()-34);if(assistant)assistant->setBounds(4,30,getWidth()-8,getHeight()-34);scanButton.setBounds(8,32,getWidth()-16,26);search.setBounds(8,64,getWidth()-16,26);tree.setBounds(8,98,getWidth()-16,getHeight()-122);
     locations.setBounds(8,32,getWidth()-132,26);parentFolder.setBounds(getWidth()-118,32,44,26);chooseFolder.setBounds(getWidth()-68,32,60,26);chooseFolder.setButtonText("...");folderPath.setBounds(8,64,getWidth()-16,26);breadcrumbView.setBounds(8,98,getWidth()-16,24);fileTree.setBounds(4,126,getWidth()-8,juce::jmax(30,getHeight()-278));}
 void Browser::paint(juce::Graphics& g){drawCard(g,getLocalBounds().toFloat(),owner.assetSkin()?juce::Colour(surface):juce::Colour(panel));g.setColour(juce::Colours::whitesmoke);g.setFont(Theme::browserFont());
     if(filesVisible){auto area=juce::Rectangle<int>(0,getHeight()-148,getWidth(),124);g.setColour(owner.assetSkin()?juce::Colour(surface):juce::Colour(panel));g.fillRect(area);g.setColour(juce::Colours::whitesmoke);g.drawText(preview.file==juce::File()?"Select an audio or MIDI file":preview.file.getFileNameWithoutExtension(),area.removeFromTop(28).reduced(8,0),juce::Justification::left);
