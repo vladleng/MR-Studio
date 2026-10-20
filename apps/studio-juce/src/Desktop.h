@@ -1,5 +1,6 @@
 #pragma once
 #include "Controls.h"
+#include "TrackHeaderLayout.h"
 #include "MRControls.h"
 #include "SendLevel.h"
 #include "Settings.h"
@@ -182,6 +183,12 @@ public:
     void setShellDesign(bool);
     void setAssetDesign(bool);
     const ConceptSkin* assetSkin()const{return assetTheme?assetTheme->conceptSkin():nullptr;}
+    const TrackHeaderLayout* trackLayout()const noexcept { return trackHeaderLayout ? &*trackHeaderLayout : nullptr; }
+    bool enableTrackHeaderLayout(const juce::File&, juce::String& error);
+    void clearTrackHeaderLayout();
+    void restoreBundledTrackHeaderLayout();
+    void pollTrackHeaderLayout();
+    bool isTrackHeaderReloadEnabled() const noexcept { return trackHeaderHotReload; }
     Theme* assetLookAndFeel()const{return assetTheme.get();}
     juce::Colour selectionColour()const{return assetTheme?assetTheme->role(ColourRole::focus,ConceptSkin::selection):juce::Colour(accent);}
     bool shellDesignEnabled()const{return shellTheme!=nullptr;}
@@ -193,6 +200,12 @@ public:
     void finishPreview();
     mrs::desktop::Application app;
     Theme theme;
+    std::optional<TrackHeaderLayout> trackHeaderLayout; // UI-only, never project state.
+    juce::File trackHeaderLayoutSource;
+    juce::Time trackHeaderObservedStamp, trackHeaderPendingStamp;
+    juce::int64 trackHeaderObservedBytes{-1}, trackHeaderPendingBytes{-1};
+    int trackHeaderPollTick{};
+    bool trackHeaderHotReload{}; // Session-only; OFF in every release/startup by default.
     bool reverbKitPilot{}; // Opt-in process/session state, never persisted.
     std::unique_ptr<kit::MRNativeParameterHost> controlHost;
     kit::MRNativeParameterHost& parameterHost();
@@ -297,6 +310,7 @@ public:
     void itemDragMove(const SourceDetails&) override;
     void itemDragEnter(const SourceDetails& s) override {itemDragMove(s);}
     void itemDragExit(const SourceDetails&) override;
+    bool isEditingTrackName() const noexcept { return editingName; }
     bool active() const {if(resizingSends||gain.dragging()||pan.dragging())return true;for(const auto& b:sendButtons)if(b->dragging())return true;return false;}
     std::size_t pluginInsertionAt(juce::Point<int>) const;
     juce::Rectangle<int> pluginDropArea() const {return insertViewport.getBounds();}

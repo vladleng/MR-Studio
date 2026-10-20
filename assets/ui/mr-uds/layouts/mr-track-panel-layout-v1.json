@@ -1,0 +1,360 @@
+{
+  "schemaVersion": 1,
+  "editor": "MR Design Lab / Track Panel",
+  "component": "arrangement.trackHeader",
+  "assetLibrary": "assets/ui/mr-uds/manifest.json",
+  "width": 244,
+  "profiles": {
+    "compact": {
+      "height": 60,
+      "elements": [
+        {
+          "id": "compact-icon",
+          "kind": "asset",
+          "x": 7,
+          "y": 3,
+          "w": 20,
+          "h": 20,
+          "label": "Guitar",
+          "visible": true,
+          "style": "slide",
+          "assetId": "icons/concept_pack/track_guitar_compact"
+        },
+        {
+          "id": "compact-name",
+          "kind": "label",
+          "x": 31,
+          "y": 3,
+          "w": 90,
+          "h": 20,
+          "label": "GUITAR 01",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "compact-mute",
+          "kind": "button",
+          "x": 139,
+          "y": 4,
+          "w": 20,
+          "h": 19,
+          "label": "M",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "compact-solo",
+          "kind": "button",
+          "x": 164,
+          "y": 4,
+          "w": 20,
+          "h": 19,
+          "label": "S",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "compact-record",
+          "kind": "button",
+          "x": 189,
+          "y": 4,
+          "w": 20,
+          "h": 19,
+          "label": "R",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "compact-monitor",
+          "kind": "button",
+          "x": 214,
+          "y": 4,
+          "w": 20,
+          "h": 19,
+          "label": "I",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "compact-gain",
+          "kind": "fader",
+          "x": 8,
+          "y": 30,
+          "w": 200,
+          "h": 16,
+          "label": "Gain",
+          "visible": true,
+          "style": "micro",
+          "assetId": ""
+        }
+      ]
+    },
+    "medium": {
+      "height": 110,
+      "elements": [
+        {
+          "id": "medium-icon",
+          "kind": "asset",
+          "x": 7,
+          "y": 3,
+          "w": 20,
+          "h": 20,
+          "label": "Guitar",
+          "visible": true,
+          "style": "slide",
+          "assetId": "icons/concept_pack/track_guitar"
+        },
+        {
+          "id": "medium-name",
+          "kind": "label",
+          "x": 32,
+          "y": 3,
+          "w": 96,
+          "h": 20,
+          "label": "GUITAR 01",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "medium-mute",
+          "kind": "button",
+          "x": 139,
+          "y": 4,
+          "w": 20,
+          "h": 20,
+          "label": "M",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "medium-solo",
+          "kind": "button",
+          "x": 164,
+          "y": 4,
+          "w": 20,
+          "h": 20,
+          "label": "S",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "medium-record",
+          "kind": "button",
+          "x": 189,
+          "y": 4,
+          "w": 20,
+          "h": 20,
+          "label": "R",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "medium-monitor",
+          "kind": "button",
+          "x": 214,
+          "y": 4,
+          "w": 20,
+          "h": 20,
+          "label": "I",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "medium-gain",
+          "kind": "fader",
+          "x": 8,
+          "y": 32,
+          "w": 196,
+          "h": 28,
+          "label": "Gain",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "medium-pan",
+          "kind": "badge",
+          "x": 208,
+          "y": 32,
+          "w": 28,
+          "h": 28,
+          "label": "PAN 0",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "medium-meter",
+          "kind": "meter",
+          "x": 12,
+          "y": 64,
+          "w": 184,
+          "h": 12,
+          "label": "Meter",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "medium-input",
+          "kind": "badge",
+          "x": 12,
+          "y": 84,
+          "w": 192,
+          "h": 16,
+          "label": "Input: Stereo",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        }
+      ]
+    },
+    "expanded": {
+      "height": 166,
+      "elements": [
+        {
+          "id": "expanded-icon",
+          "kind": "asset",
+          "x": 7,
+          "y": 3,
+          "w": 20,
+          "h": 20,
+          "label": "Guitar",
+          "visible": true,
+          "style": "slide",
+          "assetId": "icons/concept_pack/track_guitar"
+        },
+        {
+          "id": "expanded-name",
+          "kind": "label",
+          "x": 32,
+          "y": 3,
+          "w": 96,
+          "h": 20,
+          "label": "GUITAR 01",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "expanded-mute",
+          "kind": "button",
+          "x": 139,
+          "y": 4,
+          "w": 20,
+          "h": 20,
+          "label": "M",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "expanded-solo",
+          "kind": "button",
+          "x": 164,
+          "y": 4,
+          "w": 20,
+          "h": 20,
+          "label": "S",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "expanded-record",
+          "kind": "button",
+          "x": 189,
+          "y": 4,
+          "w": 20,
+          "h": 20,
+          "label": "R",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "expanded-monitor",
+          "kind": "button",
+          "x": 214,
+          "y": 4,
+          "w": 20,
+          "h": 20,
+          "label": "I",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "expanded-gain",
+          "kind": "fader",
+          "x": 8,
+          "y": 36,
+          "w": 196,
+          "h": 32,
+          "label": "Gain",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "expanded-pan",
+          "kind": "badge",
+          "x": 208,
+          "y": 36,
+          "w": 28,
+          "h": 28,
+          "label": "PAN 0",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "expanded-meter",
+          "kind": "meter",
+          "x": 12,
+          "y": 80,
+          "w": 188,
+          "h": 8,
+          "label": "Meter",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "expanded-input",
+          "kind": "badge",
+          "x": 8,
+          "y": 140,
+          "w": 196,
+          "h": 16,
+          "label": "Input: Stereo",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        },
+        {
+          "id": "expanded-output",
+          "kind": "badge",
+          "x": 8,
+          "y": 120,
+          "w": 196,
+          "h": 16,
+          "label": "Output: Master",
+          "visible": true,
+          "style": "slide",
+          "assetId": ""
+        }
+      ]
+    }
+  }
+}

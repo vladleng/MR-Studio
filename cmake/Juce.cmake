@@ -32,6 +32,12 @@ list(APPEND concept_controls "${PROJECT_SOURCE_DIR}/assets/ui/icons/transport/me
 juce_add_binary_data(mrs_concept_assets NAMESPACE MRConceptAssets HEADER_NAME MRConceptAssets.h SOURCES ${concept_icons} ${concept_controls})
 target_link_libraries(mrs_juce_assets PUBLIC mrs_concept_assets)
 juce_add_gui_app(MoonRiverStudioJuce VERSION 0.6.0 PRODUCT_NAME "Moon River Studio JUCE")
+# Accepted Track Header layout is shipped as a self-contained, immutable GUI resource.
+# No external JSON is required for normal Release startup; developer overrides remain opt-in.
+juce_add_binary_data(mrs_track_header_layout
+  NAMESPACE MRTrackHeaderAssets HEADER_NAME MRTrackHeaderAssets.h
+  SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-track-panel-layout-v1.json")
+target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_track_header_layout)
 juce_add_binary_data(mrs_reverb_art NAMESPACE MRReverbArt HEADER_NAME MRReverbArt.h SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/reverb/plate_unit.svg")
 target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_reverb_art)
 add_library(mrs_diagnostics STATIC apps/diagnostics/src/session.cpp)
@@ -113,6 +119,9 @@ if(BUILD_TESTING)
   add_test(NAME juce_diagnostics_smoke COMMAND MoonRiverStudioJuce --j3-smoke --diagnostics-smoke --fixture "$<TARGET_FILE:mrs_vst3_fixture>")
   # Diagnostics executes the complete J3 workload too; use its same time budget.
   set_tests_properties(juce_diagnostics_smoke PROPERTIES TIMEOUT 75 RUN_SERIAL TRUE)
+  # #242: fast JSON schema/geometry test (no DAW project, audio device or GUI window).
+  add_test(NAME juce_track_header_layout COMMAND MoonRiverStudioJuce --track-layout-smoke "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-track-panel-layout-v1.json")
+  set_tests_properties(juce_track_header_layout PROPERTIES TIMEOUT 20 RUN_SERIAL TRUE)
   add_test(NAME juce_j1_smoke COMMAND MoonRiverStudioJuce --j1-smoke)
   set_tests_properties(juce_j1_smoke PROPERTIES TIMEOUT 30)
   add_dependencies(MoonRiverStudioJuce mrs_vst3_fixture)

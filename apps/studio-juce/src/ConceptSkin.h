@@ -18,7 +18,7 @@ public:
         muted=0xff7188ab, red=0xfff04459, amber=0xffe2b44a, green=0xff24d67c;
     ConceptSkin(){
         jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
-        for(const auto* name:{"track_synth","track_master","bus","wave","plus",
+        for(const auto* name:{"track_synth","track_master","bus","wave","track_guitar","track_guitar_compact","plus",
                 "duplicate","folder","folder_open","plugin_fx","list","mixer_params",
                 "value_capsule_default","value_capsule_focus",
                 "button_mute_off","button_mute_on","button_solo_off","button_solo_on",
