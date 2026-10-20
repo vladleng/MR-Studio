@@ -1306,6 +1306,7 @@ Browser::Browser(Desktop& d):owner(d){
     for(auto item:{std::pair{&vstTab,"browser_fx"},std::pair{&filesTab,"browser_folder"},std::pair{&aiTab,"assistant"}}){item.first->getProperties().set("mrHostIcon",item.second);item.first->getProperties().set("mrSmallToolbarIcon",true);item.first->setTooltip(item.first==&vstTab?"FX plugins":item.first==&filesTab?"Files":"AI assistant");}vstTab.setComponentID("browser-vst-tab");filesTab.setComponentID("browser-files-tab");aiTab.setComponentID("browser-ai-tab");
     addAndMakeVisible(aiTab);aiTab.setTitle("AI Assistant tab");aiTab.onClick=[this]{showAssistant();};
     spliceddTab.setComponentID("browser-splicedd-tab");spliceddTab.setTitle("Splicedd tab");
+    spliceddTab.getProperties().set("mrHostIcon","wave");spliceddTab.getProperties().set("mrSmallToolbarIcon",true);
     spliceddTab.setTooltip("Splicedd sample library (external application)");
     addAndMakeVisible(spliceddTab);spliceddTab.onClick=[this]{showSplicedd();};
     spliceddPanel.setComponentID("browser-splicedd-panel");spliceddPanel.setTitle("Splicedd integration bridge");
