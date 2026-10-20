@@ -15,6 +15,9 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <map>
+#include <set>
+#include <sstream>
 #include <optional>
 #include <limits>
 #include <mutex>
@@ -92,10 +95,11 @@ struct Statement {
 void create_schema(Database& d) {
     Statement version(d, "PRAGMA user_version");
     const auto v = version.next() ? sqlite3_column_int(version.stmt, 0) : -1;
-    if (v != 0 && v != 1 && v != 2) throw std::runtime_error("Unsupported MR Library database schema");
-    if (v == 2) return;
+    if (v < 0 || v > 3) throw std::runtime_error("Unsupported MR Library database schema");
+    if (v == 3) return;
     d.exec("BEGIN IMMEDIATE");
     try {
+        if (v < 2) {
         if (v == 0) {
         d.exec("CREATE TABLE IF NOT EXISTS sources (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, enabled INTEGER NOT NULL DEFAULT 1)");
         d.exec("CREATE TABLE IF NOT EXISTS assets ("
@@ -124,7 +128,21 @@ void create_schema(Database& d) {
                " prior_origin TEXT,prior_status TEXT,prior_confidence REAL)");
         d.exec("CREATE TABLE IF NOT EXISTS metadata_edit_history (batch_id INTEGER NOT NULL REFERENCES edit_batches(id) ON DELETE CASCADE,"
                " asset_id INTEGER NOT NULL,prior_bpm INTEGER,prior_key TEXT)");
-        d.exec("PRAGMA user_version=2");
+        }
+        // V3 persists only metadata; source WAVs and artwork are never rewritten.
+        d.exec("CREATE TABLE IF NOT EXISTS folders (source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,"
+               " path TEXT NOT NULL, seen INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(source_id,path))");
+        d.exec("CREATE TABLE IF NOT EXISTS folder_artwork (source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,"
+               " folder TEXT NOT NULL, auto_image TEXT NOT NULL DEFAULT '',manual_image TEXT NOT NULL DEFAULT '',"
+               " priority INTEGER NOT NULL DEFAULT 0, seen INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(source_id,folder))");
+        d.exec("CREATE TABLE IF NOT EXISTS collections (id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE COLLATE NOCASE)");
+        d.exec("CREATE TABLE IF NOT EXISTS collection_items (collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,"
+               " asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,"
+               " PRIMARY KEY(collection_id,asset_id))");
+        d.exec("CREATE INDEX IF NOT EXISTS collection_items_asset_idx ON collection_items(asset_id)");
+        d.exec("CREATE TABLE IF NOT EXISTS favorites (asset_id INTEGER PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE)");
+        d.exec("CREATE INDEX IF NOT EXISTS folders_source_path_idx ON folders(source_id,path)");
+        d.exec("PRAGMA user_version=3");
         d.exec("COMMIT");
     } catch (...) { d.exec("ROLLBACK"); throw; }
 }
