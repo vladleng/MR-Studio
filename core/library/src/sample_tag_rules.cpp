@@ -44,11 +44,6 @@ std::vector<Token> tokens(const std::string& value) {
     flush();
     return out;
 }
-std::string joined(const std::vector<Token>& t) {
-    std::string s;
-    for(const auto& part:t){if(!s.empty())s+=' ';s+=part.lower;}
-    return s;
-}
 bool exact_sequence(const std::vector<Token>& source,const std::vector<Token>& what) {
     if(what.empty()||what.size()>source.size())return false;
     for(std::size_t i=0;i+what.size()<=source.size();++i){
