@@ -128,6 +128,54 @@ void create_schema(Database& d) {
         d.exec("COMMIT");
     } catch (...) { d.exec("ROLLBACK"); throw; }
 }
+std::vector<TagRule> read_rules(Database& d) {
+    std::vector<TagRule> rules;
+    Statement stmt(d,"SELECT group_name,phrase,label,in_folder FROM classification_rules ORDER BY id");
+    while(stmt.next()){
+        const auto str=[&](int n){const auto* v=sqlite3_column_text(stmt.stmt,n);return v?std::string(reinterpret_cast<const char*>(v)):std::string{};};
+        rules.push_back({str(0),str(1),str(2),sqlite3_column_int(stmt.stmt,3)!=0});
+    }
+    return rules;
+}
+void classify_assets(Database& d,const std::optional<std::int64_t> source = {}) {
+    const auto rules=read_rules(d);
+    struct Asset {std::int64_t id;std::string path;};
+    std::vector<Asset> items;
+    Statement list(d,"SELECT id,relative_path FROM assets WHERE status='ok' AND (?=0 OR source_id=?) ORDER BY id");
+    list.number(1,source.value_or(0));list.number(2,source.value_or(0));
+    while(list.next()){
+        const auto* name=sqlite3_column_text(list.stmt,1);
+        items.push_back({sqlite3_column_int64(list.stmt,0),name?reinterpret_cast<const char*>(name):""});
+    }
+    Statement clear(d,"DELETE FROM asset_tags WHERE asset_id=? AND status='proposed'");
+    Statement make(d,"INSERT OR IGNORE INTO tags(group_name,label) VALUES(?,?)");
+    Statement find(d,"SELECT id FROM tags WHERE group_name=? AND label=?");
+    Statement put(d,"INSERT OR IGNORE INTO asset_tags(asset_id,tag_id,origin,status,confidence) VALUES(?,?,?,'proposed',?)");
+    Statement typed(d,"UPDATE assets SET bpm_auto=?,key_auto=? WHERE id=?");
+    for(const auto& item:items){
+        const auto suggestion=classify_sample_path(item.path,rules);
+        clear.reset();clear.number(1,item.id);clear.done();
+        for(const auto& tag:suggestion.tags){
+            make.reset();make.str(1,tag.group);make.str(2,tag.label);make.done();
+            find.reset();find.str(1,tag.group);find.str(2,tag.label);
+            if(!find.next())throw std::runtime_error("MR Library tag unavailable");
+            const auto tag_id=sqlite3_column_int64(find.stmt,0);find.reset();
+            put.reset();put.number(1,item.id);put.number(2,tag_id);put.str(3,tag.origin);
+            if(sqlite3_bind_double(put.stmt,4,tag.confidence)!=SQLITE_OK)fail(d.db,"Tag confidence");
+            put.done();
+        }
+        typed.reset();typed.number(1,suggestion.metadata.bpm.value_or(0));
+        typed.str(2,suggestion.metadata.key.value_or(""));typed.number(3,item.id);typed.done();
+    }
+}
+bool allowed_group(const std::string& value) {
+    for(const auto* name:{"Instrument","Genre","Type","Technique","Rhythm","Character","Custom"})
+        if(value==name)return true;
+    return false;
+}
+void valid_tag(const std::string& group,const std::string& label){
+    if(!allowed_group(group)||label.empty()||label.size()>96)throw std::invalid_argument("Invalid tag name/group");
+}
 bool is_reparse(const fs::path& file) {
 #ifdef _WIN32
     const auto attrs = GetFileAttributesW(file.c_str());
