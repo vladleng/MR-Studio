@@ -125,8 +125,12 @@ processing::ReverbImpulse load_reverb_ir(const std::filesystem::path& path,proce
     if(static_cast<std::uint64_t>(info.frame_count)*info.channels>64*1024*1024/sizeof(float))throw std::invalid_argument("MR Reverb source memory budget exceeded (64 MiB)");
     AudioData decoded{info.sample_rate,info.channels,{}};decoded.samples.resize(static_cast<std::size_t>(info.frame_count)*info.channels);
     for(Sample first=0;first<info.frame_count;first+=8192){
-        if(stop.stop_requested())throw std::runtime_error("IR decode cancelled");const auto count=std::min(Sample{8192},info.frame_count-first);
-        info.read(first,std::span<float>(decoded.samples).subspan(static_cast<std::size_t>(first)*info.channels,static_cast<std::size_t>(count)*info.channels));}
+      if (stop.stop_requested())
+        throw std::runtime_error("IR decode cancelled");
+      const auto count = std::min(Sample{8192}, info.frame_count - first);
+      info.read(first, std::span<float>(decoded.samples)
+                           .subspan(static_cast<std::size_t>(first) * info.channels,
+                                    static_cast<std::size_t>(count) * info.channels));}
     if(stop.stop_requested())throw std::runtime_error("IR decode cancelled");
     return processing::reverb_impulse(decoded.sample_rate,decoded.channels,decoded.samples,map);
 }

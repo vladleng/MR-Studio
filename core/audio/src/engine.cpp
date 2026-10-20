@@ -58,7 +58,10 @@ void AudioEngine::process_channel(std::size_t t) noexcept {
     for(std::uint32_t local=0;local<job_frames_;++local) {
         const auto at=static_cast<std::size_t>(local)*config_.output_channels;
         auto& tail=audition_tails_[t];const float auditionGain=owned&&tail.active?std::min(1.f,static_cast<float>(tail.remaining)/std::max(1U,tail.fade)):1.f;
-        if(owned&&tail.active&&tail.remaining)--tail.remaining;if(owned&&audition_live_busy_[t])--audition_live_busy_[t];
+        if (owned && tail.active && tail.remaining)
+          --tail.remaining;
+        if (owned && audition_live_busy_[t])
+          --audition_live_busy_[t];
         for(std::uint32_t c=0;c<config_.output_channels;++c) {
             track_block_[t][at+c]*=auditionGain;
             const auto sample=track_block_[t][at+c]*mix_gain_[t][c%2];
@@ -446,7 +449,7 @@ void AudioEngine::prime_loop(std::optional<LoopRange> loop) {
 }
 bool AudioEngine::enqueue(Control control) noexcept { control.serial=control_revision_.fetch_add(1,std::memory_order_acq_rel)+1;const auto ok=controls_.push(control);++control_revision_;return ok; }
 bool AudioEngine::enqueue_mix(const MixerUpdate& update) noexcept {
-    if (update.count != graph_.mixer.size() || !std::isfinite(update.master_gain) || update.master_gain < 0 || update.master_gain > 16) return false;
+    if (update.count > update.tracks.size() || update.count != graph_.mixer.size() || !std::isfinite(update.master_gain) || update.master_gain < 0 || update.master_gain > 16) return false;
     for (std::size_t i=0; i<update.count; ++i) {
         const auto& m = update.tracks[i];
         for (std::size_t j=0; j<graph_.sends[i].size(); ++j) if (!std::isfinite(update.send_gains[i][j]) || update.send_gains[i][j] < 0 || update.send_gains[i][j] > 16) return false;
@@ -455,8 +458,10 @@ bool AudioEngine::enqueue_mix(const MixerUpdate& update) noexcept {
     auto message=update;message.serial=control_revision_.fetch_add(1,std::memory_order_acq_rel)+1;const auto ok=mixer_controls_.push(message);++control_revision_;return ok;
 }
 void AudioEngine::set_mix(const MixerUpdate& update, bool ramp) noexcept {
+    if (update.count > update.tracks.size()) return;
     input_monitoring_=update.input_monitoring;
-    for(std::size_t t=0;t<update.count;++t){
+    for(std::size_t t=0;t<max_mixer_tracks;++t){
+        if(t>=update.count)break;
         if(ramp&&graph_.live_midi[t]&&domain_owned_[t]&&graph_.midi_monitor[t]&&!update.midi_monitor[t])midi_monitor_release_[t]=true;
         graph_.midi_monitor[t]=update.midi_monitor[t];
     }
@@ -563,7 +568,10 @@ std::uint64_t AudioEngine::control_revision() const noexcept {
 }
 void AudioEngine::rebase_head(const RealtimeState& head) noexcept {
     rt_=head;metronome_.reset();pending_seek_.reset();pending_play_anchor_=false;reset_compensation();
-    if(graph_.processors)graph_.processors->reset_anticipation();if(graph_.master_inserts)graph_.master_inserts->reset_anticipation();
+    if (graph_.processors)
+      graph_.processors->reset_anticipation();
+    if (graph_.master_inserts)
+      graph_.master_inserts->reset_anticipation();
     for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.inserts[t])graph_.inserts[t]->reset_anticipation();
 }
 AudioEngine::MixHead AudioEngine::mix_head() const noexcept {
@@ -962,7 +970,10 @@ void AudioEngine::observe(std::uint64_t ns, std::uint32_t frames, std::uint32_t 
 void AudioEngine::set_profiling(bool enabled) noexcept {
     profile_->enabled.store(enabled,std::memory_order_relaxed);
     for(const auto& chain:graph_.inserts)if(chain)chain->set_profiling(enabled);
-    if(graph_.processors)graph_.processors->set_profiling(enabled);if(graph_.master_inserts)graph_.master_inserts->set_profiling(enabled);
+    if (graph_.processors)
+      graph_.processors->set_profiling(enabled);
+    if (graph_.master_inserts)
+      graph_.master_inserts->set_profiling(enabled);
 }
 EngineProfile AudioEngine::profile() const noexcept {EngineProfile p;p.enabled=profile_->enabled.load(std::memory_order_relaxed);p.channels=graph_.mixer.size();
     for(std::size_t i=0;i<p.channels;++i){p.device[i]=profile_->device[i].read();p.ahead[i]=profile_->ahead[i].read();}

@@ -22,7 +22,7 @@ For visual language and catalog choices, follow `../mr-unified-gui/SKILL.md`. Th
 
 ## Cosmetic-only shortcut
 
-For a single background/color/border or similarly isolated paint change, invoke `mr-unified-gui` **V1 fast path**. Confirm the diff is visual-only; use existing configured build tree and a single incremental affected GUI target for changed C++/embedded assets, plus one relevant preview/GUI smoke and contrast sanity. Runtime-loaded uncompiled SVG/JSON needs asset validation/preview, not compilation. **Do not require** a full DPI/state/window-size matrix, full CTest, clean rebuild, all Studio/Live targets or packaging for this task. Escalate only when affected behavior/ownership or an actual regression justifies it.
+For a single background/color/border or similarly isolated paint change, invoke `mr-unified-gui` **V1 fast path**. Confirm the diff is visual-only; use existing configured build tree and a single incremental affected GUI target for changed C++/embedded assets, with diff/source correctness and user visual acceptance; no automatic smoke/preview/DPI. Runtime-loaded uncompiled SVG/JSON needs asset validation/preview, not compilation. **Do not require** a full DPI/state/window-size matrix, full CTest, clean rebuild, all Studio/Live targets or packaging for this task. Escalate only when affected behavior/ownership or an actual regression justifies it.
 
 ## Verification and delivery
 

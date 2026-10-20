@@ -1,111 +1,21 @@
-name: Core contracts
+name: Fast Core contracts
 on:
   push:
-    branches: [main, 'shared/**', 'mrs/**']
+    branches: [main, 'codex/cloud-cicd-migration']
+    paths: ['core/**', 'apps/studio-desktop/**', 'tests/**', 'CMakeLists.txt', '.github/workflows/core-contracts.yml']
   pull_request:
+    paths: ['core/**', 'apps/studio-desktop/**', 'tests/**', 'CMakeLists.txt', '.github/workflows/core-contracts.yml']
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   contracts:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest]
-        config: [Debug, Release]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }}
-      - name: Build
-        run: cmake --build build --config ${{ matrix.config }} --parallel 2
-      - name: Test
-        run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure
-      - name: Repeat concurrent seek regression
-        run: ctest --test-dir build -C ${{ matrix.config }} -R "^audio_streaming$" --repeat until-fail:8 --output-on-failure
-      - name: Acceptance check (Windows)
-        if: runner.os == 'Windows'
-        run: ./build/${{ matrix.config }}/mrs_core_check.exe
-      - name: Acceptance check (Linux)
-        if: runner.os == 'Linux'
-        run: ./build/mrs_core_check
-      - name: Upload Windows check
-        if: runner.os == 'Windows' && matrix.config == 'Release'
-        uses: actions/upload-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          name: MR-Studio-SHARED-Stage-0-Windows
-          path: |
-            build/Release/mrs_core_check.exe
-            build/Release/mrs_core_tests.exe
-            docs/CORE_CONTRACTS.md
-            docs/SHARED_STAGE_0_CHECKLIST.md
-          if-no-files-found: error
-      - name: Package musical timeline checker
-        if: runner.os == 'Windows' && matrix.config == 'Release'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path timeline-package -Force | Out-Null
-          Copy-Item -LiteralPath build/Release/mrs_timeline_check.exe -Destination timeline-package/
-          Copy-Item -LiteralPath tools/Start-Timeline-Test.cmd -Destination timeline-package/
-          Copy-Item -LiteralPath docs/SHARED_STAGE_2_CHECKLIST.md -Destination timeline-package/
-          Copy-Item -LiteralPath docs/MUSICAL_TIMELINE.md -Destination timeline-package/
-      - name: Upload musical timeline checker
-        if: runner.os == 'Windows' && matrix.config == 'Release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: MR-Studio-SHARED-Stage-2-Windows
-          path: timeline-package/
-          if-no-files-found: error
-      - name: Package MIDI processor checker
-        if: runner.os == 'Windows' && matrix.config == 'Release'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path processor-package -Force | Out-Null
-          Copy-Item -LiteralPath build/Release/mrs_processor_check.exe -Destination processor-package/
-          Copy-Item -LiteralPath tools/Start-Processor-Test.cmd -Destination processor-package/
-          Copy-Item -LiteralPath docs/SHARED_STAGE_3_CHECKLIST.md -Destination processor-package/
-          Copy-Item -LiteralPath docs/MIDI_PROCESSOR_GRAPH.md -Destination processor-package/
-      - name: Upload MIDI processor checker
-        if: runner.os == 'Windows' && matrix.config == 'Release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: MR-Studio-SHARED-Stage-3-Windows
-          path: processor-package/
-          if-no-files-found: error
-      - name: Package persistence checker
-        if: runner.os == 'Windows' && matrix.config == 'Release'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path persistence-package -Force | Out-Null
-          Copy-Item -LiteralPath build/Release/mrs_persistence_check.exe -Destination persistence-package/
-          Copy-Item -LiteralPath tools/Start-Persistence-Test.cmd -Destination persistence-package/
-          Copy-Item -LiteralPath docs/SHARED_STAGE_4_CHECKLIST.md -Destination persistence-package/
-          Copy-Item -LiteralPath docs/PERSISTENCE.md -Destination persistence-package/
-      - name: Upload persistence checker
-        if: runner.os == 'Windows' && matrix.config == 'Release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: MR-Studio-SHARED-Stage-4-Windows
-          path: persistence-package/
-          if-no-files-found: error
-      - name: Upload Windows offline shell
-        if: runner.os == 'Windows' && matrix.config == 'Release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: MR-Studio-0.1f-Offline-Windows
-          path: |
-            build/Release/MoonRiverStudio.exe
-            docs/MRS_STAGE_2A_CHECKLIST.md
-            docs/MIXER.md
-            docs/MRS_STAGE_0_CHECKLIST.md
-            docs/MRS_PROJECT_FOLDERS_CHECKLIST.md
-            docs/PROJECT_FOLDERS.md
-            docs/MRS_STAGE_1D_CHECKLIST.md
-            docs/RECORDING.md
-            docs/MRS_STAGE_1C_UPD1_CHECKLIST.md
-            docs/MRS_STAGE_1C_CHECKLIST.md
-            docs/MRS_STAGE_1B_CHECKLIST.md
-            docs/MRS_STAGE_1A_CHECKLIST.md
-            docs/DESKTOP_FOUNDATION.md
-          if-no-files-found: error
+          persist-credentials: false
+      - run: cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_VST3=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=OFF
+      - run: cmake --build build/core --target mrs_core_tests mrs_core_check mrs_rig_tests mrs_ai_tests mrs_ai_query_tests mrs_ai_tool_tests --parallel 2 -- -k
+      - run: ctest --test-dir build/core --output-on-failure --no-tests=error -R '^(core_.*|ai_.*)$'

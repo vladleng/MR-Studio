@@ -52,7 +52,8 @@ void worker_test() {
     Worker worker({2,16,32});std::atomic<bool> running{};std::atomic<int> calls{};
     const auto owner=std::this_thread::get_id();
     auto slow=[&](const Request&,const JobControl& control){CHECK(std::this_thread::get_id()!=owner);++calls;running=true;
-        while(!control.should_stop())std::this_thread::sleep_for(1ms);return "late";};
+        while(!control.should_stop())std::this_thread::sleep_for(1ms);
+        return "late";};
     auto first=worker.submit(request(),slow);CHECK(first.error==Error::none);eventually([&]{return running.load();});
     auto second=worker.submit(request(),[&](const Request&,const JobControl&){++calls;return "queued";});CHECK(second.error==Error::none);
     CHECK(worker.submit(request(),slow).error==Error::busy);
@@ -102,7 +103,8 @@ void application_test() {
         app.workspace(workspace);CHECK(app.ai_context().value->key==initial.value->key);
     }
     const auto slow=[&](const Request&,const JobControl& control){running=true;
-        while(!control.should_stop())std::this_thread::sleep_for(1ms);return "late";};
+        while(!control.should_stop())std::this_thread::sleep_for(1ms);
+        return "late";};
     app.play();eventually([&]{return app.engine()->state().sample>0;});
     auto submitted=app.request_ai({*initial.value,"mock slow request",2s},slow);CHECK(submitted.error==Error::none);
     eventually([&]{return running.load();});const auto sample=app.engine()->state().sample;
@@ -134,6 +136,7 @@ void application_test() {
 int main(int argc,char** argv) {
     try{if(argc!=2)throw std::runtime_error("suite required");const std::string suite=argv[1];
         if(suite=="context")context_test();else if(suite=="worker")worker_test();else if(suite=="application")application_test();
-        else throw std::runtime_error("unknown suite");std::cout<<"PASS AI "<<suite<<'\n';return 0;
+        else throw std::runtime_error("unknown suite");
+    std::cout<<"PASS AI "<<suite<<'\n';return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

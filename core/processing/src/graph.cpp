@@ -115,7 +115,7 @@ PreparedGraph::PreparedGraph(GraphSnapshot snapshot, ProcessConfig config, Proce
     for (const auto& edge : state.edges) {
         const auto to = p.index.at(edge.to.value);
         const auto from = edge.from ? std::optional<std::size_t>{p.index.at(edge.from->value)} : std::nullopt;
-        p.nodes[to].inputs.push_back({from,edge.gain});
+        p.nodes[to].inputs.push_back({from,edge.gain,{}});
         if (from) ++degrees[to];
     }
     for (std::size_t i = 0; i < degrees.size(); ++i) if (!degrees[i]) p.order.push_back(i);
@@ -243,7 +243,9 @@ bool PreparedGraph::enqueue_parameters(const GraphState& state) {
             if(saved.format==ProcessorFormat::vst3||(saved.processor_id=="mrs.rig"&&v.id>=32)){const auto& old=impl_->last_parameters.at(saved.id.value);if(std::find(old.begin(),old.end(),v)!=old.end())continue;}
             const auto& infos=impl_->nodes[at->second].infos;const auto it=std::find_if(infos.begin(),infos.end(),[&](const auto& p){return p.id==v.id;});
             if(it==infos.end() || !std::isfinite(v.value) || v.value<it->minimum || v.value>it->maximum)throw std::invalid_argument("invalid insert parameter update");
-            if(batch.size>=batch.changes.size())throw std::invalid_argument("parameter transaction too large");batch.changes[batch.size++]={static_cast<std::uint16_t>(at->second),{0,v.id,v.value}};
+            if (batch.size >= batch.changes.size())
+              throw std::invalid_argument("parameter transaction too large");
+            batch.changes[batch.size++] = {static_cast<std::uint16_t>(at->second), {0, v.id, v.value}};
         }
         if(saved.format==ProcessorFormat::vst3)for(const auto& old:impl_->last_parameters.at(saved.id.value)){
             if(std::none_of(saved.parameters.begin(),saved.parameters.end(),[&](const auto& p){return p.id==old.id;})){
@@ -263,19 +265,27 @@ bool PreparedGraph::stage_reverb(const Id& id,const ReverbImpulse& ir){
     const auto at=impl_->index.find(id.value);if(at==impl_->index.end())throw std::invalid_argument("Unknown MR Reverb node");
     auto* reverb=dynamic_cast<ReverbProcessor*>(impl_->nodes[at->second].processor.get());
     if(!reverb)throw std::invalid_argument("Node is not MR Reverb");
-    if(!reverb->stage_impulse(ir))return false;++impl_->control_revision;return true;
+    if (!reverb->stage_impulse(ir))
+      return false;
+    ++impl_->control_revision;
+    return true;
 }
 void PreparedGraph::collect_reverb_retired(){for(auto& n:impl_->nodes)if(auto* reverb=dynamic_cast<ReverbProcessor*>(n.processor.get()))reverb->collect_retired();}
 void PreparedGraph::collect_reverb_retired(const Id& id){
     const auto at=impl_->index.find(id.value);if(at==impl_->index.end())throw std::invalid_argument("Unknown MR Reverb node");
     auto* reverb=dynamic_cast<ReverbProcessor*>(impl_->nodes[at->second].processor.get());
-    if(!reverb)throw std::invalid_argument("Node is not MR Reverb");reverb->collect_retired();
+    if (!reverb)
+      throw std::invalid_argument("Node is not MR Reverb");
+    reverb->collect_retired();
 }
 bool PreparedGraph::stage_reverb_kernel(const Id& id,ReverbKernel& kernel){
     const auto at=impl_->index.find(id.value);if(at==impl_->index.end())throw std::invalid_argument("Unknown MR Reverb node");
     auto* reverb=dynamic_cast<ReverbProcessor*>(impl_->nodes[at->second].processor.get());
     if(!reverb)throw std::invalid_argument("Node is not MR Reverb");
-    if(!reverb->stage_kernel(kernel))return false;++impl_->control_revision;return true;
+    if (!reverb->stage_kernel(kernel))
+      return false;
+    ++impl_->control_revision;
+    return true;
 }
 std::array<float,2> PreparedGraph::reverb_levels(const Id& id) const{
     const auto at=impl_->index.find(id.value);if(at==impl_->index.end())return {};
@@ -284,17 +294,23 @@ std::array<float,2> PreparedGraph::reverb_levels(const Id& id) const{
 bool PreparedGraph::reverb_switching(const Id& id) const{
     const auto at=impl_->index.find(id.value);if(at==impl_->index.end())throw std::invalid_argument("Unknown MR Reverb node");
     const auto* reverb=dynamic_cast<const ReverbProcessor*>(impl_->nodes[at->second].processor.get());
-    if(!reverb)throw std::invalid_argument("Node is not MR Reverb");return reverb->switching();
+    if (!reverb)
+      throw std::invalid_argument("Node is not MR Reverb");
+    return reverb->switching();
 }
 void PreparedGraph::warm_reverb(const Id& id){
     const auto at=impl_->index.find(id.value);if(at==impl_->index.end())throw std::invalid_argument("Unknown MR Reverb node");
     auto* reverb=dynamic_cast<ReverbProcessor*>(impl_->nodes[at->second].processor.get());
-    if(!reverb)throw std::invalid_argument("Node is not MR Reverb");reverb->warm();
+    if (!reverb)
+      throw std::invalid_argument("Node is not MR Reverb");
+    reverb->warm();
 }
 std::uint64_t PreparedGraph::reverb_tail_frames(const Id& id) const{
     const auto at=impl_->index.find(id.value);if(at==impl_->index.end())throw std::invalid_argument("Unknown MR Reverb node");
     const auto* reverb=dynamic_cast<const ReverbProcessor*>(impl_->nodes[at->second].processor.get());
-    if(!reverb)throw std::invalid_argument("Node is not MR Reverb");return reverb->tail_frames();
+    if (!reverb)
+      throw std::invalid_argument("Node is not MR Reverb");
+    return reverb->tail_frames();
 }
 void PreparedGraph::panic() noexcept { impl_->panic_requested = true; }
 void PreparedGraph::reset_anticipation() noexcept {

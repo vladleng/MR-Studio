@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "juce": {"url":"https://github.com/juce-framework/JUCE.git","commit":"be29c81492b6151c8ea8d14c840e1311963b3a83","version":"9.0.3"},
+  "vst3": {"url":"https://github.com/steinbergmedia/vst3sdk.git","commit":"3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96"},
+  "portaudio": {"url":"https://github.com/PortAudio/portaudio.git","commit":"873e3c83fbe2f57ebcf59083e627a3f8fa051ffe"},
+  "ara": {"url":"https://github.com/Celemony/ARA_SDK.git","commit":"0005c532bb03eb210e7bb490329fc6d7ba1792c7","version":"2.3.0"},
+  "asio": {"url":"https://www.steinberg.net/asiosdk","sha256":"d5ebf0c20dd2c5f43771fd0c1418f4b361bf52434ee670097cfa6b3a335e2eca","cache":false}
+}

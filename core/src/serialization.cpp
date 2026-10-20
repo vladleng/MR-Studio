@@ -42,7 +42,8 @@ void write_inserts(std::ostream& out, const std::vector<NativeInsert>& inserts) 
     const auto blob=[&](const std::vector<std::byte>& data) { static constexpr char hex[]="0123456789abcdef"; std::string s; for(auto b:data) { auto v=std::to_integer<unsigned>(b);s+=hex[v>>4];s+=hex[v&15]; } out<<std::quoted(s)<<' '; };
     for (const auto& fx : inserts) {
         out << std::quoted(fx.id.value) << ' ' << static_cast<int>(fx.kind) << ' ' << fx.gain << ' ' << fx.frequency << ' ' << fx.q << ' ' << fx.bypass << '\n';
-        for(const auto& b:fx.bands) out<<b.frequency<<' '<<b.gain<<' '<<b.q<<' '<<b.enabled<<' '; out<<'\n';
+        for(const auto& b:fx.bands){out<<b.frequency<<' '<<b.gain<<' '<<b.q<<' '<<b.enabled<<' ';}
+        out<<'\n';
         out<<std::quoted(fx.plugin_path)<<' '<<std::quoted(fx.class_id)<<' '<<std::quoted(fx.plugin_name)<<' ';blob(fx.component_state);blob(fx.controller_state);out<<fx.parameters.size();for(const auto& p:fx.parameters) out<<' '<<p.id<<' '<<p.value;out<<'\n';
         const auto& ir=fx.ir;out<<std::quoted(ir.name)<<' '<<ir.sample_rate<<' '<<ir.channels<<' '<<ir.mix<<' '<<ir.low_cut<<' '<<ir.high_cut<<' '<<ir.invert<<' '<<ir.samples.size();for(float v:ir.samples)out<<' '<<v;out<<'\n';
         if(fx.kind==InsertKind::rig){const auto& r=fx.rig;out<<"RIG_STATE "<<r.version<<' '<<r.input_gain<<' '<<r.output_gain<<' '<<std::quoted(r.name)<<' '<<std::quoted(r.artwork)<<' '<<std::quoted(r.artwork_rights)<<' '<<r.pre_fx.size()<<' '<<r.post_fx.size()<<'\n';

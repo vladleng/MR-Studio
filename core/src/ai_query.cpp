@@ -14,8 +14,14 @@ bool valid_utf8(std::string_view value){
         unsigned count{},code{};if(first>=0xC2 && first<=0xDF){count=1;code=first&31;}
         else if(first>=0xE0 && first<=0xEF){count=2;code=first&15;}
         else if(first>=0xF0 && first<=0xF4){count=3;code=first&7;}else return false;
-        if(count>value.size()-i)return false;for(unsigned n=0;n<count;++n){const auto byte=static_cast<unsigned char>(value[i++]);
-            if((byte&0xC0)!=0x80)return false;code=(code<<6)|(byte&63);}
+        if (count > value.size() - i)
+          return false;
+        for (unsigned n = 0; n < count; ++n) {
+          const auto byte = static_cast<unsigned char>(value[i++]);
+          if ((byte & 0xC0) != 0x80)
+            return false;
+          code = (code << 6) | (byte & 63);
+        }
         if((count==1 && code<128) || (count==2 && code<2048) || (count==3 && code<65536) || code>0x10FFFF || (code>=0xD800 && code<=0xDFFF))return false;
     }return true;
 }
@@ -124,7 +130,12 @@ std::string context_json(const Context& c,std::size_t budget){
     if(c.observed_transport.loop){j.field("loop_start_samples",c.observed_transport.loop->start);j.field("loop_end_samples",c.observed_transport.loop->end);}
     std::string selection="[";
     for(const auto& e:c.selection.entities){Json item(1024);item.field("kind",static_cast<int>(e.kind));item.id("id",e.id);const auto s=item.finish();
-        if(selection.size()+s.size()+2>budget)throw SizeLimit{};if(selection.size()>1)selection+=',';selection+=s;}
+      if (selection.size() + s.size() + 2 > budget)
+        throw SizeLimit{};
+      if (selection.size() > 1)
+        selection += ',';
+      selection += s;
+    }
     selection+=']';j.raw("selection",selection);
     if(c.selection.sample_range){j.field("selection_start_samples",c.selection.sample_range->start);j.field("selection_end_samples",c.selection.sample_range->end);}
     j.raw("capabilities","[\"summary\",\"timing\",\"selection\",\"entity_queries\",\"snapshots\"]");
@@ -223,6 +234,7 @@ Page ReadView::query(const Query& input,ReadPolicy policy) const {
             case InsertKind::cab_collection:add("mix",f.ir.mix,"ratio");add("low_cut",f.ir.low_cut,"hz");add("high_cut",f.ir.high_cut,"hz");break;
             case InsertKind::reverb:add("pre_delay",f.reverb.pre_delay,"ms");add("tone",f.reverb.tone,"db");add("mix",f.reverb.mix,"ratio");add("gate_enabled",f.reverb.gate_enabled?1.f:0.f,"boolean");add("gate_threshold",f.reverb.gate_threshold,"db");break;
             case InsertKind::vst3:break;
+            case InsertKind::rig:break; // Module parameters are not part of the scalar native projection.
             }
         }
     }
@@ -296,8 +308,15 @@ Page ReadView::query(const Query& input,ReadPolicy policy) const {
                 if(q.ticks && (end<=time.to_samples(q.ticks->first) || start>=time.to_samples(q.ticks->second)))match=false;
                 if(!match)break;
                 row.id("id",c.id);row.id("track_id",c.track);row.field("name",c.name);row.field("midi",c.midi.has_value());row.field("sample_start",start);row.field("sample_end",end);
-                if(c.midi){row.field("tick_start",c.midi->start);row.field("tick_length",c.midi->length);row.field("source_offset_ticks",c.midi->source_offset);row.field("notes",c.midi->notes.size());row.field("events",c.midi->events.size());}
-                else row.field("source_offset_samples",c.source_offset);break;
+                if (c.midi) {
+                  row.field("tick_start", c.midi->start);
+                  row.field("tick_length", c.midi->length);
+                  row.field("source_offset_ticks", c.midi->source_offset);
+                  row.field("notes", c.midi->notes.size());
+                  row.field("events", c.midi->events.size());
+                } else
+                  row.field("source_offset_samples", c.source_offset);
+                break;
             }
             case QueryKind::midi_notes:case QueryKind::midi_events:{
                 const auto& m=*clip->midi;match=(!q.track || clip->track==*q.track) && (!q.selected_only ||
@@ -325,10 +344,30 @@ Page ReadView::query(const Query& input,ReadPolicy policy) const {
                 match=overlap(start,end,q,time);if(!match)break;row.field("bar",m.bar);row.field("tick",start);row.field("numerator",m.numerator);row.field("denominator",m.denominator);break;}
             case QueryKind::ara_capabilities:{const auto& c=ara_.capabilities[index];match=!q.id||c.id==*q.id;if(!match)break;row.id("plugin_id",c.id);row.field("name",c.name);row.field("version",c.version);row.field("available",c.available);row.field("can_attach",c.available);row.field("can_reanalyse",false);row.field("note_edit_api",false);break;}
             case QueryKind::ara_binding:case QueryKind::ara_status:{const auto& c=ara_.clips[index];match=(!q.clip||c.id==*q.clip)&&identity(EntityKind::clip,c.id,c.track);if(!match)break;row.id("clip_id",c.id);row.id("track_id",c.track);row.id("plugin_id",c.plugin);row.field("bound",c.bound);row.field("bypass",c.bypass);row.field("status",c.status);row.field("can_open",c.can_open);row.field("can_attach",c.can_attach);row.field("can_remove",c.can_remove);row.field("can_reanalyse",false);row.field("note_edit_api",false);break;}
-            case QueryKind::plugins:{const auto& s=slots[index];const auto& f=*s.insert;match=(!q.id || f.id==*q.id) && (!q.plugin || f.id==*q.plugin) && (!q.track || s.track==q.track) && (!q.master || !s.track) && (!q.selected_only || (s.track && selected(context_,EntityKind::track,*s.track)));
-                if(!match)break;row.id("id",f.id);row.id("track_id",s.track);row.field("master",!s.track);row.field("slot",s.index);row.field("kind",static_cast<int>(f.kind));row.field("name",f.plugin_name);
-                if(f.kind==InsertKind::vst3)row.field("class_id",f.class_id);else row.raw("class_id","null");
-                row.field("bypass",f.bypass);row.field("stored_vst_parameter_count",f.parameters.size());row.field("native_controls_available",f.kind!=InsertKind::vst3);row.field("parameter_source","authored_project_state");break;}
+            case QueryKind::plugins: {
+              const auto &s = slots[index];
+              const auto &f = *s.insert;
+              match = (!q.id || f.id == *q.id) && (!q.plugin || f.id == *q.plugin) &&
+                      (!q.track || s.track == q.track) && (!q.master || !s.track) &&
+                      (!q.selected_only || (s.track && selected(context_, EntityKind::track, *s.track)));
+              if (!match)
+                break;
+              row.id("id", f.id);
+              row.id("track_id", s.track);
+              row.field("master", !s.track);
+              row.field("slot", s.index);
+              row.field("kind", static_cast<int>(f.kind));
+              row.field("name", f.plugin_name);
+              if (f.kind == InsertKind::vst3)
+                row.field("class_id", f.class_id);
+              else
+                row.raw("class_id", "null");
+              row.field("bypass", f.bypass);
+              row.field("stored_vst_parameter_count", f.parameters.size());
+              row.field("native_controls_available", f.kind != InsertKind::vst3);
+              row.field("parameter_source", "authored_project_state");
+              break;
+            }
             case QueryKind::plugin_parameters:{row.id("plugin_id",parameter_slot->insert->id);row.id("track_id",parameter_slot->track);row.field("source","authored_project_state");
                 if(parameter_slot->insert->kind==InsertKind::vst3){const auto& parameter=parameter_slot->insert->parameters[index];row.field("parameter_id",parameter.id);row.field("normalized_value",parameter.value);}
                 else{const auto& parameter=native_values[index];row.field("descriptor_index",parameter.id);row.field("name",parameter.name);row.field("value",parameter.value);row.field("unit",parameter.unit);}break;}
@@ -350,8 +389,14 @@ Page ReadView::query(const Query& input,ReadPolicy policy) const {
                 // Measure the small envelope, without repeatedly copying the accumulated array.
                 const auto overhead=page_json(probe,q,"[]").size()-2;
                 const auto array_bytes=items.size()+(items.size()>1?1u:0u)+value.size()+1;
-                if(array_bytes>q.byte_budget-overhead){page.byte_limited=true;break;}
-                if(items.size()>1)items+=',';items+=value;++page.returned;
+                if (array_bytes > q.byte_budget - overhead) {
+                  page.byte_limited = true;
+                  break;
+                }
+                if (items.size() > 1)
+                  items += ',';
+                items += value;
+                ++page.returned;
             }
             ++page.scanned;page.next_cursor=index+1;
         }
@@ -371,9 +416,16 @@ SnapshotResult ReadView::snapshot(const std::vector<Query>& queries,SnapshotBudg
         const auto header=context_json(context_,cap);std::string pages="[";
         std::string names="[";for(const auto& q:queries){if(!valid_query(q) || query_name(q.kind).empty())return {Error::invalid_input,{}};
             if(q.kind==QueryKind::automation || q.kind==QueryKind::analysis || q.kind==QueryKind::live_performance)return {Error::unsupported,{}};
-            if((q.kind==QueryKind::plugin_parameters || q.kind==QueryKind::graph_parameters) &&
-               (!policy.stored_plugin_parameters || !access_.stored_plugin_parameters))return {Error::permission_denied,{}};
-            if(names.size()>1)names+=',';names+='"';names+=query_name(q.kind);names+='"';}names+=']';
+            if ((q.kind == QueryKind::plugin_parameters || q.kind == QueryKind::graph_parameters) &&
+                (!policy.stored_plugin_parameters || !access_.stored_plugin_parameters))
+              return {Error::permission_denied, {}};
+            if (names.size() > 1)
+              names += ',';
+            names += '"';
+            names += query_name(q.kind);
+            names += '"';
+        }
+        names += ']';
         auto envelope=[&](std::string_view values,bool truncated){Json j(cap);j.field("snapshot_version",1);j.raw("context",header);j.field("truncated",truncated);
             j.field("requested_queries",queries.size());j.raw("requested_query_names",names);j.field("emitted_queries",emitted.size());j.field("token_budget_basis","utf8_bytes_upper_bound");j.raw("pages",values);return j.finish();};
         (void)envelope("[]",false);
@@ -397,13 +449,71 @@ std::string ReadView::analysis(const JobControl& control,std::string_view media)
     const auto& p=*project_;const Timeline time(p.time,p.sample_rate);
     const auto clipLimit=std::min<std::size_t>(p.clips.size(),128),sectionLimit=std::min<std::size_t>(p.sections.size(),16);
     std::string rows="[";std::size_t work{};bool partial=clipLimit<p.clips.size()||sectionLimit<p.sections.size()||std::count_if(p.clips.begin(),p.clips.end(),[](const auto& c){return !c.midi;})>16;
-    auto section=[&](const Id& id,Tick start,Tick stop){Json row(4096);std::size_t notes{},clips{},overlaps{};Tick covered{};int low=128,high=-1;std::vector<std::pair<Tick,int>> events;
-        for(std::size_t i=0;i<clipLimit;++i){check();const auto& c=p.clips[i];const auto begin=c.midi?c.midi->start:time.to_ticks(c.start),end=c.midi?c.midi->start+c.midi->length:time.to_ticks(c.start+c.length);if(end<=start||begin>=stop)continue;++clips;
-            if(c.midi)for(const auto& n:c.midi->notes){if(++work>131072){partial=true;break;}if((work&255)==0)check();const auto a=std::max(n.start,c.midi->source_offset),b=std::min(n.start+n.length,c.midi->source_offset+c.midi->length);if(b<=a)continue;const auto s=std::max(start,c.midi->start+a-c.midi->source_offset),e=std::min(stop,c.midi->start+b-c.midi->source_offset);if(e<=s)continue;++notes;low=std::min(low,n.pitch);high=std::max(high,n.pitch);events.emplace_back(s,1);events.emplace_back(e,-1);}
-        }
-        std::sort(events.begin(),events.end());int active{};Tick last=start;for(const auto& [tick,delta]:events){if(active>0)covered+=tick-last;if(active>1)overlaps+=static_cast<std::size_t>(tick-last);active+=delta;last=tick;}
-        row.id("section_id",id);row.field("tick_start",start);row.field("tick_end",stop);row.field("clips_intersecting",clips);row.field("visible_note_intersections",notes);row.field("notes_per_quarter",static_cast<double>(notes)*ppq/static_cast<double>(stop-start));row.field("note_activity_ticks",covered);row.field("polyphonic_ticks",overlaps);if(high>=0){row.field("pitch_min",low);row.field("pitch_max",high);}else row.raw("pitch_min","null");
-        if(rows.size()>1)rows+=',';rows+=row.finish();};
+    auto section = [&](const Id &id, Tick start, Tick stop) {
+      Json row(4096);
+      std::size_t notes{}, clips{}, overlaps{};
+      Tick covered{};
+      int low = 128, high = -1;
+      std::vector<std::pair<Tick, int>> events;
+      for (std::size_t i = 0; i < clipLimit; ++i) {
+        check();
+        const auto &c = p.clips[i];
+        const auto begin = c.midi ? c.midi->start : time.to_ticks(c.start),
+                   end = c.midi ? c.midi->start + c.midi->length : time.to_ticks(c.start + c.length);
+        if (end <= start || begin >= stop)
+          continue;
+        ++clips;
+        if (c.midi)
+          for (const auto &n : c.midi->notes) {
+            if (++work > 131072) {
+              partial = true;
+              break;
+            }
+            if ((work & 255) == 0)
+              check();
+            const auto a = std::max(n.start, c.midi->source_offset),
+                       b = std::min(n.start + n.length, c.midi->source_offset + c.midi->length);
+            if (b <= a)
+              continue;
+            const auto s = std::max(start, c.midi->start + a - c.midi->source_offset),
+                       e = std::min(stop, c.midi->start + b - c.midi->source_offset);
+            if (e <= s)
+              continue;
+            ++notes;
+            low = std::min(low, n.pitch);
+            high = std::max(high, n.pitch);
+            events.emplace_back(s, 1);
+            events.emplace_back(e, -1);
+          }
+      }
+      std::sort(events.begin(), events.end());
+      int active{};
+      Tick last = start;
+      for (const auto &[tick, delta] : events) {
+        if (active > 0)
+          covered += tick - last;
+        if (active > 1)
+          overlaps += static_cast<std::size_t>(tick - last);
+        active += delta;
+        last = tick;
+      }
+      row.id("section_id", id);
+      row.field("tick_start", start);
+      row.field("tick_end", stop);
+      row.field("clips_intersecting", clips);
+      row.field("visible_note_intersections", notes);
+      row.field("notes_per_quarter", static_cast<double>(notes) * ppq / static_cast<double>(stop - start));
+      row.field("note_activity_ticks", covered);
+      row.field("polyphonic_ticks", overlaps);
+      if (high >= 0) {
+        row.field("pitch_min", low);
+        row.field("pitch_max", high);
+      } else
+        row.raw("pitch_min", "null");
+      if (rows.size() > 1)
+        rows += ',';
+      rows += row.finish();
+    };
     for(std::size_t i=0;i<sectionLimit;++i){const auto& s=p.sections[i];section(s.id,s.start,s.end);if(work>131072)break;}
     if(sectionLimit==0){Tick stop=ppq;for(std::size_t i=0;i<clipLimit;++i){const auto& c=p.clips[i];stop=std::max(stop,c.midi?c.midi->start+c.midi->length:time.to_ticks(c.start+c.length));}section({},0,stop);}rows+=']';
     std::string mix="[";for(std::size_t i=0;i<std::min<std::size_t>(p.tracks.size(),16);++i){check();const auto& t=p.tracks[i];Json row(2048);row.id("track_id",t.id);row.field("authored_gain_linear",t.mix.gain);row.field("authored_pan",t.mix.pan);row.field("mute",t.mix.mute);row.field("solo",t.mix.solo);row.id("output_track_id",t.output);row.field("send_count",t.sends.size());std::string sends="[";for(std::size_t s=0;s<std::min<std::size_t>(t.sends.size(),4);++s){const auto& value=t.sends[s];Json send(512);send.id("bus_id",value.bus);send.field("gain_linear",value.gain);send.field("pre_fader",value.pre_fader);send.field("bypass",value.bypass);if(sends.size()>1)sends+=',';sends+=send.finish();}sends+=']';row.raw("sends",sends);partial=partial||t.sends.size()>4;if(mix.size()>1)mix+=',';mix+=row.finish();}mix+=']';partial=partial||p.tracks.size()>16;

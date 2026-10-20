@@ -32,8 +32,8 @@ This skill is **not execution permission**; use only the assigned issue and phas
 - **MR UDS library root:** `assets/ui/mr-uds/`. Existing SVG folders are nested: `svg/controls/`, `svg/icons/`, `svg/rig/`, `svg/reverb/`; concepts: `previews/`. **Do not flatten `svg/`: `manifest.json` and `build_kit.py` require that level.**
 - Keep **`tokens/` directory, `manifest.json`, `build_kit.py` and the asset-kit `README.md` at the root `assets/ui/mr-uds/`** (not in `.codex/skills/`, not in `docs/`). This keeps the generator's relative paths together. Verify actual generator assumptions before running it.
 - First inspect `assets/ui/mr-uds/manifest.json` and matching `svg/` files, then `assets/ui/icons/transport/` for existing transport assets; reuse before drawing. Do not silently move/overwrite existing transport icons.
-- Treat this as the **local canonical path**, not proof files are committed on GitHub. If missing, request the kit or verify local checkout; do not invent asset filenames or pretend to have previews.
-- All new art should be added to the same library and its manifest, with original/license notes and size/state variants. Source code/builds/assets remain local by AGENTS policy.
+- Treat this as the canonical tracked repository path. If missing, inspect the current branch and GitHub main; do not invent asset filenames or pretend to have previews.
+- All new art should be added to the same library and its manifest, with original/license notes and size/state variants. Source/assets are versioned in GitHub; builds and artifacts follow the cloud CI policy.
 
 ## Shared DAW and native-plugin catalog
 
@@ -49,7 +49,7 @@ For isolated changes to background, color, contour stroke width or icon tint **w
 
 1. Read the relevant task, palette role and affected asset/source, rather than the full UI documentation.
 2. Change the smallest existing Theme token or asset; avoid needlessly touching headers shared across many targets.
-3. Check the diff and contrast. For a standalone SVG/resource not embedded in the compiled binary, validate and render a single relevant preview without CMake. For compiled changes, do an incremental build of the affected GUI target and a short visual smoke at a representative DPI.
+3. For cosmetic-only work check diff/source/resource correctness; visual acceptance is by the user. No automatic tests, screenshots, previews or DPI runs. Build only the affected GUI target if an updated executable is requested.
 4. Do not automatically run clean/reconfigure, build all targets, full CTest, every DPI/window-size/state combination, repeated editor/preset cycles, packaging or shortcut updates. Escalate only when change scope/risk, failure or explicit request justifies it.
 5. Report PASS/FAIL/NOT TESTED accurately; keep comprehensive acceptance tests for substantive changes and release candidates.
 
@@ -79,7 +79,7 @@ For isolated changes to background, color, contour stroke width or icon tint **w
 - [ ] source/license for SVG/icon noted; original and redistributable
 - [ ] checks proportional to V1/component/release gate recorded; user signoff pending until explicitly given
 
-**GitHub: only docs/issues with [skip ci]. Local code/assets/build/test/package per AGENTS.md.**
+**GitHub owns source/docs/assets/skills; Codex Cloud and Actions follow AGENTS.md. Merge requires separate acceptance.**
 
 ## MR Fader visual selection (2026-10-16)
 

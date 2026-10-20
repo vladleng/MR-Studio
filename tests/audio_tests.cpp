@@ -59,7 +59,10 @@ std::shared_ptr<const AudioData> data() {
     return std::make_shared<const AudioData>(AudioData{48000, 2, {0.1F,0.2F, 0.3F,0.4F, 0.5F,0.6F, 0.7F,0.8F}});
 }
 RenderGraph basic() {
-    return {{{data(), 0, 0, 4, {{0,0,1}, {1,1,1}}}}, {{0,0,0.5F}, {0,1,0.5F}}};
+    RenderGraph graph;
+    graph.voices={{data(), 0, 0, 4, {{0,0,1}, {1,1,1}}}};
+    graph.monitor={{0,0,0.5F}, {0,1,0.5F}};
+    return graph;
 }
 void render() {
     AudioEngine engine;
@@ -643,7 +646,8 @@ void pdc() {
 void inserts() {
     using namespace mrs::processing;
     const auto prepared=[](float gain,std::uint32_t block) {
-        const std::array<NativeInsert,1> fx{{{new_id(),InsertKind::gain,gain}}};
+        NativeInsert insert;insert.id=new_id();insert.kind=InsertKind::gain;insert.gain=gain;
+        const std::array<NativeInsert,1> fx{insert};
         auto saved=std::make_shared<const GraphState>(insert_graph(fx));
         return std::make_shared<PreparedGraph>(GraphSnapshot{saved,0,false,false},ProcessConfig{48000,2,block});
     };
@@ -776,20 +780,20 @@ void metronome(){
             if(nonzero&&!active){allocation_check::enabled=false;starts.push_back(i);allocation_check::enabled=true;}active=nonzero;
         }
         allocation_check::enabled=false;CHECK(allocation_check::count==0);CHECK(first_peak>second_peak*1.2f);
-        for(const Tick tick:{0LL,ppq,2*ppq,3*ppq,4*ppq,5*ppq,6*ppq,6*ppq+ppq/2,7*ppq,7*ppq+ppq/2,8*ppq,8*ppq+ppq/2}){
+        for(const Tick tick:{Tick{0},ppq,2*ppq,3*ppq,4*ppq,5*ppq,6*ppq,6*ppq+ppq/2,7*ppq,7*ppq+ppq/2,8*ppq,8*ppq+ppq/2}){
             click.reset();const auto at=time.to_samples(tick);CHECK(click.sample(at,true,true,.5f)==0);CHECK(std::abs(click.sample(at+1,true,true,.5f))>0);
         }
         CHECK(click.sample(end,false,true,1)==0);
     }
     TempFile count_file,cancel_file;auto recorder=std::make_shared<Recorder>(count_file.path,48000,500);
     RenderGraph graph;graph.recordings={recorder};graph.click.recording=true;graph.count_frames=193;graph.count_beat_frames=48.25;graph.count_beats=4;
-    AudioEngine engine;engine.prepare({48000,1,2,256},graph,{PlaybackState::paused,500});std::array<float,512> output{};std::array<float,256> input{};for(std::size_t i=0;i<input.size();++i)input[i]=static_cast<float>(i)/512;
+    AudioEngine engine;engine.prepare({48000,1,2,256},graph,{PlaybackState::paused,500,std::nullopt});std::array<float,512> output{};std::array<float,256> input{};for(std::size_t i=0;i<input.size();++i)input[i]=static_cast<float>(i)/512;
     CHECK(engine.enqueue({ControlKind::play}));allocation_check::count=0;allocation_check::enabled=true;
     engine.process(input.data(),output.data(),128);allocation_check::enabled=false;CHECK(allocation_check::count==0);CHECK(engine.state().sample==500&&engine.state().count_remaining==65);CHECK(recorder->status().frames==0);
     CHECK(std::any_of(output.begin(),output.begin()+256,[](float value){return value!=0;}));
     allocation_check::enabled=true;engine.process(input.data(),output.data(),128);allocation_check::enabled=false;CHECK(allocation_check::count==0);
     CHECK(engine.state().count_remaining==0&&engine.state().sample==563);auto take=recorder->finish();CHECK(take.frames==63);auto raw=load_wav(take.path);CHECK(raw.samples.front()==input[65]&&raw.samples.back()==input[127]);
-    TempFile prefix_file;auto prefix=std::make_shared<Recorder>(prefix_file.path,48000,400);graph.recordings={prefix};engine.prepare({48000,1,2,256},graph,{PlaybackState::paused,500});CHECK(engine.enqueue({ControlKind::play}));
+    TempFile prefix_file;auto prefix=std::make_shared<Recorder>(prefix_file.path,48000,400);graph.recordings={prefix};engine.prepare({48000,1,2,256},graph,{PlaybackState::paused,500,std::nullopt});CHECK(engine.enqueue({ControlKind::play}));
     allocation_check::count=0;allocation_check::enabled=true;engine.process(input.data(),output.data(),128);engine.process(input.data(),output.data(),128);allocation_check::enabled=false;CHECK(allocation_check::count==0);
     const auto early=prefix->finish();CHECK(early.frames==163&&early.status.fault==RecordFault::none);const auto prefix_wave=load_wav(early.path);CHECK(prefix_wave.samples.front()==input[93]&&prefix_wave.samples[35]==input[0]&&prefix_wave.samples[100]==input[65]);
     auto canceled=std::make_shared<Recorder>(cancel_file.path,48000,0);graph.recordings={canceled};engine.prepare({48000,1,2,256},graph);CHECK(engine.enqueue({ControlKind::play}));engine.process(input.data(),output.data(),64);CHECK(engine.enqueue({ControlKind::stop}));engine.process(input.data(),output.data(),128);CHECK(engine.state().count_remaining==0&&engine.state().sample==0&&engine.state().playback==PlaybackState::stopped);CHECK(canceled->finish().frames==0&&!std::filesystem::exists(cancel_file.path));
@@ -809,7 +813,7 @@ void state_snapshot(){
         CHECK(held==previous&&allocation_check::count==0);
         rejects([&]{(void)engine->state();});
     }
-    engine->prepare({48000,0,2,128},{},{PlaybackState::paused,300});
+    engine->prepare({48000,0,2,128},{},{PlaybackState::paused,300,std::nullopt});
     CHECK(engine->try_state(head));CHECK(head.sample==300&&!head.loop&&head.count_remaining==0);
     engine->prepare({48000,0,2,128},{});CHECK(engine->enqueue({ControlKind::play}));
     std::atomic<bool> done{};std::atomic<unsigned> bad{};unsigned successes{};

@@ -5,17 +5,7 @@ not a prescribed architecture or proof that every existing value is approved.
 
 ## Workspace discovery
 
-The unified source/build/chat workspace since 2026-10-15 is
-`C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio`, including Git,
-`.codex/skills`, `assets`, `build`, `Builds` and `Saves`.
-The former `Documents/GitHub/MR-Studio` checkout is retained only for rollback;
-do not develop or build there. Confirm the checkout with Git status, its
-CMakeLists and UI sources. See `docs/LOCAL_WORKSPACE.md` for build commands and
-migration evidence. Do not edit a packaged copy as though it were source.
-
-Read applicable AGENTS.md and `docs/LOCAL_BUILD_POLICY.md`. Current project policy
-keeps source/builds/tests/packages local, with GitHub reserved for authorized
-issues/docs updates and no Actions. A UI task alone does not require GitHub updates.
+Use the current Codex Cloud task checkout and GitHub main documentation. Windows builds/tests/artifacts run in Actions; local Windows hardware is for user acceptance and device measurements. Do not hardcode the historical local workspace path. See docs/CLOUD_DEVELOPMENT.md.
 
 ## Implementation owners (paths relative to checkout)
 
