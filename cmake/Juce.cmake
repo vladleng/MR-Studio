@@ -54,6 +54,9 @@ target_sources(MoonRiverStudioJuce PRIVATE apps/studio-juce/src/Main.cpp apps/st
 target_sources(MoonRiverStudioJuce PRIVATE apps/studio-juce/src/ChordTrack.cpp apps/studio-juce/src/SectionTrack.cpp)
 target_sources(MoonRiverStudioJuce PRIVATE apps/studio-juce/src/MeterTrack.cpp)
 target_sources(MoonRiverStudioJuce PRIVATE apps/studio-juce/src/AiProvider.cpp apps/studio-juce/src/AiAssistant.cpp)
+target_sources(MoonRiverStudioJuce PRIVATE apps/studio-juce/src/LibraryFoundationPanel.cpp)
+target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_sample_library)
+
 target_link_libraries(MoonRiverStudioJuce PRIVATE winhttp advapi32)
 set_source_files_properties(apps/studio-juce/src/AiProvider.cpp apps/studio-juce/src/AiAssistant.cpp PROPERTIES COMPILE_OPTIONS "/WX")
 set_source_files_properties(apps/studio-juce/src/MeterTrack.cpp PROPERTIES COMPILE_OPTIONS "/WX")

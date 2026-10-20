@@ -1,4 +1,5 @@
 #include "Desktop.h"
+#include "LibraryFoundationPanel.h"
 
 namespace ui {
 void Strip::refreshArmState(){
@@ -58,7 +59,7 @@ void Browser::applyAssetDesign(){
     fileTree.setColour(juce::TreeView::backgroundColourId,browserBackground);
     if(enabled)tree.setColour(juce::TreeView::backgroundColourId,browserBackground);
     else tree.removeColour(juce::TreeView::backgroundColourId);
-    for(auto* component:{static_cast<juce::Component*>(&tree),static_cast<juce::Component*>(&fileTree),static_cast<juce::Component*>(&search),static_cast<juce::Component*>(&folderPath),static_cast<juce::Component*>(&locations),static_cast<juce::Component*>(&scanButton),static_cast<juce::Component*>(&aiTab)})component->setLookAndFeel(owner.assetLookAndFeel());
+    for(auto* component:{static_cast<juce::Component*>(&tree),static_cast<juce::Component*>(&fileTree),static_cast<juce::Component*>(&search),static_cast<juce::Component*>(&folderPath),static_cast<juce::Component*>(&locations),static_cast<juce::Component*>(&scanButton),static_cast<juce::Component*>(&aiTab),static_cast<juce::Component*>(&libraryTab)})component->setLookAndFeel(owner.assetLookAndFeel());
     const auto selection=enabled?owner.selectionColour():juce::Colour(0xff375a80);
     fileTree.setColour(juce::TreeView::selectedItemBackgroundColourId,selection);
     fileTree.setColour(juce::DirectoryContentsDisplayComponent::highlightColourId,selection);
@@ -68,6 +69,7 @@ void Browser::applyAssetDesign(){
         editor->setColour(juce::TextEditor::highlightColourId,selection);
         editor->setColour(juce::TextEditor::highlightedTextColourId,enabled?juce::Colour(ConceptSkin::canvas):juce::Colours::white);
     }
+    if(libraryPanel)libraryPanel->setLookAndFeel(owner.assetLookAndFeel());
     for(auto& button:crumbs)button->setLookAndFeel(owner.assetLookAndFeel());
     for(auto* b:{&vstTab,&filesTab,&parentFolder,&chooseFolder}){
         b->setLookAndFeel(owner.assetLookAndFeel());
