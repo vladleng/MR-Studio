@@ -475,7 +475,7 @@ struct SampleLibrary::Impl {
                         oldMeta.reset();
                         logMeta.reset();logMeta.number(1,batch_id);logMeta.number(2,id);
                         logMeta.number(3,beforeBpm);logMeta.str(4,beforeKey);logMeta.done();
-                        if(c.kind==Kind::bpm){putBpm.reset();putBpm.number(1,c.number);putBpm.number(2,id);putBpm.done();}
+                        if(c.kind==Kind::bpm){putBpm.reset();putBpm.number(1,c.number==0?-1:c.number==-1?0:c.number);putBpm.number(2,id);putBpm.done();}
                         else {putKey.reset();putKey.str(1,key);putKey.number(2,id);putKey.done();}
                     }
                 }
