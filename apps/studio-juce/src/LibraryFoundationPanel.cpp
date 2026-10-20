@@ -1,4 +1,5 @@
 #include "LibraryFoundationPanel.h"
+#include <array>
 
 namespace ui {
 namespace {
@@ -14,7 +15,7 @@ juce::String text(const std::string& utf8) { return juce::String::fromUTF8(utf8.
 juce::String pathText(const std::filesystem::path& path) { return juce::String(path.wstring().c_str()); }
 }
 LibraryFoundationPanel::LibraryFoundationPanel() : library(databasePath()) {
-    for (juce::Component* c : {&addFolder,&rescan,&cancel,&relink,&toggle,&remove,&sources,&title,&status})
+    for (auto* c : std::array<juce::Component*,9>{&addFolder,&rescan,&cancel,&relink,&toggle,&remove,&sources,&title,&status})
         addAndMakeVisible(c);
     setComponentID("mr-library-foundation");
     sources.setComponentID("mr-library-sources");
