@@ -19,3 +19,23 @@
 .canvas-surface{display:block;overflow:auto;min-height:290px;padding:18px 22px 35px}
 .stage-frame{position:relative;box-sizing:content-box;display:block;width:280px;height:200px;max-width:none;min-width:0;margin:14px auto 0}
 .stage-frame .stage-wrap{position:absolute;top:0;left:0;display:block;width:280px;max-width:none;margin:0;transform-origin:0 0;zoom:normal!important}
+
+/* The layer inspector can select hidden elements without painting them on the preview. */
+.layers-section{display:flex;flex-direction:column;flex:0 0 auto;border-bottom:1px solid #293b4e;min-height:0}
+.layers-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:12px 16px 8px}
+.layers-heading h3{display:flex;align-items:center;gap:9px;font-size:12px;margin:0;font-weight:650;color:#c5d9e8}
+.layers-heading small{font-size:10px;color:#7894aa}
+.layer-list{max-height:200px;min-height:28px;overflow-y:auto;padding:0 10px 9px}
+.layer-row{display:flex;align-items:stretch;gap:3px;border-radius:6px;border:1px solid transparent;min-width:0}
+.layer-row.selected{border-color:#587d9d;background:#22364a}
+.layer-row.is-hidden .layer-select strong{color:#8195a6}
+.layer-select{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;flex:1;border:0;background:transparent;color:#c8d9e8;padding:6px 9px;text-align:left}
+.layer-select strong{font-size:11px;font-weight:550;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.layer-select small{font-size:9px;color:#7899b0}
+.layer-row:hover{background:#1b3041}
+.layer-visibility{flex:0 0 32px;background:transparent;border:0;color:#9bc4df;font-size:18px;border-radius:5px}
+.layer-visibility[aria-pressed=false]{color:#71859b}
+.layer-visibility:hover{background:#30445a}
+.properties-form{flex:1 1 auto}
+.empty-properties{margin:28px 20px}
+@media(max-width:930px){.layer-list{max-height:250px}}

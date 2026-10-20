@@ -29,8 +29,9 @@ The original assets and catalogs stay canonical. The browser uses SVG in `<img>`
 
 - Three independently editable profile layouts: **Compact** (`Strip` height below 84 px), **Medium** (84–123), **Expanded** (124+).
 - Read-only view of existing SVG library; search/categories, drag asset onto preview to add it, or click to update the currently selected SVG.
-- Select, move and resize controls; inspector with coordinates/width/height, label, visibility, fader style, or referenced SVG. Snap-to-4px is optional.
-- Adjust track height; preview switches between three profiles automatically according to existing thresholds. In the current app `Arrangement::trackHeight` leads to `Strip` bounds with **2 px** reduction.
+- Select, move and resize controls; inspector with coordinates/width/height, label, visibility, fader style, or referenced SVG.
+- **Layers** in the right sidebar: select any element including one hidden from the preview, use the visibility button (◉ / ○) to hide/show it again. Visibility persists in the local draft and exported JSON. Snap-to-4px is optional.
+- Adjust track height; preview switches between three profiles automatically at **Strip heights** 83/84/123/124 px. In the current app `Arrangement::trackHeight` leads to `Strip` bounds with **2 px** reduction (track heights 85/86/125/126 px at those boundaries). Import/export must preserve all valid profile heights: Compact 38–83, Medium 84–123, Expanded 124–358.
 - Save local draft in browser localStorage; import/export `mr-track-panel-layout-v1.json` with bounded, type-checked schema.
 - No cross-service authentication, no writable GitHub credentials, no migration workflows changes.
 
@@ -46,7 +47,7 @@ Native integration comes in a separate task **after cloud CI migration #241 is a
 
 ## Testing
 
-Functional smoke is manual in a modern desktop browser: load via HTTP; verify asset count, thumbnails from `manifest.json`, drag SVG, switch profiles, edit width, reload browser, export/import JSON and switch on 83/84 and 123/124 px **Strip** heights. No JUCE build or CTest is warranted for this static-only change. Browser test status remains **NOT TESTED** until actually exercised.
+Functional smoke is manual in a modern desktop browser: load via HTTP; verify asset count, thumbnails from `manifest.json`, drag SVG, switch profiles, edit width, use the Layers panel to hide/select/show an element, reload browser, export/import JSON (especially Strip heights 83/84/123/124 px) and switch at those boundaries. For these Strip heights, use **track** slider values 85/86/125/126 px. No JUCE build or CTest is warranted for this static-only change. Browser test status remains **NOT TESTED** until actually exercised.
 
 ## Safety & Git
 

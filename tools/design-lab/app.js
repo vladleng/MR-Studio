@@ -3,6 +3,8 @@
 const ROOT = new URL('../../assets/ui/mr-uds/', import.meta.url);
 const STORE = 'mr-design-lab.track-panel.v1';
 const MODES = ['compact', 'medium', 'expanded'];
+// Layout units are Strip logical pixels; Arrangement track height is Strip height + 2.
+const HEIGHT_LIMITS = {compact:[38,83],medium:[84,123],expanded:[124,358]};
 const MODE_LABELS = {compact:'COMPACT',medium:'MEDIUM',expanded:'EXPANDED'};
 const TYPES = new Set(['label','button','badge','fader','meter','asset']);
 const $ = (id) => document.getElementById(id);
@@ -64,7 +66,7 @@ let saveTimer = null;
 let toastTimer = null;
 let activePointer = null;
 
-function modeOf(panelHeight){return panelHeight<84?'compact':panelHeight<124?'medium':'expanded';}
+function modeOf(panelHeight){return panelHeight<HEIGHT_LIMITS.medium[0]?'compact':panelHeight<HEIGHT_LIMITS.expanded[0]?'medium':'expanded';}
 function profile(){return doc.profiles[mode];}
 function elements(){return profile().elements;}
 function selected(){return elements().find(el=>el.id===chosen)||null;}
@@ -85,8 +87,7 @@ function validateImport(value){
     const p=value.profiles[key];
     if(!p||!Array.isArray(p.elements)||p.elements.length>100)throw Error('Некорректный профиль '+key);
     const ids=new Set();
-    const lo=key==='compact'?38:key==='medium'?82:122;
-    const hi=key==='compact'?81:key==='medium'?121:358;
+    const [lo,hi]=HEIGHT_LIMITS[key];
     const height=clamp(Math.round(safeNumber(p.height,clean.profiles[key].height)),lo,hi);
     const arr=p.elements.map((e,i)=>{
       if(!e||typeof e!=='object'||!TYPES.has(e.kind))throw Error('Неподдерживаемый элемент '+key);
@@ -181,6 +182,33 @@ function useAsset(id,x=null,y=null){
   const el={id:'svg-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,5),kind:'asset',x:clamp(snap(nx),0,244-size),y:clamp(snap(ny),0,profile().height-Math.min(size,profile().height)),w:size,h:Math.min(size,profile().height),label:id.split('/').pop(),assetId:id,visible:true};
   elements().push(el);chosen=el.id;queueSave();renderStage();renderProperties();toast('SVG добавлен в '+MODE_LABELS[mode]);
 }
+function renderLayers(){
+  const list=$('layer-list');
+  const frag=document.createDocumentFragment();
+  for(const el of elements()){
+    const row=document.createElement('div');
+    row.className='layer-row'+(el.id===chosen?' selected':'')+(el.visible?'':' is-hidden');
+    const pick=document.createElement('button');
+    pick.type='button';pick.className='layer-select';pick.title=el.id;
+    pick.setAttribute('aria-pressed',String(el.id===chosen));
+    const name=document.createElement('strong');name.textContent=el.label||el.id;
+    const detail=document.createElement('small');detail.textContent=el.kind+(el.visible?'':' · скрыт');
+    pick.append(name,detail);
+    pick.addEventListener('click',()=>{chosen=el.id;renderStage();renderProperties();});
+    const visibility=document.createElement('button');
+    visibility.type='button';visibility.className='layer-visibility';
+    visibility.textContent=el.visible?'◉':'○';
+    visibility.title=el.visible?'Скрыть слой':'Показать слой';
+    visibility.setAttribute('aria-label',(el.visible?'Скрыть ':'Показать ')+(el.label||el.id));
+    visibility.setAttribute('aria-pressed',String(el.visible));
+    visibility.addEventListener('click',()=>{
+      el.visible=!el.visible;chosen=el.id;queueSave();renderStage();renderProperties();
+    });
+    row.append(pick,visibility);frag.append(row);
+  }
+  list.replaceChildren(frag);
+  $('layer-count').textContent=String(elements().length);
+}
 function renderStage(){
   const p=profile();
   stage.style.height=p.height+'px';
@@ -216,6 +244,7 @@ function renderStage(){
   }
   stage.replaceChildren(frag);
   $('selected-counter').textContent=selected()?'Выбран: '+(selected().label||selected().kind):'Нет выделения';
+  renderLayers();
 }
 function beginPointer(event,node,el){
   if(event.button!==0)return;
@@ -333,7 +362,7 @@ function applyFit(){
 }
 document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
 $('track-height').addEventListener('input',event=>{
-  const panelHeight=clamp(Number(event.target.value)-2,38,358);
+  const panelHeight=clamp(Number(event.target.value)-2,HEIGHT_LIMITS.compact[0],HEIGHT_LIMITS.expanded[1]);
   const next=modeOf(panelHeight);
   if(next!==mode){setMode(next);}
   profile().height=panelHeight;
