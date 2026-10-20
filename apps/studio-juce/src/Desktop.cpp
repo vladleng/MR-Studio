@@ -560,8 +560,15 @@ void Desktop::restoreBundledTrackHeaderLayout(){
     trackHeaderLayoutSource=juce::File();
     trackHeaderObservedBytes=trackHeaderPendingBytes=-1;
     int resourceSize=0;
-    const auto* resource=MRTrackHeaderAssets::getNamedResource("mr_track_panel_layout_v1_json",resourceSize);
+    // JUCE mangles punctuation in BinaryData identifiers, so the source-file
+    // spelling is not a safe getNamedResource key. This dedicated bundle
+    // deliberately contains exactly one approved JSON layout.
+    const auto* resource = MRTrackHeaderAssets::namedResourceListSize == 1
+        ? MRTrackHeaderAssets::getNamedResource(MRTrackHeaderAssets::namedResourceList[0],resourceSize)
+        : nullptr;
     juce::String error;
+    if (!resource || resourceSize<=0)
+        error="MRTrackHeaderAssets must contain exactly one non-empty JSON resource";
     auto bundled=resource && resourceSize>0
         ? TrackHeaderLayout::parse(juce::String::fromUTF8(resource,resourceSize),error)
         : std::optional<TrackHeaderLayout>{};
