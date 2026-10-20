@@ -58,7 +58,7 @@ void Browser::applyAssetDesign(){
     fileTree.setColour(juce::TreeView::backgroundColourId,browserBackground);
     if(enabled)tree.setColour(juce::TreeView::backgroundColourId,browserBackground);
     else tree.removeColour(juce::TreeView::backgroundColourId);
-    for(auto* component:{static_cast<juce::Component*>(&tree),static_cast<juce::Component*>(&fileTree),static_cast<juce::Component*>(&search),static_cast<juce::Component*>(&folderPath),static_cast<juce::Component*>(&locations),static_cast<juce::Component*>(&scanButton),static_cast<juce::Component*>(&aiTab)})component->setLookAndFeel(owner.assetLookAndFeel());
+    for(auto* component:{static_cast<juce::Component*>(&tree),static_cast<juce::Component*>(&fileTree),static_cast<juce::Component*>(&search),static_cast<juce::Component*>(&folderPath),static_cast<juce::Component*>(&locations),static_cast<juce::Component*>(&scanButton),static_cast<juce::Component*>(&aiTab),static_cast<juce::Component*>(&spliceddTab),static_cast<juce::Component*>(&spliceddTitle),static_cast<juce::Component*>(&spliceddDescription),static_cast<juce::Component*>(&spliceddLaunch),static_cast<juce::Component*>(&spliceddFolder),static_cast<juce::Component*>(&spliceddDownload)})component->setLookAndFeel(owner.assetLookAndFeel());
     const auto selection=enabled?owner.selectionColour():juce::Colour(0xff375a80);
     fileTree.setColour(juce::TreeView::selectedItemBackgroundColourId,selection);
     fileTree.setColour(juce::DirectoryContentsDisplayComponent::highlightColourId,selection);
