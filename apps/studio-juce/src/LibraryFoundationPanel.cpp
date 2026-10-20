@@ -17,7 +17,7 @@ juce::String pathText(const std::filesystem::path& path) { return juce::String(p
 struct LibraryFoundationPanel::AssetRows final : juce::ListBoxModel {
     explicit AssetRows(LibraryFoundationPanel& p):owner(p){}
     int getNumRows() override {return owner.view?static_cast<int>(owner.view->assets.size()):0;}
-    void paintListBoxItem(int row,juce::Graphics& g,int width,int height,bool selected) override {
+    void paintListBoxItem(int row,juce::Graphics& g,int width,int /*height*/,bool selected) override {
         if(!owner.view||row<0||row>=static_cast<int>(owner.view->assets.size()))return;
         const auto& a=owner.view->assets[static_cast<std::size_t>(row)];
         if(selected)g.fillAll(juce::Colour(0xff375a80));
@@ -260,15 +260,15 @@ void LibraryFoundationPanel::fillSuggestedTags(){
         " | Key "+(key.empty()||key=="-"?juce::String("?"):text(key))+
         " | "+juce::String(static_cast<int>(item.tags.size()))+" tags",juce::dontSendNotification);
 }
-void LibraryFoundationPanel::applyTag(const std::string& status){
+void LibraryFoundationPanel::applyTag(const std::string& decision){
     const auto ids=selectedAssetIds();
     if(ids.empty())return;
     library.set_tag_status(ids,tagGroup.getText().toStdString(),
-                           tagLabel.getText().trim().toStdString(),status);
+                           tagLabel.getText().trim().toStdString(),decision);
 }
 void LibraryFoundationPanel::updateMode(){
     modeButton.setButtonText(editingTags?"Sources":"Edit Tags");
-    for(juce::Component* c:{static_cast<juce::Component*>(&assets),&tagInfo,&addTag,&confirmTag,
+    for(auto* c:std::array<juce::Component*,17>{&assets,&tagInfo,&addTag,&confirmTag,
         &rejectTag,&undoTag,&setBpm,&setKey,&addRule,&assetSearch,&tagLabel,&bpmValue,&keyValue,
         &rulePhrase,&tagGroup,&suggestedTags,&ruleFolder})c->setVisible(editingTags);
 }
