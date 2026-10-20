@@ -104,4 +104,75 @@ void test() {
     std::cout<<"MR Library #252: SQLite, unicode, duplicate names, incremental scan, relink, restart PASS\n";
 }
 }
-int main() { try {test();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void tagging() {
+    Fixture f;
+    const auto root=f.root/"samples";
+    wav(root/"Jazz"/"Jazz_Brush_Swing_120BPM_Loop.wav");
+    wav(root/"Bass"/"UprightBass_Am_95BPM_Loop.wav");
+    wav(root/"Misc"/"Guitar_A_Swell.wav");
+    wav(root/"Misc"/"Kick_Deep_01.wav");
+    const auto db=f.root/"db"/"existing.sqlite";
+    auto has=[](const AudioAsset& a,const std::string& group,const std::string& label,const std::string& status){
+        return std::any_of(a.tags.begin(),a.tags.end(),[&](const auto& t){
+            return t.group==group&&t.label==label&&t.status==status;
+        });
+    };
+    auto named=[](const Snapshot& s,const std::string& suffix)->const AudioAsset&{
+        for(const auto& a:s.assets)if(a.relative_path.find(suffix)!=std::string::npos)return a;
+        throw std::runtime_error("Expected WAV missing from tag page");
+    };
+    std::int64_t kick_id{};
+    {
+        SampleLibrary lib(db);
+        wait_for(lib,[](const Snapshot& s){return s.phase==Phase::idle;});
+        lib.add_source(root);
+        auto snap=wait_for(lib,[](const Snapshot& s){return s.phase==Phase::idle&&s.assets.size()==4;});
+        const auto& jazz=named(*snap,"Jazz_Brush");
+        check(has(jazz,"Genre","Jazz","proposed")&&has(jazz,"Technique","Brushes","proposed")&&
+            has(jazz,"Rhythm","Swing","proposed")&&jazz.detected_bpm==120,"Jazz auto tagging");
+        const auto& bass=named(*snap,"UprightBass");
+        check(has(bass,"Instrument","Upright Bass","proposed")&&bass.detected_bpm==95&&
+            bass.detected_key=="Am","Upright/key auto tagging");
+        check(named(*snap,"Guitar_A").detected_key.empty(),"Single isolated A is NOT a key");
+        check(named(*snap,"Kick_Deep").detected_bpm==0,"Take numbers are not BPM");
+        kick_id=named(*snap,"Kick_Deep").id;
+        lib.set_tag_status({kick_id},"Instrument","Kick","rejected");
+        auto previous=snap->revision;
+        snap=wait_for(lib,[&](const Snapshot& s){return s.revision>previous&&s.phase==Phase::idle;});
+        check(has(named(*snap,"Kick_Deep"),"Instrument","Kick","rejected"),"Reject proposal");
+        previous=snap->revision;lib.rescan();
+        snap=wait_for(lib,[&](const Snapshot& s){return s.revision>previous&&s.phase==Phase::idle&&s.message=="Scan complete";});
+        check(has(named(*snap,"Kick_Deep"),"Instrument","Kick","rejected"),"Rescan overwrote rejection");
+        lib.add_tag({kick_id},"Custom","My Sample");
+        previous=snap->revision;
+        snap=wait_for(lib,[&](const Snapshot& s){return s.revision>previous&&s.phase==Phase::idle&&
+            has(named(s,"Kick_Deep"),"Custom","My Sample","confirmed");});
+        lib.set_bpm({kick_id},0);
+        previous=snap->revision;
+        snap=wait_for(lib,[&](const Snapshot& s){return s.revision>previous&&s.phase==Phase::idle;});
+        check(named(*snap,"Kick_Deep").manual_bpm==-1,"Explicit unknown BPM");
+        lib.undo_tag_edit();
+        previous=snap->revision;
+        snap=wait_for(lib,[&](const Snapshot& s){return s.revision>previous&&s.phase==Phase::idle;});
+        check(named(*snap,"Kick_Deep").manual_bpm==0,"Undo metadata edit");
+        lib.add_rule("Genre","misc","My Style",true);
+        previous=snap->revision;
+        snap=wait_for(lib,[&](const Snapshot& s){return s.revision>previous&&s.phase==Phase::idle;});
+        check(has(named(*snap,"Kick_Deep"),"Genre","My Style","proposed"),"Custom folder rule");
+        check(has(named(*snap,"Kick_Deep"),"Custom","My Sample","confirmed"),"Rule wiped manual tag");
+        check(has(named(*snap,"Kick_Deep"),"Instrument","Kick","rejected"),"Rule wiped rejection");
+    }
+    {
+        SampleLibrary lib(db);
+        auto snap=wait_for(lib,[](const Snapshot& s){return s.phase==Phase::idle&&s.assets.size()==4;});
+        check(has(named(*snap,"Kick_Deep"),"Custom","My Sample","confirmed"),"Restart wiped manual tag");
+        check(has(named(*snap,"Kick_Deep"),"Instrument","Kick","rejected"),"Restart wiped tag veto");
+        check(has(named(*snap,"Kick_Deep"),"Genre","My Style","proposed"),"Restart wiped custom rule");
+        lib.undo_tag_edit(); // undo persisted history batch: last was add manual tag (BPM was undone)
+        const auto previous=snap->revision;
+        snap=wait_for(lib,[&](const Snapshot& s){return s.revision>previous&&s.phase==Phase::idle;});
+        check(!has(named(*snap,"Kick_Deep"),"Custom","My Sample","confirmed"),"Undo manual tagging");
+    }
+    std::cout<<"MR Library #253: filename proposals, provenance, veto, manual/undo, rules, persistence PASS\\n";
+}
+int main() { try {test();tagging();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
