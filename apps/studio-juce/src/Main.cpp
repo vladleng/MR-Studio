@@ -10,15 +10,23 @@
 #include "RigPanel.h"
 #include <mrs/version.hpp> // Shared application/package version (compact note editor update).
 #include <mrs/diagnostics.hpp>
+#include <stdexcept>
 namespace {
 class Window final : public juce::DocumentWindow {
 public:
-    explicit Window(bool kitPilot=false,bool fixture=false,bool shell=false,bool assets=false):DocumentWindow("Moon River Studio "+juce::String(mrs::desktop::application_version.data())+" MIDI — JUCE J3",juce::Colour(ui::surface),allButtons) {
+    explicit Window(bool kitPilot=false,bool fixture=false,bool shell=false,bool assets=false,juce::String trackLayoutPath={}):DocumentWindow("Moon River Studio "+juce::String(mrs::desktop::application_version.data())+" MIDI — JUCE J3",juce::Colour(ui::surface),allButtons) {
         setUsingNativeTitleBar(true);setContentOwned(new ui::Desktop(fixture),true);
         setResizable(true,false);setResizeLimits(1200,700,3840,2160);centreWithSize(1400,850);auto* desktop=dynamic_cast<ui::Desktop*>(getContentComponent());
         if(desktop){desktop->reverbKitPilot=kitPilot;desktop->setShellDesign(shell);}
         if(shell)setName("MR Studio / UDS Shell P1");
         if(desktop&&assets){desktop->setAssetDesign(true);setName("MR Studio / SVG Controls");}
+        if(desktop&&trackLayoutPath.isNotEmpty()){
+            juce::String error;
+            const auto path=juce::File::getCurrentWorkingDirectory().getChildFile(trackLayoutPath);
+            if(!desktop->enableTrackHeaderLayout(path,error))
+                juce::Logger::writeToLog("MR Design Lab layout rejected; legacy Track Header retained: "+error);
+            else setName("MR Studio / Track Header JSON v1 preview");
+        }
         if(desktop&&!fixture&&!desktop->view.windowState.isEmpty())restoreWindowStateFromString(desktop->view.windowState);
         setVisible(true);
         if(fixture&&desktop&&kitPilot)ui::setupReverbKitPreview(*desktop);
@@ -38,6 +46,33 @@ public:
         if(args.contains("--channel213-smoke")){try{ui::channel213Smoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("channel213-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--compact-fader215-smoke")){try{ui::compactFader215Smoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("compact215-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--interface212-smoke")){try{ui::interface212Smoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("interface212-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
+        if(args.contains("--track-layout-smoke")){
+            try{
+                const auto tokens=juce::StringArray::fromTokens(args,true);
+                const int at=tokens.indexOf("--track-layout-smoke");
+                if(at<0||at+1>=tokens.size())throw std::runtime_error("missing Track Header layout path");
+                juce::String error;
+                const auto file=juce::File::getCurrentWorkingDirectory().getChildFile(tokens[at+1].unquoted());
+                const auto loaded=ui::TrackHeaderLayout::readFile(file,error);
+                if(!loaded)throw std::runtime_error(error.toStdString());
+                for(const auto h:{38,60,83,84,110,123,124,166,358}){
+                    const auto* name=loaded->find(h,"name");
+                    const auto* gain=loaded->find(h,"gain");
+                    if(!name||!gain)throw std::runtime_error("profile semantic controls missing");
+                    const auto rect=loaded->rectangle(h,244,*gain,"gain");
+                    if(rect.isEmpty()||rect.getBottom()>h||rect.getRight()>244)
+                        throw std::runtime_error("Track Header bounds out of range");
+                }
+                juce::String invalidError;
+                if(ui::TrackHeaderLayout::parse("{}",invalidError))
+                    throw std::runtime_error("invalid layout accepted");
+                setApplicationReturnValue(0);
+            }catch(const std::exception& e){
+                juce::File::getCurrentWorkingDirectory().getChildFile("track-layout-smoke-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));
+                setApplicationReturnValue(1);
+            }
+            quit();return;
+        }
         if(args.contains("--uds-assets-smoke")){try{ui::assetDesignSmoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("assets-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--uds-assets-preview")){window=std::make_unique<Window>(false,true,true,true);return;}
         if(args.contains("--uds-shell-smoke")){try{ui::shellDesignSmoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("shell205-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
@@ -89,7 +124,12 @@ public:
                 folder.getChildFile("juce-smoke-failure-"+juce::String(scenario)+"-"+juce::String(juce::Time::currentTimeMillis())+".txt").replaceWithText(message);setApplicationReturnValue(1);}
             quit();return;
         }
-        window=std::make_unique<Window>(args.contains("--reverb-kit"),false,args.contains("--uds-shell")||!args.contains("--legacy-ui"),!args.contains("--legacy-ui"));
+        // Explicit, session-scoped prototype: --track-layout "C:\\path\\mr-track-panel-layout-v1.json".
+        // No browser/localStorage/network access, and no changes to project persistence.
+        const auto tokens=juce::StringArray::fromTokens(args,true);
+        const int layoutArg=tokens.indexOf("--track-layout");
+        const auto layoutFile=layoutArg>=0&&layoutArg+1<tokens.size() ? tokens[layoutArg+1].unquoted() : juce::String();
+        window=std::make_unique<Window>(args.contains("--reverb-kit"),false,args.contains("--uds-shell")||!args.contains("--legacy-ui"),!args.contains("--legacy-ui"),layoutFile);
         if(diagnostics){
             if(!diagnostics->available()||!diagnostics->crash_capture_available())juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Diagnostics",juce::String(mrs::diagnostics::status()),"OK");
             else if(const auto report=diagnostics->previous_report();!report.empty())juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Crash report available","A previous session ended unexpectedly. A local report is available.\nFile > Open diagnostics folder. Reports may contain project/plugin paths and private stack data. No automatic upload.","OK",nullptr,juce::ModalCallbackFunction::create([report](int){if(!mrs::diagnostics::acknowledge_report(report))mrs::diagnostics::event("crash_notice_acknowledge_failed");}));

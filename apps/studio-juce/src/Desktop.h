@@ -1,5 +1,6 @@
 #pragma once
 #include "Controls.h"
+#include "TrackHeaderLayout.h"
 #include "MRControls.h"
 #include "SendLevel.h"
 #include "Settings.h"
@@ -182,6 +183,8 @@ public:
     void setShellDesign(bool);
     void setAssetDesign(bool);
     const ConceptSkin* assetSkin()const{return assetTheme?assetTheme->conceptSkin():nullptr;}
+    const TrackHeaderLayout* trackLayout()const noexcept { return trackHeaderLayout ? &*trackHeaderLayout : nullptr; }
+    bool enableTrackHeaderLayout(const juce::File&, juce::String& error);
     Theme* assetLookAndFeel()const{return assetTheme.get();}
     juce::Colour selectionColour()const{return assetTheme?assetTheme->role(ColourRole::focus,ConceptSkin::selection):juce::Colour(accent);}
     bool shellDesignEnabled()const{return shellTheme!=nullptr;}
@@ -193,6 +196,7 @@ public:
     void finishPreview();
     mrs::desktop::Application app;
     Theme theme;
+    std::optional<TrackHeaderLayout> trackHeaderLayout; // Dev opt-in; not persisted into projects/preferences.
     bool reverbKitPilot{}; // Opt-in process/session state, never persisted.
     std::unique_ptr<kit::MRNativeParameterHost> controlHost;
     kit::MRNativeParameterHost& parameterHost();

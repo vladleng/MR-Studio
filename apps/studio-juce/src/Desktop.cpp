@@ -489,6 +489,19 @@ void Desktop::timerCallback(){try{const bool wasRecording=app.recording();app.po
     refresh();if(homeVisible&&home)home->repaint();
 }catch(const std::exception& e){message=label(e.what());repaint();}}
 
+bool Desktop::enableTrackHeaderLayout(const juce::File& file, juce::String& error) {
+    // Only called from the JUCE message thread; never modifies project state.
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+    auto candidate = TrackHeaderLayout::readFile(file, error);
+    if (!candidate) return false; // Atomic last-known-good / built-in fallback.
+    trackHeaderLayout = std::move(*candidate);
+    if (arrangement) {
+        for (auto& row : arrangement->rows) row->sync();
+        arrangement->resized();
+    }
+    return true;
+}
+
 Strip::Strip(Desktop& d,std::optional<mrs::Id> id,bool small):gain(!small),target(id),owner(d),mini(small){
     addChildComponent(nameEditor);nameEditor.setComponentID("track-name-editor");nameEditor.setTitle("Track name");
     nameEditor.setMultiLine(false);nameEditor.setFont(ui::Theme::stripFont());nameEditor.setIndents(0,0);
@@ -532,7 +545,13 @@ Strip::Strip(Desktop& d,std::optional<mrs::Id> id,bool small):gain(!small),targe
     gain.cancel=pan.cancel=[this]{owner.cancelPreview();sync();};sync();
 }
 mrs::Track Strip::track() const{if(target)for(const auto& t:owner.project()->tracks)if(t.id==target)return t;return {};}
-juce::Rectangle<int> Strip::nameBounds() const{if(owner.assetSkin()&&mini)return {32,3,juce::jmax(0,getWidth()-144),21};return {mini?8:25,3,juce::jmax(0,mini?getWidth()-145:getWidth()-53),21};}
+juce::Rectangle<int> Strip::nameBounds() const{
+    if (mini && target) if (const auto* layout = owner.trackLayout())
+        if (const auto* item = layout->find(getHeight(), "name"))
+            return layout->rectangle(getHeight(), getWidth(), *item, "name");
+    if(owner.assetSkin()&&mini)return {32,3,juce::jmax(0,getWidth()-144),21};
+    return {mini?8:25,3,juce::jmax(0,mini?getWidth()-145:getWidth()-53),21};
+}
 void Strip::mouseDown(const juce::MouseEvent& e){
     if(!mini&&e.mods.isPopupMenu()){if(dynamic_cast<juce::Button*>(e.eventComponent)||e.eventComponent->findParentComponentOfClass<juce::Button>())return;owner.showChannelMenu(target,e.getScreenPosition());return;}
     if(e.eventComponent==&sendDivider&&e.mods.isLeftButtonDown()){resizingSends=true;sendDragY=e.getScreenY();sendDragHeight=sendViewport.getHeight();return;}
@@ -666,9 +685,32 @@ void Strip::resized(){const int w=getWidth(),h=getHeight();if(mini){mute.setBoun
             arm.setBounds(x,h-56,side,side);monitor.setBounds(x+side+gap,h-56,side,side);}
     }
     if(mini){gain.compact=h<84;gain.setVisible(true);if(gain.compact)gain.setBounds(8,25,w-20,juce::jmin(16,h-26));pan.setVisible(!gain.compact);input.setVisible(!gain.compact&&monitor.isVisible());}
+    if (mini && target) if (const auto* layout = owner.trackLayout()) {
+        // Translate semantic JSON roles onto the existing JUCE controls. Their
+        // callbacks, host parameters, focus, Undo and automation remain intact.
+        const auto apply = [&](const char* role, juce::Component& component) {
+            if (const auto* item = layout->find(h, role)) {
+                component.setBounds(layout->rectangle(h, w, *item, role));
+                if (!item->visible) component.setVisible(false);
+            } else component.setVisible(false);
+        };
+        apply("mute", mute); apply("solo", solo);
+        apply("record", arm); apply("monitor", monitor);
+        apply("gain", gain); apply("pan", pan);
+        apply("input", input); apply("output", output);
+        if (const auto* item = layout->find(h, "gain"))
+            gain.compact = (item->style == "micro");
+        const auto* panItem = layout->find(h, "pan");
+        pan.setVisible(target.has_value() && !gain.compact && panItem && panItem->visible);
+        const auto* inputItem = layout->find(h, "input");
+        input.setVisible(monitor.isVisible() && inputItem && inputItem->visible);
+        const auto* outputItem = layout->find(h, "output");
+        output.setVisible(target.has_value() && outputItem && outputItem->visible);
+    }
     colorField.setBounds(mini?juce::Rectangle<int>(w-6,2,6,h-4):juce::Rectangle<int>(2,h-6,w-4,6));piano.setBounds(mini?juce::Rectangle<int>(6,2,22,22):juce::Rectangle<int>(7,h-107,20,18));nameEditor.setBounds(nameBounds());
 }
 void Strip::paint(juce::Graphics& g){const bool selected=target&&owner.selectedTrack==target;
+    const auto* trackDesign = (mini && target) ? owner.trackLayout() : nullptr;
     const auto* skin=owner.assetSkin();const auto base=juce::Colour(skin?ConceptSkin::channel:panel);
     drawCard(g,getLocalBounds().toFloat(),base);if(selected){g.setColour(owner.selectionColour());g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(.5f),cornerRadius,borderWidth);}
     if(!mini){g.setColour(skin?base.interpolatedWith(owner.selectionColour(),selected?.08f:0.f):juce::Colour(selected?raised:panel));g.fillRoundedRectangle(juce::Rectangle<float>(1,1,static_cast<float>(getWidth()-2),22),cornerRadius);
@@ -678,13 +720,29 @@ void Strip::paint(juce::Graphics& g){const bool selected=target&&owner.selectedT
         g.setColour(juce::Colour(separatorColour));g.fillRect(split.getX(),split.getCentreY(),split.getWidth(),1);}
     if(trackHover){g.setColour(owner.selectionColour());if(mini)g.fillRect(0,dropBefore?0:getHeight()-3,getWidth(),3);else g.fillRect(dropBefore?0:getWidth()-3,0,3,getHeight());}
     const auto t=track();g.setFont(ui::Theme::stripFont());g.setColour(target?juce::Colours::whitesmoke:juce::Colours::gold);
-    if(skin&&mini&&t.kind!=mrs::TrackKind::instrument){const auto icon=!target?"track_master":t.kind==mrs::TrackKind::bus?"bus":t.kind==mrs::TrackKind::audio?"wave":"track_synth";
+    if (skin && trackDesign && t.kind != mrs::TrackKind::instrument) {
+        if (const auto* item = trackDesign->find(getHeight(), "icon"); item && item->visible) {
+            const auto id = item->assetId.fromLastOccurrenceOf("/", false, false);
+            const auto icon = (id == "track_guitar" || id == "track_guitar_compact")
+                ? id : t.kind == mrs::TrackKind::bus ? juce::String("bus") : juce::String("wave");
+            skin->draw(g, icon, trackDesign->rectangle(getHeight(), getWidth(), *item, "icon").toFloat());
+        }
+    } else if(skin&&mini&&t.kind!=mrs::TrackKind::instrument){
+        const auto icon=!target?"track_master":t.kind==mrs::TrackKind::bus?"bus":t.kind==mrs::TrackKind::audio?"wave":"track_synth";
         skin->draw(g,icon,{static_cast<float>(mini?8:6),5,16,16});}
     if(!editingName)g.drawText(target?label(t.name):"MASTER",nameBounds(),juce::Justification::left,true);
     mrs::audio::StereoPeak p=owner.masterPeak;if(target){const auto tracks=owner.project()->tracks;for(std::size_t i=0;i<tracks.size();++i)if(tracks[i].id==target)p=owner.peaks[i];}
     for(int i=0;i<2;++i){const float peak=i==0?p.left:p.right;const auto level=juce::jlimit(0.f,1.f,(20.f*std::log10(juce::jmax(.000001f,peak))+60.f)/60.f);
-        if(mini&&getHeight()<84)continue;
-        const juce::Rectangle<int> r=mini?juce::Rectangle<int>(10,skin?(getHeight()<124?70:68)+i*6:70+i*7,getWidth()-82,skin?4:5):juce::Rectangle<int>(8+i*12,gain.getY(),8,gain.getHeight());
+        if (trackDesign && !trackDesign->find(getHeight(), "meter")) continue;
+        if (!trackDesign && mini && getHeight()<84)continue;
+        juce::Rectangle<int> r;
+        if (trackDesign) {
+            const auto* item = trackDesign->find(getHeight(), "meter");
+            if (!item->visible) continue;
+            const auto area = trackDesign->rectangle(getHeight(), getWidth(), *item, "meter");
+            const int line = juce::jmax(1, (area.getHeight()-1)/2);
+            r = {area.getX(), area.getY()+i*(line+1), area.getWidth(), line};
+        } else r = mini?juce::Rectangle<int>(10,skin?(getHeight()<124?70:68)+i*6:70+i*7,getWidth()-82,skin?4:5):juce::Rectangle<int>(8+i*12,gain.getY(),8,gain.getHeight());
         if(skin){ConceptSkin::meter(g,r,level,mini,isEnabled());continue;}
         g.setColour(juce::Colour(0xff111518));g.fillRect(r);g.setColour(peak>.95f?juce::Colours::orange:juce::Colour(0xff38cbbf));
         if(mini)g.fillRect(r.withWidth(static_cast<int>(r.getWidth()*level)));else g.fillRect(r.withTop(r.getBottom()-static_cast<int>(r.getHeight()*level)));

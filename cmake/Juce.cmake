@@ -113,6 +113,9 @@ if(BUILD_TESTING)
   add_test(NAME juce_diagnostics_smoke COMMAND MoonRiverStudioJuce --j3-smoke --diagnostics-smoke --fixture "$<TARGET_FILE:mrs_vst3_fixture>")
   # Diagnostics executes the complete J3 workload too; use its same time budget.
   set_tests_properties(juce_diagnostics_smoke PROPERTIES TIMEOUT 75 RUN_SERIAL TRUE)
+  # #242: fast JSON schema/geometry test (no DAW project, audio device or GUI window).
+  add_test(NAME juce_track_header_layout COMMAND MoonRiverStudioJuce --track-layout-smoke "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-track-panel-layout-v1.json")
+  set_tests_properties(juce_track_header_layout PROPERTIES TIMEOUT 20 RUN_SERIAL TRUE)
   add_test(NAME juce_j1_smoke COMMAND MoonRiverStudioJuce --j1-smoke)
   set_tests_properties(juce_j1_smoke PROPERTIES TIMEOUT 30)
   add_dependencies(MoonRiverStudioJuce mrs_vst3_fixture)
