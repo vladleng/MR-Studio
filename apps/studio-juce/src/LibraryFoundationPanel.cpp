@@ -96,7 +96,7 @@ LibraryFoundationPanel::LibraryFoundationPanel() : library(databasePath()) {
     bpmValue.setTextToShowWhenEmpty("BPM (95 / 0 / blank)",juce::Colours::grey);
     keyValue.setTextToShowWhenEmpty("Key (Am / - / blank)",juce::Colours::grey);
     suggestedTags.setTextWhenNothingSelected("Select detected tag...");
-    const char* groups[]={"Instrument","Genre","Type","Technique","Rhythm","Character","Custom"};
+    static constexpr const char* groups[]={"Instrument","Genre","Type","Technique","Rhythm","Character","Custom"};
     for(int i=0;i<7;++i)tagGroup.addItem(groups[i],i+1);
     tagGroup.setSelectedId(1,juce::dontSendNotification);
     tagInfo.setText("Proposed / confirmed / rejected tags; select WAVs for bulk edits",
@@ -159,7 +159,8 @@ void LibraryFoundationPanel::paint(juce::Graphics& g) {
 }
 void LibraryFoundationPanel::resized() {
     auto bounds=getLocalBounds().reduced(7);
-    title.setBounds(bounds.removeFromTop(24));
+    auto header=bounds.removeFromTop(25);
+    modeButton.setBounds(header.removeFromRight(92));title.setBounds(header);
     bounds.removeFromTop(4);
     auto first=bounds.removeFromTop(27);
     addFolder.setBounds(first.removeFromLeft(first.getWidth()/2-3));first.removeFromLeft(6);
@@ -170,10 +171,42 @@ void LibraryFoundationPanel::resized() {
     toggle.setBounds(second.removeFromLeft(second.getWidth()/2-3));second.removeFromLeft(5);
     remove.setBounds(second);
     bounds.removeFromTop(6);
-    status.setBounds(bounds.removeFromBottom(68));
-    bounds.removeFromBottom(5);
-    sources.setBounds(bounds);
-    cancel.setBounds(getWidth()-84,getHeight()-30,76,23);
+    auto bottom=bounds.removeFromBottom(46);
+    cancel.setBounds(bottom.removeFromRight(78).removeFromTop(25));
+    status.setBounds(bottom);
+    bounds.removeFromBottom(6);
+    if(!editingTags){sources.setBounds(bounds);return;}
+    sources.setBounds(bounds.removeFromTop(juce::jmin(105,bounds.getHeight()/5)));
+    bounds.removeFromTop(5);
+    tagInfo.setBounds(bounds.removeFromTop(22));
+    auto searchRow=bounds.removeFromTop(26);
+    assetSearch.setBounds(searchRow.removeFromLeft(searchRow.getWidth()*2/3-4));
+    searchRow.removeFromLeft(6);suggestedTags.setBounds(searchRow);
+    bounds.removeFromTop(4);
+    auto controls=bounds.removeFromBottom(115);
+    assets.setBounds(bounds);
+    auto labels=controls.removeFromTop(26);
+    tagGroup.setBounds(labels.removeFromLeft(juce::jmax(92,labels.getWidth()/4)));
+    labels.removeFromLeft(5);tagLabel.setBounds(labels);
+    controls.removeFromTop(4);
+    auto buttons=controls.removeFromTop(25);
+    const int each=juce::jmax(65,buttons.getWidth()/4);
+    addTag.setBounds(buttons.removeFromLeft(each-3));buttons.removeFromLeft(4);
+    confirmTag.setBounds(buttons.removeFromLeft(each-3));buttons.removeFromLeft(4);
+    rejectTag.setBounds(buttons.removeFromLeft(each-3));buttons.removeFromLeft(4);
+    undoTag.setBounds(buttons);
+    controls.removeFromTop(4);
+    auto metadata=controls.removeFromTop(25);
+    bpmValue.setBounds(metadata.removeFromLeft(juce::jmax(72,metadata.getWidth()/5)));
+    metadata.removeFromLeft(3);setBpm.setBounds(metadata.removeFromLeft(juce::jmax(70,metadata.getWidth()/4)));
+    metadata.removeFromLeft(8);
+    keyValue.setBounds(metadata.removeFromLeft(juce::jmax(70,metadata.getWidth()/2)));
+    metadata.removeFromLeft(3);setKey.setBounds(metadata);
+    controls.removeFromTop(4);
+    auto rules=controls.removeFromTop(25);
+    rulePhrase.setBounds(rules.removeFromLeft(juce::jmax(82,rules.getWidth()*2/3)));
+    rules.removeFromLeft(4);ruleFolder.setBounds(rules.removeFromLeft(66));
+    addRule.setBounds(rules);
 }
 int LibraryFoundationPanel::getNumRows() {
     return view?static_cast<int>(view->sources.size()):0;
