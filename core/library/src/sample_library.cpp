@@ -327,9 +327,9 @@ SampleLibrary::SampleLibrary(fs::path database) : impl_(std::make_unique<Impl>(s
 SampleLibrary::~SampleLibrary() = default;
 void SampleLibrary::add_source(fs::path root) { impl_->enqueue({Impl::Kind::add,0,std::move(root)}); }
 void SampleLibrary::relink_source(std::int64_t id, fs::path root) { impl_->enqueue({Impl::Kind::relink,id,std::move(root)}); }
-void SampleLibrary::remove_source(std::int64_t id) { impl_->enqueue({Impl::Kind::remove,id}); }
+void SampleLibrary::remove_source(std::int64_t id) { impl_->enqueue({Impl::Kind::remove,id,{}}); }
 void SampleLibrary::enable_source(std::int64_t id,bool enabled) { impl_->enqueue({Impl::Kind::enable,id,{},enabled}); }
-void SampleLibrary::rescan() { impl_->enqueue({Impl::Kind::rescan}); }
+void SampleLibrary::rescan() { impl_->enqueue({Impl::Kind::rescan,0,{}}); }
 void SampleLibrary::cancel_scan() { impl_->cancel=true; }
 std::shared_ptr<const Snapshot> SampleLibrary::snapshot() const { return impl_->snapshot(); }
 } // namespace mrs::library
