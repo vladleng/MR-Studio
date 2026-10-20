@@ -1,6 +1,7 @@
 #pragma once
 #include "Controls.h"
 #include <mrs/sample_library.hpp>
+#include <functional>
 
 namespace ui {
 // #252: source-management shell only. Tag/search/artwork UI belongs to #253/#254.
