@@ -442,6 +442,7 @@ public:
     ~Browser() override;
     void showFiles(bool);
     void showAssistant();
+    void showSplicedd();
     juce::Component* assistantComponent() const{return assistant.get();}
     void navigate(const juce::File&);
     juce::StringArray selectedSamples() const;
@@ -466,9 +467,14 @@ private:
     juce::TextButton scanButton{"Scan VST3..."};
     juce::TextEditor search;
     juce::TextButton vstTab{"VST3"},filesTab{"Files"},parentFolder{"Up"},chooseFolder{"Folder..."};
-    juce::TextButton aiTab{"AI"};
+    juce::TextButton aiTab{"AI"},spliceddTab{"S"};
     std::unique_ptr<juce::Component> assistant;
     bool assistantVisible{};
+    // Splicedd remains a separate GPL-3.0 application; this is an explicit launch bridge.
+    juce::Component spliceddPanel;
+    juce::Label spliceddTitle,spliceddDescription;
+    juce::TextButton spliceddLaunch{"Launch Splicedd..."},spliceddFolder{"Choose WAV folder..."},spliceddDownload{"Get Splicedd"};
+    bool spliceddVisible{};
     juce::TextEditor folderPath;
     juce::TimeSliceThread fileThread{"MR Studio file browser"};
     juce::WildcardFileFilter fileFilter{"*.wav;*.mid;*.midi","*","Audio and MIDI files"};
