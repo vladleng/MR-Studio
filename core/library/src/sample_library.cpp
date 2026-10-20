@@ -212,12 +212,13 @@ struct Cancelled : std::runtime_error { Cancelled() : std::runtime_error("Scan c
 } // namespace
 
 struct SampleLibrary::Impl {
-    enum class Kind { add, relink, remove, enable, rescan, view, tag, tag_status, bpm, key, rule, undo };
+    enum class Kind { add, relink, remove, enable, rescan, view, tag, tag_status, bpm, key, rule, undo, browse, create_collection, delete_collection, collection_items, favorites, artwork };
     struct Command {
         Kind kind;std::int64_t id{};fs::path root;bool enabled{true};
         std::vector<std::int64_t> ids;
         std::string group,label,status,phrase;
         int number{};bool folder{};
+        LibraryQuery query;
         Command():kind(Kind::view){}
         Command(Kind k,std::int64_t n=0,fs::path p={},bool e=true)
             :kind(k),id(n),root(std::move(p)),enabled(e){}
@@ -228,8 +229,7 @@ struct SampleLibrary::Impl {
     std::deque<Command> commands;
     std::shared_ptr<const Snapshot> state{std::make_shared<Snapshot>()};
     std::uint64_t revision{};
-    std::int64_t viewSource{};
-    std::string viewFilter;
+    LibraryQuery browserQuery;
     std::atomic<bool> cancel{false}, scanning{false};
     std::jthread worker;
 
@@ -273,11 +273,123 @@ struct SampleLibrary::Impl {
             source.invalid = static_cast<std::uint64_t>(sqlite3_column_int64(entries.stmt, 5));
             next->sources.push_back(std::move(source));
         }
-        // All catalogue queries happen on the worker; the JUCE thread only reads snapshots.
-        Statement assets(d,"SELECT id,source_id,relative_path,status,bpm_auto,bpm_manual,key_auto,key_manual"
-            " FROM assets WHERE (?=0 OR source_id=?) AND instr(lower(relative_path),lower(?))>0"
-            " ORDER BY relative_path,id LIMIT 300");
-        assets.number(1,viewSource);assets.number(2,viewSource);assets.str(3,viewFilter);
+        // All data lookup, pagination and filter evaluation run on this worker.
+        // A bounded page is copied to JUCE as an immutable snapshot.
+        const auto& q=browserQuery;
+        next->query=q;
+        Statement collections(d,"SELECT c.id,c.name,COUNT(ci.asset_id) FROM collections c"
+            " LEFT JOIN collection_items ci ON ci.collection_id=c.id GROUP BY c.id ORDER BY c.name");
+        while(collections.next()){
+            const auto* name=sqlite3_column_text(collections.stmt,1);
+            next->collections.push_back({sqlite3_column_int64(collections.stmt,0),
+                name?reinterpret_cast<const char*>(name):"",
+                static_cast<std::uint64_t>(sqlite3_column_int64(collections.stmt,2))});
+        }
+        Statement facets(d,"SELECT t.group_name,t.label,COUNT(*) FROM asset_tags at"
+            " JOIN tags t ON t.id=at.tag_id JOIN assets a ON a.id=at.asset_id"
+            " WHERE at.status <> 'rejected' AND (?=0 OR a.source_id=?)"
+            " AND a.status='ok' GROUP BY t.group_name,t.label ORDER BY t.group_name,t.label");
+        facets.number(1,q.source_id);facets.number(2,q.source_id);
+        while(facets.next()){
+            const auto* group=sqlite3_column_text(facets.stmt,0);
+            const auto* label=sqlite3_column_text(facets.stmt,1);
+            next->facets.push_back({group?reinterpret_cast<const char*>(group):"",
+                label?reinterpret_cast<const char*>(label):"",
+                static_cast<std::uint64_t>(sqlite3_column_int64(facets.stmt,2))});
+        }
+        std::map<std::pair<std::int64_t,std::string>,std::string> covers;
+        Statement art(d,"SELECT source_id,folder,auto_image,manual_image FROM folder_artwork");
+        while(art.next()){
+            const auto str=[&](int i){const auto* x=sqlite3_column_text(art.stmt,i);
+                return x?std::string(reinterpret_cast<const char*>(x)):std::string{};};
+            const auto manual=str(3),autoImage=str(2);
+            covers[{sqlite3_column_int64(art.stmt,0),str(1)}]=
+                manual.empty()?autoImage:manual;
+        }
+        const auto artwork=[&](std::int64_t source,std::string folder){
+            for(;;){
+                auto found=covers.find({source,folder});
+                if(found!=covers.end()&&!found->second.empty())return found->second;
+                if(folder.empty())break;
+                const auto slash=folder.find_last_of('/');
+                folder=slash==std::string::npos?"":folder.substr(0,slash);
+            }
+            return std::string{};
+        };
+        Statement folders(d,"SELECT source_id,path FROM folders WHERE (?=0 OR source_id=?)"
+            " ORDER BY source_id,path");
+        folders.number(1,q.source_id);folders.number(2,q.source_id);
+        while(folders.next()){
+            const auto* path=sqlite3_column_text(folders.stmt,1);
+            const auto id=sqlite3_column_int64(folders.stmt,0);
+            const std::string relative=path?reinterpret_cast<const char*>(path):"";
+            next->folders.push_back({id,relative,artwork(id,relative)});
+        }
+        // Bind parameters in the same order to COUNT and PAGE queries.
+        std::string where=" WHERE (?=0 OR a.source_id=?)";
+        std::vector<std::string> params;
+        if(!q.folder.empty()){
+            where+=" AND (substr(a.relative_path,1,length(?))=?)";
+            const auto prefix=q.folder+"/";
+            params.push_back(prefix);params.push_back(prefix);
+        }
+        if(q.favorites_only)where+=" AND EXISTS (SELECT 1 FROM favorites fv WHERE fv.asset_id=a.id)";
+        if(q.collection_id>0){where+=" AND EXISTS (SELECT 1 FROM collection_items ci"
+            " WHERE ci.asset_id=a.id AND ci.collection_id=?)";
+            params.push_back(std::to_string(q.collection_id));}
+        if(!q.search.empty()){
+            where+=" AND (instr(lower(a.relative_path),lower(?))>0 OR EXISTS (SELECT 1 FROM asset_tags st"
+                " JOIN tags t ON t.id=st.tag_id WHERE st.asset_id=a.id AND st.status<>'rejected'"
+                " AND instr(lower(t.label),lower(?))>0)"
+                " OR EXISTS (SELECT 1 FROM collection_items ci JOIN collections c ON c.id=ci.collection_id"
+                " WHERE ci.asset_id=a.id AND instr(lower(c.name),lower(?))>0))";
+            for(int i=0;i<3;++i)params.push_back(q.search);
+        }
+        const auto bpm="(CASE WHEN a.bpm_manual=-1 THEN 0"
+            " WHEN a.bpm_manual>0 THEN a.bpm_manual ELSE a.bpm_auto END)";
+        const auto key="(CASE WHEN a.key_manual='-' THEN ''"
+            " WHEN a.key_manual<>'' THEN a.key_manual ELSE a.key_auto END)";
+        if(q.bpm_min>0){where+=std::string(" AND ")+bpm+">=?";params.push_back(std::to_string(q.bpm_min));}
+        if(q.bpm_max>0){where+=std::string(" AND ")+bpm+"<=?";params.push_back(std::to_string(q.bpm_max));}
+        if(!q.key.empty()){
+            where+=std::string(" AND ")+key+(q.key=="?"?"=''":"=?");
+            if(q.key!="?")params.push_back(q.key);
+        }
+        std::map<std::string,std::set<std::string>> groups;
+        for(const auto& filter:q.tags)
+            if(allowed_group(filter.group)&&!filter.label.empty()&&filter.label.size()<=96)
+                groups[filter.group].insert(filter.label);
+        for(const auto& [group,values]:groups){
+            where+=" AND EXISTS (SELECT 1 FROM asset_tags at JOIN tags t ON t.id=at.tag_id"
+                " WHERE at.asset_id=a.id AND at.status<>'rejected' AND t.group_name=? AND t.label IN (";
+            params.push_back(group);
+            bool first=true;
+            for(const auto& value:values){
+                if(!first)where+=",";
+                first=false;where+="?";params.push_back(value);
+            }
+            where+="))";
+        }
+        const auto bind=[&](Statement& st){
+            st.number(1,q.source_id);st.number(2,q.source_id);
+            int n=3;for(const auto& value:params)st.str(n++,value);
+            return n;
+        };
+        Statement count(d,("SELECT COUNT(*) FROM assets a"+where).c_str());
+        bind(count);
+        if(count.next())next->visible_assets=static_cast<std::uint64_t>(sqlite3_column_int64(count.stmt,0));
+        std::string sort="a.relative_path COLLATE NOCASE,a.id";
+        if(q.sort=="bpm")sort=std::string(bpm)+" DESC,a.relative_path";
+        else if(q.sort=="duration")sort="a.frames DESC,a.relative_path";
+        else if(q.sort=="updated")sort="a.modified DESC,a.relative_path";
+        const std::string query="SELECT a.id,a.source_id,a.relative_path,a.status,"
+            "a.bpm_auto,a.bpm_manual,a.key_auto,a.key_manual,a.rate,a.frames,a.modified,"
+            "EXISTS(SELECT 1 FROM favorites f WHERE f.asset_id=a.id)"
+            " FROM assets a"+where+" ORDER BY "+sort+" LIMIT ? OFFSET ?";
+        Statement assets(d,query.c_str());
+        int n=bind(assets);
+        assets.number(n++,static_cast<std::int64_t>(std::clamp(q.limit,std::uint64_t{1},std::uint64_t{300})));
+        assets.number(n,static_cast<std::int64_t>(std::min(q.offset,std::uint64_t{1000000000})));
         Statement tags(d,"SELECT t.group_name,t.label,at.origin,at.status,at.confidence"
             " FROM asset_tags at JOIN tags t ON t.id=at.tag_id WHERE at.asset_id=?"
             " ORDER BY t.group_name,t.label");
@@ -291,6 +403,13 @@ struct SampleLibrary::Impl {
             item.detected_bpm=sqlite3_column_int(assets.stmt,4);
             item.manual_bpm=sqlite3_column_int(assets.stmt,5);
             item.detected_key=text_column(6);item.manual_key=text_column(7);
+            item.sample_rate=sqlite3_column_int64(assets.stmt,8);
+            item.frames=sqlite3_column_int64(assets.stmt,9);
+            item.modified=sqlite3_column_int64(assets.stmt,10);
+            item.favorite=sqlite3_column_int(assets.stmt,11)!=0;
+            const auto pos=item.relative_path.find_last_of('/');
+            const auto dir=pos==std::string::npos?"":item.relative_path.substr(0,pos);
+            item.artwork_path=artwork(item.source_id,dir);
             tags.reset();tags.number(1,item.id);
             while(tags.next()){
                 const auto field=[&](int index){const auto* p=sqlite3_column_text(tags.stmt,index);
@@ -299,10 +418,6 @@ struct SampleLibrary::Impl {
             }
             next->assets.push_back(std::move(item));
         }
-        Statement count(d,"SELECT COUNT(*) FROM assets WHERE (?=0 OR source_id=?)"
-            " AND instr(lower(relative_path),lower(?))>0");
-        count.number(1,viewSource);count.number(2,viewSource);count.str(3,viewFilter);
-        if(count.next())next->visible_assets=static_cast<std::uint64_t>(sqlite3_column_int64(count.stmt,0));
         { std::lock_guard lock(mutex); next->revision = ++revision; state = std::move(next); }
     }
     void scan_one(Database& d, std::int64_t source_id, const fs::path& root, std::stop_token stop) {
