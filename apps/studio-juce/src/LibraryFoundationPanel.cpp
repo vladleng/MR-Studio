@@ -99,7 +99,7 @@ void LibraryFoundationPanel::paintListBoxItem(int row,juce::Graphics& g,int widt
     if(selected)g.fillAll(juce::Colour(0xff375a80));
     g.setColour(juce::Colours::whitesmoke);
     g.setFont(Theme::detailFont());
-    g.drawFittedText(pathText(item.root.getFilename()),5,1,width-10,19,juce::Justification::centredLeft,1);
+    g.drawFittedText(pathText(item.root.filename()),5,1,width-10,19,juce::Justification::centredLeft,1);
     g.setColour(juce::Colours::lightgrey);
     const auto summary=juce::String(item.enabled?"":"Disabled | ")+
         juce::String(static_cast<juce::int64>(item.available))+" WAV, "+
