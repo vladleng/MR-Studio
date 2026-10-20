@@ -20,10 +20,10 @@ description: Audit or modify MR Studio real-time audio callbacks, device/audio g
 3. Choose the *smallest* safe transfer: atomic scalar for a scalar; immutable snapshot and atomic publication for coherent parameters; bounded SPSC/FIFO for streams. Preallocate workspaces and complete decoding/IR/NAM preparation/graph compile on non-RT. Avoid lock-free complexity unless necessary.
 4. Prove lifetime: publish only fully prepared state, atomically switch at safe boundaries, retire memory outside callback, quiesce and join workers before destroying a graph, plugin or device. Atomics need appropriate memory ordering; an atomic pointer alone is not a safe ownership design. Read [ownership notes](references/ownership-and-atomics.md) when applicable.
 5. Check changed state transitions: device reopen, sample rate/buffer, transport start/stop/seek/loop, plugin replace, project close, channel mapping, UI teardown. For third-party hosting read [plugin RT notes](references/plugin-host-realtime-safety.md) if affected.
-6. Run affected RT regressions locally: no alloc/lock probes where available, callback max time/xrun, sample-rate/buffer changes, rapid switching and shutdown. 128-frame Live/recording checks are distinct from higher-buffer Studio mixing; avoid imposing one limit on all effects. [RT matrix](assets/rt-validation-matrix.md) optional for stage acceptance.
+6. Run affected synthetic RT regressions in the supported CI profile; measure physical hardware locally: no alloc/lock probes where available, callback max time/xrun, sample-rate/buffer changes, rapid switching and shutdown. 128-frame Live/recording checks are distinct from higher-buffer Studio mixing; avoid imposing one limit on all effects. [RT matrix](assets/rt-validation-matrix.md) optional for stage acceptance.
 
 ## Reporting and scope
 
 - Distinguish **RT SAFE**, **RT SAFE WITH MANUAL CHECK**, **RT RISK FOUND**, **NOT RT-VALIDATED**. Compilation/ordinary CPU percentage alone do not prove safety; do not claim physical ASIO/listening without measurement.
-- Use local `mr-studio-build-test` for actual build/CTest; don't duplicate build instructions here. Optional [review template](assets/rt-code-review-template.md).
+- Use `mr-studio-build-test` for actual build/CTest; don't duplicate build instructions here. Optional [review template](assets/rt-code-review-template.md).
 - Follow `AGENTS.md`: no new stage, source push, GitHub Actions or production media changes merely because this skill was invoked.

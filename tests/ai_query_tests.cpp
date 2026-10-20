@@ -123,7 +123,8 @@ void lifetime_test(){
     app.play();eventually([&]{return app.engine()->state().sample>0;});
     auto task=[&](const Request& r,const JobControl& control){CHECK(r.snapshot && r.snapshot->json.find("Original")!=std::string::npos);
         CHECK(r.context.observed_transport==r.snapshot->context.observed_transport);started=true;
-        while(!control.should_stop())std::this_thread::sleep_for(1ms);cancelled=true;return "stale";};
+        while(!control.should_stop())std::this_thread::sleep_for(1ms);
+        cancelled=true;return "stale";};
     CHECK(app.request_ai({snapshot.value->context,"mock",2s,snapshot.value},task).error==Error::none);eventually([&]{return started.load();});
     app.stop();eventually([&]{app.poll();return app.services().transport->state().playback==PlaybackState::stopped;});
     app.rename_track(track,"Changed");eventually([&]{return cancelled.load();});CHECK(!app.take_ai_result());
@@ -149,5 +150,6 @@ void lifetime_test(){
 int main(int argc,char** argv){try{if(argc!=2)throw std::runtime_error("suite required");const std::string suite=argv[1];
     if(suite=="queries")queries_test();else if(suite=="snapshot")snapshot_test();else if(suite=="lifetime")lifetime_test();else if(suite=="analysis")analysis_test();
     else if(suite=="export"){ViewFixture f;auto snapshot=f.view()->snapshot(all_queries());CHECK(snapshot.value);std::cout<<snapshot.value->json;return 0;}
-    else throw std::runtime_error("unknown suite");std::cout<<"PASS AI "<<suite<<'\n';return 0;
+    else throw std::runtime_error("unknown suite");
+    std::cout<<"PASS AI "<<suite<<'\n';return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

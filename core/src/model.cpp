@@ -96,7 +96,8 @@ const ModuleDescriptor* rig_module_descriptor(const RigModule& module) noexcept 
 RigModule make_rig_module(std::string_view type){
     RigModule m;m.id=new_id();m.type_id=type;
     const auto* descriptor=rig_module_descriptor(m);require(descriptor!=nullptr,"Unavailable Rig module");
-    for(const auto& p:descriptor->parameters)m.parameters.push_back({p.id,p.initial});return m;
+    for(const auto& p:descriptor->parameters){m.parameters.push_back({p.id,p.initial});}
+    return m;
 }
 void RigState::validate() const {
     require(version==1||version==2,"Unsupported RigState version");

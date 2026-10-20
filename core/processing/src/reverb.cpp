@@ -130,7 +130,10 @@ struct Tier {
                 butterflies(data.data()+start+column,data.data()+start+column+length/2,fft.roots.data()+column*step,step,batch,inverse);
                 column+=batch;used+=batch;if(column==length/2){column=0;start+=length;if(start==n){start=0;length*=2;}}
             }else if(inverse&&index<2*n){const auto batch=std::min(capacity-used,2*n-index);
-                for(std::size_t i=index;i<index+batch;++i)data[i-n]/=static_cast<float>(n);index+=batch;used+=batch;
+              for (std::size_t i = index; i < index + batch; ++i)
+                data[i - n] /= static_cast<float>(n);
+              index += batch;
+              used += batch;
             }else break;
         }
         return {used,length>n&&(!inverse||index==2*n)};
@@ -175,7 +178,9 @@ struct Tier {
         // Owner and alias run in order; slices finish within the existing P slack.
         if(size>128&&(position&31)==0)advance_job(quota*32);
         const auto slot=static_cast<std::size_t>(sample&(output.size()-1));const auto result=tags[slot]==generation?output[slot]:0.f;tags[slot]=0;
-        if(!input_owner)input[position]=dry;++position;
+        if (!input_owner)
+          input[position] = dry;
+        ++position;
         if(position==size){
             if(!input_owner){std::fill(work.begin(),work.end(),Complex{});for(std::size_t i=0;i<size;++i)work[i]=input[i];}
             if(size>128){
@@ -206,15 +211,23 @@ struct Route {
     std::size_t cursor{};
     std::vector<Tier> tiers;
     explicit Route(std::span<const float> ir,Route* owner=nullptr,std::stop_token stop={}):input_owner(owner){
-        for(std::size_t i=0;i<std::min(head_size,ir.size());++i)head[head_size-1-i]=ir[i];tiers.reserve(3);
-        for(const auto [p,begin,end]:std::array<std::array<std::size_t,3>,3>{{{128,128,2048},{1024,2048,16384},{8192,16384,ir.size()}}})
-            if(ir.size()>begin)tiers.emplace_back(ir,p,begin,std::min(end,ir.size()),owner?&owner->tiers[tiers.size()]:nullptr,stop);
+      for (std::size_t i = 0; i < std::min(head_size, ir.size()); ++i)
+        head[head_size - 1 - i] = ir[i];
+      tiers.reserve(3);
+      for (const auto [p, begin, end] :
+           std::array<std::array<std::size_t, 3>, 3>{{{128, 128, 2048}, {1024, 2048, 16384}, {8192, 16384, ir.size()}}})
+        if (ir.size() > begin)
+          tiers.emplace_back(ir, p, begin, std::min(end, ir.size()), owner ? &owner->tiers[tiers.size()] : nullptr,
+                             stop);
     }
     void reset() noexcept {history.fill(0);cursor=0;for(auto& tier:tiers)tier.reset();}
     float process(float input) noexcept {
         if(!input_owner)history[cursor]=history[cursor+head_size]=input;
         double output=direct_head(head.data(),input_owner?input_owner->history.data()+input_owner->cursor:history.data()+cursor+1);
-        for(auto& tier:tiers)output+=tier.process(input);cursor=(cursor+1)%head_size;return clean(static_cast<float>(output));
+        for (auto &tier : tiers)
+          output += tier.process(input);
+        cursor = (cursor + 1) % head_size;
+        return clean(static_cast<float>(output));
     }
     std::size_t bytes() const noexcept {std::size_t result=sizeof(*this);for(const auto& t:tiers)result+=t.bytes();return result;}
 };
@@ -372,7 +385,9 @@ ReverbKernel::ReverbKernel(ReverbKernel&&) noexcept=default;
 ReverbKernel& ReverbKernel::operator=(ReverbKernel&&) noexcept=default;
 ReverbKernel ReverbProcessor::prepare_kernel(const ReverbImpulse& ir,ProcessConfig config,std::stop_token stop){
     require(config.sample_rate>=8000&&config.sample_rate<=192000&&(config.channels==1||config.channels==2)&&config.max_block>0,"Invalid MR Reverb preparation config");
-    if(stop.stop_requested())throw std::runtime_error("IR preparation cancelled");ir.validate();
+    if (stop.stop_requested())
+      throw std::runtime_error("IR preparation cancelled");
+    ir.validate();
     auto value=std::make_unique<ReverbKernel::Impl>();value->config=config;value->runtime=std::make_unique<Runtime>(ir,config,stop);
     return ReverbKernel(std::move(value));
 }
@@ -387,7 +402,15 @@ ReverbProcessor::ReverbProcessor(bool cab,bool rig):cab_(cab||rig),rig_(rig),imp
 ReverbProcessor::~ReverbProcessor()=default;
 std::vector<ParameterInfo> ReverbProcessor::parameters() const{
     if(rig_){std::vector<ParameterInfo> result{{0,0,4,1,true,"Wet gain"},{1,0,1,1,true,"Mix"},{2,20,20000,20,true,"Low cut"},{3,20,20000,20000,true,"High cut"},{4,0,1,0,true,"Polarity"},{5,0,4,1,true,"Input"},{6,0,4,1,true,"Output"}};
-        for(std::size_t slot=0;slot<rig_lane_capacity*2;++slot)for(std::uint32_t f=0;f<rig_slot_fields;++f)result.push_back({static_cast<std::uint32_t>(32+slot*rig_slot_fields+f),f<2?0.f:-60.f,f==0?static_cast<float>(rig_modules.size()):f==1?1.f:20000.f,0,false,"Rig rack state",true});return result;}
+      for (std::size_t slot = 0; slot < rig_lane_capacity * 2; ++slot)
+        for (std::uint32_t f = 0; f < rig_slot_fields; ++f)
+          result.push_back({static_cast<std::uint32_t>(32 + slot * rig_slot_fields + f), f < 2 ? 0.f : -60.f,
+                            f == 0   ? static_cast<float>(rig_modules.size())
+                            : f == 1 ? 1.f
+                                     : 20000.f,
+                            0, false, "Rig rack state", true});
+      return result;
+    }
     if(cab_)return {{0,0,4,1,true,"Gain"},{1,0,1,1,true,"Mix"},{2,20,20000,20,true,"Low cut"},{3,20,20000,20000,true,"High cut"},{4,0,1,0,true,"Polarity"}};
     return {{0,0,200,0,true,"Pre-delay"},{1,-6,6,0,true,"Tone"},{2,0,1,.25f,true,"Mix"},{3,0,1,0,true,"Input gate"},{4,-120,-60,-90,true,"Gate threshold"}};
 }

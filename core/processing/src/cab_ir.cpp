@@ -68,7 +68,13 @@ public:
     }
     PluginState capture() const override{return original_;}
     bool set_parameter(std::uint32_t id,float value) noexcept override{
-        if(id>=5||!std::isfinite(value)||value<(id==2||id==3?20.f:0.f)||value>(id==0?4.f:id==2||id==3?20000.f:1.f))return false;target_[id]=value;return true;
+      if (id >= 5 || !std::isfinite(value) || value < (id == 2 || id == 3 ? 20.f : 0.f) ||
+          value > (id == 0              ? 4.f
+                   : id == 2 || id == 3 ? 20000.f
+                                        : 1.f))
+        return false;
+      target_[id] = value;
+      return true;
     }
     std::optional<float> parameter_value(std::uint32_t id) const noexcept override{return id<5?std::optional<float>{target_[id]}:std::nullopt;}
     std::uint32_t latency() const noexcept override{return 0;} // direct head hides tail partition delay
@@ -86,7 +92,10 @@ public:
                 double wet=output_[ch*partition+block_pos_];for(std::size_t j=0;j<partition;++j)wet+=head_[ch*partition+j]*history_[ch*partition+(head_pos_+partition-j)%partition];
                 const float v=static_cast<float>(wet);hp_state_[ch]=hp_*(hp_state_[ch]+v-previous_input_[ch]);previous_input_[ch]=v;const float high=current_[2]<=20.001f?v:hp_state_[ch];lp_state_[ch]+=lp_*(high-lp_state_[ch]);float filtered=current_[3]>=19999.9f?high:lp_state_[ch];filtered*=current_[0]*(1-2*current_[4]);
                 float result=dry+current_[1]*(filtered-dry);if(!std::isfinite(result)||std::abs(result)<1e-25f)result=0;block.audio[index]=result;
-                if(std::abs(hp_state_[ch])<1e-25f)hp_state_[ch]=0;if(std::abs(lp_state_[ch])<1e-25f)lp_state_[ch]=0;
+                if (std::abs(hp_state_[ch]) < 1e-25f)
+                  hp_state_[ch] = 0;
+                if (std::abs(lp_state_[ch]) < 1e-25f)
+                  lp_state_[ch] = 0;
             }
             head_pos_=(head_pos_+1)%partition;if(++block_pos_==partition){tail_block();block_pos_=0;}
         }

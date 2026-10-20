@@ -53,7 +53,11 @@ ReverbLibraryIndex index_reverb_library(const fs::path& requested,std::stop_toke
         // Do not follow symlinks/junctions into another library or a traversal cycle.
         if(at->is_symlink(error)){at.disable_recursion_pending();continue;}
         if(at->is_regular_file(error)&&lower(utf8(at->path().extension()))==".wav"){
-            if(files.size()==10000)throw std::runtime_error("IR library exceeds 10000 WAV files; choose a smaller folder");files.push_back(at->path());}}
+          if (files.size() == 10000)
+            throw std::runtime_error("IR library exceeds 10000 WAV files; choose a smaller folder");
+          files.push_back(at->path());
+        }
+    }
     std::sort(files.begin(),files.end());std::vector<ReverbLibraryEntry> entries;entries.reserve(files.size());
     for(const auto& file:files){cancelled(stop);entries.push_back(inspect_entry(file,result.root));}
     std::map<std::string,std::vector<std::size_t>> pairs;
@@ -106,13 +110,27 @@ struct ReverbLoader::Impl {
     ReverbLibraryEntry entry;fs::path root;processing::ReverbQuadMap map{};std::uint64_t revision{};bool pending{},closed{};std::optional<ReverbState> expected;
     std::shared_ptr<const ReverbLoadStatus> status{std::make_shared<ReverbLoadStatus>()};std::jthread worker;
     Impl(std::shared_ptr<processing::PreparedGraph> g,Id n,processing::ProcessConfig c,std::shared_ptr<ReverbLibrary> l):graph(std::move(g)),node(std::move(n)),config(c),library(std::move(l)){
-        if(!graph)throw std::invalid_argument("MR Reverb loader needs a live graph lease");(void)graph->reverb_switching(node);worker=std::jthread([this](std::stop_token lifetime){run(lifetime);});}
+      if (!graph)
+        throw std::invalid_argument("MR Reverb loader needs a live graph lease");
+      (void)graph->reverb_switching(node);
+      worker = std::jthread([this](std::stop_token lifetime) { run(lifetime); });
+    }
     void shutdown(){worker.request_stop();{std::lock_guard lock(mutex);closed=true;pending=false;cancellation.request_stop();}wake.notify_all();if(worker.joinable())worker.join();collect();}
     ~Impl(){shutdown();}
     void run(std::stop_token lifetime){while(!lifetime.stop_requested()){
         ReverbLibraryEntry requested;fs::path requested_root;processing::ReverbQuadMap requested_map{};std::uint64_t ticket{},catalogue_ticket{};std::stop_token stop;std::optional<ReverbState> restore_state;
         {std::unique_lock lock(mutex);if(!wake.wait_for(lock,lifetime,std::chrono::milliseconds(20),[&]{return pending;})){lock.unlock();collect();continue;}
-            if(lifetime.stop_requested())return;requested=entry;requested_root=root;requested_map=map;ticket=revision;catalogue_ticket=library_revision;stop=cancellation.get_token();restore_state=expected;pending=false;}
+          if (lifetime.stop_requested())
+            return;
+          requested = entry;
+          requested_root = root;
+          requested_map = map;
+          ticket = revision;
+          catalogue_ticket = library_revision;
+          stop = cancellation.get_token();
+          restore_state = expected;
+          pending = false;
+        }
         try{
             if(restore_state){const auto& saved=*restore_state;
                 const auto resolve=[&](const ReverbReference& reference){
@@ -131,7 +149,9 @@ struct ReverbLoader::Impl {
             }
             cancelled(stop);if(requested.kind==ReverbFileKind::unsupported)throw std::runtime_error(requested.error);
             if(!fs::is_regular_file(requested.first)||(!requested.second.empty()&&!fs::is_regular_file(requested.second)))throw std::runtime_error("IR missing — choose folder/relink");
-            const auto first_stamp=stamp(requested.first);const auto second_stamp=requested.second.empty()?std::optional<Stamp>{}:stamp(requested.second);
+            const auto first_stamp=stamp(requested.first);
+            std::optional<Stamp> second_stamp;
+            if(!requested.second.empty()){second_stamp.emplace(stamp(requested.second));}
             // Identity and metadata are validated before construction/publication. No UI/audio I/O.
             auto first=identity(requested.first,requested_root,stop);ReverbFileIdentity second;
             if(!requested.second.empty())second=identity(requested.second,requested_root,stop);
@@ -141,7 +161,7 @@ struct ReverbLoader::Impl {
             const auto actual_channels=ir.routing==processing::ReverbRouting::mono?1u:ir.routing==processing::ReverbRouting::stereo?2u:4u;
             if(actual_channels!=requested.channels)throw std::runtime_error("IR channel layout changed; re-index folder");
             auto kernel=processing::ReverbProcessor::prepare_kernel(ir,config,stop);
-            if(stamp(requested.first)!=first_stamp||(!requested.second.empty()&&stamp(requested.second)!=*second_stamp))throw std::runtime_error("IR changed during loading; select again");
+            if(stamp(requested.first)!=first_stamp||(second_stamp.has_value()&&stamp(requested.second)!=second_stamp.value()))throw std::runtime_error("IR changed during loading; select again");
             // One pending handoff at a time. Waiting is cancellable on this worker only;
             // never re-prepare graph/device or block the message/audio threads.
             while(!stop.stop_requested()&&!lifetime.stop_requested()){

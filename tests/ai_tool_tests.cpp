@@ -21,7 +21,8 @@ void registry(){
     CHECK(decode_tool_call(envelope("edit_ara_note",R"({"clip_id":"clip","note":3,"cents":20})")).error==Error::unsupported);
     CHECK(decode_tool_call(envelope("add_marker",R"({"name":"Verse","tick":0})")).value);
     auto unicode=decode_tool_call(envelope("add_marker",R"({"name":"\uD83C\uDFB5","tick":1})"));CHECK(unicode.value && std::get<MarkerAddArgs>(unicode.value->arguments).name=="🎵");
-    CHECK(decode_tool_call(envelope("add_marker",R"({"name":"\uD800","tick":1})")).error==Error::invalid_input);
+    const auto unpairedSurrogate=envelope("add_marker",R"({"name":"\uD800","tick":1})");
+    CHECK(decode_tool_call(unpairedSurrogate).error==Error::invalid_input);
     CHECK(decode_tool_call(envelope("add_marker",R"({"name":"\u0000","tick":1})")).error==Error::invalid_input);
     CHECK(decode_tool_call(envelope("add_marker",R"({"name":"","tick":1})")).error==Error::invalid_input);
     CHECK(decode_tool_call(envelope("add_marker",R"({"name":"x","tick":-1})")).error==Error::invalid_input);
@@ -147,7 +148,7 @@ void drafts(){
     for(const auto& [from,to]:std::vector<std::pair<std::string,std::string>>{{"\"pitch\":36","\"pitch\":128"},{"\"channel\":0","\"channel\":16"},{"\"duration\":960","\"duration\":0"},{"\"duration\":960","\"duration\":960.0"},{"\"start\":0","\"start\":3840"},{"\"tick_end\":4800","\"tick_end\":9223372036854775807"},{"\"value\":80","\"value\":-1"},{"\"mode\":\"insert\"","\"mode\":\"edit\""}}){auto bad=json;bad.replace(bad.find(from),from.size(),to);CHECK(!decode_tool_call(envelope("midi_draft",bad)).value);}
     CHECK(!decode_tool_call(envelope("midi_draft",json.substr(0,json.size()-2))).value);
     Directory dir;desktop::Application app;app.new_project();const auto track=app.add_instrument_track("Bass");auto time=app.snapshot().project.time;time.tempos={{0,120},{2*ppq,90}};time.meters={{1,4,4},{2,3,4}};app.set_time_map(time);auto policy=app.ai_permissions();policy.mode=PermissionMode::edit;app.set_ai_permissions(policy);
-    struct Device final:audio::IAudioDevice{bool fail{};audio::DevicePhase phase{audio::DevicePhase::closed};std::vector<audio::DeviceInfo> enumerate()override{return {{0,"Draft fixture",{}, {"L","R"},16,8192,128,1}};}void control_panel(int)override{}void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>)override{phase=audio::DevicePhase::open;}void start()override{if(fail){fail=false;throw std::runtime_error("Draft restart failure");}phase=audio::DevicePhase::running;}void stop()override{phase=audio::DevicePhase::stopped;}void close()noexcept override{phase=audio::DevicePhase::closed;}audio::DeviceStatus status()override{return {phase,48000};}};
+    struct Device final:audio::IAudioDevice{bool fail{};audio::DevicePhase phase{audio::DevicePhase::closed};std::vector<audio::DeviceInfo> enumerate()override{return {{0,"Draft fixture",{}, {"L","R"},16,8192,128,1}};}void control_panel(int)override{}void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>)override{phase=audio::DevicePhase::open;}void start()override{if(fail){fail=false;throw std::runtime_error("Draft restart failure");}phase=audio::DevicePhase::running;}void stop()override{phase=audio::DevicePhase::stopped;}void close()noexcept override{phase=audio::DevicePhase::closed;}audio::DeviceStatus status()override{return {phase,48000,0,0,0,{}};}};
     auto device=std::make_unique<Device>();auto* driver=device.get();app.connect(std::move(device),{0,48000,128,{}, {0,1}});const auto generation=app.insert_generation(),midiGeneration=app.engine()->midi_generation();unsigned published{};auto observer=app.services().projects->subscribe([&](const auto&){++published;});
     MidiDraftArgs args;args.track=track;args.name="Bass";args.start=ppq;args.end=5*ppq;args.notes={{{},0,ppq,36,100,0},{{},ppq,ppq,43,80,0},{{},2*ppq,ppq,48,90,0}};args.cc={{{},0,11,80,0}};
     int counter{};auto prepare=[&](const MidiDraftArgs& value){auto [snapshot,request]=issue(app);ToolCall call{1,request,"draft-"+std::to_string(++counter),snapshot->context.key,ToolKind::midi_draft,value};return app.ai_propose(call,snapshot);};
@@ -215,5 +216,6 @@ void authorization(){
 }
 int main(int argc,char** argv){try{if(argc!=2)throw std::runtime_error("suite required");const std::string suite=argv[1];
     if(suite=="registry")registry();else if(suite=="policy")policy();else if(suite=="authorization")authorization();else if(suite=="preview")previews();else if(suite=="transactions")transactions();else if(suite=="midi_draft")drafts();else if(suite=="schema"){std::cout<<tool_envelope_schema();return 0;}
-    else throw std::runtime_error("unknown suite");std::cout<<"PASS AI "<<suite<<'\n';return 0;
+    else throw std::runtime_error("unknown suite");
+    std::cout<<"PASS AI "<<suite<<'\n';return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

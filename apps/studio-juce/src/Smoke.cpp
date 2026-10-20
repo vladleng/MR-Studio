@@ -514,7 +514,10 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
         auto* row=find(strip);check(row!=nullptr,"mixer insert row found by stable slot identity");return row;
     };
     const auto beforeReorder=*d.project();
-    juce::DragAndDropTarget::SourceDetails trackDrop("mrs-track:"+juce::String(first.value),d.arrangement->rows[0].get(),{130,300});
+    const auto targetBounds=d.mixer[2]->getLocalBounds();
+    juce::DragAndDropTarget::SourceDetails outsideDrop("mrs-track:"+juce::String(first.value),d.arrangement->rows[0].get(),{targetBounds.getRight()+1,targetBounds.getCentreY()});
+    d.mixer[2]->itemDropped(outsideDrop);pump();check(*d.project()==beforeReorder,"outside mixer drop cannot reorder tracks");
+    juce::DragAndDropTarget::SourceDetails trackDrop("mrs-track:"+juce::String(first.value),d.arrangement->rows[0].get(),{targetBounds.getRight()-2,targetBounds.getCentreY()});
     check(d.mixer[2]->isInterestedInDragSource(trackDrop),"mixer accepts track drag from arrangement");d.mixer[2]->itemDropped(trackDrop);pump();
     check(d.project()->tracks.back().id==first&&d.mixer.back()->target==first&&d.arrangement->rows.back()->target==first,"reorder synchronizes both views");
     check(d.project()->clips==beforeReorder.clips,"reorder retains clip identities and positions");d.action(10);check(*d.project()==beforeReorder,"reorder undo");
@@ -538,15 +541,35 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     d.setWorkspace(mrs::desktop::Workspace::arrange);check(!d.master->isVisible(),"arrange hides docked mixer");
     d.setWorkspace(mrs::desktop::Workspace::mix);check(d.master->isVisible(),"mix shows docked mixer");
     d.sidebar=false;d.resized();int width=d.arrangeArea.getWidth();d.sidebar=true;d.resized();check(d.arrangeArea.getWidth()<width,"browser resizes arrangement");
-    check(d.browser->tree.getRootItem()->getNumSubItems()==0,"empty browser");
+    // An ARA-enabled build always has an empty ARA 2 category, even when no
+    // plugins are scanned. Only vendor/plugin entries must be absent here.
+    auto* emptyRoot=d.browser->tree.getRootItem();
+#ifdef MRS_HAS_ARA
+    check(emptyRoot->getNumSubItems()==1&&emptyRoot->getSubItem(0)->getUniqueName()=="ARA 2"&&emptyRoot->getSubItem(0)->getNumSubItems()==0,"empty ARA browser category");
+#else
+    check(emptyRoot->getNumSubItems()==0,"empty browser");
+#endif
     d.catalog={{"missing.vst3","00000000000000000000000000000001","Example","Example vendor","1"}};d.browser->rebuild();
-    check(!d.browser->tree.getRootItem()->getSubItem(0)->isOpen(),"vendors initially collapsed");d.catalog.clear();d.browser->rebuild();
+    auto* populatedRoot=d.browser->tree.getRootItem();
+    check(populatedRoot->getNumSubItems()>0&&!populatedRoot->getSubItem(populatedRoot->getNumSubItems()-1)->isOpen(),"vendors initially collapsed");d.catalog.clear();d.browser->rebuild();
     auto originalClip=d.project()->clips.front();d.app.move_clip(originalClip.id,second,4800);d.selectedClip=originalClip.id;d.app.seek(10000);
     std::array<float,256> audio{};auto render=[&]{d.app.engine()->process(nullptr,audio.data(),128);d.app.poll();};render();d.action(24);
     check(d.project()->clips.size()==2,"split binding");d.action(10);check(d.project()->clips.size()==1,"split undo");
     const auto emptyFaderHeight=d.mixer[1]->gain.getHeight();const auto emptyMixerHeight=d.mixArea.getHeight();
-    for(const auto& strip:d.mixer)for(auto* child:strip->getChildren())if(auto* button=dynamic_cast<juce::TextButton*>(child))check(static_cast<bool>(button->getProperties()["flatMixerButton"]),"channel buttons use flat mixer style");
-    for(auto* child:d.master->getChildren())if(auto* button=dynamic_cast<juce::TextButton*>(child))check(static_cast<bool>(button->getProperties()["flatMixerButton"]),"Master buttons use flat mixer style");
+    // A channel colour swatch is a deliberately custom-painted TextButton,
+    // not a flat mixer button. All ordinary buttons still share flat chrome.
+    auto checkFlatButtons=[&](Strip& strip,const char* failure){
+        // Locate the deliberately custom-painted swatch through Component's public API;
+        // this smoke test must not depend on Strip's private implementation details.
+        auto* swatch=strip.findChildWithID("channel-color");
+        check(swatch!=nullptr&&dynamic_cast<juce::TextButton*>(swatch)!=nullptr,"Channel custom swatch identity");
+        for(auto* child:strip.getChildren())if(auto* button=dynamic_cast<juce::TextButton*>(child)){
+            if(child==swatch)continue;
+            check(static_cast<bool>(button->getProperties()["flatMixerButton"]),failure);
+        }
+    };
+    for(const auto& strip:d.mixer)checkFlatButtons(*strip,"channel buttons use flat mixer style");
+    checkFlatButtons(*d.master,"Master buttons use flat mixer style");
     {juce::TextButton flat;flat.setLookAndFeel(&d.theme);flat.getProperties().set("flatMixerButton",true);flat.setSize(80,28);const auto picture=flat.createComponentSnapshot(flat.getLocalBounds(),true,1.f,juce::SoftwareImageType{});const auto expected=juce::Colour(raised);check(picture.getPixelAt(4,8)==expected&&picture.getPixelAt(4,20)==expected,"flat mixer button uses reference raised fill without bevel");flat.setLookAndFeel(nullptr);}
     for(auto* strip:std::array<Strip*,3>{d.mixer[0].get(),d.mixer[1].get(),d.master.get()}){
         const auto snapshot=strip->createComponentSnapshot(strip->getLocalBounds(),true,1.f,juce::SoftwareImageType{});

@@ -166,8 +166,11 @@ if(MRS_BUILD_ARA)
   if(BUILD_TESTING)
     add_executable(mrs_ara_clip_tests tests/ara_clip_tests.cpp)
     target_link_libraries(mrs_ara_clip_tests PRIVATE mrs_desktop)
+    # Neutral fixtures normally have unit gain; the processed CI fixture has
+    # 0.5 gain at 120 BPM. Keep the model test, but compare the correct PCM.
+    set(MRS_ARA_TEST_PLUGIN_GAIN "1" CACHE STRING "Expected gain for the ARA model test fixture")
     if(MRS_ARA_TEST_PLUGIN)
-      add_test(NAME ara_clip_model COMMAND mrs_ara_clip_tests "${MRS_ARA_TEST_PLUGIN}")
+      add_test(NAME ara_clip_model COMMAND mrs_ara_clip_tests "${MRS_ARA_TEST_PLUGIN}" "${MRS_ARA_TEST_PLUGIN_GAIN}")
       set_tests_properties(ara_clip_model PROPERTIES TIMEOUT 60)
     endif()
     set(MRS_ARA_RENDER_TEST_PLUGIN "" CACHE FILEPATH "Local processed ARA gain/latency fixture")

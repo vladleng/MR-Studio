@@ -1,3 +1,5 @@
+> Действующая политика: [CLOUD_DEVELOPMENT.md](CLOUD_DEVELOPMENT.md). Разделы ниже — исторические локальные инструкции/результаты; прежние local-only/CI запреты отменены переходом на облачную разработку. Аппаратная приёмка остаётся локальной.
+
 # Local development and build policy
 
 **Stage5/#25 завершён2026-10-13 — 9/9**, #87 accepted/closed completed.

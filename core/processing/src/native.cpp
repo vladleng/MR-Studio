@@ -77,7 +77,9 @@ public:
     explicit Biquad(std::string name) : name_(std::move(name)), highpass_(name_=="mrs.highpass"), eq_(name_=="mrs.eq") {}
     std::vector<ParameterInfo> parameters() const override {
         std::vector<ParameterInfo> result{{0,20,20000,1000,true},{1,0.1f,10,0.70710678f,true}};
-        if (eq_) result.push_back({2,-24,24,0,true}); return result;
+        if (eq_)
+          result.push_back({2, -24, 24, 0, true});
+        return result;
     }
     void prepare(ProcessConfig c) override { rate_=c.sample_rate; coefficients(); reset(); }
     void restore(const PluginState& state) override {
@@ -100,7 +102,13 @@ public:
         coefficients(); return true;
     }
     std::optional<float> parameter_value(std::uint32_t id) const noexcept override {
-        if (id==0) return frequency_; if (id==1) return q_; if (id==2 && eq_) return gain_; return {};
+      if (id == 0)
+        return frequency_;
+      if (id == 1)
+        return q_;
+      if (id == 2 && eq_)
+        return gain_;
+      return {};
     }
     std::uint32_t latency() const noexcept override { return 0; }
     bool anticipation_safe() const noexcept override{return true;}

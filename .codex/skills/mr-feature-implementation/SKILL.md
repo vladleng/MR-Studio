@@ -24,6 +24,6 @@ Use for a **behavioral feature**, not every code edit. Start from the *assigned 
 - A long-running operation is cancellable/lifetime-safe; avoid synchronous global refresh and recursive listener loops. Never mutate a currently playing audio graph without the project's safe transition mechanism.
 - Avoid destructive project/media moves, absolute machine-dependent references or silently substituting missing assets.
 - **Do not claim READY without the required checks.** Report READY / READY WITH MANUAL CHECK / INCOMPLETE / BLOCKED / NOT VALIDATED as appropriate, with exact skipped/manual tests. [Acceptance checklist](assets/feature-acceptance-checklist.md) is optional when closing a major stage.
-- Follow root `AGENTS.md`: source/build/test/package local; only approved GitHub docs/Issues, no Actions/source push/PR/merge without explicit request.
+- Follow root `AGENTS.md`: source commits/push in task branches and configured CI are part of the cloud workflow; merge requires separate acceptance.
 
 Details are loaded on demand: [vertical example](references/vertical-feature-example.md), [layer map](references/layer-impact-map.md), [compatibility](references/persistence-and-compatibility.md). Do **not** open all of them by default.
