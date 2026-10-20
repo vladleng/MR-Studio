@@ -186,6 +186,7 @@ public:
     const TrackHeaderLayout* trackLayout()const noexcept { return trackHeaderLayout ? &*trackHeaderLayout : nullptr; }
     bool enableTrackHeaderLayout(const juce::File&, juce::String& error);
     void clearTrackHeaderLayout();
+    void restoreBundledTrackHeaderLayout();
     void pollTrackHeaderLayout();
     bool isTrackHeaderReloadEnabled() const noexcept { return trackHeaderHotReload; }
     Theme* assetLookAndFeel()const{return assetTheme.get();}

@@ -58,3 +58,16 @@ When explicitly checked, the UI checks the source file's modification time and s
 The static browser site remains isolated. A user must export **to the watched file path** (not just download a renamed copy) before the file watcher sees edits. Future direct browser bridge is a separate feature and is not delivered by this change.
 
 **Acceptance checks:** `juce_track_header_layout` now includes Options menu presence, OFF default, ON/OFF toggle, invalid-file last-good fallback and Restore Default, in addition to schema/geometry. Actual Windows compilation/CTest and GUI/hardware tests must be reported from CI/user acceptance, not assumed.
+
+## B3 — accepted JSON bundled and enabled by default (Release milestone)
+
+The accepted source file `assets/ui/mr-uds/layouts/mr-track-panel-layout-v1.json` is **embedded at build time** through `mrs_track_header_layout` (MRTrackHeaderAssets) and is parsed during Desktop creation on the JUCE message thread. Normal Windows Release launch **uses this design automatically**; end users do not need to copy JSON files or launch with command-line switches. The executable is self-contained. No project migrations or preferences writes.
+
+- `Options → Load Track Header JSON...` still overrides the bundled layout for the current session only.
+- `Options → Hot Reload Track Header JSON` remains **OFF on each launch**. The toggle is only enabled when an external JSON has been explicitly selected; the bundled asset is immutable at runtime.
+- `Options → Restore Default Track Header` disables live reload and restores the **bundled approved design** (no longer the old hardcoded geometry).
+- Invalid external JSON keeps the currently active layout. If the embedded asset is damaged/unreadable at startup, the built-in legacy Strip geometry is the ultimate fail-safe.
+- Windows acceptance: `juce_track_header_layout` validates that the default exists on an offline Desktop fixture, has Compact/Medium/Expanded content, rejects a missing override while preserving the last-good layout, and restores the bundled default with reload OFF.
+- Runtime GUI/DPI and full browser drag/export/accessibility matrix require manual acceptance and remain separate follow-up quality work; CI tests do not constitute a hardware ASIO or visual-performance certification.
+
+This supersedes earlier sections of this document that described the normal Release as requiring explicit `--track-layout` opt-in. `--track-layout` remains available for development overrides only.

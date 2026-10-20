@@ -1,6 +1,7 @@
 #include "MusicalGrid.h"
 #include "MeterTrack.h"
 #include "Desktop.h"
+#include <MRTrackHeaderAssets.h>
 #include "MRControlBinding.h"
 #include "ChordTrack.h"
 #include "SectionTrack.h"
@@ -82,6 +83,9 @@ Desktop::Desktop(bool test,bool startAtHome):testing(test){
     app.set_click_settings(prefs.click);
     app.set_ai_permissions(prefs.ai);
     arrangement=std::make_unique<Arrangement>(*this);browser=std::make_unique<Browser>(*this);
+    // Normal Studio/Live/Release startup uses the user-approved v1 layout.
+    // This is embedded in the binary and has no filesystem/Hot Reload dependency.
+    restoreBundledTrackHeaderLayout();
     addAndMakeVisible(browserDivider);browserDivider.setTitle("Resize browser");browserDivider.setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);browserDivider.addMouseListener(this,false);
     addAndMakeVisible(mixerDivider);mixerDivider.setTitle("Resize mixer");mixerDivider.setMouseCursor(juce::MouseCursor::UpDownResizeCursor);mixerDivider.addMouseListener(this,false);
     for(auto* c:{static_cast<juce::Component*>(&menu),static_cast<juce::Component*>(arrangement.get()),static_cast<juce::Component*>(browser.get()),static_cast<juce::Component*>(&mixerViewport)})addAndMakeVisible(c);
@@ -189,9 +193,9 @@ juce::StringArray Desktop::getMenuBarNames(){return {"File","Options","Edit","Tr
 juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupMenu m;
     if(n==1){
         m.addItem(710,"Load Track Header JSON...",!app.recording());
-        m.addItem(711,"Hot Reload Track Header JSON",trackHeaderLayout.has_value() && !app.recording(),
+        m.addItem(711,"Hot Reload Track Header JSON",trackHeaderLayoutSource.existsAsFile() && !app.recording(),
                   trackHeaderHotReload);
-        m.addItem(712,"Restore Default Track Header",trackHeaderLayout.has_value() && !app.recording());
+        m.addItem(712,"Restore Default Track Header",trackHeaderLayoutSource.existsAsFile() && !app.recording());
         return m;
     }
     // Existing menus retain their action IDs after inserting Options next to File.
@@ -546,17 +550,34 @@ bool Desktop::enableTrackHeaderLayout(const juce::File& file, juce::String& erro
     return true;
 }
 
-void Desktop::clearTrackHeaderLayout(){
+void Desktop::restoreBundledTrackHeaderLayout(){
     jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+    // Reset only UI geometry and dev-file selection. Do not touch host bindings,
+    // transport, project or audio-engine state. On failure, legacy geometry remains.
     trackHeaderHotReload=false;
-    trackHeaderLayout.reset();
     trackHeaderLayoutSource=juce::File();
     trackHeaderObservedBytes=trackHeaderPendingBytes=-1;
+    int resourceSize=0;
+    const auto* resource=MRTrackHeaderAssets::getNamedResource("mr_track_panel_layout_v1_json",resourceSize);
+    juce::String error;
+    auto bundled=resource && resourceSize>0
+        ? TrackHeaderLayout::parse(juce::String::fromUTF8(resource,resourceSize),error)
+        : std::optional<TrackHeaderLayout>{};
+    if(bundled){
+        trackHeaderLayout=std::move(*bundled);
+    }else{
+        trackHeaderLayout.reset(); // Legacy layout is always the final fallback.
+        juce::Logger::writeToLog("Bundled Track Header JSON unavailable; legacy geometry active: "+error);
+    }
     if(arrangement){
         for(auto& row:arrangement->rows)row->sync();
         arrangement->resized();
     }
-    message="Default Track Header restored";
+}
+
+void Desktop::clearTrackHeaderLayout(){
+    restoreBundledTrackHeaderLayout();
+    message=trackHeaderLayout?"Bundled Track Header restored":"Legacy Track Header restored";
     repaint();
 }
 

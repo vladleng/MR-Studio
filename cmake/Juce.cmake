@@ -32,6 +32,12 @@ list(APPEND concept_controls "${PROJECT_SOURCE_DIR}/assets/ui/icons/transport/me
 juce_add_binary_data(mrs_concept_assets NAMESPACE MRConceptAssets HEADER_NAME MRConceptAssets.h SOURCES ${concept_icons} ${concept_controls})
 target_link_libraries(mrs_juce_assets PUBLIC mrs_concept_assets)
 juce_add_gui_app(MoonRiverStudioJuce VERSION 0.6.0 PRODUCT_NAME "Moon River Studio JUCE")
+# Accepted Track Header layout is shipped as a self-contained, immutable GUI resource.
+# No external JSON is required for normal Release startup; developer overrides remain opt-in.
+juce_add_binary_data(mrs_track_header_layout
+  NAMESPACE MRTrackHeaderAssets HEADER_NAME MRTrackHeaderAssets.h
+  SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-track-panel-layout-v1.json")
+target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_track_header_layout)
 juce_add_binary_data(mrs_reverb_art NAMESPACE MRReverbArt HEADER_NAME MRReverbArt.h SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/reverb/plate_unit.svg")
 target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_reverb_art)
 add_library(mrs_diagnostics STATIC apps/diagnostics/src/session.cpp)

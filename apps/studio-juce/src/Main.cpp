@@ -73,6 +73,12 @@ public:
                     throw std::runtime_error("Options menu or Track Header actions missing");
                 if(desktop.isTrackHeaderReloadEnabled())
                     throw std::runtime_error("Hot Reload must default OFF in Release");
+                if(!desktop.trackLayout())
+                    throw std::runtime_error("Embedded Release Track Header is not active by default");
+                const auto& profile=desktop.trackLayout()->profile(60);
+                if(profile.referenceHeight!=60 || !desktop.trackLayout()->find(110,"pan")
+                   || !desktop.trackLayout()->find(166,"output"))
+                    throw std::runtime_error("Embedded default layout profiles are incorrect");
                 if(!desktop.enableTrackHeaderLayout(file,error))
                     throw std::runtime_error("cannot activate valid layout in Desktop: "+error.toStdString());
                 const auto* lastGood=desktop.trackLayout();
@@ -87,8 +93,9 @@ public:
                 if(desktop.isTrackHeaderReloadEnabled())
                     throw std::runtime_error("Options Hot Reload toggle failed to disable");
                 desktop.clearTrackHeaderLayout();
-                if(desktop.trackLayout()!=nullptr || desktop.isTrackHeaderReloadEnabled())
-                    throw std::runtime_error("Options restore-default failed");
+                if(!desktop.trackLayout() || desktop.trackLayout()->profile(60).referenceHeight!=60
+                   || desktop.isTrackHeaderReloadEnabled())
+                    throw std::runtime_error("Options restore bundled default failed");
                 setApplicationReturnValue(0);
             }catch(const std::exception& e){
                 juce::File::getCurrentWorkingDirectory().getChildFile("track-layout-smoke-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));
