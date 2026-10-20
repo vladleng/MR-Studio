@@ -63,7 +63,7 @@ jobs:
         run: |
           $args=@('--build','build/windows','--config','Release','--parallel','2')
           if($env:INTEGRATION -ne 'true'){
-            $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests')
+            $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_sample_library_tests')
             if($env:ARA -eq 'true'){$args+=@('mrs_ara_tests','mrs_ara_clip_tests','mrs_ai_ara_tests')}
           }
           & cmake @args
@@ -73,7 +73,7 @@ jobs:
         shell: pwsh
         run: |
           $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
-          if($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(model|transport|commands|serialization)|ai_.*|ara_.*|juce_(j1_smoke|track_header_layout|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording))$')}
+          if($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(model|transport|commands|serialization)|ai_.*|ara_.*|juce_(j1_smoke|track_header_layout|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|sample_library))$')}
           & ctest @args
           if($LASTEXITCODE){throw 'CTest failed; full integration never excludes known failures'}
       - name: Package development acceptance candidate
