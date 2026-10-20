@@ -289,8 +289,20 @@ struct SampleLibrary::Impl {
         worker.join();
     }
     void enqueue(Command c) {
-        { std::lock_guard lock(mutex); commands.push_back(std::move(c)); }
-        if (scanning.load()) cancel = true; // newer commands supersede a long scan
+        const auto kind=c.kind;
+        {
+            std::lock_guard lock(mutex);
+            if(kind==Kind::view||kind==Kind::browse){
+                // Typing quickly must not queue hundreds of stale queries.
+                std::erase_if(commands,[](const Command& queued){
+                    return queued.kind==Kind::view||queued.kind==Kind::browse;
+                });
+            }
+            commands.push_back(std::move(c));
+        }
+        // Filtering never cancels a user's explicit source scan.
+        if(scanning.load()&&(kind==Kind::add||kind==Kind::relink||
+            kind==Kind::remove||kind==Kind::enable||kind==Kind::rescan))cancel=true;
         wake.notify_one();
     }
     std::shared_ptr<const Snapshot> snapshot() const {
