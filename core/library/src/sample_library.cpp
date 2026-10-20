@@ -572,8 +572,76 @@ struct SampleLibrary::Impl {
             set.number(1,c.enabled?1:0);set.number(2,c.id);set.done();
             publish(d,Phase::idle,"Source updated");
         } else if (c.kind == Kind::view) {
-            viewSource=c.id;viewFilter=c.label.substr(0,200);
+            browserQuery=LibraryQuery{};
+            browserQuery.source_id=c.id;browserQuery.search=c.label.substr(0,200);
             publish(d,Phase::idle);
+        } else if (c.kind == Kind::browse) {
+            browserQuery=c.query;
+            browserQuery.limit=std::clamp(browserQuery.limit,std::uint64_t{1},std::uint64_t{300});
+            browserQuery.search=browserQuery.search.substr(0,200);
+            if(browserQuery.folder.find("..")!=std::string::npos||browserQuery.folder.size()>1024)
+                throw std::invalid_argument("Invalid library folder filter");
+            while(!browserQuery.folder.empty()&&browserQuery.folder.back()=='/')
+                browserQuery.folder.pop_back();
+            publish(d,Phase::idle);
+        } else if (c.kind == Kind::create_collection) {
+            if(c.label.empty()||c.label.size()>100)throw std::invalid_argument("Collection name must be 1..100 bytes");
+            Statement create(d,"INSERT OR IGNORE INTO collections(name) VALUES(?)");
+            create.str(1,c.label);create.done();
+            publish(d,Phase::idle,"Collection available");
+        } else if (c.kind == Kind::delete_collection) {
+            if(c.id<=0)throw std::invalid_argument("Select collection to remove");
+            Statement del(d,"DELETE FROM collections WHERE id=?");
+            del.number(1,c.id);del.done();
+            if(browserQuery.collection_id==c.id)browserQuery.collection_id=0;
+            publish(d,Phase::idle,"Collection removed; WAVs untouched");
+        } else if (c.kind == Kind::collection_items || c.kind == Kind::favorites) {
+            if(c.ids.empty()||c.ids.size()>5000)throw std::invalid_argument("Choose WAV files");
+            if(c.kind==Kind::collection_items&&c.id<=0)throw std::invalid_argument("Choose collection");
+            d.exec("BEGIN IMMEDIATE");
+            try {
+                Statement memberAdd(d,"INSERT OR IGNORE INTO collection_items(collection_id,asset_id) VALUES(?,?)");
+                Statement memberRemove(d,"DELETE FROM collection_items WHERE collection_id=? AND asset_id=?");
+                Statement favAdd(d,"INSERT OR IGNORE INTO favorites(asset_id) VALUES(?)");
+                Statement favRemove(d,"DELETE FROM favorites WHERE asset_id=?");
+                for(const auto id:c.ids){
+                    if(c.kind==Kind::favorites){
+                        auto& stmt=c.enabled?favAdd:favRemove;
+                        stmt.reset();stmt.number(1,id);stmt.done();
+                    }else{
+                        auto& stmt=c.enabled?memberAdd:memberRemove;
+                        stmt.reset();stmt.number(1,c.id);stmt.number(2,id);stmt.done();
+                    }
+                }
+                d.exec("COMMIT");
+            }catch(...){d.exec("ROLLBACK");throw;}
+            publish(d,Phase::idle,"Collection updated");
+        } else if (c.kind == Kind::artwork) {
+            Statement source(d,"SELECT path FROM sources WHERE id=?");
+            source.number(1,c.id);
+            if(!source.next())throw std::invalid_argument("Unknown library source");
+            const auto* path=sqlite3_column_text(source.stmt,0);
+            const fs::path root=from_utf8(path?reinterpret_cast<const char*>(path):"");
+            source.reset();
+            if(c.label.find("..")!=std::string::npos)throw std::invalid_argument("Invalid artwork folder");
+            std::string relative;
+            if(!c.root.empty()){
+                const auto image=normalized(c.root);
+                const auto rel=image.lexically_relative(root);
+                if(rel.empty()||rel.is_absolute()||*rel.begin()==".."||is_reparse(image))
+                    throw std::invalid_argument("Artwork must be inside the selected library");
+                auto ext=utf8(image.extension());
+                std::transform(ext.begin(),ext.end(),ext.begin(),[](unsigned char x){return static_cast<char>(std::tolower(x));});
+                if(ext!=".png"&&ext!=".jpg"&&ext!=".jpeg")throw std::invalid_argument("Artwork must be JPG or PNG");
+                std::error_code ec;const auto size=fs::file_size(image,ec);
+                if(ec||size==0||size>20u*1024u*1024u)
+                    throw std::invalid_argument("Artwork missing or larger than 20 MiB");
+                relative=utf8(rel);
+            }
+            Statement override(d,"INSERT INTO folder_artwork(source_id,folder,manual_image) VALUES(?,?,?)"
+                " ON CONFLICT(source_id,folder) DO UPDATE SET manual_image=excluded.manual_image");
+            override.number(1,c.id);override.str(2,c.label);override.str(3,relative);override.done();
+            publish(d,Phase::idle,"Artwork override saved");
         } else if (c.kind == Kind::tag || c.kind == Kind::tag_status ||
                    c.kind == Kind::bpm || c.kind == Kind::key) {
             if(c.ids.empty()||c.ids.size()>5000)throw std::invalid_argument("Choose 1..5000 WAV assets");
@@ -775,6 +843,24 @@ void SampleLibrary::set_key(const std::vector<std::int64_t>& ids,std::string key
 void SampleLibrary::add_rule(std::string group,std::string phrase,std::string label,bool folder){
     Impl::Command c(Impl::Kind::rule);c.group=std::move(group);c.phrase=std::move(phrase);
     c.label=std::move(label);c.folder=folder;impl_->enqueue(std::move(c));
+}
+void SampleLibrary::browse(LibraryQuery query){
+    Impl::Command c(Impl::Kind::browse);c.query=std::move(query);impl_->enqueue(std::move(c));
+}
+void SampleLibrary::create_collection(std::string name){
+    Impl::Command c(Impl::Kind::create_collection);c.label=std::move(name);impl_->enqueue(std::move(c));
+}
+void SampleLibrary::delete_collection(std::int64_t id){
+    impl_->enqueue(Impl::Command(Impl::Kind::delete_collection,id));
+}
+void SampleLibrary::set_collection_items(std::int64_t id,std::vector<std::int64_t> ids,bool add){
+    Impl::Command c(Impl::Kind::collection_items,id);c.ids=std::move(ids);c.enabled=add;impl_->enqueue(std::move(c));
+}
+void SampleLibrary::set_favorites(std::vector<std::int64_t> ids,bool enabled){
+    Impl::Command c(Impl::Kind::favorites);c.ids=std::move(ids);c.enabled=enabled;impl_->enqueue(std::move(c));
+}
+void SampleLibrary::set_artwork(std::int64_t id,std::string folder,fs::path image){
+    Impl::Command c(Impl::Kind::artwork,id,std::move(image));c.label=std::move(folder);impl_->enqueue(std::move(c));
 }
 void SampleLibrary::undo_tag_edit(){impl_->enqueue(Impl::Command(Impl::Kind::undo));}
 void SampleLibrary::rescan() { impl_->enqueue(Impl::Command(Impl::Kind::rescan)); }
