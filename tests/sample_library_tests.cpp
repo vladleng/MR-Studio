@@ -227,4 +227,101 @@ void migration_v1() {
     }
     std::cout<<"MR Library #253: schema v1 to v2 migration keeps legacy IDs and fills tags PASS\\n";
 }
-int main() { try {test();tagging();migration_v1();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void browser_v3(){
+    Fixture f;
+    const auto root=f.root/"samples";
+    wav(root/"Jazz"/"Acoustic"/"Jazz_Brush_Swing_120BPM_Loop.wav");
+    wav(root/"Jazz"/"Acoustic"/"Kick_80BPM_Loop.wav");
+    wav(root/"Jazz"/"Electronic"/"Jazz_Snare_Loop.wav");
+    wav(root/"Ambient"/"Pad_Loop.wav");
+    fs::create_directories(root/"Jazz");
+    {
+        std::ofstream image(root/"Jazz"/"cover.jpg",std::ios::binary);
+        image<<"JPEG cover fixture";
+    }
+    {
+        std::ofstream image(root/"Ambient"/"folder.png",std::ios::binary);
+        image<<"PNG cover fixture";
+    }
+    const auto db=f.root/"db"/"library.sqlite";
+    std::int64_t item{},collection{};
+    {
+        SampleLibrary lib(db);
+        wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle;});
+        lib.add_source(root);
+        auto snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle&&x.visible_assets==4
+            &&x.folders.size()>=5;});
+        check(snap->assets.size()==4,"Browser snapshot missing WAVs");
+        check(std::any_of(snap->folders.begin(),snap->folders.end(),[](const LibraryFolder& x){
+            return x.relative_path=="Jazz/Acoustic"&&x.artwork_path=="Jazz/cover.jpg";
+        }),"Package folder must inherit closest parent cover");
+        check(std::any_of(snap->assets.begin(),snap->assets.end(),[](const AudioAsset& x){
+            return x.relative_path.find("Jazz/Acoustic/")!=std::string::npos&&x.artwork_path=="Jazz/cover.jpg";
+        }),"Asset must inherit corresponding cover");
+        item=snap->assets.front().id;
+        lib.create_collection("Studio Favorites");
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&!x.collections.empty();});
+        check(snap->collections.front().name=="Studio Favorites","Collection creation");
+        collection=snap->collections.front().id;
+        lib.set_collection_items(collection,{item},true);
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&
+            x.collections.front().count==1;});
+        const auto saved=snap->revision;
+        lib.set_favorites({item},true);
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&x.revision>saved;});
+        LibraryQuery q;q.favorites_only=true;
+        lib.browse(q);
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&x.query.favorites_only;});
+        check(snap->visible_assets==1&&snap->assets.size()==1&&snap->assets[0].id==item,
+            "Favorite browse filter");
+        q=LibraryQuery{};q.collection_id=collection;
+        lib.browse(q);
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&x.query.collection_id==collection;});
+        check(snap->visible_assets==1&&snap->assets[0].id==item,"Collection membership browse");
+        q=LibraryQuery{};q.folder="Jazz/Acoustic";q.limit=1;
+        lib.browse(q);
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&x.query.folder=="Jazz/Acoustic";});
+        check(snap->visible_assets==2&&snap->assets.size()==1,"Folder prefix and limit");
+        q.offset=1;lib.browse(q);
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&x.query.offset==1;});
+        check(snap->visible_assets==2&&snap->assets.size()==1,"Paged offset");
+        q=LibraryQuery{};q.tags.push_back({"Genre","Jazz"});q.tags.push_back({"Instrument","Kick"});
+        lib.browse(q);
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&!x.query.tags.empty();});
+        check(snap->visible_assets==1,"AND across tag groups");
+        q.tags.push_back({"Instrument","Snare"});lib.browse(q);
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&x.query.tags.size()==3;});
+        check(snap->visible_assets==2,"OR within tag group");
+        lib.set_artwork(snap->assets.front().source_id,"Jazz/Acoustic",root/"Ambient"/"folder.png");
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&
+            std::any_of(x.folders.begin(),x.folders.end(),[](const LibraryFolder& f){
+                return f.relative_path=="Jazz/Acoustic"&&f.artwork_path=="Ambient/folder.png";
+            });});
+        const auto rev=snap->revision;lib.rescan();
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&x.revision>rev
+            &&x.message=="Scan complete";});
+        check(std::any_of(snap->folders.begin(),snap->folders.end(),[](const LibraryFolder& f){
+            return f.relative_path=="Jazz/Acoustic"&&f.artwork_path=="Ambient/folder.png";
+        }),"Manual artwork override lost on rescan");
+    }
+    {
+        SampleLibrary lib(db);
+        const auto snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle&&
+            !x.collections.empty()&&x.visible_assets==4;});
+        check(snap->collections[0].count==1&&snap->collections[0].id==collection,
+            "Collections lost after restart");
+        check(std::any_of(snap->assets.begin(),snap->assets.end(),[&](const AudioAsset& a){
+            return a.id==item&&a.favorite;
+        }),"Favorites lost on restart");
+        check(std::any_of(snap->folders.begin(),snap->folders.end(),[](const LibraryFolder& f){
+            return f.relative_path=="Jazz/Acoustic"&&f.artwork_path=="Ambient/folder.png";
+        }),"Manual cover lost on restart");
+        lib.delete_collection(collection);
+        const auto after=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle&&x.collections.empty();});
+        check(after->visible_assets==4,"Deleting collection removed audio assets");
+    }
+    check(fs::exists(root/"Jazz"/"Acoustic"/"Jazz_Brush_Swing_120BPM_Loop.wav"),
+        "Browser metadata operations touched original WAV");
+    std::cout<<"MR Library #254: folders, artworks, favorites, collections and multi-tag pages PASS\\n";
+}
+int main() { try {test();tagging();migration_v1();browser_v3();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
