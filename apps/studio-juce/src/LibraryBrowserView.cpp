@@ -113,11 +113,13 @@ LibraryBrowserView::LibraryBrowserView(mrs::library::SampleLibrary& lib):library
             }));
     };
     addToCollection.onClick=[this]{
-        const auto id=selectId(collections,collectionIds),items=selectedAssets();
+        const auto id=selectId(collections,collectionIds);
+        const auto items=selectedAssets();
         if(id>0&&!items.empty())library.set_collection_items(id,items,true);
     };
     removeFromCollection.onClick=[this]{
-        const auto id=selectId(collections,collectionIds),items=selectedAssets();
+        const auto id=selectId(collections,collectionIds);
+        const auto items=selectedAssets();
         if(id>0&&!items.empty())library.set_collection_items(id,items,false);
     };
     favoriteSelected.onClick=[this]{
@@ -427,7 +429,8 @@ void LibraryBrowserView::listBoxItemClicked(int row,const juce::MouseEvent& even
 }
 void LibraryBrowserView::chooseArtwork(bool clear){
     if(!view||query.source_id<=0||section!=Section::folders)return;
-    const auto source=query.source_id,folder=query.folder;
+    const auto source=query.source_id;
+    const auto folder=query.folder;
     if(clear){library.set_artwork(source,folder,{});return;}
     imageChooser=std::make_unique<juce::FileChooser>("Choose cover inside sample library",juce::File{},"*.jpg;*.jpeg;*.png");
     juce::Component::SafePointer<LibraryBrowserView> safe(this);
