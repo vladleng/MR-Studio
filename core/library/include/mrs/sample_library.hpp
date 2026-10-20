@@ -26,14 +26,51 @@ struct AudioAsset {
     std::vector<AssetTag> tags;
     int detected_bpm{},manual_bpm{}; // 0 = unknown; -1 manual clears auto value
     std::string detected_key,manual_key; // "-" manual clears auto value
+    std::string artwork_path; // relative path, source-owned
+    std::int64_t sample_rate{}, frames{}, modified{};
+    bool favorite{};
+};
+struct LibraryFolder {
+    std::int64_t source_id{};
+    std::string relative_path; // empty = source root, '/' path separators
+    std::string artwork_path; // relative to same source root; empty = no cover
+};
+struct LibraryCollection {
+    std::int64_t id{};
+    std::string name;
+    std::uint64_t count{};
+};
+struct LibraryFacet {
+    std::string group,label;
+    std::uint64_t count{};
+};
+struct LibraryTagFilter {
+    std::string group,label;
+};
+struct LibraryQuery {
+    std::int64_t source_id{}; // 0 = all sources
+    std::int64_t collection_id{}; // 0 = all
+    std::string folder; // exact folder + descendants within source
+    std::string search; // name or tag, Unicode-aware
+    std::string sort{"name"}; // name, bpm, duration, updated
+    std::string key; // empty = all, '?' = unknown
+    int bpm_min{},bpm_max{}; // 0 = no bound
+    std::vector<LibraryTagFilter> tags; // AND across groups, OR within group
+    bool favorites_only{};
+    std::uint64_t offset{};
+    std::uint64_t limit{120}; // bounded page
 };
 struct Snapshot {
     Phase phase{Phase::starting};
     std::string message;
     std::uint64_t processed{}, changed{}, revision{};
     std::vector<Source> sources;
-    std::vector<AudioAsset> assets; // bounded worker-side page for the tag editor
+    std::vector<AudioAsset> assets; // bounded page, generated off realtime thread
     std::uint64_t visible_assets{};
+    LibraryQuery query;
+    std::vector<LibraryFolder> folders;
+    std::vector<LibraryCollection> collections;
+    std::vector<LibraryFacet> facets;
 };
 
 // Local catalogue of existing WAV files. All I/O, scanning and SQLite writes
@@ -51,7 +88,13 @@ public:
     void relink_source(std::int64_t source_id, std::filesystem::path);
     void remove_source(std::int64_t source_id); // Removes database references only
     void enable_source(std::int64_t source_id, bool enabled);
-    void set_view(std::int64_t source_id, std::string name_filter = {}); // 0 = all; at most 300 entries
+    void set_view(std::int64_t source_id, std::string name_filter = {}); // compatibility with #253 editor
+    void browse(LibraryQuery query);
+    void create_collection(std::string name);
+    void delete_collection(std::int64_t id);
+    void set_collection_items(std::int64_t collection_id, std::vector<std::int64_t> asset_ids, bool add);
+    void set_favorites(std::vector<std::int64_t> asset_ids, bool enabled);
+    void set_artwork(std::int64_t source_id,std::string folder,std::filesystem::path image); // source-local override; empty image resets
     void add_tag(const std::vector<std::int64_t>& assets,std::string group,std::string label);
     void set_tag_status(const std::vector<std::int64_t>& assets,std::string group,std::string label,std::string status);
     void set_bpm(const std::vector<std::int64_t>& assets,int bpm); // 0 clears detection, -1 removes override
