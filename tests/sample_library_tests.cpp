@@ -220,6 +220,9 @@ void migration_v1() {
         auto snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle;});
         check(snap->sources.size()==1&&snap->sources[0].id==7,"Migration lost source ID");
         check(snap->assets.size()==1&&snap->assets[0].id==81,"Migration lost asset ID");
+        check(std::any_of(snap->folders.begin(),snap->folders.end(),[](const LibraryFolder& x){
+            return x.relative_path=="Jazz"&&x.source_id==7;
+        }),"Existing v1/v2 catalogue must restore folder hierarchy without scanning");
         check(snap->assets[0].detected_bpm==120,"Migration failed to backfill proposals");
         check(std::any_of(snap->assets[0].tags.begin(),snap->assets[0].tags.end(),
               [](const auto& tag){return tag.group=="Genre"&&tag.label=="Jazz"&&tag.status=="proposed";}),
@@ -324,4 +327,23 @@ void browser_v3(){
         "Browser metadata operations touched original WAV");
     std::cout<<"MR Library #254: folders, artworks, favorites, collections and multi-tag pages PASS\\n";
 }
-int main() { try {test();tagging();migration_v1();browser_v3();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void unicode_browser_search(){
+    Fixture f;
+    const auto root=f.root/"sounds";
+    wav(root/fs::path(u8"Русские")/fs::path(u8"БАРАБАН_80BPM_Loop.wav"));
+    wav(root/"Jazz"/"Piano_Loop.wav");
+    SampleLibrary lib(f.root/"db"/"unicode.sqlite");
+    wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle;});
+    lib.add_source(root);
+    auto snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle&&x.visible_assets==2;});
+    LibraryQuery q;
+    const std::u8string lower=u8"барабан";
+    q.search=std::string(lower.begin(),lower.end());
+    lib.browse(q);
+    snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&x.query.search==q.search;});
+    check(snap->visible_assets==1&&snap->assets.size()==1&&
+        snap->assets[0].relative_path.find("BPM")!=std::string::npos,
+        "Cyrillic Unicode case-insensitive search failed");
+    std::cout<<"MR Library #254: Cyrillic casefold browser search PASS\\n";
+}
+int main() { try {test();tagging();migration_v1();browser_v3();unicode_browser_search();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
