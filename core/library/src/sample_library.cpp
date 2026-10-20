@@ -46,6 +46,36 @@ fs::path normalized(const fs::path& p) {
 void fail(sqlite3* db, const std::string& context) {
     throw std::runtime_error(context + ": " + (db ? sqlite3_errmsg(db) : "SQLite unavailable"));
 }
+std::string fold_search(const std::string& value) {
+    std::string folded;
+    folded.reserve(value.size());
+    for(std::size_t i=0;i<value.size();) {
+        const auto a=static_cast<unsigned char>(value[i]);
+        if(a<128){
+            folded.push_back(static_cast<char>(std::tolower(a)));++i;continue;
+        }
+        if(i+1<value.size()&&a==0xd0){
+            const auto b=static_cast<unsigned char>(value[i+1]);
+            if(b>=0x90&&b<=0x9f){folded.push_back(static_cast<char>(0xd0));
+                folded.push_back(static_cast<char>(b+0x20));i+=2;continue;}
+            if(b>=0xa0&&b<=0xaf){folded.push_back(static_cast<char>(0xd1));
+                folded.push_back(static_cast<char>(b-0x20));i+=2;continue;}
+            if(b==0x81){folded.push_back(static_cast<char>(0xd1));
+                folded.push_back(static_cast<char>(0x91));i+=2;continue;}
+        }
+        folded.push_back(value[i++]);
+    }
+    return folded;
+}
+void sqlite_fold(sqlite3_context* ctx,int argc,sqlite3_value** argv) {
+    if(argc!=1||sqlite3_value_type(argv[0])==SQLITE_NULL){
+        sqlite3_result_null(ctx);return;
+    }
+    const auto* raw=sqlite3_value_text(argv[0]);
+    if(!raw){sqlite3_result_null(ctx);return;}
+    const auto folded=fold_search(reinterpret_cast<const char*>(raw));
+    sqlite3_result_text(ctx,folded.c_str(),static_cast<int>(folded.size()),SQLITE_TRANSIENT);
+}
 struct Database {
     sqlite3* db{};
     explicit Database(const fs::path& file) {
@@ -55,6 +85,8 @@ struct Database {
         if (sqlite3_open_v2(name.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nullptr) != SQLITE_OK)
             fail(db, "Open MR Library");
         sqlite3_busy_timeout(db, 1500);
+        if(sqlite3_create_function_v2(db,"mrs_fold",1,SQLITE_UTF8|SQLITE_DETERMINISTIC,
+            nullptr,&sqlite_fold,nullptr,nullptr,nullptr)!=SQLITE_OK)fail(db,"Register Unicode search");
         exec("PRAGMA journal_mode=WAL");
         exec("PRAGMA foreign_keys=ON");
     }
@@ -142,6 +174,22 @@ void create_schema(Database& d) {
         d.exec("CREATE INDEX IF NOT EXISTS collection_items_asset_idx ON collection_items(asset_id)");
         d.exec("CREATE TABLE IF NOT EXISTS favorites (asset_id INTEGER PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE)");
         d.exec("CREATE INDEX IF NOT EXISTS folders_source_path_idx ON folders(source_id,path)");
+        // v1/v2 have indexed WAV paths but no persistent folder rows.
+        // Reconstruct the directory tree from DB paths without rescanning WAVs.
+        if(v==1||v==2){
+            d.exec("INSERT OR IGNORE INTO folders(source_id,path,seen) SELECT id,'',1 FROM sources");
+            Statement indexed(d,"SELECT source_id,relative_path FROM assets");
+            Statement insertFolder(d,"INSERT OR IGNORE INTO folders(source_id,path,seen) VALUES(?,?,1)");
+            while(indexed.next()){
+                const auto id=sqlite3_column_int64(indexed.stmt,0);
+                const auto* raw=sqlite3_column_text(indexed.stmt,1);
+                const std::string filename=raw?reinterpret_cast<const char*>(raw):"";
+                for(auto pos=filename.find('/');pos!=std::string::npos;pos=filename.find('/',pos+1)){
+                    insertFolder.reset();insertFolder.number(1,id);
+                    insertFolder.str(2,filename.substr(0,pos));insertFolder.done();
+                }
+            }
+        }
         d.exec("PRAGMA user_version=3");
         d.exec("COMMIT");
     } catch (...) { d.exec("ROLLBACK"); throw; }
@@ -338,11 +386,11 @@ struct SampleLibrary::Impl {
             " WHERE ci.asset_id=a.id AND ci.collection_id=?)";
             params.push_back(std::to_string(q.collection_id));}
         if(!q.search.empty()){
-            where+=" AND (instr(lower(a.relative_path),lower(?))>0 OR EXISTS (SELECT 1 FROM asset_tags st"
+            where+=" AND (instr(mrs_fold(a.relative_path),mrs_fold(?))>0 OR EXISTS (SELECT 1 FROM asset_tags st"
                 " JOIN tags t ON t.id=st.tag_id WHERE st.asset_id=a.id AND st.status<>'rejected'"
-                " AND instr(lower(t.label),lower(?))>0)"
+                " AND instr(mrs_fold(t.label),mrs_fold(?))>0)"
                 " OR EXISTS (SELECT 1 FROM collection_items ci JOIN collections c ON c.id=ci.collection_id"
-                " WHERE ci.asset_id=a.id AND instr(lower(c.name),lower(?))>0))";
+                " WHERE ci.asset_id=a.id AND instr(mrs_fold(c.name),mrs_fold(?))>0))";
             for(int i=0;i<3;++i)params.push_back(q.search);
         }
         const auto bpm="(CASE WHEN a.bpm_manual=-1 THEN 0"
