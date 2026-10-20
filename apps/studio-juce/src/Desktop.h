@@ -20,6 +20,7 @@ class Arrangement;
 class ChordTrack;
 class Strip;
 class Browser;
+class LibraryFoundationPanel;
 class FxPanel;
 class ProjectHome;
 class EditorWindow final : public juce::DocumentWindow {
@@ -442,6 +443,7 @@ public:
     ~Browser() override;
     void showFiles(bool);
     void showAssistant();
+    void showLibrary();
     juce::Component* assistantComponent() const{return assistant.get();}
     void navigate(const juce::File&);
     juce::StringArray selectedSamples() const;
@@ -466,7 +468,9 @@ private:
     juce::TextButton scanButton{"Scan VST3..."};
     juce::TextEditor search;
     juce::TextButton vstTab{"VST3"},filesTab{"Files"},parentFolder{"Up"},chooseFolder{"Folder..."};
-    juce::TextButton aiTab{"AI"};
+    juce::TextButton aiTab{"AI"},libraryTab{"Lib"};
+    std::unique_ptr<LibraryFoundationPanel> libraryPanel;
+    bool libraryVisible{};
     std::unique_ptr<juce::Component> assistant;
     bool assistantVisible{};
     juce::TextEditor folderPath;
