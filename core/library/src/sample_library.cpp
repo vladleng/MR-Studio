@@ -200,7 +200,8 @@ struct SampleLibrary::Impl {
         std::vector<std::int64_t> ids;
         std::string group,label,status,phrase;
         int number{};bool folder{};
-        explicit Command(Kind k,std::int64_t n=0,fs::path p={},bool e=true)
+        Command():kind(Kind::view){}
+        Command(Kind k,std::int64_t n=0,fs::path p={},bool e=true)
             :kind(k),id(n),root(std::move(p)),enabled(e){}
     };
     fs::path database;
