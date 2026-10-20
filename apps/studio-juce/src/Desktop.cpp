@@ -193,9 +193,9 @@ juce::StringArray Desktop::getMenuBarNames(){return {"File","Options","Edit","Tr
 juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupMenu m;
     if(n==1){
         m.addItem(710,"Load Track Header JSON...",!app.recording());
-        m.addItem(711,"Hot Reload Track Header JSON",trackHeaderLayoutSource.existsAsFile() && !app.recording(),
+        m.addItem(711,"Hot Reload Track Header JSON",trackHeaderLayoutSource!=juce::File() && !app.recording(),
                   trackHeaderHotReload);
-        m.addItem(712,"Restore Default Track Header",trackHeaderLayoutSource.existsAsFile() && !app.recording());
+        m.addItem(712,"Restore Default Track Header",trackHeaderLayoutSource!=juce::File() && !app.recording());
         return m;
     }
     // Existing menus retain their action IDs after inserting Options next to File.
@@ -253,7 +253,9 @@ void Desktop::action(int n){if(busyGesture()){if(n==34||n==35||n==48||n==49||n==
         return;
     }
     if(n==711){
-        if(!app.recording()&&trackHeaderLayout&&trackHeaderLayoutSource.existsAsFile()){
+        if(!app.recording()&&trackHeaderLayout && trackHeaderLayoutSource!=juce::File()
+           && (trackHeaderHotReload || trackHeaderLayoutSource.existsAsFile())){
+            // Disabling a watch must remain possible after a file was moved/deleted.
             trackHeaderHotReload=!trackHeaderHotReload;
             trackHeaderPendingBytes=-1;
             message=trackHeaderHotReload?"Track Header Hot Reload ON":"Track Header Hot Reload OFF";
