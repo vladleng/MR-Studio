@@ -43,6 +43,9 @@ private:
     bool gridView{};
     int gridSelected{-1};
     std::uint64_t revision{};
+    std::vector<std::int64_t> sourceIds,collectionIds;
+    std::vector<std::string> folderNames,facetGroups,facetLabels;
+
 
     juce::TextButton foldersTab{"Folders"},tagsTab{"Tags"},collectionsTab{"Collections"};
     juce::TextButton favorites{"Favorites"},clearFilters{"Clear"},listGrid{"Grid"};
