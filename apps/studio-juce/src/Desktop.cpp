@@ -1305,6 +1305,30 @@ Browser::Browser(Desktop& d):owner(d){
     search.setComponentID("browser-search");folderPath.setComponentID("browser-folder-path");fileTree.setComponentID("browser-files");
     for(auto item:{std::pair{&vstTab,"browser_fx"},std::pair{&filesTab,"browser_folder"},std::pair{&aiTab,"assistant"}}){item.first->getProperties().set("mrHostIcon",item.second);item.first->getProperties().set("mrSmallToolbarIcon",true);item.first->setTooltip(item.first==&vstTab?"FX plugins":item.first==&filesTab?"Files":"AI assistant");}vstTab.setComponentID("browser-vst-tab");filesTab.setComponentID("browser-files-tab");aiTab.setComponentID("browser-ai-tab");
     addAndMakeVisible(aiTab);aiTab.setTitle("AI Assistant tab");aiTab.onClick=[this]{showAssistant();};
+    spliceddTab.setComponentID("browser-splicedd-tab");spliceddTab.setTitle("Splicedd tab");
+    spliceddTab.setTooltip("Splicedd sample library (external application)");
+    addAndMakeVisible(spliceddTab);spliceddTab.onClick=[this]{showSplicedd();};
+    spliceddPanel.setComponentID("browser-splicedd-panel");spliceddPanel.setTitle("Splicedd integration bridge");
+    spliceddTitle.setText("Splicedd",juce::dontSendNotification);
+    spliceddTitle.setFont(Theme::browserFont());spliceddTitle.setJustificationType(juce::Justification::centredLeft);
+    spliceddDescription.setText("Splicedd runs in a separate window. Select its installed EXE to launch. Drag only licensed WAV files into Arrange, or open your local sample folder with Files.",juce::dontSendNotification);
+    spliceddDescription.setFont(Theme::browserFont());spliceddDescription.setJustificationType(juce::Justification::topLeft);
+    for(auto* label:{&spliceddTitle,&spliceddDescription}){label->setColour(juce::Label::textColourId,juce::Colours::whitesmoke);label->setInterceptsMouseClicks(false,false);spliceddPanel.addAndMakeVisible(*label);}
+    for(auto* button:{&spliceddLaunch,&spliceddFolder,&spliceddDownload})spliceddPanel.addAndMakeVisible(*button);
+    addChildComponent(spliceddPanel);
+    juce::Component::SafePointer<Browser> spliceSafe(this);
+    spliceddLaunch.onClick=[spliceSafe]{if(!spliceSafe)return;
+        spliceSafe->owner.choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,
+            [spliceSafe](const juce::File& file){if(!spliceSafe)return;spliceSafe->owner.run([&]{
+                if(!file.existsAsFile()||!file.hasFileExtension("exe"))throw std::runtime_error("Choose the installed Splicedd .exe");
+                if(!file.startAsProcess())throw std::runtime_error("Could not launch Splicedd");
+            });},"*.exe");
+    };
+    spliceddFolder.onClick=[spliceSafe]{if(!spliceSafe)return;
+        spliceSafe->owner.choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectDirectories,
+            [spliceSafe](const juce::File& folder){if(spliceSafe)spliceSafe->owner.run([&]{spliceSafe->navigate(folder);spliceSafe->showFiles(true);});});
+    };
+    spliceddDownload.onClick=[]{juce::URL("https://github.com/ascpixi/splicedd/releases").launchInDefaultBrowser();};
     addAndMakeVisible(locations);addAndMakeVisible(breadcrumbView);breadcrumbView.setViewedComponent(&breadcrumbBody,false);breadcrumbView.setScrollBarsShown(false,false);
     auto addLocation=[&](juce::String name,juce::File file){if(file.isDirectory()){locationPaths.push_back(file);locations.addItem(name,static_cast<int>(locationPaths.size()));}};
     addLocation("Desktop",juce::File::getSpecialLocation(juce::File::userDesktopDirectory));addLocation("Documents",juce::File::getSpecialLocation(juce::File::userDocumentsDirectory));
@@ -1345,10 +1369,20 @@ void Browser::timerCallback(){
 
 void Browser::showFiles(bool files){filesVisible=files;locations.setVisible(files);breadcrumbView.setVisible(files);for(auto* component:{static_cast<juce::Component*>(&fileTree),static_cast<juce::Component*>(&folderPath),static_cast<juce::Component*>(&parentFolder),static_cast<juce::Component*>(&chooseFolder)})component->setVisible(files);
     assistantVisible=false;if(assistant)assistant->setVisible(false);aiTab.setToggleState(false,juce::dontSendNotification);
+    spliceddVisible=false;spliceddPanel.setVisible(false);spliceddTab.setToggleState(false,juce::dontSendNotification);
     tree.setVisible(!files);scanButton.setVisible(!files);search.setVisible(!files);vstTab.setToggleState(!files,juce::dontSendNotification);filesTab.setToggleState(files,juce::dontSendNotification);repaint();}
 juce::StringArray Browser::selectedSamples() const {juce::StringArray files;for(int i=0;i<fileTree.getNumSelectedFiles();++i){auto file=fileTree.getSelectedFile(i);if(file.existsAsFile()&&file.hasFileExtension("wav;mid;midi"))files.add(file.getFullPathName());}return files;}
 void Browser::showAssistant(){showFiles(false);assistantVisible=true;if(!assistant){assistant=makeAiAssistant(owner);addChildComponent(assistant.get());}assistant->setVisible(true);tree.setVisible(false);scanButton.setVisible(false);search.setVisible(false);vstTab.setToggleState(false,juce::dontSendNotification);aiTab.setToggleState(true,juce::dontSendNotification);resized();repaint();}
-void Browser::resized(){vstTab.setBounds(8,0,32,28);filesTab.setBounds(42,0,32,28);aiTab.setBounds(76,0,32,28);if(assistant)assistant->setBounds(4,30,getWidth()-8,getHeight()-34);scanButton.setBounds(8,32,getWidth()-16,26);search.setBounds(8,64,getWidth()-16,26);tree.setBounds(8,98,getWidth()-16,getHeight()-122);
+void Browser::showSplicedd(){showFiles(false);spliceddVisible=true;spliceddPanel.setVisible(true);
+    tree.setVisible(false);scanButton.setVisible(false);search.setVisible(false);
+    vstTab.setToggleState(false,juce::dontSendNotification);spliceddTab.setToggleState(true,juce::dontSendNotification);resized();repaint();}
+void Browser::resized(){vstTab.setBounds(8,0,32,28);filesTab.setBounds(42,0,32,28);aiTab.setBounds(76,0,32,28);spliceddTab.setBounds(110,0,32,28);
+    if(assistant)assistant->setBounds(4,30,getWidth()-8,getHeight()-34);
+    spliceddPanel.setBounds(4,30,juce::jmax(0,getWidth()-8),juce::jmax(0,getHeight()-34));
+    const int spliceWidth=juce::jmax(0,spliceddPanel.getWidth()-16);
+    spliceddTitle.setBounds(8,8,spliceWidth,26);spliceddDescription.setBounds(8,42,spliceWidth,143);
+    spliceddLaunch.setBounds(8,197,spliceWidth,30);spliceddFolder.setBounds(8,237,spliceWidth,30);spliceddDownload.setBounds(8,277,spliceWidth,30);
+    scanButton.setBounds(8,32,getWidth()-16,26);search.setBounds(8,64,getWidth()-16,26);tree.setBounds(8,98,getWidth()-16,getHeight()-122);
     locations.setBounds(8,32,getWidth()-132,26);parentFolder.setBounds(getWidth()-118,32,44,26);chooseFolder.setBounds(getWidth()-68,32,60,26);chooseFolder.setButtonText("...");folderPath.setBounds(8,64,getWidth()-16,26);breadcrumbView.setBounds(8,98,getWidth()-16,24);fileTree.setBounds(4,126,getWidth()-8,juce::jmax(30,getHeight()-278));}
 void Browser::paint(juce::Graphics& g){drawCard(g,getLocalBounds().toFloat(),owner.assetSkin()?juce::Colour(surface):juce::Colour(panel));g.setColour(juce::Colours::whitesmoke);g.setFont(Theme::browserFont());
     if(filesVisible){auto area=juce::Rectangle<int>(0,getHeight()-148,getWidth(),124);g.setColour(owner.assetSkin()?juce::Colour(surface):juce::Colour(panel));g.fillRect(area);g.setColour(juce::Colours::whitesmoke);g.drawText(preview.file==juce::File()?"Select an audio or MIDI file":preview.file.getFileNameWithoutExtension(),area.removeFromTop(28).reduced(8,0),juce::Justification::left);
@@ -1392,6 +1426,11 @@ void browserDialogSmoke(Desktop& owner){
         check(dialog.getLookAndFeel().findColour(juce::AlertWindow::backgroundColourId)==DesignTokens::target().colour(ColourRole::window),"P4 dialog scoped palette");
         save(dialog,"p4-dialog.png");
     }
+    owner.browser->showSplicedd();
+    const auto* splicePanel=owner.browser->findChildWithID("browser-splicedd-panel");
+    check(splicePanel&&splicePanel->isVisible(),"Splicedd tab opens its own bridge panel");
+    owner.browser->showFiles(true);
+    check(splicePanel&&!splicePanel->isVisible(),"Files tab hides Splicedd bridge panel");
     owner.browser->showFiles(false);check(*owner.project()==before,"P4 visuals do not edit project");
 }
 void Desktop::scan(const juce::File& root){if(scanner.valid())throw std::runtime_error("Scan already running");*scanCancel=false;const auto folder=path(root);const auto helper=path(juce::File::getSpecialLocation(juce::File::currentExecutableFile).getSiblingFile("mrs_vst3_scan.exe"));
