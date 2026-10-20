@@ -7,6 +7,7 @@
 #include <sqlite3.h>
 #endif
 #include <algorithm>
+#include <cctype>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -46,6 +47,8 @@ struct Database {
         if (sqlite3_open_v2(name.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nullptr) != SQLITE_OK)
             fail(db, "Open MR Library");
         sqlite3_busy_timeout(db, 1500);
+        exec("PRAGMA journal_mode=WAL");
+        exec("PRAGMA foreign_keys=ON");
     }
     ~Database() { if (db) sqlite3_close(db); }
     Database(const Database&) = delete;
