@@ -1,4 +1,9 @@
 #include <mrs/sample_library.hpp>
+#ifdef _WIN32
+#include <winsqlite/winsqlite3.h>
+#else
+#include <sqlite3.h>
+#endif
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -104,4 +109,122 @@ void test() {
     std::cout<<"MR Library #252: SQLite, unicode, duplicate names, incremental scan, relink, restart PASS\n";
 }
 }
-int main() { try {test();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void tagging() {
+    Fixture f;
+    const auto root=f.root/"samples";
+    wav(root/"Jazz"/"Jazz_Brush_Swing_120BPM_Loop.wav");
+    wav(root/"Bass"/"UprightBass_Am_95BPM_Loop.wav");
+    wav(root/"Misc"/"Guitar_A_Swell.wav");
+    wav(root/"Misc"/"Kick_Deep_01.wav");
+    const auto db=f.root/"db"/"existing.sqlite";
+    auto has=[](const AudioAsset& a,const std::string& group,const std::string& label,const std::string& status){
+        return std::any_of(a.tags.begin(),a.tags.end(),[&](const auto& t){
+            return t.group==group&&t.label==label&&t.status==status;
+        });
+    };
+    auto named=[](const Snapshot& s,const std::string& suffix)->const AudioAsset&{
+        for(const auto& a:s.assets)if(a.relative_path.find(suffix)!=std::string::npos)return a;
+        throw std::runtime_error("Expected WAV missing from tag page");
+    };
+    std::int64_t kick_id{};
+    {
+        SampleLibrary lib(db);
+        wait_for(lib,[](const Snapshot& s){return s.phase==Phase::idle;});
+        lib.add_source(root);
+        auto snap=wait_for(lib,[](const Snapshot& s){return s.phase==Phase::idle&&s.assets.size()==4;});
+        const auto& jazz=named(*snap,"Jazz_Brush");
+        check(has(jazz,"Genre","Jazz","proposed")&&has(jazz,"Technique","Brushes","proposed")&&
+            has(jazz,"Rhythm","Swing","proposed")&&jazz.detected_bpm==120,"Jazz auto tagging");
+        const auto& bass=named(*snap,"UprightBass");
+        check(has(bass,"Instrument","Upright Bass","proposed")&&bass.detected_bpm==95&&
+            bass.detected_key=="Am","Upright/key auto tagging");
+        check(named(*snap,"Guitar_A").detected_key.empty(),"Single isolated A is NOT a key");
+        check(named(*snap,"Kick_Deep").detected_bpm==0,"Take numbers are not BPM");
+        kick_id=named(*snap,"Kick_Deep").id;
+        lib.set_tag_status({kick_id},"Instrument","Kick","rejected");
+        auto previous=snap->revision;
+        snap=wait_for(lib,[&](const Snapshot& s){return s.revision>previous&&s.phase==Phase::idle;});
+        check(has(named(*snap,"Kick_Deep"),"Instrument","Kick","rejected"),"Reject proposal");
+        previous=snap->revision;lib.rescan();
+        snap=wait_for(lib,[&](const Snapshot& s){return s.revision>previous&&s.phase==Phase::idle&&s.message=="Scan complete";});
+        check(has(named(*snap,"Kick_Deep"),"Instrument","Kick","rejected"),"Rescan overwrote rejection");
+        lib.add_tag({kick_id},"Custom","My Sample");
+        previous=snap->revision;
+        snap=wait_for(lib,[&](const Snapshot& s){return s.revision>previous&&s.phase==Phase::idle&&
+            has(named(s,"Kick_Deep"),"Custom","My Sample","confirmed");});
+        lib.set_bpm({kick_id},0);
+        previous=snap->revision;
+        snap=wait_for(lib,[&](const Snapshot& s){return s.revision>previous&&s.phase==Phase::idle;});
+        check(named(*snap,"Kick_Deep").manual_bpm==-1,"Explicit unknown BPM");
+        lib.undo_tag_edit();
+        previous=snap->revision;
+        snap=wait_for(lib,[&](const Snapshot& s){return s.revision>previous&&s.phase==Phase::idle;});
+        check(named(*snap,"Kick_Deep").manual_bpm==0,"Undo metadata edit");
+        lib.add_rule("Genre","misc","My Style",true);
+        previous=snap->revision;
+        snap=wait_for(lib,[&](const Snapshot& s){return s.revision>previous&&s.phase==Phase::idle;});
+        check(has(named(*snap,"Kick_Deep"),"Genre","My Style","proposed"),"Custom folder rule");
+        check(has(named(*snap,"Kick_Deep"),"Custom","My Sample","confirmed"),"Rule wiped manual tag");
+        check(has(named(*snap,"Kick_Deep"),"Instrument","Kick","rejected"),"Rule wiped rejection");
+    }
+    {
+        SampleLibrary lib(db);
+        auto snap=wait_for(lib,[](const Snapshot& s){return s.phase==Phase::idle&&s.assets.size()==4;});
+        check(has(named(*snap,"Kick_Deep"),"Custom","My Sample","confirmed"),"Restart wiped manual tag");
+        check(has(named(*snap,"Kick_Deep"),"Instrument","Kick","rejected"),"Restart wiped tag veto");
+        check(has(named(*snap,"Kick_Deep"),"Genre","My Style","proposed"),"Restart wiped custom rule");
+        lib.undo_tag_edit(); // undo persisted history batch: last was add manual tag (BPM was undone)
+        const auto previous=snap->revision;
+        snap=wait_for(lib,[&](const Snapshot& s){return s.revision>previous&&s.phase==Phase::idle;});
+        check(!has(named(*snap,"Kick_Deep"),"Custom","My Sample","confirmed"),"Undo manual tagging");
+    }
+    std::cout<<"MR Library #253: filename proposals, provenance, veto, manual/undo, rules, persistence PASS\\n";
+}
+void migration_v1() {
+    Fixture f;
+    const auto libraryRoot=f.root/"sounds";
+    wav(libraryRoot/"Jazz"/"Jazz_Brush_120BPM_Loop.wav");
+    const auto file=f.root/"db"/"legacy.sqlite";
+    fs::create_directories(file.parent_path());
+    sqlite3* db{};
+    const auto u=file.u8string();
+    const std::string filename(u.begin(),u.end());
+    check(sqlite3_open(filename.c_str(),&db)==SQLITE_OK,"Create legacy database");
+    const auto exec=[&](const char* sql){
+        char* error=nullptr;
+        if(sqlite3_exec(db,sql,nullptr,nullptr,&error)!=SQLITE_OK){
+            const std::string why=error?error:"SQLite test setup";
+            sqlite3_free(error);throw std::runtime_error(why);
+        }
+    };
+    exec("CREATE TABLE sources (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, enabled INTEGER NOT NULL DEFAULT 1)");
+    exec("CREATE TABLE assets (id INTEGER PRIMARY KEY, source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,"
+         " relative_path TEXT NOT NULL,bytes INTEGER NOT NULL,modified INTEGER NOT NULL,rate INTEGER,"
+         " channels INTEGER,bits INTEGER,frames INTEGER,status TEXT NOT NULL,error TEXT NOT NULL DEFAULT '',"
+         " seen INTEGER NOT NULL DEFAULT 0,UNIQUE(source_id,relative_path))");
+    exec("CREATE INDEX assets_status_idx ON assets(source_id,status)");
+    exec("PRAGMA user_version=1");
+    sqlite3_stmt* stmt{};
+    check(sqlite3_prepare_v2(db,"INSERT INTO sources(id,path) VALUES(7,?)",-1,&stmt,nullptr)==SQLITE_OK,
+          "Prepare legacy source insert");
+    const auto root8=libraryRoot.u8string();
+    const std::string root(root8.begin(),root8.end());
+    sqlite3_bind_text(stmt,1,root.c_str(),-1,SQLITE_TRANSIENT);
+    check(sqlite3_step(stmt)==SQLITE_DONE,"Insert legacy source");
+    sqlite3_finalize(stmt);
+    exec("INSERT INTO assets(id,source_id,relative_path,bytes,modified,rate,channels,bits,frames,status)"
+         " VALUES(81,7,'Jazz/Jazz_Brush_120BPM_Loop.wav',0,0,48000,1,16,400,'ok')");
+    sqlite3_close(db);
+    {
+        SampleLibrary lib(file);
+        auto snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle;});
+        check(snap->sources.size()==1&&snap->sources[0].id==7,"Migration lost source ID");
+        check(snap->assets.size()==1&&snap->assets[0].id==81,"Migration lost asset ID");
+        check(snap->assets[0].detected_bpm==120,"Migration failed to backfill proposals");
+        check(std::any_of(snap->assets[0].tags.begin(),snap->assets[0].tags.end(),
+              [](const auto& tag){return tag.group=="Genre"&&tag.label=="Jazz"&&tag.status=="proposed";}),
+              "Migration dropped auto tags");
+    }
+    std::cout<<"MR Library #253: schema v1 to v2 migration keeps legacy IDs and fills tags PASS\\n";
+}
+int main() { try {test();tagging();migration_v1();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
