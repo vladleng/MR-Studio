@@ -441,6 +441,20 @@ struct SampleLibrary::Impl {
                 " channels=excluded.channels,bits=excluded.bits,frames=excluded.frames,"
                 " status=excluded.status,error=excluded.error,seen=1");
             Statement mark(d, "UPDATE assets SET seen=1 WHERE source_id=? AND relative_path=?");
+            Statement zeroFolders(d,"UPDATE folders SET seen=0 WHERE source_id=?");
+            zeroFolders.number(1,source_id);zeroFolders.done();
+            Statement zeroCovers(d,"UPDATE folder_artwork SET seen=0,auto_image='',priority=0 WHERE source_id=?");
+            zeroCovers.number(1,source_id);zeroCovers.done();
+            Statement directory(d,"INSERT INTO folders(source_id,path,seen) VALUES(?,?,1)"
+                " ON CONFLICT(source_id,path) DO UPDATE SET seen=1");
+            const auto putDirectory=[&](const std::string& path){
+                directory.reset();directory.number(1,source_id);directory.str(2,path);directory.done();
+            };
+            putDirectory("");
+            Statement cover(d,"INSERT INTO folder_artwork(source_id,folder,auto_image,priority,seen)"
+                " VALUES(?,?,?,?,1) ON CONFLICT(source_id,folder) DO UPDATE SET"
+                " auto_image=CASE WHEN excluded.priority>priority THEN excluded.auto_image ELSE auto_image END,"
+                " priority=MAX(priority,excluded.priority),seen=1");
             fs::recursive_directory_iterator it(root, fs::directory_options::none, ec), end;
             if (ec) throw std::runtime_error("Cannot enumerate library folder");
             for (; it != end;) {
@@ -449,7 +463,10 @@ struct SampleLibrary::Impl {
                 if (is_reparse(current)) { it.disable_recursion_pending(); }
                 else {
                     std::error_code type_error;
-                    if (it->is_regular_file(type_error) && is_wav(current)) {
+                    if(it->is_directory(type_error)){
+                        putDirectory(utf8(current.lexically_relative(root)));
+                    }
+                    else if (it->is_regular_file(type_error) && is_wav(current)) {
                         auto relative = current.lexically_relative(root);
                         if (relative.empty() || relative.is_absolute() || *relative.begin() == "..")
                             throw std::runtime_error("Unsafe library relative path");
@@ -489,7 +506,26 @@ struct SampleLibrary::Impl {
                         }
                         ++processed;
                         if (processed % 512 == 0) publish(d,Phase::scanning,utf8(root),processed,changed);
-                    } else if (type_error) throw std::runtime_error("Cannot inspect library item");
+                    } else if(!type_error&&it->is_regular_file(type_error)){
+                        auto name=utf8(current.filename());
+                        std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
+                        int priority=0;
+                        if(name=="cover.jpg"||name=="cover.png"||name=="cover.jpeg")priority=4;
+                        else if(name=="folder.jpg"||name=="folder.png")priority=3;
+                        else if(name=="artwork.jpg"||name=="artwork.png"||name=="artwork.jpeg")priority=2;
+                        if(priority){
+                            std::error_code imageError;
+                            const auto bytes=fs::file_size(current,imageError);
+                            if(!imageError&&bytes>0&&bytes<=20u*1024u*1024u){
+                                auto folder=current.parent_path().lexically_relative(root);
+                                const auto folderName=folder=="."?std::string{}:utf8(folder);
+                                cover.reset();cover.number(1,source_id);cover.str(2,folderName);
+                                cover.str(3,utf8(current.lexically_relative(root)));cover.number(4,priority);
+                                cover.done();
+                            }
+                        }
+                    }
+                    if(type_error)throw std::runtime_error("Cannot inspect library item");
                 }
                 it.increment(ec);
                 if (ec) throw std::runtime_error("Cannot traverse library folder; scan rolled back");
@@ -497,6 +533,11 @@ struct SampleLibrary::Impl {
             if (stop.stop_requested() || cancel.load()) throw Cancelled();
             Statement missing(d, "UPDATE assets SET status='missing',error='Missing from latest scan' WHERE source_id=? AND seen=0");
             missing.number(1,source_id); missing.done();
+            Statement deleteFolders(d,"DELETE FROM folders WHERE source_id=? AND seen=0");
+            deleteFolders.number(1,source_id);deleteFolders.done();
+            // Preserve manual artwork associations across removed/moved folders.
+            Statement deleteCovers(d,"DELETE FROM folder_artwork WHERE source_id=? AND seen=0 AND manual_image=''");
+            deleteCovers.number(1,source_id);deleteCovers.done();
             classify_assets(d,source_id); // proposals refresh, manual confirmed/rejected preserved
             d.exec("COMMIT");
         } catch (...) {
