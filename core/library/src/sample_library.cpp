@@ -396,6 +396,144 @@ struct SampleLibrary::Impl {
             Statement set(d,"UPDATE sources SET enabled=? WHERE id=?");
             set.number(1,c.enabled?1:0);set.number(2,c.id);set.done();
             publish(d,Phase::idle,"Source updated");
+        } else if (c.kind == Kind::view) {
+            viewSource=c.id;viewFilter=c.label.substr(0,200);
+            publish(d,Phase::idle);
+        } else if (c.kind == Kind::tag || c.kind == Kind::tag_status ||
+                   c.kind == Kind::bpm || c.kind == Kind::key) {
+            if(c.ids.empty()||c.ids.size()>5000)throw std::invalid_argument("Choose 1..5000 WAV assets");
+            if(c.kind==Kind::tag || c.kind==Kind::tag_status)valid_tag(c.group,c.label);
+            if(c.kind==Kind::tag_status&&c.status!="confirmed"&&c.status!="rejected")
+                throw std::invalid_argument("Unknown tag decision");
+            if(c.kind==Kind::bpm&&c.number!=-1&&c.number!=0&&(c.number<45||c.number>250))
+                throw std::invalid_argument("Manual BPM must be 45..250 or 0 (unknown)");
+            std::string key=c.label;
+            if(c.kind==Kind::key&&!key.empty()&&key!="-"){
+                const auto parsed=classify_sample_path("sample_"+key+".wav").metadata.key;
+                if(!parsed)throw std::invalid_argument("Manual key format: Am, Gm, F#maj etc.");
+                key=*parsed;
+            }
+            d.exec("BEGIN IMMEDIATE");
+            try {
+                Statement batch(d,"INSERT INTO edit_batches DEFAULT VALUES");batch.done();
+                const auto batch_id=sqlite3_last_insert_rowid(d.db);
+                Statement exists(d,"SELECT id FROM assets WHERE id=?");
+                Statement make(d,"INSERT OR IGNORE INTO tags(group_name,label) VALUES(?,?)");
+                Statement find(d,"SELECT id FROM tags WHERE group_name=? AND label=?");
+                Statement prior(d,"SELECT origin,status,confidence FROM asset_tags WHERE asset_id=? AND tag_id=?");
+                Statement logTag(d,"INSERT INTO tag_edit_history(batch_id,asset_id,tag_id,existed,prior_origin,prior_status,prior_confidence)"
+                    " VALUES(?,?,?,?,?,?,?)");
+                Statement upsert(d,"INSERT INTO asset_tags(asset_id,tag_id,origin,status,confidence)"
+                    " VALUES(?,?,?, ?,?) ON CONFLICT(asset_id,tag_id) DO UPDATE SET"
+                    " origin=excluded.origin,status=excluded.status,confidence=excluded.confidence");
+                Statement oldMeta(d,"SELECT bpm_manual,key_manual FROM assets WHERE id=?");
+                Statement logMeta(d,"INSERT INTO metadata_edit_history(batch_id,asset_id,prior_bpm,prior_key) VALUES(?,?,?,?)");
+                Statement putBpm(d,"UPDATE assets SET bpm_manual=? WHERE id=?");
+                Statement putKey(d,"UPDATE assets SET key_manual=? WHERE id=?");
+                std::vector<std::int64_t> unique=c.ids;
+                std::sort(unique.begin(),unique.end());unique.erase(std::unique(unique.begin(),unique.end()),unique.end());
+                std::int64_t tag_id{};
+                if(c.kind==Kind::tag||c.kind==Kind::tag_status){
+                    make.str(1,c.group);make.str(2,c.label);make.done();
+                    find.str(1,c.group);find.str(2,c.label);
+                    if(!find.next())throw std::runtime_error("Tag creation failed");
+                    tag_id=sqlite3_column_int64(find.stmt,0);find.reset();
+                }
+                for(const auto id:unique){
+                    exists.reset();exists.number(1,id);
+                    if(!exists.next())throw std::invalid_argument("Selected WAV was removed; refresh catalogue");
+                    exists.reset();
+                    if(c.kind==Kind::tag||c.kind==Kind::tag_status){
+                        prior.reset();prior.number(1,id);prior.number(2,tag_id);
+                        const bool existed=prior.next();
+                        std::string oldOrigin,oldStatus;double oldConfidence=0.;
+                        if(existed){
+                            const auto* origin=sqlite3_column_text(prior.stmt,0);
+                            const auto* status=sqlite3_column_text(prior.stmt,1);
+                            oldOrigin=origin?reinterpret_cast<const char*>(origin):"";
+                            oldStatus=status?reinterpret_cast<const char*>(status):"";
+                            oldConfidence=sqlite3_column_double(prior.stmt,2);
+                        }
+                        prior.reset();
+                        logTag.reset();logTag.number(1,batch_id);logTag.number(2,id);logTag.number(3,tag_id);
+                        logTag.number(4,existed?1:0);logTag.str(5,oldOrigin);logTag.str(6,oldStatus);
+                        if(sqlite3_bind_double(logTag.stmt,7,oldConfidence)!=SQLITE_OK)fail(d.db,"Tag history");
+                        logTag.done();
+                        upsert.reset();upsert.number(1,id);upsert.number(2,tag_id);
+                        upsert.str(3,c.kind==Kind::tag?"manual":existed?oldOrigin:"manual");
+                        upsert.str(4,c.kind==Kind::tag?"confirmed":c.status);
+                        if(sqlite3_bind_double(upsert.stmt,5,c.kind==Kind::tag?1.:existed?oldConfidence:1.)!=SQLITE_OK)
+                            fail(d.db,"Manual confidence");
+                        upsert.done();
+                    } else {
+                        oldMeta.reset();oldMeta.number(1,id);
+                        if(!oldMeta.next())throw std::runtime_error("Missing WAV metadata");
+                        const auto beforeBpm=sqlite3_column_int(oldMeta.stmt,0);
+                        const auto* raw=sqlite3_column_text(oldMeta.stmt,1);
+                        const std::string beforeKey=raw?reinterpret_cast<const char*>(raw):"";
+                        oldMeta.reset();
+                        logMeta.reset();logMeta.number(1,batch_id);logMeta.number(2,id);
+                        logMeta.number(3,beforeBpm);logMeta.str(4,beforeKey);logMeta.done();
+                        if(c.kind==Kind::bpm){putBpm.reset();putBpm.number(1,c.number);putBpm.number(2,id);putBpm.done();}
+                        else {putKey.reset();putKey.str(1,key);putKey.number(2,id);putKey.done();}
+                    }
+                }
+                d.exec("COMMIT");
+            }catch(...){d.exec("ROLLBACK");throw;}
+            publish(d,Phase::idle,"Library metadata updated");
+        } else if (c.kind == Kind::undo) {
+            Statement last(d,"SELECT MAX(id) FROM edit_batches");
+            if(!last.next()||sqlite3_column_type(last.stmt,0)==SQLITE_NULL){publish(d,Phase::idle,"No library edits to undo");return;}
+            const auto batch_id=sqlite3_column_int64(last.stmt,0);last.reset();
+            d.exec("BEGIN IMMEDIATE");
+            try {
+                Statement tags(d,"SELECT asset_id,tag_id,existed,prior_origin,prior_status,prior_confidence"
+                    " FROM tag_edit_history WHERE batch_id=?");
+                tags.number(1,batch_id);
+                Statement remove(d,"DELETE FROM asset_tags WHERE asset_id=? AND tag_id=?");
+                Statement restore(d,"INSERT INTO asset_tags(asset_id,tag_id,origin,status,confidence)"
+                    " VALUES(?,?,?,?,?) ON CONFLICT(asset_id,tag_id) DO UPDATE SET"
+                    " origin=excluded.origin,status=excluded.status,confidence=excluded.confidence");
+                while(tags.next()){
+                    const auto aid=sqlite3_column_int64(tags.stmt,0),tid=sqlite3_column_int64(tags.stmt,1);
+                    if(sqlite3_column_int(tags.stmt,2)){
+                        const auto* origin=sqlite3_column_text(tags.stmt,3);
+                        const auto* status=sqlite3_column_text(tags.stmt,4);
+                        restore.reset();restore.number(1,aid);restore.number(2,tid);
+                        restore.str(3,origin?reinterpret_cast<const char*>(origin):"");
+                        restore.str(4,status?reinterpret_cast<const char*>(status):"");
+                        if(sqlite3_bind_double(restore.stmt,5,sqlite3_column_double(tags.stmt,5))!=SQLITE_OK)
+                            fail(d.db,"Restore tag");
+                        restore.done();
+                    }else{remove.reset();remove.number(1,aid);remove.number(2,tid);remove.done();}
+                }
+                Statement meta(d,"SELECT asset_id,prior_bpm,prior_key FROM metadata_edit_history WHERE batch_id=?");
+                meta.number(1,batch_id);
+                Statement update(d,"UPDATE assets SET bpm_manual=?,key_manual=? WHERE id=?");
+                while(meta.next()){
+                    const auto* key=sqlite3_column_text(meta.stmt,2);
+                    update.reset();update.number(1,sqlite3_column_int(meta.stmt,1));
+                    update.str(2,key?reinterpret_cast<const char*>(key):"");
+                    update.number(3,sqlite3_column_int64(meta.stmt,0));update.done();
+                }
+                Statement del(d,"DELETE FROM edit_batches WHERE id=?");del.number(1,batch_id);del.done();
+                d.exec("COMMIT");
+            }catch(...){d.exec("ROLLBACK");throw;}
+            publish(d,Phase::idle,"Last library edit undone");
+        } else if (c.kind == Kind::rule) {
+            valid_tag(c.group,c.label);
+            if(c.phrase.empty()||c.phrase.size()>128)throw std::invalid_argument("Invalid rule phrase");
+            d.exec("BEGIN IMMEDIATE");
+            try {
+                Statement rule(d,"INSERT INTO classification_rules(group_name,phrase,label,in_folder)"
+                    " VALUES(?,?,?,?) ON CONFLICT(group_name,phrase,in_folder)"
+                    " DO UPDATE SET label=excluded.label");
+                rule.str(1,c.group);rule.str(2,c.phrase);rule.str(3,c.label);
+                rule.number(4,c.folder?1:0);rule.done();
+                classify_assets(d);
+                d.exec("COMMIT");
+            }catch(...){d.exec("ROLLBACK");throw;}
+            publish(d,Phase::idle,"Rules applied; manual decisions preserved");
         } else if (c.kind == Kind::rescan) {
             Statement list(d,"SELECT id,path FROM sources WHERE enabled=1 ORDER BY id");
             std::vector<std::pair<std::int64_t,fs::path>> sources;
@@ -442,7 +580,29 @@ void SampleLibrary::add_source(fs::path root) { impl_->enqueue({Impl::Kind::add,
 void SampleLibrary::relink_source(std::int64_t id, fs::path root) { impl_->enqueue({Impl::Kind::relink,id,std::move(root)}); }
 void SampleLibrary::remove_source(std::int64_t id) { impl_->enqueue({Impl::Kind::remove,id,{}}); }
 void SampleLibrary::enable_source(std::int64_t id,bool enabled) { impl_->enqueue({Impl::Kind::enable,id,{},enabled}); }
-void SampleLibrary::rescan() { impl_->enqueue({Impl::Kind::rescan,0,{}}); }
+void SampleLibrary::set_view(std::int64_t source,std::string filter){
+    Impl::Command c(Impl::Kind::view,source);c.label=std::move(filter);impl_->enqueue(std::move(c));
+}
+void SampleLibrary::add_tag(const std::vector<std::int64_t>& ids,std::string group,std::string label){
+    Impl::Command c(Impl::Kind::tag);c.ids=ids;c.group=std::move(group);c.label=std::move(label);
+    impl_->enqueue(std::move(c));
+}
+void SampleLibrary::set_tag_status(const std::vector<std::int64_t>& ids,std::string group,std::string label,std::string status){
+    Impl::Command c(Impl::Kind::tag_status);c.ids=ids;c.group=std::move(group);c.label=std::move(label);
+    c.status=std::move(status);impl_->enqueue(std::move(c));
+}
+void SampleLibrary::set_bpm(const std::vector<std::int64_t>& ids,int bpm){
+    Impl::Command c(Impl::Kind::bpm);c.ids=ids;c.number=bpm;impl_->enqueue(std::move(c));
+}
+void SampleLibrary::set_key(const std::vector<std::int64_t>& ids,std::string key){
+    Impl::Command c(Impl::Kind::key);c.ids=ids;c.label=std::move(key);impl_->enqueue(std::move(c));
+}
+void SampleLibrary::add_rule(std::string group,std::string phrase,std::string label,bool folder){
+    Impl::Command c(Impl::Kind::rule);c.group=std::move(group);c.phrase=std::move(phrase);
+    c.label=std::move(label);c.folder=folder;impl_->enqueue(std::move(c));
+}
+void SampleLibrary::undo_tag_edit(){impl_->enqueue(Impl::Command(Impl::Kind::undo));}
+void SampleLibrary::rescan() { impl_->enqueue(Impl::Command(Impl::Kind::rescan)); }
 void SampleLibrary::cancel_scan() { impl_->cancel=true; }
 std::shared_ptr<const Snapshot> SampleLibrary::snapshot() const { return impl_->snapshot(); }
 } // namespace mrs::library
