@@ -1,6 +1,9 @@
 #include <mrs/sample_library.hpp>
 #include <mrs/audio.hpp>
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <winsqlite/winsqlite3.h>
 #else
