@@ -9,6 +9,7 @@ if($Ara){
  & cmake --build build/ara-render --config Release --target MRSAraRenderFixture --parallel 2
  if($LASTEXITCODE){throw 'ARA fixture build failed'}
  $fixture=(Resolve-Path -LiteralPath 'build/ara-render/Release/MRSAraRenderFixture.vst3').Path
- $args+=@("-DMRS_ARA_SDK_ROOT=$sdk/ara","-DMRS_ARA_RENDER_TEST_PLUGIN=$fixture","-DMRS_ARA_TEST_PLUGIN=$fixture")
+ # The shared render fixture applies a 0.5 gain at the default tempo: both suites must expect it.
+ $args+=@("-DMRS_ARA_SDK_ROOT=$sdk/ara","-DMRS_ARA_RENDER_TEST_PLUGIN=$fixture","-DMRS_ARA_TEST_PLUGIN=$fixture","-DMRS_ARA_TEST_PLUGIN_GAIN=0.5")
 }
 & cmake @args;if($LASTEXITCODE){throw 'Windows configure failed'}

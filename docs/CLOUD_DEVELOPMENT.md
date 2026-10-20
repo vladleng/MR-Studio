@@ -19,6 +19,7 @@ ASIO ZIP и извлечённые ASIO sources находятся вне кэш
 - Windows Studio: windows-2022, Visual Studio2022 x64, JUCE9.0.3/VST3/ASIO, Release. Быстрые profile checks включают Core/AI и GUI startup/AI. ARA opt-in добавляет host fixtures, не установленные коммерческие плагины.
 - Full integration: `workflow_dispatch` с integration=true либо commit marker `[ci full]` в migration branch. Полный CTest без исключения #239/J2/J3. Не применять после каждой мелкой правки.
 - ARA: input ara=true либо `[ci ara]`; сборка runtime с ARA. В отчёте указывать, какие plugin/render fixtures были реально созданы, а какие отсутствовали.
+  В CI одна и та же обработанная ARA render-fixture применяется для `ara_clip_model` и `ara_clip_processed`. Её штатный коэффициент при 120 BPM составляет 0.5; `MRS_ARA_TEST_PLUGIN_GAIN` передаёт это значение в generic model suite (по умолчанию 1 для нейтральных внешних fixtures). Оба теста сохраняются; недопустимо маскировать ошибку удалением теста.
 
 Новый workflow в ещё не принятой ветке впервые запускается push trigger; dispatch API требует доступности workflow на default branch. Не merge ради dispatch. Для этой миграции пользователь прямо разрешил контрольные runs.
 
