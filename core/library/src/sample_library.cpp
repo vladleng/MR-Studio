@@ -220,10 +220,14 @@ struct SampleLibrary::Impl {
                         const auto stamp = static_cast<std::int64_t>(modified.time_since_epoch().count());
                         existing.reset(); existing.number(1,source_id); existing.str(2,rel);
                         bool unchanged = false;
-                        if (existing.next())
+                        if (existing.next()) {
+                            const auto* raw=sqlite3_column_text(existing.stmt,2);
+                            const std::string status=raw?reinterpret_cast<const char*>(raw):"";
                             unchanged = sqlite3_column_int64(existing.stmt,0)==bytes &&
                                 sqlite3_column_int64(existing.stmt,1)==stamp &&
-                                std::string(reinterpret_cast<const char*>(sqlite3_column_text(existing.stmt,2)))=="ok";
+                                (status=="ok"||status=="invalid");
+                        }
+                        existing.reset(); // finalize SELECT before updating the same assets table
                         if (unchanged) {
                             mark.reset(); mark.number(1,source_id); mark.str(2,rel); mark.done();
                         } else {
