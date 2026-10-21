@@ -52,6 +52,7 @@ class Recorder;
 class ChannelWorkers;
 class AheadRenderer;
 class MixedRenderer;
+class LibraryPreviewStream;
 struct AudioData {
     std::uint32_t sample_rate{48000};
     std::uint32_t channels{2};
@@ -296,6 +297,12 @@ public:
     std::uint64_t control_revision() const noexcept;
     Metrics metrics() const;
     void set_profiling(bool) noexcept; // UI/control thread; counters reset only on stopped prepare
+    // WAV audition uses the same prepared hardware callback, never an extra device.
+    // Prepare/decode and requests are strictly non-RT; playback is lock-free.
+    void play_library_preview(const std::filesystem::path&,double fraction=0);
+    void stop_library_preview() noexcept;
+    struct LibraryPreviewState {bool playing{};float progress{};};
+    LibraryPreviewState library_preview_state() const noexcept;
     EngineProfile profile() const noexcept;
     std::vector<std::shared_ptr<processing::PreparedGraph>> profile_graphs() const; // UI only, channel order + legacy + Master
     RenderConfig config() const { return config_; }
@@ -325,6 +332,8 @@ private:
     std::array<bool,max_mixer_tracks> external_gate_{};
     std::atomic<std::uint64_t> midi_generation_{},midi_dropped_{};
     std::atomic<bool> midi_panic_{},midi_record_fault_{};
+    std::unique_ptr<LibraryPreviewStream> library_preview_;
+    std::atomic<LibraryPreviewStream*> library_preview_ptr_{nullptr};
     friend class AheadRenderer;
     friend class MixedRenderer;
     MixedRenderer* mixed_owner_{}; // immutable while device runs
