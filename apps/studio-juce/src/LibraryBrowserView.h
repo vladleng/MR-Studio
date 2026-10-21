@@ -83,7 +83,7 @@ private:
     juce::TextButton addToCollection{"Add selected"},removeFromCollection{"Remove selected"};
     juce::TextButton favoriteSelected{"Star selected"};
     juce::TextButton chooseCover{"Set cover"},resetCover{"Auto cover"};
-    juce::TextButton prevPage{"Prev"},nextPage{"Next"};
+    juce::TextButton prevPage{"Prev"},nextPage{"Next"},stopPreview{"Stop"};
     juce::ComboBox sources,folders,tagGroups,tagValues,selectedFilters,collections,sorts;
     juce::TextEditor search,bpmFrom,bpmTo,keyField,collectionName;
     juce::Label counter,filterLabel;
