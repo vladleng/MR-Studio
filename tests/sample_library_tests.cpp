@@ -389,6 +389,7 @@ void safe_preview(){
         [&](const auto& asset){return asset.id==at->id;});
     mixedCase->relative_path="Jazz/Kick.WaV";
     check(asset_path(tampered,at->id).has_value(),"Mixed-case WAV extension rejected");
+    fs::remove(root/"Jazz"/"Kick.WaV");
     check(!asset_path(*snap,at->id),"Deleted WAV must be rejected before rescan");
     fs::create_directory(file);
     check(!asset_path(*snap,at->id),"Directory named WAV must not be draggable");
