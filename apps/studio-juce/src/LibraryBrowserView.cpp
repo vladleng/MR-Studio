@@ -446,7 +446,23 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
                 if(tags.isNotEmpty())tags+=", ";
                 tags+=uiText(t.label);
             }
-            g.drawFittedText(tags,left,43,right,height-49,juce::Justification::topLeft,3);
+            g.drawFittedText(tags,left,43,right,std::max(16,height-92),juce::Justification::topLeft,3);
+        }
+        const int waveTop=gridView?height-35:height-27;
+        const int waveHeight=gridView?26:19;
+        const int waveWidth=std::max(1,right-8);
+        const auto mid=static_cast<float>(waveTop)+waveHeight*.5f;
+        g.setColour(juce::Colour(0xff314256));
+        g.drawHorizontalLine(static_cast<int>(mid),static_cast<float>(left),
+                             static_cast<float>(left+waveWidth));
+        if(const auto peaks=rowWave(item)){
+            g.setColour(juce::Colour(selectedCell?0xffb1ddf3:0xff80b9dc));
+            for(int pixel=0;pixel<waveWidth;++pixel){
+                const auto bin=std::min(255,pixel*256/waveWidth);
+                const auto peak=std::clamp((*peaks)[static_cast<std::size_t>(bin)],0.f,1.f);
+                const auto size=std::max(0.5f,peak*static_cast<float>(waveHeight-3)*.5f);
+                g.drawVerticalLine(left+pixel,mid-size,mid+size);
+            }
         }
     }
 }
