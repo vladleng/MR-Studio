@@ -43,7 +43,7 @@ target_sources(mrs_audio PRIVATE core/audio/src/reverb_library.cpp core/audio/sr
 target_link_libraries(mrs_audio PUBLIC mrs_core Threads::Threads mrs_processing)
 # #252 MR Library: an offline, non-realtime SQLite index. Windows uses the
 # operating system's WinSQLite3; non-Windows core tests use system SQLite3.
-add_library(mrs_sample_library STATIC core/library/src/sample_library.cpp core/library/src/sample_tag_rules.cpp)
+add_library(mrs_sample_library STATIC core/library/src/sample_library.cpp core/library/src/sample_tag_rules.cpp core/library/src/sample_preview.cpp)
 target_include_directories(mrs_sample_library PUBLIC core/library/include)
 target_compile_features(mrs_sample_library PUBLIC cxx_std_20)
 target_link_libraries(mrs_sample_library PUBLIC mrs_audio)
