@@ -22,8 +22,8 @@ std::optional<fs::path> asset_path(const Snapshot& snap,std::int64_t id){
         [&](const Source& s){return s.id==item->source_id&&s.enabled;});
     if(source==snap.sources.end()||source->root.empty())return {};
     const auto relative=fs::path(std::u8string(item->relative_path.begin(),item->relative_path.end()));
-    if(relative.empty()||relative.is_absolute()||relative.has_root_path()||relative.extension()!=L".wav"&&
-        relative.extension()!=L".WAV")return {};
+    if(relative.empty()||relative.is_absolute()||relative.has_root_path()||
+        (relative.extension()!=L".wav"&&relative.extension()!=L".WAV"))return {};
     for(const auto& component:relative)
         if(component=="."||component=="..")return {};
     const auto root=source->root.lexically_normal();
