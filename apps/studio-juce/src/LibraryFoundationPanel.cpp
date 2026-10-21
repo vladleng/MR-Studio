@@ -298,6 +298,9 @@ void LibraryFoundationPanel::updateMode(){
         &rulePhrase,&tagGroup,&suggestedTags,&ruleFolder})c->setVisible(editingTags);
 }
 
+juce::StringArray LibraryFoundationPanel::selectedLibrarySamples() const {
+    return browserView?browserView->selectedWavFiles():juce::StringArray{};
+}
 void LibraryFoundationPanel::timerCallback() { refresh(); }
 void LibraryFoundationPanel::refresh() {
     auto next=library.snapshot();
