@@ -1,4 +1,5 @@
 #include <mrs/audio.hpp>
+#include <mrs/library_preview.hpp>
 #include <mrs/midi_recording.hpp>
 #include <mrs/read_ahead.hpp>
 #include <mrs/recording.hpp>
@@ -43,8 +44,32 @@ void AudioData::validate() const {
         if (!std::isfinite(sample)) throw std::invalid_argument("non-finite audio sample");
 }
 AudioEngine::AudioEngine() { prepare(RenderConfig{}, {}); }
-AudioEngine::~AudioEngine() {workers_.reset();}
-void AudioEngine::quiesce() noexcept {if(workers_)workers_->quiesce();if(graph_.external_midi)graph_.external_midi->panic();}
+AudioEngine::~AudioEngine() {
+    library_preview_ptr_.store(nullptr,std::memory_order_release);
+    library_preview_.reset(); // device must have stopped before engine destruction
+    workers_.reset();
+}
+void AudioEngine::play_library_preview(const std::filesystem::path& path,double fraction) {
+    if(!library_preview_){
+        auto instance=std::make_unique<LibraryPreviewStream>();
+        library_preview_ptr_.store(instance.get(),std::memory_order_release);
+        library_preview_=std::move(instance);
+    }
+    library_preview_->play(path,config_.sample_rate,fraction);
+}
+void AudioEngine::stop_library_preview() noexcept {
+    if(library_preview_)library_preview_->stop();
+}
+AudioEngine::LibraryPreviewState AudioEngine::library_preview_state() const noexcept {
+    if(!library_preview_)return {};
+    const auto state=library_preview_->status();
+    return {state.playing,state.progress};
+}
+void AudioEngine::quiesce() noexcept {
+    stop_library_preview();
+    if(workers_)workers_->quiesce();
+    if(graph_.external_midi)graph_.external_midi->panic();
+}
 void AudioEngine::channel_job(void* context,std::uint32_t index) noexcept {
     auto& engine=*static_cast<AudioEngine*>(context);
     const auto track=engine.channel_levels_[engine.job_level_][index];
@@ -905,6 +930,11 @@ void AudioEngine::process_block(const float* input, float* output, std::uint32_t
             const auto propagate=[&](std::size_t to){if(to!=no_mixer_track)profile_path_[to]=std::max(profile_path_[to],path);};propagate(graph_.outputs[t]);for(const auto& send:graph_.sends[t])propagate(send.destination);}
             critical_ns+=longest;}
         auto* master_audio=output+static_cast<std::size_t>(base)*config_.output_channels;
+        if(!speculative_){
+            const auto audible=graph_.recordings.empty()&&graph_.midi_recordings.empty();
+            if(auto* preview=library_preview_ptr_.load(std::memory_order_acquire))
+                preview->mix(master_audio,count,config_.output_channels,audible);
+        }
         if(!speculative_)for(const auto& editor:graph_.editor_renderers)
             (void)editor->mix(master_audio,count,config_.output_channels,position,playing,tempo.bpm,tempo.quarter,meter,rt_.loop,graph_.recordings.empty()&&graph_.midi_recordings.empty()); // audition faults are isolated from clip playback
         for(std::size_t i=0;i<static_cast<std::size_t>(count)*config_.output_channels;++i)if(!std::isfinite(master_audio[i]))master_audio[i]=0;
