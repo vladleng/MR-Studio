@@ -93,7 +93,12 @@ private:
     std::jthread waveWorker;
     std::mutex waveMutex;
     std::condition_variable_any waveWake;
-    std::deque<std::pair<std::string,std::filesystem::path>> waveQueue;
+    struct WaveTask {
+        std::string key;
+        std::shared_ptr<const mrs::library::Snapshot> catalogue;
+        std::int64_t assetId{};
+    };
+    std::deque<WaveTask> waveQueue;
     std::set<std::string> waveRequested;
     std::map<std::string,std::array<float,256>> waveCache;
     std::atomic<std::uint64_t> wavesReady{0};
