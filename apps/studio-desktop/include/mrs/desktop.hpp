@@ -253,6 +253,11 @@ public:
     const std::string& waveform_error() const { return waveform_error_; }
     const std::string& audio_name() const { return audio_name_; }
     void play(); void pause(); void stop(); void seek(Sample);
+    // Preview never uses a second ASIO device or manipulates project transport.
+    // Unavailable/offline/recording state returns false without side effects.
+    bool play_library_preview(const std::filesystem::path&,double fraction=0);
+    void stop_library_preview() noexcept;
+    audio::AudioEngine::LibraryPreviewState library_preview_state() const noexcept;
     void arm_track(std::optional<Id>);
     const std::optional<Id>& armed_track() const { return armed_; }
     void start_recording(const std::filesystem::path& destination);
