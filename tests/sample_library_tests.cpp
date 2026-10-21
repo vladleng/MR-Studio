@@ -470,7 +470,7 @@ void audition_device_modes(){
         check(std::abs(output[2]-expected)<.001f&&std::abs(output[3]-expected)<.001f,
               "Preview must follow Master gain and selected ASIO output pair exactly once");
         check(output[0]==0.f&&output[1]==0.f,"Preview leaked to unselected output channels");
-        check(engine->state().playback!=mrs::audio::PlaybackState::playing,
+        check(engine->state().playback!=mrs::PlaybackState::playing,
               "Audition must not start project transport");
         engine->stop_library_preview();
         renderer.process(nullptr,output.data(),128);
