@@ -4,6 +4,7 @@
 #include <thread>
 namespace ui {
 void wavDrop263Smoke();
+void browserFocus263Smoke(juce::Component&,juce::Component&);
 void libraryBrowserSmoke(){
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
     const auto root=std::filesystem::temp_directory_path()/("mrs-library261-"+mrs::new_id().value);
@@ -25,7 +26,7 @@ void libraryBrowserSmoke(){
     library.add_source(root/"samples");pump([](const auto& snap){return snap.phase==mrs::library::Phase::idle&&snap.visible_assets==2;});
     browser.setSize(260,640);check(browser.rootMode&&browser.cards.size()==1,"Folders root should show source cover cards");
     check(browser.assetIndex(0,0)<0,"Folder card must not masquerade as a WAV drag");
-    const auto snapshot=[&](const juce::String& name){for(float scale:{1.f,1.5f}){
+    const auto snapshot=[&](const juce::String& name){for(float scale:{1.f,1.25f,1.5f,2.f}){
         const auto file=juce::File::getCurrentWorkingDirectory().getChildFile("juce-library261-"+name+"-"+juce::String(static_cast<int>(scale*100))+".png");
         auto output=file.createOutputStream();check(output!=nullptr,"Create Library preview");
         check(juce::PNGImageFormat().writeImageToStream(browser.createComponentSnapshot(browser.getLocalBounds(),true,scale,juce::SoftwareImageType{}),*output),"Write Library preview");
@@ -35,6 +36,18 @@ void libraryBrowserSmoke(){
     check(browser.cards.size()==1&&browser.cards.front().key=="Jazz","Folder navigation must list direct children");
     browser.openCard(browser.cards.front());pump([&](const auto& snap){return snap.query==browser.query&&snap.phase==mrs::library::Phase::idle;});
     check(browser.cards.empty()&&browser.assetIndex(0,0)==0,"Folder navigation must preserve WAV indices");
+    check(browser.results.getRowHeight()==60,"Sample rows stay compact without a separate waveform lane");
+    check(browser.rowLayout(260,60).wave.isEmpty(),"Narrow results hide waveforms");
+    const auto wide=browser.rowLayout(960,60);
+    check(wide.wave.getWidth()<=160&&wide.wave.getX()>wide.title.getRight()&&wide.wave.getBottom()<=60,"Wide waveform stays short, beside filename and inside row");
+    check(browser.rowGlyph(browser.view->assets[0],false,false)=="loop"&&browser.rowGlyph(browser.view->assets[1],false,false)=="sample_one_shot","Loop and One-shot have separate glyphs");
+    check(browser.rowGlyph(browser.view->assets[0],false,true)=="play"&&browser.rowGlyph(browser.view->assets[1],true,false)=="play","Hover and keyboard selection expose Play");
+    juce::SparseSet<int> dragRows;dragRows.addRange({0,1});int dragX{},dragY{};
+    const auto drag=browser.results.createSnapshotOfRows(dragRows,dragX,dragY);
+    const auto mouse=browser.results.getMouseXYRelative();
+    check(drag.getImage().getWidth()==240&&drag.getImage().getHeight()==36&&dragX==mouse.x+18&&dragY==mouse.y+12,"Compact drag label follows cursor leaving insertion preview ahead");
+    browserFocus263Smoke(browser,browser.results);
+    browser.sendQuery();pump([&](const auto& snap){return snap.query==browser.query&&snap.phase==mrs::library::Phase::idle;});
     const auto catalogue=browser.view;auto covers=std::make_shared<mrs::library::Snapshot>(*catalogue);
     const auto sourceId=covers->assets.front().source_id;
     covers->covers.push_back({"folder",sourceId,"","pack.png"});
@@ -50,13 +63,23 @@ void libraryBrowserSmoke(){
     browser.stopPreview.onClick();check(!playing&&browser.activePreviewId==0,"Footer Stop cancels audition");
     browser.results.selectRow(0,false,true);
     check(browser.results.keyPressed(juce::KeyPress(juce::KeyPress::spaceKey))&&playing,"Space starts browser audition");
+    check(browser.rowGlyph(browser.view->assets[0],false,false)=="stop","Playing sample exposes Stop even without hover");
     const auto started=previews;
     check(browser.results.keyPressed(juce::KeyPress(juce::KeyPress::downKey))&&previews==started+1&&browser.activePreviewId==browser.view->assets[1].id,"Down selects and auditions next sample");
+    browser.results.keyPressed(juce::KeyPress(juce::KeyPress::downKey));
+    check(previews==started+1,"Last-row arrow does not restart the same sample");
     browser.results.keyPressed(juce::KeyPress(juce::KeyPress::spaceKey));
     check(!playing&&!browser.keyboardAudition,"Second Space disables audition");
     browser.results.keyPressed(juce::KeyPress(juce::KeyPress::upKey));
     check(previews==started+1&&browser.selectedAssets().front()==browser.view->assets[0].id,"Arrows select silently after stopping");
     check(browser.details.getText().contains("Brush_120BPM_Loop.wav")&&browser.details.getText().contains("BPM"),"Selected file path and technical details belong in footer");
+    browser.setSize(960,640);
+    const auto control=browser.rowLayout(browser.results.getWidth(),browser.results.getRowHeight()).control.getCentre().toFloat();
+    const auto click=juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),control,juce::ModifierKeys::leftButtonModifier,1,0,0,0,0,&browser.results,&browser.results,juce::Time::getCurrentTime(),control,juce::Time::getCurrentTime(),1,false);
+    browser.listBoxItemClicked(0,click);check(playing&&browser.rowGlyph(browser.view->assets[0],true,false)=="stop","Inline Play starts existing preview");
+    snapshot("samples-playing-960");
+    browser.listBoxItemClicked(0,click);check(!playing&&!browser.keyboardAudition&&browser.activePreviewId==0,"Inline Stop stops and disarms arrow audition");
+    browser.setSize(260,640);snapshot("samples-260");
     check(!browser.browserKey(juce::KeyPress('A')),"Unrelated browser keys remain unhandled");
     browser.query.search="jazz brushes";browser.rootMode=false;browser.sendQuery();
     pump([&](const auto& snap){return snap.query==browser.query&&snap.phase==mrs::library::Phase::idle;});

@@ -1,8 +1,9 @@
 {
   "name": "MR Studio Native Plugin SVG Kit",
   "version": "0.2",
-  "total_asset_svg": 236,
+  "total_asset_svg": 237,
   "assets": [
+    {"id":"icons/concept_pack/sample_one_shot","file":"svg/icons/concept_pack/sample_one_shot.svg","size":[24,24],"source":"Original MR Studio vector, Issue #263","license":"Same as project; original artwork"},
     {"id":"icons/editor_attach","file":"svg/icons/editor_attach.svg","size":[24,24],"source":"Original MR Studio vector, Issue #88","license":"Same as project; original artwork"},
     {"id":"icons/editor_detach","file":"svg/icons/editor_detach.svg","size":[24,24],"source":"Original MR Studio vector, Issue #88","license":"Same as project; original artwork"},
     {"id":"icons/editor_fullscreen","file":"svg/icons/editor_fullscreen.svg","size":[24,24],"source":"Original MR Studio vector, Issue #88","license":"Same as project; original artwork"},

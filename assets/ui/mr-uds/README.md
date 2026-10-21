@@ -88,3 +88,7 @@ node assets/ui/mr-uds/render_concept_pack.cjs
 ## Статус
 
 Концепт библиотеки. Перед утверждением production-дизайна проверить в реальном масштабе экрана, доступность (контраст и размер hit areas), выровнять дизайн под фактическую структуру DSP и UX каждого плагина. Базовый набор и новое расширение имеют отдельные генераторы; см. ограничения пересборки выше.
+
+## MR Library sample type — #263
+
+`svg/icons/concept_pack/sample_one_shot.svg` adds an original 24 px bar glyph for One-shot. Library Loop, Play and Stop reuse the existing transport SVGs. The manifest and extension catalogue include the new icon; no generator was run.

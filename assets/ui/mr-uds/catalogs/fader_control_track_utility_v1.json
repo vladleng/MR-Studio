@@ -9,6 +9,7 @@
   ],
   "integration": "Static asset library only. Host owns input, accessibility, values, units, mapping and DSP.",
   "assets": [
+    {"id":"icons/concept_pack/sample_one_shot","file":"svg/icons/concept_pack/sample_one_shot.svg","size":[24,24],"family":"browser","state":"normal","kind":"icon","source":"Original MR Studio vector, Issue #263"},
     {
       "id": "controls/concept_pack/fader_micro_normal",
       "file": "svg/controls/concept_pack/fader_micro_normal.svg",

@@ -32,6 +32,9 @@ public:
     void resized() override;
     void paint(juce::Graphics&) override;
     void visibilityChanged() override;
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseEnter(const juce::MouseEvent& e) override {mouseMove(e);}
+    void mouseExit(const juce::MouseEvent&) override;
 private:
     friend void libraryBrowserSmoke();
     enum class Section { folders, tags, collections };
@@ -80,6 +83,11 @@ private:
     bool browserKey(const juce::KeyPress&);
     void updateDetails();
     bool keyboardAudition{};
+    int hoveredAsset{-1};
+    struct RowLayout {juce::Rectangle<int> cover,control,title,tags,wave;};
+    RowLayout rowLayout(int width,int height) const;
+    std::string rowGlyph(const mrs::library::AudioAsset&,bool focused,bool hovered) const;
+    juce::ScaledImage dragImage(int& x,int& y);
 
     mrs::library::SampleLibrary& library;
     std::function<bool(const std::filesystem::path&,double)> previewPlay;
@@ -107,6 +115,10 @@ private:
     struct Results final : juce::ListBox {
         Results(LibraryBrowserView& o):juce::ListBox("MR Library results",&o),owner(o){}
         bool keyPressed(const juce::KeyPress& k) override {return owner.browserKey(k)||juce::ListBox::keyPressed(k);}
+        bool keyStateChanged(bool down) override {
+            return juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey)||juce::ListBox::keyStateChanged(down);
+        }
+        juce::ScaledImage createSnapshotOfRows(const juce::SparseSet<int>&,int& x,int& y) override {return owner.dragImage(x,y);}
         LibraryBrowserView& owner;
     };
     Results results{*this};

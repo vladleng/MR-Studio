@@ -499,7 +499,7 @@ bool Desktop::shortcutAllowed() const {return shortcutAllowedFor(juce::Component
 bool Desktop::shortcutAllowedFor(juce::Component* focused) const {
     if(juce::Component::getCurrentlyModalComponent()!=nullptr)return false;
     if(focused && focused!=this && !isParentOf(focused))return false;
-    for(auto* c=focused;c&&c!=this;c=c->getParentComponent())if(dynamic_cast<juce::TextEditor*>(c)||dynamic_cast<juce::ComboBox*>(c))return false;
+    for(auto* c=focused;c&&c!=this;c=c->getParentComponent())if(c->getComponentID()=="mr-library-browser"||dynamic_cast<juce::TextEditor*>(c)||dynamic_cast<juce::ComboBox*>(c))return false;
     return true;
 }
 bool Desktop::workspaceShortcut(const juce::KeyPress& k){if(homeVisible||k.getModifiers().isAnyModifierKeyDown()||juce::Component::getCurrentlyModalComponent())return false;
@@ -1176,7 +1176,6 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
             g.setColour(owner.selectionColour().withAlpha(.25f));g.fillRoundedRectangle(rect,cornerRadius);
             g.setColour(owner.selectionColour().withAlpha(.8f));g.drawRoundedRectangle(rect.reduced(.5f),cornerRadius,1.f);
             g.drawText(juce::File(dropFiles[static_cast<int>(i)]).getFileName(),rect.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);
-            g.drawVerticalLine(static_cast<int>(rect.getX()),static_cast<float>(headerHeight()),rect.getBottom());
         }
     }
     {juce::Graphics::ScopedSaveState save(g);g.reduceClipRegion(juce::Rectangle<int>(left,headerHeight(),getWidth()-left,getHeight()-headerHeight()));for(const auto& rect:midiDropRects()){g.setColour(owner.selectionColour().withAlpha(.25f));g.fillRoundedRectangle(rect,cornerRadius);g.setColour(owner.selectionColour().withAlpha(.8f));g.drawRoundedRectangle(rect.reduced(.5f),cornerRadius,1.f);g.drawText("MIDI",rect.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);}}
@@ -1280,9 +1279,10 @@ void Arrangement::fileDragMove(const juce::StringArray& files,int x,int y){
         {std::lock_guard lock(dropMutex);++dropGeneration;dropRequested=false;dropWaves.clear();pendingDropFiles.clear();
             if(isInterestedInFileDrag(files)&&files.size()<=128&&juce::File(files[0]).hasFileExtension("wav")){pendingDropFiles=files;dropRequested=true;dropWake.notify_one();}}
         if(isInterestedInFileDrag(files)&&juce::File(files[0]).hasFileExtension("mid;midi")){try{for(const auto& file:files){auto parts=mrs::load_midi_file(path(juce::File(file)));if(dropParts.size()+parts.size()>128)throw std::runtime_error("Too many MIDI parts");dropParts.insert(dropParts.end(),std::make_move_iterator(parts.begin()),std::make_move_iterator(parts.end()));}}catch(...){dropParts.clear();}}}
-    dropPoint=y>=headerHeight()?std::optional<juce::Point<int>>{{x,y}}:std::nullopt;repaint();
+    dropPoint=y>=headerHeight()?std::optional<juce::Point<int>>{{x,y}}:std::nullopt;
+    playhead.setVisible(files.isEmpty()||!juce::File(files[0]).hasFileExtension("wav"));repaint();
 }
-void Arrangement::fileDragExit(const juce::StringArray&){{std::lock_guard lock(dropMutex);++dropGeneration;dropRequested=false;pendingDropFiles.clear();dropWaves.clear();}dropFiles.clear();dropParts.clear();dropPoint.reset();repaint();}
+void Arrangement::fileDragExit(const juce::StringArray&){{std::lock_guard lock(dropMutex);++dropGeneration;dropRequested=false;pendingDropFiles.clear();dropWaves.clear();}dropFiles.clear();dropParts.clear();dropPoint.reset();playhead.setVisible(true);playhead.update();repaint();}
 void Arrangement::itemDragMove(const SourceDetails& s){
 #ifdef MRS_HAS_ARA
     araDropClip.reset();if(owner.isAraPluginDrag(s.description)){const auto id=clipAt(s.localPosition.toFloat());if(id){const auto p=owner.project();if(std::any_of(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==*id&&!c.midi;}))araDropClip=id;}}repaint();

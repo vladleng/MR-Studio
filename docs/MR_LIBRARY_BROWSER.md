@@ -12,7 +12,10 @@ cards. All WAV shows samples in the current scope; Back returns to a parent/root
 Cards come from the full index, independently of the bounded WAV page.
 
 List rows and grid cards show filename, tags (One-shot/Loop first), square pack
-artwork and the existing inline waveform/seek/audition. Folder paths and technical
+artwork and a short bar waveform beside the filename when the cell is at least
+560 px wide. Narrow cells hide the waveform. Loop/One-shot glyphs precede the
+larger filename; hover and keyboard selection expose Play, while playback shows
+Stop. Clicking Stop stops preview and disables arrow audition. Folder paths and technical
 metadata for the selected WAV are in the bottom browser panel. Full paths/tags are
 available as tooltips. Instrument glyphs reuse the canonical MR UDS SVG resources.
 List preserves WAV multiselection; navigation cards cannot become WAV drag data.
@@ -39,7 +42,8 @@ The header menu contains collection creation/deletion, rescan and current cover.
 The footer provides previous/next sample within the page, Play/Pause and Stop,
 with separately identified pagination controls.
 The existing Sources and Edit Tags panels remain available. DAW transport keyboard
-bindings outside the results list and preview routing remain unchanged. In the
+bindings outside the browser and preview routing remain unchanged. Browser focus
+blocks both the parent key-press and key-state transport paths. In the
 focused results list, Space toggles keyboard audition: Up/Down select and play
 while enabled, and select silently after stopping. Modified arrows retain JUCE
 multiselection; text entry retains its own keys. Type contains only One-shot and
@@ -73,7 +77,11 @@ position, with project-rate duration calculated by the same ceiling conversion
 as SRC. Multiple files are sequential on an existing audio track, or create
 separate tracks at the same start in empty space. Header inspection runs on a
 bounded latest-request worker. Exit/drop/project rebuild clears the preview;
-non-audio targets and unreadable WAV batches have no insertion ghost.
+non-audio targets and unreadable WAV batches have no insertion ghost. No vertical
+insertion line is painted; the transport cursor is hidden during a WAV drag and
+restored on exit/drop. A compact drag label sits 18 px right and 12 px below
+the pointer, leaving the actual insertion preview ahead of the label without
+changing its snapped drop position.
 
 ## Validation
 
@@ -82,5 +90,5 @@ counts and available choices, stable shuffle pagination, managed image import,
 reset/restart/rescan and source integrity, plus prior catalogue/preview regressions.
 `juce_library_browser` exercises real catalogue snapshots, root/folder/tag/collection
 navigation, narrow/wide geometry, WAV selection and the existing preview callback.
-It exports 100% and 150% software images to Windows test artifacts. User visual
+It exports 100%, 125%, 150% and 200% software images to Windows test artifacts. User visual
 acceptance and physical mixed-DPI/ASIO measurements remain separate.

@@ -22,8 +22,9 @@ LibraryBrowserView::LibraryBrowserView(
     for(auto* control:std::array<juce::Component*,25>{&foldersTab,&tagsTab,&collectionsTab,&favorites,&clearFilters,&listGrid,
         &samples,&back,&options,&instruments,&genres,&keyButton,&bpmButton,&typeButton,&activeFilters,&prevPage,&nextPage,
         &stopPreview,&sorts,&search,&counter,&breadcrumb,&previousSound,&playPause,&nextSound})addAndMakeVisible(control);
+    setComponentID("mr-library-browser");
     addAndMakeVisible(details);details.setFont(juce::Font(juce::FontOptions(11.f)));details.setColour(juce::Label::textColourId,muted());
-    addAndMakeVisible(results);results.setRowHeight(80);results.setMultipleSelectionEnabled(true);
+    addAndMakeVisible(results);results.setRowHeight(60);results.addMouseListener(this,true);results.setMultipleSelectionEnabled(true);
     results.setComponentID("mr-library-browser-results");results.setColour(juce::ListBox::backgroundColourId,juce::Colour(surface));
     search.setTextToShowWhenEmpty("Search filenames, tags, folders...",muted());search.setInputRestrictions(128);
     foldersTab.onClick=[this]{chooseSection(Section::folders);};tagsTab.onClick=[this]{chooseSection(Section::tags);};
@@ -61,8 +62,8 @@ LibraryBrowserView::LibraryBrowserView(
         else chooseSection(section);
     };
     listGrid.onClick=[this]{gridView=!gridView;listGrid.setButtonText(gridView?"List":"Grid");
-        results.setMultipleSelectionEnabled(!gridView);gridSelected=-1;results.deselectAllRows();
-        results.setRowHeight(gridView?128:80);results.updateContent();results.repaint();};
+        results.setMultipleSelectionEnabled(!gridView);gridSelected=-1;hoveredAsset=-1;results.deselectAllRows();
+        results.setRowHeight(gridView?72:60);results.updateContent();results.repaint();};
     search.onTextChange=[this]{query.search=search.getText().toStdString();rootMode=false;query.offset=0;sendQuery();};
     for(const auto& name:std::array<const char*,7>{"Name","Relevant","BPM","Duration","Modified","Recently indexed","Random"})sorts.addItem(name,sorts.getNumItems()+1);
     sorts.setSelectedId(1,juce::dontSendNotification);
@@ -75,9 +76,16 @@ LibraryBrowserView::LibraryBrowserView(
     for(auto* button:{&previousSound,&nextSound,&playPause,&stopPreview})button->getProperties().set("mrSmallToolbarIcon",true);
     previousSound.onClick=[this]{stepPreview(-1);};nextSound.onClick=[this]{stepPreview(1);};playPause.onClick=[this]{stepPreview(0);};
     stopPreview.onClick=[this]{if(previewStop)previewStop();activePreviewId=0;keyboardAudition=false;results.repaint();};
-    for(const auto* name:{"track_drums_compact","track_bass_compact","track_piano_compact","track_guitar_compact","track_synth","wave","folder"}){
+    for(const auto* name:{"track_drums_compact","track_bass_compact","track_piano_compact","track_guitar_compact","track_synth","wave","folder","sample_one_shot"}){
         int size{};const auto* bytes=MRConceptAssets::getNamedResource((juce::String(name)+"_svg").toRawUTF8(),size);
         if(bytes)instrumentArt[name]=juce::Drawable::createFromImageData(bytes,size);
+    }
+    for(const auto& icon:std::array<std::tuple<const char*,const char*,int>,3>{
+        std::tuple{"play",BinaryData::play_svg,BinaryData::play_svgSize},
+        std::tuple{"stop",BinaryData::stop_svg,BinaryData::stop_svgSize},
+        std::tuple{"loop",BinaryData::loop_svg,BinaryData::loop_svgSize}}){
+        auto drawable=juce::Drawable::createFromImageData(std::get<1>(icon),std::get<2>(icon));
+        if(drawable){drawable->replaceColour(juce::Colours::white,juce::Colour(0xffb5ccdf));instrumentArt[std::get<0>(icon)]=std::move(drawable);}
     }
     imageWorker=std::jthread([this](std::stop_token stop){
         for(;;){
@@ -137,6 +145,7 @@ LibraryBrowserView::LibraryBrowserView(
     updateVisibility();startTimerHz(6);
 }
 LibraryBrowserView::~LibraryBrowserView(){
+    results.removeMouseListener(this);
     stopTimer();imageChooser.reset();results.setModel(nullptr);
     if(previewStop)previewStop();
     waveWorker.request_stop();waveWake.notify_all();
@@ -177,7 +186,7 @@ void LibraryBrowserView::setSnapshot(std::shared_ptr<const mrs::library::Snapsho
     }
     query=view->query;
     refreshControls();
-    gridSelected=-1;
+    gridSelected=-1;hoveredAsset=-1;
     results.updateContent();if(resetScroll)results.scrollToEnsureRowIsOnscreen(0);results.repaint();
 }
 void LibraryBrowserView::refreshControls(){
@@ -305,10 +314,10 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
             else if(card.kind=="folder")bitmap=thumbnail(art);
             if(bitmap.isValid())g.drawImageWithin(bitmap,x+6,8,50,50,juce::RectanglePlacement::centred,false);
             else if(const auto icon=instrumentArt.find("folder");icon!=instrumentArt.end()&&icon->second)icon->second->drawWithin(g,{static_cast<float>(x+12),14,36,36},juce::RectanglePlacement::centred,1.f);
-            g.setColour(juce::Colours::whitesmoke);g.setFont(Theme::detailFont());g.drawFittedText(uiText(card.label),x+62,12,std::max(1,cell-84),38,juce::Justification::centredLeft,2);
+            g.setColour(juce::Colours::whitesmoke);g.setFont(Theme::detailFont());g.drawFittedText(uiText(card.label),x+62,6,std::max(1,cell-84),28,juce::Justification::centredLeft,2);
             g.setColour(muted());g.setFont(juce::Font(juce::FontOptions(10.f)));
             const auto caption=card.kind=="group"?juce::String("Browse tags"):card.kind=="folder"&&!card.key.empty()?juce::String("Open folder"):juce::String(static_cast<juce::int64>(card.count))+" WAV";
-            g.drawFittedText(caption,x+62,55,std::max(1,cell-68),16,juce::Justification::centredLeft,1);
+            g.drawFittedText(caption,x+62,36,std::max(1,cell-68),16,juce::Justification::centredLeft,1);
             g.drawText("...",x+40,6,20,20,juce::Justification::centred);
         }return;
     }
@@ -327,72 +336,88 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
         else g.setColour(juce::Colour(gridView?0xff263244:0xff222b38));
         g.fillRoundedRectangle(rect.toFloat(),5.f);
         g.setColour(juce::Colour(0xff526076));g.drawRoundedRectangle(rect.toFloat(),5.f,0.7f);
-        const int artWidth=gridView?74:48;
+        const auto layout=rowLayout(cellW,height);
+        const auto shifted=[x](juce::Rectangle<int> area){return area.translated(x,0);};
+        const auto art=shifted(layout.cover);
         auto cover=thumbnail(item);
-        if(cover.isValid()){juce::Graphics::ScopedSaveState save(g);g.reduceClipRegion(x+6,6,artWidth,artWidth);
-            g.drawImageWithin(cover,x+6,6,artWidth,artWidth,juce::RectanglePlacement::fillDestination,false);}
-        else {
-            g.setColour(juce::Colour(0xff3a4a61));
-            g.fillRoundedRectangle(static_cast<float>(x+6),6.f,static_cast<float>(artWidth),
-                static_cast<float>(artWidth),4.f);
-            g.setColour(muted());g.setFont(juce::Font(juce::FontOptions(11.f)));
-            g.drawFittedText("WAV",x+6,6,artWidth,artWidth,juce::Justification::centred,1);
-        }
-        const auto left=x+artWidth+12;
-        const auto right=cellW-artWidth-20;
-        g.setColour(juce::Colours::whitesmoke);g.setFont(Theme::detailFont());
+        if(cover.isValid()){juce::Graphics::ScopedSaveState save(g);g.reduceClipRegion(art);
+            g.drawImageWithin(cover,art.getX(),art.getY(),art.getWidth(),art.getHeight(),juce::RectanglePlacement::fillDestination,false);}
+        else {g.setColour(juce::Colour(0xff3a4a61));g.fillRoundedRectangle(art.toFloat(),4.f);
+            g.setColour(muted());g.setFont(juce::Font(juce::FontOptions(11.f)));g.drawText("WAV",art,juce::Justification::centred);}
+        const bool focused=gridView?gridSelected==index:results.getLastRowSelected()==row+cardRows();
+        const auto glyph=rowGlyph(item,focused,hoveredAsset==index);
+        if(const auto icon=instrumentArt.find(glyph);icon!=instrumentArt.end()&&icon->second)
+            icon->second->drawWithin(g,shifted(layout.control).toFloat().reduced(2.f),juce::RectanglePlacement::centred,1.f);
+        g.setColour(juce::Colours::whitesmoke);g.setFont(Theme::detailFont().withHeight(14.f).boldened());
         const auto slash=item.relative_path.find_last_of('/');
         const auto file=uiText(item.relative_path.substr(slash==std::string::npos?0:slash+1));
-        g.drawFittedText(file,left,4,std::max(1,right-24),18,juce::Justification::centredLeft,1);
+        g.drawFittedText(file,shifted(layout.title),juce::Justification::centredLeft,1);
         g.setColour(muted());g.setFont(juce::Font(juce::FontOptions(11.f)));
-        const auto waveform=rowWave(item);
-        {
-            juce::String tags;
-            for(const auto& t:item.tags)if(t.group=="Type"&&t.status!="rejected"){if(tags.isNotEmpty())tags+=", ";tags+=uiText(t.label);}
-            for(const auto& t:item.tags)if(t.group!="Type"&&t.status!="rejected"){
-                if(tags.isNotEmpty())tags+=", ";
-                tags+=uiText(t.label);
-            }
-            g.drawFittedText(tags,left,24,std::max(1,right-22),gridView?48:28,juce::Justification::topLeft,gridView?3:2);
-
-            const char* glyph="wave";for(const auto& tag:item.tags)if(tag.group=="Instrument"&&tag.status!="rejected"){
-                const auto label=uiText(tag.label).toLowerCase();if(label.contains("drum")||label.contains("percussion")||label.contains("kick")||label.contains("snare")||label.contains("hat")||label.contains("ride")||label.contains("tom"))glyph="track_drums_compact";
-                else if(label.contains("bass"))glyph="track_bass_compact";else if(label.contains("guitar"))glyph="track_guitar_compact";
-                else if(label.contains("piano")||label.contains("key"))glyph="track_piano_compact";else if(label.contains("synth"))glyph="track_synth";break;}
-            if(const auto icon=instrumentArt.find(glyph);icon!=instrumentArt.end()&&icon->second)icon->second->drawWithin(g,{static_cast<float>(x+cellW-28),23,18,18},juce::RectanglePlacement::centred,1.f);
-            g.drawText("...",x+cellW-26,2,22,20,juce::Justification::centred);
+        juce::String tags;
+        for(const auto& t:item.tags)if(t.group=="Type"&&t.status!="rejected"){if(tags.isNotEmpty())tags+=", ";tags+=uiText(t.label);}
+        for(const auto& t:item.tags)if(t.group!="Type"&&t.status!="rejected"){if(tags.isNotEmpty())tags+=", ";tags+=uiText(t.label);}
+        g.drawFittedText(tags,shifted(layout.tags).withTrimmedRight(20),juce::Justification::centredLeft,1);
+        const char* instrument="wave";
+        for(const auto& tag:item.tags)if(tag.group=="Instrument"&&tag.status!="rejected"){
+            const auto label=uiText(tag.label).toLowerCase();
+            if(label.contains("drum")||label.contains("percussion")||label.contains("kick")||label.contains("snare")||label.contains("hat")||label.contains("ride")||label.contains("tom"))instrument="track_drums_compact";
+            else if(label.contains("bass"))instrument="track_bass_compact";else if(label.contains("guitar"))instrument="track_guitar_compact";
+            else if(label.contains("piano")||label.contains("key"))instrument="track_piano_compact";else if(label.contains("synth"))instrument="track_synth";break;
         }
-        const int waveTop=gridView?height-35:height-27;
-        const int waveHeight=gridView?26:19;
-        const int waveLeft=left+23;
-        const int waveWidth=std::max(1,right-31);
-        const auto mid=static_cast<float>(waveTop)+waveHeight*.5f;
-        const auto state=previewState?previewState():std::tuple{false,0.f,false};
-        const bool nowPlaying=item.id==activePreviewId&&std::get<0>(state);
-        if(item.id==activePreviewId)paintedPlaying=std::get<0>(state);
-        g.setColour(nowPlaying?juce::Colour(0xffc1e8f7):juce::Colour(0xff80b9dc));
-        g.drawFittedText(nowPlaying?"II":">",left,waveTop,18,waveHeight,
-                         juce::Justification::centred,1);
-        g.setColour(juce::Colour(0xff314256));
-        g.drawHorizontalLine(static_cast<int>(mid),static_cast<float>(waveLeft),
-                             static_cast<float>(waveLeft+waveWidth));
-        if(waveform&&waveform->error.empty()){
-            g.setColour(juce::Colour(selectedCell?0xffb1ddf3:0xff80b9dc));
-            for(int pixel=0;pixel<waveWidth;++pixel){
-                const auto bin=std::min(255,pixel*256/waveWidth);
-                const auto peak=std::clamp(waveform->wav.peaks[static_cast<std::size_t>(bin)],0.f,1.f);
-                const auto size=std::max(0.5f,peak*static_cast<float>(waveHeight-3)*.5f);
-                g.drawVerticalLine(waveLeft+pixel,mid-size,mid+size);
+        if(const auto icon=instrumentArt.find(instrument);icon!=instrumentArt.end()&&icon->second)
+            icon->second->drawWithin(g,shifted(layout.tags).removeFromRight(16).toFloat(),juce::RectanglePlacement::centred,.7f);
+        g.drawText("...",x+cellW-26,4,22,20,juce::Justification::centred);
+        if(!layout.wave.isEmpty()){
+            const auto waveform=rowWave(item);const auto wave=shifted(layout.wave);
+            const auto state=previewState?previewState():std::tuple{false,0.f,false};
+            const bool active=item.id==activePreviewId;const auto fraction=active?std::clamp(std::get<1>(state),0.f,1.f):0.f;
+            if(active)paintedPlaying=std::get<0>(state);
+            if(waveform&&waveform->error.empty())for(int pixel=0;pixel<wave.getWidth();pixel+=3){
+                const auto first=pixel*256/wave.getWidth(),last=std::min(256,(pixel+3)*256/wave.getWidth()+1);float peak{};
+                for(int bin=first;bin<last;++bin)peak=std::max(peak,waveform->wav.peaks[static_cast<std::size_t>(bin)]);
+                const auto size=std::max(1.f,std::clamp(peak,0.f,1.f)*9.f);
+                g.setColour(active&&pixel<static_cast<int>(fraction*wave.getWidth())?juce::Colour(0xffa9d8f3):juce::Colour(0xff697b91));
+                g.drawVerticalLine(wave.getX()+pixel,wave.getCentreY()-size,wave.getCentreY()+size);
             }
-        }
-        if(item.id==activePreviewId){
-            const int playheadX=waveLeft+static_cast<int>(
-                std::clamp(std::get<1>(state),0.f,1.f)*static_cast<float>(waveWidth));
-            g.setColour(juce::Colour(0xffe7f3fb));
-            g.drawVerticalLine(playheadX,static_cast<float>(waveTop),
-                               static_cast<float>(waveTop+waveHeight));
         }
     }
+}
+LibraryBrowserView::RowLayout LibraryBrowserView::rowLayout(int width,int height) const {
+    RowLayout layout;const int art=gridView?48:40;
+    layout.cover={6,(height-art)/2,art,art};layout.control={art+14,(height-24)/2,24,24};
+    const int text=layout.control.getRight()+8;
+    int end=std::max(text+1,width-30);
+    if(width>=560){const int span=std::clamp(width/5,96,160);layout.wave={width-30-span,(height-20)/2,span,20};end=layout.wave.getX()-16;}
+    layout.title={text,(height-42)/2,std::max(1,end-text),22};
+    layout.tags={text,layout.title.getBottom(),std::max(1,end-text),18};return layout;
+}
+std::string LibraryBrowserView::rowGlyph(const mrs::library::AudioAsset& item,bool focused,bool hovered) const {
+    const auto state=previewState?previewState():std::tuple{false,0.f,false};
+    if(item.id==activePreviewId&&std::get<0>(state))return "stop";
+    if(focused||hovered)return "play";
+    for(const auto& tag:item.tags)if(tag.group=="Type"&&tag.status!="rejected"){
+        if(tag.label=="Loop")return "loop";if(tag.label=="One-shot")return "sample_one_shot";
+    }
+    return "wave";
+}
+void LibraryBrowserView::mouseMove(const juce::MouseEvent& event){
+    const auto point=event.getEventRelativeTo(&results).getPosition();const int row=results.getRowContainingPosition(point.x,point.y);
+    const int index=view&&row>=0?assetIndex(row,point.x):-1;
+    const int next=view&&index>=0&&index<static_cast<int>(view->assets.size())?index:-1;
+    if(next!=hoveredAsset){hoveredAsset=next;results.repaint();}
+}
+void LibraryBrowserView::mouseExit(const juce::MouseEvent& event){
+    if(!results.getLocalBounds().contains(event.getEventRelativeTo(&results).getPosition())){hoveredAsset=-1;results.repaint();}
+}
+juce::ScaledImage LibraryBrowserView::dragImage(int& x,int& y){
+    const auto mouse=results.getMouseXYRelative();x=mouse.x+18;y=mouse.y+12;
+    juce::Image image(juce::Image::ARGB,240,36,true);juce::Graphics g(image);
+    g.setColour(juce::Colour(0xee263244));g.fillRoundedRectangle(image.getBounds().toFloat(),4.f);
+    g.setColour(juce::Colour(0xffa9c2d9));g.drawRoundedRectangle(image.getBounds().toFloat().reduced(.5f),4.f,1.f);
+    juce::String title="Sample";
+    if(!dragPayload.empty()){title=pathText(dragPayload.front().second.filename());if(dragPayload.size()>1)title+=" (+"+juce::String(static_cast<int>(dragPayload.size()-1))+")";}
+    g.setColour(juce::Colours::whitesmoke);g.setFont(Theme::detailFont().withHeight(13.f));g.drawFittedText(title,image.getBounds().reduced(8,4),juce::Justification::centredLeft,1);
+    return juce::ScaledImage(image);
 }
 void LibraryBrowserView::selectedRowsChanged(int){
     if(!rootMode&&cardRows()>0){auto selected=results.getSelectedRows();auto cleaned=selected;
@@ -408,6 +433,7 @@ juce::String LibraryBrowserView::getTooltipForRow(int row){
 }
 void LibraryBrowserView::listBoxItemClicked(int row,const juce::MouseEvent& event){
     if(!view)return;
+    if(results.isShowing())results.grabKeyboardFocus();
     if(row<cardRows()){
         const int cell=results.getWidth()/columns(),col=std::clamp(event.x/std::max(1,cell),0,columns()-1),index=row*columns()+col;
         if(index>=static_cast<int>(cards.size()))return;const auto card=cards[static_cast<std::size_t>(index)];
@@ -418,10 +444,14 @@ void LibraryBrowserView::listBoxItemClicked(int row,const juce::MouseEvent& even
     updateDetails();
     const int cols=gridView?columns():1,width=results.getWidth()/cols,col=cols==2&&event.x>=width?1:0;
     if(event.mods.isPopupMenu()||(event.x-col*width>width-30&&event.y<24)){rowMenu(static_cast<std::size_t>(index));return;}
-    const int top=gridView?results.getRowHeight()-35:results.getRowHeight()-27;
-    const int left=col*width+(gridView?74:48)+12,start=left+23,span=std::max(1,width-(gridView?74:48)-51);
-    if(event.y>=top){if(event.x>=left&&event.x<start)audition(static_cast<std::size_t>(index),0.,true);
-        else if(event.x>=start&&event.x<=start+span)audition(static_cast<std::size_t>(index),std::clamp(static_cast<double>(event.x-start)/span,0.,.999999),false);}
+    const auto layout=rowLayout(width,results.getRowHeight());const auto point=event.getPosition()-juce::Point<int>(col*width,0);
+    if(layout.control.contains(point)){
+        const auto state=previewState?previewState():std::tuple{false,0.f,false};
+        if(view->assets[static_cast<std::size_t>(index)].id==activePreviewId&&std::get<0>(state)){
+            if(previewStop)previewStop();keyboardAudition=false;activePreviewId=0;
+        }else audition(static_cast<std::size_t>(index),0.,false);
+    }else if(!layout.wave.isEmpty()&&layout.wave.contains(point))
+        audition(static_cast<std::size_t>(index),std::clamp(static_cast<double>(point.x-layout.wave.getX())/layout.wave.getWidth(),0.,.999999),false);
     results.repaint();
 }
 void LibraryBrowserView::audition(std::size_t index,double position,bool toggle){
@@ -469,11 +499,13 @@ bool LibraryBrowserView::browserKey(const juce::KeyPress& key){
     const int delta=key.isKeyCode(juce::KeyPress::upKey)?-1:key.isKeyCode(juce::KeyPress::downKey)?1:0;
     if(!space&&!delta)return false;
     int index=gridView?gridSelected:assetIndex(results.getLastRowSelected(),0);
+    const int before=index;
     if(space){
         keyboardAudition=!keyboardAudition;
         if(!keyboardAudition){if(previewStop)previewStop();results.repaint();return true;}
     }else if(index>=0)index+=delta;
     index=std::clamp(index,0,static_cast<int>(view->assets.size()-1));
+    if(!space&&index==before)return true;
     gridSelected=index;results.selectRow(cardRows()+index/(gridView?columns():1),false,true);
     if(keyboardAudition)audition(static_cast<std::size_t>(index),0.,false);
     updateDetails();results.repaint();return true;
