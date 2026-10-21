@@ -1,6 +1,9 @@
 #pragma once
 #include "Controls.h"
 #include <mrs/sample_library.hpp>
+#include <mrs/sample_preview.hpp>
+#include <future>
+#include <optional>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -12,6 +15,20 @@
 namespace ui {
 
 // #254 WAV-only local catalogue UI. No transport/preview/Arrange changes (#255).
+class LibraryResultsList final:public juce::ListBox {
+public:
+    using juce::ListBox::ListBox;
+    std::function<void()> startLibraryDrag;
+    void mouseDown(const juce::MouseEvent& e) override {dragStarted=false;juce::ListBox::mouseDown(e);}
+    void mouseDrag(const juce::MouseEvent& e) override {
+        juce::ListBox::mouseDrag(e);
+        if(!dragStarted&&e.mods.isLeftButtonDown()&&e.getDistanceFromDragStart()>7&&startLibraryDrag){
+            dragStarted=true;startLibraryDrag();
+        }
+    }
+private:
+    bool dragStarted{};
+};
 class LibraryBrowserView final : public juce::Component,
                                  private juce::ListBoxModel,
                                  private juce::Timer {
@@ -19,6 +36,7 @@ public:
     explicit LibraryBrowserView(mrs::library::SampleLibrary&);
     ~LibraryBrowserView() override;
     void setSnapshot(std::shared_ptr<const mrs::library::Snapshot>);
+    juce::StringArray selectedWavFiles() const;
     void resized() override;
     void paint(juce::Graphics&) override;
 private:
@@ -35,6 +53,8 @@ private:
     void paintListBoxItem(int,juce::Graphics&,int,int,bool) override;
     void listBoxItemClicked(int,const juce::MouseEvent&) override;
     void timerCallback() override;
+    void prepareSelected();
+    void startLibraryDrag();
 
     mrs::library::SampleLibrary& library;
     std::shared_ptr<const mrs::library::Snapshot> view;
@@ -58,7 +78,13 @@ private:
     juce::ComboBox sources,folders,tagGroups,tagValues,selectedFilters,collections,sorts;
     juce::TextEditor search,bpmFrom,bpmTo,keyField,collectionName;
     juce::Label counter,filterLabel;
-    juce::ListBox results{"MR Library results",this};
+    LibraryResultsList results{"MR Library results",this};
+    juce::Label previewName,previewMeta;
+    std::optional<mrs::library::WavPreview> waveform;
+    juce::File wantedPreview;
+    juce::File pendingPreview;
+    std::shared_ptr<std::atomic<bool>> waveformCancel;
+    std::future<mrs::library::WavPreview> waveformWorker;
     std::unique_ptr<juce::FileChooser> imageChooser;
 
     // JPEG/PNG I/O and image decoding are deliberately outside GUI/audio threads.
