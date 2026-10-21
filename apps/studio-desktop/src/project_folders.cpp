@@ -92,8 +92,10 @@ fs::path MediaCopy::adopt_import(const fs::path& staged,const fs::path& name) {
        !fs::is_regular_file(actual))throw std::invalid_argument("Invalid generated import staging path");
     const auto media_root=fs::canonical(root_/"Media");
     if(!inside(media_root,fs::canonical(root_)))throw std::invalid_argument("Project Media escapes the project folder");
-    auto destination=media_root/name;
-    if(fs::exists(destination)){auto unique=fs::path(new_id().value+"-");unique+=name.native();destination=media_root/unique;}
+    // Validate canonically, but return the project spelling (Windows temp roots
+    // may use an 8.3 alias). Relative media keys must match Save/Open exactly.
+    auto destination=root_/"Media"/name;
+    if(fs::exists(destination)){auto unique=fs::path(new_id().value+"-");unique+=name.native();destination=root_/"Media"/unique;}
     created_.push_back(destination);
     try{publish(actual,destination);}catch(...){created_.pop_back();throw;}
     destinations_[actual]=destination;

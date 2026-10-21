@@ -68,6 +68,19 @@ void quality(){
     audio::resample_wav_file(shortfile,shortout,48000);const auto tiny=audio::load_wav(shortout);
     CHECK(tiny.frames()==2);CHECK(std::abs(tiny.samples[0]-.25f)<.000002f);
 }
+void project_path_alias(){
+    Directory dir;const auto actual=dir.path/"actual",alias=dir.path/"alias";
+    fs::create_directories(actual/"project");std::error_code ec;fs::create_directory_symlink(actual,alias,ec);
+    // Windows workers may lack symlink privileges; their ordinary temp-root
+    // 8.3 alias is also exercised by the full Save/Open regression below.
+    if(ec)return;
+    const auto root=alias/"project";desktop::MediaCopy copies(root);
+    const auto staging=root/(".mrs-import-"+new_id().value);fs::create_directory(staging);
+    const auto input=staging/"item.wav";wav(input,48000,100,0);
+    const auto published=copies.adopt_import(input,"imported.wav");
+    CHECK(published.lexically_relative(root)==fs::path("Media")/"imported.wav");
+    CHECK(fs::is_regular_file(published)&&!fs::exists(input));copies.commit();fs::remove(staging);
+}
 void imports(){
     Directory dir;const auto input=dir.path/"original.wav",matching=dir.path/"matching.wav";
     wav(input,44100,4410,1000,true);wav(matching,48000,4800);const auto original=bytes(input);
@@ -99,7 +112,9 @@ void imports(){
     app.queue_wav_import({input,input});finish(app);CHECK(app.snapshot().project.clips.size()==before.clips.size()+2);
     const auto imported=app.snapshot().project.clips.back();const auto media=app.path().parent_path()/sourcePath(imported.source);
     CHECK(fs::is_regular_file(media)&&audio::inspect_wav(media).sample_rate==48000);no_staging(app.path().parent_path());
-    CHECK(app.undo()&&app.redo());app.save_project(app.path());app.open_project(app.path());CHECK(app.snapshot().project.clips.back()==imported);
+    CHECK(app.undo()&&app.redo());app.save_project(app.path());app.open_project(app.path());
+    if(app.snapshot().project.clips.back()!=imported)std::cerr<<"Imported source: "<<imported.source<<"; reopened source: "<<app.snapshot().project.clips.back().source<<'\n';
+    CHECK(app.snapshot().project.clips.back()==imported);
     const auto saveAs=dir.path/"save-as"/"copy.mrsproject";app.save_project(saveAs);app.open_project(app.path());
     const auto copied=app.path().parent_path()/sourcePath(app.snapshot().project.clips.back().source);
     CHECK(fs::is_regular_file(copied)&&audio::inspect_wav(copied).sample_rate==48000);
@@ -132,4 +147,4 @@ void streamed_lifetime(){
     }
 }
 }
-int main(){try{quality();imports();streamed_lifetime();std::cout<<"WAV SRC, background import, persistence, cancellation and streaming lifetime PASS\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{quality();project_path_alias();imports();streamed_lifetime();std::cout<<"WAV SRC, background import, persistence, cancellation and streaming lifetime PASS\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
