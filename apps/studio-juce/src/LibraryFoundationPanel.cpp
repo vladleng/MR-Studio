@@ -1,4 +1,5 @@
 #include "LibraryFoundationPanel.h"
+#include "LibraryBrowserView.h"
 #include <array>
 
 namespace ui {
@@ -40,8 +41,8 @@ struct LibraryFoundationPanel::AssetRows final : juce::ListBoxModel {
     LibraryFoundationPanel& owner;
 };
 LibraryFoundationPanel::LibraryFoundationPanel() : library(databasePath()) {
-    for (auto* c : std::array<juce::Component*,24>{&addFolder,&rescan,&cancel,&relink,&toggle,&remove,&sources,&title,&status,
-        &tagInfo,&assets,&modeButton,&addTag,&confirmTag,&rejectTag,&undoTag,&setBpm,&setKey,
+    for (auto* c : std::array<juce::Component*,25>{&addFolder,&rescan,&cancel,&relink,&toggle,&remove,&sources,&title,&status,
+        &tagInfo,&assets,&modeButton,&sourcesMode,&addTag,&confirmTag,&rejectTag,&undoTag,&setBpm,&setKey,
         &addRule,&assetSearch,&tagLabel,&bpmValue,&keyValue,&rulePhrase})
         addAndMakeVisible(c);
     setComponentID("mr-library-foundation");
@@ -102,7 +103,14 @@ LibraryFoundationPanel::LibraryFoundationPanel() : library(databasePath()) {
     tagInfo.setText("Proposed / confirmed / rejected tags; select WAVs for bulk edits",
                     juce::dontSendNotification);
     tagInfo.setJustificationType(juce::Justification::centredLeft);
-    modeButton.onClick=[this]{editingTags=!editingTags;updateMode();resized();};
+    modeButton.onClick=[this]{
+        browsing=editingTags;editingTags=!editingTags;updateMode();resized();
+    };
+    sourcesMode.onClick=[this]{
+        browsing=!browsing;
+        if(browsing)editingTags=false;
+        updateMode();resized();
+    };
     assetSearch.onTextChange=[this]{
         library.set_view(sources.getSelectedRow()>=0&&view&&
             sources.getSelectedRow()<static_cast<int>(view->sources.size())
@@ -139,12 +147,16 @@ LibraryFoundationPanel::LibraryFoundationPanel() : library(databasePath()) {
         library.add_rule(tagGroup.getText().toStdString(),rulePhrase.getText().trim().toStdString(),
             tagLabel.getText().trim().toStdString(),ruleFolder.getToggleState());
     };
+    browserView=std::make_unique<LibraryBrowserView>(library);
+    addAndMakeVisible(*browserView);
+    title.setText("MR Library",juce::dontSendNotification);
     updateMode();
     refresh();
     startTimerHz(6);
 }
 LibraryFoundationPanel::~LibraryFoundationPanel() {
-    stopTimer(); chooser.reset(); sources.setModel(nullptr);assets.setModel(nullptr);assetRows.reset();
+    stopTimer(); chooser.reset();browserView.reset();
+    sources.setModel(nullptr);assets.setModel(nullptr);assetRows.reset();
 }
 void LibraryFoundationPanel::chooseFolder(std::function<void(const juce::File&)> callback) {
     chooser=std::make_unique<juce::FileChooser>("Choose existing WAV library folder");
@@ -160,8 +172,17 @@ void LibraryFoundationPanel::paint(juce::Graphics& g) {
 void LibraryFoundationPanel::resized() {
     auto bounds=getLocalBounds().reduced(7);
     auto header=bounds.removeFromTop(25);
-    modeButton.setBounds(header.removeFromRight(92));title.setBounds(header);
+    sourcesMode.setBounds(header.removeFromRight(66));
+    header.removeFromRight(4);
+    modeButton.setBounds(header.removeFromRight(74));
+    title.setBounds(header);
     bounds.removeFromTop(4);
+    if(browsing){
+        status.setBounds(bounds.removeFromBottom(29));
+        bounds.removeFromBottom(3);
+        if(browserView)browserView->setBounds(bounds);
+        return;
+    }
     auto first=bounds.removeFromTop(27);
     addFolder.setBounds(first.removeFromLeft(first.getWidth()/2-3));first.removeFromLeft(6);
     rescan.setBounds(first);
@@ -267,7 +288,11 @@ void LibraryFoundationPanel::applyTag(const std::string& decision){
                            tagLabel.getText().trim().toStdString(),decision);
 }
 void LibraryFoundationPanel::updateMode(){
-    modeButton.setButtonText(editingTags?"Sources":"Edit Tags");
+    modeButton.setButtonText(editingTags?"Browse":"Edit Tags");
+    sourcesMode.setButtonText(browsing?"Sources":"Browse");
+    if(browserView)browserView->setVisible(browsing);
+    for(auto* c:std::array<juce::Component*,7>{&addFolder,&rescan,&cancel,&relink,&toggle,&remove,&sources})
+        c->setVisible(!browsing);
     for(auto* c:std::array<juce::Component*,17>{&assets,&tagInfo,&addTag,&confirmTag,
         &rejectTag,&undoTag,&setBpm,&setKey,&addRule,&assetSearch,&tagLabel,&bpmValue,&keyValue,
         &rulePhrase,&tagGroup,&suggestedTags,&ruleFolder})c->setVisible(editingTags);
@@ -278,6 +303,7 @@ void LibraryFoundationPanel::refresh() {
     auto next=library.snapshot();
     if(next->revision==lastRevision&&view)return;
     view=std::move(next);lastRevision=view->revision;
+    if(browserView)browserView->setSnapshot(view);
     sources.updateContent();sources.repaint();
     assets.updateContent();assets.repaint();
     fillSuggestedTags();

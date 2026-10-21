@@ -4,6 +4,7 @@
 #include <functional>
 
 namespace ui {
+class LibraryBrowserView;
 // MR Library #253: source management and a bounded manual WAV tag editor.
 // Full collection/folder/artwork UI belongs to #254.
 class LibraryFoundationPanel final : public juce::Component, private juce::ListBoxModel, private juce::Timer {
@@ -33,7 +34,9 @@ private:
     juce::Label title,status,tagInfo;
     std::unique_ptr<AssetRows> assetRows;
     juce::ListBox assets{"Indexed WAV tags",nullptr};
-    juce::TextButton modeButton{"Edit Tags"};
+    juce::TextButton modeButton{"Edit Tags"},sourcesMode{"Sources"};
+    std::unique_ptr<LibraryBrowserView> browserView;
+    bool browsing{true};
     juce::TextButton addTag{"Add Tag"},confirmTag{"Confirm"},rejectTag{"Reject"},undoTag{"Undo Edit"};
     juce::TextButton setBpm{"Set BPM"},setKey{"Set Key"},addRule{"Add Rule"};
     juce::TextEditor assetSearch,tagLabel,bpmValue,keyValue,rulePhrase;

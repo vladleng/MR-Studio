@@ -55,6 +55,7 @@ target_sources(MoonRiverStudioJuce PRIVATE apps/studio-juce/src/ChordTrack.cpp a
 target_sources(MoonRiverStudioJuce PRIVATE apps/studio-juce/src/MeterTrack.cpp)
 target_sources(MoonRiverStudioJuce PRIVATE apps/studio-juce/src/AiProvider.cpp apps/studio-juce/src/AiAssistant.cpp)
 target_sources(MoonRiverStudioJuce PRIVATE apps/studio-juce/src/LibraryFoundationPanel.cpp)
+target_sources(MoonRiverStudioJuce PRIVATE apps/studio-juce/src/LibraryBrowserView.cpp)
 target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_sample_library)
 
 target_link_libraries(MoonRiverStudioJuce PRIVATE winhttp advapi32)
