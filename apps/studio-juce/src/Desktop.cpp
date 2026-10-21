@@ -1352,7 +1352,7 @@ void Browser::timerCallback(){
     }catch(const std::exception& e){result.info=label(e.what());}return result;});
 }
 
-void Browser::showFiles(bool files){filesVisible=files;libraryVisible=false;
+void Browser::showFiles(bool files){if(libraryVisible)owner.app.stop_library_preview();filesVisible=files;libraryVisible=false;
     if(libraryPanel)libraryPanel->setVisible(false);
     libraryTab.setToggleState(false,juce::dontSendNotification);locations.setVisible(files);breadcrumbView.setVisible(files);for(auto* component:{static_cast<juce::Component*>(&fileTree),static_cast<juce::Component*>(&folderPath),static_cast<juce::Component*>(&parentFolder),static_cast<juce::Component*>(&chooseFolder)})component->setVisible(files);
     assistantVisible=false;if(assistant)assistant->setVisible(false);aiTab.setToggleState(false,juce::dontSendNotification);
@@ -1370,7 +1370,15 @@ void Browser::showLibrary(){
     aiTab.setToggleState(false,juce::dontSendNotification);
     libraryTab.setToggleState(true,juce::dontSendNotification);
     if(!libraryPanel){
-        libraryPanel=std::make_unique<LibraryFoundationPanel>();
+        libraryPanel=std::make_unique<LibraryFoundationPanel>(
+            [this](const std::filesystem::path& file,double position){
+                return owner.app.play_library_preview(file,position);
+            },
+            [this]{owner.app.stop_library_preview();},
+            [this]{
+                const auto state=owner.app.library_preview_state();
+                return std::pair{state.playing,state.progress};
+            });
         addChildComponent(libraryPanel.get());
         libraryPanel->setLookAndFeel(owner.assetLookAndFeel());
     }
