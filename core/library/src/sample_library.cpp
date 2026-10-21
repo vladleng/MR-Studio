@@ -11,6 +11,7 @@
 #include <sqlite3.h>
 #endif
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <atomic>
 #include <condition_variable>
@@ -18,6 +19,7 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <fstream>
 #include <optional>
 #include <limits>
 #include <mutex>
@@ -76,9 +78,24 @@ void sqlite_fold(sqlite3_context* ctx,int argc,sqlite3_value** argv) {
     const auto folded=fold_search(reinterpret_cast<const char*>(raw));
     sqlite3_result_text(ctx,folded.c_str(),static_cast<int>(folded.size()),SQLITE_TRANSIENT);
 }
+void sqlite_leaf(sqlite3_context* ctx,int argc,sqlite3_value** argv){
+    if(argc!=1||sqlite3_value_type(argv[0])==SQLITE_NULL){sqlite3_result_null(ctx);return;}
+    const auto* value=sqlite3_value_text(argv[0]);if(!value){sqlite3_result_null(ctx);return;}
+    const std::string path(reinterpret_cast<const char*>(value));const auto slash=path.find_last_of('/');
+    const auto leaf=path.substr(slash==std::string::npos?0:slash+1);sqlite3_result_text(ctx,leaf.c_str(),static_cast<int>(leaf.size()),SQLITE_TRANSIENT);
+}
+void sqlite_key(sqlite3_context* ctx,int argc,sqlite3_value** argv){
+    if(argc!=1||sqlite3_value_type(argv[0])==SQLITE_NULL){sqlite3_result_null(ctx);return;}
+    const auto* raw=sqlite3_value_text(argv[0]);if(!raw){sqlite3_result_null(ctx);return;}
+    std::string value(reinterpret_cast<const char*>(raw));
+    for(const auto& [flat,sharp]:std::array<std::pair<const char*,const char*>,9>{{{"Db","C#"},{"Eb","D#"},{"Fb","E"},{"Gb","F#"},{"Ab","G#"},{"Bb","A#"},{"Cb","B"},{"E#","F"},{"B#","C"}}})
+        if(value.starts_with(flat)){value.replace(0,2,sharp);break;}
+    sqlite3_result_text(ctx,value.c_str(),static_cast<int>(value.size()),SQLITE_TRANSIENT);
+}
 struct Database {
     sqlite3* db{};
-    explicit Database(const fs::path& file) {
+    fs::path filename;
+    explicit Database(const fs::path& file):filename(file) {
         if (file.empty()) throw std::invalid_argument("MR Library database path is empty");
         fs::create_directories(file.parent_path());
         const auto name = utf8(file);
@@ -87,6 +104,10 @@ struct Database {
         sqlite3_busy_timeout(db, 1500);
         if(sqlite3_create_function_v2(db,"mrs_fold",1,SQLITE_UTF8|SQLITE_DETERMINISTIC,
             nullptr,&sqlite_fold,nullptr,nullptr,nullptr)!=SQLITE_OK)fail(db,"Register Unicode search");
+        if(sqlite3_create_function_v2(db,"mrs_leaf",1,SQLITE_UTF8|SQLITE_DETERMINISTIC,
+            nullptr,&sqlite_leaf,nullptr,nullptr,nullptr)!=SQLITE_OK)fail(db,"Register filename search");
+        if(sqlite3_create_function_v2(db,"mrs_key",1,SQLITE_UTF8|SQLITE_DETERMINISTIC,
+            nullptr,&sqlite_key,nullptr,nullptr,nullptr)!=SQLITE_OK)fail(db,"Register key aliases");
         exec("PRAGMA journal_mode=WAL");
         exec("PRAGMA foreign_keys=ON");
     }
@@ -127,10 +148,26 @@ struct Statement {
 void create_schema(Database& d) {
     Statement version(d, "PRAGMA user_version");
     const auto v = version.next() ? sqlite3_column_int(version.stmt, 0) : -1;
-    if (v < 0 || v > 3) throw std::runtime_error("Unsupported MR Library database schema");
-    if (v == 3) return;
+    if (v < 0 || v > 4) throw std::runtime_error("Unsupported MR Library database schema");
+    if (v == 4) return;
+    if(v>0){
+        auto path=d.filename;path+=".pre-v4-"+new_id().value+".sqlite";
+        sqlite3* destination{};sqlite3_backup* backup{};
+        try{
+            const auto name=utf8(path);
+            if(sqlite3_open_v2(name.c_str(),&destination,SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE,nullptr)!=SQLITE_OK)
+                throw std::runtime_error("Cannot create library migration backup");
+            backup=sqlite3_backup_init(destination,"main",d.db,"main");
+            if(!backup)throw std::runtime_error("Cannot initialize library migration backup");
+            const auto copied=sqlite3_backup_step(backup,-1);const auto finished=sqlite3_backup_finish(backup);backup=nullptr;
+            if(copied!=SQLITE_DONE||finished!=SQLITE_OK)throw std::runtime_error("Cannot finish library backup; close other library instances and retry");
+            sqlite3_close(destination);destination=nullptr;
+        }catch(...){if(backup)sqlite3_backup_finish(backup);if(destination)sqlite3_close(destination);
+            std::error_code ec;fs::remove(path,ec);throw;}
+    }
     d.exec("BEGIN IMMEDIATE");
     try {
+        if(v<3){
         if (v < 2) {
         if (v == 0) {
         d.exec("CREATE TABLE IF NOT EXISTS sources (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, enabled INTEGER NOT NULL DEFAULT 1)");
@@ -190,7 +227,9 @@ void create_schema(Database& d) {
                 }
             }
         }
-        d.exec("PRAGMA user_version=3");
+        }
+        d.exec("CREATE TABLE IF NOT EXISTS managed_covers (kind TEXT NOT NULL,owner INTEGER NOT NULL,key TEXT NOT NULL,image TEXT NOT NULL,PRIMARY KEY(kind,owner,key))");
+        d.exec("PRAGMA user_version=4");
         d.exec("COMMIT");
     } catch (...) { d.exec("ROLLBACK"); throw; }
 }
@@ -260,7 +299,7 @@ struct Cancelled : std::runtime_error { Cancelled() : std::runtime_error("Scan c
 } // namespace
 
 struct SampleLibrary::Impl {
-    enum class Kind { add, relink, remove, enable, rescan, view, tag, tag_status, bpm, key, rule, undo, browse, create_collection, delete_collection, collection_items, favorites, artwork };
+    enum class Kind { add, relink, remove, enable, rescan, view, tag, tag_status, bpm, key, rule, undo, browse, create_collection, delete_collection, collection_items, favorites, artwork, cover };
     struct Command {
         Kind kind;std::int64_t id{};fs::path root;bool enabled{true};
         std::vector<std::int64_t> ids;
@@ -335,8 +374,22 @@ struct SampleLibrary::Impl {
         }
         // All data lookup, pagination and filter evaluation run on this worker.
         // A bounded page is copied to JUCE as an immutable snapshot.
+        next->artwork_root=fs::absolute(database).parent_path()/"artwork";
+        Statement managed(d,"SELECT kind,owner,key,image FROM managed_covers");
+        while(managed.next()){
+            const auto str=[&](int i){const auto* x=sqlite3_column_text(managed.stmt,i);return x?std::string(reinterpret_cast<const char*>(x)):std::string{};};
+            next->covers.push_back({str(0),sqlite3_column_int64(managed.stmt,1),str(2),str(3)});
+        }
         const auto& q=browserQuery;
         next->query=q;
+        Statement available(d,"SELECT t.group_name,t.label,COUNT(*) FROM asset_tags ft JOIN tags t ON t.id=ft.tag_id"
+            " JOIN assets a ON a.id=ft.asset_id WHERE ft.status<>'rejected' AND (?=0 OR a.source_id=?)"
+            " GROUP BY t.group_name,t.label ORDER BY t.group_name,t.label");
+        available.number(1,q.source_id);available.number(2,q.source_id);
+        while(available.next()){
+            const auto str=[&](int i){const auto* x=sqlite3_column_text(available.stmt,i);return x?std::string(reinterpret_cast<const char*>(x)):std::string{};};
+            next->all_facets.push_back({str(0),str(1),static_cast<std::uint64_t>(sqlite3_column_int64(available.stmt,2))});
+        }
         Statement collections(d,"SELECT c.id,c.name,COUNT(ci.asset_id) FROM collections c"
             " LEFT JOIN collection_items ci ON ci.collection_id=c.id GROUP BY c.id ORDER BY c.name");
         while(collections.next()){
@@ -344,18 +397,6 @@ struct SampleLibrary::Impl {
             next->collections.push_back({sqlite3_column_int64(collections.stmt,0),
                 name?reinterpret_cast<const char*>(name):"",
                 static_cast<std::uint64_t>(sqlite3_column_int64(collections.stmt,2))});
-        }
-        Statement facets(d,"SELECT t.group_name,t.label,COUNT(*) FROM asset_tags at"
-            " JOIN tags t ON t.id=at.tag_id JOIN assets a ON a.id=at.asset_id"
-            " WHERE at.status <> 'rejected' AND (?=0 OR a.source_id=?)"
-            " AND a.status='ok' GROUP BY t.group_name,t.label ORDER BY t.group_name,t.label");
-        facets.number(1,q.source_id);facets.number(2,q.source_id);
-        while(facets.next()){
-            const auto* group=sqlite3_column_text(facets.stmt,0);
-            const auto* label=sqlite3_column_text(facets.stmt,1);
-            next->facets.push_back({group?reinterpret_cast<const char*>(group):"",
-                label?reinterpret_cast<const char*>(label):"",
-                static_cast<std::uint64_t>(sqlite3_column_int64(facets.stmt,2))});
         }
         std::map<std::pair<std::int64_t,std::string>,std::string> covers;
         Statement art(d,"SELECT source_id,folder,auto_image,manual_image FROM folder_artwork");
@@ -397,13 +438,16 @@ struct SampleLibrary::Impl {
         if(q.collection_id>0){where+=" AND EXISTS (SELECT 1 FROM collection_items ci"
             " WHERE ci.asset_id=a.id AND ci.collection_id=?)";
             params.push_back(std::to_string(q.collection_id));}
-        if(!q.search.empty()){
+        std::vector<std::string> terms;
+        std::istringstream words(q.search.substr(0,512));std::string term;
+        while(words>>term&&terms.size()<16)terms.push_back(term.substr(0,96));
+        for(const auto& word:terms){
             where+=" AND (instr(mrs_fold(a.relative_path),mrs_fold(?))>0 OR EXISTS (SELECT 1 FROM asset_tags st"
                 " JOIN tags t ON t.id=st.tag_id WHERE st.asset_id=a.id AND st.status<>'rejected'"
                 " AND instr(mrs_fold(t.label),mrs_fold(?))>0)"
                 " OR EXISTS (SELECT 1 FROM collection_items ci JOIN collections c ON c.id=ci.collection_id"
                 " WHERE ci.asset_id=a.id AND instr(mrs_fold(c.name),mrs_fold(?))>0))";
-            for(int i=0;i<3;++i)params.push_back(q.search);
+            for(int i=0;i<3;++i)params.push_back(word);
         }
         const auto bpm="(CASE WHEN a.bpm_manual=-1 THEN 0"
             " WHEN a.bpm_manual>0 THEN a.bpm_manual ELSE a.bpm_auto END)";
@@ -412,7 +456,7 @@ struct SampleLibrary::Impl {
         if(q.bpm_min>0){where+=std::string(" AND ")+bpm+">=?";params.push_back(std::to_string(q.bpm_min));}
         if(q.bpm_max>0){where+=std::string(" AND ")+bpm+"<=?";params.push_back(std::to_string(q.bpm_max));}
         if(!q.key.empty()){
-            where+=std::string(" AND ")+key+(q.key=="?"?"=''":"=?");
+            where+=q.key=="?"?std::string(" AND ")+key+"=''":std::string(" AND mrs_key(")+key+")=mrs_key(?)";
             if(q.key!="?")params.push_back(q.key);
         }
         std::map<std::string,std::set<std::string>> groups;
@@ -430,24 +474,54 @@ struct SampleLibrary::Impl {
             }
             where+="))";
         }
+        for(const auto& filter:q.excluded_tags){
+            if(!allowed_group(filter.group)||filter.label.empty()||filter.label.size()>96)continue;
+            where+=" AND NOT EXISTS (SELECT 1 FROM asset_tags xt JOIN tags t ON t.id=xt.tag_id WHERE xt.asset_id=a.id"
+                " AND xt.status<>'rejected' AND t.group_name=? AND t.label=?)";
+            params.push_back(filter.group);params.push_back(filter.label);
+        }
         const auto bind=[&](Statement& st){
             st.number(1,q.source_id);st.number(2,q.source_id);
             int n=3;for(const auto& value:params)st.str(n++,value);
             return n;
         };
+        // Facets describe all matching assets, not just the visible page.
+        Statement facets(d,("SELECT t.group_name,t.label,COUNT(*) FROM asset_tags ft JOIN tags t ON t.id=ft.tag_id"
+            " JOIN assets a ON a.id=ft.asset_id"+where+" AND ft.status<>'rejected'"
+            " GROUP BY t.group_name,t.label ORDER BY t.group_name,t.label").c_str());
+        bind(facets);
+        while(facets.next()){
+            const auto str=[&](int i){const auto* x=sqlite3_column_text(facets.stmt,i);return x?std::string(reinterpret_cast<const char*>(x)):std::string{};};
+            next->facets.push_back({str(0),str(1),static_cast<std::uint64_t>(sqlite3_column_int64(facets.stmt,2))});
+        }
         Statement count(d,("SELECT COUNT(*) FROM assets a"+where).c_str());
         bind(count);
         if(count.next())next->visible_assets=static_cast<std::uint64_t>(sqlite3_column_int64(count.stmt,0));
-        std::string sort="a.relative_path COLLATE NOCASE,a.id";
+        std::string sort="mrs_fold(mrs_leaf(a.relative_path)),a.relative_path,a.id";
         if(q.sort=="bpm")sort=std::string(bpm)+" DESC,a.relative_path";
-        else if(q.sort=="duration")sort="a.frames DESC,a.relative_path";
+        else if(q.sort=="duration")sort="(1.0*a.frames/NULLIF(a.rate,0)) DESC,a.relative_path";
         else if(q.sort=="updated")sort="a.modified DESC,a.relative_path";
+        else if(q.sort=="added")sort="a.id DESC";
+        else if(q.sort=="random")sort="((a.id*1103515245+"+std::to_string(q.shuffle_seed%2147483647)+")%2147483647),a.id";
+        std::vector<std::string> rank;
+        if(q.sort=="relevant"&&!terms.empty()){
+            sort="(";
+            for(const auto& word:terms){
+                if(!rank.empty())sort+="+";
+                sort+="CASE WHEN instr(mrs_fold(a.relative_path),mrs_fold(?))>0 THEN 3 ELSE 0 END"
+                    "+CASE WHEN EXISTS (SELECT 1 FROM asset_tags rt JOIN tags t ON t.id=rt.tag_id WHERE rt.asset_id=a.id"
+                    " AND rt.status<>'rejected' AND mrs_fold(t.label)=mrs_fold(?)) THEN 5 ELSE 0 END";
+                rank.push_back(word);rank.push_back(word);
+            }
+            sort+=") DESC,a.relative_path,a.id";
+        }
         const std::string query="SELECT a.id,a.source_id,a.relative_path,a.status,"
             "a.bpm_auto,a.bpm_manual,a.key_auto,a.key_manual,a.rate,a.frames,a.modified,"
             "EXISTS(SELECT 1 FROM favorites f WHERE f.asset_id=a.id)"
             " FROM assets a"+where+" ORDER BY "+sort+" LIMIT ? OFFSET ?";
         Statement assets(d,query.c_str());
         int n=bind(assets);
+        for(const auto& word:rank)assets.str(n++,word);
         assets.number(n++,static_cast<std::int64_t>(std::clamp(q.limit,std::uint64_t{1},std::uint64_t{300})));
         assets.number(n,static_cast<std::int64_t>(std::min(q.offset,std::uint64_t{1000000000})));
         Statement tags(d,"SELECT t.group_name,t.label,at.origin,at.status,at.confidence"
@@ -626,6 +700,7 @@ struct SampleLibrary::Impl {
         } else if (c.kind == Kind::remove) {
             Statement del(d,"DELETE FROM sources WHERE id=?");
             del.number(1,c.id);del.done();
+            Statement covers(d,"DELETE FROM managed_covers WHERE kind='folder' AND owner=?");covers.number(1,c.id);covers.done();
             publish(d,Phase::idle,"Source removed from index; files untouched");
         } else if (c.kind == Kind::enable) {
             Statement set(d,"UPDATE sources SET enabled=? WHERE id=?");
@@ -638,7 +713,7 @@ struct SampleLibrary::Impl {
         } else if (c.kind == Kind::browse) {
             browserQuery=c.query;
             browserQuery.limit=std::clamp(browserQuery.limit,std::uint64_t{1},std::uint64_t{300});
-            browserQuery.search=browserQuery.search.substr(0,200);
+            browserQuery.search=browserQuery.search.substr(0,512);
             if(browserQuery.folder.find("..")!=std::string::npos||browserQuery.folder.size()>1024)
                 throw std::invalid_argument("Invalid library folder filter");
             while(!browserQuery.folder.empty()&&browserQuery.folder.back()=='/')
@@ -653,6 +728,7 @@ struct SampleLibrary::Impl {
             if(c.id<=0)throw std::invalid_argument("Select collection to remove");
             Statement del(d,"DELETE FROM collections WHERE id=?");
             del.number(1,c.id);del.done();
+            Statement covers(d,"DELETE FROM managed_covers WHERE kind='collection' AND owner=?");covers.number(1,c.id);covers.done();
             if(browserQuery.collection_id==c.id)browserQuery.collection_id=0;
             publish(d,Phase::idle,"Collection removed; WAVs untouched");
         } else if (c.kind == Kind::collection_items || c.kind == Kind::favorites) {
@@ -676,6 +752,38 @@ struct SampleLibrary::Impl {
                 d.exec("COMMIT");
             }catch(...){d.exec("ROLLBACK");throw;}
             publish(d,Phase::idle,"Collection updated");
+        } else if(c.kind==Kind::cover){
+            if(c.group!="folder"&&c.group!="tag"&&c.group!="group"&&c.group!="collection")throw std::invalid_argument("Invalid cover target");
+            if(c.label.size()>4096||c.id<0)throw std::invalid_argument("Invalid cover identity");
+            if(c.group=="folder"||c.group=="collection"){
+                Statement target(d,c.group=="folder"?"SELECT 1 FROM sources WHERE id=?":"SELECT 1 FROM collections WHERE id=?");
+                target.number(1,c.id);if(!target.next())throw std::invalid_argument("Cover target no longer exists");
+            }
+            const auto folder=fs::absolute(database).parent_path()/"artwork";
+            if(fs::is_symlink(folder)||is_reparse(folder))throw std::invalid_argument("Artwork storage must not be a link");
+            std::string previous;
+            {Statement old(d,"SELECT image FROM managed_covers WHERE kind=? AND owner=? AND key=?");old.str(1,c.group);old.number(2,c.id);old.str(3,c.label);
+                if(old.next()){const auto* value=sqlite3_column_text(old.stmt,0);if(value)previous=reinterpret_cast<const char*>(value);}}
+            fs::path copied;
+            try{
+                std::string name;
+                if(!c.root.empty()){
+                    const auto input=fs::canonical(c.root);auto ext=utf8(input.extension());
+                    std::transform(ext.begin(),ext.end(),ext.begin(),[](unsigned char x){return static_cast<char>(std::tolower(x));});
+                    if((ext!=".png"&&ext!=".jpg"&&ext!=".jpeg")||!artwork_image_supported(input))
+                        throw std::invalid_argument("Choose a readable JPG/PNG up to 20 MiB and 16 megapixels");
+                    if(fs::is_symlink(folder)||is_reparse(folder))throw std::invalid_argument("Artwork storage must not be a link");
+                    fs::create_directories(folder);name=new_id().value+ext;copied=folder/name;
+                    fs::copy_file(input,copied,fs::copy_options::none);
+                }
+                Statement update(d,"INSERT INTO managed_covers(kind,owner,key,image) VALUES(?,?,?,?)"
+                    " ON CONFLICT(kind,owner,key) DO UPDATE SET image=excluded.image");
+                update.str(1,c.group);update.number(2,c.id);update.str(3,c.label);update.str(4,name);update.done();
+            }catch(...){if(!copied.empty()){std::error_code ec;fs::remove(copied,ec);}throw;}
+            if(!previous.empty()&&from_utf8(previous).filename()==from_utf8(previous)){
+                std::error_code ec;fs::remove(folder/from_utf8(previous),ec);
+            }
+            publish(d,Phase::idle,"Cover saved");
         } else if (c.kind == Kind::artwork) {
             Statement source(d,"SELECT path FROM sources WHERE id=?");
             source.number(1,c.id);
@@ -927,3 +1035,38 @@ void SampleLibrary::rescan() { impl_->enqueue(Impl::Command(Impl::Kind::rescan))
 void SampleLibrary::cancel_scan() { impl_->cancel=true; }
 std::shared_ptr<const Snapshot> SampleLibrary::snapshot() const { return impl_->snapshot(); }
 } // namespace mrs::library
+
+namespace mrs::library {
+void SampleLibrary::set_cover(std::string kind,std::int64_t owner,std::string key,std::filesystem::path image){
+    Impl::Command c(Impl::Kind::cover,owner,std::move(image));c.group=std::move(kind);c.label=std::move(key);impl_->enqueue(std::move(c));
+}
+}
+namespace mrs::library {
+bool artwork_image_supported(const std::filesystem::path& path){
+    try{
+        std::error_code ec;const auto size=std::filesystem::file_size(path,ec);
+        if(ec||size<24||size>20u*1024u*1024u||!std::filesystem::is_regular_file(path))return false;
+        std::ifstream input(path,std::ios::binary);std::vector<unsigned char> header(static_cast<std::size_t>(std::min<std::uintmax_t>(size,65536)));
+        input.read(reinterpret_cast<char*>(header.data()),static_cast<std::streamsize>(header.size()));if(!input)return false;
+        const auto valid=[](std::uint32_t w,std::uint32_t h){return w&&h&&w<=8192&&h<=8192&&static_cast<std::uint64_t>(w)*h<=16u*1024u*1024u;};
+        if(header[0]==137&&header[1]==80&&header[2]==78&&header[3]==71&&header[12]==73&&header[13]==72&&header[14]==68&&header[15]==82){
+            const auto word=[&](std::size_t i){return (static_cast<std::uint32_t>(header[i])<<24)|(static_cast<std::uint32_t>(header[i+1])<<16)|(static_cast<std::uint32_t>(header[i+2])<<8)|header[i+3];};
+            return valid(word(16),word(20));
+        }
+        if(header[0]!=255||header[1]!=216)return false;
+        std::size_t at=2;
+        while(at+8<header.size()){
+            if(header[at++]!=255)return false;
+            while(at<header.size()&&header[at]==255)++at;
+            if(at+2>=header.size())return false;
+            const auto marker=header[at++];
+            if(marker==0xda||marker==0xd9)return false;
+            const auto length=static_cast<std::size_t>(header[at])*256+header[at+1];if(length<2||at+length>header.size())return false;
+            if((marker>=0xc0&&marker<=0xc3)||(marker>=0xc5&&marker<=0xc7)||(marker>=0xc9&&marker<=0xcb)||(marker>=0xcd&&marker<=0xcf))
+                return length>=8&&valid(static_cast<std::uint32_t>(header[at+5])*256+header[at+6],static_cast<std::uint32_t>(header[at+3])*256+header[at+4]);
+            at+=length;
+        }
+    }catch(const std::exception&){}
+    return false;
+}
+}

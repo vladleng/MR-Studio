@@ -73,7 +73,7 @@ jobs:
         shell: pwsh
         run: |
           $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
-          if($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(model|transport|commands|serialization)|ai_.*|ara_.*|juce_(j1_smoke|track_header_layout|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|sample_library)|desktop_wav_import)$')}
+          if($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(model|transport|commands|serialization)|ai_.*|ara_.*|juce_(library_browser|j1_smoke|track_header_layout|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|sample_library)|desktop_wav_import)$')}
           & ctest @args
           if($LASTEXITCODE){throw 'CTest failed; full integration never excludes known failures'}
       - name: Package development acceptance candidate
@@ -105,6 +105,7 @@ jobs:
         with:
           name: Windows-test-results-${{ github.sha }}-ara-${{ env.ARA }}
           path: |
+            build/windows/juce-library261-*.png
             build/windows/Testing/
             build/windows/tests.xml
             build/windows/*failure*.txt
