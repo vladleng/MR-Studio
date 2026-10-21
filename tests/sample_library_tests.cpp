@@ -1,4 +1,5 @@
 #include <mrs/sample_library.hpp>
+#include <mrs/sample_preview.hpp>
 #ifdef _WIN32
 #include <winsqlite/winsqlite3.h>
 #else
@@ -346,4 +347,38 @@ void unicode_browser_search(){
         "Cyrillic Unicode case-insensitive search failed");
     std::cout<<"MR Library #254: Cyrillic casefold browser search PASS\\n";
 }
-int main() { try {test();tagging();migration_v1();browser_v3();unicode_browser_search();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void safe_preview(){
+    Fixture f;
+    const auto root=f.root/"samples";
+    wav(root/"Jazz"/"Kick.wav",8192);
+    const auto file=root/"Jazz"/"Kick.wav";
+    std::ofstream(root/"Bad.wav")<<"invalid";
+    SampleLibrary lib(f.root/"db"/"preview.sqlite");
+    wait_for(lib,[](const Snapshot& s){return s.phase==Phase::idle;});
+    lib.add_source(root);
+    const auto snap=wait_for(lib,[](const Snapshot& s){
+        return s.phase==Phase::idle&&s.sources.size()==1&&s.sources[0].available==1;
+    });
+    const auto at=std::find_if(snap->assets.begin(),snap->assets.end(),[](const AudioAsset& a){
+        return a.status=="ok";
+    });
+    check(at!=snap->assets.end(),"Preview fixture missing");
+    const auto path=asset_path(*snap,at->id);
+    check(path&&*path==file,"Indexed WAV path resolution failed");
+    const auto peaks=build_wav_preview(*path,std::make_shared<std::atomic<bool>>(false));
+    check(peaks.rate==48000&&peaks.channels==1&&peaks.bits==16&&peaks.frames==8192,
+        "Preview did not retain WAV metadata");
+    check(std::all_of(peaks.peaks.begin(),peaks.peaks.end(),[](float v){return v==0.f;}),
+        "Expected silent waveform fixture");
+    auto cancelled=std::make_shared<std::atomic<bool>>(true);
+    bool refused=false;
+    try{(void)build_wav_preview(file,cancelled);}catch(const std::runtime_error&){refused=true;}
+    check(refused,"Waveform cancellation ignored");
+    auto tampered=*snap;
+    tampered.assets.front().relative_path="../outside.wav";
+    check(!asset_path(tampered,tampered.assets.front().id),"Traversal must be refused");
+    tampered=*snap;tampered.assets.front().status="missing";
+    check(!asset_path(tampered,tampered.assets.front().id),"Missing file must be refused");
+    std::cout<<"MR Library #255: safe WAV resolver, waveform, cancellation PASS\\n";
+}
+int main() { try {test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
