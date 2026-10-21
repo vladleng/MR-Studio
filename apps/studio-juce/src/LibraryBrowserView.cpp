@@ -450,6 +450,9 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
         }
     }
 }
+void LibraryBrowserView::selectedRowsChanged(int){
+    if(!gridView)prepareSelected();
+}
 void LibraryBrowserView::listBoxItemClicked(int row,const juce::MouseEvent& event){
     if(!gridView||!view)return;
     const auto cols=results.getWidth()>=340?2:1;
