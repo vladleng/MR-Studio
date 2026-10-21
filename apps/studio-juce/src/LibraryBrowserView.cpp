@@ -196,7 +196,10 @@ void LibraryBrowserView::refreshControls(){
     else for(const auto& facet:view->facets)addChip(facet.group,facet.label,false);
     static constexpr std::array<const char*,7> modes={"name","relevant","bpm","duration","updated","added","random"};
     for(std::size_t i=0;i<modes.size();++i)if(query.sort==modes[i])sorts.setSelectedId(static_cast<int>(i)+1,juce::dontSendNotification);
-    rebuildCards();updateVisibility();resized();
+    rebuildCards();
+    if(rootMode)counter.setText(juce::String(static_cast<int>(cards.size()))+" items",juce::dontSendNotification);
+    for(auto* button:{&previousSound,&playPause,&nextSound})button->setEnabled(!rootMode&&!view->assets.empty());
+    updateVisibility();resized();
 }
 void LibraryBrowserView::updateVisibility(){
     foldersTab.setToggleState(section==Section::folders,juce::dontSendNotification);
@@ -399,7 +402,7 @@ void LibraryBrowserView::selectedRowsChanged(int){
     results.repaint();
 }
 juce::String LibraryBrowserView::getTooltipForRow(int row){
-    if(!view)return {};const auto index=assetIndex(row,0);
+    if(!view)return {};const auto index=assetIndex(row,results.getMouseXYRelative().x);
     if(index<0||index>=static_cast<int>(view->assets.size()))return {};
     const auto& asset=view->assets[static_cast<std::size_t>(index)];juce::String text=uiText(asset.relative_path);
     for(const auto& tag:asset.tags)if(tag.status!="rejected")text+=" | "+uiText(tag.label);
@@ -452,6 +455,8 @@ void LibraryBrowserView::audition(std::size_t index,double position,bool toggle)
 void LibraryBrowserView::stepPreview(int delta){
     if(!view||rootMode||view->assets.empty())return;
     auto at=std::find_if(view->assets.begin(),view->assets.end(),[this](const auto& asset){return asset.id==activePreviewId;});
+    const auto selected=selectedAssets();
+    if(!selected.empty()&&(delta==0||at==view->assets.end()))at=std::find_if(view->assets.begin(),view->assets.end(),[&](const auto& asset){return asset.id==selected.front();});
     std::ptrdiff_t index=at==view->assets.end()?0:at-view->assets.begin();
     if(at!=view->assets.end())index+=delta;
     index=std::clamp(index,std::ptrdiff_t{0},static_cast<std::ptrdiff_t>(view->assets.size()-1));
@@ -532,8 +537,17 @@ juce::var LibraryBrowserView::getDragSourceDescription(const juce::SparseSet<int
 }
 void LibraryBrowserView::rebuildCards(){
     cards.clear();if(!view)return;
-    breadcrumb.setText(section==Section::folders?uiText(query.folder.empty()?"Libraries":query.folder):
-        section==Section::tags?uiText(tagPath.empty()?"Tags":tagPath):juce::String("Collections"),juce::dontSendNotification);
+    juce::String location=section==Section::folders?"Libraries":section==Section::tags?uiText(tagPath.empty()?"Tags":tagPath):juce::String("Collections");
+    if(section==Section::folders&&query.source_id>0){
+        const auto source=std::find_if(view->sources.begin(),view->sources.end(),[this](const auto& entry){return entry.id==query.source_id;});
+        if(source!=view->sources.end())location=pathText(source->root.filename());
+        if(!query.folder.empty())location+=" / "+uiText(query.folder);
+    }
+    if(section==Section::collections&&query.collection_id>0){
+        const auto collection=std::find_if(view->collections.begin(),view->collections.end(),[this](const auto& entry){return entry.id==query.collection_id;});
+        if(collection!=view->collections.end())location=uiText(collection->name);
+    }
+    breadcrumb.setText(location,juce::dontSendNotification);breadcrumb.setTooltip(location);
     if(section==Section::folders&&(rootMode||query.source_id>0)){
         if(query.source_id==0){for(const auto& source:view->sources)if(source.enabled){
             std::string cover;for(const auto& folder:view->folders)if(folder.source_id==source.id&&folder.relative_path.empty())cover=folder.artwork_path;
