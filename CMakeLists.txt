@@ -37,7 +37,7 @@ find_package(Threads REQUIRED)
 add_library(mrs_ai STATIC core/src/ai.cpp core/src/ai_query.cpp core/src/ai_tools.cpp)
 target_link_libraries(mrs_ai PUBLIC mrs_core Threads::Threads)
 add_library(mrs_audio STATIC
-  core/audio/src/engine.cpp core/audio/src/metronome.cpp core/audio/src/midi_playback.cpp core/audio/src/channel_workers.cpp core/audio/src/ahead_renderer.cpp core/audio/src/mixed_renderer.cpp core/audio/src/wav.cpp core/audio/src/device.cpp core/audio/src/offline_device.cpp core/audio/src/waveform.cpp core/audio/src/read_ahead.cpp core/audio/src/recording.cpp core/audio/src/midi_recording.cpp)
+  core/audio/src/engine.cpp core/audio/src/metronome.cpp core/audio/src/midi_playback.cpp core/audio/src/channel_workers.cpp core/audio/src/ahead_renderer.cpp core/audio/src/mixed_renderer.cpp core/audio/src/library_preview.cpp core/audio/src/wav.cpp core/audio/src/device.cpp core/audio/src/offline_device.cpp core/audio/src/waveform.cpp core/audio/src/read_ahead.cpp core/audio/src/recording.cpp core/audio/src/midi_recording.cpp)
 target_include_directories(mrs_audio PUBLIC core/audio/include)
 target_sources(mrs_audio PRIVATE core/audio/src/reverb_library.cpp core/audio/src/cab_collection.cpp core/audio/src/tone_library.cpp)
 target_link_libraries(mrs_audio PUBLIC mrs_core Threads::Threads mrs_processing)
