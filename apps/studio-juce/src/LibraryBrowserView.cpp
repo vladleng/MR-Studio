@@ -227,6 +227,7 @@ void LibraryBrowserView::chooseSection(Section next){
 void LibraryBrowserView::invalidatePreview(){
     if(previewStop)previewStop();
     activePreviewId=0;
+    dragPayload.clear();
     {
         std::lock_guard lock(waveMutex);
         waveCancel->store(true);
@@ -646,14 +647,37 @@ std::optional<LibraryBrowserView::RowWave> LibraryBrowserView::rowWave(
 juce::StringArray LibraryBrowserView::selectedWavFiles() const {
     juce::StringArray files;
     if(!view)return files;
-    for(const auto id:selectedAssets()){
+    for(const auto& [id,original]:dragPayload){
         const auto path=mrs::library::asset_path(*view,id);
-        if(path)files.add(pathText(*path));
+        // Async browse/rescan/relink cannot silently substitute another file
+        // for the item the user originally picked up.
+        if(!path||*path!=original)return {};
+        files.add(pathText(*path));
     }
     return files;
 }
-juce::var LibraryBrowserView::getDragSourceDescription(const juce::SparseSet<int>&){
+juce::var LibraryBrowserView::getDragSourceDescription(const juce::SparseSet<int>& rows){
     // ListBox row components own the drag gesture and preserve multi-selection.
-    return selectedWavFiles().isEmpty()?juce::var{}:juce::var("mrs-library-wav");
+    dragPayload.clear();
+    if(!view)return {};
+    const int cols=gridView&&results.getWidth()>=340?2:1;
+    const auto down=results.getLocalPoint(nullptr,juce::Desktop::getInstance()
+        .getMainMouseSource().getLastMouseDownPosition().roundToInt());
+    const int col=cols==2&&down.x>=results.getWidth()/2?1:0;
+    for(int i=0;i<rows.size();++i){
+        const int index=gridView?rows[i]*cols+col:rows[i];
+        if(index<0||index>=static_cast<int>(view->assets.size()))return {};
+        const auto& item=view->assets[static_cast<std::size_t>(index)];
+        const auto file=mrs::library::asset_path(*view,item.id);
+        if(!file){
+            dragPayload.clear();
+            counter.setText("Drag unavailable: rescan or relink selected WAVs",juce::dontSendNotification);
+            return {};
+        }
+        dragPayload.emplace_back(item.id,*file);
+        if(gridView){gridSelected=index;break;}
+    }
+    results.repaint();
+    return dragPayload.empty()?juce::var{}:juce::var("mrs-library-wav");
 }
 } // namespace ui

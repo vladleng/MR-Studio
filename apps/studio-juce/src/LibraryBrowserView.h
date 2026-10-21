@@ -61,6 +61,7 @@ private:
     std::function<std::tuple<bool,float,bool>()> previewState;
     std::int64_t activePreviewId{};
     std::string activePreviewKey;
+    std::vector<std::pair<std::int64_t,std::filesystem::path>> dragPayload;
     bool paintedPlaying{};
     std::shared_ptr<const mrs::library::Snapshot> view;
     mrs::library::LibraryQuery query;
