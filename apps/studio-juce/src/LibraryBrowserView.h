@@ -54,7 +54,7 @@ private:
     void listBoxItemClicked(int,const juce::MouseEvent&) override;
     void selectedRowsChanged(int) override;
     void timerCallback() override;
-    void prepareSelected();
+    std::optional<std::array<float,256>> rowWave(const mrs::library::AudioAsset&);
     void startLibraryDrag();
 
     mrs::library::SampleLibrary& library;
@@ -80,12 +80,16 @@ private:
     juce::TextEditor search,bpmFrom,bpmTo,keyField,collectionName;
     juce::Label counter,filterLabel;
     LibraryResultsList results{"MR Library results",this};
-    juce::Label previewName,previewMeta;
-    std::optional<mrs::library::WavPreview> waveform;
-    juce::File wantedPreview;
-    juce::File pendingPreview;
-    std::shared_ptr<std::atomic<bool>> waveformCancel;
-    std::future<mrs::library::WavPreview> waveformWorker;
+    // Waveforms are generated lazily for painted rows only; bounded cache.
+    // Never decode WAVs on the GUI thread or audio callback.
+    std::jthread waveWorker;
+    std::mutex waveMutex;
+    std::condition_variable_any waveWake;
+    std::deque<std::pair<std::string,std::filesystem::path>> waveQueue;
+    std::set<std::string> waveRequested;
+    std::map<std::string,std::array<float,256>> waveCache;
+    std::atomic<std::uint64_t> wavesReady{0};
+    std::uint64_t wavesPainted{};
     std::unique_ptr<juce::FileChooser> imageChooser;
 
     // JPEG/PNG I/O and image decoding are deliberately outside GUI/audio threads.
