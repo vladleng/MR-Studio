@@ -13,7 +13,8 @@ Cards come from the full index, independently of the bounded WAV page.
 
 List rows and grid cards show filename, tags (One-shot/Loop first), square pack
 artwork and a short bar waveform beside the filename when the cell is at least
-560 px wide. Narrow cells hide the waveform. Loop/One-shot glyphs precede the
+560 px wide. The waveform follows the measured filename/tags column with a 12 px gap,
+bounded by available row width; narrow cells hide it. Loop/One-shot glyphs precede the
 larger filename; hover and keyboard selection expose Play, while playback shows
 Stop. Clicking Stop stops preview and disables arrow audition. Folder paths and technical
 metadata for the selected WAV are in the bottom browser panel. Full paths/tags are
@@ -39,6 +40,9 @@ recently indexed and a seeded random order stable across pages.
 
 Row `...` contains Likes, collection membership, tag creation and Explorer actions.
 The header menu contains collection creation/deletion, rescan and current cover.
+All browser popup menus and submenus use the owning MR Theme, matching the rest of
+Studio. Shared popup backgrounds use 80% opacity (20% transparency), including
+blurred backdrops and native preset menus; menu text remains opaque.
 The footer provides previous/next sample within the page, Play/Pause and Stop,
 with separately identified pagination controls.
 The existing Sources and Edit Tags panels remain available. DAW transport keyboard

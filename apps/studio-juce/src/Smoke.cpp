@@ -616,7 +616,7 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
         check(snapshot.getPixelAt(strip->getWidth()-2,35)==juce::Colour(panel),"Mix/Master background matches track channel");
     }
     {juce::Image image(juce::Image::ARGB,100,60,true,juce::SoftwareImageType{});{juce::Graphics g(image);d.theme.drawPopupMenuBackground(g,100,60);}
-        check(std::abs(image.getPixelAt(20,20).getFloatAlpha()-.7f)<.01f&&image.getPixelAt(0,20)==juce::Colour(menuBorder),"menu browser surface and subtle border");}
+        check(std::abs(image.getPixelAt(20,20).getFloatAlpha()-.8f)<.01f&&image.getPixelAt(0,20)==juce::Colour(menuBorder),"menu browser surface and subtle border");}
     {
         auto menu=d.pluginMenu();menu.setLookAndFeel(&d.theme);menu.addSeparator();menu.addItem(9001,"Disabled item",false);menu.addItem(9002,"Selected item",true,true);
         if(!d.getPeer())d.addToDesktop(0);d.setVisible(true);

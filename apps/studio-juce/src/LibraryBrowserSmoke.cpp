@@ -40,6 +40,11 @@ void libraryBrowserSmoke(){
     check(browser.rowLayout(260,60).wave.isEmpty(),"Narrow results hide waveforms");
     const auto wide=browser.rowLayout(960,60);
     check(wide.wave.getWidth()<=160&&wide.wave.getX()>wide.title.getRight()&&wide.wave.getBottom()<=60,"Wide waveform stays short, beside filename and inside row");
+    const auto compact=browser.rowLayout(960,60,&browser.view->assets[0]);
+    check(compact.wave.getX()<wide.wave.getX()&&compact.wave.getX()-compact.title.getRight()==12,"Waveform follows filename instead of leaving an empty right-aligned gap");
+    auto longName=browser.view->assets[0];longName.relative_path=std::string(300,'W')+".wav";
+    const auto bounded=browser.rowLayout(560,60,&longName);
+    check(bounded.wave.getRight()<=560-30&&bounded.title.getWidth()>0&&bounded.title.getRight()<bounded.wave.getX(),"Long filenames keep separate waveform/title hit regions");
     check(browser.rowGlyph(browser.view->assets[0],false,false)=="loop"&&browser.rowGlyph(browser.view->assets[1],false,false)=="sample_one_shot","Loop and One-shot have separate glyphs");
     check(browser.rowGlyph(browser.view->assets[0],false,true)=="play"&&browser.rowGlyph(browser.view->assets[1],true,false)=="play","Hover and keyboard selection expose Play");
     juce::SparseSet<int> dragRows;dragRows.addRange({0,1});int dragX{},dragY{};

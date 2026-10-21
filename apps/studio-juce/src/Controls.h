@@ -30,14 +30,15 @@ inline void drawCard(juce::Graphics& g,juce::Rectangle<float> bounds,juce::Colou
 constexpr float clipFillAlpha = .72f;
 constexpr auto accent = 0xff006dcc;
 constexpr auto menuBorder = outline;
+constexpr float popupFillAlpha = .8f; // 20% background transparency; text stays opaque.
 inline void configurePopupColours(juce::LookAndFeel& theme){
-    theme.setColour(juce::PopupMenu::backgroundColourId,juce::Colour(surface).withAlpha(.7f));
+    theme.setColour(juce::PopupMenu::backgroundColourId,juce::Colour(surface).withAlpha(popupFillAlpha));
     theme.setColour(juce::PopupMenu::textColourId,juce::Colours::whitesmoke);
     theme.setColour(juce::PopupMenu::highlightedBackgroundColourId,juce::Colour(accent));
     theme.setColour(juce::PopupMenu::highlightedTextColourId,juce::Colours::white);
 }
 inline void drawPopupSurface(juce::Graphics& g,int width,int height){
-    g.setColour(juce::Colour(surface).withAlpha(.7f));g.fillRoundedRectangle(0,0,static_cast<float>(width),static_cast<float>(height),4.f);g.setColour(juce::Colour(menuBorder));g.drawRoundedRectangle(.5f,.5f,width-1.f,height-1.f,4.f,1.f);
+    g.setColour(juce::Colour(surface).withAlpha(popupFillAlpha));g.fillRoundedRectangle(0,0,static_cast<float>(width),static_cast<float>(height),4.f);g.setColour(juce::Colour(menuBorder));g.drawRoundedRectangle(.5f,.5f,width-1.f,height-1.f,4.f,1.f);
 }
 
 // Snapshot only our own UI, once when a menu opens. Never capture the desktop,
@@ -56,7 +57,7 @@ public:
             if(snapshot.isValid()){juce::ImageConvolutionKernel kernel(7);kernel.createGaussianBlur(3.f);auto blurred=snapshot.createCopy();kernel.applyToImage(blurred,snapshot,snapshot.getBounds());image=juce::Image(juce::Image::ARGB,getWidth(),getHeight(),true);juce::Graphics graphics(image);graphics.drawImageAt(blurred,intersection.getX()-area.getX(),intersection.getY()-area.getY());}break;
         }
     }
-    void paint(juce::Graphics& g)override{juce::Graphics::ScopedSaveState saved(g);juce::Path shape;shape.addRoundedRectangle(getLocalBounds().toFloat(),4.f);g.reduceClipRegion(shape);if(image.isValid())g.drawImageAt(image,0,0);g.setColour(fill.withAlpha(.7f));g.fillAll();g.setColour(juce::Colour(menuBorder));g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(.5f),4.f,1.f);}
+    void paint(juce::Graphics& g)override{juce::Graphics::ScopedSaveState saved(g);juce::Path shape;shape.addRoundedRectangle(getLocalBounds().toFloat(),4.f);g.reduceClipRegion(shape);if(image.isValid())g.drawImageAt(image,0,0);g.setColour(fill.withAlpha(popupFillAlpha));g.fillAll();g.setColour(juce::Colour(menuBorder));g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(.5f),4.f,1.f);}
 };
 
 class Theme final : public juce::LookAndFeel_V4 {
@@ -90,7 +91,7 @@ public:
         setColour(juce::Label::textColourId,c(ColourRole::text));setColour(juce::ComboBox::textColourId,c(ColourRole::text));
         setColour(juce::ComboBox::backgroundColourId,c(ColourRole::deep));setColour(juce::ComboBox::outlineColourId,c(ColourRole::border));
         setColour(juce::TextEditor::textColourId,c(ColourRole::text));setColour(juce::TextEditor::backgroundColourId,c(ColourRole::deep));setColour(juce::TextEditor::outlineColourId,c(ColourRole::border));
-        setColour(juce::PopupMenu::backgroundColourId,c(ColourRole::window).withAlpha(.7f));setColour(juce::PopupMenu::textColourId,c(ColourRole::text));setColour(juce::PopupMenu::highlightedBackgroundColourId,c(ColourRole::focus));setColour(juce::PopupMenu::highlightedTextColourId,c(ColourRole::window));
+        setColour(juce::PopupMenu::backgroundColourId,c(ColourRole::window).withAlpha(popupFillAlpha));setColour(juce::PopupMenu::textColourId,c(ColourRole::text));setColour(juce::PopupMenu::highlightedBackgroundColourId,c(ColourRole::focus));setColour(juce::PopupMenu::highlightedTextColourId,c(ColourRole::window));
         setColour(juce::Slider::trackColourId,c(ColourRole::focus));setColour(juce::Slider::thumbColourId,c(ColourRole::focus));setColour(juce::Slider::backgroundColourId,c(ColourRole::deep));
         setColour(juce::Slider::textBoxTextColourId,c(ColourRole::text));setColour(juce::Slider::textBoxBackgroundColourId,c(ColourRole::deep));setColour(juce::Slider::textBoxOutlineColourId,c(ColourRole::border));
     }

@@ -34,7 +34,7 @@ LibraryBrowserView::LibraryBrowserView(
     keyButton.onClick=[this]{musicalMenu(false,&keyButton);};bpmButton.onClick=[this]{musicalMenu(true,&bpmButton);};
     options.onClick=[this]{optionsMenu();};
     activeFilters.onClick=[this]{
-        juce::PopupMenu menu;std::vector<std::pair<bool,std::size_t>> entries;
+        auto menu=popupMenu();std::vector<std::pair<bool,std::size_t>> entries;
         for(bool excluded:{false,true}){const auto& tags=excluded?query.excluded_tags:query.tags;
             for(std::size_t i=0;i<tags.size();++i){entries.emplace_back(excluded,i);menu.addItem(static_cast<int>(entries.size()),
                 "Remove "+juce::String(excluded?"exclude ":"")+uiText(tags[i].group+": "+tags[i].label));}}
@@ -336,7 +336,7 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
         else g.setColour(juce::Colour(gridView?0xff263244:0xff222b38));
         g.fillRoundedRectangle(rect.toFloat(),5.f);
         g.setColour(juce::Colour(0xff526076));g.drawRoundedRectangle(rect.toFloat(),5.f,0.7f);
-        const auto layout=rowLayout(cellW,height);
+        const auto layout=rowLayout(cellW,height,&item);
         const auto shifted=[x](juce::Rectangle<int> area){return area.translated(x,0);};
         const auto art=shifted(layout.cover);
         auto cover=thumbnail(item);
@@ -382,12 +382,24 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
         }
     }
 }
-LibraryBrowserView::RowLayout LibraryBrowserView::rowLayout(int width,int height) const {
+LibraryBrowserView::RowLayout LibraryBrowserView::rowLayout(int width,int height,const mrs::library::AudioAsset* item) const {
     RowLayout layout;const int art=gridView?48:40;
     layout.cover={6,(height-art)/2,art,art};layout.control={art+14,(height-24)/2,24,24};
     const int text=layout.control.getRight()+8;
     int end=std::max(text+1,width-30);
-    if(width>=560){const int span=std::clamp(width/5,96,160);layout.wave={width-30-span,(height-20)/2,span,20};end=layout.wave.getX()-16;}
+    if(width>=560){
+        const int span=std::clamp(width/5,96,160);int waveX=width-30-span;
+        if(item){
+            const auto slash=item->relative_path.find_last_of('/');
+            const auto name=uiText(item->relative_path.substr(slash==std::string::npos?0:slash+1));
+            const auto font=Theme::detailFont().withHeight(14.f).boldened();
+            const int nameWidth=juce::GlyphArrangement::getStringWidthInt(font,name)+2;
+            juce::String tags;for(const auto& tag:item->tags)if(tag.status!="rejected"){if(tags.isNotEmpty())tags+=", ";tags+=uiText(tag.label);}
+            const int tagsWidth=juce::GlyphArrangement::getStringWidthInt(juce::Font(juce::FontOptions(11.f)),tags)+20;
+            waveX=std::min(waveX,text+std::max(nameWidth,tagsWidth)+12);
+        }
+        layout.wave={waveX,(height-20)/2,span,20};end=layout.wave.getX()-12;
+    }
     layout.title={text,(height-42)/2,std::max(1,end-text),22};
     layout.tags={text,layout.title.getBottom(),std::max(1,end-text),18};return layout;
 }
@@ -444,7 +456,7 @@ void LibraryBrowserView::listBoxItemClicked(int row,const juce::MouseEvent& even
     updateDetails();
     const int cols=gridView?columns():1,width=results.getWidth()/cols,col=cols==2&&event.x>=width?1:0;
     if(event.mods.isPopupMenu()||(event.x-col*width>width-30&&event.y<24)){rowMenu(static_cast<std::size_t>(index));return;}
-    const auto layout=rowLayout(width,results.getRowHeight());const auto point=event.getPosition()-juce::Point<int>(col*width,0);
+    const auto layout=rowLayout(width,results.getRowHeight(),&view->assets[static_cast<std::size_t>(index)]);const auto point=event.getPosition()-juce::Point<int>(col*width,0);
     if(layout.control.contains(point)){
         const auto state=previewState?previewState():std::tuple{false,0.f,false};
         if(view->assets[static_cast<std::size_t>(index)].id==activePreviewId&&std::get<0>(state)){
@@ -657,8 +669,11 @@ void LibraryBrowserView::toggleTag(std::string group,std::string label,bool excl
     if(found==entries.end())entries.push_back({group,label});else entries.erase(found);
     std::erase_if(opposite,matches);rootMode=false;query.offset=0;sendQuery();
 }
+juce::PopupMenu LibraryBrowserView::popupMenu(){
+    juce::PopupMenu menu;menu.setLookAndFeel(&getLookAndFeel());return menu;
+}
 void LibraryBrowserView::filterMenu(const std::string& group,juce::Component* anchor){
-    if(!view)return;juce::PopupMenu menu,excluded;
+    if(!view)return;auto menu=popupMenu(),excluded=popupMenu();
     std::vector<std::string> labels;
     if(group=="Type")labels={"One-shot","Loop"};
     // Retain selected values when another condition removes their facet count.
@@ -686,7 +701,7 @@ void LibraryBrowserView::prompt(juce::String title,juce::String initial,std::fun
     dialog->enterModalState(true,juce::ModalCallbackFunction::create([safe,dialog,apply=std::move(apply)](int result){if(safe&&result)apply(dialog->getTextEditorContents("value").trim());}),true);
 }
 void LibraryBrowserView::musicalMenu(bool bpm,juce::Component* anchor){
-    juce::PopupMenu menu;juce::Component::SafePointer<LibraryBrowserView> safe(this);
+    auto menu=popupMenu();juce::Component::SafePointer<LibraryBrowserView> safe(this);
     if(bpm){menu.addItem(1,"Exact BPM...");menu.addItem(2,"BPM range...");menu.addItem(3,"Clear BPM");
         menu.showMenuAsync(juce::PopupMenu::Options{}.withTargetComponent(anchor),[safe](int choice){
             if(!safe||!choice)return;if(choice==3){safe->query.bpm_min=0;safe->query.bpm_max=0;safe->query.offset=0;safe->sendQuery();return;}
@@ -706,7 +721,7 @@ void LibraryBrowserView::musicalMenu(bool bpm,juce::Component* anchor){
     }
 }
 void LibraryBrowserView::coverMenu(Card card,juce::Component* anchor){
-    juce::PopupMenu menu;menu.addItem(1,"Choose cover...");menu.addItem(2,"Reset cover");
+    auto menu=popupMenu();menu.addItem(1,"Choose cover...");menu.addItem(2,"Reset cover");
     juce::Component::SafePointer<LibraryBrowserView> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options{}.withTargetComponent(anchor),[safe,card](int choice){if(safe&&choice)safe->chooseArtwork(card,choice==2);});
 }
@@ -722,11 +737,11 @@ void LibraryBrowserView::rowMenu(std::size_t index){
     if(!view||index>=view->assets.size())return;const auto item=view->assets[index];
     auto ids=selectedAssets();if(std::find(ids.begin(),ids.end(),item.id)==ids.end())ids={item.id};
     const auto path=mrs::library::asset_path(*view,item.id);
-    juce::PopupMenu menu,add;menu.addItem(1,item.favorite?"Remove from Likes":"Add to Likes");
+    auto menu=popupMenu(),add=popupMenu();menu.addItem(1,item.favorite?"Remove from Likes":"Add to Likes");
     for(std::size_t i=0;i<view->collections.size();++i)add.addItem(100+static_cast<int>(i),uiText(view->collections[i].name));
     menu.addSubMenu("Add to collection",add);menu.addItem(2,"Create collection...");
     if(query.collection_id)menu.addItem(3,"Remove from this collection");
-    juce::PopupMenu tagMenu;
+    auto tagMenu=popupMenu();
     const std::array<std::string,7> tagGroups={"Instrument","Genre","Type","Technique","Rhythm","Character","Custom"};
     for(std::size_t i=0;i<tagGroups.size();++i)tagMenu.addItem(400+static_cast<int>(i),uiText(tagGroups[i]));
     menu.addSubMenu("Add tag",tagMenu);menu.addItem(5,"Show WAV in Explorer",path.has_value());menu.addItem(6,"Show containing folder",path.has_value());
@@ -744,7 +759,7 @@ void LibraryBrowserView::rowMenu(std::size_t index){
     });
 }
 void LibraryBrowserView::optionsMenu(){
-    juce::PopupMenu menu;menu.addItem(1,"Create collection...");menu.addItem(2,"Rescan libraries");
+    auto menu=popupMenu();menu.addItem(1,"Create collection...");menu.addItem(2,"Rescan libraries");
     if(query.collection_id){menu.addItem(3,"Delete this collection");menu.addItem(4,"Collection cover...");}
     if(query.source_id&&section==Section::folders)menu.addItem(5,"Folder cover...");
     juce::Component::SafePointer<LibraryBrowserView> safe(this);const auto collection=query.collection_id;

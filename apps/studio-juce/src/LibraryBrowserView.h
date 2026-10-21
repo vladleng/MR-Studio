@@ -43,6 +43,7 @@ private:
     void refreshControls();
     void rebuildCards();
     void updateVisibility();
+    juce::PopupMenu popupMenu();
     void filterMenu(const std::string&,juce::Component*);
     void musicalMenu(bool bpm,juce::Component*);
     void toggleTag(std::string group,std::string label,bool exclude=false);
@@ -85,7 +86,7 @@ private:
     bool keyboardAudition{};
     int hoveredAsset{-1};
     struct RowLayout {juce::Rectangle<int> cover,control,title,tags,wave;};
-    RowLayout rowLayout(int width,int height) const;
+    RowLayout rowLayout(int width,int height,const mrs::library::AudioAsset* item=nullptr) const;
     std::string rowGlyph(const mrs::library::AudioAsset&,bool focused,bool hovered) const;
     juce::ScaledImage dragImage(int& x,int& y);
 
