@@ -33,6 +33,7 @@ LibraryBrowserView::LibraryBrowserView(
         &sorts,&search,&bpmFrom,&bpmTo,&keyField,&collectionName})
         addAndMakeVisible(control);
     addAndMakeVisible(counter);addAndMakeVisible(filterLabel);addAndMakeVisible(results);
+    addAndMakeVisible(stopPreview);
     results.startLibraryDrag=[this]{startLibraryDrag();};
     results.setRowHeight(72);results.setMultipleSelectionEnabled(true);
     results.setComponentID("mr-library-browser-results");
@@ -145,6 +146,11 @@ LibraryBrowserView::LibraryBrowserView(
     };
     nextPage.onClick=[this]{
         if(view&&query.offset+query.limit<view->visible_assets){query.offset+=query.limit;sendQuery();}
+    };
+    stopPreview.onClick=[this]{
+        if(previewStop)previewStop();
+        activePreviewId=0;
+        results.repaint();
     };
     chooseCover.onClick=[this]{chooseArtwork(false);};
     resetCover.onClick=[this]{chooseArtwork(true);};
@@ -369,7 +375,8 @@ void LibraryBrowserView::resized(){
     area.removeFromTop(4);
     auto bottom=area.removeFromBottom(27);
     prevPage.setBounds(bottom.removeFromLeft(58));bottom.removeFromLeft(4);
-    nextPage.setBounds(bottom.removeFromLeft(58));bottom.removeFromLeft(6);
+    nextPage.setBounds(bottom.removeFromLeft(58));bottom.removeFromLeft(4);
+    stopPreview.setBounds(bottom.removeFromLeft(58));bottom.removeFromLeft(6);
     counter.setBounds(bottom);
     area.removeFromBottom(4);
     results.setBounds(area);
@@ -520,9 +527,12 @@ void LibraryBrowserView::audition(std::size_t index,double position,bool toggle)
     const auto& item=view->assets[index];
     const auto current=previewState?previewState():std::pair{false,0.f};
     if(toggle&&item.id==activePreviewId&&current.first){
+        // Retain position so the next Play resumes from this point.
         if(previewStop)previewStop();
-        activePreviewId=0;return;
+        return;
     }
+    if(toggle&&item.id==activePreviewId&&!current.first&&current.second>.001f&&current.second<.999f)
+        position=current.second;
     if(!previewPlay)return;
     const auto wav=mrs::library::asset_path(*view,item.id);
     if(!wav)return;
