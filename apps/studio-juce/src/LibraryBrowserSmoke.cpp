@@ -34,7 +34,10 @@ void libraryBrowserSmoke(){
     check(browser.cards.empty()&&browser.assetIndex(0,0)==0,"Folder navigation must preserve WAV indices");
     browser.results.selectRow(0);browser.results.selectRow(1,true,false);
     check(browser.selectedAssets().size()==2,"List mode must retain multiple WAV selection");
-    browser.audition(0,0.,false);check(previews==1&&playing,"Audition must use injected existing preview path");
+    browser.results.selectRow(1,false,true);browser.playPause.onClick();
+    check(previews==1&&playing&&browser.activePreviewId==browser.view->assets[1].id,"Footer Play follows selected WAV using the existing preview path");
+    browser.previousSound.onClick();check(previews==2&&browser.activePreviewId==browser.view->assets.front().id,"Footer previous sample follows active audition");
+    browser.stopPreview.onClick();check(!playing&&browser.activePreviewId==0,"Footer Stop cancels audition");
     browser.query.search="jazz brushes";browser.rootMode=false;browser.sendQuery();
     pump([&](const auto& snap){return snap.query==browser.query&&snap.phase==mrs::library::Phase::idle;});
     check(browser.view->visible_assets==1,"Library text query must combine filename and tags");
