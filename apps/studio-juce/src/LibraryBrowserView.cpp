@@ -87,6 +87,7 @@ LibraryBrowserView::LibraryBrowserView(
     };
     listGrid.onClick=[this]{
         gridView=!gridView;listGrid.setButtonText(gridView?"List":"Grid");
+        results.setMultipleSelectionEnabled(!gridView);
         gridSelected=-1;results.deselectAllRows();
         results.setRowHeight(gridView?155:72);results.updateContent();results.repaint();
     };
