@@ -159,7 +159,7 @@ void Desktop::reconnectDevice(bool session){if(testing||(!session&&!prefs.reconn
 }
 void Desktop::openFile(const juce::File& f){mrs::diagnostics::event("project_open_begin "+f.getFullPathName().toStdString());const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();cancelPreview();app.open_project(path(f));resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();showProjectHome(false);reconnectDevice(session);mrs::diagnostics::event("project_open_end");}
 void Desktop::saveFile(const juce::File& f){auto destination=path(f);if(destination!=app.path())destination=mrs::desktop::project_folder_file(destination);app.save_project(destination);remember();refresh();}
-void Desktop::importFiles(const juce::StringArray& files){closeEditors();std::vector<std::filesystem::path> paths;for(const auto& f:files)paths.push_back(path(juce::File(f)));app.import_wavs(paths);refresh(true);}
+void Desktop::importFiles(const juce::StringArray& files){closeEditors();std::vector<std::filesystem::path> paths;for(const auto& f:files)paths.push_back(path(juce::File(f)));app.queue_wav_import(paths);refresh(true);}
 void Desktop::choose(int chooserOptions,std::function<void(const juce::File&)> callback,juce::String pattern){
     const auto studio=juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio").getChildFile("Projects");
     chooser=std::make_unique<juce::FileChooser>("Moon River Studio",app.path().empty()?studio:juce::File(juce::String(app.path().wstring().c_str())),pattern,true);
@@ -505,6 +505,7 @@ bool Desktop::shortcutAllowedFor(juce::Component* focused) const {
 bool Desktop::workspaceShortcut(const juce::KeyPress& k){if(homeVisible||k.getModifiers().isAnyModifierKeyDown()||juce::Component::getCurrentlyModalComponent())return false;
     if(k.getKeyCode()==juce::KeyPress::F2Key){run([&]{toggleEditor();});return true;}if(k.getKeyCode()==juce::KeyPress::F3Key){const bool open=app.workspace()!=mrs::desktop::Workspace::mix;if(open&&clipEditorOpen())toggleEditor();setWorkspace(open?mrs::desktop::Workspace::mix:mrs::desktop::Workspace::arrange);return true;}if(k.getKeyCode()==juce::KeyPress::F5Key){sidebar=!sidebar;resized();repaint();return true;}return false;}
 bool Desktop::keyPressed(const juce::KeyPress& k){if(workspaceShortcut(k))return true;if(!shortcutAllowed())return false;
+    if(k.getKeyCode()==juce::KeyPress::escapeKey&&app.wav_import_status().busy){app.cancel_wav_import();return true;}
     if(homeVisible){if(k.getModifiers().isCtrlDown()&&k.getKeyCode()=='O'){action(2);return true;}if(k.getModifiers().isCtrlDown()&&k.getKeyCode()=='N'){action(1);return true;}return false;}
     auto c=k.getKeyCode();if(k.getModifiers().isAltDown())return false;if(k.getModifiers().isCtrlDown()){if(c=='D'&&(arrangement->sections->hasSelection()||arrangement->chords->hasSelection()||arrangement->markers->hasSelection())){action(45);return true;}if(c=='Z'){action(10);return true;}if(c=='Y'){action(11);return true;}if(c=='S'){action(3);return true;}if(c=='O'){action(2);return true;}if(c=='N'){action(1);return true;}return false;}
     if(k.getModifiers().isShiftDown())return false;
@@ -520,6 +521,10 @@ void Desktop::updateRecordingPreview(){
 }
 void Desktop::focusLost(FocusChangeType){spaceHeld=false;}
 void Desktop::timerCallback(){try{const bool wasRecording=app.recording();app.poll();
+    const auto importing=app.wav_import_status();
+    if(importing.busy)message="Preparing WAV import: "+juce::String(static_cast<int>(importing.progress*100.f))+"% (Esc to cancel)";
+    else if(wavImportRevision!=importing.revision)message=label(importing.message);
+    wavImportRevision=importing.revision;
     // One cheap metadata check every 500ms, and only if explicitly enabled.
     if(++trackHeaderPollTick>=15){trackHeaderPollTick=0;pollTrackHeaderLayout();}if(wasRecording&&!app.recording()&&!app.recording_error().empty())message=label(app.recording_error());if(++previewTick%3==0)updateRecordingPreview();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}if(dockedEditor&&!dockedClip)dockedEditor.reset();if(preview){if(preview->active()){if(preview->sendBus&&preview->target)app.preview_send_gain(*preview->target,*preview->sendBus,preview->sendGain);else app.preview_mix(preview->target,preview->mix,preview->master);}else cancelPreview();}
     updatePerformance(app.device_status(),app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected");
@@ -1215,8 +1220,9 @@ void Arrangement::mouseUp(const juce::MouseEvent& e){
     else if(std::abs(e.x-dragX)>=2||trackDelta!=0)owner.run([&]{if(copy){const auto p=owner.project();for(const auto& original:baseline){const auto current=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& item){return item.id==original.id;});if(current==p->clips.end()||*current!=original)throw std::runtime_error("Source clip changed; retry copy drag");}const auto copied=owner.app.copy_clips(std::move(group),delta,trackDelta);owner.activateClip(copied.front());owner.selectedClips.clear();for(const auto& id:copied)owner.selectedClips.insert(id.value);}else owner.app.move_clips(std::move(group),delta,trackDelta);});
     repaint();
 }
-bool Arrangement::keyPressed(const juce::KeyPress& key){if(key.getKeyCode()!=juce::KeyPress::escapeKey)return false;rulerSeeking=false;fadeOriginal.reset();fadeStore.reset();shiftRemove=false;setMouseCursor(juce::MouseCursor::NormalCursor);drag.reset();dragTrack.reset();dragGroup.clear();copyDrag=false;dragMoved=false;selecting=false;selectionBox={};repaint();return true;}
-void Arrangement::focusLost(FocusChangeType){keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));}
+bool Arrangement::keyPressed(const juce::KeyPress& key){if(key.getKeyCode()!=juce::KeyPress::escapeKey)return false;if(owner.app.wav_import_status().busy)owner.app.cancel_wav_import();cancelGesture();return true;}
+void Arrangement::cancelGesture(){rulerSeeking=false;fadeOriginal.reset();fadeStore.reset();shiftRemove=false;setMouseCursor(juce::MouseCursor::NormalCursor);drag.reset();dragTrack.reset();dragGroup.clear();copyDrag=false;dragMoved=false;selecting=false;selectionBox={};repaint();}
+void Arrangement::focusLost(FocusChangeType){cancelGesture();}
 void Arrangement::wheel(float delta,juce::ModifierKeys mods,float x){if(mods.isCtrlDown()){if(mods.isShiftDown()){const auto before=static_cast<mrs::Sample>(std::clamp((x-left+horizontal)/pixelsPerSecond*owner.project()->sample_rate,0.,static_cast<double>(mrs::max_sample)));pixelsPerSecond=juce::jlimit(.1,2400.,pixelsPerSecond*std::pow(1.25,delta*4));horizontal=juce::jmax(0.,static_cast<double>(before)/owner.project()->sample_rate*pixelsPerSecond-(x-left));}
     else {const float before=(vertical+getHeight()/2.f-headerHeight())/trackHeight;trackHeight=juce::jlimit(40,360,trackHeight+static_cast<int>(delta*96));vertical=juce::jmax(0.f,before*trackHeight-(getHeight()/2.f-headerHeight()));}}
     else if(mods.isShiftDown())horizontal=juce::jmax(0.,horizontal-delta*160);else vertical=juce::jmax(0.f,vertical-delta*128);
@@ -1250,7 +1256,8 @@ void Arrangement::itemDragMove(const SourceDetails& s){
 #ifdef MRS_HAS_ARA
     araDropClip.reset();if(owner.isAraPluginDrag(s.description)){const auto id=clipAt(s.localPosition.toFloat());if(id){const auto p=owner.project();if(std::any_of(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==*id&&!c.midi;}))araDropClip=id;}}repaint();
 #endif
-    if(s.description.toString()=="mrs-sample-files")fileDragMove(owner.browser->selectedSamples(),s.localPosition.x,s.localPosition.y);}
+    if(s.description.toString()=="mrs-sample-files")fileDragMove(owner.browser->selectedSamples(),s.localPosition.x,s.localPosition.y);
+    if(s.description.toString()=="mrs-library-wav")fileDragMove(owner.browser->selectedLibrarySamples(),s.localPosition.x,s.localPosition.y);}
 void Arrangement::itemDragExit(const SourceDetails&){araDropClip.reset();fileDragExit({});repaint();}
 std::vector<juce::Rectangle<float>> Arrangement::midiDropRects() const {
     std::vector<juce::Rectangle<float>> result;if(!dropPoint)return result;const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);const auto tick=midiDropTick(dropPoint->x);const auto target=midiDropTarget(dropPoint->y);int next=static_cast<int>(p->tracks.size());
@@ -1261,7 +1268,7 @@ void Arrangement::filesDropped(const juce::StringArray& files,int x,int y){fileD
     if(!isInterestedInFileDrag(files)||y<headerHeight())throw std::runtime_error("Drop WAV or MIDI files below the ruler");
     std::vector<std::filesystem::path> paths;for(const auto& file:files)paths.push_back(path(juce::File(file)));
     if(juce::File(files[0]).hasFileExtension("mid;midi")){const auto tick=midiDropTick(x);owner.closeEditors();const auto clips=owner.app.import_midi(paths,midiDropTarget(y),tick);owner.activateClip(clips.front());}
-    else {std::optional<mrs::Id> target;const int at=trackAt(static_cast<float>(y));if(at>=0&&at<static_cast<int>(owner.project()->tracks.size()))target=owner.project()->tracks[static_cast<std::size_t>(at)].id;owner.closeEditors();owner.app.import_wavs(paths,target,x<left?0:sampleAt(static_cast<float>(x)));}
+    else {std::optional<mrs::Id> target;const int at=trackAt(static_cast<float>(y));if(at>=0&&at<static_cast<int>(owner.project()->tracks.size()))target=owner.project()->tracks[static_cast<std::size_t>(at)].id;owner.closeEditors();owner.app.queue_wav_import(paths,target,x<left?0:sampleAt(static_cast<float>(x)));}
     owner.refresh(true);
 });}
 bool Arrangement::isInterestedInDragSource(const SourceDetails& details){
@@ -1273,7 +1280,9 @@ bool Arrangement::isInterestedInDragSource(const SourceDetails& details){
         const auto index=text.substring(5);
         return !index.isEmpty()&&index.length()<=10&&index.containsOnly("0123456789")&&index.getLargeIntValue()<static_cast<juce::int64>(owner.catalog.size());
     }
-    return text.startsWith("mrs-track:")||(text=="mrs-sample-files"&&!owner.browser->selectedSamples().isEmpty());
+    return text.startsWith("mrs-track:")||
+        (text=="mrs-sample-files"&&!owner.browser->selectedSamples().isEmpty())||
+        (text=="mrs-library-wav"&&!owner.browser->selectedLibrarySamples().isEmpty());
 }
 void Arrangement::itemDropped(const SourceDetails& details){if(!getLocalBounds().contains(details.localPosition)||details.localPosition.y<headerHeight())return;
     araDropClip.reset();repaint();
@@ -1283,7 +1292,9 @@ void Arrangement::itemDropped(const SourceDetails& details){if(!getLocalBounds()
         if(details.description.toString().startsWith("ara2:"))return;
     }
 #endif
-    if(details.description.toString().startsWith("mrs-track:")){const auto y=details.localPosition.y;const auto index=juce::jlimit(0,static_cast<int>(owner.project()->tracks.size()),static_cast<int>(std::floor((y-headerHeight()+vertical)/trackHeight+.5f)));owner.dropTrack(details.description.toString(),static_cast<std::size_t>(index));}else if(isInterestedInDragSource(details)){if(details.description.toString().startsWith("vst3:")){const auto point=details.localPosition;if(!getLocalBounds().contains(point)||point.y<headerHeight()||(trackAt(static_cast<float>(point.y))<static_cast<int>(owner.project()->tracks.size())&&!midiDropTarget(point.y)))return;const auto index=static_cast<std::size_t>(details.description.toString().substring(5).getLargeIntValue());const auto target=midiDropTarget(details.localPosition.y);if(target)owner.dropPlugin(target,index);else owner.addInstrument(index);}else filesDropped(owner.browser->selectedSamples(),details.localPosition.x,details.localPosition.y);}}
+    if(details.description.toString().startsWith("mrs-track:")){const auto y=details.localPosition.y;const auto index=juce::jlimit(0,static_cast<int>(owner.project()->tracks.size()),static_cast<int>(std::floor((y-headerHeight()+vertical)/trackHeight+.5f)));owner.dropTrack(details.description.toString(),static_cast<std::size_t>(index));}else if(isInterestedInDragSource(details)){if(details.description.toString().startsWith("vst3:")){const auto point=details.localPosition;if(!getLocalBounds().contains(point)||point.y<headerHeight()||(trackAt(static_cast<float>(point.y))<static_cast<int>(owner.project()->tracks.size())&&!midiDropTarget(point.y)))return;const auto index=static_cast<std::size_t>(details.description.toString().substring(5).getLargeIntValue());const auto target=midiDropTarget(details.localPosition.y);if(target)owner.dropPlugin(target,index);else owner.addInstrument(index);}else filesDropped(details.description.toString()=="mrs-library-wav"?
+    owner.browser->selectedLibrarySamples():owner.browser->selectedSamples(),
+    details.localPosition.x,details.localPosition.y);}}
 
 
 namespace {
@@ -1347,12 +1358,15 @@ void Browser::timerCallback(){
     }catch(const std::exception& e){result.info=label(e.what());}return result;});
 }
 
-void Browser::showFiles(bool files){filesVisible=files;libraryVisible=false;
+void Browser::showFiles(bool files){if(libraryVisible)owner.app.stop_library_preview();filesVisible=files;libraryVisible=false;
     if(libraryPanel)libraryPanel->setVisible(false);
     libraryTab.setToggleState(false,juce::dontSendNotification);locations.setVisible(files);breadcrumbView.setVisible(files);for(auto* component:{static_cast<juce::Component*>(&fileTree),static_cast<juce::Component*>(&folderPath),static_cast<juce::Component*>(&parentFolder),static_cast<juce::Component*>(&chooseFolder)})component->setVisible(files);
     assistantVisible=false;if(assistant)assistant->setVisible(false);aiTab.setToggleState(false,juce::dontSendNotification);
     tree.setVisible(!files);scanButton.setVisible(!files);search.setVisible(!files);vstTab.setToggleState(!files,juce::dontSendNotification);filesTab.setToggleState(files,juce::dontSendNotification);repaint();}
 juce::StringArray Browser::selectedSamples() const {juce::StringArray files;for(int i=0;i<fileTree.getNumSelectedFiles();++i){auto file=fileTree.getSelectedFile(i);if(file.existsAsFile()&&file.hasFileExtension("wav;mid;midi"))files.add(file.getFullPathName());}return files;}
+juce::StringArray Browser::selectedLibrarySamples() const {
+    return libraryPanel?libraryPanel->selectedLibrarySamples():juce::StringArray{};
+}
 void Browser::showLibrary(){
     showFiles(false);
     libraryVisible=true;
@@ -1362,7 +1376,15 @@ void Browser::showLibrary(){
     aiTab.setToggleState(false,juce::dontSendNotification);
     libraryTab.setToggleState(true,juce::dontSendNotification);
     if(!libraryPanel){
-        libraryPanel=std::make_unique<LibraryFoundationPanel>();
+        libraryPanel=std::make_unique<LibraryFoundationPanel>(
+            [this](const std::filesystem::path& file,double position){
+                return owner.app.play_library_preview(file,position);
+            },
+            [this]{owner.app.stop_library_preview();},
+            [this]{
+                const auto state=owner.app.library_preview_state();
+                return std::tuple{state.playing,state.progress,state.failed};
+            });
         addChildComponent(libraryPanel.get());
         libraryPanel->setLookAndFeel(owner.assetLookAndFeel());
     }

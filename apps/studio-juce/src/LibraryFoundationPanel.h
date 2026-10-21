@@ -1,4 +1,5 @@
 #pragma once
+#include <tuple>
 #include "Controls.h"
 #include <mrs/sample_library.hpp>
 #include <functional>
@@ -9,11 +10,14 @@ class LibraryBrowserView;
 // Full collection/folder/artwork UI belongs to #254.
 class LibraryFoundationPanel final : public juce::Component, private juce::ListBoxModel, private juce::Timer {
 public:
-    LibraryFoundationPanel();
+    LibraryFoundationPanel(std::function<bool(const std::filesystem::path&,double)> play,
+        std::function<void()> stop,
+        std::function<std::tuple<bool,float,bool>()> status);
     ~LibraryFoundationPanel() override;
     void resized() override;
     void paint(juce::Graphics&) override;
     void refresh();
+    juce::StringArray selectedLibrarySamples() const;
 private:
     int getNumRows() override;
     void paintListBoxItem(int row,juce::Graphics&,int width,int height,bool selected) override;

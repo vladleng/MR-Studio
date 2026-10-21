@@ -834,13 +834,14 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
     juce::DragAndDropTarget::SourceDetails sampleDrop("mrs-sample-files",fileTree,{400,Arrangement::header+19});
     check(d.arrangement->isInterestedInDragSource(sampleDrop),"internal WAV browser drag accepted");
     const auto tracksBeforeDrop=d.project()->tracks.size();const auto clipsBeforeDrop=d.project()->clips.size();const auto revisionBeforeDrop=d.app.services().projects->state().revision;
-    d.arrangement->itemDropped(sampleDrop);
+    const auto finishWavImport=[&]{const auto until=juce::Time::getMillisecondCounter()+10000;while(d.app.wav_import_status().busy&&juce::Time::getMillisecondCounter()<until){d.app.poll();juce::Thread::sleep(1);}check(!d.app.wav_import_status().busy,"background WAV import finishes");};
+    d.arrangement->itemDropped(sampleDrop);finishWavImport();
     check(d.project()->tracks.size()==tracksBeforeDrop&&d.project()->clips.size()==clipsBeforeDrop+1,"sample drop uses existing audio track");
     check(d.project()->clips.back().track==first&&d.project()->clips.back().start==d.arrangement->sampleAt(400),"sample drop follows track and cursor time");
     check(d.app.services().projects->state().revision==revisionBeforeDrop+1,"existing track import is one command");
     d.action(10);check(d.project()->clips.size()==clipsBeforeDrop&&d.project()->tracks.size()==tracksBeforeDrop,"sample import undo restores clips without removing track");
     d.arrangement->filesDropped({wav.getFullPathName()},400,Arrangement::header+static_cast<int>(tracksBeforeDrop)*d.arrangement->trackHeight+4);
-    fileTree->setSelectedFile(wav);
+    finishWavImport();fileTree->setSelectedFile(wav);
     {const auto until=juce::Time::getMillisecondCounter()+2000;while(!d.browser->samplePreviewReady()&&juce::Time::getMillisecondCounter()<until){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}juce::Thread::sleep(1);}}
     check(d.browser->samplePreviewReady(),"background WAV metadata and waveform preview completes");
     {auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-files-preview.png").createOutputStream();juce::PNGImageFormat format;if(stream){stream->setPosition(0);stream->truncate();format.writeImageToStream(d.createComponentSnapshot(d.getLocalBounds(),true,1.f,juce::SoftwareImageType{}),*stream);}}

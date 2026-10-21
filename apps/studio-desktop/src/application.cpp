@@ -187,6 +187,7 @@ Application::Application(std::unique_ptr<IMidiOutputBackend> backend) : engine_(
 Application::~Application() {
     midi_inputs_.reset(); // joins bridge/closes driver callbacks before engine/device retirement
     if (device_) device_->close();
+    stop_wav_imports();
     ++*ai_permission_revision_; // invalidate captured reads before worker shutdown
     if (ai_worker_) ai_worker_->shutdown(); // no audio callback waits for AI
     stop_reverb_loaders();
@@ -198,6 +199,7 @@ Application::~Application() {
 }
 void Application::workspace(Workspace w) { (void)workspace_name(w); workspace_ = w; }
 void Application::replace(persistence::ProjectDocument next) {
+    cancel_wav_import();
     require_ai_owner();
     require_not_recording(); next.validate(); armed_.reset(); armed_tracks_.clear();
     // Existing MIXR channels hydrate the shared command model, including legacy archives.
@@ -214,7 +216,7 @@ void Application::replace(persistence::ProjectDocument next) {
     auto transport = std::make_shared<audio::EngineTransport>(engine_,Timeline(next.project.time,next.project.sample_rate));
     auto musical = std::make_unique<MusicalTimeline>(Services{projects,transport},[this]{require_not_recording();require(!engine_->state().count_remaining,"End count-in before navigating");});
     for (auto& [key,value] : assets_) { (void)key; *value.cancel = true; }
-    assets_.clear(); owned_media_.clear(); waveform_error_.clear();
+    assets_.clear(); import_staging_.clear(); owned_media_.clear(); waveform_error_.clear();
 #ifdef MRS_HAS_ARA
     ara_.reset();ara_cycle_.reset();
 #endif
@@ -1599,51 +1601,6 @@ void Application::remove_marker(const Marker& expected) {
         "Marker is linked to a LiveAction; remove the binding before deleting the marker");
     edit_metadata(RemoveMarker{expected});
 }
-void Application::import_wavs(const std::vector<std::filesystem::path>& paths,std::optional<Id> target,Sample start) {
-    require_not_playing(); require(!paths.empty() && paths.size() <= audio::max_voices,"select 1..128 WAV files");
-    const auto current = services_.projects->state().project;
-    require(current->clips.size()+paths.size() <= audio::max_voices,"too many playback clips");
-    require(start>=0,"invalid WAV drop position");
-    if(target){auto at=std::find_if(current->tracks.begin(),current->tracks.end(),[&](const auto& track){return track.id==*target;});require(at!=current->tracks.end()&&at->kind==TrackKind::audio,"Drop samples on an audio track or empty arrangement");}
-
-    // Inspect the entire source batch before copying content.
-    for (const auto& path : paths) require(audio::inspect_wav(path).sample_rate == current->sample_rate,"WAV/project sample-rate mismatch; import WAVs at the project rate");
-    std::unique_ptr<MediaCopy> copies;
-    if (!path_.empty()) copies = std::make_unique<MediaCopy>(asset_root_);
-    std::vector<Track> tracks; std::vector<Clip> clips;
-    std::map<std::string,std::shared_ptr<const audio::AudioData>> decoded;
-    std::size_t bytes{};
-    for (const auto& [key,cached] : assets_) { (void)key; bytes += cached.data->samples.size()*sizeof(float); }
-    for (const auto& original : paths) {
-        const auto path = copies ? copies->media(original) : std::filesystem::absolute(original).lexically_normal();
-        const auto source = (copies ? media_ref(path.lexically_relative(asset_root_)) : utf8(path));
-        std::shared_ptr<const audio::AudioData> data;
-        if (assets_.contains(source)) data = assets_.at(source).data;
-        else if (decoded.contains(source)) data = decoded.at(source);
-        else {
-            require(assets_.size()+decoded.size() < 128,"retained source limit reached (128); start a new project to release Undo media");
-            require(bytes < 512*1024*1024,"project preload/cache exceeds 512 MiB");
-            data = std::make_shared<const audio::AudioData>(audio::open_wav(path,std::min<std::size_t>(8*1024*1024,512*1024*1024-bytes)));
-            bytes += data->samples.size()*sizeof(float); decoded.emplace(source,data);
-        }
-        const auto id = target ? *target : new_id();
-        if(!target)tracks.push_back({id,utf8(original.stem()),TrackKind::audio,{}});
-        require(data->frames()<=std::numeric_limits<Sample>::max()-start,"WAV drop exceeds timeline range");
-        clips.push_back({new_id(),id,utf8(original.filename()),start,data->frames(),0,source});
-        if(target)start+=data->frames();
-    }
-    const auto revision = services_.projects->state().revision;
-    std::vector<std::string> cached;
-    try {
-        for (auto& [source,data] : decoded) { cache_asset(source,std::move(data)); cached.push_back(source); }
-        edit(ImportAudio{std::move(tracks),std::move(clips)});
-        if (copies) copies->commit();
-    } catch (...) {
-        if (services_.projects->state().revision != revision) { if (copies) copies->commit(); } // committed clips must retain their media
-        else for (const auto& source : cached) { *assets_.at(source).cancel = true; assets_.erase(source); }
-        throw;
-    }
-}
 std::vector<Id> Application::import_midi(const std::vector<std::filesystem::path>& paths,std::optional<Id> target,Tick start){
     require_not_playing();require_not_recording();require(!paths.empty()&&paths.size()<=128,"Select 1..128 MIDI files");require(start>=0&&start<=max_tick,"Invalid MIDI drop position");
     const auto current=services_.projects->state().project;
@@ -1886,9 +1843,20 @@ void Application::poll() {
         if (value.pending.valid() && value.pending.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
             try { value.peaks = value.pending.get(); } catch (const std::exception& e) { waveform_error_ = e.what(); }
     }
+    poll_wav_import();
 }
 audio::DeviceStatus Application::device_status() { return device_ ? device_->status() : audio::DeviceStatus{}; }
 bool Application::audio_running() { return device_status().phase == audio::DevicePhase::running; }
+bool Application::play_library_preview(const std::filesystem::path& file,double fraction) {
+    if(!device_config_||audio_name_=="Offline clock (no sound)"||
+       !audio_running()||recording())return false;
+    engine_->play_library_preview(file,fraction);
+    return true;
+}
+void Application::stop_library_preview() noexcept {engine_->stop_library_preview();}
+audio::AudioEngine::LibraryPreviewState Application::library_preview_state() const noexcept {
+    return engine_->library_preview_state();
+}
 void Application::play() { require(audio_running(),"connect audio or choose Offline clock first");
 #ifdef MRS_HAS_ARA
     if (ara_ && engine_->state().playback!=PlaybackState::playing && ara_->poll()) {unsaved_=true;refresh_ara(false);}
@@ -1993,6 +1961,7 @@ void Application::start_project_recording(const std::filesystem::path& projects_
     start_recording(path_.parent_path()/"Media"/("Take-"+new_id().value+".wav"));
 }
 void Application::start_recording(const std::filesystem::path& destination) {
+    stop_library_preview(); // never audition into a live or recording session
     require_not_recording(); sync_arm(); require(!armed_tracks_.empty(),"Arm one or more audio/instrument tracks before recording");
     require(audio_running() && device_config_,"connect audio before recording");
     require(audio_name_ != "Offline clock (no sound)","recording needs a hardware input; Offline clock cannot record");

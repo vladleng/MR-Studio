@@ -10,7 +10,9 @@ then restart the SAME open device. No new engine or hardware fallback.
 Editing while playing is rejected until Pause or Stop. Graph rebuild preserves the
 idle position, paused/stopped state and loop, independently of playhead position. Open WAV retains its existing
 replace-project behavior; Import WAVs adds separate tracks starting at zero.
-New creates an empty project at the current rate. There is no resampler.
+New creates an empty project at the current rate. WAV imports at differing rates
+are converted offline on a worker before the import command (see
+[MR Library import](MR_LIBRARY_PREVIEW.md#arrange-import)); realtime rates still match.
 
 Mixer channel state from loaded archives is retained in the base document for Undo;
 snapshot filters deleted tracks and adds unity defaults for newly created tracks.
@@ -72,7 +74,8 @@ Candidate clip/source and disk-voice budgets are checked before committing edits
 Limits: 128 total voices, 32 streamed voices, 256 MiB aggregate page storage;
 stereo cursor uses 512 KiB. Retained preload cache cap is still 512 MiB.
 The 256 MiB per-file preload ceiling no longer limits streamed WAVs. RIFF size
-still limits files to about 4 GiB; RF64, compression and resampling are not implemented.
+still limits files to about 4 GiB; RF64 and compression are not implemented.
+Import SRC writes a separate project-rate float32 WAV; source media is unchanged.
 External media must remain unchanged during a session.
 
 Waveform workers scan bounded blocks, cap base peak entries at 65536 across channels

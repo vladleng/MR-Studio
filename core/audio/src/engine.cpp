@@ -1,4 +1,5 @@
 #include <mrs/audio.hpp>
+#include <mrs/library_preview.hpp>
 #include <mrs/midi_recording.hpp>
 #include <mrs/read_ahead.hpp>
 #include <mrs/recording.hpp>
@@ -43,8 +44,38 @@ void AudioData::validate() const {
         if (!std::isfinite(sample)) throw std::invalid_argument("non-finite audio sample");
 }
 AudioEngine::AudioEngine() { prepare(RenderConfig{}, {}); }
-AudioEngine::~AudioEngine() {workers_.reset();}
-void AudioEngine::quiesce() noexcept {if(workers_)workers_->quiesce();if(graph_.external_midi)graph_.external_midi->panic();}
+AudioEngine::~AudioEngine() {
+    library_preview_ptr_.store(nullptr,std::memory_order_release);
+    library_preview_.reset(); // device must have stopped before engine destruction
+    workers_.reset();
+}
+void AudioEngine::play_library_preview(const std::filesystem::path& path,double fraction) {
+    if(!library_preview_){
+        auto instance=std::make_unique<LibraryPreviewStream>();
+        library_preview_ptr_.store(instance.get(),std::memory_order_release);
+        library_preview_=std::move(instance);
+    }
+    library_preview_->play(path,config_.sample_rate,fraction);
+}
+void AudioEngine::stop_library_preview() noexcept {
+    if(library_preview_)library_preview_->stop();
+}
+AudioEngine::LibraryPreviewState AudioEngine::library_preview_state() const noexcept {
+    if(!library_preview_)return {};
+    const auto state=library_preview_->status();
+    return {state.playing,state.progress,state.failed};
+}
+void AudioEngine::mix_library_preview(float* output,std::uint32_t frames,const float* envelope,float level) noexcept {
+    if(auto* preview=library_preview_ptr_.load(std::memory_order_acquire))
+        preview->mix(output,frames,config_.output_channels,
+            graph_.recordings.empty()&&graph_.midi_recordings.empty(),
+            graph_.master_outputs,envelope,level);
+}
+void AudioEngine::quiesce() noexcept {
+    stop_library_preview();
+    if(workers_)workers_->quiesce();
+    if(graph_.external_midi)graph_.external_midi->panic();
+}
 void AudioEngine::channel_job(void* context,std::uint32_t index) noexcept {
     auto& engine=*static_cast<AudioEngine*>(context);
     const auto track=engine.channel_levels_[engine.job_level_][index];
@@ -155,6 +186,7 @@ ProcessingDomains AudioEngine::compile_domains(const RenderGraph& graph,
 }
 void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState initial) {
     if(speculative_||mixed_owner_)throw std::logic_error("stop the process producer before preparing audio");
+    stop_library_preview(); // never retain a stream decoded for the previous device rate
     graph.click.validate();metronome_.prepare(graph.click_time,config.sample_rate);graph.meters=prepare_meters(graph.click_time,config.sample_rate);click_=graph.click;
     if(graph.count_frames<0||graph.count_frames>max_sample||(graph.count_frames&&(!std::isfinite(graph.count_beat_frames)||graph.count_beat_frames<1||graph.count_beats<1||graph.count_beats>64)))throw std::invalid_argument("invalid precount");
     count_started_=false;record_start_ns_=0;initial.count_remaining=graph.count_frames;
@@ -943,6 +975,7 @@ void AudioEngine::process_block(const float* input, float* output, std::uint32_t
             if (sample > 1 || sample < -1) { clipped_.fetch_add(1,std::memory_order_relaxed); sample = std::clamp(sample,-1.0f,1.0f); }
         }
     }
+    if(!speculative_)mix_library_preview(output,frames,master_envelope_.data());
     last_render_meters_={};for(std::size_t t=0;t<max_mixer_tracks;++t)last_render_meters_.tracks[t]={block_peaks[t][0],block_peaks[t][1]};last_render_meters_.master={block_peaks[max_mixer_tracks][0],block_peaks[max_mixer_tracks][1]};
     if(!speculative_)for (std::size_t t=0; t<=max_mixer_tracks; ++t) for (std::size_t c=0; c<2; ++c)
         meter_peaks_[t][c].store(std::max(block_peaks[t][c],meter_peaks_[t][c].load(std::memory_order_relaxed)),std::memory_order_relaxed);

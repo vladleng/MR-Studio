@@ -114,6 +114,11 @@ public:
     void remove_track(const Id&);
     void reorder_track(const Id&, std::size_t index);
     void import_wavs(const std::vector<std::filesystem::path>&,std::optional<Id> target={},Sample start=0);
+    // UI uses background preparation; command/model publication stays on poll().
+    void queue_wav_import(const std::vector<std::filesystem::path>&,std::optional<Id> target={},Sample start=0);
+    void cancel_wav_import();
+    struct WavImportStatus {bool busy{};float progress{};std::uint64_t revision{};std::string message;};
+    WavImportStatus wav_import_status() const;
     std::vector<Id> import_midi(const std::vector<std::filesystem::path>&,std::optional<Id> target={},Tick start=0);
     bool history_preserves_plugins(bool redo) const;
     bool history_changes_only_inputs(bool redo) const; // permits frontend editor retention before Undo/Redo
@@ -253,6 +258,11 @@ public:
     const std::string& waveform_error() const { return waveform_error_; }
     const std::string& audio_name() const { return audio_name_; }
     void play(); void pause(); void stop(); void seek(Sample);
+    // Preview never uses a second ASIO device or manipulates project transport.
+    // Unavailable/offline/recording state returns false without side effects.
+    bool play_library_preview(const std::filesystem::path&,double fraction=0);
+    void stop_library_preview() noexcept;
+    audio::AudioEngine::LibraryPreviewState library_preview_state() const noexcept;
     void arm_track(std::optional<Id>);
     const std::optional<Id>& armed_track() const { return armed_; }
     void start_recording(const std::filesystem::path& destination);
@@ -369,6 +379,18 @@ private:
     std::string waveform_error_;
     std::uint64_t saved_project_revision_{}, saved_graph_revision_{};
     bool unsaved_{true};
+    struct PreparedWavImport;
+    struct WavImportJob;
+    // Declared before assets_: worker waveforms retire before their staged files.
+    std::vector<std::shared_ptr<PreparedWavImport>> import_staging_;
+    std::shared_ptr<WavImportJob> wav_import_job_;
+    std::vector<std::shared_ptr<WavImportJob>> retired_imports_;
+    WavImportStatus wav_import_status_;
+    std::shared_ptr<PreparedWavImport> prepare_wav_import_sync(const std::vector<std::filesystem::path>&);
+    void commit_wav_import(const std::shared_ptr<PreparedWavImport>&,std::optional<Id>,Sample);
+    void validate_wav_import(std::size_t,std::optional<Id>,Sample) const;
+    void poll_wav_import();
+    void stop_wav_imports();
     struct CachedAsset {
         std::shared_ptr<std::atomic<bool>> cancel{std::make_shared<std::atomic<bool>>(false)};
         std::shared_ptr<const audio::AudioData> data;

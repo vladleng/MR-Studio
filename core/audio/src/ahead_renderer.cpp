@@ -158,6 +158,10 @@ void AheadRenderer::process(const float* input,float* output,std::uint32_t frame
     }
     if(engine_->control_revision()!=revision||engine_->processing_fault_.load(std::memory_order_relaxed)){std::fill_n(output,static_cast<std::size_t>(frames)*channels,0.f);partial_=0;++engine_->ahead_underruns_;}
     else {if(copied<frames)++engine_->ahead_underruns_;if(copied){consumer_head_=result;publish_head();engine_->publish_delivered(result.head,meters);}}
+    // Audition belongs to the hardware consumer, including during stopped
+    // project transport/packet underflow. Never enqueue it in the process buffer.
+    if(!engine_->processing_fault_.load(std::memory_order_relaxed))
+        engine_->mix_library_preview(output,frames,nullptr,consumer_head_.mix.master);
     const auto write=write_.load(std::memory_order_acquire),read=read_.load(std::memory_order_relaxed);
     const auto queued=write>=read?write-read:write+static_cast<std::uint32_t>(packets_.size())-read;
     engine_->ahead_buffered_frames_=queued*device_frames_-std::min(partial_,queued*device_frames_);signals_->wake.post();

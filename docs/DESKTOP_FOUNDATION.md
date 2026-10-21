@@ -82,7 +82,8 @@ one-based physical output selectors (e.g. 1,2) and optional monitor input
 the previous callback, prepares graph/assets, opens and starts the selected backend.
 Transport is reset on connect/disconnect/reconfiguration. No automatic host fallback.
 
-Requested rate must match project/WAV rate; there is no resampler.
+Requested device rate must match the project rate. Differing-rate WAV imports
+are converted offline before insertion; there is no realtime resampler.
 ASIO panel first disconnects audio; reconnect after panel/driver changes.
 The dialog shows actual output latency and CPU; main status shows callback/underrun
 counters. Native monitoring shares the same prepared processor graph. Monitoring

@@ -262,6 +262,7 @@ private:
     const mrs::audio::AudioEngine* visualEngine{};
     double lastVisualSample{};
     bool spaceHeld{};unsigned previewTick{};
+    std::uint64_t wavImportRevision{};
     bool resizingBrowser{},resizingMixer{};
     int mixerDragHeight{},mixerDragY{};
     void flushAraDockResize();
@@ -368,6 +369,7 @@ public:
     void mouseUp(const juce::MouseEvent&) override;
     void focusLost(FocusChangeType) override;
     bool keyPressed(const juce::KeyPress&) override;
+    void cancelGesture();
     void mouseWheelMove(const juce::MouseEvent&,const juce::MouseWheelDetails&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
     bool isInterestedInFileDrag(const juce::StringArray&) override;
@@ -447,6 +449,7 @@ public:
     juce::Component* assistantComponent() const{return assistant.get();}
     void navigate(const juce::File&);
     juce::StringArray selectedSamples() const;
+    juce::StringArray selectedLibrarySamples() const;
     bool samplePreviewReady() const {return wantedFile!=juce::File()&&preview.file==wantedFile;}
     void paint(juce::Graphics&) override;
     void resized() override;
