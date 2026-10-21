@@ -492,10 +492,10 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
             }
         }
         if(nowPlaying){
-            const int cursor=waveLeft+static_cast<int>(
+            const int playheadX=waveLeft+static_cast<int>(
                 std::clamp(state.second,0.f,1.f)*static_cast<float>(waveWidth));
             g.setColour(juce::Colour(0xffe7f3fb));
-            g.drawVerticalLine(cursor,static_cast<float>(waveTop),
+            g.drawVerticalLine(playheadX,static_cast<float>(waveTop),
                                static_cast<float>(waveTop+waveHeight));
         }
     }
