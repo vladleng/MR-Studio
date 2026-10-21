@@ -40,7 +40,10 @@ struct LibraryFoundationPanel::AssetRows final : juce::ListBoxModel {
     void selectedRowsChanged(int) override {owner.fillSuggestedTags();}
     LibraryFoundationPanel& owner;
 };
-LibraryFoundationPanel::LibraryFoundationPanel() : library(databasePath()) {
+LibraryFoundationPanel::LibraryFoundationPanel(
+    std::function<bool(const std::filesystem::path&,double)> play,
+    std::function<void()> stop,std::function<std::pair<bool,float>()> playbackStatus)
+    :library(databasePath()) {
     for (auto* c : std::array<juce::Component*,25>{&addFolder,&rescan,&cancel,&relink,&toggle,&remove,&sources,&title,&status,
         &tagInfo,&assets,&modeButton,&sourcesMode,&addTag,&confirmTag,&rejectTag,&undoTag,&setBpm,&setKey,
         &addRule,&assetSearch,&tagLabel,&bpmValue,&keyValue,&rulePhrase})
@@ -147,7 +150,8 @@ LibraryFoundationPanel::LibraryFoundationPanel() : library(databasePath()) {
         library.add_rule(tagGroup.getText().toStdString(),rulePhrase.getText().trim().toStdString(),
             tagLabel.getText().trim().toStdString(),ruleFolder.getToggleState());
     };
-    browserView=std::make_unique<LibraryBrowserView>(library);
+    browserView=std::make_unique<LibraryBrowserView>(
+        library,std::move(play),std::move(stop),std::move(playbackStatus));
     addAndMakeVisible(*browserView);
     title.setText("MR Library",juce::dontSendNotification);
     updateMode();
