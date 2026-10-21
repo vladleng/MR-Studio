@@ -447,6 +447,7 @@ public:
     juce::Component* assistantComponent() const{return assistant.get();}
     void navigate(const juce::File&);
     juce::StringArray selectedSamples() const;
+    juce::StringArray selectedLibrarySamples() const;
     bool samplePreviewReady() const {return wantedFile!=juce::File()&&preview.file==wantedFile;}
     void paint(juce::Graphics&) override;
     void resized() override;
