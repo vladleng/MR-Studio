@@ -1250,7 +1250,8 @@ void Arrangement::itemDragMove(const SourceDetails& s){
 #ifdef MRS_HAS_ARA
     araDropClip.reset();if(owner.isAraPluginDrag(s.description)){const auto id=clipAt(s.localPosition.toFloat());if(id){const auto p=owner.project();if(std::any_of(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==*id&&!c.midi;}))araDropClip=id;}}repaint();
 #endif
-    if(s.description.toString()=="mrs-sample-files")fileDragMove(owner.browser->selectedSamples(),s.localPosition.x,s.localPosition.y);}
+    if(s.description.toString()=="mrs-sample-files")fileDragMove(owner.browser->selectedSamples(),s.localPosition.x,s.localPosition.y);
+    if(s.description.toString()=="mrs-library-wav")fileDragMove(owner.browser->selectedLibrarySamples(),s.localPosition.x,s.localPosition.y);}
 void Arrangement::itemDragExit(const SourceDetails&){araDropClip.reset();fileDragExit({});repaint();}
 std::vector<juce::Rectangle<float>> Arrangement::midiDropRects() const {
     std::vector<juce::Rectangle<float>> result;if(!dropPoint)return result;const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);const auto tick=midiDropTick(dropPoint->x);const auto target=midiDropTarget(dropPoint->y);int next=static_cast<int>(p->tracks.size());
@@ -1273,7 +1274,9 @@ bool Arrangement::isInterestedInDragSource(const SourceDetails& details){
         const auto index=text.substring(5);
         return !index.isEmpty()&&index.length()<=10&&index.containsOnly("0123456789")&&index.getLargeIntValue()<static_cast<juce::int64>(owner.catalog.size());
     }
-    return text.startsWith("mrs-track:")||(text=="mrs-sample-files"&&!owner.browser->selectedSamples().isEmpty());
+    return text.startsWith("mrs-track:")||
+        (text=="mrs-sample-files"&&!owner.browser->selectedSamples().isEmpty())||
+        (text=="mrs-library-wav"&&!owner.browser->selectedLibrarySamples().isEmpty());
 }
 void Arrangement::itemDropped(const SourceDetails& details){if(!getLocalBounds().contains(details.localPosition)||details.localPosition.y<headerHeight())return;
     araDropClip.reset();repaint();
@@ -1283,7 +1286,9 @@ void Arrangement::itemDropped(const SourceDetails& details){if(!getLocalBounds()
         if(details.description.toString().startsWith("ara2:"))return;
     }
 #endif
-    if(details.description.toString().startsWith("mrs-track:")){const auto y=details.localPosition.y;const auto index=juce::jlimit(0,static_cast<int>(owner.project()->tracks.size()),static_cast<int>(std::floor((y-headerHeight()+vertical)/trackHeight+.5f)));owner.dropTrack(details.description.toString(),static_cast<std::size_t>(index));}else if(isInterestedInDragSource(details)){if(details.description.toString().startsWith("vst3:")){const auto point=details.localPosition;if(!getLocalBounds().contains(point)||point.y<headerHeight()||(trackAt(static_cast<float>(point.y))<static_cast<int>(owner.project()->tracks.size())&&!midiDropTarget(point.y)))return;const auto index=static_cast<std::size_t>(details.description.toString().substring(5).getLargeIntValue());const auto target=midiDropTarget(details.localPosition.y);if(target)owner.dropPlugin(target,index);else owner.addInstrument(index);}else filesDropped(owner.browser->selectedSamples(),details.localPosition.x,details.localPosition.y);}}
+    if(details.description.toString().startsWith("mrs-track:")){const auto y=details.localPosition.y;const auto index=juce::jlimit(0,static_cast<int>(owner.project()->tracks.size()),static_cast<int>(std::floor((y-headerHeight()+vertical)/trackHeight+.5f)));owner.dropTrack(details.description.toString(),static_cast<std::size_t>(index));}else if(isInterestedInDragSource(details)){if(details.description.toString().startsWith("vst3:")){const auto point=details.localPosition;if(!getLocalBounds().contains(point)||point.y<headerHeight()||(trackAt(static_cast<float>(point.y))<static_cast<int>(owner.project()->tracks.size())&&!midiDropTarget(point.y)))return;const auto index=static_cast<std::size_t>(details.description.toString().substring(5).getLargeIntValue());const auto target=midiDropTarget(details.localPosition.y);if(target)owner.dropPlugin(target,index);else owner.addInstrument(index);}else filesDropped(details.description.toString()=="mrs-library-wav"?
+    owner.browser->selectedLibrarySamples():owner.browser->selectedSamples(),
+    details.localPosition.x,details.localPosition.y);}}
 
 
 namespace {
@@ -1353,6 +1358,9 @@ void Browser::showFiles(bool files){filesVisible=files;libraryVisible=false;
     assistantVisible=false;if(assistant)assistant->setVisible(false);aiTab.setToggleState(false,juce::dontSendNotification);
     tree.setVisible(!files);scanButton.setVisible(!files);search.setVisible(!files);vstTab.setToggleState(!files,juce::dontSendNotification);filesTab.setToggleState(files,juce::dontSendNotification);repaint();}
 juce::StringArray Browser::selectedSamples() const {juce::StringArray files;for(int i=0;i<fileTree.getNumSelectedFiles();++i){auto file=fileTree.getSelectedFile(i);if(file.existsAsFile()&&file.hasFileExtension("wav;mid;midi"))files.add(file.getFullPathName());}return files;}
+juce::StringArray Browser::selectedLibrarySamples() const {
+    return libraryPanel?libraryPanel->selectedLibrarySamples():juce::StringArray{};
+}
 void Browser::showLibrary(){
     showFiles(false);
     libraryVisible=true;
