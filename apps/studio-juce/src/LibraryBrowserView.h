@@ -52,6 +52,7 @@ private:
     int getNumRows() override;
     void paintListBoxItem(int,juce::Graphics&,int,int,bool) override;
     void listBoxItemClicked(int,const juce::MouseEvent&) override;
+    void selectedRowsChanged(int) override;
     void timerCallback() override;
     void prepareSelected();
     void startLibraryDrag();
