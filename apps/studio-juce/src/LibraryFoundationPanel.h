@@ -14,6 +14,7 @@ public:
     void resized() override;
     void paint(juce::Graphics&) override;
     void refresh();
+    juce::StringArray selectedLibrarySamples() const;
 private:
     int getNumRows() override;
     void paintListBoxItem(int row,juce::Graphics&,int width,int height,bool selected) override;
