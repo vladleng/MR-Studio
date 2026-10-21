@@ -1,3 +1,4 @@
+#include "LibraryBrowserView.h"
 #include "Desktop.h"
 #include "Gallery.h"
 #include "BindingCheck.h"
@@ -115,6 +116,12 @@ public:
         if(args.contains("--ui-gallery-smoke")){try{ui::gallerySmoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("gallery193-entry-failure.txt").replaceWithText(e.what());setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--ui-gallery")){gallery=ui::createGalleryWindow([this]{quit();});return;}
         if(args.contains("--ara-smoke")){juce::File::getCurrentWorkingDirectory().getChildFile("ara179-gui-failure.txt").deleteFile();try{const auto tokens=juce::StringArray::fromTokens(args,true);ui::araEditorSmoke(juce::File(tokens[tokens.indexOf("--ara-smoke")+1].unquoted()));setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("ara179-gui-failure.txt").replaceWithText(juce::String(e.what()));setApplicationReturnValue(1);}quit();return;}
+        if(args.contains("--library-browser-smoke")){
+            juce::File::getCurrentWorkingDirectory().getChildFile("library261-failure.txt").deleteFile();
+            try{ui::libraryBrowserSmoke();setApplicationReturnValue(0);}
+            catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("library261-failure.txt").replaceWithText(e.what());setApplicationReturnValue(1);}
+            quit();return;
+        }
         const bool aiSmoke=args.contains("--rig-shell-smoke")||args.contains("--tone-library-smoke")||args.contains("--ai-permissions-smoke")||args.contains("--ai-assistant-smoke");
         const bool smoke=aiSmoke||(args.contains("--cab-editor-smoke")||args.contains("--native-editors-smoke"))||(args.contains("--reverb-browser-smoke")||args.contains("--reverb-editor-smoke"))||args.contains("--j3-smoke")||args.contains("--j1-smoke")||args.contains("--smoke-test")||args.contains("--plugin-smoke")||args.contains("--thu-diagnostic");
         if(!smoke||args.contains("--diagnostics-smoke")){

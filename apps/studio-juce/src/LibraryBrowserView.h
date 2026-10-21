@@ -14,6 +14,7 @@
 #include <thread>
 
 namespace ui {
+void libraryBrowserSmoke();
 
 // WAV-only catalogue with inline audition through the existing audio engine.
 class LibraryBrowserView final : public juce::Component,
@@ -32,19 +33,39 @@ public:
     void paint(juce::Graphics&) override;
     void visibilityChanged() override;
 private:
+    friend void libraryBrowserSmoke();
     enum class Section { folders, tags, collections };
     void chooseSection(Section);
     void sendQuery();
     void refreshControls();
+    void rebuildCards();
     void updateVisibility();
-    void updateFacets();
-    void chooseArtwork(bool clear);
+    void filterMenu(const std::string&,juce::Component*);
+    void musicalMenu(bool bpm,juce::Component*);
+    void toggleTag(std::string group,std::string label,bool exclude=false);
+    void rowMenu(std::size_t);
+    void optionsMenu();
+    void prompt(juce::String title,juce::String initial,std::function<void(juce::String)>);
+    struct Card {std::string kind,label,key,group,cover;std::int64_t owner{};std::uint64_t count{};};
+    void openCard(const Card&);
+    void coverMenu(Card,juce::Component*);
+    void chooseArtwork(Card,bool clear);
+    std::string coverFor(const Card&) const;
+    int columns() const;
+    int cardRows() const;
+    int assetIndex(int row,int x) const;
+    juce::Image cachedImage(const juce::File&);
+    std::vector<Card> cards;
+    std::string tagPath;
+    bool rootMode{true},pendingQuery{};
+    std::map<std::string,std::unique_ptr<juce::Drawable>> instrumentArt;
     std::vector<std::int64_t> selectedAssets() const;
     juce::Image thumbnail(const mrs::library::AudioAsset&);
     int getNumRows() override;
     void paintListBoxItem(int,juce::Graphics&,int,int,bool) override;
     void listBoxItemClicked(int,const juce::MouseEvent&) override;
     void selectedRowsChanged(int) override;
+    juce::String getTooltipForRow(int) override;
     void timerCallback() override;
     struct RowWave {
         mrs::library::WavPreview wav;
@@ -54,6 +75,7 @@ private:
     std::string waveKey(const mrs::library::AudioAsset&) const;
     juce::var getDragSourceDescription(const juce::SparseSet<int>&) override;
     void audition(std::size_t assetIndex,double position,bool toggle);
+    void stepPreview(int delta);
 
     mrs::library::SampleLibrary& library;
     std::function<bool(const std::filesystem::path&,double)> previewPlay;
@@ -69,21 +91,15 @@ private:
     bool gridView{};
     int gridSelected{-1};
     std::uint64_t revision{};
-    std::vector<std::int64_t> sourceIds,collectionIds;
-    std::vector<std::string> folderNames,facetGroups,facetLabels;
-
-
     juce::TextButton foldersTab{"Folders"},tagsTab{"Tags"},collectionsTab{"Collections"};
-    juce::TextButton favorites{"Favorites"},clearFilters{"Clear"},listGrid{"Grid"};
-    juce::TextButton addFilter{"Add filter"},removeFilter{"Remove filter"};
-    juce::TextButton newCollection{"Create"},deleteCollection{"Delete"};
-    juce::TextButton addToCollection{"Add selected"},removeFromCollection{"Remove selected"};
-    juce::TextButton favoriteSelected{"Star selected"};
-    juce::TextButton chooseCover{"Set cover"},resetCover{"Auto cover"};
-    juce::TextButton prevPage{"Prev"},nextPage{"Next"},stopPreview{"Stop"};
-    juce::ComboBox sources,folders,tagGroups,tagValues,selectedFilters,collections,sorts;
-    juce::TextEditor search,bpmFrom,bpmTo,keyField,collectionName;
-    juce::Label counter,filterLabel;
+    juce::TextButton favorites{"Likes"},clearFilters{"Clear"},listGrid{"Grid"},samples{"All WAV"},back{"Back"},options{"..."};
+    juce::TextButton instruments{"Instruments"},genres{"Genres"},keyButton{"Key"},bpmButton{"BPM"},typeButton{"Type"},activeFilters{"Filters"};
+    std::vector<std::unique_ptr<juce::TextButton>> chips;
+    juce::TextButton prevPage{"<"},nextPage{">"},stopPreview{"Stop"};
+    juce::TextButton previousSound{"< Section"},playPause{"Play"},nextSound{"Section >"};
+    juce::ComboBox sorts;
+    juce::TextEditor search;
+    juce::Label counter,breadcrumb;
     juce::ListBox results{"MR Library results",this};
     // Waveforms are generated lazily for painted rows only; bounded cache.
     // Never decode WAVs on the GUI thread or audio callback.

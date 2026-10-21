@@ -497,4 +497,62 @@ void audition_device_modes(){
     check(stream.status().failed&&!stream.status().playing,"Missing preview must report failure and stop");
     std::cout<<"MR Library #255: Process Buffer, output/gain, device-rate reset, recording and errors PASS\n";
 }
-int main() { try {test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void search_v4(){
+    Fixture fixture;const auto root=fixture.root/"samples",database=fixture.root/"index.sqlite";
+    wav(root/"Jazz"/"Brush_120BPM_Loop.wav");wav(root/"Ambient"/"Bass_Am_95BPM_Loop.wav");wav(root/"Jazz"/"Kick_oneshot.wav");
+    const auto cover=fixture.root/"external.png";
+    // Real 1x1 PNG; belongs only to this fixture, outside the sample source.
+    const unsigned char png[]={137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,0,0,0,11,73,68,65,84,120,156,99,96,0,2,0,0,5,0,1,165,246,69,64,0,0,0,0,73,69,78,68,174,66,96,130};
+    {std::ofstream out(cover,std::ios::binary);out.write(reinterpret_cast<const char*>(png),sizeof(png));}
+    check(artwork_image_supported(cover),"Valid external PNG rejected");
+    {std::ofstream out(fixture.root/"bad.png");out<<"invalid";}
+    check(!artwork_image_supported(fixture.root/"bad.png"),"Invalid image accepted");
+    std::string stored;std::int64_t source{};
+    {
+        SampleLibrary lib(database);lib.add_source(root);
+        auto snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle&&x.visible_assets==3;});source=snap->sources.front().id;
+        LibraryQuery q;q.search="jazz brushes";q.sort="relevant";lib.browse(q);
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&x.query==q;});
+        check(snap->visible_assets==1&&snap->assets.front().relative_path=="Jazz/Brush_120BPM_Loop.wav","Search terms must match independent filename/tag fields");
+        check(std::none_of(snap->facets.begin(),snap->facets.end(),[](const auto& x){return x.label=="Ambient";}),"Facet counts must reflect query");
+        check(std::any_of(snap->all_facets.begin(),snap->all_facets.end(),[](const auto& x){return x.label=="Ambient";}),"Other choices disappear after filtering");
+        q={};q.tags={{"Type","Loop"}};q.excluded_tags={{"Genre","Jazz"}};lib.browse(q);
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&x.query==q;});
+        check(snap->visible_assets==1&&snap->assets.front().relative_path.find("Bass")!=std::string::npos,"Exclude tags / include combination failed");
+        const auto bass=snap->assets.front().id;lib.set_key({bass},"Bbmaj");
+        snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle&&!x.assets.empty()&&x.assets.front().manual_key=="Bb major";});
+        q={};q.key="A# major";lib.browse(q);snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&x.query==q;});
+        check(snap->visible_assets==1&&snap->assets.front().id==bass,"Enharmonic key aliases must agree");
+        q={};q.sort="random";q.shuffle_seed=123;q.limit=1;lib.browse(q);
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&x.query==q;});const auto first=snap->assets.front().id;
+        q.offset=1;lib.browse(q);snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&x.query==q;});
+        check(snap->assets.front().id!=first,"Random pagination repeats an item");
+        lib.set_cover("folder",source,"Jazz",cover);
+        snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle&&!x.covers.empty();});
+        stored=snap->covers.front().image;check(fs::is_regular_file(snap->artwork_root/stored),"Managed cover was not copied");
+        check(!fs::exists(root/"external.png"),"Cover modified source folder");fs::remove(cover);
+        lib.rescan();snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle&&x.message=="Scan complete";});
+        check(snap->covers.front().image==stored,"Rescan removed managed cover");
+        lib.set_cover("group",0,"Instrument",snap->artwork_root/stored);
+        snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle&&x.covers.size()==2;});
+    }
+    {
+        SampleLibrary lib(database);auto snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle;});
+        check(snap->covers.size()==2&&fs::is_regular_file(snap->artwork_root/stored),"Managed covers lost on restart");
+        lib.set_cover("folder",source,"Jazz",{});
+        snap=wait_for(lib,[&](const Snapshot& x){return x.phase==Phase::idle&&std::any_of(x.covers.begin(),x.covers.end(),[&](const auto& c){return c.kind=="folder"&&c.image.empty();});});
+        check(!fs::exists(snap->artwork_root/stored),"Reset did not clean replaced managed image");
+    }
+    // Existing v3 schema has the same indexed metadata and no managed-cover table.
+    sqlite3* legacy{};const auto dbText=database.generic_u8string();
+    check(sqlite3_open(reinterpret_cast<const char*>(dbText.c_str()),&legacy)==SQLITE_OK,"Open migration fixture");
+    check(sqlite3_exec(legacy,"DROP TABLE managed_covers; PRAGMA user_version=3",nullptr,nullptr,nullptr)==SQLITE_OK,"Prepare v3 migration fixture");sqlite3_close(legacy);
+    {SampleLibrary lib(database);const auto snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle;});
+        check(snap->visible_assets==3&&snap->sources.front().id==source&&snap->covers.empty(),"V3 migration lost catalogue identities");}
+    bool backedUp=false;
+    for(const auto& entry:fs::directory_iterator(fixture.root))if(entry.path().filename().string().starts_with("index.sqlite.pre-v4-"))backedUp=true;
+    check(backedUp,"V3 migration needs a consistent rollback backup");
+    std::cout<<"MR Library #261: multiword/filter/facets/stable shuffle/managed covers PASS\n";
+}
+
+int main() { try {search_v4();test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }

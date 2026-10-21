@@ -7,6 +7,9 @@
 
 namespace mrs::library {
 
+// Non-RT bounded JPG/PNG header validation; caps decoded dimensions.
+bool artwork_image_supported(const std::filesystem::path&);
+
 enum class Phase { starting, idle, scanning, cancelled, error };
 
 struct Source {
@@ -45,18 +48,23 @@ struct LibraryFacet {
     std::uint64_t count{};
 };
 struct LibraryTagFilter {
+    bool operator==(const LibraryTagFilter&) const = default;
     std::string group,label;
 };
+struct LibraryCover {std::string kind;std::int64_t owner{};std::string key,image;};
 struct LibraryQuery {
+    bool operator==(const LibraryQuery&) const = default;
     std::int64_t source_id{}; // 0 = all sources
     std::int64_t collection_id{}; // 0 = all
     std::string folder; // exact folder + descendants within source
     std::string search; // name or tag, Unicode-aware
-    std::string sort{"name"}; // name, bpm, duration, updated
+    std::string sort{"name"}; // name, relevant, bpm, duration, updated, added, random
     std::string key; // empty = all, '?' = unknown
     int bpm_min{},bpm_max{}; // 0 = no bound
     std::vector<LibraryTagFilter> tags; // AND across groups, OR within group
+    std::vector<LibraryTagFilter> excluded_tags;
     bool favorites_only{};
+    std::uint64_t shuffle_seed{1};
     std::uint64_t offset{};
     std::uint64_t limit{120}; // bounded page
 };
@@ -70,7 +78,10 @@ struct Snapshot {
     LibraryQuery query;
     std::vector<LibraryFolder> folders;
     std::vector<LibraryCollection> collections;
+    std::filesystem::path artwork_root;
+    std::vector<LibraryCover> covers;
     std::vector<LibraryFacet> facets;
+    std::vector<LibraryFacet> all_facets;
 };
 
 // Local catalogue of existing WAV files. All I/O, scanning and SQLite writes
@@ -95,6 +106,7 @@ public:
     void set_collection_items(std::int64_t collection_id, std::vector<std::int64_t> asset_ids, bool add);
     void set_favorites(std::vector<std::int64_t> asset_ids, bool enabled);
     void set_artwork(std::int64_t source_id,std::string folder,std::filesystem::path image); // source-local override; empty image resets
+    void set_cover(std::string kind,std::int64_t owner,std::string key,std::filesystem::path image);
     void add_tag(const std::vector<std::int64_t>& assets,std::string group,std::string label);
     void set_tag_status(const std::vector<std::int64_t>& assets,std::string group,std::string label,std::string status);
     void set_bpm(const std::vector<std::int64_t>& assets,int bpm); // 0 clears detection, -1 removes override
