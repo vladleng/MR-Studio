@@ -507,6 +507,7 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
         const auto mid=static_cast<float>(waveTop)+waveHeight*.5f;
         const auto state=previewState?previewState():std::tuple{false,0.f,false};
         const bool nowPlaying=item.id==activePreviewId&&std::get<0>(state);
+        if(item.id==activePreviewId)paintedPlaying=std::get<0>(state);
         g.setColour(nowPlaying?juce::Colour(0xffc1e8f7):juce::Colour(0xff80b9dc));
         g.drawFittedText(nowPlaying?"II":">",left,waveTop,18,waveHeight,
                          juce::Justification::centred,1);
