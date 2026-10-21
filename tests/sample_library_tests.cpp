@@ -1,5 +1,8 @@
 #include <mrs/sample_library.hpp>
 #include <mrs/sample_preview.hpp>
+#include <mrs/audio.hpp>
+#include <mrs/library_preview.hpp>
+#include <cmath>
 #ifdef _WIN32
 #include <winsqlite/winsqlite3.h>
 #else
@@ -381,4 +384,50 @@ void safe_preview(){
     check(!asset_path(tampered,tampered.assets.front().id),"Missing file must be refused");
     std::cout<<"MR Library #255: safe WAV resolver, waveform, cancellation PASS\\n";
 }
-int main() { try {test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void audition_mixes_single_device(){
+    Fixture f;
+    const auto wave=f.root/"audition.wav";
+    wav(wave,48000);
+    {
+        // Replace silent PCM samples with a constant non-clipping reference.
+        std::fstream out(wave,std::ios::binary|std::ios::in|std::ios::out);
+        out.seekp(44);
+        for(int i=0;i<48000;++i){
+            const unsigned value=10000;
+            out.put(static_cast<char>(value&255));
+            out.put(static_cast<char>((value>>8)&255));
+        }
+        check(static_cast<bool>(out),"Create sample audition fixture");
+    }
+    mrs::audio::AudioEngine engine;
+    engine.prepare({48000,0,2,128},{});
+    engine.play_library_preview(wave);
+    std::vector<float> output(256);
+    bool sound=false;
+    for(int attempt=0;attempt<200&&!sound;++attempt){
+        std::fill(output.begin(),output.end(),0.f);
+        engine.process(nullptr,output.data(),128);
+        sound=std::any_of(output.begin(),output.end(),[](float value){return value>.05f;});
+        if(!sound)std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    check(sound,"Library audio was not mixed into the existing master callback");
+    check(std::abs(output[0]-output[1])<.001f,"Mono audition should be centered");
+    check(engine.library_preview_state().playing,"Audio preview should run without project transport");
+    engine.stop_library_preview();
+    std::fill(output.begin(),output.end(),0.f);
+    engine.process(nullptr,output.data(),128);
+    check(std::all_of(output.begin(),output.end(),[](float value){return value==0.f;}),
+          "Library stop must silence preview immediately");
+    engine.play_library_preview(wave,.5);
+    bool seekSound=false;
+    for(int attempt=0;attempt<200&&!seekSound;++attempt){
+        std::fill(output.begin(),output.end(),0.f);
+        engine.process(nullptr,output.data(),128);
+        seekSound=std::any_of(output.begin(),output.end(),[](float value){return value>.05f;});
+        if(!seekSound)std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    check(seekSound,"Click-to-seek preview should restart audio");
+    check(engine.library_preview_state().progress>=.49f,"Preview seek position not observed");
+    std::cout<<"MR Library #255: RT-safe engine audition, seek, stop, mono route PASS\\n";
+}
+int main() { try {test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
