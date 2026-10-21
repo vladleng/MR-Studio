@@ -18,7 +18,13 @@ std::string selectString(const juce::ComboBox& box,const std::vector<std::string
     return n>=0&&n<static_cast<int>(items.size())?items[static_cast<std::size_t>(n)]:std::string{};
 }
 }
-LibraryBrowserView::LibraryBrowserView(mrs::library::SampleLibrary& lib):library(lib){
+LibraryBrowserView::LibraryBrowserView(
+    mrs::library::SampleLibrary& lib,
+    std::function<bool(const std::filesystem::path&,double)> play,
+    std::function<void()> stop,
+    std::function<std::pair<bool,float>()> position)
+    :library(lib),previewPlay(std::move(play)),previewStop(std::move(stop)),
+      previewState(std::move(position)){
     for(auto* control:std::array<juce::Component*,29>{
         &foldersTab,&tagsTab,&collectionsTab,&favorites,&clearFilters,&listGrid,
         &addFilter,&removeFilter,&newCollection,&deleteCollection,&addToCollection,
@@ -200,6 +206,7 @@ LibraryBrowserView::LibraryBrowserView(mrs::library::SampleLibrary& lib):library
 }
 LibraryBrowserView::~LibraryBrowserView(){
     stopTimer();imageChooser.reset();results.setModel(nullptr);
+    if(previewStop)previewStop();
     waveWorker.request_stop();waveWake.notify_all();
     if(waveWorker.joinable())waveWorker.join();
     imageWorker.request_stop();imageWake.notify_all();
@@ -215,6 +222,11 @@ void LibraryBrowserView::sendQuery(){
 void LibraryBrowserView::setSnapshot(std::shared_ptr<const mrs::library::Snapshot> next){
     if(!next||revision==next->revision)return;
     view=std::move(next);revision=view->revision;
+    if(activePreviewId&&!std::any_of(view->assets.begin(),view->assets.end(),
+        [this](const auto& asset){return asset.id==activePreviewId&&asset.status=="ok";})){
+        if(previewStop)previewStop();
+        activePreviewId=0;
+    }
     query=view->query;
     refreshControls();
     gridSelected=-1;
@@ -450,29 +462,75 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
         }
         const int waveTop=gridView?height-35:height-27;
         const int waveHeight=gridView?26:19;
-        const int waveWidth=std::max(1,right-8);
+        const int waveLeft=left+23;
+        const int waveWidth=std::max(1,right-31);
         const auto mid=static_cast<float>(waveTop)+waveHeight*.5f;
+        const auto state=previewState?previewState():std::pair{false,0.f};
+        const bool nowPlaying=item.id==activePreviewId&&state.first;
+        g.setColour(nowPlaying?juce::Colour(0xffc1e8f7):juce::Colour(0xff80b9dc));
+        g.drawFittedText(nowPlaying?"II":">",left,waveTop,18,waveHeight,
+                         juce::Justification::centred,1);
         g.setColour(juce::Colour(0xff314256));
-        g.drawHorizontalLine(static_cast<int>(mid),static_cast<float>(left),
-                             static_cast<float>(left+waveWidth));
+        g.drawHorizontalLine(static_cast<int>(mid),static_cast<float>(waveLeft),
+                             static_cast<float>(waveLeft+waveWidth));
         if(const auto peaks=rowWave(item)){
             g.setColour(juce::Colour(selectedCell?0xffb1ddf3:0xff80b9dc));
             for(int pixel=0;pixel<waveWidth;++pixel){
                 const auto bin=std::min(255,pixel*256/waveWidth);
                 const auto peak=std::clamp((*peaks)[static_cast<std::size_t>(bin)],0.f,1.f);
                 const auto size=std::max(0.5f,peak*static_cast<float>(waveHeight-3)*.5f);
-                g.drawVerticalLine(left+pixel,mid-size,mid+size);
+                g.drawVerticalLine(waveLeft+pixel,mid-size,mid+size);
             }
+        }
+        if(nowPlaying){
+            const int cursor=waveLeft+static_cast<int>(
+                std::clamp(state.second,0.f,1.f)*static_cast<float>(waveWidth));
+            g.setColour(juce::Colour(0xffe7f3fb));
+            g.drawVerticalLine(cursor,static_cast<float>(waveTop),
+                               static_cast<float>(waveTop+waveHeight));
         }
     }
 }
 void LibraryBrowserView::selectedRowsChanged(int){results.repaint();}
 void LibraryBrowserView::listBoxItemClicked(int row,const juce::MouseEvent& event){
-    if(!gridView||!view)return;
-    const auto cols=results.getWidth()>=340?2:1;
-    const int col=cols==2&&event.x>=results.getWidth()/2?1:0;
-    gridSelected=row*cols+col;
+    if(!view)return;
+    const int cols=gridView&&results.getWidth()>=340?2:1;
+    const int width=results.getWidth()/cols;
+    const int col=cols==2&&event.x>=width?1:0;
+    const int index=row*cols+col;
+    if(index<0||index>=static_cast<int>(view->assets.size()))return;
+    if(gridView)gridSelected=index;
+    const int top=gridView?results.getRowHeight()-35:results.getRowHeight()-27;
+    const int waveHeight=gridView?26:19;
+    const int left=col*width+(gridView?74:32)+12;
+    const int start=left+23;
+    const int span=std::max(1,width-(gridView?74:32)-51);
+    if(event.y>=top&&event.y<=top+waveHeight){
+        if(event.x>=left&&event.x<start)audition(static_cast<std::size_t>(index),0.,true);
+        else if(event.x>=start&&event.x<=start+span)
+            audition(static_cast<std::size_t>(index),
+                     std::clamp(static_cast<double>(event.x-start)/span,0.,.999999),false);
+    }
     results.repaint();
+}
+void LibraryBrowserView::audition(std::size_t index,double position,bool toggle){
+    if(!view||index>=view->assets.size())return;
+    const auto& item=view->assets[index];
+    const auto current=previewState?previewState():std::pair{false,0.f};
+    if(toggle&&item.id==activePreviewId&&current.first){
+        if(previewStop)previewStop();
+        activePreviewId=0;return;
+    }
+    if(!previewPlay)return;
+    const auto wav=mrs::library::asset_path(*view,item.id);
+    if(!wav)return;
+    try{
+        if(previewPlay(*wav,position))activePreviewId=item.id;
+        else counter.setText("Preview unavailable: connect audio or stop recording",
+                             juce::dontSendNotification);
+    }catch(const std::exception& e){
+        counter.setText("Preview failed: "+uiText(e.what()),juce::dontSendNotification);
+    }
 }
 void LibraryBrowserView::chooseArtwork(bool clear){
     if(!view||query.source_id<=0||section!=Section::folders)return;
@@ -492,7 +550,8 @@ void LibraryBrowserView::chooseArtwork(bool clear){
 void LibraryBrowserView::timerCallback(){
     const auto ready=readyImages.load(std::memory_order_acquire);
     const auto wave=wavesReady.load(std::memory_order_acquire);
-    if(ready!=paintedImages||wave!=wavesPainted){
+    const auto playing=previewState&&previewState().first;
+    if(ready!=paintedImages||wave!=wavesPainted||playing){
         paintedImages=ready;wavesPainted=wave;results.repaint();
     }
 }
