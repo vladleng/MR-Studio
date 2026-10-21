@@ -178,7 +178,7 @@ LibraryBrowserView::LibraryBrowserView(
     });
     waveWorker=std::jthread([this](std::stop_token stop){
         while(!stop.stop_requested()){
-            std::pair<std::string,std::filesystem::path> item;
+            WaveTask item;
             {
                 std::unique_lock lock(waveMutex);
                 waveWake.wait(lock,stop,[this]{return !waveQueue.empty();});
@@ -189,15 +189,17 @@ LibraryBrowserView::LibraryBrowserView(
             const auto cancel=std::make_shared<std::atomic<bool>>(false);
             std::stop_callback stopRequested(stop,[cancel]{cancel->store(true);});
             std::array<float,256> peaks{};
-            try{peaks=mrs::library::build_wav_preview(item.second,cancel).peaks;}
-            catch(const std::exception&){/* unavailable media: retain empty waveform */}
+            try{
+                const auto path=mrs::library::asset_path(*item.catalogue,item.assetId);
+                if(path)peaks=mrs::library::build_wav_preview(*path,cancel).peaks;
+            }catch(const std::exception&){/* unavailable media: retain empty waveform */}
             {
                 std::lock_guard lock(waveMutex);
                 if(waveCache.size()>=96){
                     waveRequested.erase(waveCache.begin()->first);
                     waveCache.erase(waveCache.begin());
                 }
-                waveCache[item.first]=peaks;
+                waveCache[item.key]=peaks;
             }
             wavesReady.fetch_add(1,std::memory_order_release);
         }
@@ -558,15 +560,13 @@ void LibraryBrowserView::timerCallback(){
 std::optional<std::array<float,256>> LibraryBrowserView::rowWave(
     const mrs::library::AudioAsset& asset){
     if(!view||asset.status!="ok")return {};
-    const auto path=mrs::library::asset_path(*view,asset.id);
-    if(!path)return {};
-    const auto raw=path->u8string();
-    const std::string key(raw.begin(),raw.end());
-    const auto cacheKey=key+"|"+std::to_string(asset.modified);
+    const auto cacheKey=std::to_string(asset.source_id)+"|"+
+        std::to_string(asset.id)+"|"+std::to_string(asset.modified)+"|"+
+        asset.relative_path;
     std::lock_guard lock(waveMutex);
     if(const auto found=waveCache.find(cacheKey);found!=waveCache.end())return found->second;
     if(waveQueue.size()<20&&waveRequested.insert(cacheKey).second){
-        waveQueue.emplace_back(cacheKey,*path);
+        waveQueue.push_back({cacheKey,view,asset.id});
         waveWake.notify_one();
     }
     return {};
