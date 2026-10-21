@@ -68,7 +68,8 @@ constexpr Builtin builtins[] = {
     {"Genre","Ambient","ambient"},{"Genre","Cinematic","cinematic"},
     {"Genre","Hip Hop","hip hop"},{"Genre","House","house"},{"Genre","Latin","latin"},
     {"Type","Loop","loop"},{"Type","One-shot","one shot"},{"Type","One-shot","oneshot"},
-    {"Type","SFX","sfx"},{"Type","Fill","fill"},{"Type","FX","fx"},
+    {"Instrument","SFX","sfx"},{"Instrument","Fill","fill"},{"Instrument","FX","fx"},
+    {"Instrument","Transition","transition"},
     {"Technique","Brushes","brush"},{"Technique","Brushes","brushes"},{"Technique","Brushes","brsh"},
     {"Technique","Sticks","sticks"},{"Technique","Fingerstyle","fingerstyle"},
     {"Technique","Slap","slap"},{"Rhythm","Swing","swing"},
@@ -120,8 +121,9 @@ Classification classify_sample_path(const std::string& relative,const std::vecto
     const auto directories=tokens(last==std::string::npos?"":relative.substr(0,last));
     std::set<std::pair<std::string,std::string>> found;
     auto suggest=[&](const std::string& group,const std::string& label,const char* origin,double confidence){
-        if(!group.empty()&&!label.empty()&&found.emplace(group,label).second)
-            result.tags.push_back({group,label,origin,confidence});
+        const auto category=group=="Type"&&label!="Loop"&&label!="One-shot"?std::string("Instrument"):group;
+        if(!category.empty()&&!label.empty()&&found.emplace(category,label).second)
+            result.tags.push_back({category,label,origin,confidence});
     };
     // Custom rules win exact group/label collisions; builtins are still independently visible.
     for(const auto& rule:rules){

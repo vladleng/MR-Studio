@@ -60,6 +60,7 @@ private:
     bool rootMode{true},pendingQuery{};
     std::map<std::string,std::unique_ptr<juce::Drawable>> instrumentArt;
     std::vector<std::int64_t> selectedAssets() const;
+    std::string sampleCover(const mrs::library::AudioAsset&) const;
     juce::Image thumbnail(const mrs::library::AudioAsset&);
     int getNumRows() override;
     void paintListBoxItem(int,juce::Graphics&,int,int,bool) override;
@@ -76,6 +77,9 @@ private:
     juce::var getDragSourceDescription(const juce::SparseSet<int>&) override;
     void audition(std::size_t assetIndex,double position,bool toggle);
     void stepPreview(int delta);
+    bool browserKey(const juce::KeyPress&);
+    void updateDetails();
+    bool keyboardAudition{};
 
     mrs::library::SampleLibrary& library;
     std::function<bool(const std::filesystem::path&,double)> previewPlay;
@@ -99,8 +103,13 @@ private:
     juce::TextButton previousSound{"< Section"},playPause{"Play"},nextSound{"Section >"};
     juce::ComboBox sorts;
     juce::TextEditor search;
-    juce::Label counter,breadcrumb;
-    juce::ListBox results{"MR Library results",this};
+    juce::Label counter,breadcrumb,details;
+    struct Results final : juce::ListBox {
+        Results(LibraryBrowserView& o):juce::ListBox("MR Library results",&o),owner(o){}
+        bool keyPressed(const juce::KeyPress& k) override {return owner.browserKey(k)||juce::ListBox::keyPressed(k);}
+        LibraryBrowserView& owner;
+    };
+    Results results{*this};
     // Waveforms are generated lazily for painted rows only; bounded cache.
     // Never decode WAVs on the GUI thread or audio callback.
     std::jthread waveWorker;

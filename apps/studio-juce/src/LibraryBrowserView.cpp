@@ -22,7 +22,8 @@ LibraryBrowserView::LibraryBrowserView(
     for(auto* control:std::array<juce::Component*,25>{&foldersTab,&tagsTab,&collectionsTab,&favorites,&clearFilters,&listGrid,
         &samples,&back,&options,&instruments,&genres,&keyButton,&bpmButton,&typeButton,&activeFilters,&prevPage,&nextPage,
         &stopPreview,&sorts,&search,&counter,&breadcrumb,&previousSound,&playPause,&nextSound})addAndMakeVisible(control);
-    addAndMakeVisible(results);results.setRowHeight(108);results.setMultipleSelectionEnabled(true);
+    addAndMakeVisible(details);details.setFont(juce::Font(juce::FontOptions(11.f)));details.setColour(juce::Label::textColourId,muted());
+    addAndMakeVisible(results);results.setRowHeight(80);results.setMultipleSelectionEnabled(true);
     results.setComponentID("mr-library-browser-results");results.setColour(juce::ListBox::backgroundColourId,juce::Colour(surface));
     search.setTextToShowWhenEmpty("Search filenames, tags, folders...",muted());search.setInputRestrictions(128);
     foldersTab.onClick=[this]{chooseSection(Section::folders);};tagsTab.onClick=[this]{chooseSection(Section::tags);};
@@ -61,7 +62,7 @@ LibraryBrowserView::LibraryBrowserView(
     };
     listGrid.onClick=[this]{gridView=!gridView;listGrid.setButtonText(gridView?"List":"Grid");
         results.setMultipleSelectionEnabled(!gridView);gridSelected=-1;results.deselectAllRows();
-        results.setRowHeight(gridView?164:108);results.updateContent();results.repaint();};
+        results.setRowHeight(gridView?128:80);results.updateContent();results.repaint();};
     search.onTextChange=[this]{query.search=search.getText().toStdString();rootMode=false;query.offset=0;sendQuery();};
     for(const auto& name:std::array<const char*,7>{"Name","Relevant","BPM","Duration","Modified","Recently indexed","Random"})sorts.addItem(name,sorts.getNumItems()+1);
     sorts.setSelectedId(1,juce::dontSendNotification);
@@ -73,7 +74,7 @@ LibraryBrowserView::LibraryBrowserView(
     previousSound.setTooltip("Previous sample");nextSound.setTooltip("Next sample");playPause.setTooltip("Play / pause sample preview");
     for(auto* button:{&previousSound,&nextSound,&playPause,&stopPreview})button->getProperties().set("mrSmallToolbarIcon",true);
     previousSound.onClick=[this]{stepPreview(-1);};nextSound.onClick=[this]{stepPreview(1);};playPause.onClick=[this]{stepPreview(0);};
-    stopPreview.onClick=[this]{if(previewStop)previewStop();activePreviewId=0;results.repaint();};
+    stopPreview.onClick=[this]{if(previewStop)previewStop();activePreviewId=0;keyboardAudition=false;results.repaint();};
     for(const auto* name:{"track_drums_compact","track_bass_compact","track_piano_compact","track_guitar_compact","track_synth","wave","folder"}){
         int size{};const auto* bytes=MRConceptAssets::getNamedResource((juce::String(name)+"_svg").toRawUTF8(),size);
         if(bytes)instrumentArt[name]=juce::Drawable::createFromImageData(bytes,size);
@@ -147,6 +148,7 @@ void LibraryBrowserView::chooseSection(Section next){
     section=next;rootMode=true;tagPath.clear();query={};search.setText({},false);sendQuery();
 }
 void LibraryBrowserView::invalidatePreview(){
+    keyboardAudition=false;
     if(previewStop)previewStop();
     activePreviewId=0;
     dragPayload.clear();
@@ -221,7 +223,7 @@ void LibraryBrowserView::resized(){
     for(auto& chip:chips){const int width=std::min(100,line.getWidth());chip->setVisible(width>=44);chip->setBounds(line.removeFromLeft(width));}
     area.removeFromTop(5);line=area.removeFromTop(24);listGrid.setBounds(line.removeFromRight(44));sorts.setBounds(line.removeFromRight(std::min(122,line.getWidth()/2)));counter.setBounds(line);
     area.removeFromTop(4);auto footer=area.removeFromBottom(27);prevPage.setBounds(footer.removeFromLeft(22));nextPage.setBounds(footer.removeFromLeft(22));previousSound.setBounds(footer.removeFromLeft(32));playPause.setBounds(footer.removeFromLeft(40));nextSound.setBounds(footer.removeFromLeft(32));stopPreview.setBounds(footer);
-    area.removeFromBottom(4);results.setBounds(area);results.updateContent();
+    area.removeFromBottom(4);details.setBounds(area.removeFromBottom(42));area.removeFromBottom(4);results.setBounds(area);results.updateContent();
 }
 void LibraryBrowserView::paint(juce::Graphics& g){
     g.fillAll(juce::Colour(surface));
@@ -230,6 +232,7 @@ void LibraryBrowserView::paint(juce::Graphics& g){
 void LibraryBrowserView::visibilityChanged(){
     if(isShowing()){if(view)sendQuery();return;}
     if(!isShowing()){
+        keyboardAudition=false;
         pendingQuery=true; // Edit Tags uses the same catalogue; retain this browser query until shown again.
         if(previewStop)previewStop();
         activePreviewId=0;
@@ -268,13 +271,23 @@ juce::Image LibraryBrowserView::cachedImage(const juce::File& file){
     if(pendingImages.size()<64&&requestedImages.insert(name).second){pendingImages.emplace_back(name,file);imageWake.notify_one();}
     return {};
 }
-juce::Image LibraryBrowserView::thumbnail(const mrs::library::AudioAsset& asset){
+std::string LibraryBrowserView::sampleCover(const mrs::library::AudioAsset& asset) const {
     if(!view)return {};
     auto parent=asset.relative_path;const auto slash=parent.find_last_of('/');parent=slash==std::string::npos?"":parent.substr(0,slash);
     auto cover=asset.artwork_path;
-    for(;;){const auto managed=coverFor({"folder","",parent,"","",asset.source_id,0});
-        if(!managed.empty()){cover=managed;break;}if(parent.empty())break;
-        const auto at=parent.find_last_of('/');parent=at==std::string::npos?"":parent.substr(0,at);}
+    for(;;){
+        std::string automatic;
+        for(const auto& folder:view->folders)if(folder.source_id==asset.source_id&&folder.relative_path==parent){automatic=folder.artwork_path;break;}
+        const auto candidate=coverFor({"folder","",parent,"",automatic,asset.source_id,0});
+        if(!candidate.empty())cover=candidate;
+        if(parent.empty())break;
+        const auto at=parent.find_last_of('/');parent=at==std::string::npos?"":parent.substr(0,at);
+    }
+    return cover;
+}
+juce::Image LibraryBrowserView::thumbnail(const mrs::library::AudioAsset& asset){
+    if(!view)return {};
+    const auto cover=sampleCover(asset);
     if(cover.starts_with("managed:"))return cachedImage(juce::File(pathText(view->artwork_root)).getChildFile(uiText(cover.substr(8))));
     const auto source=std::find_if(view->sources.begin(),view->sources.end(),[&](const auto& x){return x.id==asset.source_id;});
     return source==view->sources.end()||cover.empty()?juce::Image{}:cachedImage(juce::File(pathText(source->root)).getChildFile(uiText(cover)));
@@ -314,16 +327,16 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
         else g.setColour(juce::Colour(gridView?0xff263244:0xff222b38));
         g.fillRoundedRectangle(rect.toFloat(),5.f);
         g.setColour(juce::Colour(0xff526076));g.drawRoundedRectangle(rect.toFloat(),5.f,0.7f);
-        const int artWidth=gridView?74:32;
+        const int artWidth=gridView?74:48;
         auto cover=thumbnail(item);
-        if(cover.isValid())g.drawImageWithin(cover,x+6,6,artWidth,height-12,
-            juce::RectanglePlacement::centred,false);
+        if(cover.isValid()){juce::Graphics::ScopedSaveState save(g);g.reduceClipRegion(x+6,6,artWidth,artWidth);
+            g.drawImageWithin(cover,x+6,6,artWidth,artWidth,juce::RectanglePlacement::fillDestination,false);}
         else {
             g.setColour(juce::Colour(0xff3a4a61));
             g.fillRoundedRectangle(static_cast<float>(x+6),6.f,static_cast<float>(artWidth),
-                static_cast<float>(height-12),4.f);
+                static_cast<float>(artWidth),4.f);
             g.setColour(muted());g.setFont(juce::Font(juce::FontOptions(11.f)));
-            g.drawFittedText("WAV",x+6,6,artWidth,height-12,juce::Justification::centred,1);
+            g.drawFittedText("WAV",x+6,6,artWidth,artWidth,juce::Justification::centred,1);
         }
         const auto left=x+artWidth+12;
         const auto right=cellW-artWidth-20;
@@ -332,33 +345,16 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
         const auto file=uiText(item.relative_path.substr(slash==std::string::npos?0:slash+1));
         g.drawFittedText(file,left,4,std::max(1,right-24),18,juce::Justification::centredLeft,1);
         g.setColour(muted());g.setFont(juce::Font(juce::FontOptions(11.f)));
-        const int bpm=item.manual_bpm==0?item.detected_bpm:item.manual_bpm;
-        const auto key=item.manual_key.empty()?item.detected_key:item.manual_key;
-        const auto duration=item.sample_rate>0?
-            static_cast<double>(item.frames)/static_cast<double>(item.sample_rate):0.;
         const auto waveform=rowWave(item);
-        juce::String details=(item.favorite?juce::String::fromUTF8("★ "):juce::String{})+
-            (bpm>0?juce::String(bpm)+" BPM  ":"")+
-            ((key.empty()||key=="-")?juce::String{}:uiText(key)+"  ")+
-            juce::String(duration,1)+" s";
-        if(item.status!="ok")details+=" | "+uiText(item.status);
-        else if(!waveform)details+=" | Loading...";
-        else if(!waveform->error.empty())details+=" | "+uiText(waveform->error);
-        else details+=" | "+juce::String(waveform->wav.rate)+" Hz / "+
-            juce::String(waveform->wav.bits)+" bit / "+
-            (waveform->wav.channels==1?juce::String("mono"):
-                waveform->wav.channels==2?juce::String("stereo"):
-                juce::String(waveform->wav.channels)+" ch");
-        g.drawFittedText(details,left,gridView?78:64,right,14,juce::Justification::centredLeft,1);
         {
             juce::String tags;
-            for(const auto& t:item.tags)if(t.status!="rejected"){
+            for(const auto& t:item.tags)if(t.group=="Type"&&t.status!="rejected"){if(tags.isNotEmpty())tags+=", ";tags+=uiText(t.label);}
+            for(const auto& t:item.tags)if(t.group!="Type"&&t.status!="rejected"){
                 if(tags.isNotEmpty())tags+=", ";
                 tags+=uiText(t.label);
             }
-            g.drawFittedText(tags,left,24,right-22,17,juce::Justification::centredLeft,1);
-            const auto path=slash==std::string::npos?juce::String{}:uiText(item.relative_path.substr(0,slash));
-            g.drawFittedText(path,left,44,right,16,juce::Justification::centredLeft,1);
+            g.drawFittedText(tags,left,24,std::max(1,right-22),gridView?48:28,juce::Justification::topLeft,gridView?3:2);
+
             const char* glyph="wave";for(const auto& tag:item.tags)if(tag.group=="Instrument"&&tag.status!="rejected"){
                 const auto label=uiText(tag.label).toLowerCase();if(label.contains("drum")||label.contains("percussion")||label.contains("kick")||label.contains("snare")||label.contains("hat")||label.contains("ride")||label.contains("tom"))glyph="track_drums_compact";
                 else if(label.contains("bass"))glyph="track_bass_compact";else if(label.contains("guitar"))glyph="track_guitar_compact";
@@ -401,7 +397,7 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
 void LibraryBrowserView::selectedRowsChanged(int){
     if(!rootMode&&cardRows()>0){auto selected=results.getSelectedRows();auto cleaned=selected;
         cleaned.removeRange({0,cardRows()});if(cleaned!=selected)results.setSelectedRows(cleaned);}
-    results.repaint();
+    updateDetails();results.repaint();
 }
 juce::String LibraryBrowserView::getTooltipForRow(int row){
     if(!view)return {};const auto index=assetIndex(row,results.getMouseXYRelative().x);
@@ -419,10 +415,11 @@ void LibraryBrowserView::listBoxItemClicked(int row,const juce::MouseEvent& even
     }
     const int index=assetIndex(row,event.x);if(index<0||index>=static_cast<int>(view->assets.size()))return;
     if(gridView)gridSelected=index;
+    updateDetails();
     const int cols=gridView?columns():1,width=results.getWidth()/cols,col=cols==2&&event.x>=width?1:0;
     if(event.mods.isPopupMenu()||(event.x-col*width>width-30&&event.y<24)){rowMenu(static_cast<std::size_t>(index));return;}
     const int top=gridView?results.getRowHeight()-35:results.getRowHeight()-27;
-    const int left=col*width+(gridView?74:32)+12,start=left+23,span=std::max(1,width-(gridView?74:32)-51);
+    const int left=col*width+(gridView?74:48)+12,start=left+23,span=std::max(1,width-(gridView?74:48)-51);
     if(event.y>=top){if(event.x>=left&&event.x<start)audition(static_cast<std::size_t>(index),0.,true);
         else if(event.x>=start&&event.x<=start+span)audition(static_cast<std::size_t>(index),std::clamp(static_cast<double>(event.x-start)/span,0.,.999999),false);}
     results.repaint();
@@ -432,6 +429,7 @@ void LibraryBrowserView::audition(std::size_t index,double position,bool toggle)
     const auto& item=view->assets[index];
     const auto current=previewState?previewState():std::tuple{false,0.f,false};
     if(toggle&&item.id==activePreviewId&&std::get<0>(current)){
+        keyboardAudition=false;
         // Retain position so the next Play resumes from this point.
         if(previewStop)previewStop();
         return;
@@ -446,7 +444,7 @@ void LibraryBrowserView::audition(std::size_t index,double position,bool toggle)
     }
     try{
         if(previewPlay(*wav,position)){
-            activePreviewId=item.id;activePreviewKey=waveKey(item);
+            keyboardAudition=true;activePreviewId=item.id;activePreviewKey=waveKey(item);
         }
         else counter.setText("Preview unavailable: connect audio or stop recording",
                              juce::dontSendNotification);
@@ -462,9 +460,47 @@ void LibraryBrowserView::stepPreview(int delta){
     std::ptrdiff_t index=at==view->assets.end()?0:at-view->assets.begin();
     if(at!=view->assets.end())index+=delta;
     index=std::clamp(index,std::ptrdiff_t{0},static_cast<std::ptrdiff_t>(view->assets.size()-1));
-    audition(static_cast<std::size_t>(index),0.,delta==0);
+    gridSelected=static_cast<int>(index);results.selectRow(cardRows()+static_cast<int>(index)/(gridView?columns():1),false,true);
+    audition(static_cast<std::size_t>(index),0.,delta==0);updateDetails();
+}
+bool LibraryBrowserView::browserKey(const juce::KeyPress& key){
+    if(key.getModifiers().isAnyModifierKeyDown()||rootMode||pendingQuery||!view||view->assets.empty())return false;
+    const bool space=key.isKeyCode(juce::KeyPress::spaceKey);
+    const int delta=key.isKeyCode(juce::KeyPress::upKey)?-1:key.isKeyCode(juce::KeyPress::downKey)?1:0;
+    if(!space&&!delta)return false;
+    int index=gridView?gridSelected:assetIndex(results.getLastRowSelected(),0);
+    if(space){
+        keyboardAudition=!keyboardAudition;
+        if(!keyboardAudition){if(previewStop)previewStop();results.repaint();return true;}
+    }else if(index>=0)index+=delta;
+    index=std::clamp(index,0,static_cast<int>(view->assets.size()-1));
+    gridSelected=index;results.selectRow(cardRows()+index/(gridView?columns():1),false,true);
+    if(keyboardAudition)audition(static_cast<std::size_t>(index),0.,false);
+    updateDetails();results.repaint();return true;
+}
+void LibraryBrowserView::updateDetails(){
+    juce::String text;
+    const auto selected=selectedAssets();
+    if(view&&!selected.empty())for(const auto& item:view->assets)if(item.id==selected.front()){
+        const auto source=std::find_if(view->sources.begin(),view->sources.end(),[&](const auto& x){return x.id==item.source_id;});
+        if(source!=view->sources.end())text=pathText(source->root)+" / ";
+        text+=uiText(item.relative_path)+"\n";
+        const int bpm=item.manual_bpm?item.manual_bpm:item.detected_bpm;
+        const auto key=item.manual_key.empty()?item.detected_key:item.manual_key;
+        if(bpm>0)text+=juce::String(bpm)+" BPM | ";
+        if(!key.empty()&&key!="-")text+=uiText(key)+" | ";
+        text+=juce::String(item.sample_rate?static_cast<double>(item.frames)/item.sample_rate:0.,2)+" s";
+        if(item.status!="ok")text+=" | "+uiText(item.status);
+        else if(const auto wave=rowWave(item)){
+            if(!wave->error.empty())text+=" | "+uiText(wave->error);
+            else text+=" | "+juce::String(wave->wav.rate)+" Hz / "+juce::String(wave->wav.bits)+" bit / "+juce::String(wave->wav.channels)+" ch";
+        }
+        break;
+    }
+    details.setText(text,juce::dontSendNotification);details.setTooltip(text);
 }
 void LibraryBrowserView::timerCallback(){
+    updateDetails();
     const auto ready=readyImages.load(std::memory_order_acquire);
     const auto wave=wavesReady.load(std::memory_order_acquire);
     const auto playback=previewState?previewState():std::tuple{false,0.f,false};
@@ -592,8 +628,9 @@ void LibraryBrowserView::toggleTag(std::string group,std::string label,bool excl
 void LibraryBrowserView::filterMenu(const std::string& group,juce::Component* anchor){
     if(!view)return;juce::PopupMenu menu,excluded;
     std::vector<std::string> labels;
+    if(group=="Type")labels={"One-shot","Loop"};
     // Retain selected values when another condition removes their facet count.
-    for(const auto& facet:view->all_facets)if(facet.group==group)labels.push_back(facet.label);
+    for(const auto& facet:view->all_facets)if(facet.group==group&&std::find(labels.begin(),labels.end(),facet.label)==labels.end())labels.push_back(facet.label);
     for(const auto& filters:{query.tags,query.excluded_tags})for(const auto& tag:filters)
         if(tag.group==group&&std::find(labels.begin(),labels.end(),tag.label)==labels.end())labels.push_back(tag.label);
     const auto selected=[&](const auto& tags,const std::string& label){return std::any_of(tags.begin(),tags.end(),[&](const auto& x){return x.group==group&&x.label==label;});};

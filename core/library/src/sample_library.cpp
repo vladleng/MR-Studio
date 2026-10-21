@@ -233,6 +233,28 @@ void create_schema(Database& d) {
         d.exec("COMMIT");
     } catch (...) { d.exec("ROLLBACK"); throw; }
 }
+// Taxonomy correction is idempotent data normalization, not a schema change.
+// Retain tag IDs/history when possible; merge a duplicate into its existing Instrument tag.
+void normalize_types(Database& d){
+    Statement list(d,"SELECT id,label FROM tags WHERE group_name='Type' AND label NOT IN ('Loop','One-shot')");
+    std::vector<std::pair<std::int64_t,std::string>> old;
+    while(list.next())old.emplace_back(sqlite3_column_int64(list.stmt,0),reinterpret_cast<const char*>(sqlite3_column_text(list.stmt,1)));
+    for(const auto& [id,label]:old){
+        Statement find(d,"SELECT id FROM tags WHERE group_name='Instrument' AND label=?");find.str(1,label);
+        if(find.next()){
+            const auto target=sqlite3_column_int64(find.stmt,0);find.reset();
+            Statement copy(d,"INSERT INTO asset_tags SELECT asset_id,?,origin,status,confidence FROM asset_tags WHERE tag_id=? ON CONFLICT(asset_id,tag_id) DO UPDATE SET origin=excluded.origin,status=excluded.status,confidence=excluded.confidence WHERE asset_tags.status='proposed' AND excluded.status!='proposed'");copy.number(1,target);copy.number(2,id);copy.done();
+            Statement history(d,"UPDATE tag_edit_history SET tag_id=? WHERE tag_id=?");history.number(1,target);history.number(2,id);history.done();
+            Statement clear(d,"DELETE FROM asset_tags WHERE tag_id=?");clear.number(1,id);clear.done();
+            Statement erase(d,"DELETE FROM tags WHERE id=?");erase.number(1,id);erase.done();
+        }else{
+            find.reset();Statement move(d,"UPDATE tags SET group_name='Instrument' WHERE id=?");move.number(1,id);move.done();
+        }
+        Statement cover(d,"UPDATE OR IGNORE managed_covers SET key=? WHERE kind='tag' AND key=?");
+        cover.str(1,"Instrument|"+label);cover.str(2,"Type|"+label);cover.done();
+    }
+    d.exec("UPDATE OR IGNORE classification_rules SET group_name='Instrument' WHERE group_name='Type' AND label NOT IN ('Loop','One-shot')");
+}
 std::vector<TagRule> read_rules(Database& d) {
     std::vector<TagRule> rules;
     Statement stmt(d,"SELECT group_name,phrase,label,in_folder FROM classification_rules ORDER BY id");
@@ -279,7 +301,7 @@ bool allowed_group(const std::string& value) {
     return false;
 }
 void valid_tag(const std::string& group,const std::string& label){
-    if(!allowed_group(group)||label.empty()||label.size()>96)throw std::invalid_argument("Invalid tag name/group");
+    if(!allowed_group(group)||label.empty()||label.size()>96||(group=="Type"&&label!="Loop"&&label!="One-shot"))throw std::invalid_argument("Invalid tag name/group");
 }
 bool is_reparse(const fs::path& file) {
 #ifdef _WIN32
@@ -965,7 +987,7 @@ struct SampleLibrary::Impl {
             Database db(database);
             create_schema(db);
             db.exec("BEGIN IMMEDIATE");
-            try { classify_assets(db);db.exec("COMMIT"); }
+            try { normalize_types(db);classify_assets(db);db.exec("COMMIT"); }
             catch (...){db.exec("ROLLBACK");throw;}
             publish(db,Phase::idle);
             while (!stop.stop_requested()) {

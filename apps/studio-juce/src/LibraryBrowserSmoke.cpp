@@ -3,6 +3,7 @@
 #include <chrono>
 #include <thread>
 namespace ui {
+void wavDrop263Smoke();
 void libraryBrowserSmoke(){
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
     const auto root=std::filesystem::temp_directory_path()/("mrs-library261-"+mrs::new_id().value);
@@ -34,12 +35,29 @@ void libraryBrowserSmoke(){
     check(browser.cards.size()==1&&browser.cards.front().key=="Jazz","Folder navigation must list direct children");
     browser.openCard(browser.cards.front());pump([&](const auto& snap){return snap.query==browser.query&&snap.phase==mrs::library::Phase::idle;});
     check(browser.cards.empty()&&browser.assetIndex(0,0)==0,"Folder navigation must preserve WAV indices");
+    const auto catalogue=browser.view;auto covers=std::make_shared<mrs::library::Snapshot>(*catalogue);
+    const auto sourceId=covers->assets.front().source_id;
+    covers->covers.push_back({"folder",sourceId,"","pack.png"});
+    covers->covers.push_back({"folder",sourceId,"Jazz","category.png"});
+    browser.view=covers;
+    check(browser.sampleCover(covers->assets.front())=="managed:pack.png","Sample cover comes from pack rather than nested category");
+    browser.view=catalogue;
     browser.results.selectRow(0);browser.results.selectRow(1,true,false);
     check(browser.selectedAssets().size()==2,"List mode must retain multiple WAV selection");
     browser.results.selectRow(1,false,true);browser.playPause.onClick();
     check(previews==1&&playing&&browser.activePreviewId==browser.view->assets[1].id,"Footer Play follows selected WAV using the existing preview path");
     browser.previousSound.onClick();check(previews==2&&browser.activePreviewId==browser.view->assets.front().id,"Footer previous sample follows active audition");
     browser.stopPreview.onClick();check(!playing&&browser.activePreviewId==0,"Footer Stop cancels audition");
+    browser.results.selectRow(0,false,true);
+    check(browser.results.keyPressed(juce::KeyPress(juce::KeyPress::spaceKey))&&playing,"Space starts browser audition");
+    const auto started=previews;
+    check(browser.results.keyPressed(juce::KeyPress(juce::KeyPress::downKey))&&previews==started+1&&browser.activePreviewId==browser.view->assets[1].id,"Down selects and auditions next sample");
+    browser.results.keyPressed(juce::KeyPress(juce::KeyPress::spaceKey));
+    check(!playing&&!browser.keyboardAudition,"Second Space disables audition");
+    browser.results.keyPressed(juce::KeyPress(juce::KeyPress::upKey));
+    check(previews==started+1&&browser.selectedAssets().front()==browser.view->assets[0].id,"Arrows select silently after stopping");
+    check(browser.details.getText().contains("Brush_120BPM_Loop.wav")&&browser.details.getText().contains("BPM"),"Selected file path and technical details belong in footer");
+    check(!browser.browserKey(juce::KeyPress('A')),"Unrelated browser keys remain unhandled");
     browser.query.search="jazz brushes";browser.rootMode=false;browser.sendQuery();
     pump([&](const auto& snap){return snap.query==browser.query&&snap.phase==mrs::library::Phase::idle;});
     check(browser.view->visible_assets==1,"Library text query must combine filename and tags");
@@ -60,5 +78,6 @@ void libraryBrowserSmoke(){
     check(browser.cards.size()==1&&browser.cards.front().kind=="collection","Collections root needs cover cards");
     browser.openCard(browser.cards.front());pump([&](const auto& snap){return snap.query==browser.query&&snap.phase==mrs::library::Phase::idle;});
     check(browser.view->visible_assets==0&&!browser.rootMode,"Empty collection should stay in collection scope");
+    wavDrop263Smoke();
 }
 }

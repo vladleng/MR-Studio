@@ -1,4 +1,5 @@
 #include <mrs/sample_library.hpp>
+#include <mrs/sample_tag_rules.hpp>
 #include <mrs/sample_preview.hpp>
 #include <mrs/audio.hpp>
 #include <mrs/library_preview.hpp>
@@ -555,4 +556,23 @@ void search_v4(){
     std::cout<<"MR Library #261: multiword/filter/facets/stable shuffle/managed covers PASS\n";
 }
 
-int main() { try {search_v4();test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void type_taxonomy(){
+    Fixture f;const auto db=f.root/"types.sqlite";wav(f.root/"audio"/"FX_loop.wav");
+    {SampleLibrary lib(db);lib.add_source(f.root/"audio");wait_for(lib,[](const Snapshot& s){return s.phase==Phase::idle&&s.visible_assets==1;});}
+    sqlite3* raw{};const auto text=db.generic_u8string();
+    check(sqlite3_open(reinterpret_cast<const char*>(text.c_str()),&raw)==SQLITE_OK,"Open Type taxonomy fixture");
+    check(sqlite3_exec(raw,"INSERT INTO tags(group_name,label) VALUES('Type','FX'); INSERT INTO asset_tags SELECT a.id,t.id,'manual','confirmed',1 FROM assets a,tags t WHERE t.group_name='Type' AND t.label='FX'",nullptr,nullptr,nullptr)==SQLITE_OK,"Seed legacy confirmed Type");sqlite3_close(raw);
+    {SampleLibrary lib(db);auto snap=wait_for(lib,[](const Snapshot& s){return s.phase==Phase::idle;});
+        check(snap->assets.size()==1,"Taxonomy preserves indexed asset");
+        bool fx=false,loop=false;for(const auto& t:snap->assets.front().tags){
+            check(t.group!="Type"||t.label=="Loop"||t.label=="One-shot","Type must contain only Loop and One-shot");
+            if(t.group=="Instrument"&&t.label=="FX"&&t.status=="confirmed")fx=true;
+            if(t.group=="Type"&&t.label=="Loop")loop=true;
+        }check(fx&&loop,"Legacy Type moves to Instrument preserving confirmation");
+    }
+    const auto result=classify_sample_path("FX_Fill_SFX_Transition_oneshot.wav",{});
+    int instruments=0;bool one=false;for(const auto& t:result.tags){if(t.group=="Instrument")++instruments;if(t.group=="Type"&&t.label=="One-shot")one=true;}
+    check(instruments==4&&one,"FX/Fill/SFX/Transition are Instruments; One-shot is Type");
+}
+
+int main() { try {type_taxonomy();search_v4();test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
