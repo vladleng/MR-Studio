@@ -23,57 +23,74 @@ void LibraryPreviewStream::play(std::filesystem::path path,std::uint32_t rate,do
         throw std::invalid_argument("Invalid MR Library preview request");
     fraction=std::clamp(fraction,0.,.999999);
     const auto gen=generation_.fetch_add(1,std::memory_order_acq_rel)+1;
-    playing_.store(false,std::memory_order_release);
+    active_.store(0,std::memory_order_release);
     position_.store(0,std::memory_order_relaxed);
     length_.store(0,std::memory_order_relaxed);
     finished_.store(0,std::memory_order_relaxed);
+    failed_.store(0,std::memory_order_relaxed);
     {
         std::lock_guard lock(mutex_);
         request_={gen,std::move(path),rate,fraction};
+        active_.store(gen,std::memory_order_release);
     }
-    playing_.store(true,std::memory_order_release);
     wake_.notify_all();
 }
 void LibraryPreviewStream::stop() noexcept {
-    playing_.store(false,std::memory_order_release);
+    active_.store(0,std::memory_order_release);
     generation_.fetch_add(1,std::memory_order_acq_rel);
     wake_.notify_all();
 }
 LibraryPreviewStream::Status LibraryPreviewStream::status() const noexcept {
     const auto total=length_.load(std::memory_order_relaxed);
     const auto now=position_.load(std::memory_order_relaxed);
-    return {playing_.load(std::memory_order_acquire),
-            total?static_cast<float>(std::min(1.,static_cast<double>(now)/static_cast<double>(total))):0.f};
+    return {active_.load(std::memory_order_acquire)!=0,
+            total?static_cast<float>(std::min(1.,static_cast<double>(now)/static_cast<double>(total))):0.f,
+            failed_.load(std::memory_order_acquire)!=0&&
+            failed_.load(std::memory_order_acquire)==generation_.load(std::memory_order_acquire)};
 }
-void LibraryPreviewStream::mix(float* output,std::uint32_t frames,std::uint32_t channels,bool allowed) noexcept {
-    if(!allowed){playing_.store(false,std::memory_order_release);return;}
-    if(!playing_.load(std::memory_order_acquire)||!output||!channels)return;
-    const auto gen=generation_.load(std::memory_order_acquire);
+void LibraryPreviewStream::mix(float* output,std::uint32_t frames,std::uint32_t channels,bool allowed,
+    std::span<const std::size_t> outputs,const float* envelope,float level) noexcept {
+    if(!allowed){active_.store(0,std::memory_order_release);return;}
+    const auto gen=active_.load(std::memory_order_acquire);
+    if(!gen||!output||!channels)return;
     std::uint64_t consumed=read_.load(std::memory_order_relaxed);
-    auto produced=write_.load(std::memory_order_acquire);
+    const auto produced=write_.load(std::memory_order_acquire);
+    // The single producer publishes generations in order. Skip a full stale
+    // queue in logarithmic work instead of scanning 32768 frames on seek.
+    auto first=consumed,last=produced;
+    while(first<last){
+        const auto middle=first+(last-first)/2;
+        if(ring_[static_cast<std::size_t>(middle%ringSize)].generation<gen)first=middle+1;
+        else last=middle;
+    }
+    consumed=first;
     std::uint64_t advanced{};
     for(std::uint32_t i=0;i<frames;++i){
-        Frame frame;
-        bool found=false;
-        while(consumed<produced){
-            frame=ring_[static_cast<std::size_t>(consumed%ringSize)];
-            ++consumed;
-            if(frame.generation==gen){found=true;break;}
-            // Old-generation audio is discarded, never audible after stop/seek.
-        }
-        if(!found)break; // Non-blocking underflow: silence without xrun risk.
+        if(consumed==produced)break; // Underflow: preserve project output.
+        const auto frame=ring_[static_cast<std::size_t>(consumed%ringSize)];
+        if(frame.generation!=gen)break; // Preserve a newer request for the next callback.
+        ++consumed;
         const auto dest=static_cast<std::size_t>(i)*channels;
-        constexpr float gain=.65f;
-        if(channels==1)output[dest]+=(frame.left+frame.right)*(.5f*gain);
-        else{output[dest]+=frame.left*gain;output[dest+1]+=frame.right*gain;}
+        const float gain=.65f*(envelope?envelope[i]:level);
+        const auto add=[&](std::size_t channel,float value){
+            if(channel<channels)output[dest+channel]=std::clamp(output[dest+channel]+value,-1.f,1.f);
+        };
+        if(channels==1||outputs.size()==1)
+            add(outputs.empty()?0:outputs[0],(frame.left+frame.right)*(.5f*gain));
+        else{
+            add(outputs.empty()?0:outputs[0],frame.left*gain);
+            add(outputs.empty()?1:outputs[1],frame.right*gain);
+        }
         ++advanced;
     }
     read_.store(consumed,std::memory_order_release);
     if(generation_.load(std::memory_order_acquire)!=gen)return;
     position_.fetch_add(advanced,std::memory_order_relaxed);
     if(consumed==write_.load(std::memory_order_acquire)&&
-       finished_.load(std::memory_order_acquire)==gen)
-        playing_.store(false,std::memory_order_release);
+       finished_.load(std::memory_order_acquire)==gen){
+        auto expected=gen;
+        active_.compare_exchange_strong(expected,0,std::memory_order_acq_rel);
+    }
 }
 void LibraryPreviewStream::worker(std::stop_token stop){
     std::uint64_t processed{};
@@ -87,12 +104,14 @@ void LibraryPreviewStream::worker(std::stop_token stop){
             processed=request.generation;
         }
         try{
+            if(generation_.load(std::memory_order_acquire)!=request.generation)continue;
             const auto wav=inspect_wav(request.path);
             if(wav.channels<1||wav.channels>2||wav.frame_count<=0)
                 throw std::runtime_error("Audition only supports mono/stereo WAV");
             const auto total=static_cast<std::uint64_t>(
                 std::ceil(static_cast<double>(wav.frame_count)*request.output_rate/wav.sample_rate));
             const auto first=static_cast<std::uint64_t>(request.fraction*total);
+            if(generation_.load(std::memory_order_acquire)!=request.generation)continue;
             length_.store(total,std::memory_order_release);
             position_.store(first,std::memory_order_release);
             constexpr std::uint32_t blockFrames=4096;
@@ -112,7 +131,7 @@ void LibraryPreviewStream::worker(std::stop_token stop){
             const auto ratio=static_cast<double>(wav.sample_rate)/request.output_rate;
             for(std::uint64_t out=first;out<total&&!stop.stop_requested();){
                 if(generation_.load(std::memory_order_acquire)!=request.generation||
-                    !playing_.load(std::memory_order_acquire))break;
+                    active_.load(std::memory_order_acquire)!=request.generation)break;
                 auto write=write_.load(std::memory_order_relaxed);
                 if(write-read_.load(std::memory_order_acquire)>=ringSize){
                     std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -134,7 +153,10 @@ void LibraryPreviewStream::worker(std::stop_token stop){
                 write_.store(write+1,std::memory_order_release);
                 ++out;
             }
-        }catch(const std::exception&){/* broken/unavailable WAV: preview falls silent */}
+        }catch(const std::exception&){
+            if(generation_.load(std::memory_order_acquire)==request.generation)
+                failed_.store(request.generation,std::memory_order_release);
+        }
         if(generation_.load(std::memory_order_acquire)==request.generation)
             finished_.store(request.generation,std::memory_order_release);
     }

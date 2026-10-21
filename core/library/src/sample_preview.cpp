@@ -22,8 +22,10 @@ std::optional<fs::path> asset_path(const Snapshot& snap,std::int64_t id){
         [&](const Source& s){return s.id==item->source_id&&s.enabled;});
     if(source==snap.sources.end()||source->root.empty())return {};
     const auto relative=fs::path(std::u8string(item->relative_path.begin(),item->relative_path.end()));
+    auto extension=relative.extension().u8string();
+    for(auto& letter:extension)if(letter>=u8'A'&&letter<=u8'Z')letter+=u8'a'-u8'A';
     if(relative.empty()||relative.is_absolute()||relative.has_root_path()||
-        (relative.extension()!=L".wav"&&relative.extension()!=L".WAV"))return {};
+        extension!=u8".wav")return {};
     for(const auto& component:relative)
         if(component=="."||component=="..")return {};
     const auto root=source->root.lexically_normal();
@@ -32,6 +34,7 @@ std::optional<fs::path> asset_path(const Snapshot& snap,std::int64_t id){
     // Reparse points must not redirect a catalog-relative path outside source.
     // This is control/worker only. Do not perform filesystem I/O in audio callback.
     std::error_code ec;
+    if(!fs::is_regular_file(resolved,ec)||ec)return {};
     for(auto walk=resolved;walk!=root;walk=walk.parent_path()){
         const auto status=fs::symlink_status(walk,ec);
         if(ec||fs::is_symlink(status))return {};

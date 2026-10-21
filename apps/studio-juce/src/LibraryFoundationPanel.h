@@ -1,4 +1,5 @@
 #pragma once
+#include <tuple>
 #include "Controls.h"
 #include <mrs/sample_library.hpp>
 #include <functional>
@@ -11,7 +12,7 @@ class LibraryFoundationPanel final : public juce::Component, private juce::ListB
 public:
     LibraryFoundationPanel(std::function<bool(const std::filesystem::path&,double)> play,
         std::function<void()> stop,
-        std::function<std::pair<bool,float>()> status);
+        std::function<std::tuple<bool,float,bool>()> status);
     ~LibraryFoundationPanel() override;
     void resized() override;
     void paint(juce::Graphics&) override;

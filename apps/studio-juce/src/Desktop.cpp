@@ -1377,7 +1377,7 @@ void Browser::showLibrary(){
             [this]{owner.app.stop_library_preview();},
             [this]{
                 const auto state=owner.app.library_preview_state();
-                return std::pair{state.playing,state.progress};
+                return std::tuple{state.playing,state.progress,state.failed};
             });
         addChildComponent(libraryPanel.get());
         libraryPanel->setLookAndFeel(owner.assetLookAndFeel());

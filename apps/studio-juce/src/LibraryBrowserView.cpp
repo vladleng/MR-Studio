@@ -22,7 +22,7 @@ LibraryBrowserView::LibraryBrowserView(
     mrs::library::SampleLibrary& lib,
     std::function<bool(const std::filesystem::path&,double)> play,
     std::function<void()> stop,
-    std::function<std::pair<bool,float>()> position)
+    std::function<std::tuple<bool,float,bool>()> position)
     :library(lib),previewPlay(std::move(play)),previewStop(std::move(stop)),
       previewState(std::move(position)){
     for(auto* control:std::array<juce::Component*,29>{
@@ -34,7 +34,6 @@ LibraryBrowserView::LibraryBrowserView(
         addAndMakeVisible(control);
     addAndMakeVisible(counter);addAndMakeVisible(filterLabel);addAndMakeVisible(results);
     addAndMakeVisible(stopPreview);
-    results.startLibraryDrag=[this]{startLibraryDrag();};
     results.setRowHeight(72);results.setMultipleSelectionEnabled(true);
     results.setComponentID("mr-library-browser-results");
     results.setColour(juce::ListBox::backgroundColourId,juce::Colour(surface));
@@ -192,20 +191,22 @@ LibraryBrowserView::LibraryBrowserView(
                 item=std::move(waveQueue.front());
                 waveQueue.pop_front();
             }
-            const auto cancel=std::make_shared<std::atomic<bool>>(false);
+            const auto cancel=item.cancel;
             std::stop_callback stopRequested(stop,[cancel]{cancel->store(true);});
-            std::array<float,256> peaks{};
+            RowWave decoded;
             try{
                 const auto path=mrs::library::asset_path(*item.catalogue,item.assetId);
-                if(path)peaks=mrs::library::build_wav_preview(*path,cancel).peaks;
-            }catch(const std::exception&){/* unavailable media: retain empty waveform */}
+                if(path)decoded.wav=mrs::library::build_wav_preview(*path,cancel);
+                else decoded.error="File unavailable";
+            }catch(const std::exception& e){decoded.error=e.what();}
             {
                 std::lock_guard lock(waveMutex);
+                if(cancel->load())continue;
                 if(waveCache.size()>=96){
                     waveRequested.erase(waveCache.begin()->first);
                     waveCache.erase(waveCache.begin());
                 }
-                waveCache[item.key]=peaks;
+                waveCache[item.key]=std::move(decoded);
             }
             wavesReady.fetch_add(1,std::memory_order_release);
         }
@@ -223,6 +224,17 @@ LibraryBrowserView::~LibraryBrowserView(){
 void LibraryBrowserView::chooseSection(Section next){
     section=next;updateVisibility();resized();
 }
+void LibraryBrowserView::invalidatePreview(){
+    if(previewStop)previewStop();
+    activePreviewId=0;
+    {
+        std::lock_guard lock(waveMutex);
+        waveCancel->store(true);
+        waveCancel=std::make_shared<std::atomic<bool>>(false);
+        waveQueue.clear();waveRequested.clear();waveCache.clear();
+    }
+    results.repaint();
+}
 void LibraryBrowserView::sendQuery(){
     if(query.limit==0)query.limit=120;
     library.browse(query);
@@ -231,7 +243,8 @@ void LibraryBrowserView::setSnapshot(std::shared_ptr<const mrs::library::Snapsho
     if(!next||revision==next->revision)return;
     view=std::move(next);revision=view->revision;
     if(activePreviewId&&!std::any_of(view->assets.begin(),view->assets.end(),
-        [this](const auto& asset){return asset.id==activePreviewId&&asset.status=="ok";})){
+        [this](const auto& asset){return asset.id==activePreviewId&&asset.status=="ok"&&
+            waveKey(asset)==activePreviewKey;})){
         if(previewStop)previewStop();
         activePreviewId=0;
     }
@@ -384,6 +397,13 @@ void LibraryBrowserView::resized(){
 void LibraryBrowserView::paint(juce::Graphics& g){
     g.fillAll(juce::Colour(surface));
 }
+void LibraryBrowserView::visibilityChanged(){
+    if(!isShowing()){
+        if(previewStop)previewStop();
+        activePreviewId=0;
+        results.repaint();
+    }
+}
 std::vector<std::int64_t> LibraryBrowserView::selectedAssets() const {
     std::vector<std::int64_t> ids;
     if(!view)return ids;
@@ -456,10 +476,19 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
         const auto key=item.manual_key.empty()?item.detected_key:item.manual_key;
         const auto duration=item.sample_rate>0?
             static_cast<double>(item.frames)/static_cast<double>(item.sample_rate):0.;
+        const auto waveform=rowWave(item);
         juce::String details=(item.favorite?juce::String::fromUTF8("★ "):juce::String{})+
             (bpm>0?juce::String(bpm)+" BPM  ":"")+
             ((key.empty()||key=="-")?juce::String{}:uiText(key)+"  ")+
             juce::String(duration,1)+" s";
+        if(item.status!="ok")details+=" | "+uiText(item.status);
+        else if(!waveform)details+=" | Loading...";
+        else if(!waveform->error.empty())details+=" | "+uiText(waveform->error);
+        else details+=" | "+juce::String(waveform->wav.rate)+" Hz / "+
+            juce::String(waveform->wav.bits)+" bit / "+
+            (waveform->wav.channels==1?juce::String("mono"):
+                waveform->wav.channels==2?juce::String("stereo"):
+                juce::String(waveform->wav.channels)+" ch");
         g.drawFittedText(details,left,23,right,17,juce::Justification::centredLeft,1);
         if(gridView){
             juce::String tags;
@@ -474,26 +503,26 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
         const int waveLeft=left+23;
         const int waveWidth=std::max(1,right-31);
         const auto mid=static_cast<float>(waveTop)+waveHeight*.5f;
-        const auto state=previewState?previewState():std::pair{false,0.f};
-        const bool nowPlaying=item.id==activePreviewId&&state.first;
+        const auto state=previewState?previewState():std::tuple{false,0.f,false};
+        const bool nowPlaying=item.id==activePreviewId&&std::get<0>(state);
         g.setColour(nowPlaying?juce::Colour(0xffc1e8f7):juce::Colour(0xff80b9dc));
         g.drawFittedText(nowPlaying?"II":">",left,waveTop,18,waveHeight,
                          juce::Justification::centred,1);
         g.setColour(juce::Colour(0xff314256));
         g.drawHorizontalLine(static_cast<int>(mid),static_cast<float>(waveLeft),
                              static_cast<float>(waveLeft+waveWidth));
-        if(const auto peaks=rowWave(item)){
+        if(waveform&&waveform->error.empty()){
             g.setColour(juce::Colour(selectedCell?0xffb1ddf3:0xff80b9dc));
             for(int pixel=0;pixel<waveWidth;++pixel){
                 const auto bin=std::min(255,pixel*256/waveWidth);
-                const auto peak=std::clamp((*peaks)[static_cast<std::size_t>(bin)],0.f,1.f);
+                const auto peak=std::clamp(waveform->wav.peaks[static_cast<std::size_t>(bin)],0.f,1.f);
                 const auto size=std::max(0.5f,peak*static_cast<float>(waveHeight-3)*.5f);
                 g.drawVerticalLine(waveLeft+pixel,mid-size,mid+size);
             }
         }
-        if(nowPlaying){
+        if(item.id==activePreviewId){
             const int playheadX=waveLeft+static_cast<int>(
-                std::clamp(state.second,0.f,1.f)*static_cast<float>(waveWidth));
+                std::clamp(std::get<1>(state),0.f,1.f)*static_cast<float>(waveWidth));
             g.setColour(juce::Colour(0xffe7f3fb));
             g.drawVerticalLine(playheadX,static_cast<float>(waveTop),
                                static_cast<float>(waveTop+waveHeight));
@@ -509,6 +538,22 @@ void LibraryBrowserView::listBoxItemClicked(int row,const juce::MouseEvent& even
     const int index=row*cols+col;
     if(index<0||index>=static_cast<int>(view->assets.size()))return;
     if(gridView)gridSelected=index;
+    if(event.mods.isPopupMenu()){
+        const auto& item=view->assets[static_cast<std::size_t>(index)];
+        const auto source=std::find_if(view->sources.begin(),view->sources.end(),
+            [&](const auto& entry){return entry.id==item.source_id;});
+        const auto path=mrs::library::asset_path(*view,item.id);
+        juce::PopupMenu menu;
+        menu.addItem(1,"Show WAV in Explorer",path.has_value());
+        menu.addItem(2,"Show source folder",source!=view->sources.end());
+        const auto root=source==view->sources.end()?std::filesystem::path{}:source->root;
+        menu.showMenuAsync(juce::PopupMenu::Options{}.withTargetComponent(&results),
+            [path,root](int choice){
+                if(choice==1&&path)juce::File(pathText(*path)).revealToUser();
+                if(choice==2&&!root.empty())juce::File(pathText(root)).revealToUser();
+            });
+        return;
+    }
     const int top=gridView?results.getRowHeight()-35:results.getRowHeight()-27;
     const int waveHeight=gridView?26:19;
     const int left=col*width+(gridView?74:32)+12;
@@ -525,19 +570,24 @@ void LibraryBrowserView::listBoxItemClicked(int row,const juce::MouseEvent& even
 void LibraryBrowserView::audition(std::size_t index,double position,bool toggle){
     if(!view||index>=view->assets.size())return;
     const auto& item=view->assets[index];
-    const auto current=previewState?previewState():std::pair{false,0.f};
-    if(toggle&&item.id==activePreviewId&&current.first){
+    const auto current=previewState?previewState():std::tuple{false,0.f,false};
+    if(toggle&&item.id==activePreviewId&&std::get<0>(current)){
         // Retain position so the next Play resumes from this point.
         if(previewStop)previewStop();
         return;
     }
-    if(toggle&&item.id==activePreviewId&&!current.first&&current.second>.001f&&current.second<.999f)
-        position=current.second;
+    if(toggle&&item.id==activePreviewId&&!std::get<0>(current)&&std::get<1>(current)>.001f&&std::get<1>(current)<.999f)
+        position=std::get<1>(current);
     if(!previewPlay)return;
     const auto wav=mrs::library::asset_path(*view,item.id);
-    if(!wav)return;
+    if(!wav){
+        counter.setText("WAV unavailable: rescan or relink its source folder",juce::dontSendNotification);
+        return;
+    }
     try{
-        if(previewPlay(*wav,position))activePreviewId=item.id;
+        if(previewPlay(*wav,position)){
+            activePreviewId=item.id;activePreviewKey=waveKey(item);
+        }
         else counter.setText("Preview unavailable: connect audio or stop recording",
                              juce::dontSendNotification);
     }catch(const std::exception& e){
@@ -562,21 +612,33 @@ void LibraryBrowserView::chooseArtwork(bool clear){
 void LibraryBrowserView::timerCallback(){
     const auto ready=readyImages.load(std::memory_order_acquire);
     const auto wave=wavesReady.load(std::memory_order_acquire);
-    const auto playing=previewState&&previewState().first;
-    if(ready!=paintedImages||wave!=wavesPainted||playing){
-        paintedImages=ready;wavesPainted=wave;results.repaint();
+    const auto playback=previewState?previewState():std::tuple{false,0.f,false};
+    const auto playing=std::get<0>(playback);
+    if(activePreviewId&&std::get<2>(playback))
+        counter.setText("Preview failed: WAV missing, unreadable or unsupported",juce::dontSendNotification);
+    if(ready!=paintedImages||wave!=wavesPainted||playing||playing!=paintedPlaying){
+        paintedImages=ready;wavesPainted=wave;paintedPlaying=playing;results.repaint();
     }
 }
-std::optional<std::array<float,256>> LibraryBrowserView::rowWave(
+std::string LibraryBrowserView::waveKey(const mrs::library::AudioAsset& asset) const {
+    if(!view)return {};
+    const auto source=std::find_if(view->sources.begin(),view->sources.end(),
+        [&](const auto& entry){return entry.id==asset.source_id&&entry.enabled;});
+    if(source==view->sources.end())return {};
+    const auto root=source->root.generic_u8string();
+    return std::string(root.begin(),root.end())+"|"+std::to_string(asset.source_id)+"|"+
+        std::to_string(asset.id)+"|"+std::to_string(asset.modified)+"|"+
+        std::to_string(asset.frames)+"|"+std::to_string(asset.sample_rate)+"|"+asset.relative_path;
+}
+std::optional<LibraryBrowserView::RowWave> LibraryBrowserView::rowWave(
     const mrs::library::AudioAsset& asset){
     if(!view||asset.status!="ok")return {};
-    const auto cacheKey=std::to_string(asset.source_id)+"|"+
-        std::to_string(asset.id)+"|"+std::to_string(asset.modified)+"|"+
-        asset.relative_path;
+    const auto cacheKey=waveKey(asset);
+    if(cacheKey.empty())return {};
     std::lock_guard lock(waveMutex);
     if(const auto found=waveCache.find(cacheKey);found!=waveCache.end())return found->second;
     if(waveQueue.size()<20&&waveRequested.insert(cacheKey).second){
-        waveQueue.push_back({cacheKey,view,asset.id});
+        waveQueue.push_back({cacheKey,view,asset.id,waveCancel});
         waveWake.notify_one();
     }
     return {};
@@ -590,10 +652,8 @@ juce::StringArray LibraryBrowserView::selectedWavFiles() const {
     }
     return files;
 }
-void LibraryBrowserView::startLibraryDrag(){
-    const auto files=selectedWavFiles();
-    if(files.isEmpty())return;
-    if(auto* container=juce::DragAndDropContainer::findParentDragContainerFor(this))
-        container->startDragging("mrs-library-wav", &results);
+juce::var LibraryBrowserView::getDragSourceDescription(const juce::SparseSet<int>&){
+    // ListBox row components own the drag gesture and preserve multi-selection.
+    return selectedWavFiles().isEmpty()?juce::var{}:juce::var("mrs-library-wav");
 }
 } // namespace ui

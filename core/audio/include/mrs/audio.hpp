@@ -301,7 +301,7 @@ public:
     // Prepare/decode and requests are strictly non-RT; playback is lock-free.
     void play_library_preview(const std::filesystem::path&,double fraction=0);
     void stop_library_preview() noexcept;
-    struct LibraryPreviewState {bool playing{};float progress{};};
+    struct LibraryPreviewState {bool playing{};float progress{};bool failed{};};
     LibraryPreviewState library_preview_state() const noexcept;
     EngineProfile profile() const noexcept;
     std::vector<std::shared_ptr<processing::PreparedGraph>> profile_graphs() const; // UI only, channel order + legacy + Master
@@ -312,6 +312,8 @@ public:
 private:
     friend struct AudioEngineTestAccess; // deterministic stopped-engine mailbox regression
     void process_block(const float*,float*,std::uint32_t,std::uint32_t) noexcept;
+    // Device consumer only, after project FX; never mixed into speculative packets.
+    void mix_library_preview(float*,std::uint32_t,const float* envelope=nullptr,float level=1.f) noexcept;
     Metronome metronome_;
     ClickSettings click_;
     bool count_started_{};

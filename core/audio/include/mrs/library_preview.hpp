@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
+#include <span>
 #include <thread>
 
 namespace mrs::audio {
@@ -13,7 +14,7 @@ namespace mrs::audio {
 // Never owns or opens an audio device and never changes the project's transport.
 class LibraryPreviewStream final {
 public:
-    struct Status { bool playing{}; float progress{}; };
+    struct Status { bool playing{}; float progress{}; bool failed{}; };
     LibraryPreviewStream();
     ~LibraryPreviewStream();
     LibraryPreviewStream(const LibraryPreviewStream&)=delete;
@@ -21,7 +22,8 @@ public:
     void play(std::filesystem::path path,std::uint32_t output_rate,double fraction=0);
     void stop() noexcept;
     Status status() const noexcept;
-    void mix(float* interleaved,std::uint32_t frames,std::uint32_t channels,bool allowed) noexcept;
+    void mix(float* interleaved,std::uint32_t frames,std::uint32_t channels,bool allowed,
+             std::span<const std::size_t> outputs={},const float* envelope=nullptr,float level=1.f) noexcept;
 private:
     struct Frame {
         std::uint64_t generation{};
@@ -32,7 +34,8 @@ private:
     std::array<Frame,ringSize> ring_{};
     std::atomic<std::uint64_t> read_{0},write_{0},generation_{0},finished_{0};
     std::atomic<std::uint64_t> position_{0},length_{0};
-    std::atomic<bool> playing_{false};
+    std::atomic<std::uint64_t> active_{0};
+    std::atomic<std::uint64_t> failed_{0};
     struct Request {
         std::uint64_t generation{};
         std::filesystem::path path;

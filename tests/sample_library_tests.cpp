@@ -2,6 +2,7 @@
 #include <mrs/sample_preview.hpp>
 #include <mrs/audio.hpp>
 #include <mrs/library_preview.hpp>
+#include <mrs/ahead_renderer.hpp>
 #include <cmath>
 #ifdef _WIN32
 #include <winsqlite/winsqlite3.h>
@@ -382,6 +383,15 @@ void safe_preview(){
     check(!asset_path(tampered,tampered.assets.front().id),"Traversal must be refused");
     tampered=*snap;tampered.assets.front().status="missing";
     check(!asset_path(tampered,tampered.assets.front().id),"Missing file must be refused");
+    fs::rename(file,root/"Jazz"/"Kick.WaV");
+    tampered=*snap;
+    auto mixedCase=std::find_if(tampered.assets.begin(),tampered.assets.end(),
+        [&](const auto& asset){return asset.id==at->id;});
+    mixedCase->relative_path="Jazz/Kick.WaV";
+    check(asset_path(tampered,at->id).has_value(),"Mixed-case WAV extension rejected");
+    check(!asset_path(*snap,at->id),"Deleted WAV must be rejected before rescan");
+    fs::create_directory(file);
+    check(!asset_path(*snap,at->id),"Directory named WAV must not be draggable");
     std::cout<<"MR Library #255: safe WAV resolver, waveform, cancellation PASS\\n";
 }
 void audition_mixes_single_device(){
@@ -430,4 +440,60 @@ void audition_mixes_single_device(){
     check(engine.library_preview_state().progress>=.49f,"Preview seek position not observed");
     std::cout<<"MR Library #255: RT-safe engine audition, seek, stop, mono route PASS\\n";
 }
-int main() { try {test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void audition_device_modes(){
+    Fixture f;
+    const auto wave=f.root/"routed.wav";
+    wav(wave,48000);
+    {
+        std::fstream out(wave,std::ios::binary|std::ios::in|std::ios::out);
+        out.seekp(44);
+        for(int i=0;i<48000;++i){out.put('\x10');out.put('\x27');} // PCM16 10000
+    }
+    for(const bool anticipative:{false,true}){
+        auto engine=std::make_shared<mrs::audio::AudioEngine>();
+        mrs::audio::RenderGraph graph;
+        graph.master_gain=.5f;graph.master_outputs={2,3};
+        engine->prepare({44100,0,4,128},graph);
+        mrs::audio::AheadRenderer renderer(engine,128,anticipative?512:0);
+        renderer.start();
+        if(anticipative)check(renderer.active(),"Preview anticipation fixture must use the producer");
+        engine->play_library_preview(wave,.25);
+        std::array<float,512> output{};
+        bool sound=false;
+        for(int attempt=0;attempt<250&&!sound;++attempt){
+            renderer.process(nullptr,output.data(),128);
+            sound=output[2]>.05f;
+            if(!sound)std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        check(sound,"Preview must remain audible with Process Buffer enabled or disabled");
+        const auto expected=(10000.f/32768.f)*.65f*.5f;
+        check(std::abs(output[2]-expected)<.001f&&std::abs(output[3]-expected)<.001f,
+              "Preview must follow Master gain and selected ASIO output pair exactly once");
+        check(output[0]==0.f&&output[1]==0.f,"Preview leaked to unselected output channels");
+        check(engine->state().playback!=mrs::audio::PlaybackState::playing,
+              "Audition must not start project transport");
+        engine->stop_library_preview();
+        renderer.process(nullptr,output.data(),128);
+        check(std::all_of(output.begin(),output.end(),[](float value){return value==0.f;}),
+              "Stop must silence audition without waiting for Process Buffer packets");
+        renderer.stop();
+        engine->play_library_preview(wave);
+        engine->prepare({48000,0,4,128},graph);
+        check(!engine->library_preview_state().playing,"Device prepare must cancel the old sample-rate stream");
+    }
+    mrs::audio::LibraryPreviewStream stream;
+    std::array<float,256> output{};
+    stream.play(wave,48000);
+    stream.mix(output.data(),128,2,false);
+    check(!stream.status().playing,"Recording gate must cancel audition");
+    check(std::all_of(output.begin(),output.end(),[](float value){return value==0.f;}),
+          "Preview must not mix during recording");
+    stream.play(f.root/"missing.wav",48000);
+    for(int attempt=0;attempt<250&&stream.status().playing;++attempt){
+        stream.mix(output.data(),128,2,true);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    check(stream.status().failed&&!stream.status().playing,"Missing preview must report failure and stop");
+    std::cout<<"MR Library #255: Process Buffer, output/gain, device-rate reset, recording and errors PASS\n";
+}
+int main() { try {test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }

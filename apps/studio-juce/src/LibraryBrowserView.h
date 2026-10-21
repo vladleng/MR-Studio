@@ -1,4 +1,5 @@
 #pragma once
+#include <tuple>
 #include "Controls.h"
 #include <mrs/sample_library.hpp>
 #include <mrs/sample_preview.hpp>
@@ -14,21 +15,7 @@
 
 namespace ui {
 
-// #254 WAV-only local catalogue UI. No transport/preview/Arrange changes (#255).
-class LibraryResultsList final:public juce::ListBox {
-public:
-    using juce::ListBox::ListBox;
-    std::function<void()> startLibraryDrag;
-    void mouseDown(const juce::MouseEvent& e) override {dragStarted=false;juce::ListBox::mouseDown(e);}
-    void mouseDrag(const juce::MouseEvent& e) override {
-        juce::ListBox::mouseDrag(e);
-        if(!dragStarted&&e.mods.isLeftButtonDown()&&e.getDistanceFromDragStart()>7&&startLibraryDrag){
-            dragStarted=true;startLibraryDrag();
-        }
-    }
-private:
-    bool dragStarted{};
-};
+// WAV-only catalogue with inline audition through the existing audio engine.
 class LibraryBrowserView final : public juce::Component,
                                  private juce::ListBoxModel,
                                  private juce::Timer {
@@ -36,12 +23,14 @@ public:
     LibraryBrowserView(mrs::library::SampleLibrary&,
         std::function<bool(const std::filesystem::path&,double)> play,
         std::function<void()> stop,
-        std::function<std::pair<bool,float>()> position);
+        std::function<std::tuple<bool,float,bool>()> position);
     ~LibraryBrowserView() override;
     void setSnapshot(std::shared_ptr<const mrs::library::Snapshot>);
+    void invalidatePreview();
     juce::StringArray selectedWavFiles() const;
     void resized() override;
     void paint(juce::Graphics&) override;
+    void visibilityChanged() override;
 private:
     enum class Section { folders, tags, collections };
     void chooseSection(Section);
@@ -57,15 +46,22 @@ private:
     void listBoxItemClicked(int,const juce::MouseEvent&) override;
     void selectedRowsChanged(int) override;
     void timerCallback() override;
-    std::optional<std::array<float,256>> rowWave(const mrs::library::AudioAsset&);
-    void startLibraryDrag();
+    struct RowWave {
+        mrs::library::WavPreview wav;
+        std::string error;
+    };
+    std::optional<RowWave> rowWave(const mrs::library::AudioAsset&);
+    std::string waveKey(const mrs::library::AudioAsset&) const;
+    juce::var getDragSourceDescription(const juce::SparseSet<int>&) override;
     void audition(std::size_t assetIndex,double position,bool toggle);
 
     mrs::library::SampleLibrary& library;
     std::function<bool(const std::filesystem::path&,double)> previewPlay;
     std::function<void()> previewStop;
-    std::function<std::pair<bool,float>()> previewState;
+    std::function<std::tuple<bool,float,bool>()> previewState;
     std::int64_t activePreviewId{};
+    std::string activePreviewKey;
+    bool paintedPlaying{};
     std::shared_ptr<const mrs::library::Snapshot> view;
     mrs::library::LibraryQuery query;
     Section section{Section::folders};
@@ -87,7 +83,7 @@ private:
     juce::ComboBox sources,folders,tagGroups,tagValues,selectedFilters,collections,sorts;
     juce::TextEditor search,bpmFrom,bpmTo,keyField,collectionName;
     juce::Label counter,filterLabel;
-    LibraryResultsList results{"MR Library results",this};
+    juce::ListBox results{"MR Library results",this};
     // Waveforms are generated lazily for painted rows only; bounded cache.
     // Never decode WAVs on the GUI thread or audio callback.
     std::jthread waveWorker;
@@ -97,10 +93,12 @@ private:
         std::string key;
         std::shared_ptr<const mrs::library::Snapshot> catalogue;
         std::int64_t assetId{};
+        std::shared_ptr<std::atomic<bool>> cancel;
     };
+    std::shared_ptr<std::atomic<bool>> waveCancel=std::make_shared<std::atomic<bool>>(false);
     std::deque<WaveTask> waveQueue;
     std::set<std::string> waveRequested;
-    std::map<std::string,std::array<float,256>> waveCache;
+    std::map<std::string,RowWave> waveCache;
     std::atomic<std::uint64_t> wavesReady{0};
     std::uint64_t wavesPainted{};
     std::unique_ptr<juce::FileChooser> imageChooser;

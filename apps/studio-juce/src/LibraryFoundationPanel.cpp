@@ -42,7 +42,7 @@ struct LibraryFoundationPanel::AssetRows final : juce::ListBoxModel {
 };
 LibraryFoundationPanel::LibraryFoundationPanel(
     std::function<bool(const std::filesystem::path&,double)> play,
-    std::function<void()> stop,std::function<std::pair<bool,float>()> playbackStatus)
+    std::function<void()> stop,std::function<std::tuple<bool,float,bool>()> playbackStatus)
     :library(databasePath()) {
     for (auto* c : std::array<juce::Component*,25>{&addFolder,&rescan,&cancel,&relink,&toggle,&remove,&sources,&title,&status,
         &tagInfo,&assets,&modeButton,&sourcesMode,&addTag,&confirmTag,&rejectTag,&undoTag,&setBpm,&setKey,
@@ -62,19 +62,21 @@ LibraryFoundationPanel::LibraryFoundationPanel(
     addFolder.onClick=[this]{
         chooseFolder([this](const juce::File& f){library.add_source(filePath(f));});
     };
-    rescan.onClick=[this]{library.rescan();};
+    rescan.onClick=[this]{browserView->invalidatePreview();library.rescan();};
     cancel.onClick=[this]{library.cancel_scan();};
     relink.onClick=[this]{
         const auto row=sources.getSelectedRow();
         if (!view||row<0||row>=static_cast<int>(view->sources.size()))return;
         const auto id=view->sources[static_cast<std::size_t>(row)].id;
-        chooseFolder([this,id](const juce::File& f){library.relink_source(id,filePath(f));});
+        chooseFolder([this,id](const juce::File& f){
+            browserView->invalidatePreview();library.relink_source(id,filePath(f));
+        });
     };
     toggle.onClick=[this]{
         const auto row=sources.getSelectedRow();
         if (!view||row<0||row>=static_cast<int>(view->sources.size()))return;
         const auto& s=view->sources[static_cast<std::size_t>(row)];
-        library.enable_source(s.id,!s.enabled);
+        browserView->invalidatePreview();library.enable_source(s.id,!s.enabled);
     };
     remove.onClick=[this]{
         const auto row=sources.getSelectedRow();
@@ -85,7 +87,9 @@ LibraryFoundationPanel::LibraryFoundationPanel(
             "Remove indexed folder?",
             "Remove the selected folder from MR Library's index? Original audio files will not be changed.",
             "Remove Index","Cancel",this,
-            juce::ModalCallbackFunction::create([safe,id](int ok){if(safe&&ok)safe->library.remove_source(id);}));
+            juce::ModalCallbackFunction::create([safe,id](int ok){if(safe&&ok){
+                safe->browserView->invalidatePreview();safe->library.remove_source(id);
+            }}));
     };
     for(auto* c:{static_cast<juce::Component*>(&tagGroup),static_cast<juce::Component*>(&suggestedTags),
                   static_cast<juce::Component*>(&ruleFolder)})addAndMakeVisible(c);
