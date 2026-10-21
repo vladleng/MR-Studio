@@ -611,8 +611,8 @@ void arrangement() {
     session.connect(std::move(reconnected),{0,44100,256,{0}, {0,1,2,3}});
     CHECK(session.audio_running() && driver->last_config.inputs==std::vector<int>({2,3}));
     CHECK(driver->last_config.buffer_frames==256 && driver->last_config.outputs==std::vector<int>({0,1,2,3}));
-    Application other; auto p = *other.services().projects->state().project;
-    rejects([&] { other.import_wavs({a}); }); CHECK(*other.services().projects->state().project == p); // rate mismatch
+    Application other; other.new_project(48000);other.import_wavs({a});
+    CHECK(other.services().projects->state().project->clips.front().length == 1089); // ceil(1000*48000/44100)
 }
 void nonplaying_edits() {
     Directory dir; auto file = dir.path / "edit.wav"; wav(file);

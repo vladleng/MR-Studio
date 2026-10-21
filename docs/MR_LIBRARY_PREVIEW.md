@@ -53,5 +53,23 @@ named `.wav`, traversal and reparse paths are rejected. Original WAVs are never
 modified. Clip creation, Undo/Redo and project Save/Open remain owned by the
 existing importer and project model.
 
+Arrange and file-dialog WAV imports now prepare on a cancellable worker. A differing
+sample rate is converted to the project rate with a normalized, polyphase
+windowed-sinc low-pass filter, preserving pitch, level and duration (rounded up to
+one destination frame). The generated file is float32 WAV; there is no tempo
+stretching or realtime SRC. Matching-rate WAVs retain their original encoding.
+The status bar shows progress; Escape cancels preparation. Playback/recording and
+concurrent imports remain guarded. A project revision/path change discards the
+prepared batch rather than importing into a different session.
+
+Saved projects stage copies/conversions in an exclusive `.mrs-import-*` directory
+beside Media, then publish into Media without replacing existing files. Unsaved
+conversions use an exclusive temporary directory, retained through Undo/Redo and
+streamed renderer lifetime, and copied into Media by Save/Save As. Failed or
+cancelled batches delete their own staging files and publish no clips. Sources are
+never rewritten. Decoding/preloading stays off the GUI thread; the final model
+command and normal renderer rebuild run on the control thread. Existing limits
+(128 clips/sources, 512 MiB preload cache, RIFF 4 GiB) still apply.
+
 Software regression tests cannot establish physical ASIO/xrun performance,
 listening quality, mixed-DPI behavior or user acceptance of the browser.

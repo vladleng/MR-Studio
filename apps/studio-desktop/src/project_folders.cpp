@@ -83,6 +83,22 @@ fs::path MediaCopy::media(const fs::path& source) {
     }
     return copy(actual,fs::path("Media")/source.filename());
 }
+fs::path MediaCopy::adopt_import(const fs::path& staged,const fs::path& name) {
+    const auto actual=fs::canonical(staged);
+    const auto parent=actual.parent_path();
+    const auto prefix=parent.filename().string();
+    if(name.empty()||name!=name.filename()||name=="."||name==".."||
+       !prefix.starts_with(".mrs-import-")||parent.parent_path()!=fs::canonical(root_)||
+       !fs::is_regular_file(actual))throw std::invalid_argument("Invalid generated import staging path");
+    const auto media_root=fs::canonical(root_/"Media");
+    if(!inside(media_root,fs::canonical(root_)))throw std::invalid_argument("Project Media escapes the project folder");
+    auto destination=media_root/name;
+    if(fs::exists(destination)){auto unique=fs::path(new_id().value+"-");unique+=name.native();destination=media_root/unique;}
+    created_.push_back(destination);
+    try{publish(actual,destination);}catch(...){created_.pop_back();throw;}
+    destinations_[actual]=destination;
+    return destination;
+}
 void MediaCopy::content(const fs::path& old_root, const char* name) {
     const auto source = old_root/name;
     if (!fs::exists(source)) return;

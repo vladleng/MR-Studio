@@ -78,7 +78,7 @@ WavFile inspect_wav(const std::filesystem::path& path) {
     }
     if (!have_format || !have_data || data_size == 0 || data_size % block_align != 0)
         throw std::invalid_argument("missing or misaligned WAV data");
-    return {path,rate,channels,bits,format,data_offset,static_cast<Sample>(data_size/block_align)};
+    return {path,rate,channels,bits,format,data_offset,static_cast<Sample>(data_size/block_align),{}};
 }
 void WavFile::read(Sample first, std::span<float> output) const {
     if (first < 0 || first > frame_count || output.size()%channels ||

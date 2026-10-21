@@ -42,6 +42,7 @@ struct WavFile {
     std::uint32_t sample_rate{}, channels{}, bits{}, format{};
     std::uint64_t data_offset{};
     Sample frame_count{};
+    std::shared_ptr<const void> lifetime; // optional backing-file owner, retired outside callbacks
     // Worker/control only: bounded block decode, independent file handle.
     void read(Sample first, std::span<float> interleaved) const;
 };
