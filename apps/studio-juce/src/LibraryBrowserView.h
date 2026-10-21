@@ -33,7 +33,10 @@ class LibraryBrowserView final : public juce::Component,
                                  private juce::ListBoxModel,
                                  private juce::Timer {
 public:
-    explicit LibraryBrowserView(mrs::library::SampleLibrary&);
+    LibraryBrowserView(mrs::library::SampleLibrary&,
+        std::function<bool(const std::filesystem::path&,double)> play,
+        std::function<void()> stop,
+        std::function<std::pair<bool,float>()> position);
     ~LibraryBrowserView() override;
     void setSnapshot(std::shared_ptr<const mrs::library::Snapshot>);
     juce::StringArray selectedWavFiles() const;
@@ -56,8 +59,13 @@ private:
     void timerCallback() override;
     std::optional<std::array<float,256>> rowWave(const mrs::library::AudioAsset&);
     void startLibraryDrag();
+    void audition(std::size_t assetIndex,double position,bool toggle);
 
     mrs::library::SampleLibrary& library;
+    std::function<bool(const std::filesystem::path&,double)> previewPlay;
+    std::function<void()> previewStop;
+    std::function<std::pair<bool,float>()> previewState;
+    std::int64_t activePreviewId{};
     std::shared_ptr<const mrs::library::Snapshot> view;
     mrs::library::LibraryQuery query;
     Section section{Section::folders};
