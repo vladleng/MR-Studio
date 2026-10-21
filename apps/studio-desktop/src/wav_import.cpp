@@ -134,8 +134,8 @@ void Application::commit_wav_import(const std::shared_ptr<PreparedWavImport>& pr
         }
         const auto source=import_text(copies?file.lexically_relative(asset_root_):file);
         std::shared_ptr<const audio::AudioData> data;
-        if(const auto at=assets_.find(source);at!=assets_.end())data=at->second.data;
-        else if(const auto at=decoded.find(source);at!=decoded.end())data=at->second;
+        if(const auto cached_asset=assets_.find(source);cached_asset!=assets_.end())data=cached_asset->second.data;
+        else if(const auto batch_asset=decoded.find(source);batch_asset!=decoded.end())data=batch_asset->second;
         else{
             require_import(assets_.size()+decoded.size()<128,"Retained source limit reached (128)");
             data=entry.data;
