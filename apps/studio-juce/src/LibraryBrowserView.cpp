@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <chrono>
 
 namespace ui {
 namespace {
@@ -26,6 +27,11 @@ LibraryBrowserView::LibraryBrowserView(mrs::library::SampleLibrary& lib):library
         &sorts,&search,&bpmFrom,&bpmTo,&keyField,&collectionName})
         addAndMakeVisible(control);
     addAndMakeVisible(counter);addAndMakeVisible(filterLabel);addAndMakeVisible(results);
+    addAndMakeVisible(previewName);addAndMakeVisible(previewMeta);
+    previewName.setText("Select WAV to inspect",juce::dontSendNotification);
+    previewName.setJustificationType(juce::Justification::centredLeft);
+    previewMeta.setJustificationType(juce::Justification::centredLeft);
+    results.startLibraryDrag=[this]{startLibraryDrag();};
     results.setRowHeight(49);results.setMultipleSelectionEnabled(true);
     results.setComponentID("mr-library-browser-results");
     results.setColour(juce::ListBox::backgroundColourId,juce::Colour(surface));
@@ -172,6 +178,8 @@ LibraryBrowserView::LibraryBrowserView(mrs::library::SampleLibrary& lib):library
 }
 LibraryBrowserView::~LibraryBrowserView(){
     stopTimer();imageChooser.reset();results.setModel(nullptr);
+    if(waveformCancel)waveformCancel->store(true);
+    if(waveformWorker.valid())waveformWorker.wait();
     imageWorker.request_stop();imageWake.notify_all();
     if(imageWorker.joinable())imageWorker.join();
 }
@@ -189,6 +197,7 @@ void LibraryBrowserView::setSnapshot(std::shared_ptr<const mrs::library::Snapsho
     refreshControls();
     gridSelected=-1;
     results.updateContent();results.repaint();
+    prepareSelected();
 }
 void LibraryBrowserView::refreshControls(){
     if(!view)return;
@@ -328,10 +337,31 @@ void LibraryBrowserView::resized(){
     nextPage.setBounds(bottom.removeFromLeft(58));bottom.removeFromLeft(6);
     counter.setBounds(bottom);
     area.removeFromBottom(4);
+    const auto previewArea=area.removeFromBottom(118);
+    auto textArea=previewArea.removeFromTop(45);
+    previewName.setBounds(textArea.removeFromTop(22));
+    previewMeta.setBounds(textArea);
     results.setBounds(area);
 }
 void LibraryBrowserView::paint(juce::Graphics& g){
     g.fillAll(juce::Colour(surface));
+    auto area=getLocalBounds().reduced(6);
+    area.removeFromBottom(27);
+    auto waveArea=area.removeFromBottom(66).reduced(1,5);
+    g.setColour(juce::Colour(0xff243044));g.fillRoundedRectangle(waveArea.toFloat(),5.f);
+    g.setColour(juce::Colour(0xff66768a));
+    const auto centre=waveArea.getCentreY();
+    g.drawHorizontalLine(centre,static_cast<float>(waveArea.getX()+2),
+                          static_cast<float>(waveArea.getRight()-2));
+    if(waveform){
+        g.setColour(juce::Colour(0xff86bedb));
+        for(int i=0;i<waveArea.getWidth();++i){
+            const int bin=std::min(255,i*256/std::max(1,waveArea.getWidth()));
+            const auto amp=std::clamp(waveform->peaks[static_cast<std::size_t>(bin)],0.f,1.f);
+            const auto y=amp*static_cast<float>(waveArea.getHeight()-8)*.5f;
+            g.drawVerticalLine(waveArea.getX()+i,centre-y,centre+y);
+        }
+    }
 }
 std::vector<std::int64_t> LibraryBrowserView::selectedAssets() const {
     std::vector<std::int64_t> ids;
@@ -425,6 +455,7 @@ void LibraryBrowserView::listBoxItemClicked(int row,const juce::MouseEvent& even
     const auto cols=results.getWidth()>=340?2:1;
     const int col=cols==2&&event.x>=results.getWidth()/2?1:0;
     gridSelected=row*cols+col;
+    prepareSelected();
     results.repaint();
 }
 void LibraryBrowserView::chooseArtwork(bool clear){
@@ -443,7 +474,70 @@ void LibraryBrowserView::chooseArtwork(bool clear){
         });
 }
 void LibraryBrowserView::timerCallback(){
+    if(waveformWorker.valid()&&
+       waveformWorker.wait_for(std::chrono::milliseconds(0))==std::future_status::ready){
+        try{
+            const auto result=waveformWorker.get();
+            if(juce::File(pathText(result.path))==wantedPreview){
+                waveform=std::move(result);
+                previewMeta.setText(juce::String(waveform->rate)+" Hz | "+
+                    juce::String(waveform->channels)+" ch | "+juce::String(waveform->bits)+" bit | "+
+                    juce::String(static_cast<double>(waveform->frames)/waveform->rate,2)+" s",
+                    juce::dontSendNotification);
+                repaint();
+            }
+        }catch(const std::exception& e){
+            if(pendingPreview==wantedPreview)
+                previewMeta.setText("Preview unavailable: "+juce::String::fromUTF8(e.what()),juce::dontSendNotification);
+        }
+    }
+    if(!waveformWorker.valid()&&pendingPreview!=wantedPreview){
+        pendingPreview=wantedPreview;
+        if(pendingPreview.existsAsFile()){
+            waveformCancel=std::make_shared<std::atomic<bool>>(false);
+            const auto cancel=waveformCancel;
+            const auto file=std::filesystem::path(pendingPreview.getFullPathName().toWideCharPointer());
+            waveformWorker=std::async(std::launch::async,[file,cancel]{
+                return mrs::library::build_wav_preview(file,cancel);
+            });
+            previewMeta.setText("Preparing waveform...",juce::dontSendNotification);
+        }
+    }
     const auto ready=readyImages.load();
     if(ready!=paintedImages){paintedImages=ready;results.repaint();}
+}
+juce::StringArray LibraryBrowserView::selectedWavFiles() const {
+    juce::StringArray files;
+    if(!view)return files;
+    for(const auto id:selectedAssets()){
+        const auto path=mrs::library::asset_path(*view,id);
+        if(path)files.add(pathText(*path));
+    }
+    return files;
+}
+void LibraryBrowserView::prepareSelected(){
+    if(waveformCancel)waveformCancel->store(true);
+    waveform.reset();
+    wantedPreview={};
+    const auto ids=selectedAssets();
+    if(ids.size()!=1||!view){
+        previewName.setText(ids.empty()?"Select WAV to inspect":"Multiple WAV selected",juce::dontSendNotification);
+        previewMeta.clear();repaint();return;
+    }
+    const auto path=mrs::library::asset_path(*view,ids.front());
+    if(!path){
+        previewName.setText("WAV unavailable / relink source",juce::dontSendNotification);
+        previewMeta.clear();repaint();return;
+    }
+    wantedPreview=juce::File(pathText(*path));
+    previewName.setText(wantedPreview.getFileName(),juce::dontSendNotification);
+    previewMeta.setText("Loading waveform...",juce::dontSendNotification);
+    repaint();
+}
+void LibraryBrowserView::startLibraryDrag(){
+    const auto files=selectedWavFiles();
+    if(files.isEmpty())return;
+    if(auto* container=juce::DragAndDropContainer::findParentDragContainerFor(this))
+        container->startDragging("mrs-library-wav", &results);
 }
 } // namespace ui
