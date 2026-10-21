@@ -337,7 +337,7 @@ void LibraryBrowserView::resized(){
     nextPage.setBounds(bottom.removeFromLeft(58));bottom.removeFromLeft(6);
     counter.setBounds(bottom);
     area.removeFromBottom(4);
-    const auto previewArea=area.removeFromBottom(118);
+    auto previewArea=area.removeFromBottom(118);
     auto textArea=previewArea.removeFromTop(45);
     previewName.setBounds(textArea.removeFromTop(22));
     previewMeta.setBounds(textArea);
@@ -525,12 +525,12 @@ void LibraryBrowserView::prepareSelected(){
     const auto ids=selectedAssets();
     if(ids.size()!=1||!view){
         previewName.setText(ids.empty()?"Select WAV to inspect":"Multiple WAV selected",juce::dontSendNotification);
-        previewMeta.clear();repaint();return;
+        previewMeta.setText({},juce::dontSendNotification);repaint();return;
     }
     const auto path=mrs::library::asset_path(*view,ids.front());
     if(!path){
         previewName.setText("WAV unavailable / relink source",juce::dontSendNotification);
-        previewMeta.clear();repaint();return;
+        previewMeta.setText({},juce::dontSendNotification);repaint();return;
     }
     wantedPreview=juce::File(pathText(*path));
     previewName.setText(wantedPreview.getFileName(),juce::dontSendNotification);
