@@ -12,11 +12,13 @@ void libraryBrowserSmoke(){
         mrs::audio::Recorder recorder(root/"samples"/"Jazz"/name,48000,0,{0});std::array<float,512> pcm{};pcm.fill(.25f);recorder.capture(pcm.data(),1,512,0);recorder.finish();
     }
     mrs::library::SampleLibrary library(root/"catalog.sqlite");
+    Theme theme;
     bool playing{};int previews{};
     LibraryBrowserView browser(library,[&](const auto&,double){++previews;playing=true;return true;},[&]{playing=false;},[&]{return std::tuple{playing,.25f,false};});
+    browser.setLookAndFeel(&theme);
     const auto pump=[&](const auto& ready){
         const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(10);
-        while(std::chrono::steady_clock::now()<until){auto snap=library.snapshot();browser.setSnapshot(snap);if(ready(*snap))return;std::this_thread::sleep_for(std::chrono::milliseconds(2));}
+        while(std::chrono::steady_clock::now()<until){auto snap=library.snapshot();browser.setSnapshot(snap);if(ready(*snap)&&!browser.pendingQuery)return;std::this_thread::sleep_for(std::chrono::milliseconds(2));}
         throw std::runtime_error("Library UI worker timed out");
     };
     library.add_source(root/"samples");pump([](const auto& snap){return snap.phase==mrs::library::Phase::idle&&snap.visible_assets==2;});
@@ -41,6 +43,10 @@ void libraryBrowserSmoke(){
     browser.query.search="jazz brushes";browser.rootMode=false;browser.sendQuery();
     pump([&](const auto& snap){return snap.query==browser.query&&snap.phase==mrs::library::Phase::idle;});
     check(browser.view->visible_assets==1,"Library text query must combine filename and tags");
+    auto foreign=std::make_shared<mrs::library::Snapshot>(*browser.view);foreign->revision+=100;foreign->query.search="Edit Tags search";
+    browser.pendingQuery=true;browser.setSnapshot(foreign);
+    check(browser.query.search=="jazz brushes","A foreign editor query must not replace a pending browser search");
+    browser.sendQuery();pump([&](const auto& snap){return snap.query==browser.query&&snap.phase==mrs::library::Phase::idle;});
     browser.setSize(440,640);browser.listGrid.onClick();
     check(browser.gridView,"Grid mode uses a single WAV card");
     snapshot("samples-440");

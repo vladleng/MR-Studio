@@ -117,6 +117,7 @@ public:
         if(args.contains("--ui-gallery")){gallery=ui::createGalleryWindow([this]{quit();});return;}
         if(args.contains("--ara-smoke")){juce::File::getCurrentWorkingDirectory().getChildFile("ara179-gui-failure.txt").deleteFile();try{const auto tokens=juce::StringArray::fromTokens(args,true);ui::araEditorSmoke(juce::File(tokens[tokens.indexOf("--ara-smoke")+1].unquoted()));setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("ara179-gui-failure.txt").replaceWithText(juce::String(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--library-browser-smoke")){
+            juce::File::getCurrentWorkingDirectory().getChildFile("library261-failure.txt").deleteFile();
             try{ui::libraryBrowserSmoke();setApplicationReturnValue(0);}
             catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("library261-failure.txt").replaceWithText(e.what());setApplicationReturnValue(1);}
             quit();return;

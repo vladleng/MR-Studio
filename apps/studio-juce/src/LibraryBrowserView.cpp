@@ -228,7 +228,9 @@ void LibraryBrowserView::paint(juce::Graphics& g){
     if(view&&getNumRows()==0){g.setColour(muted());g.drawFittedText(rootMode?"No folders or collections yet":"No matching WAV files",results.getBounds(),juce::Justification::centred,2);}
 }
 void LibraryBrowserView::visibilityChanged(){
+    if(isShowing()){if(view)sendQuery();return;}
     if(!isShowing()){
+        pendingQuery=true; // Edit Tags uses the same catalogue; retain this browser query until shown again.
         if(previewStop)previewStop();
         activePreviewId=0;
         results.repaint();
