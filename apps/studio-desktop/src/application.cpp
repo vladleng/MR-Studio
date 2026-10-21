@@ -1889,6 +1889,16 @@ void Application::poll() {
 }
 audio::DeviceStatus Application::device_status() { return device_ ? device_->status() : audio::DeviceStatus{}; }
 bool Application::audio_running() { return device_status().phase == audio::DevicePhase::running; }
+bool Application::play_library_preview(const std::filesystem::path& file,double fraction) {
+    if(!device_config_||audio_name_=="Offline clock (no sound)"||
+       !audio_running()||recording())return false;
+    engine_->play_library_preview(file,fraction);
+    return true;
+}
+void Application::stop_library_preview() noexcept {engine_->stop_library_preview();}
+audio::AudioEngine::LibraryPreviewState Application::library_preview_state() const noexcept {
+    return engine_->library_preview_state();
+}
 void Application::play() { require(audio_running(),"connect audio or choose Offline clock first");
 #ifdef MRS_HAS_ARA
     if (ara_ && engine_->state().playback!=PlaybackState::playing && ara_->poll()) {unsaved_=true;refresh_ara(false);}
@@ -1993,6 +2003,7 @@ void Application::start_project_recording(const std::filesystem::path& projects_
     start_recording(path_.parent_path()/"Media"/("Take-"+new_id().value+".wav"));
 }
 void Application::start_recording(const std::filesystem::path& destination) {
+    stop_library_preview(); // never audition into a live or recording session
     require_not_recording(); sync_arm(); require(!armed_tracks_.empty(),"Arm one or more audio/instrument tracks before recording");
     require(audio_running() && device_config_,"connect audio before recording");
     require(audio_name_ != "Offline clock (no sound)","recording needs a hardware input; Offline clock cannot record");
