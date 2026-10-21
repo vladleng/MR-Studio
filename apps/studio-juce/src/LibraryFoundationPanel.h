@@ -9,7 +9,9 @@ class LibraryBrowserView;
 // Full collection/folder/artwork UI belongs to #254.
 class LibraryFoundationPanel final : public juce::Component, private juce::ListBoxModel, private juce::Timer {
 public:
-    LibraryFoundationPanel();
+    LibraryFoundationPanel(std::function<bool(const std::filesystem::path&,double)> play,
+        std::function<void()> stop,
+        std::function<std::pair<bool,float>()> status);
     ~LibraryFoundationPanel() override;
     void resized() override;
     void paint(juce::Graphics&) override;
