@@ -44,7 +44,7 @@ void wav(const fs::path& file,int frames=400) {
 template<class Pred> std::shared_ptr<const Snapshot> wait_for(SampleLibrary& library,Pred pred) {
     for(int i=0;i<1200;++i) {
         auto result=library.snapshot();
-        if(pred(*result))return result;
+        if(pred(*result)&&(result->phase!=Phase::idle||!result->analysis.running))return result;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     throw std::runtime_error("Sample Library async worker timeout: "+library.snapshot()->message);
@@ -551,7 +551,7 @@ void search_v4(){
     {SampleLibrary lib(database);const auto snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle;});
         check(snap->visible_assets==3&&snap->sources.front().id==source&&snap->covers.empty(),"V3 migration lost catalogue identities");}
     bool backedUp=false;
-    for(const auto& entry:fs::directory_iterator(fixture.root))if(entry.path().filename().string().starts_with("index.sqlite.pre-v5-"))backedUp=true;
+    for(const auto& entry:fs::directory_iterator(fixture.root))if(entry.path().filename().string().starts_with("index.sqlite.pre-v6-"))backedUp=true;
     check(backedUp,"V3 migration needs a consistent rollback backup");
     std::cout<<"MR Library #261: multiword/filter/facets/stable shuffle/managed covers PASS\n";
 }
@@ -684,7 +684,7 @@ void signal_type_analysis(){
     check(analyse_wav_type(root/"D.wav").label.empty()&&analyse_wav_type(root/"E.wav").label.empty(),"Monotonic rise and silence cannot become loops from high raw-envelope correlation");
     bool cancelled=false;try{analyse_wav_type(root/"A.wav",[]{return true;});}catch(const std::exception&){cancelled=true;}
     check(cancelled,"Signal Type analysis is cancellable");
-    const auto query=[&](SampleLibrary& lib,const std::string& label,std::uint64_t count){LibraryQuery q;q.tags={{"Type",label}};lib.browse(q);const auto snap=wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.query==q;});check(snap->visible_assets==count,"Type search indexes signal-derived tags for arbitrary names");return snap;};
+    const auto query=[&](SampleLibrary& lib,const std::string& label,std::uint64_t count){LibraryQuery q;q.tags={{"Type",label}};lib.browse(q);const auto snap=wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.query==q&&!v.analysis.running;});check(snap->visible_assets==count,"Type search indexes signal-derived tags for arbitrary names");return snap;};
     {
         SampleLibrary lib(database);lib.add_source(root);wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==7;});
         const auto one=query(lib,"One-shot",1);check(one->assets.front().relative_path=="A.wav"&&std::any_of(one->assets.front().tags.begin(),one->assets.front().tags.end(),[](const auto& t){return t.group=="Type"&&t.origin=="audio"&&t.confidence>.8;}),"Signal Type keeps audio provenance and confidence");
@@ -696,16 +696,17 @@ void signal_type_analysis(){
     }
     // Upgrade a populated v4 index; backfill signal tags without a source rescan.
     sqlite3* legacy{};const auto legacyName=database.generic_u8string();check(sqlite3_open(reinterpret_cast<const char*>(legacyName.c_str()),&legacy)==SQLITE_OK,"Open v4 Type migration fixture");
-    check(sqlite3_exec(legacy,"DROP TABLE audio_type_analysis; DELETE FROM asset_tags WHERE origin='audio'; PRAGMA user_version=4",nullptr,nullptr,nullptr)==SQLITE_OK,"Prepare existing v4 catalogue");sqlite3_close(legacy);
+    check(sqlite3_exec(legacy,"DROP TABLE audio_type_analysis; DROP TABLE audio_features; DELETE FROM asset_tags WHERE origin='audio'; PRAGMA user_version=4",nullptr,nullptr,nullptr)==SQLITE_OK,"Prepare existing v4 catalogue");sqlite3_close(legacy);
     {SampleLibrary lib(database);wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle;});query(lib,"Loop",4);}
-    bool backup=false;for(const auto& entry:fs::directory_iterator(fixture.root))if(entry.path().filename().string().starts_with("signal.sqlite.pre-v5-"))backup=true;
+    bool backup=false;for(const auto& entry:fs::directory_iterator(fixture.root))if(entry.path().filename().string().starts_with("signal.sqlite.pre-v6-"))backup=true;
     check(backup,"Audio analysis schema upgrade keeps a rollback backup");
     // A cached successful analysis can be used with the source offline, without re-decoding.
     fs::rename(root,fixture.root/"offline");
     {SampleLibrary lib(database);wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle;});query(lib,"Loop",4);}
     sqlite3* db{};const auto name=database.generic_u8string();check(sqlite3_open(reinterpret_cast<const char*>(name.c_str()),&db)==SQLITE_OK,"Open audio analysis cache");
     sqlite3_stmt* statement{};check(sqlite3_prepare_v2(db,"SELECT count(*) FROM audio_type_analysis WHERE version=1",-1,&statement,nullptr)==SQLITE_OK,"Prepare cache check");
-    check(sqlite3_step(statement)==SQLITE_ROW&&sqlite3_column_int(statement,0)==6,"All analysed audio, including uncertain results, is cached by algorithm version");sqlite3_finalize(statement);sqlite3_close(db);
+    check(sqlite3_step(statement)==SQLITE_ROW&&sqlite3_column_int(statement,0)==7,"All analysed audio, including uncertain results, is cached by algorithm version");sqlite3_finalize(statement);sqlite3_close(db);
 }
 
-int main() { try {signal_type_analysis();pack_type_search();type_search_coverage();type_taxonomy();search_v4();test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void audio_analysis256_tests();
+int main() { try {audio_analysis256_tests();signal_type_analysis();pack_type_search();type_search_coverage();type_taxonomy();search_v4();test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
