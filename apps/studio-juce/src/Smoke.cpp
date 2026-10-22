@@ -230,6 +230,46 @@ void unifiedLaneUpd2Smoke(){
     lane.mouseDown(mouse(p,juce::ModifierKeys::rightButtonModifier));const auto pump=[](){for(int n=0;n<15;++n){MSG msg{};int limit=0;while(limit++<200&&PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}juce::Thread::sleep(1);}};pump();check(lane.colorMenu()!=nullptr,"chord popup palette exists");referencePreview(*lane.colorMenu()->getTopLevelComponent(),"unified-chord-colors");bool clicked=false;for(auto* child:lane.colorMenu()->getChildren())if(auto* b=dynamic_cast<juce::TextButton*>(child))if(b->getName()=="Teal"){b->onClick();clicked=true;break;}pump();check(clicked&&d.project()->chords.front().color==0x287B89u,"chord palette stores RGB");d.action(10);check(!d.project()->chords.front().color,"chord color Undo exact");d.action(11);referencePreview(d,"unified-lanes-upd2");
 }
 
+void browserFocus263Smoke(juce::Component& browser,juce::Component& results){
+    const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    Desktop d(true);d.addChildComponent(browser);
+    check(!d.shortcutAllowedFor(&results),"Real library results block parent transport key-state routing");
+    juce::Component inner;results.addChildComponent(inner);
+    check(!d.shortcutAllowedFor(&inner),"Nested result rows inherit browser keyboard scope");
+    check(d.shortcutAllowedFor(d.arrangement.get()),"Arrange retains its transport keyboard scope");
+    results.removeChildComponent(&inner);d.removeChildComponent(&browser);
+}
+
+void wavDrop263Smoke(){
+    const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    Desktop d(true);d.app.new_project();d.setSize(1200,900);d.refresh(true);d.snap=true;
+    const auto root=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("mrs-wav263","",false);
+    check(root.createDirectory().wasOk(),"WAV drag fixture directory");
+    struct Clean{juce::File file;~Clean(){file.deleteRecursively();}}clean{root};
+    juce::StringArray files;
+    for(const auto* name:{"A.wav","B.wav"}){
+        const auto file=root.getChildFile(name);files.add(file.getFullPathName());
+        mrs::audio::Recorder recorder(std::filesystem::path(file.getFullPathName().toWideCharPointer()),44100,0,{0});
+        std::vector<float> pcm(44100,.1f);recorder.capture(pcm.data(),1,44100,0);recorder.finish();
+    }
+    auto& a=*d.arrangement;a.pixelsPerSecond=120.;a.horizontal=17.;const int x=513,y=a.headerHeight()+20;
+    const auto waitGhost=[&]{for(int i=0;i<500;++i){if(a.wavDropRects().size()==2)return;juce::Thread::sleep(2);}throw std::runtime_error("WAV drag metadata timed out");};
+    a.fileDragMove(files,x,y);waitGhost();auto ghosts=a.wavDropRects();
+    PlayheadLine* cursor=nullptr;for(auto* child:a.getChildren())if(auto* line=dynamic_cast<PlayheadLine*>(child))cursor=line;
+    check(cursor&&!cursor->isVisible(),"WAV drag hides the vertical transport line");
+    check(std::abs(ghosts[0].getWidth()-120.f)<.01f&&ghosts[1].getY()>ghosts[0].getY()&&ghosts[1].getX()==ghosts[0].getX(),"Empty Arrange WAV ghosts preserve duration through SRC and create separate tracks");
+    referencePreview(d,"library261-wav-drop");
+    const auto start=a.sampleAt(static_cast<float>(x));
+    a.filesDropped(files,x,y);check(a.wavDropRects().empty()&&cursor->isVisible(),"WAV drop clears preview and restores transport cursor");
+    for(int i=0;i<1000&&d.app.wav_import_status().busy;++i){d.app.poll();juce::Thread::sleep(2);}
+    check(!d.app.wav_import_status().busy&&d.project()->clips.size()==2,"WAV drop imports asynchronously");
+    check(d.project()->clips.front().start==start&&d.project()->clips.front().length==d.project()->sample_rate,"WAV ghost matches imported start and SRC length");
+    d.refresh(true);a.fileDragMove(files,x,y);waitGhost();ghosts=a.wavDropRects();
+    check(ghosts[0].getY()==ghosts[1].getY()&&std::abs(ghosts[1].getX()-ghosts[0].getRight())<.01f,"Existing audio track previews sequential WAVs");
+    a.fileDragExit(files);check(a.wavDropRects().empty(),"Drag exit clears WAV ghosts");
+    a.fileDragMove(files,x,a.headerHeight()-1);check(a.wavDropRects().empty(),"No WAV ghost above ruler");a.fileDragExit(files);
+}
+
 void midiImport149Smoke(){
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};Desktop d(true);d.app.new_project();d.refresh(true);
     const auto root=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("mrs-midi-ui","",false);check(root.createDirectory().wasOk(),"MIDI UI temp directory");
@@ -576,7 +616,7 @@ void j2Smoke(Desktop& d,const juce::File& fixture){
         check(snapshot.getPixelAt(strip->getWidth()-2,35)==juce::Colour(panel),"Mix/Master background matches track channel");
     }
     {juce::Image image(juce::Image::ARGB,100,60,true,juce::SoftwareImageType{});{juce::Graphics g(image);d.theme.drawPopupMenuBackground(g,100,60);}
-        check(std::abs(image.getPixelAt(20,20).getFloatAlpha()-.7f)<.01f&&image.getPixelAt(0,20)==juce::Colour(menuBorder),"menu browser surface and subtle border");}
+        check(std::abs(image.getPixelAt(20,20).getFloatAlpha()-.85f)<.01f&&image.getPixelAt(0,20)==juce::Colour(menuBorder),"menu browser surface and subtle border");}
     {
         auto menu=d.pluginMenu();menu.setLookAndFeel(&d.theme);menu.addSeparator();menu.addItem(9001,"Disabled item",false);menu.addItem(9002,"Selected item",true,true);
         if(!d.getPeer())d.addToDesktop(0);d.setVisible(true);

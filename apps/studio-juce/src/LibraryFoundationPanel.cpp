@@ -104,8 +104,8 @@ LibraryFoundationPanel::LibraryFoundationPanel(
     bpmValue.setTextToShowWhenEmpty("BPM (95 / 0 / blank)",juce::Colours::grey);
     keyValue.setTextToShowWhenEmpty("Key (Am / - / blank)",juce::Colours::grey);
     suggestedTags.setTextWhenNothingSelected("Select detected tag...");
-    static constexpr const char* groups[]={"Instrument","Genre","Type","Technique","Rhythm","Character","Custom"};
-    for(int i=0;i<7;++i)tagGroup.addItem(groups[i],i+1);
+    static constexpr const char* groups[]={"Instrument","Genre","Pack","Type","Technique","Rhythm","Character","Custom"};
+    for(const auto* group:groups)tagGroup.addItem(group,tagGroup.getNumItems()+1);
     tagGroup.setSelectedId(1,juce::dontSendNotification);
     tagInfo.setText("Proposed / confirmed / rejected tags; select WAVs for bulk edits",
                     juce::dontSendNotification);
@@ -131,7 +131,7 @@ LibraryFoundationPanel::LibraryFoundationPanel(
         if(tag<0||tag>=static_cast<int>(items.size()))return;
         tagLabel.setText(text(items[static_cast<std::size_t>(tag)].label),juce::dontSendNotification);
         const auto& group=items[static_cast<std::size_t>(tag)].group;
-        for(int i=0;i<7;++i)if(group==groups[i])tagGroup.setSelectedId(i+1,juce::dontSendNotification);
+        for(int i=0;i<tagGroup.getNumItems();++i)if(group==groups[i])tagGroup.setSelectedId(i+1,juce::dontSendNotification);
     };
     addTag.onClick=[this]{
         const auto ids=selectedAssetIds();if(!ids.empty())library.add_tag(ids,
@@ -186,8 +186,8 @@ void LibraryFoundationPanel::resized() {
     title.setBounds(header);
     bounds.removeFromTop(4);
     if(browsing){
-        status.setBounds(bounds.removeFromBottom(29));
-        bounds.removeFromBottom(3);
+        status.setBounds(bounds.removeFromBottom(view&&view->phase==mrs::library::Phase::idle?16:32));
+        bounds.removeFromBottom(1);
         if(browserView)browserView->setBounds(bounds);
         return;
     }
@@ -313,6 +313,7 @@ void LibraryFoundationPanel::timerCallback() { refresh(); }
 void LibraryFoundationPanel::refresh() {
     auto next=library.snapshot();
     if(next->revision==lastRevision&&view)return;
+    const bool phaseChanged=!view||view->phase!=next->phase;
     view=std::move(next);lastRevision=view->revision;
     if(browserView)browserView->setSnapshot(view);
     sources.updateContent();sources.repaint();
@@ -326,7 +327,8 @@ void LibraryFoundationPanel::refresh() {
     if(!view->message.empty())message+="\n"+text(view->message);
     if(phase==mrs::library::Phase::scanning)
         message+="\nProcessed: "+juce::String(static_cast<juce::int64>(view->processed));
-    status.setText(message,juce::dontSendNotification);
+    status.setText(message,juce::dontSendNotification);status.setTooltip(message);
+    if(browsing&&phaseChanged)resized();
     cancel.setEnabled(phase==mrs::library::Phase::scanning);
 }
 } // namespace ui

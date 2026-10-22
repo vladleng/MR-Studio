@@ -1,4 +1,5 @@
 #include <mrs/sample_library.hpp>
+#include <mrs/sample_tag_rules.hpp>
 #include <mrs/sample_preview.hpp>
 #include <mrs/audio.hpp>
 #include <mrs/library_preview.hpp>
@@ -550,9 +551,161 @@ void search_v4(){
     {SampleLibrary lib(database);const auto snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle;});
         check(snap->visible_assets==3&&snap->sources.front().id==source&&snap->covers.empty(),"V3 migration lost catalogue identities");}
     bool backedUp=false;
-    for(const auto& entry:fs::directory_iterator(fixture.root))if(entry.path().filename().string().starts_with("index.sqlite.pre-v4-"))backedUp=true;
+    for(const auto& entry:fs::directory_iterator(fixture.root))if(entry.path().filename().string().starts_with("index.sqlite.pre-v5-"))backedUp=true;
     check(backedUp,"V3 migration needs a consistent rollback backup");
     std::cout<<"MR Library #261: multiword/filter/facets/stable shuffle/managed covers PASS\n";
 }
 
-int main() { try {search_v4();test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void type_taxonomy(){
+    Fixture f;const auto db=f.root/"types.sqlite";wav(f.root/"audio"/"FX_loop.wav");
+    {SampleLibrary lib(db);lib.add_source(f.root/"audio");wait_for(lib,[](const Snapshot& s){return s.phase==Phase::idle&&s.visible_assets==1;});}
+    sqlite3* raw{};const auto text=db.generic_u8string();
+    check(sqlite3_open(reinterpret_cast<const char*>(text.c_str()),&raw)==SQLITE_OK,"Open Type taxonomy fixture");
+    check(sqlite3_exec(raw,"INSERT INTO tags(group_name,label) VALUES('Type','FX'); INSERT INTO asset_tags SELECT a.id,t.id,'manual','confirmed',1 FROM assets a,tags t WHERE t.group_name='Type' AND t.label='FX'",nullptr,nullptr,nullptr)==SQLITE_OK,"Seed legacy confirmed Type");sqlite3_close(raw);
+    {SampleLibrary lib(db);auto snap=wait_for(lib,[](const Snapshot& s){return s.phase==Phase::idle;});
+        check(snap->assets.size()==1,"Taxonomy preserves indexed asset");
+        bool fx=false,loop=false;for(const auto& t:snap->assets.front().tags){
+            check(t.group!="Type"||t.label=="Loop"||t.label=="One-shot","Type must contain only Loop and One-shot");
+            if(t.group=="Instrument"&&t.label=="FX"&&t.status=="confirmed")fx=true;
+            if(t.group=="Type"&&t.label=="Loop")loop=true;
+        }check(fx&&loop,"Legacy Type moves to Instrument preserving confirmation");
+    }
+    const auto result=classify_sample_path("FX_Fill_SFX_Transition_oneshot.wav",{});
+    int instruments=0;bool one=false;for(const auto& t:result.tags){if(t.group=="Instrument")++instruments;if(t.group=="Type"&&t.label=="One-shot")one=true;}
+    check(instruments==4&&one,"FX/Fill/SFX/Transition are Instruments; One-shot is Type");
+}
+
+void type_search_coverage(){
+    const auto typeOf=[](const std::string& path){
+        const auto classified=classify_sample_path(path,{});std::string type;
+        for(const auto& tag:classified.tags)if(tag.group=="Type"){check(type.empty(),"Automatic file type must be exclusive");type=tag.label;}
+        return type;
+    };
+    for(const auto* folder:{"One Shots","One-Shots","one_shots","Oneshots","OneShots","ONESHOTS","1-Shots"})
+        check(typeOf(std::string(folder)+"/Drums/Kick.wav")=="One-shot","Plural/camel/number One-shot folder aliases");
+    check(typeOf("Loops/Drums/Ghosthack_Kick_Snare_115bpm.wav")=="Loop","Loops folder supplies type when filename omits it");
+    check(typeOf("Loops/One Shots/Kick.wav")=="One-shot"&&typeOf("One Shots/Loops/Groove.wav")=="Loop","Nearest labelled folder wins");
+    check(typeOf("Loops/Clap_one_shot.wav")=="One-shot"&&typeOf("One Shots/Bass_loop.wav")=="Loop","Filename wins over inherited folder type");
+    check(typeOf("Kick_oneshot01.wav")=="One-shot"&&typeOf("Drums_Loop02.wav")=="Loop"&&typeOf("Loopback01.wav").empty(),"Numeric take suffixes preserve explicit type without prefix false positives");
+    check(typeOf("Loose/Texture.wav").empty()&&typeOf("Loop_OneShot.wav").empty(),"Unknown/conflicting types must not be silently assigned");
+    for(const auto* path:{"Drums/Snaps/KSHMR Snap - Compact.wav","Drums/Snaps/KSHMR Snap - Roomy.wav","Drums/Snaps/Compact.wav","Cymatics - Gold Modern Crash 20.wav"})
+        check(typeOf(path)=="One-shot","Single percussion filenames and categories supply missing One-shot Type");
+    for(const auto* path:{"Drums/Kicks/Kick01.wav","Percussion/Rimshot_07.wav","FX/Impact09.wav","Synths/Stab04_Am.wav","Single Hits/Tone.wav","OneHits/Tone.wav","Ваншоты/Тон.wav"})
+        check(typeOf(path)=="One-shot","General single-hit categories and numbered aliases cover different sample families");
+    check(typeOf("Drums/Fill_128BPM.wav")=="Loop"&&typeOf("Synths/Arp_120_Am.wav")=="Loop","Tempo-bearing rhythmic phrases supply Loop without an explicit loop word");
+    check(typeOf("One Shots/Arp_120BPM.wav")=="One-shot"&&typeOf("Loops/Stab01.wav")=="Loop","Explicit Type outranks all fallback families");
+    for(const auto* path:{"KSHMR 808 - Clean - Earthquake (C).wav","KSHMR 808 - Clean - Pressure (E).wav","KSHMR Closed Hat - Acoustic - Clean.wav","Closed Hi-Hats/Acoustic.wav","KSHMR Hip Hop Snare - Classic - Candy.wav","KSHMR Hip Hop Snare - Classic - Player.wav"})
+        check(typeOf(path)=="One-shot","User examples: pitched 808, closed hats and hip-hop snares are general single-hit families");
+    check(typeOf("Loops/KSHMR 808 - Groove.wav")=="Loop"&&typeOf("KSHMR 808 - Groove_120BPM.wav")=="Loop","808 bass family must not override explicit/tempo phrase loops");
+    for(const auto* path:{"KSHMR Snap - Loop.wav","Loops/Snaps/Compact.wav"})
+        check(typeOf(path)=="Loop","Explicit Loop outranks single percussion inference");
+    for(const auto* path:{"Snaps/Fill.wav","Kick_Snare_115bpm.wav","Kick_Groove.wav","Snap_OneShot_Loop.wav"})
+        check(typeOf(path).empty(),"Tempo, phrases and conflicts cannot be mistaken for a single hit");
+    Fixture fixture;const auto db=fixture.root/"types.sqlite",root=fixture.root/"audio";
+    for(const auto* path:{"One Shots/Drums/Kick.wav","One-Shots/Drums/Snare.wav","Oneshots/Perc/Hat.wav","one_shots/FX/Boom.wav",
+        "Loops/Drums/Kick_115BPM.wav","loops/Groove.wav","Loops/One Shots/Piano.wav","One Shots/Loops/Brush.wav",
+        "Loops/one_shot_Clap.wav","One Shots/Bass_loop.wav","Loose/Texture.wav"})wav(root/path);
+    const auto queryType=[](SampleLibrary& lib,const std::string& label,std::uint64_t expected){
+        LibraryQuery q;q.tags={{"Type",label}};lib.browse(q);
+        const auto snap=wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.query==q;});
+        check(snap->visible_assets==expected,"Type search must include every indexed alias/inherited match");
+        return snap;
+    };
+    {
+        SampleLibrary lib(db);lib.add_source(root);auto snap=wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==11;});
+        const auto target=std::find_if(snap->assets.begin(),snap->assets.end(),[](const auto& asset){return asset.relative_path=="Loops/Drums/Kick_115BPM.wav";});
+        check(target!=snap->assets.end(),"Find manual Type fixture");const auto id=target->id;
+        queryType(lib,"One-shot",6);queryType(lib,"Loop",4);
+        auto revision=lib.snapshot()->revision;lib.add_tag({id},"Type","One-shot");
+        wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision;});
+        queryType(lib,"One-shot",7);queryType(lib,"Loop",3);
+        revision=lib.snapshot()->revision;lib.undo_tag_edit();wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision;});
+        queryType(lib,"One-shot",6);queryType(lib,"Loop",4);
+        revision=lib.snapshot()->revision;lib.add_tag({id},"Type","One-shot");wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision;});
+        revision=lib.snapshot()->revision;lib.rescan();wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision&&v.message=="Scan complete";});
+        queryType(lib,"One-shot",7);queryType(lib,"Loop",3);
+    }
+    {
+        SampleLibrary lib(db);wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle;});
+        queryType(lib,"One-shot",7);queryType(lib,"Loop",3);
+        const auto sourceRoot=fixture.root/"One Shots";wav(sourceRoot/"RootKick.wav");
+        LibraryQuery q;lib.browse(q);wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.query==q;});
+        lib.add_source(sourceRoot);wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==12;});
+        queryType(lib,"One-shot",8);queryType(lib,"Loop",3);
+    }
+}
+
+void pack_type_search(){
+    Fixture fixture;const auto root=fixture.root/"Library";
+    for(const auto* path:{"KSHMR/Drums/Snaps/KSHMR Snap - Compact.wav","KSHMR/Drums/Snaps/Roomy.wav",
+        "KSHMR/Loops/Snap.wav","Cymatics/Drums/Cymatics - Gold Modern Crash 20.wav","Cymatics/Loops/Crash.wav"})wav(root/path);
+    SampleLibrary lib(fixture.root/"pack.sqlite");lib.add_source(root);
+    auto snap=wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==5;});
+    const auto query=[&](LibraryQuery q,std::uint64_t count){lib.browse(q);auto v=wait_for(lib,[&](const Snapshot& s){return s.phase==Phase::idle&&s.query==q;});check(v->visible_assets==count,"Pack and Type filters must compose over the full catalogue");return v;};
+    LibraryQuery q;q.tags={{"Pack","KSHMR"}};q.limit=1;snap=query(q,3);
+    check(snap->assets.size()==1&&std::any_of(snap->facets.begin(),snap->facets.end(),[](const auto& f){return f.group=="Pack"&&f.label=="KSHMR"&&f.count==3;}),"Pack facets must count beyond the visible page");
+    q.tags.push_back({"Type","One-shot"});query(q,2);
+    q.tags={{"Type","One-shot"}};q.excluded_tags={{"Pack","KSHMR"}};snap=query(q,1);
+    check(snap->assets.front().relative_path.find("Cymatics/")==0,"Pack exclusions retain other matching One-shots");
+    q.tags={{"Pack","KSHMR"},{"Pack","Cymatics"},{"Type","Loop"}};q.excluded_tags.clear();query(q,2);
+    q.tags={{"Pack","KSHMR"},{"Type","One-shot"}};q.limit=120;snap=query(q,2);
+    const auto id=snap->assets.front().id;auto revision=snap->revision;lib.add_tag({id},"Pack","Session Pack");
+    wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision;});
+    q.tags={{"Pack","Session Pack"}};snap=query(q,1);
+    check(std::none_of(snap->assets.front().tags.begin(),snap->assets.front().tags.end(),[](const auto& tag){return tag.group=="Pack"&&tag.label=="KSHMR"&&tag.status!="rejected";}),"Manual Pack replaces its automatic alternative immediately");
+    revision=snap->revision;lib.rescan();wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision&&v.message=="Scan complete";});
+    query(q,1);revision=lib.snapshot()->revision;lib.undo_tag_edit();wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision;});
+    q.tags={{"Pack","KSHMR"},{"Type","One-shot"}};query(q,2);
+    const auto direct=classify_sample_path("Gold Modern/Drums/Crash.wav");
+    check(std::any_of(direct.tags.begin(),direct.tags.end(),[](const auto& tag){return tag.group=="Pack"&&tag.label=="Gold Modern";}),"Source pointed directly at a pack retains its name");
+}
+
+void signal_type_analysis(){
+    Fixture fixture;const auto root=fixture.root/"Arbitrary",database=fixture.root/"signal.sqlite";
+    const auto make=[&](const fs::path& file,int shape,int rate=8000,int channels=1,int bits=16){
+        fs::create_directories(file.parent_path());std::ofstream out(file,std::ios::binary|std::ios::trunc);
+        const int frames=rate*4,bytes=bits/8;
+        const auto put=[&](std::uint32_t value,int width){for(int i=0;i<width;++i)out.put(static_cast<char>((value>>(8*i))&255));};
+        out.write("RIFF",4);put(36+frames*channels*bytes,4);out.write("WAVEfmt ",8);put(16,4);put(1,2);put(channels,2);put(rate,4);put(rate*channels*bytes,4);put(channels*bytes,2);put(bits,2);out.write("data",4);put(frames*channels*bytes,4);
+        for(int i=0;i<frames;++i){
+            const double t=static_cast<double>(i)/rate;
+            const auto envelope=shape==0?std::exp(-t*4.):shape==1?std::exp(-std::fmod(t,.5)*25.):shape==2?.4+.3*std::cos(t*4.*3.141592653589793):shape==3?t/4.:0.;
+            const auto value=.65*envelope*std::sin(t*2.*3.141592653589793*173.);
+            const auto pcm=static_cast<std::int32_t>(value*(bits==24?8388607.:32767.));
+            for(int c=0;c<channels;++c)put(static_cast<std::uint32_t>(pcm),bytes);
+        }
+        check(static_cast<bool>(out),"Write signal Type fixture");
+    };
+    make(root/"A.wav",0);make(root/"B.wav",1);make(root/"C.wav",2,44100,2,24);make(root/"D.wav",3);make(root/"E.wav",4);
+    make(root/"Kick.wav",1);make(root/"Loop_OneShot.wav",1);
+    check(analyse_wav_type(root/"A.wav").label=="One-shot","Unnamed isolated decay is a One-shot from signal evidence");
+    check(analyse_wav_type(root/"B.wav").label=="Loop","Unnamed repeated attacks are a Loop from signal evidence");
+    check(analyse_wav_type(root/"C.wav").label=="Loop","Legato repeating envelope works for 24-bit 44.1k stereo");
+    check(analyse_wav_type(root/"D.wav").label.empty()&&analyse_wav_type(root/"E.wav").label.empty(),"Monotonic rise and silence cannot become loops from high raw-envelope correlation");
+    bool cancelled=false;try{analyse_wav_type(root/"A.wav",[]{return true;});}catch(const std::exception&){cancelled=true;}
+    check(cancelled,"Signal Type analysis is cancellable");
+    const auto query=[&](SampleLibrary& lib,const std::string& label,std::uint64_t count){LibraryQuery q;q.tags={{"Type",label}};lib.browse(q);const auto snap=wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.query==q;});check(snap->visible_assets==count,"Type search indexes signal-derived tags for arbitrary names");return snap;};
+    {
+        SampleLibrary lib(database);lib.add_source(root);wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==7;});
+        const auto one=query(lib,"One-shot",1);check(one->assets.front().relative_path=="A.wav"&&std::any_of(one->assets.front().tags.begin(),one->assets.front().tags.end(),[](const auto& t){return t.group=="Type"&&t.origin=="audio"&&t.confidence>.8;}),"Signal Type keeps audio provenance and confidence");
+        query(lib,"Loop",3); // audio Loop overrides weak Kick word guess; explicit conflict stays unknown
+        auto revision=lib.snapshot()->revision;lib.add_tag({one->assets.front().id},"Type","Loop");wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision;});query(lib,"One-shot",0);query(lib,"Loop",4);
+        revision=lib.snapshot()->revision;lib.rescan();wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision&&v.message=="Scan complete";});query(lib,"Loop",4);
+        revision=lib.snapshot()->revision;lib.undo_tag_edit();wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision;});query(lib,"One-shot",1);query(lib,"Loop",3);
+        revision=lib.snapshot()->revision;make(root/"A.wav",1);lib.rescan();wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision&&v.message=="Scan complete";});query(lib,"Loop",4);query(lib,"One-shot",0);
+    }
+    // Upgrade a populated v4 index; backfill signal tags without a source rescan.
+    sqlite3* legacy{};const auto legacyName=database.generic_u8string();check(sqlite3_open(reinterpret_cast<const char*>(legacyName.c_str()),&legacy)==SQLITE_OK,"Open v4 Type migration fixture");
+    check(sqlite3_exec(legacy,"DROP TABLE audio_type_analysis; DELETE FROM asset_tags WHERE origin='audio'; PRAGMA user_version=4",nullptr,nullptr,nullptr)==SQLITE_OK,"Prepare existing v4 catalogue");sqlite3_close(legacy);
+    {SampleLibrary lib(database);wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle;});query(lib,"Loop",4);}
+    bool backup=false;for(const auto& entry:fs::directory_iterator(fixture.root))if(entry.path().filename().string().starts_with("signal.sqlite.pre-v5-"))backup=true;
+    check(backup,"Audio analysis schema upgrade keeps a rollback backup");
+    // A cached successful analysis can be used with the source offline, without re-decoding.
+    fs::rename(root,fixture.root/"offline");
+    {SampleLibrary lib(database);wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle;});query(lib,"Loop",4);}
+    sqlite3* db{};const auto name=database.generic_u8string();check(sqlite3_open(reinterpret_cast<const char*>(name.c_str()),&db)==SQLITE_OK,"Open audio analysis cache");
+    sqlite3_stmt* statement{};check(sqlite3_prepare_v2(db,"SELECT count(*) FROM audio_type_analysis WHERE version=1",-1,&statement,nullptr)==SQLITE_OK,"Prepare cache check");
+    check(sqlite3_step(statement)==SQLITE_ROW&&sqlite3_column_int(statement,0)==6,"All analysed audio, including uncertain results, is cached by algorithm version");sqlite3_finalize(statement);sqlite3_close(db);
+}
+
+int main() { try {signal_type_analysis();pack_type_search();type_search_coverage();type_taxonomy();search_v4();test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }

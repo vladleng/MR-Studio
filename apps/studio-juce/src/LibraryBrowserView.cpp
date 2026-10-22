@@ -20,26 +20,29 @@ LibraryBrowserView::LibraryBrowserView(
     :library(lib),previewPlay(std::move(play)),previewStop(std::move(stop)),
       previewState(std::move(position)){
     for(auto* control:std::array<juce::Component*,25>{&foldersTab,&tagsTab,&collectionsTab,&favorites,&clearFilters,&listGrid,
-        &samples,&back,&options,&instruments,&genres,&keyButton,&bpmButton,&typeButton,&activeFilters,&prevPage,&nextPage,
+        &back,&options,&instruments,&genres,&packButton,&keyButton,&bpmButton,&typeButton,&activeFilters,&prevPage,&nextPage,
         &stopPreview,&sorts,&search,&counter,&breadcrumb,&previousSound,&playPause,&nextSound})addAndMakeVisible(control);
-    addAndMakeVisible(results);results.setRowHeight(108);results.setMultipleSelectionEnabled(true);
+    setComponentID("mr-library-browser");
+    addAndMakeVisible(details);details.setFont(juce::Font(juce::FontOptions(11.f)));details.setColour(juce::Label::textColourId,muted());
+    addAndMakeVisible(results);results.setRowHeight(60);results.addMouseListener(this,true);results.setMultipleSelectionEnabled(true);
     results.setComponentID("mr-library-browser-results");results.setColour(juce::ListBox::backgroundColourId,juce::Colour(surface));
     search.setTextToShowWhenEmpty("Search filenames, tags, folders...",muted());search.setInputRestrictions(128);
     foldersTab.onClick=[this]{chooseSection(Section::folders);};tagsTab.onClick=[this]{chooseSection(Section::tags);};
     collectionsTab.onClick=[this]{chooseSection(Section::collections);};
     instruments.onClick=[this]{filterMenu("Instrument",&instruments);};genres.onClick=[this]{filterMenu("Genre",&genres);};
+    packButton.onClick=[this]{filterMenu("Pack",&packButton);};
     typeButton.onClick=[this]{filterMenu("Type",&typeButton);};
     keyButton.onClick=[this]{musicalMenu(false,&keyButton);};bpmButton.onClick=[this]{musicalMenu(true,&bpmButton);};
     options.onClick=[this]{optionsMenu();};
     activeFilters.onClick=[this]{
-        juce::PopupMenu menu;std::vector<std::pair<bool,std::size_t>> entries;
+        auto menu=popupMenu();std::vector<std::pair<bool,std::size_t>> entries;
         for(bool excluded:{false,true}){const auto& tags=excluded?query.excluded_tags:query.tags;
             for(std::size_t i=0;i<tags.size();++i){entries.emplace_back(excluded,i);menu.addItem(static_cast<int>(entries.size()),
                 "Remove "+juce::String(excluded?"exclude ":"")+uiText(tags[i].group+": "+tags[i].label));}}
         if(!query.key.empty())menu.addItem(3000,"Remove key filter");
         if(query.bpm_min||query.bpm_max)menu.addItem(3001,"Remove BPM filter");
         juce::Component::SafePointer<LibraryBrowserView> safe(this);
-        menu.showMenuAsync(juce::PopupMenu::Options{}.withTargetComponent(&activeFilters),[safe,entries](int choice){
+        menu.showMenuAsync(popupOptions(&activeFilters),[safe,entries](int choice){
             if(!safe||choice<=0)return;
             if(choice==3000||choice==3001){if(choice==3000)safe->query.key.clear();else{safe->query.bpm_min=0;safe->query.bpm_max=0;}safe->query.offset=0;safe->sendQuery();return;}
             if(choice>static_cast<int>(entries.size()))return;
@@ -52,7 +55,6 @@ LibraryBrowserView::LibraryBrowserView(
     clearFilters.onClick=[this]{const auto source=query.source_id,collection=query.collection_id;const auto folder=query.folder;
         query={};query.source_id=source;query.collection_id=collection;query.folder=folder;
         search.setText({},false);query.offset=0;sendQuery();};
-    samples.onClick=[this]{rootMode=false;query.offset=0;sendQuery();};
     back.onClick=[this]{
         if(section==Section::folders&&query.source_id>0&&!query.folder.empty()){
             const auto at=query.folder.find_last_of('/');query.folder=at==std::string::npos?"":query.folder.substr(0,at);query.offset=0;sendQuery();
@@ -60,8 +62,8 @@ LibraryBrowserView::LibraryBrowserView(
         else chooseSection(section);
     };
     listGrid.onClick=[this]{gridView=!gridView;listGrid.setButtonText(gridView?"List":"Grid");
-        results.setMultipleSelectionEnabled(!gridView);gridSelected=-1;results.deselectAllRows();
-        results.setRowHeight(gridView?164:108);results.updateContent();results.repaint();};
+        results.setMultipleSelectionEnabled(!gridView);gridSelected=-1;hoveredAsset=-1;results.deselectAllRows();
+        results.setRowHeight(gridView?72:60);results.updateContent();results.repaint();};
     search.onTextChange=[this]{query.search=search.getText().toStdString();rootMode=false;query.offset=0;sendQuery();};
     for(const auto& name:std::array<const char*,7>{"Name","Relevant","BPM","Duration","Modified","Recently indexed","Random"})sorts.addItem(name,sorts.getNumItems()+1);
     sorts.setSelectedId(1,juce::dontSendNotification);
@@ -73,10 +75,17 @@ LibraryBrowserView::LibraryBrowserView(
     previousSound.setTooltip("Previous sample");nextSound.setTooltip("Next sample");playPause.setTooltip("Play / pause sample preview");
     for(auto* button:{&previousSound,&nextSound,&playPause,&stopPreview})button->getProperties().set("mrSmallToolbarIcon",true);
     previousSound.onClick=[this]{stepPreview(-1);};nextSound.onClick=[this]{stepPreview(1);};playPause.onClick=[this]{stepPreview(0);};
-    stopPreview.onClick=[this]{if(previewStop)previewStop();activePreviewId=0;results.repaint();};
-    for(const auto* name:{"track_drums_compact","track_bass_compact","track_piano_compact","track_guitar_compact","track_synth","wave","folder"}){
+    stopPreview.onClick=[this]{if(previewStop)previewStop();activePreviewId=0;keyboardAudition=false;results.repaint();};
+    for(const auto* name:{"track_drums_compact","track_bass_compact","track_piano_compact","track_guitar_compact","track_synth","wave","folder","sample_one_shot"}){
         int size{};const auto* bytes=MRConceptAssets::getNamedResource((juce::String(name)+"_svg").toRawUTF8(),size);
         if(bytes)instrumentArt[name]=juce::Drawable::createFromImageData(bytes,size);
+    }
+    for(const auto& icon:std::array<std::tuple<const char*,const char*,int>,3>{
+        std::tuple{"play",BinaryData::play_svg,BinaryData::play_svgSize},
+        std::tuple{"stop",BinaryData::stop_svg,BinaryData::stop_svgSize},
+        std::tuple{"loop",BinaryData::loop_svg,BinaryData::loop_svgSize}}){
+        auto drawable=juce::Drawable::createFromImageData(std::get<1>(icon),std::get<2>(icon));
+        if(drawable){drawable->replaceColour(juce::Colours::white,juce::Colour(0xffb5ccdf));instrumentArt[std::get<0>(icon)]=std::move(drawable);}
     }
     imageWorker=std::jthread([this](std::stop_token stop){
         for(;;){
@@ -124,10 +133,12 @@ LibraryBrowserView::LibraryBrowserView(
             {
                 std::lock_guard lock(waveMutex);
                 if(cancel->load())continue;
-                if(waveCache.size()>=96){
-                    waveRequested.erase(waveCache.begin()->first);
-                    waveCache.erase(waveCache.begin());
+                if(waveCache.size()>=waveCapacity){
+                    const auto oldest=std::min_element(waveCache.begin(),waveCache.end(),[](const auto& a,const auto& b){return a.second.lastUse<b.second.lastUse;});
+                    waveRequested.erase(oldest->first);
+                    waveCache.erase(oldest);
                 }
+                decoded.lastUse=++waveUse;
                 waveCache[item.key]=std::move(decoded);
             }
             wavesReady.fetch_add(1,std::memory_order_release);
@@ -136,6 +147,7 @@ LibraryBrowserView::LibraryBrowserView(
     updateVisibility();startTimerHz(6);
 }
 LibraryBrowserView::~LibraryBrowserView(){
+    results.removeMouseListener(this);
     stopTimer();imageChooser.reset();results.setModel(nullptr);
     if(previewStop)previewStop();
     waveWorker.request_stop();waveWake.notify_all();
@@ -147,6 +159,7 @@ void LibraryBrowserView::chooseSection(Section next){
     section=next;rootMode=true;tagPath.clear();query={};search.setText({},false);sendQuery();
 }
 void LibraryBrowserView::invalidatePreview(){
+    keyboardAudition=false;
     if(previewStop)previewStop();
     activePreviewId=0;
     dragPayload.clear();
@@ -167,6 +180,11 @@ void LibraryBrowserView::setSnapshot(std::shared_ptr<const mrs::library::Snapsho
     if(pendingQuery&&next->query!=query)return;
     const bool resetScroll=pendingQuery;pendingQuery=false;results.setEnabled(true);
     view=std::move(next);revision=view->revision;
+    pageNameWidth=0;
+    for(const auto& asset:view->assets){
+        const auto at=asset.relative_path.find_last_of('/');const auto name=uiText(asset.relative_path.substr(at==std::string::npos?0:at+1));
+        pageNameWidth=std::max(pageNameWidth,juce::GlyphArrangement::getStringWidthInt(Theme::detailFont().withHeight(14.f).boldened(),name)+2);
+    }
     if(activePreviewId&&!std::any_of(view->assets.begin(),view->assets.end(),
         [this](const auto& asset){return asset.id==activePreviewId&&asset.status=="ok"&&
             waveKey(asset)==activePreviewKey;})){
@@ -175,7 +193,7 @@ void LibraryBrowserView::setSnapshot(std::shared_ptr<const mrs::library::Snapsho
     }
     query=view->query;
     refreshControls();
-    gridSelected=-1;
+    gridSelected=-1;hoveredAsset=-1;
     results.updateContent();if(resetScroll)results.scrollToEnsureRowIsOnscreen(0);results.repaint();
 }
 void LibraryBrowserView::refreshControls(){
@@ -211,17 +229,19 @@ void LibraryBrowserView::resized(){
     auto line=area.removeFromTop(26);options.setBounds(line.removeFromRight(30));search.setBounds(line);area.removeFromTop(5);
     line=area.removeFromTop(25);const int tab=std::max(1,(line.getWidth()-48)/3);
     foldersTab.setBounds(line.removeFromLeft(tab));tagsTab.setBounds(line.removeFromLeft(tab));collectionsTab.setBounds(line.removeFromLeft(tab));favorites.setBounds(line);
-    area.removeFromTop(5);line=area.removeFromTop(24);back.setBounds(line.removeFromLeft(44));samples.setBounds(line.removeFromRight(64));breadcrumb.setBounds(line);
     const bool narrow=getWidth()<440;
-    area.removeFromTop(5);line=area.removeFromTop(25);const int filter=std::max(1,line.getWidth()/(narrow?3:5));
-    instruments.setBounds(line.removeFromLeft(filter));genres.setBounds(line.removeFromLeft(filter));typeButton.setBounds(line.removeFromLeft(filter));
-    if(narrow){area.removeFromTop(4);line=area.removeFromTop(25);keyButton.setBounds(line.removeFromLeft(line.getWidth()/2));bpmButton.setBounds(line);}
-    else {keyButton.setBounds(line.removeFromLeft(filter));bpmButton.setBounds(line);}
+    area.removeFromTop(5);line=area.removeFromTop(25);const int filter=std::max(1,line.getWidth()/(narrow?3:6));
+    instruments.setBounds(line.removeFromLeft(filter));genres.setBounds(line.removeFromLeft(filter));packButton.setBounds(line.removeFromLeft(filter));
+    if(narrow){area.removeFromTop(4);line=area.removeFromTop(25);}
+    const int remaining=std::max(1,line.getWidth()/3);
+    typeButton.setBounds(line.removeFromLeft(remaining));keyButton.setBounds(line.removeFromLeft(remaining));bpmButton.setBounds(line);
     area.removeFromTop(4);line=area.removeFromTop(24);clearFilters.setBounds(line.removeFromRight(44));activeFilters.setBounds(line.removeFromLeft(70));
     for(auto& chip:chips){const int width=std::min(100,line.getWidth());chip->setVisible(width>=44);chip->setBounds(line.removeFromLeft(width));}
-    area.removeFromTop(5);line=area.removeFromTop(24);listGrid.setBounds(line.removeFromRight(44));sorts.setBounds(line.removeFromRight(std::min(122,line.getWidth()/2)));counter.setBounds(line);
-    area.removeFromTop(4);auto footer=area.removeFromBottom(27);prevPage.setBounds(footer.removeFromLeft(22));nextPage.setBounds(footer.removeFromLeft(22));previousSound.setBounds(footer.removeFromLeft(32));playPause.setBounds(footer.removeFromLeft(40));nextSound.setBounds(footer.removeFromLeft(32));stopPreview.setBounds(footer);
-    area.removeFromBottom(4);results.setBounds(area);results.updateContent();
+    area.removeFromTop(5);line=area.removeFromTop(24);back.setBounds(line.removeFromLeft(44));listGrid.setBounds(line.removeFromRight(44));
+    sorts.setBounds(line.removeFromRight(std::min(narrow?80:122,line.getWidth()/2)));
+    breadcrumb.setBounds(line.removeFromLeft(line.getWidth()*2/3));counter.setBounds(line);counter.setTooltip(counter.getText());
+    area.removeFromTop(4);auto footer=area.removeFromBottom(24);prevPage.setBounds(footer.removeFromLeft(22));nextPage.setBounds(footer.removeFromLeft(22));previousSound.setBounds(footer.removeFromLeft(32));playPause.setBounds(footer.removeFromLeft(40));nextSound.setBounds(footer.removeFromLeft(32));stopPreview.setBounds(footer.removeFromLeft(28));
+    area.removeFromBottom(4);details.setBounds(area.removeFromBottom(42));area.removeFromBottom(4);results.setBounds(area);results.updateContent();
 }
 void LibraryBrowserView::paint(juce::Graphics& g){
     g.fillAll(juce::Colour(surface));
@@ -230,6 +250,7 @@ void LibraryBrowserView::paint(juce::Graphics& g){
 void LibraryBrowserView::visibilityChanged(){
     if(isShowing()){if(view)sendQuery();return;}
     if(!isShowing()){
+        keyboardAudition=false;
         pendingQuery=true; // Edit Tags uses the same catalogue; retain this browser query until shown again.
         if(previewStop)previewStop();
         activePreviewId=0;
@@ -268,13 +289,23 @@ juce::Image LibraryBrowserView::cachedImage(const juce::File& file){
     if(pendingImages.size()<64&&requestedImages.insert(name).second){pendingImages.emplace_back(name,file);imageWake.notify_one();}
     return {};
 }
-juce::Image LibraryBrowserView::thumbnail(const mrs::library::AudioAsset& asset){
+std::string LibraryBrowserView::sampleCover(const mrs::library::AudioAsset& asset) const {
     if(!view)return {};
     auto parent=asset.relative_path;const auto slash=parent.find_last_of('/');parent=slash==std::string::npos?"":parent.substr(0,slash);
     auto cover=asset.artwork_path;
-    for(;;){const auto managed=coverFor({"folder","",parent,"","",asset.source_id,0});
-        if(!managed.empty()){cover=managed;break;}if(parent.empty())break;
-        const auto at=parent.find_last_of('/');parent=at==std::string::npos?"":parent.substr(0,at);}
+    for(;;){
+        std::string automatic;
+        for(const auto& folder:view->folders)if(folder.source_id==asset.source_id&&folder.relative_path==parent){automatic=folder.artwork_path;break;}
+        const auto candidate=coverFor({"folder","",parent,"",automatic,asset.source_id,0});
+        if(!candidate.empty())cover=candidate;
+        if(parent.empty())break;
+        const auto at=parent.find_last_of('/');parent=at==std::string::npos?"":parent.substr(0,at);
+    }
+    return cover;
+}
+juce::Image LibraryBrowserView::thumbnail(const mrs::library::AudioAsset& asset){
+    if(!view)return {};
+    const auto cover=sampleCover(asset);
     if(cover.starts_with("managed:"))return cachedImage(juce::File(pathText(view->artwork_root)).getChildFile(uiText(cover.substr(8))));
     const auto source=std::find_if(view->sources.begin(),view->sources.end(),[&](const auto& x){return x.id==asset.source_id;});
     return source==view->sources.end()||cover.empty()?juce::Image{}:cachedImage(juce::File(pathText(source->root)).getChildFile(uiText(cover)));
@@ -292,10 +323,10 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
             else if(card.kind=="folder")bitmap=thumbnail(art);
             if(bitmap.isValid())g.drawImageWithin(bitmap,x+6,8,50,50,juce::RectanglePlacement::centred,false);
             else if(const auto icon=instrumentArt.find("folder");icon!=instrumentArt.end()&&icon->second)icon->second->drawWithin(g,{static_cast<float>(x+12),14,36,36},juce::RectanglePlacement::centred,1.f);
-            g.setColour(juce::Colours::whitesmoke);g.setFont(Theme::detailFont());g.drawFittedText(uiText(card.label),x+62,12,std::max(1,cell-84),38,juce::Justification::centredLeft,2);
+            g.setColour(juce::Colours::whitesmoke);g.setFont(Theme::detailFont());g.drawFittedText(uiText(card.label),x+62,6,std::max(1,cell-84),28,juce::Justification::centredLeft,2);
             g.setColour(muted());g.setFont(juce::Font(juce::FontOptions(10.f)));
             const auto caption=card.kind=="group"?juce::String("Browse tags"):card.kind=="folder"&&!card.key.empty()?juce::String("Open folder"):juce::String(static_cast<juce::int64>(card.count))+" WAV";
-            g.drawFittedText(caption,x+62,55,std::max(1,cell-68),16,juce::Justification::centredLeft,1);
+            g.drawFittedText(caption,x+62,36,std::max(1,cell-68),16,juce::Justification::centredLeft,1);
             g.drawText("...",x+40,6,20,20,juce::Justification::centred);
         }return;
     }
@@ -314,117 +345,140 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
         else g.setColour(juce::Colour(gridView?0xff263244:0xff222b38));
         g.fillRoundedRectangle(rect.toFloat(),5.f);
         g.setColour(juce::Colour(0xff526076));g.drawRoundedRectangle(rect.toFloat(),5.f,0.7f);
-        const int artWidth=gridView?74:32;
+        const auto layout=rowLayout(cellW,height);
+        const auto shifted=[x](juce::Rectangle<int> area){return area.translated(x,0);};
+        const auto art=shifted(layout.cover);
         auto cover=thumbnail(item);
-        if(cover.isValid())g.drawImageWithin(cover,x+6,6,artWidth,height-12,
-            juce::RectanglePlacement::centred,false);
-        else {
-            g.setColour(juce::Colour(0xff3a4a61));
-            g.fillRoundedRectangle(static_cast<float>(x+6),6.f,static_cast<float>(artWidth),
-                static_cast<float>(height-12),4.f);
-            g.setColour(muted());g.setFont(juce::Font(juce::FontOptions(11.f)));
-            g.drawFittedText("WAV",x+6,6,artWidth,height-12,juce::Justification::centred,1);
-        }
-        const auto left=x+artWidth+12;
-        const auto right=cellW-artWidth-20;
-        g.setColour(juce::Colours::whitesmoke);g.setFont(Theme::detailFont());
+        if(cover.isValid()){juce::Graphics::ScopedSaveState save(g);g.reduceClipRegion(art);
+            g.drawImageWithin(cover,art.getX(),art.getY(),art.getWidth(),art.getHeight(),juce::RectanglePlacement::fillDestination,false);}
+        else {g.setColour(juce::Colour(0xff3a4a61));g.fillRoundedRectangle(art.toFloat(),4.f);
+            g.setColour(muted());g.setFont(juce::Font(juce::FontOptions(11.f)));g.drawText("WAV",art,juce::Justification::centred);}
+        const bool focused=gridView?gridSelected==index:results.getLastRowSelected()==row+cardRows();
+        const auto glyph=rowGlyph(item,focused,hoveredAsset==index);
+        if(const auto icon=instrumentArt.find(glyph);icon!=instrumentArt.end()&&icon->second)
+            icon->second->drawWithin(g,shifted(layout.control).toFloat().reduced(2.f),juce::RectanglePlacement::centred,1.f);
+        if(glyph=="unknown"){g.setColour(muted());g.setFont(Theme::detailFont().withHeight(16.f));g.drawText("?",shifted(layout.control),juce::Justification::centred);}
+        g.setColour(juce::Colours::whitesmoke);g.setFont(Theme::detailFont().withHeight(14.f).boldened());
         const auto slash=item.relative_path.find_last_of('/');
         const auto file=uiText(item.relative_path.substr(slash==std::string::npos?0:slash+1));
-        g.drawFittedText(file,left,4,std::max(1,right-24),18,juce::Justification::centredLeft,1);
+        g.drawFittedText(file,shifted(layout.title),juce::Justification::centredLeft,1);
         g.setColour(muted());g.setFont(juce::Font(juce::FontOptions(11.f)));
-        const int bpm=item.manual_bpm==0?item.detected_bpm:item.manual_bpm;
-        const auto key=item.manual_key.empty()?item.detected_key:item.manual_key;
-        const auto duration=item.sample_rate>0?
-            static_cast<double>(item.frames)/static_cast<double>(item.sample_rate):0.;
-        const auto waveform=rowWave(item);
-        juce::String details=(item.favorite?juce::String::fromUTF8("★ "):juce::String{})+
-            (bpm>0?juce::String(bpm)+" BPM  ":"")+
-            ((key.empty()||key=="-")?juce::String{}:uiText(key)+"  ")+
-            juce::String(duration,1)+" s";
-        if(item.status!="ok")details+=" | "+uiText(item.status);
-        else if(!waveform)details+=" | Loading...";
-        else if(!waveform->error.empty())details+=" | "+uiText(waveform->error);
-        else details+=" | "+juce::String(waveform->wav.rate)+" Hz / "+
-            juce::String(waveform->wav.bits)+" bit / "+
-            (waveform->wav.channels==1?juce::String("mono"):
-                waveform->wav.channels==2?juce::String("stereo"):
-                juce::String(waveform->wav.channels)+" ch");
-        g.drawFittedText(details,left,gridView?78:64,right,14,juce::Justification::centredLeft,1);
-        {
-            juce::String tags;
-            for(const auto& t:item.tags)if(t.status!="rejected"){
-                if(tags.isNotEmpty())tags+=", ";
-                tags+=uiText(t.label);
-            }
-            g.drawFittedText(tags,left,24,right-22,17,juce::Justification::centredLeft,1);
-            const auto path=slash==std::string::npos?juce::String{}:uiText(item.relative_path.substr(0,slash));
-            g.drawFittedText(path,left,44,right,16,juce::Justification::centredLeft,1);
-            const char* glyph="wave";for(const auto& tag:item.tags)if(tag.group=="Instrument"&&tag.status!="rejected"){
-                const auto label=uiText(tag.label).toLowerCase();if(label.contains("drum")||label.contains("percussion")||label.contains("kick")||label.contains("snare")||label.contains("hat")||label.contains("ride")||label.contains("tom"))glyph="track_drums_compact";
-                else if(label.contains("bass"))glyph="track_bass_compact";else if(label.contains("guitar"))glyph="track_guitar_compact";
-                else if(label.contains("piano")||label.contains("key"))glyph="track_piano_compact";else if(label.contains("synth"))glyph="track_synth";break;}
-            if(const auto icon=instrumentArt.find(glyph);icon!=instrumentArt.end()&&icon->second)icon->second->drawWithin(g,{static_cast<float>(x+cellW-28),23,18,18},juce::RectanglePlacement::centred,1.f);
-            g.drawText("...",x+cellW-26,2,22,20,juce::Justification::centred);
+        juce::String tags;
+        for(const auto& t:item.tags)if(t.group=="Type"&&t.status!="rejected"){if(tags.isNotEmpty())tags+=", ";tags+=uiText(t.label);}
+        for(const auto& t:item.tags)if(t.group!="Type"&&t.group!="Pack"&&t.status!="rejected"){if(tags.isNotEmpty())tags+=", ";tags+=uiText(t.label);}
+        g.drawFittedText(tags,shifted(layout.wave.isEmpty()?layout.tags.withTrimmedRight(20):layout.tags),juce::Justification::centredLeft,1);
+        const char* instrument="wave";
+        for(const auto& tag:item.tags)if(tag.group=="Instrument"&&tag.status!="rejected"){
+            const auto label=uiText(tag.label).toLowerCase();
+            if(label.contains("drum")||label.contains("percussion")||label.contains("kick")||label.contains("snare")||label.contains("hat")||label.contains("ride")||label.contains("tom"))instrument="track_drums_compact";
+            else if(label.contains("bass"))instrument="track_bass_compact";else if(label.contains("guitar"))instrument="track_guitar_compact";
+            else if(label.contains("piano")||label.contains("key"))instrument="track_piano_compact";else if(label.contains("synth"))instrument="track_synth";break;
         }
-        const int waveTop=gridView?height-35:height-27;
-        const int waveHeight=gridView?26:19;
-        const int waveLeft=left+23;
-        const int waveWidth=std::max(1,right-31);
-        const auto mid=static_cast<float>(waveTop)+waveHeight*.5f;
-        const auto state=previewState?previewState():std::tuple{false,0.f,false};
-        const bool nowPlaying=item.id==activePreviewId&&std::get<0>(state);
-        if(item.id==activePreviewId)paintedPlaying=std::get<0>(state);
-        g.setColour(nowPlaying?juce::Colour(0xffc1e8f7):juce::Colour(0xff80b9dc));
-        g.drawFittedText(nowPlaying?"II":">",left,waveTop,18,waveHeight,
-                         juce::Justification::centred,1);
-        g.setColour(juce::Colour(0xff314256));
-        g.drawHorizontalLine(static_cast<int>(mid),static_cast<float>(waveLeft),
-                             static_cast<float>(waveLeft+waveWidth));
-        if(waveform&&waveform->error.empty()){
-            g.setColour(juce::Colour(selectedCell?0xffb1ddf3:0xff80b9dc));
-            for(int pixel=0;pixel<waveWidth;++pixel){
-                const auto bin=std::min(255,pixel*256/waveWidth);
-                const auto peak=std::clamp(waveform->wav.peaks[static_cast<std::size_t>(bin)],0.f,1.f);
-                const auto size=std::max(0.5f,peak*static_cast<float>(waveHeight-3)*.5f);
-                g.drawVerticalLine(waveLeft+pixel,mid-size,mid+size);
+        if(const auto icon=instrumentArt.find(instrument);icon!=instrumentArt.end()&&icon->second)
+            icon->second->drawWithin(g,shifted(layout.instrument).toFloat(),juce::RectanglePlacement::centred,.7f);
+        g.drawText("...",x+cellW-26,4,22,20,juce::Justification::centred);
+        if(!layout.wave.isEmpty()){
+            const auto waveform=rowWave(item);const auto wave=shifted(layout.wave);
+            const auto state=previewState?previewState():std::tuple{false,0.f,false};
+            const bool active=item.id==activePreviewId;const auto fraction=active?std::clamp(std::get<1>(state),0.f,1.f):0.f;
+            if(active)paintedPlaying=std::get<0>(state);
+            if(waveform&&waveform->error.empty())for(int pixel=0;pixel<wave.getWidth();pixel+=3){
+                const auto first=pixel*256/wave.getWidth(),last=std::min(256,(pixel+3)*256/wave.getWidth()+1);float peak{};
+                for(int bin=first;bin<last;++bin)peak=std::max(peak,waveform->wav.peaks[static_cast<std::size_t>(bin)]);
+                const auto size=std::max(1.f,std::clamp(peak,0.f,1.f)*9.f);
+                g.setColour(active&&pixel<static_cast<int>(fraction*wave.getWidth())?juce::Colour(0xffa9d8f3):juce::Colour(0xff697b91));
+                g.drawVerticalLine(wave.getX()+pixel,wave.getCentreY()-size,wave.getCentreY()+size);
             }
-        }
-        if(item.id==activePreviewId){
-            const int playheadX=waveLeft+static_cast<int>(
-                std::clamp(std::get<1>(state),0.f,1.f)*static_cast<float>(waveWidth));
-            g.setColour(juce::Colour(0xffe7f3fb));
-            g.drawVerticalLine(playheadX,static_cast<float>(waveTop),
-                               static_cast<float>(waveTop+waveHeight));
         }
     }
+}
+LibraryBrowserView::RowLayout LibraryBrowserView::rowLayout(int width,int height) const {
+    RowLayout layout;const int art=gridView?48:40;
+    layout.cover={6,(height-art)/2,art,art};layout.control={art+14,(height-24)/2,24,24};
+    const int text=layout.control.getRight()+8;
+    int end=std::max(text+1,width-30);
+    // Reserve up to 150 px for the filename (less if all page names fit)
+    // and at least 64 px for the waveform;
+    // shrink the common filename column before hiding a usable waveform.
+    const int titleReserve=std::clamp(pageNameWidth,1,150);
+    const int available=width-30-text-32-titleReserve;
+    if(available>=64){
+        const int span=std::min(available,std::clamp(width/5,64,160));int waveX=width-30-span;
+        waveX=std::min(waveX,text+pageNameWidth+32);
+        layout.wave={waveX,(height-20)/2,span,20};layout.instrument={waveX-24,(height-16)/2,16,16};end=waveX-32;
+    }
+    layout.title={text,(height-42)/2,std::max(1,end-text),22};
+    layout.tags={text,layout.title.getBottom(),std::max(1,end-text),18};
+    if(layout.wave.isEmpty())layout.instrument=layout.tags.withX(layout.tags.getRight()-16).withWidth(16);
+    return layout;
+}
+std::string LibraryBrowserView::rowGlyph(const mrs::library::AudioAsset& item,bool focused,bool hovered) const {
+    const auto state=previewState?previewState():std::tuple{false,0.f,false};
+    if(item.id==activePreviewId&&std::get<0>(state))return "stop";
+    if(focused||hovered)return "play";
+    std::string glyph;int types=0;
+    for(const auto& tag:item.tags)if(tag.group=="Type"&&tag.status!="rejected"){
+        ++types;if(tag.label=="Loop")glyph="loop";if(tag.label=="One-shot")glyph="sample_one_shot";
+    }
+    return types==1&&!glyph.empty()?glyph:"unknown";
+}
+void LibraryBrowserView::mouseMove(const juce::MouseEvent& event){
+    const auto point=event.getEventRelativeTo(&results).getPosition();const int row=results.getRowContainingPosition(point.x,point.y);
+    const int index=view&&row>=0?assetIndex(row,point.x):-1;
+    const int next=view&&index>=0&&index<static_cast<int>(view->assets.size())?index:-1;
+    if(next!=hoveredAsset){hoveredAsset=next;results.repaint();}
+}
+void LibraryBrowserView::mouseExit(const juce::MouseEvent& event){
+    if(!results.getLocalBounds().contains(event.getEventRelativeTo(&results).getPosition())){hoveredAsset=-1;results.repaint();}
+}
+juce::ScaledImage LibraryBrowserView::dragImage(int& x,int& y){
+    const auto mouse=results.getMouseXYRelative();x=mouse.x+18;y=mouse.y+12;
+    juce::Image image(juce::Image::ARGB,240,36,true);juce::Graphics g(image);
+    g.setColour(juce::Colour(0xee263244));g.fillRoundedRectangle(image.getBounds().toFloat(),4.f);
+    g.setColour(juce::Colour(0xffa9c2d9));g.drawRoundedRectangle(image.getBounds().toFloat().reduced(.5f),4.f,1.f);
+    juce::String title="Sample";
+    if(!dragPayload.empty()){title=pathText(dragPayload.front().second.filename());if(dragPayload.size()>1)title+=" (+"+juce::String(static_cast<int>(dragPayload.size()-1))+")";}
+    g.setColour(juce::Colours::whitesmoke);g.setFont(Theme::detailFont().withHeight(13.f));g.drawFittedText(title,image.getBounds().reduced(8,4),juce::Justification::centredLeft,1);
+    return juce::ScaledImage(image);
 }
 void LibraryBrowserView::selectedRowsChanged(int){
     if(!rootMode&&cardRows()>0){auto selected=results.getSelectedRows();auto cleaned=selected;
         cleaned.removeRange({0,cardRows()});if(cleaned!=selected)results.setSelectedRows(cleaned);}
-    results.repaint();
+    updateDetails();results.repaint();
 }
 juce::String LibraryBrowserView::getTooltipForRow(int row){
     if(!view)return {};const auto index=assetIndex(row,results.getMouseXYRelative().x);
     if(index<0||index>=static_cast<int>(view->assets.size()))return {};
     const auto& asset=view->assets[static_cast<std::size_t>(index)];juce::String text=uiText(asset.relative_path);
-    for(const auto& tag:asset.tags)if(tag.status!="rejected")text+=" | "+uiText(tag.label);
+    bool typed=false;
+    for(const auto& tag:asset.tags)if(tag.status!="rejected"){
+        text+=" | "+uiText(tag.label);typed=typed||tag.group=="Type";
+        if(tag.group=="Type")text+=" ("+uiText(tag.origin)+", confidence "+juce::String(tag.confidence,2)+")";
+    }
+    if(!typed)text+=" | Type unknown: set One-shot or Loop in Edit Tags";
     return text;
 }
 void LibraryBrowserView::listBoxItemClicked(int row,const juce::MouseEvent& event){
     if(!view)return;
+    if(results.isShowing())results.grabKeyboardFocus();
     if(row<cardRows()){
         const int cell=results.getWidth()/columns(),col=std::clamp(event.x/std::max(1,cell),0,columns()-1),index=row*columns()+col;
         if(index>=static_cast<int>(cards.size()))return;const auto card=cards[static_cast<std::size_t>(index)];
-        if(event.mods.isPopupMenu()||(event.x%cell>=38&&event.x%cell<=62&&event.y<30))coverMenu(card,&results);else openCard(card);return;
+        if(event.mods.isPopupMenu()||(event.x%cell>=38&&event.x%cell<=62&&event.y<30))coverMenu(card,&results,event.getScreenPosition());else openCard(card);return;
     }
     const int index=assetIndex(row,event.x);if(index<0||index>=static_cast<int>(view->assets.size()))return;
     if(gridView)gridSelected=index;
+    updateDetails();
     const int cols=gridView?columns():1,width=results.getWidth()/cols,col=cols==2&&event.x>=width?1:0;
-    if(event.mods.isPopupMenu()||(event.x-col*width>width-30&&event.y<24)){rowMenu(static_cast<std::size_t>(index));return;}
-    const int top=gridView?results.getRowHeight()-35:results.getRowHeight()-27;
-    const int left=col*width+(gridView?74:32)+12,start=left+23,span=std::max(1,width-(gridView?74:32)-51);
-    if(event.y>=top){if(event.x>=left&&event.x<start)audition(static_cast<std::size_t>(index),0.,true);
-        else if(event.x>=start&&event.x<=start+span)audition(static_cast<std::size_t>(index),std::clamp(static_cast<double>(event.x-start)/span,0.,.999999),false);}
+    if(event.mods.isPopupMenu()||(event.x-col*width>width-30&&event.y<24)){rowMenu(static_cast<std::size_t>(index),event.getScreenPosition());return;}
+    const auto layout=rowLayout(width,results.getRowHeight());const auto point=event.getPosition()-juce::Point<int>(col*width,0);
+    if(layout.control.contains(point)){
+        const auto state=previewState?previewState():std::tuple{false,0.f,false};
+        if(view->assets[static_cast<std::size_t>(index)].id==activePreviewId&&std::get<0>(state)){
+            if(previewStop)previewStop();keyboardAudition=false;activePreviewId=0;
+        }else audition(static_cast<std::size_t>(index),0.,false);
+    }else if(!layout.wave.isEmpty()&&layout.wave.contains(point))
+        audition(static_cast<std::size_t>(index),std::clamp(static_cast<double>(point.x-layout.wave.getX())/layout.wave.getWidth(),0.,.999999),false);
     results.repaint();
 }
 void LibraryBrowserView::audition(std::size_t index,double position,bool toggle){
@@ -432,6 +486,7 @@ void LibraryBrowserView::audition(std::size_t index,double position,bool toggle)
     const auto& item=view->assets[index];
     const auto current=previewState?previewState():std::tuple{false,0.f,false};
     if(toggle&&item.id==activePreviewId&&std::get<0>(current)){
+        keyboardAudition=false;
         // Retain position so the next Play resumes from this point.
         if(previewStop)previewStop();
         return;
@@ -446,7 +501,7 @@ void LibraryBrowserView::audition(std::size_t index,double position,bool toggle)
     }
     try{
         if(previewPlay(*wav,position)){
-            activePreviewId=item.id;activePreviewKey=waveKey(item);
+            keyboardAudition=true;activePreviewId=item.id;activePreviewKey=waveKey(item);
         }
         else counter.setText("Preview unavailable: connect audio or stop recording",
                              juce::dontSendNotification);
@@ -462,9 +517,50 @@ void LibraryBrowserView::stepPreview(int delta){
     std::ptrdiff_t index=at==view->assets.end()?0:at-view->assets.begin();
     if(at!=view->assets.end())index+=delta;
     index=std::clamp(index,std::ptrdiff_t{0},static_cast<std::ptrdiff_t>(view->assets.size()-1));
-    audition(static_cast<std::size_t>(index),0.,delta==0);
+    gridSelected=static_cast<int>(index);results.selectRow(cardRows()+static_cast<int>(index)/(gridView?columns():1),false,true);
+    audition(static_cast<std::size_t>(index),0.,delta==0);updateDetails();
+}
+bool LibraryBrowserView::browserKey(const juce::KeyPress& key){
+    if(key.getModifiers().isAnyModifierKeyDown()||rootMode||pendingQuery||!view||view->assets.empty())return false;
+    const bool space=key.isKeyCode(juce::KeyPress::spaceKey);
+    const int delta=key.isKeyCode(juce::KeyPress::upKey)?-1:key.isKeyCode(juce::KeyPress::downKey)?1:0;
+    if(!space&&!delta)return false;
+    int index=gridView?gridSelected:assetIndex(results.getLastRowSelected(),0);
+    const int before=index;
+    if(space){
+        keyboardAudition=!keyboardAudition;
+        if(!keyboardAudition){if(previewStop)previewStop();results.repaint();return true;}
+    }else if(index>=0)index+=delta;
+    index=std::clamp(index,0,static_cast<int>(view->assets.size()-1));
+    if(!space&&index==before)return true;
+    gridSelected=index;results.selectRow(cardRows()+index/(gridView?columns():1),false,true);
+    if(keyboardAudition)audition(static_cast<std::size_t>(index),0.,false);
+    updateDetails();results.repaint();return true;
+}
+void LibraryBrowserView::updateDetails(){
+    juce::String text;
+    const auto selected=selectedAssets();
+    if(view&&!selected.empty())for(const auto& item:view->assets)if(item.id==selected.front()){
+        const auto source=std::find_if(view->sources.begin(),view->sources.end(),[&](const auto& x){return x.id==item.source_id;});
+        if(source!=view->sources.end())text=pathText(source->root)+" / ";
+        text+=uiText(item.relative_path)+"\n";
+        const int bpm=item.manual_bpm?item.manual_bpm:item.detected_bpm;
+        const auto key=item.manual_key.empty()?item.detected_key:item.manual_key;
+        if(bpm>0)text+=juce::String(bpm)+" BPM | ";
+        if(!key.empty()&&key!="-")text+=uiText(key)+" | ";
+        if(std::none_of(item.tags.begin(),item.tags.end(),[](const auto& tag){return tag.group=="Type"&&tag.status!="rejected";}))text+="Type unknown | ";
+        text+=juce::String(item.sample_rate?static_cast<double>(item.frames)/item.sample_rate:0.,2)+" s";
+        if(item.status!="ok")text+=" | "+uiText(item.status);
+        else if(const auto wave=rowWave(item)){
+            if(!wave->error.empty())text+=" | "+uiText(wave->error);
+            else text+=" | "+juce::String(wave->wav.rate)+" Hz / "+juce::String(wave->wav.bits)+" bit / "+juce::String(wave->wav.channels)+" ch";
+        }
+        break;
+    }
+    details.setText(text,juce::dontSendNotification);details.setTooltip(text);
 }
 void LibraryBrowserView::timerCallback(){
+    updateDetails();
     const auto ready=readyImages.load(std::memory_order_acquire);
     const auto wave=wavesReady.load(std::memory_order_acquire);
     const auto playback=previewState?previewState():std::tuple{false,0.f,false};
@@ -492,7 +588,7 @@ std::optional<LibraryBrowserView::RowWave> LibraryBrowserView::rowWave(
     const auto cacheKey=waveKey(asset);
     if(cacheKey.empty())return {};
     std::lock_guard lock(waveMutex);
-    if(const auto found=waveCache.find(cacheKey);found!=waveCache.end())return found->second;
+    if(const auto found=waveCache.find(cacheKey);found!=waveCache.end()){found->second.lastUse=++waveUse;return found->second;}
     if(waveQueue.size()<20&&waveRequested.insert(cacheKey).second){
         waveQueue.push_back({cacheKey,view,asset.id,waveCancel});
         waveWake.notify_one();
@@ -589,11 +685,21 @@ void LibraryBrowserView::toggleTag(std::string group,std::string label,bool excl
     if(found==entries.end())entries.push_back({group,label});else entries.erase(found);
     std::erase_if(opposite,matches);rootMode=false;query.offset=0;sendQuery();
 }
+juce::PopupMenu LibraryBrowserView::popupMenu(){
+    juce::PopupMenu menu;menu.setLookAndFeel(&getLookAndFeel());return menu;
+}
+juce::PopupMenu::Options LibraryBrowserView::popupOptions(juce::Component* anchor,std::optional<juce::Point<int>> point) const {
+    auto popupSettings=juce::PopupMenu::Options{}.withTargetComponent(anchor);
+    const auto mouse=juce::Desktop::getInstance().getMainMouseSource().getScreenPosition().roundToInt();
+    if(point||(anchor&&anchor->getScreenBounds().contains(mouse))){const auto at=point.value_or(mouse);return popupSettings.withTargetScreenArea({at.x,at.y,1,1});}
+    return popupSettings; // keyboard invocation keeps the focused control as its anchor
+}
 void LibraryBrowserView::filterMenu(const std::string& group,juce::Component* anchor){
-    if(!view)return;juce::PopupMenu menu,excluded;
+    if(!view)return;auto menu=popupMenu(),excluded=popupMenu();
     std::vector<std::string> labels;
+    if(group=="Type")labels={"One-shot","Loop"};
     // Retain selected values when another condition removes their facet count.
-    for(const auto& facet:view->all_facets)if(facet.group==group)labels.push_back(facet.label);
+    for(const auto& facet:view->all_facets)if(facet.group==group&&std::find(labels.begin(),labels.end(),facet.label)==labels.end())labels.push_back(facet.label);
     for(const auto& filters:{query.tags,query.excluded_tags})for(const auto& tag:filters)
         if(tag.group==group&&std::find(labels.begin(),labels.end(),tag.label)==labels.end())labels.push_back(tag.label);
     const auto selected=[&](const auto& tags,const std::string& label){return std::any_of(tags.begin(),tags.end(),[&](const auto& x){return x.group==group&&x.label==label;});};
@@ -604,7 +710,7 @@ void LibraryBrowserView::filterMenu(const std::string& group,juce::Component* an
     }
     menu.addSubMenu("Exclude",excluded);menu.addSeparator();menu.addItem(3000,"Clear "+uiText(group));
     juce::Component::SafePointer<LibraryBrowserView> safe(this);
-    menu.showMenuAsync(juce::PopupMenu::Options{}.withTargetComponent(anchor),[safe,group,labels](int choice){
+    menu.showMenuAsync(popupOptions(anchor),[safe,group,labels](int choice){
         if(!safe||choice==0)return;
         if(choice==3000){std::erase_if(safe->query.tags,[&](const auto& x){return x.group==group;});std::erase_if(safe->query.excluded_tags,[&](const auto& x){return x.group==group;});safe->query.offset=0;safe->sendQuery();}
         else {const bool exclude=choice>=1001;const auto index=static_cast<std::size_t>(choice-(exclude?1001:1));if(index<labels.size())safe->toggleTag(group,labels[index],exclude);}
@@ -617,9 +723,9 @@ void LibraryBrowserView::prompt(juce::String title,juce::String initial,std::fun
     dialog->enterModalState(true,juce::ModalCallbackFunction::create([safe,dialog,apply=std::move(apply)](int result){if(safe&&result)apply(dialog->getTextEditorContents("value").trim());}),true);
 }
 void LibraryBrowserView::musicalMenu(bool bpm,juce::Component* anchor){
-    juce::PopupMenu menu;juce::Component::SafePointer<LibraryBrowserView> safe(this);
+    auto menu=popupMenu();juce::Component::SafePointer<LibraryBrowserView> safe(this);
     if(bpm){menu.addItem(1,"Exact BPM...");menu.addItem(2,"BPM range...");menu.addItem(3,"Clear BPM");
-        menu.showMenuAsync(juce::PopupMenu::Options{}.withTargetComponent(anchor),[safe](int choice){
+        menu.showMenuAsync(popupOptions(anchor),[safe](int choice){
             if(!safe||!choice)return;if(choice==3){safe->query.bpm_min=0;safe->query.bpm_max=0;safe->query.offset=0;safe->sendQuery();return;}
             safe->prompt(choice==1?"Exact BPM":"BPM range: min-max",{},[safe,choice](juce::String value){
                 if(!safe)return;const auto parts=juce::StringArray::fromTokens(value,"-","");
@@ -632,14 +738,14 @@ void LibraryBrowserView::musicalMenu(bool bpm,juce::Component* anchor){
         for(const auto* note:{"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"})for(const bool minor:{false,true})keys.push_back(std::string(note)+(minor?"m":" major"));
         for(std::size_t i=0;i<keys.size();++i)menu.addItem(static_cast<int>(i)+1,uiText(keys[i]),true,query.key==keys[i]);
         menu.addItem(100,"Unknown",true,query.key=="?");menu.addItem(101,"Any key");
-        menu.showMenuAsync(juce::PopupMenu::Options{}.withTargetComponent(anchor),[safe,keys](int choice){
+        menu.showMenuAsync(popupOptions(anchor),[safe,keys](int choice){
             if(!safe||!choice)return;safe->query.key=choice==100?"?":choice==101?"":keys[static_cast<std::size_t>(choice-1)];safe->rootMode=false;safe->query.offset=0;safe->sendQuery();});
     }
 }
-void LibraryBrowserView::coverMenu(Card card,juce::Component* anchor){
-    juce::PopupMenu menu;menu.addItem(1,"Choose cover...");menu.addItem(2,"Reset cover");
+void LibraryBrowserView::coverMenu(Card card,juce::Component* anchor,std::optional<juce::Point<int>> point){
+    auto menu=popupMenu();menu.addItem(1,"Choose cover...");menu.addItem(2,"Reset cover");
     juce::Component::SafePointer<LibraryBrowserView> safe(this);
-    menu.showMenuAsync(juce::PopupMenu::Options{}.withTargetComponent(anchor),[safe,card](int choice){if(safe&&choice)safe->chooseArtwork(card,choice==2);});
+    menu.showMenuAsync(popupOptions(anchor,point),[safe,card](int choice){if(safe&&choice)safe->chooseArtwork(card,choice==2);});
 }
 void LibraryBrowserView::chooseArtwork(Card card,bool clear){
     if(clear){library.set_cover(card.kind,card.owner,card.key,{});return;}
@@ -649,25 +755,25 @@ void LibraryBrowserView::chooseArtwork(Card card,bool clear){
         if(safe&&chooser.getResult().existsAsFile())safe->library.set_cover(card.kind,card.owner,card.key,std::filesystem::path(chooser.getResult().getFullPathName().toWideCharPointer()));
     });
 }
-void LibraryBrowserView::rowMenu(std::size_t index){
+void LibraryBrowserView::rowMenu(std::size_t index,juce::Point<int> point){
     if(!view||index>=view->assets.size())return;const auto item=view->assets[index];
     auto ids=selectedAssets();if(std::find(ids.begin(),ids.end(),item.id)==ids.end())ids={item.id};
     const auto path=mrs::library::asset_path(*view,item.id);
-    juce::PopupMenu menu,add;menu.addItem(1,item.favorite?"Remove from Likes":"Add to Likes");
+    auto menu=popupMenu(),add=popupMenu();menu.addItem(1,item.favorite?"Remove from Likes":"Add to Likes");
     for(std::size_t i=0;i<view->collections.size();++i)add.addItem(100+static_cast<int>(i),uiText(view->collections[i].name));
     menu.addSubMenu("Add to collection",add);menu.addItem(2,"Create collection...");
     if(query.collection_id)menu.addItem(3,"Remove from this collection");
-    juce::PopupMenu tagMenu;
-    const std::array<std::string,7> tagGroups={"Instrument","Genre","Type","Technique","Rhythm","Character","Custom"};
+    auto tagMenu=popupMenu();
+    const std::array<std::string,8> tagGroups={"Instrument","Genre","Pack","Type","Technique","Rhythm","Character","Custom"};
     for(std::size_t i=0;i<tagGroups.size();++i)tagMenu.addItem(400+static_cast<int>(i),uiText(tagGroups[i]));
     menu.addSubMenu("Add tag",tagMenu);menu.addItem(5,"Show WAV in Explorer",path.has_value());menu.addItem(6,"Show containing folder",path.has_value());
     juce::Component::SafePointer<LibraryBrowserView> safe(this);const auto collections=view->collections;const auto collection=query.collection_id;
-    menu.showMenuAsync(juce::PopupMenu::Options{}.withTargetComponent(&results),[safe,item,ids,path,collections,collection,tagGroups](int choice){
+    menu.showMenuAsync(popupOptions(&results,point),[safe,item,ids,path,collections,collection,tagGroups](int choice){
         if(!safe||!choice)return;
         if(choice==1)safe->library.set_favorites(ids,!item.favorite);
         else if(choice==2)safe->prompt("New collection",{},[safe](juce::String value){if(safe&&value.isNotEmpty())safe->library.create_collection(value.toStdString());});
         else if(choice==3)safe->library.set_collection_items(collection,ids,false);
-        else if(choice>=400&&choice<407){const auto group=tagGroups[static_cast<std::size_t>(choice-400)];
+        else if(choice>=400&&choice<400+static_cast<int>(tagGroups.size())){const auto group=tagGroups[static_cast<std::size_t>(choice-400)];
             safe->prompt("New "+uiText(group)+" tag",{},[safe,ids,group](juce::String label){if(safe&&label.isNotEmpty())safe->library.add_tag(ids,group,label.toStdString());});}
         else if(choice==5&&path)juce::File(pathText(*path)).revealToUser();
         else if(choice==6&&path)juce::File(pathText(path->parent_path())).revealToUser();
@@ -675,11 +781,11 @@ void LibraryBrowserView::rowMenu(std::size_t index){
     });
 }
 void LibraryBrowserView::optionsMenu(){
-    juce::PopupMenu menu;menu.addItem(1,"Create collection...");menu.addItem(2,"Rescan libraries");
+    auto menu=popupMenu();menu.addItem(1,"Create collection...");menu.addItem(2,"Rescan libraries");
     if(query.collection_id){menu.addItem(3,"Delete this collection");menu.addItem(4,"Collection cover...");}
     if(query.source_id&&section==Section::folders)menu.addItem(5,"Folder cover...");
     juce::Component::SafePointer<LibraryBrowserView> safe(this);const auto collection=query.collection_id;
-    menu.showMenuAsync(juce::PopupMenu::Options{}.withTargetComponent(&options),[safe,collection](int choice){
+    menu.showMenuAsync(popupOptions(&options),[safe,collection](int choice){
         if(!safe)return;
         if(choice==1)safe->prompt("New collection",{},[safe](juce::String name){if(safe&&name.isNotEmpty())safe->library.create_collection(name.toStdString());});
         else if(choice==2){safe->invalidatePreview();safe->library.rescan();}

@@ -12,6 +12,9 @@
 #include <mrs/vst3.hpp>
 #include <future>
 #include <set>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 
 namespace ui {
 namespace kit { class MRNativeParameterHost; }
@@ -381,6 +384,7 @@ public:
     void itemDragMove(const SourceDetails&) override;
     void itemDragExit(const SourceDetails&) override;
     std::vector<juce::Rectangle<float>> midiDropRects() const;
+    std::vector<juce::Rectangle<float>> wavDropRects() const;
     bool isInterestedInDragSource(const SourceDetails&) override;
     void itemDropped(const SourceDetails&) override;
     void zoom(double);void fit();
@@ -412,6 +416,15 @@ public:
     std::unique_ptr<class MarkerTrack> markers;
 private:
     Desktop& owner;
+    // One bounded latest-request worker; no WAV I/O in drag/paint callbacks.
+    struct DropWave {std::uint64_t frames{};std::uint32_t rate{};};
+    mutable std::mutex dropMutex;
+    std::condition_variable_any dropWake;
+    std::jthread dropWorker;
+    juce::StringArray pendingDropFiles;
+    std::vector<DropWave> dropWaves;
+    std::uint64_t dropGeneration{};
+    bool dropRequested{};
     juce::StringArray dropFiles;
     std::vector<mrs::MidiPart> dropParts;
     std::optional<juce::Point<int>> dropPoint;

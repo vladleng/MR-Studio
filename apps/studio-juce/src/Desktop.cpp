@@ -499,7 +499,7 @@ bool Desktop::shortcutAllowed() const {return shortcutAllowedFor(juce::Component
 bool Desktop::shortcutAllowedFor(juce::Component* focused) const {
     if(juce::Component::getCurrentlyModalComponent()!=nullptr)return false;
     if(focused && focused!=this && !isParentOf(focused))return false;
-    for(auto* c=focused;c&&c!=this;c=c->getParentComponent())if(dynamic_cast<juce::TextEditor*>(c)||dynamic_cast<juce::ComboBox*>(c))return false;
+    for(auto* c=focused;c&&c!=this;c=c->getParentComponent())if(c->getComponentID()=="mr-library-browser"||dynamic_cast<juce::TextEditor*>(c)||dynamic_cast<juce::ComboBox*>(c))return false;
     return true;
 }
 bool Desktop::workspaceShortcut(const juce::KeyPress& k){if(homeVisible||k.getModifiers().isAnyModifierKeyDown()||juce::Component::getCurrentlyModalComponent())return false;
@@ -1005,11 +1005,30 @@ void Arrangement::setLaneVisible(int index,bool visible){
     resized();repaint();owner.refresh();owner.saveSettings();
 }
 Arrangement::Arrangement(Desktop& d):owner(d),playhead([this]{const float x=static_cast<float>(left+owner.visualSample()/owner.project()->sample_rate*pixelsPerSecond-horizontal);return x>=left&&x<getWidth()?juce::Rectangle<float>{x,0.f,1.f,static_cast<float>(getHeight())}:juce::Rectangle<float>{};}){setWantsKeyboardFocus(true);addAndMakeVisible(rowsBody);rowsBody.setInterceptsMouseClicks(false,true);meters=std::make_unique<MeterTrack>(owner,*this);addAndMakeVisible(*meters);tempos=std::make_unique<TempoTrack>(owner,*this);addAndMakeVisible(*tempos);sections=std::make_unique<SectionTrack>(owner,*this);addAndMakeVisible(*sections);chords=std::make_unique<ChordTrack>(owner,*this);addAndMakeVisible(*chords);markers=std::make_unique<MarkerTrack>(owner,*this);addAndMakeVisible(*markers);addAndMakeVisible(playhead);
+    const juce::Component::SafePointer<Arrangement> safe(this);
+    dropWorker=std::jthread([this,safe](std::stop_token stop){
+        for(;;){
+            juce::StringArray files;std::uint64_t generation{};
+            {std::unique_lock lock(dropMutex);dropWake.wait(lock,stop,[this]{return dropRequested;});
+                if(stop.stop_requested())return;
+                files=pendingDropFiles;generation=dropGeneration;dropRequested=false;}
+            std::vector<DropWave> waves;
+            try{for(const auto& file:files){
+                {std::lock_guard lock(dropMutex);if(stop.stop_requested()||generation!=dropGeneration)break;}
+                const auto wav=mrs::audio::inspect_wav(path(juce::File(file)));
+                waves.push_back({static_cast<std::uint64_t>(wav.frame_count),wav.sample_rate});
+            }}catch(...){waves.clear();}
+            {std::lock_guard lock(dropMutex);if(stop.stop_requested())return;
+                if(generation!=dropGeneration)continue;
+                dropWaves=std::move(waves);}
+            juce::MessageManager::callAsync([safe]{if(safe)safe->repaint();});
+        }
+    });
     const std::array<juce::String,5> names{"Markers","Sections","Chord Track","Tempo","Meter"};
     for(int i=0;i<5;++i){laneButtons[i]=std::make_unique<LaneButton>(owner,names[i],i);addAndMakeVisible(*laneButtons[i]);laneButtons[i]->onClick=[this,i]{setLaneVisible(i,!laneVisible(i));};}
 }
-Arrangement::~Arrangement() = default;
-void Arrangement::rebuild(){std::vector<std::unique_ptr<Strip>> next;for(const auto& t:owner.project()->tracks){auto at=std::find_if(rows.begin(),rows.end(),[&](const auto& row){return row&&row->target==t.id;});if(at!=rows.end())next.push_back(std::move(*at));else{auto row=std::make_unique<Strip>(owner,t.id,true);rowsBody.addAndMakeVisible(*row);next.push_back(std::move(row));}}rows=std::move(next);resized();}
+Arrangement::~Arrangement(){dropWorker.request_stop();dropWake.notify_all();if(dropWorker.joinable())dropWorker.join();}
+void Arrangement::rebuild(){fileDragExit({});std::vector<std::unique_ptr<Strip>> next;for(const auto& t:owner.project()->tracks){auto at=std::find_if(rows.begin(),rows.end(),[&](const auto& row){return row&&row->target==t.id;});if(at!=rows.end())next.push_back(std::move(*at));else{auto row=std::make_unique<Strip>(owner,t.id,true);rowsBody.addAndMakeVisible(*row);next.push_back(std::move(row));}}rows=std::move(next);resized();}
 void Arrangement::resized(){vertical=juce::jlimit(0.f,static_cast<float>(juce::jmax(0,static_cast<int>(rows.size())*trackHeight-(getHeight()-headerHeight()))),vertical);
     const std::array<juce::Component*,5> lanes{markers.get(),sections.get(),chords.get(),tempos.get(),meters.get()};
     constexpr std::array<int,5> heights{24,33,24,32,32};int laneY=20;
@@ -1151,6 +1170,14 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
             if(c.id==owner.selectedClip||owner.selectedClips.contains(c.id.value)){const auto maxWidth=juce::jmax(6.f,width-6);g.fillRect(r.getX()+juce::jlimit(6.f,maxWidth,inWidth)-3,r.getY()+23,6.f,6.f);g.fillRect(r.getRight()-juce::jlimit(6.f,maxWidth,outWidth)-3,r.getY()+23,6.f,6.f);}}
 
     }
+    {juce::Graphics::ScopedSaveState save(g);g.reduceClipRegion(juce::Rectangle<int>(left,headerHeight(),getWidth()-left,getHeight()-headerHeight()));
+        const auto ghosts=wavDropRects();
+        for(std::size_t i=0;i<ghosts.size();++i){const auto& rect=ghosts[i];
+            g.setColour(owner.selectionColour().withAlpha(.25f));g.fillRoundedRectangle(rect,cornerRadius);
+            g.setColour(owner.selectionColour().withAlpha(.8f));g.drawRoundedRectangle(rect.reduced(.5f),cornerRadius,1.f);
+            g.drawText(juce::File(dropFiles[static_cast<int>(i)]).getFileName(),rect.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);
+        }
+    }
     {juce::Graphics::ScopedSaveState save(g);g.reduceClipRegion(juce::Rectangle<int>(left,headerHeight(),getWidth()-left,getHeight()-headerHeight()));for(const auto& rect:midiDropRects()){g.setColour(owner.selectionColour().withAlpha(.25f));g.fillRoundedRectangle(rect,cornerRadius);g.setColour(owner.selectionColour().withAlpha(.8f));g.drawRoundedRectangle(rect.reduced(.5f),cornerRadius,1.f);g.drawText("MIDI",rect.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);}}
     for(const auto& c:owner.recordingPreview){auto r=clipRect(c);g.setColour(juce::Colour(0xff683741).withAlpha(.72f));g.fillRoundedRectangle(r,cornerRadius);g.setColour(juce::Colours::salmon);g.drawRoundedRectangle(r.reduced(.5f),cornerRadius,borderWidth);g.drawText("Recording MIDI",r.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);g.saveState();g.reduceClipRegion(r.toNearestInt().reduced(1));for(const auto& n:c.midi->notes){const auto begin=std::max(n.start,c.midi->source_offset),end=std::min(n.start+n.length,c.midi->source_offset+c.midi->length);if(begin>=end)continue;const float x=static_cast<float>(left+static_cast<double>(time.to_samples(c.midi->start+begin-c.midi->source_offset))/p->sample_rate*pixelsPerSecond-horizontal);const float width=static_cast<float>(static_cast<double>(time.to_samples(c.midi->start+end-c.midi->source_offset)-time.to_samples(c.midi->start+begin-c.midi->source_offset))/p->sample_rate*pixelsPerSecond);g.fillRect(x,r.getY()+25+(127-n.pitch)/127.f*juce::jmax(1.f,r.getHeight()-32),juce::jmax(2.f,width),3.f);}g.restoreState();}
     for(const auto& preview:owner.audioRecordingPreview){auto r=clipRect(preview.clip);g.setColour(juce::Colour(0xff683741).withAlpha(.72f));g.fillRoundedRectangle(r,cornerRadius);g.setColour(juce::Colours::salmon);g.drawRoundedRectangle(r.reduced(.5f),cornerRadius,borderWidth);g.drawText("Recording audio",r.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);if(preview.waveform)drawRecordingWaveform(g,*preview.waveform,r.withTrimmedTop(22),p->sample_rate/pixelsPerSecond,static_cast<double>(preview.clip.source_offset));}
@@ -1248,10 +1275,14 @@ bool Arrangement::isInterestedInFileDrag(const juce::StringArray& files){if(file
 std::optional<mrs::Id> Arrangement::midiDropTarget(int y) const {const int at=trackAt(static_cast<float>(y));const auto p=owner.project();if(y>=headerHeight()&&at>=0&&at<static_cast<int>(p->tracks.size())&&p->tracks[static_cast<std::size_t>(at)].kind==mrs::TrackKind::instrument)return p->tracks[static_cast<std::size_t>(at)].id;return {};}
 mrs::Tick Arrangement::midiDropTick(int x) const {const auto p=owner.project();return mrs::Timeline(p->time,p->sample_rate).to_ticks(x<left?0:sampleAt(static_cast<float>(x)));}
 void Arrangement::fileDragMove(const juce::StringArray& files,int x,int y){
-    if(files!=dropFiles){dropFiles=files;dropParts.clear();if(isInterestedInFileDrag(files)&&juce::File(files[0]).hasFileExtension("mid;midi")){try{for(const auto& file:files){auto parts=mrs::load_midi_file(path(juce::File(file)));if(dropParts.size()+parts.size()>128)throw std::runtime_error("Too many MIDI parts");dropParts.insert(dropParts.end(),std::make_move_iterator(parts.begin()),std::make_move_iterator(parts.end()));}}catch(...){dropParts.clear();}}}
-    dropPoint=y>=headerHeight()?std::optional<juce::Point<int>>{{x,y}}:std::nullopt;repaint();
+    if(files!=dropFiles){dropFiles=files;dropParts.clear();
+        {std::lock_guard lock(dropMutex);++dropGeneration;dropRequested=false;dropWaves.clear();pendingDropFiles.clear();
+            if(isInterestedInFileDrag(files)&&files.size()<=128&&juce::File(files[0]).hasFileExtension("wav")){pendingDropFiles=files;dropRequested=true;dropWake.notify_one();}}
+        if(isInterestedInFileDrag(files)&&juce::File(files[0]).hasFileExtension("mid;midi")){try{for(const auto& file:files){auto parts=mrs::load_midi_file(path(juce::File(file)));if(dropParts.size()+parts.size()>128)throw std::runtime_error("Too many MIDI parts");dropParts.insert(dropParts.end(),std::make_move_iterator(parts.begin()),std::make_move_iterator(parts.end()));}}catch(...){dropParts.clear();}}}
+    dropPoint=y>=headerHeight()?std::optional<juce::Point<int>>{{x,y}}:std::nullopt;
+    playhead.setVisible(files.isEmpty()||!juce::File(files[0]).hasFileExtension("wav"));repaint();
 }
-void Arrangement::fileDragExit(const juce::StringArray&){dropFiles.clear();dropParts.clear();dropPoint.reset();repaint();}
+void Arrangement::fileDragExit(const juce::StringArray&){{std::lock_guard lock(dropMutex);++dropGeneration;dropRequested=false;pendingDropFiles.clear();dropWaves.clear();}dropFiles.clear();dropParts.clear();dropPoint.reset();playhead.setVisible(true);playhead.update();repaint();}
 void Arrangement::itemDragMove(const SourceDetails& s){
 #ifdef MRS_HAS_ARA
     araDropClip.reset();if(owner.isAraPluginDrag(s.description)){const auto id=clipAt(s.localPosition.toFloat());if(id){const auto p=owner.project();if(std::any_of(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==*id&&!c.midi;}))araDropClip=id;}}repaint();
@@ -1262,6 +1293,27 @@ void Arrangement::itemDragExit(const SourceDetails&){araDropClip.reset();fileDra
 std::vector<juce::Rectangle<float>> Arrangement::midiDropRects() const {
     std::vector<juce::Rectangle<float>> result;if(!dropPoint)return result;const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);const auto tick=midiDropTick(dropPoint->x);const auto target=midiDropTarget(dropPoint->y);int next=static_cast<int>(p->tracks.size());
     for(std::size_t i=0;i<dropParts.size();++i){int row=next++;if(i==0&&target){--next;row=trackAt(static_cast<float>(dropPoint->y));}if(dropParts[i].midi.length>mrs::max_tick-tick)continue;const auto begin=time.to_samples(tick),end=time.to_samples(tick+dropParts[i].midi.length);result.push_back({static_cast<float>(left+static_cast<double>(begin)/p->sample_rate*pixelsPerSecond-horizontal),static_cast<float>(headerHeight()+row*trackHeight-vertical+1),std::max(2.f,static_cast<float>(static_cast<double>(end-begin)/p->sample_rate*pixelsPerSecond)),static_cast<float>(trackHeight-2)});}
+    return result;
+}
+std::vector<juce::Rectangle<float>> Arrangement::wavDropRects() const {
+    std::vector<juce::Rectangle<float>> result;
+    if(!dropPoint||dropFiles.isEmpty()||!juce::File(dropFiles[0]).hasFileExtension("wav"))return result;
+    const auto p=owner.project();const int at=trackAt(static_cast<float>(dropPoint->y));
+    const bool target=at>=0&&at<static_cast<int>(p->tracks.size());
+    if(target&&p->tracks[static_cast<std::size_t>(at)].kind!=mrs::TrackKind::audio)return result;
+    std::vector<DropWave> waves;{std::lock_guard lock(dropMutex);waves=dropWaves;}
+    if(waves.size()!=static_cast<std::size_t>(dropFiles.size()))return result;
+    mrs::Sample start=dropPoint->x<left?0:sampleAt(static_cast<float>(dropPoint->x));
+    int row=target?at:static_cast<int>(p->tracks.size());
+    for(const auto& wave:waves){
+        if(!wave.rate||!wave.frames)return {};
+        const auto frames=(wave.frames*p->sample_rate+wave.rate-1)/wave.rate;
+        if(frames>static_cast<std::uint64_t>(mrs::max_sample-start))return {};
+        result.push_back({static_cast<float>(left+static_cast<double>(start)/p->sample_rate*pixelsPerSecond-horizontal),
+            static_cast<float>(headerHeight()+row*trackHeight-vertical+1),
+            std::max(2.f,static_cast<float>(static_cast<double>(frames)/p->sample_rate*pixelsPerSecond)),static_cast<float>(trackHeight-2)});
+        if(target)start+=static_cast<mrs::Sample>(frames);else ++row;
+    }
     return result;
 }
 void Arrangement::filesDropped(const juce::StringArray& files,int x,int y){fileDragExit(files);owner.run([&]{

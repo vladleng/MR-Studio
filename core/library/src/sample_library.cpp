@@ -1,5 +1,6 @@
 #include <mrs/sample_library.hpp>
 #include <mrs/sample_tag_rules.hpp>
+#include <mrs/sample_preview.hpp>
 #include <mrs/audio.hpp>
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -148,10 +149,10 @@ struct Statement {
 void create_schema(Database& d) {
     Statement version(d, "PRAGMA user_version");
     const auto v = version.next() ? sqlite3_column_int(version.stmt, 0) : -1;
-    if (v < 0 || v > 4) throw std::runtime_error("Unsupported MR Library database schema");
-    if (v == 4) return;
+    if (v < 0 || v > 5) throw std::runtime_error("Unsupported MR Library database schema");
+    if (v == 5) return;
     if(v>0){
-        auto path=d.filename;path+=".pre-v4-"+new_id().value+".sqlite";
+        auto path=d.filename;path+=".pre-v5-"+new_id().value+".sqlite";
         sqlite3* destination{};sqlite3_backup* backup{};
         try{
             const auto name=utf8(path);
@@ -229,9 +230,34 @@ void create_schema(Database& d) {
         }
         }
         d.exec("CREATE TABLE IF NOT EXISTS managed_covers (kind TEXT NOT NULL,owner INTEGER NOT NULL,key TEXT NOT NULL,image TEXT NOT NULL,PRIMARY KEY(kind,owner,key))");
-        d.exec("PRAGMA user_version=4");
+        d.exec("CREATE TABLE IF NOT EXISTS audio_type_analysis (asset_id INTEGER PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,"
+               " bytes INTEGER NOT NULL,modified INTEGER NOT NULL,root TEXT NOT NULL,version INTEGER NOT NULL,"
+               " label TEXT NOT NULL,confidence REAL NOT NULL,reason TEXT NOT NULL)");
+        d.exec("PRAGMA user_version=5");
         d.exec("COMMIT");
     } catch (...) { d.exec("ROLLBACK"); throw; }
+}
+// Taxonomy correction is idempotent data normalization, not a schema change.
+// Retain tag IDs/history when possible; merge a duplicate into its existing Instrument tag.
+void normalize_types(Database& d){
+    Statement list(d,"SELECT id,label FROM tags WHERE group_name='Type' AND label NOT IN ('Loop','One-shot')");
+    std::vector<std::pair<std::int64_t,std::string>> old;
+    while(list.next())old.emplace_back(sqlite3_column_int64(list.stmt,0),reinterpret_cast<const char*>(sqlite3_column_text(list.stmt,1)));
+    for(const auto& [id,label]:old){
+        Statement find(d,"SELECT id FROM tags WHERE group_name='Instrument' AND label=?");find.str(1,label);
+        if(find.next()){
+            const auto target=sqlite3_column_int64(find.stmt,0);find.reset();
+            Statement copy(d,"INSERT INTO asset_tags SELECT asset_id,?,origin,status,confidence FROM asset_tags WHERE tag_id=? ON CONFLICT(asset_id,tag_id) DO UPDATE SET origin=excluded.origin,status=excluded.status,confidence=excluded.confidence WHERE asset_tags.status='proposed' AND excluded.status!='proposed'");copy.number(1,target);copy.number(2,id);copy.done();
+            Statement history(d,"UPDATE tag_edit_history SET tag_id=? WHERE tag_id=?");history.number(1,target);history.number(2,id);history.done();
+            Statement clear(d,"DELETE FROM asset_tags WHERE tag_id=?");clear.number(1,id);clear.done();
+            Statement erase(d,"DELETE FROM tags WHERE id=?");erase.number(1,id);erase.done();
+        }else{
+            find.reset();Statement move(d,"UPDATE tags SET group_name='Instrument' WHERE id=?");move.number(1,id);move.done();
+        }
+        Statement cover(d,"UPDATE OR IGNORE managed_covers SET key=? WHERE kind='tag' AND key=?");
+        cover.str(1,"Instrument|"+label);cover.str(2,"Type|"+label);cover.done();
+    }
+    d.exec("UPDATE OR IGNORE classification_rules SET group_name='Instrument' WHERE group_name='Type' AND label NOT IN ('Loop','One-shot')");
 }
 std::vector<TagRule> read_rules(Database& d) {
     std::vector<TagRule> rules;
@@ -242,25 +268,68 @@ std::vector<TagRule> read_rules(Database& d) {
     }
     return rules;
 }
-void classify_assets(Database& d,const std::optional<std::int64_t> source = {}) {
+struct Cancelled : std::runtime_error { Cancelled() : std::runtime_error("Scan cancelled") {} };
+void classify_assets(Database& d,const std::optional<std::int64_t> source = {},const std::function<bool()>& cancelled = {}) {
     const auto rules=read_rules(d);
-    struct Asset {std::int64_t id;std::string path;};
+    struct Asset {std::int64_t id,sourceId,bytes,modified;std::string path,relative,root;bool enabled;};
     std::vector<Asset> items;
-    Statement list(d,"SELECT id,relative_path FROM assets WHERE status='ok' AND (?=0 OR source_id=?) ORDER BY id");
+    Statement list(d,"SELECT a.id,a.relative_path,s.path,a.source_id,a.bytes,a.modified,s.enabled FROM assets a JOIN sources s ON s.id=a.source_id WHERE a.status='ok' AND (?=0 OR a.source_id=?) ORDER BY a.id");
     list.number(1,source.value_or(0));list.number(2,source.value_or(0));
     while(list.next()){
         const auto* name=sqlite3_column_text(list.stmt,1);
-        items.push_back({sqlite3_column_int64(list.stmt,0),name?reinterpret_cast<const char*>(name):""});
+        const auto* root=sqlite3_column_text(list.stmt,2);
+        const auto prefix=root?utf8(from_utf8(reinterpret_cast<const char*>(root)).filename()):std::string{};
+        const std::string relative=name?reinterpret_cast<const char*>(name):"",rootPath=root?reinterpret_cast<const char*>(root):"";
+        items.push_back({sqlite3_column_int64(list.stmt,0),sqlite3_column_int64(list.stmt,3),sqlite3_column_int64(list.stmt,4),sqlite3_column_int64(list.stmt,5),prefix+"/"+relative,relative,rootPath,sqlite3_column_int(list.stmt,6)!=0});
     }
     Statement clear(d,"DELETE FROM asset_tags WHERE asset_id=? AND status='proposed'");
     Statement make(d,"INSERT OR IGNORE INTO tags(group_name,label) VALUES(?,?)");
     Statement find(d,"SELECT id FROM tags WHERE group_name=? AND label=?");
     Statement put(d,"INSERT OR IGNORE INTO asset_tags(asset_id,tag_id,origin,status,confidence) VALUES(?,?,?,'proposed',?)");
     Statement typed(d,"UPDATE assets SET bpm_auto=?,key_auto=? WHERE id=?");
+    Statement manualType(d,"SELECT 1 FROM asset_tags at JOIN tags t ON t.id=at.tag_id WHERE at.asset_id=? AND t.group_name='Type' AND at.status='confirmed' LIMIT 1");
+    Statement manualPack(d,"SELECT 1 FROM asset_tags at JOIN tags t ON t.id=at.tag_id WHERE at.asset_id=? AND t.group_name='Pack' AND at.status='confirmed' LIMIT 1");
+    Statement cachedAudio(d,"SELECT label,confidence,reason FROM audio_type_analysis WHERE asset_id=? AND bytes=? AND modified=? AND root=? AND version=1");
+    Statement saveAudio(d,"INSERT INTO audio_type_analysis(asset_id,bytes,modified,root,version,label,confidence,reason) VALUES(?,?,?,?,1,?,?,?) ON CONFLICT(asset_id) DO UPDATE SET bytes=excluded.bytes,modified=excluded.modified,root=excluded.root,version=excluded.version,label=excluded.label,confidence=excluded.confidence,reason=excluded.reason");
     for(const auto& item:items){
-        const auto suggestion=classify_sample_path(item.path,rules);
+        if(cancelled&&cancelled())throw Cancelled();
+        auto suggestion=classify_sample_path(item.path,rules);
         clear.reset();clear.number(1,item.id);clear.done();
+        manualType.reset();manualType.number(1,item.id);const bool hasManualType=manualType.next();manualType.reset();
+        manualPack.reset();manualPack.number(1,item.id);const bool hasManualPack=manualPack.next();manualPack.reset();
+        const bool explicitType=std::any_of(suggestion.tags.begin(),suggestion.tags.end(),[](const auto& tag){return tag.group=="Type"&&tag.confidence>=.85;});
+        // Signal analysis supplies Type for arbitrary filenames. Explicit metadata
+        // and manual decisions remain authoritative; weak word guesses do not.
+        if(!hasManualType&&!explicitType&&!suggestion.type_conflict){
+            AudioTypeAnalysis audio;
+            cachedAudio.reset();cachedAudio.number(1,item.id);cachedAudio.number(2,item.bytes);cachedAudio.number(3,item.modified);cachedAudio.str(4,item.root);
+            const bool cached=cachedAudio.next();
+            if(cached){
+                const auto* label=sqlite3_column_text(cachedAudio.stmt,0);const auto* reason=sqlite3_column_text(cachedAudio.stmt,2);
+                audio={label?reinterpret_cast<const char*>(label):"",reason?reinterpret_cast<const char*>(reason):"",sqlite3_column_double(cachedAudio.stmt,1)};
+            }
+            cachedAudio.reset();
+            if(!cached&&item.enabled){
+                bool valid=false;
+                try{
+                    Snapshot catalogue;catalogue.sources.push_back({item.sourceId,from_utf8(item.root),true,0,0,0});
+                    AudioAsset asset;asset.id=item.id;asset.source_id=item.sourceId;asset.relative_path=item.relative;asset.status="ok";catalogue.assets.push_back(std::move(asset));
+                    if(const auto path=asset_path(catalogue,item.id)){audio=analyse_wav_type(*path,cancelled);valid=true;}
+                }catch(const std::exception&){if(cancelled&&cancelled())throw Cancelled();}
+                if(valid){
+                    saveAudio.reset();saveAudio.number(1,item.id);saveAudio.number(2,item.bytes);saveAudio.number(3,item.modified);saveAudio.str(4,item.root);saveAudio.str(5,audio.label);
+                    if(sqlite3_bind_double(saveAudio.stmt,6,audio.confidence)!=SQLITE_OK)fail(d.db,"Audio Type confidence");
+                    saveAudio.str(7,audio.reason);saveAudio.done();
+                }
+            }
+            if(!audio.label.empty()){
+                std::erase_if(suggestion.tags,[](const auto& tag){return tag.group=="Type";});
+                suggestion.tags.push_back({"Type",audio.label,"audio",audio.confidence});
+            }
+        }
         for(const auto& tag:suggestion.tags){
+            if(tag.group=="Type"&&hasManualType)continue;
+            if(tag.group=="Pack"&&hasManualPack)continue;
             make.reset();make.str(1,tag.group);make.str(2,tag.label);make.done();
             find.reset();find.str(1,tag.group);find.str(2,tag.label);
             if(!find.next())throw std::runtime_error("MR Library tag unavailable");
@@ -274,12 +343,12 @@ void classify_assets(Database& d,const std::optional<std::int64_t> source = {}) 
     }
 }
 bool allowed_group(const std::string& value) {
-    for(const auto* name:{"Instrument","Genre","Type","Technique","Rhythm","Character","Custom"})
+    for(const auto* name:{"Instrument","Genre","Pack","Type","Technique","Rhythm","Character","Custom"})
         if(value==name)return true;
     return false;
 }
 void valid_tag(const std::string& group,const std::string& label){
-    if(!allowed_group(group)||label.empty()||label.size()>96)throw std::invalid_argument("Invalid tag name/group");
+    if(!allowed_group(group)||label.empty()||label.size()>(group=="Pack"?512u:96u)||(group=="Type"&&label!="Loop"&&label!="One-shot"))throw std::invalid_argument("Invalid tag name/group");
 }
 bool is_reparse(const fs::path& file) {
 #ifdef _WIN32
@@ -295,7 +364,6 @@ bool is_wav(const fs::path& path) {
     std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return extension == ".wav";
 }
-struct Cancelled : std::runtime_error { Cancelled() : std::runtime_error("Scan cancelled") {} };
 } // namespace
 
 struct SampleLibrary::Impl {
@@ -461,7 +529,7 @@ struct SampleLibrary::Impl {
         }
         std::map<std::string,std::set<std::string>> groups;
         for(const auto& filter:q.tags)
-            if(allowed_group(filter.group)&&!filter.label.empty()&&filter.label.size()<=96)
+            if(allowed_group(filter.group)&&!filter.label.empty()&&filter.label.size()<=(filter.group=="Pack"?512u:96u))
                 groups[filter.group].insert(filter.label);
         for(const auto& [group,values]:groups){
             where+=" AND EXISTS (SELECT 1 FROM asset_tags at JOIN tags t ON t.id=at.tag_id"
@@ -475,7 +543,7 @@ struct SampleLibrary::Impl {
             where+="))";
         }
         for(const auto& filter:q.excluded_tags){
-            if(!allowed_group(filter.group)||filter.label.empty()||filter.label.size()>96)continue;
+            if(!allowed_group(filter.group)||filter.label.empty()||filter.label.size()>(filter.group=="Pack"?512u:96u))continue;
             where+=" AND NOT EXISTS (SELECT 1 FROM asset_tags xt JOIN tags t ON t.id=xt.tag_id WHERE xt.asset_id=a.id"
                 " AND xt.status<>'rejected' AND t.group_name=? AND t.label=?)";
             params.push_back(filter.group);params.push_back(filter.label);
@@ -672,7 +740,7 @@ struct SampleLibrary::Impl {
             // Preserve manual artwork associations across removed/moved folders.
             Statement deleteCovers(d,"DELETE FROM folder_artwork WHERE source_id=? AND seen=0 AND manual_image=''");
             deleteCovers.number(1,source_id);deleteCovers.done();
-            classify_assets(d,source_id); // proposals refresh, manual confirmed/rejected preserved
+            classify_assets(d,source_id,[&]{return stop.stop_requested()||cancel.load();}); // proposals refresh, manual decisions preserved
             d.exec("COMMIT");
         } catch (...) {
             d.exec("ROLLBACK"); // rollback keeps the previous complete catalogue
@@ -837,6 +905,8 @@ struct SampleLibrary::Impl {
                 Statement upsert(d,"INSERT INTO asset_tags(asset_id,tag_id,origin,status,confidence)"
                     " VALUES(?,?,?, ?,?) ON CONFLICT(asset_id,tag_id) DO UPDATE SET"
                     " origin=excluded.origin,status=excluded.status,confidence=excluded.confidence");
+                Statement logOtherType(d,"INSERT INTO tag_edit_history(batch_id,asset_id,tag_id,existed,prior_origin,prior_status,prior_confidence) SELECT ?,at.asset_id,at.tag_id,1,at.origin,at.status,at.confidence FROM asset_tags at JOIN tags t ON t.id=at.tag_id WHERE at.asset_id=? AND t.group_name=? AND at.tag_id<>? AND at.status<>'rejected'");
+                Statement removeOtherType(d,"DELETE FROM asset_tags WHERE asset_id=? AND tag_id<>? AND status<>'rejected' AND tag_id IN (SELECT id FROM tags WHERE group_name=?)");
                 Statement oldMeta(d,"SELECT bpm_manual,key_manual FROM assets WHERE id=?");
                 Statement logMeta(d,"INSERT INTO metadata_edit_history(batch_id,asset_id,prior_bpm,prior_key) VALUES(?,?,?,?)");
                 Statement putBpm(d,"UPDATE assets SET bpm_manual=? WHERE id=?");
@@ -855,6 +925,10 @@ struct SampleLibrary::Impl {
                     if(!exists.next())throw std::invalid_argument("Selected WAV was removed; refresh catalogue");
                     exists.reset();
                     if(c.kind==Kind::tag||c.kind==Kind::tag_status){
+                        if((c.group=="Type"||c.group=="Pack")&&(c.kind==Kind::tag||c.status=="confirmed")){
+                            logOtherType.reset();logOtherType.number(1,batch_id);logOtherType.number(2,id);logOtherType.str(3,c.group);logOtherType.number(4,tag_id);logOtherType.done();
+                            removeOtherType.reset();removeOtherType.number(1,id);removeOtherType.number(2,tag_id);removeOtherType.str(3,c.group);removeOtherType.done();
+                        }
                         prior.reset();prior.number(1,id);prior.number(2,tag_id);
                         const bool existed=prior.next();
                         std::string oldOrigin,oldStatus;double oldConfidence=0.;
@@ -941,7 +1015,7 @@ struct SampleLibrary::Impl {
                     " DO UPDATE SET label=excluded.label");
                 rule.str(1,c.group);rule.str(2,c.phrase);rule.str(3,c.label);
                 rule.number(4,c.folder?1:0);rule.done();
-                classify_assets(d);
+                classify_assets(d,{},[&]{return stop.stop_requested();});
                 d.exec("COMMIT");
             }catch(...){d.exec("ROLLBACK");throw;}
             publish(d,Phase::idle,"Rules applied; manual decisions preserved");
@@ -964,10 +1038,14 @@ struct SampleLibrary::Impl {
         try {
             Database db(database);
             create_schema(db);
+            scanning=true;publish(db,Phase::scanning,"Analysing sample types (cached results reused)");
             db.exec("BEGIN IMMEDIATE");
-            try { classify_assets(db);db.exec("COMMIT"); }
+            bool startupCancelled=false;
+            try { normalize_types(db);classify_assets(db,{},[&]{return stop.stop_requested()||cancel.load();});db.exec("COMMIT"); }
+            catch (const Cancelled&){db.exec("ROLLBACK");startupCancelled=true;publish(db,Phase::cancelled,"Type analysis cancelled; previous index preserved");}
             catch (...){db.exec("ROLLBACK");throw;}
-            publish(db,Phase::idle);
+            scanning=false;
+            if(!startupCancelled)publish(db,Phase::idle);
             while (!stop.stop_requested()) {
                 Command c;
                 { std::unique_lock lock(mutex);
