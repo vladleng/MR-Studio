@@ -116,6 +116,12 @@ public:
         if(args.contains("--ui-gallery-smoke")){try{ui::gallerySmoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("gallery193-entry-failure.txt").replaceWithText(e.what());setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--ui-gallery")){gallery=ui::createGalleryWindow([this]{quit();});return;}
         if(args.contains("--ara-smoke")){juce::File::getCurrentWorkingDirectory().getChildFile("ara179-gui-failure.txt").deleteFile();try{const auto tokens=juce::StringArray::fromTokens(args,true);ui::araEditorSmoke(juce::File(tokens[tokens.indexOf("--ara-smoke")+1].unquoted()));setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("ara179-gui-failure.txt").replaceWithText(juce::String(e.what()));setApplicationReturnValue(1);}quit();return;}
+        if(args.contains("--clip-stretch-smoke")){
+            const auto failure=juce::File::getCurrentWorkingDirectory().getChildFile("stretch-gui-failure.txt");failure.deleteFile();
+            try{ui::clipStretchSmoke();setApplicationReturnValue(0);}
+            catch(const std::exception& e){failure.replaceWithText(e.what());setApplicationReturnValue(1);}
+            quit();return;
+        }
         if(args.contains("--track-folders-smoke")){
             const auto failure=juce::File::getCurrentWorkingDirectory().getChildFile("folders266-failure.txt");failure.deleteFile();
             try{ui::trackFolderSmoke();setApplicationReturnValue(0);}

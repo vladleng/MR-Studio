@@ -1,20 +1,23 @@
-# Stretch foundation API — #57/#58
+# Time / pitch API and manual clip integration — #57–#61
 
 Implementation scope: backend-neutral state/codec and mapping in `mrs_core`,
-Signalsmith adapter and bounded worker render in `mrs_stretch`, diagnostics in
-`mrs_stretch_bench`. Current requirements are #57/#58/#62 and the contract revision
-in [PR #269](https://github.com/vladleng/MR-Studio/pull/269). That docs PR is separate
-from implementation. This slice does not activate stretched clip playback or add
-clip controls; those are #59/#61. Full cache publication remains #60.
+Signalsmith adapter and bounded worker render in `mrs_stretch`, session WAV cache
+in `mrs_audio`, stopped manual clip controls and cached playback in the shared
+Desktop application / JUCE Arrange. Diagnostics use `mrs_stretch_bench`.
+Requirements remain in #57–#62 and the revision in
+[PR #269](https://github.com/vladleng/MR-Studio/pull/269).
+Dynamic realtime parameter scheduling, persistent/HQ cache policy, bounce/export
+integration and final quality/default approval are not completed by this slice.
 
 ## Public boundary
 
 `mrs/stretch.hpp` contains no backend types. `Parameters` stores duration ratio,
 pitch, formant and quality intent. The version-1 standalone codec rejects future
 versions/unknown enum values/trailing data without truncating them. A caller must
-retain an unsupported record or reject loading it explicitly. This slice does not
-change Project/Clip schema: legacy clip defaults and project persistence belong
-to #61. The reference test links only `mrs_core` without the adapter.
+retain an unsupported record or reject loading it explicitly. Project schema 31 adds optional `ClipStretch`; schemas 1–30 load without it,
+with original duration, pitch and source references. Older applications reject
+new schema-31 projects explicitly. The archive envelope is unchanged. The
+reference contract test links only `mrs_core` without the adapter.
 
 Duration ratio is output/source; speed is its inverse. `output_frames(N,r)` rounds
 the absolute endpoint once, half up. Split lengths are differences of rounded
@@ -101,6 +104,61 @@ follow-pitch disables formant compensation. The pinned implementation converts
 `setFormantBase` with `freqToBand`, so the hint is Hz/sampleRate (cycles/sample),
 despite ambiguous upstream README prose about Nyquist. A positive default avoids
 an implicit pitch detector. Polyphonic formants are not a monophonic vocal editor.
+
+## Manual clip state, cache and playback
+
+Audio clip context menu **Time / Pitch...** exposes enabled/bypassed, duration
+ratio, semitones, cents, formant mode/shift/base, quality, Apply and Reset. Source
+and current output durations are displayed. One Apply is one undoable command;
+editing requires stopped/paused transport. The feature is opt-in and experimental:
+the #62 non-unity transient-peak criterion is still failing, not waived by the GUI.
+ARA and native stretch on the same source are rejected in both directions to
+avoid ambiguous/double processing, including bypassed bindings. Reset native
+state before attaching ARA; detach ARA before native processing.
+
+`Clip.source_offset` anchors a raw source region; `source_frames` is its original
+length. Double-precision source-domain `window_begin/end` select a view into that
+region. Clip length is `round(end*r)-round(begin*r)`, not an independently rounded
+scaled length. Split shares one boundary. Ratio/bypass changes retain both
+endpoints; Trim changes endpoints using the central mapping helper. Neutral or
+bypassed playback reads the original PCM at `anchor+round(begin)`; processed
+playback reads the cache at `round(begin*r)`. Extending a trimmed processed view
+is bounded by its initial region; Reset first to extend into other original audio.
+Selections shorter than one raw sample cannot be reset/bypassed to a zero-length
+clip and are rejected. Fades keep their output-frame durations, clamped to clip
+length. Undo restores the complete previous state. MIDI stretch is rejected.
+
+The optional trailing `STRETCH_CLIPS` section stores clip identity, quoted version-1
+Parameters codec, raw region length and source-domain endpoints with max_digits10.
+Missing, duplicate/unknown identities, invalid windows and unsupported codec state
+are validated explicitly. Original media references remain unchanged; projects
+never serialize backend types, PCM caches, temporary paths or waveform peaks.
+
+`prepare_stretch_cache` runs on a worker and writes bounded float32 RIFF blocks
+into its own newly created temporary directory. Cancellation, write errors or
+source changes discard that directory; only a complete render and prepared
+waveform are published. The WavFile lifetime retains its own directory until the
+last graph/data owner retires outside callbacks. Shutdown/replacement cancels and
+joins workers before releasing source assets. One active batch, bounded progress
+atomics, stale ProjectStore/revision rejection and draining cancelled futures
+prevent old results from entering a new edit/project. Esc cancels; Apply retries.
+Playback/record start refuses missing/invalid results; there is no raw PCM fallback.
+
+The session key includes retained immutable source identity, rate/channels/length,
+region anchor/length, all Parameters, pinned backend revision and cache render
+version. Split/trim views share one result. Total required output is capped at
+512 MiB and existing disk playback remains limited to 32 streamed voices / 256 MiB
+read-ahead buffers. Entries unused by the current project are evicted on control;
+Undo regenerates them. Reopen/relink creates new source identity and regenerates.
+File-backed sources are checked by size/mtime across render and before playback;
+external mutation requires reopening. This is not a durable content-hashed cache
+or a guarantee against adversarial same-size/same-mtime media replacement.
+
+The graph consumes prepared PCM through its existing ReadAhead/seek/loop/routing
+and fade path. The cache has exactly the logical duration, with backend pre-roll
+already removed, so it introduces zero additional route PDC. DSP/reset, WAV I/O,
+waveform construction and cache reclamation never execute in the audio callback.
+No live spectral parameter automation or additional engine/device is introduced.
 
 ## Diagnostics and acceptance
 

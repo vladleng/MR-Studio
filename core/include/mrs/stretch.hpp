@@ -13,7 +13,7 @@ enum class Status { ok, need_input, output_full, drained, invalid_parameter, inv
 enum class Quality { balanced, economical };
 enum class Formants { follow_pitch, preserve, shift };
 // Serializable user intent; no vendor settings or backend identity. Standalone
-// codec only in P1: adding this state to Project/Clip belongs to #61.
+// codec is also embedded in the optional schema-31 ClipStretch record.
 struct Parameters {
     bool enabled{true};
     double duration_ratio{1}; // output duration / source duration

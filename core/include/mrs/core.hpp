@@ -1,4 +1,5 @@
 #pragma once
+#include <mrs/stretch.hpp>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -20,7 +21,7 @@ inline constexpr Tick ppq = 960;
 inline constexpr std::size_t max_project_midi_notes = 32768;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 30;
+inline constexpr std::uint32_t schema_version = 31;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -222,6 +223,14 @@ struct MidiClip {
     std::vector<MidiChannelEvent> events{};
     bool operator==(const MidiClip&) const = default;
 };
+// A view into a non-destructive processed source span. Shared source-domain
+// endpoints survive ratio/bypass changes and keep adjacent splits contiguous.
+struct ClipStretch {
+    stretch::Parameters parameters;
+    Sample source_frames{};
+    double window_begin{}, window_end{};
+    bool operator==(const ClipStretch&) const = default;
+};
 struct Clip {
     Id id;
     Id track;
@@ -233,6 +242,7 @@ struct Clip {
     std::optional<MidiClip> midi{}; // when present, sample fields stay at defaults
     std::optional<std::uint32_t> color{}; // RGB; absent preserves legacy blue
     Sample fade_in{},fade_out{}; // Audio only, linear ramps in visible clip samples.
+    std::optional<ClipStretch> stretch{};
     bool operator==(const Clip&) const = default;
 };
 struct Marker {

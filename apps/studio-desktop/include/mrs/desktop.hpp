@@ -12,6 +12,7 @@
 #include <mrs/arrangement.hpp>
 #include <mrs/midi_clips.hpp>
 #include <mrs/waveform.hpp>
+#include <mrs/stretch_cache.hpp>
 #include <future>
 #include <mrs/recording.hpp>
 #ifdef MRS_HAS_ARA
@@ -192,6 +193,13 @@ public:
     Sample source_frames(const Id&);
     void prepare_waveforms();
     const audio::Waveform* waveform(std::string_view source) const;
+    const audio::Waveform* clip_waveform(const Clip&) const;
+    Sample clip_playback_offset(const Clip&) const;
+    void set_clip_stretch(const Id&,stretch::Parameters,bool reset=false);
+    struct StretchStatus {bool busy{};float progress{};std::string message;std::uint64_t revision{};};
+    StretchStatus stretch_status() const;
+    void retry_stretch();
+    void cancel_stretch();
     void open_project(const std::filesystem::path&);
     void import_wav(const std::filesystem::path&);
     void save_project(const std::filesystem::path&);
@@ -404,6 +412,16 @@ private:
         std::optional<audio::Waveform> peaks;
     };
     std::map<std::string,CachedAsset> assets_;
+    struct StretchJob;
+    std::shared_ptr<StretchJob> stretch_job_;
+    std::vector<std::shared_ptr<StretchJob>> retired_stretch_;
+    std::map<std::string,std::shared_ptr<const audio::StretchCache>> stretch_cache_;
+    StretchStatus stretch_status_;
+    std::uint64_t stretch_checked_revision_{~std::uint64_t{}};
+    void poll_stretch();
+    void stop_stretch();
+    bool stretch_ready(bool check_source=false);
+    std::shared_ptr<const audio::AudioData> clip_audio(const Clip&,std::shared_ptr<const audio::AudioData>);
     // Runtime source aliases preserve ProjectStore Undo while archives use Media/... paths.
     std::map<std::string,std::filesystem::path> owned_media_;
     std::optional<audio::DeviceConfig> device_config_;

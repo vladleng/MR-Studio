@@ -1,6 +1,20 @@
 #pragma once
 #include <mrs/core.hpp>
 namespace mrs {
+double audio_time_ratio(const Clip&) noexcept;
+Sample audio_output_offset(const Clip&); // offset in the processed span; raw offset for legacy clips
+Sample audio_output_extent(const Clip&); // processed span length; legacy clip length
+Sample audio_source_span(const Clip&) noexcept;
+void validate_audio_stretch(const Clip&);
+void trim_audio_source(Clip&,Sample start,Sample end,Sample raw_source_frames);
+class SetAudioStretch final : public ICommand {
+public:
+    SetAudioStretch(Id id,stretch::Parameters parameters,bool reset=false)
+        : id_(std::move(id)), parameters_(parameters), reset_(reset) {}
+    std::string_view name() const override { return "Audio clip time / pitch"; }
+    void apply(Project&) const override;
+private: Id id_; stretch::Parameters parameters_; bool reset_{};
+};
 class RemoveTrack final : public ICommand {
 public:
     explicit RemoveTrack(Id id) : id_(std::move(id)) {}
