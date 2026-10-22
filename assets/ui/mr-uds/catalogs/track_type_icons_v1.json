@@ -684,7 +684,7 @@
     {
       "id": "icons/track_pack/track_audio_input",
       "file": "svg/icons/track_pack/track_audio_input.svg",
-      "label": "Audio",
+      "label": "Audio input",
       "size": [
         24,
         24
@@ -696,7 +696,7 @@
     {
       "id": "icons/track_pack/track_audio_input_compact",
       "file": "svg/icons/track_pack/track_audio_input_compact.svg",
-      "label": "Audio",
+      "label": "Audio input",
       "size": [
         16,
         16
