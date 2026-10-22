@@ -72,6 +72,10 @@ void Application::poll_stretch(){
         if(job->result.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return false;
         try{(void)job->result.get();}catch(const std::exception&){}return true;
     });
+    // A callback may be publishing a coherent transport snapshot. Retry on
+    // the next UI poll; do not turn temporary contention into a render error.
+    audio::RealtimeState head;
+    if(!engine_->try_state(head))return;
     const auto state=services_.projects->state();
     if(stretch_job_&&(stretch_job_->projects!=services_.projects||stretch_job_->revision!=state.revision)){
         stretch_job_->stop.request_stop();retired_stretch_.push_back(std::move(stretch_job_));stretch_status_.busy=false;
@@ -87,12 +91,12 @@ void Application::poll_stretch(){
             rebuild_audio(true);
         }catch(const std::exception& e){stretch_status_.message=std::string("Time / pitch failed: ")+e.what();}
     }
-    if(!retired_stretch_.empty()&&stretch_checked_revision_!=state.revision&&!recording()&&engine_->state().playback!=PlaybackState::playing){
+    if(!retired_stretch_.empty()&&stretch_checked_revision_!=state.revision&&!recording()&&head.playback!=PlaybackState::playing){
         if(!stretch_status_.busy){stretch_status_.busy=true;stretch_status_.message="Finishing cancelled time / pitch task...";++stretch_status_.revision;}
         return;
     }
     if(stretch_job_||!retired_stretch_.empty()||stretch_checked_revision_==state.revision||
-       recording()||engine_->state().playback==PlaybackState::playing)return;
+       recording()||head.playback==PlaybackState::playing)return;
     stretch_checked_revision_=state.revision;
     try{
         struct Request {std::string key;std::shared_ptr<const audio::AudioData> source;Clip clip;};

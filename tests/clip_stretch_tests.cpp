@@ -97,7 +97,11 @@ public:
 };
 void finish(desktop::Application& app){
     const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(15);
-    do{app.poll();if(!app.stretch_status().busy)return;std::this_thread::sleep_for(std::chrono::milliseconds(1));}while(std::chrono::steady_clock::now()<end);
+    do{
+        try{app.poll();if(!app.stretch_status().busy)return;}
+        catch(const std::runtime_error& e){if(std::string_view(e.what())!="audio state busy; poll again")throw;}
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }while(std::chrono::steady_clock::now()<end);
     throw std::runtime_error("Cache preparation timed out");
 }
 void desktop_test(){
