@@ -1359,7 +1359,7 @@ void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
 #ifdef MRS_HAS_ARA
     if(!c->midi)owner.addAraMenus(menu,id);
 #endif
-    if(!c->midi)menu.addItem(20,"Time / Pitch...",enabled&&owner.app.engine()->state().playback!=mrs::PlaybackState::playing);
+    if(!c->midi)menu.addItem(20,"Time / Pitch...",enabled&&owner.displayState().playback!=mrs::PlaybackState::playing);
     menu.addItem(1,"Split selected clips (S)",enabled);menu.addItem(2,"Duplicate (D)",enabled);menu.addItem(3,"Merge MIDI clips (G)",enabled&&ids.size()>1);menu.addItem(4,"Delete selected clips",enabled);menu.addItem(5,"Default color",enabled);menu.addItem(6,"Rename selected clips...",enabled);menu.addSeparator();auto palette=std::make_unique<MenuColourPalette>(owner.theme,*color,color,true,owner.assetSkin()!=nullptr);palette->setEnabled(enabled);menu.addCustomItem(10,std::move(palette),nullptr,"Clip colors");
     const auto cut=sampleAt(static_cast<float>(getLocalPoint(nullptr,point).x));juce::Component::SafePointer<Arrangement> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({point.x,point.y,1,1}),[safe,store,ids,color,cut,id](int result){if(!safe||!result)return;safe->owner.run([&]{if(store!=safe->owner.app.services().projects)throw std::runtime_error("Project changed; reopen clip menu");
