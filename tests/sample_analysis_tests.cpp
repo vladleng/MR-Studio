@@ -17,7 +17,11 @@ void check(bool value,const char* message){if(!value)throw std::runtime_error(me
 template<class Pred> auto wait(SampleLibrary& lib,Pred predicate){
     const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(15);
     while(std::chrono::steady_clock::now()<until){auto snap=lib.snapshot();if(snap->phase==Phase::error)throw std::runtime_error(snap->message);if(predicate(*snap))return snap;std::this_thread::sleep_for(std::chrono::milliseconds(2));}
-    throw std::runtime_error("Smart analysis worker timeout");
+    const auto snap=lib.snapshot();
+    throw std::runtime_error("Smart analysis worker timeout: assets="+std::to_string(snap->visible_assets)+
+        ", analysis="+std::to_string(snap->analysis.completed)+"/"+std::to_string(snap->analysis.total)+
+        ", running="+std::to_string(snap->analysis.running)+", paused="+std::to_string(snap->analysis.paused)+
+        ", message="+snap->message);
 }
 void signal(const fs::path& path,int kind,double bpm=120.,int root=0,bool minor=false,double seconds=0.){
     fs::create_directories(path.parent_path());std::ofstream out(path,std::ios::binary);

@@ -36,7 +36,9 @@ and are not calibrated accuracy probabilities.
 One dedicated non-RT worker reads/analyzes audio; only the catalogue worker writes
 SQLite. Browsing, filter edits and previews remain usable while analysis runs or
 is paused. A queue of at most 64 jobs refills incrementally. Reads use 4096-frame
-blocks and cooperative cancellation/pause checks; the worker yields between blocks.
+blocks and cooperative cancellation/pause checks. The worker yields after roughly
+8 ms of work, with a 1 ms sleep (subject to OS timer resolution); cancellation
+polls inside DSP loops do not each incur a separate timed sleep.
 Before and after decoding, file size/mtime must still match the queued identity.
 Late results from cancelled/replaced generations or removed/relinked/changed assets
 cannot attach to the new catalogue identity.

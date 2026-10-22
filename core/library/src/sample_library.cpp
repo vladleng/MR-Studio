@@ -429,6 +429,7 @@ struct SampleLibrary::Impl {
         worker.join();
     }
     void run_analysis(std::stop_token stop){
+        auto nextYield=std::chrono::steady_clock::now()+std::chrono::milliseconds(8);
         while(!stop.stop_requested()){
             std::shared_ptr<AnalysisJob> job;
             {std::unique_lock lock(analysisMutex);analysisWake.wait(lock,stop,[&]{return !analysisQueue.empty()&&!analysisPaused.load();});
@@ -436,7 +437,13 @@ struct SampleLibrary::Impl {
                 job=std::move(analysisQueue.front());analysisQueue.pop_front();}
             const auto interrupted=[&]{
                 if(analysisPaused.load()){std::unique_lock lock(analysisMutex);analysisWake.wait(lock,stop,[&]{return !analysisPaused.load()||job->generation!=analysisGeneration.load();});}
-                std::this_thread::sleep_for(std::chrono::microseconds(50));
+                // Cancellation is polled in both decoding and DSP inner loops.
+                // Sleeping on every poll multiplies Windows timer rounding by
+                // hundreds of autocorrelation lags. Throttle by elapsed work.
+                if(!stop.stop_requested()&&job->generation==analysisGeneration.load()&&std::chrono::steady_clock::now()>=nextYield){
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    nextYield=std::chrono::steady_clock::now()+std::chrono::milliseconds(8);
+                }
                 return stop.stop_requested()||job->generation!=analysisGeneration.load();
             };
             if(job->generation!=analysisGeneration.load())continue;
