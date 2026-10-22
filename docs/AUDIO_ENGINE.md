@@ -406,6 +406,8 @@ Tracking: #56; design: `TIME_STRETCH.md`.
 
 Signalsmith split computation должен сравниваться по CPU-spikes **и** дополнительной latency, а не включаться автоматически.
 
+Stretch использует существующий Process Buffer/read-ahead для допустимых prerecorded paths: один владелец DSP-state, bounded queues, generation invalidation при seek/loop/edit и отсутствие ожиданий callback. Input look-ahead, output latency и residual route PDC имеют разные sample domains; pre-roll не должен компенсироваться повторно через PDC. Правила automation/priming/flush, точной длительности, neutral bypass и cache заданы в [TIME_STRETCH.md](TIME_STRETCH.md). Latency-bearing reconfiguration до доказанного безопасного active transition выполняется через Pause/Stop и reprepare. 128 frames — аппаратный realtime baseline; Studio 256/512 и Process Buffer проверяются отдельно.
+
 Offline/HQ path может использовать другую buffering policy, но тот же backend contract. Cache должен учитывать source identity, stretch parameters и backend/version.
 
 ---
