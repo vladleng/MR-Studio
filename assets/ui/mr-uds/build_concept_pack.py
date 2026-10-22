@@ -469,3 +469,7 @@ page += f'</div><p>{len(ASSETS)} new SVG files; {len(REUSE)} canonical reference
 page += 'No runtime integration. <a href="index.html">Original library</a> · <a href="object_palette.html">Object palette / 24 clip colors</a></p></main></html>'
 (ROOT/'previews'/'concept_pack.html').write_text(page, encoding='utf-8')
 print(f'{len(ASSETS)} SVG assets; {len(REUSE)} reused references; manifest total {len(manifest["assets"])}')
+
+# Keep the canonical offline viewer in sync with every SVG folder.
+from build_svg_gallery import build_gallery
+build_gallery()

@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MR Studio — полный SVG-каталог</title>
+<style>
+:root{color-scheme:dark;--bg:#111720;--panel:#192333;--raised:#222C3C;--stroke:#354961;--text:#DAE5F4;--muted:#A9BFDC;--accent:#91BBEE;--art-size:80px}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,"Segoe UI",system-ui,Arial,sans-serif;font-size:14px;line-height:1.5}
+main{max-width:1560px;padding:22px 24px 70px;margin:0 auto}
+header{border-bottom:1px solid var(--stroke);padding-bottom:18px;margin-bottom:20px}
+h1{font-size:27px;letter-spacing:.02em;font-weight:650;margin:0 0 6px}
+h1 strong{color:var(--accent)}
+p{margin:5px 0;color:var(--muted)}
+.controls{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0;align-items:end}
+.field{display:flex;flex-direction:column;gap:6px;min-width:170px}
+.field.search{flex:1 1 250px}
+label,.muted{color:var(--muted);font-size:12px}
+input[type=search],select,button{font:inherit;color:var(--text);background:var(--raised);border:1px solid #50627D;border-radius:7px;padding:9px 12px;min-height:40px}
+input[type=search]:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+button{cursor:pointer}button:hover{background:#30425A}
+input[type=range]{width:140px;accent-color:var(--accent)}
+.status{display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:10px 0 14px;color:var(--muted)}
+#list{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:12px}
+.tile{background:var(--panel);border:1px solid var(--stroke);border-radius:10px;overflow:hidden;min-width:0}
+.tile button{background:transparent;border:0;width:100%;border-radius:0;padding:0;display:block;min-height:0;text-align:left}
+.tile button:hover .art{background:#29384C}
+.art{height:178px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#15202E;padding:12px}
+.art img{width:var(--art-size);height:var(--art-size);max-width:100%;max-height:100%;object-fit:contain;display:block}
+figcaption{padding:11px 12px 13px;min-height:82px}
+.name{display:block;font-weight:600;overflow-wrap:anywhere;font-size:12px}
+.path{display:block;font-size:10.5px;color:#91A6C4;overflow-wrap:anywhere;margin-top:4px}
+.meta{font-size:10.5px;color:#7188AB;margin-top:4px}
+.empty{padding:45px 12px;color:var(--muted);text-align:center}
+a{color:var(--accent)}.light-preview .art{background:#E4EAF3}.light-preview .tile button:hover .art{background:#CED9E8}
+dialog{width:min(860px,calc(100% - 24px));max-height:92vh;background:#192333;color:var(--text);border:1px solid #50627D;border-radius:12px;padding:0;box-shadow:0 28px 60px #070B12}
+dialog::backdrop{background:#070B12C8}
+.dialog-head,.dialog-actions{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:14px 18px}
+.dialog-head{border-bottom:1px solid #354961}.dialog-head h2{font-size:18px;margin:0;overflow-wrap:anywhere}.dialog-head button{min-width:42px}
+.detail-art{height:min(52vh,440px);display:flex;align-items:center;justify-content:center;background:#111720;padding:24px}
+.detail-art img{max-width:100%;max-height:100%;width:300px;height:300px;object-fit:contain}
+.light-preview .detail-art{background:#E4EAF3}
+.detail-path{padding:0 18px;color:var(--muted);overflow-wrap:anywhere;font-size:12px}
+.dialog-actions{border-top:1px solid #354961;margin-top:12px;justify-content:flex-start}
+.dialog-actions a{display:inline-block;padding:10px 12px}
+#detailPathCopy{position:absolute;left:-9999px;opacity:0}
+@media(max-width:600px){main{padding:14px}.field{width:100%}.field.search{flex-basis:100%}#list{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}.art{height:135px}figcaption{padding:9px}.controls{gap:10px}h1{font-size:23px}}
+</style>
+</head>
+<body><main>
+<header>
+<h1><strong>MR</strong> Studio — полный SVG-каталог</h1>
+<p>Единая библиотека UDS, Track Pack, транспорт, обзорные SVG и дизайн-референсы. Открывается прямо как <code>file:///</code>, без сети и сервера.</p>
+<p>Нажми на карточку для крупного просмотра и перехода к исходному файлу. Этот каталог показывает только визуальные ресурсы, не изменяя интерфейс DAW.</p>
+</header>
+<div class="controls">
+ <div class="field search"><label for="search">Поиск по имени или пути</label><input id="search" type="search" placeholder="Например: track, fader, guitar, reverb…" autocomplete="off"></div>
+ <div class="field"><label for="category">Раздел</label><select id="category"><option value="all">Все SVG</option><option value="new_tracks">Новые иконки треков</option><option value="existing_tracks">Исходные иконки треков</option><option value="core_icons">Общие иконки</option><option value="utility_icons">Утилиты / браузер</option><option value="concept_controls">Faders &amp; Controls Pack</option><option value="core_controls">Базовые регуляторы</option><option value="rig">MR Rig</option><option value="reverb">MR Reverb</option><option value="transport">Транспорт</option><option value="preview">Обзорные схемы</option><option value="docs">Дизайн-референсы</option></select></div>
+ <div class="field"><label for="scale">Размер просмотра: <output id="scaleValue">80</output> px</label><input type="range" id="scale" min="24" max="176" step="8" value="80"></div>
+ <button id="background" type="button" aria-pressed="false" title="Переключить фон изображений">Светлый фон</button>
+ <button id="reset" type="button">Сбросить</button>
+</div>
+<div class="status" aria-live="polite"><span id="count"></span><span class="muted">Иконки и SVG отображаются из исходных файлов по относительным путям</span></div>
+<div id="list" aria-label="SVG-галерея"></div><p id="empty" class="empty" hidden>Ничего не найдено — измени поисковый запрос или раздел.</p>
+<dialog id="detail"><div class="dialog-head"><h2 id="detailName"></h2><button type="button" id="close" aria-label="Закрыть">✕</button></div><div class="detail-art"><img id="detailImage" alt="Выбранный SVG"></div><p class="detail-path" id="detailPath"></p><input id="detailPathCopy" readonly aria-hidden="true" tabindex="-1"><div class="dialog-actions"><a id="openSvg" href="#" target="_blank" rel="noopener">Открыть оригинал SVG ↗</a><button type="button" id="copyPath">Скопировать путь</button><span id="copyHint" class="muted" aria-live="polite"></span></div></dialog>
+</main>
+<script>
+"use strict";
+// Generated file list is embedded for full compatibility with file:/// (no fetch/XHR).
+const SVG_FILES = /*__ASSET_ROWS__*/;
+const search = document.getElementById('search');
+const category = document.getElementById('category');
+const list = document.getElementById('list');
+const empty = document.getElementById('empty');
+const count = document.getElementById('count');
+const dialog = document.getElementById('detail');
+const basename = path => path.slice(path.lastIndexOf('/')+1).replace(/\.svg$/i,'');
+function repoPath(src) {
+ if (src.startsWith('../svg/')) return 'assets/ui/mr-uds/'+src.slice(3);
+ if (src.startsWith('../../icons/transport/')) return 'assets/ui/icons/transport/'+src.split('/').pop();
+ if (src.startsWith('../../../../docs/design/')) return 'docs/design/'+src.split('/').pop();
+ return 'assets/ui/mr-uds/previews/'+src;
+}
+function group(src) {
+ if (src.includes('/icons/track_pack/')) return 'new_tracks';
+ if (src.includes('/icons/concept_pack/track_')) return 'existing_tracks';
+ if (src.includes('/icons/concept_pack/')) return 'utility_icons';
+ if (src.includes('/svg/icons/')) return 'core_icons';
+ if (src.includes('/controls/concept_pack/')) return 'concept_controls';
+ if (src.includes('/svg/controls/')) return 'core_controls';
+ if (src.includes('/svg/rig/')) return 'rig';
+ if (src.includes('/svg/reverb/')) return 'reverb';
+ if (src.startsWith('../../icons/transport/')) return 'transport';
+ if (src.startsWith('../../../../docs/')) return 'docs';
+ return 'preview';
+}
+const groupNames = {
+ new_tracks:'Новые треки',existing_tracks:'Иконки треков',core_icons:'Иконки',utility_icons:'Утилиты',
+ concept_controls:'Faders & Controls',core_controls:'Контролы',rig:'MR Rig',reverb:'MR Reverb',
+ transport:'Транспорт',preview:'Обзор',docs:'Референс'
+};
+const items = SVG_FILES.map(([src,w,h])=>({src,w,h,name:basename(src),path:repoPath(src),group:group(src)}));
+const escapeHtml = text => String(text).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function showDetail(item) {
+ document.getElementById('detailName').textContent = item.name;
+ document.getElementById('detailImage').src = item.src;
+ document.getElementById('detailImage').alt = item.name;
+ document.getElementById('detailPath').textContent = item.path + (item.w && item.h ? ' · '+item.w+' × '+item.h : '');
+ document.getElementById('detailPathCopy').value = item.path;
+ document.getElementById('openSvg').href = item.src;
+ document.getElementById('copyHint').textContent = '';
+ dialog.showModal();
+}
+function render() {
+ const q=search.value.trim().toLowerCase();
+ const selected=category.value;
+ const visible=items.filter(a=>(selected==='all'||a.group===selected)&&(!q||a.name.toLowerCase().includes(q)||a.path.toLowerCase().includes(q)||groupNames[a.group].toLowerCase().includes(q)));
+ list.replaceChildren();
+ const frag=document.createDocumentFragment();
+ for (const item of visible) {
+  const article=document.createElement('article');article.className='tile';
+  const btn=document.createElement('button');btn.type='button';
+  btn.setAttribute('aria-label','Просмотр '+item.name);
+  btn.innerHTML='<div class="art"><img loading="lazy" decoding="async" src="'+escapeHtml(item.src)+'" alt="'+escapeHtml(item.name)+'"></div><figcaption><span class="name">'+escapeHtml(item.name)+'</span><span class="path">'+escapeHtml(groupNames[item.group])+'</span><div class="meta">'+(item.w&&item.h?item.w+' × '+item.h+' · ':'')+'SVG</div></figcaption>';
+  btn.addEventListener('click',()=>showDetail(item));article.appendChild(btn);frag.appendChild(article);
+ }
+ list.appendChild(frag);
+ count.textContent='Показано '+visible.length+' из '+items.length+' SVG';
+ empty.hidden=visible.length!==0;
+}
+search.addEventListener('input',render);
+category.addEventListener('change',render);
+document.getElementById('scale').addEventListener('input',e=>{const v=e.target.value;document.documentElement.style.setProperty('--art-size',v+'px');document.getElementById('scaleValue').value=v;});
+document.getElementById('background').addEventListener('click',e=>{const on=document.body.classList.toggle('light-preview');e.currentTarget.textContent=on?'Тёмный фон':'Светлый фон';e.currentTarget.setAttribute('aria-pressed',String(on));});
+document.getElementById('reset').addEventListener('click',()=>{search.value='';category.value='all';render();});
+document.getElementById('close').addEventListener('click',()=>dialog.close());
+dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close();});
+document.getElementById('copyPath').addEventListener('click',async()=>{
+ const input=document.getElementById('detailPathCopy');const note=document.getElementById('copyHint');
+ try {
+  if(navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(input.value);
+  else {input.focus();input.select();if(!document.execCommand('copy'))throw new Error('copy unsupported');}
+  note.textContent='Скопировано';
+ } catch(e) {
+  note.textContent='Путь доступен выше — выдели его и скопируй вручную';
+ }
+});
+render();
+</script></body></html>

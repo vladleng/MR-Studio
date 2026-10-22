@@ -102,3 +102,9 @@ An additive 26-identity extension (52 new SVG) is available in [svg/icons/track_
 - [Track Icons use and semantics](svg/icons/track_pack/README.md)
 
 This is an artwork-only extension. Runtime mapping, user-selectable icons and any Windows/DPI acceptance remain separate work. No existing theme or GUI behavior is changed.
+
+## Полный офлайн-просмотрщик SVG — 2026-10-22
+
+[`previews/concept_pack.html`](previews/concept_pack.html) теперь показывает **все SVG**, найденные в каноническом `svg/`, транспортных иконках `assets/ui/icons/transport/`, SVG-превью и `docs/design/`. Поиск, разделы, масштаб, светлый фон, увеличенный просмотр и ссылки на оригиналы работают при открытии через `file:///` без сервера, сети, CDN или `fetch()`.
+
+После добавления SVG запускай `python assets/ui/mr-uds/build_svg_gallery.py` — генератор повторно сканирует все каталоги и обновляет HTML. Шаблон находится в `previews/concept_pack.template.html`. `build_concept_pack.py` также вызывает этот генератор после обновления концепт-пака. Локальные SVG должны находиться по тем же относительным путям; один HTML-файл не содержит самих рисунков.
