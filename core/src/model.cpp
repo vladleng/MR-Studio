@@ -209,6 +209,11 @@ void Project::validate() const {
     }
     std::unordered_map<std::string, const Track*> channels;
     for (const auto& track : tracks) channels.emplace(track.id.value,&track);
+    std::unordered_set<std::string> linked_buses;
+    for(const auto& folder:folders)if(folder.bus){
+        require(channels.contains(folder.bus->value)&&channels.at(folder.bus->value)->kind==TrackKind::bus,"Missing folder Bus");
+        require(linked_buses.insert(folder.bus->value).second,"Bus linked to multiple folders");
+    }
     std::unordered_map<std::string,int> color;
     for (const auto& track : tracks) {
         require(track.kind != TrackKind::midi || (!track.output && track.sends.empty()), "MIDI audio routing is not supported");

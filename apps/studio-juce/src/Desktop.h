@@ -22,6 +22,7 @@ class Desktop;
 class Arrangement;
 class ChordTrack;
 class Strip;
+class TrackFolderHeader;
 class Browser;
 class LibraryFoundationPanel;
 class FxPanel;
@@ -57,6 +58,9 @@ public:
     juce::ComboBox navigationMode;
     juce::PopupMenu channelMenu(std::optional<mrs::Id>);
     void showChannelMenu(std::optional<mrs::Id>,juce::Point<int>);
+    void showFolderMenu(mrs::Id,juce::Point<int>);
+    void selectTrack(mrs::Id,juce::ModifierKeys);
+    std::vector<mrs::Id> folderSelection(std::optional<mrs::Id> fallback={}) const;
     void run(std::function<void()>);
     void refresh(bool force=false);
     void choose(int,std::function<void(const juce::File&)>,juce::String pattern="*");
@@ -215,7 +219,7 @@ public:
     kit::MRNativeParameterHost& parameterHost();
     std::vector<mrs::MidiNote> noteClipboard;
     std::optional<mrs::Id> selectedTrack,selectedClip;
-    std::set<std::string> selectedClips;
+    std::set<std::string> selectedClips,selectedTracks;
     std::vector<mrs::processing::VstPlugin> catalog;
     std::array<mrs::audio::StereoPeak,mrs::audio::max_mixer_tracks> peaks{};
     mrs::audio::StereoPeak masterPeak{};
@@ -233,6 +237,10 @@ public:
     juce::String footerStatus();
     static constexpr int faderHeight=145;
     std::vector<std::unique_ptr<Strip>> mixer;
+    std::vector<std::unique_ptr<Strip>> mixerFolders; // unlinked presentation-only channels
+    std::vector<int> mixerColumns,mixerFolderColumns;
+    int mixerColumnCount{};
+    void rebuildMixerFolders();
     std::unique_ptr<Strip> master;
     std::unique_ptr<Browser> browser;
     std::unique_ptr<ProjectHome> home;
@@ -296,7 +304,7 @@ private:
 class Strip final : public juce::Component, public juce::DragAndDropTarget, public juce::SettableTooltipClient {
     friend void assetDesignSmoke();
 public:
-    Strip(Desktop&,std::optional<mrs::Id>,bool mini=false);
+    Strip(Desktop&,std::optional<mrs::Id>,bool mini=false,std::optional<mrs::Id> folder={});
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
@@ -320,12 +328,15 @@ public:
     std::size_t pluginInsertionAt(juce::Point<int>) const;
     juce::Rectangle<int> pluginDropArea() const {return insertViewport.getBounds();}
     Handle gain,pan{false};
-    std::optional<mrs::Id> target;
+    std::optional<mrs::Id> target,folder;
 private:
     mrs::Track track() const;
     mrs::Track::Mix adjusted(bool,double) const;
     void preview(bool,double);void commit(bool,double);
     void inputMenu();void insertList();void colorMenu();void openInstrument();
+    void syncFolderPresentation();
+    juce::TextButton folderToggle,folderMenuButton{"..."};
+    std::unique_ptr<juce::Drawable> folderIcon;
     Desktop& owner;
     bool mini{};
     bool dragTitle{},dropBefore{},trackHover{};
@@ -399,6 +410,13 @@ public:
     std::optional<mrs::Id> clipAt(juce::Point<float>) const;
     void clipMenu(mrs::Id,juce::Point<int>);
     int trackAt(float) const;
+    int trackY(int) const;
+    void rebuildFolderLayout();
+    struct FolderRow {mrs::Folder folder;int y{},depth{};};
+    std::vector<FolderRow> folderRows;
+    std::vector<std::unique_ptr<TrackFolderHeader>> folderHeaders;
+    std::vector<int> trackPositions;
+    int contentHeight{},layoutTrackHeight{};
     std::vector<std::unique_ptr<Strip>> rows;
     juce::Component rowsBody;
     double pixelsPerSecond{30},horizontal{};
@@ -497,6 +515,7 @@ private:
     bool filesVisible{};
     std::unique_ptr<juce::TreeViewItem> root;
 };
+void trackFolderSmoke();
 void j2Smoke(Desktop&,const juce::File& fixture={});
 void j2PluginSmoke(Desktop&,const juce::File&);
 void j3Smoke(Desktop&);

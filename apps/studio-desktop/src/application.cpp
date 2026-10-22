@@ -1227,6 +1227,25 @@ Id Application::add_return_send(const Id& source, std::string name) {
     };
     const auto id = new_id(); edit(CreateReturn{source,{id,std::move(name),TrackKind::bus,{}}}); return id;
 }
+void Application::edit_track_folders(const ICommand& command){
+    require_not_recording();const auto before=services_.projects->state().project;auto candidate=*before;
+    command.apply(candidate);candidate.validate();if(candidate==*before)return;auto presentation=candidate;presentation.folders=before->folders;
+    if(presentation.tracks.size()==before->tracks.size())for(std::size_t i=0;i<presentation.tracks.size();++i)presentation.tracks[i].folder=before->tracks[i].folder;
+    if(presentation==*before){auto document=snapshot();document.project=candidate;document.validate();services_.projects->execute(command);}
+    else edit(command,{},true); // routing changes use the stopped/quiesced graph lifecycle
+}
+Id Application::create_track_folder(std::string name,const std::vector<Id>& tracks){
+    Folder folder;folder.id=new_id();folder.name=std::move(name);edit_track_folders(CreateTrackFolder{folder,tracks});return folder.id;
+}
+void Application::move_tracks_to_folder(const std::vector<Id>& tracks,std::optional<Id> folder){edit_track_folders(MoveTracksToFolder{tracks,std::move(folder)});}
+void Application::update_track_folder(const Id& id,std::string name,bool collapsed){edit_track_folders(UpdateTrackFolder{id,std::move(name),collapsed});}
+void Application::remove_track_folder(const Id& id){edit_track_folders(RemoveTrackFolder{id});}
+void Application::link_folder_bus(const Id& id,std::optional<Id> bus,bool create){
+    std::optional<Track> channel;
+    if(create){const auto p=services_.projects->state().project;const auto f=std::find_if(p->folders.begin(),p->folders.end(),[&](const auto& item){return item.id==id;});require(f!=p->folders.end(),"Unknown folder");
+        channel.emplace();channel->id=new_id();channel->name=f->name+" Bus";channel->kind=TrackKind::bus;channel->folder=f->parent;bus=channel->id;}
+    edit_track_folders(LinkFolderBus{id,std::move(bus),std::move(channel)});
+}
 void Application::remove_track(const Id& id) { edit(RemoveTrack{id}); }
 void Application::reorder_track(const Id& id, std::size_t index) {
     require_not_recording();auto candidate=*services_.projects->state().project;
@@ -1250,7 +1269,9 @@ bool Application::history_preserves_plugins(bool redo) const {
     if(name=="Audio clip fades"){auto prior=*services_.projects->state().project;if(prior.clips.size()==target->clips.size())for(std::size_t i=0;i<prior.clips.size();++i){prior.clips[i].fade_in=target->clips[i].fade_in;prior.clips[i].fade_out=target->clips[i].fade_out;}if(prior==*target)return true;}
     if(name=="Edit MIDI notes"||name=="Musical note edit"||name=="Delete clip"||name=="Remove selected clips"||name=="Split MIDI clip"||name=="Merge MIDI clips"||name=="Duplicate clip"||name=="Split selected clips"||name=="Resize selected clips"||name.starts_with("AI proposal (")){auto prior=*services_.projects->state().project,after=*target;std::erase_if(prior.clips,[](const auto& c){return c.midi.has_value();});std::erase_if(after.clips,[](const auto& c){return c.midi.has_value();});prior.markers=after.markers;if(prior==after)return true;}
     auto time_before=*services_.projects->state().project;time_before.time=target->time;if(time_before==*target)return true;
-    auto before=*services_.projects->state().project;before.chords=target->chords;before.markers=target->markers;before.sections=target->sections;
+    auto before=*services_.projects->state().project;before.folders=target->folders;
+    if(before.tracks.size()==target->tracks.size())for(std::size_t i=0;i<before.tracks.size();++i)before.tracks[i].folder=target->tracks[i].folder;
+    before.chords=target->chords;before.markers=target->markers;before.sections=target->sections;
     if(before.clips.size()==target->clips.size())for(std::size_t i=0;i<before.clips.size();++i){before.clips[i].color=target->clips[i].color;before.clips[i].name=target->clips[i].name;}
     return before==*target;
 }
@@ -1303,9 +1324,10 @@ bool Application::history(bool redo) {
     // Chord/marker metadata has no DSP/MIDI/transport effect. Preserve processor state,
     // editors, playback and active loop for its history just as for its commands.
     auto metadata_before = before;
+    metadata_before.folders = after.folders;
     metadata_before.chords = after.chords;
     metadata_before.markers = after.markers;metadata_before.sections=after.sections;
-    if(metadata_before.tracks.size()==after.tracks.size())for(std::size_t i=0;i<after.tracks.size();++i)metadata_before.tracks[i].color=after.tracks[i].color;
+    if(metadata_before.tracks.size()==after.tracks.size())for(std::size_t i=0;i<after.tracks.size();++i){metadata_before.tracks[i].color=after.tracks[i].color;metadata_before.tracks[i].folder=after.tracks[i].folder;}
     if(metadata_before.clips.size()==after.clips.size())for(std::size_t i=0;i<after.clips.size();++i){metadata_before.clips[i].color=after.clips[i].color;metadata_before.clips[i].name=after.clips[i].name;}
     if (metadata_before == after){
         if(section_ranges_changed(before,after)){require_not_playing();require(!engine_->state().count_remaining,"End count-in before section history");require(!engine_->state().loop,"Turn off loop before section history");}

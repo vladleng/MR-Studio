@@ -15,6 +15,7 @@ public:
     void process(const float*,float*,std::uint32_t,std::uint32_t flags=0) noexcept;
     bool active() const noexcept {return active_;}
 private:
+    friend struct AheadRendererTestAccess;
     friend class AudioEngine;
     struct Signals;
     struct Delivered {RealtimeState head;AudioEngine::MixHead mix;std::uint64_t control_serial{},mix_serial{};};

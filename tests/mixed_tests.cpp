@@ -3,9 +3,11 @@
 #include <mrs/recording.hpp>
 #include <mrs/offline_device.hpp>
 #include "latency_fixture.hpp"
+#include "ahead_test_access.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <bit>
 #include <fstream>
 #include <cstdlib>
@@ -45,7 +47,7 @@ public:
     void warm()override{}
     void reset()noexcept override{if(trace_.active)++trace_.collisions;delay_.reset();}
     void process(ProcessBlock b)noexcept override{
-        if(trace_.active.fetch_add(1))++trace_.collisions;++trace_.calls;trace_.frames+=b.frames;trace_.entered=true;
+        if(trace_.active.fetch_add(1)){++trace_.collisions;}++trace_.calls;trace_.frames+=b.frames;trace_.entered=true;
         while(trace_.hold.load(std::memory_order_acquire))std::this_thread::yield();
         // Stateful delay followed by nonlinear DSP verifies merging BEFORE the
         // shared effect; summing independently processed outputs would differ.
@@ -79,7 +81,7 @@ void equivalence(){
         mixed->set_profiling(true);
         AheadRenderer renderer(mixed,device,2048);renderer.start();check(renderer.active(),"mixed did not start");settle();
         std::array<float,1024> in{},expected{},actual{};const auto before=probe::allocations.load();
-        for(unsigned n=0;n<80;++n){const auto frames=n%2?device-17:17;
+        for(unsigned n=0;n<80;++n){AheadRendererTestAccess::wait_full(renderer);const auto frames=n%2?device-17:17;
             for(std::size_t i=0;i<frames*2;++i)in[i]=.2f*static_cast<float>((i+n)%7)/7;
             probe::enabled=true;direct->process(in.data(),expected.data(),frames);renderer.process(in.data(),actual.data(),frames);probe::enabled=false;
             check(!mixed->metrics().processing_fault,"mixed fault");check(mixed->metrics().ahead_underruns==0,"paced mixed starvation");
@@ -126,6 +128,27 @@ void edits(){
     check(mixed->metrics().ahead_invalidations>0,"mixed generation invalidation missing");renderer.stop();
     for(const auto& t:traces)check(t.collisions==0,"edit raced producer DSP");
 }
+void mixer_gestures(){
+    Traces traces;auto g=graph(traces,false);g.click.playback=false;g.sends={ {},{}, {},{} };g.master_gain=1;
+    auto asset=std::make_shared<AudioData>();asset->sample_rate=48000;asset->channels=2;asset->samples.assign(65536*2,.25f);
+    g.voices={{asset,0,0,65536,{{0,0,1},{1,1,1}},{},0}};g.input_monitoring={false,false,false,false};
+    auto e=engine(g);e->enqueue({ControlKind::play});AheadRenderer renderer(e,128,1024);renderer.start();settle();
+    std::array<float,256> out{};renderer.process(nullptr,out.data(),128);settle();
+    const auto invalidations=e->metrics().ahead_invalidations;const auto allocs=probe::allocations.load();MixerUpdate mix;mix.count=4;
+    for(unsigned n=0;n<120;++n){AheadRendererTestAccess::wait_full(renderer);mix.tracks[0].gain=.4f+.002f*n;mix.tracks[0].pan=.25f;mix.tracks[1]=mix.tracks[0];
+        check(e->enqueue_mix(mix),"mixed mixer queue overflow");const auto heard=e->state().sample;
+        probe::enabled=true;renderer.process(nullptr,out.data(),128);probe::enabled=false;
+        check(e->state().sample==heard+128,"mixed fader stalled transport");
+        check(std::all_of(out.begin(),out.end(),[](float x){return std::isfinite(x)&&x>0;}),"mixed fader discarded ahead PCM");settle();}
+    mix.tracks[0]={.5f,0,false,false};check(e->enqueue_mix(mix),"mixed final target");
+    for(unsigned n=0;n<20;++n){AheadRendererTestAccess::wait_full(renderer);renderer.process(nullptr,out.data(),128);settle();}
+    // Source, shared Bus and Master each pass through x/(1+abs(x)).
+    const auto fx=[](float x){return x/(1+std::abs(x));};const float expected=fx(fx(fx(.25f)*.5f));
+    check(std::all_of(out.begin(),out.end(),[&](float x){return std::abs(x-expected)<.00001f;}),"mixed producer lost latest mixer targets");
+    check(e->metrics().ahead_invalidations==invalidations&&e->metrics().ahead_underruns==0,"mixed mixer gesture invalidated PCM");
+    check(probe::allocations==allocs&&!e->metrics().processing_fault,"mixed mixer RT allocation or fault");renderer.stop();
+    for(const auto& trace:traces)check(trace.collisions==0,"mixed gesture raced shared DSP");
+}
 void capture(){
     Traces traces;const auto path=std::filesystem::temp_directory_path()/("mrs-mixed-"+new_id().value+".wav");
     struct Cleanup {std::filesystem::path p;~Cleanup(){std::error_code e;std::filesystem::remove(p,e);}} cleanup{path};
@@ -148,7 +171,7 @@ void capture(){
 }
 void parameters(){
     Traces traces,reference_traces;
-    const auto gain=[](float value){const std::array<NativeInsert,1> fx{{{new_id(),InsertKind::gain,value}}};
+    const auto gain=[](float value){NativeInsert insert;insert.id=new_id();insert.kind=InsertKind::gain;insert.gain=value;const std::array<NativeInsert,1> fx{insert};
         return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(insert_graph(fx)),0,false,false},ProcessConfig{48000,2,512});};
     // This test compares a fresh mid-beat DSP reference: it cannot reproduce
     // the independent click tail carried across a parameter edit. Click-enabled
@@ -160,7 +183,7 @@ void parameters(){
     const auto info=processor->parameter_infos(node).front().id;
     check(processor->enqueue_parameter(node,{0,info,0.f}),"native parameter enqueue");renderer.process(in.data(),out.data(),128);settle();
     auto reference_graph=graph(reference_traces,false);reference_graph.click.playback=reference_graph.click.recording=false;reference_graph.inserts[0]=gain(0.f);
-    auto reference=engine(reference_graph,1,{PlaybackState::paused,e->state().sample});reference->enqueue({ControlKind::play});
+    auto reference=engine(reference_graph,1,{PlaybackState::paused,e->state().sample,{}});reference->enqueue({ControlKind::play});
     reference->process(in.data(),expected.data(),128);renderer.process(in.data(),out.data(),128);
     check(out==expected,"native edit consumed stale partial playback packet");
     check(processor->enqueue_parameter(node,{1,info,.5f}),"offset automation enqueue");renderer.process(in.data(),out.data(),128);settle();renderer.process(in.data(),out.data(),128);
@@ -209,6 +232,6 @@ void concurrent(){
 }
 }
 int main(int argc,char** argv){try{check(argc==2,"suite required");const std::string suite=argv[1];
-    if(suite=="equivalence")equivalence();else if(suite=="recovery")recovery();else if(suite=="edits")edits();else if(suite=="capture")capture();else if(suite=="parameters")parameters();else if(suite=="streaming")streaming();else if(suite=="concurrent")concurrent();else throw std::invalid_argument("unknown suite");
+    if(suite=="equivalence")equivalence();else if(suite=="recovery")recovery();else if(suite=="edits")edits();else if(suite=="mixer_gestures")mixer_gestures();else if(suite=="capture")capture();else if(suite=="parameters")parameters();else if(suite=="streaming")streaming();else if(suite=="concurrent")concurrent();else throw std::invalid_argument("unknown suite");
     std::cout<<"PASS mixed "<<suite<<'\n';return 0;
 }catch(const std::exception& e){probe::enabled=false;std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}}

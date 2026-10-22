@@ -91,7 +91,11 @@ void audio_analysis256_tests(){
     const auto beforeBrowse=std::chrono::steady_clock::now();LibraryQuery active;active.search="T128";lib.browse(active);wait(lib,[&](const auto& v){return v.query==active;});
     check(std::chrono::steady_clock::now()-beforeBrowse<std::chrono::milliseconds(500),"Active audio analysis must not hold the browsing worker");
     lib.pause_analysis(true);snap=wait(lib,[](const auto& v){return v.analysis.paused;});
-    const auto completed=snap->analysis.completed;LibraryQuery browse; browse.search="T120";lib.browse(browse);snap=wait(lib,[&](const auto& v){return v.query==browse;});check(snap->visible_assets==1,"Browsing remains available while analysis is paused");
+    LibraryQuery browse; browse.search="T120";lib.browse(browse);snap=wait(lib,[&](const auto& v){return v.query==browse;});check(snap->visible_assets==1,"Browsing remains available while analysis is paused");
+    // The browse acknowledgement drains pre-pause results already queued on
+    // the catalogue worker. Only one analysis can still finish after this
+    // barrier; the paused flag alone does not acknowledge those old results.
+    const auto completed=snap->analysis.completed;
     std::this_thread::sleep_for(std::chrono::milliseconds(30));check(lib.snapshot()->analysis.completed<=completed+1,"Pause bounds in-flight completion and stops further work");
     lib.pause_analysis(false);snap=wait(lib,[](const auto& v){return !v.analysis.running;});
     check(snap->assets.front().manual_bpm==137&&snap->assets.front().manual_key=="Gm"&&snap->assets.front().bpm_source=="manual","Reanalysis preserves manual musical metadata and its provenance");

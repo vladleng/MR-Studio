@@ -95,6 +95,11 @@ public:
     bool audition_note(const Id& track,int pitch,int velocity,int channel=0,bool on=true,bool soft_release=false);
     void midi_panic() noexcept {engine_->midi_panic();external_midi_->panic();}
     Id add_bus(std::string name);
+    Id create_track_folder(std::string name,const std::vector<Id>& tracks);
+    void move_tracks_to_folder(const std::vector<Id>&,std::optional<Id>);
+    void update_track_folder(const Id&,std::string name,bool collapsed);
+    void remove_track_folder(const Id&);
+    void link_folder_bus(const Id&,std::optional<Id>,bool create=false);
     Id add_fx_channel(std::string name);
     Id add_return_send(const Id& source, std::string name);
     void set_track_output(const Id&, std::optional<Id>);
@@ -371,6 +376,7 @@ private:
     void prepare_inserts(audio::RenderGraph&,const audio::DeviceConfig&,bool retain=false);
     bool history(bool redo);
     void edit_metadata(const ICommand&,bool staged=false);
+    void edit_track_folders(const ICommand&);
     bool edit_timing(Project,const ICommand*,std::optional<bool> history={},bool midi=false,bool allow_loop=false);
     void sync_arm();
     void require_not_recording() const;

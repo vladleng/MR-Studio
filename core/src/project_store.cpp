@@ -24,6 +24,61 @@ struct EditGuard {
     ~EditGuard() { if(!transferred)editing = false; }
 };
 }
+namespace {
+Folder& track_folder(Project& p,const Id& id){
+    const auto it=std::find_if(p.folders.begin(),p.folders.end(),[&](const auto& f){return f.id==id;});
+    if(it==p.folders.end())throw std::invalid_argument("Unknown track folder");
+    return *it;
+}
+void route_folder_member(Project& p,Track& track){
+    if(track.kind==TrackKind::midi)return;
+    auto parent=track.folder;
+    for(std::size_t depth=0;parent&&depth<p.folders.size();++depth){
+        const auto& folder=track_folder(p,*parent);
+        if(folder.bus&&folder.bus!=track.id){track.output=folder.bus;track.hardware_outputs.clear();return;}
+        parent=folder.parent;
+    }
+}
+}
+void MoveTracksToFolder::apply(Project& p) const{
+    if(folder_)(void)track_folder(p,*folder_);
+    for(const auto& id:tracks_){
+        const auto it=std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t){return t.id==id;});
+        if(it==p.tracks.end())throw std::invalid_argument("Unknown folder member");
+        it->folder=folder_;route_folder_member(p,*it);
+    }
+}
+void CreateTrackFolder::apply(Project& p) const{
+    if(folder_.name.empty()||folder_.name.size()>4096)throw std::invalid_argument("Invalid folder name");
+    if(folder_.bus)throw std::invalid_argument("Link the folder Bus separately");
+    p.folders.push_back(folder_);MoveTracksToFolder{tracks_,folder_.id}.apply(p);
+}
+void UpdateTrackFolder::apply(Project& p) const{
+    auto& folder=track_folder(p,id_);
+    if(name_!=folder.name&&(name_.empty()||name_.size()>4096))throw std::invalid_argument("Invalid folder name");
+    folder.name=name_;folder.collapsed=collapsed_;
+}
+void RemoveTrackFolder::apply(Project& p) const{
+    const auto parent=track_folder(p,id_).parent;
+    for(auto& track:p.tracks)if(track.folder==id_)track.folder=parent;
+    for(auto& folder:p.folders)if(folder.parent==id_)folder.parent=parent;
+    std::erase_if(p.folders,[&](const auto& folder){return folder.id==id_;});
+    // Dissolving a folder preserves tracks, clips and the audible Bus routing.
+}
+void LinkFolderBus::apply(Project& p) const{
+    (void)track_folder(p,folder_);
+    if(create_){if(!bus_||create_->id!=*bus_||create_->kind!=TrackKind::bus)throw std::invalid_argument("Invalid new folder Bus");p.tracks.push_back(*create_);}
+    if(bus_){const auto it=std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t){return t.id==*bus_;});
+        if(it==p.tracks.end()||it->kind!=TrackKind::bus)throw std::invalid_argument("Folder output requires a Bus");
+        for(const auto& f:p.folders)if(f.id!=folder_&&f.bus==bus_)throw std::invalid_argument("Bus already linked to another folder");}
+    track_folder(p,folder_).bus=bus_;
+    if(!bus_)return; // detach keeps the existing audible routing
+    if(create_)route_folder_member(p,p.tracks.back());
+    for(auto& track:p.tracks){auto parent=track.folder;bool member=false;
+        for(std::size_t depth=0;parent&&depth<p.folders.size();++depth){if(*parent==folder_){member=true;break;}parent=track_folder(p,*parent).parent;}
+        if(member)route_folder_member(p,track);
+    }
+}
 AddTrack::AddTrack(Track track) : track_(std::move(track)) {}
 void SetTrackMix::apply(Project& project) const {
     auto track = std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t) { return t.id == track_; });

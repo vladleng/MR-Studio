@@ -14,11 +14,13 @@ public:
     void begin(std::uint32_t) noexcept; // callback, after controls/seek/mix
     void end() noexcept; // publish heard context after live processing
 private:
+    friend struct AheadRendererTestAccess;
     struct Signals;
     struct Context {
         RealtimeState head;
         AudioEngine::MixHead mix;
         std::uint64_t revision{},sequence{};
+        MixerUpdate targets;
     };
     struct Mailbox { std::atomic<int> owner{};Context context; };
     struct Packet {

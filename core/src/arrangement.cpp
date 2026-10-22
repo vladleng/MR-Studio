@@ -11,6 +11,7 @@ void RemoveTrack::apply(Project& p) const {
         if (track.output == id_) { track.output = destination; track.hardware_outputs = hardware; }
         std::erase_if(track.sends,[&](const auto& send) { return send.bus == id_; });
     }
+    for(auto& folder:p.folders)if(folder.bus==id_)folder.bus.reset();
     p.tracks.erase(it);
     std::erase_if(p.clips,[&](const auto& c) { return c.track == id_; });
 }

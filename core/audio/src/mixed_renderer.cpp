@@ -82,7 +82,7 @@ bool MixedRenderer::start() {
         if(ahead_channels_[t]&&!device_->graph_.inserts.empty()&&device_->graph_.inserts[t]&&!device_->graph_.inserts[t]->anticipation_safe())return false;
     device_->consume_controls();MixerUpdate mix;for(int n=0;n<7&&device_->mixer_controls_.pop(mix);++n)device_->set_mix(mix,true);
     sequence_=0;read_=0;write_=0;latest_=0;quit_=false;
-    contexts_[0].context={device_->rt_,device_->mix_head(),device_->control_revision(),0};
+    contexts_[0].context={device_->rt_,device_->mix_head(),device_->control_revision(),0,device_->last_mix_update_};
     std::unique_ptr<ChannelWorkers> callback_workers;
     if(device_->workers_&&device_->workers_->count()>1)
         callback_workers=std::make_unique<ChannelWorkers>(device_->workers_->count()-1,device_->config_.worker_mmcss);
@@ -124,7 +124,7 @@ void MixedRenderer::run() noexcept {
 #ifdef _WIN32
     DWORD task{};HANDLE audio=AvSetMmThreadCharacteristicsW(L"Pro Audio",&task);
 #endif
-    Context head;std::uint64_t revision=~std::uint64_t{},sequence=0,reported_disk=0;bool primed=false;
+    Context head;std::uint64_t revision=~std::uint64_t{},sequence=0,reported_disk=0,mix_serial=~std::uint64_t{};bool primed=false;
     while(!quit_.load(std::memory_order_acquire)) {
         if(ahead_->processing_fault_.load(std::memory_order_acquire)||!ahead_->anticipation_safe()){
             device_->processing_fault_=true;signals_->wake.wait();continue;}
@@ -133,11 +133,14 @@ void MixedRenderer::run() noexcept {
         // snapshot may associate their generation with transport/mixer state.
         if(head.revision!=device_->control_revision()){signals_->wake.wait();continue;}
         if(head.revision!=revision||head.sequence>sequence){
-            ahead_->rebase_head(head.head);ahead_->restore_mix(head.mix);sequence=head.sequence;
+            ahead_->rebase_head(head.head);ahead_->set_mix(head.targets,false);ahead_->restore_mix(head.mix);sequence=head.sequence;
             if (primed)
               ++device_->ahead_invalidations_;
             revision = head.revision;
+            mix_serial=head.targets.serial;
         }
+        // Continue from the producer's current ramp; a fader gesture is not a seek.
+        if(head.targets.serial!=mix_serial){ahead_->set_mix(head.targets,true);mix_serial=head.targets.serial;}
         const auto w=write_.load(std::memory_order_relaxed),next=(w+1)%static_cast<unsigned>(packets_.size());
         if(next==read_.load(std::memory_order_acquire)){signals_->wake.wait();continue;}
         auto& packet=packets_[w];const auto started=std::chrono::steady_clock::now();
@@ -158,7 +161,7 @@ void MixedRenderer::run() noexcept {
 void MixedRenderer::begin(std::uint32_t frames) noexcept {
     const auto revision=device_->control_revision();
     revision_=revision;
-    publish_context({device_->rt_,device_->mix_head(),revision,sequence_});
+    publish_context({device_->rt_,device_->mix_head(),revision,sequence_,device_->last_mix_update_});
     const auto channels=device_->config_.output_channels;
     const auto stride=static_cast<std::size_t>(device_->domain_stride_)*channels;
     for(std::size_t edge=0;edge<edges_;++edge)std::fill_n(input_.data()+edge*stride,static_cast<std::size_t>(frames)*channels,0.f);
@@ -180,7 +183,7 @@ void MixedRenderer::begin(std::uint32_t frames) noexcept {
     sequence_+=frames;signals_->wake.post();
 }
 void MixedRenderer::end() noexcept {
-    publish_context({device_->rt_,device_->mix_head(),revision_,sequence_});
+    publish_context({device_->rt_,device_->mix_head(),revision_,sequence_,device_->last_mix_update_});
     const auto w=write_.load(std::memory_order_acquire),r=read_.load(std::memory_order_relaxed);
     const auto queued=w>=r?w-r:w+static_cast<unsigned>(packets_.size())-r;
     auto buffered=queued*frames_;

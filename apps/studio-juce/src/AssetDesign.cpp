@@ -26,7 +26,7 @@ void Desktop::setAssetDesign(bool enabled){
     // Detach all children before destroying the borrowed Theme.
     auto retiringTheme=std::move(assetTheme);
     if(enabled)assetTheme=std::move(retiringTheme);
-    for(auto& s:mixer)s->applyAssetDesign();if(master)master->applyAssetDesign();
+    for(auto& s:mixer)s->applyAssetDesign();for(auto& s:mixerFolders)s->applyAssetDesign();if(master)master->applyAssetDesign();
     if(arrangement)for(auto& s:arrangement->rows)s->applyAssetDesign();
     if(browser)browser->applyAssetDesign();
     if(!enabled)retiringTheme.reset();
