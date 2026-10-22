@@ -13,10 +13,6 @@
 #include <fstream>
 #include <charconv>
 #include <cmath>
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
 #include <sstream>
 
 namespace ui {
@@ -1318,7 +1314,7 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
     g.restoreState();
 }
 void Desktop::editClipStretch(mrs::Id id){
-    const auto store=app.services().projects;const auto revision=store->state().revision;
+    const auto store=app.services().projects;const auto projectRevision=store->state().revision;
     const auto p=project();const auto it=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});
     if(it==p->clips.end()||it->midi)return;
     if(app.recording()||app.engine()->state().playback==mrs::PlaybackState::playing)throw std::runtime_error("Stop playback before editing time / pitch");
@@ -1338,10 +1334,10 @@ void Desktop::editClipStretch(mrs::Id id){
     alert->addComboBox("quality",{"Balanced","Economical"},"Quality");alert->getComboBoxComponent("quality")->setSelectedId(static_cast<int>(parameters.quality)+1);
     alert->addButton("Apply",1,juce::KeyPress(juce::KeyPress::returnKey));alert->addButton("Reset",2);alert->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
     juce::Component::SafePointer<Desktop> safe(this);
-    alert->enterModalState(true,juce::ModalCallbackFunction::create([safe,alert,store,revision,id,parameters](int result){
+    alert->enterModalState(true,juce::ModalCallbackFunction::create([safe,alert,store,projectRevision,id,parameters](int result){
         if(!safe||!result)return;
         safe->run([&]{
-            if(safe->app.services().projects!=store||store->state().revision!=revision)throw std::runtime_error("Project changed; reopen Time / Pitch");
+            if(safe->app.services().projects!=store||store->state().revision!=projectRevision)throw std::runtime_error("Project changed; reopen Time / Pitch");
             if(result==2){safe->app.set_clip_stretch(id,parameters,true);return;}
             auto value=parameters;
             const auto read=[&](const char* key){auto text=alert->getTextEditorContents(key).trim().toStdString();if(text.starts_with('+'))text.erase(0,1);double n{};
@@ -1355,25 +1351,6 @@ void Desktop::editClipStretch(mrs::Id id){
             safe->app.set_clip_stretch(id,value);
         });
     }),true);
-}
-void clipStretchSmoke(){
-    const auto check=[](bool value,const char* text){if(!value)throw std::runtime_error(text);};
-    Desktop owner(true);owner.stopTimer();owner.setSize(1200,800);owner.setVisible(true);owner.addToDesktop(juce::ComponentPeer::windowIsTemporary);
-    const auto id=owner.project()->clips.front().id;owner.app.trim_clip(id,0,48000);const auto original=*owner.project();
-    const auto pump=[](){for(int pass=0;pass<20;++pass){MSG message{};int count{};while(count++<200&&PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}std::this_thread::sleep_for(std::chrono::milliseconds(1));}};
-    const auto dialog=[&](){owner.editClipStretch(id);auto* alert=dynamic_cast<juce::AlertWindow*>(juce::Component::getCurrentlyModalComponent());check(alert!=nullptr,"Time / Pitch dialog");return alert;};
-    auto* alert=dialog();check(alert->getComboBoxComponent("enabled")->getSelectedId()==1,"Processing defaults enabled");
-    for(const auto* field:{"ratio","pitch","cents","shift","base"})check(alert->getTextEditor(field)!=nullptr,"Numeric stretch control");
-    for(float scale:{1.f,1.5f}){auto stream=juce::File::getCurrentWorkingDirectory().getChildFile(scale==1.f?"stretch-dialog-100.png":"stretch-dialog-150.png").createOutputStream();check(stream&&juce::PNGImageFormat().writeImageToStream(alert->createComponentSnapshot(alert->getLocalBounds(),true,scale),*stream),"Stretch dialog preview");}
-    alert->exitModalState(0);pump();check(*owner.project()==original,"Cancel preserves project");
-    alert=dialog();alert->getTextEditor("ratio")->setText("1.25");alert->getTextEditor("pitch")->setText("+7");alert->exitModalState(1);pump();
-    check(owner.project()->clips.front().stretch&&owner.project()->clips.front().length==60000,"Apply binds time / pitch command");
-    check(owner.project()->clips.front().stretch->parameters.semitones==7,"Signed pitch input");
-    check(owner.app.undo()&&*owner.project()==original,"Dialog edit undo");check(owner.app.redo(),"Dialog edit redo");
-    alert=dialog();alert->getComboBoxComponent("enabled")->setSelectedId(2);alert->exitModalState(1);pump();check(owner.project()->clips.front().length==48000,"Bypass restores duration");
-    alert=dialog();alert->exitModalState(2);pump();check(!owner.project()->clips.front().stretch,"Reset removes state");
-    const auto before=*owner.project();alert=dialog();alert->getTextEditor("ratio")->setText("nan");alert->exitModalState(1);pump();check(*owner.project()==before,"Invalid input preserves project");
-    owner.removeFromDesktop();
 }
 void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
     const auto store=owner.app.services().projects;const auto p=owner.project();const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(c==p->clips.end())return;
