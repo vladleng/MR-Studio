@@ -65,20 +65,47 @@ void arrangeFinalGesturesSmoke(){
 void trackFolderSmoke(){
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
     Desktop d(true);d.app.disconnect();d.app.new_project();const auto a=d.app.add_audio_track("Kick"),b=d.app.add_audio_track("Snare"),c=d.app.add_instrument_track("Keys");
-    const auto clip=d.app.create_midi_clip(c,0);d.refresh(true);d.setSize(1200,900);d.setWorkspace(mrs::desktop::Workspace::arrange);
+    const auto clip=d.app.create_midi_clip(c,0);d.refresh(true);d.setSize(1400,1100);d.setWorkspace(mrs::desktop::Workspace::mix);
     d.selectTrack(a,{});d.selectTrack(b,juce::ModifierKeys(juce::ModifierKeys::ctrlModifier));check(d.folderSelection()==std::vector<mrs::Id>{a,b},"Ctrl selects folder members");
     d.selectTrack(b,juce::ModifierKeys(juce::ModifierKeys::ctrlModifier));check(d.folderSelection()==std::vector<mrs::Id>{a}&&d.selectedTrack==a,"Ctrl deselect keeps focus on a selected track");d.selectTrack(b,juce::ModifierKeys(juce::ModifierKeys::ctrlModifier));
-    const auto id=d.app.create_track_folder("Drums",d.folderSelection());d.refresh();auto& view=*d.arrangement;view.vertical=0;view.resized();
-    check(view.folderRows.size()==1&&view.trackY(0)==36&&view.trackY(1)==36+view.trackHeight,"folder header offsets lanes");
+    const auto id=d.app.create_track_folder("Drums",d.folderSelection());d.refresh();auto& view=*d.arrangement;
+    // No manual resized(), message pump, extra action or forced refresh may be
+    // needed after the click: setBounds with identical bounds does not relayout.
+    check(view.folderRows.size()==1&&view.trackY(0)==36&&view.rows[0]->getY()==36,"folder creation immediately lays out Arrange rows");
+    check(d.mixerFolders.size()==1,"unlinked mixer folder exists");auto* channelBody=d.mixerFolders.front()->getParentComponent();const auto arrangeBounds=view.getBounds(),mixBounds=channelBody->getBounds();
+    check(d.mixerFolders.size()==1&&d.mixerColumnCount==4&&d.mixerColumns[0]==1&&d.mixerColumns[1]==2,"unlinked folder is a compact mixer channel before its members");
+    check(!d.mixerFolders[0]->gain.isEnabled()&&!d.mixerFolders[0]->pan.isEnabled(),"unlinked folder audio controls are disabled");
+    const auto master=d.project()->master_gain;const auto revision=d.app.services().projects->state().revision;d.mixerFolders[0]->gain.commit(.2);check(d.project()->master_gain==master&&d.app.services().projects->state().revision==revision,"unlinked folder cannot edit Master gain");
     check(view.trackAt(static_cast<float>(view.headerHeight()+10))==-1,"folder header is not an audio destination");
     const auto p=d.project();const auto stored=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& item){return item.id==clip;});
     check(stored!=p->clips.end()&&view.trackAt(view.clipRect(*stored).getCentreY())==2,"folder layout keeps clip hit and target aligned");
-    auto* header=view.rowsBody.findChildWithID("track-folder-"+juce::String(id.value));check(header!=nullptr,"folder has accessible header");header->keyPressed(juce::KeyPress(juce::KeyPress::returnKey));
-    check(d.project()->folders.back().collapsed&&!view.rows[0]->isVisible()&&!view.rows[1]->isVisible()&&view.trackY(2)==36,"collapse hides only member lanes");
-    check(view.trackAt(view.clipRect(*stored).getCentreY())==2,"collapsed lanes do not shift clip drop target to a hidden track");
-    d.action(10);check(!d.project()->folders.back().collapsed&&view.trackY(2)==36+2*view.trackHeight,"Undo restores expanded folder layout");
-    d.app.link_folder_bus(id,{},true);d.refresh();check(d.project()->folders.back().bus.has_value()&&view.rows.size()==4,"linked folder Bus remains a real mixer channel");
-    d.app.remove_track_folder(id);d.refresh();check(view.folderRows.empty()&&view.trackY(0)==0&&d.project()->tracks.size()==4,"dissolve restores flat lanes without deleting tracks");
+    auto* header=view.rowsBody.findChildWithID("track-folder-"+juce::String(id.value));check(header&&!header->getBounds().isEmpty(),"folder header has immediate mouse bounds");
+    const juce::Point<float> point{12,12};const auto now=juce::Time::getCurrentTime();
+    header->mouseDown(juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier),1,0,0,0,0,header,header,now,point,now,1,false));
+    check(d.project()->folders.back().collapsed&&!view.rows[0]->isVisible()&&!view.rows[1]->isVisible()&&view.rows[2]->getY()==36,"mouse click collapses Arrange immediately");
+    check(!d.mixer[0]->isVisible()&&!d.mixer[1]->isVisible()&&d.mixerColumnCount==2&&d.mixerColumns[2]==1,"Arrange collapse immediately hides Mixer members and closes gaps");
+    check(view.getBounds()==arrangeBounds&&channelBody->getBounds()==mixBounds,"collapse does not depend on changing window bounds");
+    check(view.trackAt(view.clipRect(*stored).getCentreY())==2,"collapsed lanes do not shift clip target to hidden track");
+    d.action(10);check(!d.project()->folders.back().collapsed&&view.rows[0]->isVisible()&&d.mixer[0]->isVisible()&&d.mixerColumnCount==4,"Undo immediately restores both folder views");
+    d.app.link_folder_bus(id,{},true);d.refresh();const auto linkedProject=d.project();const auto bus=*linkedProject->folders.back().bus;const auto busIndex=static_cast<std::size_t>(std::find_if(linkedProject->tracks.begin(),linkedProject->tracks.end(),[&](const auto& track){return track.id==bus;})-linkedProject->tracks.begin());
+    check(d.mixerFolders.empty()&&d.mixer[busIndex]->folder==id&&d.mixerColumns[busIndex]==0&&d.mixerColumnCount==4,"linked Bus becomes the simplified folder channel without duplicate strip");
+    check(d.mixer[busIndex]->gain.isEnabled()&&d.mixer[busIndex]->pan.isEnabled()&&!d.mixer[busIndex]->findChildWithID("mixer-add-insert")->isVisible(),"linked folder retains audio controls and omits insert UI");
+    const auto capture=[&](const juce::String& state){for(float scale:{1.f,1.25f,1.5f,2.f}){const auto file=juce::File::getCurrentWorkingDirectory().getChildFile("juce-folder-mixer-"+state+"-"+juce::String(static_cast<int>(scale*100))+".png");auto output=file.createOutputStream();check(output&&output->setPosition(0)&&output->truncate().wasOk()&&juce::PNGImageFormat().writeImageToStream(channelBody->createComponentSnapshot({0,0,d.mixerColumnCount*88,channelBody->getHeight()},true,scale,juce::SoftwareImageType{}),*output),"folder mixer DPI preview export");}};
+    capture("expanded");
+    d.mixer[busIndex]->gain.commit(.7);check(std::abs(d.project()->tracks[busIndex].mix.gain-std::pow(10.f,(-60.f+72.f*.7f)/20.f))<.0001f&&d.project()->master_gain==master,"folder gain controls actual Bus only");
+    const auto tracks=d.project()->tracks;const auto generation=d.app.insert_generation();
+    auto toggle=dynamic_cast<juce::TextButton*>(d.mixer[busIndex]->findChildWithID("mixer-folder-toggle"));check(toggle!=nullptr,"linked folder has collapse control");toggle->onClick();
+    check(d.mixer[busIndex]->isVisible()&&!d.mixer[0]->isVisible()&&!view.rows[0]->isVisible()&&d.mixerColumnCount==2,"Mixer collapse immediately updates Arrange and keeps Bus controls");
+    check(d.project()->tracks==tracks&&d.app.insert_generation()==generation,"visual collapse preserves routing and DSP owners");capture("collapsed");
+    d.setWorkspace(mrs::desktop::Workspace::arrange);d.setWorkspace(mrs::desktop::Workspace::mix);check(d.mixerColumnCount==2&&!d.mixer[0]->isVisible(),"workspace switch retains shared collapse state");
+    toggle=dynamic_cast<juce::TextButton*>(d.mixer[busIndex]->findChildWithID("mixer-folder-toggle"));toggle->onClick();
+    mrs::Folder nested;nested.id=mrs::new_id();nested.name="Snares";nested.parent=id;d.app.services().projects->execute(mrs::CreateTrackFolder{nested,{b}});d.refresh();
+    check(d.mixerFolders.size()==1&&d.mixerFolders[0]->folder==nested.id,"nested folder gets a channel inside its parent");
+    auto nestedToggle=dynamic_cast<juce::TextButton*>(d.mixerFolders[0]->findChildWithID("mixer-folder-toggle"));nestedToggle->onClick();
+    check(!d.mixer[1]->isVisible()&&d.mixer[0]->isVisible()&&!view.rows[1]->isVisible(),"nested collapse hides only its own members in both views");
+    toggle->onClick();check(d.mixerFolders.empty()&&!d.mixer[0]->isVisible()&&d.mixer[busIndex]->isVisible(),"parent collapse hides nested folder channel and keeps its own Bus");
+    toggle->onClick();check(d.mixerFolders.size()==1&&!d.mixer[1]->isVisible()&&d.mixer[0]->isVisible(),"parent expand preserves nested collapsed state");
+    d.app.remove_track_folder(nested.id);d.app.remove_track_folder(id);d.refresh();check(view.folderRows.empty()&&view.rows[0]->getY()==0&&d.project()->tracks.size()==4&&d.mixerFolders.empty()&&d.mixerColumnCount==4&&!d.mixer[busIndex]->folder&&d.mixer[busIndex]->findChildWithID("mixer-add-insert")->isVisible(),"dissolve restores ordinary channels without losing Bus or tracks");
 }
 void arrangeAudioSmoke(){
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};

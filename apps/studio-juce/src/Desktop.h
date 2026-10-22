@@ -237,6 +237,10 @@ public:
     juce::String footerStatus();
     static constexpr int faderHeight=145;
     std::vector<std::unique_ptr<Strip>> mixer;
+    std::vector<std::unique_ptr<Strip>> mixerFolders; // unlinked presentation-only channels
+    std::vector<int> mixerColumns,mixerFolderColumns;
+    int mixerColumnCount{};
+    void rebuildMixerFolders();
     std::unique_ptr<Strip> master;
     std::unique_ptr<Browser> browser;
     std::unique_ptr<ProjectHome> home;
@@ -300,7 +304,7 @@ private:
 class Strip final : public juce::Component, public juce::DragAndDropTarget, public juce::SettableTooltipClient {
     friend void assetDesignSmoke();
 public:
-    Strip(Desktop&,std::optional<mrs::Id>,bool mini=false);
+    Strip(Desktop&,std::optional<mrs::Id>,bool mini=false,std::optional<mrs::Id> folder={});
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
@@ -324,12 +328,15 @@ public:
     std::size_t pluginInsertionAt(juce::Point<int>) const;
     juce::Rectangle<int> pluginDropArea() const {return insertViewport.getBounds();}
     Handle gain,pan{false};
-    std::optional<mrs::Id> target;
+    std::optional<mrs::Id> target,folder;
 private:
     mrs::Track track() const;
     mrs::Track::Mix adjusted(bool,double) const;
     void preview(bool,double);void commit(bool,double);
     void inputMenu();void insertList();void colorMenu();void openInstrument();
+    void syncFolderPresentation();
+    juce::TextButton folderToggle,folderMenuButton{"..."};
+    std::unique_ptr<juce::Drawable> folderIcon;
     Desktop& owner;
     bool mini{};
     bool dragTitle{},dropBefore{},trackHover{};
