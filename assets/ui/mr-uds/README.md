@@ -108,3 +108,9 @@ This is an artwork-only extension. Runtime mapping, user-selectable icons and an
 [`previews/concept_pack.html`](previews/concept_pack.html) теперь показывает **все SVG**, найденные в каноническом `svg/`, транспортных иконках `assets/ui/icons/transport/`, SVG-превью и `docs/design/`. Поиск, разделы, масштаб, светлый фон, увеличенный просмотр и ссылки на оригиналы работают при открытии через `file:///` без сервера, сети, CDN или `fetch()`.
 
 После добавления SVG запускай `python assets/ui/mr-uds/build_svg_gallery.py` — генератор повторно сканирует все каталоги и обновляет HTML. Шаблон находится в `previews/concept_pack.template.html`. `build_concept_pack.py` также вызывает этот генератор после обновления концепт-пака. Локальные SVG должны находиться по тем же относительным путям; один HTML-файл не содержит самих рисунков.
+
+## Браузерный просмотр SVG прямо из GitHub (2026-10-22)
+
+GitHub Pages: [SVG Asset Browser](https://vladleng.github.io/MR-Studio/svg-gallery/). Живой список SVG берётся из GitHub REST tree API и показывается с GitHub Raw по SHA актуальной ветки. Есть переключатель `main` / draft `PR #268`, поиск, разделы, масштаб, крупный просмотр, ссылки на SVG и файл на GitHub. Локальный checkout или `file:///` больше не нужен. При недоступности API интерфейс может показать резервный список SVG и отобразить изображения с GitHub по закреплённому SHA. Возможны лимиты анонимного GitHub API. На GitHub Pages находится только отдельная галерея; существующий MR Design Lab не затронут.
+
+Канонический исходник страницы — `assets/ui/mr-uds/previews/concept_pack.template.html`, а `build_svg_gallery.py` встраивает резервный список и обновляет `concept_pack.html`. Hosted copy: `gh-pages/svg-gallery/index.html`.

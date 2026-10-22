@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MR Studio — полный SVG-каталог</title>
+<title>MR Studio — SVG Assets · GitHub</title>
 <style>
 :root{color-scheme:dark;--bg:#111720;--panel:#192333;--raised:#222C3C;--stroke:#354961;--text:#DAE5F4;--muted:#A9BFDC;--accent:#91BBEE;--art-size:80px}
 *{box-sizing:border-box}
@@ -51,24 +51,34 @@ dialog::backdrop{background:#070B12C8}
 <body><main>
 <header>
 <h1><strong>MR</strong> Studio — полный SVG-каталог</h1>
-<p>Единая библиотека UDS, Track Pack, транспорт, обзорные SVG и дизайн-референсы. Открывается прямо как <code>file:///</code>, без сети и сервера.</p>
-<p>Нажми на карточку для крупного просмотра и перехода к исходному файлу. Этот каталог показывает только визуальные ресурсы, не изменяя интерфейс DAW.</p>
+<p>Онлайн-каталог SVG из репозитория <a href="https://github.com/vladleng/MR-Studio" target="_blank" rel="noopener">vladleng/MR-Studio</a>. Работает из браузера через GitHub Pages, не требует установки, скачивания или клонирования.</p>
+<p>Список загружается из актуального дерева GitHub, изображения — напрямую из GitHub Raw. Нажми на карточку для увеличения и перехода к исходнику. Данные только для просмотра; интерфейс DAW не изменяется.</p>
 </header>
 <div class="controls">
+ <div class="field"><label for="source">Источник GitHub</label><select id="source"><option value="pr">PR #268 · новые иконки</option><option value="main">main · принятая библиотека</option></select></div>
+ <button id="refresh" type="button" title="Перечитать актуальный список файлов из GitHub">Обновить из GitHub</button>
  <div class="field search"><label for="search">Поиск по имени или пути</label><input id="search" type="search" placeholder="Например: track, fader, guitar, reverb…" autocomplete="off"></div>
  <div class="field"><label for="category">Раздел</label><select id="category"><option value="all">Все SVG</option><option value="new_tracks">Новые иконки треков</option><option value="existing_tracks">Исходные иконки треков</option><option value="core_icons">Общие иконки</option><option value="utility_icons">Утилиты / браузер</option><option value="concept_controls">Faders &amp; Controls Pack</option><option value="core_controls">Базовые регуляторы</option><option value="rig">MR Rig</option><option value="reverb">MR Reverb</option><option value="transport">Транспорт</option><option value="preview">Обзорные схемы</option><option value="docs">Дизайн-референсы</option></select></div>
  <div class="field"><label for="scale">Размер просмотра: <output id="scaleValue">80</output> px</label><input type="range" id="scale" min="24" max="176" step="8" value="80"></div>
  <button id="background" type="button" aria-pressed="false" title="Переключить фон изображений">Светлый фон</button>
  <button id="reset" type="button">Сбросить</button>
 </div>
-<div class="status" aria-live="polite"><span id="count"></span><span class="muted">Иконки и SVG отображаются из исходных файлов по относительным путям</span></div>
+<div class="status" aria-live="polite"><span id="count"></span><span id="fetchStatus">Загрузка из GitHub…</span><span class="muted">Иконки открываются с raw.githubusercontent.com · для обновления нажми «Обновить из GitHub»</span></div>
 <div id="list" aria-label="SVG-галерея"></div><p id="empty" class="empty" hidden>Ничего не найдено — измени поисковый запрос или раздел.</p>
-<dialog id="detail"><div class="dialog-head"><h2 id="detailName"></h2><button type="button" id="close" aria-label="Закрыть">✕</button></div><div class="detail-art"><img id="detailImage" alt="Выбранный SVG"></div><p class="detail-path" id="detailPath"></p><input id="detailPathCopy" readonly aria-hidden="true" tabindex="-1"><div class="dialog-actions"><a id="openSvg" href="#" target="_blank" rel="noopener">Открыть оригинал SVG ↗</a><button type="button" id="copyPath">Скопировать путь</button><span id="copyHint" class="muted" aria-live="polite"></span></div></dialog>
+<dialog id="detail"><div class="dialog-head"><h2 id="detailName"></h2><button type="button" id="close" aria-label="Закрыть">✕</button></div><div class="detail-art"><img id="detailImage" alt="Выбранный SVG"></div><p class="detail-path" id="detailPath"></p><input id="detailPathCopy" readonly aria-hidden="true" tabindex="-1"><div class="dialog-actions"><a id="openSvg" href="#" target="_blank" rel="noopener">Открыть SVG ↗</a><a id="githubSvg" href="#" target="_blank" rel="noopener">Показать на GitHub ↗</a><button type="button" id="copyPath">Скопировать путь</button><span id="copyHint" class="muted" aria-live="polite"></span></div></dialog>
 </main>
 <script>
 "use strict";
 // Generated file list is embedded for full compatibility with file:/// (no fetch/XHR).
-const SVG_FILES = /*__ASSET_ROWS__*/;
+const FALLBACK_FILES = /*__ASSET_ROWS__*/;
+// Immutable fallback revisions are only used when the GitHub REST API is temporarily unavailable.
+const FALLBACK_SHA = {main:'b37eff72feb12a3b6caeda47a2e613d2d942e82d',pr:'64cea1bcdf63eefbe8fd951955edbd4cbcc8aaa2'};
+const API='https://api.github.com/repos/vladleng/MR-Studio';
+const RAW='https://raw.githubusercontent.com/vladleng/MR-Studio/';
+const source=document.getElementById('source');
+const fetchStatus=document.getElementById('fetchStatus');
+const refresh=document.getElementById('refresh');
+let activeSha=FALLBACK_SHA.pr;
 const search = document.getElementById('search');
 const category = document.getElementById('category');
 const list = document.getElementById('list');
@@ -83,6 +93,8 @@ function repoPath(src) {
  return 'assets/ui/mr-uds/previews/'+src;
 }
 function group(src) {
+ if(src.startsWith('assets/ui/icons/transport/')) return 'transport';
+ if(src.startsWith('docs/design/')) return 'docs';
  if (src.includes('/icons/track_pack/')) return 'new_tracks';
  if (src.includes('/icons/concept_pack/track_')) return 'existing_tracks';
  if (src.includes('/icons/concept_pack/')) return 'utility_icons';
@@ -100,7 +112,58 @@ const groupNames = {
  concept_controls:'Faders & Controls',core_controls:'Контролы',rig:'MR Rig',reverb:'MR Reverb',
  transport:'Транспорт',preview:'Обзор',docs:'Референс'
 };
-const items = SVG_FILES.map(([src,w,h])=>({src,w,h,name:basename(src),path:repoPath(src),group:group(src)}));
+const cached=FALLBACK_FILES.map(([src,w,h])=>({path:repoPath(src),w,h}));
+const cachedSizes=new Map(cached.map(a=>[a.path,[a.w,a.h]]));
+let items=[];
+function pathEligible(path) {
+ return typeof path==='string'&&path.endsWith('.svg')&&
+  (path.startsWith('assets/ui/mr-uds/svg/') ||
+   path.startsWith('assets/ui/mr-uds/previews/') ||
+   path.startsWith('assets/ui/icons/transport/') ||
+   path.startsWith('docs/design/'));
+}
+function rawUrl(path,sha) {
+ return RAW+sha+'/'+path.split('/').map(encodeURIComponent).join('/');
+}
+function asItem(path,sha) {
+ const [w,h]=cachedSizes.get(path)||[0,0];
+ return {path,w,h,name:basename(path),group:group(path),src:rawUrl(path,sha)};
+}
+async function requestJson(url) {
+ const response=await fetch(url,{cache:'no-store',headers:{Accept:'application/vnd.github+json'}});
+ if(!response.ok)throw new Error('GitHub API HTTP '+response.status);
+ return response.json();
+}
+async function loadAssets() {
+ const selected=source.value;
+ refresh.disabled=true;
+ fetchStatus.textContent='Загрузка списка SVG из GitHub…';
+ try {
+  let sha;
+  if(selected==='pr') {
+   const pr=await requestJson(API+'/pulls/268');
+   sha=pr.head && pr.head.sha;
+  } else {
+   const ref=await requestJson(API+'/git/ref/heads/main');
+   sha=ref.object && ref.object.sha;
+  }
+  if(!/^[a-f0-9]{40}$/.test(sha||''))throw new Error('Неверный SHA');
+  const tree=await requestJson(API+'/git/trees/'+sha+'?recursive=1');
+  if(tree.truncated || !Array.isArray(tree.tree))throw new Error('Неполное дерево GitHub');
+  const paths=tree.tree.filter(file=>file.type==='blob'&&pathEligible(file.path)).map(file=>file.path);
+  if(paths.length===0)throw new Error('SVG в выбранной ветке не найдены');
+  activeSha=sha;
+  items=paths.map(path=>asItem(path,sha)).sort((a,b)=>a.path.localeCompare(b.path,'en'));
+  fetchStatus.textContent=(selected==='pr'?'PR #268':'main')+' · '+sha.slice(0,8)+' · актуальный список GitHub';
+ } catch(e) {
+  activeSha=FALLBACK_SHA[selected];
+  items=cached.filter(a=>selected!=='main'||!a.path.includes('/icons/track_pack/')).map(a=>asItem(a.path,activeSha));
+  fetchStatus.textContent='GitHub API недоступен: резервный список ('+String(e.message||e)+'); изображения всё равно с GitHub';
+ }
+ refresh.disabled=false;
+ render();
+}
+
 const escapeHtml = text => String(text).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function showDetail(item) {
  document.getElementById('detailName').textContent = item.name;
@@ -109,6 +172,7 @@ function showDetail(item) {
  document.getElementById('detailPath').textContent = item.path + (item.w && item.h ? ' · '+item.w+' × '+item.h : '');
  document.getElementById('detailPathCopy').value = item.path;
  document.getElementById('openSvg').href = item.src;
+ document.getElementById('githubSvg').href = 'https://github.com/vladleng/MR-Studio/blob/'+activeSha+'/'+item.path.split('/').map(encodeURIComponent).join('/');
  document.getElementById('copyHint').textContent = '';
  dialog.showModal();
 }
@@ -130,6 +194,9 @@ function render() {
  empty.hidden=visible.length!==0;
 }
 search.addEventListener('input',render);
+source.value=new URLSearchParams(location.search).get('source')==='main'?'main':'pr';
+source.addEventListener('change',loadAssets);
+refresh.addEventListener('click',loadAssets);
 category.addEventListener('change',render);
 document.getElementById('scale').addEventListener('input',e=>{const v=e.target.value;document.documentElement.style.setProperty('--art-size',v+'px');document.getElementById('scaleValue').value=v;});
 document.getElementById('background').addEventListener('click',e=>{const on=document.body.classList.toggle('light-preview');e.currentTarget.textContent=on?'Тёмный фон':'Светлый фон';e.currentTarget.setAttribute('aria-pressed',String(on));});
@@ -146,5 +213,5 @@ document.getElementById('copyPath').addEventListener('click',async()=>{
   note.textContent='Путь доступен выше — выдели его и скопируй вручную';
  }
 });
-render();
+loadAssets();
 </script></body></html>
