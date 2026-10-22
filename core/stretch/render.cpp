@@ -68,7 +68,9 @@ RenderResult render(ITimeStretchEngine& engine, const Config& config, const Para
     const auto primed = engine.seek(std::span{in}.first(config.channels),latency.input_frames,1);
     if (primed != Status::ok) return {primed};
     std::int64_t source = latency.input_frames, processed{}, written{};
-    const auto total = length + latency.output_frames;
+    // Input look-ahead is already primed. Processing this logical duration
+    // feeds the required end padding; synthesis output still trails by Lo.
+    const auto total = length;
     while (processed < total) {
         if (stop.stop_requested()) return {Status::cancelled,written};
         const auto n = static_cast<std::uint32_t>(std::min<std::int64_t>(config.max_output_frames,total-processed));
@@ -90,10 +92,19 @@ RenderResult render(ITimeStretchEngine& engine, const Config& config, const Para
         processed += n;
     }
     if (stop.stop_requested()) return {Status::cancelled,written};
-    // All logical output is already drained with zero padding. Finish remaining
-    // synthesis history once, discard the tail outside the logical clip extent.
+    // Finish synthesis once instead of advancing new spectral windows beyond
+    // the source end. Flush supplies the final logical frames. For a clip
+    // shorter than Lo, the unconsumed pre-roll is discarded here as well.
     const auto drained = engine.flush(std::span{out}.first(config.channels),output_capacity);
     if (drained.status != Status::drained) return {drained.status,written};
+    const auto begin = static_cast<std::uint32_t>(std::clamp<std::int64_t>(latency.output_frames-processed,0,drained.produced));
+    const auto count = drained.produced-begin;
+    for (std::uint32_t i=0;i<count;++i)
+        for (std::uint32_t c=0;c<config.channels;++c)
+            interleaved[static_cast<std::size_t>(i)*config.channels+c] = out[c][begin+i];
+    if (count && !write(written,std::span{interleaved}.first(static_cast<std::size_t>(count)*config.channels)))
+        return {Status::io_error,written};
+    written += count;
     return {Status::ok,written};
 }
 } // namespace mrs::stretch

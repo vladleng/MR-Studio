@@ -155,6 +155,13 @@ void offline() {
         Config partition;partition.max_output_frames=block;p={};p.duration_ratio=1.1;
         CHECK(rendered(source,p,partition).size()==105600);
     }
+    // Compression must drain the last transient rather than create additional
+    // spectral windows of silence. The previous end-padding path lost its peak.
+    std::vector<float> ending(48000);ending.back()=1;
+    p={};p.duration_ratio=0.75;
+    const auto tail=rendered(ending,p,mono);
+    const auto tail_peak=std::max_element(tail.begin(),tail.end(),[](float a,float b){return std::abs(a)<std::abs(b);});
+    CHECK(std::abs(*tail_peak)>0.5f);
     // Worker cancellation/errors are visible; caller owns atomic publication.
     auto engine=make_signalsmith_engine();std::stop_source stop;stop.request_stop();
     CHECK(render(*engine,{},p,48000,[](auto,auto){return true;},[](auto,auto){return true;},stop.get_token()).status==Status::cancelled);

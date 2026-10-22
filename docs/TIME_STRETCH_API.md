@@ -78,8 +78,10 @@ PDC compensation is added by this library.
 Worker `render` primes with the first input-latency source frames, padded with
 silence at boundaries. It then reads ahead, streams blocks, discards exactly the
 reported output pre-roll and writes the exact logical length. Reads beyond the
-source end are zero-padded. The residual synthesis tail is flushed once and
-discarded outside the clip extent. Tail-inclusive export needs a separate policy.
+source end are zero-padded. One-shot flush supplies the last logical output frames;
+short clips discard the remaining pre-roll across process and flush. No extra
+spectral windows are advanced beyond the logical duration to replace that flush.
+Tail-inclusive export needs a separate policy.
 Empty/short sources and non-integer ratios are supported without reading beyond
 the source. Frame arithmetic rejects signed overflow before stream processing.
 
