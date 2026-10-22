@@ -397,9 +397,11 @@ LibraryBrowserView::RowLayout LibraryBrowserView::rowLayout(int width,int height
     layout.cover={6,(height-art)/2,art,art};layout.control={art+14,(height-24)/2,24,24};
     const int text=layout.control.getRight()+8;
     int end=std::max(text+1,width-30);
-    // Keep at least 150 px for the filename and 64 px for the waveform;
+    // Reserve up to 150 px for the filename (less if all page names fit)
+    // and at least 64 px for the waveform;
     // shrink the common filename column before hiding a usable waveform.
-    const int available=width-30-text-32-150;
+    const int titleReserve=std::clamp(pageNameWidth,1,150);
+    const int available=width-30-text-32-titleReserve;
     if(available>=64){
         const int span=std::min(available,std::clamp(width/5,64,160));int waveX=width-30-span;
         waveX=std::min(waveX,text+pageNameWidth+32);

@@ -40,7 +40,7 @@ void libraryBrowserSmoke(){
     check(browser.rowLayout(260,60).wave.isEmpty(),"Narrow results hide waveforms");
     for(int width:{380,440,500,559}){
         const auto compact=browser.rowLayout(width,60);
-        check(compact.wave.getWidth()>=64&&compact.wave.getRight()<=width-30&&compact.title.getWidth()>=150,"Waveforms remain visible when medium-width rows still have room");
+        check(compact.wave.getWidth()>=64&&compact.wave.getRight()<=width-30&&compact.title.getWidth()>=std::clamp(browser.pageNameWidth,1,150),"Waveforms remain visible when medium-width rows still have room");
     }
     const auto wide=browser.rowLayout(960,60);
     check(wide.wave.getWidth()<=160&&wide.wave.getX()>wide.title.getRight()&&wide.wave.getBottom()<=60,"Wide waveform stays short, beside filename and inside row");

@@ -13,8 +13,9 @@ redundant All WAV control and separate navigation row are removed.
 Cards come from the full index, independently of the bounded WAV page.
 
 List rows and grid cards show filename, tags (One-shot/Loop first), square pack
-artwork and a short bar waveform beside the filename while at least 150 px of title
-and 64 px of waveform fit. The waveform shrinks before hiding; there is no fixed
+artwork and a short bar waveform beside the filename while a title reservation of
+up to 150 px (the full longest page name if shorter) and 64 px of waveform fit.
+The waveform shrinks before hiding; there is no fixed
 560 px cutoff. The instrument and waveform occupy common columns calculated once from the
 longest filename on the current result page. They share a horizontal centre line
 and remain bounded by row width; narrow cells hide the waveform. Loop/One-shot glyphs precede the
