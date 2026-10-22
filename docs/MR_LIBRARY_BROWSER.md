@@ -81,15 +81,24 @@ reclassifies the existing index without changing source media.
 Signal results (including uncertain results) are cached by asset identity, source
 root, size, modification stamp and algorithm version. Rescan invalidates changed
 audio; unchanged files and offline sources reuse the cache. Analysis streams bounded
-blocks on the library worker, supports cancellation, and does not run in GUI/audio
-callbacks. Cancellation rolls back the scan to the previous complete catalogue.
+blocks on a dedicated analysis worker, supports pause/cancellation, and does not run
+in GUI/audio callbacks. Browsing continues independently. Batch cancel keeps finished
+features; folder-scan cancellation still restores the previous complete index.
+See [Smart Audio Search](MR_LIBRARY_SMART_SEARCH.md) for BPM/key, feature comparison,
+progress controls, saved searches, accuracy audit and limits.
 
-Pack follows Genres in the filter row. It is indexed from the named folder before
-the first conventional content category (Drums, Loops, FX, etc.), otherwise the
-first child folder beneath the source; a source pointed at a pack retains its own
-name. This is folder-derived metadata, not a vendor identity lookup. Pack supports
+Pack follows Genres in the filter row. Its automatic value is the name of the
+folder added as a library source. Internal vendor/category folders remain folder
+navigation and never create additional automatic Packs. Existing automatic values
+are refreshed when the catalogue opens; no rescan is required. Pack supports
 the same inclusion/exclusion, full-query counts and pagination as other tag groups.
 Confirmed manual Pack metadata suppresses automatic alternatives.
+
+Folder and Pack navigation use large square covers with the same 14 px bold title
+font as samples. The adaptive grid fits four cards at normal browser widths and
+reduces its column count in narrow windows. Pack cards inherit their source cover;
+the context menu can still override an individual card cover. Sample rows retain
+their compact height, including folders and samples shown together.
 
 ## Covers and persistence
 
@@ -102,9 +111,10 @@ source artwork at the same folder. Reset restores the inherited/automatic
 cover or the folder fallback. Managed filenames are unique, so cache keys cannot
 reuse stale decoded thumbnails after replacement.
 
-Library schema v4 added managed covers; v5 adds the versioned audio-Type cache. v1–v4 migrate in place
+Library schema v4 added managed covers; v5 added audio-Type cache; v6 adds musical
+features and saved searches. v1–v5 migrate in place
 without changing existing source/asset/tag/collection IDs. Before upgrading an
-existing database, SQLite backup writes a consistent `*.pre-v5-*.sqlite` copy
+existing database, SQLite backup writes a consistent `*.pre-v6-*.sqlite` copy
 (including WAL contents); a failed backup aborts the upgrade. This does not change the
 DAW project format. Images are limited to 20 MiB, 8192 pixels per dimension and
 16 megapixels; bounded header validation precedes worker decode. Thumbnails and

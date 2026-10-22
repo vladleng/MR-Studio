@@ -111,6 +111,7 @@ jobs:
             build/windows/juce-library261-*.png
             build/windows/Testing/
             build/windows/tests.xml
+            build/windows/library256-benchmark.csv
             build/windows/*failure*.txt
             build/windows/validation/**/*failure*.txt
           if-no-files-found: warn

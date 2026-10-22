@@ -43,7 +43,7 @@ target_sources(mrs_audio PRIVATE core/audio/src/reverb_library.cpp core/audio/sr
 target_link_libraries(mrs_audio PUBLIC mrs_core Threads::Threads mrs_processing)
 # #252 MR Library: an offline, non-realtime SQLite index. Windows uses the
 # operating system's WinSQLite3; non-Windows core tests use system SQLite3.
-add_library(mrs_sample_library STATIC core/library/src/sample_library.cpp core/library/src/sample_tag_rules.cpp core/library/src/sample_preview.cpp)
+add_library(mrs_sample_library STATIC core/library/src/sample_library.cpp core/library/src/sample_tag_rules.cpp core/library/src/sample_preview.cpp core/library/src/sample_analysis.cpp)
 target_include_directories(mrs_sample_library PUBLIC core/library/include)
 target_compile_features(mrs_sample_library PUBLIC cxx_std_20)
 target_link_libraries(mrs_sample_library PUBLIC mrs_audio)
@@ -59,7 +59,7 @@ else()
   target_compile_options(mrs_sample_library PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 if(BUILD_TESTING)
-  add_executable(mrs_sample_library_tests tests/sample_library_tests.cpp)
+  add_executable(mrs_sample_library_tests tests/sample_library_tests.cpp tests/sample_analysis_tests.cpp)
   target_link_libraries(mrs_sample_library_tests PRIVATE mrs_sample_library)
   add_test(NAME audio_sample_library COMMAND mrs_sample_library_tests)
   set_tests_properties(audio_sample_library PROPERTIES TIMEOUT 45)

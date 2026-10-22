@@ -12,6 +12,8 @@
 #include <sqlite3.h>
 #endif
 #include <algorithm>
+#include <cmath>
+#include <chrono>
 #include <array>
 #include <cctype>
 #include <atomic>
@@ -93,9 +95,19 @@ void sqlite_key(sqlite3_context* ctx,int argc,sqlite3_value** argv){
         if(value.starts_with(flat)){value.replace(0,2,sharp);break;}
     sqlite3_result_text(ctx,value.c_str(),static_cast<int>(value.size()),SQLITE_TRANSIENT);
 }
+void sqlite_similarity(sqlite3_context* ctx,int argc,sqlite3_value** argv){
+    if(argc!=6){sqlite3_result_double(ctx,1.e9);return;}
+    const auto& ref=*static_cast<AudioFeatures*>(sqlite3_user_data(ctx));
+    const auto relative=[](double x,double y,double floor){return std::abs(std::log((x+floor)/(y+floor)));};
+    double distance=.25*relative(sqlite3_value_double(argv[0]),ref.duration,.05)+.2*relative(sqlite3_value_double(argv[1]),ref.onset_density,.2)+.3*relative(sqlite3_value_double(argv[2]),ref.centroid,100.)+.1*std::abs(sqlite3_value_double(argv[3])-ref.flatness)+.05*relative(sqlite3_value_double(argv[4]),ref.rms,.001);
+    const auto bpm=sqlite3_value_double(argv[5]);
+    if(bpm>0&&ref.bpm>0){const auto octaves=std::log2(bpm/ref.bpm);distance+=.1*std::abs(octaves-std::round(octaves));}
+    sqlite3_result_double(ctx,distance);
+}
 struct Database {
     sqlite3* db{};
     fs::path filename;
+    AudioFeatures reference;
     explicit Database(const fs::path& file):filename(file) {
         if (file.empty()) throw std::invalid_argument("MR Library database path is empty");
         fs::create_directories(file.parent_path());
@@ -109,6 +121,7 @@ struct Database {
             nullptr,&sqlite_leaf,nullptr,nullptr,nullptr)!=SQLITE_OK)fail(db,"Register filename search");
         if(sqlite3_create_function_v2(db,"mrs_key",1,SQLITE_UTF8|SQLITE_DETERMINISTIC,
             nullptr,&sqlite_key,nullptr,nullptr,nullptr)!=SQLITE_OK)fail(db,"Register key aliases");
+        if(sqlite3_create_function_v2(db,"mrs_similarity",6,SQLITE_UTF8,&reference,&sqlite_similarity,nullptr,nullptr,nullptr)!=SQLITE_OK)fail(db,"Register feature similarity");
         exec("PRAGMA journal_mode=WAL");
         exec("PRAGMA foreign_keys=ON");
     }
@@ -138,6 +151,7 @@ struct Statement {
         if (sqlite3_bind_text(stmt, column, value.c_str(), static_cast<int>(value.size()), SQLITE_TRANSIENT) != SQLITE_OK)
             fail(db, "Bind text");
     }
+    void real(int column,double value){if(sqlite3_bind_double(stmt,column,value)!=SQLITE_OK)fail(db,"Bind real");}
     bool next() {
         const auto result = sqlite3_step(stmt);
         if (result == SQLITE_ROW) return true;
@@ -149,10 +163,10 @@ struct Statement {
 void create_schema(Database& d) {
     Statement version(d, "PRAGMA user_version");
     const auto v = version.next() ? sqlite3_column_int(version.stmt, 0) : -1;
-    if (v < 0 || v > 5) throw std::runtime_error("Unsupported MR Library database schema");
-    if (v == 5) return;
+    if (v < 0 || v > 6) throw std::runtime_error("Unsupported MR Library database schema");
+    if (v == 6) return;
     if(v>0){
-        auto path=d.filename;path+=".pre-v5-"+new_id().value+".sqlite";
+        auto path=d.filename;path+=".pre-v6-"+new_id().value+".sqlite";
         sqlite3* destination{};sqlite3_backup* backup{};
         try{
             const auto name=utf8(path);
@@ -233,7 +247,10 @@ void create_schema(Database& d) {
         d.exec("CREATE TABLE IF NOT EXISTS audio_type_analysis (asset_id INTEGER PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,"
                " bytes INTEGER NOT NULL,modified INTEGER NOT NULL,root TEXT NOT NULL,version INTEGER NOT NULL,"
                " label TEXT NOT NULL,confidence REAL NOT NULL,reason TEXT NOT NULL)");
-        d.exec("PRAGMA user_version=5");
+        d.exec("CREATE TABLE IF NOT EXISTS audio_features (asset_id INTEGER PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,bytes INTEGER NOT NULL,modified INTEGER NOT NULL,root TEXT NOT NULL,version INTEGER NOT NULL,state TEXT NOT NULL,reason TEXT NOT NULL,duration REAL NOT NULL,rms REAL NOT NULL,peak REAL NOT NULL,onsets REAL NOT NULL,centroid REAL NOT NULL,flatness REAL NOT NULL,bpm REAL NOT NULL,bpm_confidence REAL NOT NULL,key_label TEXT NOT NULL,key_confidence REAL NOT NULL)");
+        d.exec("CREATE TABLE IF NOT EXISTS saved_searches (id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,source INTEGER,collection INTEGER,folder TEXT,search TEXT,sort TEXT,key_label TEXT,bpm_min INTEGER,bpm_max INTEGER,favorites INTEGER,similar INTEGER,seed INTEGER)");
+        d.exec("CREATE TABLE IF NOT EXISTS saved_search_tags (search_id INTEGER REFERENCES saved_searches(id) ON DELETE CASCADE,excluded INTEGER,group_name TEXT,label TEXT)");
+        d.exec("PRAGMA user_version=6");
         d.exec("COMMIT");
     } catch (...) { d.exec("ROLLBACK"); throw; }
 }
@@ -269,16 +286,18 @@ std::vector<TagRule> read_rules(Database& d) {
     return rules;
 }
 struct Cancelled : std::runtime_error { Cancelled() : std::runtime_error("Scan cancelled") {} };
-void classify_assets(Database& d,const std::optional<std::int64_t> source = {},const std::function<bool()>& cancelled = {}) {
+void classify_assets(Database& d,const std::optional<std::int64_t> source = {},const std::function<bool()>& cancelled = {},std::int64_t onlyAsset=0) {
     const auto rules=read_rules(d);
     struct Asset {std::int64_t id,sourceId,bytes,modified;std::string path,relative,root;bool enabled;};
     std::vector<Asset> items;
-    Statement list(d,"SELECT a.id,a.relative_path,s.path,a.source_id,a.bytes,a.modified,s.enabled FROM assets a JOIN sources s ON s.id=a.source_id WHERE a.status='ok' AND (?=0 OR a.source_id=?) ORDER BY a.id");
-    list.number(1,source.value_or(0));list.number(2,source.value_or(0));
+    const std::string select="SELECT a.id,a.relative_path,s.path,a.source_id,a.bytes,a.modified,s.enabled FROM assets a JOIN sources s ON s.id=a.source_id WHERE a.status='ok'";
+    const auto sql=select+(onlyAsset>0?" AND a.id=?":" AND (?=0 OR a.source_id=?) ORDER BY a.id");
+    Statement list(d,sql.c_str());
+    if(onlyAsset>0)list.number(1,onlyAsset);else{list.number(1,source.value_or(0));list.number(2,source.value_or(0));}
     while(list.next()){
         const auto* name=sqlite3_column_text(list.stmt,1);
         const auto* root=sqlite3_column_text(list.stmt,2);
-        const auto prefix=root?utf8(from_utf8(reinterpret_cast<const char*>(root)).filename()):std::string{};
+        const auto prefix=root?source_folder_name(from_utf8(reinterpret_cast<const char*>(root))):std::string{};
         const std::string relative=name?reinterpret_cast<const char*>(name):"",rootPath=root?reinterpret_cast<const char*>(root):"";
         items.push_back({sqlite3_column_int64(list.stmt,0),sqlite3_column_int64(list.stmt,3),sqlite3_column_int64(list.stmt,4),sqlite3_column_int64(list.stmt,5),prefix+"/"+relative,relative,rootPath,sqlite3_column_int(list.stmt,6)!=0});
     }
@@ -290,7 +309,6 @@ void classify_assets(Database& d,const std::optional<std::int64_t> source = {},c
     Statement manualType(d,"SELECT 1 FROM asset_tags at JOIN tags t ON t.id=at.tag_id WHERE at.asset_id=? AND t.group_name='Type' AND at.status='confirmed' LIMIT 1");
     Statement manualPack(d,"SELECT 1 FROM asset_tags at JOIN tags t ON t.id=at.tag_id WHERE at.asset_id=? AND t.group_name='Pack' AND at.status='confirmed' LIMIT 1");
     Statement cachedAudio(d,"SELECT label,confidence,reason FROM audio_type_analysis WHERE asset_id=? AND bytes=? AND modified=? AND root=? AND version=1");
-    Statement saveAudio(d,"INSERT INTO audio_type_analysis(asset_id,bytes,modified,root,version,label,confidence,reason) VALUES(?,?,?,?,1,?,?,?) ON CONFLICT(asset_id) DO UPDATE SET bytes=excluded.bytes,modified=excluded.modified,root=excluded.root,version=excluded.version,label=excluded.label,confidence=excluded.confidence,reason=excluded.reason");
     for(const auto& item:items){
         if(cancelled&&cancelled())throw Cancelled();
         auto suggestion=classify_sample_path(item.path,rules);
@@ -309,19 +327,6 @@ void classify_assets(Database& d,const std::optional<std::int64_t> source = {},c
                 audio={label?reinterpret_cast<const char*>(label):"",reason?reinterpret_cast<const char*>(reason):"",sqlite3_column_double(cachedAudio.stmt,1)};
             }
             cachedAudio.reset();
-            if(!cached&&item.enabled){
-                bool valid=false;
-                try{
-                    Snapshot catalogue;catalogue.sources.push_back({item.sourceId,from_utf8(item.root),true,0,0,0});
-                    AudioAsset asset;asset.id=item.id;asset.source_id=item.sourceId;asset.relative_path=item.relative;asset.status="ok";catalogue.assets.push_back(std::move(asset));
-                    if(const auto path=asset_path(catalogue,item.id)){audio=analyse_wav_type(*path,cancelled);valid=true;}
-                }catch(const std::exception&){if(cancelled&&cancelled())throw Cancelled();}
-                if(valid){
-                    saveAudio.reset();saveAudio.number(1,item.id);saveAudio.number(2,item.bytes);saveAudio.number(3,item.modified);saveAudio.str(4,item.root);saveAudio.str(5,audio.label);
-                    if(sqlite3_bind_double(saveAudio.stmt,6,audio.confidence)!=SQLITE_OK)fail(d.db,"Audio Type confidence");
-                    saveAudio.str(7,audio.reason);saveAudio.done();
-                }
-            }
             if(!audio.label.empty()){
                 std::erase_if(suggestion.tags,[](const auto& tag){return tag.group=="Type";});
                 suggestion.tags.push_back({"Type",audio.label,"audio",audio.confidence});
@@ -337,6 +342,12 @@ void classify_assets(Database& d,const std::optional<std::int64_t> source = {},c
             put.reset();put.number(1,item.id);put.number(2,tag_id);put.str(3,tag.origin);
             if(sqlite3_bind_double(put.stmt,4,tag.confidence)!=SQLITE_OK)fail(d.db,"Tag confidence");
             put.done();
+        }
+        Statement musical(d,"SELECT bpm,key_label FROM audio_features WHERE asset_id=? AND bytes=? AND modified=? AND root=? AND version=2 AND state='complete'");
+        musical.number(1,item.id);musical.number(2,item.bytes);musical.number(3,item.modified);musical.str(4,item.root);
+        if(musical.next()){
+            if(!suggestion.metadata.bpm){const auto value=sqlite3_column_double(musical.stmt,0);if(value>0)suggestion.metadata.bpm=static_cast<int>(std::lround(value));}
+            if(!suggestion.metadata.key){const auto* key=sqlite3_column_text(musical.stmt,1);if(key&&*key)suggestion.metadata.key=reinterpret_cast<const char*>(key);}
         }
         typed.reset();typed.number(1,suggestion.metadata.bpm.value_or(0));
         typed.str(2,suggestion.metadata.key.value_or(""));typed.number(3,item.id);typed.done();
@@ -367,13 +378,20 @@ bool is_wav(const fs::path& path) {
 } // namespace
 
 struct SampleLibrary::Impl {
-    enum class Kind { add, relink, remove, enable, rescan, view, tag, tag_status, bpm, key, rule, undo, browse, create_collection, delete_collection, collection_items, favorites, artwork, cover };
+    enum class Kind { add, relink, remove, enable, rescan, view, tag, tag_status, bpm, key, rule, undo, browse, create_collection, delete_collection, collection_items, favorites, artwork, cover, analyse, analysis_result, analysis_control, save_search, delete_search };
+    struct AnalysisJob {
+        std::uint64_t generation{};
+        std::int64_t id{},source{},bytes{},modified{};
+        std::string root,relative;
+        AudioFeatures result;
+    };
     struct Command {
         Kind kind;std::int64_t id{};fs::path root;bool enabled{true};
         std::vector<std::int64_t> ids;
         std::string group,label,status,phrase;
         int number{};bool folder{};
         LibraryQuery query;
+        std::shared_ptr<AnalysisJob> analysis;
         Command():kind(Kind::view){}
         Command(Kind k,std::int64_t n=0,fs::path p={},bool e=true)
             :kind(k),id(n),root(std::move(p)),enabled(e){}
@@ -386,14 +404,87 @@ struct SampleLibrary::Impl {
     std::uint64_t revision{};
     LibraryQuery browserQuery;
     std::atomic<bool> cancel{false}, scanning{false};
-    std::jthread worker;
+    std::mutex analysisMutex;
+    std::condition_variable_any analysisWake;
+    std::deque<std::shared_ptr<AnalysisJob>> analysisQueue;
+    std::atomic<std::uint64_t> analysisGeneration{0};
+    std::atomic<bool> analysisPaused{false};
+    AnalysisProgress analysisProgress;
+    std::uint64_t activeAnalysisGeneration{};
+    std::int64_t analysisCursor{};
+    bool analysisForce{};
+    std::chrono::steady_clock::time_point lastAnalysisPublish{};
+    std::jthread analysisWorker,worker;
 
-    explicit Impl(fs::path path) : database(std::move(path)), worker([this](std::stop_token st) { run(st); }) {}
+    explicit Impl(fs::path path) : database(std::move(path)) {
+        analysisWorker=std::jthread([this](std::stop_token st){run_analysis(st);});
+        worker=std::jthread([this](std::stop_token st){run(st);});
+    }
     ~Impl() {
         cancel = true;
+        analysisWorker.request_stop();analysisWake.notify_all();
         worker.request_stop();
         wake.notify_all();
+        analysisWorker.join();
         worker.join();
+    }
+    void run_analysis(std::stop_token stop){
+        auto nextYield=std::chrono::steady_clock::now()+std::chrono::milliseconds(8);
+        while(!stop.stop_requested()){
+            std::shared_ptr<AnalysisJob> job;
+            {std::unique_lock lock(analysisMutex);analysisWake.wait(lock,stop,[&]{return !analysisQueue.empty()&&!analysisPaused.load();});
+                if(stop.stop_requested())return;
+                job=std::move(analysisQueue.front());analysisQueue.pop_front();}
+            const auto interrupted=[&]{
+                if(analysisPaused.load()){std::unique_lock lock(analysisMutex);analysisWake.wait(lock,stop,[&]{return !analysisPaused.load()||job->generation!=analysisGeneration.load();});}
+                // Cancellation is polled in both decoding and DSP inner loops.
+                // Sleeping on every poll multiplies Windows timer rounding by
+                // hundreds of autocorrelation lags. Throttle by elapsed work.
+                if(!stop.stop_requested()&&job->generation==analysisGeneration.load()&&std::chrono::steady_clock::now()>=nextYield){
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    nextYield=std::chrono::steady_clock::now()+std::chrono::milliseconds(8);
+                }
+                return stop.stop_requested()||job->generation!=analysisGeneration.load();
+            };
+            if(job->generation!=analysisGeneration.load())continue;
+            try{
+                Snapshot catalogue;catalogue.sources.push_back({job->source,from_utf8(job->root),true,0,0,0});AudioAsset a;a.id=job->id;a.source_id=job->source;a.relative_path=job->relative;a.status="ok";catalogue.assets.push_back(std::move(a));
+                const auto path=asset_path(catalogue,job->id);
+                if(!path)throw std::runtime_error("Indexed WAV unavailable or unsafe");
+                const auto verify=[&]{
+                    std::error_code ec;const auto size=fs::file_size(*path,ec);
+                    if(ec||size!=static_cast<std::uintmax_t>(job->bytes))throw std::runtime_error("WAV changed during analysis; rescan required");
+                    const auto stamp=fs::last_write_time(*path,ec);
+                    if(ec||stamp.time_since_epoch().count()!=job->modified)throw std::runtime_error("WAV changed during analysis; rescan required");
+                };
+                verify();
+                job->result=analyse_wav_features(*path,interrupted);
+                verify();
+            }catch(const std::exception& e){job->result={};job->result.state="error";job->result.reason=e.what();}
+            if(stop.stop_requested())return;
+            if(job->generation==analysisGeneration.load()){Command command(Kind::analysis_result);command.analysis=std::move(job);enqueue(std::move(command));}
+        }
+    }
+    void refill_analysis(Database& d){
+        if(activeAnalysisGeneration!=analysisGeneration.load())return;
+        std::size_t capacity{};{std::lock_guard lock(analysisMutex);capacity=64-analysisQueue.size();}
+        if(capacity<32)return;
+        std::deque<std::shared_ptr<AnalysisJob>> pending;
+        Statement list(d,"SELECT a.id,a.source_id,a.bytes,a.modified,s.path,a.relative_path FROM assets a JOIN sources s ON s.id=a.source_id LEFT JOIN audio_features f ON f.asset_id=a.id WHERE a.status='ok' AND s.enabled=1 AND (?=1 OR f.asset_id IS NULL OR f.bytes<>a.bytes OR f.modified<>a.modified OR f.root<>s.path OR f.version<>2) AND a.id>? ORDER BY a.id LIMIT ?");
+        list.number(1,analysisForce?1:0);list.number(2,analysisCursor);list.number(3,static_cast<std::int64_t>(capacity));
+        while(list.next()){
+            auto job=std::make_shared<AnalysisJob>();job->generation=activeAnalysisGeneration;job->id=sqlite3_column_int64(list.stmt,0);job->source=sqlite3_column_int64(list.stmt,1);job->bytes=sqlite3_column_int64(list.stmt,2);job->modified=sqlite3_column_int64(list.stmt,3);analysisCursor=job->id;
+            job->root=reinterpret_cast<const char*>(sqlite3_column_text(list.stmt,4));job->relative=reinterpret_cast<const char*>(sqlite3_column_text(list.stmt,5));pending.push_back(std::move(job));
+        }
+        if(activeAnalysisGeneration!=analysisGeneration.load())return;
+        {std::lock_guard lock(analysisMutex);for(auto& job:pending)analysisQueue.push_back(std::move(job));}analysisWake.notify_all();
+    }
+    void queue_analysis(Database& d,bool force=false){
+        activeAnalysisGeneration=analysisGeneration.fetch_add(1)+1;analysisCursor=0;analysisForce=force;analysisPaused=false;
+        {std::lock_guard lock(analysisMutex);analysisQueue.clear();}
+        Statement count(d,"SELECT COUNT(*) FROM assets a JOIN sources s ON s.id=a.source_id LEFT JOIN audio_features f ON f.asset_id=a.id WHERE a.status='ok' AND s.enabled=1 AND (?=1 OR f.asset_id IS NULL OR f.bytes<>a.bytes OR f.modified<>a.modified OR f.root<>s.path OR f.version<>2)");count.number(1,force?1:0);
+        const auto total=count.next()?static_cast<std::uint64_t>(sqlite3_column_int64(count.stmt,0)):0;
+        analysisProgress={0,total,total>0,false};refill_analysis(d);
     }
     void enqueue(Command c) {
         const auto kind=c.kind;
@@ -418,6 +509,7 @@ struct SampleLibrary::Impl {
     }
     void publish(Database& d, Phase phase, std::string message = {}, std::uint64_t processed = 0, std::uint64_t changed = 0) {
         auto next = std::make_shared<Snapshot>();
+        next->analysis=analysisProgress;next->analysis.paused=analysisPaused.load();
         next->phase = phase;
         next->message = std::move(message);
         next->processed = processed;
@@ -450,6 +542,22 @@ struct SampleLibrary::Impl {
         }
         const auto& q=browserQuery;
         next->query=q;
+        const std::string featureJoin=q.similar_asset_id>0?" JOIN audio_features sf ON sf.asset_id=a.id AND sf.bytes=a.bytes AND sf.modified=a.modified AND sf.root=(SELECT path FROM sources WHERE id=a.source_id) AND sf.version=2 AND sf.state='complete'":"";
+        bool referenceReady=false;
+        if(q.similar_asset_id>0){
+            Statement ref(d,"SELECT f.duration,f.onsets,f.centroid,f.flatness,f.rms,CASE WHEN a.bpm_manual=-1 THEN 0 WHEN a.bpm_manual>0 THEN a.bpm_manual ELSE a.bpm_auto END FROM audio_features f JOIN assets a ON a.id=f.asset_id JOIN sources s ON s.id=a.source_id WHERE a.id=? AND f.bytes=a.bytes AND f.modified=a.modified AND f.root=s.path AND f.version=2 AND f.state='complete'");ref.number(1,q.similar_asset_id);
+            if(ref.next()){referenceReady=true;d.reference.duration=sqlite3_column_double(ref.stmt,0);d.reference.onset_density=sqlite3_column_double(ref.stmt,1);d.reference.centroid=sqlite3_column_double(ref.stmt,2);d.reference.flatness=sqlite3_column_double(ref.stmt,3);d.reference.rms=sqlite3_column_double(ref.stmt,4);d.reference.bpm=sqlite3_column_double(ref.stmt,5);next->similar_reference=d.reference;next->similar_reference.state="complete";}
+        }
+        Statement saved(d,"SELECT id,name,source,collection,folder,search,sort,key_label,bpm_min,bpm_max,favorites,similar,seed FROM saved_searches ORDER BY name");
+        Statement savedTags(d,"SELECT excluded,group_name,label FROM saved_search_tags WHERE search_id=? ORDER BY rowid");
+        while(saved.next()){
+            const auto value=[&](int i){const auto* raw=sqlite3_column_text(saved.stmt,i);return raw?std::string(reinterpret_cast<const char*>(raw)):std::string{};};
+            SavedSearch search;search.id=sqlite3_column_int64(saved.stmt,0);search.name=value(1);auto& filter=search.query;
+            filter.source_id=sqlite3_column_int64(saved.stmt,2);filter.collection_id=sqlite3_column_int64(saved.stmt,3);filter.folder=value(4);filter.search=value(5);filter.sort=value(6);filter.key=value(7);filter.bpm_min=sqlite3_column_int(saved.stmt,8);filter.bpm_max=sqlite3_column_int(saved.stmt,9);filter.favorites_only=sqlite3_column_int(saved.stmt,10)!=0;filter.similar_asset_id=sqlite3_column_int64(saved.stmt,11);filter.shuffle_seed=static_cast<std::uint64_t>(sqlite3_column_int64(saved.stmt,12));
+            savedTags.reset();savedTags.number(1,search.id);
+            while(savedTags.next()){auto& tags=sqlite3_column_int(savedTags.stmt,0)?filter.excluded_tags:filter.tags;tags.push_back({reinterpret_cast<const char*>(sqlite3_column_text(savedTags.stmt,1)),reinterpret_cast<const char*>(sqlite3_column_text(savedTags.stmt,2))});}
+            next->saved_searches.push_back(std::move(search));
+        }
         Statement available(d,"SELECT t.group_name,t.label,COUNT(*) FROM asset_tags ft JOIN tags t ON t.id=ft.tag_id"
             " JOIN assets a ON a.id=ft.asset_id WHERE ft.status<>'rejected' AND (?=0 OR a.source_id=?)"
             " GROUP BY t.group_name,t.label ORDER BY t.group_name,t.label");
@@ -497,6 +605,7 @@ struct SampleLibrary::Impl {
         // Bind parameters in the same order to COUNT and PAGE queries.
         std::string where=" WHERE (?=0 OR a.source_id=?)";
         std::vector<std::string> params;
+        if(q.similar_asset_id>0){where+=" AND a.id<>? AND a.status='ok' AND EXISTS(SELECT 1 FROM sources enabled_source WHERE enabled_source.id=a.source_id AND enabled_source.enabled=1)";params.push_back(std::to_string(q.similar_asset_id));if(!referenceReady)where+=" AND 0";}
         if(!q.folder.empty()){
             where+=" AND (substr(a.relative_path,1,length(?))=?)";
             const auto prefix=q.folder+"/";
@@ -521,8 +630,8 @@ struct SampleLibrary::Impl {
             " WHEN a.bpm_manual>0 THEN a.bpm_manual ELSE a.bpm_auto END)";
         const auto key="(CASE WHEN a.key_manual='-' THEN ''"
             " WHEN a.key_manual<>'' THEN a.key_manual ELSE a.key_auto END)";
-        if(q.bpm_min>0){where+=std::string(" AND ")+bpm+">=?";params.push_back(std::to_string(q.bpm_min));}
-        if(q.bpm_max>0){where+=std::string(" AND ")+bpm+"<=?";params.push_back(std::to_string(q.bpm_max));}
+        if(q.bpm_min>0){where+=std::string(" AND ")+bpm+">=CAST(? AS REAL)";params.push_back(std::to_string(q.bpm_min));}
+        if(q.bpm_max>0){where+=std::string(" AND ")+bpm+"<=CAST(? AS REAL)";params.push_back(std::to_string(q.bpm_max));}
         if(!q.key.empty()){
             where+=q.key=="?"?std::string(" AND ")+key+"=''":std::string(" AND mrs_key(")+key+")=mrs_key(?)";
             if(q.key!="?")params.push_back(q.key);
@@ -555,14 +664,14 @@ struct SampleLibrary::Impl {
         };
         // Facets describe all matching assets, not just the visible page.
         Statement facets(d,("SELECT t.group_name,t.label,COUNT(*) FROM asset_tags ft JOIN tags t ON t.id=ft.tag_id"
-            " JOIN assets a ON a.id=ft.asset_id"+where+" AND ft.status<>'rejected'"
+            " JOIN assets a ON a.id=ft.asset_id"+featureJoin+where+" AND ft.status<>'rejected'"
             " GROUP BY t.group_name,t.label ORDER BY t.group_name,t.label").c_str());
         bind(facets);
         while(facets.next()){
             const auto str=[&](int i){const auto* x=sqlite3_column_text(facets.stmt,i);return x?std::string(reinterpret_cast<const char*>(x)):std::string{};};
             next->facets.push_back({str(0),str(1),static_cast<std::uint64_t>(sqlite3_column_int64(facets.stmt,2))});
         }
-        Statement count(d,("SELECT COUNT(*) FROM assets a"+where).c_str());
+        Statement count(d,("SELECT COUNT(*) FROM assets a"+featureJoin+where).c_str());
         bind(count);
         if(count.next())next->visible_assets=static_cast<std::uint64_t>(sqlite3_column_int64(count.stmt,0));
         std::string sort="mrs_fold(mrs_leaf(a.relative_path)),a.relative_path,a.id";
@@ -583,10 +692,11 @@ struct SampleLibrary::Impl {
             }
             sort+=") DESC,a.relative_path,a.id";
         }
+        if(q.similar_asset_id>0){sort=std::string("mrs_similarity(sf.duration,sf.onsets,sf.centroid,sf.flatness,sf.rms,")+bpm+"),a.id";rank.clear();}
         const std::string query="SELECT a.id,a.source_id,a.relative_path,a.status,"
             "a.bpm_auto,a.bpm_manual,a.key_auto,a.key_manual,a.rate,a.frames,a.modified,"
-            "EXISTS(SELECT 1 FROM favorites f WHERE f.asset_id=a.id)"
-            " FROM assets a"+where+" ORDER BY "+sort+" LIMIT ? OFFSET ?";
+            "EXISTS(SELECT 1 FROM favorites f WHERE f.asset_id=a.id),a.error"
+            " FROM assets a"+featureJoin+where+" ORDER BY "+sort+" LIMIT ? OFFSET ?";
         Statement assets(d,query.c_str());
         int n=bind(assets);
         for(const auto& word:rank)assets.str(n++,word);
@@ -595,6 +705,7 @@ struct SampleLibrary::Impl {
         Statement tags(d,"SELECT t.group_name,t.label,at.origin,at.status,at.confidence"
             " FROM asset_tags at JOIN tags t ON t.id=at.tag_id WHERE at.asset_id=?"
             " ORDER BY t.group_name,t.label");
+        Statement feature(d,"SELECT f.state,f.reason,f.duration,f.rms,f.peak,f.onsets,f.centroid,f.flatness,f.bpm,f.bpm_confidence,f.key_label,f.key_confidence FROM audio_features f JOIN assets a ON a.id=f.asset_id JOIN sources s ON s.id=a.source_id WHERE a.id=? AND f.bytes=a.bytes AND f.modified=a.modified AND f.root=s.path AND f.version=2");
         while(assets.next()){
             AudioAsset item;
             item.id=sqlite3_column_int64(assets.stmt,0);
@@ -609,6 +720,16 @@ struct SampleLibrary::Impl {
             item.frames=sqlite3_column_int64(assets.stmt,9);
             item.modified=sqlite3_column_int64(assets.stmt,10);
             item.favorite=sqlite3_column_int(assets.stmt,11)!=0;
+            feature.reset();feature.number(1,item.id);
+            if(feature.next()){
+                const auto field=[&](int i){const auto* raw=sqlite3_column_text(feature.stmt,i);return raw?std::string(reinterpret_cast<const char*>(raw)):std::string{};};
+                auto& f=item.analysis;f.state=field(0);f.reason=field(1);f.duration=sqlite3_column_double(feature.stmt,2);f.rms=sqlite3_column_double(feature.stmt,3);f.peak=sqlite3_column_double(feature.stmt,4);f.onset_density=sqlite3_column_double(feature.stmt,5);f.centroid=sqlite3_column_double(feature.stmt,6);f.flatness=sqlite3_column_double(feature.stmt,7);f.bpm=sqlite3_column_double(feature.stmt,8);f.bpm_confidence=sqlite3_column_double(feature.stmt,9);f.key=field(10);f.key_confidence=sqlite3_column_double(feature.stmt,11);
+                if(f.bpm>0)for(double multiplier:{.5,1.,2.})if(f.bpm*multiplier>=40.&&f.bpm*multiplier<=300.)f.tempo_candidates.push_back(f.bpm*multiplier);
+            }else item.analysis.state=analysisProgress.running?"pending":"unknown";
+            if(item.status!="ok"){item.analysis.state="error";item.analysis.reason=text_column(12);}
+            const auto named=classify_sample_path(item.relative_path).metadata;
+            item.bpm_source=item.manual_bpm?"manual":named.bpm?"filename":item.analysis.bpm>0?"audio":"unknown";
+            item.key_source=!item.manual_key.empty()?"manual":named.key?"filename":!item.analysis.key.empty()?"audio":"unknown";
             const auto pos=item.relative_path.find_last_of('/');
             const auto dir=pos==std::string::npos?"":item.relative_path.substr(0,pos);
             item.artwork_path=artwork(item.source_id,dir);
@@ -746,9 +867,53 @@ struct SampleLibrary::Impl {
             d.exec("ROLLBACK"); // rollback keeps the previous complete catalogue
             throw;
         }
-        publish(d,Phase::idle,"Scan complete",processed,changed);
+        queue_analysis(d);publish(d,Phase::idle,"Scan complete",processed,changed);
     }
     void process(Database& d, const Command& c, std::stop_token stop) {
+        if(c.kind==Kind::save_search){
+            if(c.label.empty()||c.label.size()>96||c.query.tags.size()+c.query.excluded_tags.size()>64)throw std::invalid_argument("Saved search name/filters exceed budget");
+            d.exec("BEGIN IMMEDIATE");
+            try{
+                Statement make(d,"INSERT INTO saved_searches(name,source,collection,folder,search,sort,key_label,bpm_min,bpm_max,favorites,similar,seed) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET source=excluded.source,collection=excluded.collection,folder=excluded.folder,search=excluded.search,sort=excluded.sort,key_label=excluded.key_label,bpm_min=excluded.bpm_min,bpm_max=excluded.bpm_max,favorites=excluded.favorites,similar=excluded.similar,seed=excluded.seed");
+                make.str(1,c.label);make.number(2,c.query.source_id);make.number(3,c.query.collection_id);make.str(4,c.query.folder);make.str(5,c.query.search);make.str(6,c.query.sort);make.str(7,c.query.key);make.number(8,c.query.bpm_min);make.number(9,c.query.bpm_max);make.number(10,c.query.favorites_only?1:0);make.number(11,c.query.similar_asset_id);make.number(12,static_cast<std::int64_t>(c.query.shuffle_seed%2147483647));make.done();
+                Statement id(d,"SELECT id FROM saved_searches WHERE name=?");id.str(1,c.label);if(!id.next())throw std::runtime_error("Saved search missing");const auto searchId=sqlite3_column_int64(id.stmt,0);id.reset();
+                Statement clear(d,"DELETE FROM saved_search_tags WHERE search_id=?");clear.number(1,searchId);clear.done();Statement insert(d,"INSERT INTO saved_search_tags VALUES(?,?,?,?)");
+                for(bool excluded:{false,true})for(const auto& tag:excluded?c.query.excluded_tags:c.query.tags){valid_tag(tag.group,tag.label);insert.reset();insert.number(1,searchId);insert.number(2,excluded?1:0);insert.str(3,tag.group);insert.str(4,tag.label);insert.done();}
+                d.exec("COMMIT");
+            }catch(...){d.exec("ROLLBACK");throw;}
+            publish(d,Phase::idle,"Search saved");return;
+        }
+        if(c.kind==Kind::delete_search){Statement erase(d,"DELETE FROM saved_searches WHERE id=?");erase.number(1,c.id);erase.done();publish(d,Phase::idle,"Saved search removed");return;}
+        if(c.kind==Kind::analyse){queue_analysis(d,c.enabled);publish(d,Phase::idle,"Audio analysis queued");return;}
+        if(c.kind==Kind::analysis_control){
+            if(c.number==0){analysisGeneration.fetch_add(1);{std::lock_guard lock(analysisMutex);analysisQueue.clear();}analysisProgress.running=false;analysisPaused=false;}
+            else analysisPaused=c.number==1;
+            analysisWake.notify_all();publish(d,Phase::idle,c.number==0?"Audio analysis cancelled":c.number==1?"Audio analysis paused":"Audio analysis resumed");return;
+        }
+        if(c.kind==Kind::analysis_result){
+            const auto& job=*c.analysis;if(job.generation!=analysisGeneration.load())return;
+            Statement current(d,"SELECT 1 FROM assets a JOIN sources s ON s.id=a.source_id WHERE a.id=? AND a.bytes=? AND a.modified=? AND s.path=? AND s.enabled=1 AND a.status='ok'");
+            current.number(1,job.id);current.number(2,job.bytes);current.number(3,job.modified);current.str(4,job.root);
+            const bool valid=current.next();current.reset();
+            if(valid){
+                d.exec("BEGIN IMMEDIATE");
+                try{
+                    const auto& f=job.result;
+                    Statement feature(d,"INSERT OR REPLACE INTO audio_features VALUES(?,?,?,?,2,?,?,?,?,?,?,?,?,?,?,?,?)");
+                    feature.number(1,job.id);feature.number(2,job.bytes);feature.number(3,job.modified);feature.str(4,job.root);feature.str(5,f.state);feature.str(6,f.reason);
+                    feature.real(7,f.duration);feature.real(8,f.rms);feature.real(9,f.peak);feature.real(10,f.onset_density);feature.real(11,f.centroid);feature.real(12,f.flatness);feature.real(13,f.bpm);feature.real(14,f.bpm_confidence);feature.str(15,f.key);feature.real(16,f.key_confidence);feature.done();
+                    Statement type(d,"INSERT OR REPLACE INTO audio_type_analysis VALUES(?,?,?,?,1,?,?,?)");type.number(1,job.id);type.number(2,job.bytes);type.number(3,job.modified);type.str(4,job.root);type.str(5,f.type.label);type.real(6,f.type.confidence);type.str(7,f.type.reason);type.done();
+                    classify_assets(d,{}, {},job.id);d.exec("COMMIT");
+                }catch(...){d.exec("ROLLBACK");throw;}
+            }
+            ++analysisProgress.completed;analysisProgress.running=analysisProgress.completed<analysisProgress.total;
+            if(analysisProgress.running)refill_analysis(d);
+            const auto now=std::chrono::steady_clock::now();
+            if(!analysisProgress.running||now-lastAnalysisPublish>std::chrono::milliseconds(100)){
+                lastAnalysisPublish=now;const auto prior=snapshot();publish(d,prior->phase,prior->message,prior->processed,prior->changed);
+            }
+            return;
+        }
         if (c.kind == Kind::add) {
             const auto root = normalized(c.root);
             if (is_reparse(root)) throw std::runtime_error("Linked/reparse library roots are unsupported");
@@ -769,11 +934,11 @@ struct SampleLibrary::Impl {
             Statement del(d,"DELETE FROM sources WHERE id=?");
             del.number(1,c.id);del.done();
             Statement covers(d,"DELETE FROM managed_covers WHERE kind='folder' AND owner=?");covers.number(1,c.id);covers.done();
-            publish(d,Phase::idle,"Source removed from index; files untouched");
+            queue_analysis(d);publish(d,Phase::idle,"Source removed from index; files untouched");
         } else if (c.kind == Kind::enable) {
             Statement set(d,"UPDATE sources SET enabled=? WHERE id=?");
             set.number(1,c.enabled?1:0);set.number(2,c.id);set.done();
-            publish(d,Phase::idle,"Source updated");
+            queue_analysis(d);publish(d,Phase::idle,"Source updated");
         } else if (c.kind == Kind::view) {
             browserQuery=LibraryQuery{};
             browserQuery.source_id=c.id;browserQuery.search=c.label.substr(0,200);
@@ -1045,7 +1210,7 @@ struct SampleLibrary::Impl {
             catch (const Cancelled&){db.exec("ROLLBACK");startupCancelled=true;publish(db,Phase::cancelled,"Type analysis cancelled; previous index preserved");}
             catch (...){db.exec("ROLLBACK");throw;}
             scanning=false;
-            if(!startupCancelled)publish(db,Phase::idle);
+            if(!startupCancelled){queue_analysis(db);publish(db,Phase::idle);}
             while (!stop.stop_requested()) {
                 Command c;
                 { std::unique_lock lock(mutex);
@@ -1064,6 +1229,11 @@ struct SampleLibrary::Impl {
     }
 };
 SampleLibrary::SampleLibrary(fs::path database) : impl_(std::make_unique<Impl>(std::move(database))) {}
+std::string source_folder_name(const fs::path& root){
+    auto folder=root.lexically_normal();
+    if(folder.filename().empty()&&folder!=folder.root_path())folder=folder.parent_path();
+    return utf8(!folder.filename().empty()?folder.filename():!folder.root_name().empty()?folder.root_name():folder.root_path());
+}
 SampleLibrary::~SampleLibrary() = default;
 void SampleLibrary::add_source(fs::path root) { impl_->enqueue({Impl::Kind::add,0,std::move(root)}); }
 void SampleLibrary::relink_source(std::int64_t id, fs::path root) { impl_->enqueue({Impl::Kind::relink,id,std::move(root)}); }
@@ -1111,6 +1281,11 @@ void SampleLibrary::set_artwork(std::int64_t id,std::string folder,fs::path imag
 void SampleLibrary::undo_tag_edit(){impl_->enqueue(Impl::Command(Impl::Kind::undo));}
 void SampleLibrary::rescan() { impl_->enqueue(Impl::Command(Impl::Kind::rescan)); }
 void SampleLibrary::cancel_scan() { impl_->cancel=true; }
+void SampleLibrary::analyse_audio(bool force){Impl::Command c(Impl::Kind::analyse);c.enabled=force;impl_->enqueue(std::move(c));}
+void SampleLibrary::pause_analysis(bool paused){impl_->analysisPaused=paused;impl_->analysisWake.notify_all();Impl::Command c(Impl::Kind::analysis_control);c.number=paused?1:2;impl_->enqueue(std::move(c));}
+void SampleLibrary::cancel_analysis(){impl_->analysisGeneration.fetch_add(1);impl_->analysisPaused=false;impl_->analysisWake.notify_all();Impl::Command c(Impl::Kind::analysis_control);c.number=0;impl_->enqueue(std::move(c));}
+void SampleLibrary::save_search(std::string name,LibraryQuery query){Impl::Command c(Impl::Kind::save_search);c.label=std::move(name);c.query=std::move(query);impl_->enqueue(std::move(c));}
+void SampleLibrary::delete_search(std::int64_t id){impl_->enqueue({Impl::Kind::delete_search,id});}
 std::shared_ptr<const Snapshot> SampleLibrary::snapshot() const { return impl_->snapshot(); }
 } // namespace mrs::library
 

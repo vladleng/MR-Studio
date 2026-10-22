@@ -1,6 +1,7 @@
 #include "LibraryFoundationPanel.h"
 #include "LibraryBrowserView.h"
 #include <array>
+#include <algorithm>
 
 namespace ui {
 namespace {
@@ -274,6 +275,8 @@ std::vector<std::int64_t> LibraryFoundationPanel::selectedAssetIds() const {
     return ids;
 }
 void LibraryFoundationPanel::fillSuggestedTags(){
+    const auto prior=suggestedTags.getText();const auto end=prior.lastIndexOf(" [");
+    const auto chosen=end>=0?prior.substring(0,end):juce::String{};
     suggestedTags.clear(juce::dontSendNotification);
     const auto row=assets.getSelectedRow();
     if(!view||row<0||row>=static_cast<int>(view->assets.size()))return;
@@ -281,6 +284,7 @@ void LibraryFoundationPanel::fillSuggestedTags(){
     for(std::size_t i=0;i<item.tags.size();++i){
         const auto& tag=item.tags[i];
         suggestedTags.addItem(text(tag.group)+": "+text(tag.label)+" ["+text(tag.status)+"]",static_cast<int>(i)+1);
+        if(chosen==text(tag.group)+": "+text(tag.label))suggestedTags.setSelectedId(static_cast<int>(i)+1,juce::dontSendNotification);
     }
     const int bpm=item.manual_bpm==0?item.detected_bpm:item.manual_bpm;
     const auto key=item.manual_key.empty()?item.detected_key:item.manual_key;
@@ -313,17 +317,21 @@ void LibraryFoundationPanel::timerCallback() { refresh(); }
 void LibraryFoundationPanel::refresh() {
     auto next=library.snapshot();
     if(next->revision==lastRevision&&view)return;
+    const bool preserveSelection=!browsing&&view&&view->query==next->query;
+    const auto selected=preserveSelection?selectedAssetIds():std::vector<std::int64_t>{};
     const bool phaseChanged=!view||view->phase!=next->phase;
     view=std::move(next);lastRevision=view->revision;
     if(browserView)browserView->setSnapshot(view);
     sources.updateContent();sources.repaint();
     assets.updateContent();assets.repaint();
+    if(preserveSelection){juce::SparseSet<int> rows;for(std::size_t i=0;i<view->assets.size();++i)if(std::find(selected.begin(),selected.end(),view->assets[i].id)!=selected.end()){const auto index=static_cast<int>(i);rows.addRange({index,index+1});}assets.setSelectedRows(rows,juce::dontSendNotification);}
     fillSuggestedTags();
     const auto phase=view->phase;
     juce::String message=phase==mrs::library::Phase::starting?"Opening database..."
         :phase==mrs::library::Phase::scanning?"Scanning WAV folders..."
         :phase==mrs::library::Phase::error?"Library error"
         :phase==mrs::library::Phase::cancelled?"Scan cancelled":"Ready";
+    if(view->analysis.running)message+=" | Analysis "+juce::String(static_cast<juce::int64>(view->analysis.completed))+"/"+juce::String(static_cast<juce::int64>(view->analysis.total))+(view->analysis.paused?" (paused)":"");
     if(!view->message.empty())message+="\n"+text(view->message);
     if(phase==mrs::library::Phase::scanning)
         message+="\nProcessed: "+juce::String(static_cast<juce::int64>(view->processed));

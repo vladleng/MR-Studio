@@ -71,22 +71,30 @@ WavPreview build_wav_preview(const fs::path& path,
     }
     return out;
 }
-AudioTypeAnalysis analyse_wav_type(const fs::path& path,const std::function<bool()>& cancelled){
+void complete_audio_features(AudioFeatures&,const std::vector<double>&,double,const std::vector<float>&,double,const std::function<bool()>&);
+AudioTypeAnalysis analyse_wav_type(const fs::path& path,const std::function<bool()>& cancelled){return analyse_wav_features(path,cancelled).type;}
+AudioFeatures analyse_wav_features(const fs::path& path,const std::function<bool()>& cancelled){
+    AudioFeatures result;
     const auto check=[&]{if(cancelled&&cancelled())throw std::runtime_error("Type analysis cancelled");};
     check();const auto wav=mrs::audio::inspect_wav(path);
     const auto frames=static_cast<std::uint64_t>(wav.frame_count);
-    if(!frames||!wav.sample_rate)return {{},"Empty audio",0.};
+    if(!frames||!wav.sample_rate){result.reason="Empty audio";result.type.reason=result.reason;return result;}
     if(wav.channels>32||frames>static_cast<std::uint64_t>(wav.sample_rate)*90||frames>16000000u/wav.channels)
-        return {{},"Audio exceeds bounded Type analysis budget",0.};
+        {result.state="budget";result.reason="Audio exceeds analysis budget";result.type.reason=result.reason;return result;}
     const auto hop=std::max<std::uint32_t>(1,wav.sample_rate/100); // approximately 10 ms, rate independent
     std::vector<double> energy(static_cast<std::size_t>((frames+hop-1)/hop),0.);
     std::vector<float> pcm(static_cast<std::size_t>(4096)*wav.channels);
+    const auto stride=std::max<std::uint32_t>(1,(wav.sample_rate+11024)/11025);
+    std::vector<float> mono;mono.reserve(static_cast<std::size_t>((frames+stride-1)/stride));
+    double squareSum{},monoSum{};std::uint32_t monoCount{};
     for(std::uint64_t first=0;first<frames;first+=4096){
         check();const auto count=static_cast<std::uint32_t>(std::min<std::uint64_t>(4096,frames-first));
         wav.read(static_cast<mrs::Sample>(first),std::span<float>(pcm).first(static_cast<std::size_t>(count)*wav.channels));
         for(std::uint32_t i=0;i<count;++i){
-            double sum{};for(std::uint32_t c=0;c<wav.channels;++c){const double value=pcm[static_cast<std::size_t>(i)*wav.channels+c];if(std::isfinite(value))sum+=value*value;}
+            double sum{};for(std::uint32_t c=0;c<wav.channels;++c){const double value=pcm[static_cast<std::size_t>(i)*wav.channels+c];if(std::isfinite(value)){sum+=value*value;result.peak=std::max(result.peak,std::abs(value));}}
             energy[static_cast<std::size_t>((first+i)/hop)]+=sum/wav.channels;
+            squareSum+=sum/wav.channels;monoSum+=pcm[static_cast<std::size_t>(i)*wav.channels];
+            if(++monoCount==stride){mono.push_back(static_cast<float>(monoSum/stride));monoSum=0;monoCount=0;}
         }
     }
     for(std::size_t i=0;i<energy.size();++i)energy[i]=std::sqrt(energy[i]/static_cast<double>(std::min<std::uint64_t>(hop,frames-i*hop)));
@@ -97,8 +105,12 @@ AudioTypeAnalysis analyse_wav_type(const fs::path& path,const std::function<bool
         for(auto j=first;j<last;++j)sum+=energy[j];
         smooth[i]=sum/static_cast<double>(last-first);}
     energy=std::move(smooth);
+    result.duration=static_cast<double>(frames)/wav.sample_rate;result.rms=std::sqrt(squareSum/static_cast<double>(frames));
+    const double featureTick=static_cast<double>(hop)/wav.sample_rate;
+    const auto finish=[&](AudioTypeAnalysis type){result.type=std::move(type);result.state="complete";result.reason=result.type.reason;
+        complete_audio_features(result,energy,featureTick,mono,static_cast<double>(wav.sample_rate)/stride,cancelled);return result;};
     const auto peak=*std::max_element(energy.begin(),energy.end());
-    if(peak<.00003)return {{},"Silence or insufficient signal",0.};
+    if(peak<.00003)return finish({{},"Silence or insufficient signal",0.});
     const double tick=static_cast<double>(hop)/wav.sample_rate,duration=static_cast<double>(frames)/wav.sample_rate;
     std::vector<double> attacks;
     for(std::size_t i=0;i<energy.size();++i){
@@ -115,7 +127,7 @@ AudioTypeAnalysis analyse_wav_type(const fs::path& path,const std::function<bool
             for(const auto attack:attacks)if(std::abs((attack-attacks.front())/step-std::round((attack-attacks.front())/step))*step<.035)++aligned;
             const bool boundary=std::abs(duration/step-std::round(duration/step))*step<.06;
             if(aligned*10>=attacks.size()*9&&boundary&&attacks.back()-attacks.front()>=step*2-.035)
-                return {"Loop","Repeated attacks and beat-aligned duration",.94};
+                return finish({"Loop","Repeated attacks and beat-aligned duration",.94});
         }
     }
     // Detect repeating envelopes in legato/material without sharp attacks.
@@ -129,13 +141,13 @@ AudioTypeAnalysis analyse_wav_type(const fs::path& path,const std::function<bool
             for(std::size_t i=lag;i<energy.size();++i){const auto x=change[i]-mean,y=change[i-lag]-mean;cross+=x*y;a+=x*x;b+=y*y;}
             const auto cycles=duration/(static_cast<double>(lag)*tick);
             if(a>0&&b>0&&a/b>.65&&a/b<1.55&&cross/std::sqrt(a*b)>.93&&std::abs(cycles-std::round(cycles))<.05)
-                return {"Loop","Repeating energy envelope and cycle-aligned duration",.88};
+                return finish({"Loop","Repeating energy envelope and cycle-aligned duration",.88});
         }
     }
     double tail{};const auto tailBins=std::min<std::size_t>(energy.size(),std::max<std::size_t>(1,static_cast<std::size_t>(.1/tick)));
     for(std::size_t i=energy.size()-tailBins;i<energy.size();++i)tail+=energy[i]/static_cast<double>(tailBins);
-    if(duration<.65)return {"One-shot","Short isolated sound",.9};
-    if(attacks.size()<=2&&tail<peak*.2)return {"One-shot","Isolated attack or swell with a decaying tail",.91};
-    return {{},"No reliable isolated-hit or repeating-loop evidence",0.};
+    if(duration<.65)return finish({"One-shot","Short isolated sound",.9});
+    if(attacks.size()<=2&&tail<peak*.2)return finish({"One-shot","Isolated attack or swell with a decaying tail",.91});
+    return finish({{},"No reliable isolated-hit or repeating-loop evidence",0.});
 }
 } // namespace mrs::library

@@ -4,8 +4,12 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <mrs/audio_features.hpp>
 
 namespace mrs::library {
+
+// Display/Pack name of the added folder, including paths with a trailing separator.
+std::string source_folder_name(const std::filesystem::path&);
 
 // Non-RT bounded JPG/PNG header validation; caps decoded dimensions.
 bool artwork_image_supported(const std::filesystem::path&);
@@ -32,6 +36,8 @@ struct AudioAsset {
     std::string artwork_path; // relative path, source-owned
     std::int64_t sample_rate{}, frames{}, modified{};
     bool favorite{};
+    AudioFeatures analysis;
+    std::string bpm_source,key_source;
 };
 struct LibraryFolder {
     std::int64_t source_id{};
@@ -67,7 +73,10 @@ struct LibraryQuery {
     std::uint64_t shuffle_seed{1};
     std::uint64_t offset{};
     std::uint64_t limit{120}; // bounded page
+    std::int64_t similar_asset_id{};
 };
+struct SavedSearch {std::int64_t id{};std::string name;LibraryQuery query;};
+struct AnalysisProgress {std::uint64_t completed{},total{};bool running{},paused{};};
 struct Snapshot {
     Phase phase{Phase::starting};
     std::string message;
@@ -82,10 +91,14 @@ struct Snapshot {
     std::vector<LibraryCover> covers;
     std::vector<LibraryFacet> facets;
     std::vector<LibraryFacet> all_facets;
+    AnalysisProgress analysis;
+    std::vector<SavedSearch> saved_searches;
+    AudioFeatures similar_reference;
 };
 
 // Local catalogue of existing WAV files. All I/O, scanning and SQLite writes
-// are performed by a private non-realtime worker. No original files are touched.
+// are performed off realtime. A catalogue worker owns SQLite; a dedicated bounded
+// analysis worker reads audio without blocking browse commands. Originals are untouched.
 // A snapshot is immutable, safe to copy on the JUCE message thread.
 // MIDI, artwork and sample playback are separate future stages. Tags are #253.
 class SampleLibrary final {
@@ -115,6 +128,11 @@ public:
     void undo_tag_edit(); // library-only undo; project Undo not touched
     void rescan(); // Incremental, all enabled sources
     void cancel_scan();
+    void analyse_audio(bool force=false);
+    void pause_analysis(bool paused);
+    void cancel_analysis();
+    void save_search(std::string name,LibraryQuery);
+    void delete_search(std::int64_t id);
     std::shared_ptr<const Snapshot> snapshot() const;
 private:
     struct Impl;

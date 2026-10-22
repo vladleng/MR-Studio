@@ -44,7 +44,7 @@ void wav(const fs::path& file,int frames=400) {
 template<class Pred> std::shared_ptr<const Snapshot> wait_for(SampleLibrary& library,Pred pred) {
     for(int i=0;i<1200;++i) {
         auto result=library.snapshot();
-        if(pred(*result))return result;
+        if(pred(*result)&&(result->phase!=Phase::idle||!result->analysis.running))return result;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     throw std::runtime_error("Sample Library async worker timeout: "+library.snapshot()->message);
@@ -551,7 +551,7 @@ void search_v4(){
     {SampleLibrary lib(database);const auto snap=wait_for(lib,[](const Snapshot& x){return x.phase==Phase::idle;});
         check(snap->visible_assets==3&&snap->sources.front().id==source&&snap->covers.empty(),"V3 migration lost catalogue identities");}
     bool backedUp=false;
-    for(const auto& entry:fs::directory_iterator(fixture.root))if(entry.path().filename().string().starts_with("index.sqlite.pre-v5-"))backedUp=true;
+    for(const auto& entry:fs::directory_iterator(fixture.root))if(entry.path().filename().string().starts_with("index.sqlite.pre-v6-"))backedUp=true;
     check(backedUp,"V3 migration needs a consistent rollback backup");
     std::cout<<"MR Library #261: multiword/filter/facets/stable shuffle/managed covers PASS\n";
 }
@@ -639,14 +639,31 @@ void pack_type_search(){
     Fixture fixture;const auto root=fixture.root/"Library";
     for(const auto* path:{"KSHMR/Drums/Snaps/KSHMR Snap - Compact.wav","KSHMR/Drums/Snaps/Roomy.wav",
         "KSHMR/Loops/Snap.wav","Cymatics/Drums/Cymatics - Gold Modern Crash 20.wav","Cymatics/Loops/Crash.wav"})wav(root/path);
-    SampleLibrary lib(fixture.root/"pack.sqlite");lib.add_source(root);
+    {
+        SampleLibrary aggregate(fixture.root/"aggregate.sqlite");aggregate.add_source(root/"");
+        auto all=wait_for(aggregate,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==5;});
+        check(std::count_if(all->facets.begin(),all->facets.end(),[](const auto& f){return f.group=="Pack";})==1&&
+            std::any_of(all->facets.begin(),all->facets.end(),[](const auto& f){return f.group=="Pack"&&f.label=="Library"&&f.count==5;}),
+            "Only the added source is a Pack; nested vendor/category folders are navigation");
+    }
+    sqlite3* stale{};const auto catalogueName=(fixture.root/"aggregate.sqlite").generic_u8string();
+    check(sqlite3_open(reinterpret_cast<const char*>(catalogueName.c_str()),&stale)==SQLITE_OK,"Open Pack refresh fixture");
+    check(sqlite3_exec(stale,"UPDATE tags SET label='Nested stale folder' WHERE group_name='Pack' AND label='Library'",nullptr,nullptr,nullptr)==SQLITE_OK,"Seed an outdated automatic Pack");sqlite3_close(stale);
+    {
+        SampleLibrary reopened(fixture.root/"aggregate.sqlite");
+        const auto restored=wait_for(reopened,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==5;});
+        check(std::any_of(restored->facets.begin(),restored->facets.end(),[](const auto& f){return f.group=="Pack"&&f.label=="Library"&&f.count==5;})&&
+            std::none_of(restored->facets.begin(),restored->facets.end(),[](const auto& f){return f.group=="Pack"&&f.label=="Nested stale folder";}),
+            "Startup repairs old automatic Packs without a source rescan");
+    }
+    SampleLibrary lib(fixture.root/"pack.sqlite");lib.add_source(root/"KSHMR");lib.add_source(root/"Cymatics");
     auto snap=wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==5;});
     const auto query=[&](LibraryQuery q,std::uint64_t count){lib.browse(q);auto v=wait_for(lib,[&](const Snapshot& s){return s.phase==Phase::idle&&s.query==q;});check(v->visible_assets==count,"Pack and Type filters must compose over the full catalogue");return v;};
     LibraryQuery q;q.tags={{"Pack","KSHMR"}};q.limit=1;snap=query(q,3);
     check(snap->assets.size()==1&&std::any_of(snap->facets.begin(),snap->facets.end(),[](const auto& f){return f.group=="Pack"&&f.label=="KSHMR"&&f.count==3;}),"Pack facets must count beyond the visible page");
     q.tags.push_back({"Type","One-shot"});query(q,2);
     q.tags={{"Type","One-shot"}};q.excluded_tags={{"Pack","KSHMR"}};snap=query(q,1);
-    check(snap->assets.front().relative_path.find("Cymatics/")==0,"Pack exclusions retain other matching One-shots");
+    check(std::any_of(snap->assets.front().tags.begin(),snap->assets.front().tags.end(),[](const auto& tag){return tag.group=="Pack"&&tag.label=="Cymatics"&&tag.status!="rejected";}),"Pack exclusions retain other matching One-shots");
     q.tags={{"Pack","KSHMR"},{"Pack","Cymatics"},{"Type","Loop"}};q.excluded_tags.clear();query(q,2);
     q.tags={{"Pack","KSHMR"},{"Type","One-shot"}};q.limit=120;snap=query(q,2);
     const auto id=snap->assets.front().id;auto revision=snap->revision;lib.add_tag({id},"Pack","Session Pack");
@@ -658,6 +675,12 @@ void pack_type_search(){
     q.tags={{"Pack","KSHMR"},{"Type","One-shot"}};query(q,2);
     const auto direct=classify_sample_path("Gold Modern/Drums/Crash.wav");
     check(std::any_of(direct.tags.begin(),direct.tags.end(),[](const auto& tag){return tag.group=="Pack"&&tag.label=="Gold Modern";}),"Source pointed directly at a pack retains its name");
+    for(const auto* path:{"Added Pack/Bonus/Drums/Snare.wav","Added Pack/Melodic/Extras/Phrase.wav","Added Pack/Loops/Bass/Loop.wav"}){
+        const auto nested=classify_sample_path(path);
+        check(std::count_if(nested.tags.begin(),nested.tags.end(),[](const auto& tag){return tag.group=="Pack";})==1&&
+            std::any_of(nested.tags.begin(),nested.tags.end(),[](const auto& tag){return tag.group=="Pack"&&tag.label=="Added Pack";}),
+            "Pack identity is independent of nesting and category names");
+    }
 }
 
 void signal_type_analysis(){
@@ -684,7 +707,7 @@ void signal_type_analysis(){
     check(analyse_wav_type(root/"D.wav").label.empty()&&analyse_wav_type(root/"E.wav").label.empty(),"Monotonic rise and silence cannot become loops from high raw-envelope correlation");
     bool cancelled=false;try{analyse_wav_type(root/"A.wav",[]{return true;});}catch(const std::exception&){cancelled=true;}
     check(cancelled,"Signal Type analysis is cancellable");
-    const auto query=[&](SampleLibrary& lib,const std::string& label,std::uint64_t count){LibraryQuery q;q.tags={{"Type",label}};lib.browse(q);const auto snap=wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.query==q;});check(snap->visible_assets==count,"Type search indexes signal-derived tags for arbitrary names");return snap;};
+    const auto query=[&](SampleLibrary& lib,const std::string& label,std::uint64_t count){LibraryQuery q;q.tags={{"Type",label}};lib.browse(q);const auto snap=wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.query==q&&!v.analysis.running;});check(snap->visible_assets==count,"Type search indexes signal-derived tags for arbitrary names");return snap;};
     {
         SampleLibrary lib(database);lib.add_source(root);wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==7;});
         const auto one=query(lib,"One-shot",1);check(one->assets.front().relative_path=="A.wav"&&std::any_of(one->assets.front().tags.begin(),one->assets.front().tags.end(),[](const auto& t){return t.group=="Type"&&t.origin=="audio"&&t.confidence>.8;}),"Signal Type keeps audio provenance and confidence");
@@ -696,16 +719,17 @@ void signal_type_analysis(){
     }
     // Upgrade a populated v4 index; backfill signal tags without a source rescan.
     sqlite3* legacy{};const auto legacyName=database.generic_u8string();check(sqlite3_open(reinterpret_cast<const char*>(legacyName.c_str()),&legacy)==SQLITE_OK,"Open v4 Type migration fixture");
-    check(sqlite3_exec(legacy,"DROP TABLE audio_type_analysis; DELETE FROM asset_tags WHERE origin='audio'; PRAGMA user_version=4",nullptr,nullptr,nullptr)==SQLITE_OK,"Prepare existing v4 catalogue");sqlite3_close(legacy);
+    check(sqlite3_exec(legacy,"DROP TABLE audio_type_analysis; DROP TABLE audio_features; DELETE FROM asset_tags WHERE origin='audio'; PRAGMA user_version=4",nullptr,nullptr,nullptr)==SQLITE_OK,"Prepare existing v4 catalogue");sqlite3_close(legacy);
     {SampleLibrary lib(database);wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle;});query(lib,"Loop",4);}
-    bool backup=false;for(const auto& entry:fs::directory_iterator(fixture.root))if(entry.path().filename().string().starts_with("signal.sqlite.pre-v5-"))backup=true;
+    bool backup=false;for(const auto& entry:fs::directory_iterator(fixture.root))if(entry.path().filename().string().starts_with("signal.sqlite.pre-v6-"))backup=true;
     check(backup,"Audio analysis schema upgrade keeps a rollback backup");
     // A cached successful analysis can be used with the source offline, without re-decoding.
     fs::rename(root,fixture.root/"offline");
     {SampleLibrary lib(database);wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle;});query(lib,"Loop",4);}
     sqlite3* db{};const auto name=database.generic_u8string();check(sqlite3_open(reinterpret_cast<const char*>(name.c_str()),&db)==SQLITE_OK,"Open audio analysis cache");
     sqlite3_stmt* statement{};check(sqlite3_prepare_v2(db,"SELECT count(*) FROM audio_type_analysis WHERE version=1",-1,&statement,nullptr)==SQLITE_OK,"Prepare cache check");
-    check(sqlite3_step(statement)==SQLITE_ROW&&sqlite3_column_int(statement,0)==6,"All analysed audio, including uncertain results, is cached by algorithm version");sqlite3_finalize(statement);sqlite3_close(db);
+    check(sqlite3_step(statement)==SQLITE_ROW&&sqlite3_column_int(statement,0)==7,"All analysed audio, including uncertain results, is cached by algorithm version");sqlite3_finalize(statement);sqlite3_close(db);
 }
 
-int main() { try {signal_type_analysis();pack_type_search();type_search_coverage();type_taxonomy();search_v4();test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void audio_analysis256_tests();
+int main() { try {audio_analysis256_tests();signal_type_analysis();pack_type_search();type_search_coverage();type_taxonomy();search_v4();test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }

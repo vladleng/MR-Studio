@@ -23,7 +23,7 @@ void libraryBrowserSmoke(){
         while(std::chrono::steady_clock::now()<until){auto snap=library.snapshot();browser.setSnapshot(snap);if(ready(*snap)&&!browser.pendingQuery)return;std::this_thread::sleep_for(std::chrono::milliseconds(2));}
         throw std::runtime_error("Library UI worker timed out");
     };
-    library.add_source(root/"samples");pump([](const auto& snap){return snap.phase==mrs::library::Phase::idle&&snap.visible_assets==2;});
+    library.add_source(root/"samples");pump([](const auto& snap){return snap.phase==mrs::library::Phase::idle&&snap.visible_assets==2&&!snap.analysis.running;});
     browser.setSize(260,640);check(browser.rootMode&&browser.cards.size()==1,"Folders root should show source cover cards");
     check(browser.assetIndex(0,0)<0,"Folder card must not masquerade as a WAV drag");
     const auto snapshot=[&](const juce::String& name){for(float scale:{1.f,1.25f,1.5f,2.f}){
@@ -32,8 +32,25 @@ void libraryBrowserSmoke(){
         check(juce::PNGImageFormat().writeImageToStream(browser.createComponentSnapshot(browser.getLocalBounds(),true,scale,juce::SoftwareImageType{}),*output),"Write Library preview");
     }};
     snapshot("folders-260");
+    const auto actualSources=browser.view;
+    auto tiles=std::make_shared<mrs::library::Snapshot>(*actualSources);++tiles->revision;
+    for(int i=1;i<4;++i){auto source=tiles->sources.front();source.id+=i;source.root=root/("Pack "+std::to_string(i));tiles->sources.push_back(source);}
+    browser.setSize(600,640);browser.setSnapshot(tiles);
+    check(browser.cardColumns()==4&&browser.cardRows()==browser.cardRowSpan(),"Normal-width folder grid fits four large cards across");
+    const auto cell=browser.results.getWidth()/browser.cardColumns();
+    check(browser.cardIndex(browser.cardRowSpan()-1,3*cell+10)==3&&browser.assetIndex(browser.cardRowSpan()-1,3*cell+10)<0,"Lower part of fourth cover opens the fourth folder and cannot drag a WAV");
+    snapshot("folders-600");
+    browser.setSnapshot(actualSources);
+    browser.section=LibraryBrowserView::Section::tags;browser.tagPath="Pack";browser.refreshControls();
+    check(browser.cards.size()==1&&browser.cards.front().label=="samples"&&browser.cards.front().artSource==actualSources->sources.front().id&&browser.largeCards(),"Pack cards represent added sources and inherit their cover source");
+    snapshot("packs-600");
+    browser.section=LibraryBrowserView::Section::folders;browser.tagPath.clear();browser.refreshControls();browser.setSize(260,640);
     browser.openCard(browser.cards.front());pump([&](const auto& snap){return snap.query==browser.query&&snap.phase==mrs::library::Phase::idle;});
     check(browser.cards.size()==1&&browser.cards.front().key=="Jazz","Folder navigation must list direct children");
+    check(browser.assetIndex(browser.cardRows(),0)==0&&browser.results.getRowHeight()==60,"Tall folder covers preserve compact sample rows and their indices in a mixed list");
+    browser.results.selectRow(browser.cardRows());const auto beforeResize=browser.selectedAssets();browser.setSize(600,640);
+    check(browser.selectedAssets()==beforeResize,"Changing cover grid size preserves the selected sample below folders");
+    browser.setSize(260,640);
     browser.openCard(browser.cards.front());pump([&](const auto& snap){return snap.query==browser.query&&snap.phase==mrs::library::Phase::idle;});
     check(browser.cards.empty()&&browser.assetIndex(0,0)==0,"Folder navigation must preserve WAV indices");
     check(browser.results.getRowHeight()==60,"Sample rows stay compact without a separate waveform lane");
@@ -70,6 +87,16 @@ void libraryBrowserSmoke(){
     check(browser.back.getY()==browser.counter.getY()&&browser.breadcrumb.getY()==browser.counter.getY(),"Back and location share the results toolbar row");
     check(browser.packButton.getX()>browser.genres.getX()&&browser.packButton.getY()==browser.genres.getY(),"Pack chooser follows Genres");
     check(browser.stopPreview.getWidth()==28&&browser.stopPreview.getHeight()==24,"Player does not reserve an oversized Stop field");
+    const auto ordinaryQuery=browser.query;
+    browser.query.similar_asset_id=browser.view->assets.front().id;browser.sendQuery();pump([&](const auto& snap){return snap.query==browser.query;});
+    check(browser.view->visible_assets==1&&!browser.sorts.isEnabled()&&browser.sorts.getText()=="Feature match","Similar-sound mode ranks analysed assets and identifies its sort");
+    check(browser.getTooltipForRow(0).contains("Feature comparison:"),"Similarity exposes the descriptor differences behind ranking");
+    browser.query=ordinaryQuery;browser.sendQuery();pump([&](const auto& snap){return snap.query==browser.query;});check(browser.sorts.isEnabled(),"Leaving similarity restores ordinary sorting");
+    browser.results.selectRow(0);const auto selectedBefore=browser.selectedAssets();
+    const auto beforePublication=browser.view;
+    auto analysed=std::make_shared<mrs::library::Snapshot>(*browser.view);++analysed->revision;analysed->analysis.completed++;
+    browser.setSnapshot(analysed);check(browser.selectedAssets()==selectedBefore,"Background feature publications preserve browser selection");
+    browser.setSnapshot(beforePublication);
     mrs::library::AudioAsset unknown;unknown.id=-1;check(browser.rowGlyph(unknown,false,false)=="unknown","Unknown type must not masquerade as One-shot");
     check(browser.rowGlyph(browser.view->assets[0],false,false)=="loop"&&browser.rowGlyph(browser.view->assets[1],false,false)=="sample_one_shot","Loop and One-shot have separate glyphs");
     check(browser.rowGlyph(browser.view->assets[0],false,true)=="play"&&browser.rowGlyph(browser.view->assets[1],true,false)=="play","Hover and keyboard selection expose Play");
