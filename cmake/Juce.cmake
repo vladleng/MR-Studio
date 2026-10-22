@@ -31,7 +31,7 @@ endforeach()
 list(APPEND concept_controls "${PROJECT_SOURCE_DIR}/assets/ui/icons/transport/metronome.svg")
 juce_add_binary_data(mrs_concept_assets NAMESPACE MRConceptAssets HEADER_NAME MRConceptAssets.h SOURCES ${concept_icons} ${concept_controls})
 target_link_libraries(mrs_juce_assets PUBLIC mrs_concept_assets)
-juce_add_gui_app(MoonRiverStudioJuce VERSION 0.6.0 PRODUCT_NAME "Moon River Studio JUCE")
+juce_add_gui_app(MoonRiverStudioJuce VERSION 0.7.1 PRODUCT_NAME "Moon River Studio JUCE")
 # Accepted Track Header layout is shipped as a self-contained, immutable GUI resource.
 # No external JSON is required for normal Release startup; developer overrides remain opt-in.
 juce_add_binary_data(mrs_track_header_layout
