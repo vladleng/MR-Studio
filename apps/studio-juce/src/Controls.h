@@ -30,7 +30,7 @@ inline void drawCard(juce::Graphics& g,juce::Rectangle<float> bounds,juce::Colou
 constexpr float clipFillAlpha = .72f;
 constexpr auto accent = 0xff006dcc;
 constexpr auto menuBorder = outline;
-constexpr float popupFillAlpha = .8f; // 20% background transparency; text stays opaque.
+constexpr float popupFillAlpha = .85f; // 15% background transparency; text stays opaque.
 inline void configurePopupColours(juce::LookAndFeel& theme){
     theme.setColour(juce::PopupMenu::backgroundColourId,juce::Colour(surface).withAlpha(popupFillAlpha));
     theme.setColour(juce::PopupMenu::textColourId,juce::Colours::whitesmoke);

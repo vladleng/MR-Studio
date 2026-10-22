@@ -40,11 +40,17 @@ void libraryBrowserSmoke(){
     check(browser.rowLayout(260,60).wave.isEmpty(),"Narrow results hide waveforms");
     const auto wide=browser.rowLayout(960,60);
     check(wide.wave.getWidth()<=160&&wide.wave.getX()>wide.title.getRight()&&wide.wave.getBottom()<=60,"Wide waveform stays short, beside filename and inside row");
-    const auto compact=browser.rowLayout(960,60,&browser.view->assets[0]);
-    check(compact.wave.getX()<wide.wave.getX()&&compact.wave.getX()-compact.title.getRight()==12,"Waveform follows filename instead of leaving an empty right-aligned gap");
-    auto longName=browser.view->assets[0];longName.relative_path=std::string(300,'W')+".wav";
-    const auto bounded=browser.rowLayout(560,60,&longName);
-    check(bounded.wave.getRight()<=560-30&&bounded.title.getWidth()>0&&bounded.title.getRight()<bounded.wave.getX(),"Long filenames keep separate waveform/title hit regions");
+    check(wide.instrument.getCentreY()==wide.wave.getCentreY()&&wide.instrument.getRight()<wide.wave.getX()&&wide.title.getRight()<wide.instrument.getX(),"Instrument and waveform share a horizontal line after the filename column");
+    const auto bounded=browser.rowLayout(560,60);
+    check(bounded.wave.getRight()<=560-30&&bounded.title.getWidth()>0&&bounded.title.getRight()<bounded.wave.getX(),"Shared page columns keep separate waveform/title hit regions");
+    const auto font=Theme::detailFont().withHeight(14.f).boldened();int widest{};
+    for(const auto& item:browser.view->assets){const auto at=item.relative_path.find_last_of('/');widest=std::max(widest,juce::GlyphArrangement::getStringWidthInt(font,juce::String(item.relative_path.substr(at==std::string::npos?0:at+1)))+2);}
+    check(browser.pageNameWidth==widest&&wide.title.getWidth()==widest,"Wave and instrument columns align to longest filename on current page");
+    const auto point=juce::Point<int>{123,234};
+    check(browser.popupOptions(&browser.results,point).getTargetScreenArea()==juce::Rectangle<int>{123,234,1,1},"Context menu anchors at exact screen click rather than full list bounds");
+    check(browser.back.getY()==browser.counter.getY()&&browser.breadcrumb.getY()==browser.counter.getY(),"Back and location share the results toolbar row");
+    check(browser.stopPreview.getWidth()==28&&browser.stopPreview.getHeight()==24,"Player does not reserve an oversized Stop field");
+    mrs::library::AudioAsset unknown;unknown.id=-1;check(browser.rowGlyph(unknown,false,false)=="unknown","Unknown type must not masquerade as One-shot");
     check(browser.rowGlyph(browser.view->assets[0],false,false)=="loop"&&browser.rowGlyph(browser.view->assets[1],false,false)=="sample_one_shot","Loop and One-shot have separate glyphs");
     check(browser.rowGlyph(browser.view->assets[0],false,true)=="play"&&browser.rowGlyph(browser.view->assets[1],true,false)=="play","Hover and keyboard selection expose Play");
     juce::SparseSet<int> dragRows;dragRows.addRange({0,1});int dragX{},dragY{};

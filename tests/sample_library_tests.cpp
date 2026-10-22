@@ -575,4 +575,51 @@ void type_taxonomy(){
     check(instruments==4&&one,"FX/Fill/SFX/Transition are Instruments; One-shot is Type");
 }
 
-int main() { try {type_taxonomy();search_v4();test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void type_search_coverage(){
+    const auto typeOf=[](const std::string& path){
+        const auto classified=classify_sample_path(path,{});std::string type;
+        for(const auto& tag:classified.tags)if(tag.group=="Type"){check(type.empty(),"Automatic file type must be exclusive");type=tag.label;}
+        return type;
+    };
+    for(const auto* folder:{"One Shots","One-Shots","one_shots","Oneshots","OneShots","ONESHOTS","1-Shots"})
+        check(typeOf(std::string(folder)+"/Drums/Kick.wav")=="One-shot","Plural/camel/number One-shot folder aliases");
+    check(typeOf("Loops/Drums/Ghosthack_Kick_Snare_115bpm.wav")=="Loop","Loops folder supplies type when filename omits it");
+    check(typeOf("Loops/One Shots/Kick.wav")=="One-shot"&&typeOf("One Shots/Loops/Groove.wav")=="Loop","Nearest labelled folder wins");
+    check(typeOf("Loops/Clap_one_shot.wav")=="One-shot"&&typeOf("One Shots/Bass_loop.wav")=="Loop","Filename wins over inherited folder type");
+    check(typeOf("Kick_oneshot01.wav")=="One-shot"&&typeOf("Drums_Loop02.wav")=="Loop"&&typeOf("Loopback01.wav").empty(),"Numeric take suffixes preserve explicit type without prefix false positives");
+    check(typeOf("Loose/Kick.wav").empty()&&typeOf("Loop_OneShot.wav").empty(),"Unknown/conflicting types must not be silently assigned");
+    Fixture fixture;const auto db=fixture.root/"types.sqlite",root=fixture.root/"audio";
+    for(const auto* path:{"One Shots/Drums/Kick.wav","One-Shots/Drums/Snare.wav","Oneshots/Perc/Hat.wav","one_shots/FX/Boom.wav",
+        "Loops/Drums/Kick_115BPM.wav","loops/Groove.wav","Loops/One Shots/Piano.wav","One Shots/Loops/Brush.wav",
+        "Loops/one_shot_Clap.wav","One Shots/Bass_loop.wav","Loose/Kick.wav"})wav(root/path);
+    const auto queryType=[](SampleLibrary& lib,const std::string& label,std::uint64_t expected){
+        LibraryQuery q;q.tags={{"Type",label}};lib.browse(q);
+        const auto snap=wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.query==q;});
+        check(snap->visible_assets==expected,"Type search must include every indexed alias/inherited match");
+        return snap;
+    };
+    {
+        SampleLibrary lib(db);lib.add_source(root);auto snap=wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==11;});
+        const auto target=std::find_if(snap->assets.begin(),snap->assets.end(),[](const auto& asset){return asset.relative_path=="Loops/Drums/Kick_115BPM.wav";});
+        check(target!=snap->assets.end(),"Find manual Type fixture");const auto id=target->id;
+        queryType(lib,"One-shot",6);queryType(lib,"Loop",4);
+        auto revision=lib.snapshot()->revision;lib.add_tag({id},"Type","One-shot");
+        wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision;});
+        queryType(lib,"One-shot",7);queryType(lib,"Loop",3);
+        revision=lib.snapshot()->revision;lib.undo_tag_edit();wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision;});
+        queryType(lib,"One-shot",6);queryType(lib,"Loop",4);
+        revision=lib.snapshot()->revision;lib.add_tag({id},"Type","One-shot");wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision;});
+        revision=lib.snapshot()->revision;lib.rescan();wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision&&v.message=="Scan complete";});
+        queryType(lib,"One-shot",7);queryType(lib,"Loop",3);
+    }
+    {
+        SampleLibrary lib(db);wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle;});
+        queryType(lib,"One-shot",7);queryType(lib,"Loop",3);
+        const auto sourceRoot=fixture.root/"One Shots";wav(sourceRoot/"RootKick.wav");
+        LibraryQuery q;lib.browse(q);wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.query==q;});
+        lib.add_source(sourceRoot);wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==12;});
+        queryType(lib,"One-shot",8);queryType(lib,"Loop",3);
+    }
+}
+
+int main() { try {type_search_coverage();type_taxonomy();search_v4();test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }

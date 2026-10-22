@@ -44,15 +44,16 @@ private:
     void rebuildCards();
     void updateVisibility();
     juce::PopupMenu popupMenu();
+    juce::PopupMenu::Options popupOptions(juce::Component*,std::optional<juce::Point<int>> point={}) const;
     void filterMenu(const std::string&,juce::Component*);
     void musicalMenu(bool bpm,juce::Component*);
     void toggleTag(std::string group,std::string label,bool exclude=false);
-    void rowMenu(std::size_t);
+    void rowMenu(std::size_t,juce::Point<int>);
     void optionsMenu();
     void prompt(juce::String title,juce::String initial,std::function<void(juce::String)>);
     struct Card {std::string kind,label,key,group,cover;std::int64_t owner{};std::uint64_t count{};};
     void openCard(const Card&);
-    void coverMenu(Card,juce::Component*);
+    void coverMenu(Card,juce::Component*,std::optional<juce::Point<int>> point={});
     void chooseArtwork(Card,bool clear);
     std::string coverFor(const Card&) const;
     int columns() const;
@@ -85,8 +86,9 @@ private:
     void updateDetails();
     bool keyboardAudition{};
     int hoveredAsset{-1};
-    struct RowLayout {juce::Rectangle<int> cover,control,title,tags,wave;};
-    RowLayout rowLayout(int width,int height,const mrs::library::AudioAsset* item=nullptr) const;
+    struct RowLayout {juce::Rectangle<int> cover,control,title,tags,instrument,wave;};
+    RowLayout rowLayout(int width,int height) const;
+    int pageNameWidth{};
     std::string rowGlyph(const mrs::library::AudioAsset&,bool focused,bool hovered) const;
     juce::ScaledImage dragImage(int& x,int& y);
 
@@ -105,7 +107,7 @@ private:
     int gridSelected{-1};
     std::uint64_t revision{};
     juce::TextButton foldersTab{"Folders"},tagsTab{"Tags"},collectionsTab{"Collections"};
-    juce::TextButton favorites{"Likes"},clearFilters{"Clear"},listGrid{"Grid"},samples{"All WAV"},back{"Back"},options{"..."};
+    juce::TextButton favorites{"Likes"},clearFilters{"Clear"},listGrid{"Grid"},back{"Back"},options{"..."};
     juce::TextButton instruments{"Instruments"},genres{"Genres"},keyButton{"Key"},bpmButton{"BPM"},typeButton{"Type"},activeFilters{"Filters"};
     std::vector<std::unique_ptr<juce::TextButton>> chips;
     juce::TextButton prevPage{"<"},nextPage{">"},stopPreview{"Stop"};

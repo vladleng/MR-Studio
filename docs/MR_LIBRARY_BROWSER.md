@@ -8,13 +8,15 @@ organization; MR keeps its existing UI theme, local catalogue and audio engine.
 Folders opens cover cards for enabled sources, then direct child folders.
 Folder scope includes WAVs below that path. Tags opens category cards, then tag
 cards; choosing a tag filters the WAV list. Collections opens virtual collection
-cards. All WAV shows samples in the current scope; Back returns to a parent/root.
+cards. Back returns to a parent/root; navigation shares the results toolbar. The
+redundant All WAV control and separate navigation row are removed.
 Cards come from the full index, independently of the bounded WAV page.
 
 List rows and grid cards show filename, tags (One-shot/Loop first), square pack
 artwork and a short bar waveform beside the filename when the cell is at least
-560 px wide. The waveform follows the measured filename/tags column with a 12 px gap,
-bounded by available row width; narrow cells hide it. Loop/One-shot glyphs precede the
+560 px wide. The instrument and waveform occupy common columns calculated once from the
+longest filename on the current result page. They share a horizontal centre line
+and remain bounded by row width; narrow cells hide the waveform. Loop/One-shot glyphs precede the
 larger filename; hover and keyboard selection expose Play, while playback shows
 Stop. Clicking Stop stops preview and disables arrow audition. Folder paths and technical
 metadata for the selected WAV are in the bottom browser panel. Full paths/tags are
@@ -41,9 +43,10 @@ recently indexed and a seeded random order stable across pages.
 Row `...` contains Likes, collection membership, tag creation and Explorer actions.
 The header menu contains collection creation/deletion, rescan and current cover.
 All browser popup menus and submenus use the owning MR Theme, matching the rest of
-Studio. Shared popup backgrounds use 80% opacity (20% transparency), including
+Studio. Shared popup backgrounds use 85% opacity (15% transparency), including
 blurred backdrops and native preset menus; menu text remains opaque.
-The footer provides previous/next sample within the page, Play/Pause and Stop,
+Context menus anchor to the screen click; keyboard menus retain their focused
+control anchor. The compact footer provides previous/next sample, Play/Pause and Stop,
 with separately identified pagination controls.
 The existing Sources and Edit Tags panels remain available. DAW transport keyboard
 bindings outside the browser and preview routing remain unchanged. Browser focus
@@ -53,6 +56,12 @@ while enabled, and select silently after stopping. Modified arrows retain JUCE
 multiselection; text entry retains its own keys. Type contains only One-shot and
 Loop; FX, Fill, SFX and Transition belong to Instruments. Existing Type tags are
 normalized transactionally at startup, preserving decisions and edit history.
+Type aliases include plural/camel/separated One Shots/Oneshots and Loops, including
+source-root names. Explicit custom type rules win, then filename, then nearest
+labelled ancestor. A conflicting/absent type remains unknown and shows `?`, not a
+One-shot glyph. Confirmed manual types suppress automatic alternatives; setting a
+type replaces the active opposite type in the same undoable batch. Startup/rescan
+reclassifies the existing index without changing source media.
 
 ## Covers and persistence
 

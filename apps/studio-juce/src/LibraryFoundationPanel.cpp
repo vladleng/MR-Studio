@@ -186,8 +186,8 @@ void LibraryFoundationPanel::resized() {
     title.setBounds(header);
     bounds.removeFromTop(4);
     if(browsing){
-        status.setBounds(bounds.removeFromBottom(29));
-        bounds.removeFromBottom(3);
+        status.setBounds(bounds.removeFromBottom(view&&view->phase==mrs::library::Phase::idle?16:32));
+        bounds.removeFromBottom(1);
         if(browserView)browserView->setBounds(bounds);
         return;
     }
@@ -313,6 +313,7 @@ void LibraryFoundationPanel::timerCallback() { refresh(); }
 void LibraryFoundationPanel::refresh() {
     auto next=library.snapshot();
     if(next->revision==lastRevision&&view)return;
+    const bool phaseChanged=!view||view->phase!=next->phase;
     view=std::move(next);lastRevision=view->revision;
     if(browserView)browserView->setSnapshot(view);
     sources.updateContent();sources.repaint();
@@ -326,7 +327,8 @@ void LibraryFoundationPanel::refresh() {
     if(!view->message.empty())message+="\n"+text(view->message);
     if(phase==mrs::library::Phase::scanning)
         message+="\nProcessed: "+juce::String(static_cast<juce::int64>(view->processed));
-    status.setText(message,juce::dontSendNotification);
+    status.setText(message,juce::dontSendNotification);status.setTooltip(message);
+    if(browsing&&phaseChanged)resized();
     cancel.setEnabled(phase==mrs::library::Phase::scanning);
 }
 } // namespace ui

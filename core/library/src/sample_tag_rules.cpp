@@ -67,7 +67,6 @@ constexpr Builtin builtins[] = {
     {"Genre","Jazz","jazz"},{"Genre","Funk","funk"},{"Genre","Rock","rock"},
     {"Genre","Ambient","ambient"},{"Genre","Cinematic","cinematic"},
     {"Genre","Hip Hop","hip hop"},{"Genre","House","house"},{"Genre","Latin","latin"},
-    {"Type","Loop","loop"},{"Type","One-shot","one shot"},{"Type","One-shot","oneshot"},
     {"Instrument","SFX","sfx"},{"Instrument","Fill","fill"},{"Instrument","FX","fx"},
     {"Instrument","Transition","transition"},
     {"Technique","Brushes","brush"},{"Technique","Brushes","brushes"},{"Technique","Brushes","brsh"},
@@ -75,6 +74,17 @@ constexpr Builtin builtins[] = {
     {"Technique","Slap","slap"},{"Rhythm","Swing","swing"},
     {"Rhythm","Shuffle","shuffle"},{"Rhythm","Straight","straight"}
 };
+enum class TypeMatch {none,one_shot,loop,conflict};
+TypeMatch sample_type(const std::vector<Token>& source){
+    auto words=source;
+    for(auto& word:words){const auto end=word.lower.find_last_not_of("0123456789");
+        if(end!=std::string::npos&&end+1<word.lower.size())word.lower.resize(end+1);}
+    bool one=false,loop=false;
+    for(const auto* alias:{"one shot","one shots","oneshot","oneshots","1 shot","1 shots","1shot","1shots"})
+        one=one||exact_sequence(words,tokens(alias));
+    for(const auto* alias:{"loop","loops"})loop=loop||exact_sequence(words,tokens(alias));
+    return one&&loop?TypeMatch::conflict:one?TypeMatch::one_shot:loop?TypeMatch::loop:TypeMatch::none;
+}
 int bpm_from_token(const std::string& s) {
     if(s.size()>3||s.empty())return 0;
     for(const auto c:s)if(c<'0'||c>'9')return 0;
@@ -134,6 +144,22 @@ Classification classify_sample_path(const std::string& relative,const std::vecto
         const auto alias=tokens(built.alias);
         if(exact_sequence(name,alias))suggest(built.group,built.label,"filename",.92);
         else if(exact_sequence(directories,alias))suggest(built.group,built.label,"folder",.69);
+    }
+    // One exclusive automatic type: explicit custom rule, then filename,
+    // then the nearest labelled ancestor. Never infer One-shot from missing tags.
+    const auto customTypes=std::count_if(result.tags.begin(),result.tags.end(),[](const auto& tag){return tag.group=="Type";});
+    if(customTypes>1)std::erase_if(result.tags,[](const auto& tag){return tag.group=="Type";});
+    if(customTypes==0){
+        auto type=sample_type(name);const bool fromFilename=type!=TypeMatch::none;const char* origin="filename";
+        auto parent=last==std::string::npos?std::string{}:relative.substr(0,last);
+        while(type==TypeMatch::none&&!parent.empty()){
+            const auto at=parent.find_last_of("/\\");
+            type=sample_type(tokens(parent.substr(at==std::string::npos?0:at+1)));
+            origin="folder";
+            parent=at==std::string::npos?"":parent.substr(0,at);
+        }
+        if(type==TypeMatch::one_shot||type==TypeMatch::loop)
+            suggest("Type",type==TypeMatch::one_shot?"One-shot":"Loop",origin,fromFilename?.95:.85);
     }
     result.metadata.bpm=infer_bpm(name);
     result.metadata.key=infer_key(name);
