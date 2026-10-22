@@ -165,7 +165,9 @@ Signalsmith не должен протекать типами или preset name
 
 Realtime path подчиняется общим правилам Audio Engine: prepare/reconfigure вне callback, bounded/preallocated buffers, no blocking locks/file I/O/heap growth в callback и явный latency accounting.
 
-Подробнее: `TIME_STRETCH.md`.
+Один SHARED контракт допускает отдельное подготовленное состояние на каждый stream/clip с единственным processing owner. Playback использует существующую anticipative обработку; Library tempo-sync — будущий потребитель того же контракта. Ручной ratio = outputDuration/inputDuration; импортный SRC остаётся отдельным преобразованием с сохранением длительности/высоты.
+
+Подробнее: [TIME_STRETCH.md](TIME_STRETCH.md), включая mapping, latency/PDC, границы MVP и ранний quality gate. Статус — план, не реализованная capability.
 
 ## 7. Low-latency path и process path
 
