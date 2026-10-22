@@ -85,6 +85,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force build/stretch-evidence | Out-Null
           Copy-Item build/windows/Release/mrs_stretch_bench.exe build/stretch-evidence/
+          Copy-Item third_party/signalsmith-stretch/LICENSE.txt build/stretch-evidence/Signalsmith-Stretch-LICENSE.txt
+          Copy-Item third_party/signalsmith-linear/LICENSE.txt build/stretch-evidence/Signalsmith-Linear-LICENSE.txt
           & build/windows/Release/mrs_stretch_bench.exe --impulse-report | Set-Content build/stretch-evidence/impulses.csv
           if($LASTEXITCODE){throw 'Stretch impulse diagnostic failed'}
           & build/windows/Release/mrs_stretch_bench.exe --seconds 10 --warmup 1 --ratio 1 --output build/stretch-evidence/source.wav | Set-Content build/stretch-evidence/source.csv
