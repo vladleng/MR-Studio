@@ -677,10 +677,10 @@ juce::PopupMenu LibraryBrowserView::popupMenu(){
     juce::PopupMenu menu;menu.setLookAndFeel(&getLookAndFeel());return menu;
 }
 juce::PopupMenu::Options LibraryBrowserView::popupOptions(juce::Component* anchor,std::optional<juce::Point<int>> point) const {
-    auto options=juce::PopupMenu::Options{}.withTargetComponent(anchor);
+    auto popupSettings=juce::PopupMenu::Options{}.withTargetComponent(anchor);
     const auto mouse=juce::Desktop::getInstance().getMainMouseSource().getScreenPosition().roundToInt();
-    if(point||(anchor&&anchor->getScreenBounds().contains(mouse))){const auto at=point.value_or(mouse);return options.withTargetScreenArea({at.x,at.y,1,1});}
-    return options; // keyboard invocation keeps the focused control as its anchor
+    if(point||(anchor&&anchor->getScreenBounds().contains(mouse))){const auto at=point.value_or(mouse);return popupSettings.withTargetScreenArea({at.x,at.y,1,1});}
+    return popupSettings; // keyboard invocation keeps the focused control as its anchor
 }
 void LibraryBrowserView::filterMenu(const std::string& group,juce::Component* anchor){
     if(!view)return;auto menu=popupMenu(),excluded=popupMenu();
