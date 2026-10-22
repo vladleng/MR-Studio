@@ -515,6 +515,7 @@ private:
     bool filesVisible{};
     std::unique_ptr<juce::TreeViewItem> root;
 };
+void trackFolderSmoke();
 void j2Smoke(Desktop&,const juce::File& fixture={});
 void j2PluginSmoke(Desktop&,const juce::File&);
 void j3Smoke(Desktop&);

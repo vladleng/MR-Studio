@@ -73,7 +73,7 @@ jobs:
         shell: pwsh
         run: |
           $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
-          if($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(model|transport|commands|serialization|track_folders)|ai_.*|ara_.*|juce_(library_browser|j1_smoke|track_header_layout|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(wav_import|track_folders))$')}
+          if($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(model|transport|commands|serialization|track_folders)|ai_.*|ara_.*|juce_(library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(wav_import|track_folders))$')}
           & ctest @args
           if($LASTEXITCODE){
             if(Test-Path 'build/windows/library261-failure.txt'){Get-Content 'build/windows/library261-failure.txt'}
@@ -109,6 +109,7 @@ jobs:
           name: Windows-test-results-${{ github.sha }}-ara-${{ env.ARA }}
           path: |
             build/windows/juce-library261-*.png
+            build/windows/juce-folder-mixer-*.png
             build/windows/Testing/
             build/windows/tests.xml
             build/windows/library256-benchmark.csv
