@@ -72,7 +72,7 @@ void trackFolderSmoke(){
     check(view.trackAt(static_cast<float>(view.headerHeight()+10))==-1,"folder header is not an audio destination");
     const auto p=d.project();const auto stored=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& item){return item.id==clip;});
     check(stored!=p->clips.end()&&view.trackAt(view.clipRect(*stored).getCentreY())==2,"folder layout keeps clip hit and target aligned");
-    auto* header=view.rowsBody.findChildWithID("track-folder-"+label(id.value));check(header!=nullptr,"folder has accessible header");header->keyPressed(juce::KeyPress(juce::KeyPress::returnKey));
+    auto* header=view.rowsBody.findChildWithID("track-folder-"+juce::String(id.value));check(header!=nullptr,"folder has accessible header");header->keyPressed(juce::KeyPress(juce::KeyPress::returnKey));
     check(d.project()->folders.back().collapsed&&!view.rows[0]->isVisible()&&!view.rows[1]->isVisible()&&view.trackY(2)==36,"collapse hides only member lanes");
     check(view.trackAt(view.clipRect(*stored).getCentreY())==2,"collapsed lanes do not shift clip drop target to a hidden track");
     d.action(10);check(!d.project()->folders.back().collapsed&&view.trackY(2)==36+2*view.trackHeight,"Undo restores expanded folder layout");

@@ -231,15 +231,15 @@ std::vector<mrs::Id> Desktop::folderSelection(std::optional<mrs::Id> fallback) c
 }
 void Desktop::showFolderMenu(mrs::Id id,juce::Point<int> position){
     const auto p=project();const auto at=std::find_if(p->folders.begin(),p->folders.end(),[&](const auto& f){return f.id==id;});if(at==p->folders.end())return;
-    const auto folder=*at;juce::PopupMenu menu;menu.setLookAndFeel(&theme);const bool enabled=!app.recording()&&!busyGesture();
-    menu.addItem(1,folder.collapsed?"Expand folder":"Collapse folder",enabled);menu.addItem(2,"Rename folder...",enabled);
-    menu.addItem(3,"Move selected tracks into folder",enabled&&!folderSelection(selectedTrack).empty());
-    menu.addSeparator();menu.addItem(4,"Create and link Bus",enabled&&!folder.bus);juce::PopupMenu buses;std::vector<mrs::Id> busIds;
+    const auto folder=*at;juce::PopupMenu folderPopup;folderPopup.setLookAndFeel(&theme);const bool enabled=!app.recording()&&!busyGesture();
+    folderPopup.addItem(1,folder.collapsed?"Expand folder":"Collapse folder",enabled);folderPopup.addItem(2,"Rename folder...",enabled);
+    folderPopup.addItem(3,"Move selected tracks into folder",enabled&&!folderSelection(selectedTrack).empty());
+    folderPopup.addSeparator();folderPopup.addItem(4,"Create and link Bus",enabled&&!folder.bus);juce::PopupMenu buses;std::vector<mrs::Id> busIds;
     for(const auto& track:p->tracks)if(track.kind==mrs::TrackKind::bus){busIds.push_back(track.id);buses.addItem(100+static_cast<int>(busIds.size()),label(track.name),true,folder.bus==track.id);}
-    menu.addSubMenu("Link existing Bus",buses,enabled&&!busIds.empty());menu.addItem(5,"Detach Bus (keep routing)",enabled&&folder.bus.has_value());
-    menu.addSeparator();menu.addItem(6,"Dissolve folder (keep tracks and routing)",enabled);
+    folderPopup.addSubMenu("Link existing Bus",buses,enabled&&!busIds.empty());folderPopup.addItem(5,"Detach Bus (keep routing)",enabled&&folder.bus.has_value());
+    folderPopup.addSeparator();folderPopup.addItem(6,"Dissolve folder (keep tracks and routing)",enabled);
     juce::Component::SafePointer<Desktop> safe(this);const auto store=app.services().projects;
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({position.x,position.y,1,1}),[safe,store,folder,busIds](int choice){if(!safe||!choice||safe->app.services().projects!=store)return;safe->run([&]{
+    folderPopup.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({position.x,position.y,1,1}),[safe,store,folder,busIds](int choice){if(!safe||!choice||safe->app.services().projects!=store)return;safe->run([&]{
         if(choice==1)safe->app.update_track_folder(folder.id,folder.name,!folder.collapsed);
         else if(choice==2)safe->textDialog("Rename track folder",label(folder.name),[safe,store,folder](auto text){if(safe&&safe->app.services().projects==store&&text.trim().isNotEmpty())safe->app.update_track_folder(folder.id,text.trim().toStdString(),folder.collapsed);});
         else if(choice==3)safe->app.move_tracks_to_folder(safe->folderSelection(safe->selectedTrack),folder.id);

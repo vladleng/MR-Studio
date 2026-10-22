@@ -115,7 +115,7 @@ void tempo(){
         void control_panel(int)override{}void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>)override{phase=audio::DevicePhase::open;}
         void start()override{++starts;if(fail||fail_always){fail=false;throw std::runtime_error("timing start failure");}phase=audio::DevicePhase::running;}
         void stop()override{++stops;phase=audio::DevicePhase::stopped;}void close()noexcept override{phase=audio::DevicePhase::closed;}
-        audio::DeviceStatus status()override{return {phase,48000,{}};}
+        audio::DeviceStatus status()override{return {phase,48000,0,0,0,{}};}
     };
     auto device=std::make_unique<Device>();auto* driver=device.get();app.connect(std::move(device),{0,48000,128,{}, {0,1}});
     std::array<float,256> out{};app.seek(34567);app.engine()->process(nullptr,out.data(),128);app.poll();app.pause();app.engine()->process(nullptr,out.data(),128);app.poll();
@@ -151,7 +151,7 @@ void meter(){
         void control_panel(int)override{}void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>)override{phase=audio::DevicePhase::open;}
         void start()override{++starts;if(fail||fail_always){fail=false;throw std::runtime_error("meter start failure");}phase=audio::DevicePhase::running;}
         void stop()override{++stops;phase=audio::DevicePhase::stopped;}void close()noexcept override{phase=audio::DevicePhase::closed;}
-        audio::DeviceStatus status()override{return {phase,48000,{}};}
+        audio::DeviceStatus status()override{return {phase,48000,0,0,0,{}};}
     };
     auto device=std::make_unique<Device>();auto* driver=device.get();app.connect(std::move(device),{0,48000,128,{}, {0,1}});
     std::array<float,256> out{};app.seek(34567);app.engine()->process(nullptr,out.data(),128);app.poll();app.pause();app.engine()->process(nullptr,out.data(),128);app.poll();
@@ -177,7 +177,7 @@ void meter(){
     for(Sample start:{Sample{191940},Sample{335940}}){app.seek(start);app.engine()->process(nullptr,out.data(),128);app.poll();audio::Metronome reference;reference.prepare(map,48000);app.play();for(int block=0;block<3;++block){app.engine()->process(nullptr,out.data(),128);for(int f=0;f<128;++f){const auto expected=reference.sample(start+block*128+f,true,clicks.accent,clicks.level/100.f);CHECK(out[2*f]==expected&&out[2*f+1]==expected);}}app.pause();app.engine()->process(nullptr,out.data(),128);app.poll();}
     const auto audioTrack=app.services().projects->state().project->tracks.back().id;app.set_track_input(audioTrack,0);app.set_track_armed(audioTrack,true);clicks.count_bars=1;app.set_click_settings(clicks);app.seek(192000);app.engine()->process(nullptr,out.data(),128);app.poll();app.start_recording(dir.path/"Meter-count.wav");
     std::array<float,128> input{};app.engine()->process(input.data(),out.data(),128);CHECK(app.engine()->state().count_remaining==72000-128&&app.engine()->state().sample==192000);const auto recordingRevision=app.services().projects->state().revision;rejects([&]{app.set_meters(map,changed.meters);});rejects([&]{app.undo();});CHECK(app.services().projects->state().revision==recordingRevision);
-    for(int i=0;i<600&&app.engine()->state().count_remaining;++i)app.engine()->process(input.data(),out.data(),128);CHECK(app.engine()->state().count_remaining==0&&app.engine()->state().sample>=192000);app.engine()->process(input.data(),out.data(),128);app.stop_recording();CHECK(!app.recording());
+    for(int i=0;i<600&&app.engine()->state().count_remaining;++i){app.engine()->process(input.data(),out.data(),128);}CHECK(app.engine()->state().count_remaining==0&&app.engine()->state().sample>=192000);app.engine()->process(input.data(),out.data(),128);app.stop_recording();CHECK(!app.recording());
     app.save_project(dir.path/"Meter.mrsproject");const auto saved=app.snapshot().project;app.open_project(dir.path/"Meter.mrsproject");CHECK(app.snapshot().project==saved);
     ProjectStore store{original};const UpdateMeterMap edit{original.time,map.meters};auto transaction=store.prepare_transaction(&edit);const auto state=store.state();unsigned notifications{};auto observer=store.subscribe([&](const auto&){++notifications;});transaction->commit();CHECK(notifications==0&&store.state().project->time==map);transaction->rollback();CHECK(store.state().project==state.project&&store.state().revision==state.revision&&notifications==0);
     transaction=store.prepare_transaction(&edit);transaction->commit();transaction->finish();CHECK(notifications==1&&store.undo()&&*store.state().project==original);
@@ -1095,7 +1095,7 @@ void config() {
 
 void inserts() {
     {Application app;app.new_project(48000);const auto a=app.add_audio_track("A"),b=app.add_bus("B");
-        NativeInsert first{new_id(),InsertKind::gain,.5f},second{new_id(),InsertKind::gain,.25f};second.bypass=true;
+        NativeInsert first;first.id=new_id();first.gain=.5f;NativeInsert second;second.id=new_id();second.gain=.25f;second.bypass=true;
         app.set_inserts(a,{first,second});app.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1}});
         const auto generation=app.insert_generation();const auto revision=app.services().projects->state().revision;
         app.transfer_insert(a,first.id,a,1,false);CHECK(app.services().projects->state().revision==revision);
@@ -1114,10 +1114,10 @@ void inserts() {
 
     Directory dir; Application app; app.new_project(44100);
     const auto track=app.add_audio_track("Mic"), bus=app.add_bus("Bus"); app.set_track_output(track,bus);
-    NativeInsert a{new_id(),InsertKind::gain,.5f}, b{new_id(),InsertKind::gain,.25f}, c{new_id(),InsertKind::gain,.5f};
+    NativeInsert a;a.id=new_id();a.gain=.5f;NativeInsert b;b.id=new_id();b.gain=.25f;NativeInsert c;c.id=new_id();c.gain=.5f;
     app.set_inserts(track,{a,b}); CHECK(app.undo() && app.services().projects->state().project->tracks.front().inserts.empty()); CHECK(app.redo());
     app.set_inserts(track,{b,a}); CHECK(app.services().projects->state().project->tracks.front().inserts.front().id==b.id);
-    app.set_inserts(bus,{c}); app.set_inserts(std::nullopt,{NativeInsert{new_id(),InsertKind::gain,.5f}});
+    NativeInsert master;master.id=new_id();master.gain=.5f;app.set_inserts(bus,{c}); app.set_inserts(std::nullopt,{master});
     app.arm_track(track); app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1}});
     std::array<float,128> in{}; in.fill(.8f); std::array<float,256> out{};
     app.engine()->process(in.data(),out.data(),128); CHECK(std::abs(out[0]-.0125f)<1e-6f && out[0]==out[1]);

@@ -3,6 +3,7 @@
 #include <mrs/recording.hpp>
 #include <mrs/offline_device.hpp>
 #include "latency_fixture.hpp"
+#include "ahead_test_access.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -80,7 +81,7 @@ void equivalence(){
         mixed->set_profiling(true);
         AheadRenderer renderer(mixed,device,2048);renderer.start();check(renderer.active(),"mixed did not start");settle();
         std::array<float,1024> in{},expected{},actual{};const auto before=probe::allocations.load();
-        for(unsigned n=0;n<80;++n){const auto frames=n%2?device-17:17;
+        for(unsigned n=0;n<80;++n){AheadRendererTestAccess::wait_full(renderer);const auto frames=n%2?device-17:17;
             for(std::size_t i=0;i<frames*2;++i)in[i]=.2f*static_cast<float>((i+n)%7)/7;
             probe::enabled=true;direct->process(in.data(),expected.data(),frames);renderer.process(in.data(),actual.data(),frames);probe::enabled=false;
             check(!mixed->metrics().processing_fault,"mixed fault");check(mixed->metrics().ahead_underruns==0,"paced mixed starvation");
@@ -134,13 +135,13 @@ void mixer_gestures(){
     auto e=engine(g);e->enqueue({ControlKind::play});AheadRenderer renderer(e,128,1024);renderer.start();settle();
     std::array<float,256> out{};renderer.process(nullptr,out.data(),128);settle();
     const auto invalidations=e->metrics().ahead_invalidations;const auto allocs=probe::allocations.load();MixerUpdate mix;mix.count=4;
-    for(unsigned n=0;n<120;++n){mix.tracks[0].gain=.4f+.002f*n;mix.tracks[0].pan=.25f;mix.tracks[1]=mix.tracks[0];
+    for(unsigned n=0;n<120;++n){AheadRendererTestAccess::wait_full(renderer);mix.tracks[0].gain=.4f+.002f*n;mix.tracks[0].pan=.25f;mix.tracks[1]=mix.tracks[0];
         check(e->enqueue_mix(mix),"mixed mixer queue overflow");const auto heard=e->state().sample;
         probe::enabled=true;renderer.process(nullptr,out.data(),128);probe::enabled=false;
         check(e->state().sample==heard+128,"mixed fader stalled transport");
         check(std::all_of(out.begin(),out.end(),[](float x){return std::isfinite(x)&&x>0;}),"mixed fader discarded ahead PCM");settle();}
     mix.tracks[0]={.5f,0,false,false};check(e->enqueue_mix(mix),"mixed final target");
-    for(unsigned n=0;n<20;++n){renderer.process(nullptr,out.data(),128);settle();}
+    for(unsigned n=0;n<20;++n){AheadRendererTestAccess::wait_full(renderer);renderer.process(nullptr,out.data(),128);settle();}
     // Source, shared Bus and Master each pass through x/(1+abs(x)).
     const auto fx=[](float x){return x/(1+std::abs(x));};const float expected=fx(fx(fx(.25f)*.5f));
     check(std::all_of(out.begin(),out.end(),[&](float x){return std::abs(x-expected)<.00001f;}),"mixed producer lost latest mixer targets");

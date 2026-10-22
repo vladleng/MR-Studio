@@ -12,7 +12,7 @@ void cab_combo(){
     const auto rev=app.services().projects->state().revision;app.map_cab_assets(track,fx.id,{"Combo.wav","Combo_441.wav"},metadata,"_441");
     CHECK(app.services().projects->state().revision==rev+1);CHECK(app.insert_generation()==generation&&driver->opens==1);
     const auto saved=app.capture_insert(track,fx.id);CHECK(saved.cab_metadata.at("ir_role")=="full_combo"&&saved.ir.mix==.7f);CHECK(saved.reverb.frames==72000||saved.reverb.frames==33075);
-    for(int i=0;i<100;++i)app.engine()->process(input.data(),output.data(),128);CHECK(std::abs(output.back()-wet)<1e-5f);
+    for(int i=0;i<100;++i){app.engine()->process(input.data(),output.data(),128);}CHECK(std::abs(output.back()-wet)<1e-5f);
     CHECK(app.undo()&&app.capture_insert(track,fx.id).cab_metadata.at("ir_role")=="unknown");CHECK(app.redo()&&app.capture_insert(track,fx.id).cab_metadata==saved.cab_metadata);CHECK(app.insert_generation()==generation);
     app.stop();app.engine()->process(input.data(),output.data(),128);eventually([&]{return app.cab_library()->snapshot()->overrides.size()==2;});
     auto manifest=audio::serialize_cab_manifest(*app.cab_library()->snapshot());auto snapshot=serialize(*app.services().projects->state().project);CHECK(snapshot.find("CAB_SELECTION 2")!=std::string::npos);CHECK(serialize(deserialize(snapshot))==snapshot);
@@ -51,9 +51,9 @@ void cab_collection(){
         CHECK(app.undo());CHECK(app.capture_insert(track,effect.id).reverb.first.digest==saved.reverb.first.digest);CHECK(app.redo());
         loader=app.reverb_loader(track,effect.id,true);eventually([&]{app.poll();return loader->snapshot()->phase==audio::ReverbLoadPhase::ready;});
         const auto opens=driver->opens;app.play();std::array<float,128> input{};input.fill(.8f);std::array<float,256> output{};
-        for(int i=0;i<200;++i)app.engine()->process(input.data(),output.data(),128);CHECK(std::isfinite(output.back())&&std::abs(output.back())>.01f);
-        auto controls=app.capture_insert(track,effect.id);controls.ir.mix=0;app.set_inserts(track,{controls});for(int i=0;i<200;++i)app.engine()->process(input.data(),output.data(),128);CHECK(std::abs(output.back()-.4f)<.001f);CHECK(driver->opens==opens);
-        CHECK(app.undo());for(int i=0;i<200;++i)app.engine()->process(input.data(),output.data(),128);CHECK(std::abs(output.back()-.4f)>.01f);app.stop();
+        for(int i=0;i<200;++i){app.engine()->process(input.data(),output.data(),128);}CHECK(std::isfinite(output.back())&&std::abs(output.back())>.01f);
+        auto controls=app.capture_insert(track,effect.id);controls.ir.mix=0;app.set_inserts(track,{controls});for(int i=0;i<200;++i){app.engine()->process(input.data(),output.data(),128);}CHECK(std::abs(output.back()-.4f)<.001f);CHECK(driver->opens==opens);
+        CHECK(app.undo());for(int i=0;i<200;++i){app.engine()->process(input.data(),output.data(),128);}CHECK(std::abs(output.back()-.4f)>.01f);app.stop();
         auto reference=app.capture_insert(track,effect.id).reverb;reference.first.digest="fnv1a64:0000000000000000";loader->restore(reference,root);eventually([&]{return loader->snapshot()->phase==audio::ReverbLoadPhase::error;});CHECK(loader->snapshot()->active.has_value());
         app.disconnect();CHECK(!app.reverb_loader(track,effect.id));
     }

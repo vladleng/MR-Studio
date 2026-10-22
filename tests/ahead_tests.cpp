@@ -3,6 +3,7 @@
 #include <mrs/offline_device.hpp>
 #include <mrs/processing.hpp>
 #include "latency_fixture.hpp"
+#include "ahead_test_access.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -45,8 +46,8 @@ void equivalence(){for(auto workers:{1U,2U,4U})for(auto process:{256U,1024U,4096
     const RealtimeState initial{PlaybackState::paused,0,LoopRange{0,97}};auto direct=engine(graph(),initial),ahead=engine(graph(),initial,workers);
     check(direct->enqueue({ControlKind::play})&&ahead->enqueue({ControlKind::play}),"play");AheadRenderer cache(ahead,128,process);cache.start();check(cache.active(),"eligible playback rejected");settle();
     check(ahead->state().sample==0,"speculative playhead published before hearing");std::array<float,256> expected{},actual{};const auto allocs=probe::allocations.load();probe::enabled=true;
-    for(unsigned n=0;n<80;++n){direct->process(nullptr,expected.data(),128);cache.process(nullptr,actual.data(),17);cache.process(nullptr,actual.data()+34,111);
-        for(unsigned i=0;i<256;++i){check(expected[i]==actual[i],"cached PCM differs from serial PDC/loop reference");}check(direct->state().sample==ahead->state().sample,"audible playhead differs");settle();}
+    for(unsigned n=0;n<80;++n){AheadRendererTestAccess::wait_full(cache);direct->process(nullptr,expected.data(),128);cache.process(nullptr,actual.data(),17);cache.process(nullptr,actual.data()+34,111);
+        for(unsigned i=0;i<256;++i){if(expected[i]!=actual[i]){probe::enabled=false;std::cerr<<"workers="<<workers<<" buffer="<<process<<" block="<<n<<" sample="<<i<<" underruns="<<ahead->metrics().ahead_underruns<<" invalidations="<<ahead->metrics().ahead_invalidations<<" fault="<<ahead->metrics().processing_fault<<"\n";}check(expected[i]==actual[i],"cached PCM differs from serial PDC/loop reference");}check(direct->state().sample==ahead->state().sample,"audible playhead differs");settle();}
     probe::enabled=false;check(probe::allocations==allocs,"allocation on producer/device/helper");check(ahead->metrics().ahead_underruns==0,"unexpected paced underrun");check(ahead->metrics().callbacks==160,"producer counted as device callbacks");
     rejects([&]{ahead->prepare({48000,0,2,128},{});});const auto heard=ahead->state().sample;cache.stop();check(ahead->state().sample==heard,"stop leaked speculative position");
     cache.start();settle();direct->enqueue({ControlKind::seek,heard});direct->process(nullptr,expected.data(),128);cache.process(nullptr,actual.data(),128);
@@ -86,13 +87,13 @@ void mixer_gestures(){
     std::array<float,256> out{};renderer.process(nullptr,out.data(),17);settle();
     const auto invalidations=e->metrics().ahead_invalidations;const auto allocs=probe::allocations.load();
     MixerUpdate mix;mix.count=1;
-    for(unsigned n=0;n<120;++n){mix.tracks[0].gain=.4f+.002f*n;mix.tracks[0].pan=.25f;
+    for(unsigned n=0;n<120;++n){AheadRendererTestAccess::wait_full(renderer);mix.tracks[0].gain=.4f+.002f*n;mix.tracks[0].pan=.25f;
         check(e->enqueue_mix(mix),"continuous mixer queue overflow");const auto heard=e->state().sample;
         probe::enabled=true;renderer.process(nullptr,out.data(),128);probe::enabled=false;
         check(e->state().sample==heard+128,"fader gesture stalled heard transport");
         check(std::all_of(out.begin(),out.end(),[](float x){return std::isfinite(x)&&x>0;}),"fader gesture silenced queued PCM");settle();}
     mix.tracks[0]={.5f,0,false,false};check(e->enqueue_mix(mix),"final mixer target");
-    for(unsigned n=0;n<20;++n){renderer.process(nullptr,out.data(),128);settle();}
+    for(unsigned n=0;n<20;++n){AheadRendererTestAccess::wait_full(renderer);renderer.process(nullptr,out.data(),128);settle();}
     check(std::all_of(out.begin(),out.end(),[](float x){return std::abs(x-.125f)<.00001f;}),"latest mixer target never became audible");
     check(e->metrics().ahead_invalidations==invalidations&&e->metrics().ahead_underruns==0,"scalar mixer controls invalidated ahead queue");
     check(probe::allocations==allocs&&!e->metrics().processing_fault,"mixer gesture allocated or exhausted replay journal");renderer.stop();
