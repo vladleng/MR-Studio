@@ -379,6 +379,32 @@ void commands() {
     store.execute(mrs::RenameTrack{{"track-guitar"}, "Still committed"});
     CHECK(store.state().project->tracks[3].name == "Still committed");
 }
+void track_folders(){
+    using namespace mrs;auto p=demo_project();const auto drums=p.tracks[0].id,bass=p.tracks[1].id,guitar=p.tracks[3].id;ProjectStore store(p);
+    Folder group;group.id=new_id();group.name="Drum group";store.execute(CreateTrackFolder{group,{drums,bass}});
+    CHECK(store.state().project->tracks[0].folder==group.id&&store.state().project->tracks[1].folder==group.id);
+    CHECK(store.undo()&&*store.state().project==p);CHECK(store.redo());
+    store.execute(UpdateTrackFolder{group.id,"Percussion",true});CHECK(store.state().project->folders.back().collapsed);
+    Track bus;bus.id=new_id();bus.name="Percussion Bus";bus.kind=TrackKind::bus;store.execute(LinkFolderBus{group.id,bus.id,bus});
+    const auto linked=*store.state().project;CHECK(linked.folders.back().bus==bus.id&&linked.tracks[0].output==bus.id&&linked.tracks[1].output==bus.id);
+    CHECK(deserialize(serialize(linked))==linked);CHECK(store.undo()&&store.state().project->tracks.size()==p.tracks.size());CHECK(store.redo()&&*store.state().project==linked);
+    store.execute(MoveTracksToFolder{{guitar},group.id});CHECK(store.state().project->tracks[3].folder==group.id&&store.state().project->tracks[3].output==bus.id);
+    store.execute(MoveTracksToFolder{{guitar},{}});CHECK(!store.state().project->tracks[3].folder&&store.state().project->tracks[3].output==bus.id);
+    // Nested folders feed their own Bus and then the outer folder Bus once.
+    Folder child;child.id=new_id();child.name="Nested";child.parent=group.id;store.execute(CreateTrackFolder{child,{bass}});
+    Track sub;sub.id=new_id();sub.name="Nested Bus";sub.kind=TrackKind::bus;sub.folder=group.id;store.execute(LinkFolderBus{child.id,sub.id,sub});
+    store.execute(LinkFolderBus{group.id,bus.id});CHECK(store.state().project->tracks[1].output==sub.id&&store.state().project->tracks.back().output==bus.id);
+    const auto before=store.state();rejects([&]{store.execute(LinkFolderBus{group.id,drums});});rejects([&]{store.execute(MoveTracksToFolder{{Id{"missing"}},group.id});});
+    rejects([&]{store.execute(LinkFolderBus{child.id,bus.id});});CHECK(store.state().project==before.project&&store.state().revision==before.revision);
+    // A Bus send back into a member would create feedback; reject atomically.
+    rejects([&]{store.execute(SetTrackOutput{bus.id,sub.id});});CHECK(store.state().project==before.project);
+    store.execute(RemoveTrack{bus.id});CHECK(!store.state().project->folders[1].bus);CHECK(store.undo());
+    const auto clips=store.state().project->clips;store.execute(RemoveTrackFolder{group.id});CHECK(store.state().project->clips==clips&&store.state().project->tracks.size()==p.tracks.size()+2);
+    CHECK(store.state().project->folders.back().parent==std::nullopt&&store.state().project->tracks[0].output==bus.id);CHECK(store.undo());
+    store.execute(LinkFolderBus{group.id,{}});CHECK(!store.state().project->folders[1].bus&&store.state().project->tracks[0].output==bus.id);
+    auto legacy=serialize(p);legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 30").size(),"MRS_CORE_SNAPSHOT 29");CHECK(deserialize(legacy)==p);
+    auto invalid=linked;invalid.folders.back().bus=drums;rejects([&]{invalid.validate();});
+}
 void serialization() {
     {auto project=mrs::demo_project();mrs::AraBinding binding;binding.source=project.clips.front().source;binding.persistent_id="ara-persistent";binding.module="missing.vst3";binding.class_id="saved-class";binding.factory_id="factory";binding.version="1";binding.archive_id="archive";binding.archive={std::byte{0},std::byte{255}};binding.checksum=123;binding.source_checksum=456;project.ara_bindings={binding};
         CHECK(mrs::deserialize(mrs::serialize(project))==project);mrs::ProjectStore store(mrs::demo_project());store.execute(mrs::SetAraBindings{project.ara_bindings});CHECK(store.state().project->ara_bindings==project.ara_bindings);CHECK(store.undo()&&store.state().project->ara_bindings.empty());CHECK(store.redo()&&store.state().project->ara_bindings==project.ara_bindings);
@@ -465,6 +491,7 @@ int main(int argc, char** argv) {
         const std::string suite = argv[1];
         if (suite == "inserts") inserts(); else if (suite == "inputs") inputs(); else if (suite == "hardware") hardware(); else if (suite == "sends") sends();
         else if (suite == "buses") buses();
+        else if (suite == "track_folders") track_folders();
         else if (suite == "model") model();
         else if (suite == "timeline") timeline();
         else if (suite == "transport") transport();

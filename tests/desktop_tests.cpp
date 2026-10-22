@@ -24,6 +24,21 @@ template<class F> void eventually(F f) {
     }
     throw std::runtime_error("timed out");
 }
+void track_folders(){
+    Application app;app.disconnect();app.new_project();const auto a=app.add_audio_track("A"),b=app.add_audio_track("B");
+    const auto id=app.create_track_folder("Drums",{a,b});app.update_track_folder(id,"Rhythm",true);
+    CHECK(app.services().projects->state().project->folders.back().collapsed);CHECK(app.history_preserves_plugins(false));CHECK(app.undo()&&app.redo());
+    app.link_folder_bus(id,{},true);const auto linked=*app.services().projects->state().project;const auto bus=*linked.folders.back().bus;
+    CHECK(linked.tracks.size()==3&&linked.tracks[0].output==bus&&linked.tracks[1].output==bus);
+    CHECK(app.undo()&&app.services().projects->state().project->tracks.size()==2);CHECK(app.redo());
+    Directory dir;app.save_project(dir.path/"folders.mrsproject");app.open_project(app.path());CHECK(*app.services().projects->state().project==linked);
+    app.play();eventually([&]{return app.engine()->state().playback==PlaybackState::playing;});const auto generation=app.insert_generation();
+    app.update_track_folder(id,"Playing folder",false);CHECK(app.engine()->state().playback==PlaybackState::playing&&app.insert_generation()==generation);
+    CHECK(app.undo()&&app.redo()&&app.engine()->state().playback==PlaybackState::playing);
+    app.remove_track_folder(id);CHECK(app.services().projects->state().project->folders.empty()&&app.services().projects->state().project->tracks[0].output==bus);
+    CHECK(app.undo());app.pause();eventually([&]{return app.engine()->state().playback!=PlaybackState::playing;});
+    app.remove_track(bus);CHECK(!app.services().projects->state().project->folders.back().bus);CHECK(app.undo());
+}
 void workspaces() {
     Application app; auto services = app.services(); auto graph = app.graphs(); auto engine = app.engine();
     for (auto w : {Workspace::arrange,Workspace::mix,Workspace::edit,Workspace::live}) {
@@ -100,7 +115,7 @@ void tempo(){
         void control_panel(int)override{}void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>)override{phase=audio::DevicePhase::open;}
         void start()override{++starts;if(fail||fail_always){fail=false;throw std::runtime_error("timing start failure");}phase=audio::DevicePhase::running;}
         void stop()override{++stops;phase=audio::DevicePhase::stopped;}void close()noexcept override{phase=audio::DevicePhase::closed;}
-        audio::DeviceStatus status()override{return {phase,48000};}
+        audio::DeviceStatus status()override{return {phase,48000,{}};}
     };
     auto device=std::make_unique<Device>();auto* driver=device.get();app.connect(std::move(device),{0,48000,128,{}, {0,1}});
     std::array<float,256> out{};app.seek(34567);app.engine()->process(nullptr,out.data(),128);app.poll();app.pause();app.engine()->process(nullptr,out.data(),128);app.poll();
@@ -136,7 +151,7 @@ void meter(){
         void control_panel(int)override{}void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>)override{phase=audio::DevicePhase::open;}
         void start()override{++starts;if(fail||fail_always){fail=false;throw std::runtime_error("meter start failure");}phase=audio::DevicePhase::running;}
         void stop()override{++stops;phase=audio::DevicePhase::stopped;}void close()noexcept override{phase=audio::DevicePhase::closed;}
-        audio::DeviceStatus status()override{return {phase,48000};}
+        audio::DeviceStatus status()override{return {phase,48000,{}};}
     };
     auto device=std::make_unique<Device>();auto* driver=device.get();app.connect(std::move(device),{0,48000,128,{}, {0,1}});
     std::array<float,256> out{};app.seek(34567);app.engine()->process(nullptr,out.data(),128);app.poll();app.pause();app.engine()->process(nullptr,out.data(),128);app.poll();
@@ -1197,6 +1212,7 @@ int main(int argc, char** argv) {
         if(argc==3&&std::string_view(argv[1])=="cab_combo_real"){cab_combo_real(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(argv[2]))));return 0;}
         if (argc != 2) throw std::runtime_error("expected suite");
         std::string name = argv[1];
+        if(name=="track_folders"){track_folders();std::cout<<"PASS desktop track_folders\n";return 0;}
         if(name=="meter"){meter();std::cout<<"PASS desktop meter\n";return 0;}
         if(name=="tempo"){tempo();std::cout<<"PASS desktop tempo\n";return 0;}
         if(name=="sections"){sections();std::cout<<"PASS desktop sections\n";return 0;}

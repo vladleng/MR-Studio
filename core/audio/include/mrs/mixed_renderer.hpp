@@ -19,6 +19,7 @@ private:
         RealtimeState head;
         AudioEngine::MixHead mix;
         std::uint64_t revision{},sequence{};
+        MixerUpdate targets;
     };
     struct Mailbox { std::atomic<int> owner{};Context context; };
     struct Packet {

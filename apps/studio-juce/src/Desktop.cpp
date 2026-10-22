@@ -214,15 +214,56 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
     if(originalIndex==4){m.addItem(54,"Assistant...");m.addItem(52,"Permissions...");m.addItem(53,"Marker Apply requires preview",false);}
     return m;
 }
+void Desktop::selectTrack(mrs::Id id,juce::ModifierKeys mods){
+    const auto p=project();
+    if(selectedTracks.empty()&&selectedTrack)selectedTracks.insert(selectedTrack->value);
+    if(mods.isShiftDown()&&selectedTrack){auto a=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==*selectedTrack;});auto b=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==id;});
+        if(a!=p->tracks.end()&&b!=p->tracks.end()){if(a>b)std::swap(a,b);for(;a<=b;++a)selectedTracks.insert(a->id.value);}}
+    else if(mods.isCommandDown()){if(!selectedTracks.erase(id.value))selectedTracks.insert(id.value);}
+    else {selectedTracks.clear();selectedTracks.insert(id.value);}
+    selectedTrack=id;
+}
+std::vector<mrs::Id> Desktop::folderSelection(std::optional<mrs::Id> fallback) const{
+    std::vector<mrs::Id> result;
+    if(fallback&&!selectedTracks.contains(fallback->value))return {*fallback};
+    for(const auto& track:project()->tracks)if(selectedTracks.contains(track.id.value))result.push_back(track.id);
+    if(result.empty()&&fallback)result.push_back(*fallback);return result;
+}
+void Desktop::showFolderMenu(mrs::Id id,juce::Point<int> position){
+    const auto p=project();const auto at=std::find_if(p->folders.begin(),p->folders.end(),[&](const auto& f){return f.id==id;});if(at==p->folders.end())return;
+    const auto folder=*at;juce::PopupMenu menu;menu.setLookAndFeel(&theme);const bool enabled=!app.recording()&&!busyGesture();
+    menu.addItem(1,folder.collapsed?"Expand folder":"Collapse folder",enabled);menu.addItem(2,"Rename folder...",enabled);
+    menu.addItem(3,"Move selected tracks into folder",enabled&&!folderSelection(selectedTrack).empty());
+    menu.addSeparator();menu.addItem(4,"Create and link Bus",enabled&&!folder.bus);juce::PopupMenu buses;std::vector<mrs::Id> busIds;
+    for(const auto& track:p->tracks)if(track.kind==mrs::TrackKind::bus){busIds.push_back(track.id);buses.addItem(100+static_cast<int>(busIds.size()),label(track.name),true,folder.bus==track.id);}
+    menu.addSubMenu("Link existing Bus",buses,enabled&&!busIds.empty());menu.addItem(5,"Detach Bus (keep routing)",enabled&&folder.bus.has_value());
+    menu.addSeparator();menu.addItem(6,"Dissolve folder (keep tracks and routing)",enabled);
+    juce::Component::SafePointer<Desktop> safe(this);const auto store=app.services().projects;
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({position.x,position.y,1,1}),[safe,store,folder,busIds](int choice){if(!safe||!choice||safe->app.services().projects!=store)return;safe->run([&]{
+        if(choice==1)safe->app.update_track_folder(folder.id,folder.name,!folder.collapsed);
+        else if(choice==2)safe->textDialog("Rename track folder",label(folder.name),[safe,store,folder](auto text){if(safe&&safe->app.services().projects==store&&text.trim().isNotEmpty())safe->app.update_track_folder(folder.id,text.trim().toStdString(),folder.collapsed);});
+        else if(choice==3)safe->app.move_tracks_to_folder(safe->folderSelection(safe->selectedTrack),folder.id);
+        else if(choice==4){safe->closeEditors();safe->app.link_folder_bus(folder.id,{},true);}
+        else if(choice==5)safe->app.link_folder_bus(folder.id,{});
+        else if(choice==6)safe->app.remove_track_folder(folder.id);
+        else if(choice>=101&&choice<101+static_cast<int>(busIds.size())){safe->closeEditors();safe->app.link_folder_bus(folder.id,busIds[static_cast<std::size_t>(choice-101)]);}
+    });});
+}
 juce::PopupMenu Desktop::channelMenu(std::optional<mrs::Id> target){
     juce::PopupMenu channelPopup;channelPopup.setLookAndFeel(&theme);const bool enabled=!app.recording()&&!busyGesture();
     channelPopup.addItem(20,"Add audio channel",enabled);channelPopup.addItem(29,"Add FX channel",enabled);channelPopup.addItem(21,"Add Bus channel",enabled);
     if(target){for(const auto& t:project()->tracks)if(t.id==*target){channelPopup.addSeparator();channelPopup.addItem(23,t.fx_channel?"Del FX channel":t.kind==mrs::TrackKind::bus?"Del Bus channel":"Del channel",enabled);break;}}
+    channelPopup.addSeparator();channelPopup.addItem(70,"Group selected tracks in folder...",enabled&&!folderSelection(target?target:selectedTrack).empty());
+    if(target){channelPopup.addItem(71,"Move selected tracks out of folder",enabled);juce::PopupMenu folders;int n=0;for(const auto& f:project()->folders)folders.addItem(2000+n++,label(f.name));channelPopup.addSubMenu("Move selected tracks into folder",folders,enabled&&n>0);}
     return channelPopup;
 }
 void Desktop::showChannelMenu(std::optional<mrs::Id> target,juce::Point<int> position){
-    auto channelPopup=channelMenu(target);juce::Component::SafePointer<Desktop> safe(this);
-    channelPopup.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({position.x,position.y,1,1}),[safe,target](int choice){if(!safe||!choice)return;if(choice==23){if(!target)return;const auto p=safe->project();if(std::none_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==*target;}))return;safe->selectedTrack=target;}safe->action(choice);});
+    auto channelPopup=channelMenu(target);juce::Component::SafePointer<Desktop> safe(this);const auto store=app.services().projects;std::vector<mrs::Id> folderIds;for(const auto& f:project()->folders)folderIds.push_back(f.id);const auto members=folderSelection(target?target:selectedTrack);
+    channelPopup.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({position.x,position.y,1,1}),[safe,target,store,folderIds,members](int choice){if(!safe||!choice||safe->app.services().projects!=store)return;
+        if(choice==70){safe->textDialog("Group tracks in folder","Tracks",[safe,store,members](auto text){if(safe&&safe->app.services().projects==store&&text.trim().isNotEmpty())safe->app.create_track_folder(text.trim().toStdString(),members);});return;}
+        if(choice==71){safe->run([&]{safe->app.move_tracks_to_folder(members,{});});return;}
+        if(choice>=2000&&choice<2000+static_cast<int>(folderIds.size())){safe->run([&]{safe->app.move_tracks_to_folder(members,folderIds[static_cast<std::size_t>(choice-2000)]);});return;}
+        if(choice==23){if(!target)return;const auto p=safe->project();if(std::none_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==*target;}))return;safe->selectedTrack=target;}safe->action(choice);});
 }
 void Desktop::navigationMenu(bool sections){
     if(busyGesture()||app.recording()){message="Finish editing/recording before navigating";repaint();return;}
@@ -441,13 +482,14 @@ void Desktop::refresh(bool force){
     if(insertDrag&&insertDrag->store!=app.services().projects)insertDrag.reset();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}std::erase_if(selectedClips,[&](const auto& value){const auto p=project();return std::none_of(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id.value==value;});});const auto p=project();const auto state=app.services().projects->state();
     std::vector<mrs::Id> current;for(const auto& t:p->tracks)current.push_back(t.id);
     const bool replaced=displayedStore!=app.services().projects;
-    if(replaced){displayedStore=app.services().projects;visualTransport.reset();revision=~0ULL;peaks={};masterPeak={};arrangement->horizontal=0;arrangement->vertical=0;mixerViewport.setViewPosition(0,0);}
+    if(replaced){selectedTracks.clear();displayedStore=app.services().projects;visualTransport.reset();revision=~0ULL;peaks={};masterPeak={};arrangement->horizontal=0;arrangement->vertical=0;mixerViewport.setViewPosition(0,0);}
     if(replaced||current!=ids){auto oldIds=ids,newIds=current;const auto byId=[](const auto& a,const auto& b){return a.value<b.value;};std::sort(oldIds.begin(),oldIds.end(),byId);std::sort(newIds.begin(),newIds.end(),byId);const bool reorder=!replaced&&oldIds==newIds;if(!reorder)closeEditors();cancelPreview();ids=current;if(reorder){std::vector<std::unique_ptr<Strip>> ordered;for(const auto& id:current){auto at=std::find_if(mixer.begin(),mixer.end(),[&](const auto& s){return s&&s->target==id;});ordered.push_back(std::move(*at));}mixer=std::move(ordered);arrangement->rebuild();resized();}else{mixer.clear();for(const auto& t:p->tracks){auto s=std::make_unique<Strip>(*this,t.id);mixerBody.addAndMakeVisible(*s);mixer.push_back(std::move(s));}
         master=std::make_unique<Strip>(*this,std::nullopt);addAndMakeVisible(*master);arrangement->rows.clear();arrangement->rebuild();resized();}}
     if(force || revision!=state.revision){
         mrs::diagnostics::event("project_snapshot title="+p->title+" tracks="+std::to_string(p->tracks.size())+" clips="+std::to_string(p->clips.size())+" revision="+std::to_string(state.revision)+" insert_generation="+std::to_string(app.insert_generation()));
         for(const auto& t:p->tracks)for(const auto& fx:t.inserts)if(fx.kind==mrs::InsertKind::vst3)mrs::diagnostics::event("plugin track="+t.name+" name="+fx.plugin_name+" path="+fx.plugin_path+" class="+fx.class_id);
         for(const auto& fx:p->master_inserts)if(fx.kind==mrs::InsertKind::vst3)mrs::diagnostics::event("plugin master name="+fx.plugin_name+" path="+fx.plugin_path+" class="+fx.class_id);
+        std::erase_if(selectedTracks,[&](const auto& id){return std::none_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id.value==id;});});arrangement->rebuildFolderLayout();
         app.prepare_waveforms();for(auto& s:mixer)s->sync();for(auto& s:arrangement->rows)s->sync();if(master)master->sync();refreshPresetLists();revision=state.revision;resized();}
     // Arm is transient host state and may change without a project revision.
     if(assetSkin()){for(auto& s:mixer)s->refreshArmState();for(auto& s:arrangement->rows)s->refreshArmState();}
@@ -680,9 +722,9 @@ juce::Rectangle<int> Strip::nameBounds() const{
     return {mini?8:25,3,juce::jmax(0,mini?getWidth()-145:getWidth()-53),21};
 }
 void Strip::mouseDown(const juce::MouseEvent& e){
-    if(!mini&&e.mods.isPopupMenu()){if(dynamic_cast<juce::Button*>(e.eventComponent)||e.eventComponent->findParentComponentOfClass<juce::Button>())return;owner.showChannelMenu(target,e.getScreenPosition());return;}
+    if(e.mods.isPopupMenu()){if(dynamic_cast<juce::Button*>(e.eventComponent)||e.eventComponent->findParentComponentOfClass<juce::Button>())return;owner.showChannelMenu(target,e.getScreenPosition());return;}
     if(e.eventComponent==&sendDivider&&e.mods.isLeftButtonDown()){resizingSends=true;sendDragY=e.getScreenY();sendDragHeight=sendViewport.getHeight();return;}
-    owner.selectedTrack=target;dragTitle=target&&!owner.app.recording()&&e.mods.isLeftButtonDown()&&e.getNumberOfClicks()==1&&(e.eventComponent==this||e.eventComponent==&insertBody||e.eventComponent==&sendBody||e.eventComponent==&insertViewport);owner.refresh();
+    if(target)owner.selectTrack(*target,e.mods);else owner.selectedTrack.reset();dragTitle=target&&!owner.app.recording()&&e.mods.isLeftButtonDown()&&e.getNumberOfClicks()==1&&(e.eventComponent==this||e.eventComponent==&insertBody||e.eventComponent==&sendBody||e.eventComponent==&insertViewport);owner.refresh();
 }
 void Strip::mouseDoubleClick(const juce::MouseEvent& e){dragTitle=false;if(target&&e.mods.isLeftButtonDown()&&nameBounds().contains(e.getPosition()))beginNameEdit();}
 void Strip::beginNameEdit(){
@@ -836,7 +878,7 @@ void Strip::resized(){const int w=getWidth(),h=getHeight();if(mini){mute.setBoun
     }
     colorField.setBounds(mini?juce::Rectangle<int>(w-6,2,6,h-4):juce::Rectangle<int>(2,h-6,w-4,6));piano.setBounds(mini?juce::Rectangle<int>(6,2,22,22):juce::Rectangle<int>(7,h-107,20,18));nameEditor.setBounds(nameBounds());
 }
-void Strip::paint(juce::Graphics& g){const bool selected=target&&owner.selectedTrack==target;
+void Strip::paint(juce::Graphics& g){const bool selected=target&&(owner.selectedTrack==target||owner.selectedTracks.contains(target->value));
     const auto* trackDesign = (mini && target) ? owner.trackLayout() : nullptr;
     const auto* skin=owner.assetSkin();const auto base=juce::Colour(skin?ConceptSkin::channel:panel);
     drawCard(g,getLocalBounds().toFloat(),base);if(selected){g.setColour(owner.selectionColour());g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(.5f),cornerRadius,borderWidth);}
@@ -1004,6 +1046,42 @@ void Arrangement::setLaneVisible(int index,bool visible){
     if(visible)owner.view.musicalLanes|=1<<index;else owner.view.musicalLanes&=~(1<<index);
     resized();repaint();owner.refresh();owner.saveSettings();
 }
+class TrackFolderHeader final:public juce::Component {
+    Arrangement& arrangement;Desktop& owner;mrs::Folder folder;int depth{};std::unique_ptr<juce::Drawable> icon;
+public:
+    TrackFolderHeader(Arrangement& a,Desktop& d,const Arrangement::FolderRow& row):arrangement(a),owner(d),folder(row.folder),depth(row.depth),icon(juce::Drawable::createFromImageData(MRConceptAssets::folder_svg,MRConceptAssets::folder_svgSize)){
+        setComponentID("track-folder-"+label(folder.id.value));setTitle(label(folder.name));setWantsKeyboardFocus(true);
+    }
+    void paint(juce::Graphics& g) override{g.fillAll(juce::Colour(panel));g.setColour(juce::Colour(outline));g.drawHorizontalLine(getHeight()-1,0.f,static_cast<float>(getWidth()));
+        const int x=8+depth*12;g.setColour(juce::Colour(primaryText));g.setFont(Theme::stripFont());g.drawText(folder.collapsed?">":"v",x,0,12,getHeight(),juce::Justification::centred);
+        if(icon)icon->drawWithin(g,{static_cast<float>(x+16),7.f,22.f,22.f},juce::RectanglePlacement::centred,1.f);
+        juce::String caption=label(folder.name);if(folder.bus)for(const auto& t:owner.project()->tracks)if(t.id==*folder.bus)caption+="  > "+label(t.name);
+        g.drawText(caption,x+44,0,getWidth()-x-70,getHeight(),juce::Justification::centredLeft,true);g.drawText("...",getWidth()-26,0,22,getHeight(),juce::Justification::centred);
+    }
+    void toggle(){owner.run([&]{owner.app.update_track_folder(folder.id,folder.name,!folder.collapsed);});}
+    void mouseDown(const juce::MouseEvent& e) override{if(e.mods.isPopupMenu()||e.x>getWidth()-30)owner.showFolderMenu(folder.id,e.getScreenPosition());else toggle();}
+    bool keyPressed(const juce::KeyPress& k) override{if(k==juce::KeyPress::returnKey||k==juce::KeyPress::spaceKey){toggle();return true;}return false;}
+};
+void Arrangement::rebuildFolderLayout(){
+    const auto p=owner.project();trackPositions.assign(p->tracks.size(),-1);folderRows.clear();folderHeaders.clear();contentHeight=0;layoutTrackHeight=trackHeight;
+    struct Task{std::optional<mrs::Id> folder;int track{-1},depth{};};
+    const auto children=[&](std::optional<mrs::Id> parent,int depth){std::vector<Task> result;std::set<std::string> emitted;
+        for(std::size_t i=0;i<p->tracks.size();++i){const auto& track=p->tracks[i];if(track.folder==parent){result.push_back({{},static_cast<int>(i),depth});continue;}
+            auto ancestor=track.folder;std::optional<mrs::Id> child;
+            for(std::size_t n=0;ancestor&&n<p->folders.size();++n){const auto f=std::find_if(p->folders.begin(),p->folders.end(),[&](const auto& v){return v.id==*ancestor;});if(f==p->folders.end())break;if(f->parent==parent){child=f->id;break;}ancestor=f->parent;}
+            if(child&&emitted.insert(child->value).second)result.push_back({child,-1,depth});}
+        for(const auto& folder:p->folders)if(folder.parent==parent&&emitted.insert(folder.id.value).second)result.push_back({folder.id,-1,depth});return result;};
+    auto roots=children({},0);std::vector<Task> tasks(roots.rbegin(),roots.rend());
+    while(!tasks.empty()){const auto task=tasks.back();tasks.pop_back();if(task.track>=0){trackPositions[static_cast<std::size_t>(task.track)]=contentHeight;contentHeight+=trackHeight;continue;}
+        const auto f=std::find_if(p->folders.begin(),p->folders.end(),[&](const auto& v){return task.folder==v.id;});if(f==p->folders.end())continue;
+        folderRows.push_back({*f,contentHeight,task.depth});contentHeight+=36;if(!f->collapsed){const auto next=children(f->id,task.depth+1);tasks.insert(tasks.end(),next.rbegin(),next.rend());}}
+    for(const auto& row:folderRows){auto component=std::make_unique<TrackFolderHeader>(*this,owner,row);rowsBody.addAndMakeVisible(*component);folderHeaders.push_back(std::move(component));}
+}
+int Arrangement::trackY(int index) const{
+    if(index<0)return -1000000;
+    if(index>=static_cast<int>(trackPositions.size()))return contentHeight+(index-static_cast<int>(trackPositions.size()))*trackHeight;
+    const int y=trackPositions[static_cast<std::size_t>(index)];return y<0?-1000000:y;
+}
 Arrangement::Arrangement(Desktop& d):owner(d),playhead([this]{const float x=static_cast<float>(left+owner.visualSample()/owner.project()->sample_rate*pixelsPerSecond-horizontal);return x>=left&&x<getWidth()?juce::Rectangle<float>{x,0.f,1.f,static_cast<float>(getHeight())}:juce::Rectangle<float>{};}){setWantsKeyboardFocus(true);addAndMakeVisible(rowsBody);rowsBody.setInterceptsMouseClicks(false,true);meters=std::make_unique<MeterTrack>(owner,*this);addAndMakeVisible(*meters);tempos=std::make_unique<TempoTrack>(owner,*this);addAndMakeVisible(*tempos);sections=std::make_unique<SectionTrack>(owner,*this);addAndMakeVisible(*sections);chords=std::make_unique<ChordTrack>(owner,*this);addAndMakeVisible(*chords);markers=std::make_unique<MarkerTrack>(owner,*this);addAndMakeVisible(*markers);addAndMakeVisible(playhead);
     const juce::Component::SafePointer<Arrangement> safe(this);
     dropWorker=std::jthread([this,safe](std::stop_token stop){
@@ -1028,14 +1106,15 @@ Arrangement::Arrangement(Desktop& d):owner(d),playhead([this]{const float x=stat
     for(int i=0;i<5;++i){laneButtons[i]=std::make_unique<LaneButton>(owner,names[i],i);addAndMakeVisible(*laneButtons[i]);laneButtons[i]->onClick=[this,i]{setLaneVisible(i,!laneVisible(i));};}
 }
 Arrangement::~Arrangement(){dropWorker.request_stop();dropWake.notify_all();if(dropWorker.joinable())dropWorker.join();}
-void Arrangement::rebuild(){fileDragExit({});std::vector<std::unique_ptr<Strip>> next;for(const auto& t:owner.project()->tracks){auto at=std::find_if(rows.begin(),rows.end(),[&](const auto& row){return row&&row->target==t.id;});if(at!=rows.end())next.push_back(std::move(*at));else{auto row=std::make_unique<Strip>(owner,t.id,true);rowsBody.addAndMakeVisible(*row);next.push_back(std::move(row));}}rows=std::move(next);resized();}
-void Arrangement::resized(){vertical=juce::jlimit(0.f,static_cast<float>(juce::jmax(0,static_cast<int>(rows.size())*trackHeight-(getHeight()-headerHeight()))),vertical);
+void Arrangement::rebuild(){fileDragExit({});std::vector<std::unique_ptr<Strip>> next;for(const auto& t:owner.project()->tracks){auto at=std::find_if(rows.begin(),rows.end(),[&](const auto& row){return row&&row->target==t.id;});if(at!=rows.end())next.push_back(std::move(*at));else{auto row=std::make_unique<Strip>(owner,t.id,true);rowsBody.addAndMakeVisible(*row);next.push_back(std::move(row));}}rows=std::move(next);rebuildFolderLayout();resized();}
+void Arrangement::resized(){if(layoutTrackHeight!=trackHeight)rebuildFolderLayout();vertical=juce::jlimit(0.f,static_cast<float>(juce::jmax(0,contentHeight-(getHeight()-headerHeight()))),vertical);
     const std::array<juce::Component*,5> lanes{markers.get(),sections.get(),chords.get(),tempos.get(),meters.get()};
     constexpr std::array<int,5> heights{24,33,24,32,32};int laneY=20;
     for(int i=0;i<5;++i){const bool visible=laneVisible(i);lanes[i]->setVisible(visible);lanes[i]->setBounds(0,laneY,getWidth(),visible?heights[i]:0);if(visible)laneY+=heights[i];laneButtons[i]->setBounds(112+i*26,0,24,20);laneButtons[i]->setToggleState(visible,juce::dontSendNotification);}
     rowsBody.setBounds(0,headerHeight(),left-6,getHeight()-headerHeight());
-    for(std::size_t i=0;i<rows.size();++i){const int y=static_cast<int>(i)*trackHeight-static_cast<int>(vertical);rows[i]->setBounds(0,y,left-6,trackHeight-2);rows[i]->setVisible(y+trackHeight>0 && y<rowsBody.getHeight());}playhead.update();}
-int Arrangement::trackAt(float y) const{return static_cast<int>((y-headerHeight()+vertical)/trackHeight);}
+    for(std::size_t i=0;i<rows.size();++i){const int y=trackY(static_cast<int>(i))-static_cast<int>(vertical);rows[i]->setBounds(0,y,left-6,trackHeight-2);rows[i]->setVisible(y+trackHeight>0 && y<rowsBody.getHeight());}
+    for(std::size_t i=0;i<folderHeaders.size();++i){const int y=folderRows[i].y-static_cast<int>(vertical);folderHeaders[i]->setBounds(0,y,left-6,35);folderHeaders[i]->setVisible(y+36>0&&y<rowsBody.getHeight());}playhead.update();}
+int Arrangement::trackAt(float y) const{const float local=y-headerHeight()+vertical;if(local<0)return -1;for(std::size_t i=0;i<trackPositions.size();++i)if(trackPositions[i]>=0&&local>=trackPositions[i]&&local<trackPositions[i]+trackHeight)return static_cast<int>(i);return local>=contentHeight?static_cast<int>(trackPositions.size()):-1;}
 namespace {
 juce::MouseCursor bracketCursor(bool right){
     static const auto create=[](bool reverse){juce::Image image(juce::Image::ARGB,24,24,true);juce::Graphics g(image);juce::Path p;
@@ -1119,7 +1198,7 @@ mrs::Sample Arrangement::seekSampleAt(float x) const{
     return raw;
 }
 juce::Rectangle<float> Arrangement::clipRect(const mrs::Clip& c) const{int index=0;for(const auto& t:owner.project()->tracks){if(t.id==c.track)break;++index;}
-    const auto p=owner.project();const mrs::Timeline t(p->time,p->sample_rate);const double rate=p->sample_rate;const auto start=mrs::clip_start(c,t),end=mrs::clip_end(c,t);return {static_cast<float>(left+start/rate*pixelsPerSecond-horizontal),static_cast<float>(headerHeight()+index*trackHeight-vertical+1),juce::jmax(2.f,static_cast<float>((end-start)/rate*pixelsPerSecond)),static_cast<float>(trackHeight-2)};}
+    const auto p=owner.project();const mrs::Timeline t(p->time,p->sample_rate);const double rate=p->sample_rate;const auto start=mrs::clip_start(c,t),end=mrs::clip_end(c,t);return {static_cast<float>(left+start/rate*pixelsPerSecond-horizontal),static_cast<float>(headerHeight()+trackY(index)-vertical+1),juce::jmax(2.f,static_cast<float>((end-start)/rate*pixelsPerSecond)),static_cast<float>(trackHeight-2)};}
 void Arrangement::paintGrid(juce::Graphics& g,float top,float bottom,bool labels) const {
     const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);
     const auto rawTick=[&](double x){return time.to_ticks(static_cast<mrs::Sample>(std::clamp((x-left+horizontal)/pixelsPerSecond*p->sample_rate,0.,static_cast<double>(mrs::max_sample))));};
@@ -1135,7 +1214,8 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
 
     g.saveState();g.reduceClipRegion(left,headerHeight(),getWidth()-left,getHeight()-headerHeight());
     g.setFont(Theme::stripFont());
-    for(std::size_t i=0;i<p->tracks.size();++i){int y=headerHeight()+static_cast<int>(i)*trackHeight-static_cast<int>(vertical);g.setColour(juce::Colour(separatorColour));g.drawHorizontalLine(y,static_cast<float>(left),static_cast<float>(getWidth()));}
+    for(std::size_t i=0;i<p->tracks.size();++i){int y=headerHeight()+trackY(static_cast<int>(i))-static_cast<int>(vertical);g.setColour(juce::Colour(separatorColour));g.drawHorizontalLine(y,static_cast<float>(left),static_cast<float>(getWidth()));}
+    for(const auto& folder:folderRows){const int y=headerHeight()+folder.y-static_cast<int>(vertical);g.setColour(juce::Colour(panel));g.fillRect(left,y,getWidth()-left,35);g.setColour(juce::Colour(outline));g.drawHorizontalLine(y+35,static_cast<float>(left),static_cast<float>(getWidth()));}
     g.setFont(Theme::detailFont());
     // Paint selected clips last; both audio and MIDI reveal overlapping clips.
     auto paintedClips=p->clips;std::stable_partition(paintedClips.begin(),paintedClips.end(),[&](const auto& c){return c.id!=owner.selectedClip&&!owner.selectedClips.contains(c.id.value);});
@@ -1206,7 +1286,7 @@ void Arrangement::mouseDown(const juce::MouseEvent& e){
     markers->clearSelection();
     sections->clearSelection();
     meters->clearSelection();tempos->clearSelection();
-    const auto p=owner.project();const int index=trackAt(e.position.y);if(index>=0&&index<static_cast<int>(p->tracks.size()))owner.selectedTrack=p->tracks[static_cast<std::size_t>(index)].id;
+    const auto p=owner.project();const int index=trackAt(e.position.y);if(index>=0&&index<static_cast<int>(p->tracks.size()))owner.selectTrack(p->tracks[static_cast<std::size_t>(index)].id,e.mods);
     dragGroup.clear();dragTrackDelta=0;copyDrag=false;dragMoved=false;
     if(const auto id=clipAt(e.position)){
         const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==*id;});
@@ -1229,7 +1309,7 @@ void Arrangement::mouseDown(const juce::MouseEvent& e){
 }
 void Arrangement::mouseDrag(const juce::MouseEvent& e){if(fadeOriginal){const auto r=clipRect(*fadeOriginal);const auto frames=static_cast<mrs::Sample>(std::llround(static_cast<double>(fadeRight?r.getRight()-e.position.x:e.position.x-r.getX())/static_cast<double>(juce::jmax(1.f,r.getWidth()))*static_cast<double>(fadeOriginal->length)));if(fadeRight)fadeOutPreview=std::clamp(frames,mrs::Sample{0},fadeOriginal->length);else fadeInPreview=std::clamp(frames,mrs::Sample{0},fadeOriginal->length);repaint();return;}if(rulerSeeking){if(e.x>=left&&e.y>=0&&e.y<20)owner.run([&]{owner.app.seek(seekSampleAt(e.position.x));});return;}if(selecting){selectionBox=juce::Rectangle<float>(selectionOrigin,e.position).getIntersection(juce::Rectangle<float>(static_cast<float>(left),static_cast<float>(headerHeight()),static_cast<float>(getWidth()-left),static_cast<float>(getHeight()-headerHeight())));owner.selectedClips=selectionBase;owner.selectedClip=selectionBase.empty()?std::nullopt:std::optional<mrs::Id>{mrs::Id{*selectionBase.begin()}};for(const auto& c:owner.project()->clips)if(clipRect(c).intersects(selectionBox)){owner.selectedClips.insert(c.id.value);if(!owner.selectedClip)owner.selectedClip=c.id;}repaint();return;}if(!drag)return;
     const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);auto delta=static_cast<mrs::Sample>((e.x-dragX)/pixelsPerSecond*p->sample_rate);if(trim){updateTrim(delta,owner.snap&&!e.mods.isShiftDown());repaint();return;}if(!trim){mrs::Sample low=-mrs::max_sample,high=mrs::max_sample;for(const auto& c:dragGroup){const auto start=mrs::clip_start(c,time);low=std::max(low,-start);high=std::min(high,mrs::max_sample-mrs::clip_end(c,time));}delta=std::clamp(delta,low,high);if(owner.snap&&!e.mods.isShiftDown()){const auto snapped=sampleAt(static_cast<float>(left+static_cast<double>(drag->start+delta)/p->sample_rate*pixelsPerSecond-horizontal));delta=std::clamp(snapped-drag->start,low,high);}}dragStart=juce::jmax<mrs::Sample>(0,drag->start+delta);
-    const auto anchor=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==drag->track;});if(anchor==p->tracks.end()){keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));return;}int wanted=trackAt(e.position.y)-static_cast<int>(anchor-p->tracks.begin()),low=0,high=static_cast<int>(p->tracks.size())-1;if(!dragGroup.empty()){low=-static_cast<int>(p->tracks.size());high=static_cast<int>(p->tracks.size());for(const auto& c:dragGroup){const auto t=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& item){return item.id==c.track;});const int at=static_cast<int>(t-p->tracks.begin());low=std::max(low,-at);high=std::min(high,static_cast<int>(p->tracks.size())-1-at);}}dragTrackDelta=std::clamp(wanted,low,high);dragTrack=p->tracks[static_cast<std::size_t>(static_cast<int>(anchor-p->tracks.begin())+dragTrackDelta)].id;dragMoved=dragMoved||std::abs(e.x-dragX)>=2||dragTrackDelta!=0;repaint();
+    const auto anchor=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==drag->track;});if(anchor==p->tracks.end()){keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));return;}const int targetIndex=trackAt(e.position.y);if(targetIndex<0)return;int wanted=targetIndex-static_cast<int>(anchor-p->tracks.begin()),low=0,high=static_cast<int>(p->tracks.size())-1;if(!dragGroup.empty()){low=-static_cast<int>(p->tracks.size());high=static_cast<int>(p->tracks.size());for(const auto& c:dragGroup){const auto t=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& item){return item.id==c.track;});const int at=static_cast<int>(t-p->tracks.begin());low=std::max(low,-at);high=std::min(high,static_cast<int>(p->tracks.size())-1-at);}}dragTrackDelta=std::clamp(wanted,low,high);dragTrack=p->tracks[static_cast<std::size_t>(static_cast<int>(anchor-p->tracks.begin())+dragTrackDelta)].id;dragMoved=dragMoved||std::abs(e.x-dragX)>=2||dragTrackDelta!=0;repaint();
 }
 void Arrangement::mouseUp(const juce::MouseEvent& e){
     if(fadeOriginal){const auto original=*fadeOriginal;const auto store=fadeStore;const auto in=fadeInPreview,out=fadeOutPreview;fadeOriginal.reset();fadeStore.reset();owner.run([&]{if(owner.app.services().projects!=store)throw std::runtime_error("Project changed; retry fade");owner.app.set_clip_fades(original,in,out);});repaint();return;}
@@ -1251,7 +1331,7 @@ bool Arrangement::keyPressed(const juce::KeyPress& key){if(key.getKeyCode()!=juc
 void Arrangement::cancelGesture(){rulerSeeking=false;fadeOriginal.reset();fadeStore.reset();shiftRemove=false;setMouseCursor(juce::MouseCursor::NormalCursor);drag.reset();dragTrack.reset();dragGroup.clear();copyDrag=false;dragMoved=false;selecting=false;selectionBox={};repaint();}
 void Arrangement::focusLost(FocusChangeType){cancelGesture();}
 void Arrangement::wheel(float delta,juce::ModifierKeys mods,float x){if(mods.isCtrlDown()){if(mods.isShiftDown()){const auto before=static_cast<mrs::Sample>(std::clamp((x-left+horizontal)/pixelsPerSecond*owner.project()->sample_rate,0.,static_cast<double>(mrs::max_sample)));pixelsPerSecond=juce::jlimit(.1,2400.,pixelsPerSecond*std::pow(1.25,delta*4));horizontal=juce::jmax(0.,static_cast<double>(before)/owner.project()->sample_rate*pixelsPerSecond-(x-left));}
-    else {const float before=(vertical+getHeight()/2.f-headerHeight())/trackHeight;trackHeight=juce::jlimit(40,360,trackHeight+static_cast<int>(delta*96));vertical=juce::jmax(0.f,before*trackHeight-(getHeight()/2.f-headerHeight()));}}
+    else {const float before=(vertical+getHeight()/2.f-headerHeight())/trackHeight;trackHeight=juce::jlimit(40,360,trackHeight+static_cast<int>(delta*96));vertical=juce::jmax(0.f,before*trackHeight-(getHeight()/2.f-headerHeight()));rebuildFolderLayout();}}
     else if(mods.isShiftDown())horizontal=juce::jmax(0.,horizontal-delta*160);else vertical=juce::jmax(0.f,vertical-delta*128);
     resized();repaint();}
 void Arrangement::mouseWheelMove(const juce::MouseEvent& e,const juce::MouseWheelDetails& w){wheel(w.deltaY,e.mods,e.position.x);}
@@ -1292,7 +1372,7 @@ void Arrangement::itemDragMove(const SourceDetails& s){
 void Arrangement::itemDragExit(const SourceDetails&){araDropClip.reset();fileDragExit({});repaint();}
 std::vector<juce::Rectangle<float>> Arrangement::midiDropRects() const {
     std::vector<juce::Rectangle<float>> result;if(!dropPoint)return result;const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);const auto tick=midiDropTick(dropPoint->x);const auto target=midiDropTarget(dropPoint->y);int next=static_cast<int>(p->tracks.size());
-    for(std::size_t i=0;i<dropParts.size();++i){int row=next++;if(i==0&&target){--next;row=trackAt(static_cast<float>(dropPoint->y));}if(dropParts[i].midi.length>mrs::max_tick-tick)continue;const auto begin=time.to_samples(tick),end=time.to_samples(tick+dropParts[i].midi.length);result.push_back({static_cast<float>(left+static_cast<double>(begin)/p->sample_rate*pixelsPerSecond-horizontal),static_cast<float>(headerHeight()+row*trackHeight-vertical+1),std::max(2.f,static_cast<float>(static_cast<double>(end-begin)/p->sample_rate*pixelsPerSecond)),static_cast<float>(trackHeight-2)});}
+    for(std::size_t i=0;i<dropParts.size();++i){int row=next++;if(i==0&&target){--next;row=trackAt(static_cast<float>(dropPoint->y));}if(dropParts[i].midi.length>mrs::max_tick-tick)continue;const auto begin=time.to_samples(tick),end=time.to_samples(tick+dropParts[i].midi.length);result.push_back({static_cast<float>(left+static_cast<double>(begin)/p->sample_rate*pixelsPerSecond-horizontal),static_cast<float>(headerHeight()+trackY(row)-vertical+1),std::max(2.f,static_cast<float>(static_cast<double>(end-begin)/p->sample_rate*pixelsPerSecond)),static_cast<float>(trackHeight-2)});}
     return result;
 }
 std::vector<juce::Rectangle<float>> Arrangement::wavDropRects() const {
@@ -1310,7 +1390,7 @@ std::vector<juce::Rectangle<float>> Arrangement::wavDropRects() const {
         const auto frames=(wave.frames*p->sample_rate+wave.rate-1)/wave.rate;
         if(frames>static_cast<std::uint64_t>(mrs::max_sample-start))return {};
         result.push_back({static_cast<float>(left+static_cast<double>(start)/p->sample_rate*pixelsPerSecond-horizontal),
-            static_cast<float>(headerHeight()+row*trackHeight-vertical+1),
+            static_cast<float>(headerHeight()+trackY(row)-vertical+1),
             std::max(2.f,static_cast<float>(static_cast<double>(frames)/p->sample_rate*pixelsPerSecond)),static_cast<float>(trackHeight-2)});
         if(target)start+=static_cast<mrs::Sample>(frames);else ++row;
     }
@@ -1344,7 +1424,7 @@ void Arrangement::itemDropped(const SourceDetails& details){if(!getLocalBounds()
         if(details.description.toString().startsWith("ara2:"))return;
     }
 #endif
-    if(details.description.toString().startsWith("mrs-track:")){const auto y=details.localPosition.y;const auto index=juce::jlimit(0,static_cast<int>(owner.project()->tracks.size()),static_cast<int>(std::floor((y-headerHeight()+vertical)/trackHeight+.5f)));owner.dropTrack(details.description.toString(),static_cast<std::size_t>(index));}else if(isInterestedInDragSource(details)){if(details.description.toString().startsWith("vst3:")){const auto point=details.localPosition;if(!getLocalBounds().contains(point)||point.y<headerHeight()||(trackAt(static_cast<float>(point.y))<static_cast<int>(owner.project()->tracks.size())&&!midiDropTarget(point.y)))return;const auto index=static_cast<std::size_t>(details.description.toString().substring(5).getLargeIntValue());const auto target=midiDropTarget(details.localPosition.y);if(target)owner.dropPlugin(target,index);else owner.addInstrument(index);}else filesDropped(details.description.toString()=="mrs-library-wav"?
+    if(details.description.toString().startsWith("mrs-track:")){const auto y=details.localPosition.y;if(trackAt(static_cast<float>(y))<0)return;const auto index=juce::jlimit(0,static_cast<int>(owner.project()->tracks.size()),trackAt(static_cast<float>(y))+(y-headerHeight()+vertical-trackY(trackAt(static_cast<float>(y)))>=trackHeight*.5f?1:0));owner.dropTrack(details.description.toString(),static_cast<std::size_t>(index));}else if(isInterestedInDragSource(details)){if(details.description.toString().startsWith("vst3:")){const auto point=details.localPosition;if(!getLocalBounds().contains(point)||point.y<headerHeight()||(trackAt(static_cast<float>(point.y))<static_cast<int>(owner.project()->tracks.size())&&!midiDropTarget(point.y)))return;const auto index=static_cast<std::size_t>(details.description.toString().substring(5).getLargeIntValue());const auto target=midiDropTarget(details.localPosition.y);if(target)owner.dropPlugin(target,index);else owner.addInstrument(index);}else filesDropped(details.description.toString()=="mrs-library-wav"?
     owner.browser->selectedLibrarySamples():owner.browser->selectedSamples(),
     details.localPosition.x,details.localPosition.y);}}
 

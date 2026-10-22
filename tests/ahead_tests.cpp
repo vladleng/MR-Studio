@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <bit>
 #include <fstream>
@@ -31,7 +32,7 @@ template<class F> void rejects(F f){bool rejected=false;try{f();}catch(const std
 void settle(){std::this_thread::sleep_for(std::chrono::milliseconds(4));}
 std::shared_ptr<PreparedGraph> delay(unsigned frames){auto state=demo_graph();state.nodes.front().parameters.clear();
     return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(state),0,false,false},ProcessConfig{48000,2,128},[frames](const auto&){return std::make_unique<LatencyFixture>(frames);});}
-std::shared_ptr<PreparedGraph> gain(){const std::array<NativeInsert,1> fx{{{new_id(),InsertKind::gain,.75f}}};
+std::shared_ptr<PreparedGraph> gain(){NativeInsert insert;insert.id=new_id();insert.kind=InsertKind::gain;insert.gain=.75f;const std::array<NativeInsert,1> fx{insert};
     return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(insert_graph(fx)),0,false,false},ProcessConfig{48000,2,128});}
 RenderGraph graph(bool pdc=true){RenderGraph g;g.mixer.resize(4);g.buses={false,false,true,false};g.outputs={2,2,no_mixer_track,no_mixer_track};g.hardware_outputs={{},{},{},{1}};
     g.click.playback=true;g.click.level=13;
@@ -45,7 +46,7 @@ void equivalence(){for(auto workers:{1U,2U,4U})for(auto process:{256U,1024U,4096
     check(direct->enqueue({ControlKind::play})&&ahead->enqueue({ControlKind::play}),"play");AheadRenderer cache(ahead,128,process);cache.start();check(cache.active(),"eligible playback rejected");settle();
     check(ahead->state().sample==0,"speculative playhead published before hearing");std::array<float,256> expected{},actual{};const auto allocs=probe::allocations.load();probe::enabled=true;
     for(unsigned n=0;n<80;++n){direct->process(nullptr,expected.data(),128);cache.process(nullptr,actual.data(),17);cache.process(nullptr,actual.data()+34,111);
-        for(unsigned i=0;i<256;++i)check(expected[i]==actual[i],"cached PCM differs from serial PDC/loop reference");check(direct->state().sample==ahead->state().sample,"audible playhead differs");settle();}
+        for(unsigned i=0;i<256;++i){check(expected[i]==actual[i],"cached PCM differs from serial PDC/loop reference");}check(direct->state().sample==ahead->state().sample,"audible playhead differs");settle();}
     probe::enabled=false;check(probe::allocations==allocs,"allocation on producer/device/helper");check(ahead->metrics().ahead_underruns==0,"unexpected paced underrun");check(ahead->metrics().callbacks==160,"producer counted as device callbacks");
     rejects([&]{ahead->prepare({48000,0,2,128},{});});const auto heard=ahead->state().sample;cache.stop();check(ahead->state().sample==heard,"stop leaked speculative position");
     cache.start();settle();direct->enqueue({ControlKind::seek,heard});direct->process(nullptr,expected.data(),128);cache.process(nullptr,actual.data(),128);
@@ -58,7 +59,7 @@ void edits(){auto g=graph(false);g.inserts={gain(),gain(),gain(),gain()};auto e=
     // First callback rejects old generation and wakes a full producer queue.
     cache.process(nullptr,out.data(),128);settle();cache.process(nullptr,out.data(),128);
     check(e->state().sample==1152&&e->state().play_start==1024,"seek/pause/play journal lost or stale audio emitted");
-    auto reference=engine(graph(false),{PlaybackState::paused,1024});reference->enqueue({ControlKind::play});
+    auto reference=engine(graph(false),{PlaybackState::paused,1024,{}});reference->enqueue({ControlKind::play});
     MixerUpdate mix;mix.count=4;mix.master_gain=.2f;for(auto& t:mix.tracks)t={.5f,0,false,false};mix.send_gains[0][0]=.2f;mix.send_gains[3][0]=.1f;
     // Repeated edits must retire acknowledged commands instead of exhausting
     // the bounded replay journal after a fixed lifetime number of UI edits.
@@ -66,19 +67,35 @@ void edits(){auto g=graph(false);g.inserts={gain(),gain(),gain(),gain()};auto e=
     const auto node=g.inserts[0]->snapshot().graph->nodes.front().id;
     const auto info=g.inserts[0]->parameter_infos(node).front();check(g.inserts[0]->enqueue_parameter(node,{0,info.id,info.minimum}),"parameter enqueue");cache.process(nullptr,out.data(),128);settle();cache.process(nullptr,out.data(),128);
     check(e->metrics().ahead_invalidations>0&&!e->metrics().processing_fault,"parameter invalidation");
-    const auto anchor=e->state().play_start;e->enqueue({ControlKind::stop});cache.process(nullptr,out.data(),128);settle();cache.process(nullptr,out.data(),128);check(e->state().playback==PlaybackState::stopped&&e->state().sample==anchor,"stop anchor used speculative cursor");cache.stop();
-    // PCM and ramp comparison for a mixer edit at a partial audible block.
-    auto a=engine(graph(false)),b=engine(graph(false));a->enqueue({ControlKind::play});b->enqueue({ControlKind::play});AheadRenderer ramps(b,128,1024);ramps.start();settle();ramps.process(nullptr,out.data(),17);
-    a->enqueue({ControlKind::seek,17});a->enqueue_mix(mix);b->enqueue_mix(mix);ramps.process(nullptr,out.data(),128);settle();std::array<float,256> expected{};a->process(nullptr,expected.data(),128);ramps.process(nullptr,out.data(),128);
-    check(std::equal(expected.begin(),expected.end(),out.begin()),"partial-head mixer ramp differs from serial reference");ramps.stop();
+    const auto anchor=e->state().play_start;e->enqueue({ControlKind::stop});cache.process(nullptr,out.data(),128);settle();cache.process(nullptr,out.data(),128);if(e->state().playback!=PlaybackState::stopped||e->state().sample!=anchor)std::cerr<<"stop actual="<<e->state().sample<<" anchor="<<anchor<<" playback="<<static_cast<int>(e->state().playback)<<" invalidations="<<e->metrics().ahead_invalidations<<" underruns="<<e->metrics().ahead_underruns<<"\n";check(e->state().playback==PlaybackState::stopped&&e->state().sample==anchor,"stop anchor used speculative cursor");cache.stop();
+    std::array<float,256> expected{};
     // EQ smoothing belongs to speculative DSP state too: after an unheard edit
     // and stop/restart it must reset to retained targets, not future coefficients.
     NativeInsert eq;eq.id=new_id();eq.kind=InsertKind::channel_eq;
     const auto eq_chain=[](const NativeInsert& fx){const std::array<NativeInsert,1> inserts{fx};return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(insert_graph(inserts)),0,false,false},ProcessConfig{48000,2,128});};
     auto eq_graph=graph(false);auto processor=eq_chain(eq);eq_graph.master_inserts=processor;auto eq_engine=engine(eq_graph);eq_engine->enqueue({ControlKind::play});AheadRenderer eq_cache(eq_engine,128,1024);eq_cache.start();settle();eq_cache.process(nullptr,out.data(),128);
     processor->enqueue_parameter(eq.id,{0,6,6.f});eq_cache.process(nullptr,out.data(),128);settle();eq_cache.stop();const auto position=eq_engine->state().sample;
-    eq.bands[1].gain=6.f;auto fresh_graph=graph(false);fresh_graph.master_inserts=eq_chain(eq);auto fresh=engine(fresh_graph,{PlaybackState::paused,position});fresh->enqueue({ControlKind::play});fresh->process(nullptr,expected.data(),128);
+    eq.bands[1].gain=6.f;auto fresh_graph=graph(false);fresh_graph.master_inserts=eq_chain(eq);auto fresh=engine(fresh_graph,{PlaybackState::paused,position,{}});fresh->enqueue({ControlKind::play});fresh->process(nullptr,expected.data(),128);
     eq_cache.start();settle();eq_cache.process(nullptr,out.data(),128);check(std::equal(expected.begin(),expected.end(),out.begin()),"EQ retained speculative smoothing after restart");eq_cache.stop();
+}
+void mixer_gestures(){
+    RenderGraph g;g.mixer.resize(1);g.buses={false};g.outputs={no_mixer_track};g.sends.resize(1);g.click.playback=false;
+    auto asset=std::make_shared<AudioData>();asset->sample_rate=48000;asset->channels=2;asset->samples.assign(65536*2,.25f);
+    g.voices={{asset,0,0,65536,{{0,0,1},{1,1,1}},{},0}};
+    auto e=engine(g);e->enqueue({ControlKind::play});AheadRenderer renderer(e,128,1024);renderer.start();settle();
+    std::array<float,256> out{};renderer.process(nullptr,out.data(),17);settle();
+    const auto invalidations=e->metrics().ahead_invalidations;const auto allocs=probe::allocations.load();
+    MixerUpdate mix;mix.count=1;
+    for(unsigned n=0;n<120;++n){mix.tracks[0].gain=.4f+.002f*n;mix.tracks[0].pan=.25f;
+        check(e->enqueue_mix(mix),"continuous mixer queue overflow");const auto heard=e->state().sample;
+        probe::enabled=true;renderer.process(nullptr,out.data(),128);probe::enabled=false;
+        check(e->state().sample==heard+128,"fader gesture stalled heard transport");
+        check(std::all_of(out.begin(),out.end(),[](float x){return std::isfinite(x)&&x>0;}),"fader gesture silenced queued PCM");settle();}
+    mix.tracks[0]={.5f,0,false,false};check(e->enqueue_mix(mix),"final mixer target");
+    for(unsigned n=0;n<20;++n){renderer.process(nullptr,out.data(),128);settle();}
+    check(std::all_of(out.begin(),out.end(),[](float x){return std::abs(x-.125f)<.00001f;}),"latest mixer target never became audible");
+    check(e->metrics().ahead_invalidations==invalidations&&e->metrics().ahead_underruns==0,"scalar mixer controls invalidated ahead queue");
+    check(probe::allocations==allocs&&!e->metrics().processing_fault,"mixer gesture allocated or exhausted replay journal");renderer.stop();
 }
 struct Gate {std::atomic<bool> hold{},entered{};std::atomic<unsigned> calls{},active{},maximum{};};
 class Gated final:public IProcessor {Gate& gate_;bool eligible_;
@@ -92,7 +109,7 @@ public:Gated(Gate& g,bool safe):gate_(g),eligible_(safe){}
 };
 std::shared_ptr<PreparedGraph> gated(Gate& gate,bool safe){auto s=demo_graph();s.nodes.front().parameters.clear();return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(s),0,false,false},ProcessConfig{48000,2,128},[&gate,safe](const auto&){return std::make_unique<Gated>(gate,safe);});}
 void recovery(){Gate gate;auto g=graph(false);g.master_inserts=gated(gate,true);auto e=engine(g);e->enqueue({ControlKind::play});AheadRenderer cache(e,128,256);cache.start();settle();gate.hold=true;std::array<float,256> out{};
-    for(unsigned n=0;n<5;++n)cache.process(nullptr,out.data(),128);const auto heard=e->state().sample;cache.process(nullptr,out.data(),128);
+    for(unsigned n=0;n<5;++n){cache.process(nullptr,out.data(),128);}const auto heard=e->state().sample;cache.process(nullptr,out.data(),128);
     check(std::all_of(out.begin(),out.end(),[](float x){return x==0;}),"underrun did not silence");check(e->state().sample==heard&&e->metrics().ahead_underruns>0,"underrun advanced unheard position");gate.hold=false;settle();cache.process(nullptr,out.data(),128);
     if(e->state().sample!=heard+128||gate.maximum!=1)std::cerr<<"recovery heard="<<heard<<" after="<<e->state().sample<<" maximum="<<gate.maximum.load()<<'\n';
     check(e->state().sample==heard+128&&gate.maximum==1,"recovery skipped/duplicated processing ownership");cache.stop();check(gate.active==0,"producer alive after stop");
@@ -119,4 +136,4 @@ void streaming(){struct Temp{std::filesystem::path path=std::filesystem::temp_di
     check(b->state().sample==200128,"prepared stream seek lost across generation");check(actual[0]==static_cast<float>(200000%127)/256.f,"stale disk packet after seek");check(!b->metrics().disk_underruns&&!b->metrics().disk_errors,"process buffer overran streaming cache");cache.stop();
 }
 }
-int main(int argc,char** argv){try{check(argc==2,"suite required");const std::string suite=argv[1];if(suite=="equivalence")equivalence();else if(suite=="edits")edits();else if(suite=="recovery")recovery();else if(suite=="eligibility")eligibility();else if(suite=="streaming")streaming();else throw std::invalid_argument("unknown suite");std::cout<<"PASS ahead "<<suite<<'\n';return 0;}catch(const std::exception& e){probe::enabled=false;std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}}
+int main(int argc,char** argv){try{check(argc==2,"suite required");const std::string suite=argv[1];if(suite=="equivalence")equivalence();else if(suite=="edits")edits();else if(suite=="mixer_gestures")mixer_gestures();else if(suite=="recovery")recovery();else if(suite=="eligibility")eligibility();else if(suite=="streaming")streaming();else throw std::invalid_argument("unknown suite");std::cout<<"PASS ahead "<<suite<<'\n';return 0;}catch(const std::exception& e){probe::enabled=false;std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}}

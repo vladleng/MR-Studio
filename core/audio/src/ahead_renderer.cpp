@@ -98,7 +98,9 @@ void AheadRenderer::record_control(const Control& c) noexcept {
 }
 void AheadRenderer::record_mix(const MixerUpdate& m) noexcept {
     Delivered heard;if(read_head(heard)){std::size_t keep{};for(std::size_t i=0;i<mix_count_;++i)if(mixes_[i].serial>heard.mix_serial)mixes_[keep++]=mixes_[i];mix_count_=keep;}
-    if(mix_count_==mixes_.size()){engine_->processing_fault_=true;return;}mixes_[mix_count_++]=m;mix_serial_=m.serial;
+    // Each message is a complete target snapshot. Retain the latest unheard
+    // intent for transport rebases, rather than filling a journal during drags.
+    mixes_[0]=m;mix_count_=1;mix_serial_=m.serial;
 }
 void AheadRenderer::replay(const Delivered& delivered) noexcept {
     std::size_t keep{};for(std::size_t i=0;i<control_count_;++i)if(controls_[i].serial>delivered.control_serial)controls_[keep++]=controls_[i];control_count_=keep;

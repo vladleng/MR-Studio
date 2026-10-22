@@ -20,7 +20,7 @@ inline constexpr Tick ppq = 960;
 inline constexpr std::size_t max_project_midi_notes = 32768;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 29;
+inline constexpr std::uint32_t schema_version = 30;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -56,6 +56,8 @@ struct Folder {
     Id id;
     std::string name;
     std::optional<Id> parent;
+    std::optional<Id> bus{};
+    bool collapsed{};
     bool operator==(const Folder&) const = default;
 };
 enum class InsertKind { gain, highpass, lowpass, eq, channel_eq, vst3, cab_ir, reverb, cab_collection, rig };
@@ -425,6 +427,42 @@ public:
     void apply(Project& p) const override{p.ara_bindings=bindings_;}
 private:
     std::vector<AraBinding> bindings_;
+};
+// Track folders own presentation membership; only LinkFolderBus changes routing.
+class CreateTrackFolder final : public ICommand {
+public:
+    CreateTrackFolder(Folder folder,std::vector<Id> tracks):folder_(std::move(folder)),tracks_(std::move(tracks)){}
+    std::string_view name() const override{return "Group tracks in folder";}
+    void apply(Project&) const override;
+private: Folder folder_;std::vector<Id> tracks_;
+};
+class MoveTracksToFolder final : public ICommand {
+public:
+    MoveTracksToFolder(std::vector<Id> tracks,std::optional<Id> folder):tracks_(std::move(tracks)),folder_(std::move(folder)){}
+    std::string_view name() const override{return "Move tracks to folder";}
+    void apply(Project&) const override;
+private: std::vector<Id> tracks_;std::optional<Id> folder_;
+};
+class UpdateTrackFolder final : public ICommand {
+public:
+    UpdateTrackFolder(Id id,std::string name,bool collapsed):id_(std::move(id)),name_(std::move(name)),collapsed_(collapsed){}
+    std::string_view name() const override{return "Track folder settings";}
+    void apply(Project&) const override;
+private: Id id_;std::string name_;bool collapsed_;
+};
+class RemoveTrackFolder final : public ICommand {
+public:
+    explicit RemoveTrackFolder(Id id):id_(std::move(id)){}
+    std::string_view name() const override{return "Dissolve track folder";}
+    void apply(Project&) const override;
+private: Id id_;
+};
+class LinkFolderBus final : public ICommand {
+public:
+    LinkFolderBus(Id folder,std::optional<Id> bus,std::optional<Track> create={}):folder_(std::move(folder)),bus_(std::move(bus)),create_(std::move(create)){}
+    std::string_view name() const override{return "Link folder Bus";}
+    void apply(Project&) const override;
+private: Id folder_;std::optional<Id> bus_;std::optional<Track> create_;
 };
 class SetTrackMix final : public ICommand {
 public:

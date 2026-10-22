@@ -364,6 +364,8 @@ private:
     MixHead mix_head() const noexcept;
     void restore_mix(const MixHead&) noexcept;
     std::atomic<std::uint64_t> control_revision_{};
+    std::atomic<std::uint64_t> next_mix_serial_{};
+    MixerUpdate last_mix_update_{}; // owned by the processing thread
     std::atomic<bool> anticipation_active_{};
     std::atomic<bool> mixed_anticipation_{};
     std::atomic<std::uint32_t> process_buffer_frames_{}, ahead_buffered_frames_{};

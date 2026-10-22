@@ -487,10 +487,12 @@ bool AudioEngine::enqueue_mix(const MixerUpdate& update) noexcept {
         for (std::size_t j=0; j<graph_.sends[i].size(); ++j) if (!std::isfinite(update.send_gains[i][j]) || update.send_gains[i][j] < 0 || update.send_gains[i][j] > 16) return false;
         if (!std::isfinite(m.gain) || m.gain < 0 || m.gain > 16 || !std::isfinite(m.pan) || m.pan < -1 || m.pan > 1) return false;
     }
-    auto message=update;message.serial=control_revision_.fetch_add(1,std::memory_order_acq_rel)+1;const auto ok=mixer_controls_.push(message);++control_revision_;return ok;
+    // Scalar targets must not invalidate queued PCM or reset transport/DSP history.
+    auto message=update;message.serial=next_mix_serial_.fetch_add(1,std::memory_order_relaxed)+1;return mixer_controls_.push(message);
 }
 void AudioEngine::set_mix(const MixerUpdate& update, bool ramp) noexcept {
     if (update.count > update.tracks.size()) return;
+    last_mix_update_=update;
     input_monitoring_=update.input_monitoring;
     for(std::size_t t=0;t<max_mixer_tracks;++t){
         if(t>=update.count)break;
@@ -779,7 +781,7 @@ void AudioEngine::process_block(const float* input, float* output, std::uint32_t
     }
     std::fill_n(output, static_cast<std::size_t>(frames) * config_.output_channels, 0.0F);
     MixerUpdate mix;
-    for(int n=0;n<7&&mixer_controls_.pop(mix);++n){if(ahead_owner_)ahead_owner_->record_mix(mix);set_mix(mix,true);if(mixed_owner_)++control_revision_;}
+    for(int n=0;n<7&&mixer_controls_.pop(mix);++n){if(ahead_owner_)ahead_owner_->record_mix(mix);set_mix(mix,true);}
     if(mixed_owner_)mixed_owner_->begin(frames);
     if(speculative_)last_render_mix_=mix_head();
     std::array<std::array<float,2>,max_mixer_tracks+1> block_peaks{};

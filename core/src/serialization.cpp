@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <mrs/core.hpp>
 #include <iomanip>
 #include <limits>
@@ -150,6 +151,8 @@ std::string serialize(const Project& p) {
         out<<std::quoted(b.document_id)<<' '<<b.bypass<<' '<<b.checksum<<' '<<b.source_checksum<<' ';
         for(const auto* blob:{&b.archive,&b.component_state,&b.controller_state}){std::string hex;hex.reserve(blob->size()*2);for(auto byte:*blob){const auto v=std::to_integer<unsigned>(byte);hex+="0123456789abcdef"[v>>4];hex+="0123456789abcdef"[v&15];}out<<std::quoted(hex)<<' ';}out<<'\n';
     }
+    std::size_t folder_states{};for(const auto& f:p.folders)if(f.bus||f.collapsed)++folder_states;
+    if(folder_states){out<<"FOLDER_STATE "<<folder_states<<'\n';for(const auto& f:p.folders)if(f.bus||f.collapsed)out<<std::quoted(f.id.value)<<' '<<std::quoted(f.bus?f.bus->value:"")<<' '<<f.collapsed<<'\n';}
     out << "END\n";
     auto result = out.str();
     if (result.size() > max_bytes) throw std::invalid_argument("snapshot byte limit exceeded");
@@ -317,6 +320,12 @@ Project deserialize(std::string_view bytes) {
             int bypass{};in>>bypass>>b.checksum>>b.source_checksum;check_stream(in);if(bypass!=0&&bypass!=1)throw std::invalid_argument("Invalid ARA bypass");b.bypass=bypass!=0;
             for(auto* blob:{&b.archive,&b.component_state,&b.controller_state}){const auto hex=quoted(in);if(hex.size()>2*1024*1024||hex.size()%2)throw std::invalid_argument("Invalid ARA blob");auto digit=[](char c)->unsigned{if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return c-'a'+10;throw std::invalid_argument("Invalid ARA hex");};for(std::size_t j=0;j<hex.size();j+=2)blob->push_back(static_cast<std::byte>(digit(hex[j])*16+digit(hex[j+1])));}
             p.ara_bindings.push_back(std::move(b));}in>>ending;check_stream(in);}
+    if(input_version>=30&&ending=="FOLDER_STATE"){const auto total=count(in);if(total>p.folders.size())throw std::invalid_argument("Too many folder states");std::vector<Id> seen;
+        for(std::size_t i=0;i<total;++i){const Id id{quoted(in)};const auto bus=parent(in);int collapsed{};in>>collapsed;check_stream(in);
+            if((collapsed!=0&&collapsed!=1)||std::find(seen.begin(),seen.end(),id)!=seen.end())throw std::invalid_argument("Invalid folder state");
+            seen.push_back(id);
+            const auto at=std::find_if(p.folders.begin(),p.folders.end(),[&](const auto& f){return f.id==id;});if(at==p.folders.end())throw std::invalid_argument("Unknown folder state");at->bus=bus;at->collapsed=collapsed!=0;}
+        in>>ending;check_stream(in);}
     if(ending!="END")throw std::invalid_argument("invalid snapshot ending");
     in >> std::ws;
     if (!in.eof()) throw std::invalid_argument("unknown trailing snapshot data");

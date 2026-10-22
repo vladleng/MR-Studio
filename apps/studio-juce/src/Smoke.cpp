@@ -62,6 +62,23 @@ void arrangeFinalGesturesSmoke(){
     d.app.save_project(std::filesystem::path(file.getFullPathName().toWideCharPointer()));d.app.open_project(d.app.path());d.refresh(true);check(stored(audioRight)==shortened,"trim survives Save/Open");d.app.disconnect();d.app.new_project();
     check(folder.getParentDirectory()==temp&&folder.getFileName().startsWith("mrs-upd8-gestures"),"gesture cleanup scope");folder.deleteRecursively();
 }
+void trackFolderSmoke(){
+    const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    Desktop d(true);d.app.disconnect();d.app.new_project();const auto a=d.app.add_audio_track("Kick"),b=d.app.add_audio_track("Snare"),c=d.app.add_instrument_track("Keys");
+    const auto clip=d.app.create_midi_clip(c,0);d.refresh(true);d.setSize(1200,900);d.setWorkspace(mrs::desktop::Workspace::arrange);
+    d.selectTrack(a,{});d.selectTrack(b,juce::ModifierKeys(juce::ModifierKeys::ctrlModifier));check(d.folderSelection()==std::vector<mrs::Id>{a,b},"Ctrl selects folder members");
+    const auto id=d.app.create_track_folder("Drums",d.folderSelection());d.refresh();auto& view=*d.arrangement;view.vertical=0;view.resized();
+    check(view.folderRows.size()==1&&view.trackY(0)==36&&view.trackY(1)==36+view.trackHeight,"folder header offsets lanes");
+    check(view.trackAt(static_cast<float>(view.headerHeight()+10))==-1,"folder header is not an audio destination");
+    const auto p=d.project();const auto stored=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& item){return item.id==clip;});
+    check(stored!=p->clips.end()&&view.trackAt(view.clipRect(*stored).getCentreY())==2,"folder layout keeps clip hit and target aligned");
+    auto* header=view.rowsBody.findChildWithID("track-folder-"+label(id.value));check(header!=nullptr,"folder has accessible header");header->keyPressed(juce::KeyPress(juce::KeyPress::returnKey));
+    check(d.project()->folders.back().collapsed&&!view.rows[0]->isVisible()&&!view.rows[1]->isVisible()&&view.trackY(2)==36,"collapse hides only member lanes");
+    check(view.trackAt(view.clipRect(*stored).getCentreY())==2,"collapsed lanes do not shift clip drop target to a hidden track");
+    d.action(10);check(!d.project()->folders.back().collapsed&&view.trackY(2)==36+2*view.trackHeight,"Undo restores expanded folder layout");
+    d.app.link_folder_bus(id,{},true);d.refresh();check(d.project()->folders.back().bus.has_value()&&view.rows.size()==4,"linked folder Bus remains a real mixer channel");
+    d.app.remove_track_folder(id);d.refresh();check(view.folderRows.empty()&&view.trackY(0)==0&&d.project()->tracks.size()==4,"dissolve restores flat lanes without deleting tracks");
+}
 void arrangeAudioSmoke(){
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
     Desktop d(true);d.app.disconnect();d.app.new_project();auto initial=d.project()->time;initial.tempos={{0,120}};initial.meters={{1,4,4}};d.app.set_time_map(initial);d.app.add_audio_track("Audio");d.refresh(true);d.setSize(1200,700);d.setVisible(true);
@@ -346,6 +363,7 @@ void upd14Smoke(){
 }
 
 void projectHomeSmoke(){
+    trackFolderSmoke();
     arrangeFinalGesturesSmoke();
     arrangeAudioSmoke();
     auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
