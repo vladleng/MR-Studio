@@ -13,8 +13,9 @@ redundant All WAV control and separate navigation row are removed.
 Cards come from the full index, independently of the bounded WAV page.
 
 List rows and grid cards show filename, tags (One-shot/Loop first), square pack
-artwork and a short bar waveform beside the filename when the cell is at least
-560 px wide. The instrument and waveform occupy common columns calculated once from the
+artwork and a short bar waveform beside the filename while at least 150 px of title
+and 64 px of waveform fit. The waveform shrinks before hiding; there is no fixed
+560 px cutoff. The instrument and waveform occupy common columns calculated once from the
 longest filename on the current result page. They share a horizontal centre line
 and remain bounded by row width; narrow cells hide the waveform. Loop/One-shot glyphs precede the
 larger filename; hover and keyboard selection expose Play, while playback shows
@@ -31,7 +32,7 @@ words may match different fields. Case folding includes Cyrillic. There is no
 hidden audio analysis or semantic/cloud search. Relevant sorting scores exact tag
 matches and path matches; filename sorting uses the leaf name.
 
-Instrument/Genre/Type menus combine inclusion (OR within a group, AND between
+Instrument/Genre/Pack/Type menus combine inclusion (OR within a group, AND between
 groups) and explicit tag exclusions. Counts reflect the full matching query.
 Other catalogue choices remain available with zero current matches. The Filters
 menu removes individual conditions; visible chips expose selected tags or quick
@@ -58,10 +59,21 @@ Loop; FX, Fill, SFX and Transition belong to Instruments. Existing Type tags are
 normalized transactionally at startup, preserving decisions and edit history.
 Type aliases include plural/camel/separated One Shots/Oneshots and Loops, including
 source-root names. Explicit custom type rules win, then filename, then nearest
-labelled ancestor. A conflicting/absent type remains unknown and shows `?`, not a
-One-shot glyph. Confirmed manual types suppress automatic alternatives; setting a
+labelled ancestor. Conflicting explicit types remain unknown and show `?`.
+When no explicit Type exists, recognised single-hit categories
+(percussion, impacts, stabs, shots) supply One-shot; tempo-bearing rhythmic phrase
+names supply Loop. Numeric take suffixes are supported. Generic instrument/FX names,
+tempo alone and conflicting explicit types do not suffice; these rules do not analyse
+audio. Files without enough evidence remain `?`. Confirmed manual types suppress automatic alternatives; setting a
 type replaces the active opposite type in the same undoable batch. Startup/rescan
 reclassifies the existing index without changing source media.
+
+Pack follows Genres in the filter row. It is indexed from the named folder before
+the first conventional content category (Drums, Loops, FX, etc.), otherwise the
+first child folder beneath the source; a source pointed at a pack retains its own
+name. This is folder-derived metadata, not a vendor identity lookup. Pack supports
+the same inclusion/exclusion, full-query counts and pagination as other tag groups.
+Confirmed manual Pack metadata suppresses automatic alternatives.
 
 ## Covers and persistence
 
@@ -81,6 +93,10 @@ existing database, SQLite backup writes a consistent `*.pre-v4-*.sqlite` copy
 DAW project format. Images are limited to 20 MiB, 8192 pixels per dimension and
 16 megapixels; bounded header validation precedes worker decode. Thumbnails and
 waveforms retain bounded queues/caches and stay outside the audio callback.
+Waveform cache holds 384 small peak envelopes (more than the maximum 300-file page),
+and evicts the least recently used entry rather than the lexically first key.
+Painted/selected waveform reads refresh recency; background completions cannot
+continually evict and reload a visible low-key waveform.
 Deleted sources/collections lose their cover associations. Unreferenced managed
 files after removal/crash may remain as cache files; automatic cache garbage
 collection is not part of this stage.

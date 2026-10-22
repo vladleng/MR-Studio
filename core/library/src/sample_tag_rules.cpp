@@ -61,6 +61,10 @@ constexpr Builtin builtins[] = {
     {"Instrument","Snare","snare"},{"Instrument","Snare","sn"},
     {"Instrument","Hi-Hat","hihat"},{"Instrument","Hi-Hat","hi hat"},{"Instrument","Hi-Hat","hat"},
     {"Instrument","Ride","ride"},{"Instrument","Toms","tom"},{"Instrument","Bass","bass"},
+    {"Instrument","Snap","snap"},{"Instrument","Snap","snaps"},
+    {"Instrument","Clap","clap"},{"Instrument","Clap","claps"},
+    {"Instrument","Crash","crash"},{"Instrument","Crash","crashes"},
+    {"Instrument","Bass","808"},
     {"Instrument","Guitar","guitar"},{"Instrument","Piano","piano"},
     {"Instrument","Strings","strings"},{"Instrument","Synth","synth"},
     {"Instrument","Percussion","perc"},{"Instrument","Percussion","percussion"},
@@ -75,15 +79,49 @@ constexpr Builtin builtins[] = {
     {"Rhythm","Shuffle","shuffle"},{"Rhythm","Straight","straight"}
 };
 enum class TypeMatch {none,one_shot,loop,conflict};
-TypeMatch sample_type(const std::vector<Token>& source){
+std::vector<Token> take_words(const std::vector<Token>& source){
     auto words=source;
     for(auto& word:words){const auto end=word.lower.find_last_not_of("0123456789");
         if(end!=std::string::npos&&end+1<word.lower.size())word.lower.resize(end+1);}
+    return words;
+}
+TypeMatch sample_type(const std::vector<Token>& source){
+    const auto words=take_words(source);
     bool one=false,loop=false;
-    for(const auto* alias:{"one shot","one shots","oneshot","oneshots","1 shot","1 shots","1shot","1shots"})
+    for(const auto* alias:{"one shot","one shots","oneshot","oneshots","1 shot","1 shots","1shot","1shots","single hit","single hits","single shot","single shots","one hit","one hits","onehit","onehits","ваншот","ваншоты"})
         one=one||exact_sequence(words,tokens(alias));
-    for(const auto* alias:{"loop","loops"})loop=loop||exact_sequence(words,tokens(alias));
+    for(const auto* alias:{"loop","loops","looped","луп","лупы"})loop=loop||exact_sequence(words,tokens(alias));
     return one&&loop?TypeMatch::conflict:one?TypeMatch::one_shot:loop?TypeMatch::loop:TypeMatch::none;
+}
+bool rhythmic_phrase(const std::vector<Token>& source){
+    const auto words=take_words(source);
+    for(const auto* phrase:{"loop","loops","fill","fills","groove","grooves","beat","beats","break","breaks","phrase","phrases","roll","rolls","pattern","patterns","sequence","sequences","riff","riffs","melody","melodies","arp","arps","arpeggio","arpeggios","rhythm","rhythms","build","transition"})
+        if(exact_sequence(words,tokens(phrase)))return true;
+    return false;
+}
+bool single_hit(const std::vector<Token>& source){
+    const auto words=take_words(source);
+    if(rhythmic_phrase(words))return false;
+    for(const auto* phrase:{"snap","snaps","clap","claps","kick","kicks","snare","snares","crash","crashes","hihat","hihats","hi hat","hi hats","ride","rides","tom","toms","rimshot","rimshots","rim","rims","tambourine","shaker","cowbell","bongo","conga","cymbal","cymbals","closed hat","open hat","808","impact","impacts","hit","hits","stab","stabs","shot","shots","boom","booms"})
+        if(exact_sequence(words,tokens(phrase)))return true;
+    return false;
+}
+// Classification receives source basename / source-relative path. Choose the
+// pack immediately above a conventional content category, otherwise its first
+// child folder. A source pointing directly at a pack keeps its own name.
+std::string pack_name(const std::string& path){
+    std::vector<std::string> folders;std::size_t start{};
+    for(auto at=path.find_first_of("/\\");at!=std::string::npos;at=path.find_first_of("/\\",start)){
+        if(at>start)folders.push_back(path.substr(start,at-start));
+        start=at+1;
+    }
+    if(folders.empty())return {};
+    for(std::size_t i=1;i<folders.size();++i){
+        const auto name=fold(folders[i]);
+        for(const auto* category:{"drums","percussion","bass","synth","synths","fx","sfx","vocals","loops","one shots","one-shots","one_shots","oneshots","oneshot","jazz","ambient","cinematic"})
+            if(name==category)return folders[i-1];
+    }
+    return folders[folders.size()>1?1:0];
 }
 int bpm_from_token(const std::string& s) {
     if(s.size()>3||s.empty())return 0;
@@ -146,7 +184,8 @@ Classification classify_sample_path(const std::string& relative,const std::vecto
         else if(exact_sequence(directories,alias))suggest(built.group,built.label,"folder",.69);
     }
     // One exclusive automatic type: explicit custom rule, then filename,
-    // then the nearest labelled ancestor. Never infer One-shot from missing tags.
+    // then the nearest labelled ancestor. Only a recognised single hit
+    // family can supply a fallback; missing Type alone is never evidence.
     const auto customTypes=std::count_if(result.tags.begin(),result.tags.end(),[](const auto& tag){return tag.group=="Type";});
     if(customTypes>1)std::erase_if(result.tags,[](const auto& tag){return tag.group=="Type";});
     if(customTypes==0){
@@ -160,7 +199,17 @@ Classification classify_sample_path(const std::string& relative,const std::vecto
         }
         if(type==TypeMatch::one_shot||type==TypeMatch::loop)
             suggest("Type",type==TypeMatch::one_shot?"One-shot":"Loop",origin,fromFilename?.95:.85);
+        else if(type==TypeMatch::none){
+            if(infer_bpm(name)&&(rhythmic_phrase(name)||rhythmic_phrase(directories)))
+                suggest("Type","Loop","filename",.78);
+            else if(!infer_bpm(name)){
+                if(single_hit(name))suggest("Type","One-shot","filename",.82);
+                else if(single_hit(directories)&&!rhythmic_phrase(name))suggest("Type","One-shot","folder",.74);
+            }
+        }
     }
+    const auto pack=pack_name(relative);
+    if(!pack.empty()&&std::none_of(result.tags.begin(),result.tags.end(),[](const auto& tag){return tag.group=="Pack";}))suggest("Pack",pack,"folder",.8);
     result.metadata.bpm=infer_bpm(name);
     result.metadata.key=infer_key(name);
     return result;

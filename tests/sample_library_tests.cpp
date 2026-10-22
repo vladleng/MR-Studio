@@ -587,11 +587,24 @@ void type_search_coverage(){
     check(typeOf("Loops/One Shots/Kick.wav")=="One-shot"&&typeOf("One Shots/Loops/Groove.wav")=="Loop","Nearest labelled folder wins");
     check(typeOf("Loops/Clap_one_shot.wav")=="One-shot"&&typeOf("One Shots/Bass_loop.wav")=="Loop","Filename wins over inherited folder type");
     check(typeOf("Kick_oneshot01.wav")=="One-shot"&&typeOf("Drums_Loop02.wav")=="Loop"&&typeOf("Loopback01.wav").empty(),"Numeric take suffixes preserve explicit type without prefix false positives");
-    check(typeOf("Loose/Kick.wav").empty()&&typeOf("Loop_OneShot.wav").empty(),"Unknown/conflicting types must not be silently assigned");
+    check(typeOf("Loose/Texture.wav").empty()&&typeOf("Loop_OneShot.wav").empty(),"Unknown/conflicting types must not be silently assigned");
+    for(const auto* path:{"Drums/Snaps/KSHMR Snap - Compact.wav","Drums/Snaps/KSHMR Snap - Roomy.wav","Drums/Snaps/Compact.wav","Cymatics - Gold Modern Crash 20.wav"})
+        check(typeOf(path)=="One-shot","Single percussion filenames and categories supply missing One-shot Type");
+    for(const auto* path:{"Drums/Kicks/Kick01.wav","Percussion/Rimshot_07.wav","FX/Impact09.wav","Synths/Stab04_Am.wav","Single Hits/Tone.wav","OneHits/Tone.wav","Ваншоты/Тон.wav"})
+        check(typeOf(path)=="One-shot","General single-hit categories and numbered aliases cover different sample families");
+    check(typeOf("Drums/Fill_128BPM.wav")=="Loop"&&typeOf("Synths/Arp_120_Am.wav")=="Loop","Tempo-bearing rhythmic phrases supply Loop without an explicit loop word");
+    check(typeOf("One Shots/Arp_120BPM.wav")=="One-shot"&&typeOf("Loops/Stab01.wav")=="Loop","Explicit Type outranks all fallback families");
+    for(const auto* path:{"KSHMR 808 - Clean - Earthquake (C).wav","KSHMR 808 - Clean - Pressure (E).wav","KSHMR Closed Hat - Acoustic - Clean.wav","Closed Hi-Hats/Acoustic.wav","KSHMR Hip Hop Snare - Classic - Candy.wav","KSHMR Hip Hop Snare - Classic - Player.wav"})
+        check(typeOf(path)=="One-shot","User examples: pitched 808, closed hats and hip-hop snares are general single-hit families");
+    check(typeOf("Loops/KSHMR 808 - Groove.wav")=="Loop"&&typeOf("KSHMR 808 - Groove_120BPM.wav")=="Loop","808 bass family must not override explicit/tempo phrase loops");
+    for(const auto* path:{"KSHMR Snap - Loop.wav","Loops/Snaps/Compact.wav"})
+        check(typeOf(path)=="Loop","Explicit Loop outranks single percussion inference");
+    for(const auto* path:{"Snaps/Fill.wav","Kick_Snare_115bpm.wav","Kick_Groove.wav","Snap_OneShot_Loop.wav"})
+        check(typeOf(path).empty(),"Tempo, phrases and conflicts cannot be mistaken for a single hit");
     Fixture fixture;const auto db=fixture.root/"types.sqlite",root=fixture.root/"audio";
     for(const auto* path:{"One Shots/Drums/Kick.wav","One-Shots/Drums/Snare.wav","Oneshots/Perc/Hat.wav","one_shots/FX/Boom.wav",
         "Loops/Drums/Kick_115BPM.wav","loops/Groove.wav","Loops/One Shots/Piano.wav","One Shots/Loops/Brush.wav",
-        "Loops/one_shot_Clap.wav","One Shots/Bass_loop.wav","Loose/Kick.wav"})wav(root/path);
+        "Loops/one_shot_Clap.wav","One Shots/Bass_loop.wav","Loose/Texture.wav"})wav(root/path);
     const auto queryType=[](SampleLibrary& lib,const std::string& label,std::uint64_t expected){
         LibraryQuery q;q.tags={{"Type",label}};lib.browse(q);
         const auto snap=wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.query==q;});
@@ -622,4 +635,29 @@ void type_search_coverage(){
     }
 }
 
-int main() { try {type_search_coverage();type_taxonomy();search_v4();test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }
+void pack_type_search(){
+    Fixture fixture;const auto root=fixture.root/"Library";
+    for(const auto* path:{"KSHMR/Drums/Snaps/KSHMR Snap - Compact.wav","KSHMR/Drums/Snaps/Roomy.wav",
+        "KSHMR/Loops/Snap.wav","Cymatics/Drums/Cymatics - Gold Modern Crash 20.wav","Cymatics/Loops/Crash.wav"})wav(root/path);
+    SampleLibrary lib(fixture.root/"pack.sqlite");lib.add_source(root);
+    auto snap=wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==5;});
+    const auto query=[&](LibraryQuery q,std::uint64_t count){lib.browse(q);auto v=wait_for(lib,[&](const Snapshot& s){return s.phase==Phase::idle&&s.query==q;});check(v->visible_assets==count,"Pack and Type filters must compose over the full catalogue");return v;};
+    LibraryQuery q;q.tags={{"Pack","KSHMR"}};q.limit=1;snap=query(q,3);
+    check(snap->assets.size()==1&&std::any_of(snap->facets.begin(),snap->facets.end(),[](const auto& f){return f.group=="Pack"&&f.label=="KSHMR"&&f.count==3;}),"Pack facets must count beyond the visible page");
+    q.tags.push_back({"Type","One-shot"});query(q,2);
+    q.tags={{"Type","One-shot"}};q.excluded_tags={{"Pack","KSHMR"}};snap=query(q,1);
+    check(snap->assets.front().relative_path.find("Cymatics/")==0,"Pack exclusions retain other matching One-shots");
+    q.tags={{"Pack","KSHMR"},{"Pack","Cymatics"},{"Type","Loop"}};q.excluded_tags.clear();query(q,2);
+    q.tags={{"Pack","KSHMR"},{"Type","One-shot"}};q.limit=120;snap=query(q,2);
+    const auto id=snap->assets.front().id;auto revision=snap->revision;lib.add_tag({id},"Pack","Session Pack");
+    wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision;});
+    q.tags={{"Pack","Session Pack"}};snap=query(q,1);
+    check(std::none_of(snap->assets.front().tags.begin(),snap->assets.front().tags.end(),[](const auto& tag){return tag.group=="Pack"&&tag.label=="KSHMR"&&tag.status!="rejected";}),"Manual Pack replaces its automatic alternative immediately");
+    revision=snap->revision;lib.rescan();wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision&&v.message=="Scan complete";});
+    query(q,1);revision=lib.snapshot()->revision;lib.undo_tag_edit();wait_for(lib,[&](const Snapshot& v){return v.phase==Phase::idle&&v.revision>revision;});
+    q.tags={{"Pack","KSHMR"},{"Type","One-shot"}};query(q,2);
+    const auto direct=classify_sample_path("Gold Modern/Drums/Crash.wav");
+    check(std::any_of(direct.tags.begin(),direct.tags.end(),[](const auto& tag){return tag.group=="Pack"&&tag.label=="Gold Modern";}),"Source pointed directly at a pack retains its name");
+}
+
+int main() { try {pack_type_search();type_search_coverage();type_taxonomy();search_v4();test();tagging();migration_v1();browser_v3();unicode_browser_search();safe_preview();audition_mixes_single_device();audition_device_modes();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;} }

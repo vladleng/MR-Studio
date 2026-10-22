@@ -19,8 +19,8 @@ LibraryBrowserView::LibraryBrowserView(
     std::function<std::tuple<bool,float,bool>()> position)
     :library(lib),previewPlay(std::move(play)),previewStop(std::move(stop)),
       previewState(std::move(position)){
-    for(auto* control:std::array<juce::Component*,24>{&foldersTab,&tagsTab,&collectionsTab,&favorites,&clearFilters,&listGrid,
-        &back,&options,&instruments,&genres,&keyButton,&bpmButton,&typeButton,&activeFilters,&prevPage,&nextPage,
+    for(auto* control:std::array<juce::Component*,25>{&foldersTab,&tagsTab,&collectionsTab,&favorites,&clearFilters,&listGrid,
+        &back,&options,&instruments,&genres,&packButton,&keyButton,&bpmButton,&typeButton,&activeFilters,&prevPage,&nextPage,
         &stopPreview,&sorts,&search,&counter,&breadcrumb,&previousSound,&playPause,&nextSound})addAndMakeVisible(control);
     setComponentID("mr-library-browser");
     addAndMakeVisible(details);details.setFont(juce::Font(juce::FontOptions(11.f)));details.setColour(juce::Label::textColourId,muted());
@@ -30,6 +30,7 @@ LibraryBrowserView::LibraryBrowserView(
     foldersTab.onClick=[this]{chooseSection(Section::folders);};tagsTab.onClick=[this]{chooseSection(Section::tags);};
     collectionsTab.onClick=[this]{chooseSection(Section::collections);};
     instruments.onClick=[this]{filterMenu("Instrument",&instruments);};genres.onClick=[this]{filterMenu("Genre",&genres);};
+    packButton.onClick=[this]{filterMenu("Pack",&packButton);};
     typeButton.onClick=[this]{filterMenu("Type",&typeButton);};
     keyButton.onClick=[this]{musicalMenu(false,&keyButton);};bpmButton.onClick=[this]{musicalMenu(true,&bpmButton);};
     options.onClick=[this]{optionsMenu();};
@@ -132,10 +133,12 @@ LibraryBrowserView::LibraryBrowserView(
             {
                 std::lock_guard lock(waveMutex);
                 if(cancel->load())continue;
-                if(waveCache.size()>=96){
-                    waveRequested.erase(waveCache.begin()->first);
-                    waveCache.erase(waveCache.begin());
+                if(waveCache.size()>=waveCapacity){
+                    const auto oldest=std::min_element(waveCache.begin(),waveCache.end(),[](const auto& a,const auto& b){return a.second.lastUse<b.second.lastUse;});
+                    waveRequested.erase(oldest->first);
+                    waveCache.erase(oldest);
                 }
+                decoded.lastUse=++waveUse;
                 waveCache[item.key]=std::move(decoded);
             }
             wavesReady.fetch_add(1,std::memory_order_release);
@@ -227,10 +230,11 @@ void LibraryBrowserView::resized(){
     line=area.removeFromTop(25);const int tab=std::max(1,(line.getWidth()-48)/3);
     foldersTab.setBounds(line.removeFromLeft(tab));tagsTab.setBounds(line.removeFromLeft(tab));collectionsTab.setBounds(line.removeFromLeft(tab));favorites.setBounds(line);
     const bool narrow=getWidth()<440;
-    area.removeFromTop(5);line=area.removeFromTop(25);const int filter=std::max(1,line.getWidth()/(narrow?3:5));
-    instruments.setBounds(line.removeFromLeft(filter));genres.setBounds(line.removeFromLeft(filter));typeButton.setBounds(line.removeFromLeft(filter));
-    if(narrow){area.removeFromTop(4);line=area.removeFromTop(25);keyButton.setBounds(line.removeFromLeft(line.getWidth()/2));bpmButton.setBounds(line);}
-    else {keyButton.setBounds(line.removeFromLeft(filter));bpmButton.setBounds(line);}
+    area.removeFromTop(5);line=area.removeFromTop(25);const int filter=std::max(1,line.getWidth()/(narrow?3:6));
+    instruments.setBounds(line.removeFromLeft(filter));genres.setBounds(line.removeFromLeft(filter));packButton.setBounds(line.removeFromLeft(filter));
+    if(narrow){area.removeFromTop(4);line=area.removeFromTop(25);}
+    const int remaining=std::max(1,line.getWidth()/3);
+    typeButton.setBounds(line.removeFromLeft(remaining));keyButton.setBounds(line.removeFromLeft(remaining));bpmButton.setBounds(line);
     area.removeFromTop(4);line=area.removeFromTop(24);clearFilters.setBounds(line.removeFromRight(44));activeFilters.setBounds(line.removeFromLeft(70));
     for(auto& chip:chips){const int width=std::min(100,line.getWidth());chip->setVisible(width>=44);chip->setBounds(line.removeFromLeft(width));}
     area.removeFromTop(5);line=area.removeFromTop(24);back.setBounds(line.removeFromLeft(44));listGrid.setBounds(line.removeFromRight(44));
@@ -361,7 +365,7 @@ void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,in
         g.setColour(muted());g.setFont(juce::Font(juce::FontOptions(11.f)));
         juce::String tags;
         for(const auto& t:item.tags)if(t.group=="Type"&&t.status!="rejected"){if(tags.isNotEmpty())tags+=", ";tags+=uiText(t.label);}
-        for(const auto& t:item.tags)if(t.group!="Type"&&t.status!="rejected"){if(tags.isNotEmpty())tags+=", ";tags+=uiText(t.label);}
+        for(const auto& t:item.tags)if(t.group!="Type"&&t.group!="Pack"&&t.status!="rejected"){if(tags.isNotEmpty())tags+=", ";tags+=uiText(t.label);}
         g.drawFittedText(tags,shifted(layout.wave.isEmpty()?layout.tags.withTrimmedRight(20):layout.tags),juce::Justification::centredLeft,1);
         const char* instrument="wave";
         for(const auto& tag:item.tags)if(tag.group=="Instrument"&&tag.status!="rejected"){
@@ -393,8 +397,11 @@ LibraryBrowserView::RowLayout LibraryBrowserView::rowLayout(int width,int height
     layout.cover={6,(height-art)/2,art,art};layout.control={art+14,(height-24)/2,24,24};
     const int text=layout.control.getRight()+8;
     int end=std::max(text+1,width-30);
-    if(width>=560){
-        const int span=std::clamp(width/5,96,160);int waveX=width-30-span;
+    // Keep at least 150 px for the filename and 64 px for the waveform;
+    // shrink the common filename column before hiding a usable waveform.
+    const int available=width-30-text-32-150;
+    if(available>=64){
+        const int span=std::min(available,std::clamp(width/5,64,160));int waveX=width-30-span;
         waveX=std::min(waveX,text+pageNameWidth+32);
         layout.wave={waveX,(height-20)/2,span,20};layout.instrument={waveX-24,(height-16)/2,16,16};end=waveX-32;
     }
@@ -576,7 +583,7 @@ std::optional<LibraryBrowserView::RowWave> LibraryBrowserView::rowWave(
     const auto cacheKey=waveKey(asset);
     if(cacheKey.empty())return {};
     std::lock_guard lock(waveMutex);
-    if(const auto found=waveCache.find(cacheKey);found!=waveCache.end())return found->second;
+    if(const auto found=waveCache.find(cacheKey);found!=waveCache.end()){found->second.lastUse=++waveUse;return found->second;}
     if(waveQueue.size()<20&&waveRequested.insert(cacheKey).second){
         waveQueue.push_back({cacheKey,view,asset.id,waveCancel});
         waveWake.notify_one();
@@ -752,7 +759,7 @@ void LibraryBrowserView::rowMenu(std::size_t index,juce::Point<int> point){
     menu.addSubMenu("Add to collection",add);menu.addItem(2,"Create collection...");
     if(query.collection_id)menu.addItem(3,"Remove from this collection");
     auto tagMenu=popupMenu();
-    const std::array<std::string,7> tagGroups={"Instrument","Genre","Type","Technique","Rhythm","Character","Custom"};
+    const std::array<std::string,8> tagGroups={"Instrument","Genre","Pack","Type","Technique","Rhythm","Character","Custom"};
     for(std::size_t i=0;i<tagGroups.size();++i)tagMenu.addItem(400+static_cast<int>(i),uiText(tagGroups[i]));
     menu.addSubMenu("Add tag",tagMenu);menu.addItem(5,"Show WAV in Explorer",path.has_value());menu.addItem(6,"Show containing folder",path.has_value());
     juce::Component::SafePointer<LibraryBrowserView> safe(this);const auto collections=view->collections;const auto collection=query.collection_id;
@@ -761,7 +768,7 @@ void LibraryBrowserView::rowMenu(std::size_t index,juce::Point<int> point){
         if(choice==1)safe->library.set_favorites(ids,!item.favorite);
         else if(choice==2)safe->prompt("New collection",{},[safe](juce::String value){if(safe&&value.isNotEmpty())safe->library.create_collection(value.toStdString());});
         else if(choice==3)safe->library.set_collection_items(collection,ids,false);
-        else if(choice>=400&&choice<407){const auto group=tagGroups[static_cast<std::size_t>(choice-400)];
+        else if(choice>=400&&choice<400+static_cast<int>(tagGroups.size())){const auto group=tagGroups[static_cast<std::size_t>(choice-400)];
             safe->prompt("New "+uiText(group)+" tag",{},[safe,ids,group](juce::String label){if(safe&&label.isNotEmpty())safe->library.add_tag(ids,group,label.toStdString());});}
         else if(choice==5&&path)juce::File(pathText(*path)).revealToUser();
         else if(choice==6&&path)juce::File(pathText(path->parent_path())).revealToUser();

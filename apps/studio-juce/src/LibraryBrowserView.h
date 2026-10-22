@@ -76,6 +76,7 @@ private:
     struct RowWave {
         mrs::library::WavPreview wav;
         std::string error;
+        std::uint64_t lastUse{};
     };
     std::optional<RowWave> rowWave(const mrs::library::AudioAsset&);
     std::string waveKey(const mrs::library::AudioAsset&) const;
@@ -108,7 +109,7 @@ private:
     std::uint64_t revision{};
     juce::TextButton foldersTab{"Folders"},tagsTab{"Tags"},collectionsTab{"Collections"};
     juce::TextButton favorites{"Likes"},clearFilters{"Clear"},listGrid{"Grid"},back{"Back"},options{"..."};
-    juce::TextButton instruments{"Instruments"},genres{"Genres"},keyButton{"Key"},bpmButton{"BPM"},typeButton{"Type"},activeFilters{"Filters"};
+    juce::TextButton instruments{"Instruments"},genres{"Genres"},packButton{"Pack"},keyButton{"Key"},bpmButton{"BPM"},typeButton{"Type"},activeFilters{"Filters"};
     std::vector<std::unique_ptr<juce::TextButton>> chips;
     juce::TextButton prevPage{"<"},nextPage{">"},stopPreview{"Stop"};
     juce::TextButton previousSound{"< Section"},playPause{"Play"},nextSound{"Section >"};
@@ -140,6 +141,8 @@ private:
     std::deque<WaveTask> waveQueue;
     std::set<std::string> waveRequested;
     std::map<std::string,RowWave> waveCache;
+    std::uint64_t waveUse{}; // protected by waveMutex; recency, never key order
+    static constexpr std::size_t waveCapacity=384; // entire maximum 300-asset page + queued work
     std::atomic<std::uint64_t> wavesReady{0};
     std::uint64_t wavesPainted{};
     std::unique_ptr<juce::FileChooser> imageChooser;

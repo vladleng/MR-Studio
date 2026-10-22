@@ -282,12 +282,15 @@ void classify_assets(Database& d,const std::optional<std::int64_t> source = {}) 
     Statement put(d,"INSERT OR IGNORE INTO asset_tags(asset_id,tag_id,origin,status,confidence) VALUES(?,?,?,'proposed',?)");
     Statement typed(d,"UPDATE assets SET bpm_auto=?,key_auto=? WHERE id=?");
     Statement manualType(d,"SELECT 1 FROM asset_tags at JOIN tags t ON t.id=at.tag_id WHERE at.asset_id=? AND t.group_name='Type' AND at.status='confirmed' LIMIT 1");
+    Statement manualPack(d,"SELECT 1 FROM asset_tags at JOIN tags t ON t.id=at.tag_id WHERE at.asset_id=? AND t.group_name='Pack' AND at.status='confirmed' LIMIT 1");
     for(const auto& item:items){
         const auto suggestion=classify_sample_path(item.path,rules);
         clear.reset();clear.number(1,item.id);clear.done();
         manualType.reset();manualType.number(1,item.id);const bool hasManualType=manualType.next();manualType.reset();
+        manualPack.reset();manualPack.number(1,item.id);const bool hasManualPack=manualPack.next();manualPack.reset();
         for(const auto& tag:suggestion.tags){
             if(tag.group=="Type"&&hasManualType)continue;
+            if(tag.group=="Pack"&&hasManualPack)continue;
             make.reset();make.str(1,tag.group);make.str(2,tag.label);make.done();
             find.reset();find.str(1,tag.group);find.str(2,tag.label);
             if(!find.next())throw std::runtime_error("MR Library tag unavailable");
@@ -301,12 +304,12 @@ void classify_assets(Database& d,const std::optional<std::int64_t> source = {}) 
     }
 }
 bool allowed_group(const std::string& value) {
-    for(const auto* name:{"Instrument","Genre","Type","Technique","Rhythm","Character","Custom"})
+    for(const auto* name:{"Instrument","Genre","Pack","Type","Technique","Rhythm","Character","Custom"})
         if(value==name)return true;
     return false;
 }
 void valid_tag(const std::string& group,const std::string& label){
-    if(!allowed_group(group)||label.empty()||label.size()>96||(group=="Type"&&label!="Loop"&&label!="One-shot"))throw std::invalid_argument("Invalid tag name/group");
+    if(!allowed_group(group)||label.empty()||label.size()>(group=="Pack"?512u:96u)||(group=="Type"&&label!="Loop"&&label!="One-shot"))throw std::invalid_argument("Invalid tag name/group");
 }
 bool is_reparse(const fs::path& file) {
 #ifdef _WIN32
@@ -488,7 +491,7 @@ struct SampleLibrary::Impl {
         }
         std::map<std::string,std::set<std::string>> groups;
         for(const auto& filter:q.tags)
-            if(allowed_group(filter.group)&&!filter.label.empty()&&filter.label.size()<=96)
+            if(allowed_group(filter.group)&&!filter.label.empty()&&filter.label.size()<=(filter.group=="Pack"?512u:96u))
                 groups[filter.group].insert(filter.label);
         for(const auto& [group,values]:groups){
             where+=" AND EXISTS (SELECT 1 FROM asset_tags at JOIN tags t ON t.id=at.tag_id"
@@ -502,7 +505,7 @@ struct SampleLibrary::Impl {
             where+="))";
         }
         for(const auto& filter:q.excluded_tags){
-            if(!allowed_group(filter.group)||filter.label.empty()||filter.label.size()>96)continue;
+            if(!allowed_group(filter.group)||filter.label.empty()||filter.label.size()>(filter.group=="Pack"?512u:96u))continue;
             where+=" AND NOT EXISTS (SELECT 1 FROM asset_tags xt JOIN tags t ON t.id=xt.tag_id WHERE xt.asset_id=a.id"
                 " AND xt.status<>'rejected' AND t.group_name=? AND t.label=?)";
             params.push_back(filter.group);params.push_back(filter.label);
@@ -864,8 +867,8 @@ struct SampleLibrary::Impl {
                 Statement upsert(d,"INSERT INTO asset_tags(asset_id,tag_id,origin,status,confidence)"
                     " VALUES(?,?,?, ?,?) ON CONFLICT(asset_id,tag_id) DO UPDATE SET"
                     " origin=excluded.origin,status=excluded.status,confidence=excluded.confidence");
-                Statement logOtherType(d,"INSERT INTO tag_edit_history(batch_id,asset_id,tag_id,existed,prior_origin,prior_status,prior_confidence) SELECT ?,at.asset_id,at.tag_id,1,at.origin,at.status,at.confidence FROM asset_tags at JOIN tags t ON t.id=at.tag_id WHERE at.asset_id=? AND t.group_name='Type' AND at.tag_id<>? AND at.status<>'rejected'");
-                Statement removeOtherType(d,"DELETE FROM asset_tags WHERE asset_id=? AND tag_id<>? AND status<>'rejected' AND tag_id IN (SELECT id FROM tags WHERE group_name='Type')");
+                Statement logOtherType(d,"INSERT INTO tag_edit_history(batch_id,asset_id,tag_id,existed,prior_origin,prior_status,prior_confidence) SELECT ?,at.asset_id,at.tag_id,1,at.origin,at.status,at.confidence FROM asset_tags at JOIN tags t ON t.id=at.tag_id WHERE at.asset_id=? AND t.group_name=? AND at.tag_id<>? AND at.status<>'rejected'");
+                Statement removeOtherType(d,"DELETE FROM asset_tags WHERE asset_id=? AND tag_id<>? AND status<>'rejected' AND tag_id IN (SELECT id FROM tags WHERE group_name=?)");
                 Statement oldMeta(d,"SELECT bpm_manual,key_manual FROM assets WHERE id=?");
                 Statement logMeta(d,"INSERT INTO metadata_edit_history(batch_id,asset_id,prior_bpm,prior_key) VALUES(?,?,?,?)");
                 Statement putBpm(d,"UPDATE assets SET bpm_manual=? WHERE id=?");
@@ -884,9 +887,9 @@ struct SampleLibrary::Impl {
                     if(!exists.next())throw std::invalid_argument("Selected WAV was removed; refresh catalogue");
                     exists.reset();
                     if(c.kind==Kind::tag||c.kind==Kind::tag_status){
-                        if(c.group=="Type"&&(c.kind==Kind::tag||c.status=="confirmed")){
-                            logOtherType.reset();logOtherType.number(1,batch_id);logOtherType.number(2,id);logOtherType.number(3,tag_id);logOtherType.done();
-                            removeOtherType.reset();removeOtherType.number(1,id);removeOtherType.number(2,tag_id);removeOtherType.done();
+                        if((c.group=="Type"||c.group=="Pack")&&(c.kind==Kind::tag||c.status=="confirmed")){
+                            logOtherType.reset();logOtherType.number(1,batch_id);logOtherType.number(2,id);logOtherType.str(3,c.group);logOtherType.number(4,tag_id);logOtherType.done();
+                            removeOtherType.reset();removeOtherType.number(1,id);removeOtherType.number(2,tag_id);removeOtherType.str(3,c.group);removeOtherType.done();
                         }
                         prior.reset();prior.number(1,id);prior.number(2,tag_id);
                         const bool existed=prior.next();

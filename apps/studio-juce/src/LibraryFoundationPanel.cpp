@@ -104,8 +104,8 @@ LibraryFoundationPanel::LibraryFoundationPanel(
     bpmValue.setTextToShowWhenEmpty("BPM (95 / 0 / blank)",juce::Colours::grey);
     keyValue.setTextToShowWhenEmpty("Key (Am / - / blank)",juce::Colours::grey);
     suggestedTags.setTextWhenNothingSelected("Select detected tag...");
-    static constexpr const char* groups[]={"Instrument","Genre","Type","Technique","Rhythm","Character","Custom"};
-    for(int i=0;i<7;++i)tagGroup.addItem(groups[i],i+1);
+    static constexpr const char* groups[]={"Instrument","Genre","Pack","Type","Technique","Rhythm","Character","Custom"};
+    for(const auto* group:groups)tagGroup.addItem(group,tagGroup.getNumItems()+1);
     tagGroup.setSelectedId(1,juce::dontSendNotification);
     tagInfo.setText("Proposed / confirmed / rejected tags; select WAVs for bulk edits",
                     juce::dontSendNotification);
@@ -131,7 +131,7 @@ LibraryFoundationPanel::LibraryFoundationPanel(
         if(tag<0||tag>=static_cast<int>(items.size()))return;
         tagLabel.setText(text(items[static_cast<std::size_t>(tag)].label),juce::dontSendNotification);
         const auto& group=items[static_cast<std::size_t>(tag)].group;
-        for(int i=0;i<7;++i)if(group==groups[i])tagGroup.setSelectedId(i+1,juce::dontSendNotification);
+        for(int i=0;i<tagGroup.getNumItems();++i)if(group==groups[i])tagGroup.setSelectedId(i+1,juce::dontSendNotification);
     };
     addTag.onClick=[this]{
         const auto ids=selectedAssetIds();if(!ids.empty())library.add_tag(ids,

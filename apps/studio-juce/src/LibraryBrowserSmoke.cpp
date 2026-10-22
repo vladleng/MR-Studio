@@ -38,6 +38,10 @@ void libraryBrowserSmoke(){
     check(browser.cards.empty()&&browser.assetIndex(0,0)==0,"Folder navigation must preserve WAV indices");
     check(browser.results.getRowHeight()==60,"Sample rows stay compact without a separate waveform lane");
     check(browser.rowLayout(260,60).wave.isEmpty(),"Narrow results hide waveforms");
+    for(int width:{380,440,500,559}){
+        const auto compact=browser.rowLayout(width,60);
+        check(compact.wave.getWidth()>=64&&compact.wave.getRight()<=width-30&&compact.title.getWidth()>=150,"Waveforms remain visible when medium-width rows still have room");
+    }
     const auto wide=browser.rowLayout(960,60);
     check(wide.wave.getWidth()<=160&&wide.wave.getX()>wide.title.getRight()&&wide.wave.getBottom()<=60,"Wide waveform stays short, beside filename and inside row");
     check(wide.instrument.getCentreY()==wide.wave.getCentreY()&&wide.instrument.getRight()<wide.wave.getX()&&wide.title.getRight()<wide.instrument.getX(),"Instrument and waveform share a horizontal line after the filename column");
@@ -46,9 +50,25 @@ void libraryBrowserSmoke(){
     const auto font=Theme::detailFont().withHeight(14.f).boldened();int widest{};
     for(const auto& item:browser.view->assets){const auto at=item.relative_path.find_last_of('/');widest=std::max(widest,juce::GlyphArrangement::getStringWidthInt(font,juce::String(item.relative_path.substr(at==std::string::npos?0:at+1)))+2);}
     check(browser.pageNameWidth==widest&&wide.title.getWidth()==widest,"Wave and instrument columns align to longest filename on current page");
+    browser.invalidatePreview();
+    const auto firstWave=browser.waveKey(browser.view->assets.front());
+    {
+        std::lock_guard lock(browser.waveMutex);
+        for(std::size_t i=0;i<browser.waveCapacity-1;++i){LibraryBrowserView::RowWave stale;stale.lastUse=++browser.waveUse;browser.waveCache.emplace("zz-stale-"+std::to_string(i),std::move(stale));}
+        LibraryBrowserView::RowWave visible;visible.wav.peaks.fill(.25f);visible.lastUse=++browser.waveUse;browser.waveCache.emplace(firstWave,std::move(visible));
+    }
+    check(browser.rowWave(browser.view->assets.front()).has_value(),"Painted waveform remains cached");
+    const auto untilWave=std::chrono::steady_clock::now()+std::chrono::seconds(10);
+    while(!browser.rowWave(browser.view->assets[1])&&std::chrono::steady_clock::now()<untilWave)std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    {
+        std::lock_guard lock(browser.waveMutex);
+        check(browser.waveCache.contains(browser.waveKey(browser.view->assets[1]))&&browser.waveCache.contains(firstWave)&&!browser.waveCache.contains("zz-stale-0"),"Worker completion evicts the oldest unused wave, never the visible lexically first key");
+        check(browser.waveCache.size()==browser.waveCapacity&&browser.waveCapacity>=300,"Bounded waveform cache holds a complete maximum results page");
+    }
     const auto point=juce::Point<int>{123,234};
     check(browser.popupOptions(&browser.results,point).getTargetScreenArea()==juce::Rectangle<int>{123,234,1,1},"Context menu anchors at exact screen click rather than full list bounds");
     check(browser.back.getY()==browser.counter.getY()&&browser.breadcrumb.getY()==browser.counter.getY(),"Back and location share the results toolbar row");
+    check(browser.packButton.getX()>browser.genres.getX()&&browser.packButton.getY()==browser.genres.getY(),"Pack chooser follows Genres");
     check(browser.stopPreview.getWidth()==28&&browser.stopPreview.getHeight()==24,"Player does not reserve an oversized Stop field");
     mrs::library::AudioAsset unknown;unknown.id=-1;check(browser.rowGlyph(unknown,false,false)=="unknown","Unknown type must not masquerade as One-shot");
     check(browser.rowGlyph(browser.view->assets[0],false,false)=="loop"&&browser.rowGlyph(browser.view->assets[1],false,false)=="sample_one_shot","Loop and One-shot have separate glyphs");
@@ -102,7 +122,7 @@ void libraryBrowserSmoke(){
     browser.setSize(440,640);browser.listGrid.onClick();
     check(browser.gridView,"Grid mode uses a single WAV card");
     snapshot("samples-440");
-    for(const auto* component:std::array<const juce::Component*,7>{&browser.search,&browser.instruments,&browser.genres,&browser.typeButton,&browser.keyButton,&browser.bpmButton,&browser.results})
+    for(const auto* component:std::array<const juce::Component*,8>{&browser.search,&browser.instruments,&browser.genres,&browser.packButton,&browser.typeButton,&browser.keyButton,&browser.bpmButton,&browser.results})
         check(browser.getLocalBounds().contains(component->getBounds()),"Library controls escape narrow/wide browser bounds");
     browser.chooseSection(LibraryBrowserView::Section::tags);pump([&](const auto& snap){return snap.query==browser.query&&snap.phase==mrs::library::Phase::idle;});
     check(browser.rootMode&&!browser.cards.empty()&&browser.cards.front().kind=="group","Tags root needs category cover cards");
