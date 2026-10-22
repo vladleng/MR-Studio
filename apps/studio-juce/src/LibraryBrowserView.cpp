@@ -234,6 +234,7 @@ void LibraryBrowserView::updateVisibility(){
     collectionsTab.setToggleState(section==Section::collections,juce::dontSendNotification);
 }
 void LibraryBrowserView::resized(){
+    const auto selected=selectedAssets();const auto oldCardRows=cardRows(),oldColumns=columns();
     auto area=getLocalBounds().reduced(6);
     auto line=area.removeFromTop(26);options.setBounds(line.removeFromRight(30));search.setBounds(line);area.removeFromTop(5);
     line=area.removeFromTop(25);const int tab=std::max(1,(line.getWidth()-48)/3);
@@ -251,6 +252,11 @@ void LibraryBrowserView::resized(){
     breadcrumb.setBounds(line.removeFromLeft(line.getWidth()*2/3));counter.setBounds(line);counter.setTooltip(counter.getText());
     area.removeFromTop(4);auto footer=area.removeFromBottom(24);prevPage.setBounds(footer.removeFromLeft(22));nextPage.setBounds(footer.removeFromLeft(22));previousSound.setBounds(footer.removeFromLeft(32));playPause.setBounds(footer.removeFromLeft(40));nextSound.setBounds(footer.removeFromLeft(32));stopPreview.setBounds(footer.removeFromLeft(28));
     area.removeFromBottom(4);details.setBounds(area.removeFromBottom(42));area.removeFromBottom(4);results.setBounds(area);results.updateContent();
+    if(view&&(oldCardRows!=cardRows()||(gridView&&oldColumns!=columns()))){
+        results.deselectAllRows();
+        for(std::size_t i=0;i<view->assets.size();++i)if(std::find(selected.begin(),selected.end(),view->assets[i].id)!=selected.end())
+            results.selectRow(cardRows()+static_cast<int>(i)/(gridView?columns():1),true,false);
+    }
 }
 void LibraryBrowserView::paint(juce::Graphics& g){
     g.fillAll(juce::Colour(surface));
@@ -282,7 +288,21 @@ std::vector<std::int64_t> LibraryBrowserView::selectedAssets() const {
     return ids;
 }
 int LibraryBrowserView::columns() const{return results.getWidth()>=380?2:1;}
-int LibraryBrowserView::cardRows() const{return static_cast<int>((cards.size()+static_cast<std::size_t>(columns())-1)/static_cast<std::size_t>(columns()));}
+bool LibraryBrowserView::largeCards() const{return section==Section::folders||(section==Section::tags&&tagPath=="Pack");}
+int LibraryBrowserView::cardColumns() const{return largeCards()?std::clamp(results.getWidth()/128,1,4):columns();}
+int LibraryBrowserView::cardRowSpan() const{
+    // Navigation cards span ListBox rows so sample rows can retain their compact
+    // height when folders and WAVs appear together in the same scrolling list.
+    const auto rowHeight=results.getRowHeight();
+    return largeCards()?std::max(1,(results.getWidth()/cardColumns()+56+rowHeight-1)/rowHeight):1;
+}
+int LibraryBrowserView::cardIndex(int row,int x) const{
+    if(row<0||row>=cardRows())return -1;
+    const auto cols=cardColumns(),cell=std::max(1,results.getWidth()/cols);
+    const auto index=(row/cardRowSpan())*cols+std::clamp(x/cell,0,cols-1);
+    return index<static_cast<int>(cards.size())?index:-1;
+}
+int LibraryBrowserView::cardRows() const{return static_cast<int>((cards.size()+static_cast<std::size_t>(cardColumns())-1)/static_cast<std::size_t>(cardColumns()))*cardRowSpan();}
 int LibraryBrowserView::assetIndex(int row,int x) const {
     if(rootMode||row<cardRows())return -1;
     return (row-cardRows())*(gridView?columns():1)+(gridView&&columns()==2&&x>=results.getWidth()/2?1:0);
@@ -322,21 +342,25 @@ juce::Image LibraryBrowserView::thumbnail(const mrs::library::AudioAsset& asset)
 void LibraryBrowserView::paintListBoxItem(int row,juce::Graphics& g,int width,int height,bool selected){
     if(!view)return;
     if(row<cardRows()){
-        const int cols=columns(),cell=width/cols;
-        for(int col=0;col<cols;++col){const auto index=row*cols+col;if(index>=static_cast<int>(cards.size()))break;
+        const int cols=cardColumns(),cell=width/cols,span=cardRowSpan();
+        const int top=-(row%span)*height,cardHeight=span*height;
+        for(int col=0;col<cols;++col){const auto index=(row/span)*cols+col;if(index>=static_cast<int>(cards.size()))break;
             const auto& card=cards[static_cast<std::size_t>(index)];const int x=col*cell;
-            g.setColour(juce::Colour(0xff222b38));g.fillRoundedRectangle(static_cast<float>(x+2),2.f,static_cast<float>(cell-5),static_cast<float>(height-4),4.f);
-            mrs::library::AudioAsset art;art.source_id=card.owner;art.relative_path=card.key+"/item.wav";art.artwork_path=card.cover;
+            g.setColour(juce::Colour(0xff222b38));g.fillRoundedRectangle(static_cast<float>(x+2),static_cast<float>(top+2),static_cast<float>(cell-5),static_cast<float>(cardHeight-4),4.f);
+            mrs::library::AudioAsset art;art.source_id=card.artSource?card.artSource:card.owner;art.relative_path=(card.group=="Pack"?std::string{}:card.key)+"/item.wav";art.artwork_path=card.cover;
             auto cover=coverFor(card);juce::Image bitmap;
             if(cover.starts_with("managed:"))bitmap=cachedImage(juce::File(pathText(view->artwork_root)).getChildFile(uiText(cover.substr(8))));
-            else if(card.kind=="folder")bitmap=thumbnail(art);
-            if(bitmap.isValid())g.drawImageWithin(bitmap,x+6,8,50,50,juce::RectanglePlacement::centred,false);
-            else if(const auto icon=instrumentArt.find("folder");icon!=instrumentArt.end()&&icon->second)icon->second->drawWithin(g,{static_cast<float>(x+12),14,36,36},juce::RectanglePlacement::centred,1.f);
-            g.setColour(juce::Colours::whitesmoke);g.setFont(Theme::detailFont());g.drawFittedText(uiText(card.label),x+62,6,std::max(1,cell-84),28,juce::Justification::centredLeft,2);
+            else if(card.kind=="folder"||card.group=="Pack")bitmap=thumbnail(art);
+            const bool large=largeCards();const int side=large?std::max(1,cell-16):50;
+            const juce::Rectangle<int> coverArea{x+(large?8:6),top+8,side,side};
+            if(bitmap.isValid())g.drawImageWithin(bitmap,coverArea.getX(),coverArea.getY(),side,side,juce::RectanglePlacement::centred|juce::RectanglePlacement::fillDestination,false);
+            else if(const auto icon=instrumentArt.find("folder");icon!=instrumentArt.end()&&icon->second)icon->second->drawWithin(g,coverArea.toFloat().reduced(large?side*.16f:7.f),juce::RectanglePlacement::centred,1.f);
+            g.setColour(juce::Colours::whitesmoke);g.setFont(large?Theme::detailFont().withHeight(14.f).boldened():Theme::detailFont());
+            g.drawFittedText(uiText(card.label),x+(large?8:62),top+(large?side+12:6),std::max(1,cell-(large?16:84)),large?36:28,large?juce::Justification::centredTop:juce::Justification::centredLeft,2,large?1.f:.7f);
             g.setColour(muted());g.setFont(juce::Font(juce::FontOptions(10.f)));
             const auto caption=card.kind=="group"?juce::String("Browse tags"):card.kind=="folder"&&!card.key.empty()?juce::String("Open folder"):juce::String(static_cast<juce::int64>(card.count))+" WAV";
-            g.drawFittedText(caption,x+62,36,std::max(1,cell-68),16,juce::Justification::centredLeft,1);
-            g.drawText("...",x+40,6,20,20,juce::Justification::centred);
+            g.drawFittedText(caption,x+(large?8:62),top+(large?cardHeight-20:36),std::max(1,cell-(large?16:68)),16,large?juce::Justification::centred:juce::Justification::centredLeft,1);
+            g.drawText("...",x+(large?cell-28:40),top+6,20,20,juce::Justification::centred);
         }return;
     }
     if(rootMode)return;
@@ -483,9 +507,11 @@ void LibraryBrowserView::listBoxItemClicked(int row,const juce::MouseEvent& even
     if(!view)return;
     if(results.isShowing())results.grabKeyboardFocus();
     if(row<cardRows()){
-        const int cell=results.getWidth()/columns(),col=std::clamp(event.x/std::max(1,cell),0,columns()-1),index=row*columns()+col;
+        const int cell=std::max(1,results.getWidth()/cardColumns()),index=cardIndex(row,event.x);
+        if(index<0)return;
         if(index>=static_cast<int>(cards.size()))return;const auto card=cards[static_cast<std::size_t>(index)];
-        if(event.mods.isPopupMenu()||(event.x%cell>=38&&event.x%cell<=62&&event.y<30))coverMenu(card,&results,event.getScreenPosition());else openCard(card);return;
+        const auto menuX=largeCards()?cell-30:38;
+        if(event.mods.isPopupMenu()||(event.x%cell>=menuX&&event.x%cell<=menuX+24&&(row%cardRowSpan())*results.getRowHeight()+event.y<30))coverMenu(card,&results,event.getScreenPosition());else openCard(card);return;
     }
     const int index=assetIndex(row,event.x);if(index<0||index>=static_cast<int>(view->assets.size()))return;
     if(gridView)gridSelected=index;
@@ -659,7 +685,7 @@ void LibraryBrowserView::rebuildCards(){
     juce::String location=section==Section::folders?"Libraries":section==Section::tags?uiText(tagPath.empty()?"Tags":tagPath):juce::String("Collections");
     if(section==Section::folders&&query.source_id>0){
         const auto source=std::find_if(view->sources.begin(),view->sources.end(),[this](const auto& entry){return entry.id==query.source_id;});
-        if(source!=view->sources.end())location=pathText(source->root.filename());
+        if(source!=view->sources.end())location=uiText(mrs::library::source_folder_name(source->root));
         if(!query.folder.empty())location+=" / "+uiText(query.folder);
     }
     if(section==Section::collections&&query.collection_id>0){
@@ -670,7 +696,7 @@ void LibraryBrowserView::rebuildCards(){
     if(section==Section::folders&&(rootMode||query.source_id>0)){
         if(query.source_id==0){for(const auto& source:view->sources)if(source.enabled){
             std::string cover;for(const auto& folder:view->folders)if(folder.source_id==source.id&&folder.relative_path.empty())cover=folder.artwork_path;
-            cards.push_back({"folder",pathText(source.root.filename()).toStdString(),"","",cover,source.id,source.available});}}
+            cards.push_back({"folder",mrs::library::source_folder_name(source.root),"","",cover,source.id,source.available});}}
         else for(const auto& folder:view->folders){
             if(folder.source_id!=query.source_id||folder.relative_path.empty())continue;
             const auto slash=folder.relative_path.find_last_of('/');const auto parent=slash==std::string::npos?"":folder.relative_path.substr(0,slash);
@@ -682,7 +708,15 @@ void LibraryBrowserView::rebuildCards(){
         std::set<std::string> groups;
         for(const auto& facet:view->all_facets){
             if(tagPath.empty()){if(groups.insert(facet.group).second)cards.push_back({"group",facet.group,facet.group,"","",0,0});}
-            else if(facet.group==tagPath)cards.push_back({"tag",facet.label,facet.group+"|"+facet.label,facet.group,"",0,facet.count});
+            else if(facet.group==tagPath){
+                Card card{"tag",facet.label,facet.group+"|"+facet.label,facet.group,"",0,facet.count};
+                if(facet.group=="Pack")for(const auto& source:view->sources)if(source.enabled&&mrs::library::source_folder_name(source.root)==facet.label){
+                    card.artSource=source.id;
+                    for(const auto& folder:view->folders)if(folder.source_id==source.id&&folder.relative_path.empty())card.cover=folder.artwork_path;
+                    break;
+                }
+                cards.push_back(std::move(card));
+            }
         }
     }
     results.deselectAllRows();

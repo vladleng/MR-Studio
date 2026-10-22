@@ -51,12 +51,16 @@ private:
     void rowMenu(std::size_t,juce::Point<int>);
     void optionsMenu();
     void prompt(juce::String title,juce::String initial,std::function<void(juce::String)>);
-    struct Card {std::string kind,label,key,group,cover;std::int64_t owner{};std::uint64_t count{};};
+    struct Card {std::string kind,label,key,group,cover;std::int64_t owner{};std::uint64_t count{};std::int64_t artSource{};};
     void openCard(const Card&);
     void coverMenu(Card,juce::Component*,std::optional<juce::Point<int>> point={});
     void chooseArtwork(Card,bool clear);
     std::string coverFor(const Card&) const;
     int columns() const;
+    bool largeCards() const;
+    int cardColumns() const;
+    int cardRowSpan() const;
+    int cardIndex(int row,int x) const;
     int cardRows() const;
     int assetIndex(int row,int x) const;
     juce::Image cachedImage(const juce::File&);

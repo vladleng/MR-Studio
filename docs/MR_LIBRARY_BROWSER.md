@@ -87,12 +87,18 @@ features; folder-scan cancellation still restores the previous complete index.
 See [Smart Audio Search](MR_LIBRARY_SMART_SEARCH.md) for BPM/key, feature comparison,
 progress controls, saved searches, accuracy audit and limits.
 
-Pack follows Genres in the filter row. It is indexed from the named folder before
-the first conventional content category (Drums, Loops, FX, etc.), otherwise the
-first child folder beneath the source; a source pointed at a pack retains its own
-name. This is folder-derived metadata, not a vendor identity lookup. Pack supports
+Pack follows Genres in the filter row. Its automatic value is the name of the
+folder added as a library source. Internal vendor/category folders remain folder
+navigation and never create additional automatic Packs. Existing automatic values
+are refreshed when the catalogue opens; no rescan is required. Pack supports
 the same inclusion/exclusion, full-query counts and pagination as other tag groups.
 Confirmed manual Pack metadata suppresses automatic alternatives.
+
+Folder and Pack navigation use large square covers with the same 14 px bold title
+font as samples. The adaptive grid fits four cards at normal browser widths and
+reduces its column count in narrow windows. Pack cards inherit their source cover;
+the context menu can still override an individual card cover. Sample rows retain
+their compact height, including folders and samples shown together.
 
 ## Covers and persistence
 

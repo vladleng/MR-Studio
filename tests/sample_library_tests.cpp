@@ -639,14 +639,31 @@ void pack_type_search(){
     Fixture fixture;const auto root=fixture.root/"Library";
     for(const auto* path:{"KSHMR/Drums/Snaps/KSHMR Snap - Compact.wav","KSHMR/Drums/Snaps/Roomy.wav",
         "KSHMR/Loops/Snap.wav","Cymatics/Drums/Cymatics - Gold Modern Crash 20.wav","Cymatics/Loops/Crash.wav"})wav(root/path);
-    SampleLibrary lib(fixture.root/"pack.sqlite");lib.add_source(root);
+    {
+        SampleLibrary aggregate(fixture.root/"aggregate.sqlite");aggregate.add_source(root/"");
+        auto all=wait_for(aggregate,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==5;});
+        check(std::count_if(all->facets.begin(),all->facets.end(),[](const auto& f){return f.group=="Pack";})==1&&
+            std::any_of(all->facets.begin(),all->facets.end(),[](const auto& f){return f.group=="Pack"&&f.label=="Library"&&f.count==5;}),
+            "Only the added source is a Pack; nested vendor/category folders are navigation");
+    }
+    sqlite3* stale{};const auto catalogueName=(fixture.root/"aggregate.sqlite").generic_u8string();
+    check(sqlite3_open(reinterpret_cast<const char*>(catalogueName.c_str()),&stale)==SQLITE_OK,"Open Pack refresh fixture");
+    check(sqlite3_exec(stale,"UPDATE tags SET label='Nested stale folder' WHERE group_name='Pack' AND label='Library'",nullptr,nullptr,nullptr)==SQLITE_OK,"Seed an outdated automatic Pack");sqlite3_close(stale);
+    {
+        SampleLibrary reopened(fixture.root/"aggregate.sqlite");
+        const auto restored=wait_for(reopened,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==5;});
+        check(std::any_of(restored->facets.begin(),restored->facets.end(),[](const auto& f){return f.group=="Pack"&&f.label=="Library"&&f.count==5;})&&
+            std::none_of(restored->facets.begin(),restored->facets.end(),[](const auto& f){return f.group=="Pack"&&f.label=="Nested stale folder";}),
+            "Startup repairs old automatic Packs without a source rescan");
+    }
+    SampleLibrary lib(fixture.root/"pack.sqlite");lib.add_source(root/"KSHMR");lib.add_source(root/"Cymatics");
     auto snap=wait_for(lib,[](const Snapshot& v){return v.phase==Phase::idle&&v.visible_assets==5;});
     const auto query=[&](LibraryQuery q,std::uint64_t count){lib.browse(q);auto v=wait_for(lib,[&](const Snapshot& s){return s.phase==Phase::idle&&s.query==q;});check(v->visible_assets==count,"Pack and Type filters must compose over the full catalogue");return v;};
     LibraryQuery q;q.tags={{"Pack","KSHMR"}};q.limit=1;snap=query(q,3);
     check(snap->assets.size()==1&&std::any_of(snap->facets.begin(),snap->facets.end(),[](const auto& f){return f.group=="Pack"&&f.label=="KSHMR"&&f.count==3;}),"Pack facets must count beyond the visible page");
     q.tags.push_back({"Type","One-shot"});query(q,2);
     q.tags={{"Type","One-shot"}};q.excluded_tags={{"Pack","KSHMR"}};snap=query(q,1);
-    check(snap->assets.front().relative_path.find("Cymatics/")==0,"Pack exclusions retain other matching One-shots");
+    check(std::any_of(snap->assets.front().tags.begin(),snap->assets.front().tags.end(),[](const auto& tag){return tag.group=="Pack"&&tag.label=="Cymatics"&&tag.status!="rejected";}),"Pack exclusions retain other matching One-shots");
     q.tags={{"Pack","KSHMR"},{"Pack","Cymatics"},{"Type","Loop"}};q.excluded_tags.clear();query(q,2);
     q.tags={{"Pack","KSHMR"},{"Type","One-shot"}};q.limit=120;snap=query(q,2);
     const auto id=snap->assets.front().id;auto revision=snap->revision;lib.add_tag({id},"Pack","Session Pack");
@@ -658,6 +675,12 @@ void pack_type_search(){
     q.tags={{"Pack","KSHMR"},{"Type","One-shot"}};query(q,2);
     const auto direct=classify_sample_path("Gold Modern/Drums/Crash.wav");
     check(std::any_of(direct.tags.begin(),direct.tags.end(),[](const auto& tag){return tag.group=="Pack"&&tag.label=="Gold Modern";}),"Source pointed directly at a pack retains its name");
+    for(const auto* path:{"Added Pack/Bonus/Drums/Snare.wav","Added Pack/Melodic/Extras/Phrase.wav","Added Pack/Loops/Bass/Loop.wav"}){
+        const auto nested=classify_sample_path(path);
+        check(std::count_if(nested.tags.begin(),nested.tags.end(),[](const auto& tag){return tag.group=="Pack";})==1&&
+            std::any_of(nested.tags.begin(),nested.tags.end(),[](const auto& tag){return tag.group=="Pack"&&tag.label=="Added Pack";}),
+            "Pack identity is independent of nesting and category names");
+    }
 }
 
 void signal_type_analysis(){

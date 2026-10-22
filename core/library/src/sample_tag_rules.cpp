@@ -106,9 +106,8 @@ bool single_hit(const std::vector<Token>& source){
         if(exact_sequence(words,tokens(phrase)))return true;
     return false;
 }
-// Classification receives source basename / source-relative path. Choose the
-// pack immediately above a conventional content category, otherwise its first
-// child folder. A source pointing directly at a pack keeps its own name.
+// Classification receives source basename / source-relative path. The added
+// source itself is the pack; internal folders are navigation, never other packs.
 std::string pack_name(const std::string& path){
     std::vector<std::string> folders;std::size_t start{};
     for(auto at=path.find_first_of("/\\");at!=std::string::npos;at=path.find_first_of("/\\",start)){
@@ -116,12 +115,7 @@ std::string pack_name(const std::string& path){
         start=at+1;
     }
     if(folders.empty())return {};
-    for(std::size_t i=1;i<folders.size();++i){
-        const auto name=fold(folders[i]);
-        for(const auto* category:{"drums","percussion","bass","synth","synths","fx","sfx","vocals","loops","one shots","one-shots","one_shots","oneshots","oneshot","jazz","ambient","cinematic"})
-            if(name==category)return folders[i-1];
-    }
-    return folders[folders.size()>1?1:0];
+    return folders.front();
 }
 int bpm_from_token(const std::string& s) {
     if(s.size()>3||s.empty())return 0;

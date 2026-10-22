@@ -297,7 +297,7 @@ void classify_assets(Database& d,const std::optional<std::int64_t> source = {},c
     while(list.next()){
         const auto* name=sqlite3_column_text(list.stmt,1);
         const auto* root=sqlite3_column_text(list.stmt,2);
-        const auto prefix=root?utf8(from_utf8(reinterpret_cast<const char*>(root)).filename()):std::string{};
+        const auto prefix=root?source_folder_name(from_utf8(reinterpret_cast<const char*>(root))):std::string{};
         const std::string relative=name?reinterpret_cast<const char*>(name):"",rootPath=root?reinterpret_cast<const char*>(root):"";
         items.push_back({sqlite3_column_int64(list.stmt,0),sqlite3_column_int64(list.stmt,3),sqlite3_column_int64(list.stmt,4),sqlite3_column_int64(list.stmt,5),prefix+"/"+relative,relative,rootPath,sqlite3_column_int(list.stmt,6)!=0});
     }
@@ -1229,6 +1229,11 @@ struct SampleLibrary::Impl {
     }
 };
 SampleLibrary::SampleLibrary(fs::path database) : impl_(std::make_unique<Impl>(std::move(database))) {}
+std::string source_folder_name(const fs::path& root){
+    auto folder=root.lexically_normal();
+    if(folder.filename().empty()&&folder!=folder.root_path())folder=folder.parent_path();
+    return utf8(!folder.filename().empty()?folder.filename():!folder.root_name().empty()?folder.root_name():folder.root_path());
+}
 SampleLibrary::~SampleLibrary() = default;
 void SampleLibrary::add_source(fs::path root) { impl_->enqueue({Impl::Kind::add,0,std::move(root)}); }
 void SampleLibrary::relink_source(std::int64_t id, fs::path root) { impl_->enqueue({Impl::Kind::relink,id,std::move(root)}); }

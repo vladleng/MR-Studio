@@ -8,6 +8,9 @@
 
 namespace mrs::library {
 
+// Display/Pack name of the added folder, including paths with a trailing separator.
+std::string source_folder_name(const std::filesystem::path&);
+
 // Non-RT bounded JPG/PNG header validation; caps decoded dimensions.
 bool artwork_image_supported(const std::filesystem::path&);
 
