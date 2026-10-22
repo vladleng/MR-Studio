@@ -187,7 +187,7 @@ Classification classify_sample_path(const std::string& relative,const std::vecto
     // then the nearest labelled ancestor. Only a recognised single hit
     // family can supply a fallback; missing Type alone is never evidence.
     const auto customTypes=std::count_if(result.tags.begin(),result.tags.end(),[](const auto& tag){return tag.group=="Type";});
-    if(customTypes>1)std::erase_if(result.tags,[](const auto& tag){return tag.group=="Type";});
+    if(customTypes>1){result.type_conflict=true;std::erase_if(result.tags,[](const auto& tag){return tag.group=="Type";});}
     if(customTypes==0){
         auto type=sample_type(name);const bool fromFilename=type!=TypeMatch::none;const char* origin="filename";
         auto parent=last==std::string::npos?std::string{}:relative.substr(0,last);
@@ -197,6 +197,7 @@ Classification classify_sample_path(const std::string& relative,const std::vecto
             origin="folder";
             parent=at==std::string::npos?"":parent.substr(0,at);
         }
+        result.type_conflict=type==TypeMatch::conflict;
         if(type==TypeMatch::one_shot||type==TypeMatch::loop)
             suggest("Type",type==TypeMatch::one_shot?"One-shot":"Loop",origin,fromFilename?.95:.85);
         else if(type==TypeMatch::none){

@@ -449,7 +449,10 @@ juce::String LibraryBrowserView::getTooltipForRow(int row){
     if(index<0||index>=static_cast<int>(view->assets.size()))return {};
     const auto& asset=view->assets[static_cast<std::size_t>(index)];juce::String text=uiText(asset.relative_path);
     bool typed=false;
-    for(const auto& tag:asset.tags)if(tag.status!="rejected"){text+=" | "+uiText(tag.label);typed=typed||tag.group=="Type";}
+    for(const auto& tag:asset.tags)if(tag.status!="rejected"){
+        text+=" | "+uiText(tag.label);typed=typed||tag.group=="Type";
+        if(tag.group=="Type")text+=" ("+uiText(tag.origin)+", confidence "+juce::String(tag.confidence,2)+")";
+    }
     if(!typed)text+=" | Type unknown: set One-shot or Loop in Edit Tags";
     return text;
 }

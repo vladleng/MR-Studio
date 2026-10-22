@@ -21,6 +21,7 @@ struct SuggestedMetadata {
 struct Classification {
     std::vector<SuggestedTag> tags;
     SuggestedMetadata metadata;
+    bool type_conflict{};
 };
 
 // Pure, deterministic and local. No filesystem, database, ML or audio-thread work.

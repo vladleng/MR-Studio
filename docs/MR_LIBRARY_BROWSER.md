@@ -29,7 +29,7 @@ stale/missing/relink guards and normal Arrange import/SRC.
 Search accepts up to 128 UI characters and evaluates up to 16 whitespace-separated
 words. Every word must occur in the path, a non-rejected tag or a collection name;
 words may match different fields. Case folding includes Cyrillic. There is no
-hidden audio analysis or semantic/cloud search. Relevant sorting scores exact tag
+semantic/cloud search. Type signal analysis is described below. Relevant sorting scores exact tag
 matches and path matches; filename sorting uses the leaf name.
 
 Instrument/Genre/Pack/Type menus combine inclusion (OR within a group, AND between
@@ -64,9 +64,24 @@ When no explicit Type exists, recognised single-hit categories
 (percussion, impacts, stabs, shots) supply One-shot; tempo-bearing rhythmic phrase
 names supply Loop. Numeric take suffixes are supported. Generic instrument/FX names,
 tempo alone and conflicting explicit types do not suffice; these rules do not analyse
-audio. Files without enough evidence remain `?`. Confirmed manual types suppress automatic alternatives; setting a
+audio. Before using weak word-derived guesses, the worker analyses the WAV signal
+independently of filenames: isolated attacks/swells with decay, repeated attacks
+on a time grid, or a repeated changing energy envelope. RMS envelopes are smoothed
+to reject carrier beating and monotonic trends; duration/tempo alone do not prove
+Loop. Audio proposals carry `audio` provenance and a heuristic confidence score
+(not a calibrated accuracy probability), visible in tooltips and Edit Tags.
+Ambiguous sustained sounds, silence and files exceeding the bounded analysis
+budget (90 seconds, 16 million interleaved samples, 32 channels) remain unknown
+unless metadata supplies a type. This is local deterministic DSP, not a trained
+model or a guarantee of the creator's intended Type. Files without enough evidence
+remain `?`. Confirmed manual types suppress automatic alternatives; setting a
 type replaces the active opposite type in the same undoable batch. Startup/rescan
 reclassifies the existing index without changing source media.
+Signal results (including uncertain results) are cached by asset identity, source
+root, size, modification stamp and algorithm version. Rescan invalidates changed
+audio; unchanged files and offline sources reuse the cache. Analysis streams bounded
+blocks on the library worker, supports cancellation, and does not run in GUI/audio
+callbacks. Cancellation rolls back the scan to the previous complete catalogue.
 
 Pack follows Genres in the filter row. It is indexed from the named folder before
 the first conventional content category (Drums, Loops, FX, etc.), otherwise the
@@ -86,9 +101,9 @@ source artwork at the same folder. Reset restores the inherited/automatic
 cover or the folder fallback. Managed filenames are unique, so cache keys cannot
 reuse stale decoded thumbnails after replacement.
 
-Library schema v4 adds a managed cover association table; v1–v3 migrate in place
+Library schema v4 added managed covers; v5 adds the versioned audio-Type cache. v1–v4 migrate in place
 without changing existing source/asset/tag/collection IDs. Before upgrading an
-existing database, SQLite backup writes a consistent `*.pre-v4-*.sqlite` copy
+existing database, SQLite backup writes a consistent `*.pre-v5-*.sqlite` copy
 (including WAL contents); a failed backup aborts the upgrade. This does not change the
 DAW project format. Images are limited to 20 MiB, 8192 pixels per dimension and
 16 megapixels; bounded header validation precedes worker decode. Thumbnails and
