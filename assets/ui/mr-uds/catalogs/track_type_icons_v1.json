@@ -1,0 +1,829 @@
+{
+  "name": "MR Studio — Track Type Icons Pack",
+  "version": "1.0",
+  "root": "assets/ui/mr-uds",
+  "license": "Original MR Studio SVG art; no third-party logos or imagery.",
+  "role": "Visual track identification; explicit host mapping, never inferred from track names.",
+  "rendering": "Transparent art only. Host manages click targets, icon semantics, accessibility, dynamic colors, hover/focus/selection/disabled states. Not a runtime feature change.",
+  "reference_tokens": "tokens/concept_pack.json",
+  "sizes": [
+    16,
+    24
+  ],
+  "assets": [
+    {
+      "id": "icons/concept_pack/track_guitar",
+      "file": "svg/icons/concept_pack/track_guitar.svg",
+      "label": "Guitar",
+      "size": [
+        24,
+        24
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_guitar_compact",
+      "file": "svg/icons/concept_pack/track_guitar_compact.svg",
+      "label": "Guitar",
+      "size": [
+        16,
+        16
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_bass",
+      "file": "svg/icons/concept_pack/track_bass.svg",
+      "label": "Bass",
+      "size": [
+        24,
+        24
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_bass_compact",
+      "file": "svg/icons/concept_pack/track_bass_compact.svg",
+      "label": "Bass",
+      "size": [
+        16,
+        16
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_drums",
+      "file": "svg/icons/concept_pack/track_drums.svg",
+      "label": "Drums",
+      "size": [
+        24,
+        24
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_drums_compact",
+      "file": "svg/icons/concept_pack/track_drums_compact.svg",
+      "label": "Drums",
+      "size": [
+        16,
+        16
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_piano",
+      "file": "svg/icons/concept_pack/track_piano.svg",
+      "label": "Piano",
+      "size": [
+        24,
+        24
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_piano_compact",
+      "file": "svg/icons/concept_pack/track_piano_compact.svg",
+      "label": "Piano",
+      "size": [
+        16,
+        16
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_synth",
+      "file": "svg/icons/concept_pack/track_synth.svg",
+      "label": "Synth",
+      "size": [
+        24,
+        24
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_synth_compact",
+      "file": "svg/icons/concept_pack/track_synth_compact.svg",
+      "label": "Synth",
+      "size": [
+        16,
+        16
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_backing_vocals",
+      "file": "svg/icons/concept_pack/track_backing_vocals.svg",
+      "label": "Backing vocals",
+      "size": [
+        24,
+        24
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_backing_vocals_compact",
+      "file": "svg/icons/concept_pack/track_backing_vocals_compact.svg",
+      "label": "Backing vocals",
+      "size": [
+        16,
+        16
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_fx",
+      "file": "svg/icons/concept_pack/track_fx.svg",
+      "label": "FX",
+      "size": [
+        24,
+        24
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_fx_compact",
+      "file": "svg/icons/concept_pack/track_fx_compact.svg",
+      "label": "FX",
+      "size": [
+        16,
+        16
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_master",
+      "file": "svg/icons/concept_pack/track_master.svg",
+      "label": "Master",
+      "size": [
+        24,
+        24
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/track_master_compact",
+      "file": "svg/icons/concept_pack/track_master_compact.svg",
+      "label": "Master",
+      "size": [
+        16,
+        16
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/mic",
+      "file": "svg/icons/mic.svg",
+      "label": "Vocal / microphone (existing asset)",
+      "size": [
+        24,
+        24
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/bus",
+      "file": "svg/icons/concept_pack/bus.svg",
+      "label": "Bus (existing asset)",
+      "size": [
+        24,
+        24
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/concept_pack/folder",
+      "file": "svg/icons/concept_pack/folder.svg",
+      "label": "Folder (existing asset)",
+      "size": [
+        24,
+        24
+      ],
+      "reuse": true
+    },
+    {
+      "id": "icons/track_pack/track_audio",
+      "file": "svg/icons/track_pack/track_audio.svg",
+      "label": "Audio",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "audio",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_audio_compact",
+      "file": "svg/icons/track_pack/track_audio_compact.svg",
+      "label": "Audio",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "audio",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_midi",
+      "file": "svg/icons/track_pack/track_midi.svg",
+      "label": "MIDI",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "midi",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_midi_compact",
+      "file": "svg/icons/track_pack/track_midi_compact.svg",
+      "label": "MIDI",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "midi",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_instrument",
+      "file": "svg/icons/track_pack/track_instrument.svg",
+      "label": "Instrument",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "instrument",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_instrument_compact",
+      "file": "svg/icons/track_pack/track_instrument_compact.svg",
+      "label": "Instrument",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "instrument",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_acoustic_guitar",
+      "file": "svg/icons/track_pack/track_acoustic_guitar.svg",
+      "label": "Acoustic guitar",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "acoustic_guitar",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_acoustic_guitar_compact",
+      "file": "svg/icons/track_pack/track_acoustic_guitar_compact.svg",
+      "label": "Acoustic guitar",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "acoustic_guitar",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_upright_bass",
+      "file": "svg/icons/track_pack/track_upright_bass.svg",
+      "label": "Upright bass",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "upright_bass",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_upright_bass_compact",
+      "file": "svg/icons/track_pack/track_upright_bass_compact.svg",
+      "label": "Upright bass",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "upright_bass",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_electric_piano",
+      "file": "svg/icons/track_pack/track_electric_piano.svg",
+      "label": "Electric piano",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "electric_piano",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_electric_piano_compact",
+      "file": "svg/icons/track_pack/track_electric_piano_compact.svg",
+      "label": "Electric piano",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "electric_piano",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_organ",
+      "file": "svg/icons/track_pack/track_organ.svg",
+      "label": "Organ",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "organ",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_organ_compact",
+      "file": "svg/icons/track_pack/track_organ_compact.svg",
+      "label": "Organ",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "organ",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_percussion",
+      "file": "svg/icons/track_pack/track_percussion.svg",
+      "label": "Percussion",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "percussion",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_percussion_compact",
+      "file": "svg/icons/track_pack/track_percussion_compact.svg",
+      "label": "Percussion",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "percussion",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_drum_machine",
+      "file": "svg/icons/track_pack/track_drum_machine.svg",
+      "label": "Drum machine",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "drum_machine",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_drum_machine_compact",
+      "file": "svg/icons/track_pack/track_drum_machine_compact.svg",
+      "label": "Drum machine",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "drum_machine",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_violin",
+      "file": "svg/icons/track_pack/track_violin.svg",
+      "label": "Violin",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "violin",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_violin_compact",
+      "file": "svg/icons/track_pack/track_violin_compact.svg",
+      "label": "Violin",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "violin",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_cello",
+      "file": "svg/icons/track_pack/track_cello.svg",
+      "label": "Cello",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "cello",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_cello_compact",
+      "file": "svg/icons/track_pack/track_cello_compact.svg",
+      "label": "Cello",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "cello",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_harp",
+      "file": "svg/icons/track_pack/track_harp.svg",
+      "label": "Harp",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "harp",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_harp_compact",
+      "file": "svg/icons/track_pack/track_harp_compact.svg",
+      "label": "Harp",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "harp",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_trumpet",
+      "file": "svg/icons/track_pack/track_trumpet.svg",
+      "label": "Trumpet",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "trumpet",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_trumpet_compact",
+      "file": "svg/icons/track_pack/track_trumpet_compact.svg",
+      "label": "Trumpet",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "trumpet",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_trombone",
+      "file": "svg/icons/track_pack/track_trombone.svg",
+      "label": "Trombone",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "trombone",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_trombone_compact",
+      "file": "svg/icons/track_pack/track_trombone_compact.svg",
+      "label": "Trombone",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "trombone",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_saxophone",
+      "file": "svg/icons/track_pack/track_saxophone.svg",
+      "label": "Saxophone",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "saxophone",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_saxophone_compact",
+      "file": "svg/icons/track_pack/track_saxophone_compact.svg",
+      "label": "Saxophone",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "saxophone",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_flute",
+      "file": "svg/icons/track_pack/track_flute.svg",
+      "label": "Flute",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "flute",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_flute_compact",
+      "file": "svg/icons/track_pack/track_flute_compact.svg",
+      "label": "Flute",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "flute",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_clarinet",
+      "file": "svg/icons/track_pack/track_clarinet.svg",
+      "label": "Clarinet",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "clarinet",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_clarinet_compact",
+      "file": "svg/icons/track_pack/track_clarinet_compact.svg",
+      "label": "Clarinet",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "clarinet",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_marimba",
+      "file": "svg/icons/track_pack/track_marimba.svg",
+      "label": "Marimba",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "marimba",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_marimba_compact",
+      "file": "svg/icons/track_pack/track_marimba_compact.svg",
+      "label": "Marimba",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "marimba",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_sampler",
+      "file": "svg/icons/track_pack/track_sampler.svg",
+      "label": "Sampler",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "sampler",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_sampler_compact",
+      "file": "svg/icons/track_pack/track_sampler_compact.svg",
+      "label": "Sampler",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "sampler",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_loop",
+      "file": "svg/icons/track_pack/track_loop.svg",
+      "label": "Loop",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "loop",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_loop_compact",
+      "file": "svg/icons/track_pack/track_loop_compact.svg",
+      "label": "Loop",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "loop",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_audio_input",
+      "file": "svg/icons/track_pack/track_audio_input.svg",
+      "label": "Audio",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "audio_input",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_audio_input_compact",
+      "file": "svg/icons/track_pack/track_audio_input_compact.svg",
+      "label": "Audio",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "audio_input",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_aux",
+      "file": "svg/icons/track_pack/track_aux.svg",
+      "label": "Aux return",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "aux",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_aux_compact",
+      "file": "svg/icons/track_pack/track_aux_compact.svg",
+      "label": "Aux return",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "aux",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_automation",
+      "file": "svg/icons/track_pack/track_automation.svg",
+      "label": "Automation",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "automation",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_automation_compact",
+      "file": "svg/icons/track_pack/track_automation_compact.svg",
+      "label": "Automation",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "automation",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_video",
+      "file": "svg/icons/track_pack/track_video.svg",
+      "label": "Video",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "video",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_video_compact",
+      "file": "svg/icons/track_pack/track_video_compact.svg",
+      "label": "Video",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "video",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_reference",
+      "file": "svg/icons/track_pack/track_reference.svg",
+      "label": "Reference",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "reference",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_reference_compact",
+      "file": "svg/icons/track_pack/track_reference_compact.svg",
+      "label": "Reference",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "reference",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_accordion",
+      "file": "svg/icons/track_pack/track_accordion.svg",
+      "label": "Accordion",
+      "size": [
+        24,
+        24
+      ],
+      "semantic": "accordion",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    },
+    {
+      "id": "icons/track_pack/track_accordion_compact",
+      "file": "svg/icons/track_pack/track_accordion_compact.svg",
+      "label": "Accordion",
+      "size": [
+        16,
+        16
+      ],
+      "semantic": "accordion",
+      "stroke": "1.6@24px / 1.3@16px",
+      "reuse": false
+    }
+  ]
+}

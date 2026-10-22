@@ -92,3 +92,13 @@ node assets/ui/mr-uds/render_concept_pack.cjs
 ## MR Library sample type — #263
 
 `svg/icons/concept_pack/sample_one_shot.svg` adds an original 24 px bar glyph for One-shot. Library Loop, Play and Stop reuse the existing transport SVGs. The manifest and extension catalogue include the new icon; no generator was run.
+
+## Track Type Icons Pack v1 — 2026-10-22
+
+An additive 26-identity extension (52 new SVG) is available in [svg/icons/track_pack/](svg/icons/track_pack/). It preserves all accepted guitar/bass/drums/piano/synth/backing-vocals/FX/Master icons and reuses the existing microphone, bus and folder icons rather than duplicating them. Each new identity has original 24 px line art and independently simplified 16 px LOD.
+
+- [Track Icons visual catalogue](previews/track_type_icons_v1.html)
+- [Track Icons machine-readable catalogue](catalogs/track_type_icons_v1.json)
+- [Track Icons use and semantics](svg/icons/track_pack/README.md)
+
+This is an artwork-only extension. Runtime mapping, user-selectable icons and any Windows/DPI acceptance remain separate work. No existing theme or GUI behavior is changed.
