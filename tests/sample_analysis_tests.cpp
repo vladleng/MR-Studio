@@ -61,7 +61,8 @@ void audio_analysis256_tests(){
     std::size_t keys{},keyWrong{},keyUnknown{};
     constexpr std::array<const char*,12> names={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
     for(int tonic:{0,2,5,7,9})for(bool minor:{false,true}){
-        const auto path=root/("K"+std::to_string(tonic)+(minor?"m":"M")+".wav");signal(path,3,120.,tonic,minor);const auto f=analyse_wav_features(path);
+        // Major/minor fixture names must also be distinct on Windows filesystems.
+        const auto path=root/("K"+std::to_string(tonic)+(minor?"_minor":"_major")+".wav");signal(path,3,120.,tonic,minor);const auto f=analyse_wav_features(path);
         const auto truth=std::string(names[static_cast<std::size_t>(tonic)])+(minor?"m":" major");
         if(f.key.empty())++keyUnknown;else if(f.key==truth)++keys;else ++keyWrong;
         report<<"tonal,"<<truth<<','<<f.bpm<<','<<f.key<<','<<f.state<<','<<f.key_confidence<<','<<f.type.label<<','<<f.reason<<'\n';
