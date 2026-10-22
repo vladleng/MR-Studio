@@ -67,6 +67,7 @@ void trackFolderSmoke(){
     Desktop d(true);d.app.disconnect();d.app.new_project();const auto a=d.app.add_audio_track("Kick"),b=d.app.add_audio_track("Snare"),c=d.app.add_instrument_track("Keys");
     const auto clip=d.app.create_midi_clip(c,0);d.refresh(true);d.setSize(1200,900);d.setWorkspace(mrs::desktop::Workspace::arrange);
     d.selectTrack(a,{});d.selectTrack(b,juce::ModifierKeys(juce::ModifierKeys::ctrlModifier));check(d.folderSelection()==std::vector<mrs::Id>{a,b},"Ctrl selects folder members");
+    d.selectTrack(b,juce::ModifierKeys(juce::ModifierKeys::ctrlModifier));check(d.folderSelection()==std::vector<mrs::Id>{a}&&d.selectedTrack==a,"Ctrl deselect keeps focus on a selected track");d.selectTrack(b,juce::ModifierKeys(juce::ModifierKeys::ctrlModifier));
     const auto id=d.app.create_track_folder("Drums",d.folderSelection());d.refresh();auto& view=*d.arrangement;view.vertical=0;view.resized();
     check(view.folderRows.size()==1&&view.trackY(0)==36&&view.trackY(1)==36+view.trackHeight,"folder header offsets lanes");
     check(view.trackAt(static_cast<float>(view.headerHeight()+10))==-1,"folder header is not an audio destination");

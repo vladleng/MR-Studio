@@ -219,7 +219,7 @@ void Desktop::selectTrack(mrs::Id id,juce::ModifierKeys mods){
     if(selectedTracks.empty()&&selectedTrack)selectedTracks.insert(selectedTrack->value);
     if(mods.isShiftDown()&&selectedTrack){auto a=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==*selectedTrack;});auto b=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==id;});
         if(a!=p->tracks.end()&&b!=p->tracks.end()){if(a>b)std::swap(a,b);for(;a<=b;++a)selectedTracks.insert(a->id.value);}}
-    else if(mods.isCommandDown()){if(!selectedTracks.erase(id.value))selectedTracks.insert(id.value);}
+    else if(mods.isCommandDown()){if(selectedTracks.erase(id.value)){if(selectedTrack==id)selectedTrack=selectedTracks.empty()?std::nullopt:std::optional<mrs::Id>{mrs::Id{*selectedTracks.begin()}};return;}selectedTracks.insert(id.value);}
     else {selectedTracks.clear();selectedTracks.insert(id.value);}
     selectedTrack=id;
 }

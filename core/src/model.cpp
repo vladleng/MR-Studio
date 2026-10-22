@@ -177,7 +177,6 @@ void Project::validate() const {
     add_id(id);
     std::unordered_map<std::string, const Folder*> folder_by_id;
     for (const auto& folder : folders) {
-        require(!folder.name.empty()&&folder.name.size()<=4096,"Invalid folder name");
         add_id(folder.id);
         folder_by_id.emplace(folder.id.value, &folder);
     }

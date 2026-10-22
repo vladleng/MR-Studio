@@ -49,11 +49,14 @@ void MoveTracksToFolder::apply(Project& p) const{
     }
 }
 void CreateTrackFolder::apply(Project& p) const{
+    if(folder_.name.empty()||folder_.name.size()>4096)throw std::invalid_argument("Invalid folder name");
     if(folder_.bus)throw std::invalid_argument("Link the folder Bus separately");
     p.folders.push_back(folder_);MoveTracksToFolder{tracks_,folder_.id}.apply(p);
 }
 void UpdateTrackFolder::apply(Project& p) const{
-    auto& folder=track_folder(p,id_);folder.name=name_;folder.collapsed=collapsed_;
+    auto& folder=track_folder(p,id_);
+    if(name_!=folder.name&&(name_.empty()||name_.size()>4096))throw std::invalid_argument("Invalid folder name");
+    folder.name=name_;folder.collapsed=collapsed_;
 }
 void RemoveTrackFolder::apply(Project& p) const{
     const auto parent=track_folder(p,id_).parent;

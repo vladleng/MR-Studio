@@ -404,6 +404,8 @@ void track_folders(){
     store.execute(LinkFolderBus{group.id,{}});CHECK(!store.state().project->folders[1].bus&&store.state().project->tracks[0].output==bus.id);
     auto legacy=serialize(p);legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 30").size(),"MRS_CORE_SNAPSHOT 29");CHECK(deserialize(legacy)==p);
     auto invalid=linked;invalid.folders.back().bus=drums;rejects([&]{invalid.validate();});
+    auto oldFolder=p;oldFolder.folders.front().name.clear();oldFolder.validate();auto oldBytes=serialize(oldFolder);oldBytes.replace(0,std::string("MRS_CORE_SNAPSHOT 30").size(),"MRS_CORE_SNAPSHOT 29");CHECK(deserialize(oldBytes)==oldFolder);UpdateTrackFolder{oldFolder.folders.front().id,"",true}.apply(oldFolder);CHECK(oldFolder.folders.front().collapsed);
+    Folder unnamed;unnamed.id=new_id();rejects([&]{store.execute(CreateTrackFolder{unnamed,{drums}});});
 }
 void serialization() {
     {auto project=mrs::demo_project();mrs::AraBinding binding;binding.source=project.clips.front().source;binding.persistent_id="ara-persistent";binding.module="missing.vst3";binding.class_id="saved-class";binding.factory_id="factory";binding.version="1";binding.archive_id="archive";binding.archive={std::byte{0},std::byte{255}};binding.checksum=123;binding.source_checksum=456;project.ara_bindings={binding};
