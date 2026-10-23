@@ -34,7 +34,10 @@ void clipStretchSmoke(){
     auto timingControls=std::make_unique<ClipTimingMenu>(owner.theme,stored(),submit);timingControls->setSize(370,142);
     const auto now=juce::Time::getCurrentTime();
     auto wheelEvent=[&](juce::Component& c,int modifiers=0){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),{10,10},juce::ModifierKeys(modifiers),1,0,0,0,0,&c,&c,now,{10,10},now,0,false);};
-    juce::MouseWheelDetails wheel;wheel.deltaY=.1f;
+    juce::MouseWheelDetails wheel{};wheel.deltaY=.1f;
+    struct WheelParent final:juce::Component{int wheels{};void mouseWheelMove(const juce::MouseEvent&,const juce::MouseWheelDetails&)override{++wheels;}} wheelParent;
+    wheelParent.addAndMakeVisible(*timingControls);timingControls->speed.editor.mouseWheelMove(wheelEvent(timingControls->speed.editor),wheel);
+    check(wheelParent.wheels==0,"Numeric wheel does not also scroll the popup");wheelParent.removeChildComponent(timingControls.get());
     for(int i=0;i<5;++i)timingControls->speed.mouseWheelMove(wheelEvent(timingControls->speed.editor),wheel);
     check(*owner.project()==menuBaseline&&submissions==0,"Wheel burst is buffered");
     check(std::abs(timingControls->speed.editor.value()-1.05)<1e-9,"Hover wheel changes Speedup");

@@ -44,6 +44,7 @@ public:
     }
     ~ClipTimingMenu()override{stopTimer();setLookAndFeel(nullptr);}
     void getIdealSize(int& w,int& h)override{w=370;h=142;}
+    void mouseWheelMove(const juce::MouseEvent&,const juce::MouseWheelDetails&)override{} // Numeric wheels must not scroll an overflowing popup.
     void resized()override{
         name.setBounds(10,4,getWidth()-20,22);
         std::array<Field*,4> fields{&tempo,&speed,&transpose,&tune};
