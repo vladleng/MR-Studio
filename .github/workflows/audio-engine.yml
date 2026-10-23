@@ -77,6 +77,7 @@ jobs:
           & ctest @args
           if($LASTEXITCODE){
             if(Test-Path 'build/windows/library261-failure.txt'){Get-Content 'build/windows/library261-failure.txt'}
+            if(Test-Path 'build/windows/stretch-gui-failure.txt'){Get-Content 'build/windows/stretch-gui-failure.txt'}
             throw 'CTest failed; full integration never excludes known failures'
           }
       - name: Stretch foundation evidence (synthetic, not ASIO)

@@ -8,6 +8,7 @@ namespace ui {
 void clipStretchSmoke(){
     const auto check=[](bool value,const char* text){if(!value)throw std::runtime_error(text);};
     Desktop owner(true);owner.stopTimer();owner.setSize(1200,800);owner.setVisible(true);owner.addToDesktop(juce::ComponentPeer::windowIsTemporary);
+    owner.app.set_tempos(owner.project()->time,{{0,120.}});
     const auto id=owner.project()->clips.front().id;owner.app.trim_clip(id,0,48000);const auto original=*owner.project();
     const auto pump=[](){for(int pass=0;pass<20;++pass){MSG message{};int count{};while(count++<200&&PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}std::this_thread::sleep_for(std::chrono::milliseconds(1));}};
     const auto dialog=[&](){owner.editClipStretch(id);auto* alert=dynamic_cast<juce::AlertWindow*>(juce::Component::getCurrentlyModalComponent());check(alert!=nullptr,"Time / Pitch dialog");return alert;};
