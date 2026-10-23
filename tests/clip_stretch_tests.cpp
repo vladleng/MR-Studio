@@ -67,6 +67,7 @@ void model(){
     auto badTempo=timing;badTempo.clips.front().file_tempo=std::numeric_limits<double>::quiet_NaN();rejects([&]{badTempo.validate();});
     badTempo.clips.front().file_tempo=0;rejects([&]{badTempo.validate();});
     edgeProject.time.tempos={{0,120},{ppq*4,90}};
+    CHECK(project_tempo_at(edgeProject,Timeline(edgeProject.time,edgeProject.sample_rate).to_samples(ppq*4)-1)==120);
     CHECK(project_tempo_at(edgeProject,0)==120);CHECK(project_tempo_at(edgeProject,Timeline(edgeProject.time,edgeProject.sample_rate).to_samples(ppq*4))==90);
     auto fit=params;fit.duration_ratio=105./120.;SetAudioClipTiming{base,fit,105.,base.start}.apply(edgeProject);
     CHECK(edgeProject.clips.front().stretch->parameters.duration_ratio==.875&&edgeProject.clips.front().stretch->parameters.semitones==7);

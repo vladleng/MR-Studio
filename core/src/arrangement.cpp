@@ -67,8 +67,8 @@ Clip stretch_audio_edge(const Clip& original,Sample edge,bool left) {
     validate_audio_stretch(c);return c;
 }
 double project_tempo_at(const Project& p,Sample position){
-    const auto tick=Timeline{p.time,p.sample_rate}.to_ticks(position);double bpm=p.time.tempos.front().bpm;
-    for(const auto& point:p.time.tempos){if(point.tick>tick)break;bpm=point.bpm;}return bpm;
+    const Timeline timeline{p.time,p.sample_rate};double bpm=p.time.tempos.front().bpm;
+    for(const auto& point:p.time.tempos){if(timeline.to_samples(point.tick)>position)break;bpm=point.bpm;}return bpm;
 }
 void RemoveTrack::apply(Project& p) const {
     const auto it = std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t) { return t.id == id_; });
