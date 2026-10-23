@@ -28,6 +28,15 @@ void Application::set_clip_stretch(const Id& id,stretch::Parameters parameters,b
     edit(SetAudioStretch{id,parameters,reset},{},true);
     retry_stretch();
 }
+void Application::set_clip_timing(const Clip& expected,stretch::Parameters parameters,std::optional<double> tempo,Sample start){
+    require_not_playing();
+    if(!stretch::neutral(parameters)){
+        const auto source=asset(expected.source);
+        if(source->channels>2||(source->sample_rate!=44100&&source->sample_rate!=48000&&source->sample_rate!=96000))
+            throw std::invalid_argument("Time / pitch supports mono/stereo at 44.1, 48 or 96 kHz");
+    }
+    edit(SetAudioClipTiming{expected,parameters,tempo,start},{},true);retry_stretch();
+}
 Sample Application::clip_playback_offset(const Clip& c) const {
     return c.stretch?(processed(c)?audio_output_offset(c):c.source_offset+audio_output_offset(c)):c.source_offset;
 }

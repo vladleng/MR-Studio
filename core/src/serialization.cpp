@@ -156,6 +156,8 @@ std::string serialize(const Project& p) {
     const auto stretched=std::count_if(p.clips.begin(),p.clips.end(),[](const auto& c){return c.stretch.has_value();});
     if(stretched){out<<"STRETCH_CLIPS "<<stretched<<'\n';for(const auto& c:p.clips)if(c.stretch){const auto& s=*c.stretch;
         out<<std::quoted(c.id.value)<<' '<<std::quoted(stretch::serialize(s.parameters))<<' '<<s.source_frames<<' '<<s.window_begin<<' '<<s.window_end<<'\n';}}
+    const auto tempos=std::count_if(p.clips.begin(),p.clips.end(),[](const auto& c){return c.file_tempo.has_value();});
+    if(tempos){out<<"CLIP_TEMPOS "<<tempos<<'\n';for(const auto& c:p.clips)if(c.file_tempo)out<<std::quoted(c.id.value)<<' '<<*c.file_tempo<<'\n';}
     out << "END\n";
     auto result = out.str();
     if (result.size() > max_bytes) throw std::invalid_argument("snapshot byte limit exceeded");
@@ -334,6 +336,14 @@ Project deserialize(std::string_view bytes) {
         for(std::size_t i=0;i<total;++i){const Id id{quoted(in)};const auto found=std::find_if(p.clips.begin(),p.clips.end(),[&](const auto& c){return c.id==id;});
             if(found==p.clips.end()||found->midi||found->stretch)throw std::invalid_argument("Invalid stretch clip identity");
             ClipStretch s;s.parameters=stretch::deserialize(quoted(in));in>>s.source_frames>>s.window_begin>>s.window_end;check_stream(in);found->stretch=s;}
+        in>>ending;check_stream(in);
+    }
+    if(input_version>=32&&ending=="CLIP_TEMPOS"){
+        const auto total=count(in);if(total>p.clips.size())throw std::invalid_argument("Too many clip tempos");
+        for(std::size_t i=0;i<total;++i){const Id id{quoted(in)};double bpm{};in>>bpm;check_stream(in);
+            const auto found=std::find_if(p.clips.begin(),p.clips.end(),[&](const auto& c){return c.id==id;});
+            if(found==p.clips.end()||found->midi||found->file_tempo)throw std::invalid_argument("Invalid tempo clip identity");
+            found->file_tempo=bpm;}
         in>>ending;check_stream(in);
     }
     if(ending!="END")throw std::invalid_argument("invalid snapshot ending");

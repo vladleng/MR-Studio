@@ -47,8 +47,40 @@ void model(){
     for(int i=0;i<100;++i){auto other=params;other.duration_ratio=.333333333333;SetAudioStretch{id,other}.apply(p);SetAudioStretch{id,params}.apply(p);CHECK(p.clips[0].length==trimmed.length&&p.clips[0].stretch==trimmed.stretch);}
     CHECK(deserialize(serialize(p))==p);
     SetAudioStretch{id,params,true}.apply(p);p.validate();CHECK(!p.clips[0].stretch&&p.clips[0].source_offset>13);
-    auto legacy=serialize(original);legacy.replace(legacy.find("MRS_CORE_SNAPSHOT 31"),20,"MRS_CORE_SNAPSHOT 30");
+    // Either edge keeps the opposite edge and source selection unchanged.
+    auto edgeProject=stretched;const auto base=edgeProject.clips.front();
+    auto right=stretch_audio_edge(base,base.start+base.length*2,false);
+    CHECK(right.start==base.start&&right.length==base.length*2);
+    CHECK(right.source_offset==base.source_offset&&right.stretch->window_begin==base.stretch->window_begin&&right.stretch->window_end==base.stretch->window_end);
+    CHECK(right.stretch->parameters.semitones==7&&right.stretch->parameters.cents==-13);
+    const auto left=stretch_audio_edge(right,right.start+right.length/2,true);
+    CHECK(left.start+left.length==right.start+right.length&&left.length==right.length/2);
+    const auto clamped=stretch_audio_edge(base,max_sample,false);CHECK(clamped.stretch->parameters.duration_ratio==8);
+    auto leftAtZero=base;leftAtZero.start=0;const auto zero=stretch_audio_edge(leftAtZero,-10000,true);CHECK(zero.start==0&&zero.length==base.length);
+    const auto tiny=stretch_audio_edge(base,base.start-100,false);CHECK(tiny.length>=1&&tiny.stretch->parameters.duration_ratio>=.125);
+    ProjectStore timingStore(edgeProject);
+    timingStore.execute(SetAudioClipTiming{base,left.stretch->parameters,105.,left.start});
+    const auto timing=*timingStore.state().project;CHECK(timing.clips.front().start+timing.clips.front().length==right.start+right.length);
+    CHECK(timing.clips.front().file_tempo==105.);CHECK(deserialize(serialize(timing))==timing);
+    rejects([&]{timingStore.execute(SetAudioClipTiming{base,params,105.,base.start});});CHECK(*timingStore.state().project==timing);
+    CHECK(timingStore.undo()&&*timingStore.state().project==edgeProject);CHECK(timingStore.redo()&&*timingStore.state().project==timing);
+    auto badTempo=timing;badTempo.clips.front().file_tempo=std::numeric_limits<double>::quiet_NaN();rejects([&]{badTempo.validate();});
+    badTempo.clips.front().file_tempo=0;rejects([&]{badTempo.validate();});
+    edgeProject.time.tempos={{0,120},{ppq*4,90}};
+    CHECK(project_tempo_at(edgeProject,0)==120);CHECK(project_tempo_at(edgeProject,Timeline(edgeProject.time,edgeProject.sample_rate).to_samples(ppq*4))==90);
+    auto fit=params;fit.duration_ratio=105./120.;SetAudioClipTiming{base,fit,105.,base.start}.apply(edgeProject);
+    CHECK(edgeProject.clips.front().stretch->parameters.duration_ratio==.875&&edgeProject.clips.front().stretch->parameters.semitones==7);
+    // Trimming preserves a fractional source window through edge stretching.
+    auto view=split.clips[1];p=split;TrimAudioClip{view.id,view.start+23,view.start+view.length-31,60000}.apply(p);view=p.clips[1];
+    const auto viewRight=stretch_audio_edge(view,view.start+view.length*2,false);
+    CHECK(viewRight.stretch->window_begin==view.stretch->window_begin&&viewRight.stretch->window_end==view.stretch->window_end);
+    CHECK(viewRight.source_offset==view.source_offset&&viewRight.start==view.start);
+    auto duplicated=serialize(timing);const auto tempoSection=duplicated.find("CLIP_TEMPOS 1");CHECK(tempoSection!=std::string::npos);
+    const auto tempoRow=duplicated.find('\n',tempoSection),tempoEnd=duplicated.find('\n',tempoRow+1);
+    duplicated.replace(tempoSection,13,"CLIP_TEMPOS 2");duplicated.insert(tempoEnd+1,duplicated.substr(tempoRow+1,tempoEnd-tempoRow));rejects([&]{(void)deserialize(duplicated);});
+    auto legacy=serialize(original);legacy.replace(legacy.find("MRS_CORE_SNAPSHOT 32"),20,"MRS_CORE_SNAPSHOT 30");
     CHECK(deserialize(legacy)==original);
+    auto v31=serialize(stretched);v31.replace(v31.find("MRS_CORE_SNAPSHOT 32"),20,"MRS_CORE_SNAPSHOT 31");CHECK(deserialize(v31)==stretched);
     auto corrupt=stretched;corrupt.clips[0].stretch->window_end+=10;rejects([&]{corrupt.validate();});
     corrupt=stretched;corrupt.clips[0].stretch->window_begin=std::numeric_limits<double>::infinity();rejects([&]{corrupt.validate();});
     auto invalid=params;invalid.duration_ratio=0;const auto before=*store.state().project;
@@ -128,10 +160,19 @@ void desktop_test(){
     CHECK(app.undo());finish(app);CHECK(app.services().projects->state().project->clips[0].length==75001);
     CHECK(app.redo());finish(app);CHECK(app.services().projects->state().project->clips[0].length==60001);
     app.set_clip_stretch(id,params);app.cancel_stretch();CHECK(!app.stretch_status().busy);rejects([&]{app.play();});app.retry_stretch();finish(app);
+    clip=app.services().projects->state().project->clips[0];
+    const auto edgePreview=stretch_audio_edge(clip,clip.start+clip.length/2,false);
+    app.set_clip_timing(clip,edgePreview.stretch->parameters,105.,edgePreview.start);finish(app);
+    CHECK(app.services().projects->state().project->clips[0].length==edgePreview.length);
+    CHECK(app.services().projects->state().project->clips[0].file_tempo==105.);
+    const auto timed=app.snapshot().project;
+    rejects([&]{app.set_clip_timing(clip,params,105.,clip.start);});CHECK(app.snapshot().project==timed);
+    CHECK(app.undo());finish(app);CHECK(app.services().projects->state().project->clips[0]==clip);
+    CHECK(app.redo());finish(app);CHECK(app.snapshot().project==timed);
     // A stale worker must not install its PCM in a replacement document.
     params.semitones=7;app.set_clip_stretch(id,params);app.new_project();finish(app);CHECK(app.services().projects->state().project->clips.empty());
     app.import_wav(wav);const auto savedId=app.services().projects->state().project->clips[0].id;
-    app.set_clip_stretch(savedId,params);finish(app);app.save_project(dir.path/"Saved"/"project.mrsproject");
+    const auto toSave=app.services().projects->state().project->clips[0];app.set_clip_timing(toSave,params,105.,toSave.start);finish(app);app.save_project(dir.path/"Saved"/"project.mrsproject");
     const auto saved=app.snapshot().project;const auto path=app.path();app.open_project(path);finish(app);
     CHECK(app.snapshot().project==saved);CHECK(app.clip_waveform(app.services().projects->state().project->clips[0]));
     for(const auto& entry:fs::recursive_directory_iterator(path.parent_path()))CHECK(entry.path().filename()!="audio.wav");

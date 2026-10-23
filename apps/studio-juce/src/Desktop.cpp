@@ -4,6 +4,7 @@
 #include "LibraryFoundationPanel.h"
 #include <MRTrackHeaderAssets.h>
 #include "MRControlBinding.h"
+#include "ClipTimingMenu.h"
 #include "ChordTrack.h"
 #include "SectionTrack.h"
 #include "TempoTrack.h"
@@ -1071,7 +1072,7 @@ int Arrangement::headerHeight()const{constexpr std::array<int,5> heights{24,33,2
 void Arrangement::setLaneVisible(int index,bool visible){
     if(index<0||index>=5||visible==laneVisible(index))return;
     juce::PopupMenu::dismissAllActiveMenus();meters->sync(true);tempos->sync(true);sections->sync(true);chords->sync(true);markers->sync(true);
-    drag.reset();dragGroup.clear();dragTrack.reset();copyDrag=dragMoved=selecting=rulerSeeking=false;selectionBox={};fileDragExit({});
+    stretchEdge=0;stretchPreview.reset();stretchStore.reset();drag.reset();dragGroup.clear();dragTrack.reset();copyDrag=dragMoved=selecting=rulerSeeking=false;selectionBox={};fileDragExit({});
     if(visible)owner.view.musicalLanes|=1<<index;else owner.view.musicalLanes&=~(1<<index);
     resized();repaint();owner.refresh();owner.saveSettings();
 }
@@ -1189,7 +1190,7 @@ void Arrangement::mouseMove(const juce::MouseEvent& e){
     if(owner.assetSkin()){juce::String text;if(const auto id=clipAt(e.position)){const auto project=owner.project();for(const auto& clip:project->clips)if(clip.id==*id){text=label(clip.name)+(clip.midi?" — MIDI":" — Audio");break;}}setTooltip(text);}
     if(owner.knifeMode){setMouseCursor(juce::MouseCursor::CrosshairCursor);return;}
     if(owner.app.recording()){setMouseCursor(juce::MouseCursor::NormalCursor);return;}
-    if(const auto id=clipAt(e.position)){const auto p=owner.project();const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==*id;});const auto edge=edgeAt(*c,e.position);setMouseCursor(edge?bracketCursor(edge>0):juce::MouseCursor(juce::MouseCursor::NormalCursor));}
+    if(const auto id=clipAt(e.position)){const auto p=owner.project();const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==*id;});const auto edge=edgeAt(*c,e.position);setMouseCursor(edge&&e.mods.isAltDown()&&!c->midi?juce::MouseCursor(juce::MouseCursor::LeftRightResizeCursor):edge?bracketCursor(edge>0):juce::MouseCursor(juce::MouseCursor::NormalCursor));if(edge&&!c->midi)setTooltip("Drag: trim. Alt + drag: stretch. Shift: bypass snap.");}
     else setMouseCursor(juce::MouseCursor::NormalCursor);
 }
 void Arrangement::mouseExit(const juce::MouseEvent&){setTooltip({});if(!drag)setMouseCursor(juce::MouseCursor::NormalCursor);}
@@ -1271,7 +1272,8 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
     const auto originalCount=paintedClips.size();if(copyDrag&&dragMoved)paintedClips.insert(paintedClips.end(),dragGroup.begin(),dragGroup.end());
     for(std::size_t painted=0;painted<paintedClips.size();++painted){const auto& stored=paintedClips[painted];auto c=stored;if(fadeOriginal&&fadeOriginal->id==c.id){c.fade_in=fadeInPreview;c.fade_out=fadeOutPreview;}const bool ghost=painted>=originalCount;
         if(drag&&(!copyDrag||ghost)&&(drag->id==c.id||std::any_of(dragGroup.begin(),dragGroup.end(),[&](const auto& item){return item.id==c.id;}))){
-            if(trim){
+            if(stretchEdge&&stretchPreview&&c.id==drag->id)c=*stretchPreview;
+            else if(trim){
                 const auto at=std::find_if(trimPreviews.begin(),trimPreviews.end(),[&](const auto& item){return item.id==c.id;});if(at!=trimPreviews.end())c=*at;
             }else{const auto start=mrs::clip_start(stored,time)+dragStart-drag->start;if(c.midi)c.midi->start=time.to_ticks(start);else c.start=start;const auto at=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==c.track;});c.track=p->tracks[static_cast<std::size_t>(static_cast<int>(at-p->tracks.begin())+dragTrackDelta)].id;}
         }
@@ -1292,7 +1294,7 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
         }else g.drawText(label(c.name)+(ghost?" [Copy]":""),r.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);
         if(ghost){g.setColour(juce::Colours::white);g.drawRoundedRectangle(r.reduced(1.f),cornerRadius,1.5f);g.setColour(juce::Colour(0xff8ac3ff));}
         if(midi){g.setColour(c.color||owner.assetSkin()?clipInk:juce::Colour(0xff8ac3ff));g.saveState();g.reduceClipRegion(r.toNearestInt().reduced(1));for(const auto& n:midi->notes){const auto begin=std::max(n.start,midi->source_offset),end=std::min(n.start+n.length,midi->source_offset+midi->length);if(begin>=end)continue;const double total=static_cast<double>(time.to_samples(midi->start+midi->length)-time.to_samples(midi->start));const float x=r.getX()+static_cast<float>((time.to_samples(midi->start+begin-midi->source_offset)-time.to_samples(midi->start))/juce::jmax(1.,total)*r.getWidth());const float w=static_cast<float>((time.to_samples(midi->start+end-midi->source_offset)-time.to_samples(midi->start+begin-midi->source_offset))/juce::jmax(1.,total)*r.getWidth());const float y=r.getY()+25+(127-n.pitch)/127.f*juce::jmax(1.f,r.getHeight()-32);g.fillRect(x,y,juce::jmax(2.f,w),3.f);}g.restoreState();continue;}
-        if(const auto* wave=owner.app.clip_waveform(c)){g.setColour(c.color||owner.assetSkin()?clipInk:juce::Colour(0xff8ac3ff));drawWaveform(g,*wave,r.withTrimmedTop(22),static_cast<double>(owner.app.clip_playback_offset(c)),p->sample_rate/pixelsPerSecond);}
+        if(const auto* wave=owner.app.clip_waveform(stretchEdge&&drag&&drag->id==c.id?stored:c)){g.setColour(c.color||owner.assetSkin()?clipInk:juce::Colour(0xff8ac3ff));drawWaveform(g,*wave,r.withTrimmedTop(22),static_cast<double>(owner.app.clip_playback_offset(stretchEdge&&drag&&drag->id==c.id?stored:c)),p->sample_rate/pixelsPerSecond*(stretchEdge&&drag&&drag->id==c.id?static_cast<double>(stored.length)/c.length:1.));}
         if(araDropClip&&c.id==*araDropClip){g.setColour(owner.selectionColour());g.drawRoundedRectangle(r.reduced(2.f),cornerRadius,2.f);g.drawText("ARA 2",r.toNearestInt().reduced(6).removeFromBottom(20),juce::Justification::centredRight);}
         if(r.getWidth()>=24){const auto width=r.getWidth();const auto inWidth=static_cast<float>(static_cast<double>(c.fade_in)/c.length*width),outWidth=static_cast<float>(static_cast<double>(c.fade_out)/c.length*width);g.setColour(clipInk.withAlpha(.8f));
             if(c.fade_in)g.drawLine(r.getX(),r.getBottom()-2,r.getX()+inWidth,r.getY()+26,1.f);if(c.fade_out)g.drawLine(r.getRight()-outWidth,r.getY()+26,r.getRight(),r.getBottom()-2,1.f);
@@ -1356,13 +1358,29 @@ void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
     const auto store=owner.app.services().projects;const auto p=owner.project();const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(c==p->clips.end())return;
     auto ids=std::vector<mrs::Id>{};if(owner.selectedClips.contains(id.value)){for(const auto& item:p->clips)if(owner.selectedClips.contains(item.id.value))ids.push_back(item.id);}else{owner.activateClip(id);ids.push_back(id);}
     const auto color=std::make_shared<std::uint32_t>(c->color.value_or(owner.assetSkin()?ObjectPalette::defaultClip:0x294d7e));juce::PopupMenu menu;menu.setLookAndFeel(&owner.theme);const bool enabled=!owner.app.recording();
+    std::function<void()> finishTiming;
+    if(!c->midi){
+        juce::Component::SafePointer<Arrangement> safe(this);
+        auto panel=std::make_unique<ClipTimingMenu>(owner.theme,*c,[safe,store](const mrs::Clip& expected,mrs::stretch::Parameters parameters,std::optional<double> tempo,bool fit)->std::optional<mrs::Clip>{
+            std::optional<mrs::Clip> result;if(!safe)return result;
+            safe->owner.run([&]{
+                if(store!=safe->owner.app.services().projects)throw std::runtime_error("Project changed; reopen clip menu");
+                if(fit)parameters.duration_ratio=*tempo/mrs::project_tempo_at(*safe->owner.project(),expected.start);
+                if(expected.file_tempo==tempo&&((expected.stretch&&expected.stretch->parameters==parameters)||(!expected.stretch&&mrs::stretch::neutral(parameters)))){result=expected;return;}
+                safe->owner.app.set_clip_timing(expected,parameters,tempo,expected.start);
+                const auto p=safe->owner.project();const auto current=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& item){return item.id==expected.id;});if(current!=p->clips.end())result=*current;
+            });return result;
+        });
+        panel->setEnabled(enabled&&owner.displayState().playback!=mrs::PlaybackState::playing);finishTiming=panel->finish();
+        menu.addCustomItem(21,std::move(panel),nullptr,"Clip time and pitch");menu.addSeparator();
+        menu.addItem(20,"Time / Pitch...",enabled&&owner.displayState().playback!=mrs::PlaybackState::playing);
+    }
 #ifdef MRS_HAS_ARA
     if(!c->midi)owner.addAraMenus(menu,id);
 #endif
-    if(!c->midi)menu.addItem(20,"Time / Pitch...",enabled&&owner.displayState().playback!=mrs::PlaybackState::playing);
     menu.addItem(1,"Split selected clips (S)",enabled);menu.addItem(2,"Duplicate (D)",enabled);menu.addItem(3,"Merge MIDI clips (G)",enabled&&ids.size()>1);menu.addItem(4,"Delete selected clips",enabled);menu.addItem(5,"Default color",enabled);menu.addItem(6,"Rename selected clips...",enabled);menu.addSeparator();auto palette=std::make_unique<MenuColourPalette>(owner.theme,*color,color,true,owner.assetSkin()!=nullptr);palette->setEnabled(enabled);menu.addCustomItem(10,std::move(palette),nullptr,"Clip colors");
     const auto cut=sampleAt(static_cast<float>(getLocalPoint(nullptr,point).x));juce::Component::SafePointer<Arrangement> safe(this);
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({point.x,point.y,1,1}),[safe,store,ids,color,cut,id](int result){if(!safe||!result)return;safe->owner.run([&]{if(store!=safe->owner.app.services().projects)throw std::runtime_error("Project changed; reopen clip menu");
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({point.x,point.y,1,1}),[safe,store,ids,color,cut,id,finishTiming](int result){if(finishTiming)finishTiming();if(!safe||!result)return;safe->owner.run([&]{if(store!=safe->owner.app.services().projects)throw std::runtime_error("Project changed; reopen clip menu");
 #ifdef MRS_HAS_ARA
         if(result>=300){safe->owner.araChoice(id,result);return;}
 #endif
@@ -1377,28 +1395,39 @@ void Arrangement::mouseDown(const juce::MouseEvent& e){
     sections->clearSelection();
     meters->clearSelection();tempos->clearSelection();
     const auto p=owner.project();const int index=trackAt(e.position.y);if(index>=0&&index<static_cast<int>(p->tracks.size()))owner.selectTrack(p->tracks[static_cast<std::size_t>(index)].id,e.mods);
-    dragGroup.clear();dragTrackDelta=0;copyDrag=false;dragMoved=false;
+    dragGroup.clear();dragTrackDelta=0;copyDrag=false;dragMoved=false;stretchEdge=0;stretchPreview.reset();stretchStore.reset();
     if(const auto id=clipAt(e.position)){
         const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==*id;});
         if(owner.knifeMode){std::vector<mrs::Id> ids;if(owner.selectedClips.contains(c->id.value)){for(const auto& item:p->clips)if(owner.selectedClips.contains(item.id.value))ids.push_back(item.id);}else ids.push_back(c->id);owner.run([&]{const auto right=owner.app.split_clips(ids,sampleAt(e.position.x));owner.activateClip(right.front());owner.selectedClips.clear();for(const auto& id:right)owner.selectedClips.insert(id.value);});return;}
-        copyDrag=e.mods.isAltDown();trim=copyDrag?0:edgeAt(*c,e.position);auto selection=owner.selectedClips;if(owner.selectedClip)selection.insert(owner.selectedClip->value);
-        shiftRemove=e.mods.isShiftDown()&&!copyDrag&&selection.contains(c->id.value);
+        const auto edge=edgeAt(*c,e.position);
+        stretchEdge=!c->midi&&e.mods.isAltDown()?edge:0;
+        if(stretchEdge&&(owner.app.recording()||owner.displayState().playback==mrs::PlaybackState::playing)){stretchEdge=0;return;}
+        copyDrag=e.mods.isAltDown()&&!stretchEdge;trim=copyDrag||stretchEdge?0:edge;auto selection=owner.selectedClips;if(owner.selectedClip)selection.insert(owner.selectedClip->value);
+        shiftRemove=e.mods.isShiftDown()&&!copyDrag&&!stretchEdge&&selection.contains(c->id.value);
         if(e.mods.isShiftDown())selection.insert(c->id.value);else if(!selection.contains(c->id.value))selection={c->id.value};
         owner.activateClip(c->id);owner.selectedClips=std::move(selection);if(owner.app.recording())return;
-        if(!c->midi&&!copyDrag&&!e.mods.isShiftDown()&&owner.app.engine()->state().playback!=mrs::PlaybackState::playing){const auto r=clipRect(*c);const auto width=r.getWidth();const auto xIn=r.getX()+juce::jlimit(6.f,juce::jmax(6.f,width-6),static_cast<float>(static_cast<double>(c->fade_in)/c->length*width));const auto xOut=r.getRight()-juce::jlimit(6.f,juce::jmax(6.f,width-6),static_cast<float>(static_cast<double>(c->fade_out)/c->length*width));
+        if(!c->midi&&!copyDrag&&!stretchEdge&&!e.mods.isShiftDown()&&owner.displayState().playback!=mrs::PlaybackState::playing){const auto r=clipRect(*c);const auto width=r.getWidth();const auto xIn=r.getX()+juce::jlimit(6.f,juce::jmax(6.f,width-6),static_cast<float>(static_cast<double>(c->fade_in)/c->length*width));const auto xOut=r.getRight()-juce::jlimit(6.f,juce::jmax(6.f,width-6),static_cast<float>(static_cast<double>(c->fade_out)/c->length*width));
             if(width>=24&&std::abs(e.position.y-(r.getY()+26))<=5&&(std::abs(e.position.x-xIn)<=5||std::abs(e.position.x-xOut)<=5)){
                 fadeOriginal=*c;fadeStore=owner.app.services().projects;fadeRight=std::abs(e.position.x-xOut)<std::abs(e.position.x-xIn);fadeInPreview=c->fade_in;fadeOutPreview=c->fade_out;drag.reset();dragGroup.clear();repaint();return;}}
 
         for(const auto& item:p->clips)if(owner.selectedClips.contains(item.id.value))dragGroup.push_back(item);
+        if(stretchEdge){dragGroup={*c};owner.selectedClips={c->id.value};stretchPreview=*c;stretchStore=owner.app.services().projects;}
         drag=*c;const mrs::Timeline time(p->time,p->sample_rate);drag->start=mrs::clip_start(*c,time);drag->length=mrs::clip_end(*c,time)-drag->start;
         dragX=e.position.x;dragStart=trimStart=drag->start;trimEnd=drag->start+drag->length;
         trimPreviews.clear();trimFrames.clear();if(trim){bool ready=false;owner.run([&]{for(const auto& item:dragGroup)if(!item.midi)trimFrames[item.id.value]=owner.app.source_frames(item.id);dragSourceFrames=c->midi?0:trimFrames.at(c->id.value);ready=true;});if(!ready){drag.reset();dragGroup.clear();return;}trimPreviews=dragGroup;}
-        setMouseCursor(trim?bracketCursor(trim>0):juce::MouseCursor(juce::MouseCursor::NormalCursor));repaint();return;
+        setMouseCursor(stretchEdge?juce::MouseCursor(juce::MouseCursor::LeftRightResizeCursor):trim?bracketCursor(trim>0):juce::MouseCursor(juce::MouseCursor::NormalCursor));repaint();return;
     }
     drag.reset();dragTrack.reset();selecting=true;selectionOrigin=e.position;selectionBox={e.position,e.position};selectionBase=e.mods.isShiftDown()?owner.selectedClips:std::set<std::string>{};if(e.mods.isShiftDown()&&owner.selectedClip)selectionBase.insert(owner.selectedClip->value);owner.selectedClips=selectionBase;if(selectionBase.empty())owner.selectedClip.reset();repaint();
 }
 void Arrangement::mouseDrag(const juce::MouseEvent& e){if(fadeOriginal){const auto r=clipRect(*fadeOriginal);const auto frames=static_cast<mrs::Sample>(std::llround(static_cast<double>(fadeRight?r.getRight()-e.position.x:e.position.x-r.getX())/static_cast<double>(juce::jmax(1.f,r.getWidth()))*static_cast<double>(fadeOriginal->length)));if(fadeRight)fadeOutPreview=std::clamp(frames,mrs::Sample{0},fadeOriginal->length);else fadeInPreview=std::clamp(frames,mrs::Sample{0},fadeOriginal->length);repaint();return;}if(rulerSeeking){if(e.x>=left&&e.y>=0&&e.y<20)owner.run([&]{owner.app.seek(seekSampleAt(e.position.x));});return;}if(selecting){selectionBox=juce::Rectangle<float>(selectionOrigin,e.position).getIntersection(juce::Rectangle<float>(static_cast<float>(left),static_cast<float>(headerHeight()),static_cast<float>(getWidth()-left),static_cast<float>(getHeight()-headerHeight())));owner.selectedClips=selectionBase;owner.selectedClip=selectionBase.empty()?std::nullopt:std::optional<mrs::Id>{mrs::Id{*selectionBase.begin()}};for(const auto& c:owner.project()->clips)if(clipRect(c).intersects(selectionBox)){owner.selectedClips.insert(c.id.value);if(!owner.selectedClip)owner.selectedClip=c.id;}repaint();return;}if(!drag)return;
-    const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);auto delta=static_cast<mrs::Sample>((e.x-dragX)/pixelsPerSecond*p->sample_rate);if(trim){updateTrim(delta,owner.snap&&!e.mods.isShiftDown());repaint();return;}if(!trim){mrs::Sample low=-mrs::max_sample,high=mrs::max_sample;for(const auto& c:dragGroup){const auto start=mrs::clip_start(c,time);low=std::max(low,-start);high=std::min(high,mrs::max_sample-mrs::clip_end(c,time));}delta=std::clamp(delta,low,high);if(owner.snap&&!e.mods.isShiftDown()){const auto snapped=sampleAt(static_cast<float>(left+static_cast<double>(drag->start+delta)/p->sample_rate*pixelsPerSecond-horizontal));delta=std::clamp(snapped-drag->start,low,high);}}dragStart=juce::jmax<mrs::Sample>(0,drag->start+delta);
+    const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);auto delta=static_cast<mrs::Sample>((e.x-dragX)/pixelsPerSecond*p->sample_rate);
+    if(stretchEdge){
+        if(stretchStore!=owner.app.services().projects){cancelGesture();return;}
+        auto edge=(stretchEdge<0?drag->start:drag->start+drag->length)+delta;
+        if(owner.snap&&!e.mods.isShiftDown())edge=sampleAt(static_cast<float>(left+static_cast<double>(edge)/p->sample_rate*pixelsPerSecond-horizontal));
+        owner.run([&]{stretchPreview=mrs::stretch_audio_edge(*drag,edge,stretchEdge<0);});dragMoved=dragMoved||std::abs(e.x-dragX)>=2;repaint();return;
+    }
+    if(trim){updateTrim(delta,owner.snap&&!e.mods.isShiftDown());repaint();return;}if(!trim){mrs::Sample low=-mrs::max_sample,high=mrs::max_sample;for(const auto& c:dragGroup){const auto start=mrs::clip_start(c,time);low=std::max(low,-start);high=std::min(high,mrs::max_sample-mrs::clip_end(c,time));}delta=std::clamp(delta,low,high);if(owner.snap&&!e.mods.isShiftDown()){const auto snapped=sampleAt(static_cast<float>(left+static_cast<double>(drag->start+delta)/p->sample_rate*pixelsPerSecond-horizontal));delta=std::clamp(snapped-drag->start,low,high);}}dragStart=juce::jmax<mrs::Sample>(0,drag->start+delta);
     const auto anchor=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==drag->track;});if(anchor==p->tracks.end()){keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));return;}const int targetIndex=trackAt(e.position.y);if(targetIndex<0)return;int wanted=targetIndex-static_cast<int>(anchor-p->tracks.begin()),low=0,high=static_cast<int>(p->tracks.size())-1;if(!dragGroup.empty()){low=-static_cast<int>(p->tracks.size());high=static_cast<int>(p->tracks.size());for(const auto& c:dragGroup){const auto t=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& item){return item.id==c.track;});const int at=static_cast<int>(t-p->tracks.begin());low=std::max(low,-at);high=std::min(high,static_cast<int>(p->tracks.size())-1-at);}}dragTrackDelta=std::clamp(wanted,low,high);dragTrack=p->tracks[static_cast<std::size_t>(static_cast<int>(anchor-p->tracks.begin())+dragTrackDelta)].id;dragMoved=dragMoved||std::abs(e.x-dragX)>=2||dragTrackDelta!=0;repaint();
 }
 void Arrangement::mouseUp(const juce::MouseEvent& e){
@@ -1407,6 +1436,12 @@ void Arrangement::mouseUp(const juce::MouseEvent& e){
     shiftRemove=false;
     if(rulerSeeking){rulerSeeking=false;return;}
     if(selecting){selecting=false;selectionBox={};owner.refresh();return;}
+    if(stretchEdge&&drag){
+        const auto original=*drag;const auto preview=stretchPreview;const auto store=stretchStore;const bool moved=dragMoved;
+        cancelGesture();
+        if(moved&&preview&&*preview!=original)owner.run([&]{if(store!=owner.app.services().projects)throw std::runtime_error("Project changed; retry stretch");owner.app.set_clip_timing(original,preview->stretch->parameters,original.file_tempo,preview->start);});
+        return;
+    }
     if(!drag)return;const auto c=*drag;const auto delta=dragStart-c.start,begin=trimStart,end=trimEnd;const auto trackDelta=dragTrackDelta,edge=trim;const bool copy=copyDrag;
 #ifdef MRS_HAS_ARA
     if(!copy&&!dragMoved&&std::abs(e.x-dragX)<2)owner.followAra(c.id);
@@ -1418,7 +1453,7 @@ void Arrangement::mouseUp(const juce::MouseEvent& e){
     repaint();
 }
 bool Arrangement::keyPressed(const juce::KeyPress& key){if(key.getKeyCode()!=juce::KeyPress::escapeKey)return false;if(owner.app.wav_import_status().busy)owner.app.cancel_wav_import();if(owner.app.stretch_status().busy)owner.app.cancel_stretch();cancelGesture();return true;}
-void Arrangement::cancelGesture(){rulerSeeking=false;fadeOriginal.reset();fadeStore.reset();shiftRemove=false;setMouseCursor(juce::MouseCursor::NormalCursor);drag.reset();dragTrack.reset();dragGroup.clear();copyDrag=false;dragMoved=false;selecting=false;selectionBox={};repaint();}
+void Arrangement::cancelGesture(){stretchEdge=0;stretchPreview.reset();stretchStore.reset();rulerSeeking=false;fadeOriginal.reset();fadeStore.reset();shiftRemove=false;setMouseCursor(juce::MouseCursor::NormalCursor);drag.reset();dragTrack.reset();dragGroup.clear();copyDrag=false;dragMoved=false;selecting=false;selectionBox={};repaint();}
 void Arrangement::focusLost(FocusChangeType){cancelGesture();}
 void Arrangement::wheel(float delta,juce::ModifierKeys mods,float x){if(mods.isCtrlDown()){if(mods.isShiftDown()){const auto before=static_cast<mrs::Sample>(std::clamp((x-left+horizontal)/pixelsPerSecond*owner.project()->sample_rate,0.,static_cast<double>(mrs::max_sample)));pixelsPerSecond=juce::jlimit(.1,2400.,pixelsPerSecond*std::pow(1.25,delta*4));horizontal=juce::jmax(0.,static_cast<double>(before)/owner.project()->sample_rate*pixelsPerSecond-(x-left));}
     else {const float before=(vertical+getHeight()/2.f-headerHeight())/trackHeight;trackHeight=juce::jlimit(40,360,trackHeight+static_cast<int>(delta*96));vertical=juce::jmax(0.f,before*trackHeight-(getHeight()/2.f-headerHeight()));rebuildFolderLayout();}}

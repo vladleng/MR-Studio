@@ -462,6 +462,7 @@ private:
     std::vector<mrs::Clip> trimPreviews;
     std::map<std::string,mrs::Sample> trimFrames;
     bool copyDrag{},dragMoved{};
+    int stretchEdge{};std::optional<mrs::Clip> stretchPreview;std::shared_ptr<mrs::IProjectStore> stretchStore;
     bool shiftRemove{};
     std::set<std::string> selectionBase;
     std::optional<mrs::Clip> fadeOriginal;
