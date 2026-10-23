@@ -11,6 +11,8 @@
 #include "ProjectHome.h"
 #include "WaveformView.h"
 #include <fstream>
+#include <charconv>
+#include <cmath>
 #include <sstream>
 
 namespace ui {
@@ -548,6 +550,7 @@ bool Desktop::shortcutAllowedFor(juce::Component* focused) const {
 bool Desktop::workspaceShortcut(const juce::KeyPress& k){if(homeVisible||k.getModifiers().isAnyModifierKeyDown()||juce::Component::getCurrentlyModalComponent())return false;
     if(k.getKeyCode()==juce::KeyPress::F2Key){run([&]{toggleEditor();});return true;}if(k.getKeyCode()==juce::KeyPress::F3Key){const bool open=app.workspace()!=mrs::desktop::Workspace::mix;if(open&&clipEditorOpen())toggleEditor();setWorkspace(open?mrs::desktop::Workspace::mix:mrs::desktop::Workspace::arrange);return true;}if(k.getKeyCode()==juce::KeyPress::F5Key){sidebar=!sidebar;resized();repaint();return true;}return false;}
 bool Desktop::keyPressed(const juce::KeyPress& k){if(workspaceShortcut(k))return true;if(!shortcutAllowed())return false;
+    if(k.getKeyCode()==juce::KeyPress::escapeKey&&app.stretch_status().busy){app.cancel_stretch();return true;}
     if(k.getKeyCode()==juce::KeyPress::escapeKey&&app.wav_import_status().busy){app.cancel_wav_import();return true;}
     if(homeVisible){if(k.getModifiers().isCtrlDown()&&k.getKeyCode()=='O'){action(2);return true;}if(k.getModifiers().isCtrlDown()&&k.getKeyCode()=='N'){action(1);return true;}return false;}
     auto c=k.getKeyCode();if(k.getModifiers().isAltDown())return false;if(k.getModifiers().isCtrlDown()){if(c=='D'&&(arrangement->sections->hasSelection()||arrangement->chords->hasSelection()||arrangement->markers->hasSelection())){action(45);return true;}if(c=='Z'){action(10);return true;}if(c=='Y'){action(11);return true;}if(c=='S'){action(3);return true;}if(c=='O'){action(2);return true;}if(c=='N'){action(1);return true;}return false;}
@@ -568,6 +571,9 @@ void Desktop::timerCallback(){try{const bool wasRecording=app.recording();app.po
     if(importing.busy)message="Preparing WAV import: "+juce::String(static_cast<int>(importing.progress*100.f))+"% (Esc to cancel)";
     else if(wavImportRevision!=importing.revision)message=label(importing.message);
     wavImportRevision=importing.revision;
+    const auto stretching=app.stretch_status();
+    if(!importing.busy){if(stretching.busy)message="Preparing Time / Pitch: "+juce::String(static_cast<int>(stretching.progress*100.f))+"% (Esc to cancel)";else if(stretchRevision!=stretching.revision)message=label(stretching.message);}
+    stretchRevision=stretching.revision;
     // One cheap metadata check every 500ms, and only if explicitly enabled.
     if(++trackHeaderPollTick>=15){trackHeaderPollTick=0;pollTrackHeaderLayout();}if(wasRecording&&!app.recording()&&!app.recording_error().empty())message=label(app.recording_error());if(++previewTick%3==0)updateRecordingPreview();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}if(dockedEditor&&!dockedClip)dockedEditor.reset();if(preview){if(preview->active()){if(preview->sendBus&&preview->target)app.preview_send_gain(*preview->target,*preview->sendBus,preview->sendGain);else app.preview_mix(preview->target,preview->mix,preview->master);}else cancelPreview();}
     updatePerformance(app.device_status(),app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected");
@@ -1197,17 +1203,17 @@ void Arrangement::updateTrim(mrs::Sample delta,bool useSnap){
     }else{
         auto sample=std::max(mrs::Sample{0},(trim<0?drag->start:drag->start+drag->length)+delta);
         if(useSnap)sample=snapSample(sample);
-        trimStart=trim<0?std::clamp(sample,std::max(mrs::Sample{0},drag->start-drag->source_offset),drag->start+drag->length-1):drag->start;
-        trimEnd=trim>0?std::clamp(sample,drag->start+1,std::min(mrs::max_sample,drag->start+dragSourceFrames-drag->source_offset)):drag->start+drag->length;
+        trimStart=trim<0?std::clamp(sample,std::max(mrs::Sample{0},drag->start-mrs::audio_output_offset(*drag)),drag->start+drag->length-1):drag->start;
+        trimEnd=trim>0?std::clamp(sample,drag->start+1,std::min(mrs::max_sample,drag->start+(drag->stretch?mrs::audio_output_extent(*drag):dragSourceFrames)-mrs::audio_output_offset(*drag))):drag->start+drag->length;
     }
     auto sharedDelta=trim<0?trimStart-drag->start:trimEnd-drag->start-drag->length;
     mrs::Sample low=-mrs::max_sample,high=mrs::max_sample;
     for(const auto& c:dragGroup){const auto start=mrs::clip_start(c,time),end=mrs::clip_end(c,time);
         if(c.midi){const auto& m=*c.midi;if(trim<0){mrs::Tick prefix=mrs::max_tick;for(const auto& n:m.notes)prefix=std::min(prefix,mrs::max_tick-n.start-n.length);for(const auto& e:m.events)prefix=std::min(prefix,mrs::max_tick-e.start);low=std::max(low,time.to_samples(std::max(mrs::Tick{0},m.start-m.source_offset-prefix))-start);high=std::min(high,time.to_samples(m.start+m.length-1)-start);}else{low=std::max(low,time.to_samples(m.start+1)-end);high=std::min(high,time.to_samples(std::min(mrs::max_tick,m.start+mrs::max_tick-m.source_offset))-end);}}
-        else if(trim<0){low=std::max(low,std::max(mrs::Sample{0},start-c.source_offset)-start);high=std::min(high,end-start-1);}else{low=std::max(low,start+1-end);high=std::min(high,start+trimFrames.at(c.id.value)-c.source_offset-end);}
+        else if(trim<0){low=std::max(low,std::max(mrs::Sample{0},start-mrs::audio_output_offset(c))-start);high=std::min(high,end-start-1);}else{low=std::max(low,start+1-end);high=std::min(high,start+(c.stretch?mrs::audio_output_extent(c):trimFrames.at(c.id.value))-mrs::audio_output_offset(c)-end);}
     }
     sharedDelta=std::clamp(sharedDelta,low,high);trimStart=drag->start+(trim<0?sharedDelta:0);trimEnd=drag->start+drag->length+(trim>0?sharedDelta:0);trimPreviews=dragGroup;
-    for(auto& c:trimPreviews){const auto start=mrs::clip_start(c,time),end=mrs::clip_end(c,time);if(c.midi)mrs::trim_midi_source(*c.midi,time.to_ticks(start+(trim<0?sharedDelta:0)),time.to_ticks(end+(trim>0?sharedDelta:0)));else{if(trim<0){c.source_offset+=sharedDelta;c.start+=sharedDelta;c.length-=sharedDelta;}else c.length+=sharedDelta;}}
+    for(auto& c:trimPreviews){const auto start=mrs::clip_start(c,time),end=mrs::clip_end(c,time);if(c.midi)mrs::trim_midi_source(*c.midi,time.to_ticks(start+(trim<0?sharedDelta:0)),time.to_ticks(end+(trim>0?sharedDelta:0)));else mrs::trim_audio_source(c,start+(trim<0?sharedDelta:0),end+(trim>0?sharedDelta:0),trimFrames.at(c.id.value));}
 }
 mrs::Tick Arrangement::displaySpacing() const {
     double fastest=0;for(const auto& tempo:owner.project()->time.tempos)fastest=std::max(fastest,tempo.bpm);
@@ -1286,7 +1292,7 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
         }else g.drawText(label(c.name)+(ghost?" [Copy]":""),r.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);
         if(ghost){g.setColour(juce::Colours::white);g.drawRoundedRectangle(r.reduced(1.f),cornerRadius,1.5f);g.setColour(juce::Colour(0xff8ac3ff));}
         if(midi){g.setColour(c.color||owner.assetSkin()?clipInk:juce::Colour(0xff8ac3ff));g.saveState();g.reduceClipRegion(r.toNearestInt().reduced(1));for(const auto& n:midi->notes){const auto begin=std::max(n.start,midi->source_offset),end=std::min(n.start+n.length,midi->source_offset+midi->length);if(begin>=end)continue;const double total=static_cast<double>(time.to_samples(midi->start+midi->length)-time.to_samples(midi->start));const float x=r.getX()+static_cast<float>((time.to_samples(midi->start+begin-midi->source_offset)-time.to_samples(midi->start))/juce::jmax(1.,total)*r.getWidth());const float w=static_cast<float>((time.to_samples(midi->start+end-midi->source_offset)-time.to_samples(midi->start+begin-midi->source_offset))/juce::jmax(1.,total)*r.getWidth());const float y=r.getY()+25+(127-n.pitch)/127.f*juce::jmax(1.f,r.getHeight()-32);g.fillRect(x,y,juce::jmax(2.f,w),3.f);}g.restoreState();continue;}
-        if(const auto* wave=owner.app.waveform(c.source)){g.setColour(c.color||owner.assetSkin()?clipInk:juce::Colour(0xff8ac3ff));drawWaveform(g,*wave,r.withTrimmedTop(22),static_cast<double>(c.source_offset),p->sample_rate/pixelsPerSecond);}
+        if(const auto* wave=owner.app.clip_waveform(c)){g.setColour(c.color||owner.assetSkin()?clipInk:juce::Colour(0xff8ac3ff));drawWaveform(g,*wave,r.withTrimmedTop(22),static_cast<double>(owner.app.clip_playback_offset(c)),p->sample_rate/pixelsPerSecond);}
         if(araDropClip&&c.id==*araDropClip){g.setColour(owner.selectionColour());g.drawRoundedRectangle(r.reduced(2.f),cornerRadius,2.f);g.drawText("ARA 2",r.toNearestInt().reduced(6).removeFromBottom(20),juce::Justification::centredRight);}
         if(r.getWidth()>=24){const auto width=r.getWidth();const auto inWidth=static_cast<float>(static_cast<double>(c.fade_in)/c.length*width),outWidth=static_cast<float>(static_cast<double>(c.fade_out)/c.length*width);g.setColour(clipInk.withAlpha(.8f));
             if(c.fade_in)g.drawLine(r.getX(),r.getBottom()-2,r.getX()+inWidth,r.getY()+26,1.f);if(c.fade_out)g.drawLine(r.getRight()-outWidth,r.getY()+26,r.getRight(),r.getBottom()-2,1.f);
@@ -1307,6 +1313,45 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
     if(selecting){g.setColour((owner.assetSkin()?owner.selectionColour():juce::Colours::skyblue).withAlpha(.12f));g.fillRect(selectionBox);g.setColour(owner.assetSkin()?owner.selectionColour():juce::Colours::skyblue);g.drawRect(selectionBox,1.f);}
     g.restoreState();
 }
+void Desktop::editClipStretch(mrs::Id id){
+    const auto store=app.services().projects;const auto projectRevision=store->state().revision;
+    const auto p=project();const auto it=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});
+    if(it==p->clips.end()||it->midi)return;
+    if(app.recording()||app.engine()->state().playback==mrs::PlaybackState::playing)throw std::runtime_error("Stop playback before editing time / pitch");
+    const auto parameters=it->stretch?it->stretch->parameters:mrs::stretch::Parameters{};
+    const auto sourceFrames=it->stretch?it->stretch->window_end-it->stretch->window_begin:static_cast<double>(it->length);
+    auto* alert=new StudioAlertWindow(*this,"Clip Time / Pitch",
+        "Source: "+juce::String(sourceFrames/p->sample_rate,3)+" s  |  Clip: "+juce::String(static_cast<double>(it->length)/p->sample_rate,3)+" s\n"
+        "Experimental. Sharp transients may move slightly; audition critical material.",juce::MessageBoxIconType::NoIcon);
+    alert->addComboBox("enabled",{"Enabled","Bypassed"},"Processing");alert->getComboBoxComponent("enabled")->setSelectedId(parameters.enabled?1:2);
+    const auto number=[&](const char* key,double value,const char* caption){alert->addTextEditor(key,juce::String(value,17),caption);};
+    number("ratio",parameters.duration_ratio,"Duration ratio (0.125 .. 8; 1 = original)");
+    number("pitch",parameters.semitones,"Pitch (-24 .. +24 semitones, including cents)");
+    number("cents",parameters.cents,"Fine pitch (-100 .. +100 cents)");
+    alert->addComboBox("formants",{"Follow pitch","Preserve","Shift"},"Formants");alert->getComboBoxComponent("formants")->setSelectedId(static_cast<int>(parameters.formants)+1);
+    number("shift",parameters.formant_semitones,"Formant shift (-12 .. +12 semitones; Shift mode)");
+    number("base",parameters.formant_base_hz,"Formant base (20 .. 2000 Hz; 0 = default)");
+    alert->addComboBox("quality",{"Balanced","Economical"},"Quality");alert->getComboBoxComponent("quality")->setSelectedId(static_cast<int>(parameters.quality)+1);
+    alert->addButton("Apply",1,juce::KeyPress(juce::KeyPress::returnKey));alert->addButton("Reset",2);alert->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<Desktop> safe(this);
+    alert->enterModalState(true,juce::ModalCallbackFunction::create([safe,alert,store,projectRevision,id,parameters](int result){
+        if(!safe||!result)return;
+        safe->run([&]{
+            if(safe->app.services().projects!=store||store->state().revision!=projectRevision)throw std::runtime_error("Project changed; reopen Time / Pitch");
+            if(result==2){safe->app.set_clip_stretch(id,parameters,true);return;}
+            auto value=parameters;
+            const auto read=[&](const char* key){auto text=alert->getTextEditorContents(key).trim().toStdString();if(text.starts_with('+'))text.erase(0,1);double n{};
+                const auto parsed=std::from_chars(text.data(),text.data()+text.size(),n);
+                if(parsed.ec!=std::errc{}||parsed.ptr!=text.data()+text.size()||!std::isfinite(n))throw std::runtime_error("Enter a finite number using a decimal point");return n;};
+            value.enabled=alert->getComboBoxComponent("enabled")->getSelectedId()==1;
+            value.duration_ratio=read("ratio");value.semitones=read("pitch");value.cents=read("cents");
+            value.formants=static_cast<mrs::stretch::Formants>(alert->getComboBoxComponent("formants")->getSelectedId()-1);
+            value.formant_semitones=read("shift");value.formant_base_hz=read("base");
+            value.quality=static_cast<mrs::stretch::Quality>(alert->getComboBoxComponent("quality")->getSelectedId()-1);
+            safe->app.set_clip_stretch(id,value);
+        });
+    }),true);
+}
 void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
     const auto store=owner.app.services().projects;const auto p=owner.project();const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(c==p->clips.end())return;
     auto ids=std::vector<mrs::Id>{};if(owner.selectedClips.contains(id.value)){for(const auto& item:p->clips)if(owner.selectedClips.contains(item.id.value))ids.push_back(item.id);}else{owner.activateClip(id);ids.push_back(id);}
@@ -1314,12 +1359,14 @@ void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
 #ifdef MRS_HAS_ARA
     if(!c->midi)owner.addAraMenus(menu,id);
 #endif
+    if(!c->midi)menu.addItem(20,"Time / Pitch...",enabled&&owner.displayState().playback!=mrs::PlaybackState::playing);
     menu.addItem(1,"Split selected clips (S)",enabled);menu.addItem(2,"Duplicate (D)",enabled);menu.addItem(3,"Merge MIDI clips (G)",enabled&&ids.size()>1);menu.addItem(4,"Delete selected clips",enabled);menu.addItem(5,"Default color",enabled);menu.addItem(6,"Rename selected clips...",enabled);menu.addSeparator();auto palette=std::make_unique<MenuColourPalette>(owner.theme,*color,color,true,owner.assetSkin()!=nullptr);palette->setEnabled(enabled);menu.addCustomItem(10,std::move(palette),nullptr,"Clip colors");
     const auto cut=sampleAt(static_cast<float>(getLocalPoint(nullptr,point).x));juce::Component::SafePointer<Arrangement> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({point.x,point.y,1,1}),[safe,store,ids,color,cut,id](int result){if(!safe||!result)return;safe->owner.run([&]{if(store!=safe->owner.app.services().projects)throw std::runtime_error("Project changed; reopen clip menu");
 #ifdef MRS_HAS_ARA
         if(result>=300){safe->owner.araChoice(id,result);return;}
 #endif
+        if(result==20){safe->owner.editClipStretch(id);return;}
         if(result==6){safe->owner.renameClips(ids);return;}if(result==10||result==5)safe->owner.app.set_clip_colors(ids,result==5?std::nullopt:std::optional<std::uint32_t>{*color});else if(result==1)safe->owner.app.split_clips(ids,cut);else if(result==2)safe->owner.app.duplicate_clip(ids.front());else if(result==3)safe->owner.activateClip(safe->owner.app.merge_midi_clips(ids));else if(result==4)safe->owner.app.remove_clips(ids);});});
 }
 void Arrangement::mouseDown(const juce::MouseEvent& e){
@@ -1370,7 +1417,7 @@ void Arrangement::mouseUp(const juce::MouseEvent& e){
     else if(std::abs(e.x-dragX)>=2||trackDelta!=0)owner.run([&]{if(copy){const auto p=owner.project();for(const auto& original:baseline){const auto current=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& item){return item.id==original.id;});if(current==p->clips.end()||*current!=original)throw std::runtime_error("Source clip changed; retry copy drag");}const auto copied=owner.app.copy_clips(std::move(group),delta,trackDelta);owner.activateClip(copied.front());owner.selectedClips.clear();for(const auto& id:copied)owner.selectedClips.insert(id.value);}else owner.app.move_clips(std::move(group),delta,trackDelta);});
     repaint();
 }
-bool Arrangement::keyPressed(const juce::KeyPress& key){if(key.getKeyCode()!=juce::KeyPress::escapeKey)return false;if(owner.app.wav_import_status().busy)owner.app.cancel_wav_import();cancelGesture();return true;}
+bool Arrangement::keyPressed(const juce::KeyPress& key){if(key.getKeyCode()!=juce::KeyPress::escapeKey)return false;if(owner.app.wav_import_status().busy)owner.app.cancel_wav_import();if(owner.app.stretch_status().busy)owner.app.cancel_stretch();cancelGesture();return true;}
 void Arrangement::cancelGesture(){rulerSeeking=false;fadeOriginal.reset();fadeStore.reset();shiftRemove=false;setMouseCursor(juce::MouseCursor::NormalCursor);drag.reset();dragTrack.reset();dragGroup.clear();copyDrag=false;dragMoved=false;selecting=false;selectionBox={};repaint();}
 void Arrangement::focusLost(FocusChangeType){cancelGesture();}
 void Arrangement::wheel(float delta,juce::ModifierKeys mods,float x){if(mods.isCtrlDown()){if(mods.isShiftDown()){const auto before=static_cast<mrs::Sample>(std::clamp((x-left+horizontal)/pixelsPerSecond*owner.project()->sample_rate,0.,static_cast<double>(mrs::max_sample)));pixelsPerSecond=juce::jlimit(.1,2400.,pixelsPerSecond*std::pow(1.25,delta*4));horizontal=juce::jmax(0.,static_cast<double>(before)/owner.project()->sample_rate*pixelsPerSecond-(x-left));}

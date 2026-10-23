@@ -66,6 +66,7 @@ public:
     void choose(int,std::function<void(const juce::File&)>,juce::String pattern="*");
     void textDialog(juce::String,juce::String,std::function<void(juce::String)>);
     void renameTrack(mrs::Id);
+    void editClipStretch(mrs::Id);
     void renameClips(std::vector<mrs::Id>);
     void confirmDiscard(std::function<void()>);
     void openFile(const juce::File&);
@@ -264,6 +265,7 @@ private:
     juce::Label shellStatus,shellTime;
     friend void stateBusySmoke();
     friend void clipCopySmoke();
+    friend void clipStretchSmoke();
     mutable mrs::audio::RealtimeState lastDisplayState;
     void timerCallback() override;
     void remember();
@@ -273,7 +275,7 @@ private:
     const mrs::audio::AudioEngine* visualEngine{};
     double lastVisualSample{};
     bool spaceHeld{};unsigned previewTick{};
-    std::uint64_t wavImportRevision{};
+    std::uint64_t wavImportRevision{},stretchRevision{};
     bool resizingBrowser{},resizingMixer{};
     int mixerDragHeight{},mixerDragY{};
     void flushAraDockResize();
@@ -537,5 +539,6 @@ void presetSelectorSmoke(Desktop&,mrs::Id,mrs::Id,const juce::File&);
 void reconnectPluginWindow(EditorWindow&);
 void aiPermissionsSmoke(Desktop&);
 void aiAssistantSmoke(Desktop&);
+void clipStretchSmoke();
 std::unique_ptr<juce::Component> makeAiAssistant(Desktop&);
 }

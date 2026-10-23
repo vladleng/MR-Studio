@@ -153,6 +153,9 @@ std::string serialize(const Project& p) {
     }
     std::size_t folder_states{};for(const auto& f:p.folders)if(f.bus||f.collapsed)++folder_states;
     if(folder_states){out<<"FOLDER_STATE "<<folder_states<<'\n';for(const auto& f:p.folders)if(f.bus||f.collapsed)out<<std::quoted(f.id.value)<<' '<<std::quoted(f.bus?f.bus->value:"")<<' '<<f.collapsed<<'\n';}
+    const auto stretched=std::count_if(p.clips.begin(),p.clips.end(),[](const auto& c){return c.stretch.has_value();});
+    if(stretched){out<<"STRETCH_CLIPS "<<stretched<<'\n';for(const auto& c:p.clips)if(c.stretch){const auto& s=*c.stretch;
+        out<<std::quoted(c.id.value)<<' '<<std::quoted(stretch::serialize(s.parameters))<<' '<<s.source_frames<<' '<<s.window_begin<<' '<<s.window_end<<'\n';}}
     out << "END\n";
     auto result = out.str();
     if (result.size() > max_bytes) throw std::invalid_argument("snapshot byte limit exceeded");
@@ -326,6 +329,13 @@ Project deserialize(std::string_view bytes) {
             seen.push_back(id);
             const auto at=std::find_if(p.folders.begin(),p.folders.end(),[&](const auto& f){return f.id==id;});if(at==p.folders.end())throw std::invalid_argument("Unknown folder state");at->bus=bus;at->collapsed=collapsed!=0;}
         in>>ending;check_stream(in);}
+    if(input_version>=31&&ending=="STRETCH_CLIPS"){
+        const auto total=count(in);if(total>p.clips.size())throw std::invalid_argument("Too many stretch records");
+        for(std::size_t i=0;i<total;++i){const Id id{quoted(in)};const auto found=std::find_if(p.clips.begin(),p.clips.end(),[&](const auto& c){return c.id==id;});
+            if(found==p.clips.end()||found->midi||found->stretch)throw std::invalid_argument("Invalid stretch clip identity");
+            ClipStretch s;s.parameters=stretch::deserialize(quoted(in));in>>s.source_frames>>s.window_begin>>s.window_end;check_stream(in);found->stretch=s;}
+        in>>ending;check_stream(in);
+    }
     if(ending!="END")throw std::invalid_argument("invalid snapshot ending");
     in >> std::ws;
     if (!in.eof()) throw std::invalid_argument("unknown trailing snapshot data");

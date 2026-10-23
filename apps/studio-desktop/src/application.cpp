@@ -188,6 +188,7 @@ Application::~Application() {
     midi_inputs_.reset(); // joins bridge/closes driver callbacks before engine/device retirement
     if (device_) device_->close();
     stop_wav_imports();
+    stop_stretch();
     ++*ai_permission_revision_; // invalidate captured reads before worker shutdown
     if (ai_worker_) ai_worker_->shutdown(); // no audio callback waits for AI
     stop_reverb_loaders();
@@ -212,6 +213,7 @@ void Application::replace(persistence::ProjectDocument next) {
     const auto ai_session = new_id();
     if(ai_worker_)ai_worker_->cancel_all();
     disconnect();
+    stop_stretch();
     engine_->prepare({next.project.sample_rate,0,2,8192},{});
     auto transport = std::make_shared<audio::EngineTransport>(engine_,Timeline(next.project.time,next.project.sample_rate));
     auto musical = std::make_unique<MusicalTimeline>(Services{projects,transport},[this]{require_not_recording();require(!engine_->state().count_remaining,"End count-in before navigating");});
@@ -329,7 +331,7 @@ ai::SnapshotResult Application::ai_snapshot(const ai::ContextKey& expected,const
 }
 std::vector<Application::AnalysisSource> Application::ai_analysis_sources() const {
     require_ai_owner();std::vector<AnalysisSource> result;if(!ai_permissions_.enabled)return result;
-    for(const auto& clip:services_.projects->state().project->clips)if(!clip.midi){auto at=assets_.find(clip.source);result.push_back({clip.id,clip.source_offset,clip.length,at==assets_.end()?nullptr:at->second.data});if(result.size()==16)break;}
+    for(const auto& clip:services_.projects->state().project->clips)if(!clip.midi){auto at=assets_.find(clip.source);result.push_back({clip.id,clip.source_offset,audio_source_span(clip),at==assets_.end()?nullptr:at->second.data});if(result.size()==16)break;}
     return result;
 }
 ai::Submitted Application::request_ai(ai::Request request,ai::Task task) {
@@ -1002,8 +1004,8 @@ void Application::edit(const ICommand& command,std::optional<Id> authoritative,b
         if(clip.midi)continue;
         const auto data = asset(clip.source);
         require(data->sample_rate == candidate.sample_rate,"WAV/project sample-rate mismatch");
-        require(clip.source_offset <= data->frames() && clip.length <= data->frames()-clip.source_offset,"clip exceeds source audio");
-        if (data->file) {
+        require(clip.source_offset <= data->frames() && audio_source_span(clip) <= data->frames()-clip.source_offset,"clip exceeds source audio");
+        if (data->file || (clip.stretch&&!stretch::neutral(clip.stretch->parameters))) {
             ++streamed; bytes += 8*8192*static_cast<std::size_t>(data->channels)*sizeof(float);
         }
     }
@@ -1712,7 +1714,7 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_
     result.master_outputs = project->master_outputs.empty() ? std::vector<std::size_t>{0} : mapped(project->master_outputs);
     if (project->master_outputs.empty() && c.outputs.size()>1) result.master_outputs.push_back(1);
     for (const auto& track : project->tracks) if (track.kind != TrackKind::midi) result.hardware_outputs.push_back(mapped(track.hardware_outputs));
-    std::set<std::string> missing_ara_sources;
+    std::set<std::string> missing_ara_sources,pending_stretch_clips;
     for (const auto& clip : project->clips) {
         if(clip.midi)continue;
         require(result.voices.size() < audio::max_voices,"too many playback voices");
@@ -1722,7 +1724,9 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_
             missing_ara_sources.insert(clip.source);waveform_error_=e.what();continue;
         }
         require(asset_data->sample_rate == c.sample_rate,"WAV/project sample-rate mismatch");
-        audio::Voice voice{asset_data,clip.start,clip.source_offset,clip.length,{}};voice.fade_in=clip.fade_in;voice.fade_out=clip.fade_out;
+        asset_data=clip_audio(clip,std::move(asset_data));
+        if(!asset_data){pending_stretch_clips.insert(clip.id.value);continue;} // No wrong-speed PCM fallback.
+        audio::Voice voice{asset_data,clip.start,clip_playback_offset(clip),clip.length,{}};voice.fade_in=clip.fade_in;voice.fade_out=clip.fade_out;
         const auto track = std::find(mixer_tracks_.begin(),mixer_tracks_.end(),clip.track);
         require(track != mixer_tracks_.end(),"audio clip requires an audio track");
         voice.mixer_track = static_cast<std::size_t>(track-mixer_tracks_.begin());
@@ -1737,7 +1741,7 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_
         result.voices.push_back(std::move(voice));
     }
 #ifdef MRS_HAS_ARA
-    if (ara_) {if(missing_ara_sources.empty())ara_->apply(*project,result,true);else{auto available=*project;std::erase_if(available.clips,[&](const auto& clip){return !clip.midi&&missing_ara_sources.contains(clip.source);});ara_->apply(available,result,true);}}
+    if (ara_) {if(missing_ara_sources.empty()&&pending_stretch_clips.empty())ara_->apply(*project,result,true);else{auto available=*project;std::erase_if(available.clips,[&](const auto& clip){return !clip.midi&&(missing_ara_sources.contains(clip.source)||pending_stretch_clips.contains(clip.id.value));});ara_->apply(available,result,true);}}
 #endif
     for (const auto& track : project->tracks) if (track.kind == TrackKind::audio) {
         // A connected physical selector alone is not a live DSP dependency.
@@ -1866,6 +1870,7 @@ void Application::poll() {
             try { value.peaks = value.pending.get(); } catch (const std::exception& e) { waveform_error_ = e.what(); }
     }
     poll_wav_import();
+    poll_stretch();
 }
 audio::DeviceStatus Application::device_status() { return device_ ? device_->status() : audio::DeviceStatus{}; }
 bool Application::audio_running() { return device_status().phase == audio::DevicePhase::running; }
@@ -1880,6 +1885,7 @@ audio::AudioEngine::LibraryPreviewState Application::library_preview_state() con
     return engine_->library_preview_state();
 }
 void Application::play() { require(audio_running(),"connect audio or choose Offline clock first");
+    require(stretch_ready(true),"Time / pitch is not ready. Wait for preparation, apply again after cancellation, or reopen a changed source.");
 #ifdef MRS_HAS_ARA
     if (ara_ && engine_->state().playback!=PlaybackState::playing && ara_->poll()) {unsaved_=true;refresh_ara(false);}
 #endif
@@ -1984,7 +1990,9 @@ void Application::start_project_recording(const std::filesystem::path& projects_
 }
 void Application::start_recording(const std::filesystem::path& destination) {
     stop_library_preview(); // never audition into a live or recording session
-    require_not_recording(); sync_arm(); require(!armed_tracks_.empty(),"Arm one or more audio/instrument tracks before recording");
+    require_not_recording();
+    require(stretch_ready(true),"Wait for time / pitch preparation before recording");
+    sync_arm(); require(!armed_tracks_.empty(),"Arm one or more audio/instrument tracks before recording");
     require(audio_running() && device_config_,"connect audio before recording");
     require(audio_name_ != "Offline clock (no sound)","recording needs a hardware input; Offline clock cannot record");
     auto position=engine_->state(); require(!position.loop,"turn off loop before recording");

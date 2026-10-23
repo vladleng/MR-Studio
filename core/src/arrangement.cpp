@@ -3,6 +3,48 @@
 #include <stdexcept>
 #include <cmath>
 namespace mrs {
+namespace {
+Sample mapped_frame(double source,double ratio) {
+    const auto frame=std::floor(static_cast<long double>(source)*ratio+0.5L);
+    if(!std::isfinite(source)||!std::isfinite(ratio)||ratio<=0||source<0||!std::isfinite(frame)||frame>max_sample)throw std::invalid_argument("Invalid stretch frame mapping");
+    return static_cast<Sample>(frame);
+}
+
+}
+double audio_time_ratio(const Clip& c) noexcept {return c.stretch&&c.stretch->parameters.enabled?c.stretch->parameters.duration_ratio:1;}
+Sample audio_source_span(const Clip& c) noexcept {return c.stretch?c.stretch->source_frames:c.length;}
+Sample audio_output_offset(const Clip& c) {return c.stretch?mapped_frame(c.stretch->window_begin,audio_time_ratio(c)):c.source_offset;}
+Sample audio_output_extent(const Clip& c) {return c.stretch?mapped_frame(static_cast<double>(c.stretch->source_frames),audio_time_ratio(c)):c.length;}
+void validate_audio_stretch(const Clip& c) {
+    if(!c.stretch)return;
+    const auto& s=*c.stretch;
+    if(c.midi||stretch::validate(s.parameters)!=stretch::Status::ok||s.source_frames<=0||s.source_frames>max_sample||
+       !std::isfinite(s.window_begin)||!std::isfinite(s.window_end)||s.window_begin<0||s.window_end<=s.window_begin||s.window_end>static_cast<double>(s.source_frames))
+        throw std::invalid_argument("Invalid audio stretch state");
+    (void)audio_output_extent(c);
+    if(mapped_frame(s.window_end,audio_time_ratio(c))-audio_output_offset(c)!=c.length)
+        throw std::invalid_argument("Stretch window and clip duration differ");
+}
+void trim_audio_source(Clip& c,Sample start,Sample end,Sample raw_frames) {
+    if(start<0||end<=start||end>max_sample||raw_frames<=0||raw_frames>max_sample)
+        throw std::invalid_argument("Invalid trim bounds");
+    if(c.stretch){
+        validate_audio_stretch(c);
+        auto& s=*c.stretch;
+        const auto first=audio_output_offset(c)+start-c.start,last=first+end-start,extent=audio_output_extent(c);
+        if(first<0||last>extent||c.source_offset>raw_frames||s.source_frames>raw_frames-c.source_offset)
+            throw std::invalid_argument("Trim exceeds stretch source span");
+        const auto ratio=audio_time_ratio(c);
+        if(start!=c.start)s.window_begin=first==0?0:static_cast<double>(first)/ratio;
+        if(end!=c.start+c.length)s.window_end=last==extent?static_cast<double>(s.source_frames):static_cast<double>(last)/ratio;
+        c.start=start;c.length=end-start;validate_audio_stretch(c);
+    }else{
+        const auto offset=c.source_offset+start-c.start;
+        if(offset<0||offset>raw_frames||end-start>raw_frames-offset)throw std::invalid_argument("Trim exceeds original audio source");
+        c.start=start;c.length=end-start;c.source_offset=offset;
+    }
+    c.fade_in=std::min(c.fade_in,c.length);c.fade_out=std::min(c.fade_out,c.length);
+}
 void RemoveTrack::apply(Project& p) const {
     const auto it = std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t) { return t.id == id_; });
     if (it == p.tracks.end()) throw std::invalid_argument("unknown track");
@@ -56,15 +98,28 @@ void MoveAudioClip::apply(Project& p) const {
         throw std::invalid_argument("invalid audio clip destination");
     it->track = track_; it->start = start_;
 }
+void SetAudioStretch::apply(Project& p) const {
+    auto it=audio_clip(p,id_);auto& c=*it;
+    if(stretch::validate(parameters_)!=stretch::Status::ok)throw std::invalid_argument("Invalid stretch parameters");
+    if(std::any_of(p.ara_bindings.begin(),p.ara_bindings.end(),[&](const auto& b){return b.source==c.source;}))
+        throw std::invalid_argument("Detach ARA processing before applying native time / pitch");
+    if(reset_){
+        if(!c.stretch)return;
+        const auto begin=mapped_frame(c.stretch->window_begin,1),end=mapped_frame(c.stretch->window_end,1);
+        if(end<=begin)throw std::invalid_argument("Source selection is shorter than one sample");
+        c.source_offset+=begin;c.length=end-begin;c.stretch.reset();
+    }else{
+        if(!c.stretch)c.stretch=ClipStretch{parameters_,c.length,0,static_cast<double>(c.length)};
+        c.stretch->parameters=parameters_;
+        c.length=mapped_frame(c.stretch->window_end,audio_time_ratio(c))-audio_output_offset(c);
+        if(c.length<=0||c.length>max_sample-c.start)throw std::invalid_argument("Stretch produces invalid clip duration");
+        validate_audio_stretch(c);
+    }
+    c.fade_in=std::min(c.fade_in,c.length);c.fade_out=std::min(c.fade_out,c.length);
+}
 void TrimAudioClip::apply(Project& p) const {
     auto it = audio_clip(p,id_);
-    if (start_ < 0 || end_ <= start_ || end_ > max_sample || frames_ <= 0 || frames_ > max_sample)
-        throw std::invalid_argument("invalid trim bounds");
-    const auto offset = it->source_offset + start_ - it->start;
-    if (offset < 0 || offset > frames_ || end_-start_ > frames_-offset)
-        throw std::invalid_argument("trim exceeds original audio source");
-    it->start = start_; it->length = end_-start_; it->source_offset = offset;
-    it->fade_in=std::min(it->fade_in,it->length);it->fade_out=std::min(it->fade_out,it->length);
+    trim_audio_source(*it,start_,end_,frames_);
 }
 void SplitAudioClip::apply(Project& p) const {
     auto it = audio_clip(p,id_);
@@ -72,7 +127,11 @@ void SplitAudioClip::apply(Project& p) const {
         throw std::invalid_argument("split cursor must be inside the selected clip");
     auto right = *it;
     const auto left_length = position_-it->start;
-    right.id = right_; right.start = position_; right.length -= left_length; right.source_offset += left_length;
+    right.id = right_; right.start = position_; right.length -= left_length;
+    if(it->stretch){
+        const auto boundary=static_cast<double>(audio_output_offset(*it)+left_length)/audio_time_ratio(*it);
+        it->stretch->window_end=boundary;right.stretch->window_begin=boundary;
+    }else right.source_offset += left_length;
     it->length = left_length;
     it->fade_out=0;it->fade_in=std::min(it->fade_in,it->length);right.fade_in=0;right.fade_out=std::min(right.fade_out,right.length);
     p.clips.insert(it+1,std::move(right));

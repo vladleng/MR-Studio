@@ -1,0 +1,22 @@
+# Pinned, unmodified MIT headers are vendored for fully disconnected builds.
+# No upstream CMake is executed (it can resolve mutable optional dependencies).
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/third_party/stretch-lock.json" mrs_stretch_lock)
+foreach(dep signalsmith-stretch signalsmith-linear)
+  string(JSON count LENGTH "${mrs_stretch_lock}" ${dep} files)
+  math(EXPR last "${count}-1")
+  foreach(i RANGE ${last})
+    string(JSON path MEMBER "${mrs_stretch_lock}" ${dep} files ${i})
+    string(JSON expected GET "${mrs_stretch_lock}" ${dep} files "${path}")
+    file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/third_party/${dep}/${path}" actual)
+    if(NOT actual STREQUAL expected)
+      message(FATAL_ERROR "Stretch dependency hash mismatch: ${dep}/${path}")
+    endif()
+  endforeach()
+endforeach()
+add_library(mrs_stretch STATIC core/stretch/signalsmith.cpp core/stretch/render.cpp)
+target_link_libraries(mrs_stretch PUBLIC mrs_core)
+target_include_directories(mrs_stretch SYSTEM PRIVATE
+  third_party/signalsmith-stretch/include third_party/signalsmith-linear/include)
+if(MSVC)
+  target_compile_options(mrs_stretch PRIVATE /bigobj)
+endif()

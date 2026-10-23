@@ -200,6 +200,8 @@ void application_test(const std::string& path,const std::string& id,float gain) 
     CHECK(dry[0] != 0.f && dry[1] != 0.f);
     app.services().transport->stop(); app.engine()->process(nullptr,output.data(),128); app.poll();
     app.attach_ara_source(clip.source,path,id);
+    stretch::Parameters native;native.duration_ratio=1.25;
+    rejects([&]{app.set_clip_stretch(clip.id,native);});
     CHECK(app.ara_status(clip.source).starts_with("ready") && app.ara_caches().size() == 1);
     app.services().transport->play(); app.engine()->process(nullptr,output.data(),128);
     for (std::size_t i = 0; i < output.size(); ++i) CHECK(std::abs(output[i]-dry[i]*gain)<.00001f);
@@ -238,7 +240,16 @@ void application_test(const std::string& path,const std::string& id,float gain) 
     CHECK(app.ara_status(clip.source).starts_with("ready"));
     CHECK(live||std::abs(app.ara_caches().front().pcm->samples[0]-.25f*gain)<.00001f);
     app.detach_ara_source(clip.source); CHECK(app.ara_status(clip.source) == "unbound" && app.ara_caches().empty());
-    app.attach_ara_source(clip.source,path,id); app.new_project(48000); CHECK(app.ara_caches().empty());
+    app.set_clip_stretch(clip.id,native);
+    rejects([&]{app.attach_ara_source(clip.source,path,id);});
+    app.set_clip_stretch(clip.id,native,true);
+    app.attach_ara_source(clip.source,path,id);
+    // A pending native clip on another source must preserve ARA voice ordering.
+    FileFixture second;app.import_wavs({second.path});
+    const auto nativeClip=app.services().projects->state().project->clips.back();
+    app.set_clip_stretch(nativeClip.id,native);
+    CHECK(app.audio_running());
+    app.new_project(48000); CHECK(app.ara_caches().empty());
     CHECK(file.bytes() == original);
 }
 void cancellation_test(const std::string& path,const std::string& id) {

@@ -1,0 +1,4 @@
+# Preserve the byte-exact upstream snapshot for configure-time SHA256 checks.
+# In particular, Windows core.autocrlf must not rewrite licenses or headers.
+signalsmith-stretch/** -text
+signalsmith-linear/** -text

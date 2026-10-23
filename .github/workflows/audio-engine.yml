@@ -3,7 +3,7 @@ on:
   push:
     branches: [main, 'codex/cloud-cicd-migration']
   pull_request:
-    paths: ['apps/**', 'core/**', 'assets/**', 'cmake/**', 'tests/**', 'tools/ci/**', 'CMakeLists.txt', '.github/workflows/**']
+    paths: ['apps/**', 'core/**', 'assets/**', 'cmake/**', 'third_party/**', 'tests/**', 'tools/ci/**', 'CMakeLists.txt', '.github/workflows/**']
   workflow_dispatch:
     inputs:
       integration:
@@ -63,7 +63,7 @@ jobs:
         run: |
           $args=@('--build','build/windows','--config','Release','--parallel','2')
           if($env:INTEGRATION -ne 'true'){
-            $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests')
+            $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
             if($env:ARA -eq 'true'){$args+=@('mrs_ara_tests','mrs_ara_clip_tests','mrs_ai_ara_tests')}
           }
           & cmake @args
@@ -73,12 +73,38 @@ jobs:
         shell: pwsh
         run: |
           $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
-          if($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(model|transport|commands|serialization|track_folders)|ai_.*|ara_.*|juce_(library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(wav_import|track_folders))$')}
+          if($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(stretch_contract|model|transport|commands|serialization|track_folders)|stretch_.*|clip_stretch_.*|ai_.*|ara_.*|juce_(clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(wav_import|track_folders))$')}
           & ctest @args
           if($LASTEXITCODE){
             if(Test-Path 'build/windows/library261-failure.txt'){Get-Content 'build/windows/library261-failure.txt'}
             throw 'CTest failed; full integration never excludes known failures'
           }
+      - name: Stretch foundation evidence (synthetic, not ASIO)
+        if: success()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/stretch-evidence | Out-Null
+          Copy-Item build/windows/Release/mrs_stretch_bench.exe build/stretch-evidence/
+          Copy-Item third_party/signalsmith-stretch/LICENSE.txt build/stretch-evidence/Signalsmith-Stretch-LICENSE.txt
+          Copy-Item third_party/signalsmith-linear/LICENSE.txt build/stretch-evidence/Signalsmith-Linear-LICENSE.txt
+          & build/windows/Release/mrs_stretch_bench.exe --impulse-report | Set-Content build/stretch-evidence/impulses.csv
+          if($LASTEXITCODE){throw 'Stretch impulse diagnostic failed'}
+          & build/windows/Release/mrs_stretch_bench.exe --seconds 10 --warmup 1 --ratio 1 --output build/stretch-evidence/source.wav | Set-Content build/stretch-evidence/source.csv
+          if($LASTEXITCODE){throw 'Stretch source fixture failed'}
+          & build/windows/Release/mrs_stretch_bench.exe --seconds 10 --warmup 1 --ratio 1.25 --output build/stretch-evidence/ratio-1.25.wav | Set-Content build/stretch-evidence/ratio.csv
+          if($LASTEXITCODE){throw 'Stretch ratio fixture failed'}
+          & build/windows/Release/mrs_stretch_bench.exe --seconds 10 --warmup 1 --ratio 1 --pitch 7 --output build/stretch-evidence/pitch-7.wav | Set-Content build/stretch-evidence/pitch.csv
+          if($LASTEXITCODE){throw 'Stretch pitch fixture failed'}
+          @('MR Studio 0.7.1 stretch foundation. Synthetic evidence, not ASIO or user listening acceptance.', 'mrs_stretch_bench.exe --seconds 300 --warmup 30 --repeats 3 --voices 8 --ratio 1.25', 'Experimental manual clip controls/cache playback are integrated; final realtime/quality acceptance remains in #59/#62.') | Set-Content build/stretch-evidence/README.txt
+          Get-ChildItem build/stretch-evidence -File | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String -Width 240 | Set-Content build/stretch-evidence/SHA256.txt
+      - name: Upload stretch evidence
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MR-Studio-0.7.1-Stretch-Evidence-${{ github.sha }}
+          path: build/stretch-evidence/
+          if-no-files-found: error
+          retention-days: 14
       - name: Package development acceptance candidate
         id: package
         if: always() && steps.build.outcome == 'success'
@@ -90,7 +116,7 @@ jobs:
         if: always() && steps.package.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-0.6-upd1-Windows-${{ github.sha }}-ara-${{ env.ARA }}
+          name: MR-Studio-0.7.1-Windows-${{ github.sha }}-ara-${{ env.ARA }}
           path: build/package/
           if-no-files-found: error
           retention-days: 14
@@ -110,6 +136,8 @@ jobs:
           path: |
             build/windows/juce-library261-*.png
             build/windows/juce-folder-mixer-*.png
+            build/windows/stretch-dialog-*.png
+            build/windows/stretch-gui-failure.txt
             build/windows/Testing/
             build/windows/tests.xml
             build/windows/library256-benchmark.csv
