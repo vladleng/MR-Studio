@@ -1366,7 +1366,7 @@ void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
             safe->owner.run([&]{
                 if(store!=safe->owner.app.services().projects)throw std::runtime_error("Project changed; reopen clip menu");
                 if(fit)parameters.duration_ratio=*tempo/mrs::project_tempo_at(*safe->owner.project(),expected.start);
-                if(expected.file_tempo==tempo&&((expected.stretch&&expected.stretch->parameters==parameters)||(!expected.stretch&&mrs::stretch::neutral(parameters)))){result=expected;return;}
+                if(expected.file_tempo==tempo&&((expected.stretch&&expected.stretch->parameters==parameters)||(!expected.stretch&&parameters==mrs::stretch::Parameters{}))){result=expected;return;}
                 safe->owner.app.set_clip_timing(expected,parameters,tempo,expected.start);
                 const auto p=safe->owner.project();const auto current=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& item){return item.id==expected.id;});if(current!=p->clips.end())result=*current;
             });return result;

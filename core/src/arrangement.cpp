@@ -148,7 +148,7 @@ void SetAudioClipTiming::apply(Project& p) const {
     if(start_<0||start_>max_sample|| (tempo_&&(!std::isfinite(*tempo_)||*tempo_<1||*tempo_>999)))throw std::invalid_argument("Invalid clip timing");
     // Work on a candidate, so validation failures never partially mutate p.
     auto candidate=p;auto& c=*audio_clip(candidate,expected_.id);c.start=start_;
-    SetAudioStretch{c.id,parameters_}.apply(candidate);
+    if(c.stretch||parameters_!=stretch::Parameters{})SetAudioStretch{c.id,parameters_}.apply(candidate);
     c.file_tempo=tempo_;candidate.validate();p=std::move(candidate);
 }
 void TrimAudioClip::apply(Project& p) const {

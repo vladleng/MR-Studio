@@ -45,7 +45,7 @@ void clipStretchSmoke(){
     // Pending edits survive popup component destruction before its close callback.
     panel=std::make_unique<ClipTimingMenu>(owner.theme,stored(),submit);
     panel->tempo.editor.setValue(105);panel->tempo.editor.onCommit(105);
-    auto finish=panel->finish();panel.reset();finish();check(stored().file_tempo==105,"Menu-close flush preserves BPM");
+    auto finish=panel->finish();panel.reset();finish();check(stored().file_tempo==105&&!stored().stretch,"Menu-close flush preserves BPM without creating processing state");
     check(owner.app.undo()&&*owner.project()==menuBaseline,"BPM metadata Undo");
     panel=std::make_unique<ClipTimingMenu>(owner.theme,stored(),submit);
     panel->tempo.editor.setValue(105);panel->tempo.editor.onCommit(105);panel->flush(true);

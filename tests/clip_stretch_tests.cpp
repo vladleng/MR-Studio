@@ -47,6 +47,12 @@ void model(){
     for(int i=0;i<100;++i){auto other=params;other.duration_ratio=.333333333333;SetAudioStretch{id,other}.apply(p);SetAudioStretch{id,params}.apply(p);CHECK(p.clips[0].length==trimmed.length&&p.clips[0].stretch==trimmed.stretch);}
     CHECK(deserialize(serialize(p))==p);
     SetAudioStretch{id,params,true}.apply(p);p.validate();CHECK(!p.clips[0].stretch&&p.clips[0].source_offset>13);
+    auto metadata=original;const auto legacyClip=metadata.clips.front();
+    SetAudioClipTiming{legacyClip,{},105.,legacyClip.start}.apply(metadata);
+    CHECK(!metadata.clips.front().stretch&&metadata.clips.front().file_tempo==105.);
+    CHECK(deserialize(serialize(metadata))==metadata);
+    TrimAudioClip{legacyClip.id,legacyClip.start,legacyClip.start+legacyClip.length+1000,60000}.apply(metadata);metadata.validate();
+    CHECK(metadata.clips.front().length==legacyClip.length+1000&&!metadata.clips.front().stretch);
     // Either edge keeps the opposite edge and source selection unchanged.
     auto edgeProject=stretched;const auto base=edgeProject.clips.front();
     auto right=stretch_audio_edge(base,base.start+base.length*2,false);
