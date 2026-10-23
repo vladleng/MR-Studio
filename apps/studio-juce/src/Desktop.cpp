@@ -1439,7 +1439,7 @@ void Arrangement::mouseUp(const juce::MouseEvent& e){
     if(stretchEdge&&drag){
         const auto original=*drag;const auto preview=stretchPreview;const auto store=stretchStore;const bool moved=dragMoved;
         cancelGesture();
-        if(moved&&preview&&*preview!=original)owner.run([&]{if(store!=owner.app.services().projects)throw std::runtime_error("Project changed; retry stretch");owner.app.set_clip_timing(original,preview->stretch->parameters,original.file_tempo,preview->start);});
+        if(moved&&preview&&(preview->start!=original.start||preview->length!=original.length))owner.run([&]{if(store!=owner.app.services().projects)throw std::runtime_error("Project changed; retry stretch");owner.app.set_clip_timing(original,preview->stretch->parameters,original.file_tempo,preview->start);});
         return;
     }
     if(!drag)return;const auto c=*drag;const auto delta=dragStart-c.start,begin=trimStart,end=trimEnd;const auto trackDelta=dragTrackDelta,edge=trim;const bool copy=copyDrag;

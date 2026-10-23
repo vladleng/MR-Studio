@@ -34,7 +34,7 @@ public:
         name.setText(juce::String::fromUTF8(expected.name.c_str()),juce::dontSendNotification);name.setFont(Theme::channelFont());addAndMakeVisible(name);
         std::array<Field*,4> fields{&tempo,&speed,&transpose,&tune};
         const std::array<juce::String,4> labels{"File Tempo","Speedup","Transpose","Tune (cents)"};
-        for(std::size_t i=0;i<fields.size();++i){addAndMakeVisible(fields[i]->editor);captions[i].setText(labels[i],juce::dontSendNotification);captions[i].setFont(Theme::detailFont());addAndMakeVisible(captions[i]);fields[i]->editor.onCommit=[this](double){dirty=true;updatePending();startTimer(350);};}
+        for(std::size_t i=0;i<fields.size();++i){addAndMakeVisible(fields[i]->editor);captions[i].setText(labels[i],juce::dontSendNotification);captions[i].setFont(Theme::detailFont());addAndMakeVisible(captions[i]);fields[i]->editor.onCommit=[this,i](double){speedEdited=speedEdited||i==1;transposeEdited=transposeEdited||i==2;tuneEdited=tuneEdited||i==3;dirty=true;updatePending();startTimer(350);};}
         tempo.editor.setTooltip("Source BPM; 0 = unknown. Metadata only until Fit to project tempo.");
         speed.editor.setTooltip("Playback speed; 2 = twice as fast. Wheel, Ctrl+wheel for fine steps.");
         transpose.editor.setTooltip("Semitones. Wheel, Ctrl+wheel for fine steps.");tune.editor.setTooltip("Cents. Wheel, Ctrl+wheel for fine steps.");
@@ -51,24 +51,28 @@ public:
     }
     void flush(bool fitTempo=false){
         stopTimer();if(!dirty&&!fitTempo)return;
-        auto parameters=expected.stretch?expected.stretch->parameters:mrs::stretch::Parameters{};
+        auto parameters=editedParameters();
         const double bpm=tempo.editor.value();
         if(fitTempo&&bpm<1){status.setText("Set File Tempo before fitting.",juce::dontSendNotification);return;}
-        parameters.duration_ratio=1/speed.editor.value();parameters.semitones=transpose.editor.value();parameters.cents=tune.editor.value();
-        if(parameters.duration_ratio!=(expected.stretch?expected.stretch->parameters.duration_ratio:1.)||parameters.semitones!=(expected.stretch?expected.stretch->parameters.semitones:0)||parameters.cents!=(expected.stretch?expected.stretch->parameters.cents:0)||fitTempo)parameters.enabled=true;
+        if(fitTempo)parameters.enabled=true;
         const auto result=submit(expected,parameters,bpm==0?std::nullopt:std::optional<double>{bpm},fitTempo);
-        dirty=false;pending->dirty=false;if(result){expected=*result;refresh();status.setText("Applied. Undo restores the previous gesture.",juce::dontSendNotification);}else{refresh();status.setText("Could not apply; check the error and retry.",juce::dontSendNotification);}
+        dirty=false;speedEdited=transposeEdited=tuneEdited=false;pending->dirty=false;if(result){expected=*result;refresh();status.setText("Applied. Undo restores the previous gesture.",juce::dontSendNotification);}else{refresh();status.setText("Could not apply; check the error and retry.",juce::dontSendNotification);}
     }
 private:
-    void updatePending(){
+    mrs::stretch::Parameters editedParameters()const{
         auto parameters=expected.stretch?expected.stretch->parameters:mrs::stretch::Parameters{};
-        parameters.duration_ratio=1/speed.editor.value();parameters.semitones=transpose.editor.value();parameters.cents=tune.editor.value();
-        if(parameters.duration_ratio!=(expected.stretch?expected.stretch->parameters.duration_ratio:1.)||parameters.semitones!=(expected.stretch?expected.stretch->parameters.semitones:0)||parameters.cents!=(expected.stretch?expected.stretch->parameters.cents:0))parameters.enabled=true;
-        pending->expected=expected;pending->parameters=parameters;pending->tempo=tempo.editor.value()==0?std::nullopt:std::optional<double>{tempo.editor.value()};pending->dirty=true;
+        if(speedEdited)parameters.duration_ratio=1/speed.editor.value();
+        if(transposeEdited)parameters.semitones=transpose.editor.value();
+        if(tuneEdited)parameters.cents=tune.editor.value();
+        if(speedEdited||transposeEdited||tuneEdited)parameters.enabled=true;
+        return parameters;
+    }
+    void updatePending(){
+        pending->expected=expected;pending->parameters=editedParameters();pending->tempo=tempo.editor.value()==0?std::nullopt:std::optional<double>{tempo.editor.value()};pending->dirty=true;
     }
     void refresh(){tempo.editor.setAuthoritativeValue(expected.file_tempo.value_or(0));speed.editor.setAuthoritativeValue(1/(expected.stretch?expected.stretch->parameters.duration_ratio:1.));transpose.editor.setAuthoritativeValue(expected.stretch?expected.stretch->parameters.semitones:0);tune.editor.setAuthoritativeValue(expected.stretch?expected.stretch->parameters.cents:0);}
     void timerCallback()override{flush();}
-    mrs::Clip expected;Apply submit;bool dirty{};std::shared_ptr<Pending> pending;
+    mrs::Clip expected;Apply submit;bool dirty{},speedEdited{},transposeEdited{},tuneEdited{};std::shared_ptr<Pending> pending;
     Field tempo,speed,transpose,tune;juce::Label name,status;std::array<juce::Label,4> captions;juce::TextButton fit;
 };
 }

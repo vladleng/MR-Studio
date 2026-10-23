@@ -51,6 +51,12 @@ void clipStretchSmoke(){
     panel->tempo.editor.setValue(105);panel->tempo.editor.onCommit(105);panel->flush(true);
     check(stored().file_tempo==105&&stored().length==42000,"Fit 105 BPM source to 120 BPM project");
     panel.reset();check(owner.app.undo()&&*owner.project()==menuBaseline,"Tempo fit is one Undo");
+    // Metadata must retain an exact ratio and bypass, including reciprocal rounding.
+    auto bypassed=mrs::stretch::Parameters{};bypassed.enabled=false;bypassed.duration_ratio=1.23456789012345;bypassed.semitones=7;
+    owner.app.set_clip_stretch(id,bypassed);const auto bypassBaseline=*owner.project();
+    panel=std::make_unique<ClipTimingMenu>(owner.theme,stored(),submit);panel->tempo.editor.setValue(99);panel->tempo.editor.onCommit(99);panel->flush();
+    check(stored().stretch->parameters==bypassed&&stored().file_tempo==99,"BPM edit retains exact ratio and bypass");panel.reset();
+    check(owner.app.undo()&&*owner.project()==bypassBaseline,"BPM on bypass Undo");check(owner.app.undo()&&*owner.project()==menuBaseline,"Restore menu baseline");
     // Actual Arrangement gestures: Alt edges stretch, plain edges trim, body Alt copies.
     owner.app.move_clip(id,stored().track,48000);owner.refresh(true);owner.snap=false;
     auto& arrangement=*owner.arrangement;arrangement.pixelsPerSecond=120.;
@@ -64,7 +70,9 @@ void clipStretchSmoke(){
         if(cancel)arrangement.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
         arrangement.mouseUp(mouse(point.translated(distance,0),0));
     };
-    const auto dragBaseline=*owner.project();gesture(false,60);
+    const auto dragBaseline=*owner.project();
+    owner.snap=true;const auto snapRevision=owner.app.services().projects->state().revision;gesture(false,2);check(owner.app.services().projects->state().revision==snapRevision,"Snap to original edge creates no Undo");owner.snap=false;
+    gesture(false,60);
     check(stored().start==48000&&stored().length==72000&&stored().stretch,"Alt right edge stretches without moving start");
     check(owner.app.undo()&&*owner.project()==dragBaseline,"Alt right edge one Undo");check(owner.app.redo(),"Alt edge Redo");
     const auto stretchedClip=stored();gesture(true,30);
