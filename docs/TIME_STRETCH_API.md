@@ -211,6 +211,24 @@ no-overwrite publication protect existing files. Render outputs are float32 RIFF
 the input WAV importer/SRC is unchanged. `--impulse-report` is a diagnostic CSV:
 it reports observed peak displacement and the one-frame criterion without
 pretending that producing the report means passing that criterion.
+It sweeps ratios 0.5/0.75/0.9/1/1.1/1.25/1.5/2 and eleven source positions,
+including differing analysis-hop phases and both clip boundaries. Additional
+columns report peak dB relative to the unit source impulse, the 5–95% cumulative
+energy width (inclusive frames), and the fraction of energy earlier than one
+millisecond before the mapped onset. These metrics distinguish attenuation,
+spreading and pre-echo; a narrow impulse can still have an attenuated peak.
+The unity case uses a 0.01-cent shift to exercise DSP rather than neutral bypass.
+This diagnostic does not measure musical attack quality, establish a pass
+threshold for the new metrics, or replace level-aligned listening on drum loops
+and mixed material. Clip-boundary rows include truncation effects and must be
+considered separately from interior rows.
+
+The Balanced preset currently uses the upstream 120 ms window / 30 ms hop;
+Economical uses 100 ms / 40 ms. Neither is a dedicated percussion mode.
+User listening has identified softened attacks on acceleration; default backend
+quality remains unaccepted in #62. Reducing window/hop alone is not an established
+fix: configuration evaluation must also check peak retention across onset phases,
+bass/pitch stability and stereo integrity before changing the product default.
 
 The unity-ratio, near-neutral-pitch impulse regression isolates latency accounting
 from spectral transient behavior. The non-unity impulse report is separate #62
