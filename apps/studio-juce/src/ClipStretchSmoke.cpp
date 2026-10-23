@@ -52,13 +52,15 @@ void clipStretchSmoke(){
     check(stored().file_tempo==105&&stored().length==42000,"Fit 105 BPM source to 120 BPM project");
     panel.reset();check(owner.app.undo()&&*owner.project()==menuBaseline,"Tempo fit is one Undo");
     // Metadata must retain an exact ratio and bypass, including reciprocal rounding.
-    auto bypassed=mrs::stretch::Parameters{};bypassed.enabled=false;bypassed.duration_ratio=1.23456789012345;bypassed.semitones=7;
+    auto bypassed=mrs::stretch::Parameters{};bypassed.enabled=false;bypassed.duration_ratio=1.23456789012345;bypassed.semitones=24;
     owner.app.set_clip_stretch(id,bypassed);const auto bypassBaseline=*owner.project();
-    panel=std::make_unique<ClipTimingMenu>(owner.theme,stored(),submit);panel->tempo.editor.setValue(99);panel->tempo.editor.onCommit(99);panel->flush();
+    panel=std::make_unique<ClipTimingMenu>(owner.theme,stored(),submit);
+    const auto boundedSubmissions=submissions;panel->transpose.mouseWheelMove(wheelEvent(panel->transpose.editor),wheel);panel->flush();
+    check(submissions==boundedSubmissions&&stored().stretch->parameters==bypassed,"Clamped wheel keeps bypass and adds no command");panel->tempo.editor.setValue(99);panel->tempo.editor.onCommit(99);panel->flush();
     check(stored().stretch->parameters==bypassed&&stored().file_tempo==99,"BPM edit retains exact ratio and bypass");panel.reset();
     check(owner.app.undo()&&*owner.project()==bypassBaseline,"BPM on bypass Undo");check(owner.app.undo()&&*owner.project()==menuBaseline,"Restore menu baseline");
     // Actual Arrangement gestures: Alt edges stretch, plain edges trim, body Alt copies.
-    owner.app.move_clip(id,stored().track,48000);owner.refresh(true);owner.snap=false;
+    owner.app.move_clip(id,stored().track,48000);owner.setWorkspace(mrs::desktop::Workspace::arrange);owner.refresh(true);owner.snap=false;
     auto& arrangement=*owner.arrangement;arrangement.pixelsPerSecond=120.;
     auto mouse=[&](juce::Point<float> point,int mods){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(mods),1,0,0,0,0,&arrangement,&arrangement,now,point,now,1,true);};
     const int altLeft=juce::ModifierKeys::altModifier|juce::ModifierKeys::leftButtonModifier;

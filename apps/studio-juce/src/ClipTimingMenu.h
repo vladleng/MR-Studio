@@ -14,6 +14,7 @@ class ClipTimingMenu final : public juce::PopupMenu::CustomComponent, private ju
             if(!editor.isEnabled()||d.deltaY==0||d.isInertial)return;
             const auto direction=d.deltaY>0?1.:-1.;
             const auto value=std::clamp(editor.value()+direction*wheelStep*(e.mods.isCtrlDown()?.1:1.),editor.spec().minimum,editor.spec().maximum);
+            if(value==editor.value())return;
             editor.setAuthoritativeValue(value);if(editor.onCommit)editor.onCommit(value);
         }
     };
