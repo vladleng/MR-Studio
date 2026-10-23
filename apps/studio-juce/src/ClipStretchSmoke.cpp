@@ -30,34 +30,34 @@ void clipStretchSmoke(){
         owner.app.set_clip_timing(expected,params,tempo,expected.start);++submissions;return stored();
     };
     const auto menuBaseline=*owner.project();
-    auto panel=std::make_unique<ClipTimingMenu>(owner.theme,stored(),submit);panel->setSize(370,142);
+    auto timingControls=std::make_unique<ClipTimingMenu>(owner.theme,stored(),submit);timingControls->setSize(370,142);
     const auto now=juce::Time::getCurrentTime();
     auto wheelEvent=[&](juce::Component& c,int modifiers=0){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),{10,10},juce::ModifierKeys(modifiers),1,0,0,0,0,&c,&c,now,{10,10},now,0,false);};
     juce::MouseWheelDetails wheel;wheel.deltaY=.1f;
-    for(int i=0;i<5;++i)panel->speed.mouseWheelMove(wheelEvent(panel->speed.editor),wheel);
+    for(int i=0;i<5;++i)timingControls->speed.mouseWheelMove(wheelEvent(timingControls->speed.editor),wheel);
     check(*owner.project()==menuBaseline&&submissions==0,"Wheel burst is buffered");
-    check(std::abs(panel->speed.editor.value()-1.05)<1e-9,"Hover wheel changes Speedup");
-    panel->transpose.mouseWheelMove(wheelEvent(panel->transpose.editor),wheel);
-    panel->tune.mouseWheelMove(wheelEvent(panel->tune.editor,juce::ModifierKeys::ctrlModifier),wheel);
-    for(float scale:{1.f,1.5f}){auto stream=juce::File::getCurrentWorkingDirectory().getChildFile(scale==1.f?"stretch-dialog-menu-100.png":"stretch-dialog-menu-150.png").createOutputStream();check(stream&&juce::PNGImageFormat().writeImageToStream(panel->createComponentSnapshot(panel->getLocalBounds(),true,scale),*stream),"Menu preview");}
-    panel->flush();check(submissions==1&&stored().stretch->parameters.semitones==1&&std::abs(stored().stretch->parameters.cents-.1)<1e-9,"One menu command binds pitch and fine tune");
-    panel.reset();check(owner.app.undo()&&*owner.project()==menuBaseline,"Wheel burst is one Undo");
+    check(std::abs(timingControls->speed.editor.value()-1.05)<1e-9,"Hover wheel changes Speedup");
+    timingControls->transpose.mouseWheelMove(wheelEvent(timingControls->transpose.editor),wheel);
+    timingControls->tune.mouseWheelMove(wheelEvent(timingControls->tune.editor,juce::ModifierKeys::ctrlModifier),wheel);
+    for(float scale:{1.f,1.5f}){auto stream=juce::File::getCurrentWorkingDirectory().getChildFile(scale==1.f?"stretch-dialog-menu-100.png":"stretch-dialog-menu-150.png").createOutputStream();check(stream&&juce::PNGImageFormat().writeImageToStream(timingControls->createComponentSnapshot(timingControls->getLocalBounds(),true,scale),*stream),"Menu preview");}
+    timingControls->flush();check(submissions==1&&stored().stretch->parameters.semitones==1&&std::abs(stored().stretch->parameters.cents-.1)<1e-9,"One menu command binds pitch and fine tune");
+    timingControls.reset();check(owner.app.undo()&&*owner.project()==menuBaseline,"Wheel burst is one Undo");
     // Pending edits survive popup component destruction before its close callback.
-    panel=std::make_unique<ClipTimingMenu>(owner.theme,stored(),submit);
-    panel->tempo.editor.setValue(105);panel->tempo.editor.onCommit(105);
-    auto finish=panel->finish();panel.reset();finish();check(stored().file_tempo==105&&!stored().stretch,"Menu-close flush preserves BPM without creating processing state");
+    timingControls=std::make_unique<ClipTimingMenu>(owner.theme,stored(),submit);
+    timingControls->tempo.editor.setValue(105);timingControls->tempo.editor.onCommit(105);
+    auto finish=timingControls->finish();timingControls.reset();finish();check(stored().file_tempo==105&&!stored().stretch,"Menu-close flush preserves BPM without creating processing state");
     check(owner.app.undo()&&*owner.project()==menuBaseline,"BPM metadata Undo");
-    panel=std::make_unique<ClipTimingMenu>(owner.theme,stored(),submit);
-    panel->tempo.editor.setValue(105);panel->tempo.editor.onCommit(105);panel->flush(true);
+    timingControls=std::make_unique<ClipTimingMenu>(owner.theme,stored(),submit);
+    timingControls->tempo.editor.setValue(105);timingControls->tempo.editor.onCommit(105);timingControls->flush(true);
     check(stored().file_tempo==105&&stored().length==42000,"Fit 105 BPM source to 120 BPM project");
-    panel.reset();check(owner.app.undo()&&*owner.project()==menuBaseline,"Tempo fit is one Undo");
+    timingControls.reset();check(owner.app.undo()&&*owner.project()==menuBaseline,"Tempo fit is one Undo");
     // Metadata must retain an exact ratio and bypass, including reciprocal rounding.
     auto bypassed=mrs::stretch::Parameters{};bypassed.enabled=false;bypassed.duration_ratio=1.23456789012345;bypassed.semitones=24;
     owner.app.set_clip_stretch(id,bypassed);const auto bypassBaseline=*owner.project();
-    panel=std::make_unique<ClipTimingMenu>(owner.theme,stored(),submit);
-    const auto boundedSubmissions=submissions;panel->transpose.mouseWheelMove(wheelEvent(panel->transpose.editor),wheel);panel->flush();
-    check(submissions==boundedSubmissions&&stored().stretch->parameters==bypassed,"Clamped wheel keeps bypass and adds no command");panel->tempo.editor.setValue(99);panel->tempo.editor.onCommit(99);panel->flush();
-    check(stored().stretch->parameters==bypassed&&stored().file_tempo==99,"BPM edit retains exact ratio and bypass");panel.reset();
+    timingControls=std::make_unique<ClipTimingMenu>(owner.theme,stored(),submit);
+    const auto boundedSubmissions=submissions;timingControls->transpose.mouseWheelMove(wheelEvent(timingControls->transpose.editor),wheel);timingControls->flush();
+    check(submissions==boundedSubmissions&&stored().stretch->parameters==bypassed,"Clamped wheel keeps bypass and adds no command");timingControls->tempo.editor.setValue(99);timingControls->tempo.editor.onCommit(99);timingControls->flush();
+    check(stored().stretch->parameters==bypassed&&stored().file_tempo==99,"BPM edit retains exact ratio and bypass");timingControls.reset();
     check(owner.app.undo()&&*owner.project()==bypassBaseline,"BPM on bypass Undo");check(owner.app.undo()&&*owner.project()==menuBaseline,"Restore menu baseline");
     // Actual Arrangement gestures: Alt edges stretch, plain edges trim, body Alt copies.
     owner.app.move_clip(id,stored().track,48000);owner.setWorkspace(mrs::desktop::Workspace::arrange);owner.refresh(true);owner.snap=false;

@@ -1361,7 +1361,7 @@ void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
     std::function<void()> finishTiming;
     if(!c->midi){
         juce::Component::SafePointer<Arrangement> safe(this);
-        auto panel=std::make_unique<ClipTimingMenu>(owner.theme,*c,[safe,store](const mrs::Clip& expected,mrs::stretch::Parameters parameters,std::optional<double> tempo,bool fit)->std::optional<mrs::Clip>{
+        auto timingControls=std::make_unique<ClipTimingMenu>(owner.theme,*c,[safe,store](const mrs::Clip& expected,mrs::stretch::Parameters parameters,std::optional<double> tempo,bool fit)->std::optional<mrs::Clip>{
             std::optional<mrs::Clip> result;if(!safe)return result;
             safe->owner.run([&]{
                 if(store!=safe->owner.app.services().projects)throw std::runtime_error("Project changed; reopen clip menu");
@@ -1371,8 +1371,8 @@ void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
                 const auto p=safe->owner.project();const auto current=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& item){return item.id==expected.id;});if(current!=p->clips.end())result=*current;
             });return result;
         });
-        panel->setEnabled(enabled&&owner.displayState().playback!=mrs::PlaybackState::playing);finishTiming=panel->finish();
-        menu.addCustomItem(21,std::move(panel),nullptr,"Clip time and pitch");menu.addSeparator();
+        timingControls->setEnabled(enabled&&owner.displayState().playback!=mrs::PlaybackState::playing);finishTiming=timingControls->finish();
+        menu.addCustomItem(21,std::move(timingControls),nullptr,"Clip time and pitch");menu.addSeparator();
         menu.addItem(20,"Time / Pitch...",enabled&&owner.displayState().playback!=mrs::PlaybackState::playing);
     }
 #ifdef MRS_HAS_ARA
