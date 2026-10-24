@@ -19,9 +19,9 @@ test('subpatch is parameter overlay and never changes patch engine or other inhe
  assert.equal(show.doc.items[1].tracks.find(t=>t.channelId===c.id).subPatchId,null);
  show.undo();assert.deepEqual(effectivePatch(show.doc.channels.find(c=>c.id===channel.id),show.doc.items[0].tracks.find(t=>t.channelId===channel.id)),before);
 });
-test('v1 migration preserves item data, v2 roundtrip and invalid references rejected atomically',()=>{
+test('v1 migration preserves item data, v3 roundtrip and invalid references rejected atomically',()=>{
  const legacy=initialShow();legacy.version=1;delete legacy.channels;for(const item of legacy.items)delete item.tracks;
- const migrated=validateShow(legacy);assert.equal(migrated.version,2);assert.equal(legacy.version,1);assert.equal(migrated.items[0].name,legacy.items[0].name);assert.equal(migrated.items[0].tracks.length,4);assert.deepEqual(parseShow(JSON.stringify(migrated)),migrated);
+ const migrated=validateShow(legacy);assert.equal(migrated.version,3);assert.equal(legacy.version,1);assert.equal(migrated.items[0].name,legacy.items[0].name);assert.equal(migrated.items[0].tracks.length,4);assert.deepEqual(parseShow(JSON.stringify(migrated)),migrated);
  for(const mutate of [d=>d.channels[0].type='Bus',d=>d.items[0].tracks[0].channelId='missing',d=>d.items[0].tracks[0].patchId='missing',d=>d.items[0].tracks.pop(),d=>d.channels[0].patches[0].subPatches.push({id:'bad',name:'Bad',overrides:{instrument:'reload'}}),d=>d.channels[0].patches[0].subPatches.push({id:'bad',name:'Bad',overrides:{mix:101}})]){const show=new DemoShow();const before=JSON.stringify(show.doc);assert.throws(()=>show.commit(mutate));assert.equal(JSON.stringify(show.doc),before);}
 });
 test('patch block order and colors migrate and reject invalid references/color values',()=>{

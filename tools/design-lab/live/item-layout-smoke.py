@@ -7,7 +7,7 @@ with sync_playwright() as p:
  page.locator('#load-user-layout').click();page.wait_for_function('document.querySelectorAll(".block").length===6');page.locator('#preview').check()
  assert page.locator('.block[aria-label="Inputs / patches"]').count()==0
  assert page.locator('.block .mixer-strip').count()==0
- container=page.locator('.live-item-container');assert container.locator('.item-track').count()==4
+ container=page.locator('.live-item-container').first;assert container.locator('.item-track').count()==4
  fold=container.locator('.item-fold');fold.click();assert container.locator('.item-track').count()==0;fold.click()
  container.get_by_role('button',name='+ Канал',exact=True).click()
  dialog=page.get_by_role('dialog');dialog.get_by_label('Тип канала',exact=True).select_option('Player');dialog.get_by_label('Название',exact=True).fill('Lead');dialog.get_by_role('button',name='Сохранить',exact=True).click()

@@ -13,7 +13,7 @@ with sync_playwright() as p:
     assert page.locator('.block').count()==11
     page.wait_for_function('Array.from(document.querySelectorAll(".visual img")).every(i=>i.complete && i.naturalWidth>0)')
     assert page.locator('.visual-fader').count()==0
-    assert page.locator('.visual-wave').count()==1
+    assert page.locator('.visual-wave').count()==4
     assert page.locator('.visual-action').count()==9
     page.locator('#layers button').first.click()
     page.locator('[name=fontSize]').fill('22')

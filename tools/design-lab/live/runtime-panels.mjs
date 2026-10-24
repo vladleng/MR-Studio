@@ -11,7 +11,7 @@ function library(root){
  const note=el('p','Демо-каталог MR Studio');note.className='visual-caption';root.append(note);
  const search=el('input');search.type='search';search.placeholder=state.tab==='FX'?'Search plugins…':'Поиск файлов…';search.setAttribute('aria-label','Поиск в Browser');search.value=state.query;root.append(search);
  const destination=el('select');destination.setAttribute('aria-label','Канал Browser');
- const channels=showDocument().channels.filter(c=>c.type!=='Audio');for(const c of channels)destination.add(new Option(c.name,c.id));if(!channels.some(c=>c.id===state.channel))state.channel=channels[0]?.id||null;destination.value=state.channel||'';destination.onchange=()=>state.channel=destination.value;
+ const channels=showDocument().channels.filter(c=>!['Audio','Playback'].includes(c.type));for(const c of channels)destination.add(new Option(c.name,c.id));if(!channels.some(c=>c.id===state.channel))state.channel=channels[0]?.id||null;destination.value=state.channel||'';destination.onchange=()=>state.channel=destination.value;
  if(state.tab==='FX')root.append(destination);
  const tree=el('div');tree.className='studio-browser-tree';root.append(tree);
  const status=el('p',state.status);status.setAttribute('role','status');root.append(status);
