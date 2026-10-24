@@ -9,6 +9,12 @@ with sync_playwright() as p:
  page.evaluate('(data)=>localStorage.setItem("mr-live-demo-show-v1",data)',json.dumps(fixture));page.reload();page.wait_for_selector('.block')
  page.locator('#load-user-layout').click();page.wait_for_function('document.querySelectorAll(".block").length===8');page.locator('#preview').check()
  root=page.locator('.show-browser');root.get_by_role('button',name='Browser',exact=True).click()
+ assert root.get_by_role('button',name='+ Папка',exact=True).count()==0
+ assert root.get_by_role('button',name='Экспорт demo show',exact=True).count()==0
+ root.locator('.show-rows').dispatch_event('contextmenu',{'clientX':200,'clientY':300})
+ page.get_by_role('menu').get_by_role('menuitem',name='+ Папка',exact=True).click()
+ page.get_by_role('dialog').get_by_label('Название',exact=True).fill('Created by menu')
+ page.get_by_role('dialog').get_by_role('button',name='Сохранить',exact=True).click()
  a=root.get_by_role('button',name='Папка Pack A',exact=True);a.click()
  assert a.get_attribute('aria-expanded')=='true'
  assert root.get_by_role('button',name='Папка Pack B',exact=True).is_visible()
@@ -32,7 +38,7 @@ with sync_playwright() as p:
  root.get_by_role('button',name='Setlist',exact=True).click();root.locator('[data-item=one]').click(button='right')
  page.get_by_role('menu').get_by_role('menuitem',name='Убрать из setlist',exact=True).click()
  assert root.locator('.song-row').count()==1
- root.get_by_role('button',name='Undo show',exact=True).click();assert root.locator('.song-row').count()==2
+ root.locator('.show-rows').dispatch_event('contextmenu',{'clientX':200,'clientY':300});page.get_by_role('menu').get_by_role('menuitem',name='Undo show',exact=True).click();assert root.locator('.song-row').count()==2
  root.get_by_role('button',name='Browser',exact=True).click()
  page.locator('#fullscreen-preview').click();page.wait_for_selector('.fullscreen-preview')
  root.get_by_role('button',name='Папка Pack A',exact=True).click(button='right')
