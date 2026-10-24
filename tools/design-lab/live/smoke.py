@@ -53,6 +53,17 @@ with sync_playwright() as p:
     assert page.locator('[name=x]').input_value()=='48'
     page.locator('#undo').click()
     page.get_by_label('Показывать название',exact=True).check()
+    page.locator('#viewport').select_option('1920,1080')
+    heading=page.locator('.block h3').first.bounding_box()
+    page.mouse.move(heading['x']+50,heading['y']+10);page.mouse.down()
+    page.mouse.move(heading['x']+74,heading['y']+34,steps=4);page.mouse.up()
+    assert page.locator('[name=x]').input_value()=='48'
+    stored=page.evaluate('JSON.parse(localStorage.getItem("mr-design-lab-live-v1"))')
+    assert stored['viewport']=={'width':1920,'height':1080}
+    page.locator('#undo').click()
+    stored=page.evaluate('JSON.parse(localStorage.getItem("mr-design-lab-live-v1"))')
+    assert stored['viewport']=={'width':1280,'height':912}
+    page.locator('#viewport').select_option('1280,912')
     page.locator('#name').fill('Smoke layout');page.locator('#name').press('Tab');page.locator('#save').click()
     with page.expect_download() as download:page.locator('#export').click()
     exported=json.loads(Path(download.value.path()).read_text())

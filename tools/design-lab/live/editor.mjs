@@ -32,12 +32,25 @@ function renderCanvas(){
  }
 }
 function startGesture(e,b,mode){if($('preview').checked||e.button!==0)return;e.preventDefault();selected=b.id;
- // Edit geometry in the reference viewport; preview resolution never overwrites it.
  if(b.dock!=='none'){say('Снимите docking для свободного перемещения и изменения размера.');render();return;}
- if($('viewport').value!==`${history.doc.viewport.width},${history.doc.viewport.height}`){say('Для перетаскивания выберите исходный viewport; адаптивные размеры проверяются в Preview.');render();return;}
- gesture={id:b.id,mode,x:e.clientX,y:e.clientY,base:structuredClone(history.doc),block:structuredClone(b)};$('canvas').setPointerCapture(e.pointerId);renderInspector();
+ // Resolve into the selected editing viewport. Commit this rebase with the gesture,
+ // so one Undo restores the previous reference geometry as well as the move.
+ const base=structuredClone(history.doc),working=structuredClone(base),view=viewport();
+ try{
+   working.blocks=base.blocks.map(item=>{
+     const resolved=resolve(item,base.viewport,view);
+     if(item.minW>view.width||item.minH>view.height)throw Error('Минимальный размер блока превышает viewport. Уменьшите minW/minH в Inspector.');
+     resolved.w=Math.min(resolved.w,view.width);resolved.h=Math.min(resolved.h,view.height);
+     resolved.x=Math.max(0,Math.min(resolved.x,view.width-resolved.w));
+     resolved.y=Math.max(0,Math.min(resolved.y,view.height-resolved.h));
+     return resolved;
+   });
+ }catch(error){say(error.message);return;}
+ working.viewport=view;
+ gesture={id:b.id,mode,x:e.clientX,y:e.clientY,base,working,block:working.blocks.find(item=>item.id===b.id)};
+ $('canvas').setPointerCapture(e.pointerId);renderInspector();
 }
-window.addEventListener('pointermove',e=>{if(!gesture)return;const g=gesture,b=g.block;let dx=(e.clientX-g.x)/factor(),dy=(e.clientY-g.y)/factor();const snap=v=>$('snap').checked?Math.round(v/4)*4:Math.round(v);const next=structuredClone(g.base),item=next.blocks.find(x=>x.id===g.id);
+window.addEventListener('pointermove',e=>{if(!gesture)return;const g=gesture,b=g.block;let dx=(e.clientX-g.x)/factor(),dy=(e.clientY-g.y)/factor();const snap=v=>$('snap').checked?Math.round(v/4)*4:Math.round(v);const next=structuredClone(g.working),item=next.blocks.find(x=>x.id===g.id);
  if(g.mode==='move'){item.x=Math.max(0,Math.min(snap(b.x+dx),next.viewport.width-b.w));item.y=Math.max(0,Math.min(snap(b.y+dy),next.viewport.height-b.h));}
  else{item.w=Math.max(b.minW,Math.min(b.maxW,snap(b.w+dx),next.viewport.width-b.x));item.h=Math.max(b.minH,Math.min(b.maxH,snap(b.h+dy),next.viewport.height-b.y));}
  const guides=[];
