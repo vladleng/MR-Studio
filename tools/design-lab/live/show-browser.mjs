@@ -1,7 +1,7 @@
 import {DemoShow,parseShow} from './show-model.mjs';
 const storage='mr-live-demo-show-v1';
 let warning='',show;
-try{const text=localStorage.getItem(storage);show=new DemoShow(text?parseShow(text):undefined);}catch(e){show=new DemoShow();warning=`Черновик show не восстановлен: ${e.message}. Исходная запись не перезаписана.`;}
+try{const text=localStorage.getItem(storage);show=new DemoShow(text?parseShow(text,true):undefined);}catch(e){show=new DemoShow();warning=`Черновик show не восстановлен: ${e.message}. Исходная запись не перезаписана.`;}
 const views=new Map();
 const node=(tag,text)=>{const el=document.createElement(tag);if(text!==undefined)el.textContent=text;return el;};
 const button=(text,action)=>{const el=node('button',text);el.type='button';el.onclick=e=>{e.stopPropagation();action();};return el;};
@@ -39,14 +39,14 @@ export function showDocument(){return show.doc;}
 export function editShow(fn,notify=true){show.commit(fn);save(notify);}
 export function editItem(itemId,fn){editShow(d=>{const item=d.items.find(i=>i.id===itemId);if(!item)throw Error('Item не найден');fn(item);d.currentItem=itemId;});}
 export function activeItem(){return show.doc.items.find(i=>i.id===show.doc.currentItem);}
-export function renderShowBrowser(root,blockId,enabled){
+export function renderShowBrowser(root,blockId,enabled,library=false){
  root.replaceChildren();root.classList.add('show-browser');
  root.onkeydown=e=>e.stopPropagation();
- const view=views.get(blockId)||{mode:'setlist',folder:null,selected:null,query:'',expanded:new Set()};views.set(blockId,view);
+ const view=views.get(blockId)||{mode:library?'browser':'setlist',folder:null,selected:null,query:'',expanded:new Set()};views.set(blockId,view);view.mode=library?'browser':'setlist';
  if(view.folder&&!show.doc.folders.some(f=>f.id===view.folder))view.folder=null;
- const redraw=()=>renderShowBrowser(root,blockId,enabled);
+ const redraw=()=>renderShowBrowser(root,blockId,enabled,library);
  const toolbar=node('div');toolbar.className='show-tabs';
- for(const [mode,label] of [['setlist','Setlist'],['browser','Browser']]){const b=button(label,()=>{view.mode=mode;view.selected=null;redraw();});b.setAttribute('aria-pressed',String(view.mode===mode));toolbar.append(b);}root.append(toolbar);
+ if(!library){toolbar.append(node('strong','Setlist'),button('Browser',()=>window.dispatchEvent(new CustomEvent('live-items-toggle',{detail:blockId}))));root.append(toolbar);}
  const status=node('p',enabled?'ПКМ — операции · сохраняется локально':'Для операций включите Preview');status.className='visual-caption';root.append(status);
  if(warning){const alert=node('p',warning);alert.setAttribute('role','alert');root.append(alert);}
  const tools=node('div');tools.className='show-tools';root.append(tools);
@@ -63,6 +63,9 @@ export function renderShowBrowser(root,blockId,enabled){
  tools.append(button('+ Item',()=>itemDialog(root,null,view.folder,id=>{if(view.mode==='setlist')show.add(id);})))
  const search=node('input');search.type='search';search.placeholder='Поиск items';search.setAttribute('aria-label','Поиск items');search.value=view.query;search.oninput=()=>{view.query=search.value;renderRows();};root.append(search);
  const rows=node('div');rows.className='show-rows';root.append(rows);
+ function dropEntry(e,before){const entryId=e.dataTransfer.getData('text/mr-show-entry'),itemId=e.dataTransfer.getData('text/mr-show-item');if(entryId&&before){change(()=>show.reorder(entryId,before));return;}if(!itemId)return;change(()=>show.commit(d=>{if(!d.items.some(i=>i.id===itemId))throw Error('Item не найден');const entries=d.setlists.find(s=>s.id===d.activeSetlist).entries;const index=before?entries.findIndex(e=>e.id===before):entries.length;if(entryId){const from=entries.findIndex(e=>e.id===entryId);if(from>=0)entries.push(entries.splice(from,1)[0]);}else entries.splice(index<0?entries.length:index,0,{id:crypto.randomUUID(),itemId});}));}
+ if(!library){rows.ondragover=e=>{if(!enabled||!e.dataTransfer.types.includes('text/mr-show-item'))return;e.preventDefault();e.dataTransfer.dropEffect=e.dataTransfer.types.includes('text/mr-show-entry')?'move':'copy';};rows.ondrop=e=>{if(!enabled)return;e.preventDefault();dropEntry(e);};}
+
  const operations=node('div');operations.className='show-tools';operations.hidden=true;root.append(operations);
  function renderRows(){rows.replaceChildren();operations.replaceChildren();
   const entries=view.mode==='setlist'?list.entries.map(e=>({entry:e,item:show.doc.items.find(i=>i.id===e.itemId)})):show.doc.items.map(item=>({item}));
@@ -71,7 +74,7 @@ export function renderShowBrowser(root,blockId,enabled){
    const row=node('button');row.type='button';row.className='song-row';row.dataset.item=item.id;row.setAttribute('aria-pressed',String(view.selected===(entry?.id||item.id)));row.append(node('span',`${count}. ${item.name}`),node('small',`${item.tempo} BPM · ${item.meter} · ${item.key}`));
    row.classList.toggle('current',show.doc.currentItem===item.id);row.onclick=()=>{view.selected=entry?.id||item.id;for(const r of rows.querySelectorAll('.song-row'))r.setAttribute('aria-pressed',String(r===row));renderOperations();};row.ondblclick=()=>change(()=>show.commit(d=>d.currentItem=item.id));row.draggable=enabled;
    row.oncontextmenu=e=>{if(!enabled)return;view.selected=entry?.id||item.id;renderRows();contextMenu(root,e,[...operations.querySelectorAll('button'),...root.querySelectorAll('.show-footer button')]);};
-   row.ondragstart=e=>{e.dataTransfer.setData('text/mr-show-item',item.id);if(entry)e.dataTransfer.setData('text/mr-show-entry',entry.id);};row.ondragover=e=>e.preventDefault();row.ondrop=e=>{e.preventDefault();const id=e.dataTransfer.getData('text/mr-show-entry');if(entry&&id)change(()=>show.reorder(id,entry.id));};parent.append(row);
+   row.ondragstart=e=>{e.dataTransfer.setData('text/mr-show-item',item.id);e.dataTransfer.effectAllowed='copyMove';if(entry)e.dataTransfer.setData('text/mr-show-entry',entry.id);};row.ondragover=e=>{if(!enabled)return;e.preventDefault();e.dataTransfer.dropEffect=view.mode==='setlist'&&!e.dataTransfer.types.includes('text/mr-show-entry')?'copy':'move';};row.ondrop=e=>{if(view.mode!=='setlist'||!enabled)return;e.preventDefault();e.stopPropagation();dropEntry(e,entry?.id);};parent.append(row);
   }
   function dropFolder(row,folderId){
    row.ondragover=e=>{if(!enabled)return;e.preventDefault();row.classList.add('drop-target');};

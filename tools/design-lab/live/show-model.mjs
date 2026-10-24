@@ -1,10 +1,10 @@
-import {reconcileTimeline,validateTimeline} from './timeline-model.mjs';
+import {reconcileTimeline,validateTimeline,repairTimelineOverlaps} from './timeline-model.mjs';
 import {defaultChannels,makeTracks,validateChannels} from './channel-model.mjs';
 // Browser-only show prototype. Deliberately independent of layout and native ShowDocument.
 const id=()=>crypto.randomUUID();
 const name=s=>typeof s==='string'&&s.trim().length>0&&s.length<=120;
 const keys=(o,list)=>{if(!o||typeof o!=='object'||Array.isArray(o)||Object.keys(o).some(k=>!list.includes(k)))throw Error('Недопустимые поля demo show');};
-export function validateShow(doc){
+export function validateShow(doc,repairOverlaps=false){
  doc=structuredClone(doc);
  if(doc?.schema==='mr-live-demo-show'&&doc.version===1){doc.version=2;doc.channels=defaultChannels();if(Array.isArray(doc.items))for(const item of doc.items)item.tracks=makeTracks(doc.channels);}
  if(doc?.schema==='mr-live-demo-show'&&doc.version===2){doc.version=3;reconcileTimeline(doc);}
@@ -19,12 +19,13 @@ export function validateShow(doc){
  for(const item of doc.items){keys(item,['id','name','folder','tempo','meter','key','duration','notes','tracks','bars','sections']);unique(item.id);if(!name(item.name)||item.folder!==null&&!folders.has(item.folder)||!Number.isFinite(item.tempo)||item.tempo<20||item.tempo>400||!['2/4','3/4','4/4','5/4','6/8','7/8','12/8'].includes(item.meter)||typeof item.key!=='string'||item.key.length>24||!Number.isInteger(item.duration)||item.duration<1||item.duration>86400||typeof item.notes!=='string'||item.notes.length>4000)throw Error('Некорректные данные item');}
  for(const list of doc.setlists){keys(list,['id','name','entries']);unique(list.id);if(!name(list.name)||!Array.isArray(list.entries)||list.entries.length>1000)throw Error('Некорректный setlist');for(const entry of list.entries){keys(entry,['id','itemId']);unique(entry.id);if(!items.has(entry.itemId))throw Error('Нет item для записи setlist');}}
  validateChannels(doc,unique);
+ if(repairOverlaps)repairTimelineOverlaps(doc);
  validateTimeline(doc,unique);
  if(!doc.setlists.some(s=>s.id===doc.activeSetlist)||doc.currentItem!==null&&!items.has(doc.currentItem))throw Error('Некорректный выбор');
  if(new TextEncoder().encode(JSON.stringify(doc)).length>1024*1024)throw Error('Лимит demo show: 1 MiB');
  return structuredClone(doc);
 }
-export function parseShow(text){if(new TextEncoder().encode(text).length>1024*1024)throw Error('Лимит demo show: 1 MiB');return validateShow(JSON.parse(text));}
+export function parseShow(text,repairOverlaps=false){if(new TextEncoder().encode(text).length>1024*1024)throw Error('Лимит demo show: 1 MiB');return validateShow(JSON.parse(text),repairOverlaps);}
 export function initialShow(){const items=['Moon River','Fly Me to the Moon','Autumn Leaves'].map((name,i)=>({id:`item-${i}`,name,folder:null,tempo:92+i*8,meter:'4/4',key:'C',duration:222+i*33,notes:''}));const channels=defaultChannels();for(const item of items)item.tracks=makeTracks(channels);return validateShow({schema:'mr-live-demo-show',version:2,channels,folders:[],items,setlists:[{id:'set-1',name:'Evening Session',entries:items.map((item,i)=>({id:`entry-${i}`,itemId:item.id}))}],activeSetlist:'set-1',currentItem:'item-0'});}
 export class DemoShow{
  constructor(doc=initialShow()){this.doc=validateShow(doc);this.past=[];this.future=[];}

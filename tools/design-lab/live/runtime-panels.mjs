@@ -1,6 +1,6 @@
 import {renderChannelPanel} from './channels-ui.mjs';
-import {showDocument,activeItem,editShow} from './show-browser.mjs';
-const state={mixer:false,browser:false,tab:'FX',query:'',channel:null,status:''};
+import {showDocument,activeItem,editShow,renderShowBrowser} from './show-browser.mjs';
+const state={mixer:false,browser:false,items:null,tab:'FX',query:'',channel:null,status:''};
 const catalog=[{name:'MR Instrument',vendor:'Moon River',kind:'Instrument'},{name:'MR Rig',vendor:'Moon River',kind:'FX'},{name:'MR Strip',vendor:'Moon River',kind:'FX'},{name:'MR Reverb',vendor:'Moon River',kind:'FX'},{name:'MR EQ',vendor:'Moon River',kind:'FX'}];
 const el=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
 function button(parent,text,fn){const b=el('button',text);b.type='button';b.onclick=fn;parent.append(b);return b;}
@@ -26,17 +26,23 @@ function library(root){
  }
  search.oninput=()=>{state.query=search.value;contents();};contents();
 }
+export function toggleItemsPanel(blockId){state.items=state.items===blockId?null:blockId;}
 export function toggleRuntimePanel(name){if(name==='mixer'||name==='browser')state[name]=!state[name];}
 export function renderRuntimePanels(host,assets){
  let dock=host.querySelector(':scope > #live-runtime-panels');if(!dock){dock=el('div');dock.id='live-runtime-panels';host.append(dock);}dock.replaceChildren();
  const enabled=document.getElementById('preview').checked;
  for(const b of document.querySelectorAll('[data-action]'))if(['view.mixer','view.browser','view.patches'].includes(b.dataset.action)){const active=state[b.dataset.action==='view.mixer'?'mixer':'browser'];b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));}
  if(!enabled)return;
- for(const kind of ['mixer','browser'])if(state[kind]){
-  const panel=el('section');panel.className=`runtime-drawer runtime-${kind}`;if(kind==='mixer'&&state.browser)panel.style.right='min(360px, 95vw)';panel.setAttribute('aria-label',kind==='mixer'?'Микшер MR Live':'Browser MR Studio');
-  const header=el('div');header.className='runtime-drawer-header';header.append(el('strong',kind==='mixer'?'Микшер':'Browser'));
+ for(const kind of ['items','mixer','browser'])if(state[kind]){
+  const panel=el('section');panel.className=`runtime-drawer runtime-${kind}`;if(kind==='mixer'&&state.browser)panel.style.right='min(360px, 95vw)';panel.setAttribute('aria-label',kind==='mixer'?'Микшер MR Live':kind==='items'?'Browser items':'Browser MR Studio');
+  const header=el('div');header.className='runtime-drawer-header';header.append(el('strong',kind==='mixer'?'Микшер':kind==='items'?'Items':'Browser'));
   button(header,'Закрыть',()=>{state[kind]=false;renderRuntimePanels(host,assets);});panel.append(header);
   const content=el('div');content.className='runtime-drawer-content';panel.append(content);dock.append(panel);
-  if(kind==='mixer')renderChannelPanel(content,'mixer',assets);else library(content);
+  if(kind==='items'){
+   const anchor=[...document.querySelectorAll('.block')].find(b=>b.dataset.id===state.items)?.getBoundingClientRect();
+   const bounds=host.getBoundingClientRect(),left=Math.max(bounds.left,anchor?.right??bounds.left),top=Math.max(bounds.top,anchor?.top??bounds.top);
+   panel.style.left=`${left}px`;panel.style.top=`${top}px`;panel.style.width=`${Math.max(120,Math.min(360,bounds.right-left))}px`;panel.style.height=`${Math.max(120,Math.min(anchor?.height||600,bounds.bottom-top))}px`;
+   renderShowBrowser(content,`${state.items}-library`,true,true);
+  }else if(kind==='mixer')renderChannelPanel(content,'mixer',assets);else library(content);
  }
 }

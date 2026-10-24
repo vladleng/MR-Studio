@@ -8,7 +8,7 @@ with sync_playwright() as p:
  page.goto('http://127.0.0.1:8001/tools/design-lab/live/');page.wait_for_selector('.block')
  page.evaluate('(data)=>localStorage.setItem("mr-live-demo-show-v1",data)',json.dumps(fixture));page.reload();page.wait_for_selector('.block')
  page.locator('#load-user-layout').click();page.wait_for_function('document.querySelectorAll(".block").length===6');page.locator('#preview').check()
- root=page.locator('.show-browser');root.get_by_role('button',name='Browser',exact=True).click()
+ setlist=page.locator('.block .show-browser');setlist.get_by_role('button',name='Browser',exact=True).click();root=page.locator('.runtime-items .show-browser')
  assert root.get_by_role('button',name='+ Папка',exact=True).count()==0
  assert root.get_by_role('button',name='Экспорт demo show',exact=True).count()==0
  root.locator('.show-rows').dispatch_event('contextmenu',{'clientX':200,'clientY':300})
@@ -35,11 +35,11 @@ with sync_playwright() as p:
  root.get_by_role('button',name='Папка Pack B',exact=True).click(button='right')
  page.get_by_role('menu').get_by_role('menuitem',name='Переименовать папку',exact=True).click()
  page.get_by_role('dialog').get_by_label('Название',exact=True).fill('Pack B renamed');page.get_by_role('dialog').get_by_role('button',name='Сохранить',exact=True).click()
- root.get_by_role('button',name='Setlist',exact=True).click();root.locator('[data-item=one]').click(button='right')
+ page.locator('.runtime-items').get_by_role('button',name='Закрыть',exact=True).click();root=setlist;root.locator('[data-item=one]').click(button='right')
  page.get_by_role('menu').get_by_role('menuitem',name='Убрать из setlist',exact=True).click()
  assert root.locator('.song-row').count()==1
  root.locator('.show-rows').dispatch_event('contextmenu',{'clientX':200,'clientY':300});page.get_by_role('menu').get_by_role('menuitem',name='Undo show',exact=True).click();assert root.locator('.song-row').count()==2
- root.get_by_role('button',name='Browser',exact=True).click()
+ setlist.get_by_role('button',name='Browser',exact=True).click();root=page.locator('.runtime-items .show-browser')
  page.locator('#fullscreen-preview').click();page.wait_for_selector('.fullscreen-preview')
  root.get_by_role('button',name='Папка Pack A',exact=True).click(button='right')
  assert page.get_by_role('menu').is_visible();page.keyboard.press('Escape')
