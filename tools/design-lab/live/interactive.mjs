@@ -8,10 +8,26 @@ export function interactive(node, block) {
     const input=document.createElement('input');input.type='range';input.min=-60;input.max=6;input.step=.5;input.value=current.gain[index];
     input.setAttribute('aria-label',`Уровень ${strip.querySelector('.channel-name').textContent}`);
     input.className='preview-fader';image.replaceWith(input);
-    const readout=strip.querySelector('.visual-caption');
+    const readout=strip.querySelector('.gain-value');
     const update=()=>{current.gain[index]=Number(input.value);readout.textContent=`${input.value} dB`;};input.oninput=update;update();
-    const switches=strip.querySelector('.channel-switches');switches.replaceChildren();
-    for(const name of ['M','S']){const button=document.createElement('button');button.textContent=name;const key=`${index}-${name}`;button.setAttribute('aria-pressed',String(!!current[key]));button.onclick=()=>{current[key]=!current[key];button.setAttribute('aria-pressed',String(current[key]));};switches.append(button);}
+    strip.querySelectorAll('[data-toggle]').forEach(button=>{
+      button.disabled=false;const key=`${index}-${button.dataset.toggle}`;
+      button.setAttribute('aria-pressed',String(!!current[key]));
+      button.onclick=()=>{current[key]=!current[key];button.setAttribute('aria-pressed',String(current[key]));};
+    });
+  });
+  node.querySelectorAll('.pan-slider,.volume-slider').forEach((input,index)=>{
+    input.disabled=false;const key=`level-${index}`,isPan=input.classList.contains('pan-slider');
+    if(current[key]!==undefined)input.value=current[key];
+    const update=()=>{current[key]=Number(input.value);input.nextElementSibling.textContent=isPan?(Number(input.value)===0?'C':`${Math.abs(Number(input.value))}${Number(input.value)<0?'L':'R'}`):`${input.value} dB`;};
+    input.oninput=update;update();
+  });
+  node.querySelectorAll('[data-menu]').forEach(button=>{
+    button.disabled=false;button.onclick=()=>{
+      node.querySelector('.preview-menu')?.remove();const menu=document.createElement('div');menu.className='preview-menu';
+      const labels=button.dataset.menu==='insert'?['MR Strip','MR EQ','MR Rig','Bypass','Удалить']:button.dataset.menu==='send'?['Reverb bus','Delay bus','Добавить посыл…']:button.dataset.menu==='output'?['Main','Audio Out 1–2','Audio Out 3–4']:['Включить FX','Обойти FX'];
+      for(const name of labels){const item=document.createElement('button');item.textContent=name;item.onclick=()=>{menu.remove();button.title=`${name} · демо`;};menu.append(item);}button.after(menu);
+    };
   });
   node.querySelectorAll('.visual-action').forEach((element,index)=>{
     const action=block.bindings[index];const button=document.createElement('button');
