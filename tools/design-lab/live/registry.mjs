@@ -1,3 +1,4 @@
+import {renderVisual} from './visuals.mjs';
 // Repository-owned renderers only; imported documents never contain code.
 export const tokens = {canvas:'#111720',window:'#171E28',surface:'#222C3C',raised:'#2D394E',deep:'#192333',bright:'#DAE5F4',stroke:'#A9BFDC',muted:'#7188AB',subtle:'#4B5F7B',accent:'#91BBEE',green:'#7AB69E',red:'#E68F88',amber:'#E2C070'};
 export const actions = ['transport.previous','transport.play','transport.pause','transport.stop','transport.next','show.open','show.save','view.mixer','view.patches'];
@@ -30,13 +31,8 @@ const definitions = [
 export const registry = new Map(definitions.map(([type,title,sample])=>[type,{
  type,version:1,properties, defaults:{title,x:24,y:24,w:360,h:160,minW:120,maxW:4096,minH:64,maxH:4096,dock:'none',padding:12,gap:8,fontSize:16,font:'sans-serif',weight:'400',align:'left',background:'surface',color:'bright',anchor:'top-left',overflow:'auto',visible:true,asset:''},
  bindings:type==='control.transport'?actions.slice(0,5):type==='control.toolbar'?actions.slice(5):[],
- render(node, block, fixture){
-   const text=document.createElement('div');
-   text.className='fixture-content';
-   text.textContent=fixture==='empty'?'Пустое шоу':fixture==='long'?'Очень длинное название песни и концертной программы · '.repeat(8):sample;
-   if(type==='playback.stems' && fixture==='many') text.textContent=Array.from({length:16},(_,i)=>`Stem ${i+1} · fixture`).join('\n');
-   node.append(text);
-   if(block.bindings.length){const row=document.createElement('div');row.className='actions';row.style.flexDirection=block.direction;for(const action of block.bindings){const button=document.createElement('button');button.type='button';button.textContent=action.split('.')[1];button.disabled=true;row.append(button);}node.append(row);}
+ render(node, block, fixture, assets = new Map()){
+   renderVisual(node, block, fixture, assets);
  }
 }]));
 export function createBlock(type,id){const entry=registry.get(type);if(!entry)throw Error('Неизвестный блок');return {id,type,version:entry.version,...entry.defaults,direction:'row',bindings:[...entry.bindings]};}

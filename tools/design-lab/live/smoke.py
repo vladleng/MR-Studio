@@ -11,6 +11,10 @@ with sync_playwright() as p:
     page.goto(base+'/tools/design-lab/live/')
     page.wait_for_selector('.block')
     assert page.locator('.block').count()==13
+    page.wait_for_function('Array.from(document.querySelectorAll(".visual img")).every(i=>i.complete && i.naturalWidth>0)')
+    assert page.locator('.visual-fader').count()==4
+    assert page.locator('.visual-wave').count()==5
+    assert page.locator('.visual-action').count()==9
     page.locator('#layers button').first.click()
     page.locator('[name=fontSize]').fill('22')
     page.locator('[name=fontSize]').press('Tab')
@@ -21,7 +25,7 @@ with sync_playwright() as p:
     page.locator('[name=asset]').select_option(index=1)
     page.wait_for_function('Array.from(document.querySelectorAll(".block img")).every(i=>i.complete && i.naturalWidth>0)')
     page.reload();page.wait_for_selector('.block')
-    assert page.locator('.block img').count()==1
+    assert page.locator('.block h3 img').count()==1
     page.locator('#layers button').nth(1).click()
     assert page.locator('.block').count()==12
     page.locator('#layers button').nth(1).click()
@@ -54,7 +58,7 @@ with sync_playwright() as p:
         page.locator('#fixture').select_option(fixture)
         assert page.locator('.block').count()==13
     page.locator('#fixture').select_option('full')
-    page.screenshot(path='/tmp/mr-live-editor.png')
+    page.screenshot(path='/tmp/mr-live-visuals.png')
     page.goto(base+'/tools/design-lab/')
     page.wait_for_selector('#track-stage > *')
     assert page.locator('#asset-grid img').count()>0

@@ -11,13 +11,18 @@ function edit(fn){try{const next=structuredClone(history.doc);fn(next);history.c
 function button(text,fn){const b=document.createElement('button');b.type='button';b.textContent=text;b.onclick=fn;return b;}
 function add(type,x=24,y=24){edit(doc=>{const b=createBlock(type,crypto.randomUUID());b.x=Math.max(0,Math.min(x,doc.viewport.width-b.w));b.y=Math.max(0,Math.min(y,doc.viewport.height-b.h));doc.blocks.push(b);selected=b.id;});}
 function palette(){ $('palette').replaceChildren();for(const [type,entry] of registry){if(!`${type} ${entry.defaults.title}`.toLowerCase().includes($('search').value.toLowerCase()))continue;const b=button(entry.defaults.title,()=>add(type));b.draggable=true;b.ondragstart=e=>e.dataTransfer.setData('text/mr-live-block',type);$('palette').append(b);}}
+function previewAssets(){
+ const result=new Map(assets);
+ for(const name of ['play','pause','stop'])result.set(`transport/${name}`,`../../../assets/ui/icons/transport/${name}.svg`);
+ return result;
+}
 function renderCanvas(){
  const canvas=$('canvas'),view=viewport(),zoom=factor();canvas.replaceChildren();canvas.style.width=`${view.width}px`;canvas.style.height=`${view.height}px`;canvas.style.transform=`scale(${zoom})`;
  $('frame').style.width=`${view.width*zoom}px`;$('frame').style.height=`${view.height*zoom}px`;canvas.classList.toggle('preview',$('preview').checked);
  for(const b of history.doc.blocks){if(!b.visible)continue;const bounds=resolve(b,history.doc.viewport,view);const node=document.createElement('section');node.dataset.id=b.id;node.className=`block state-${$('fixture').value}${selected===b.id&&!$('preview').checked?' selected':''}`;
  Object.assign(node.style,{left:`${bounds.x}px`,top:`${bounds.y}px`,width:`${bounds.w}px`,height:`${bounds.h}px`,padding:`${b.padding}px`,gap:`${b.gap}px`,fontSize:`${b.fontSize}px`,fontFamily:b.font,fontWeight:b.weight,textAlign:b.align,background:tokens[b.background],color:tokens[b.color],overflow:b.overflow});
  const heading=document.createElement('h3');if(b.asset){const img=document.createElement('img');img.src=assets.get(b.asset);img.alt='';heading.append(img);}heading.append(document.createTextNode(b.title));node.append(heading);
- registry.get(b.type).render(node,b,$('fixture').value);
+ registry.get(b.type).render(node,b,$('fixture').value,previewAssets());
  node.onclick=()=>{if(!$('preview').checked){selected=b.id;render();}};
  heading.onpointerdown=e=>startGesture(e,b,'move');
  if(!$('preview').checked){const handle=button('',()=>{});handle.className='resize';handle.setAttribute('aria-label',`Изменить размер ${b.title}`);handle.onpointerdown=e=>startGesture(e,b,'resize');node.append(handle);}canvas.append(node);

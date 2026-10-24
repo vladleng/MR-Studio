@@ -30,3 +30,9 @@ python tools/design-lab/live/smoke.py
 ```
 
 Browser smoke covers real HTTP, SVG loading, move/resize, hidden layers, history, local recovery, JSON roundtrip/rejection, viewport/scale controls, fixtures and existing Track Header startup. Physical DPI, native JUCE and audio are outside this stage. `revision.json` is deployment metadata produced alongside a Pages copy; an unpublished checkout displays `local source`.
+
+## Visual block previews
+
+The block interiors render realistic static fixtures: song rows, timeline/section lanes, stems waveforms, input patches, MR Micro mixer strips, transport icons, toolbar actions, chord cards, cues, lyrics and status rows. Shared MR UDS illustrations are referenced through the loaded catalog; Play/Pause/Stop reuse `assets/ui/icons/transport/` at its canonical path. These assets must also be available on the Pages host.
+
+Waveforms/meters/readouts are illustrative, not audio measurements. Controls inside fixtures do not execute commands; select and configure the containing block in Inspector. `Playing` changes fixture styling but does not start a second transport. No schema or saved geometry changes are required: existing browser drafts and exported layouts receive the new rendering automatically.
