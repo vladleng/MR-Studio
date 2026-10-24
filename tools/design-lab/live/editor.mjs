@@ -21,10 +21,13 @@ function renderCanvas(){
  $('frame').style.width=`${view.width*zoom}px`;$('frame').style.height=`${view.height*zoom}px`;canvas.classList.toggle('preview',$('preview').checked);
  for(const b of history.doc.blocks){if(!b.visible)continue;const bounds=resolve(b,history.doc.viewport,view);const node=document.createElement('section');node.dataset.id=b.id;node.className=`block state-${$('fixture').value}${selected===b.id&&!$('preview').checked?' selected':''}`;
  Object.assign(node.style,{left:`${bounds.x}px`,top:`${bounds.y}px`,width:`${bounds.w}px`,height:`${bounds.h}px`,padding:`${b.padding}px`,gap:`${b.gap}px`,fontSize:`${b.fontSize}px`,fontFamily:b.font,fontWeight:b.weight,textAlign:b.align,background:tokens[b.background],color:tokens[b.color],overflow:b.overflow});
- const heading=document.createElement('h3');if(b.asset){const img=document.createElement('img');img.src=assets.get(b.asset);img.alt='';heading.append(img);}heading.append(document.createTextNode(b.title));node.append(heading);
+ const heading=document.createElement('h3');if(b.asset){const img=document.createElement('img');img.src=assets.get(b.asset);img.alt='';heading.append(img);}heading.append(document.createTextNode(b.title));if(b.showTitle)node.append(heading);
+ node.setAttribute('aria-label',b.title);
+ node.classList.toggle('title-hidden',!b.showTitle);
  registry.get(b.type).render(node,b,$('fixture').value,previewAssets());
  node.onclick=()=>{if(!$('preview').checked){selected=b.id;render();}};
  heading.onpointerdown=e=>startGesture(e,b,'move');
+ if(!b.showTitle)node.onpointerdown=e=>{if(!e.target.closest('.resize'))startGesture(e,b,'move');};
  if(!$('preview').checked){const handle=button('',()=>{});handle.className='resize';handle.setAttribute('aria-label',`Изменить размер ${b.title}`);handle.onpointerdown=e=>startGesture(e,b,'resize');node.append(handle);}canvas.append(node);
  }
 }
@@ -44,7 +47,7 @@ function finish(cancel=false){if(!gesture)return;const next=history.doc;history.
 window.addEventListener('pointerup',()=>finish());window.addEventListener('pointercancel',()=>finish(true));window.addEventListener('blur',()=>finish(true));
 function renderInspector(){const form=$('inspector');form.replaceChildren();const b=current();$('commands').hidden=!b;if(!b)return;
  for(const [prop,p] of Object.entries(registry.get(b.type).properties)){
- const label=document.createElement('label');label.textContent=prop;let input;
+ const label=document.createElement('label');label.textContent=p.label||prop;let input;
  if(p.kind==='select'||p.kind==='asset'){input=document.createElement('select');const values=p.kind==='asset'?['',...assets.keys()]:p.values;for(const value of values){const o=document.createElement('option');o.value=value;o.textContent=value||'Без SVG';input.append(o);}}
  else{input=document.createElement('input');input.type=p.kind==='boolean'?'checkbox':p.kind==='number'?'number':'text';if(p.kind==='number'){input.min=p.min;input.max=p.max;input.step=1;}if(p.max&&p.kind==='text')input.maxLength=p.max;}
  input.name=prop;if(p.kind==='boolean')input.checked=b[prop];else input.value=b[prop];input.onchange=()=>edit(doc=>{doc.blocks.find(x=>x.id===b.id)[prop]=p.kind==='boolean'?input.checked:p.kind==='number'?Number(input.value):input.value;});label.append(input);form.append(label);

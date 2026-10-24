@@ -5,3 +5,12 @@ test('reject invalid documents without changing history',()=>{const h=new Histor
 test('undo/redo, branch history and bounded history',()=>{const h=new History(initial());const d=initial();d.blocks[0].visible=false;h.commit(d);h.undo();assert.equal(h.doc.blocks[0].visible,true);h.redo();assert.equal(h.doc.blocks[0].visible,false);h.undo();d.name='alternate';h.commit(d);assert.equal(h.future.length,0);for(let i=0;i<120;i++){const next=structuredClone(h.doc);next.name=`layout ${i}`;h.commit(next);}assert.equal(h.past.length,100);});
 test('responsive anchors preserve margins and minimums',()=>{const b={...initial().blocks[0],anchor:'bottom-right'};const r=resolve(b,{width:1280,height:912},{width:1440,height:1080});assert.equal(r.x,b.x+160);assert.equal(r.y,b.y+168);assert.equal(resolve({...b,anchor:'stretch-x'},{width:1280,height:912},{width:320,height:240}).w,120);});
 test('extension through registry without canvas/schema changes',()=>{const source=registry.get('info.cues');registry.set('fixture.extra',{...source,type:'fixture.extra'});try{const d=initial();d.blocks.push(createBlock('fixture.extra','extra'));assert.equal(validate(d).blocks.at(-1).type,'fixture.extra');}finally{registry.delete('fixture.extra');}});
+test('optional titles: older v1, roundtrip, history and invalid values',()=>{
+ const old=initial();delete old.blocks[0].showTitle;
+ assert.equal(validate(old).blocks[0].showTitle,true);
+ assert.equal(Object.hasOwn(old.blocks[0],'showTitle'),false);
+ const h=new History(old);const hidden=structuredClone(h.doc);hidden.blocks[0].showTitle=false;
+ h.commit(hidden);assert.equal(parse(JSON.stringify(h.doc)).blocks[0].showTitle,false);
+ h.undo();assert.equal(h.doc.blocks[0].showTitle,true);h.redo();assert.equal(h.doc.blocks[0].showTitle,false);
+ for(const value of [null,0,'false']){hidden.blocks[0].showTitle=value;assert.throws(()=>validate(hidden));}
+});

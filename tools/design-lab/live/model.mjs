@@ -11,10 +11,13 @@ export function validate(doc,assets=new Set()){
  exact(doc.viewport,['width','height']);
  if(!number(doc.viewport.width,320,4096)||!number(doc.viewport.height,240,4096))fail('Некорректный viewport');
  if(!Array.isArray(doc.blocks)||doc.blocks.length>80)fail('Допускается до 80 блоков');
+ // Additive v1 compatibility: older layouts keep their visible headings.
+ doc=structuredClone(doc);
  const ids=new Set();
  for(const b of doc.blocks){
    const entry=registry.get(b?.type);if(!entry||b.version!==entry.version)fail('Неподдерживаемый тип/версия блока');
    exact(b,['id','type','version',...Object.keys(entry.properties),'direction','bindings']);
+   if(!Object.hasOwn(b,'showTitle'))b.showTitle=true;
    if(!name(b.id)||ids.has(b.id))fail('Повторяющийся/некорректный ID');ids.add(b.id);
    for(const [key,p] of Object.entries(entry.properties)){
      const value=b[key];

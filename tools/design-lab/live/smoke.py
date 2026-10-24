@@ -38,6 +38,21 @@ with sync_playwright() as p:
     handle=page.locator('.resize').first;box=handle.bounding_box();page.mouse.move(box['x']+10,box['y']+10);page.mouse.down();page.mouse.move(box['x']+34,box['y']+34,steps=4);page.mouse.up()
     assert page.locator('[name=w]').input_value()=='432'
     page.locator('#undo').click()
+    before=page.locator('.block .visual').first.bounding_box()['y']
+    page.get_by_label('Показывать название',exact=True).uncheck()
+    assert page.locator('.block').first.locator('h3').count()==0
+    assert page.locator('.block .visual').first.bounding_box()['y']<before
+    page.locator('#undo').click()
+    assert page.locator('.block').first.locator('h3').count()==1
+    page.locator('#redo').click()
+    page.reload();page.wait_for_selector('.block')
+    assert page.locator('.block').first.locator('h3').count()==0
+    body=page.locator('.block .visual').first.bounding_box()
+    page.mouse.move(body['x']+50,body['y']+10);page.mouse.down()
+    page.mouse.move(body['x']+74,body['y']+34,steps=4);page.mouse.up()
+    assert page.locator('[name=x]').input_value()=='48'
+    page.locator('#undo').click()
+    page.get_by_label('Показывать название',exact=True).check()
     page.locator('#name').fill('Smoke layout');page.locator('#name').press('Tab');page.locator('#save').click()
     with page.expect_download() as download:page.locator('#export').click()
     exported=json.loads(Path(download.value.path()).read_text())

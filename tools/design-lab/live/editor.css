@@ -19,3 +19,5 @@
 .chord-strip{display:flex;gap:8px;margin-bottom:8px}.chord-card{flex:1;min-width:48px;padding:6px 2px;text-align:center;border-bottom:2px solid #4B5F7B}.chord-card.current{color:#91BBEE;border-color:#91BBEE;background:#91BBEE0c}.chord-symbol{font-size:1.6em;white-space:nowrap}.chord-card .visual-caption{font-size:.55em}
 .section-pair{display:flex;gap:16px}.section-card{flex:1}.section-name{font-size:1.5em;margin:4px 0}.section-progress{height:3px;background:#4B5F7B;margin:10px 0}.section-progress-fill{width:50%;height:100%;background:#91BBEE}
 .cue-count{font-size:1.7em;color:#E2C070}.cue-message{font-weight:600;margin:4px 0 8px}.lyric-past{color:#7188AB}.lyric-current{color:#91BBEE;font-size:1.2em;padding:8px 0}.lyric-next{color:#A9BFDC}.status-dot{width:5px;height:5px;background:#7AB69E;border-radius:50%;flex-shrink:0}.status-row .visual-caption{margin-left:auto}.visual-missing{font-size:.7em;color:#A9BFDC}
+/* Hidden titles take no space; the static block body remains a drag surface. */
+#canvas:not(.preview) .block.title-hidden .visual{cursor:move;touch-action:none}
