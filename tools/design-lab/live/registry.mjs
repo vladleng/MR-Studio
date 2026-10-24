@@ -1,7 +1,7 @@
 import {renderVisual} from './visuals.mjs';
 // Repository-owned renderers only; imported documents never contain code.
 export const tokens = {canvas:'#191a1c',window:'#202123',surface:'#292b2e',raised:'#36383c',deep:'#242629',bright:'#DAE5F4',stroke:'#A9BFDC',muted:'#7188AB',subtle:'#4B5F7B',accent:'#91BBEE',green:'#7AB69E',red:'#E68F88',amber:'#E2C070'};
-export const actions = ['transport.previous','transport.play','transport.pause','transport.stop','transport.next','show.open','show.save','view.mixer','view.patches'];
+export const actions = ['transport.previous','transport.play','transport.pause','transport.stop','transport.next','show.open','show.save','view.mixer','view.patches','view.browser'];
 export const properties = {
   title:{kind:'text',max:100}, showTitle:{kind:'boolean',label:'Показывать название'}, x:{kind:'number',min:0,max:4096}, y:{kind:'number',min:0,max:4096},
   w:{kind:'number',min:120,max:4096}, h:{kind:'number',min:64,max:4096},
@@ -35,4 +35,4 @@ export const registry = new Map(definitions.map(([type,title,sample])=>[type,{
    renderVisual(node, block, fixture, assets);
  }
 }]));
-export function createBlock(type,id){const entry=registry.get(type);if(!entry)throw Error('Неизвестный блок');return {id,type,version:entry.version,...entry.defaults,assetOverrides:{},direction:'row',bindings:[...entry.bindings]};}
+export function createBlock(type,id){const entry=registry.get(type);if(!entry)throw Error('Неизвестный блок');return {id,type,version:entry.version,...entry.defaults,visible:!['input.patches','mixer.channels'].includes(type),assetOverrides:{},direction:'row',bindings:[...entry.bindings.filter(a=>a!=='view.patches')]};}

@@ -25,13 +25,13 @@ function asset(parent, assets, id, className, label) {
 const actionLabels = {
   'transport.previous': 'Предыдущая песня', 'transport.play': 'Play',
   'transport.pause': 'Pause', 'transport.stop': 'Stop', 'transport.next': 'Следующая песня',
-  'show.open': 'Открыть', 'show.save': 'Сохранить', 'view.mixer': 'Микшер', 'view.patches': 'Патчи'
+  'show.open': 'Открыть', 'show.save': 'Сохранить', 'view.mixer': 'Микшер', 'view.patches': 'Browser', 'view.browser':'Browser'
 };
 const actionAssets = {
   'transport.previous': 'icons/chevron_left', 'transport.play': 'transport/play',
   'transport.pause': 'transport/pause', 'transport.stop': 'transport/stop',
   'transport.next': 'icons/chevron_right', 'show.open': 'icons/concept_pack/folder_open',
-  'show.save': 'icons/save', 'view.mixer': 'icons/settings', 'view.patches': 'icons/routing'
+  'show.save': 'icons/save', 'view.mixer': 'icons/concept_pack/mixer_params', 'view.patches': 'icons/concept_pack/folder_open', 'view.browser':'icons/concept_pack/folder_open'
 };
 function actions(parent, block, assets, playing) {
   const row = add(parent, 'visual-actions');
@@ -41,7 +41,8 @@ function actions(parent, block, assets, playing) {
     control.title = `${actionLabels[binding]} · визуальный пример`;
     control.setAttribute('aria-label', control.title);
     asset(control, assets, actionAssets[binding], 'visual-icon', actionLabels[binding]);
-    if (block.type === 'control.toolbar') add(control, 'action-label', actionLabels[binding], 'span');
+    if (block.type === 'control.toolbar'&&!binding.startsWith('view.')) add(control, 'action-label', actionLabels[binding], 'span');
+    if(binding.startsWith('view.'))control.classList.add('icon-only');
   }
 }
 function slider(parent, label, kind, value, min, max) {
@@ -86,15 +87,7 @@ export function renderVisual(node, block, fixture, assets) {
       for (const value of [`${item?.tempo||92} BPM`, item?.meter||'4/4',item?.key||'C', playing ? 'PLAYING' : 'READY']) add(row, 'visual-chip', value);
       break;
     }
-    case 'song.timeline': {
-      add(root,'visual-caption',`${title} · ${item?.tempo||92} BPM · ${item?.meter||'4/4'}`);
-      const ruler = add(root, 'timeline-ruler');
-      for (const bar of ['1', '5', '9', '13', '17', '21']) add(ruler, '', bar);
-      const sections = add(root, 'timeline-sections');
-      for (const [i, name] of ['Intro', 'Verse', 'Chorus', 'Outro'].entries()) add(sections, i === 1 ? 'current' : '', name);
-      renderChannelPanel(root,'timeline',assets);
-      break;
-    }
+    case 'song.timeline': {renderChannelPanel(root,'timeline',assets);break;}
     case 'playback.stems': {
       renderChannelPanel(root,'playback',assets);
       break;

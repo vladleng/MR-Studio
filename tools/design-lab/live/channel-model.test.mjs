@@ -24,3 +24,11 @@ test('v1 migration preserves item data, v2 roundtrip and invalid references reje
  const migrated=validateShow(legacy);assert.equal(migrated.version,2);assert.equal(legacy.version,1);assert.equal(migrated.items[0].name,legacy.items[0].name);assert.equal(migrated.items[0].tracks.length,4);assert.deepEqual(parseShow(JSON.stringify(migrated)),migrated);
  for(const mutate of [d=>d.channels[0].type='Bus',d=>d.items[0].tracks[0].channelId='missing',d=>d.items[0].tracks[0].patchId='missing',d=>d.items[0].tracks.pop(),d=>d.channels[0].patches[0].subPatches.push({id:'bad',name:'Bad',overrides:{instrument:'reload'}}),d=>d.channels[0].patches[0].subPatches.push({id:'bad',name:'Bad',overrides:{mix:101}})]){const show=new DemoShow();const before=JSON.stringify(show.doc);assert.throws(()=>show.commit(mutate));assert.equal(JSON.stringify(show.doc),before);}
 });
+test('patch block order and colors migrate and reject invalid references/color values',()=>{
+ const show=new DemoShow();const legacy=structuredClone(show.doc);
+ for(const c of legacy.channels)for(const p of c.patches)delete p.color;
+ for(const i of legacy.items)for(const t of i.tracks)delete t.patchOrder;
+ const migrated=validateShow(legacy);assert.equal(migrated.channels[0].patches[0].color,'blue');assert.deepEqual(migrated.items[0].tracks[0].patchOrder,[migrated.items[0].tracks[0].patchId]);
+ for(const fn of [d=>d.channels[0].patches[0].color='url(evil)',d=>d.items[0].tracks[0].patchOrder=['missing'],d=>d.items[0].tracks[0].patchOrder=[]])assert.throws(()=>show.commit(fn));
+ const before=JSON.stringify(show.doc);show.commit(d=>d.channels[0].patches[0].color='violet');show.undo();assert.equal(JSON.stringify(show.doc),before);
+});

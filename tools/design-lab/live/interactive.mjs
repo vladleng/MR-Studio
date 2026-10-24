@@ -32,9 +32,10 @@ export function interactive(node, block) {
   });
   node.querySelectorAll('.visual-action').forEach((element,index)=>{
     const action=block.bindings[index];const button=document.createElement('button');
-    button.className=element.className;button.title=element.title;button.setAttribute('aria-label',element.getAttribute('aria-label'));
+    button.dataset.action=action;button.className=element.className;button.title=element.title;button.setAttribute('aria-label',element.getAttribute('aria-label'));
     button.append(...element.childNodes);element.replaceWith(button);
     button.onclick=()=>{
+      if(['view.mixer','view.browser','view.patches'].includes(action)){window.dispatchEvent(new CustomEvent('live-panel-toggle',{detail:action==='view.mixer'?'mixer':'browser'}));return;}
       if(action.startsWith('transport.')){
         if(action==='transport.play')current.playing=true;
         if(['transport.pause','transport.stop'].includes(action))current.playing=false;
@@ -42,9 +43,9 @@ export function interactive(node, block) {
         if(caption)caption.textContent=`${current.playing?'PLAYING':'STOPPED'} · демонстрация`;
         button.classList.toggle('active',current.playing);
       }else{
-        node.querySelector('.preview-menu')?.remove();const menu=document.createElement('div');menu.className='preview-menu';
+        node.querySelector('.preview-menu')?.remove();const menu=document.createElement('div');menu.className='preview-menu';menu.setAttribute('popover','auto');const rect=button.getBoundingClientRect();Object.assign(menu.style,{position:'fixed',inset:'auto',margin:'0',left:`${rect.left}px`,top:`${rect.bottom}px`});
         const names=action==='show.open'?['Открыть шоу…','Недавние шоу','Закрыть меню']:action==='show.save'?['Сохранить шоу','Сохранить как…','Закрыть меню']:action==='view.mixer'?['Каналы','Шины','Main','Закрыть меню']:['Vocal / Clean','Guitar / Warm lead','Закрыть меню'];
-        for(const name of names){const item=document.createElement('button');item.textContent=name;item.onclick=()=>{menu.remove();button.title=`${name} · выбрано в демо`;};menu.append(item);}button.after(menu);
+        for(const name of names){const item=document.createElement('button');item.textContent=name;item.onclick=()=>{menu.remove();button.title=`${name} · выбрано в демо`;};menu.append(item);}button.after(menu);menu.showPopover();menu.addEventListener('toggle',e=>{if(e.newState==='closed')menu.remove();});
       }
     };
   });
