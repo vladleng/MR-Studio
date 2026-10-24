@@ -42,6 +42,14 @@ function actions(parent, block, assets, playing) {
     if (block.type === 'control.toolbar') add(control, 'action-label', actionLabels[binding], 'span');
   }
 }
+function slider(parent, label, kind, value, min, max) {
+  const row=add(parent, `level-control ${kind}-control`);
+  const input=add(row, `${kind}-slider`, undefined, 'input');
+  input.type='range';input.min=min;input.max=max;input.step=kind==='pan'?1:.5;input.value=value;input.disabled=true;
+  input.setAttribute('aria-label',label);
+  add(row, `${kind}-value`, kind==='pan'?'C':`${value} dB`, 'output');
+}
+function menuButton(parent,label,kind){const button=add(parent,'strip-menu',label,'button');button.type='button';button.disabled=true;button.dataset.menu=kind;return button;}
 export function renderVisual(node, block, fixture, assets) {
   const root = add(node, `visual visual-${block.type.replace('.', '-')}`);
   const playing = fixture === 'playing';
@@ -103,19 +111,30 @@ export function renderVisual(node, block, fixture, assets) {
         const text = add(row, 'patch-text');
         add(text, '', name); add(text, 'visual-caption', i ? 'Input 02 → Rig' : 'Input 01 → Vocal bus');
         add(row, 'visual-chip', i ? 'Warm lead' : 'Clean');
+        const levels=add(row,'patch-levels');
+        slider(levels,`Громкость ${name}`,'volume',i?-9:-6,-60,12);
+        slider(levels,`Панорама ${name}`,'pan',0,-100,100);
       }
       break;
     }
     case 'mixer.channels': {
       const channels = add(root, 'mixer-strips');
-      ['Vocal', 'Guitar', 'Playback', 'Main'].forEach((name) => {
+      ['Vocal', 'Guitar', 'Playback', 'Main'].forEach((name,index) => {
         const strip = add(channels, 'mixer-strip');
-        add(strip, 'channel-name', name);
+        const header=add(strip,'strip-header');
+        menuButton(header,'⏻','power');add(header, 'channel-name', name);menuButton(header,'+','insert');
+        const upper=add(strip,'strip-upper');
+        const inserts=add(upper,'strip-inserts');
+        menuButton(inserts,['MR Strip','MR Rig','MR EQ','MR Limiter'][index],'insert');
+        const sends=add(upper,'strip-sends');menuButton(sends,'Sends…','send');
+        slider(strip,`Панорама ${name}`,'pan',0,-100,100);
         const controls = add(strip, 'channel-controls');
-        asset(controls, assets, 'controls/concept_pack/fader_micro_normal', 'visual-fader', 'MR Micro · статический пример');
         asset(controls, assets, `controls/concept_pack/${playing ? 'meter_mid' : 'meter_empty'}`, 'visual-meter', 'Meter · демонстрационные данные');
-        add(strip, 'visual-caption', 'GAIN · пример');
-        add(strip, 'channel-switches', 'M     S');
+        asset(controls, assets, 'controls/concept_pack/fader_micro_normal', 'visual-fader', 'MR Micro · статический пример');
+        add(strip, 'gain-value visual-caption', `${[-6,-9,-12,0][index]} dB`);
+        const switches=add(strip, 'channel-switches');
+        for(const label of ['M','S','R','MON']){const button=add(switches,'',label,'button');button.type='button';button.disabled=true;button.dataset.toggle=label;}
+        menuButton(strip,index===3?'Audio Out 1–2':'Main','output');
       });
       break;
     }

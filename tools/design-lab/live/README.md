@@ -48,3 +48,7 @@ This workspace develops **main MR Live**. Performance Mode remains a later targe
 - In Preview, move mixer faders, toggle M/S, select songs/patches, use transport state buttons and open toolbar menus. These are local UI simulations; menus do not access real show files. Mixer interaction uses browser range controls for this prototype. SVG fader artwork is used in the construction view. Demo interaction state is temporary and never exported as layout, audio or project state.
 
 Additional browser check: `python tools/design-lab/live/preview-smoke.py` (server on port 8001). It covers fullscreen exit, fader/mute, transport/menu actions, SVG override/reload and no layout writes from simulated actions.
+
+Main controls follow the Studio strip structure (`Desktop.cpp::Strip::resized`): inserts/sends at the top, horizontal pan, fixed 145px fader/stereo meter, dB readout, M/S + record/monitor, output routing. Enlarging a mixer block adds space to inserts/sends; a short block scrolls rather than shrinking the fader. Browser controls/menus remain demo counterparts of native JUCE, not a native renderer. Transport readout and buttons stay on one horizontal line (a too-narrow block scrolls). Input/patch rows include separate volume and pan controls, interactive in Preview.
+
+`python tools/design-lab/live/controls-smoke.py` checks transport alignment, strip hierarchy, patch volume/pan and send-menu interaction over localhost:8001.
