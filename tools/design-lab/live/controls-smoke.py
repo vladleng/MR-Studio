@@ -12,12 +12,13 @@ with sync_playwright() as p:
   assert abs(row['y']+row['height']/2-time['y']-time['height']/2)<2
  mixer=page.locator('[data-id="block-6"]');mixer.locator('h3').click()
  page.locator('[name=h]').fill('400');page.locator('[name=h]').press('Tab')
+ page.locator('[data-command=front]').click()
  assert mixer.locator('.strip-inserts').count()==4
  assert mixer.locator('.strip-sends').count()==4
  assert mixer.locator('.pan-slider').count()==4
  assert mixer.locator('[data-toggle]').count()==16
  page.locator('#preview').check()
- volume=page.get_by_role('slider',name='Громкость Vocal',exact=True)
+ volume=page.locator('[data-id="block-5"]').get_by_role('slider',name='Громкость Vocal',exact=True)
  volume.fill('-18');volume.dispatch_event('input')
  assert volume.locator('..').inner_text()=='-18 dB'
  pan=page.locator('[data-id="block-5"]').get_by_role('slider',name='Панорама Guitar',exact=True)

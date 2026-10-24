@@ -1,3 +1,4 @@
+import {renderChannelPanel} from './channels-ui.mjs';
 import {renderShowBrowser,activeItem} from './show-browser.mjs';
 // Static fixture illustrations. No audio, clock, DSP, or executable imported content.
 const el = (tag, className, text) => {
@@ -91,55 +92,19 @@ export function renderVisual(node, block, fixture, assets) {
       for (const bar of ['1', '5', '9', '13', '17', '21']) add(ruler, '', bar);
       const sections = add(root, 'timeline-sections');
       for (const [i, name] of ['Intro', 'Verse', 'Chorus', 'Outro'].entries()) add(sections, i === 1 ? 'current' : '', name);
-      const lane = add(root, 'timeline-lane');
-      asset(lane, assets, 'controls/concept_pack/waveform_audio_illustration', 'visual-wave', 'Демонстрационная волна');
-      add(lane, 'timeline-cursor');
-      const patches = add(root, 'timeline-patches');
-      add(patches, 'visual-chip', 'A · 3.2'); add(patches, 'visual-chip', 'B · 9.3');
+      renderChannelPanel(root,'timeline',assets);
       break;
     }
     case 'playback.stems': {
-      const names = fixture === 'many' ? Array.from({length:16}, (_, i) => `Stem ${i + 1}`) : ['Drums', 'Bass', 'Keys', 'Backing vocals'];
-      names.forEach((name, i) => {
-        const row = add(root, 'stem-row');
-        add(row, 'stem-name', name);
-        asset(row, assets, `controls/concept_pack/waveform_${i === 3 ? 'vocal' : 'instrument'}_illustration`, 'visual-wave', 'Демонстрационная волна');
-        add(row, 'visual-caption', 'M  S');
-      });
+      renderChannelPanel(root,'playback',assets);
       break;
     }
     case 'input.patches': {
-      for (const [i, name] of ['Vocal', 'Guitar'].entries()) {
-        const row = add(root, 'patch-row');
-        asset(row, assets, i ? 'icons/pedal' : 'icons/mic', 'visual-icon', name);
-        const text = add(row, 'patch-text');
-        add(text, '', name); add(text, 'visual-caption', i ? 'Input 02 → Rig' : 'Input 01 → Vocal bus');
-        add(row, 'visual-chip', i ? 'Warm lead' : 'Clean');
-        const levels=add(row,'patch-levels');
-        slider(levels,`Громкость ${name}`,'volume',i?-9:-6,-60,12);
-        slider(levels,`Панорама ${name}`,'pan',0,-100,100);
-      }
+      renderChannelPanel(root,'inputs',assets);
       break;
     }
     case 'mixer.channels': {
-      const channels = add(root, 'mixer-strips');
-      ['Vocal', 'Guitar', 'Playback', 'Main'].forEach((name,index) => {
-        const strip = add(channels, 'mixer-strip');
-        const header=add(strip,'strip-header');
-        menuButton(header,'⏻','power');add(header, 'channel-name', name);menuButton(header,'+','insert');
-        const upper=add(strip,'strip-upper');
-        const inserts=add(upper,'strip-inserts');
-        menuButton(inserts,['MR Strip','MR Rig','MR EQ','MR Limiter'][index],'insert');
-        const sends=add(upper,'strip-sends');menuButton(sends,'Sends…','send');
-        slider(strip,`Панорама ${name}`,'pan',0,-100,100);
-        const controls = add(strip, 'channel-controls');
-        asset(controls, assets, `controls/concept_pack/${playing ? 'meter_mid' : 'meter_empty'}`, 'visual-meter', 'Meter · демонстрационные данные');
-        asset(controls, assets, 'controls/concept_pack/fader_micro_normal', 'visual-fader', 'MR Micro · статический пример');
-        add(strip, 'gain-value visual-caption', `${[-6,-9,-12,0][index]} dB`);
-        const switches=add(strip, 'channel-switches');
-        for(const label of ['M','S','R','MON']){const button=add(switches,'',label,'button');button.type='button';button.disabled=true;button.dataset.toggle=label;}
-        menuButton(strip,index===3?'Audio Out 1–2':'Main','output');
-      });
+      renderChannelPanel(root,'mixer',assets);
       break;
     }
     case 'control.transport': {
