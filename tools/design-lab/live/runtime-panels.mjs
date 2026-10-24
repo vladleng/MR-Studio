@@ -1,3 +1,4 @@
+import {recordButton} from './recording-controls.mjs';
 import {renderChannelPanel} from './channels-ui.mjs';
 import {showDocument,activeItem,editShow,renderShowBrowser} from './show-browser.mjs';
 const state={mixer:false,browser:false,items:null,tab:'FX',query:'',channel:null,status:''};
@@ -36,6 +37,7 @@ export function renderRuntimePanels(host,assets){
  for(const kind of ['items','mixer','browser'])if(state[kind]){
   const panel=el('section');panel.className=`runtime-drawer runtime-${kind}`;if(kind==='mixer'&&state.browser)panel.style.right='min(360px, 95vw)';panel.setAttribute('aria-label',kind==='mixer'?'Микшер MR Live':kind==='items'?'Browser items':'Browser MR Studio');
   const header=el('div');header.className='runtime-drawer-header';header.append(el('strong',kind==='mixer'?'Микшер':kind==='items'?'Items':'Browser'));
+  if(kind==='mixer'){const controls=el('div');controls.className='mixer-record-controls';recordButton(controls,assets,true);button(controls,'Stop',()=>window.dispatchEvent(new CustomEvent('live-transport-action',{detail:'transport.stop'})));header.append(controls);}
   button(header,'Закрыть',()=>{state[kind]=false;renderRuntimePanels(host,assets);});panel.append(header);
   const content=el('div');content.className='runtime-drawer-content';panel.append(content);dock.append(panel);
   if(kind==='items'){

@@ -47,3 +47,12 @@
 .runtime-items .show-rows{flex:1;min-height:120px;overflow:auto}
 .show-browser .show-rows{min-height:90px}
 .temporal-subpatch{box-sizing:border-box;min-width:0}
+
+.record-view-toggle{display:flex;gap:6px;align-items:center;font-size:12px;align-self:flex-start;white-space:nowrap}.record-view-toggle input{width:auto}
+.record-arm{font-size:12px;padding:3px 7px;min-width:28px;color:#E68F88}.record-arm[aria-pressed=true]{background:#6e3434!important;color:#fff!important;border-color:#E68F88}
+.recording{color:#E68F88!important}.record-arm.recording{outline:2px solid #E68F88}
+.global-record{display:flex;align-items:center;justify-content:center;border:0;background:transparent;width:34px;height:34px;padding:5px}.global-record .visual-icon{width:24px;height:24px}.global-record[aria-pressed=true]{filter:drop-shadow(0 0 3px #E68F88)}.global-record[aria-pressed=true] img{filter:invert(60%) sepia(60%) saturate(800%) hue-rotate(320deg)}
+.record-audio-lane{height:64px;display:flex;align-items:center;padding:8px 12px;background:#202123;color:#A9BFDC;font-size:12px;border-block:1px dashed #4B5F7B}.record-track .linked-channel-title{padding:6px 12px}
+.linked-channel-panel .mixer-strip.record-strip{flex:0 0 62px;width:62px;min-width:62px;max-width:62px;display:grid;grid-template-rows:24px minmax(60px,1fr) 23px 145px 18px 44px 24px;padding-inline:4px}.record-strip-name{font-size:10px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;grid-row:1}.record-strip>.visual-caption{grid-row:2;font-size:10px}.record-strip>.channel-controls{grid-row:4}.record-strip>.gain-value{grid-row:5;font-size:11px}.record-strip .linked-fader{width:28px}.record-strip .level-control{width:28px}
+
+.mixer-record-controls{display:flex;gap:6px;align-items:center;margin-left:auto;margin-right:12px}
