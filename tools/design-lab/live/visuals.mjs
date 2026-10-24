@@ -1,3 +1,4 @@
+import {renderShowBrowser,activeItem} from './show-browser.mjs';
 // Static fixture illustrations. No audio, clock, DSP, or executable imported content.
 const el = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -52,10 +53,12 @@ function slider(parent, label, kind, value, min, max) {
 function menuButton(parent,label,kind){const button=add(parent,'strip-menu',label,'button');button.type='button';button.disabled=true;button.dataset.menu=kind;return button;}
 export function renderVisual(node, block, fixture, assets) {
   const root = add(node, `visual visual-${block.type.replace('.', '-')}`);
+  if(block.type==='show.setlist'){renderShowBrowser(root,block.id,document.getElementById('preview').checked);return;}
+  const item=activeItem();
   const playing = fixture === 'playing';
   const title = fixture === 'long'
     ? 'Очень длинное название песни и концертной программы — Moon River Studio Live Session'
-    : 'Moon River';
+    : (item?.name||'Выберите item');
   root.setAttribute('aria-label', 'Визуальный пример, демонстрационные данные');
   if (fixture === 'empty') {
     add(root, 'visual-empty', 'Шоу пока пусто');
@@ -79,10 +82,11 @@ export function renderVisual(node, block, fixture, assets) {
       add(root, 'visual-caption', '01 / 12 · EVENING SESSION');
       add(root, 'song-display', title);
       const row = add(root, 'visual-chips');
-      for (const value of ['92 BPM', '4/4', 'C major', playing ? 'PLAYING' : 'READY']) add(row, 'visual-chip', value);
+      for (const value of [`${item?.tempo||92} BPM`, item?.meter||'4/4',item?.key||'C', playing ? 'PLAYING' : 'READY']) add(row, 'visual-chip', value);
       break;
     }
     case 'song.timeline': {
+      add(root,'visual-caption',`${title} · ${item?.tempo||92} BPM · ${item?.meter||'4/4'}`);
       const ruler = add(root, 'timeline-ruler');
       for (const bar of ['1', '5', '9', '13', '17', '21']) add(ruler, '', bar);
       const sections = add(root, 'timeline-sections');
@@ -171,7 +175,7 @@ export function renderVisual(node, block, fixture, assets) {
     }
     case 'info.cues':
       add(root, 'cue-count', '4 такта');
-      add(root, 'cue-message', 'Вступление вокала');
+      add(root, 'cue-message', item?.notes||'Вступление вокала');
       add(root, 'visual-caption', 'NEXT · Chorus / Cue 03');
       break;
     case 'info.lyrics':

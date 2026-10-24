@@ -52,3 +52,15 @@ Additional browser check: `python tools/design-lab/live/preview-smoke.py` (serve
 Main controls follow the Studio strip structure (`Desktop.cpp::Strip::resized`): inserts/sends at the top, horizontal pan, fixed 145px fader/stereo meter, dB readout, M/S + record/monitor, output routing. Enlarging a mixer block adds space to inserts/sends; a short block scrolls rather than shrinking the fader. Browser controls/menus remain demo counterparts of native JUCE, not a native renderer. Transport readout and buttons stay on one horizontal line (a too-narrow block scrolls). Input/patch rows include separate volume and pan controls, interactive in Preview.
 
 `python tools/design-lab/live/controls-smoke.py` checks transport alignment, strip hierarchy, patch volume/pan and send-menu interaction over localhost:8001.
+
+## Browser and Setlist demo workspace
+
+**Макет Влада · 1920×1080** loads the user-supplied layout without changing its geometry (layout Undo can restore the previous layout). In Preview/fullscreen, the Setlist block switches to **Browser**. Browser owns all items and nested folders; setlists hold ordered references, including repeated occurrences. Removing an occurrence keeps the Browser item. Deleting a Browser item explicitly removes its references from all setlists and can be undone. Deleting a folder moves its contents to its parent. Folder cycles are rejected.
+
+Create/edit item name, tempo, meter, key, duration and notes; duplicate items, move them to folders, search, and add them to the active setlist. Setlist entries move via ↑/↓ or drag onto another entry; Browser items can be dropped onto visible folder rows. Multiple named setlists can be created, renamed and deleted (the last setlist is protected). **Открыть item** or a double-click selects the working item and updates the header/timeline/cue preview. No actual project/audio files are created.
+
+Demo show state autosaves separately under `mr-live-demo-show-v1`. **Undo show/Redo show** affect the library/show, not layout geometry. Export/import **demo show** uses bounded, versioned JSON (1 MiB, 500 items/folders/setlists, 1000 entries per setlist), retaining last valid state on errors. Layout JSON remains presentation-only. A layout export does not contain the Browser library; export demo show as well to transfer both to another device. This browser schema is not the native `.mrlive` format. Other fixture panels remain prototype functionality; this stage does not imply a complete native show runtime.
+
+Checks: `node --test tools/design-lab/live/show-model.test.mjs`; `python tools/design-lab/live/show-smoke.py` against localhost:8001.
+
+**Стыковка** is enabled by default independently of the 4px grid. Move/resize snaps nearby block edges and viewport boundaries to identical logical coordinates (within 8 screen pixels), with guide lines, eliminating small gaps during placement. Uncheck it for free positioning. It preserves intentional overlaps and does not rewrite an imported layout automatically. Targeted Node snapping tests and HTTP drag/resize assertions cover exact flush edges.
