@@ -19,11 +19,11 @@ export function contextMenu(root,event,targets){
 }
 function save(notify=true){try{localStorage.setItem(storage,JSON.stringify(show.doc));warning='';}catch{warning='Хранилище недоступно. Экспортируйте demo show.';}if(notify)message();}
 function change(fn){try{fn();save();}catch(e){warning=e.message;message();}}
-function download(){const url=URL.createObjectURL(new Blob([JSON.stringify(show.doc,null,2)],{type:'application/json'}));const a=node('a');a.href=url;a.download='mr-live-demo-show-v2.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function download(){const url=URL.createObjectURL(new Blob([JSON.stringify(show.doc,null,2)],{type:'application/json'}));const a=node('a');a.href=url;a.download='mr-live-demo-show-v3.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 export function dialog(root,title,fields,submit){
  const modal=node('dialog');modal.className='show-dialog';const form=node('form');form.append(node('h3',title));
  for(const [key,label,value,type='text'] of fields){const wrap=node('label',label);let input;
- if(Array.isArray(type)){input=node('select');for(const [value,text] of type)input.add(new Option(text,value));}else{input=node(key==='notes'?'textarea':'input');if(key!=='notes')input.type=type;}input.setAttribute('aria-label',label);input.name=key;if(type==='checkbox'){input.checked=!!value;input.value='on';}else input.value=value;input.maxLength=key==='notes'?4000:120;wrap.append(input);form.append(wrap);}
+ if(Array.isArray(type)){input=node('select');for(const [value,text] of type)input.add(new Option(text,value));}else{input=node(key==='notes'?'textarea':'input');if(key!=='notes')input.type=type;if(type==='number')input.step='any';}input.setAttribute('aria-label',label);input.name=key;if(type==='checkbox'){input.checked=!!value;input.value='on';}else input.value=value;input.maxLength=key==='notes'?4000:120;wrap.append(input);form.append(wrap);}
  const error=node('p');error.setAttribute('role','alert');form.append(error);
  const confirm=node('button','Сохранить');confirm.type='submit';form.append(confirm,button('Отмена',()=>modal.close()));
  form.onsubmit=e=>{e.preventDefault();try{submit(Object.fromEntries(new FormData(form)));modal.close();}catch(e){error.textContent=e.message;}};
@@ -34,8 +34,10 @@ function itemDialog(root,item,folder,onCreate){dialog(root,item?'Свойств�
  ],values=>{const v={...values,tempo:Number(values.tempo),duration:Number(values.duration)};if(item)show.commit(d=>Object.assign(d.items.find(i=>i.id===item.id),v));else{const id=show.item(v,folder);onCreate?.(id);}save();});}
 function folderPath(folder){const names=[folder.name];let parent=folder.parent;while(parent!==null){const f=show.doc.folders.find(f=>f.id===parent);names.unshift(f.name);parent=f.parent;}return names.join(' / ');}
 const folderOptions=()=>[['','Все items / корень'],...show.doc.folders.map(f=>[f.id,folderPath(f)])];
+export function undoShow(redo=false){if(redo)show.redo();else show.undo();save();}
 export function showDocument(){return show.doc;}
 export function editShow(fn,notify=true){show.commit(fn);save(notify);}
+export function editItem(itemId,fn){editShow(d=>{const item=d.items.find(i=>i.id===itemId);if(!item)throw Error('Item не найден');fn(item);d.currentItem=itemId;});}
 export function activeItem(){return show.doc.items.find(i=>i.id===show.doc.currentItem);}
 export function renderShowBrowser(root,blockId,enabled){
  root.replaceChildren();root.classList.add('show-browser');

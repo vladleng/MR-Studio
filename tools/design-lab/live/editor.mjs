@@ -1,3 +1,4 @@
+import {undoShow} from './show-browser.mjs';
 import {renderRuntimePanels,toggleRuntimePanel} from './runtime-panels.mjs';
 import {snapGeometry} from './snapping.mjs';
 import {interactive} from './interactive.mjs';
@@ -21,7 +22,7 @@ function previewAssets(block){
  return result;
 }
 function renderCanvas(){
- const canvas=$('canvas'),view=viewport(),zoom=factor();canvas.replaceChildren();canvas.style.width=`${view.width}px`;canvas.style.height=`${view.height}px`;canvas.style.transform=`scale(${zoom})`;
+ const canvas=$('canvas'),view=viewport(),zoom=factor();const blockScroll=new Map([...canvas.querySelectorAll('.block')].map(n=>[n.dataset.id,[n.scrollLeft,n.scrollTop]]));const itemScroll=new Map([...canvas.querySelectorAll('.live-item-container')].map(n=>[n.dataset.entry,[n.querySelector('.item-time-scroll')?.scrollLeft||0,n.querySelector('.item-time-scroll')?.scrollTop||0]]));canvas.replaceChildren();canvas.style.width=`${view.width}px`;canvas.style.height=`${view.height}px`;canvas.style.transform=`scale(${zoom})`;
  $('frame').style.width=`${view.width*zoom}px`;$('frame').style.height=`${view.height*zoom}px`;canvas.classList.toggle('preview',$('preview').checked);
  for(const b of history.doc.blocks){if(!b.visible||['input.patches','mixer.channels'].includes(b.type))continue;const bounds=resolve(b,history.doc.viewport,view);const node=document.createElement('section');node.dataset.id=b.id;node.className=`block state-${$('fixture').value}${selected===b.id&&!$('preview').checked?' selected':''}`;
  Object.assign(node.style,{left:`${bounds.x}px`,top:`${bounds.y}px`,width:`${bounds.w}px`,height:`${bounds.h}px`,padding:`${b.padding}px`,gap:`${b.gap}px`,fontSize:`${b.fontSize}px`,fontFamily:b.font,fontWeight:b.weight,textAlign:b.align,background:tokens[b.background],color:tokens[b.color],overflow:b.overflow});
@@ -35,6 +36,7 @@ function renderCanvas(){
  if(!b.showTitle)node.onpointerdown=e=>{if(!e.target.closest('.resize'))startGesture(e,b,'move');};
  if(!$('preview').checked){const handle=button('',()=>{});handle.className='resize';handle.setAttribute('aria-label',`Изменить размер ${b.title}`);handle.onpointerdown=e=>startGesture(e,b,'resize');node.append(handle);}canvas.append(node);
  }
+ for(const n of canvas.querySelectorAll('.block')){const pos=blockScroll.get(n.dataset.id);if(pos){n.scrollLeft=pos[0];n.scrollTop=pos[1];}}for(const n of canvas.querySelectorAll('.live-item-container')){const pos=itemScroll.get(n.dataset.entry),scroll=n.querySelector('.item-time-scroll');if(pos&&scroll){scroll.scrollLeft=pos[0];scroll.scrollTop=pos[1];}}
  renderRuntimePanels($('scroll'),previewAssets());
 }
 function startGesture(e,b,mode){if($('preview').checked||e.button!==0)return;e.preventDefault();selected=b.id;
@@ -108,7 +110,7 @@ $('name').onchange=()=>edit(doc=>doc.name=$('name').value);
 $('undo').onclick=()=>{history.undo();persist();render();};$('redo').onclick=()=>{history.redo();persist();render();};$('reset').onclick=()=>edit(doc=>Object.assign(doc,initial()));
 $('commands').onclick=e=>{const command=e.target.dataset.command;if(!command||!current())return;edit(doc=>{const i=doc.blocks.findIndex(x=>x.id===selected),b=doc.blocks[i];if(command==='delete')doc.blocks.splice(i,1);if(command==='left')b.x=0;if(command==='center')b.x=Math.round((doc.viewport.width-b.w)/2);if(command==='front'){doc.blocks.splice(i,1);doc.blocks.push(b);}if(command==='back'){doc.blocks.splice(i,1);doc.blocks.unshift(b);}});};
 $('canvas').ondragover=e=>e.preventDefault();$('canvas').ondrop=e=>{e.preventDefault();const type=e.dataTransfer.getData('text/mr-live-block');if(!registry.has(type)||$('preview').checked)return;const rect=$('canvas').getBoundingClientRect();add(type,(e.clientX-rect.left)/factor(),(e.clientY-rect.top)/factor());};
-window.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea'))return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();$(e.shiftKey?'redo':'undo').click();return;}if(e.key==='Escape'){finish(true);return;}if($('preview').checked||!current())return;const delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(delta){e.preventDefault();edit(doc=>{const b=doc.blocks.find(x=>x.id===selected),step=e.shiftKey?4:1;b.x=Math.max(0,Math.min(doc.viewport.width-b.w,b.x+delta[0]*step));b.y=Math.max(0,Math.min(doc.viewport.height-b.h,b.y+delta[1]*step));});}});
+window.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea'))return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();if($('preview').checked)undoShow(e.shiftKey);else $(e.shiftKey?'redo':'undo').click();return;}if(e.key==='Escape'){finish(true);return;}if($('preview').checked||!current())return;const delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(delta){e.preventDefault();edit(doc=>{const b=doc.blocks.find(x=>x.id===selected),step=e.shiftKey?4:1;b.x=Math.max(0,Math.min(doc.viewport.width-b.w,b.x+delta[0]*step));b.y=Math.max(0,Math.min(doc.viewport.height-b.h,b.y+delta[1]*step));});}});
 $('export').onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify(history.doc,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='mr-live-layout-v1.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 function load(doc){history.commit(doc);selected='';const value=`${doc.viewport.width},${doc.viewport.height}`;if(![...$('viewport').options].some(o=>o.value===value)){$('viewport').add(new Option(value,value));}$('viewport').value=value;persist();render();}
 $('import').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>MAX_BYTES)throw Error('Файл превышает 256 KiB');load(parse(await file.text(),new Set(assets.keys())));}catch(error){say(`Импорт отклонён: ${error.message}. Текущий макет сохранён.`);}finally{e.target.value='';}};
