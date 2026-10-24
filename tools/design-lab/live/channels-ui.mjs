@@ -1,0 +1,93 @@
+import {showDocument,activeItem,editShow,dialog,contextMenu} from './show-browser.mjs';
+import {channelTypes,addChannel,removeChannel,makePatch,effectivePatch,parameterRanges} from './channel-model.mjs';
+const el=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls;if(text!==undefined)n.textContent=text;return n;};
+const add=(p,cls,text,tag='div')=>{const n=el(tag,cls,text);p.append(n);return n;};
+const enabled=()=>document.getElementById('preview').checked;
+const btn=(p,text,fn,cls='strip-menu')=>{const b=add(p,cls,text,'button');b.type='button';b.disabled=!enabled();b.onclick=e=>{e.stopPropagation();fn();};return b;};
+function graphic(p,assets,id,cls,label){const img=el('img',cls);img.src=assets.get(id)||'';img.alt=label;img.dataset.slot=id;p.append(img);}
+function run(root,fn){try{fn();}catch(e){dialog(root,e.message,[],()=>{});}}
+function create(root){dialog(root,'Новый канал',[
+ ['type','Тип канала','Instrument',channelTypes.map(t=>[t,t])],['name','Название','New channel']
+ ],v=>editShow(d=>addChannel(d,v.type,v.name)));}
+function patchDialog(root,c,patch){dialog(root,patch?'Свойства патча':'Новый патч',[
+ ['name','Название патча',patch?.name||'New patch'],
+ ['instrument','Инструмент',patch?.engine.instrument|| (c.type==='Instrument'?'MR Instrument':'')],
+ ['plugins','Плагины (через запятую)',patch?.engine.plugins.join(', ')||'MR Strip'],
+ ...Object.keys(parameterRanges).map(k=>[k,`Параметр ${k}`,patch?.parameters[k]??(k==='mix'?100:k==='tone'?50:0),'number'])
+ ],v=>editShow(d=>{const channel=d.channels.find(x=>x.id===c.id);const target=patch?channel.patches.find(p=>p.id===patch.id):makePatch(c.type,v.name);target.name=v.name;target.engine={instrument:v.instrument.trim()||null,plugins:v.plugins.split(',').map(s=>s.trim()).filter(Boolean)};target.parameters=Object.fromEntries(Object.keys(parameterRanges).map(k=>[k,Number(v[k])]));if(!patch)channel.patches.push(target);}));}
+function subDialog(root,c,patch,sub){
+ const fields=[['name','Название sub-patch',sub?.name||'Variation']];
+ for(const k of Object.keys(parameterRanges)){fields.push([`use_${k}`,`Изменять ${k}`,Object.hasOwn(sub?.overrides||{},k),'checkbox'],[k,`Значение ${k}`,sub?.overrides[k]??patch.parameters[k],'number']);}
+ dialog(root,'Sub-patch · только параметры; инструмент и цепочка наследуются',fields,v=>editShow(d=>{
+  const p=d.channels.find(x=>x.id===c.id).patches.find(p=>p.id===patch.id);const target=sub?p.subPatches.find(s=>s.id===sub.id):{id:crypto.randomUUID(),name:'',overrides:{}};
+  target.name=v.name;target.overrides=Object.fromEntries(Object.keys(parameterRanges).filter(k=>Object.hasOwn(v,`use_${k}`)).map(k=>[k,Number(v[k])]));
+  if(!sub)p.subPatches.push(target);
+ }));
+}
+function trackFor(c){return activeItem()?.tracks.find(t=>t.channelId===c.id);}
+function updateTrack(c,fn){editShow(d=>{const item=d.items.find(i=>i.id===d.currentItem);if(!item)throw Error('Выберите item');fn(item.tracks.find(t=>t.channelId===c.id));});}
+function commands(root,c){const targets=[];const holder=el('div','');
+ targets.push(btn(holder,'+ Канал',()=>create(root)));
+ targets.push(btn(holder,'Переименовать канал',()=>dialog(root,'Название канала',[['name','Название',c.name]],v=>editShow(d=>d.channels.find(x=>x.id===c.id).name=v.name))));
+ const track=trackFor(c),patch=c.patches.find(p=>p.id===track?.patchId),sub=patch?.subPatches.find(s=>s.id===track?.subPatchId);
+ if(c.type!=='Audio'){
+  targets.push(btn(holder,'+ Патч',()=>patchDialog(root,c)));
+  if(patch){targets.push(btn(holder,'Свойства патча',()=>patchDialog(root,c,patch)),btn(holder,'+ Sub-patch',()=>subDialog(root,c,patch)));
+   if(sub)targets.push(btn(holder,'Свойства sub-patch',()=>subDialog(root,c,patch,sub)),btn(holder,'Удалить sub-patch',()=>dialog(root,'Удалить sub-patch?',[],()=>editShow(d=>{const p=d.channels.find(x=>x.id===c.id).patches.find(p=>p.id===patch.id);p.subPatches=p.subPatches.filter(s=>s.id!==sub.id);for(const item of d.items)for(const t of item.tracks)if(t.subPatchId===sub.id)t.subPatchId=null;}))));
+   targets.push(btn(holder,'Удалить патч',()=>dialog(root,'Удалить патч и очистить его назначения?',[],()=>editShow(d=>{const ch=d.channels.find(x=>x.id===c.id);ch.patches=ch.patches.filter(p=>p.id!==patch.id);for(const item of d.items)for(const t of item.tracks)if(t.patchId===patch.id){t.patchId=null;t.subPatchId=null;}}))));
+  }
+ }
+ targets.push(btn(holder,'Удалить канал',()=>dialog(root,'Удалить канал и соответствующие треки всех items?',[],()=>editShow(d=>removeChannel(d,c.id)))));
+ return targets;
+}
+function channelContext(root,row,c){row.oncontextmenu=e=>{if(!enabled())return;contextMenu(root,e,commands(root,c));};}
+function selectors(root,c){const track=trackFor(c),group=add(root,'patch-selectors');
+ if(c.type==='Audio'){add(group,'visual-caption','Audio · запись');for(const [key,label] of [['armed','R'],['monitor','MON']]){const b=btn(group,label,()=>run(root,()=>editShow(d=>{const ch=d.channels.find(x=>x.id===c.id);ch[key]=!ch[key];})));b.setAttribute('aria-pressed',String(c[key]));}return;}
+ const select=add(group,'patch-choice',undefined,'select');select.setAttribute('aria-label',`Патч ${c.name}`);select.add(new Option('Без патча',''));for(const p of c.patches)select.add(new Option(p.name,p.id));select.value=track?.patchId||'';select.disabled=!enabled()||!track;
+ select.onchange=()=>run(root,()=>updateTrack(c,t=>{t.patchId=select.value||null;t.subPatchId=null;}));
+ const patch=c.patches.find(p=>p.id===track?.patchId);const sub=add(group,'subpatch-choice',undefined,'select');sub.setAttribute('aria-label',`Sub-patch ${c.name}`);sub.add(new Option('Base · исходные параметры',''));for(const s of patch?.subPatches||[])sub.add(new Option(s.name,s.id));sub.value=track?.subPatchId||'';sub.disabled=!enabled()||!patch;
+ sub.onchange=()=>run(root,()=>updateTrack(c,t=>t.subPatchId=sub.value||null));
+ if(patch){const resolved=effectivePatch(c,track);add(group,'visual-caption',`${patch.engine.instrument||'Input'} → ${patch.engine.plugins.join(' → ')||'Direct'}`);add(group,'patch-parameter-summary',Object.entries(resolved.parameters).map(([k,v])=>`${k}: ${v}`).join(' · '));}
+}
+function demoMenu(root,anchor,names){root.querySelector('.preview-menu')?.remove();const menu=add(anchor.parentElement,'preview-menu');for(const name of names)btn(menu,name,()=>{menu.remove();anchor.title=`${name} · демо`;});}
+function level(root,c,kind){const row=add(root,`level-control ${kind==='gain'?'volume':kind}-control`);
+ const input=add(row,'',undefined,'input');input.type='range';input.className=kind==='pan'?'pan-slider':'volume-slider';input.min=kind==='gain'?-60:-100;input.max=kind==='gain'?12:100;input.step=kind==='gain'?.5:1;input.value=c[kind];input.disabled=!enabled();input.setAttribute('aria-label',`${kind==='gain'?'Громкость':'Панорама'} ${c.name}`);
+ input.dataset.channelLevel=c.id;input.dataset.kind=kind;
+ const output=add(row,'',valueText(kind,c[kind]),'output');output.dataset.channelReadout=c.id;output.dataset.kind=kind;
+ input.oninput=()=>syncLevel(c.id,kind,Number(input.value));input.onchange=()=>run(root,()=>{const block=input.closest('.block')?.dataset.id;const label=input.getAttribute('aria-label');editShow(d=>d.channels.find(x=>x.id===c.id)[kind]=Number(input.value));for(const n of document.querySelectorAll('[data-channel-level]'))if(n.dataset.channelLevel===c.id&&n.dataset.kind===kind&&n.closest('.block')?.dataset.id===block&&n.getAttribute('aria-label')===label)n.focus({preventScroll:true});});
+}
+function valueText(kind,value){return kind==='gain'?`${value} dB`:value===0?'C':`${Math.abs(value)}${value<0?'L':'R'}`;}
+function syncLevel(id,kind,value){for(const input of document.querySelectorAll('[data-channel-level]'))if(input.dataset.channelLevel===id&&input.dataset.kind===kind)input.value=value;for(const output of document.querySelectorAll('[data-channel-readout]'))if(output.dataset.channelReadout===id&&output.dataset.kind===kind)output.textContent=valueText(kind,value);}
+export function renderChannelPanel(root,kind,assets){
+ const channels=showDocument().channels;
+ root.classList.add('linked-channel-panel');
+ btn(root,'+ Канал',()=>create(root),'channel-create');
+ if(!activeItem())add(root,'visual-caption','Выберите рабочий item в Setlist');
+ if(kind==='mixer'){
+  const strips=add(root,'mixer-strips');
+  for(const c of channels){const strip=add(strips,'mixer-strip');strip.dataset.channel=c.id;channelContext(root,strip,c);
+   const header=add(strip,'strip-header');add(header,'channel-name',c.name);btn(header,'⋮',e=>{},'channel-dots').onclick=e=>contextMenu(root,e,commands(root,c));
+   strip.title=`${c.name} · ${c.type}`;
+   const upper=add(strip,'strip-upper');
+   const inserts=add(upper,'strip-inserts');const p=c.patches.find(p=>p.id===trackFor(c)?.patchId);for(const plugin of p?.engine.plugins||[])btn(inserts,plugin,()=>patchDialog(root,c,p));
+   const sends=add(upper,'strip-sends');const send=btn(sends,'Sends…',()=>demoMenu(root,send,['Reverb bus','Delay bus','Добавить посыл…']));send.dataset.menu='send';
+   level(strip,c,'pan');
+   const controls=add(strip,'channel-controls');graphic(controls,assets,'controls/concept_pack/meter_empty','visual-meter','Демо meter');
+   if(enabled()){const wrap=add(controls,'linked-fader');level(wrap,c,'gain');wrap.querySelector('input').className='preview-fader';}else graphic(controls,assets,'controls/concept_pack/fader_micro_normal','visual-fader','MR Micro');
+   const output=add(strip,'gain-value visual-caption',valueText('gain',c.gain));output.dataset.channelReadout=c.id;output.dataset.kind='gain';
+   const switches=add(strip,'channel-switches');for(const [key,name] of [['mute','M'],['solo','S'],['armed','R'],['monitor','MON']]){const b=btn(switches,name,()=>run(root,()=>editShow(d=>{const ch=d.channels.find(x=>x.id===c.id);ch[key]=!ch[key];})));b.dataset.toggle=name;b.setAttribute('aria-pressed',String(c[key]));if(key==='armed'&&c.type!=='Audio')b.disabled=true;}
+   const out=btn(strip,'Main → Audio Out 1–2',()=>demoMenu(root,out,['Main','Audio Out 1–2','Audio Out 3–4']));out.dataset.menu='output';
+  }
+ }else{
+  const list=add(root,kind==='timeline'?'channel-tracks':'linked-channel-list');
+  for(const c of channels.filter(c=>kind!=='playback'||c.type==='Playback')){
+   const row=add(list,'linked-channel-row');row.dataset.channel=c.id;channelContext(root,row,c);
+   const title=add(row,'linked-channel-title');add(title,'channel-name',c.name);add(title,'visual-caption',c.type);btn(title,'⋮',()=>{},'channel-dots').onclick=e=>contextMenu(root,e,commands(root,c));
+   if(kind==='timeline'){const grid=add(row,'track-grid',c.type==='Audio'?'Audio · дорожка записи':c.type==='Instrument'?'Instrument · MIDI':`${c.type} · patch lane`);if(c.type==='Playback')graphic(grid,assets,'controls/concept_pack/waveform_audio_illustration','visual-wave','Демо waveform');}
+   if(kind==='playback')graphic(row,assets,'controls/concept_pack/waveform_audio_illustration','visual-wave','Демо waveform');
+   selectors(row,c);
+   if(kind!=='timeline'){const levels=add(row,'patch-levels');level(levels,c,'gain');level(levels,c,'pan');}
+  }
+  if(!list.childElementCount)add(list,'visual-caption','Нет каналов этого типа');
+ }
+}

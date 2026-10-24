@@ -1,6 +1,7 @@
 // Ephemeral UI simulation; never writes show/DSP state or layout JSON.
 const state = new Map();
 export function interactive(node, block) {
+  if(['mixer.channels','input.patches','playback.stems'].includes(block.type))return;
   const current = state.get(block.id) || {gain:[-6,-9,-12,0],playing:false};
   state.set(block.id,current);
   node.querySelectorAll('.mixer-strip').forEach((strip,index)=>{
