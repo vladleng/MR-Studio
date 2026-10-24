@@ -64,8 +64,11 @@ void audition(const std::filesystem::path& destination,Config config,Parameters 
 // Diagnostic, not an acceptance test: preserves measured failures in the report.
 void impulses() {
     Config config;config.channels=1;
-    std::cout<<"ratio,source_frame,expected_frame,peak_frame,error_frames,peak_amplitude,within_one_frame\n";
-    for(double ratio:{1.,1.25,0.75}) for(std::int64_t at:{0,24000,47999}) {
+    std::cout<<"ratio,source_frame,expected_frame,peak_frame,error_frames,peak_amplitude,within_one_frame,peak_db,energy_90_width_frames,early_energy_fraction\n";
+    // Sweep window positions: a single conveniently aligned impulse can hide
+    // severe attack attenuation at another phase of the analysis hop.
+    for(double ratio:{0.5,0.75,0.9,1.,1.1,1.25,1.5,2.})
+        for(std::int64_t at:{0,12001,12317,12733,13211,13709,14303,14927,15619,24000,47999}) {
         Parameters p;p.duration_ratio=ratio;p.cents=ratio==1?0.01:0;
         std::int64_t length{};require(output_frames(48000,ratio,length)==Status::ok,"Impulse length failed");
         std::vector<float> output(static_cast<std::size_t>(length));
@@ -79,7 +82,22 @@ void impulses() {
         const auto peak=std::max_element(output.begin(),output.end(),[](float a,float b){return std::abs(a)<std::abs(b);});
         std::int64_t expected{};require(output_frames(at,ratio,expected)==Status::ok,"Impulse mapping failed");
         const auto position=peak-output.begin();const auto error=position-expected;
-        std::cout<<ratio<<','<<at<<','<<expected<<','<<position<<','<<error<<','<<*peak<<','<<(std::abs(error)<=1)<<'\n';
+        double energy{},early{};
+        const auto early_boundary=expected-static_cast<std::int64_t>(config.sample_rate/1000);
+        for(std::size_t i=0;i<output.size();++i) {
+            const double e=static_cast<double>(output[i])*output[i];energy+=e;
+            if(static_cast<std::int64_t>(i)<early_boundary) early+=e;
+        }
+        require(std::isfinite(energy) && energy>0,"Impulse output lost or invalid");
+        double cumulative{};std::int64_t q05=-1,q95=-1;
+        for(std::size_t i=0;i<output.size();++i) {
+            cumulative+=static_cast<double>(output[i])*output[i];
+            if(q05<0 && cumulative>=energy*0.05) q05=static_cast<std::int64_t>(i);
+            if(cumulative>=energy*0.95) {q95=static_cast<std::int64_t>(i);break;}
+        }
+        const double peak_db=20*std::log10(std::max(1e-30,static_cast<double>(std::abs(*peak))));
+        std::cout<<ratio<<','<<at<<','<<expected<<','<<position<<','<<error<<','<<*peak<<','<<(std::abs(error)<=1)
+            <<','<<peak_db<<','<<q95-q05+1<<','<<early/energy<<'\n';
     }
 }
 }

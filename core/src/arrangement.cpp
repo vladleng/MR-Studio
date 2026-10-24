@@ -45,6 +45,31 @@ void trim_audio_source(Clip& c,Sample start,Sample end,Sample raw_frames) {
     }
     c.fade_in=std::min(c.fade_in,c.length);c.fade_out=std::min(c.fade_out,c.length);
 }
+Clip stretch_audio_edge(const Clip& original,Sample edge,bool left) {
+    if(original.midi)throw std::invalid_argument("Stretch requires an audio clip");
+    validate_audio_stretch(original);
+    auto c=original;
+    if(!c.stretch)c.stretch=ClipStretch{{},c.length,0,static_cast<double>(c.length)};
+    auto& state=*c.stretch;auto& params=state.parameters;params.enabled=true;
+    const auto anchor=left?original.start+original.length:original.start;
+    const auto available=left?anchor:max_sample-anchor;
+    const auto lengthAt=[&](double ratio){return mapped_frame(state.window_end,ratio)-mapped_frame(state.window_begin,ratio);};
+    const auto minimum=std::max<Sample>(1,lengthAt(.125)),maximum=std::min(available,lengthAt(8));
+    if(maximum<minimum)throw std::invalid_argument("No room to stretch clip");
+    const auto length=std::clamp(left?anchor-std::clamp(edge,Sample{0},max_sample):std::clamp(edge,Sample{0},max_sample)-anchor,minimum,maximum);
+    params.duration_ratio=std::clamp(static_cast<double>(length)/(state.window_end-state.window_begin),.125,8.);
+    // Endpoint rounding can differ by a sample on a trimmed window. Keep the
+    // fixed edge exact and accept the nearest representable output duration.
+    c.length=lengthAt(params.duration_ratio);
+    if(c.length<minimum||c.length>maximum)throw std::invalid_argument("Stretch exceeds timeline bounds");
+    c.start=left?anchor-c.length:anchor;
+    c.fade_in=std::min(c.fade_in,c.length);c.fade_out=std::min(c.fade_out,c.length);
+    validate_audio_stretch(c);return c;
+}
+double project_tempo_at(const Project& p,Sample position){
+    const Timeline timeline{p.time,p.sample_rate};double bpm=p.time.tempos.front().bpm;
+    for(const auto& point:p.time.tempos){if(timeline.to_samples(point.tick)>position)break;bpm=point.bpm;}return bpm;
+}
 void RemoveTrack::apply(Project& p) const {
     const auto it = std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t) { return t.id == id_; });
     if (it == p.tracks.end()) throw std::invalid_argument("unknown track");
@@ -116,6 +141,15 @@ void SetAudioStretch::apply(Project& p) const {
         validate_audio_stretch(c);
     }
     c.fade_in=std::min(c.fade_in,c.length);c.fade_out=std::min(c.fade_out,c.length);
+}
+void SetAudioClipTiming::apply(Project& p) const {
+    auto it=audio_clip(p,expected_.id);
+    if(*it!=expected_)throw std::runtime_error("Clip changed; retry time / pitch edit");
+    if(start_<0||start_>max_sample|| (tempo_&&(!std::isfinite(*tempo_)||*tempo_<1||*tempo_>999)))throw std::invalid_argument("Invalid clip timing");
+    // Work on a candidate, so validation failures never partially mutate p.
+    auto candidate=p;auto& c=*audio_clip(candidate,expected_.id);c.start=start_;
+    if(c.stretch||parameters_!=stretch::Parameters{})SetAudioStretch{c.id,parameters_}.apply(candidate);
+    c.file_tempo=tempo_;candidate.validate();p=std::move(candidate);
 }
 void TrimAudioClip::apply(Project& p) const {
     auto it = audio_clip(p,id_);

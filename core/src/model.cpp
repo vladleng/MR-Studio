@@ -256,7 +256,7 @@ void Project::validate() const {
         if (clip.midi) {
             const auto& m=*clip.midi;
             require(channels.at(clip.track.value)->kind==TrackKind::instrument,"MIDI clip requires an instrument track");
-            require(!clip.stretch&&clip.fade_in==0&&clip.fade_out==0&&clip.start==0 && clip.length==1 && clip.source_offset==0 && clip.source.empty(),"MIDI clip sample fields must be defaults");
+            require(!clip.file_tempo&&!clip.stretch&&clip.fade_in==0&&clip.fade_out==0&&clip.start==0 && clip.length==1 && clip.source_offset==0 && clip.source.empty(),"MIDI clip sample fields must be defaults");
             require(m.start>=0 && m.start<=max_tick && m.length>0 && m.length<=max_tick-m.start,"invalid MIDI clip range");
             require(m.source_offset>=0 && m.source_offset<=max_tick-m.length,"invalid MIDI source offset");
             midi_notes+=m.notes.size();
@@ -269,6 +269,7 @@ void Project::validate() const {
         require(clip.start >= 0 && clip.start <= max_sample, "invalid clip start");
         require(clip.length > 0 && clip.length <= max_sample - clip.start, "invalid clip length");
         require(clip.fade_in>=0&&clip.fade_out>=0&&clip.fade_in<=clip.length&&clip.fade_out<=clip.length,"invalid audio fade duration");
+        require(!clip.file_tempo||(std::isfinite(*clip.file_tempo)&&*clip.file_tempo>=1&&*clip.file_tempo<=999),"Invalid file tempo");
         validate_audio_stretch(clip);
         require(!clip.stretch||std::none_of(ara_bindings.begin(),ara_bindings.end(),[&](const auto& b){return b.source==clip.source;}),"Detach native time / pitch before attaching ARA processing");
         require(clip.source_offset >= 0 && clip.source_offset <= max_sample - audio_source_span(clip),

@@ -14,9 +14,10 @@ integration and final quality/default approval are not completed by this slice.
 `mrs/stretch.hpp` contains no backend types. `Parameters` stores duration ratio,
 pitch, formant and quality intent. The version-1 standalone codec rejects future
 versions/unknown enum values/trailing data without truncating them. A caller must
-retain an unsupported record or reject loading it explicitly. Project schema 31 adds optional `ClipStretch`; schemas 1–30 load without it,
+retain an unsupported record or reject loading it explicitly. Project schema 31 added optional `ClipStretch`; schema 32 adds optional per-clip
+`file_tempo` (authored source BPM). Schemas 1–30 load without stretch,
 with original duration, pitch and source references. Older applications reject
-new schema-31 projects explicitly. The archive envelope is unchanged. The
+new schema-32 projects explicitly. Schemas 31 load without source BPM. The archive envelope is unchanged. The
 reference contract test links only `mrs_core` without the adapter.
 
 Duration ratio is output/source; speed is its inverse. `output_frames(N,r)` rounds
@@ -160,6 +161,41 @@ already removed, so it introduces zero additional route PDC. DSP/reset, WAV I/O,
 waveform construction and cache reclamation never execute in the audio callback.
 No live spectral parameter automation or additional engine/device is introduced.
 
+## Direct clip timing controls — #61
+
+The audio clip context menu begins with File Tempo, Speedup, Transpose and Tune
+(cents). Hover a numeric field and turn the wheel; Ctrl+wheel gives finer steps.
+Keyboard entry uses Enter to commit and Escape to revert the field text. Wheel
+bursts are buffered for 350 ms and committed as one Undo command; closing the menu
+flushes a pending burst even after the popup component has been destroyed. The
+existing Time / Pitch dialog retains bypass, reset, formants and quality.
+
+Speedup is the inverse of the stored duration ratio (0.125–8). Source BPM is
+unknown by default: 0 in the menu clears it; authored values are 1–999 BPM.
+Changing source BPM alone changes metadata. **Fit to project tempo** explicitly
+sets ratio = source BPM / project BPM at the clip start, anchors the start, and
+preserves pitch/formants. It rejects unknown BPM and unsupported ratios. This is
+one constant ratio: it does not follow later tempo-map changes or warp a clip
+across tempo boundaries. No detection or metadata rewrite of source WAVs occurs.
+This explicit fit command extends the original manual-only MVP at user request;
+automatic follow, warp and library preview/drop synchronization remain deferred.
+
+Alt+left-drag either audio edge stretches the grabbed clip; the opposite edge,
+raw source anchor and source-domain window stay fixed. Pitch/formants and BPM are
+retained. Timeline zero and supported ratio bounds constrain the gesture. Visible
+length uses the nearest representable difference of rounded window endpoints,
+which may be one sample from the requested moving edge on a trimmed source.
+Neighbors do not ripple; multi-selection does not stretch other clips. Plain
+edges still trim; Alt+drag inside a clip still copies. Shift bypasses grid snap.
+Only the waveform geometry changes during preview; no DSP/model edit happens on
+mouse move. Release commits one command; Escape/focus loss cancels. Edits require
+stopped transport and reject stale source clips/projects and native+ARA sharing.
+
+Source BPM persists in an optional `CLIP_TEMPOS` section after `STRETCH_CLIPS`
+and before `END`: quoted clip ID and BPM, max-digits precision. Duplicate, unknown,
+MIDI, nonfinite and out-of-range records are rejected. Split/copy inherit BPM;
+resetting processing retains BPM. It is clip metadata and not a DSP/cache key.
+
 ## Diagnostics and acceptance
 
 `mrs_stretch_bench --seconds 300 --warmup 30 --repeats 3 --voices 8 --ratio 1.25`
@@ -175,6 +211,24 @@ no-overwrite publication protect existing files. Render outputs are float32 RIFF
 the input WAV importer/SRC is unchanged. `--impulse-report` is a diagnostic CSV:
 it reports observed peak displacement and the one-frame criterion without
 pretending that producing the report means passing that criterion.
+It sweeps ratios 0.5/0.75/0.9/1/1.1/1.25/1.5/2 and eleven source positions,
+including differing analysis-hop phases and both clip boundaries. Additional
+columns report peak dB relative to the unit source impulse, the 5–95% cumulative
+energy width (inclusive frames), and the fraction of energy earlier than one
+millisecond before the mapped onset. These metrics distinguish attenuation,
+spreading and pre-echo; a narrow impulse can still have an attenuated peak.
+The unity case uses a 0.01-cent shift to exercise DSP rather than neutral bypass.
+This diagnostic does not measure musical attack quality, establish a pass
+threshold for the new metrics, or replace level-aligned listening on drum loops
+and mixed material. Clip-boundary rows include truncation effects and must be
+considered separately from interior rows.
+
+The Balanced preset currently uses the upstream 120 ms window / 30 ms hop;
+Economical uses 100 ms / 40 ms. Neither is a dedicated percussion mode.
+User listening has identified softened attacks on acceleration; default backend
+quality remains unaccepted in #62. Reducing window/hop alone is not an established
+fix: configuration evaluation must also check peak retention across onset phases,
+bass/pitch stability and stereo integrity before changing the product default.
 
 The unity-ratio, near-neutral-pitch impulse regression isolates latency accounting
 from spectral transient behavior. The non-unity impulse report is separate #62

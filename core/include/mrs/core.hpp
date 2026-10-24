@@ -21,7 +21,7 @@ inline constexpr Tick ppq = 960;
 inline constexpr std::size_t max_project_midi_notes = 32768;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 31;
+inline constexpr std::uint32_t schema_version = 32;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -243,6 +243,7 @@ struct Clip {
     std::optional<std::uint32_t> color{}; // RGB; absent preserves legacy blue
     Sample fade_in{},fade_out{}; // Audio only, linear ramps in visible clip samples.
     std::optional<ClipStretch> stretch{};
+    std::optional<double> file_tempo{}; // authored source BPM; absent = unknown
     bool operator==(const Clip&) const = default;
 };
 struct Marker {

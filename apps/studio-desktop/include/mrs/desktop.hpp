@@ -195,6 +195,7 @@ public:
     const audio::Waveform* waveform(std::string_view source) const;
     const audio::Waveform* clip_waveform(const Clip&) const;
     Sample clip_playback_offset(const Clip&) const;
+    void set_clip_timing(const Clip& expected,stretch::Parameters,std::optional<double> tempo,Sample start);
     void set_clip_stretch(const Id&,stretch::Parameters,bool reset=false);
     struct StretchStatus {bool busy{};float progress{};std::string message;std::uint64_t revision{};};
     StretchStatus stretch_status() const;

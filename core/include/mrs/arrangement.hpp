@@ -15,6 +15,17 @@ public:
     void apply(Project&) const override;
 private: Id id_; stretch::Parameters parameters_; bool reset_{};
 };
+// Pure preview: keeps source window and the opposite edge fixed; clamps to supported ratios.
+Clip stretch_audio_edge(const Clip&,Sample edge,bool left);
+double project_tempo_at(const Project&,Sample position);
+class SetAudioClipTiming final : public ICommand {
+public:
+    SetAudioClipTiming(Clip expected,stretch::Parameters parameters,std::optional<double> tempo,Sample start)
+        : expected_(std::move(expected)),parameters_(parameters),tempo_(tempo),start_(start) {}
+    std::string_view name() const override { return "Audio clip timing"; }
+    void apply(Project&) const override;
+private: Clip expected_;stretch::Parameters parameters_;std::optional<double> tempo_;Sample start_;
+};
 class RemoveTrack final : public ICommand {
 public:
     explicit RemoveTrack(Id id) : id_(std::move(id)) {}
