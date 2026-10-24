@@ -14,7 +14,7 @@ with sync_playwright() as p:
  page.mouse.move(handle['x']+8,handle['y']+8);page.mouse.down();page.mouse.move(handle['x']+14,handle['y']+8,steps=3);page.mouse.up()
  assert page.locator('[name=w]').input_value()=='416'
  page.locator('#undo').click()
- page.locator('#load-user-layout').click();page.wait_for_function('document.querySelectorAll(".block").length===8')
+ page.locator('#load-user-layout').click();page.wait_for_function('document.querySelectorAll(".block").length===6')
  page.locator('#preview').check()
  root=page.locator('.show-browser')
  def act(label):

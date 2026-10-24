@@ -19,7 +19,7 @@ export function validate(doc,assets=new Set()){
    exact(b,['id','type','version',...Object.keys(entry.properties),'direction','bindings','assetOverrides']);
    if(!Object.hasOwn(b,'assetOverrides'))b.assetOverrides={};
    exact(b.assetOverrides, Object.keys(b.assetOverrides||{}));
-   if(Object.keys(b.assetOverrides).length>40||Object.entries(b.assetOverrides).some(([slot,id])=>slot.length>120||!/^((icons|controls)\/[a-zA-Z0-9_/-]+|transport\/(play|pause|stop))$/.test(slot)||typeof id!=='string'||!assets.has(id)))fail('Некорректная замена SVG');
+   if(Object.keys(b.assetOverrides).length>40||Object.entries(b.assetOverrides).some(([slot,id])=>slot.length>120||!/^((icons|controls|rig)\/[a-zA-Z0-9_/-]+|transport\/(play|pause|stop))$/.test(slot)||typeof id!=='string'||!assets.has(id)))fail('Некорректная замена SVG');
    if(!Object.hasOwn(b,'showTitle'))b.showTitle=true;
    if(!name(b.id)||ids.has(b.id))fail('Повторяющийся/некорректный ID');ids.add(b.id);
    for(const [key,p] of Object.entries(entry.properties)){
@@ -30,6 +30,7 @@ export function validate(doc,assets=new Set()){
    if(b.x+b.w>doc.viewport.width||b.y+b.h>doc.viewport.height)fail('Блок выходит за исходный viewport');
    if(!['row','column'].includes(b.direction)||!Array.isArray(b.bindings)||b.bindings.length>entry.bindings.length||new Set(b.bindings).size!==b.bindings.length||b.bindings.some(x=>!entry.bindings.includes(x)))fail('Некорректные actions');
  }
+ for(const b of doc.blocks){if(['input.patches','mixer.channels'].includes(b.type))b.visible=false;if(b.type==='control.toolbar')b.bindings=[...new Set(b.bindings.map(a=>a==='view.patches'?'view.browser':a))];}
  return structuredClone(doc);
 }
 export function parse(text,assets){if(typeof text!=='string'||new TextEncoder().encode(text).length>MAX_BYTES)fail('Файл превышает 256 KiB');return validate(JSON.parse(text),assets);}

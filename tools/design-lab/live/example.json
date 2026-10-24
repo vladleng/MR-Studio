@@ -15,6 +15,7 @@
       "type": "show.setlist",
       "version": 1,
       "title": "Setlist",
+      "showTitle": true,
       "x": 16,
       "y": 16,
       "w": 400,
@@ -36,6 +37,7 @@
       "overflow": "auto",
       "visible": true,
       "asset": "",
+      "assetOverrides": {},
       "direction": "row",
       "bindings": []
     },
@@ -44,6 +46,7 @@
       "type": "song.header",
       "version": 1,
       "title": "Песня",
+      "showTitle": true,
       "x": 432,
       "y": 16,
       "w": 400,
@@ -65,6 +68,7 @@
       "overflow": "auto",
       "visible": true,
       "asset": "",
+      "assetOverrides": {},
       "direction": "row",
       "bindings": []
     },
@@ -73,6 +77,7 @@
       "type": "song.timeline",
       "version": 1,
       "title": "Timeline / patches",
+      "showTitle": true,
       "x": 848,
       "y": 16,
       "w": 400,
@@ -94,6 +99,7 @@
       "overflow": "auto",
       "visible": true,
       "asset": "",
+      "assetOverrides": {},
       "direction": "row",
       "bindings": []
     },
@@ -102,6 +108,7 @@
       "type": "playback.stems",
       "version": 1,
       "title": "Playback / stems",
+      "showTitle": true,
       "x": 16,
       "y": 192,
       "w": 400,
@@ -123,6 +130,7 @@
       "overflow": "auto",
       "visible": true,
       "asset": "",
+      "assetOverrides": {},
       "direction": "row",
       "bindings": []
     },
@@ -131,6 +139,7 @@
       "type": "input.patches",
       "version": 1,
       "title": "Inputs / patches",
+      "showTitle": true,
       "x": 432,
       "y": 192,
       "w": 400,
@@ -150,8 +159,9 @@
       "color": "bright",
       "anchor": "top-left",
       "overflow": "auto",
-      "visible": true,
+      "visible": false,
       "asset": "",
+      "assetOverrides": {},
       "direction": "row",
       "bindings": []
     },
@@ -160,6 +170,7 @@
       "type": "mixer.channels",
       "version": 1,
       "title": "Mixer / meters",
+      "showTitle": true,
       "x": 848,
       "y": 192,
       "w": 400,
@@ -179,8 +190,9 @@
       "color": "bright",
       "anchor": "top-left",
       "overflow": "auto",
-      "visible": true,
+      "visible": false,
       "asset": "",
+      "assetOverrides": {},
       "direction": "row",
       "bindings": []
     },
@@ -189,6 +201,7 @@
       "type": "control.transport",
       "version": 1,
       "title": "Transport",
+      "showTitle": true,
       "x": 16,
       "y": 368,
       "w": 400,
@@ -210,6 +223,7 @@
       "overflow": "auto",
       "visible": true,
       "asset": "",
+      "assetOverrides": {},
       "direction": "row",
       "bindings": [
         "transport.previous",
@@ -224,6 +238,7 @@
       "type": "control.toolbar",
       "version": 1,
       "title": "Toolbar",
+      "showTitle": true,
       "x": 432,
       "y": 368,
       "w": 400,
@@ -245,12 +260,13 @@
       "overflow": "auto",
       "visible": true,
       "asset": "",
+      "assetOverrides": {},
       "direction": "row",
       "bindings": [
         "show.open",
         "show.save",
         "view.mixer",
-        "view.patches"
+        "view.browser"
       ]
     },
     {
@@ -258,6 +274,7 @@
       "type": "musical.chords",
       "version": 1,
       "title": "Moving chords",
+      "showTitle": true,
       "x": 848,
       "y": 368,
       "w": 400,
@@ -279,6 +296,7 @@
       "overflow": "auto",
       "visible": true,
       "asset": "",
+      "assetOverrides": {},
       "direction": "row",
       "bindings": []
     },
@@ -287,6 +305,7 @@
       "type": "musical.sections",
       "version": 1,
       "title": "Sections",
+      "showTitle": true,
       "x": 16,
       "y": 544,
       "w": 400,
@@ -308,6 +327,7 @@
       "overflow": "auto",
       "visible": true,
       "asset": "",
+      "assetOverrides": {},
       "direction": "row",
       "bindings": []
     },
@@ -316,6 +336,7 @@
       "type": "info.cues",
       "version": 1,
       "title": "Cue / notes",
+      "showTitle": true,
       "x": 432,
       "y": 544,
       "w": 400,
@@ -337,6 +358,7 @@
       "overflow": "auto",
       "visible": true,
       "asset": "",
+      "assetOverrides": {},
       "direction": "row",
       "bindings": []
     },
@@ -345,6 +367,7 @@
       "type": "info.lyrics",
       "version": 1,
       "title": "Lyrics",
+      "showTitle": true,
       "x": 848,
       "y": 544,
       "w": 400,
@@ -366,6 +389,7 @@
       "overflow": "auto",
       "visible": true,
       "asset": "",
+      "assetOverrides": {},
       "direction": "row",
       "bindings": []
     },
@@ -374,6 +398,7 @@
       "type": "system.status",
       "version": 1,
       "title": "Status",
+      "showTitle": true,
       "x": 16,
       "y": 720,
       "w": 400,
@@ -395,6 +420,7 @@
       "overflow": "auto",
       "visible": true,
       "asset": "",
+      "assetOverrides": {},
       "direction": "row",
       "bindings": []
     }
