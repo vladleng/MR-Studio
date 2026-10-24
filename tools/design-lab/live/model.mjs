@@ -16,7 +16,10 @@ export function validate(doc,assets=new Set()){
  const ids=new Set();
  for(const b of doc.blocks){
    const entry=registry.get(b?.type);if(!entry||b.version!==entry.version)fail('Неподдерживаемый тип/версия блока');
-   exact(b,['id','type','version',...Object.keys(entry.properties),'direction','bindings']);
+   exact(b,['id','type','version',...Object.keys(entry.properties),'direction','bindings','assetOverrides']);
+   if(!Object.hasOwn(b,'assetOverrides'))b.assetOverrides={};
+   exact(b.assetOverrides, Object.keys(b.assetOverrides||{}));
+   if(Object.keys(b.assetOverrides).length>40||Object.entries(b.assetOverrides).some(([slot,id])=>slot.length>120||!/^((icons|controls)\/[a-zA-Z0-9_/-]+|transport\/(play|pause|stop))$/.test(slot)||typeof id!=='string'||!assets.has(id)))fail('Некорректная замена SVG');
    if(!Object.hasOwn(b,'showTitle'))b.showTitle=true;
    if(!name(b.id)||ids.has(b.id))fail('Повторяющийся/некорректный ID');ids.add(b.id);
    for(const [key,p] of Object.entries(entry.properties)){

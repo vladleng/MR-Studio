@@ -38,3 +38,13 @@ The block interiors render realistic static fixtures: song rows, timeline/sectio
 Waveforms/meters/readouts are illustrative, not audio measurements. Controls inside fixtures do not execute commands; select and configure the containing block in Inspector. `Playing` changes fixture styling but does not start a second transport. No schema or saved geometry changes are required: existing browser drafts and exported layouts receive the new rendering automatically.
 
 To remove the editor heading and reclaim its space, select a block and uncheck **Показывать название** in Inspector. The setting persists in drafts and JSON (`showTitle`, optional in v1, defaults to `true` for older layouts). With the heading hidden, drag the static block body; the resize corner remains available. The block name is still shown in Layers and exposed as its accessible label. Undo restores the heading.
+
+## Main MR Live constructor and interactive preview
+
+This workspace develops **main MR Live**. Performance Mode remains a later target.
+
+- Select a block; the Inspector's **SVG элементов блока** section lists the graphic slots actually rendered in that block. Choose any registered MR UDS asset to replace a slot, or **По умолчанию** to restore it. Overrides are per block and persist through Undo, local drafts and JSON export/import. Existing v1 files default to an empty `assetOverrides` map. URLs and unregistered IDs are rejected.
+- **Полноэкранное превью** opens the selected viewport without editor panels or handles. **Вписать** fits it to the display; **Реальный размер 100%** uses logical dimensions with the chosen UI scale and allows scrolling. Exit using the visible return button or Escape. Browsers that deny native fullscreen still receive a full-window preview.
+- In Preview, move mixer faders, toggle M/S, select songs/patches, use transport state buttons and open toolbar menus. These are local UI simulations; menus do not access real show files. Mixer interaction uses browser range controls for this prototype. SVG fader artwork is used in the construction view. Demo interaction state is temporary and never exported as layout, audio or project state.
+
+Additional browser check: `python tools/design-lab/live/preview-smoke.py` (server on port 8001). It covers fullscreen exit, fader/mute, transport/menu actions, SVG override/reload and no layout writes from simulated actions.

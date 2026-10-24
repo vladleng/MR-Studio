@@ -14,3 +14,12 @@ test('optional titles: older v1, roundtrip, history and invalid values',()=>{
  h.undo();assert.equal(h.doc.blocks[0].showTitle,true);h.redo();assert.equal(h.doc.blocks[0].showTitle,false);
  for(const value of [null,0,'false']){hidden.blocks[0].showTitle=value;assert.throws(()=>validate(hidden));}
 });
+test('bounded registered SVG overrides and old v1 compatibility',()=>{
+ const d=initial(),assets=new Set(['icons/save']);
+ d.blocks[0].assetOverrides={'icons/mic':'icons/save'};
+ assert.deepEqual(parse(JSON.stringify(d),assets),d);
+ for(const value of [{'icons/mic':'https://example.com/a.svg'},{'bad':'icons/save'},{'icons/mic':null}]){
+  d.blocks[0].assetOverrides=value;assert.throws(()=>validate(d,assets));
+ }
+ delete d.blocks[0].assetOverrides;assert.deepEqual(validate(d).blocks[0].assetOverrides,{});
+});
