@@ -23,8 +23,8 @@ test('bounded registered SVG overrides and old v1 compatibility',()=>{
  }
  delete d.blocks[0].assetOverrides;assert.deepEqual(validate(d).blocks[0].assetOverrides,{});
 });
-test('retired panels remain importable but hidden; toolbar patches alias becomes Browser',()=>{
+test('Inputs stay retired; mixer is available; toolbar patches alias becomes Browser',()=>{
  const d=initial();d.blocks.find(b=>b.type==='input.patches').visible=true;d.blocks.find(b=>b.type==='mixer.channels').visible=true;
  const toolbar=d.blocks.find(b=>b.type==='control.toolbar');toolbar.bindings=['view.mixer','view.patches'];
- const valid=validate(d);assert.equal(valid.blocks.find(b=>b.type==='input.patches').visible,false);assert.equal(valid.blocks.find(b=>b.type==='mixer.channels').visible,false);assert.deepEqual(valid.blocks.find(b=>b.type==='control.toolbar').bindings,['view.mixer','view.browser']);
+ const valid=validate(d);assert.equal(valid.blocks.find(b=>b.type==='input.patches').visible,false);assert.equal(valid.blocks.find(b=>b.type==='mixer.channels').visible,true);assert.deepEqual(valid.blocks.find(b=>b.type==='control.toolbar').bindings,['view.mixer','view.browser']);
 });

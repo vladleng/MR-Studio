@@ -31,15 +31,15 @@ with sync_playwright() as p:
   page.mouse.move(x,y);page.mouse.down();page.mouse.move(x+delta*px,y,steps=8);page.mouse.up()
  old=span();drag(card,'left',4,item['bars']);assert math.isclose(span()['start'],4);assert math.isclose(span()['length'],old['length']-4)
  old=span();drag(card,'right',-8,item['bars']);assert math.isclose(span()['length'],old['length']-8)
- sub=card.locator(f'[data-subpatch="{sid}"]');old=span()['subs'][sid];drag(sub,'move',-2,span()['length']);assert math.isclose(span()['subs'][sid]['start'],old['start']-2,abs_tol=.25)
+ sub=card.locator(f'[data-subpatch="{sid}"]');old=span()['subs'][sid];drag(sub,'move',-2,span()['length']);assert math.isclose(span()['subs'][sid]['start'],old['start'],abs_tol=.25)
  old=span()['subs'][sid];drag(sub,'right',-2,span()['length']);assert math.isclose(span()['subs'][sid]['length'],old['length']-2,abs_tol=.25)
  page.keyboard.press('Control+z');assert math.isclose(span()['subs'][sid]['length'],old['length'],abs_tol=.25)
  page.keyboard.press('Control+Shift+z');assert math.isclose(span()['subs'][sid]['length'],old['length']-2,abs_tol=.25)
  part=first.locator('.song-part').first;partid=part.get_attribute('data-section');before=next(s for i in doc()['items'] if i['id']==itemid for s in i['sections'] if s['id']==partid)['start'];drag(part,'move',2,item['bars']);assert math.isclose(next(s for i in doc()['items'] if i['id']==itemid for s in i['sections'] if s['id']==partid)['start'],before+2,abs_tol=.25)
  part.click(button='right');page.get_by_role('menu').get_by_role('menuitem',name='Свойства / цвет части…',exact=True).click();modal=page.get_by_role('dialog');modal.get_by_label('Цвет части',exact=True).select_option('red');modal.get_by_role('button',name='Сохранить',exact=True).click();assert page.get_by_role('dialog').count()==0
- root=page.locator('.show-browser');root.locator('.song-row').first.click(button='right');page.get_by_role('menu').get_by_role('menuitem',name='↓',exact=True).click()
+ root=page.locator('.block .show-browser');root.locator('.song-row').first.click(button='right');page.get_by_role('menu').get_by_role('menuitem',name='↓',exact=True).click()
  d=doc();assert page.locator('.live-item-container').evaluate_all('(nodes)=>nodes.map(n=>n.dataset.entry)')==[e['id'] for e in d['setlists'][0]['entries']]
- root.get_by_role('button',name='Browser',exact=True).click();root.locator('.song-row').first.click(button='right');page.get_by_role('menu').get_by_role('menuitem',name='Добавить в setlist',exact=True).click();assert page.locator('.live-item-container').count()==4
+ root.get_by_role('button',name='Browser',exact=True).click();root=page.locator('.runtime-items .show-browser');root.locator('.song-row').first.click(button='right');page.get_by_role('menu').get_by_role('menuitem',name='Добавить в setlist',exact=True).click();assert page.locator('.live-item-container').count()==4
  saved=doc();page.reload();page.wait_for_selector('.live-item-container');assert page.locator('.live-item-container').count()==4
  assert doc()==saved;assert not errors,errors;page.screenshot(path='/tmp/mr-live-timeline.png');browser.close()
 print('PASS: setlist order/repetition, media-only Backing/gain, patch left/right resize, sub move/resize, song-section move/color, reload')

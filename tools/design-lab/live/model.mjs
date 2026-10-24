@@ -30,7 +30,7 @@ export function validate(doc,assets=new Set()){
    if(b.x+b.w>doc.viewport.width||b.y+b.h>doc.viewport.height)fail('Блок выходит за исходный viewport');
    if(!['row','column'].includes(b.direction)||!Array.isArray(b.bindings)||b.bindings.length>entry.bindings.length||new Set(b.bindings).size!==b.bindings.length||b.bindings.some(x=>!entry.bindings.includes(x)))fail('Некорректные actions');
  }
- for(const b of doc.blocks){if(['input.patches','mixer.channels'].includes(b.type))b.visible=false;if(b.type==='control.toolbar')b.bindings=[...new Set(b.bindings.map(a=>a==='view.patches'?'view.browser':a))];}
+ for(const b of doc.blocks){if(['input.patches'].includes(b.type))b.visible=false;if(b.type==='control.toolbar')b.bindings=[...new Set(b.bindings.map(a=>a==='view.patches'?'view.browser':a))];}
  return structuredClone(doc);
 }
 export function parse(text,assets){if(typeof text!=='string'||new TextEncoder().encode(text).length>MAX_BYTES)fail('Файл превышает 256 KiB');return validate(JSON.parse(text),assets);}

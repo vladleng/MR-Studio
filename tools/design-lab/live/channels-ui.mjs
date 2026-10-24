@@ -1,5 +1,5 @@
 import {placeExtent,extentGestures} from './timeline-gestures.mjs';
-import {resizePatchSpan} from './timeline-model.mjs';
+import {editExtentGroup} from './timeline-model.mjs';
 import {showDocument,activeItem,editShow,editItem,dialog,contextMenu} from './show-browser.mjs';
 import {channelTypes,addChannel,removeChannel,makePatch,effectivePatch,parameterRanges,patchColors} from './channel-model.mjs';
 const el=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls;if(text!==undefined)n.textContent=text;return n;};
@@ -67,15 +67,15 @@ function colorDialog(root,c,patch,sub){dialog(root,'Цвет блока',[['colo
 function geometryDialog(root,title,extent,submit){dialog(root,title,[['start','Начало (такты)',extent.start,'number'],['length','Длина (такты)',extent.length,'number']],v=>submit({start:Number(v.start),length:Number(v.length)}));}
 function trackEdit(item,c,fn){editItem(item.id,i=>fn(i.tracks.find(t=>t.channelId===c.id)));}
 function patchCard(root,lane,c,patch,assets,item){
- const track=trackFor(c,item.id),span=track.spans[patch.id];const card=add(lane,'track-patch temporal-patch');card.dataset.patch=patch.id;card.style.setProperty('--patch-color',colors[patch.color]);card.classList.toggle('active',track.patchId===patch.id);placeExtent(card,span,item.bars);
+ const track=trackFor(c,item.id),span=track.spans[patch.id];const card=add(lane,'track-patch temporal-patch');card.dataset.patch=patch.id;card.dataset.extentId=patch.id;card.style.setProperty('--patch-color',colors[patch.color]);card.classList.toggle('active',track.patchId===patch.id);placeExtent(card,span,item.bars);
  const header=btn(card,'',()=>run(root,()=>updateTrack(c,t=>{t.patchId=patch.id;t.subPatchId=null;},item.id)),'track-patch-title');header.setAttribute('aria-label',`Патч ${c.name}: ${patch.name}`);
  graphic(header,assets,c.type==='Player'?'rig/amp_head':'icons/concept_pack/track_synth','patch-icon',c.type);add(header,'',patch.name,'span');
  const subs=add(card,'subpatch-strips horizontal-subpatches');
- const editSpan=next=>trackEdit(item,c,t=>t.spans[patch.id]=resizePatchSpan(t.spans[patch.id],next));
- extentGestures(card,{enabled,limit:item.bars,value:()=>span,commit:next=>run(root,()=>editSpan(next)),moveTarget:'.track-patch-title'});
- for(const sub of patch.subPatches){const pos=span.subs[sub.id];const b=btn(subs,sub.name,()=>run(root,()=>updateTrack(c,t=>{t.patchId=patch.id;t.subPatchId=sub.id;},item.id)),'track-subpatch temporal-subpatch');b.dataset.subpatch=sub.id;b.setAttribute('aria-label',`Sub-patch ${c.name}: ${sub.name}`);b.setAttribute('aria-pressed',String(track.patchId===patch.id&&track.subPatchId===sub.id));b.style.setProperty('--patch-color',colors[sub.color==='inherit'?patch.color:sub.color]);placeExtent(b,pos,span.length);
-  const editSub=next=>trackEdit(item,c,t=>t.spans[patch.id].subs[sub.id]=next);
-  extentGestures(b,{enabled,limit:span.length,value:()=>pos,commit:next=>run(root,()=>editSub(next))});
+ const editSpan=next=>trackEdit(item,c,t=>t.spans=editExtentGroup(t.spans,patch.id,next,Math.abs(next.start-span.start)<1e-7?'right':Math.abs(next.start+next.length-span.start-span.length)<1e-7?'left':'replace',item.bars));
+ extentGestures(card,{enabled,limit:item.bars,value:()=>span,group:()=>track.spans,key:patch.id,commit:next=>run(root,()=>trackEdit(item,c,t=>t.spans=next)),moveTarget:'.track-patch-title'});
+ for(const sub of patch.subPatches){const pos=span.subs[sub.id];const b=btn(subs,sub.name,()=>run(root,()=>updateTrack(c,t=>{t.patchId=patch.id;t.subPatchId=sub.id;},item.id)),'track-subpatch temporal-subpatch');b.dataset.subpatch=sub.id;b.dataset.extentId=sub.id;b.setAttribute('aria-label',`Sub-patch ${c.name}: ${sub.name}`);b.setAttribute('aria-pressed',String(track.patchId===patch.id&&track.subPatchId===sub.id));b.style.setProperty('--patch-color',colors[sub.color==='inherit'?patch.color:sub.color]);placeExtent(b,pos,span.length);
+  const editSub=next=>trackEdit(item,c,t=>t.spans[patch.id].subs=editExtentGroup(t.spans[patch.id].subs,sub.id,next,Math.abs(next.start-pos.start)<1e-7?'right':Math.abs(next.start+next.length-pos.start-pos.length)<1e-7?'left':'replace',span.length));
+  extentGestures(b,{enabled,limit:span.length,value:()=>pos,group:()=>span.subs,key:sub.id,commit:next=>run(root,()=>trackEdit(item,c,t=>t.spans[patch.id].subs=next))});
   b.oncontextmenu=e=>{if(!enabled())return;const holder=el('div','');contextMenu(root,e,[btn(holder,'Свойства sub-patch',()=>subDialog(root,c,patch,sub)),btn(holder,'Положение / длина…',()=>geometryDialog(root,sub.name,pos,editSub)),btn(holder,'Цвет sub-patch…',()=>colorDialog(root,c,patch,sub))]);};
  }
  const addSub=btn(card,'+ Sub-patch',()=>subDialog(root,c,patch),'subpatch-add');addSub.classList.add('temporal-add-sub');
@@ -123,9 +123,9 @@ export function renderChannelPanel(root,kind,assets){
   const strips=add(root,'mixer-strips');
   for(const c of channels){const strip=add(strips,'mixer-strip');strip.dataset.channel=c.id;channelContext(root,strip,c);
    const header=add(strip,'strip-header');add(header,'channel-name',c.name);btn(header,'⋮',e=>{},'channel-dots').onclick=e=>contextMenu(root,e,commands(root,c));
-   strip.title=`${c.name} · ${c.type}`;
+   strip.title=`${c.name} · ${c.type} · общая громкость канала для всех items и патчей`;strip.dataset.channelType=c.type;
    const upper=add(strip,'strip-upper');
-   const inserts=add(upper,'strip-inserts');const p=c.patches.find(p=>p.id===trackFor(c)?.patchId);for(const plugin of p?.engine.plugins||[])btn(inserts,plugin,()=>patchDialog(root,c,p));
+   add(upper,'visual-caption',`${c.type} · Channel gain`);const inserts=add(upper,'strip-inserts');const p=c.patches.find(p=>p.id===trackFor(c)?.patchId);for(const plugin of p?.engine.plugins||[])btn(inserts,plugin,()=>patchDialog(root,c,p));
    const sends=add(upper,'strip-sends');const send=btn(sends,'Sends…',()=>demoMenu(root,send,['Reverb bus','Delay bus','Добавить посыл…']));send.dataset.menu='send';
    level(strip,c,'pan');
    const controls=add(strip,'channel-controls');graphic(controls,assets,'controls/concept_pack/meter_empty','visual-meter','Демо meter');
