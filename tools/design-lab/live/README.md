@@ -48,11 +48,12 @@ Export **both layout and demo show** to transfer a complete working mock to anot
 From repository root, with Python Playwright and Chromium installed:
 
 ```sh
-node --test tools/design-lab/live/model.test.mjs tools/design-lab/live/show-model.test.mjs tools/design-lab/live/channel-model.test.mjs tools/design-lab/live/snapping.test.mjs tools/design-lab/live/timeline-model.test.mjs
+node --test tools/design-lab/live/recording-model.test.mjs tools/design-lab/live/model.test.mjs tools/design-lab/live/show-model.test.mjs tools/design-lab/live/channel-model.test.mjs tools/design-lab/live/snapping.test.mjs tools/design-lab/live/timeline-model.test.mjs
 python -m http.server 8001 --bind 127.0.0.1
 # Another terminal:
 python tools/design-lab/live/timeline-smoke.py
 python tools/design-lab/live/joined-smoke.py
+python tools/design-lab/live/recording-smoke.py
 python tools/design-lab/live/item-layout-smoke.py
 python tools/design-lab/live/preview-smoke.py
 python tools/design-lab/live/controls-smoke.py
@@ -63,3 +64,10 @@ python tools/design-lab/live/smoke.py http://127.0.0.1:8001
 ```
 
 Checks cover item grouping/folding, patch cards/nested color strips, chain invariance, icon panels and their coexistence, SVG replacement, channel/track sync, Browser CRUD/context/drag, layout history/roundtrip/recovery/snap and Track Header startup. Physical DPI, native JUCE and audio require their separate stages.
+
+
+## Linked recording tracks (demo)
+
+Every Instrument/Player item track automatically owns a nested `recordTrack` with its own ID, sharing the parent channel's independent `recordGain` (-60…+12 dB). It is not another user-created Audio channel. New/existing channels, item copies, deletion, Undo and JSON roundtrip preserve this relationship. Older v3 data gains these optional fields; `viewRecordTracks` defaults to false.
+
+**View record tracks** in the timeline/mixer shows the child directly beneath its parent and a narrow record strip next to the parent in both mixer presentations. Hiding tracks removes both presentations without disabling armed channels. The parent **R** button arms Instrument/Player (Audio keeps its own arm). Arming and Play alone do not start capture: **Record** in the common transport starts the armed eligible channels. The mixer header repeats the same global Record/Stop controls so its overlay cannot block them. The simulated session belongs to the current item at the moment Record is pressed; other items do not display active capture. Stop/Pause end it; pressing Record again ends capture while playback stays active. A newly armed channel waits for the next Record start. Leaving Preview or reloading clears the session; arm/view/gain preferences persist. No audio/MIDI data, recording files, input selection or real-time engine are created.

@@ -1,4 +1,5 @@
-import {undoShow} from './show-browser.mjs';
+import {transport} from './recording-runtime.mjs';
+import {showDocument,undoShow} from './show-browser.mjs';
 import {renderRuntimePanels,toggleRuntimePanel,toggleItemsPanel} from './runtime-panels.mjs';
 import {snapGeometry} from './snapping.mjs';
 import {interactive} from './interactive.mjs';
@@ -17,11 +18,12 @@ function add(type,x=24,y=24){edit(doc=>{const b=createBlock(type,crypto.randomUU
 function palette(){ $('palette').replaceChildren();for(const [type,entry] of registry){if(['input.patches'].includes(type))continue;if(!`${type} ${entry.defaults.title}`.toLowerCase().includes($('search').value.toLowerCase()))continue;const b=button(entry.defaults.title,()=>add(type));b.draggable=true;b.ondragstart=e=>e.dataTransfer.setData('text/mr-live-block',type);$('palette').append(b);}}
 function previewAssets(block){
  const result=new Map(assets);
- for(const name of ['play','pause','stop'])result.set(`transport/${name}`,`../../../assets/ui/icons/transport/${name}.svg`);
+ for(const name of ['play','pause','stop','record'])result.set(`transport/${name}`,`../../../assets/ui/icons/transport/${name}.svg`);
  for(const [slot,id] of Object.entries(block?.assetOverrides||{}))if(assets.has(id))result.set(slot,assets.get(id));
  return result;
 }
 function renderCanvas(){
+ if(!$('preview').checked)transport.action('transport.stop',showDocument().channels);
  const canvas=$('canvas'),view=viewport(),zoom=factor();const blockScroll=new Map([...canvas.querySelectorAll('.block')].map(n=>[n.dataset.id,[n.scrollLeft,n.scrollTop]]));const itemScroll=new Map([...canvas.querySelectorAll('.live-item-container')].map(n=>[n.dataset.entry,[n.querySelector('.item-time-scroll')?.scrollLeft||0,n.querySelector('.item-time-scroll')?.scrollTop||0]]));canvas.replaceChildren();canvas.style.width=`${view.width}px`;canvas.style.height=`${view.height}px`;canvas.style.transform=`scale(${zoom})`;
  $('frame').style.width=`${view.width*zoom}px`;$('frame').style.height=`${view.height*zoom}px`;canvas.classList.toggle('preview',$('preview').checked);
  for(const b of history.doc.blocks){if(!b.visible||['input.patches'].includes(b.type))continue;const bounds=resolve(b,history.doc.viewport,view);const node=document.createElement('section');node.dataset.id=b.id;node.className=`block state-${$('fixture').value}${selected===b.id&&!$('preview').checked?' selected':''}`;
@@ -98,6 +100,7 @@ function closeFullscreen(){document.body.classList.remove('fullscreen-preview');
 window.addEventListener('live-items-toggle',e=>{toggleItemsPanel(e.detail);renderRuntimePanels($('scroll'),previewAssets());});
 window.addEventListener('resize',()=>renderRuntimePanels($('scroll'),previewAssets()));
 window.addEventListener('live-panel-toggle',e=>{toggleRuntimePanel(e.detail);renderRuntimePanels($('scroll'),previewAssets());});
+window.addEventListener('live-transport-action',e=>{transport.action(e.detail,showDocument().channels,showDocument().currentItem);renderCanvas();});
 window.addEventListener('demo-show-change',()=>renderCanvas());
 $('load-user-layout').onclick=async()=>{try{const response=await fetch('./user-layout.json');if(!response.ok)throw Error('Макет не загружен');load(parse(await response.text(),new Set(assets.keys())));}catch(e){say(e.message);}};
 $('fullscreen-preview').onclick=openFullscreen;$('exit-preview').onclick=closeFullscreen;

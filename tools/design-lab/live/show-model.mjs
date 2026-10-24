@@ -8,7 +8,8 @@ export function validateShow(doc,repairOverlaps=false){
  doc=structuredClone(doc);
  if(doc?.schema==='mr-live-demo-show'&&doc.version===1){doc.version=2;doc.channels=defaultChannels();if(Array.isArray(doc.items))for(const item of doc.items)item.tracks=makeTracks(doc.channels);}
  if(doc?.schema==='mr-live-demo-show'&&doc.version===2){doc.version=3;reconcileTimeline(doc);}
- keys(doc,['channels','schema','version','folders','items','setlists','activeSetlist','currentItem']);
+ keys(doc,['channels','schema','version','folders','items','setlists','activeSetlist','currentItem','viewRecordTracks']);
+ if(!Object.hasOwn(doc,'viewRecordTracks'))doc.viewRecordTracks=false;if(typeof doc.viewRecordTracks!=='boolean')throw Error('Некорректный View record tracks');
  if(doc.schema!=='mr-live-demo-show'||doc.version!==3)throw Error('Неподдерживаемый demo show');
  for(const key of ['folders','items','setlists'])if(!Array.isArray(doc[key])||doc[key].length>500)throw Error('Лимит: 500 элементов');
  if(!doc.setlists.length)throw Error('Нужен хотя бы один setlist');
@@ -32,7 +33,7 @@ export class DemoShow{
  commit(fn){const next=structuredClone(this.doc);fn(next);reconcileTimeline(next);const valid=validateShow(next);this.past.push(this.doc);if(this.past.length>60)this.past.shift();this.doc=valid;this.future=[];}
  undo(){if(this.past.length){this.future.push(this.doc);this.doc=this.past.pop();}}
  redo(){if(this.future.length){this.past.push(this.doc);this.doc=this.future.pop();}}
- item(values,folder=null){const item={id:id(),name:'New item',folder,tempo:92,meter:'4/4',key:'C',duration:240,notes:'',...values,id:id()};item.tracks=values.tracks?values.tracks.map(t=>({...t,id:id()})):makeTracks(this.doc.channels);if(values.sections)item.sections=values.sections.map(s=>({...s,id:id()}));this.commit(d=>d.items.push(item));return item.id;}
+ item(values,folder=null){const item={id:id(),name:'New item',folder,tempo:92,meter:'4/4',key:'C',duration:240,notes:'',...values,id:id()};item.tracks=values.tracks?values.tracks.map(t=>({...t,id:id(),...(t.recordTrack?{recordTrack:{id:id()}}:{})})):makeTracks(this.doc.channels);if(values.sections)item.sections=values.sections.map(s=>({...s,id:id()}));this.commit(d=>d.items.push(item));return item.id;}
  folder(name,parent=null){const folder={id:id(),name,parent};this.commit(d=>d.folders.push(folder));return folder.id;}
  add(itemId){this.commit(d=>d.setlists.find(s=>s.id===d.activeSetlist).entries.push({id:id(),itemId}));}
  removeItem(itemId){this.commit(d=>{d.items=d.items.filter(i=>i.id!==itemId);for(const s of d.setlists)s.entries=s.entries.filter(e=>e.itemId!==itemId);if(d.currentItem===itemId)d.currentItem=null;});}

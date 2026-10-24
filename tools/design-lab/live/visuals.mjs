@@ -1,3 +1,5 @@
+import {recordButton} from './recording-controls.mjs';
+import {transport} from './recording-runtime.mjs';
 import {renderChannelPanel} from './channels-ui.mjs';
 import {renderShowBrowser,activeItem} from './show-browser.mjs';
 // Static fixture illustrations. No audio, clock, DSP, or executable imported content.
@@ -104,7 +106,9 @@ export function renderVisual(node, block, fixture, assets) {
       const readout = add(root, 'transport-readout');
       add(readout, 'transport-time', '001 : 01 : 000');
       add(readout, 'visual-caption', `${playing ? 'PLAYING' : 'STOPPED'} · 00:00 / 03:42 · 92 BPM`);
-      actions(root, block, assets, playing);
+      actions(root, block, assets, document.getElementById('preview').checked?transport.playing:playing);
+      recordButton(root.querySelector('.visual-actions'),assets,document.getElementById('preview').checked);
+      if(document.getElementById('preview').checked)readout.querySelector('.visual-caption').textContent=transport.notice||`${transport.recording?'RECORDING':transport.playing?'PLAYING':'STOPPED'} · демо, без аудио`;
       break;
     }
     case 'control.toolbar':
