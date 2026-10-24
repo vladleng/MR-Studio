@@ -5,6 +5,15 @@ editors/context/navigation. Полная реализация show/setlist/perfo
 в LIVE stages; описания ниже — целевой workflow. Первый Arranger редактор изменяет
 section metadata, без перестановки clips; edit/load/seek не исполняют LiveAction.
 
+## Уточнение интерфейса — 2026-10-24
+
+**MR Live** — основной show-интерфейс подготовки/работы с песнями, setlist, playback/stems, patches и routing.
+**MR Live Performance Mode** — последующее отдельное концертное представление, в котором пользователь заранее выбирает необходимые блоки, размеры и расположение. Оба используют тот же show и SHARED backend.
+
+Первый этап UI #28 — **#272: онлайн-редактор блочных макетов как расширение существующего MR Design Lab**. Затем пользователь утверждает конкретный макет, после чего выполняются JUCE-интеграция и реальные bindings #29. Подробный контракт и порядок: [MR_LIVE_LAYOUT_EDITOR.md](MR_LIVE_LAYOUT_EDITOR.md). Предыдущие описания performance UI ниже — целевой функциональный состав, не уже утверждённая раскладка и не готовая реализация Performance Mode.
+
+Патчи по #138 должны допускать свободное размещение по музыкальной сетке. Примеры section patches ниже остаются частным случаем; будущий UX не ограничивается только границами sections. Runtime/persistence этого расширения уточняются в #32/#33.
+
 ## 1. Что такое Live Mode
 
 Live Mode — встроенный performance/show режим Moon River Studio.
