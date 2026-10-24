@@ -23,7 +23,7 @@ with sync_playwright() as p:
  root.get_by_label('Папка Browser',exact=True).select_option(label='Songs')
  root.get_by_role('button',name='+ Item',exact=True).click()
  dialog=page.get_by_role('dialog');dialog.get_by_label('Название',exact=True).fill('New ballad');dialog.get_by_label('Tempo / BPM').fill('110');dialog.get_by_role('button',name='Сохранить',exact=True).click()
- root.get_by_role('button',name='1. New ballad',exact=False).click()
+ root.locator('.song-row').filter(has_text='New ballad').click()
  root.get_by_role('button',name='Добавить в setlist',exact=True).click()
  root.get_by_role('button',name='Добавить в setlist',exact=True).click()
  root.get_by_role('button',name='Setlist',exact=True).click()
@@ -34,8 +34,8 @@ with sync_playwright() as p:
  assert root.locator('.song-row').count()==4
  root.get_by_role('button',name='Browser',exact=True).click()
  root.get_by_label('Папка Browser',exact=True).select_option(label='Songs')
- assert root.locator('.song-row').count()==1
- root.locator('.song-row').click();root.get_by_role('button',name='Свойства',exact=True).click()
+ assert root.locator('.tree-group').filter(has=page.get_by_role('button',name='Папка Songs',exact=True)).locator('.song-row').count()==1
+ root.locator('.song-row').filter(has_text='New ballad').click();root.get_by_role('button',name='Свойства',exact=True).click()
  dialog=page.get_by_role('dialog');dialog.get_by_label('Название',exact=True).fill('Renamed ballad');dialog.get_by_role('button',name='Сохранить',exact=True).click()
  root.get_by_role('button',name='Setlist',exact=True).click()
  assert 'Renamed ballad' in root.inner_text()
@@ -43,11 +43,11 @@ with sync_playwright() as p:
  root=page.locator('.show-browser');assert 'Renamed ballad' in root.inner_text()
  root.get_by_role('button',name='Browser',exact=True).click()
  root.get_by_label('Папка Browser',exact=True).select_option(label='Songs')
- root.locator('.song-row').click();root.get_by_role('button',name='Удалить item',exact=True).click()
+ root.locator('.song-row').filter(has_text='Renamed ballad').click();root.get_by_role('button',name='Удалить item',exact=True).click()
  page.get_by_role('dialog').get_by_role('button',name='Сохранить',exact=True).click()
- assert root.locator('.song-row').count()==0
+ assert root.locator('.song-row').filter(has_text='Renamed ballad').count()==0
  root.get_by_role('button',name='Undo show',exact=True).click()
- assert root.locator('.song-row').count()==1
+ assert root.locator('.song-row').filter(has_text='Renamed ballad').count()==1
  with page.expect_download() as dl:root.get_by_role('button',name='Экспорт demo show',exact=True).click()
  assert json.load(open(dl.value.path()))['schema']=='mr-live-demo-show'
  assert not errors,errors

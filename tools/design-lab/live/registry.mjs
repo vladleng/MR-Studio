@@ -1,6 +1,6 @@
 import {renderVisual} from './visuals.mjs';
 // Repository-owned renderers only; imported documents never contain code.
-export const tokens = {canvas:'#111720',window:'#171E28',surface:'#222C3C',raised:'#2D394E',deep:'#192333',bright:'#DAE5F4',stroke:'#A9BFDC',muted:'#7188AB',subtle:'#4B5F7B',accent:'#91BBEE',green:'#7AB69E',red:'#E68F88',amber:'#E2C070'};
+export const tokens = {canvas:'#191a1c',window:'#202123',surface:'#292b2e',raised:'#36383c',deep:'#242629',bright:'#e4e5e7',stroke:'#b6b8bd',muted:'#8b8e94',subtle:'#51545a',accent:'#91BBEE',green:'#7AB69E',red:'#E68F88',amber:'#E2C070'};
 export const actions = ['transport.previous','transport.play','transport.pause','transport.stop','transport.next','show.open','show.save','view.mixer','view.patches'];
 export const properties = {
   title:{kind:'text',max:100}, showTitle:{kind:'boolean',label:'Показывать название'}, x:{kind:'number',min:0,max:4096}, y:{kind:'number',min:0,max:4096},
