@@ -3,7 +3,7 @@ import {renderVisual} from './visuals.mjs';
 export const tokens = {canvas:'#111720',window:'#171E28',surface:'#222C3C',raised:'#2D394E',deep:'#192333',bright:'#DAE5F4',stroke:'#A9BFDC',muted:'#7188AB',subtle:'#4B5F7B',accent:'#91BBEE',green:'#7AB69E',red:'#E68F88',amber:'#E2C070'};
 export const actions = ['transport.previous','transport.play','transport.pause','transport.stop','transport.next','show.open','show.save','view.mixer','view.patches'];
 export const properties = {
-  title:{kind:'text',max:100}, x:{kind:'number',min:0,max:4096}, y:{kind:'number',min:0,max:4096},
+  title:{kind:'text',max:100}, showTitle:{kind:'boolean',label:'Показывать название'}, x:{kind:'number',min:0,max:4096}, y:{kind:'number',min:0,max:4096},
   w:{kind:'number',min:120,max:4096}, h:{kind:'number',min:64,max:4096},
   minW:{kind:'number',min:120,max:4096}, maxW:{kind:'number',min:120,max:4096}, minH:{kind:'number',min:64,max:4096}, maxH:{kind:'number',min:64,max:4096}, dock:{kind:'select',values:['none','left','right','top','bottom']},
   padding:{kind:'number',min:0,max:32}, gap:{kind:'number',min:0,max:32},
@@ -29,7 +29,7 @@ const definitions = [
  ['system.status','Status','Device: fixture · MIDI: fixture · Preflight: preview']
 ];
 export const registry = new Map(definitions.map(([type,title,sample])=>[type,{
- type,version:1,properties, defaults:{title,x:24,y:24,w:360,h:160,minW:120,maxW:4096,minH:64,maxH:4096,dock:'none',padding:12,gap:8,fontSize:16,font:'sans-serif',weight:'400',align:'left',background:'surface',color:'bright',anchor:'top-left',overflow:'auto',visible:true,asset:''},
+ type,version:1,properties, defaults:{title,showTitle:true,x:24,y:24,w:360,h:160,minW:120,maxW:4096,minH:64,maxH:4096,dock:'none',padding:12,gap:8,fontSize:16,font:'sans-serif',weight:'400',align:'left',background:'surface',color:'bright',anchor:'top-left',overflow:'auto',visible:true,asset:''},
  bindings:type==='control.transport'?actions.slice(0,5):type==='control.toolbar'?actions.slice(5):[],
  render(node, block, fixture, assets = new Map()){
    renderVisual(node, block, fixture, assets);

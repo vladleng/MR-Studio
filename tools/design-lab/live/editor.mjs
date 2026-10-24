@@ -21,20 +21,36 @@ function renderCanvas(){
  $('frame').style.width=`${view.width*zoom}px`;$('frame').style.height=`${view.height*zoom}px`;canvas.classList.toggle('preview',$('preview').checked);
  for(const b of history.doc.blocks){if(!b.visible)continue;const bounds=resolve(b,history.doc.viewport,view);const node=document.createElement('section');node.dataset.id=b.id;node.className=`block state-${$('fixture').value}${selected===b.id&&!$('preview').checked?' selected':''}`;
  Object.assign(node.style,{left:`${bounds.x}px`,top:`${bounds.y}px`,width:`${bounds.w}px`,height:`${bounds.h}px`,padding:`${b.padding}px`,gap:`${b.gap}px`,fontSize:`${b.fontSize}px`,fontFamily:b.font,fontWeight:b.weight,textAlign:b.align,background:tokens[b.background],color:tokens[b.color],overflow:b.overflow});
- const heading=document.createElement('h3');if(b.asset){const img=document.createElement('img');img.src=assets.get(b.asset);img.alt='';heading.append(img);}heading.append(document.createTextNode(b.title));node.append(heading);
+ const heading=document.createElement('h3');if(b.asset){const img=document.createElement('img');img.src=assets.get(b.asset);img.alt='';heading.append(img);}heading.append(document.createTextNode(b.title));if(b.showTitle)node.append(heading);
+ node.setAttribute('aria-label',b.title);
+ node.classList.toggle('title-hidden',!b.showTitle);
  registry.get(b.type).render(node,b,$('fixture').value,previewAssets());
  node.onclick=()=>{if(!$('preview').checked){selected=b.id;render();}};
  heading.onpointerdown=e=>startGesture(e,b,'move');
+ if(!b.showTitle)node.onpointerdown=e=>{if(!e.target.closest('.resize'))startGesture(e,b,'move');};
  if(!$('preview').checked){const handle=button('',()=>{});handle.className='resize';handle.setAttribute('aria-label',`Изменить размер ${b.title}`);handle.onpointerdown=e=>startGesture(e,b,'resize');node.append(handle);}canvas.append(node);
  }
 }
 function startGesture(e,b,mode){if($('preview').checked||e.button!==0)return;e.preventDefault();selected=b.id;
- // Edit geometry in the reference viewport; preview resolution never overwrites it.
  if(b.dock!=='none'){say('Снимите docking для свободного перемещения и изменения размера.');render();return;}
- if($('viewport').value!==`${history.doc.viewport.width},${history.doc.viewport.height}`){say('Для перетаскивания выберите исходный viewport; адаптивные размеры проверяются в Preview.');render();return;}
- gesture={id:b.id,mode,x:e.clientX,y:e.clientY,base:structuredClone(history.doc),block:structuredClone(b)};$('canvas').setPointerCapture(e.pointerId);renderInspector();
+ // Resolve into the selected editing viewport. Commit this rebase with the gesture,
+ // so one Undo restores the previous reference geometry as well as the move.
+ const base=structuredClone(history.doc),working=structuredClone(base),view=viewport();
+ try{
+   working.blocks=base.blocks.map(item=>{
+     const resolved=resolve(item,base.viewport,view);
+     if(item.minW>view.width||item.minH>view.height)throw Error('Минимальный размер блока превышает viewport. Уменьшите minW/minH в Inspector.');
+     resolved.w=Math.min(resolved.w,view.width);resolved.h=Math.min(resolved.h,view.height);
+     resolved.x=Math.max(0,Math.min(resolved.x,view.width-resolved.w));
+     resolved.y=Math.max(0,Math.min(resolved.y,view.height-resolved.h));
+     return resolved;
+   });
+ }catch(error){say(error.message);return;}
+ working.viewport=view;
+ gesture={id:b.id,mode,x:e.clientX,y:e.clientY,base,working,block:working.blocks.find(item=>item.id===b.id)};
+ $('canvas').setPointerCapture(e.pointerId);renderInspector();
 }
-window.addEventListener('pointermove',e=>{if(!gesture)return;const g=gesture,b=g.block;let dx=(e.clientX-g.x)/factor(),dy=(e.clientY-g.y)/factor();const snap=v=>$('snap').checked?Math.round(v/4)*4:Math.round(v);const next=structuredClone(g.base),item=next.blocks.find(x=>x.id===g.id);
+window.addEventListener('pointermove',e=>{if(!gesture)return;const g=gesture,b=g.block;let dx=(e.clientX-g.x)/factor(),dy=(e.clientY-g.y)/factor();const snap=v=>$('snap').checked?Math.round(v/4)*4:Math.round(v);const next=structuredClone(g.working),item=next.blocks.find(x=>x.id===g.id);
  if(g.mode==='move'){item.x=Math.max(0,Math.min(snap(b.x+dx),next.viewport.width-b.w));item.y=Math.max(0,Math.min(snap(b.y+dy),next.viewport.height-b.h));}
  else{item.w=Math.max(b.minW,Math.min(b.maxW,snap(b.w+dx),next.viewport.width-b.x));item.h=Math.max(b.minH,Math.min(b.maxH,snap(b.h+dy),next.viewport.height-b.y));}
  const guides=[];
@@ -44,7 +60,7 @@ function finish(cancel=false){if(!gesture)return;const next=history.doc;history.
 window.addEventListener('pointerup',()=>finish());window.addEventListener('pointercancel',()=>finish(true));window.addEventListener('blur',()=>finish(true));
 function renderInspector(){const form=$('inspector');form.replaceChildren();const b=current();$('commands').hidden=!b;if(!b)return;
  for(const [prop,p] of Object.entries(registry.get(b.type).properties)){
- const label=document.createElement('label');label.textContent=prop;let input;
+ const label=document.createElement('label');label.textContent=p.label||prop;let input;
  if(p.kind==='select'||p.kind==='asset'){input=document.createElement('select');const values=p.kind==='asset'?['',...assets.keys()]:p.values;for(const value of values){const o=document.createElement('option');o.value=value;o.textContent=value||'Без SVG';input.append(o);}}
  else{input=document.createElement('input');input.type=p.kind==='boolean'?'checkbox':p.kind==='number'?'number':'text';if(p.kind==='number'){input.min=p.min;input.max=p.max;input.step=1;}if(p.max&&p.kind==='text')input.maxLength=p.max;}
  input.name=prop;if(p.kind==='boolean')input.checked=b[prop];else input.value=b[prop];input.onchange=()=>edit(doc=>{doc.blocks.find(x=>x.id===b.id)[prop]=p.kind==='boolean'?input.checked:p.kind==='number'?Number(input.value):input.value;});label.append(input);form.append(label);
