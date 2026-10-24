@@ -35,4 +35,4 @@ export const registry = new Map(definitions.map(([type,title,sample])=>[type,{
    renderVisual(node, block, fixture, assets);
  }
 }]));
-export function createBlock(type,id){const entry=registry.get(type);if(!entry)throw Error('Неизвестный блок');return {id,type,version:entry.version,...entry.defaults,direction:'row',bindings:[...entry.bindings]};}
+export function createBlock(type,id){const entry=registry.get(type);if(!entry)throw Error('Неизвестный блок');return {id,type,version:entry.version,...entry.defaults,assetOverrides:{},direction:'row',bindings:[...entry.bindings]};}

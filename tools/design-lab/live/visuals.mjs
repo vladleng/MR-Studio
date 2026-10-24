@@ -15,6 +15,7 @@ function asset(parent, assets, id, className, label) {
   if (!path) return add(parent, 'visual-missing', label);
   const img = el('img', className);
   img.src = path;
+  img.dataset.slot = id;
   img.alt = label;
   parent.append(img);
   return img;
