@@ -109,10 +109,12 @@ Child issues:
 - #58 — pinned dependency + adapter + licensing;
 - #59 — realtime playback/latency/RT safety;
 - #60 — offline/HQ render/cache;
-- #61 — clip controls/tempo mapping/persistence;
+- #61 — manual clip controls/editing/persistence (tempo-sync — последующее расширение);
 - #62 — quality/CPU/regression benchmark.
 
-Полный план: `TIME_STRETCH.md`.
+Порядок: #57 → #58 → ранний checkpoint #62 → #59/#60 → #61 → итоговый gate #62.
+Статус: план, реализация и аудиоприёмка не завершены. Native dependencies задают блокировки;
+ранний checkpoint #62 не означает закрытия этого issue. Полный контракт и критерии: [TIME_STRETCH.md](TIME_STRETCH.md).
 
 Это не часть Plugin/Native DSP #23 и не отдельный Live engine. Arrange/Edit/Mix/Live используют один SHARED stretch path.
 
