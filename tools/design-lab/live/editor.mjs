@@ -1,3 +1,4 @@
+import {snapGeometry} from './snapping.mjs';
 import {interactive} from './interactive.mjs';
 import {registry,tokens,createBlock} from './registry.mjs';
 import {History,initial,parse,resolve,MAX_BYTES} from './model.mjs';
@@ -56,8 +57,8 @@ function startGesture(e,b,mode){if($('preview').checked||e.button!==0)return;e.p
 window.addEventListener('pointermove',e=>{if(!gesture)return;const g=gesture,b=g.block;let dx=(e.clientX-g.x)/factor(),dy=(e.clientY-g.y)/factor();const snap=v=>$('snap').checked?Math.round(v/4)*4:Math.round(v);const next=structuredClone(g.working),item=next.blocks.find(x=>x.id===g.id);
  if(g.mode==='move'){item.x=Math.max(0,Math.min(snap(b.x+dx),next.viewport.width-b.w));item.y=Math.max(0,Math.min(snap(b.y+dy),next.viewport.height-b.h));}
  else{item.w=Math.max(b.minW,Math.min(b.maxW,snap(b.w+dx),next.viewport.width-b.x));item.h=Math.max(b.minH,Math.min(b.maxH,snap(b.h+dy),next.viewport.height-b.y));}
- const guides=[];
- if(g.mode==='move'&&$('snap').checked){for(const axis of ['x','y']){const other=next.blocks.filter(o=>o.id!==item.id&&o.visible).find(o=>Math.abs(o[axis]-item[axis])<=4);if(other){item[axis]=Math.min(other[axis],axis==='x'?next.viewport.width-item.w:next.viewport.height-item.h);guides.push([axis,item[axis]]);}}}
+ let guides=[];
+ if($('edge-snap').checked){const result=snapGeometry(item,next.blocks,next.viewport,g.mode,8/factor());Object.assign(item,result.block);guides=result.guides;}
  history.doc=next;renderCanvas();for(const [axis,position] of guides){const line=document.createElement('div');line.className=`guide ${axis}`;line.style[axis==='x'?'left':'top']=`${position}px`;$('canvas').append(line);}});
 function finish(cancel=false){if(!gesture)return;const next=history.doc;history.doc=gesture.base;gesture=null;if(!cancel)history.commit(next);persist();render();}
 window.addEventListener('pointerup',()=>finish());window.addEventListener('pointercancel',()=>finish(true));window.addEventListener('blur',()=>finish(true));
@@ -90,6 +91,8 @@ async function openFullscreen(){
  try{await $('scroll').requestFullscreen();}catch{say('Превью развёрнуто в окне браузера.');}renderCanvas();$('exit-preview').focus();
 }
 function closeFullscreen(){document.body.classList.remove('fullscreen-preview');$('preview').checked=previousPreview;if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});render();}
+window.addEventListener('demo-show-change',()=>renderCanvas());
+$('load-user-layout').onclick=async()=>{try{const response=await fetch('./user-layout.json');if(!response.ok)throw Error('Макет не загружен');load(parse(await response.text(),new Set(assets.keys())));}catch(e){say(e.message);}};
 $('fullscreen-preview').onclick=openFullscreen;$('exit-preview').onclick=closeFullscreen;
 $('preview-size').onchange=renderCanvas;
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&document.body.classList.contains('fullscreen-preview'))closeFullscreen();});

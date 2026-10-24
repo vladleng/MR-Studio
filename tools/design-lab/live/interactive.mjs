@@ -48,10 +48,10 @@ export function interactive(node, block) {
     };
   });
   if(current.playing){const caption=node.querySelector('.transport-readout .visual-caption');if(caption)caption.textContent='PLAYING · демонстрация';}
-  node.querySelectorAll('.song-row,.patch-row').forEach((row,index)=>{
+  node.querySelectorAll('.patch-row').forEach((row,index)=>{
     row.tabIndex=0;row.setAttribute('role','button');
     row.classList.toggle('current',index===(current.selection||0));
-    const select=()=>{current.selection=index;node.querySelectorAll('.song-row,.patch-row').forEach(r=>r.classList.toggle('current',r===row));};
+    const select=()=>{current.selection=index;node.querySelectorAll('.patch-row').forEach(r=>r.classList.toggle('current',r===row));};
     row.onclick=select;row.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select();}};
   });
 }
