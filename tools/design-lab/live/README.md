@@ -89,3 +89,8 @@ Item end is stored independently as arrangement.length; +/- preserves length/lea
 
 
 The live toolbar has Files (demo show open/save), Options (record visibility/linked stop and panel toggles), and Transport menus. Open/save icons were removed. The mixer has one compact row beside + Канал with record preferences, Record and Stop; no heading or close button remains. Toggle the mixer icon to hide it. Sections has no add button: double-click empty space creates Verse, or right-click to choose Intro/Verse/Chorus/Bridge/Solo/Outro. Chord Track has no add icon; double-click/context creation remains.
+
+
+Toolbar Playback / stems and Status icons persist preview visibility. Hidden lower sidebar panels give their space to Setlist; constructor geometry remains untouched. Transport > Back to start optionally returns Stop to the cursor position/item where playback began (not necessarily bar 1). Sections/chords/sub-patches highlight only their active, end-exclusive interval.
+
+Single-click a Setlist item to make it current and reveal it on the timeline. Double-click its name to rename inline (Enter/blur saves, Escape cancels). The left color swatch or row context menu chooses an item color shared with the timeline container. Colors, preferences and names survive reload/export/Undo.

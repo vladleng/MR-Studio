@@ -2,7 +2,7 @@ import {studioMenus} from './studio-menus.mjs';
 import {recordButton} from './recording-controls.mjs';
 import {transport} from './recording-runtime.mjs';
 import {renderChannelPanel} from './channels-ui.mjs';
-import {renderShowBrowser,activeItem} from './show-browser.mjs';
+import {renderShowBrowser,activeItem,showDocument,editShow} from './show-browser.mjs';
 // Static fixture illustrations. No audio, clock, DSP, or executable imported content.
 const el = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -115,7 +115,7 @@ export function renderVisual(node, block, fixture, assets) {
       break;
     }
     case 'control.toolbar':
-      studioMenus(root,document.getElementById('preview').checked);
+      studioMenus(root,document.getElementById('preview').checked);const panels=add(root,'toolbar-panels');for(const [key,label,id] of [['playback','Playback / stems','icons/wave'],['status','Status','icons/routing']]){const button=add(panels,'toolbar-panel-icon',undefined,'button');button.type='button';button.title=label;button.setAttribute('aria-label',label);button.setAttribute('aria-pressed',String(showDocument().performance.panels[key]));button.disabled=!document.getElementById('preview').checked;asset(button,assets,id,'visual-icon',label);button.onclick=()=>editShow(d=>d.performance.panels[key]=!d.performance.panels[key]);}
       actions(root, block, assets, false);
 
       break;
