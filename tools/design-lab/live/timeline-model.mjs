@@ -23,11 +23,11 @@ export function reconcileTimeline(doc){
 function extent(value,limit,minimum=.25){fields(value,['start','length','subs']);if(!Number.isFinite(value.start)||!Number.isFinite(value.length)||value.start<0||value.length<minimum||value.start+value.length>limit+1e-7)throw Error('Блок выходит за границы timeline');}
 export function validateTimeline(doc,unique){
  for(const item of doc.items){if(!Number.isFinite(item.bars)||item.bars<1||item.bars>4096||!Array.isArray(item.sections)||item.sections.length>128)throw Error('Некорректные такты/части item');
-  for(const part of item.sections){fields(part,['id','name','start','length','color']);unique(part.id);if(!validName(part.name)||!colors.includes(part.color))throw Error('Некорректная часть песни');extent({start:part.start,length:part.length},item.bars);}
+  for(const part of item.sections){fields(part,['id','name','start','length','color']);unique(part.id);if(!validName(part.name)||!colors.includes(part.color))throw Error('Некорректная часть песни');extent({start:part.start,length:part.length},4096);}
   for(const t of item.tracks){const c=doc.channels.find(c=>c.id===t.channelId);fields(t.spans,t.patchOrder);if(Object.keys(t.spans).length!==t.patchOrder.length)throw Error('Не хватает геометрии патчей');
    if(c.type==='Playback'){fields(t.media,['name','duration']);if(!validName(t.media.name)||!Number.isFinite(t.media.duration)||t.media.duration<=0||t.media.duration>86400||t.patchOrder.length||t.patchId!==null||t.subPatchId!==null)throw Error('Playback содержит аудиофайл, а не патчи');}
    else if(t.media!==null)throw Error('Неожиданный media');
-   assertNoOverlap(t.spans);for(const [id,span] of Object.entries(t.spans)){extent(span,item.bars);const patch=c.patches.find(p=>p.id===id);fields(span.subs,patch.subPatches.map(s=>s.id));if(Object.keys(span.subs).length!==patch.subPatches.length)throw Error('Не хватает геометрии sub-patch');for(const sub of Object.values(span.subs)){fields(sub,['start','length']);extent(sub,span.length,Number.EPSILON);}assertNoOverlap(span.subs);}
+   assertNoOverlap(t.spans);for(const [id,span] of Object.entries(t.spans)){extent(span,4096);const patch=c.patches.find(p=>p.id===id);fields(span.subs,patch.subPatches.map(s=>s.id));if(Object.keys(span.subs).length!==patch.subPatches.length)throw Error('Не хватает геометрии sub-patch');for(const sub of Object.values(span.subs)){fields(sub,['start','length']);extent(sub,span.length,Number.EPSILON);}assertNoOverlap(span.subs);}
   }
  }
 }

@@ -1,3 +1,4 @@
+import {itemEnd} from './arrangement-model.mjs';
 // Shared transport simulation. No files, audio capture or persisted recording session.
 export const canRecord=c=>['Instrument','Player','Audio'].includes(c.type);
 export const hasRecordTrack=c=>['Instrument','Player'].includes(c.type);
@@ -24,7 +25,7 @@ export class DemoTransport{
   if(previous&&this.position>=previous.start+previous.length){if(mode(previous.id)==='loop'){this.position=previous.start;return true;}if(mode(previous.id)==='stop'){finish();return true;}}
   const section=item.sections.find(s=>this.position>=s.start&&this.position<s.start+s.length);this.section=section?.id||null;
   if(section&&mode(section.id)==='skip'){this.position=section.start+section.length;return true;}
-  if(this.position>=item.bars){if(mode(item.id)==='loop'){this.position=0;this.section=null;this.captureElapsed=0;this.recordAnchor=0;}else if(mode(item.id)==='stop')finish();else next();return true;}
+  if(this.position>=itemEnd(doc,item)){if(mode(item.id)==='loop'){this.position=0;this.section=null;this.captureElapsed=0;this.recordAnchor=0;}else if(mode(item.id)==='stop')finish();else next();return true;}
   return false;
  }
  isRecording(c,itemId){return this.recording&&c.armed&&this.active.has(c.id)&&(itemId===undefined||itemId===this.itemId);}

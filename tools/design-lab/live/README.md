@@ -19,7 +19,7 @@ Add blocks from the palette, move by the title, resize by the corner, or enter b
 
 Uncheck **Показывать название** to remove a heading and reclaim its space; move the block by its body. **SVG элементов блока** replaces semantic graphic slots using the single MR UDS manifest. Typography, tokens, visibility/order, padding/gap and transport/toolbar composition persist in layout JSON.
 
-**Preview** enables UI interaction. **Полноэкранное превью** hides editor panels and provides Fit / actual size; exit with its return button or Escape. Mixer uses browser range controls for demo interaction; construction artwork uses MR UDS. No audio is recorded or played.
+**Preview** enables UI interaction. **Полноэкранное превью** hides editor panels and provides Fit / actual size; exit with its return button or Escape. Mixer uses browser range controls for demo interaction; construction artwork uses MR UDS. No audio is recorded or played. Selected Playback files may be read for browser duration metadata without playback.
 
 ## Browser / Setlist items
 
@@ -75,7 +75,7 @@ Every Instrument/Player item track automatically owns a nested `recordTrack` wit
 
 ## Timeline editing
 
-Section modes are in the right-click menu; the right edge shows only the active mode glyph. Record visibility and linked-stop preferences are icon buttons with tooltips and pressed states. Item +/- or its right-edge grip changes horizontal visual scale without retiming bars, patches or audio. Expanding reveals saved negative take origins; The internal origin divider reveals/collapses pre-roll; no separate reveal button remains. Item modes are selected through the header context menu, with only a glyph at the right. Patch creation and library assignment live in the channel context menu.
+Section modes are in the right-click menu; the right edge shows only the active mode glyph. Record visibility and linked-stop preferences are icon buttons with tooltips and pressed states. Item +/- changes horizontal visual scale. The right-edge grip changes the item end in bars at the current scale, preserving all content positions and source lengths. Shortening hides content beyond the boundary without deleting it. Expanding reveals saved negative take origins; The internal origin divider reveals/collapses pre-roll; no separate reveal button remains. Item modes are selected through the header context menu, with only a glyph at the right. Patch creation and library assignment live in the channel context menu.
 
 Record normally starts playback; Shift+Record captures the demo before Play. Play aligns the capture origin to item bar 1, preserving pre-roll. A shared playhead and record regions use the same bar grid as sections/patches/Playback. The ruler can seek.
 
@@ -83,3 +83,6 @@ Playback is a set of source-referencing clips, initialized as one full-item regi
 
 
 Chord Track sits below sections. + or double-click empty space creates Am; double-click/Enter edits symbol/start/end. Right-click edits/duplicates/deletes; Delete/Backspace removes. Drag body/edges moves/trims; Alt-drag copies with a fresh ID; Escape cancels. Overlap is rejected and current chord follows demo transport. Events persist and copy with the item, with no harmonic recognition or generated MIDI. The item origin divider is now inside the grid: drag right to reveal pre-roll and left to collapse it; the external left grip is removed.
+
+
+Item end is stored independently as arrangement.length; +/- preserves length/lead, and the end grip preserves scale. Playback metadata supplies source duration; clips may extend beyond the item and become visible when its end is extended. File duration properties can also be entered manually. Changing/replacing a source resets its clip to the full source range. Existing media duration falls back if browser metadata cannot be read.
