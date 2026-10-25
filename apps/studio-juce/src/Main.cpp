@@ -134,6 +134,12 @@ public:
             catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("library261-failure.txt").replaceWithText(e.what());setApplicationReturnValue(1);}
             quit();return;
         }
+        if(args.contains("--live-entry-smoke")){
+            const auto failure=juce::File::getCurrentWorkingDirectory().getChildFile("live-entry-failure.txt");failure.deleteFile();
+            try{ui::projectHomeSmoke();setApplicationReturnValue(0);}
+            catch(const std::exception& e){failure.replaceWithText(e.what());setApplicationReturnValue(1);}
+            quit();return;
+        }
         const bool aiSmoke=args.contains("--rig-shell-smoke")||args.contains("--tone-library-smoke")||args.contains("--ai-permissions-smoke")||args.contains("--ai-assistant-smoke");
         const bool smoke=aiSmoke||(args.contains("--cab-editor-smoke")||args.contains("--native-editors-smoke"))||(args.contains("--reverb-browser-smoke")||args.contains("--reverb-editor-smoke"))||args.contains("--j3-smoke")||args.contains("--j1-smoke")||args.contains("--smoke-test")||args.contains("--plugin-smoke")||args.contains("--thu-diagnostic");
         if(!smoke||args.contains("--diagnostics-smoke")){

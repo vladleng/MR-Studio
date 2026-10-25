@@ -435,12 +435,21 @@ void projectHomeSmoke(){
     check(!home.documentDirty(),"new empty show has no phantom song changes");
     home.saveFile(showFile);check(LiveDocument::read(showFile).projects.empty(),"saving empty show does not manufacture a song");
     home.openFile(showFile);check(!home.documentDirty(),"empty show reopens cleanly");
-    home.addLiveProject(a);home.saveFile(showFile);
+    home.addLiveProject(a);home.app.add_audio_track("Live input");home.saveFile(showFile);
     const auto document=LiveDocument::read(showFile);check(document.projects.size()==1&&document.projects.front()==a&&document.active==0,"show persists relative Studio reference");
     const auto shared=home.app.services().projects;const auto engine=home.app.engine();
     home.setWorkspace(mrs::desktop::Workspace::arrange);home.action(9);
     check(home.app.services().projects==shared&&home.app.engine()==engine&&home.app.workspace()==mrs::desktop::Workspace::live,"workspace switch retains shared model and engine");
     home.openFile(showFile);check(home.liveDocument.has_value()&&home.app.path()==std::filesystem::path(a.getFullPathName().toWideCharPointer()),"show reopens active Studio song");
+    const auto nativeUntil=juce::Time::getMillisecondCounter()+100;
+    while(juce::Time::getMillisecondCounter()<nativeUntil){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}juce::Thread::sleep(1);}
+    juce::Component* liveView=nullptr;for(auto* c:home.getChildren())if(c->getComponentID()=="mr-live-workspace")liveView=c;
+    check(liveView&&liveView->isVisible()&&!home.arrangement->isVisible(),"show uses native Live workspace");
+    juce::TextButton* muteControl=nullptr;for(auto* c:liveView->getChildren())if(auto* b=dynamic_cast<juce::TextButton*>(c);b&&b->getButtonText()=="M")muteControl=b;
+    check(muteControl!=nullptr,"native channel control binds loaded project");muteControl->onClick();
+    check(home.project()->tracks.front().mix.mute,"native mute changes shared Project Model");home.action(10);
+    check(!home.project()->tracks.front().mix.mute,"native mute supports common Undo");home.message.clear();
+    for(const float scale:{1.f,1.5f}){auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-live-entry-"+juce::String(static_cast<int>(scale*100))+"-preview.png").createOutputStream();check(stream!=nullptr,"native Live snapshot stream");stream->setPosition(0);stream->truncate();check(juce::PNGImageFormat().writeImageToStream(home.createComponentSnapshot(home.getLocalBounds(),true,scale,juce::SoftwareImageType{}),*stream),"native Live snapshot");}
     const auto preserved=home.app.services().projects;
     const auto broken=folder.getChildFile("broken.mrlive");check(broken.replaceWithText("{}"),"invalid show fixture");
     home.run([&]{home.openFile(broken);});check(home.app.services().projects==preserved&&home.liveFile==showFile&&!home.message.isEmpty(),"invalid show preserves current model/document");

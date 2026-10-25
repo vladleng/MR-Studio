@@ -534,6 +534,7 @@ void trackFolderSmoke();
 void j2Smoke(Desktop&,const juce::File& fixture={});
 void j2PluginSmoke(Desktop&,const juce::File&);
 void j3Smoke(Desktop&);
+void projectHomeSmoke();
 void controllerScrollSmoke();
 void noteEditorLayoutSmoke();
 void midi4aSmoke(Desktop&,const juce::File&);
