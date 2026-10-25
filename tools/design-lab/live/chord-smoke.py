@@ -1,0 +1,16 @@
+from playwright.sync_api import sync_playwright
+import json,math
+with sync_playwright() as p:
+ b=p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox']);page=b.new_page(viewport={'width':1920,'height':1200});errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+ page.goto('http://127.0.0.1:8001/tools/design-lab/live/');page.wait_for_selector('.block');page.locator('#load-user-layout').click();page.locator('#preview').check();first=page.locator('.live-item-container').first;first.get_by_role('button',name='Открыть item',exact=True).click()
+ def doc():return json.loads(page.evaluate('localStorage.getItem("mr-live-demo-show-v1")'))
+ iid=doc()['items'][0]['id'];assert first.locator('.item-width-left').count()==0;assert first.locator('.item-chords-row').evaluate('(n)=>n.previousElementSibling.className')=='item-parts-row'
+ grip=first.get_by_label('Разделитель начала item',exact=True);box=grip.bounding_box();x=box['x']+4;y=box['y']+12;page.mouse.move(x,y);page.mouse.down();page.mouse.move(x+60,y,steps=8);page.mouse.up();lead=doc()['performance']['arrangement'][iid]['lead'];assert lead>0
+ box=grip.bounding_box();x=box['x']+4;y=box['y']+12;page.mouse.move(x,y);page.mouse.down();page.mouse.move(x-25,y,steps=8);page.mouse.up();assert doc()['performance']['arrangement'][iid]['lead']<lead
+ first.get_by_role('button',name='Добавить аккорд',exact=True).click();chord=first.locator('.chord-event').first;assert chord.inner_text()=='Am';chord.dblclick();modal=page.get_by_role('dialog');modal.get_by_label('Обозначение',exact=True).fill('D♭maj7/G');modal.get_by_label('Конец (такты)',exact=True).fill('8');modal.get_by_role('button',name='Сохранить',exact=True).click()
+ chord.click(button='right');page.get_by_role('menuitem',name='Дублировать аккорд',exact=True).click();assert first.locator('.chord-event').count()==2
+ handle=chord.locator('.extent-right');box=handle.bounding_box();lane=chord.locator('..').bounding_box();px=lane['width']/doc()['items'][0]['bars'];x=box['x']+3;y=box['y']+10;page.mouse.move(x,y);page.mouse.down();page.mouse.move(x-2*px,y,steps=8);page.mouse.up();events=doc()['performance']['chords'][iid];assert math.isclose(events[0]['length'],6,abs_tol=.25);assert events[1]['start']==8
+ first.locator('.chord-event').last.click();page.keyboard.press('Delete');assert first.locator('.chord-event').count()==1;page.keyboard.press('Control+z');assert first.locator('.chord-event').count()==2
+ box=chord.bounding_box();px=chord.locator('..').bounding_box()['width']/doc()['items'][0]['bars'];x=box['x']+box['width']/2;y=box['y']+12;page.keyboard.down('Alt');page.mouse.move(x,y);page.mouse.down();page.mouse.move(x+20*px,y,steps=8);page.mouse.up();page.keyboard.up('Alt');assert first.locator('.chord-event').count()==3;assert doc()['performance']['chords'][iid][0]['start']==0
+ saved=doc();page.reload();page.wait_for_selector('.block');assert doc()==saved;assert first.locator('.chord-event').count()==3;page.locator('#preview').check();page.locator('[data-action="transport.play"]').click();page.wait_for_timeout(200);assert first.locator('.current-chord').count()==1;assert not errors,errors;page.screenshot(path='/tmp/mr-live-chords.png');b.close()
+print('PASS: internal origin divider/right-left reveal, chord lane below sections, add/edit/duplicate/trim/delete/Undo/reload')
