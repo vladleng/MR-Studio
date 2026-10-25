@@ -165,9 +165,8 @@ function renderItem(root,assets,item,entry){
  itemWidthGrip(container,item,view);itemOriginGrip(inner,container,item,view);
 }
 // Channel controls belong to the show, while clips, patches and takes belong to each item.
-function itemTracks(root,assets){
- const doc=showDocument(),list=doc.setlists.find(s=>s.id===doc.activeSetlist);
- const shell=add(root,'shared-track-layout'),panel=add(shell,'shared-track-panel');panel.setAttribute('aria-label','Общие каналы');
+function sharedChannels(root){
+ const doc=showDocument(),panel=add(root,'shared-track-panel');panel.setAttribute('aria-label','Общие каналы');
  const top=add(panel,'shared-track-top');btn(top,'+ Канал',()=>create(root),'channel-create');
  add(panel,'shared-track-ruler');add(panel,'shared-track-label','Sections');add(panel,'shared-track-label','Chord Track');
  for(const c of doc.channels){
@@ -175,21 +174,25 @@ function itemTracks(root,assets){
   btn(title,'⋮',()=>{},'channel-dots').onclick=e=>contextMenu(root,e,commands(root,c));
   if(doc.viewRecordTracks&&hasRecordTrack(c)){const record=add(panel,'linked-channel-title shared-record-title');record.dataset.parentChannel=c.id;add(record,'channel-name',`${c.name} · Record`);add(record,'visual-caption','Дорожка записи');trackSwitches(record,c,true);}
  }
- const sequence=add(shell,'setlist-timeline-items');
+ }
+function itemTracks(root,assets){
+ const doc=showDocument(),list=doc.setlists.find(s=>s.id===doc.activeSetlist);
+ const sequence=add(root,'setlist-timeline-items');
  for(const entry of list.entries.filter(e=>e.itemId))renderItem(sequence,assets,doc.items.find(i=>i.id===entry.itemId),entry);
  // No duplicated controls inside an item. File selection remains in the clip context menu / Playback block.
  for(const label of sequence.querySelectorAll('.linked-channel-title,.item-parts-label'))label.remove();
- const groups=[...doc.channels.flatMap(c=>[
-  [panel.querySelector(`[data-channel="${c.id}"]`),[...sequence.querySelectorAll(`.item-track[data-channel="${c.id}"]`)]],
-  ...(doc.viewRecordTracks&&hasRecordTrack(c)?[[panel.querySelector(`[data-parent-channel="${c.id}"]`),[...sequence.querySelectorAll(`.record-track[data-parent-channel="${c.id}"]`)]]]:[])
+ const getGroups=()=>[...doc.channels.flatMap(c=>[
+  [document.querySelector('.shared-track-panel')?.querySelector(`[data-channel="${c.id}"]`),[...sequence.querySelectorAll(`.item-track[data-channel="${c.id}"]`)]],
+  ...(doc.viewRecordTracks&&hasRecordTrack(c)?[[document.querySelector('.shared-track-panel')?.querySelector(`[data-parent-channel="${c.id}"]`),[...sequence.querySelectorAll(`.record-track[data-parent-channel="${c.id}"]`)]]]:[])
  ])];
- const sync=()=>{if(!root.isConnected)return;for(const [label,rows] of groups){const height=Math.max(80,...rows.map(row=>row.firstElementChild?.offsetHeight||0));label.style.height=`${height}px`;for(const row of rows)row.style.height=`${height}px`;}};
- const observer=new ResizeObserver(sync);for(const [,rows] of groups)for(const row of rows)if(row.firstElementChild)observer.observe(row.firstElementChild);
- root.closest('.block')._disposeTimeline=()=>observer.disconnect();requestAnimationFrame(sync);
+ const sync=()=>{if(!root.isConnected)return;for(const [label,rows] of getGroups()){if(!label)continue;const height=Math.max(100,...rows.map(row=>(row.firstElementChild?.offsetHeight||0)+1));label.style.height=`${height}px`;for(const row of rows)row.style.height=`${height}px`;}};
+ const observer=new ResizeObserver(sync);for(const [,rows] of getGroups())for(const row of rows)if(row.firstElementChild)observer.observe(row.firstElementChild);
+ const block=root.closest('.block');block._disposeTimeline=()=>observer.disconnect();requestAnimationFrame(()=>{sync();const side=document.querySelector('.visual-track-channels')?.closest('.block');if(side){let syncing=false;const follow=(from,to)=>{if(syncing)return;syncing=true;to.scrollTop=from.scrollTop;syncing=false;};block.onscroll=()=>follow(block,side);side.onscroll=()=>follow(side,block);side.scrollTop=block.scrollTop;}});
  if(!list.entries.some(e=>e.itemId))add(sequence,'visual-caption','Сэтлист пуст. Добавьте items из Browser.');
 }
 
 export function renderChannelPanel(root,kind,assets){
+ if(kind==='channels'){sharedChannels(root);return;}
  if(kind==='header'){const header=timelineTop(root,assets,enabled());recordView(header.querySelector('.timeline-header-left'));return;}
  if(kind==='timeline'){itemTracks(root,assets);return;}
  const channels=showDocument().channels;
