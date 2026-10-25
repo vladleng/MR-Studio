@@ -28,7 +28,10 @@ function library(root){
 }
 export function toggleItemsPanel(blockId){state.items=state.items===blockId?null:blockId;}
 export function toggleRuntimePanel(name){if(name==='mixer'||name==='browser')state[name]=!state[name];}
+let lastHost,lastAssets;
+if(typeof window!=='undefined')window.addEventListener('pointerdown',e=>{if(e.button!==0||!state.items||!lastHost||e.target.closest('.runtime-items,.visual-show-setlist'))return;state.items=null;renderRuntimePanels(lastHost,lastAssets);},true);
 export function renderRuntimePanels(host,assets){
+ lastHost=host;lastAssets=assets;
  let dock=host.querySelector(':scope > #live-runtime-panels');if(!dock){dock=el('div');dock.id='live-runtime-panels';host.append(dock);}dock.replaceChildren();
  const enabled=document.getElementById('preview').checked;
  for(const b of document.querySelectorAll('[data-action]'))if(['view.mixer','view.browser','view.patches'].includes(b.dataset.action)){const active=state[b.dataset.action==='view.mixer'?'mixer':'browser'];b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));}
@@ -36,7 +39,7 @@ export function renderRuntimePanels(host,assets){
  for(const kind of ['items','mixer','browser'])if(state[kind]){
   const panel=el('section');panel.className=`runtime-drawer runtime-${kind}`;if(kind==='mixer'&&state.browser)panel.style.right='min(360px, 95vw)';panel.setAttribute('aria-label',kind==='mixer'?'Микшер MR Live':kind==='items'?'Browser items':'Browser MR Studio');
   const header=el('div');header.className='runtime-drawer-header';header.append(el('strong',kind==='mixer'?'Микшер':kind==='items'?'Items':'Browser'));
-  if(kind!=='mixer'){button(header,'Закрыть',()=>{state[kind]=false;renderRuntimePanels(host,assets);});panel.append(header);}
+  if(kind==='browser'){button(header,'Закрыть',()=>{state[kind]=false;renderRuntimePanels(host,assets);});panel.append(header);}
   const content=el('div');content.className='runtime-drawer-content';panel.append(content);dock.append(panel);
   if(kind==='items'){
    const anchor=[...document.querySelectorAll('.block')].find(b=>b.dataset.id===state.items)?.getBoundingClientRect();

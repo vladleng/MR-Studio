@@ -168,3 +168,8 @@
 .item-organizer select.organizer-status{background-image:radial-gradient(circle at 8px 50%,var(--status-dot) 3px,transparent 3.5px);padding-left:15px}
 .organizer-root .organizer-file{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:#bc4c48;color:#fff;font-size:8px;flex:none}
 .organizer-row:not(.organizer-root) .organizer-file{display:inline-block;width:10px;height:13px;border:1px solid #70746f;border-radius:2px;font-size:0;flex:none}
+.show-tabs .organizer-visibility-icon{border:0;background:transparent;padding:3px;width:24px;display:flex;align-items:center;justify-content:center}.block .organizer-visibility-icon img{width:18px;height:18px;opacity:.4}.organizer-visibility-icon[aria-pressed=true] img{opacity:1}
+.song-row.organizer-fields-hidden [data-card-field=progress],.song-row.organizer-fields-hidden [data-card-field=priority],.song-row.organizer-fields-hidden [data-card-field=status]{display:none!important}
+.visual-track-channels .shared-track-ruler{border-bottom:1px solid #4B5F7B}
+.visual-track-channels .shared-track-panel>.linked-channel-title:last-child{border-bottom:1px solid #4B5F7B}
+.runtime-items .runtime-drawer-content{padding-top:5px}

@@ -1,0 +1,15 @@
+from playwright.sync_api import sync_playwright
+import json
+with sync_playwright() as p:
+ b=p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox']);page=b.new_page(viewport={'width':1920,'height':1200});errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+ page.goto('http://127.0.0.1:8001/tools/design-lab/live/');page.wait_for_selector('.block');page.locator('#load-user-layout').click();page.locator('#preview').check();page.locator('.live-item-container').first.get_by_role('button',name='Открыть item',exact=True).click()
+ def doc():return json.loads(page.evaluate('localStorage.getItem("mr-live-demo-show-v1")'))
+ root=page.locator('.block .show-browser');toggle=root.get_by_role('button',name='Показать / скрыть элементы органайзера',exact=True);assert toggle.get_attribute('aria-pressed')=='true';toggle.click();assert root.locator('.item-status-chip:visible,.item-priority:visible,.item-progress:visible').count()==0;assert root.locator('.item-save-dot:visible').count()==3;assert not doc()['performance']['showOrganizer'];toggle.click();assert root.locator('.item-status-chip:visible').count()==3
+ row=root.locator('.song-row[data-item]').nth(1);current=doc()['currentItem'];row.click(button='right');card=page.locator('.item-menu-card');assert card.get_by_role('menuitem',name='Цвет item…',exact=True).count()==0;assert card.get_by_role('menuitem',name='Открыть item',exact=True).count()==0;assert card.get_by_label('Цвет',exact=True).count()==0;assert card.get_by_role('menuitem',name='Save for All',exact=True).count()==1;assert doc()['currentItem']==current;page.keyboard.press('Escape');card.wait_for(state='hidden')
+ assert page.locator('.visual-playback-stems').get_by_role('button',name='+ Канал',exact=True).count()==0
+ assert page.locator('.shared-track-ruler').evaluate('(n)=>parseFloat(getComputedStyle(n).borderBottomWidth)')==1
+ assert page.locator('.shared-track-panel>.linked-channel-title').last.evaluate('(n)=>parseFloat(getComputedStyle(n).borderBottomWidth)')==1
+ root.get_by_role('button',name='Browser',exact=True).click();browser=page.locator('.runtime-items');assert browser.is_visible();assert browser.locator('.runtime-drawer-header').count()==0;assert browser.get_by_role('button',name='Закрыть',exact=True).count()==0
+ browser.get_by_role('searchbox').fill('Moon');assert browser.is_visible();row.click();page.wait_for_timeout(600);assert browser.is_visible();root.get_by_role('button',name='Показать / скрыть элементы органайзера',exact=True).click();assert browser.is_visible();assert browser.locator('.item-status-chip:visible').count()==0
+ page.locator('.timeline-tuner').click(button='right');assert browser.is_visible();page.locator('.timeline-tuner').click();assert not browser.count();page.reload();page.wait_for_selector('.block');assert not doc()['performance']['showOrganizer'];assert root.locator('.item-status-chip:visible').count()==0;assert not errors,errors;b.close()
+print('PASS: organizer visibility/persistence, removed menu/color/playback controls, separator lines, headerless Browser, inside/Setlist/outside/right-click behavior')

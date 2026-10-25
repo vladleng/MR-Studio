@@ -200,7 +200,7 @@ export function renderChannelPanel(root,kind,assets){
  if(kind==='timeline'){itemTracks(root,assets);return;}
  const channels=showDocument().channels;
  root.classList.add('linked-channel-panel');
- const createButton=btn(root,'+ Канал',()=>create(root),'channel-create');
+ const createButton=kind==='playback'?null:btn(root,'+ Канал',()=>create(root),'channel-create');
  if(!activeItem())add(root,'visual-caption','Выберите рабочий item в Setlist');
  if(kind==='mixer'){
   const tools=add(root,'mixer-tools');tools.append(createButton);recordView(tools);recordButton(tools,assets,enabled());btn(tools,'Stop',()=>window.dispatchEvent(new CustomEvent('live-transport-action',{detail:'transport.stop'})));const strips=add(root,'mixer-strips');
