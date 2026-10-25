@@ -99,3 +99,8 @@ Single-click a Setlist item to make it current and reveal it on the timeline. Do
 The timeline now has a top row with an original MR UDS tuner illustration (NO INPUT / DEMO) and horizontally centered shared transport/readout/Record. The old standalone transport block remains importable but is omitted from palette/render/layers. Single arrows navigate section starts; double arrows navigate ordered setlist occurrences, including repeated items.
 
 Setlist drag previews show a line before/after the target row; dropping uses that exact insertion boundary for reorder and browser copies. Leaving/cancelling clears the hint. Chord right-click exposes Add/Edit/Duplicate/Remove and a color palette; authored colors persist and current highlighting stays distinct.
+
+
+Setlist rows have a separate drag handle to the left of the color swatch. Handle clicks never activate an item; both handle/body drags suppress post-drag activation across repaint/drop/cancel. The selected current item stays unchanged. Right-click Setlist to create an act divider; divider context renames/deletes it, and dividers can be reordered. These ordered labels group following items without adding timeline/mixer items or affecting transport navigation. The Setlist caption counts only real entries.
+
+The timeline header has record-option icons left, shared transport centered, and tuner right. Session title/count and the extra space before item containers are removed.

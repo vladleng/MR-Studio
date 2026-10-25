@@ -15,14 +15,14 @@ export class DemoTransport{
   if(action==='transport.play'){if(this.recording&&!this.playing)this.recordAnchor=this.position-this.captureElapsed;this.playing=true;if(!this.itemId)this.itemId=itemId;}
   if(['transport.pause','transport.stop'].includes(action)){this.playing=false;this.recording=false;this.active.clear();if(action==='transport.stop'&&this.backToStart)this.returnToStart();}
  }
- navigate(action,doc){const list=doc.setlists.find(s=>s.id===doc.activeSetlist);if(!list.entries.length)return;const current=doc.items.find(i=>i.id===(this.itemId||doc.currentItem));if(!current)return;
+ navigate(action,doc){const original=doc.setlists.find(s=>s.id===doc.activeSetlist),list={...original,entries:original.entries.filter(e=>e.itemId)};if(!list.entries.length)return;const current=doc.items.find(i=>i.id===(this.itemId||doc.currentItem));if(!current)return;
  if(['transport.previousItem','transport.nextItem'].includes(action)){let index=list.entries.findIndex(e=>e.id===this.entryId);if(index<0)index=list.entries.findIndex(e=>e.itemId===current.id);const entry=list.entries[Math.max(0,Math.min(list.entries.length-1,index+(action==='transport.nextItem'?1:-1)))];this.entryId=entry.id;this.itemId=entry.itemId;this.position=0;this.section=null;return;}
  const starts=[...new Set([0,...current.sections.map(s=>s.start)])].sort((a,b)=>a-b);this.itemId=current.id;this.position=action==='transport.next'?(starts.find(start=>start>this.position+1e-7)??this.position):([...starts].reverse().find(start=>start<this.position-1e-7)??0);this.section=null;
  }
  returnToStart(){this.position=this.startPosition;this.itemId=this.startItemId||this.itemId;this.section=null;}
  advance(doc,seconds){
   const captureItem=doc.items.find(i=>i.id===this.itemId);if(this.recording&&captureItem){const [n,d]=captureItem.meter.split('/').map(Number);this.captureElapsed+=seconds*captureItem.tempo/60/(n*4/d);}
-  if(!this.playing)return false;const list=doc.setlists.find(s=>s.id===doc.activeSetlist),item=doc.items.find(i=>i.id===this.itemId);if(!item)return false;
+  if(!this.playing)return false;const original=doc.setlists.find(s=>s.id===doc.activeSetlist),list={...original,entries:original.entries.filter(e=>e.itemId)},item=doc.items.find(i=>i.id===this.itemId);if(!item)return false;
   const mode=id=>doc.performance.modes[id]||'normal';const [n,d]=item.meter.split('/').map(Number);this.position+=seconds*item.tempo/60/(n*4/d);
   const finish=()=>{this.playing=false;if(doc.performance.stopRecord){this.recording=false;this.active.clear();}};
   const next=()=>{const index=list.entries.findIndex(e=>e.itemId===item.id),entry=list.entries[index+1];if(entry){this.itemId=entry.itemId;this.position=0;this.section=null;this.captureElapsed=0;this.recordAnchor=0;}else finish();};
