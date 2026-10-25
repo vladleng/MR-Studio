@@ -3,17 +3,19 @@ import {itemEnd} from './arrangement-model.mjs';
 export const canRecord=c=>['Instrument','Player','Audio'].includes(c.type);
 export const hasRecordTrack=c=>['Instrument','Player'].includes(c.type);
 export class DemoTransport{
- constructor(){this.playing=false;this.recording=false;this.active=new Set();this.notice='';this.itemId=null;this.position=0;this.section=null;this.captureElapsed=0;this.recordAnchor=0;}
+ constructor(){this.playing=false;this.recording=false;this.active=new Set();this.notice='';this.itemId=null;this.position=0;this.section=null;this.captureElapsed=0;this.recordAnchor=0;this.backToStart=false;this.startPosition=0;this.startItemId=null;}
  action(action,channels,itemId=null){
   const recordOnly=action==='transport.recordOnly';if(recordOnly)action='transport.record';
+  if(!this.playing&&(action==='transport.play'||action==='transport.record'&&!this.recording)){this.startPosition=this.position;this.startItemId=this.itemId||itemId;}
   this.notice='';
   if(action==='transport.record'){
    if(this.recording){this.recording=false;this.active.clear();}
    else{this.active=new Set(channels.filter(c=>canRecord(c)&&c.armed).map(c=>c.id));this.recording=this.active.size>0;this.itemId=itemId;if(this.recording){this.captureElapsed=0;this.recordAnchor=this.position;if(!recordOnly)this.playing=true;}else this.notice='Подготовьте канал кнопкой R';}
   }
   if(action==='transport.play'){if(this.recording&&!this.playing)this.recordAnchor=this.position-this.captureElapsed;this.playing=true;if(!this.itemId)this.itemId=itemId;}
-  if(['transport.pause','transport.stop'].includes(action)){this.playing=false;this.recording=false;this.active.clear();}
+  if(['transport.pause','transport.stop'].includes(action)){this.playing=false;this.recording=false;this.active.clear();if(action==='transport.stop'&&this.backToStart)this.returnToStart();}
  }
+ returnToStart(){this.position=this.startPosition;this.itemId=this.startItemId||this.itemId;this.section=null;}
  advance(doc,seconds){
   const captureItem=doc.items.find(i=>i.id===this.itemId);if(this.recording&&captureItem){const [n,d]=captureItem.meter.split('/').map(Number);this.captureElapsed+=seconds*captureItem.tempo/60/(n*4/d);}
   if(!this.playing)return false;const list=doc.setlists.find(s=>s.id===doc.activeSetlist),item=doc.items.find(i=>i.id===this.itemId);if(!item)return false;

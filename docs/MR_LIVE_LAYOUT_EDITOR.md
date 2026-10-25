@@ -210,3 +210,10 @@ Source range Playback определяется длительностью media 
 Шапка runtime Mixer и Close удалены, Record/Stop и record preferences находятся в одной строке с + Канал. Скрытие — повторным нажатием иконки микшера/через Options. Browser/Items сохраняют свои Close.
 
 Sections заменяет «Части песни»; кнопка + Часть удалена. Doubleclick empty создаёт Verse, ПКМ на полосе/секции предлагает шаблоны Intro/Verse/Chorus/Bridge/Solo/Outro. Chord Track не имеет +; doubleclick/context creation сохранены. Обе полосы имеют компактную высоту и стоят встык.
+
+
+## 20. Sidebar visibility, session origin и выбор item
+
+performance.panels (playback/status, default true) управляет preview панелями по toolbar icons. При скрытии нижние панели колонки собираются снизу, Setlist занимает освободившееся место; layout bounds конструктора не меняются. Перекомпоновка применяется только к найденной общей колонке. performance.backToStart default false — опция Transport, возвращающая Stop к item/позиции начала текущего запуска, включая переходы между items. Завершение take фиксируется до визуального возврата.
+
+Sections, chords и sub-patches подсвечиваются при playing по общему cursor, с exclusive end и пустыми gaps. Single-click row выбирает currentItem/показывает контейнер timeline без пересоздания строки. Double-click открывает inline name input: Enter/blur save, Escape cancel. performance.itemColors хранит цвет по item ID (ограниченная палитра). Маленький swatch слева/ПКМ задаёт цвет контейнера timeline и его шапки; current highlight остаётся отдельным признаком. Preferences/colors/name сохраняются в demo-show, Undo/JSON.
