@@ -163,7 +163,7 @@ void Desktop::reconnectDevice(bool session){if(testing||(!session&&!prefs.reconn
 }
 void Desktop::openFile(const juce::File& f){mrs::diagnostics::event("project_open_begin "+f.getFullPathName().toStdString());const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();cancelPreview();if(f.hasFileExtension("mrlive")){
     auto showState=LiveDocument::read(f);
-    if(showState.active>=0)app.open_project(path(showState.projects.at(static_cast<std::size_t>(showState.active))));else app.new_project();
+    if(showState.active>=0)app.open_project(path(showState.projects.at(static_cast<std::size_t>(showState.active))));else app.new_project(session?prefs.rate:48000);
     liveDocument=std::move(showState);liveFile=f;liveDirty=false;app.workspace(mrs::desktop::Workspace::live);
 }else{const bool leavingLive=liveDocument.has_value()||app.workspace()==mrs::desktop::Workspace::live;app.open_project(path(f));liveDocument.reset();liveFile={};liveDirty=false;if(leavingLive)app.workspace(mrs::desktop::Workspace::arrange);}
 resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();showProjectHome(false);reconnectDevice(session);if(liveDocument&&liveDocument->active<0)liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};else liveEmptyRevision.reset();mrs::diagnostics::event("project_open_end");}
@@ -176,21 +176,24 @@ bool Desktop::songDirty() const{
 juce::File Desktop::documentFile() const{return liveDocument?liveFile:juce::File(juce::String(app.path().wstring().c_str()));}
 void Desktop::createLive(const juce::File& requested){
     auto file=requested.withFileExtension("mrlive");LiveDocument showState;showState.title=file.getFileNameWithoutExtension();showState.write(file);
-    closeEditors();cancelPreview();app.new_project();liveDocument=std::move(showState);liveFile=file;liveDirty=false;
-    resetDevice();app.workspace(mrs::desktop::Workspace::live);remember();refresh(true);showProjectHome(false);reconnectDevice();
+    const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
+    closeEditors();cancelPreview();app.new_project(session?prefs.rate:48000);liveDocument=std::move(showState);liveFile=file;liveDirty=false;
+    resetDevice();app.workspace(mrs::desktop::Workspace::live);remember();refresh(true);showProjectHome(false);reconnectDevice(session);
     liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};
 }
 void Desktop::selectLiveProject(int index){
     if(!liveDocument)throw std::runtime_error("No MR Live show is open");
     const auto file=liveDocument->projects.at(static_cast<std::size_t>(index));
+    const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
     closeEditors();cancelPreview();app.open_project(path(file));resetDevice();liveDocument->active=index;liveDirty=true;
-    selectedClip.reset();selectedTrack.reset();refresh(true);reconnectDevice();
+    selectedClip.reset();selectedTrack.reset();refresh(true);reconnectDevice(session);
 }
 void Desktop::addLiveProject(const juce::File& file){
     if(!liveDocument||!file.hasFileExtension("mrsproject"))throw std::runtime_error("Select a Studio project for this show");
+    const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
     closeEditors();cancelPreview();app.open_project(path(file));resetDevice();
     liveDocument->projects.push_back(file);liveDocument->active=static_cast<int>(liveDocument->projects.size())-1;liveDirty=true;
-    selectedClip.reset();selectedTrack.reset();refresh(true);reconnectDevice();
+    selectedClip.reset();selectedTrack.reset();refresh(true);reconnectDevice(session);
 }
 void Desktop::saveFile(const juce::File& f){
     if(liveDocument){
