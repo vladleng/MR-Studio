@@ -40,7 +40,7 @@ public:
 class Desktop final : public juce::Component, private juce::Timer,
                       public juce::MenuBarModel, public juce::DragAndDropContainer, public juce::DragAndDropTarget {
 public:
-    explicit Desktop(bool testing=false,bool startAtHome=false);
+    explicit Desktop(bool testing=false,bool startAtHome=false,bool liveApplication=false);
     ~Desktop() override;
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -74,6 +74,9 @@ public:
     void openFile(const juce::File&);
     void saveFile(const juce::File&);
     void createLive(const juce::File&);
+    void launchLive(const juce::File&,bool create);
+    bool standaloneLive{};
+    std::function<void(const juce::File&,bool)> liveLaunchOverride;
     void selectLiveProject(int);
     void addLiveProject(const juce::File&);
     void importLiveShow(const juce::File&);

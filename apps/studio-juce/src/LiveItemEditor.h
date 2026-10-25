@@ -215,7 +215,7 @@ class LiveItemEditor final : public juce::Component {
             addAndMakeVisible(labels[static_cast<std::size_t>(i)]);
             fields[static_cast<std::size_t>(i)]->setTitle(captions[i]);
         }
-        for (auto *button : {&apply, &cancel, &saveAll, &bind, &addToSetlist})
+        for (auto *button : {&apply, &cancel, &saveAll, &addToSetlist})
             addAndMakeVisible(button);
         addAndMakeVisible(error);
         apply.onClick = [this] { applyChanges(); };
@@ -236,24 +236,6 @@ class LiveItemEditor final : public juce::Component {
                     owner->editLiveInterface("Add item to setlist",
                                              [&](auto &stateData) { live::insertEntry(stateData, itemId); });
                 });
-        };
-        bind.onClick = [this] {
-            if (!owner)
-                return;
-            auto safe = owner;
-            const auto selected = itemId;
-            owner->confirmDiscard(
-                [safe, selected] {
-                    if (safe)
-                        safe->choose(
-                            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                            [safe, selected](const auto &file) {
-                                if (safe)
-                                    safe->bindLiveItem(selected, file);
-                            },
-                            "*.mrsproject");
-                },
-                true);
         };
     }
     ~LiveItemEditor() override { setLookAndFeel(nullptr); }
@@ -278,7 +260,6 @@ class LiveItemEditor final : public juce::Component {
         apply.setBounds(actions.removeFromRight(86).reduced(2));
         cancel.setBounds(actions.removeFromRight(86).reduced(2));
         saveAll.setBounds(actions.removeFromLeft(120).reduced(2));
-        bind.setBounds(actions.removeFromLeft(142).reduced(2));
         addToSetlist.setBounds(actions.reduced(2));
         error.setBounds(area.removeFromBottom(28));
         place(labels[8], notes, area);
@@ -343,8 +324,7 @@ class LiveItemEditor final : public juce::Component {
     juce::TextEditor name, tempo, key, duration, notes, progress;
     juce::ComboBox status, priority, meter;
     juce::Label error;
-    juce::TextButton apply{"Apply"}, cancel{"Cancel"}, saveAll{"Save for All"}, bind{"Link .mrsproject..."},
-        addToSetlist{"Add to Setlist"};
+    juce::TextButton apply{"Apply"}, cancel{"Cancel"}, saveAll{"Save for All"}, addToSetlist{"Add to Setlist"};
 };
 inline void openLiveItemEditor(Desktop &owner, const juce::String &id) {
     if (!owner.liveDocument)

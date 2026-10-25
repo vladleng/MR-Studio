@@ -102,7 +102,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         if (rows.empty()) {
             g.setColour(tokens.colour(ColourRole::muted));
             g.setFont(12.f);
-            g.drawText(owner.liveDocument ? (browser ? "No matching items" : "Add an item or a Studio project")
+            g.drawText(owner.liveDocument ? (browser ? "No matching items" : "Add an item")
                                           : "Create or open a MR Live show",
                        viewport.getBounds().reduced(12), juce::Justification::centred, true);
         }
@@ -255,7 +255,6 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         if (row.itemId.isNotEmpty()) {
             popup.addItem(1, "Properties / organizer...");
             popup.addItem(2, "Save for All");
-            popup.addItem(3, "Link .mrsproject...");
             popup.addItem(4, "Add to Setlist");
             popup.addItem(5, "Rename...");
             if (!browser)
@@ -300,8 +299,8 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                 tint = state["performance"]["itemColors"][juce::Identifier(row.itemId)].toString();
                 setTooltip(item["name"].toString() +
                            (host.owner.liveDocument->projectFor(row.itemId) >= 0
-                                ? "\nStudio project linked"
-                                : "\nLink a .mrsproject to play this item") +
+                                ? "\nAudio source ready"
+                                : "\nNo playback media") +
                            (dirty ? "\nWorking item differs from Browser" : "\nSaved in Browser"));
             }
             if (row.folder)

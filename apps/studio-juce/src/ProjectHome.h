@@ -29,7 +29,7 @@ public:
         createLive.setComponentID("home-new-live");createLive.onClick=[this]{owner.action(701);};
         studioTab.setComponentID("home-studio-tab");liveTab.setComponentID("home-live-tab");
         studioTab.onClick=[this]{live=false;applyFilter();};liveTab.onClick=[this]{live=true;applyFilter();};
-        create.onClick=[this]{owner.action(1);};open.onClick=[this]{owner.action(2);};reload.onClick=[this]{rescan();};filter.onTextChange=[this]{applyFilter();};startTimerHz(10);
+        create.onClick=[this]{owner.action(1);};open.onClick=[this]{if(live)owner.choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){owner.launchLive(file,false);},"*.mrlive");else owner.action(2);};reload.onClick=[this]{rescan();};filter.onTextChange=[this]{applyFilter();};startTimerHz(10);
     }
     ~ProjectHome() override{stopTimer();cancel=true;if(worker.valid())worker.wait();list.setModel(nullptr);}
     void rescan(){if(worker.valid()){rescanPending=true;return;}cancel=false;const auto folder=root;worker=std::async(std::launch::async,[this,folder]{return findHomeProjects(folder,&cancel);});scanning=true;reload.setEnabled(false);repaint();}
@@ -39,7 +39,7 @@ public:
     void pollScan(){if(!worker.valid()||worker.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;auto result=worker.get();projects=std::move(result.files);error=result.error;scanning=false;reload.setEnabled(true);applyFilter();if(rescanPending){rescanPending=false;rescan();}}
     std::size_t projectCount() const{return visible.size();}
     const juce::File& projectFile(std::size_t i) const{return projects.at(visible.at(i)).file;}
-    void openRow(int row){if(row<0||row>=static_cast<int>(visible.size()))return;const auto file=projectFile(static_cast<std::size_t>(row));juce::Component::SafePointer<Desktop> safe(&owner);juce::MessageManager::callAsync([safe,file]{if(safe)safe->confirmDiscard([safe,file]{if(safe)safe->run([&]{safe->openFile(file);});});});}
+    void openRow(int row){if(row<0||row>=static_cast<int>(visible.size()))return;const auto file=projectFile(static_cast<std::size_t>(row));juce::Component::SafePointer<Desktop> safe(&owner);juce::MessageManager::callAsync([safe,file]{if(safe&&file.hasFileExtension("mrlive")){safe->run([&]{safe->launchLive(file,false);});return;}if(safe)safe->confirmDiscard([safe,file]{if(safe)safe->run([&]{safe->openFile(file);});});});}
     void resized() override{const int width=juce::jmin(960,getWidth()-80),left=(getWidth()-width)/2;create.setBounds(left,142,150,32);open.setBounds(left+162,142,150,32);reload.setBounds(left+324,142,120,32);filter.setBounds(left+width-280,142,280,32);createLive.setBounds(left,180,230,32);studioTab.setBounds(left+246,180,120,32);liveTab.setBounds(left+374,180,120,32);resume.setBounds(left+width-190,88,190,32);resume.setVisible(owner.canReturnToProject());list.setBounds(left,250,width,juce::jmax(80,getHeight()-324));}
     void paint(juce::Graphics& g) override{
         g.fillAll(juce::Colour(surface));const int width=juce::jmin(960,getWidth()-80),left=(getWidth()-width)/2;

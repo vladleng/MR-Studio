@@ -22,7 +22,7 @@ class LiveChannels final : public juce::Component {
         g.setFont(owner.theme.font(12));
         g.drawText("Channels", 6, 2, getWidth() - 12, 24, juce::Justification::left);
         if (rows.empty())
-            g.drawText("Link a Studio project", getLocalBounds().reduced(8).withTrimmedTop(32),
+            g.drawText("No channels", getLocalBounds().reduced(8).withTrimmedTop(32),
                        juce::Justification::topLeft, true);
     }
     void refresh() {

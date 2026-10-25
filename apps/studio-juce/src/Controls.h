@@ -218,6 +218,7 @@ public:
     juce::Font font(float size) const { return juce::Font(juce::FontOptions(face).withPointHeight(size)); }
     void drawButtonBackground(juce::Graphics& g, juce::Button& b, const juce::Colour& c,
                               bool hover, bool down) override {
+        if(static_cast<bool>(b.getProperties()["mrLiveTransport"])&&transport.contains(b.getButtonText().toStdString()))return;
         if(b.getProperties()["mrHostIcon"].toString().isNotEmpty())return;
         if(concept_){
             if(static_cast<bool>(b.getProperties()["mrChannelPlate"])){

@@ -439,7 +439,7 @@ void projectHomeSmoke(){
     const auto document=LiveDocument::read(showFile);check(document.projects.size()==1&&document.projects.front()==a&&document.active==0,"show persists relative Studio reference");
     const auto shared=home.app.services().projects;const auto engine=home.app.engine();
     home.setWorkspace(mrs::desktop::Workspace::arrange);home.action(9);
-    check(home.app.services().projects==shared&&home.app.engine()==engine&&home.app.workspace()==mrs::desktop::Workspace::live,"workspace switch retains shared model and engine");
+    check(home.app.services().projects==shared&&home.app.engine()==engine&&home.app.workspace()==mrs::desktop::Workspace::live,"Live cannot become Studio Arrange; common Core is retained");
     home.openFile(showFile);check(home.liveDocument.has_value()&&home.app.path()==std::filesystem::path(a.getFullPathName().toWideCharPointer()),"show reopens active Studio song");
     const auto nativeUntil=juce::Time::getMillisecondCounter()+100;
     while(juce::Time::getMillisecondCounter()<nativeUntil){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}juce::Thread::sleep(1);}

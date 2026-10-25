@@ -136,7 +136,9 @@ public:
         }
         if(args.contains("--live-entry-smoke")){
             const auto failure=juce::File::getCurrentWorkingDirectory().getChildFile("live-entry-failure.txt");failure.deleteFile();
-            try{ui::projectHomeSmoke();const auto tokens=juce::StringArray::fromTokens(args,true);const int position=tokens.indexOf("--show-fixture");ui::liveInterfaceSmoke(position>=0&&position+1<tokens.size()?juce::File(tokens[position+1].unquoted()):juce::File());setApplicationReturnValue(0);}
+            try{ui::projectHomeSmoke();const auto tokens=juce::StringArray::fromTokens(args,true);const int position=tokens.indexOf("--show-fixture");const auto fixture=position>=0&&position+1<tokens.size()?juce::File(tokens[position+1].unquoted()):juce::File();ui::liveInterfaceSmoke(fixture);
+                juce::ChildProcess liveProcess;const auto liveExecutable=juce::File::getSpecialLocation(juce::File::currentExecutableFile).getSiblingFile("MR Live.exe");
+                if(!liveExecutable.existsAsFile()||!liveProcess.start(juce::StringArray{liveExecutable.getFullPathName(),"--live-application-smoke","--show-fixture",fixture.getFullPathName()})||!liveProcess.waitForProcessToFinish(30000)||liveProcess.getExitCode()!=0)throw std::runtime_error("Dedicated MR Live application launch smoke failed");setApplicationReturnValue(0);}
             catch(const std::exception& e){failure.replaceWithText(e.what());setApplicationReturnValue(1);}
             quit();return;
         }

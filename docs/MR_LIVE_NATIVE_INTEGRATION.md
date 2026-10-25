@@ -4,6 +4,16 @@
 
 Tracking: [#14 roadmap](https://github.com/vladleng/MR-Studio/issues/14), [#272 редактор](https://github.com/vladleng/MR-Studio/issues/272), [#28 native UI](https://github.com/vladleng/MR-Studio/issues/28), [#29 shared integration](https://github.com/vladleng/MR-Studio/issues/29), [#274 главная страница и Live Projects](https://github.com/vladleng/MR-Studio/issues/274), [#30 show lifecycle](https://github.com/vladleng/MR-Studio/issues/30). Исходники прототипа — PR #273, тематическая ветка `codex/mr-live-layout-editor`; merge в main не выполнен.
 
+## Решение пользователя — самостоятельное приложение MR Live (2026-10-25)
+
+Это уточнение имеет приоритет над прежними описаниями Live как workspace обычного Studio-проекта.
+
+- MR Live — отдельное приложение `MR Live.exe`, запускаемое с Home MR Studio, со своим show-документом `.mrlive` и собственным workflow по принятому онлайн-редактору.
+- В MR Live нет кнопки Studio, перехода в Arrange/Edit/Mix или открытия `.mrsproject` через item. Общий Core — повторное использование кода Engine/ASIO/Transport/Project Model/GraphStore/MIDI/plugin host, а не перенос Studio workflow в show.
+- Studio → Live: пользователь планирует отдельную будущую функцию экспорта как Playback. Прямое открытие Studio-песни в Live не заменяет этот экспорт.
+- Для пока не реализованных модулей пользователь разрешил статичные изображения-заглушки из принятого интерфейса (например `live_tuner.svg`); это не работающие показания или DSP.
+- Принятый layout v5 и поведение онлайн-редактора сохраняются как reference переноса. Создавать новый макет или придумывать переходы нельзя.
+
 ## Принятый артефакт
 
 Оригинальный файл пользователя сохранён без изменения байтов: [mr-live-layout-v5.json](../assets/ui/mr-uds/layouts/mr-live-layout-v5.json).
@@ -26,10 +36,10 @@ Tracking: [#14 roadmap](https://github.com/vladleng/MR-Studio/issues/14), [#272 
 
 ## Следующий этап и вход в MR Live
 
-1. **#274 — главная страница и браузер проектов.** Кнопка «Новый проект MR Live» создаёт show `.mrlive` и открывает MR Live workspace. В браузере проектов доступны вкладки обычных проектов и MR Live; переключение вкладки меняет список/тип документов, не backend. Предусмотреть открытие существующих Live projects, recent projects, сохранение/reopen и защиту несохранённых изменений.
+1. **#274 — главная страница и браузер проектов.** Кнопка «Новый проект MR Live» создаёт show `.mrlive` и запускает отдельное приложение MR Live. В браузере проектов доступны вкладки обычных проектов и MR Live; переключение вкладки меняет список/тип документов, не backend. Предусмотреть открытие существующих Live projects, recent projects, сохранение/reopen и защиту несохранённых изменений.
 2. **#28 — native UI по v5.** Общие MR UDS/JUCE components, layout/resize, фиксированные Header/Channels, синхронная прокрутка, настоящие focus/drag/keyboard и Undo/commands. JSON — reference/loader input, пока native loader не реализован; не утверждать, что браузерный JS автоматически исполняется в MR Studio.
 3. **#29 — реальные bindings.** Project Model, Transport, musical context, Chord/Arranger/sections, GraphStore/channels/mixer, Playback, meters и запись через существующие shared services. Один Audio Engine, ASIO/device layer, Transport, Project Model, MIDI engine и plugin host. Без browser simulation как production backend и без второго аудиотракта.
-4. **#30–#33 — профильные workflows.** Show persistence/refs/preload/preflight/switch safety, Playback/click/cue, patches/sub-patches и MIDI/control в соответствующих задачах. `.mrlive` хранит show policy и ссылки на `.mrsproject`; отдельная вкладка MR Live не вводит дублированный формат песни или новый engine.
+4. **#30–#33 — профильные workflows.** Show persistence/refs/preload/preflight/switch safety, Playback/click/cue, patches/sub-patches и MIDI/control в соответствующих задачах. `.mrlive` хранит собственный show; будущий экспорт Studio → Live как Playback определяется отдельно. Общие библиотеки не вводят новый backend.
 
 Performance Mode остаётся последующим отдельным направлением. Загрузка макета/SVG/fonts, сериализация и организация задач выполняются вне audio callback. Plugin switching и sub-patch parameter changes должны сохранять существующие lifetime/PDC/recording contracts.
 
@@ -39,51 +49,37 @@ Performance Mode остаётся последующим отдельным на
 - Native интеграция выполняется поэтапно в PR #275; текущая реализованная граница описана ниже, полная native-приёмка остаётся открытой. Аппаратный ASIO, слуховая проверка, физический mixed-DPI, реальные плагины, audio recording/takes и концертная надёжность не подтверждены браузерными тестами.
 - Приёмка следующего этапа: из Home создать/открыть Live show, переключить вкладки проектов без регрессии обычных проектов; показать v5 в native UI; управлять теми же Project/Transport/Engine; сохранить/reopen модель и проверить адресные model/command/persistence/native GUI tests. Публиковать точную source/build revision и отдельный результат аппаратных проверок, если они выполнялись.
 
-## Native document and authoring contract (#274, #28, #29)
+## Native application/document implementation boundary (#274, #28, #29)
 
-Native shows use UTF-8 JSON with the **`.mrlive`** extension and
-`schema: "mr-live-show"`. Saving always enforces this extension. Version 2 adds
-`interface` (show authoring metadata) and `itemProjects` (item ID → project index)
-to `title`, `projects` (ordered relative `.mrsproject` paths) and `active`.
-Version 1 shows migrate to catalog items and a setlist on read. `active: -1`
-also represents an unlinked current item, even when other items have project
-bindings. The document is bounded to 8 MiB, interface metadata to 1 MiB.
+`MRLiveJuce` is a dedicated JUCE application target with its own entry/window,
+identity and UI settings. It shares the existing host source files and Core
+libraries with Studio. Home dispatches `.mrlive` creation/opening to `MR Live.exe`
+without replacing the current Studio project. Studio releases its audio device
+when launching Live; no new audio backend implementation is introduced.
 
-**File → Import editor show JSON** accepts `mr-live-demo-show` version 3 without
-modifying the source export. It preserves items, folders, setlists/dividers,
-shared workflow, saved Browser versions, recursive organizer tasks, card layout
-and organizer visibility. Saved user settings override embedded public defaults.
-The show is initially unsaved; Save/Save As writes `.mrlive`. The layout v5 file
-is embedded separately and remains unchanged; it never supplies user show data.
+The initial authoring document uses UTF-8 JSON `.mrlive`, schema `mr-live-show`,
+version 2. `interface` stores show authoring data imported from browser show v3:
+items, folders, setlists/dividers, saved Browser versions, workflow, recursive
+tasks and card settings. Saved settings override embedded public defaults.
+The development v2 container also has legacy `projects`, `active`, `itemProjects`
+fields from the rejected workspace prototype. Dedicated MR Live accepts empty
+legacy references only; it never opens a Studio song through them. Their presence
+is not an accepted Studio↔Live workflow or a specification for future show audio
+persistence. The user-provided browser export has no such project bindings.
 
-Imported browser channel/take/patch/waveform fields are preserved as opaque
-metadata. They do not create real tracks, audio files or plugins. An item must be
-explicitly linked to an existing `.mrsproject` before playback/recording. Selecting
-an unlinked item clears the previous song in the shared Core. Linked items load
-through the ordinary Studio project service. No second Engine, Transport,
-GraphStore, MIDI service or plugin host is created.
+Setlist/Browser/card/organizer authoring has show Undo/Redo and dirty tracking.
+Save always enforces `.mrlive`, preserves metadata history and atomically replaces
+the document. Browser simulation data remains opaque metadata and does not create
+real audio, plugins or recording takes. The initial metadata import does not
+claim completed Live audio integration.
 
-The native authoring slice includes Setlist references/reordering/dividers,
-Browser folders/search/drag-and-drop, saved-version indicators, shared status and
-priority, item properties, recursive organizer editing/progress and the item-card
-layout editor. Metadata gestures use show Undo/Redo and document dirty tracking;
-channel M/S/R/I use the existing Core commands and history. Save for All updates
-the Browser authoring snapshot; it is not an audio/plugin snapshot restore.
-Saving writes a dirty song through existing Studio persistence before atomically
-replacing the show. Save As rebases references to the new show directory.
-Invalid documents and missing active projects preserve the current model/show.
+The shared Core adapter still has development compatibility tests for old native
+reference containers; those tests are not an exposed product workflow. Separate
+application checks cover process entry, application identity, native show
+save/reopen, Home dispatch, rejection of `.mrsproject`, blocked Studio workspace
+shortcuts and absence of a Studio transition in the Live interface.
 
-`LiveLayout` reads the accepted v5 geometry and public defaults at runtime.
-Legacy `input.patches` and `control.transport` blocks stay hidden. Channels use
-real shared track state/meters. Timeline remains a read-only shared context in
-this slice; full Timeline/Playback/patches/MIDI and complete item-library actions
-remain in #28/#29/#30–#33. Ordinary synchronous project loading is not preloading
-or a concert-safe switching guarantee. Performance Mode is a later stage.
-
-The dedicated `juce_live_entry_smoke` covers Home plus import, metadata Undo,
-folder-cycle rejection, organizer progress/subtree Undo, native drop handling,
-shared service identity, explicit real-project binding, v1 migration, v2 round
-trip and extension enforcement. CI uses only a public synthetic show fixture;
-personal show exports remain private. Native previews use software rendering;
-physical ASIO/MIDI, hearing, vendor plugins and mixed-DPI require user hardware
-acceptance. This partial implementation does not close #28 or #29.
+Full native Timeline, Playback, patches, MIDI, Live audio persistence and lifecycle
+remain in #28/#29/#30–#33. Studio export to Live as Playback is a subsequent,
+explicit workflow. Software previews do not certify physical ASIO/MIDI, hearing,
+vendor-plugin behavior or mixed-DPI. Native visual acceptance remains open.

@@ -73,9 +73,10 @@ jobs:
         shell: pwsh
         run: |
           $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
-          if($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(stretch_contract|model|transport|commands|serialization|track_folders)|stretch_.*|clip_stretch_.*|ai_.*|ara_.*|juce_(live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(wav_import|track_folders))$')}
+          if($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(stretch_contract|model|transport|commands|serialization|track_folders)|stretch_.*|clip_stretch_.*|ai_.*|ara_.*|juce_(live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(wav_import|track_folders))$')}
           & ctest @args
           if($LASTEXITCODE){
+            if(Test-Path 'build/windows/live-application-failure.txt'){Get-Content 'build/windows/live-application-failure.txt'}
             if(Test-Path 'build/windows/live-entry-failure.txt'){Get-Content 'build/windows/live-entry-failure.txt'}
             if(Test-Path 'build/windows/library261-failure.txt'){Get-Content 'build/windows/library261-failure.txt'}
             throw 'CTest failed; full integration never excludes known failures'
@@ -126,7 +127,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Windows-symbols-${{ github.sha }}-ara-${{ env.ARA }}
-          path: build/windows/MoonRiverStudioJuce_artefacts/Release/*.pdb
+          path: |
+            build/windows/MoonRiverStudioJuce_artefacts/Release/*.pdb
+            build/windows/MRLiveJuce_artefacts/Release/*.pdb
           if-no-files-found: error
           retention-days: 7
       - name: Upload diagnostics

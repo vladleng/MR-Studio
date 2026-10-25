@@ -45,6 +45,13 @@ class LiveLayout final {
         return state["performance"]["itemCardLayout"].isObject() ? state["performance"]["itemCardLayout"]
                                                                  : defaults["itemCardLayout"];
     }
+    static std::unique_ptr<juce::Drawable> placeholder(const juce::String &filename) {
+        const auto data = resource(filename);
+        auto drawable = juce::Drawable::createFromImageData(data.toRawUTF8(), data.getNumBytesAsUTF8());
+        if (!drawable)
+            throw std::runtime_error("Invalid Live placeholder image");
+        return drawable;
+    }
     juce::var defaults;
 
   private:

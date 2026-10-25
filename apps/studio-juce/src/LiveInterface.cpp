@@ -29,6 +29,28 @@ class LiveInterfaceEdit final : public juce::UndoableAction {
     juce::var before, after;
 };
 } // namespace
+void Desktop::launchLive(const juce::File &file, bool create) {
+    if (liveLaunchOverride) {
+        liveLaunchOverride(file, create);
+        return;
+    }
+    if (standaloneLive)
+        throw std::runtime_error("MR Live is already running");
+    if (app.recording())
+        throw std::runtime_error("Stop recording before launching MR Live");
+    const auto executable =
+        juce::File::getSpecialLocation(juce::File::currentExecutableFile).getSiblingFile("MR Live.exe");
+    if (!executable.existsAsFile())
+        throw std::runtime_error("MR Live.exe is missing from the application package");
+    const bool session = app.audio_name() != "Offline clock (no sound)" && app.audio_name() != "Disconnected";
+    app.pause();
+    app.disconnect();
+    if (!executable.startAsProcess((create ? "--new-show " : "--open-show ") + file.getFullPathName().quoted())) {
+        reconnectDevice(session);
+        throw std::runtime_error("Could not launch MR Live");
+    }
+    refresh();
+}
 void Desktop::prepareLiveInterface(bool saved) {
     liveUndo.clearUndoHistory();
     liveShowEditing = false;
@@ -139,6 +161,8 @@ void Desktop::selectLiveItem(const juce::String &id) {
     refresh();
 }
 void Desktop::bindLiveItem(const juce::String &id, const juce::File &file) {
+    if (standaloneLive)
+        throw std::runtime_error("Studio project loading is not a MR Live workflow");
     if (!liveDocument || !live::find(liveDocument->interfaceState, "items", id).isObject() ||
         !file.hasFileExtension("mrsproject"))
         throw std::runtime_error("Select a Studio project for this item");

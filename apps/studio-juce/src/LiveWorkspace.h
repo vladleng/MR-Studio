@@ -17,19 +17,18 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         setLookAndFeel(&nativeTheme);
         addMouseListener(this, true);
         for (auto *component :
-             std::array<juce::Component *, 14>{&setlist, &channels, &files, &options, &studio, &play, &pause, &stop,
-                                               &record, &previous, &next, &loop, &undoButton, &redoButton})
+             std::array<juce::Component *, 13>{&setlist, &channels, &files, &options, &play, &pause, &stop, &record,
+                                               &previous, &next, &loop, &undoButton, &redoButton})
             addAndMakeVisible(component);
         addChildComponent(browserItems);
         files.onClick = [this] { filesMenu(); };
         options.onClick = [this] { optionsMenu(); };
-        studio.onClick = [this] {
-            owner.liveShowEditing = false;
-            owner.setWorkspace(mrs::desktop::Workspace::arrange);
-        };
         play.onClick = [this] { owner.action(30); };
         pause.onClick = [this] { owner.action(31); };
         stop.onClick = [this] { owner.action(32); };
+        for (auto *button : {&play, &pause, &stop, &record, &previous, &next, &loop})
+            button->getProperties().set("mrLiveTransport", true);
+        tunerPlaceholder = LiveLayout::placeholder("live_tuner.svg");
         record.onClick = [this] { owner.action(33); };
         previous.onClick = [this] { owner.action(34); };
         next.onClick = [this] { owner.action(35); };
@@ -70,18 +69,12 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         options.setBounds(controls.removeFromLeft(52).reduced(1));
         undoButton.setBounds(controls.removeFromLeft(26));
         redoButton.setBounds(controls.removeFromLeft(26));
-        studio.setBounds(controls.reduced(1));
         setlist.setBounds(reference.bounds("show.setlist", getWidth(), getHeight()));
         channels.setBounds(reference.bounds("track.channels", getWidth(), getHeight()));
         const auto header = reference.bounds("control.header", getWidth(), getHeight());
-        auto transport = header.withTrimmedLeft(juce::jmin(juce::jmax(0, header.getWidth() - 250), 280)).reduced(4);
-        transport = transport.withY(header.getY() + 12).withHeight(38);
-        for (auto *button : {&play, &pause, &stop, &record})
-            button->setBounds(transport.removeFromLeft(44).reduced(2));
-        const auto timeline = reference.bounds("song.timeline", getWidth(), getHeight());
-        auto navigation = timeline.withTrimmedTop(4).withHeight(30);
-        for (auto *button : {&previous, &next, &loop})
-            button->setBounds(navigation.removeFromLeft(42).reduced(2));
+        auto transport = juce::Rectangle<int>(header.getCentreX() - 178, header.getCentreY() - 16, 224, 32);
+        for (auto *button : {&previous, &play, &pause, &stop, &next, &loop, &record})
+            button->setBounds(transport.removeFromLeft(32).reduced(2));
         const int width = juce::jmin(380, juce::jmax(220, getWidth() - setlist.getRight() - 16));
         browserItems.setBounds(setlist.getRight() + 2, setlist.getY(), width, setlist.getHeight());
         if (browserVisible)
@@ -108,34 +101,31 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
              {"control.toolbar", "control.header", "song.timeline", "playback.stems", "system.status"})
             fill(type);
         const auto header = reference.bounds("control.header", getWidth(), getHeight());
-        const auto state = owner.liveDocument ? owner.liveDocument->interfaceState : juce::var();
-        const auto current = live::find(state, "items", state["currentItem"].toString());
         const bool linked = !owner.liveDocument || owner.liveDocument->currentLinked();
-        g.setColour(tokens.colour(ColourRole::text));
-        g.setFont(owner.theme.font(17));
-        g.drawText(current.isObject() ? current["name"].toString() : owner.projectCaption(), header.getX() + 10,
-                   header.getY() + 5, juce::jmin(265, header.getWidth() - 20), 28, juce::Justification::left, true);
-        g.setFont(owner.theme.font(10));
-        g.setColour(tokens.colour(ColourRole::muted));
-        g.drawText(owner.projectCaption(), header.getX() + 10, header.getY() + 34,
-                   juce::jmin(265, header.getWidth() - 20), 20, juce::Justification::left, true);
         const auto head = owner.displayState();
-        g.setFont(owner.theme.font(14));
         g.setColour(tokens.colour(ColourRole::text));
+        g.setFont(owner.theme.font(14));
         g.drawText(juce::String(static_cast<double>(head.sample) / owner.project()->sample_rate, 2) + " s",
-                   header.getRight() - 105, header.getY() + 12, 95, 38, juce::Justification::right);
+                   header.getCentreX() + 54, header.getCentreY() - 20, 120, 24, juce::Justification::left);
+        g.setFont(owner.theme.font(9));
+        g.setColour(tokens.colour(ColourRole::muted));
+        g.drawText(head.playback == mrs::PlaybackState::playing ? "PLAYING" : "STOPPED", header.getCentreX() + 54,
+                   header.getCentreY() + 4, 120, 18, juce::Justification::left);
+        if (tunerPlaceholder) {
+            const float tunerHeight = juce::jmin(64.f, static_cast<float>(header.getHeight()));
+            const float tunerWidth = 264.f * tunerHeight / 64.f;
+            tunerPlaceholder->drawWithin(g,
+                                         {static_cast<float>(header.getRight()) - tunerWidth - 4.f,
+                                          static_cast<float>(header.getCentreY()) - tunerHeight / 2.f, tunerWidth,
+                                          tunerHeight},
+                                         juce::RectanglePlacement::centred, 1.f);
+        }
         auto timeline = reference.bounds("song.timeline", getWidth(), getHeight()).reduced(12);
         timeline.removeFromTop(34);
         g.setFont(owner.theme.font(13));
-        if (!linked) {
-            g.drawText("Link a .mrsproject to this item to use its shared timeline and audio",
-                       timeline.removeFromTop(46), juce::Justification::topLeft, true);
-        } else {
+        if (linked) {
             for (const auto &label : owner.contextLabels)
                 g.drawText(label.getText(), timeline.removeFromTop(28), juce::Justification::left, true);
-            g.setColour(tokens.colour(ColourRole::muted));
-            g.drawText("Open Studio to edit this shared project", timeline.removeFromTop(34), juce::Justification::left,
-                       true);
         }
         const auto stems = reference.bounds("playback.stems", getWidth(), getHeight()).reduced(10);
         g.setColour(tokens.colour(ColourRole::text));
@@ -155,8 +145,6 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         popup.addItem(3, "Save");
         popup.addItem(4, "Save as...");
         popup.addItem(702, "Import editor show JSON...");
-        popup.addSeparator();
-        popup.addItem(6, "Project home");
         juce::Component::SafePointer<Desktop> safe(&owner);
         popup.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&files), [safe](int action) {
             if (safe && action)
@@ -210,7 +198,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     Theme nativeTheme;
     LiveSetlist setlist, browserItems;
     LiveChannels channels;
-    juce::TextButton files{"Files"}, options{"Options"}, studio{"Studio"}, play{"Play"}, pause{"Pause"}, stop{"Stop"},
+    std::unique_ptr<juce::Drawable> tunerPlaceholder;
+    juce::TextButton files{"Files"}, options{"Options"}, play{"Play"}, pause{"Pause"}, stop{"Stop"},
         record{"Record (R)"}, previous{"< Section"}, next{"Section >"}, loop{"Loop section"}, undoButton{"Undo"},
         redoButton{"Redo"};
     bool browserVisible{};

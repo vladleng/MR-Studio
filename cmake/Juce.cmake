@@ -41,7 +41,8 @@ target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_track_header_layout)
 juce_add_binary_data(mrs_live_layout
   NAMESPACE MRLiveAssets HEADER_NAME MRLiveAssets.h
   SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-live-layout-v5.json"
-          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-live-interface-defaults-v1.json")
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-live-interface-defaults-v1.json"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/controls/live_tuner.svg")
 target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_live_layout)
 juce_add_binary_data(mrs_reverb_art NAMESPACE MRReverbArt HEADER_NAME MRReverbArt.h SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/reverb/plate_unit.svg")
 target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_reverb_art)
@@ -275,4 +276,40 @@ if(BUILD_TESTING)
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/validation/ui205-p1")
   add_test(NAME juce_uds_shell COMMAND MoonRiverStudioJuce --uds-shell-smoke)
   set_tests_properties(juce_uds_shell PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/validation/ui205-p1")
+endif()
+
+# MR Live is a dedicated application. It reuses the same host/Core sources and
+# libraries; Studio's Main.cpp and its application/window entry are excluded.
+get_target_property(mrs_live_host_sources MoonRiverStudioJuce SOURCES)
+list(FILTER mrs_live_host_sources EXCLUDE REGEX "(^|/)Main\\.cpp$")
+list(FILTER mrs_live_host_sources EXCLUDE REGEX "JuceLibraryCode/")
+get_target_property(mrs_live_host_links MoonRiverStudioJuce LINK_LIBRARIES)
+get_target_property(mrs_live_host_definitions MoonRiverStudioJuce COMPILE_DEFINITIONS)
+get_target_property(mrs_live_host_options MoonRiverStudioJuce COMPILE_OPTIONS)
+juce_add_gui_app(MRLiveJuce VERSION 0.7.1 PRODUCT_NAME "MR Live")
+target_sources(MRLiveJuce PRIVATE ${mrs_live_host_sources} apps/studio-juce/src/LiveMain.cpp)
+target_compile_features(MRLiveJuce PRIVATE cxx_std_20)
+target_compile_definitions(MRLiveJuce PRIVATE ${mrs_live_host_definitions})
+target_compile_options(MRLiveJuce PRIVATE ${mrs_live_host_options})
+target_link_libraries(MRLiveJuce PRIVATE ${mrs_live_host_links})
+set_source_files_properties(apps/studio-juce/src/LiveMain.cpp PROPERTIES COMPILE_OPTIONS "/WX")
+if(MSVC)
+  target_link_options(MRLiveJuce PRIVATE /DEBUG:FULL /INCREMENTAL:NO /OPT:REF /OPT:ICF)
+endif()
+add_dependencies(MRLiveJuce mrs_vst3_scan mrs_crash_reporter)
+foreach(helper mrs_vst3_scan mrs_crash_reporter)
+  add_custom_command(TARGET MRLiveJuce POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "$<TARGET_FILE:${helper}>" "$<TARGET_FILE_DIR:MRLiveJuce>/$<TARGET_FILE_NAME:${helper}>")
+endforeach()
+if(MRS_BUILD_ARA)
+  add_dependencies(MRLiveJuce mrs_ara_scan)
+  add_custom_command(TARGET MRLiveJuce POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "$<TARGET_FILE:mrs_ara_scan>" "$<TARGET_FILE_DIR:MRLiveJuce>/mrs_ara_scan.exe")
+endif()
+add_dependencies(MoonRiverStudioJuce MRLiveJuce)
+add_custom_command(TARGET MoonRiverStudioJuce POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+  "$<TARGET_FILE:MRLiveJuce>" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/MR Live.exe")
+if(BUILD_TESTING)
+  add_test(NAME juce_live_application COMMAND MRLiveJuce --live-application-smoke --show-fixture "${PROJECT_SOURCE_DIR}/tests/fixtures/mr-live-interface-demo-v3.json")
+  set_tests_properties(juce_live_application PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
 endif()

@@ -66,14 +66,14 @@ void EditorWindow::fitNativeEditor(int width,int height){
     setContentComponentSize(juce::jmax(1,juce::roundToInt(width/scale)),juce::jmax(1,juce::roundToInt(height/scale)));
 }
 
-Desktop::Desktop(bool test,bool startAtHome):testing(test){
+Desktop::Desktop(bool test,bool startAtHome,bool liveApplication):standaloneLive(liveApplication),testing(test){
 #ifdef MRS_HAS_ARA
     juce::Component::SafePointer<Desktop> araOwner(this);
     app.set_ai_ara_editor_handler([araOwner](mrs::Id id){if(!araOwner)throw std::runtime_error("Editor owner closed");const auto p=araOwner->project();const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});if(c==p->clips.end())throw std::runtime_error("ARA target changed");araOwner->selectedClip=id;araOwner->selectedTrack=c->track;araOwner->openAra(id);araOwner->refresh();},[araOwner](mrs::Id id){if(araOwner){const auto p=araOwner->project();const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});if(c!=p->clips.end())araOwner->closeAra(c->source);}});
 #endif
-    getProperties().set("mrPopupRoot",true);setLookAndFeel(&theme);setWantsKeyboardFocus(true);setTitle("Moon River Studio workspace");setFocusContainerType(FocusContainerType::keyboardFocusContainer);
+    getProperties().set("mrPopupRoot",true);setLookAndFeel(&theme);setWantsKeyboardFocus(true);setTitle(standaloneLive?"MR Live":"Moon River Studio workspace");setFocusContainerType(FocusContainerType::keyboardFocusContainer);
     const auto config=juce::File(juce::SystemStats::getEnvironmentVariable("LOCALAPPDATA",juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getFullPathName())).getChildFile("MoonRiverStudio");
-    viewFile=path(config.getChildFile("juce-view.json"));prefsFile=path(config.getChildFile("juce-preferences.json"));cacheFile=path(config.getChildFile("vst3.cache"));
+    viewFile=path(config.getChildFile(standaloneLive?"mr-live-view.json":"juce-view.json"));prefsFile=path(config.getChildFile(standaloneLive?"mr-live-preferences.json":"juce-preferences.json"));cacheFile=path(config.getChildFile("vst3.cache"));
 #ifdef MRS_HAS_ARA
     if(!testing)araCatalogFile=path(config.getChildFile("ara-catalog.json"));
     if(!testing)try{loadAraCatalog();}catch(const std::exception& e){message=label(e.what());}
@@ -84,7 +84,7 @@ Desktop::Desktop(bool test,bool startAtHome):testing(test){
     sidebar=view.sidebar;browserWidth=view.browserWidth;snap=view.snap;
     if(view.cabRoot.isNotEmpty())app.set_cab_root(path(juce::File(view.cabRoot)),view.cabManifest.toStdString());
     if(view.reverbRoot.isNotEmpty())app.set_reverb_root(path(juce::File(view.reverbRoot)));
-    projectSessionStarted=testing&&!startAtHome;if(projectSessionStarted)app.demo();else app.new_project();resetDevice();
+    projectSessionStarted=testing&&!startAtHome&&!standaloneLive;if(projectSessionStarted)app.demo();else app.new_project();resetDevice();
     app.set_click_settings(prefs.click);
     app.set_ai_permissions(prefs.ai);
     arrangement=std::make_unique<Arrangement>(*this);browser=std::make_unique<Browser>(*this);
@@ -125,9 +125,9 @@ Desktop::Desktop(bool test,bool startAtHome):testing(test){
     int focus=1;for(auto* b:{&undo,&redo,&addTrack,&addBus,&split,&duplicate,&remove,&zoomIn,&zoomOut,&fit,&snapButton,&play,&pause,&stop,&record,&previous,&next,&loop,&editButton,&mixButton,&brows}){b->setTitle(b->getButtonText());b->setTooltip(b->getButtonText());b->setExplicitFocusOrder(focus++);}
     snapButton.setTitle("Smart snap");snapButton.setTooltip(snap?"Snap enabled":"Snap disabled");snapButton.onClick=[this]{snap=!snap;snapButton.setButtonText(snap ? "Snap smart" : "Snap off");snapButton.setToggleState(snap,juce::dontSendNotification);snapButton.setTooltip(snap?"Snap enabled":"Snap disabled");};
     for(std::size_t i=0;i<contextLabels.size();++i){auto& l=contextLabels[i];addAndMakeVisible(l);l.setComponentID("musical-context-"+juce::String(static_cast<int>(i)));l.setFont(theme.font(12));l.setColour(juce::Label::textColourId,juce::Colours::lightgrey);l.setInterceptsMouseClicks(true,false);}
-    setSize(1400,850);refresh(true);setWorkspace(testing?mrs::desktop::Workspace::mix:prefs.workspace==mrs::desktop::Workspace::live?mrs::desktop::Workspace::arrange:prefs.workspace);
+    setSize(1400,850);refresh(true);setWorkspace(standaloneLive?mrs::desktop::Workspace::live:testing?mrs::desktop::Workspace::mix:prefs.workspace==mrs::desktop::Workspace::live?mrs::desktop::Workspace::arrange:prefs.workspace);
     liveWorkspace=std::make_unique<LiveWorkspace>(*this);addChildComponent(*liveWorkspace);
-    home=std::make_unique<ProjectHome>(*this);addChildComponent(*home);if(!testing||startAtHome){showProjectHome(true);if(!testing)home->rescan();}startTimerHz(30);
+    home=std::make_unique<ProjectHome>(*this);addChildComponent(*home);if(!standaloneLive&&(!testing||startAtHome)){showProjectHome(true);if(!testing)home->rescan();}if(standaloneLive){liveDocument.emplace();prepareLiveInterface(false);showProjectHome(false);liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};}startTimerHz(30);
 }
 Desktop::~Desktop(){
     araDockResizeFrame={};pendingAraDockHeight.reset();resizingAraDock=nullptr;
@@ -141,7 +141,7 @@ void Desktop::resetDevice(){visualTransport.reset();lastDisplayState={};lastVisu
 mrs::audio::RealtimeState Desktop::displayState() const noexcept{app.engine()->try_state(lastDisplayState);return lastDisplayState;}
 double Desktop::visualSample(){const auto* engine=app.engine().get();if(engine!=visualEngine){visualEngine=engine;visualTransport.reset();}mrs::audio::RealtimeState state;if(!engine->try_state(state))return lastVisualSample;return lastVisualSample=visualTransport.sample(state,project()->sample_rate,juce::Time::getMillisecondCounterHiRes());}
 double Desktop::visualTick(){const auto p=project();double sample=visualSample(),tick=0;for(std::size_t i=0;i<p->time.tempos.size();++i){const auto& tempo=p->time.tempos[i];const double perTick=60.*p->sample_rate/(tempo.bpm*mrs::ppq);if(i+1==p->time.tempos.size())return tick+sample/perTick;const double length=static_cast<double>(p->time.tempos[i+1].tick-tempo.tick),frames=length*perTick;if(sample<frames)return tick+sample/perTick;sample-=frames;tick+=length;}return 0;}
-void Desktop::showProjectHome(bool visible){if(!home)return;homeVisible=visible;if(!visible)projectSessionStarted=true;for(auto* child:getChildren())if(child!=home.get())child->setVisible(!visible);home->setVisible(visible);if(visible){closeEditors();home->toFront(false);}resized();repaint();}
+void Desktop::showProjectHome(bool visible){if(!home||(standaloneLive&&visible))return;homeVisible=visible;if(!visible)projectSessionStarted=true;for(auto* child:getChildren())if(child!=home.get())child->setVisible(!visible);home->setVisible(visible);if(visible){closeEditors();home->toFront(false);}resized();repaint();}
 void Desktop::saveSettings(){if(testing)return;
     prefs.workspace=app.workspace();view.sidebar=sidebar;view.browserWidth=browserWidth;view.snap=snap;
     if(arrangement){view.trackHeight=arrangement->trackHeight;view.pixelsPerSecond=arrangement->pixelsPerSecond;}
@@ -162,8 +162,8 @@ void Desktop::reconnectDevice(bool session){if(testing||(!session&&!prefs.reconn
     try{app.connect(std::move(device),config);prefs.rate=config.sample_rate;saveSettings();}catch(...){resetDevice();throw;}
 #endif
 }
-void Desktop::openFile(const juce::File& f){mrs::diagnostics::event("project_open_begin "+f.getFullPathName().toStdString());const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();cancelPreview();if(f.hasFileExtension("mrlive")){
-    auto showState=LiveDocument::read(f);
+void Desktop::openFile(const juce::File& f){if(!standaloneLive&&!testing&&f.hasFileExtension("mrlive")){launchLive(f,false);return;}if(standaloneLive&&!f.hasFileExtension("mrlive"))throw std::runtime_error("MR Live opens .mrlive show documents");mrs::diagnostics::event("project_open_begin "+f.getFullPathName().toStdString());const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();cancelPreview();if(f.hasFileExtension("mrlive")){
+    auto showState=LiveDocument::read(f);if(standaloneLive&&!showState.projects.empty())throw std::runtime_error("This development show uses obsolete Studio project references");
     if(showState.active>=0)app.open_project(path(showState.projects.at(static_cast<std::size_t>(showState.active))));else app.new_project(session?prefs.rate:48000);
     liveDocument=std::move(showState);liveFile=f;prepareLiveInterface(true);app.workspace(mrs::desktop::Workspace::live);
 }else{const bool leavingLive=liveDocument.has_value()||app.workspace()==mrs::desktop::Workspace::live;app.open_project(path(f));liveDocument.reset();liveFile=juce::File();prepareLiveInterface(false);if(leavingLive)app.workspace(mrs::desktop::Workspace::arrange);}
@@ -176,6 +176,7 @@ bool Desktop::songDirty() const{
 }
 juce::File Desktop::documentFile() const{return liveDocument?liveFile:juce::File(juce::String(app.path().wstring().c_str()));}
 void Desktop::createLive(const juce::File& requested){
+    if(!standaloneLive&&!testing){launchLive(requested.withFileExtension("mrlive"),true);return;}
     auto file=requested.withFileExtension("mrlive");LiveDocument showState;showState.title=file.getFileNameWithoutExtension();showState.ensureInterface(LiveLayout().defaults);showState.write(file);
     const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
     closeEditors();cancelPreview();app.new_project(session?prefs.rate:48000);liveDocument=std::move(showState);liveFile=file;prepareLiveInterface(true);
@@ -183,6 +184,7 @@ void Desktop::createLive(const juce::File& requested){
     liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};
 }
 void Desktop::selectLiveProject(int index){
+    if(standaloneLive)throw std::runtime_error("Studio project loading is not a MR Live workflow");
     if(!liveDocument)throw std::runtime_error("No MR Live show is open");
     const auto file=liveDocument->projects.at(static_cast<std::size_t>(index));
     const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
@@ -192,6 +194,7 @@ void Desktop::selectLiveProject(int index){
     selectedClip.reset();selectedTrack.reset();refresh(true);reconnectDevice(session);
 }
 void Desktop::addLiveProject(const juce::File& file){
+    if(standaloneLive)throw std::runtime_error("Studio project loading is not a MR Live workflow");
     if(!liveDocument||!file.hasFileExtension("mrsproject"))throw std::runtime_error("Select a Studio project for this show");
     if(liveDocument->projects.size()>=1024)throw std::runtime_error("Too many project references");
     const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
@@ -201,6 +204,7 @@ void Desktop::addLiveProject(const juce::File& file){
     selectedClip.reset();selectedTrack.reset();refresh(true);reconnectDevice(session);
 }
 void Desktop::saveFile(const juce::File& f){
+    if(standaloneLive&&songDirty())throw std::runtime_error("Cannot save audio changes in this development build");
     if(liveDocument){
         auto showState=liveDocument->clone();auto file=f.withFileExtension("mrlive");
         if(songDirty()){
@@ -258,7 +262,6 @@ void Desktop::confirmDiscard(std::function<void()> nextAction,bool songOnly){if(
 }
 juce::StringArray Desktop::getMenuBarNames(){return {"File","Options","Edit","Track","Transport","AI: "+label(std::string(app.ai_permissions().enabled?mrs::ai::permission_name(app.ai_permissions().mode):std::string_view("OFF")))};}
 juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupMenu m;
-    if(n==0){m.addItem(701,"New MR Live show...");m.addItem(9,"MR Live workspace",projectSessionStarted);m.addItem(702,"Import editor show JSON...");m.addSeparator();}
     if(n==1){
         m.addItem(710,"Load Track Header JSON...",!app.recording());
         m.addItem(711,"Hot Reload Track Header JSON",trackHeaderLayoutSource!=juce::File() && !app.recording(),
@@ -344,7 +347,7 @@ void Desktop::navigationMenu(bool sections){
     choices.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&contextLabels[sections?1:2]),[safe,store,navigationEntries,sections](int result){if(!safe||result<=0||result>static_cast<int>(navigationEntries.size()))return;safe->run([&]{if(store!=safe->app.services().projects)throw std::runtime_error("Project changed; reopen navigation list");if(safe->busyGesture())throw std::runtime_error("Finish editing before navigating");const auto& id=navigationEntries[static_cast<std::size_t>(result-1)].second;if(sections)safe->app.musical().seek_section(id);else safe->app.musical().seek_marker(id);});});
 }
 void Desktop::menuItemSelected(int n,int){action(n);}
-void Desktop::action(int n){if(busyGesture()){if(n==34||n==35||n==48||n==49||n==50||n==51){message="Finish editing before navigating";repaint();}return;}mrs::diagnostics::event("ui_action="+std::to_string(n));run([&]{
+void Desktop::action(int n){if(busyGesture()){if(n==34||n==35||n==48||n==49||n==50||n==51){message="Finish editing before navigating";repaint();}return;}mrs::diagnostics::event("ui_action="+std::to_string(n));run([&]{if(standaloneLive&&n==1){action(701);return;}if(standaloneLive&&(n==6||n==8))return;if(standaloneLive&&n==2){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){openFile(file);},"*.mrlive");});return;}
     if(n==710){
         if(app.recording())return;
         choose(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
@@ -378,9 +381,9 @@ void Desktop::action(int n){if(busyGesture()){if(n==34||n==35||n==48||n==49||n==
     }
     if(n==7){const auto logs=mrs::diagnostics::folder();if(logs.empty())throw std::runtime_error("Diagnostics unavailable; see package README");if(!testing)juce::File(juce::String(logs.wstring().c_str())).revealToUser();return;}
     if(n>=500&&n<=700){auto c=app.click_settings();if(n==500)c.playback=!c.playback;else if(n==501)c.recording=!c.recording;else if(n==502)c.accent=!c.accent;else if(n==503)c.playback=c.recording=!(c.playback||c.recording);else if(n==504){if(c.count_bars){lastCountBars=c.count_bars;c.count_bars=0;}else c.count_bars=lastCountBars;}else if(n>=510&&n<=514)c.count_bars=n-510;else if(n>=600)c.level=n-600;else return;app.set_click_settings(c);if(c.count_bars)lastCountBars=c.count_bars;prefs.click=c;saveSettings();return;}
-    if(n==9){setWorkspace(mrs::desktop::Workspace::live);return;}
+    if(n==9)return;
     if(n==702){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){importLiveShow(file);},"*.json");});return;}
-    if(n==701){confirmDiscard([this]{choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& file){createLive(file);},"*.mrlive");});return;}
+    if(n==701){auto createShow=[this]{choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& file){createLive(file);},"*.mrlive");};if(standaloneLive)confirmDiscard(createShow);else createShow();return;}
     if(n==8){confirmDiscard([this]{run([&]{closeEditors();cancelPreview();app.pause();app.new_project();liveDocument.reset();liveFile=juce::File();prepareLiveInterface(false);app.workspace(mrs::desktop::Workspace::arrange);resetDevice();selectedTrack.reset();selectedClip.reset();selectedClips.clear();refresh(true);showProjectHome(true);projectSessionStarted=false;home->rescan();});});return;}
     if(n==6){app.pause();showProjectHome(true);home->rescan();return;}
     if(n>=1000){auto at=static_cast<std::size_t>(n-1000);if(at<prefs.recent_projects.size()){const auto f=juce::File(label(prefs.recent_projects[at]));confirmDiscard([this,f]{run([&]{openFile(f);});});}return;}
@@ -416,8 +419,8 @@ void Desktop::action(int n){if(busyGesture()){if(n==34||n==35||n==48||n==49||n==
     else if(n==25 && arrangement->markers->hasSelection()){arrangement->markers->removeSelected();}
     else if(n==25 && arrangement->chords->hasSelection()){arrangement->chords->removeSelected();}
     else if(n==25 && selectedClip){std::vector<mrs::Id> clips;for(const auto& c:project()->clips)if(selectedClips.contains(c.id.value)||c.id==selectedClip)clips.push_back(c.id);app.remove_clips(std::move(clips));selectedClip.reset();selectedClips.clear();}
-    else if(n==30){if(app.workspace()==mrs::desktop::Workspace::live&&liveDocument&&!liveDocument->currentLinked())throw std::runtime_error("Link a .mrsproject to the current item before playback");app.play();}else if(n==31)app.pause();else if(n==32){if(app.recording())app.stop_recording();app.stop();}
-    else if(n==33){if(app.workspace()==mrs::desktop::Workspace::live&&liveDocument&&!liveDocument->currentLinked())throw std::runtime_error("Link a .mrsproject before recording");if(app.recording()){app.stop_recording();app.stop();refresh(true);}else app.start_project_recording(path(juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio").getChildFile("Projects")));}
+    else if(n==30){if(app.workspace()==mrs::desktop::Workspace::live&&liveDocument&&!liveDocument->currentLinked())throw std::runtime_error("Playback is not available for this item");app.play();}else if(n==31)app.pause();else if(n==32){if(app.recording())app.stop_recording();app.stop();}
+    else if(n==33){if(app.workspace()==mrs::desktop::Workspace::live&&liveDocument&&!liveDocument->currentLinked())throw std::runtime_error("Recording is not available for this item");if(app.recording()){app.stop_recording();app.stop();refresh(true);}else app.start_project_recording(path(juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio").getChildFile("Projects")));}
     else if(n==48)app.musical().previous_marker();else if(n==49)app.musical().next_marker();else if(n==50||n==51)navigationMenu(n==50);
     else if(n==34)app.musical().previous_section();else if(n==35)app.musical().next_section();
     else if(n==36){if(app.recording())throw std::runtime_error("Stop recording before changing loop");if(app.engine()->state().loop)app.musical().clear_loop();else if(app.musical().state().current_section)app.musical().loop_section(app.musical().state().current_section->id);}
@@ -427,7 +430,7 @@ void Desktop::action(int n){if(busyGesture()){if(n==34||n==35||n==48||n==49||n==
     else if(n==41)showProfiling();
 });}
 void Desktop::setKnifeMode(bool enabled){knifeMode=enabled;arrangement->keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));arrangement->sections->cancel();arrangement->chords->cancel();pointerTool.setToggleState(!enabled,juce::dontSendNotification);knifeTool.setToggleState(enabled,juce::dontSendNotification);arrangement->setMouseCursor(enabled?juce::MouseCursor::CrosshairCursor:juce::MouseCursor::NormalCursor);}
-void Desktop::setWorkspace(mrs::desktop::Workspace w){app.workspace(w);prefs.workspace=w;if(dockedEditor&&dockedClip)dockedEditor->setVisible(w==mrs::desktop::Workspace::edit);resized();refresh();}
+void Desktop::setWorkspace(mrs::desktop::Workspace w){if((standaloneLive||liveDocument)&&w!=mrs::desktop::Workspace::live)return;app.workspace(w);prefs.workspace=w;if(dockedEditor&&dockedClip)dockedEditor->setVisible(w==mrs::desktop::Workspace::edit);resized();refresh();}
 juce::String Desktop::projectCaption() const{return (liveDocument?liveDocument->title:app.path().empty()?label(project()->title):juce::String(app.path().stem().wstring().c_str()))+(documentDirty()?" *":"");}
 void Desktop::resized(){if(homeVisible&&home){for(auto* child:getChildren())if(child!=home.get())child->setVisible(false);home->setBounds(getLocalBounds());home->toFront(false);return;}
     if(liveWorkspace && app.workspace()==mrs::desktop::Workspace::live){liveLayoutActive=true;for(auto* child:getChildren())child->setVisible(child==liveWorkspace.get());liveWorkspace->setBounds(getLocalBounds());liveWorkspace->toFront(false);return;}
@@ -620,7 +623,7 @@ bool Desktop::shortcutAllowedFor(juce::Component* focused) const {
     for(auto* c=focused;c&&c!=this;c=c->getParentComponent())if(c->getComponentID()=="mr-library-browser"||dynamic_cast<juce::TextEditor*>(c)||dynamic_cast<juce::ComboBox*>(c))return false;
     return true;
 }
-bool Desktop::workspaceShortcut(const juce::KeyPress& k){if(homeVisible||k.getModifiers().isAnyModifierKeyDown()||juce::Component::getCurrentlyModalComponent())return false;
+bool Desktop::workspaceShortcut(const juce::KeyPress& k){if(standaloneLive)return false;if(homeVisible||k.getModifiers().isAnyModifierKeyDown()||juce::Component::getCurrentlyModalComponent())return false;
     if(k.getKeyCode()==juce::KeyPress::F2Key){run([&]{toggleEditor();});return true;}if(k.getKeyCode()==juce::KeyPress::F3Key){const bool open=app.workspace()!=mrs::desktop::Workspace::mix;if(open&&clipEditorOpen())toggleEditor();setWorkspace(open?mrs::desktop::Workspace::mix:mrs::desktop::Workspace::arrange);return true;}if(k.getKeyCode()==juce::KeyPress::F5Key){sidebar=!sidebar;resized();repaint();return true;}return false;}
 bool Desktop::keyPressed(const juce::KeyPress& k){if(workspaceShortcut(k))return true;if(!shortcutAllowed())return false;
     if(k.getKeyCode()==juce::KeyPress::escapeKey&&app.stretch_status().busy){app.cancel_stretch();return true;}
