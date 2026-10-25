@@ -244,3 +244,10 @@ control.header — самостоятельный registry block с tuner/transp
 Основные Instrument/Player/Playback/Audio track panels имеют M/S, рядом R у record-capable каналов. Это общие channel mute/solo, синхронные во всех items/Mixer. Child record tracks получают optional boolean recordMute/recordSolo (false по умолчанию), с M/S на child row и narrow mixer strip; отдельно от parent flags. UI-only mock, не новый DSP.
 
 Setlist скрывает inline + Setlist/rename/delete/+ Item; контекстные команды сохранены, selector списка остаётся видимым.
+
+
+## 24. Row gestures, browser sorting и M/S status
+
+Отдельные grips items/dividers удалены. Body drag сохраняет прежний activation guard; dragstart также отменяет ожидающий single-click focus. Одиночный mouse click откладывает selection на 500 ms, чтобы double-click мог отменить focus до переключения currentItem и открыть inline rename. Keyboard/programmatic click остаётся прямым; browser library double-click open сохранён.
+
+Browser tree сортирует items и child folders отдельно в каждой папке (root тоже) через localeCompare ru/numeric/base; сортируется копия render list, не show data и не setlist entries. Активный M — semantic red, S — amber/yellow, и на track panels, и в mixer/record strips.
