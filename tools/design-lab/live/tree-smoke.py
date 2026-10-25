@@ -7,7 +7,7 @@ with sync_playwright() as p:
  page.on('pageerror',lambda e:errors.append(str(e)))
  page.goto('http://127.0.0.1:8001/tools/design-lab/live/');page.wait_for_selector('.block')
  page.evaluate('(data)=>localStorage.setItem("mr-live-demo-show-v1",data)',json.dumps(fixture));page.reload();page.wait_for_selector('.block')
- page.locator('#load-user-layout').click();page.wait_for_function('document.querySelectorAll(".block").length===5');page.locator('#preview').check()
+ page.locator('#load-user-layout').click();page.wait_for_function('document.querySelectorAll(".block").length===6');page.locator('#preview').check()
  setlist=page.locator('.block .show-browser');setlist.get_by_role('button',name='Browser',exact=True).click();root=page.locator('.runtime-items .show-browser')
  assert root.get_by_role('button',name='+ Папка',exact=True).count()==0
  assert root.get_by_role('button',name='Экспорт demo show',exact=True).count()==0

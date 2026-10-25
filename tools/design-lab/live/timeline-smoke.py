@@ -2,7 +2,7 @@ from playwright.sync_api import sync_playwright
 import json,math
 with sync_playwright() as p:
  browser=p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox']);page=browser.new_page(viewport={'width':1920,'height':1200});errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
- page.goto('http://127.0.0.1:8001/tools/design-lab/live/');page.wait_for_selector('.block');page.locator('#load-user-layout').click();page.wait_for_function('document.querySelectorAll(".block").length===5');page.locator('#preview').check()
+ page.goto('http://127.0.0.1:8001/tools/design-lab/live/');page.wait_for_selector('.block');page.locator('#load-user-layout').click();page.wait_for_function('document.querySelectorAll(".block").length===6');page.locator('#preview').check()
  def doc():return json.loads(page.evaluate('localStorage.getItem("mr-live-demo-show-v1")'))
  # Trigger a harmless library command so initial demo state is persisted.
  first=page.locator('.live-item-container').first;first.get_by_role('button',name='Открыть item',exact=True).click()

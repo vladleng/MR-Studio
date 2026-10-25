@@ -104,3 +104,8 @@ Setlist drag previews show a line before/after the target row; dropping uses tha
 Setlist rows have a separate drag handle to the left of the color swatch. Handle clicks never activate an item; both handle/body drags suppress post-drag activation across repaint/drop/cancel. The selected current item stays unchanged. Right-click Setlist to create an act divider; divider context renames/deletes it, and dividers can be reordered. These ordered labels group following items without adding timeline/mixer items or affecting transport navigation. The Setlist caption counts only real entries.
 
 The timeline header has record-option icons left, shared transport centered, and tuner right. Session title/count and the extra space before item containers are removed.
+
+
+Header is now a separate `control.header` layout block above `song.timeline`, with its own bounds and no shared scrolling. Compatible older layouts with enough vertical room split their timeline top area into Header once during validation; names/data/time geometry remain unchanged. The constructor palette exposes Header.
+
+Every primary track panel has M/S beside arm R where recording is available; M/S are the same global channel flags used by Mixer. Record child lanes have independent recordMute/recordSolo flags and matching narrow-strip controls. Setlist's + Setlist/rename/delete/+ Item buttons are hidden from the panel but remain in its context menu; the setlist selector stays visible.

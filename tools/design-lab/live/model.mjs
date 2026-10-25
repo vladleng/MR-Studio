@@ -31,6 +31,7 @@ export function validate(doc,assets=new Set()){
    if(!['row','column'].includes(b.direction)||!Array.isArray(b.bindings)||b.bindings.length>entry.bindings.length||new Set(b.bindings).size!==b.bindings.length||b.bindings.some(x=>!entry.bindings.includes(x)))fail('Некорректные actions');
  }
  for(const b of doc.blocks){if(['input.patches'].includes(b.type))b.visible=false;if(b.type==='control.toolbar')b.bindings=[...new Set(b.bindings.map(a=>a==='view.patches'?'view.browser':a))];}
+ if(!doc.blocks.some(b=>b.type==='control.header')&&doc.blocks.length<80){const timeline=doc.blocks.find(b=>b.type==='song.timeline');if(timeline&&timeline.h>=timeline.minH+64){let id='live-header',suffix=1;while(doc.blocks.some(b=>b.id===id))id=`live-header-${suffix++}`;const height=Math.min(80,timeline.h-timeline.minH);doc.blocks.push({...createBlock('control.header',id),x:timeline.x,y:timeline.y,w:timeline.w,h:height,minW:120,showTitle:false,padding:4});timeline.y+=height;timeline.h-=height;}}
  return structuredClone(doc);
 }
 export function parse(text,assets){if(typeof text!=='string'||new TextEncoder().encode(text).length>MAX_BYTES)fail('Файл превышает 256 KiB');return validate(JSON.parse(text),assets);}
