@@ -1,3 +1,4 @@
+import {validatePerformance} from './performance.mjs';
 import {reconcileTimeline,validateTimeline,repairTimelineOverlaps} from './timeline-model.mjs';
 import {defaultChannels,makeTracks,validateChannels} from './channel-model.mjs';
 // Browser-only show prototype. Deliberately independent of layout and native ShowDocument.
@@ -8,7 +9,7 @@ export function validateShow(doc,repairOverlaps=false){
  doc=structuredClone(doc);
  if(doc?.schema==='mr-live-demo-show'&&doc.version===1){doc.version=2;doc.channels=defaultChannels();if(Array.isArray(doc.items))for(const item of doc.items)item.tracks=makeTracks(doc.channels);}
  if(doc?.schema==='mr-live-demo-show'&&doc.version===2){doc.version=3;reconcileTimeline(doc);}
- keys(doc,['channels','schema','version','folders','items','setlists','activeSetlist','currentItem','viewRecordTracks']);
+ keys(doc,['channels','schema','version','folders','items','setlists','activeSetlist','currentItem','viewRecordTracks','performance']);
  if(!Object.hasOwn(doc,'viewRecordTracks'))doc.viewRecordTracks=false;if(typeof doc.viewRecordTracks!=='boolean')throw Error('Некорректный View record tracks');
  if(doc.schema!=='mr-live-demo-show'||doc.version!==3)throw Error('Неподдерживаемый demo show');
  for(const key of ['folders','items','setlists'])if(!Array.isArray(doc[key])||doc[key].length>500)throw Error('Лимит: 500 элементов');
@@ -21,7 +22,7 @@ export function validateShow(doc,repairOverlaps=false){
  for(const list of doc.setlists){keys(list,['id','name','entries']);unique(list.id);if(!name(list.name)||!Array.isArray(list.entries)||list.entries.length>1000)throw Error('Некорректный setlist');for(const entry of list.entries){keys(entry,['id','itemId']);unique(entry.id);if(!items.has(entry.itemId))throw Error('Нет item для записи setlist');}}
  validateChannels(doc,unique);
  if(repairOverlaps)repairTimelineOverlaps(doc);
- validateTimeline(doc,unique);
+ validateTimeline(doc,unique);validatePerformance(doc);
  if(!doc.setlists.some(s=>s.id===doc.activeSetlist)||doc.currentItem!==null&&!items.has(doc.currentItem))throw Error('Некорректный выбор');
  if(new TextEncoder().encode(JSON.stringify(doc)).length>1024*1024)throw Error('Лимит demo show: 1 MiB');
  return structuredClone(doc);
