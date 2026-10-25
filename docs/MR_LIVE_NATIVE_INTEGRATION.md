@@ -38,3 +38,20 @@ Performance Mode остаётся последующим отдельным на
 - Последний полный профиль прототипа перед handoff: 53 Node tests PASS, адресные HTTP Chromium smoke (органайзер, карточки, Browser/Setlist, сохранение и внеоконные клики) PASS. Макет v5 дополнительно проверен парсером и SHA-256; эта документационная передача не требует native сборки.
 - Native интеграция пока **NOT IMPLEMENTED / NOT TESTED**. Аппаратный ASIO, слуховая проверка, физический mixed-DPI, реальные плагины, audio recording/takes и концертная надёжность не подтверждены браузерными тестами.
 - Приёмка следующего этапа: из Home создать/открыть Live show, переключить вкладки проектов без регрессии обычных проектов; показать v5 в native UI; управлять теми же Project/Transport/Engine; сохранить/reopen модель и проверить адресные model/command/persistence/native GUI tests. Публиковать точную source/build revision и отдельный результат аппаратных проверок, если они выполнялись.
+
+## Initial native document contract (#274)
+
+The initial native entry slice uses bounded UTF-8 JSON `.mrlive` with
+`schema: "mr-live-show"`, `version: 1`, `title`, `projects` (an ordered array of
+relative `.mrsproject` paths), and `active` (zero-based, or -1 for an empty show).
+The show stores no embedded song/audio/plugin state. Save writes the active song
+through the existing Studio persistence workflow before atomically replacing the
+show document. Save As rebases song references to the new show directory.
+Opening an invalid document or a missing active song preserves the current model
+and show identity. Referenced projects use ordinary shared project loading; this
+is not preloading or a concert-safe switching guarantee (#30).
+
+The first native workspace provides the v5 panel foundation, setlist selection,
+shared transport and channel mute/solo. Timeline editing, item cards/organiser,
+Playback, patches, complete semantic bindings and native visual acceptance remain
+in #28/#29 and their dependent issues. This initial shell is not full v5 parity.

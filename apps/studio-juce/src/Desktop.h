@@ -5,6 +5,7 @@
 #include "SendLevel.h"
 #include "Settings.h"
 #include "Playhead.h"
+#include "LiveDocument.h"
 #include <mrs/desktop.hpp>
 #include <mrs/midi_import.hpp>
 #include <mrs/diagnostics.hpp>
@@ -27,6 +28,7 @@ class Browser;
 class LibraryFoundationPanel;
 class FxPanel;
 class ProjectHome;
+class LiveWorkspace;
 class EditorWindow final : public juce::DocumentWindow {
 public:
     EditorWindow(juce::String,juce::Component*,bool show=true);
@@ -71,6 +73,14 @@ public:
     void confirmDiscard(std::function<void()>);
     void openFile(const juce::File&);
     void saveFile(const juce::File&);
+    void createLive(const juce::File&);
+    void selectLiveProject(int);
+    void addLiveProject(const juce::File&);
+    juce::File documentFile() const;
+    std::optional<LiveDocument> liveDocument;
+    juce::File liveFile;
+    bool liveDirty{},liveLayoutActive{};
+    std::unique_ptr<LiveWorkspace> liveWorkspace;
     void showProjectHome(bool);
     bool projectHomeVisible() const{return homeVisible;}
     bool canReturnToProject() const{return projectSessionStarted;}

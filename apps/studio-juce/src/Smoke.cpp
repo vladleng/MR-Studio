@@ -430,6 +430,21 @@ void projectHomeSmoke(){
     const auto bad=folder.getChildFile("corrupt.mrsproject");check(bad.replaceWithText("not a project"),"corrupt fixture");home.run([&]{home.openFile(bad);});check(home.projectHomeVisible()&&home.app.path()==previous&&!home.message.isEmpty(),"corrupt project preserves loaded session");
     home.action(1);check(!home.projectHomeVisible()&&home.app.path().empty()&&home.project()->tracks.empty(),"New project leaves home with empty workspace");
     auto map=home.project()->time;map.tempos={{0,120},{mrs::ppq,60},{2*mrs::ppq,180}};home.app.set_time_map(map);home.app.seek(36025);std::array<float,256> silence{};home.app.engine()->process(nullptr,silence.data(),128);check(std::abs(home.visualTick()-1200.5)<.001,"visual MIDI position keeps fractional ticks across tempo change");
+    const auto showFile=folder.getChildFile("Lives/First.mrlive");
+    home.createLive(showFile);check(home.liveDocument.has_value()&&showFile.existsAsFile()&&home.app.workspace()==mrs::desktop::Workspace::live,"Home creates a native Live document");
+    home.addLiveProject(a);home.saveFile(showFile);
+    const auto document=LiveDocument::read(showFile);check(document.projects.size()==1&&document.projects.front()==a&&document.active==0,"show persists relative Studio reference");
+    const auto shared=home.app.services().projects;const auto engine=home.app.engine();
+    home.setWorkspace(mrs::desktop::Workspace::arrange);home.action(9);
+    check(home.app.services().projects==shared&&home.app.engine()==engine&&home.app.workspace()==mrs::desktop::Workspace::live,"workspace switch retains shared model and engine");
+    home.openFile(showFile);check(home.liveDocument.has_value()&&home.app.path()==std::filesystem::path(a.getFullPathName().toWideCharPointer()),"show reopens active Studio song");
+    const auto preserved=home.app.services().projects;
+    const auto broken=folder.getChildFile("broken.mrlive");check(broken.replaceWithText("{}"),"invalid show fixture");
+    home.run([&]{home.openFile(broken);});check(home.app.services().projects==preserved&&home.liveFile==showFile&&!home.message.isEmpty(),"invalid show preserves current model/document");
+    auto missing=LiveDocument::read(showFile);missing.projects[0]=folder.getChildFile("absent.mrsproject");missing.write(broken);
+    home.run([&]{home.openFile(broken);});check(home.app.services().projects==preserved&&home.liveFile==showFile,"missing song preserves open show");
+    auto all=findHomeProjects(folder);check(all.files.size()==4,"Home discovers both show and Studio documents");
+    home.openFile(a);check(!home.liveDocument&&home.app.workspace()==mrs::desktop::Workspace::arrange,"ordinary project leaves Live document mode");
     home.home.reset();check(folder.deleteRecursively(),"home fixture cleanup");
 }
 void midi4bSmoke(Desktop& d,const juce::File& fixture){
