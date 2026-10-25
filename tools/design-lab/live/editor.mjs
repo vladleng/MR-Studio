@@ -1,12 +1,12 @@
 import {transport} from './recording-runtime.mjs';
-import {showDocument,undoShow} from './show-browser.mjs';
+import {showDocument,undoShow,editShow} from './show-browser.mjs';
 import {renderRuntimePanels,toggleRuntimePanel,toggleItemsPanel} from './runtime-panels.mjs';
 import {snapGeometry} from './snapping.mjs';
 import {interactive} from './interactive.mjs';
 import {registry,tokens,createBlock} from './registry.mjs';
 import {History,initial,parse,resolve,MAX_BYTES} from './model.mjs';
 const $=id=>document.getElementById(id), key='mr-design-lab-live-v1';
-const assets=new Map();let history,selected='',gesture=null;
+const assets=new Map();let history,selected='',gesture=null,pendingTakes=[];
 const say=text=>$('status').textContent=text;
 const current=()=>history.doc.blocks.find(b=>b.id===selected);
 const factor=()=>document.body.classList.contains('fullscreen-preview')?($('preview-size').value==='actual'?Number($('scale').value)/100:Math.min(($('scroll').clientWidth-24)/viewport().width,($('scroll').clientHeight-64)/viewport().height)):Number($('zoom').value)/100*Number($('scale').value)/100;
@@ -100,7 +100,9 @@ function closeFullscreen(){document.body.classList.remove('fullscreen-preview');
 window.addEventListener('live-items-toggle',e=>{toggleItemsPanel(e.detail);renderRuntimePanels($('scroll'),previewAssets());});
 window.addEventListener('resize',()=>renderRuntimePanels($('scroll'),previewAssets()));
 window.addEventListener('live-panel-toggle',e=>{toggleRuntimePanel(e.detail);renderRuntimePanels($('scroll'),previewAssets());});
-window.addEventListener('live-transport-action',e=>{transport.action(e.detail,showDocument().channels,showDocument().currentItem);renderCanvas();});
+window.addEventListener('live-transport-action',e=>{const doc=showDocument(),was=transport.recording;
+ if(e.detail==='transport.stop'&&!doc.performance.stopRecord){transport.playing=false;}else transport.action(e.detail,doc.channels,doc.currentItem);
+ if(!was&&transport.recording){editShow(d=>{const item=d.items.find(i=>i.id===d.currentItem);if(item)for(const t of item.tracks)if(t.recordTrack&&transport.active.has(t.channelId)){const takes=d.performance.takes[t.recordTrack.id]??=[];const take={id:crypto.randomUUID(),start:Math.min(item.bars-.25,transport.position),end:item.bars,selected:false};takes.push(take);pendingTakes.push({track:t.recordTrack.id,id:take.id,item:item.id});}});}if(was&&!transport.recording)finishTakes();renderCanvas();});
 window.addEventListener('demo-show-change',()=>renderCanvas());
 $('load-user-layout').onclick=async()=>{try{const response=await fetch('./user-layout.json');if(!response.ok)throw Error('Макет не загружен');load(parse(await response.text(),new Set(assets.keys())));}catch(e){say(e.message);}};
 $('fullscreen-preview').onclick=openFullscreen;$('exit-preview').onclick=closeFullscreen;
@@ -130,3 +132,8 @@ async function boot(){let warning='';try{const response=await fetch('../../../as
 }
 function loadViewport(doc){const value=`${doc.viewport.width},${doc.viewport.height}`;if(![...$('viewport').options].some(o=>o.value===value))$('viewport').add(new Option(value,value));$('viewport').value=value;}
 boot();
+
+let transportTick=performance.now();
+setInterval(()=>{const now=performance.now(),delta=Math.min(1,(now-transportTick)/1000);transportTick=now;if(!$('preview').checked)return;const was=transport.recording;if(transport.advance(showDocument(),delta))renderCanvas();if(was&&!transport.recording)finishTakes();const readout=document.querySelector('.transport-time');if(readout&&transport.playing)readout.textContent=`${Math.floor(transport.position)+1} : 01 : 000`;},100);
+
+function finishTakes(){if(!pendingTakes.length)return;const pending=pendingTakes;pendingTakes=[];editShow(d=>{for(const entry of pending){const take=d.performance.takes[entry.track]?.find(t=>t.id===entry.id),item=d.items.find(i=>i.id===entry.item);if(take&&item)take.end=Math.min(item.bars,Math.max(take.start+.25,transport.position));}});}
