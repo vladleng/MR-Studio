@@ -109,3 +109,6 @@ The timeline header has record-option icons left, shared transport centered, and
 Header is now a separate `control.header` layout block above `song.timeline`, with its own bounds and no shared scrolling. Compatible older layouts with enough vertical room split their timeline top area into Header once during validation; names/data/time geometry remain unchanged. The constructor palette exposes Header.
 
 Every primary track panel has M/S beside arm R where recording is available; M/S are the same global channel flags used by Mixer. Record child lanes have independent recordMute/recordSolo flags and matching narrow-strip controls. Setlist's + Setlist/rename/delete/+ Item buttons are hidden from the panel but remain in its context menu; the setlist selector stays visible.
+
+
+Setlist rows/dividers no longer have a separate drag handle; drag the row body without activation. Single-click selection waits for the double-click interval; double-click cancels pending selection and renames without changing currentItem. Browser library keeps its own double-click open behavior. Each library folder (including root) lists items and child folders alphabetically with natural numeric, case-insensitive ordering; stored library/setlist ordering is untouched. Active M is red and active S yellow across track panels and mixer, including record child controls.
