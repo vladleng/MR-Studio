@@ -226,3 +226,12 @@ Dragover верхней/нижней половины строки показы�
 Chord context содержит Add/Edit/Duplicate/Remove и bounded palette; optional chord.color совместим со старыми exports, хранится в show, копируется с event и Undo.
 
 Над items — sticky top row: original canonical MR UDS controls/live_tuner.svg (без входа/показаний, demo) и центрированный transport/readout/Record. Legacy control.transport сохраняется в schema, но не в renderer/palette/layers. Новый preset отдаёт нижнюю область timeline. Одинарные стрелки previous/next перемещают к section starts текущего item; двойные previousItem/nextItem — по setlist entries (с различением повторных ссылок), без wrap на концах. Это demo navigation, не новый audio transport.
+
+
+## 22. Безопасное перемещение и отделения setlist
+
+У строки item слева от swatch находится отдельный draggable grip. Click grip не выбирает item; dragstart блокирует row activation, drop/dragend сохраняют короткий guard от post-drag click. Guard живёт вне renderer, поэтому repaint после reorder не может активировать drop target. Body drag также не переключает currentItem; обычный ЛКМ/двойной ЛКМ сохраняют focus/rename.
+
+Entries могут содержать {id,type:"divider",name}; валидируются без itemId. ПКМ пустой области создаёт divider в конце, ПКМ item — перед строкой; ПКМ divider переименовывает/удаляет, drag меняет позицию. Следующие items относятся к отделению до следующего divider. Это упорядоченные метки, без дублирования item/каналов: timeline и transport фильтруют только entries с itemId, счётчик рядом с Setlist также не включает divider. Undo/JSON/reload и удаление исходных items сохраняют divider.
+
+Header: tuner справа, record-option icons слева, transport по центру. Подпись session/items над timeline удалена, item containers следуют за header без отдельного промежутка.

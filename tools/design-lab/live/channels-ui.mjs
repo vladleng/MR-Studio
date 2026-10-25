@@ -163,7 +163,8 @@ function renderItem(root,assets,item,entry){
  for(const lane of inner.querySelectorAll('.section-lane,.chord-lane,.temporal-lane,.backing-audio-lane,.audio-record-lane')){lane.style.width=`${item.bars*view.scale}px`;lane.style.marginLeft=`${view.lead*view.scale}px`;}
  itemWidthGrip(container,item,view);itemOriginGrip(inner,container,item,view);
 }
-function itemTracks(root,assets){timelineTop(root,assets,enabled());const doc=showDocument(),list=doc.setlists.find(s=>s.id===doc.activeSetlist);add(root,'setlist-timeline-title',`${list.name} · ${list.entries.length} items`);recordView(root);const sequence=add(root,'setlist-timeline-items');for(const entry of list.entries)renderItem(sequence,assets,doc.items.find(i=>i.id===entry.itemId),entry);if(!list.entries.length)add(root,'visual-caption','Сэтлист пуст. Добавьте items из Browser.');}
+function itemTracks(root,assets){const header=timelineTop(root,assets,enabled());recordView(header.querySelector('.timeline-header-left'));const doc=showDocument(),list=doc.setlists.find(s=>s.id===doc.activeSetlist);const sequence=add(root,'setlist-timeline-items');for(const entry of list.entries.filter(e=>e.itemId))renderItem(sequence,assets,doc.items.find(i=>i.id===entry.itemId),entry);if(!list.entries.some(e=>e.itemId))add(root,'visual-caption','Сэтлист пуст. Добавьте items из Browser.');}
+
 export function renderChannelPanel(root,kind,assets){
  if(kind==='timeline'){itemTracks(root,assets);return;}
  const channels=showDocument().channels;
