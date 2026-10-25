@@ -166,12 +166,19 @@ void Desktop::openFile(const juce::File& f){mrs::diagnostics::event("project_ope
     if(next.active>=0)app.open_project(path(next.projects.at(static_cast<std::size_t>(next.active))));else app.new_project();
     liveDocument=std::move(next);liveFile=f;liveDirty=false;app.workspace(mrs::desktop::Workspace::live);
 }else{app.open_project(path(f));liveDocument.reset();liveFile={};liveDirty=false;app.workspace(mrs::desktop::Workspace::arrange);}
-resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();showProjectHome(false);reconnectDevice(session);mrs::diagnostics::event("project_open_end");}
+resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();showProjectHome(false);reconnectDevice(session);if(liveDocument&&liveDocument->active<0)liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};else liveEmptyRevision.reset();mrs::diagnostics::event("project_open_end");}
+bool Desktop::songDirty() const{
+    if(liveDocument&&liveDocument->active<0&&liveEmptyRevision&&
+       liveEmptyRevision->first==app.services().projects->state().revision&&
+       liveEmptyRevision->second==app.graphs()->state().revision)return false;
+    return app.dirty();
+}
 juce::File Desktop::documentFile() const{return liveDocument?liveFile:juce::File(juce::String(app.path().wstring().c_str()));}
 void Desktop::createLive(const juce::File& requested){
     auto file=requested.withFileExtension("mrlive");LiveDocument next;next.title=file.getFileNameWithoutExtension();next.write(file);
     closeEditors();cancelPreview();app.new_project();liveDocument=std::move(next);liveFile=file;liveDirty=false;
     resetDevice();app.workspace(mrs::desktop::Workspace::live);remember();refresh(true);showProjectHome(false);reconnectDevice();
+    liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};
 }
 void Desktop::selectLiveProject(int index){
     if(!liveDocument)throw std::runtime_error("No MR Live show is open");
@@ -188,7 +195,7 @@ void Desktop::addLiveProject(const juce::File& file){
 void Desktop::saveFile(const juce::File& f){
     if(liveDocument){
         auto next=*liveDocument;auto file=f.withFileExtension("mrlive");
-        if(app.dirty()){
+        if(songDirty()){
             auto song=app.path();
             if(song.empty()){
                 auto candidate=file.getSiblingFile(file.getFileNameWithoutExtension()+" song.mrsproject");
@@ -228,7 +235,7 @@ void Desktop::renameTrack(mrs::Id id){
     auto& strips=app.workspace()==mrs::desktop::Workspace::mix?mixer:arrangement->rows;
     for(auto& strip:strips)if(strip->target==id){strip->beginNameEdit();return;}
 }
-void Desktop::confirmDiscard(std::function<void()> nextAction){if(app.recording()){run([&]{app.pause();});if(app.recording()||!message.isEmpty())return;}if(!projectSessionStarted||(!app.dirty()&&!liveDirty)){nextAction();return;}
+void Desktop::confirmDiscard(std::function<void()> nextAction){if(app.recording()){run([&]{app.pause();});if(app.recording()||!message.isEmpty())return;}if(!projectSessionStarted||!documentDirty()){nextAction();return;}
     auto* alert=new StudioAlertWindow(*this,"Save project changes?",label(project()->title),juce::MessageBoxIconType::NoIcon);
     alert->addButton("Save",1);alert->addButton("Discard",2);alert->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
     juce::Component::SafePointer<Desktop> safe(this);alert->enterModalState(true,juce::ModalCallbackFunction::create([safe,nextAction](int n){if(!safe)return;
@@ -406,7 +413,7 @@ void Desktop::action(int n){if(busyGesture()){if(n==34||n==35||n==48||n==49||n==
 });}
 void Desktop::setKnifeMode(bool enabled){knifeMode=enabled;arrangement->keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));arrangement->sections->cancel();arrangement->chords->cancel();pointerTool.setToggleState(!enabled,juce::dontSendNotification);knifeTool.setToggleState(enabled,juce::dontSendNotification);arrangement->setMouseCursor(enabled?juce::MouseCursor::CrosshairCursor:juce::MouseCursor::NormalCursor);}
 void Desktop::setWorkspace(mrs::desktop::Workspace w){app.workspace(w);prefs.workspace=w;if(dockedEditor&&dockedClip)dockedEditor->setVisible(w==mrs::desktop::Workspace::edit);resized();refresh();}
-juce::String Desktop::projectCaption() const{return (liveDocument?liveDocument->title:app.path().empty()?label(project()->title):juce::String(app.path().stem().wstring().c_str()))+((app.dirty()||liveDirty)?" *":"");}
+juce::String Desktop::projectCaption() const{return (liveDocument?liveDocument->title:app.path().empty()?label(project()->title):juce::String(app.path().stem().wstring().c_str()))+(documentDirty()?" *":"");}
 void Desktop::resized(){if(homeVisible&&home){for(auto* child:getChildren())if(child!=home.get())child->setVisible(false);home->setBounds(getLocalBounds());home->toFront(false);return;}
     if(liveWorkspace && app.workspace()==mrs::desktop::Workspace::live){liveLayoutActive=true;for(auto* child:getChildren())child->setVisible(child==liveWorkspace.get());liveWorkspace->setBounds(getLocalBounds());liveWorkspace->toFront(false);return;}
     if(liveLayoutActive){for(auto* child:getChildren())if(child!=home.get()&&child!=liveWorkspace.get())child->setVisible(true);liveLayoutActive=false;}

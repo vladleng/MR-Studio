@@ -432,6 +432,9 @@ void projectHomeSmoke(){
     auto map=home.project()->time;map.tempos={{0,120},{mrs::ppq,60},{2*mrs::ppq,180}};home.app.set_time_map(map);home.app.seek(36025);std::array<float,256> silence{};home.app.engine()->process(nullptr,silence.data(),128);check(std::abs(home.visualTick()-1200.5)<.001,"visual MIDI position keeps fractional ticks across tempo change");
     const auto showFile=folder.getChildFile("Lives/First.mrlive");
     home.createLive(showFile);check(home.liveDocument.has_value()&&showFile.existsAsFile()&&home.app.workspace()==mrs::desktop::Workspace::live,"Home creates a native Live document");
+    check(!home.documentDirty(),"new empty show has no phantom song changes");
+    home.saveFile(showFile);check(LiveDocument::read(showFile).projects.empty(),"saving empty show does not manufacture a song");
+    home.openFile(showFile);check(!home.documentDirty(),"empty show reopens cleanly");
     home.addLiveProject(a);home.saveFile(showFile);
     const auto document=LiveDocument::read(showFile);check(document.projects.size()==1&&document.projects.front()==a&&document.active==0,"show persists relative Studio reference");
     const auto shared=home.app.services().projects;const auto engine=home.app.engine();

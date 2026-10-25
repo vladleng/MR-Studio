@@ -77,6 +77,9 @@ public:
     void selectLiveProject(int);
     void addLiveProject(const juce::File&);
     juce::File documentFile() const;
+    bool songDirty() const;
+    bool documentDirty() const{return liveDirty||songDirty();}
+    std::optional<std::pair<std::uint64_t,std::uint64_t>> liveEmptyRevision;
     std::optional<LiveDocument> liveDocument;
     juce::File liveFile;
     bool liveDirty{},liveLayoutActive{};
