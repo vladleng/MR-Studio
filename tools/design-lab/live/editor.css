@@ -140,3 +140,10 @@
 [data-status=Wip]{--status-bg:#315a80;--status-text:#d3e6f8;--status-dot:#63a8e4}
 .show-context-menu .item-status-option{display:flex;align-items:center;gap:7px;color:var(--status-text)}
 .show-context-menu .item-status-option::before{background:var(--status-dot)}
+.show-browser .song-row [data-card-field]{box-sizing:border-box;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.show-browser .song-row [data-card-field][hidden]{display:none!important}
+.show-browser .song-row .item-status-chip{display:inline-flex;align-items:center;gap:4px;justify-content:center;line-height:18px;padding:1px 5px;border-radius:12px;background:var(--status-bg);color:var(--status-text);font-size:11px;font-weight:600;max-height:24px}
+.item-status-chip::after{content:none}.item-save-dot{max-width:7px;max-height:7px}.item-priority{width:max-content;max-width:32px;text-align:center}
+.item-menu-card{width:340px}.item-menu-form{padding:10px;border-bottom:1px solid #4B5F7B;display:grid;grid-template-columns:1fr 1fr;gap:8px}.item-menu-form>strong,.item-menu-form>[role=alert],.item-menu-form>button{grid-column:1/-1}.item-menu-form label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:#A9BFDC}.item-menu-form input,.item-menu-form select{width:100%;min-width:0;font-size:12px;padding:5px}.show-context-menu .item-menu-form>button{border:1px solid #7188AB;text-align:center}
+.card-layout-stage{position:relative;width:100%;background:#292b2e;border:1px solid #7188AB;margin:14px 0;touch-action:none}.card-layout-field{position:absolute;border:1px dashed #7188AB;background:#36383c;color:#DAE5F4;font-size:10px;white-space:nowrap;overflow:hidden;cursor:move;touch-action:none}.card-layout-field.selected{border-color:#91BBEE}.card-field-resize{position:absolute;right:0;bottom:0;width:9px;height:9px;background:#91BBEE;cursor:nwse-resize}.card-layout-controls{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}.card-layout-controls input[type=checkbox]{width:auto;align-self:flex-start}
+
+.show-browser .song-row [data-card-field=saved]{max-width:7px!important;max-height:7px!important}
