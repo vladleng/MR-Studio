@@ -1,5 +1,6 @@
 #pragma once
 #include "Desktop.h"
+#include "LiveTheme.h"
 #include "LiveCardEditor.h"
 #include "LiveItemEditor.h"
 #include <MRConceptAssets.h>
@@ -95,7 +96,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         layoutRows();
     }
     void paint(juce::Graphics &g) override {
-        const auto tokens = DesignTokens::target();
+        const auto tokens = liveReferenceTokens();
         g.fillAll(tokens.colour(ColourRole::panel));
         g.setColour(tokens.colour(ColourRole::border));
         g.drawRect(getLocalBounds(), 1);
@@ -109,7 +110,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
     }
     void paintOverChildren(juce::Graphics &g) override {
         if (dropY >= 0) {
-            g.setColour(DesignTokens::target().colour(ColourRole::focus));
+            g.setColour(liveReferenceTokens().colour(ColourRole::focus));
             g.fillRect(viewport.getX(), viewport.getY() + dropY - viewport.getViewPositionY(), viewport.getWidth(), 2);
         }
     }
@@ -324,7 +325,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             return static_cast<float>(height);
         }
         void paint(juce::Graphics &g) override {
-            const auto tokens = DesignTokens::target();
+            const auto tokens = liveReferenceTokens();
             const int inset = row.depth * 12;
             auto bounds = getLocalBounds().withTrimmedLeft(inset).toFloat().reduced(1);
             g.setColour(tokens.colour(ColourRole::text));

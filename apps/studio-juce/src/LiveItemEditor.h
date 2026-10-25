@@ -1,5 +1,6 @@
 #pragma once
 #include "Desktop.h"
+#include "LiveTheme.h"
 
 namespace ui {
 class LiveOrganizer final : public juce::Component, private juce::Timer {
@@ -180,7 +181,7 @@ class LiveItemEditor final : public juce::Component {
         setSize(720, 620);
         setName("Item properties and organizer");
         getProperties().set("mrLiveShowEditor", true);
-        theme.applyPreview(DesignTokens::target());
+        theme.applyPreview(liveReferenceTokens());
         setLookAndFeel(&theme);
         const auto state = desktop.liveDocument->interfaceState;
         const auto item = live::find(state, "items", id);

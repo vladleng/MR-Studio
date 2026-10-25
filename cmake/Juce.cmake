@@ -284,6 +284,8 @@ get_target_property(mrs_live_host_sources MoonRiverStudioJuce SOURCES)
 list(FILTER mrs_live_host_sources EXCLUDE REGEX "(^|/)Main\\.cpp$")
 list(FILTER mrs_live_host_sources EXCLUDE REGEX "JuceLibraryCode/")
 get_target_property(mrs_live_host_links MoonRiverStudioJuce LINK_LIBRARIES)
+# Each executable owns its VERSION/identity resource; never link Studio's RC into Live.
+list(REMOVE_ITEM mrs_live_host_links MoonRiverStudioJuce_rc_lib)
 get_target_property(mrs_live_host_definitions MoonRiverStudioJuce COMPILE_DEFINITIONS)
 get_target_property(mrs_live_host_options MoonRiverStudioJuce COMPILE_OPTIONS)
 juce_add_gui_app(MRLiveJuce VERSION 0.7.1 PRODUCT_NAME "MR Live")

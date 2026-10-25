@@ -1,12 +1,13 @@
 #pragma once
 #include "Desktop.h"
+#include "LiveTheme.h"
 
 namespace ui {
 class LiveCardEditor final : public juce::Component {
   public:
     LiveCardEditor(Desktop &desktop, juce::var fallback)
         : owner(&desktop), defaults(std::move(fallback)), stage(*this) {
-        theme.applyPreview(DesignTokens::target());
+        theme.applyPreview(liveReferenceTokens());
         setLookAndFeel(&theme);
         setSize(620, 360);
         setName("Item button layout");

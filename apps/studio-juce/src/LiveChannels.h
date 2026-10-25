@@ -1,5 +1,6 @@
 #pragma once
 #include "Desktop.h"
+#include "LiveTheme.h"
 
 namespace ui {
 class LiveChannels final : public juce::Component {
@@ -16,7 +17,7 @@ class LiveChannels final : public juce::Component {
         layoutRows();
     }
     void paint(juce::Graphics &g) override {
-        const auto tokens = DesignTokens::target();
+        const auto tokens = liveReferenceTokens();
         g.fillAll(tokens.colour(ColourRole::panel));
         g.setColour(tokens.colour(ColourRole::muted));
         g.setFont(owner.theme.font(12));
@@ -54,7 +55,7 @@ class LiveChannels final : public juce::Component {
                 addAndMakeVisible(button);
             mute.setComponentID("live-mute-" + juce::String::fromUTF8(target.value.c_str()));
             solo.setComponentID("live-solo-" + juce::String::fromUTF8(target.value.c_str()));
-            const auto tokens = DesignTokens::target();
+            const auto tokens = liveReferenceTokens();
             mute.setColour(juce::TextButton::buttonOnColourId, tokens.colour(ColourRole::error));
             solo.setColour(juce::TextButton::buttonOnColourId, tokens.colour(ColourRole::warning));
             solo.setColour(juce::TextButton::textColourOnId, tokens.colour(ColourRole::window));
@@ -112,7 +113,7 @@ class LiveChannels final : public juce::Component {
                 button->setBounds(controls.removeFromLeft(width).reduced(1, 0));
         }
         void paint(juce::Graphics &g) override {
-            const auto tokens = DesignTokens::target();
+            const auto tokens = liveReferenceTokens();
             g.setColour(tokens.colour(ColourRole::text));
             g.setFont(owner.theme.font(12));
             g.drawText(name, 5, 2, getWidth() - 10, 24, juce::Justification::left, true);

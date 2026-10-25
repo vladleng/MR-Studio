@@ -1,5 +1,6 @@
 #pragma once
 #include "Desktop.h"
+#include "LiveTheme.h"
 #include "LiveChannels.h"
 #include "LiveLayout.h"
 #include "LiveSetlist.h"
@@ -12,7 +13,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
           browserItems(desktop, true, reference.defaults["itemCardLayout"]), channels(desktop) {
         setComponentID("mr-live-workspace");
         setName("MR Live");
-        nativeTheme.applyPreview(DesignTokens::target());
+        nativeTheme.applyPreview(liveReferenceTokens());
         nativeTheme.useConceptAssets(true);
         setLookAndFeel(&nativeTheme);
         addMouseListener(this, true);
@@ -90,7 +91,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             showBrowser(false);
     }
     void paint(juce::Graphics &g) override {
-        const auto tokens = DesignTokens::target();
+        const auto tokens = liveReferenceTokens();
         g.fillAll(tokens.colour(ColourRole::canvas));
         const auto fill = [&](const char *type) {
             const auto bounds = reference.bounds(type, getWidth(), getHeight());
