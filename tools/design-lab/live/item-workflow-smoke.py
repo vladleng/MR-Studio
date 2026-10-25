@@ -6,7 +6,7 @@ with sync_playwright() as p:
  def doc():return json.loads(page.evaluate('localStorage.getItem("mr-live-demo-show-v1")'))
  root=page.locator('.block .show-browser');current=doc()['currentItem'];entry=root.locator('.song-entry').nth(1);row=entry.locator('.song-row');status=entry.locator('.item-status-chip');assert page.locator('.item-save-icon').count()==0;assert entry.locator('.item-save-dot').get_attribute('data-dirty')=='false'
  for state in ['Wip','Wait','Done','Todo']:
-  status.click();page.get_by_role('menuitem',name=state,exact=True).click();assert status.get_attribute('data-status')==state;assert doc()['currentItem']==current
+  row.click(button='right');card=page.locator('.item-menu-card');card.get_by_label('Статус',exact=True).select_option(state);card.get_by_role('button',name='Применить',exact=True).click();assert status.get_attribute('data-status')==state;assert doc()['currentItem']==current
  assert entry.locator('.item-save-dot').get_attribute('data-dirty')=='true'
  row.click(button='right');page.get_by_role('menuitem',name='Priority / Progress…',exact=True).click();modal=page.get_by_role('dialog');modal.get_by_label('Priority',exact=True).select_option('P1');modal.get_by_label('Progress, %',exact=True).fill('35');modal.get_by_role('button',name='Сохранить',exact=True).click();assert entry.locator('.item-priority').inner_text()=='P1';assert entry.get_by_role('progressbar').get_attribute('aria-valuenow')=='35';assert doc()['currentItem']==current
  row.click(button='right');page.get_by_role('menuitem',name='Save for All',exact=True).click();assert entry.locator('.item-save-dot').get_attribute('data-dirty')=='false';assert doc()['currentItem']==current
