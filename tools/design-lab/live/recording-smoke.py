@@ -7,7 +7,7 @@ with sync_playwright() as p:
  def doc():return json.loads(page.evaluate('localStorage.getItem("mr-live-demo-show-v1")'))
  d=doc();parents=[c for c in d['channels'] if c['type'] in ['Instrument','Player']];assert len(parents)==2
  assert page.locator('.record-track').count()==0;assert not d['viewRecordTracks']
- record=page.locator('.visual-control-transport').get_by_role('button',name='Record · общая запись',exact=True);record.click();assert record.get_attribute('aria-pressed')=='false';assert 'Подготовьте' in page.locator('.transport-readout').inner_text()
+ record=page.locator('.timeline-transport').get_by_role('button',name='Record · общая запись',exact=True);record.click();assert record.get_attribute('aria-pressed')=='false';assert 'Подготовьте' in page.locator('.transport-readout').inner_text()
  for c in parents:first.locator(f'.item-track[data-channel="{c["id"]}"]').get_by_role('button',name='Запись: '+c['name'],exact=True).click()
  assert record.get_attribute('aria-pressed')=='false'
  page.locator('[data-action="transport.play"]').click();assert record.get_attribute('aria-pressed')=='false'

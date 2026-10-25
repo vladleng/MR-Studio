@@ -15,6 +15,10 @@ export class DemoTransport{
   if(action==='transport.play'){if(this.recording&&!this.playing)this.recordAnchor=this.position-this.captureElapsed;this.playing=true;if(!this.itemId)this.itemId=itemId;}
   if(['transport.pause','transport.stop'].includes(action)){this.playing=false;this.recording=false;this.active.clear();if(action==='transport.stop'&&this.backToStart)this.returnToStart();}
  }
+ navigate(action,doc){const list=doc.setlists.find(s=>s.id===doc.activeSetlist);if(!list.entries.length)return;const current=doc.items.find(i=>i.id===(this.itemId||doc.currentItem));if(!current)return;
+ if(['transport.previousItem','transport.nextItem'].includes(action)){let index=list.entries.findIndex(e=>e.id===this.entryId);if(index<0)index=list.entries.findIndex(e=>e.itemId===current.id);const entry=list.entries[Math.max(0,Math.min(list.entries.length-1,index+(action==='transport.nextItem'?1:-1)))];this.entryId=entry.id;this.itemId=entry.itemId;this.position=0;this.section=null;return;}
+ const starts=[...new Set([0,...current.sections.map(s=>s.start)])].sort((a,b)=>a-b);this.itemId=current.id;this.position=action==='transport.next'?(starts.find(start=>start>this.position+1e-7)??this.position):([...starts].reverse().find(start=>start<this.position-1e-7)??0);this.section=null;
+ }
  returnToStart(){this.position=this.startPosition;this.itemId=this.startItemId||this.itemId;this.section=null;}
  advance(doc,seconds){
   const captureItem=doc.items.find(i=>i.id===this.itemId);if(this.recording&&captureItem){const [n,d]=captureItem.meter.split('/').map(Number);this.captureElapsed+=seconds*captureItem.tempo/60/(n*4/d);}

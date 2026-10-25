@@ -18,7 +18,7 @@
       "x": 352,
       "y": 80,
       "w": 1568,
-      "h": 936,
+      "h": 1000,
       "minW": 120,
       "maxW": 4096,
       "minH": 64,
@@ -96,7 +96,7 @@
       "color": "bright",
       "anchor": "top-left",
       "overflow": "auto",
-      "visible": true,
+      "visible": false,
       "asset": "",
       "direction": "row",
       "bindings": [
