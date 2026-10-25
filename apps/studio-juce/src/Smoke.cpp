@@ -444,6 +444,12 @@ void projectHomeSmoke(){
     auto missing=LiveDocument::read(showFile);missing.projects[0]=folder.getChildFile("absent.mrsproject");missing.write(broken);
     home.run([&]{home.openFile(broken);});check(home.app.services().projects==preserved&&home.liveFile==showFile,"missing song preserves open show");
     auto all=findHomeProjects(folder);check(all.files.size()==4,"Home discovers both show and Studio documents");
+    home.home->scanRoot(folder);for(int attempt=0;attempt<200&&home.home->loading();++attempt){std::this_thread::sleep_for(std::chrono::milliseconds(5));home.home->pollScan();}
+    check(home.home->projectCount()==2,"Studio tab excludes same-name Live show");
+    for(auto* c:home.home->getChildren())if(c->getComponentID()=="home-live-tab")dynamic_cast<juce::TextButton*>(c)->onClick();
+    check(home.home->projectCount()==2&&home.home->projectFile(0).hasFileExtension("mrlive"),"MR Live tab contains only shows");
+    for(auto* c:home.home->getChildren())if(c->getComponentID()=="home-studio-tab")dynamic_cast<juce::TextButton*>(c)->onClick();
+    check(home.home->projectCount()==2&&home.home->projectFile(0).hasFileExtension("mrsproject"),"switching back restores Studio list");
     home.openFile(a);check(!home.liveDocument&&home.app.workspace()==mrs::desktop::Workspace::arrange,"ordinary project leaves Live document mode");
     home.home.reset();check(folder.deleteRecursively(),"home fixture cleanup");
 }
