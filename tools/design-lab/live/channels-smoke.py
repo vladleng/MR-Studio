@@ -2,7 +2,7 @@ from playwright.sync_api import sync_playwright
 import json
 with sync_playwright() as p:
  b=p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox']);page=b.new_page(viewport={'width':1920,'height':1200});errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
- page.goto('http://127.0.0.1:8001/tools/design-lab/live/');page.wait_for_selector('.block');page.locator('#load-user-layout').click();page.wait_for_function('document.querySelectorAll(".block").length===6');page.locator('#preview').check()
+ page.goto('http://127.0.0.1:8001/tools/design-lab/live/');page.wait_for_selector('.block');page.locator('#load-user-layout').click();page.wait_for_function('document.querySelectorAll(".block").length===5');page.locator('#preview').check()
  container=page.locator('.live-item-container').first;container.get_by_role('button',name='+ Канал',exact=True).click();dialog=page.get_by_role('dialog');dialog.get_by_label('Тип канала',exact=True).select_option('Player');dialog.get_by_label('Название',exact=True).fill('Lead');dialog.get_by_role('button',name='Сохранить',exact=True).click()
  doc=json.loads(page.evaluate('localStorage.getItem("mr-live-demo-show-v1")'));cid=doc['channels'][-1]['id'];assert all(any(t['channelId']==cid for t in i['tracks']) for i in doc['items'])
  row=container.locator(f'.item-track[data-channel="{cid}"]');row.locator('.channel-dots').click();page.get_by_role('menu').get_by_role('menuitem',name='Переименовать канал',exact=True).click();dialog=page.get_by_role('dialog');dialog.get_by_label('Название',exact=True).fill('Lead 2');dialog.get_by_role('button',name='Сохранить',exact=True).click()

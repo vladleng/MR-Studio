@@ -4,7 +4,7 @@ with sync_playwright() as p:
  b=p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox'])
  page=b.new_page(viewport={'width':1920,'height':1200});errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
  page.goto('http://127.0.0.1:8001/tools/design-lab/live/');page.wait_for_selector('.block')
- page.locator('#load-user-layout').click();page.wait_for_function('document.querySelectorAll(".block").length===6');page.locator('#preview').check()
+ page.locator('#load-user-layout').click();page.wait_for_function('document.querySelectorAll(".block").length===5');page.locator('#preview').check()
  assert page.locator('.block[aria-label="Inputs / patches"]').count()==0
  assert page.locator('.block .mixer-strip').count()==0
  container=page.locator('.live-item-container').first;assert container.locator('.item-track').count()==4

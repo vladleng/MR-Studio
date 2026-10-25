@@ -94,3 +94,8 @@ The live toolbar has Files (demo show open/save), Options (record visibility/lin
 Toolbar Playback / stems and Status icons persist preview visibility. Hidden lower sidebar panels give their space to Setlist; constructor geometry remains untouched. Transport > Back to start optionally returns Stop to the cursor position/item where playback began (not necessarily bar 1). Sections/chords/sub-patches highlight only their active, end-exclusive interval.
 
 Single-click a Setlist item to make it current and reveal it on the timeline. Double-click its name to rename inline (Enter/blur saves, Escape cancels). The left color swatch or row context menu chooses an item color shared with the timeline container. Colors, preferences and names survive reload/export/Undo.
+
+
+The timeline now has a top row with an original MR UDS tuner illustration (NO INPUT / DEMO) and horizontally centered shared transport/readout/Record. The old standalone transport block remains importable but is omitted from palette/render/layers. Single arrows navigate section starts; double arrows navigate ordered setlist occurrences, including repeated items.
+
+Setlist drag previews show a line before/after the target row; dropping uses that exact insertion boundary for reorder and browser copies. Leaving/cancelling clears the hint. Chord right-click exposes Add/Edit/Duplicate/Remove and a color palette; authored colors persist and current highlighting stays distinct.

@@ -217,3 +217,12 @@ Sections заменяет «Части песни»; кнопка + Часть �
 performance.panels (playback/status, default true) управляет preview панелями по toolbar icons. При скрытии нижние панели колонки собираются снизу, Setlist занимает освободившееся место; layout bounds конструктора не меняются. Перекомпоновка применяется только к найденной общей колонке. performance.backToStart default false — опция Transport, возвращающая Stop к item/позиции начала текущего запуска, включая переходы между items. Завершение take фиксируется до визуального возврата.
 
 Sections, chords и sub-patches подсвечиваются при playing по общему cursor, с exclusive end и пустыми gaps. Single-click row выбирает currentItem/показывает контейнер timeline без пересоздания строки. Double-click открывает inline name input: Enter/blur save, Escape cancel. performance.itemColors хранит цвет по item ID (ограниченная палитра). Маленький swatch слева/ПКМ задаёт цвет контейнера timeline и его шапки; current highlight остаётся отдельным признаком. Preferences/colors/name сохраняются в demo-show, Undo/JSON.
+
+
+## 21. Вставка в Setlist и верхняя полоса timeline
+
+Dragover верхней/нижней половины строки показывает линию before/after; append подсвечивается сразу после последней строки. Reorder удаляет source до вычисления позиции target, поэтому фактическая вставка совпадает с линией в обе стороны. Browser drag создаёт новую ссылку; leave/end/drop очищают preview.
+
+Chord context содержит Add/Edit/Duplicate/Remove и bounded palette; optional chord.color совместим со старыми exports, хранится в show, копируется с event и Undo.
+
+Над items — sticky top row: original canonical MR UDS controls/live_tuner.svg (без входа/показаний, demo) и центрированный transport/readout/Record. Legacy control.transport сохраняется в schema, но не в renderer/palette/layers. Новый preset отдаёт нижнюю область timeline. Одинарные стрелки previous/next перемещают к section starts текущего item; двойные previousItem/nextItem — по setlist entries (с различением повторных ссылок), без wrap на концах. Это demo navigation, не новый audio transport.
