@@ -187,7 +187,7 @@ void Desktop::selectLiveProject(int index){
     const auto file=liveDocument->projects.at(static_cast<std::size_t>(index));
     const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
     closeEditors();cancelPreview();app.open_project(path(file));resetDevice();liveDocument->active=index;
-    if(liveDocument->interface.isObject()&&liveDocument->projectFor(liveDocument->interface["currentItem"].toString())!=index)for(const auto& [id,binding]:liveDocument->itemProjects)if(binding==index){live::put(liveDocument->interface,"currentItem",id);break;}
+    if(liveDocument->interfaceState.isObject()&&liveDocument->projectFor(liveDocument->interfaceState["currentItem"].toString())!=index)for(const auto& [id,binding]:liveDocument->itemProjects)if(binding==index){live::put(liveDocument->interfaceState,"currentItem",id);break;}
     updateLiveDirty();++liveUiRevision;
     selectedClip.reset();selectedTrack.reset();refresh(true);reconnectDevice(session);
 }
@@ -197,7 +197,7 @@ void Desktop::addLiveProject(const juce::File& file){
     const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
     closeEditors();cancelPreview();app.open_project(path(file));resetDevice();
     liveDocument->ensureInterface(LiveLayout().defaults);liveDocument->projects.push_back(file);liveDocument->active=static_cast<int>(liveDocument->projects.size())-1;
-    const auto itemId=live::addItem(liveDocument->interface,LiveDocument::projectLabel(file));live::insertEntry(liveDocument->interface,itemId);live::put(liveDocument->interface,"currentItem",itemId);liveDocument->itemProjects[itemId]=liveDocument->active;liveUndo.clearUndoHistory();updateLiveDirty();++liveUiRevision;
+    const auto itemId=live::addItem(liveDocument->interfaceState,LiveDocument::projectLabel(file));live::insertEntry(liveDocument->interfaceState,itemId);live::put(liveDocument->interfaceState,"currentItem",itemId);liveDocument->itemProjects[itemId]=liveDocument->active;liveUndo.clearUndoHistory();updateLiveDirty();++liveUiRevision;
     selectedClip.reset();selectedTrack.reset();refresh(true);reconnectDevice(session);
 }
 void Desktop::saveFile(const juce::File& f){
@@ -213,13 +213,13 @@ void Desktop::saveFile(const juce::File& f){
             }
             app.save_project(song);const juce::File saved(juce::String(app.path().wstring().c_str()));
             if(showState.active<0){showState.projects.push_back(saved);showState.active=static_cast<int>(showState.projects.size())-1;
-                auto itemId=showState.interface["currentItem"].toString();if(itemId.isEmpty()){itemId=live::addItem(showState.interface,LiveDocument::projectLabel(saved));live::insertEntry(showState.interface,itemId);live::put(showState.interface,"currentItem",itemId);}showState.itemProjects[itemId]=showState.active;
+                auto itemId=showState.interfaceState["currentItem"].toString();if(itemId.isEmpty()){itemId=live::addItem(showState.interfaceState,LiveDocument::projectLabel(saved));live::insertEntry(showState.interfaceState,itemId);live::put(showState.interfaceState,"currentItem",itemId);}showState.itemProjects[itemId]=showState.active;
             }
             else showState.projects.at(static_cast<std::size_t>(showState.active))=saved;
         }
         if(showState.active<0&&!app.path().empty()){
             showState.projects.emplace_back(juce::String(app.path().wstring().c_str()));showState.active=static_cast<int>(showState.projects.size())-1;
-            auto itemId=showState.interface["currentItem"].toString();if(itemId.isEmpty()){itemId=live::addItem(showState.interface,LiveDocument::projectLabel(juce::File(juce::String(app.path().wstring().c_str()))));live::insertEntry(showState.interface,itemId);live::put(showState.interface,"currentItem",itemId);}showState.itemProjects[itemId]=showState.active;
+            auto itemId=showState.interfaceState["currentItem"].toString();if(itemId.isEmpty()){itemId=live::addItem(showState.interfaceState,LiveDocument::projectLabel(juce::File(juce::String(app.path().wstring().c_str()))));live::insertEntry(showState.interfaceState,itemId);live::put(showState.interfaceState,"currentItem",itemId);}showState.itemProjects[itemId]=showState.active;
         }
         const bool bindingsChanged=showState.itemProjects!=liveDocument->itemProjects;showState.write(file);if(bindingsChanged)liveUndo.clearUndoHistory();liveDocument=std::move(showState);liveFile=file;liveSavedContents=liveDocument->signature();updateLiveDirty();++liveUiRevision;remember();refresh();return;
     }

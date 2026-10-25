@@ -55,7 +55,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                 const auto state = data();
                 if (index < 0 || index >= state["setlists"].size())
                     return;
-                live::put(owner.liveDocument->interface, "activeSetlist", state["setlists"][index]["id"]);
+                live::put(owner.liveDocument->interfaceState, "activeSetlist", state["setlists"][index]["id"]);
                 owner.liveShowEditing = true;
                 owner.updateLiveDirty();
                 ++owner.liveUiRevision;
@@ -70,7 +70,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
     std::function<void()> toggleBrowser;
     std::function<void()> dragGuard;
     std::function<bool()> activationBlocked;
-    juce::var data() const { return owner.liveDocument ? owner.liveDocument->interface : juce::var(); }
+    juce::var data() const { return owner.liveDocument ? owner.liveDocument->interfaceState : juce::var(); }
     juce::var layout() const {
         const auto value = data()["performance"]["itemCardLayout"];
         return value.isObject() ? value : defaults;
@@ -329,7 +329,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             const int inset = row.depth * 12;
             auto bounds = getLocalBounds().withTrimmedLeft(inset).toFloat().reduced(1);
             g.setColour(tokens.colour(ColourRole::text));
-            g.setFont(host.owner.theme.font(row.divider ? 12 : 13));
+            g.setFont(host.owner.theme.font(row.divider ? 12.f : 13.f));
             if (row.folder) {
                 if (folderIcon)
                     folderIcon->drawWithin(g, bounds.removeFromLeft(18).reduced(2), juce::RectanglePlacement::centred,

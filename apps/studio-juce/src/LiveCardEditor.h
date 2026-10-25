@@ -10,7 +10,7 @@ class LiveCardEditor final : public juce::Component {
         setLookAndFeel(&theme);
         setSize(620, 360);
         setName("Item button layout");
-        draft = desktop.liveDocument->interface["performance"]["itemCardLayout"].clone();
+        draft = desktop.liveDocument->interfaceState["performance"]["itemCardLayout"].clone();
         if (!draft.isObject())
             draft = defaults.clone();
         addAndMakeVisible(stage);

@@ -76,38 +76,41 @@ void liveInterfaceSmoke(const juce::File &fixture) {
               "Unlinked editor items cannot play simulated audio");
     desktop.message.clear();
     desktop.editLiveInterface("Workflow", [&](auto &state) { live::setWorkflow(state, id, "Wait", "P2", 0); });
-    liveCheck(live::workflow(desktop.liveDocument->interface, id)["status"].toString() == "Wait" &&
-                  !live::itemDirty(desktop.liveDocument->interface, id),
+    liveCheck(live::workflow(desktop.liveDocument->interfaceState, id)["status"].toString() == "Wait" &&
+                  !live::itemDirty(desktop.liveDocument->interfaceState, id),
               "Status/priority are shared and do not dirty Browser content");
     desktop.action(10);
-    liveCheck(live::workflow(desktop.liveDocument->interface, id)["status"].toString() == "Todo", "Show metadata Undo");
+    liveCheck(live::workflow(desktop.liveDocument->interfaceState, id)["status"].toString() == "Todo",
+              "Show metadata Undo");
     desktop.action(11);
-    liveCheck(live::workflow(desktop.liveDocument->interface, id)["status"].toString() == "Wait", "Show metadata Redo");
+    liveCheck(live::workflow(desktop.liveDocument->interfaceState, id)["status"].toString() == "Wait",
+              "Show metadata Redo");
     const auto saved = folder.getChildFile("interface.mrlive");
     desktop.saveFile(saved);
     liveCheck(!desktop.documentDirty() && desktop.liveDocument->projects.empty(),
               "Metadata save creates no phantom song");
-    const auto savedName = live::libraryItem(desktop.liveDocument->interface, id)["name"].toString();
+    const auto savedName = live::libraryItem(desktop.liveDocument->interfaceState, id)["name"].toString();
     desktop.editLiveInterface(
         "Name", [&](auto &state) { live::put(live::require(state, "items", id), "name", "Edited Alpha"); });
-    liveCheck(live::itemDirty(desktop.liveDocument->interface, id) &&
-                  live::libraryItem(desktop.liveDocument->interface, id)["name"].toString() == savedName,
+    liveCheck(live::itemDirty(desktop.liveDocument->interfaceState, id) &&
+                  live::libraryItem(desktop.liveDocument->interfaceState, id)["name"].toString() == savedName,
               "Browser keeps its saved content separate from working item");
     desktop.action(10);
     liveCheck(!desktop.documentDirty(), "Undo to saved metadata clears dirty state");
     desktop.action(11);
     desktop.editLiveInterface("Save for All", [&](auto &state) { live::saveItem(state, id); });
-    liveCheck(!live::itemDirty(desktop.liveDocument->interface, id), "Save for All updates Browser version");
+    liveCheck(!live::itemDirty(desktop.liveDocument->interfaceState, id), "Save for All updates Browser version");
     desktop.saveFile(saved);
     desktop.action(10);
-    liveCheck(desktop.documentDirty() && live::itemDirty(desktop.liveDocument->interface, id),
+    liveCheck(desktop.documentDirty() && live::itemDirty(desktop.liveDocument->interfaceState, id),
               "Saving preserves metadata Undo and saved-point dirty tracking");
     desktop.action(11);
     liveCheck(!desktop.documentDirty(), "Redo after Save returns to saved metadata");
     desktop.editLiveInterface("Move folder",
                               [&](auto &state) { live::put(live::require(state, "items", id), "folder", {}); });
-    liveCheck(!live::itemDirty(desktop.liveDocument->interface, id), "Folder bookkeeping does not dirty item content");
-    const auto before = live::canonical(desktop.liveDocument->interface);
+    liveCheck(!live::itemDirty(desktop.liveDocument->interfaceState, id),
+              "Folder bookkeeping does not dirty item content");
+    const auto before = live::canonical(desktop.liveDocument->interfaceState);
     bool rejected = false;
     try {
         desktop.editLiveInterface("Cycle", [](auto &state) {
@@ -116,28 +119,29 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     } catch (const std::exception &) {
         rejected = true;
     }
-    liveCheck(rejected && live::canonical(desktop.liveDocument->interface) == before, "Folder cycles fail atomically");
+    liveCheck(rejected && live::canonical(desktop.liveDocument->interfaceState) == before,
+              "Folder cycles fail atomically");
     desktop.editLiveInterface("Task status", [&](auto &state) {
         auto &task = live::require(live::map(live::performance(state), "itemTasks"), id, "task-b");
         live::put(task, "status", "Done");
     });
-    liveCheck(live::progress(desktop.liveDocument->interface, id) == 67 &&
-                  !live::itemDirty(desktop.liveDocument->interface, id),
+    liveCheck(live::progress(desktop.liveDocument->interfaceState, id) == 67 &&
+                  !live::itemDirty(desktop.liveDocument->interfaceState, id),
               "Organizer branches recompute without Save for All");
     desktop.action(10);
-    liveCheck(live::progress(desktop.liveDocument->interface, id) == 50, "Organizer Undo");
+    liveCheck(live::progress(desktop.liveDocument->interfaceState, id) == 50, "Organizer Undo");
     desktop.action(11);
     desktop.editLiveInterface("Remove task", [&](auto &state) { live::removeTask(state, id, "task-root-a"); });
-    liveCheck(live::tasks(desktop.liveDocument->interface, id).size() == 4, "Task removal includes descendants");
+    liveCheck(live::tasks(desktop.liveDocument->interfaceState, id).size() == 4, "Task removal includes descendants");
     desktop.action(10);
-    liveCheck(live::tasks(desktop.liveDocument->interface, id).size() == 7, "Task subtree Undo");
+    liveCheck(live::tasks(desktop.liveDocument->interfaceState, id).size() == 7, "Task subtree Undo");
     liveCheck(desktop.app.engine() == engine && desktop.app.services().projects == store,
               "Show authoring retains shared engine and Project Model");
     desktop.editLiveInterface("Card layout", [](auto &state) {
         live::put(live::property(live::performance(state), "itemCardLayout"), "height", 64);
     });
     desktop.action(10);
-    liveCheck(static_cast<int>(desktop.liveDocument->interface["performance"]["itemCardLayout"]["height"]) == 53,
+    liveCheck(static_cast<int>(desktop.liveDocument->interfaceState["performance"]["itemCardLayout"]["height"]) == 53,
               "Card constructor one-step Undo");
     auto *native = dynamic_cast<LiveWorkspace *>(liveComponent(desktop, "mr-live-workspace"));
     liveCheck(native != nullptr, "Native show workspace exists");
@@ -146,7 +150,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     livePump();
     auto *list = dynamic_cast<LiveSetlist *>(liveComponent(desktop, "live-setlist"));
     liveCheck(list != nullptr, "Native Setlist exists");
-    const int count = live::activeSetlist(desktop.liveDocument->interface)["entries"].size();
+    const int count = live::activeSetlist(desktop.liveDocument->interfaceState)["entries"].size();
     auto payload = live::object();
     live::put(payload, "mrLiveRow", second);
     live::put(payload, "kind", "item");
@@ -154,11 +158,11 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     juce::DragAndDropTarget::SourceDetails drag(payload, list, {12, 42});
     liveCheck(list->isInterestedInDragSource(drag), "Native setlist accepts Browser items");
     list->itemDropped(drag);
-    liveCheck(live::activeSetlist(desktop.liveDocument->interface)["entries"].size() == count + 1 &&
-                  desktop.liveDocument->interface["items"].size() == 3,
+    liveCheck(live::activeSetlist(desktop.liveDocument->interfaceState)["entries"].size() == count + 1 &&
+                  desktop.liveDocument->interfaceState["items"].size() == 3,
               "Browser drop inserts a reference, not a copied item");
     desktop.action(10);
-    liveCheck(live::activeSetlist(desktop.liveDocument->interface)["entries"].size() == count,
+    liveCheck(live::activeSetlist(desktop.liveDocument->interfaceState)["entries"].size() == count,
               "Drop is one Undo transaction");
     desktop.app.new_project();
     desktop.app.add_audio_track("Real shared channel");
@@ -169,8 +173,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
               "Explicit item binding loads real Studio project");
     desktop.saveFile(saved);
     const auto reopened = LiveDocument::read(saved);
-    liveCheck(reopened.projectFor(id) == 0 && reopened.interface["items"].size() == 3 &&
-                  live::tasks(reopened.interface, id).size() == 7,
+    liveCheck(reopened.projectFor(id) == 0 && reopened.interfaceState["items"].size() == 3 &&
+                  live::tasks(reopened.interfaceState, id).size() == 7,
               "Native v2 round-trips references and organizer");
     desktop.selectLiveItem(second);
     liveCheck(desktop.liveDocument->active == -1 && desktop.project()->tracks.empty(),
@@ -201,7 +205,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     legacy.active = 0;
     const auto old = folder.getChildFile("legacy.mrlive");
     legacy.write(old);
-    liveCheck(LiveDocument::read(old).interface["items"].size() == 1, "Native v1 files migrate to catalog metadata");
+    liveCheck(LiveDocument::read(old).interfaceState["items"].size() == 1,
+              "Native v1 files migrate to catalog metadata");
     liveCheck(fixture.loadFileAsString() == original, "Editor source export remains unchanged");
     desktop.home.reset();
     liveCheck(folder.deleteRecursively(), "Native interface fixture cleanup");

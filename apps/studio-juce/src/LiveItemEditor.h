@@ -134,7 +134,7 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
         juce::TextEditor name, percent;
         juce::TextButton add{"+"}, remove{"x"};
     };
-    juce::var data() const { return owner && owner->liveDocument ? owner->liveDocument->interface : juce::var(); }
+    juce::var data() const { return owner && owner->liveDocument ? owner->liveDocument->interfaceState : juce::var(); }
     void edit(const juce::String &label, std::function<void(juce::var &)> action) {
         if (owner)
             owner->run([&] { owner->editLiveInterface(label, std::move(action)); });
@@ -182,7 +182,7 @@ class LiveItemEditor final : public juce::Component {
         getProperties().set("mrLiveShowEditor", true);
         theme.applyPreview(DesignTokens::target());
         setLookAndFeel(&theme);
-        const auto state = desktop.liveDocument->interface;
+        const auto state = desktop.liveDocument->interfaceState;
         const auto item = live::find(state, "items", id);
         original = properties(state, id);
         name.setText(item["name"].toString(), false);
@@ -310,7 +310,7 @@ class LiveItemEditor final : public juce::Component {
             return;
         bool success = false;
         owner->run([&] {
-            if (properties(owner->liveDocument->interface, itemId) != original)
+            if (properties(owner->liveDocument->interfaceState, itemId) != original)
                 throw std::runtime_error("Item properties changed; reopen the card before applying");
             const auto bpm = numeric(tempo.getText()), seconds = numeric(duration.getText()),
                        percent = numeric(progress.getText());

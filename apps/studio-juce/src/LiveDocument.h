@@ -8,7 +8,7 @@ struct LiveDocument {
     juce::String title{"MR Live"};
     std::vector<juce::File> projects;
     int active{-1};
-    juce::var interface;
+    juce::var interfaceState;
     std::map<juce::String, int> itemProjects;
 
     static juce::String projectLabel(const juce::File &file) {
@@ -16,20 +16,20 @@ struct LiveDocument {
         return label.isEmpty() ? juce::String("Studio project") : label;
     }
     void ensureInterface(const juce::var &defaults = {}) {
-        if (interface.isObject())
+        if (interfaceState.isObject())
             return;
-        interface = live::empty(defaults);
+        interfaceState = live::empty(defaults);
         for (std::size_t i = 0; i < projects.size(); ++i) {
-            const auto id = live::addItem(interface, projectLabel(projects[i]));
-            live::insertEntry(interface, id);
+            const auto id = live::addItem(interfaceState, projectLabel(projects[i]));
+            live::insertEntry(interfaceState, id);
             itemProjects[id] = static_cast<int>(i);
             if (static_cast<int>(i) == active)
-                live::put(interface, "currentItem", id);
+                live::put(interfaceState, "currentItem", id);
         }
     }
     LiveDocument clone() const {
         auto result = *this;
-        result.interface = interface.clone();
+        result.interfaceState = interfaceState.clone();
         return result;
     }
     int projectFor(const juce::String &id) const {
@@ -37,7 +37,7 @@ struct LiveDocument {
         return found == itemProjects.end() ? -1 : found->second;
     }
     bool currentLinked() const {
-        return !interface.isObject() ? active >= 0 : projectFor(interface["currentItem"].toString()) >= 0;
+        return !interfaceState.isObject() ? active >= 0 : projectFor(interfaceState["currentItem"].toString()) >= 0;
     }
     void validate() const {
         if (projects.size() > 1024 || active < -1 || active >= static_cast<int>(projects.size()))
@@ -45,13 +45,13 @@ struct LiveDocument {
         for (const auto &file : projects)
             if (!file.hasFileExtension("mrsproject"))
                 throw std::runtime_error("MR Live songs must reference .mrsproject");
-        if (interface.isObject()) {
-            live::validate(interface);
+        if (interfaceState.isObject()) {
+            live::validate(interfaceState);
             for (const auto &[id, index] : itemProjects)
-                if (!live::find(interface, "items", id).isObject() || index < 0 ||
+                if (!live::find(interfaceState, "items", id).isObject() || index < 0 ||
                     index >= static_cast<int>(projects.size()))
                     throw std::runtime_error("Invalid MR Live item project binding");
-            if (projectFor(interface["currentItem"].toString()) != active)
+            if (projectFor(interfaceState["currentItem"].toString()) != active)
                 throw std::runtime_error("Show selection and project binding differ");
         }
     }
@@ -59,15 +59,15 @@ struct LiveDocument {
         validate();
         auto value = live::object();
         live::put(value, "schema", "mr-live-show");
-        live::put(value, "version", interface.isObject() ? 2 : 1);
+        live::put(value, "version", interfaceState.isObject() ? 2 : 1);
         live::put(value, "title", title);
         live::put(value, "active", active);
         juce::Array<juce::var> refs;
         for (const auto &project : projects)
             refs.add(absolute ? project.getFullPathName() : project.getRelativePathFrom(file.getParentDirectory()));
         live::put(value, "projects", refs);
-        if (interface.isObject()) {
-            live::put(value, "interface", interface.clone());
+        if (interfaceState.isObject()) {
+            live::put(value, "interface", interfaceState.clone());
             auto links = live::object();
             for (const auto &[id, index] : itemProjects)
                 live::put(links, id, index);
@@ -103,7 +103,7 @@ struct LiveDocument {
         } else {
             if (!value["interface"].isObject() || !value["itemProjects"].isObject())
                 throw std::runtime_error("Missing MR Live interface metadata");
-            result.interface = value["interface"].clone();
+            result.interfaceState = value["interface"].clone();
             for (const auto &pair : value["itemProjects"].getDynamicObject()->getProperties()) {
                 if (!pair.value.isInt())
                     throw std::runtime_error("Invalid item project index");

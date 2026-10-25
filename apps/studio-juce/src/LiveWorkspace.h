@@ -110,7 +110,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
              {"control.toolbar", "control.header", "song.timeline", "playback.stems", "system.status"})
             fill(type);
         const auto header = reference.bounds("control.header", getWidth(), getHeight());
-        const auto state = owner.liveDocument ? owner.liveDocument->interface : juce::var();
+        const auto state = owner.liveDocument ? owner.liveDocument->interfaceState : juce::var();
         const auto current = live::find(state, "items", state["currentItem"].toString());
         const bool linked = !owner.liveDocument || owner.liveDocument->currentLinked();
         g.setColour(tokens.colour(ColourRole::text));
