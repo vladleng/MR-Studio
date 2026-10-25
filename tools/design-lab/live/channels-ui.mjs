@@ -65,6 +65,9 @@ function level(root,c,kind){const row=add(root,`level-control ${kind!=='pan'?'vo
  const output=add(row,'',valueText(kind,c[kind]),'output');output.dataset.channelReadout=c.id;output.dataset.kind=kind;
  input.oninput=()=>syncLevel(c.id,kind,Number(input.value));input.onchange=()=>run(root,()=>{const block=input.closest('.block')?.dataset.id;const label=input.getAttribute('aria-label');editShow(d=>d.channels.find(x=>x.id===c.id)[kind]=Number(input.value));for(const n of document.querySelectorAll('[data-channel-level]'))if(n.dataset.channelLevel===c.id&&n.dataset.kind===kind&&n.closest('.block')?.dataset.id===block&&n.getAttribute('aria-label')===label)n.focus({preventScroll:true});});
 }
+function itemPlaybackLevel(root,c,item,track){
+ const row=add(root,'level-control volume-control item-playback-level');const input=add(row,'volume-slider',undefined,'input');input.type='range';input.min=-60;input.max=12;input.step=.5;input.value=track.playbackGain;input.disabled=!enabled();input.setAttribute('aria-label',`Громкость Playback: ${item.name} / ${c.name}`);const output=add(row,'',`${track.playbackGain} dB`,'output');input.oninput=()=>output.textContent=`${input.value} dB`;input.onchange=()=>run(root,()=>editShow(d=>d.items.find(i=>i.id===item.id).tracks.find(t=>t.id===track.id).playbackGain=Number(input.value)));row.title='Громкость файла этого item; суммируется с громкостью канала в микшере';
+}
 function valueText(kind,value){return kind!=='pan'?`${value} dB`:value===0?'C':`${Math.abs(value)}${value<0?'L':'R'}`;}
 function syncLevel(id,kind,value){for(const input of document.querySelectorAll('[data-channel-level]'))if(input.dataset.channelLevel===id&&input.dataset.kind===kind)input.value=value;for(const output of document.querySelectorAll('[data-channel-readout]'))if(output.dataset.channelReadout===id&&output.dataset.kind===kind)output.textContent=valueText(kind,value);}
 const collapsedItems=new Set(),openTakes=new Set();
@@ -167,7 +170,7 @@ function renderItem(root,assets,item,entry){
 // Channel controls belong to the show, while clips, patches and takes belong to each item.
 function sharedChannels(root){
  const doc=showDocument(),panel=add(root,'shared-track-panel');panel.setAttribute('aria-label','Общие каналы');
- const top=add(panel,'shared-track-top');btn(top,'+ Канал',()=>create(root),'channel-create');
+ const top=add(panel,'shared-track-top');btn(top,'+ Track',()=>create(root),'channel-create');
  add(panel,'shared-track-ruler');add(panel,'shared-track-label','Sections');add(panel,'shared-track-label','Chord Track');
  for(const c of doc.channels){
   const title=add(panel,'linked-channel-title shared-channel-title');title.dataset.channel=c.id;add(title,'channel-name',c.name);add(title,'visual-caption',c.type);trackSwitches(title,c);channelContext(root,title,c);
@@ -222,7 +225,7 @@ export function renderChannelPanel(root,kind,assets){
    const title=add(row,'linked-channel-title');add(title,'channel-name',c.name);add(title,'visual-caption',c.type);trackSwitches(title,c);btn(title,'⋮',()=>{},'channel-dots').onclick=e=>contextMenu(root,e,commands(root,c));
    if(kind==='header'){const header=timelineTop(root,assets,enabled());recordView(header.querySelector('.timeline-header-left'));return;}
  if(kind==='timeline'){const grid=add(row,'track-grid',c.type==='Audio'?'Audio · дорожка записи':c.type==='Instrument'?'Instrument · MIDI':`${c.type} · patch lane`);if(c.type==='Playback')graphic(grid,assets,'controls/concept_pack/waveform_audio_illustration','visual-wave','Демо waveform');}
-   if(kind==='playback'){const item=activeItem();const t=trackFor(c);if(t?.media){btn(row,t.media.name,()=>mediaDialog(root,item,c),'audio-file-name');btn(row,'Выбрать файл…',()=>chooseMedia(root,item,c),'patch-add');graphic(row,assets,'controls/concept_pack/waveform_audio_illustration','visual-wave','Демо waveform');}level(row,c,'gain');}
+   if(kind==='playback'){const item=activeItem();const t=trackFor(c);if(t?.media){btn(row,t.media.name,()=>mediaDialog(root,item,c),'audio-file-name');btn(row,'Выбрать файл…',()=>chooseMedia(root,item,c),'patch-add');graphic(row,assets,'controls/concept_pack/waveform_audio_illustration','visual-wave','Демо waveform');}itemPlaybackLevel(row,c,item,t);}
    if(kind==='inputs')selectors(row,c);
    if(kind==='inputs'){const levels=add(row,'patch-levels');level(levels,c,'gain');level(levels,c,'pan');}
   }

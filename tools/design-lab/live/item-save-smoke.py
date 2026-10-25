@@ -1,0 +1,14 @@
+from playwright.sync_api import sync_playwright
+import json
+with sync_playwright() as p:
+ b=p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox']);page=b.new_page(viewport={'width':1920,'height':1200});errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+ page.goto('http://127.0.0.1:8001/tools/design-lab/live/');page.wait_for_selector('.block');page.locator('#load-user-layout').click();page.locator('#preview').check()
+ def doc():return json.loads(page.evaluate('localStorage.getItem("mr-live-demo-show-v1")'))
+ first=page.locator('.live-item-container').first;first.get_by_role('button',name='Открыть item',exact=True).click();assert page.locator('.shared-track-panel').get_by_role('button',name='+ Track',exact=True).count()==1
+ current=doc()['currentItem'];playback=page.locator('.visual-playback-stems');slider=playback.get_by_role('slider').first;assert 'Playback:' in slider.get_attribute('aria-label');slider.fill('-11');slider.dispatch_event('input');slider.dispatch_event('change')
+ d=doc();ch=next(c for c in d['channels'] if c['type']=='Playback');track=next(t for t in d['items'][0]['tracks'] if t['channelId']==ch['id']);assert track['playbackGain']==-11;assert ch['gain']==0;assert next(t for t in d['items'][1]['tracks'] if t['channelId']==ch['id'])['playbackGain']==0
+ icon=page.locator('.item-save-icon').first;assert icon.get_attribute('data-dirty')=='true';assert icon.evaluate('(n)=>getComputedStyle(n).color')=='rgb(226, 192, 112)';icon.click();assert icon.get_attribute('data-dirty')=='false';assert icon.evaluate('(n)=>getComputedStyle(n).color')=='rgb(122, 182, 158)';assert doc()['currentItem']==current
+ root=page.locator('.block .show-browser');root.get_by_role('button',name='Browser',exact=True).click();browser=page.locator('.runtime-items');row=root.locator('.song-row[data-item]').nth(1);original=doc()['items'][1]['name'];row.dblclick();edit=row.get_by_role('textbox',name='Название item',exact=True);edit.fill('Changed demo');edit.press('Enter');assert doc()['currentItem']==current;assert browser.locator('.song-item-name').filter(has_text=original).count()==1;assert browser.locator('.song-item-name').filter(has_text='Changed demo').count()==0
+ second=root.locator('.item-save-icon').nth(1);assert second.get_attribute('data-dirty')=='true';second.click();assert doc()['currentItem']==current;assert browser.locator('.song-item-name').filter(has_text='Changed demo').count()==1
+ saved=doc();page.reload();page.wait_for_selector('.block');assert doc()==saved;assert page.locator('.item-save-icon[data-dirty=false]').count()==3;page.locator('#preview').check();assert page.locator('.visual-playback-stems').get_by_role('slider').first.input_value()=='-11';assert not errors,errors;b.close()
+print('PASS: + Track, per-item Playback gain, independent mixer/other item, yellow/green saved Browser version, passive save/rename, reload')

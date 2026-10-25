@@ -119,3 +119,5 @@
 .visual-song-timeline .audio-record-lane{height:100px;min-height:100px;box-sizing:border-box}
 .visual-song-timeline .item-origin-grip{transform:translateX(12px)}
 .visual-track-channels .shared-channel-title,.visual-track-channels .shared-record-title{min-height:100px;overflow:visible}
+
+.show-browser .item-save-icon{flex:0 0 24px;width:24px;align-self:stretch;border:0;padding:4px;background:transparent;position:relative;color:#7AB69E}.item-save-icon::before{content:'';display:block;width:16px;height:16px;background:currentColor;mask:url('../../../assets/ui/mr-uds/svg/icons/save.svg') center/contain no-repeat}.show-browser .item-save-icon[data-dirty=true]{color:#E2C070}.show-browser .item-save-icon:hover{background:#36383c}.item-playback-level{width:100%}
