@@ -95,8 +95,6 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         const bool inBrowser = origin == &browserItems || browserItems.isParentOf(origin);
         if (browserVisible && !inSetlist && !inBrowser)
             showBrowser(false);
-        if (!inSetlist && !inBrowser && origin != &undoButton && origin != &redoButton)
-            owner.liveShowEditing = false;
     }
     void paint(juce::Graphics &g) override {
         const auto tokens = DesignTokens::target();

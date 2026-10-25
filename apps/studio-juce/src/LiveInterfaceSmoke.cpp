@@ -100,7 +100,21 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     desktop.action(11);
     desktop.editLiveInterface("Save for All", [&](auto &state) { live::saveItem(state, id); });
     liveCheck(!live::itemDirty(desktop.liveDocument->interfaceState, id), "Save for All updates Browser version");
+    auto *saveWorkspace = dynamic_cast<LiveWorkspace *>(liveComponent(desktop, "mr-live-workspace"));
+    juce::TextButton *filesControl = nullptr;
+    if (saveWorkspace)
+        for (auto *child : saveWorkspace->getChildren())
+            if (auto *button = dynamic_cast<juce::TextButton *>(child); button && button->getButtonText() == "Files")
+                filesControl = button;
+    liveCheck(saveWorkspace && filesControl, "Native Files toolbar exists");
+    const auto clickTime = juce::Time::getCurrentTime();
+    const juce::Point<float> clickPosition{5, 5};
+    saveWorkspace->mouseDown(juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), clickPosition,
+                                              juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier), 1, 0, 0, 0, 0,
+                                              filesControl, filesControl, clickTime, clickPosition, clickTime, 1,
+                                              false));
     desktop.saveFile(saved);
+    liveCheck(desktop.liveShowEditing, "Files/Save preserves the show Undo context");
     desktop.action(10);
     liveCheck(desktop.documentDirty() && live::itemDirty(desktop.liveDocument->interfaceState, id),
               "Saving preserves metadata Undo and saved-point dirty tracking");
