@@ -35,7 +35,7 @@ Source commits/push в тематической ветке разрешены в
 
 ## Архитектура и безопасность
 
-- MR Studio — **одна** Windows/JUCE/C++/ASIO DAW, Live Mode встроен в тот же Core/проект, не отдельный аудиодвижок.
+- MR Studio и MR Live — Windows/JUCE/C++/ASIO приложения на общем коде Core. **MR Live — отдельное приложение**, запускаемое с Home MR Studio, со своим show-документом `.mrlive` и workflow по принятому онлайн-редактору. Переходов в Studio и прямого открытия Studio-песни через Live item нет. Studio → Live как Playback — отдельная будущая функция экспорта. Engine/ASIO/Transport/Project Model/GraphStore/MIDI/plugin host переиспользуются; второй backend не создавать. Это прямое уточнение пользователя от 2026-10-25; старые формулировки workspace handoff ему не соответствуют. См. `docs/MR_LIVE_NATIVE_INTEGRATION.md`.
 - Изменения через принятые Commands/Model; сохраняй Undo/Redo, project persistence, plugin/editor lifetime, PDC, transport и raw recording. Миграции и новый формат состояния — только по обоснованной необходимости.
 - **Audio callback:** никаких новых alloc/free, mutex/locks, disk/network I/O, UI calls. IR/NAM decode, подготовка эффектов, пересборка графа — вне callback; безопасный lifecycle worker/DSP и переключение. Не допускай двойного аудиотракта.
 - **Studio mixing ≠ Live/recording:** 128 сэмплов не обязательны для всех студийных эффектов. RT производительность подтверждай callback/xrun измерениями, не одним процентом CPU.
