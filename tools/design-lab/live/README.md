@@ -75,7 +75,7 @@ Every Instrument/Player item track automatically owns a nested `recordTrack` wit
 
 ## Timeline editing
 
-Section modes are in the right-click menu; the right edge shows only the active mode glyph. Record visibility and linked-stop preferences are icon buttons with tooltips and pressed states. Item +/- or its right-edge grip changes horizontal visual scale without retiming bars, patches or audio. Expanding reveals saved negative take origins; ↤ reveals four additional pre-roll bars.
+Section modes are in the right-click menu; the right edge shows only the active mode glyph. Record visibility and linked-stop preferences are icon buttons with tooltips and pressed states. Item +/- or its right-edge grip changes horizontal visual scale without retiming bars, patches or audio. Expanding reveals saved negative take origins; The left-edge grip reveals/collapses pre-roll; no separate reveal button remains. Item modes are selected through the header context menu, with only a glyph at the right. Patch creation and library assignment live in the channel context menu.
 
 Record normally starts playback; Shift+Record captures the demo before Play. Play aligns the capture origin to item bar 1, preserving pre-roll. A shared playhead and record regions use the same bar grid as sections/patches/Playback. The ruler can seek.
 
