@@ -14,7 +14,7 @@ with sync_playwright() as p:
  page.locator('[data-action="view.mixer"]').click();mixer=page.locator('.runtime-mixer');assert mixer.locator('.record-strip').count()==0
  for c in parents:assert mixer.locator(f'[data-channel="{c["id"]}"]').get_by_role('button',name='Запись: '+c['name'],exact=True).get_attribute('aria-pressed')=='true'
  mixer.get_by_role('button',name='Record · общая запись',exact=True).click();assert record.get_attribute('aria-pressed')=='true';assert 'RECORDING' in page.locator('.transport-readout').inner_text()
- mixer.get_by_role('checkbox',name='View record tracks',exact=True).check();assert mixer.locator('.record-strip').count()==2;assert page.locator('.record-track').count()==6;assert page.locator('.record-audio-lane.recording').count()==2
+ mixer.get_by_role('button',name='View record tracks',exact=True).click();assert mixer.locator('.record-strip').count()==2;assert page.locator('.record-track').count()==6;assert page.locator('.record-audio-lane.recording').count()==2
  for c in parents:
   row=first.locator(f'.record-track[data-parent-channel="{c["id"]}"]');assert row.locator('.recording').count()==1
   assert row.evaluate('(n)=>n.previousElementSibling.dataset.channel')==c['id']
@@ -22,7 +22,7 @@ with sync_playwright() as p:
   slider=strip.get_by_role('slider',name='Громкость записи '+c['name'],exact=True);slider.fill('-17');slider.dispatch_event('input');slider.dispatch_event('change');ch=next(ch for ch in doc()['channels'] if ch['id']==c['id']);assert ch['recordGain']==-17;assert ch['gain']==0
  page.screenshot(path='/tmp/mr-live-recording.png')
  mixer.get_by_role('button',name='Stop',exact=True).click();assert record.get_attribute('aria-pressed')=='false';assert page.locator('.record-audio-lane.recording').count()==0
- mixer.get_by_role('checkbox',name='View record tracks',exact=True).uncheck();assert page.locator('.record-track').count()==0;assert mixer.locator('.record-strip').count()==0
+ mixer.get_by_role('button',name='View record tracks',exact=True).click();assert page.locator('.record-track').count()==0;assert mixer.locator('.record-strip').count()==0
  page.keyboard.press('Control+z');assert mixer.locator('.record-strip').count()==2
  saved=doc();page.reload();page.wait_for_selector('.block');assert doc()==saved;assert page.locator('.record-track').count()==6;page.locator('#preview').check();assert record.get_attribute('aria-pressed')=='false'
  # Creation adds paired record lanes to every item; deleting a parent removes them, Undo restores them.

@@ -71,3 +71,12 @@ Checks cover item grouping/folding, patch cards/nested color strips, chain invar
 Every Instrument/Player item track automatically owns a nested `recordTrack` with its own ID, sharing the parent channel's independent `recordGain` (-60…+12 dB). It is not another user-created Audio channel. New/existing channels, item copies, deletion, Undo and JSON roundtrip preserve this relationship. Older v3 data gains these optional fields; `viewRecordTracks` defaults to false.
 
 **View record tracks** in the timeline/mixer shows the child directly beneath its parent and a narrow record strip next to the parent in both mixer presentations. Hiding tracks removes both presentations without disabling armed channels. The parent **R** button arms Instrument/Player (Audio keeps its own arm). Arming and Play alone do not start capture: **Record** in the common transport starts the armed eligible channels. The mixer header repeats the same global Record/Stop controls so its overlay cannot block them. The simulated session belongs to the current item at the moment Record is pressed; other items do not display active capture. Stop/Pause end it; pressing Record again ends capture while playback stays active. A newly armed channel waits for the next Record start. Leaving Preview or reloading clears the session; arm/view/gain preferences persist. No audio/MIDI data, recording files, input selection or real-time engine are created.
+
+
+## Timeline editing
+
+Section modes are in the right-click menu; the right edge shows only the active mode glyph. Record visibility and linked-stop preferences are icon buttons with tooltips and pressed states. Item +/- or its right-edge grip changes horizontal visual scale without retiming bars, patches or audio. Expanding reveals saved negative take origins; ↤ reveals four additional pre-roll bars.
+
+Record normally starts playback; Shift+Record captures the demo before Play. Play aligns the capture origin to item bar 1, preserving pre-roll. A shared playhead and record regions use the same bar grid as sections/patches/Playback. The ruler can seek.
+
+Playback is a set of source-referencing clips, initialized as one full-item region. Drag the clip body to move, use its edges to trim, and right-click to split here/at an exact bar, delete, edit bounds, or restore the original region via lane context menu. Clips retain source offset across splitting/movement, crop the shared demo illustration and save with Undo/Redo. This edits browser metadata, never the source audio file.
