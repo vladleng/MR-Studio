@@ -105,6 +105,7 @@ export function renderVisual(node, block, fixture, assets) {
       renderChannelPanel(root,'mixer',assets);
       break;
     }
+    case 'control.header': {renderChannelPanel(root,'header',assets);break;}
     case 'control.transport': {
       const readout = add(root, 'transport-readout');
       add(readout, 'transport-time', '001 : 01 : 000');

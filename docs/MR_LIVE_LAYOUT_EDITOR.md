@@ -235,3 +235,12 @@ Chord context содержит Add/Edit/Duplicate/Remove и bounded palette; opt
 Entries могут содержать {id,type:"divider",name}; валидируются без itemId. ПКМ пустой области создаёт divider в конце, ПКМ item — перед строкой; ПКМ divider переименовывает/удаляет, drag меняет позицию. Следующие items относятся к отделению до следующего divider. Это упорядоченные метки, без дублирования item/каналов: timeline и transport фильтруют только entries с itemId, счётчик рядом с Setlist также не включает divider. Undo/JSON/reload и удаление исходных items сохраняют divider.
 
 Header: tuner справа, record-option icons слева, transport по центру. Подпись session/items над timeline удалена, item containers следуют за header без отдельного промежутка.
+
+
+## 23. Header как отдельный layout block и track switches
+
+control.header — самостоятельный registry block с tuner/transport/options, вне song.timeline. Timeline больше не содержит Header; его горизонтальная/вертикальная прокрутка, Play и item focus не меняют bounds Header. Новый preset располагает Header над timeline. При чтении старого layout без Header верхняя область timeline отделяется, если после split сохраняется его minH; header ID уникальный, bottom timeline сохраняется, subsequent roundtrip стабильный. Недостаточное место не приводит к невалидной геометрии — Header доступен в палитре.
+
+Основные Instrument/Player/Playback/Audio track panels имеют M/S, рядом R у record-capable каналов. Это общие channel mute/solo, синхронные во всех items/Mixer. Child record tracks получают optional boolean recordMute/recordSolo (false по умолчанию), с M/S на child row и narrow mixer strip; отдельно от parent flags. UI-only mock, не новый DSP.
+
+Setlist скрывает inline + Setlist/rename/delete/+ Item; контекстные команды сохранены, selector списка остаётся видимым.

@@ -6,7 +6,7 @@ with sync_playwright() as p:
  def doc():return json.loads(page.evaluate('localStorage.getItem("mr-live-demo-show-v1")'))
  first=page.locator('.live-item-container').first;first.get_by_role('button',name='Открыть item',exact=True).click();assert page.locator('.visual-control-transport').count()==0
  top=page.locator('.timeline-top');controls=top.locator('.timeline-transport');t=top.bounding_box();c=controls.bounding_box();assert abs((t['x']+t['width']/2)-(c['x']+c['width']/2))<2
- assert top.locator('.timeline-tuner').evaluate('(n)=>n.complete&&n.naturalWidth>0');assert top.locator('.timeline-tuner').bounding_box()['width']>150;assert top.bounding_box()['y']<first.bounding_box()['y']
+ assert top.locator('.timeline-tuner').evaluate('(n)=>n.complete&&n.naturalWidth>0');assert top.locator('.timeline-tuner').bounding_box()['width']>150;assert top.bounding_box()['y']<first.bounding_box()['y'];assert page.locator('.visual-song-timeline .timeline-top').count()==0
  top.get_by_role('button',name='Следующая секция',exact=True).click();page.wait_for_timeout(120);assert float(first.locator('[data-playhead]').evaluate('(n)=>n.style.left.replace("px","")'))>300
  top.get_by_role('button',name='Предыдущая секция',exact=True).click();top.get_by_role('button',name='Следующий item',exact=True).click();assert doc()['currentItem']==doc()['items'][1]['id'];top.get_by_role('button',name='Предыдущий item',exact=True).click();assert doc()['currentItem']==doc()['items'][0]['id']
  # All chord operations and colors are present in RMB.

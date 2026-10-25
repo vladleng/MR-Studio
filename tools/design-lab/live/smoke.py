@@ -10,7 +10,7 @@ with sync_playwright() as p:
     page.on('pageerror',lambda e:errors.append(str(e)))
     page.goto(base+'/tools/design-lab/live/')
     page.wait_for_selector('.block')
-    assert page.locator('.block').count()==11
+    assert page.locator('.block').count()==12
     page.wait_for_function('Array.from(document.querySelectorAll(".visual img")).every(i=>i.complete && i.naturalWidth>0)')
     assert page.locator('.visual-fader').count()==4
     assert page.locator('.visual-wave').count()==4
@@ -27,9 +27,9 @@ with sync_playwright() as p:
     page.reload();page.wait_for_selector('.block')
     assert page.locator('.block h3 img').count()==1
     page.locator('#layers button').nth(1).click()
-    assert page.locator('.block').count()==10
-    page.locator('#layers button').nth(1).click()
     assert page.locator('.block').count()==11
+    page.locator('#layers button').nth(1).click()
+    assert page.locator('.block').count()==12
     heading=page.locator('.block h3').first
     box=heading.bounding_box();page.mouse.move(box['x']+60,box['y']+10);page.mouse.down();page.mouse.move(box['x']+84,box['y']+34,steps=4);page.mouse.up()
     assert page.locator('[name=x]').input_value()=='48'
@@ -78,11 +78,11 @@ with sync_playwright() as p:
         page.locator('#scale').select_option(scale)
         for viewport in ['1280,912','1024,768','1920,1080','640,480']:
             page.locator('#viewport').select_option(viewport)
-            assert page.locator('.block').count()==11
+            assert page.locator('.block').count()==12
     page.locator('#scale').select_option('100');page.locator('#viewport').select_option('1280,912')
     for fixture in ['empty','long','many','playing','disabled','selected']:
         page.locator('#fixture').select_option(fixture)
-        assert page.locator('.block').count()==11
+        assert page.locator('.block').count()==12
     page.locator('#fixture').select_option('full')
     page.screenshot(path='/tmp/mr-live-visuals.png')
     page.goto(base+'/tools/design-lab/')
