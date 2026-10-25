@@ -38,8 +38,15 @@ juce_add_binary_data(mrs_track_header_layout
   NAMESPACE MRTrackHeaderAssets HEADER_NAME MRTrackHeaderAssets.h
   SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-track-panel-layout-v1.json")
 target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_track_header_layout)
+juce_add_binary_data(mrs_live_layout
+  NAMESPACE MRLiveAssets HEADER_NAME MRLiveAssets.h
+  SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-live-layout-v5.json"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-live-interface-defaults-v1.json")
+target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_live_layout)
 juce_add_binary_data(mrs_reverb_art NAMESPACE MRReverbArt HEADER_NAME MRReverbArt.h SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/reverb/plate_unit.svg")
 target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_reverb_art)
+target_sources(MoonRiverStudioJuce PRIVATE apps/studio-juce/src/LiveInterface.cpp apps/studio-juce/src/LiveInterfaceSmoke.cpp)
+set_source_files_properties(apps/studio-juce/src/LiveInterface.cpp apps/studio-juce/src/LiveInterfaceSmoke.cpp PROPERTIES COMPILE_OPTIONS "/WX")
 add_library(mrs_diagnostics STATIC apps/diagnostics/src/session.cpp)
 target_include_directories(mrs_diagnostics PUBLIC apps/diagnostics/include)
 target_compile_features(mrs_diagnostics PUBLIC cxx_std_20)
@@ -132,7 +139,7 @@ if(BUILD_TESTING)
   add_test(NAME juce_clip_stretch COMMAND MoonRiverStudioJuce --clip-stretch-smoke)
   set_tests_properties(juce_clip_stretch PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
   set_tests_properties(juce_track_folders PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
-  add_test(NAME juce_live_entry_smoke COMMAND MoonRiverStudioJuce --live-entry-smoke)
+  add_test(NAME juce_live_entry_smoke COMMAND MoonRiverStudioJuce --live-entry-smoke --show-fixture "${PROJECT_SOURCE_DIR}/tests/fixtures/mr-live-interface-demo-v3.json")
   set_tests_properties(juce_live_entry_smoke PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
   add_test(NAME juce_j1_smoke COMMAND MoonRiverStudioJuce --j1-smoke)
   set_tests_properties(juce_j1_smoke PROPERTIES TIMEOUT 30)

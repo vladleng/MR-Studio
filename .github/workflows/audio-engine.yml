@@ -136,6 +136,7 @@ jobs:
           name: Windows-test-results-${{ github.sha }}-ara-${{ env.ARA }}
           path: |
             build/windows/juce-live-entry-*.png
+            build/windows/juce-live-interface-*.png
             build/windows/juce-library261-*.png
             build/windows/juce-folder-mixer-*.png
             build/windows/stretch-dialog-*.png

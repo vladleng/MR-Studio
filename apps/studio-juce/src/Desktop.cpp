@@ -10,6 +10,7 @@
 #include "MarkerTrack.h"
 #include "ProjectHome.h"
 #include "LiveWorkspace.h"
+#include "LiveLayout.h"
 #include "WaveformView.h"
 #include <fstream>
 #include <charconv>
@@ -164,8 +165,8 @@ void Desktop::reconnectDevice(bool session){if(testing||(!session&&!prefs.reconn
 void Desktop::openFile(const juce::File& f){mrs::diagnostics::event("project_open_begin "+f.getFullPathName().toStdString());const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();cancelPreview();if(f.hasFileExtension("mrlive")){
     auto showState=LiveDocument::read(f);
     if(showState.active>=0)app.open_project(path(showState.projects.at(static_cast<std::size_t>(showState.active))));else app.new_project(session?prefs.rate:48000);
-    liveDocument=std::move(showState);liveFile=f;liveDirty=false;app.workspace(mrs::desktop::Workspace::live);
-}else{const bool leavingLive=liveDocument.has_value()||app.workspace()==mrs::desktop::Workspace::live;app.open_project(path(f));liveDocument.reset();liveFile={};liveDirty=false;if(leavingLive)app.workspace(mrs::desktop::Workspace::arrange);}
+    liveDocument=std::move(showState);liveFile=f;prepareLiveInterface(true);app.workspace(mrs::desktop::Workspace::live);
+}else{const bool leavingLive=liveDocument.has_value()||app.workspace()==mrs::desktop::Workspace::live;app.open_project(path(f));liveDocument.reset();liveFile=juce::File();prepareLiveInterface(false);if(leavingLive)app.workspace(mrs::desktop::Workspace::arrange);}
 resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();showProjectHome(false);reconnectDevice(session);if(liveDocument&&liveDocument->active<0)liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};else liveEmptyRevision.reset();mrs::diagnostics::event("project_open_end");}
 bool Desktop::songDirty() const{
     if(liveDocument&&liveDocument->active<0&&liveEmptyRevision&&
@@ -175,9 +176,9 @@ bool Desktop::songDirty() const{
 }
 juce::File Desktop::documentFile() const{return liveDocument?liveFile:juce::File(juce::String(app.path().wstring().c_str()));}
 void Desktop::createLive(const juce::File& requested){
-    auto file=requested.withFileExtension("mrlive");LiveDocument showState;showState.title=file.getFileNameWithoutExtension();showState.write(file);
+    auto file=requested.withFileExtension("mrlive");LiveDocument showState;showState.title=file.getFileNameWithoutExtension();showState.ensureInterface(LiveLayout().defaults);showState.write(file);
     const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
-    closeEditors();cancelPreview();app.new_project(session?prefs.rate:48000);liveDocument=std::move(showState);liveFile=file;liveDirty=false;
+    closeEditors();cancelPreview();app.new_project(session?prefs.rate:48000);liveDocument=std::move(showState);liveFile=file;prepareLiveInterface(true);
     resetDevice();app.workspace(mrs::desktop::Workspace::live);remember();refresh(true);showProjectHome(false);reconnectDevice(session);
     liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};
 }
@@ -185,19 +186,23 @@ void Desktop::selectLiveProject(int index){
     if(!liveDocument)throw std::runtime_error("No MR Live show is open");
     const auto file=liveDocument->projects.at(static_cast<std::size_t>(index));
     const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
-    closeEditors();cancelPreview();app.open_project(path(file));resetDevice();liveDocument->active=index;liveDirty=true;
+    closeEditors();cancelPreview();app.open_project(path(file));resetDevice();liveDocument->active=index;
+    if(liveDocument->interface.isObject()&&liveDocument->projectFor(liveDocument->interface["currentItem"].toString())!=index)for(const auto& [id,binding]:liveDocument->itemProjects)if(binding==index){live::put(liveDocument->interface,"currentItem",id);break;}
+    updateLiveDirty();++liveUiRevision;
     selectedClip.reset();selectedTrack.reset();refresh(true);reconnectDevice(session);
 }
 void Desktop::addLiveProject(const juce::File& file){
     if(!liveDocument||!file.hasFileExtension("mrsproject"))throw std::runtime_error("Select a Studio project for this show");
+    if(liveDocument->projects.size()>=1024)throw std::runtime_error("Too many project references");
     const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
     closeEditors();cancelPreview();app.open_project(path(file));resetDevice();
-    liveDocument->projects.push_back(file);liveDocument->active=static_cast<int>(liveDocument->projects.size())-1;liveDirty=true;
+    liveDocument->ensureInterface(LiveLayout().defaults);liveDocument->projects.push_back(file);liveDocument->active=static_cast<int>(liveDocument->projects.size())-1;
+    const auto itemId=live::addItem(liveDocument->interface,LiveDocument::projectLabel(file));live::insertEntry(liveDocument->interface,itemId);live::put(liveDocument->interface,"currentItem",itemId);liveDocument->itemProjects[itemId]=liveDocument->active;liveUndo.clearUndoHistory();updateLiveDirty();++liveUiRevision;
     selectedClip.reset();selectedTrack.reset();refresh(true);reconnectDevice(session);
 }
 void Desktop::saveFile(const juce::File& f){
     if(liveDocument){
-        auto showState=*liveDocument;auto file=f.withFileExtension("mrlive");
+        auto showState=liveDocument->clone();auto file=f.withFileExtension("mrlive");
         if(songDirty()){
             liveDirty=true; // Keep unsaved references pending if publishing the show fails.
             auto song=app.path();
@@ -207,19 +212,23 @@ void Desktop::saveFile(const juce::File& f){
                 if(std::filesystem::exists(song))throw std::runtime_error("Song destination exists; choose another show filename with Save as");
             }
             app.save_project(song);const juce::File saved(juce::String(app.path().wstring().c_str()));
-            if(showState.active<0){showState.projects.push_back(saved);showState.active=static_cast<int>(showState.projects.size())-1;}
+            if(showState.active<0){showState.projects.push_back(saved);showState.active=static_cast<int>(showState.projects.size())-1;
+                auto itemId=showState.interface["currentItem"].toString();if(itemId.isEmpty()){itemId=live::addItem(showState.interface,LiveDocument::projectLabel(saved));live::insertEntry(showState.interface,itemId);live::put(showState.interface,"currentItem",itemId);}showState.itemProjects[itemId]=showState.active;
+            }
             else showState.projects.at(static_cast<std::size_t>(showState.active))=saved;
         }
         if(showState.active<0&&!app.path().empty()){
             showState.projects.emplace_back(juce::String(app.path().wstring().c_str()));showState.active=static_cast<int>(showState.projects.size())-1;
+            auto itemId=showState.interface["currentItem"].toString();if(itemId.isEmpty()){itemId=live::addItem(showState.interface,LiveDocument::projectLabel(juce::File(juce::String(app.path().wstring().c_str()))));live::insertEntry(showState.interface,itemId);live::put(showState.interface,"currentItem",itemId);}showState.itemProjects[itemId]=showState.active;
         }
-        showState.write(file);liveDocument=std::move(showState);liveFile=file;liveDirty=false;remember();refresh();return;
+        const bool bindingsChanged=showState.itemProjects!=liveDocument->itemProjects;showState.write(file);if(bindingsChanged)liveUndo.clearUndoHistory();liveDocument=std::move(showState);liveFile=file;prepareLiveInterface(true);remember();refresh();return;
     }
     auto destination=path(f);if(destination!=app.path())destination=mrs::desktop::project_folder_file(destination);app.save_project(destination);remember();refresh();}
 void Desktop::importFiles(const juce::StringArray& files){closeEditors();std::vector<std::filesystem::path> paths;for(const auto& f:files)paths.push_back(path(juce::File(f)));app.queue_wav_import(paths);refresh(true);}
 void Desktop::choose(int chooserOptions,std::function<void(const juce::File&)> callback,juce::String pattern){
     const auto studio=juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio").getChildFile("Projects");
-    chooser=std::make_unique<juce::FileChooser>("Moon River Studio",app.path().empty()?studio:juce::File(juce::String(app.path().wstring().c_str())),pattern,true);
+    const bool showFiles=pattern=="*.mrlive";const auto initial=showFiles?(liveFile==juce::File()?studio.getSiblingFile("Lives"):liveFile):(app.path().empty()?studio:juce::File(juce::String(app.path().wstring().c_str())));
+    chooser=std::make_unique<juce::FileChooser>("Moon River Studio",initial,pattern,true);
     juce::Component::SafePointer<Desktop> safe(this);
     chooser->launchAsync(chooserOptions,[safe,callback=std::move(callback)](const juce::FileChooser& result){
         if(safe && result.getResult()!=juce::File())safe->run([&]{callback(result.getResult());});
@@ -239,17 +248,17 @@ void Desktop::renameTrack(mrs::Id id){
     auto& strips=app.workspace()==mrs::desktop::Workspace::mix?mixer:arrangement->rows;
     for(auto& strip:strips)if(strip->target==id){strip->beginNameEdit();return;}
 }
-void Desktop::confirmDiscard(std::function<void()> nextAction){if(app.recording()){run([&]{app.pause();});if(app.recording()||!message.isEmpty())return;}if(!projectSessionStarted||!documentDirty()){nextAction();return;}
-    auto* alert=new StudioAlertWindow(*this,"Save project changes?",label(project()->title),juce::MessageBoxIconType::NoIcon);
+void Desktop::confirmDiscard(std::function<void()> nextAction,bool songOnly){if(app.recording()){run([&]{app.pause();});if(app.recording()||!message.isEmpty())return;}if(!projectSessionStarted||!(songOnly?songDirty():documentDirty())){nextAction();return;}
+    auto* alert=new StudioAlertWindow(*this,songOnly?"Save song changes?":liveDocument?"Save show changes?":"Save project changes?",liveDocument?liveDocument->title:label(project()->title),juce::MessageBoxIconType::NoIcon);
     alert->addButton("Save",1);alert->addButton("Discard",2);alert->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
     juce::Component::SafePointer<Desktop> safe(this);alert->enterModalState(true,juce::ModalCallbackFunction::create([safe,nextAction](int n){if(!safe)return;
         if(n==2)nextAction();else if(n==1)safe->run([&]{if(safe->documentFile()!=juce::File()){safe->saveFile(safe->documentFile());nextAction();}
-            else safe->choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[safe,nextAction](auto f){if(safe){safe->saveFile(f.withFileExtension("mrsproject"));nextAction();}},"*.mrsproject");});
+            else safe->choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[safe,nextAction](auto f){if(safe){safe->saveFile(f.withFileExtension(safe->liveDocument?"mrlive":"mrsproject"));nextAction();}},safe->liveDocument?"*.mrlive":"*.mrsproject");});
     }),true);
 }
 juce::StringArray Desktop::getMenuBarNames(){return {"File","Options","Edit","Track","Transport","AI: "+label(std::string(app.ai_permissions().enabled?mrs::ai::permission_name(app.ai_permissions().mode):std::string_view("OFF")))};}
 juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupMenu m;
-    if(n==0){m.addItem(701,"New MR Live show...");m.addItem(9,"MR Live workspace",liveDocument.has_value());m.addSeparator();}
+    if(n==0){m.addItem(701,"New MR Live show...");m.addItem(9,"MR Live workspace",projectSessionStarted);m.addItem(702,"Import editor show JSON...");m.addSeparator();}
     if(n==1){
         m.addItem(710,"Load Track Header JSON...",!app.recording());
         m.addItem(711,"Hot Reload Track Header JSON",trackHeaderLayoutSource!=juce::File() && !app.recording(),
@@ -369,15 +378,17 @@ void Desktop::action(int n){if(busyGesture()){if(n==34||n==35||n==48||n==49||n==
     }
     if(n==7){const auto logs=mrs::diagnostics::folder();if(logs.empty())throw std::runtime_error("Diagnostics unavailable; see package README");if(!testing)juce::File(juce::String(logs.wstring().c_str())).revealToUser();return;}
     if(n>=500&&n<=700){auto c=app.click_settings();if(n==500)c.playback=!c.playback;else if(n==501)c.recording=!c.recording;else if(n==502)c.accent=!c.accent;else if(n==503)c.playback=c.recording=!(c.playback||c.recording);else if(n==504){if(c.count_bars){lastCountBars=c.count_bars;c.count_bars=0;}else c.count_bars=lastCountBars;}else if(n>=510&&n<=514)c.count_bars=n-510;else if(n>=600)c.level=n-600;else return;app.set_click_settings(c);if(c.count_bars)lastCountBars=c.count_bars;prefs.click=c;saveSettings();return;}
-    if(n==9){if(liveDocument)setWorkspace(mrs::desktop::Workspace::live);return;}
+    if(n==9){setWorkspace(mrs::desktop::Workspace::live);return;}
+    if(n==702){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){importLiveShow(file);},"*.json");});return;}
     if(n==701){confirmDiscard([this]{choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& file){createLive(file);},"*.mrlive");});return;}
-    if(n==8){confirmDiscard([this]{run([&]{closeEditors();cancelPreview();app.pause();app.new_project();liveDocument.reset();liveFile={};liveDirty=false;app.workspace(mrs::desktop::Workspace::arrange);resetDevice();selectedTrack.reset();selectedClip.reset();selectedClips.clear();refresh(true);showProjectHome(true);projectSessionStarted=false;home->rescan();});});return;}
+    if(n==8){confirmDiscard([this]{run([&]{closeEditors();cancelPreview();app.pause();app.new_project();liveDocument.reset();liveFile=juce::File();prepareLiveInterface(false);app.workspace(mrs::desktop::Workspace::arrange);resetDevice();selectedTrack.reset();selectedClip.reset();selectedClips.clear();refresh(true);showProjectHome(true);projectSessionStarted=false;home->rescan();});});return;}
     if(n==6){app.pause();showProjectHome(true);home->rescan();return;}
     if(n>=1000){auto at=static_cast<std::size_t>(n-1000);if(at<prefs.recent_projects.size()){const auto f=juce::File(label(prefs.recent_projects[at]));confirmDiscard([this,f]{run([&]{openFile(f);});});}return;}
-    if(n==1 || n==2){confirmDiscard([this,n]{run([&]{if(n==1){const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();const bool leavingLive=liveDocument.has_value()||app.workspace()==mrs::desktop::Workspace::live;app.new_project(session?prefs.rate:48000);liveDocument.reset();liveFile={};liveDirty=false;if(leavingLive)app.workspace(mrs::desktop::Workspace::arrange);resetDevice();selectedClip.reset();selectedTrack.reset();refresh(true);showProjectHome(false);reconnectDevice(session);}else choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){openFile(f);},"*.mrsproject;*.mrlive");});});}
+    if(n==1 || n==2){confirmDiscard([this,n]{run([&]{if(n==1){const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();const bool leavingLive=liveDocument.has_value()||app.workspace()==mrs::desktop::Workspace::live;app.new_project(session?prefs.rate:48000);liveDocument.reset();liveFile=juce::File();prepareLiveInterface(false);if(leavingLive)app.workspace(mrs::desktop::Workspace::arrange);resetDevice();selectedClip.reset();selectedTrack.reset();refresh(true);showProjectHome(false);reconnectDevice(session);}else choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){openFile(f);},"*.mrsproject;*.mrlive");});});}
     else if(n==3){if(documentFile()==juce::File())action(4);else saveFile(documentFile());}
     else if(n==4)choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& f){saveFile(f.withFileExtension(liveDocument?"mrlive":"mrsproject"));},liveDocument?"*.mrlive":"*.mrsproject");
     else if(n==5)choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){importFiles({f.getFullPathName()});},"*.wav");
+    else if((n==10||n==11)&&app.workspace()==mrs::desktop::Workspace::live&&liveShowEditing){undoLiveInterface(n==11);}
     else if(n==10 || n==11){if(!app.history_preserves_plugins(n==11))closeEditors(true);if(n==10)app.undo();else app.redo();refresh(true);}
     else if(n==20)selectedTrack=app.add_audio_track("Audio "+std::to_string(project()->tracks.size()+1));
     else if(n==28)selectedTrack=app.add_instrument_track("Instrument "+std::to_string(project()->tracks.size()+1));
@@ -405,8 +416,8 @@ void Desktop::action(int n){if(busyGesture()){if(n==34||n==35||n==48||n==49||n==
     else if(n==25 && arrangement->markers->hasSelection()){arrangement->markers->removeSelected();}
     else if(n==25 && arrangement->chords->hasSelection()){arrangement->chords->removeSelected();}
     else if(n==25 && selectedClip){std::vector<mrs::Id> clips;for(const auto& c:project()->clips)if(selectedClips.contains(c.id.value)||c.id==selectedClip)clips.push_back(c.id);app.remove_clips(std::move(clips));selectedClip.reset();selectedClips.clear();}
-    else if(n==30)app.play();else if(n==31)app.pause();else if(n==32){if(app.recording())app.stop_recording();app.stop();}
-    else if(n==33){if(app.recording()){app.stop_recording();app.stop();refresh(true);}else app.start_project_recording(path(juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio").getChildFile("Projects")));}
+    else if(n==30){if(app.workspace()==mrs::desktop::Workspace::live&&liveDocument&&!liveDocument->currentLinked())throw std::runtime_error("Link a .mrsproject to the current item before playback");app.play();}else if(n==31)app.pause();else if(n==32){if(app.recording())app.stop_recording();app.stop();}
+    else if(n==33){if(app.workspace()==mrs::desktop::Workspace::live&&liveDocument&&!liveDocument->currentLinked())throw std::runtime_error("Link a .mrsproject before recording");if(app.recording()){app.stop_recording();app.stop();refresh(true);}else app.start_project_recording(path(juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio").getChildFile("Projects")));}
     else if(n==48)app.musical().previous_marker();else if(n==49)app.musical().next_marker();else if(n==50||n==51)navigationMenu(n==50);
     else if(n==34)app.musical().previous_section();else if(n==35)app.musical().next_section();
     else if(n==36){if(app.recording())throw std::runtime_error("Stop recording before changing loop");if(app.engine()->state().loop)app.musical().clear_loop();else if(app.musical().state().current_section)app.musical().loop_section(app.musical().state().current_section->id);}

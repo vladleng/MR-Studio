@@ -14,7 +14,7 @@ Tracking: [#14 roadmap](https://github.com/vladleng/MR-Studio/issues/14), [#272 
 - Отдельные Header, Channels и Timeline; Setlist, Playback / stems и Status слева. Mixer скрыт до открытия. Старые `input.patches` и `control.transport` оставлены как совместимые legacy-записи и не должны возвращаться в native UI как дополнительные видимые панели.
 - Тот же файл используется как `tools/design-lab/live/user-layout.json`; редактор: https://vladleng.github.io/MR-Studio/tools/design-lab/live/ .
 
-Файл содержит геометрию, typography/tokens, semantic assets/bindings и видимость блоков. **Он не содержит audio/plugin state, содержимое setlists/items и Browser, настройки элементов кнопки item или задачи органайзера.** Эти данные прототипа находятся в demo show (`performance.itemCardLayout`, `itemTasks`, `itemWorkflow`, `library` и др.). Пользователь не передавал экспорт demo show вместе с v5; не считать эти данные извлечёнными из layout JSON. Для native интеграции переносить согласованное поведение по спецификации и исходникам, а реальные документы — через model/commands/persistence MR Studio.
+Файл содержит геометрию, typography/tokens, semantic assets/bindings и видимость блоков. **Он не содержит audio/plugin state, содержимое setlists/items и Browser, настройки элементов кнопки item или задачи органайзера.** Эти данные прототипа находятся в demo show (`performance.itemCardLayout`, `itemTasks`, `itemWorkflow`, `library` и др.). Экспорт demo show передаётся отдельно от v5; не считать пользовательские данные извлечёнными из layout JSON. Публичные начальные настройки интерфейса находятся в `assets/ui/mr-uds/layouts/mr-live-interface-defaults-v1.json` (handoff d9e75b2). При импорте сохранённые настройки show имеют приоритет над этими defaults; пользовательский экспорт не включать в репозиторий или CI. Для native интеграции переносить согласованное поведение по спецификации и исходникам, а реальные документы — через model/commands/persistence MR Studio.
 
 ## Что завершено в браузерном этапе
 
@@ -36,22 +36,54 @@ Performance Mode остаётся последующим отдельным на
 ## Проверка и критерии передачи
 
 - Последний полный профиль прототипа перед handoff: 53 Node tests PASS, адресные HTTP Chromium smoke (органайзер, карточки, Browser/Setlist, сохранение и внеоконные клики) PASS. Макет v5 дополнительно проверен парсером и SHA-256; эта документационная передача не требует native сборки.
-- Native интеграция пока **NOT IMPLEMENTED / NOT TESTED**. Аппаратный ASIO, слуховая проверка, физический mixed-DPI, реальные плагины, audio recording/takes и концертная надёжность не подтверждены браузерными тестами.
+- Native интеграция выполняется поэтапно в PR #275; текущая реализованная граница описана ниже, полная native-приёмка остаётся открытой. Аппаратный ASIO, слуховая проверка, физический mixed-DPI, реальные плагины, audio recording/takes и концертная надёжность не подтверждены браузерными тестами.
 - Приёмка следующего этапа: из Home создать/открыть Live show, переключить вкладки проектов без регрессии обычных проектов; показать v5 в native UI; управлять теми же Project/Transport/Engine; сохранить/reopen модель и проверить адресные model/command/persistence/native GUI tests. Публиковать точную source/build revision и отдельный результат аппаратных проверок, если они выполнялись.
 
-## Initial native document contract (#274)
+## Native document and authoring contract (#274, #28, #29)
 
-The initial native entry slice uses bounded UTF-8 JSON `.mrlive` with
-`schema: "mr-live-show"`, `version: 1`, `title`, `projects` (an ordered array of
-relative `.mrsproject` paths), and `active` (zero-based, or -1 for an empty show).
-The show stores no embedded song/audio/plugin state. Save writes the active song
-through the existing Studio persistence workflow before atomically replacing the
-show document. Save As rebases song references to the new show directory.
-Opening an invalid document or a missing active song preserves the current model
-and show identity. Referenced projects use ordinary shared project loading; this
-is not preloading or a concert-safe switching guarantee (#30).
+Native shows use UTF-8 JSON with the **`.mrlive`** extension and
+`schema: "mr-live-show"`. Saving always enforces this extension. Version 2 adds
+`interface` (show authoring metadata) and `itemProjects` (item ID → project index)
+to `title`, `projects` (ordered relative `.mrsproject` paths) and `active`.
+Version 1 shows migrate to catalog items and a setlist on read. `active: -1`
+also represents an unlinked current item, even when other items have project
+bindings. The document is bounded to 8 MiB, interface metadata to 1 MiB.
 
-The first native workspace provides the v5 panel foundation, setlist selection,
-shared transport and channel mute/solo. Timeline editing, item cards/organiser,
-Playback, patches, complete semantic bindings and native visual acceptance remain
-in #28/#29 and their dependent issues. This initial shell is not full v5 parity.
+**File → Import editor show JSON** accepts `mr-live-demo-show` version 3 without
+modifying the source export. It preserves items, folders, setlists/dividers,
+shared workflow, saved Browser versions, recursive organizer tasks, card layout
+and organizer visibility. Saved user settings override embedded public defaults.
+The show is initially unsaved; Save/Save As writes `.mrlive`. The layout v5 file
+is embedded separately and remains unchanged; it never supplies user show data.
+
+Imported browser channel/take/patch/waveform fields are preserved as opaque
+metadata. They do not create real tracks, audio files or plugins. An item must be
+explicitly linked to an existing `.mrsproject` before playback/recording. Selecting
+an unlinked item clears the previous song in the shared Core. Linked items load
+through the ordinary Studio project service. No second Engine, Transport,
+GraphStore, MIDI service or plugin host is created.
+
+The native authoring slice includes Setlist references/reordering/dividers,
+Browser folders/search/drag-and-drop, saved-version indicators, shared status and
+priority, item properties, recursive organizer editing/progress and the item-card
+layout editor. Metadata gestures use show Undo/Redo and document dirty tracking;
+channel M/S/R/I use the existing Core commands and history. Save for All updates
+the Browser authoring snapshot; it is not an audio/plugin snapshot restore.
+Saving writes a dirty song through existing Studio persistence before atomically
+replacing the show. Save As rebases references to the new show directory.
+Invalid documents and missing active projects preserve the current model/show.
+
+`LiveLayout` reads the accepted v5 geometry and public defaults at runtime.
+Legacy `input.patches` and `control.transport` blocks stay hidden. Channels use
+real shared track state/meters. Timeline remains a read-only shared context in
+this slice; full Timeline/Playback/patches/MIDI and complete item-library actions
+remain in #28/#29/#30–#33. Ordinary synchronous project loading is not preloading
+or a concert-safe switching guarantee. Performance Mode is a later stage.
+
+The dedicated `juce_live_entry_smoke` covers Home plus import, metadata Undo,
+folder-cycle rejection, organizer progress/subtree Undo, native drop handling,
+shared service identity, explicit real-project binding, v1 migration, v2 round
+trip and extension enforcement. CI uses only a public synthetic show fixture;
+personal show exports remain private. Native previews use software rendering;
+physical ASIO/MIDI, hearing, vendor plugins and mixed-DPI require user hardware
+acceptance. This partial implementation does not close #28 or #29.

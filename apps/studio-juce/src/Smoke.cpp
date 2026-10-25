@@ -445,7 +445,7 @@ void projectHomeSmoke(){
     while(juce::Time::getMillisecondCounter()<nativeUntil){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}juce::Thread::sleep(1);}
     juce::Component* liveView=nullptr;for(auto* c:home.getChildren())if(c->getComponentID()=="mr-live-workspace")liveView=c;
     check(liveView&&liveView->isVisible()&&!home.arrangement->isVisible(),"show uses native Live workspace");
-    juce::TextButton* muteControl=nullptr;for(auto* c:liveView->getChildren())if(auto* liveMuteCandidate=dynamic_cast<juce::TextButton*>(c);liveMuteCandidate&&liveMuteCandidate->getButtonText()=="M")muteControl=liveMuteCandidate;
+    juce::TextButton* muteControl=nullptr;std::function<void(juce::Component&)> findMute=[&](juce::Component& root){for(auto* child:root.getChildren()){if(auto* candidate=dynamic_cast<juce::TextButton*>(child);candidate&&candidate->getButtonText()=="M")muteControl=candidate;findMute(*child);}};findMute(*liveView);
     check(muteControl!=nullptr,"native channel control binds loaded project");muteControl->onClick();
     check(home.project()->tracks.front().mix.mute,"native mute changes shared Project Model");home.action(10);
     check(!home.project()->tracks.front().mix.mute,"native mute supports common Undo");home.message.clear();

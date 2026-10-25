@@ -136,7 +136,7 @@ public:
         }
         if(args.contains("--live-entry-smoke")){
             const auto failure=juce::File::getCurrentWorkingDirectory().getChildFile("live-entry-failure.txt");failure.deleteFile();
-            try{ui::projectHomeSmoke();setApplicationReturnValue(0);}
+            try{ui::projectHomeSmoke();const auto tokens=juce::StringArray::fromTokens(args,true);const int position=tokens.indexOf("--show-fixture");ui::liveInterfaceSmoke(position>=0&&position+1<tokens.size()?juce::File(tokens[position+1].unquoted()):juce::File());setApplicationReturnValue(0);}
             catch(const std::exception& e){failure.replaceWithText(e.what());setApplicationReturnValue(1);}
             quit();return;
         }

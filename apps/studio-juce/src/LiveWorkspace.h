@@ -1,68 +1,221 @@
 #pragma once
 #include "Desktop.h"
+#include "LiveChannels.h"
+#include "LiveLayout.h"
+#include "LiveSetlist.h"
 
 namespace ui {
-// Initial native entry slice: v5 drawLivePanel geometry and shared host state.
-// No browser simulator or independent transport/device is instantiated here.
 class LiveWorkspace final : public juce::Component, private juce::Timer {
-public:
-    explicit LiveWorkspace(Desktop& desktop):owner(desktop) {
-        setComponentID("mr-live-workspace");setName("MR Live");
-        for(auto* button:{&home,&save,&add,&play,&pause,&stop,&studio,&previous,&next,&loop})addAndMakeVisible(button);
-        home.onClick=[this]{owner.action(6);};save.onClick=[this]{owner.action(3);};
-        add.onClick=[this]{owner.confirmDiscard([this]{owner.choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){owner.addLiveProject(file);},"*.mrsproject");});};
-        play.onClick=[this]{owner.action(30);};pause.onClick=[this]{owner.action(31);};stop.onClick=[this]{owner.action(32);};
-        previous.onClick=[this]{owner.action(34);};next.onClick=[this]{owner.action(35);};loop.onClick=[this]{owner.action(36);};
-        studio.onClick=[this]{owner.setWorkspace(mrs::desktop::Workspace::arrange);};
+  public:
+    explicit LiveWorkspace(Desktop &desktop)
+        : owner(desktop), setlist(desktop, false, reference.defaults["itemCardLayout"]),
+          browserItems(desktop, true, reference.defaults["itemCardLayout"]), channels(desktop) {
+        setComponentID("mr-live-workspace");
+        setName("MR Live");
+        nativeTheme.applyPreview(DesignTokens::target());
+        nativeTheme.useConceptAssets(true);
+        setLookAndFeel(&nativeTheme);
+        addMouseListener(this, true);
+        for (auto *component :
+             std::array<juce::Component *, 14>{&setlist, &channels, &files, &options, &studio, &play, &pause, &stop,
+                                               &record, &previous, &next, &loop, &undoButton, &redoButton})
+            addAndMakeVisible(component);
+        addChildComponent(browserItems);
+        files.onClick = [this] { filesMenu(); };
+        options.onClick = [this] { optionsMenu(); };
+        studio.onClick = [this] {
+            owner.liveShowEditing = false;
+            owner.setWorkspace(mrs::desktop::Workspace::arrange);
+        };
+        play.onClick = [this] { owner.action(30); };
+        pause.onClick = [this] { owner.action(31); };
+        stop.onClick = [this] { owner.action(32); };
+        record.onClick = [this] { owner.action(33); };
+        previous.onClick = [this] { owner.action(34); };
+        next.onClick = [this] { owner.action(35); };
+        loop.onClick = [this] { owner.action(36); };
+        undoButton.onClick = [this] { owner.action(10); };
+        redoButton.onClick = [this] { owner.action(11); };
+        undoButton.getProperties().set("mrHostIcon", "action_undo");
+        redoButton.getProperties().set("mrHostIcon", "action_redo");
+        const auto guard = [this] { blockedUntil = juce::Time::getMillisecondCounter() + 250; };
+        const auto blocked = [this] {
+            return static_cast<juce::int32>(blockedUntil - juce::Time::getMillisecondCounter()) > 0;
+        };
+        setlist.toggleBrowser = [this] { showBrowser(!browserVisible); };
+        for (auto *list : {&setlist, &browserItems}) {
+            list->dragGuard = guard;
+            list->activationBlocked = blocked;
+        }
         startTimerHz(15);
     }
+    ~LiveWorkspace() override {
+        stopTimer();
+        removeMouseListener(this);
+        setLookAndFeel(nullptr);
+    }
+    void showBrowser(bool visible) {
+        browserVisible = visible;
+        browserItems.setVisible(visible);
+        resized();
+        if (visible)
+            browserItems.toFront(false);
+    }
+    bool itemsBrowserVisible() const { return browserVisible; }
     void resized() override {
-        const float sx=getWidth()/1920.f,sy=getHeight()/1080.f;
-        auto place=[&](juce::Component& c,int x,int y,int w,int h){c.setBounds(juce::roundToInt(x*sx),juce::roundToInt(y*sy),juce::roundToInt(w*sx),juce::jmax(24,juce::roundToInt(h*sy)));};
-        place(home,12,12,80,40);place(save,100,12,80,40);place(studio,188,12,170,40);
-        place(play,900,18,90,40);place(pause,1000,18,90,40);place(stop,1100,18,90,40);place(add,12,110,350,40);
-        place(previous,550,100,140,32);place(next,700,100,140,32);place(loop,850,100,140,32);
-        int channelY=168;for(auto& row:channels){place(row->mute,390,channelY,55,28);place(row->solo,452,channelY,55,28);channelY+=80;}
-        int y=164;for(auto& button:songs){place(*button,12,y,350,44);y+=48;}
+        const auto size = getLocalBounds();
+        const auto toolbar = reference.bounds("control.toolbar", size.getWidth(), size.getHeight());
+        auto controls = toolbar.reduced(6).withHeight(32);
+        files.setBounds(controls.removeFromLeft(44).reduced(1));
+        options.setBounds(controls.removeFromLeft(52).reduced(1));
+        undoButton.setBounds(controls.removeFromLeft(26));
+        redoButton.setBounds(controls.removeFromLeft(26));
+        studio.setBounds(controls.reduced(1));
+        setlist.setBounds(reference.bounds("show.setlist", getWidth(), getHeight()));
+        channels.setBounds(reference.bounds("track.channels", getWidth(), getHeight()));
+        const auto header = reference.bounds("control.header", getWidth(), getHeight());
+        auto transport = header.withTrimmedLeft(juce::jmin(juce::jmax(0, header.getWidth() - 250), 280)).reduced(4);
+        transport = transport.withY(header.getY() + 12).withHeight(38);
+        for (auto *button : {&play, &pause, &stop, &record})
+            button->setBounds(transport.removeFromLeft(44).reduced(2));
+        const auto timeline = reference.bounds("song.timeline", getWidth(), getHeight());
+        auto navigation = timeline.withTrimmedTop(4).withHeight(30);
+        for (auto *button : {&previous, &next, &loop})
+            button->setBounds(navigation.removeFromLeft(42).reduced(2));
+        const int width = juce::jmin(380, juce::jmax(220, getWidth() - setlist.getRight() - 16));
+        browserItems.setBounds(setlist.getRight() + 2, setlist.getY(), width, setlist.getHeight());
+        if (browserVisible)
+            browserItems.toFront(false);
     }
-    void paint(juce::Graphics& g) override {
-        const float sx=getWidth()/1920.f,sy=getHeight()/1080.f;g.fillAll(juce::Colour(surface));
-        auto drawLivePanel=[&](int x,int y,int w,int h,const juce::String& title){auto r=juce::Rectangle<float>(x*sx,y*sy,w*sx,h*sy);g.setColour(juce::Colour(raised));g.fillRect(r.reduced(1));g.setColour(juce::Colours::lightgrey);g.setFont(owner.theme.font(13));g.drawText(title,r.reduced(10).withHeight(24),juce::Justification::topLeft);};
-        drawLivePanel(0,80,380,624,"Setlist");drawLivePanel(0,704,380,212,"Playback / stems");drawLivePanel(0,916,380,164,owner.footerStatus());
-        drawLivePanel(380,0,1540,80,owner.projectCaption());drawLivePanel(380,82,150,998,"Channels");drawLivePanel(530,82,1390,998,"Timeline");
-        g.setColour(juce::Colours::lightgrey);g.setFont(owner.theme.font(13));
-        const auto p=owner.project();const auto head=owner.displayState();
-        g.drawText(juce::String(static_cast<double>(head.sample)/p->sample_rate,2)+" s",juce::roundToInt(1250*sx),12,140,40,juce::Justification::left);
-        std::size_t channel=0;int y=140;for(const auto& track:p->tracks){g.drawText(juce::String::fromUTF8(track.name.c_str()),juce::roundToInt(390*sx),juce::roundToInt(y*sy),juce::roundToInt(130*sx),26,juce::Justification::left);
-            if(channel<owner.peaks.size()){
-                const auto peak=owner.peaks[channel];const float level=juce::jlimit(0.f,1.f,juce::jmax(peak.left,peak.right));
-                g.setColour(juce::Colour(separatorColour));g.fillRect(juce::Rectangle<float>(390*sx,(y+60)*sy,120*sx,3));
-                g.setColour(juce::Colours::lightgreen);g.fillRect(juce::Rectangle<float>(390*sx,(y+60)*sy,120*sx*level,3));
-            }
-            g.setColour(juce::Colours::lightgrey);++channel;y+=80;
+    void mouseDown(const juce::MouseEvent &event) override {
+        if (!event.mods.isLeftButtonDown())
+            return;
+        auto *origin = event.originalComponent;
+        const bool inSetlist = origin == &setlist || setlist.isParentOf(origin);
+        const bool inBrowser = origin == &browserItems || browserItems.isParentOf(origin);
+        if (browserVisible && !inSetlist && !inBrowser)
+            showBrowser(false);
+        if (!inSetlist && !inBrowser && origin != &undoButton && origin != &redoButton)
+            owner.liveShowEditing = false;
+    }
+    void paint(juce::Graphics &g) override {
+        const auto tokens = DesignTokens::target();
+        g.fillAll(tokens.colour(ColourRole::canvas));
+        const auto fill = [&](const char *type) {
+            const auto bounds = reference.bounds(type, getWidth(), getHeight());
+            g.setColour(tokens.colour(ColourRole::panel));
+            g.fillRect(bounds.reduced(1));
+        };
+        for (const auto *type :
+             {"control.toolbar", "control.header", "song.timeline", "playback.stems", "system.status"})
+            fill(type);
+        const auto header = reference.bounds("control.header", getWidth(), getHeight());
+        const auto state = owner.liveDocument ? owner.liveDocument->interface : juce::var();
+        const auto current = live::find(state, "items", state["currentItem"].toString());
+        const bool linked = !owner.liveDocument || owner.liveDocument->currentLinked();
+        g.setColour(tokens.colour(ColourRole::text));
+        g.setFont(owner.theme.font(17));
+        g.drawText(current.isObject() ? current["name"].toString() : owner.projectCaption(), header.getX() + 10,
+                   header.getY() + 5, juce::jmin(265, header.getWidth() - 20), 28, juce::Justification::left, true);
+        g.setFont(owner.theme.font(10));
+        g.setColour(tokens.colour(ColourRole::muted));
+        g.drawText(owner.projectCaption(), header.getX() + 10, header.getY() + 34,
+                   juce::jmin(265, header.getWidth() - 20), 20, juce::Justification::left, true);
+        const auto head = owner.displayState();
+        g.setFont(owner.theme.font(14));
+        g.setColour(tokens.colour(ColourRole::text));
+        g.drawText(juce::String(static_cast<double>(head.sample) / owner.project()->sample_rate, 2) + " s",
+                   header.getRight() - 105, header.getY() + 12, 95, 38, juce::Justification::right);
+        auto timeline = reference.bounds("song.timeline", getWidth(), getHeight()).reduced(12);
+        timeline.removeFromTop(34);
+        g.setFont(owner.theme.font(13));
+        if (!linked) {
+            g.drawText("Link a .mrsproject to this item to use its shared timeline and audio",
+                       timeline.removeFromTop(46), juce::Justification::topLeft, true);
+        } else {
+            for (const auto &label : owner.contextLabels)
+                g.drawText(label.getText(), timeline.removeFromTop(28), juce::Justification::left, true);
+            g.setColour(tokens.colour(ColourRole::muted));
+            g.drawText("Open Studio to edit this shared project", timeline.removeFromTop(34), juce::Justification::left,
+                       true);
         }
-        for(std::size_t i=0;i<owner.contextLabels.size();++i)g.drawText(owner.contextLabels[i].getText(),juce::roundToInt(550*sx),juce::roundToInt((200+32*static_cast<int>(i))*sy),juce::jmax(0,getWidth()-juce::roundToInt(560*sx)),28,juce::Justification::left);
-        g.drawText(p->tracks.empty()?"Add a Studio project to the setlist":"Open Studio to edit this shared project",juce::roundToInt(550*sx),juce::roundToInt(140*sy),juce::jmax(0,getWidth()-juce::roundToInt(560*sx)),30,juce::Justification::left);
+        const auto stems = reference.bounds("playback.stems", getWidth(), getHeight()).reduced(10);
+        g.setColour(tokens.colour(ColourRole::text));
+        g.setFont(owner.theme.font(12));
+        g.drawText("Playback / stems", stems.withHeight(24), juce::Justification::left);
+        auto statusArea = reference.bounds("system.status", getWidth(), getHeight()).reduced(10);
+        g.setColour(owner.message.isEmpty() ? tokens.colour(ColourRole::muted) : tokens.colour(ColourRole::warning));
+        g.setFont(owner.theme.font(11));
+        g.drawFittedText(owner.footerStatus(), statusArea, juce::Justification::topLeft, 4);
     }
-private:
+
+  private:
+    void filesMenu() {
+        juce::PopupMenu popup;
+        popup.addItem(701, "New MR Live show...");
+        popup.addItem(2, "Open...");
+        popup.addItem(3, "Save");
+        popup.addItem(4, "Save as...");
+        popup.addItem(702, "Import editor show JSON...");
+        popup.addSeparator();
+        popup.addItem(6, "Project home");
+        juce::Component::SafePointer<Desktop> safe(&owner);
+        popup.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&files), [safe](int action) {
+            if (safe && action)
+                safe->action(action);
+        });
+    }
+    void optionsMenu() {
+        juce::PopupMenu popup;
+        popup.addItem(1, "Browser items", true, browserVisible);
+        popup.addItem(2, "Item button layout...", owner.liveDocument.has_value());
+        popup.addSeparator();
+        popup.addItem(40, "Audio settings...");
+        juce::Component::SafePointer<LiveWorkspace> safe(this);
+        popup.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&options), [safe](int action) {
+            if (!safe)
+                return;
+            if (action == 1)
+                safe->showBrowser(!safe->browserVisible);
+            else if (action == 2)
+                openLiveCardEditor(safe->owner, safe->reference.defaults["itemCardLayout"]);
+            else if (action == 40)
+                safe->owner.action(40);
+        });
+    }
     void timerCallback() override {
-        if(!isVisible())return;
-        juce::String signature;if(owner.liveDocument)for(const auto& file:owner.liveDocument->projects)signature+=file.getFullPathName()+"\n";
-        if(signature!=songSignature){songSignature=signature;songs.clear();if(owner.liveDocument)for(std::size_t i=0;i<owner.liveDocument->projects.size();++i){auto button=std::make_unique<juce::TextButton>(owner.liveDocument->projects[i].getFileNameWithoutExtension());button->onClick=[this,i]{owner.confirmDiscard([this,i]{owner.run([&]{owner.selectLiveProject(static_cast<int>(i));});});};addAndMakeVisible(*button);songs.push_back(std::move(button));}resized();}
-        const auto project=owner.project();juce::String tracks;
-        for(const auto& track:project->tracks)tracks+=juce::String::fromUTF8(track.id.value.c_str())+"\n";
-        if(tracks!=trackSignature){trackSignature=tracks;channels.clear();for(const auto& track:project->tracks){
-            auto row=std::make_unique<Channel>();const auto id=track.id;
-            row->mute.onClick=[this,id]{toggle(id,false);};row->solo.onClick=[this,id]{toggle(id,true);};
-            addAndMakeVisible(row->mute);addAndMakeVisible(row->solo);channels.push_back(std::move(row));
-        }resized();}
-        for(std::size_t i=0;i<channels.size();++i){channels[i]->mute.setToggleState(project->tracks[i].mix.mute,juce::dontSendNotification);channels[i]->solo.setToggleState(project->tracks[i].mix.solo,juce::dontSendNotification);}
+        if (!isVisible())
+            return;
+        if (!owner.isDragAndDropActive()) {
+            setlist.refresh();
+            browserItems.refresh();
+        }
+        channels.refresh();
+        const auto projectState = owner.app.services().projects->state();
+        undoButton.setEnabled(owner.liveShowEditing ? owner.liveUndo.canUndo() : projectState.can_undo);
+        redoButton.setEnabled(owner.liveShowEditing ? owner.liveUndo.canRedo() : projectState.can_redo);
+        const auto state = owner.displayState();
+        const bool linked = !owner.liveDocument || owner.liveDocument->currentLinked();
+        play.setEnabled(linked);
+        record.setEnabled(linked);
+        previous.setEnabled(linked && !owner.app.recording());
+        next.setEnabled(linked && !owner.app.recording());
+        loop.setEnabled(linked && !owner.app.recording());
+        play.setToggleState(state.playback == mrs::PlaybackState::playing, juce::dontSendNotification);
+        pause.setToggleState(state.playback == mrs::PlaybackState::paused, juce::dontSendNotification);
+        record.setToggleState(owner.app.recording(), juce::dontSendNotification);
+        loop.setToggleState(owner.app.engine()->state().loop.has_value(), juce::dontSendNotification);
         repaint();
     }
-    void toggle(mrs::Id id,bool solo){owner.run([&]{const auto p=owner.project();for(const auto& track:p->tracks)if(track.id==id){auto mix=track.mix;if(solo)mix.solo=!mix.solo;else mix.mute=!mix.mute;owner.app.set_track_mix(id,mix);break;}});}
-    struct Channel {juce::TextButton mute{"M"},solo{"S"};};
-    std::vector<std::unique_ptr<Channel>> channels;juce::String trackSignature;
-    Desktop& owner;juce::String songSignature;std::vector<std::unique_ptr<juce::TextButton>> songs;
-    juce::TextButton home{"Home"},save{"Save"},add{"Add Studio project..."},play{"Play"},pause{"Pause"},stop{"Stop"},studio{"Open Studio"},previous{"< Section"},next{"Section >"},loop{"Loop section"};
+    Desktop &owner;
+    LiveLayout reference;
+    Theme nativeTheme;
+    LiveSetlist setlist, browserItems;
+    LiveChannels channels;
+    juce::TextButton files{"Files"}, options{"Options"}, studio{"Studio"}, play{"Play"}, pause{"Pause"}, stop{"Stop"},
+        record{"Record (R)"}, previous{"< Section"}, next{"Section >"}, loop{"Loop section"}, undoButton{"Undo"},
+        redoButton{"Redo"};
+    bool browserVisible{};
+    juce::uint32 blockedUntil{};
 };
-}
+} // namespace ui

@@ -1,0 +1,97 @@
+{
+  "schema": "mr-live-interface-defaults",
+  "version": 1,
+  "provenance": "Defaults from accepted browser prototype; not an export of the user browser localStorage.",
+  "itemCardLayout": {
+    "revision": 2,
+    "height": 56,
+    "fields": {
+      "name": {
+        "x": 3,
+        "y": 8,
+        "w": 58,
+        "h": 20,
+        "visible": true
+      },
+      "metadata": {
+        "x": 3,
+        "y": 31,
+        "w": 58,
+        "h": 16,
+        "visible": true
+      },
+      "progress": {
+        "x": 64,
+        "y": 13,
+        "w": 27,
+        "h": 4,
+        "visible": true
+      },
+      "priority": {
+        "x": 64,
+        "y": 31,
+        "w": 9,
+        "h": 18,
+        "visible": true
+      },
+      "status": {
+        "x": 74,
+        "y": 31,
+        "w": 24,
+        "h": 20,
+        "visible": true
+      },
+      "saved": {
+        "x": 94,
+        "y": 11.5,
+        "w": 3,
+        "h": 7,
+        "visible": true
+      }
+    }
+  },
+  "itemWorkflow": {
+    "status": "Todo",
+    "priority": "P4",
+    "progress": 0
+  },
+  "itemStatuses": [
+    "Done",
+    "Wait",
+    "Todo",
+    "Wip"
+  ],
+  "showOrganizer": true,
+  "organizer": {
+    "initialTasks": [],
+    "optionalTemplate": [
+      {
+        "title": "Композиция"
+      },
+      {
+        "title": "Гармония"
+      },
+      {
+        "title": "Инструментовка"
+      },
+      {
+        "title": "Рыба",
+        "children": [
+          {
+            "title": "Drums"
+          },
+          {
+            "title": "Bass"
+          }
+        ]
+      }
+    ]
+  },
+  "contracts": {
+    "layout": "mr-live-layout-v5.json",
+    "behavior": "tools/design-lab/live/",
+    "handoff": "docs/MR_LIVE_NATIVE_INTEGRATION.md",
+    "userDemoShowIncluded": false
+  }
+}
+
