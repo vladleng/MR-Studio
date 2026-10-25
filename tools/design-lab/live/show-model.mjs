@@ -1,3 +1,4 @@
+import {saveItemVersion} from './item-library.mjs';
 import {validatePerformance} from './performance.mjs';
 import {reconcileTimeline,validateTimeline,repairTimelineOverlaps} from './timeline-model.mjs';
 import {defaultChannels,makeTracks,validateChannels} from './channel-model.mjs';
@@ -5,11 +6,11 @@ import {defaultChannels,makeTracks,validateChannels} from './channel-model.mjs';
 const id=()=>crypto.randomUUID();
 const name=s=>typeof s==='string'&&s.trim().length>0&&s.length<=120;
 const keys=(o,list)=>{if(!o||typeof o!=='object'||Array.isArray(o)||Object.keys(o).some(k=>!list.includes(k)))throw Error('Недопустимые поля demo show');};
-export function validateShow(doc,repairOverlaps=false){
+export function validateShow(doc,repairOverlaps=false,snapshot=false){
  doc=structuredClone(doc);
  if(doc?.schema==='mr-live-demo-show'&&doc.version===1){doc.version=2;doc.channels=defaultChannels();if(Array.isArray(doc.items))for(const item of doc.items)item.tracks=makeTracks(doc.channels);}
  if(doc?.schema==='mr-live-demo-show'&&doc.version===2){doc.version=3;reconcileTimeline(doc);}
- keys(doc,['channels','schema','version','folders','items','setlists','activeSetlist','currentItem','viewRecordTracks','performance']);
+ keys(doc,['channels','schema','version','folders','items','setlists','activeSetlist','currentItem','viewRecordTracks','performance','library']);
  if(!Object.hasOwn(doc,'viewRecordTracks'))doc.viewRecordTracks=false;if(typeof doc.viewRecordTracks!=='boolean')throw Error('Некорректный View record tracks');
  if(doc.schema!=='mr-live-demo-show'||doc.version!==3)throw Error('Неподдерживаемый demo show');
  for(const key of ['folders','items','setlists'])if(!Array.isArray(doc[key])||doc[key].length>500)throw Error('Лимит: 500 элементов');
@@ -24,6 +25,8 @@ export function validateShow(doc,repairOverlaps=false){
  if(repairOverlaps)repairTimelineOverlaps(doc);
  validateTimeline(doc,unique);validatePerformance(doc);
  if(!doc.setlists.some(s=>s.id===doc.activeSetlist)||doc.currentItem!==null&&!items.has(doc.currentItem))throw Error('Некорректный выбор');
+ if(snapshot){if(Object.hasOwn(doc,'library'))throw Error('Вложенная библиотека запрещена');}
+ else{doc.library??={};keys(doc.library,doc.items.map(i=>i.id));for(const item of doc.items){if(!Object.hasOwn(doc.library,item.id)){saveItemVersion(doc,item.id);continue;}const text=doc.library[item.id];if(typeof text!=='string'||text.length>1024*1024)throw Error('Некорректная версия item');const saved=validateShow(JSON.parse(text),false,true);if(saved.items.length!==1||saved.items[0].id!==item.id)throw Error('Версия другого item');}}
  if(new TextEncoder().encode(JSON.stringify(doc)).length>1024*1024)throw Error('Лимит demo show: 1 MiB');
  return structuredClone(doc);
 }
@@ -31,7 +34,7 @@ export function parseShow(text,repairOverlaps=false){if(new TextEncoder().encode
 export function initialShow(){const items=['Moon River','Fly Me to the Moon','Autumn Leaves'].map((name,i)=>({id:`item-${i}`,name,folder:null,tempo:92+i*8,meter:'4/4',key:'C',duration:222+i*33,notes:''}));const channels=defaultChannels();for(const item of items)item.tracks=makeTracks(channels);return validateShow({schema:'mr-live-demo-show',version:2,channels,folders:[],items,setlists:[{id:'set-1',name:'Evening Session',entries:items.map((item,i)=>({id:`entry-${i}`,itemId:item.id}))}],activeSetlist:'set-1',currentItem:'item-0'});}
 export class DemoShow{
  constructor(doc=initialShow()){this.doc=validateShow(doc);this.past=[];this.future=[];}
- commit(fn){const next=structuredClone(this.doc);fn(next);reconcileTimeline(next);const valid=validateShow(next);this.past.push(this.doc);if(this.past.length>60)this.past.shift();this.doc=valid;this.future=[];}
+ commit(fn){const next=structuredClone(this.doc);fn(next);if(next.library)for(const key of Object.keys(next.library))if(!next.items.some(i=>i.id===key))delete next.library[key];reconcileTimeline(next);const valid=validateShow(next);this.past.push(this.doc);if(this.past.length>60)this.past.shift();this.doc=valid;this.future=[];}
  undo(){if(this.past.length){this.future.push(this.doc);this.doc=this.past.pop();}}
  redo(){if(this.future.length){this.past.push(this.doc);this.doc=this.future.pop();}}
  item(values,folder=null){const item={id:id(),name:'New item',folder,tempo:92,meter:'4/4',key:'C',duration:240,notes:'',...values,id:id()};item.tracks=values.tracks?values.tracks.map(t=>({...t,id:id(),...(t.recordTrack?{recordTrack:{id:id()}}:{})})):makeTracks(this.doc.channels);if(values.sections)item.sections=values.sections.map(s=>({...s,id:id()}));this.commit(d=>{d.items.push(item);if(values.id&&d.performance.chords[values.id])d.performance.chords[item.id]=d.performance.chords[values.id].map(c=>({...c,id:id()}));});return item.id;}
