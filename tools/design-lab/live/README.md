@@ -112,3 +112,5 @@ Every primary track panel has M/S beside arm R where recording is available; M/S
 
 
 Setlist rows/dividers no longer have a separate drag handle; drag the row body without activation. Single-click selection waits for the double-click interval; double-click cancels pending selection and renames without changing currentItem. Browser library keeps its own double-click open behavior. Each library folder (including root) lists items and child folders alphabetically with natural numeric, case-insensitive ordering; stored library/setlist ordering is untouched. Active M is red and active S yellow across track panels and mixer, including record child controls.
+
+Общая колонка каналов закреплена перед всей последовательностью items: Sections, Chord Track и M/S/R отображаются один раз. Высоты строк синхронизируются, включая раскрытые takes; файлы Playback выбираются в ПКМ дорожки/клипа либо в Playback / stems.

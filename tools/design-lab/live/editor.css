@@ -86,3 +86,22 @@
 .visual-control-header{height:100%;min-height:0;overflow:hidden}.visual-control-header .timeline-top{position:relative;top:auto;left:auto;height:100%;min-height:0;padding:0}.visual-control-header .timeline-tuner{height:100%;max-height:64px}.track-switches{display:flex;gap:4px;align-items:center}.track-channel-switch{font-size:11px;padding:3px 6px;min-width:24px}.track-channel-switch[aria-pressed=true]{background:#91BBEE;color:#191a1c}.record-strip>.track-switches{grid-row:6}.record-strip .track-channel-switch{padding:2px 4px;min-width:20px}
 
 [data-switch=M][aria-pressed=true],.channel-switches [data-toggle=M][aria-pressed=true]{background:#E68F88!important;border-color:#E68F88;color:#191a1c!important}[data-switch=S][aria-pressed=true],.channel-switches [data-toggle=S][aria-pressed=true]{background:#E2C070!important;border-color:#E2C070;color:#191a1c!important}
+
+/* One shared channel column before the entire item sequence. The enclosing block owns both scroll axes. */
+.visual-song-timeline{display:block;overflow:visible;flex:none;min-width:100%;width:max-content}
+.shared-track-layout{display:flex;align-items:flex-start;width:max-content;min-width:100%}
+.shared-track-panel{position:sticky;left:0;z-index:20;flex:0 0 150px;width:150px;background:#292b2e;border:1px solid #4B5F7B}
+.shared-track-top,.setlist-timeline-items .live-item-header{height:62px;min-height:62px;max-height:62px;overflow:hidden;flex-wrap:nowrap;white-space:nowrap}
+.shared-track-top{display:flex;align-items:center;padding:8px}
+.shared-track-ruler,.live-item-container .item-ruler{height:26px;min-height:26px;box-sizing:border-box;padding:4px 0}
+.shared-track-label{height:38px;display:flex;align-items:center;padding:4px 6px;border-block-end:1px solid #4B5F7B;font-size:12px}
+.shared-track-panel .linked-channel-title{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:8px 12px;border-top:1px solid #4B5F7B;overflow:hidden}
+.shared-track-panel .channel-dots{margin:0}.shared-track-panel .channel-name{font-size:12px}
+.shared-track-layout .live-item-container{overflow:hidden}
+.shared-track-layout .item-time-scroll{overflow:visible}
+.shared-track-layout .item-time-content{min-width:0}
+.shared-track-layout .item-track,.shared-track-layout .item-parts-row,.shared-track-layout .item-chords-row{grid-template-columns:minmax(0,1fr)}
+.shared-track-layout .item-track{min-height:80px}
+.shared-track-layout .audio-record-lane{box-sizing:border-box;height:80px;min-height:80px}
+.shared-track-layout .item-origin-grip{transform:translateX(12px)}
+.shared-track-panel .linked-channel-title{margin:0}
