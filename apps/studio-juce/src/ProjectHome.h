@@ -32,11 +32,11 @@ public:
         create.onClick=[this]{owner.action(1);};open.onClick=[this]{owner.action(2);};reload.onClick=[this]{rescan();};filter.onTextChange=[this]{applyFilter();};startTimerHz(10);
     }
     ~ProjectHome() override{stopTimer();cancel=true;if(worker.valid())worker.wait();list.setModel(nullptr);}
-    void rescan(){if(worker.valid())return;cancel=false;const auto folder=root;worker=std::async(std::launch::async,[this,folder]{return findHomeProjects(folder,&cancel);});scanning=true;reload.setEnabled(false);repaint();}
+    void rescan(){if(worker.valid()){rescanPending=true;return;}cancel=false;const auto folder=root;worker=std::async(std::launch::async,[this,folder]{return findHomeProjects(folder,&cancel);});scanning=true;reload.setEnabled(false);repaint();}
     bool loading() const{return scanning;}
     void visibilityChanged() override{if(isVisible())resized();}
     void scanRoot(const juce::File& folder){root=folder;rescan();}
-    void pollScan(){if(!worker.valid()||worker.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;auto result=worker.get();projects=std::move(result.files);error=result.error;scanning=false;reload.setEnabled(true);applyFilter();}
+    void pollScan(){if(!worker.valid()||worker.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;auto result=worker.get();projects=std::move(result.files);error=result.error;scanning=false;reload.setEnabled(true);applyFilter();if(rescanPending){rescanPending=false;rescan();}}
     std::size_t projectCount() const{return visible.size();}
     const juce::File& projectFile(std::size_t i) const{return projects.at(visible.at(i)).file;}
     void openRow(int row){if(row<0||row>=static_cast<int>(visible.size()))return;const auto file=projectFile(static_cast<std::size_t>(row));juce::Component::SafePointer<Desktop> safe(&owner);juce::MessageManager::callAsync([safe,file]{if(safe)safe->confirmDiscard([safe,file]{if(safe)safe->run([&]{safe->openFile(file);});});});}
@@ -82,6 +82,6 @@ private:
     void applyFilter(){studioTab.setToggleState(!live,juce::dontSendNotification);liveTab.setToggleState(live,juce::dontSendNotification);list.deselectAllRows();visible.clear();for(std::size_t i=0;i<projects.size();++i)if(projects[i].file.hasFileExtension(live?"mrlive":"mrsproject")&&projects[i].relative.containsIgnoreCase(filter.getText()))visible.push_back(i);list.updateContent();repaint();}
     void timerCallback() override{try{pollScan();}catch(const std::exception& e){scanning=false;reload.setEnabled(true);error=juce::String::fromUTF8(e.what());repaint();}}
     Desktop& owner;juce::File root;juce::ListBox list;bool live{};juce::TextButton createLive{juce::String::fromUTF8("Новый проект MR Live")},studioTab{juce::String::fromUTF8("Проекты")},liveTab{"MR Live"};juce::TextButton create{"New project"},open{"Open..."},reload{"Refresh"},resume{"Continue current project"};juce::TextEditor filter;
-    std::vector<HomeProject> projects;std::vector<std::size_t> visible;std::future<HomeProjects> worker;std::atomic<bool> cancel{};bool scanning{};juce::String error;
+    std::vector<HomeProject> projects;std::vector<std::size_t> visible;std::future<HomeProjects> worker;std::atomic<bool> cancel{};bool scanning{},rescanPending{};juce::String error;
 };
 }
