@@ -27,7 +27,8 @@ const definitions = [
  ['info.cues','Cue / notes','Через 4 такта · вступление вокала'],
  ['info.lyrics','Lyrics','Moon river, wider than a mile…'],
  ['system.status','Status','Device: fixture · MIDI: fixture · Preflight: preview'],
- ['control.header','Header','Tuner · Transport']
+ ['control.header','Header','Tuner · Transport'],
+ ['track.channels','Каналы','Общие каналы']
 ];
 export const registry = new Map(definitions.map(([type,title,sample])=>[type,{
  type,version:1,properties, defaults:{title,showTitle:true,x:24,y:24,w:360,h:160,minW:120,maxW:4096,minH:64,maxH:4096,dock:'none',padding:12,gap:8,fontSize:16,font:'sans-serif',weight:'400',align:'left',background:'surface',color:'bright',anchor:'top-left',overflow:'auto',visible:true,asset:''},
@@ -36,4 +37,4 @@ export const registry = new Map(definitions.map(([type,title,sample])=>[type,{
    renderVisual(node, block, fixture, assets);
  }
 }]));
-export function createBlock(type,id){const entry=registry.get(type);if(!entry)throw Error('Неизвестный блок');return {id,type,version:entry.version,...entry.defaults,...(type==='mixer.channels'?{w:560,h:480}:{}),...(type==='control.header'?{w:1000,h:80,showTitle:false,padding:4}:{}),visible:!['input.patches'].includes(type),assetOverrides:{},direction:'row',bindings:[...entry.bindings.filter(a=>a!=='view.patches')]};}
+export function createBlock(type,id){const entry=registry.get(type);if(!entry)throw Error('Неизвестный блок');return {id,type,version:entry.version,...entry.defaults,...(type==='track.channels'?{w:150,h:600,padding:0,gap:0,showTitle:false,anchor:'stretch-y'}:{}),...(type==='mixer.channels'?{w:560,h:480}:{}),...(type==='control.header'?{w:1000,h:80,showTitle:false,padding:4}:{}),visible:!['input.patches'].includes(type),assetOverrides:{},direction:'row',bindings:[...entry.bindings.filter(a=>a!=='view.patches')]};}

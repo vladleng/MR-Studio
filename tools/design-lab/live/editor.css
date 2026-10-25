@@ -105,3 +105,17 @@
 .shared-track-layout .audio-record-lane{box-sizing:border-box;height:80px;min-height:80px}
 .shared-track-layout .item-origin-grip{transform:translateX(12px)}
 .shared-track-panel .linked-channel-title{margin:0}
+
+/* Independent full-height channel block, flush against Setlist and Timeline. */
+.block:has(>.visual-track-channels),.block:has(>.visual-song-timeline){border-radius:0}
+.visual-track-channels{flex:1;min-height:100%;width:100%;overflow:visible}
+.visual-track-channels .shared-track-panel{position:static;width:100%;min-height:100%;border:0;background:#292b2e}
+.visual-track-channels .shared-track-top{height:62px}
+.visual-song-timeline .live-item-container{overflow:hidden}
+.visual-song-timeline .item-time-scroll{overflow:visible}
+.visual-song-timeline .item-time-content{min-width:0}
+.visual-song-timeline .item-track,.visual-song-timeline .item-parts-row,.visual-song-timeline .item-chords-row{grid-template-columns:minmax(0,1fr)}
+.visual-song-timeline .item-track{min-height:100px}
+.visual-song-timeline .audio-record-lane{height:100px;min-height:100px;box-sizing:border-box}
+.visual-song-timeline .item-origin-grip{transform:translateX(12px)}
+.visual-track-channels .shared-channel-title,.visual-track-channels .shared-record-title{min-height:100px;overflow:visible}

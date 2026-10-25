@@ -92,6 +92,7 @@ export function renderVisual(node, block, fixture, assets) {
       for (const value of [`${item?.tempo||92} BPM`, item?.meter||'4/4',item?.key||'C', playing ? 'PLAYING' : 'READY']) add(row, 'visual-chip', value);
       break;
     }
+    case 'track.channels': {renderChannelPanel(root,'channels',assets);break;}
     case 'song.timeline': {renderChannelPanel(root,'timeline',assets);break;}
     case 'playback.stems': {
       renderChannelPanel(root,'playback',assets);

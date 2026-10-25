@@ -32,12 +32,13 @@ export function validate(doc,assets=new Set()){
  }
  for(const b of doc.blocks){if(['input.patches'].includes(b.type))b.visible=false;if(b.type==='control.toolbar')b.bindings=[...new Set(b.bindings.map(a=>a==='view.patches'?'view.browser':a))];}
  if(!doc.blocks.some(b=>b.type==='control.header')&&doc.blocks.length<80){const timeline=doc.blocks.find(b=>b.type==='song.timeline');if(timeline&&timeline.h>=timeline.minH+64){let id='live-header',suffix=1;while(doc.blocks.some(b=>b.id===id))id=`live-header-${suffix++}`;const height=Math.min(80,timeline.h-timeline.minH);doc.blocks.push({...createBlock('control.header',id),x:timeline.x,y:timeline.y,w:timeline.w,h:height,minW:120,showTitle:false,padding:4});timeline.y+=height;timeline.h-=height;}}
+ if(!doc.blocks.some(b=>b.type==='track.channels')&&doc.blocks.length<80){const timeline=doc.blocks.find(b=>b.type==='song.timeline');if(timeline&&timeline.w>=timeline.minW+150){let id='live-channels',suffix=1;while(doc.blocks.some(b=>b.id===id))id=`live-channels-${suffix++}`;doc.blocks.push({...createBlock('track.channels',id),x:timeline.x,y:timeline.y,w:150,h:doc.viewport.height-timeline.y});timeline.x+=150;timeline.w-=150;timeline.padding=0;timeline.gap=0;timeline.showTitle=false;}}
  return structuredClone(doc);
 }
 export function parse(text,assets){if(typeof text!=='string'||new TextEncoder().encode(text).length>MAX_BYTES)fail('Файл превышает 256 KiB');return validate(JSON.parse(text),assets);}
 export function initial(){
  const blocks=[...registry.keys()].map((type,i)=>({...createBlock(type,`block-${i+1}`),x:16+(i%3)*416,y:16+Math.floor(i/3)*176,w:400,h:160}));
- return {schema:'mr-live-layout',version:1,registryVersion:1,target:'mr-live-main',id:'mr-live-default',name:'MR Live · первый макет',viewport:{width:1280,height:912},blocks};
+ return {schema:'mr-live-layout',version:1,registryVersion:1,target:'mr-live-main',id:'mr-live-default',name:'MR Live · первый макет',viewport:{width:1280,height:Math.max(912,16+Math.ceil(blocks.length/3)*176)},blocks};
 }
 // Anchors preserve margins; minimum dimensions overflow the preview and scroll.
 export function resolve(b,base,view){const out={...b};const dx=view.width-base.width,dy=view.height-base.height;
