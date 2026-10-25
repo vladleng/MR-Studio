@@ -2,7 +2,7 @@
 #include "Desktop.h"
 
 namespace ui {
-// Initial native entry slice: v5 panel geometry and shared host state.
+// Initial native entry slice: v5 drawLivePanel geometry and shared host state.
 // No browser simulator or independent transport/device is instantiated here.
 class LiveWorkspace final : public juce::Component, private juce::Timer {
 public:
@@ -27,9 +27,9 @@ public:
     }
     void paint(juce::Graphics& g) override {
         const float sx=getWidth()/1920.f,sy=getHeight()/1080.f;g.fillAll(juce::Colour(surface));
-        auto panel=[&](int x,int y,int w,int h,const juce::String& title){auto r=juce::Rectangle<float>(x*sx,y*sy,w*sx,h*sy);g.setColour(juce::Colour(raised));g.fillRect(r.reduced(1));g.setColour(juce::Colours::lightgrey);g.setFont(owner.theme.font(13));g.drawText(title,r.reduced(10).withHeight(24),juce::Justification::topLeft);};
-        panel(0,80,380,624,"Setlist");panel(0,704,380,212,"Playback / stems");panel(0,916,380,164,owner.footerStatus());
-        panel(380,0,1540,80,owner.projectCaption());panel(380,82,150,998,"Channels");panel(530,82,1390,998,"Timeline");
+        auto drawLivePanel=[&](int x,int y,int w,int h,const juce::String& title){auto r=juce::Rectangle<float>(x*sx,y*sy,w*sx,h*sy);g.setColour(juce::Colour(raised));g.fillRect(r.reduced(1));g.setColour(juce::Colours::lightgrey);g.setFont(owner.theme.font(13));g.drawText(title,r.reduced(10).withHeight(24),juce::Justification::topLeft);};
+        drawLivePanel(0,80,380,624,"Setlist");drawLivePanel(0,704,380,212,"Playback / stems");drawLivePanel(0,916,380,164,owner.footerStatus());
+        drawLivePanel(380,0,1540,80,owner.projectCaption());drawLivePanel(380,82,150,998,"Channels");drawLivePanel(530,82,1390,998,"Timeline");
         g.setColour(juce::Colours::lightgrey);g.setFont(owner.theme.font(13));
         const auto p=owner.project();const auto head=owner.displayState();
         g.drawText(juce::String(static_cast<double>(head.sample)/p->sample_rate,2)+" s",juce::roundToInt(1250*sx),12,140,40,juce::Justification::left);

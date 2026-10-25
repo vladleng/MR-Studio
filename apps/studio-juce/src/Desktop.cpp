@@ -162,9 +162,9 @@ void Desktop::reconnectDevice(bool session){if(testing||(!session&&!prefs.reconn
 #endif
 }
 void Desktop::openFile(const juce::File& f){mrs::diagnostics::event("project_open_begin "+f.getFullPathName().toStdString());const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();cancelPreview();if(f.hasFileExtension("mrlive")){
-    auto next=LiveDocument::read(f);
-    if(next.active>=0)app.open_project(path(next.projects.at(static_cast<std::size_t>(next.active))));else app.new_project();
-    liveDocument=std::move(next);liveFile=f;liveDirty=false;app.workspace(mrs::desktop::Workspace::live);
+    auto showState=LiveDocument::read(f);
+    if(showState.active>=0)app.open_project(path(showState.projects.at(static_cast<std::size_t>(showState.active))));else app.new_project();
+    liveDocument=std::move(showState);liveFile=f;liveDirty=false;app.workspace(mrs::desktop::Workspace::live);
 }else{const bool leavingLive=liveDocument.has_value()||app.workspace()==mrs::desktop::Workspace::live;app.open_project(path(f));liveDocument.reset();liveFile={};liveDirty=false;if(leavingLive)app.workspace(mrs::desktop::Workspace::arrange);}
 resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();showProjectHome(false);reconnectDevice(session);if(liveDocument&&liveDocument->active<0)liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};else liveEmptyRevision.reset();mrs::diagnostics::event("project_open_end");}
 bool Desktop::songDirty() const{
@@ -175,8 +175,8 @@ bool Desktop::songDirty() const{
 }
 juce::File Desktop::documentFile() const{return liveDocument?liveFile:juce::File(juce::String(app.path().wstring().c_str()));}
 void Desktop::createLive(const juce::File& requested){
-    auto file=requested.withFileExtension("mrlive");LiveDocument next;next.title=file.getFileNameWithoutExtension();next.write(file);
-    closeEditors();cancelPreview();app.new_project();liveDocument=std::move(next);liveFile=file;liveDirty=false;
+    auto file=requested.withFileExtension("mrlive");LiveDocument showState;showState.title=file.getFileNameWithoutExtension();showState.write(file);
+    closeEditors();cancelPreview();app.new_project();liveDocument=std::move(showState);liveFile=file;liveDirty=false;
     resetDevice();app.workspace(mrs::desktop::Workspace::live);remember();refresh(true);showProjectHome(false);reconnectDevice();
     liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};
 }
@@ -194,7 +194,7 @@ void Desktop::addLiveProject(const juce::File& file){
 }
 void Desktop::saveFile(const juce::File& f){
     if(liveDocument){
-        auto next=*liveDocument;auto file=f.withFileExtension("mrlive");
+        auto showState=*liveDocument;auto file=f.withFileExtension("mrlive");
         if(songDirty()){
             liveDirty=true; // Keep unsaved references pending if publishing the show fails.
             auto song=app.path();
@@ -204,13 +204,13 @@ void Desktop::saveFile(const juce::File& f){
                 if(std::filesystem::exists(song))throw std::runtime_error("Song destination exists; choose another show filename with Save as");
             }
             app.save_project(song);const juce::File saved(juce::String(app.path().wstring().c_str()));
-            if(next.active<0){next.projects.push_back(saved);next.active=static_cast<int>(next.projects.size())-1;}
-            else next.projects.at(static_cast<std::size_t>(next.active))=saved;
+            if(showState.active<0){showState.projects.push_back(saved);showState.active=static_cast<int>(showState.projects.size())-1;}
+            else showState.projects.at(static_cast<std::size_t>(showState.active))=saved;
         }
-        if(next.active<0&&!app.path().empty()){
-            next.projects.emplace_back(juce::String(app.path().wstring().c_str()));next.active=static_cast<int>(next.projects.size())-1;
+        if(showState.active<0&&!app.path().empty()){
+            showState.projects.emplace_back(juce::String(app.path().wstring().c_str()));showState.active=static_cast<int>(showState.projects.size())-1;
         }
-        next.write(file);liveDocument=std::move(next);liveFile=file;liveDirty=false;remember();refresh();return;
+        showState.write(file);liveDocument=std::move(showState);liveFile=file;liveDirty=false;remember();refresh();return;
     }
     auto destination=path(f);if(destination!=app.path())destination=mrs::desktop::project_folder_file(destination);app.save_project(destination);remember();refresh();}
 void Desktop::importFiles(const juce::StringArray& files){closeEditors();std::vector<std::filesystem::path> paths;for(const auto& f:files)paths.push_back(path(juce::File(f)));app.queue_wav_import(paths);refresh(true);}
