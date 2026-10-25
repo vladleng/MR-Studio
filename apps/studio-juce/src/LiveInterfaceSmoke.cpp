@@ -28,7 +28,7 @@ juce::Component *liveComponent(juce::Component &root, const juce::String &id) {
     return nullptr;
 }
 void livePreview(juce::Component &component, const juce::String &name) {
-    for (const float scale : {1.f, 1.5f}) {
+    for (const float scale : {1.f, 1.25f, 1.5f, 2.f}) {
         auto stream = juce::File::getCurrentWorkingDirectory()
                           .getChildFile("juce-live-interface-" + name + "-" +
                                         juce::String(static_cast<int>(scale * 100)) + ".png")
@@ -98,6 +98,12 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     desktop.action(11);
     desktop.editLiveInterface("Save for All", [&](auto &state) { live::saveItem(state, id); });
     liveCheck(!live::itemDirty(desktop.liveDocument->interface, id), "Save for All updates Browser version");
+    desktop.saveFile(saved);
+    desktop.action(10);
+    liveCheck(desktop.documentDirty() && live::itemDirty(desktop.liveDocument->interface, id),
+              "Saving preserves metadata Undo and saved-point dirty tracking");
+    desktop.action(11);
+    liveCheck(!desktop.documentDirty(), "Redo after Save returns to saved metadata");
     desktop.editLiveInterface("Move folder",
                               [&](auto &state) { live::put(live::require(state, "items", id), "folder", {}); });
     liveCheck(!live::itemDirty(desktop.liveDocument->interface, id), "Folder bookkeeping does not dirty item content");
@@ -177,7 +183,11 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     livePump();
     native->showBrowser(true);
     livePump();
-    livePreview(desktop, "workspace");
+    for (const auto size : {juce::Point<int>{1200, 700}, juce::Point<int>{1920, 1080}}) {
+        desktop.setSize(size.x, size.y);
+        livePump();
+        livePreview(desktop, "workspace-" + juce::String(size.x));
+    }
     LiveItemEditor card(desktop, id);
     livePreview(card, "organizer");
     LiveCardEditor cardLayout(desktop, layout.defaults["itemCardLayout"]);

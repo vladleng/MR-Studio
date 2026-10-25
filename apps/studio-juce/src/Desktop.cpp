@@ -221,7 +221,7 @@ void Desktop::saveFile(const juce::File& f){
             showState.projects.emplace_back(juce::String(app.path().wstring().c_str()));showState.active=static_cast<int>(showState.projects.size())-1;
             auto itemId=showState.interface["currentItem"].toString();if(itemId.isEmpty()){itemId=live::addItem(showState.interface,LiveDocument::projectLabel(juce::File(juce::String(app.path().wstring().c_str()))));live::insertEntry(showState.interface,itemId);live::put(showState.interface,"currentItem",itemId);}showState.itemProjects[itemId]=showState.active;
         }
-        const bool bindingsChanged=showState.itemProjects!=liveDocument->itemProjects;showState.write(file);if(bindingsChanged)liveUndo.clearUndoHistory();liveDocument=std::move(showState);liveFile=file;prepareLiveInterface(true);remember();refresh();return;
+        const bool bindingsChanged=showState.itemProjects!=liveDocument->itemProjects;showState.write(file);if(bindingsChanged)liveUndo.clearUndoHistory();liveDocument=std::move(showState);liveFile=file;liveSavedContents=liveDocument->signature();updateLiveDirty();++liveUiRevision;remember();refresh();return;
     }
     auto destination=path(f);if(destination!=app.path())destination=mrs::desktop::project_folder_file(destination);app.save_project(destination);remember();refresh();}
 void Desktop::importFiles(const juce::StringArray& files){closeEditors();std::vector<std::filesystem::path> paths;for(const auto& f:files)paths.push_back(path(juce::File(f)));app.queue_wav_import(paths);refresh(true);}
