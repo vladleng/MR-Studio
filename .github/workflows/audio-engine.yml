@@ -76,6 +76,7 @@ jobs:
           if($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(stretch_contract|model|transport|commands|serialization|track_folders)|stretch_.*|clip_stretch_.*|ai_.*|ara_.*|juce_(live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(wav_import|track_folders))$')}
           & ctest @args
           if($LASTEXITCODE){
+            if(Test-Path 'build/windows/live-entry-failure.txt'){Get-Content 'build/windows/live-entry-failure.txt'}
             if(Test-Path 'build/windows/library261-failure.txt'){Get-Content 'build/windows/library261-failure.txt'}
             throw 'CTest failed; full integration never excludes known failures'
           }
