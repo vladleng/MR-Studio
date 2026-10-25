@@ -207,6 +207,17 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         livePreview(desktop, "workspace-" + juce::String(size.x));
     }
     LiveItemEditor card(desktop, id);
+    card.setVisible(true);
+    livePump();
+    int taskFields = 0;
+    std::function<void(juce::Component &)> countTasks = [&](juce::Component &rootComponent) {
+        if (auto *field = dynamic_cast<juce::TextEditor *>(&rootComponent); field && field->getTitle() == "Task title")
+            ++taskFields;
+        for (auto *child : rootComponent.getChildren())
+            countTasks(*child);
+    };
+    countTasks(card);
+    liveCheck(taskFields == 7, "Native organizer creates all visible task editors");
     livePreview(card, "organizer");
     LiveCardEditor cardLayout(desktop, layout.defaults["itemCardLayout"]);
     livePreview(cardLayout, "card-layout");
