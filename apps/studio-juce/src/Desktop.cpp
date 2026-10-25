@@ -196,6 +196,7 @@ void Desktop::saveFile(const juce::File& f){
     if(liveDocument){
         auto next=*liveDocument;auto file=f.withFileExtension("mrlive");
         if(songDirty()){
+            liveDirty=true; // Keep unsaved references pending if publishing the show fails.
             auto song=app.path();
             if(song.empty()){
                 auto candidate=file.getSiblingFile(file.getFileNameWithoutExtension()+" song.mrsproject");
