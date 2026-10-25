@@ -187,3 +187,10 @@ performance.clips содержит для Playback track массив {id,start,
 Под Sections находится компактный Chord Track по поведению docs/CHORD_TRACK_79.md: +/двойной клик по пустому месту создаёт Am (до четырёх четвертей или следующего события); двойной клик/Enter редактирует авторский symbol/start/end, ПКМ Edit/Duplicate/Remove, Delete/Backspace удаляет. Body/edge gestures используют общую сетку, clamp к соседям, без изменения соседнего аккорда. Alt-drag копирует с ghost/fresh ID; перекрытия отклоняются атомарно, Escape/blur отменяет gesture. Current chord подсвечивается по демо-playhead, gaps не наследуют предыдущий аккорд.
 
 performance.chords хранит диапазоны по item ID, максимум 256 событий, symbol до 120 символов, границы и непересечение валидируются; сохранение/Undo/JSON и копирование item с fresh chord IDs. Пустой Chord Track не генерирует выдуманную гармонию. Это авторская разметка браузерного макета, без распознавания/MIDI synthesis/native shared-core integration.
+
+
+## 17. Конец item отдельно от масштаба
+
+Правая ручка меняет arrangement.length (1–4096 тактов, quarter-bar snap), сохраняя scale, позиции и исходные длины всех объектов. +/- меняют только scale. Исходный item.bars остаётся базовой длиной исходных данных; itemEnd используется для отображения и demo transport end. Уменьшение скрывает, но не удаляет события/клипы за концом; повторное расширение раскрывает их. Содержимое ограничено общим 4096-bar bound, отдельно от видимого конца.
+
+Source range Playback определяется длительностью media и tempo/meter; длинный источник не сжимается в item. File picker запрашивает только duration через browser audio metadata (без play), сохраняет имя/длительность/новый цельный clip. Ошибка/неподдерживаемый формат оставляет доступный fallback, duration можно задать в свойствах. Замена источника/изменение его duration сбрасывает нарезку до цельного файла; resizing item её не меняет. Это browser metadata editing, без native audio engine.
