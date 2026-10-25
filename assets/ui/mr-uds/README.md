@@ -92,3 +92,25 @@ node assets/ui/mr-uds/render_concept_pack.cjs
 ## MR Library sample type — #263
 
 `svg/icons/concept_pack/sample_one_shot.svg` adds an original 24 px bar glyph for One-shot. Library Loop, Play and Stop reuse the existing transport SVGs. The manifest and extension catalogue include the new icon; no generator was run.
+
+## Track Type Icons Pack v1 — 2026-10-22
+
+An additive 26-identity extension (52 new SVG) is available in [svg/icons/track_pack/](svg/icons/track_pack/). It preserves all accepted guitar/bass/drums/piano/synth/backing-vocals/FX/Master icons and reuses the existing microphone, bus and folder icons rather than duplicating them. Each new identity has original 24 px line art and independently simplified 16 px LOD.
+
+- [Track Icons visual catalogue](previews/track_type_icons_v1.html)
+- [Track Icons machine-readable catalogue](catalogs/track_type_icons_v1.json)
+- [Track Icons use and semantics](svg/icons/track_pack/README.md)
+
+This is an artwork-only extension. Runtime mapping, user-selectable icons and any Windows/DPI acceptance remain separate work. No existing theme or GUI behavior is changed.
+
+## Полный офлайн-просмотрщик SVG — 2026-10-22
+
+[`previews/concept_pack.html`](previews/concept_pack.html) теперь показывает **все SVG**, найденные в каноническом `svg/`, транспортных иконках `assets/ui/icons/transport/`, SVG-превью и `docs/design/`. Поиск, разделы, масштаб, светлый фон, увеличенный просмотр и ссылки на оригиналы работают при открытии через `file:///` без сервера, сети, CDN или `fetch()`.
+
+После добавления SVG запускай `python assets/ui/mr-uds/build_svg_gallery.py` — генератор повторно сканирует все каталоги и обновляет HTML. Шаблон находится в `previews/concept_pack.template.html`. `build_concept_pack.py` также вызывает этот генератор после обновления концепт-пака. Локальные SVG должны находиться по тем же относительным путям; один HTML-файл не содержит самих рисунков.
+
+## Браузерный просмотр SVG прямо из GitHub (2026-10-22)
+
+GitHub Pages: [SVG Asset Browser](https://vladleng.github.io/MR-Studio/svg-gallery/). Живой список SVG берётся из GitHub REST tree API и показывается с GitHub Raw по SHA актуальной ветки. Есть переключатель `main` / draft `PR #268`, поиск, разделы, масштаб, крупный просмотр, ссылки на SVG и файл на GitHub. Локальный checkout или `file:///` больше не нужен. При недоступности API интерфейс может показать резервный список SVG и отобразить изображения с GitHub по закреплённому SHA. Возможны лимиты анонимного GitHub API. На GitHub Pages находится только отдельная галерея; существующий MR Design Lab не затронут.
+
+Канонический исходник страницы — `assets/ui/mr-uds/previews/concept_pack.template.html`, а `build_svg_gallery.py` встраивает резервный список и обновляет `concept_pack.html`. Hosted copy: `gh-pages/svg-gallery/index.html`.
