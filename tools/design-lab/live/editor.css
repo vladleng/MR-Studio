@@ -120,4 +120,23 @@
 .visual-song-timeline .item-origin-grip{transform:translateX(12px)}
 .visual-track-channels .shared-channel-title,.visual-track-channels .shared-record-title{min-height:100px;overflow:visible}
 
-.show-browser .item-save-icon{flex:0 0 24px;width:24px;align-self:stretch;border:0;padding:4px;background:transparent;position:relative;color:#7AB69E}.item-save-icon::before{content:'';display:block;width:16px;height:16px;background:currentColor;mask:url('../../../assets/ui/mr-uds/svg/icons/save.svg') center/contain no-repeat}.show-browser .item-save-icon[data-dirty=true]{color:#E2C070}.show-browser .item-save-icon:hover{background:#36383c}.item-playback-level{width:100%}
+.item-playback-level{width:100%}
+
+/* Compact Notion-style planning fields, with separate controls over the item card. */
+.show-browser .song-entry:not(.setlist-divider)>.song-row{position:relative;padding:7px 80px 8px 8px;gap:4px;min-height:70px}
+.item-planning{display:flex;align-items:center;gap:10px;height:16px;width:100%;margin-bottom:2px}
+.item-progress{display:block;width:82px;max-width:65%;height:4px;background:#353633;border-radius:3px;overflow:hidden;flex-shrink:1}
+.item-progress>span{display:block;height:100%;background:#4b9c74;border-radius:3px}
+.item-priority{font-size:11px;line-height:17px;padding:0 5px;border-radius:3px;color:#f3efec;background:#5a5a57;font-weight:500}
+.item-priority[data-priority=P1]{background:#934c46}.item-priority[data-priority=P2]{background:#94613e}.item-priority[data-priority=P3]{background:#8a7339}
+.item-save-dot{position:absolute;right:10px;bottom:9px;width:6px;height:6px;border-radius:50%;background:#62a27b}
+.item-save-dot[data-dirty=true]{background:#d6b55c}
+.show-browser .item-status-chip{position:absolute;right:7px;top:29px;width:auto;max-width:72px;border:0;border-radius:12px;padding:1px 6px;line-height:17px;font-size:11px;display:flex;align-items:center;gap:4px;background:var(--status-bg);color:var(--status-text);font-weight:600}
+.item-status-chip::before,.item-status-option::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--status-dot);display:inline-block;flex:none}
+.item-status-chip::after{content:'⌄';font-size:12px;font-weight:400;margin-left:1px;color:var(--status-text)}
+[data-status=Done]{--status-bg:#284c3a;--status-text:#bfddc6;--status-dot:#58a777}
+[data-status=Wait]{--status-bg:#725a23;--status-text:#f3dfa5;--status-dot:#d3ac48}
+[data-status=Todo]{--status-bg:#444541;--status-text:#dbdbd7;--status-dot:#969892}
+[data-status=Wip]{--status-bg:#315a80;--status-text:#d3e6f8;--status-dot:#63a8e4}
+.show-context-menu .item-status-option{display:flex;align-items:center;gap:7px;color:var(--status-text)}
+.show-context-menu .item-status-option::before{background:var(--status-dot)}
