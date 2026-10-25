@@ -11,8 +11,8 @@ with sync_playwright() as p:
  page.locator('[data-action="view.mixer"]').click();mixer=page.locator('.runtime-mixer');fader=mixer.locator('.preview-fader').first;fader.fill('-20');fader.dispatch_event('input');fader.dispatch_event('change')
  assert '-20 dB' in mixer.locator('.mixer-strip').first.inner_text()
  mixer.locator('.channel-switches button').first.click();assert mixer.locator('.channel-switches button').first.get_attribute('aria-pressed')=='true'
- mixer.get_by_role('button',name='Закрыть',exact=True).click()
- page.locator('[data-action="show.open"]').click();assert page.locator('.preview-menu button').count()==3;page.locator('.preview-menu button').first.click()
+ page.locator('[data-action="view.mixer"]').click()
+ page.get_by_role('navigation',name='Меню MR Live').get_by_role('button',name='Files',exact=True).click();assert page.get_by_role('menuitem').count()==2;page.keyboard.press('Escape')
  page.locator('[data-action="transport.play"]').click();assert 'PLAYING' in page.locator('.transport-readout').inner_text()
  assert saved==page.evaluate('localStorage.getItem("mr-design-lab-live-v1")')
  page.locator('#exit-preview').click();page.wait_for_selector('.resize');assert not errors,errors;b.close()

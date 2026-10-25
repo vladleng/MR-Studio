@@ -31,7 +31,7 @@ export function interactive(node, block) {
     };
   });
   node.querySelectorAll('.visual-action').forEach((element,index)=>{
-    const action=block.bindings[index];const button=document.createElement('button');
+    const action=element.dataset.action||block.bindings[index];const button=document.createElement('button');
     button.dataset.action=action;button.className=element.className;button.title=element.title;button.setAttribute('aria-label',element.getAttribute('aria-label'));
     button.append(...element.childNodes);element.replaceWith(button);
     button.onclick=()=>{
