@@ -1,3 +1,4 @@
+import {studioMenus} from './studio-menus.mjs';
 import {recordButton} from './recording-controls.mjs';
 import {transport} from './recording-runtime.mjs';
 import {renderChannelPanel} from './channels-ui.mjs';
@@ -39,7 +40,9 @@ function actions(parent, block, assets, playing) {
   const row = add(parent, 'visual-actions');
   row.style.flexDirection = block.direction;
   for (const binding of block.bindings) {
+    if(block.type==='control.toolbar'&&binding.startsWith('show.'))continue;
     const control = add(row, `visual-action${playing && binding === 'transport.play' ? ' active' : ''}`);
+    control.dataset.action=binding;
     control.title = `${actionLabels[binding]} · визуальный пример`;
     control.setAttribute('aria-label', control.title);
     asset(control, assets, actionAssets[binding], 'visual-icon', actionLabels[binding]);
@@ -112,8 +115,9 @@ export function renderVisual(node, block, fixture, assets) {
       break;
     }
     case 'control.toolbar':
+      studioMenus(root,document.getElementById('preview').checked);
       actions(root, block, assets, false);
-      add(root, 'visual-caption', 'SHOW / EDIT / ROUTING');
+
       break;
     case 'musical.chords': {
       const strip = add(root, 'chord-strip');

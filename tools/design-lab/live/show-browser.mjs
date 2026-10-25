@@ -117,3 +117,6 @@ export function renderShowBrowser(root,blockId,enabled,library=false){
  rows.oncontextmenu=e=>{if(!enabled)return;if(view.mode==='browser'){view.folder=null;view.selected=null;redraw();contextMenu(root,e,[...root.querySelector('.show-tools').querySelectorAll('button'),...root.querySelectorAll('.show-footer button')]);}else contextMenu(root,e,[...tools.querySelectorAll('button'),...root.querySelectorAll('.show-footer button')]);};
  if(!enabled){for(const el of root.querySelectorAll('button,input,select'))el.disabled=true;}
 }
+
+export const saveDemoShow=download;
+export function openDemoShow(root){const input=node('input');input.type='file';input.accept='.json,application/json';input.hidden=true;root.append(input);input.onchange=async()=>{try{const file=input.files[0];if(!file)return;if(file.size>1024*1024)throw Error('Лимит demo show: 1 MiB');const valid=parseShow(await file.text());window.dispatchEvent(new CustomEvent('live-transport-action',{detail:'transport.pause'}));show.commit(d=>Object.assign(d,valid));save();}catch(e){dialog(root,e.message,[],()=>{});}finally{input.remove();}};input.oncancel=()=>input.remove();input.click();}

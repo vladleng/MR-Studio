@@ -43,7 +43,7 @@ with sync_playwright() as p:
  page.reload();page.wait_for_selector('.live-item-container');page.locator('#preview').check();assert page.get_by_role('button',name='Sub-patch Lead: Solo',exact=True).get_attribute('aria-pressed')=='true'
  page.locator('#fullscreen-preview').click();page.wait_for_selector('.fullscreen-preview');page.locator('[data-action="view.mixer"]').click();assert page.get_by_role('region',name='Микшер MR Live',exact=True).is_visible();page.locator('[data-action="view.browser"]').click()
  mix=page.locator('.runtime-mixer').bounding_box();browse=page.locator('.runtime-browser').bounding_box();assert mix['x']+mix['width']<=browse['x']+1
- page.locator('.runtime-browser').get_by_role('button',name='Закрыть',exact=True).click();page.locator('.runtime-mixer').get_by_role('button',name='Закрыть',exact=True).click();page.locator('#exit-preview').click()
+ page.locator('.runtime-browser').get_by_role('button',name='Закрыть',exact=True).click();page.locator('[data-action="view.mixer"]').click();page.locator('#exit-preview').click()
  assert not errors,errors
  page.screenshot(path='/tmp/mr-live-item-container.png');b.close()
 print('PASS: grouped item, patch/subpatch rectangles+colors, channel CRUD, icon mixer/browser, FX/Files/Library, persistence, fullscreen')

@@ -46,7 +46,7 @@ with sync_playwright() as p:
  assert all(r['width']<=122 for r in mixer.locator('.mixer-strip').evaluate_all('(nodes)=>nodes.map(n=>n.getBoundingClientRect().toJSON())'))
  for kind in ['Instrument','Player','Playback']:
   channel=next(c for c in doc()['channels'] if c['type']==kind);strip=mixer.locator(f'.mixer-strip[data-channel="{channel["id"]}"]');slider=strip.get_by_role('slider',name='Громкость '+channel['name'],exact=True);slider.fill('-8');slider.dispatch_event('input');slider.dispatch_event('change');assert next(c for c in doc()['channels'] if c['id']==channel['id'])['gain']==-8
- mixer.get_by_role('button',name='Закрыть',exact=True).click();card.locator('.track-patch-title').click();sub.click()
+ page.locator('[data-action="view.mixer"]').click();card.locator('.track-patch-title').click();sub.click()
  assert all(c['gain']==-8 for c in doc()['channels'] if c['type'] in ['Instrument','Player','Playback'])
  page.locator('.live-item-container').nth(1).get_by_role('button',name='Открыть item',exact=True).click();assert all(c['gain']==-8 for c in doc()['channels'] if c['type'] in ['Instrument','Player','Playback'])
  saved=doc();page.reload();page.wait_for_selector('.block');assert doc()==saved;assert not errors,errors

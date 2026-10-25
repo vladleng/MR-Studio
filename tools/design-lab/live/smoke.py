@@ -14,7 +14,7 @@ with sync_playwright() as p:
     page.wait_for_function('Array.from(document.querySelectorAll(".visual img")).every(i=>i.complete && i.naturalWidth>0)')
     assert page.locator('.visual-fader').count()==4
     assert page.locator('.visual-wave').count()==4
-    assert page.locator('.visual-action').count()==9
+    assert page.locator('.visual-action').count()==7
     page.locator('#layers button').first.click()
     page.locator('[name=fontSize]').fill('22')
     page.locator('[name=fontSize]').press('Tab')
