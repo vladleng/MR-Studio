@@ -251,3 +251,7 @@ Setlist скрывает inline + Setlist/rename/delete/+ Item; контекст
 Отдельные grips items/dividers удалены. Body drag сохраняет прежний activation guard; dragstart также отменяет ожидающий single-click focus. Одиночный mouse click откладывает selection на 500 ms, чтобы double-click мог отменить focus до переключения currentItem и открыть inline rename. Keyboard/programmatic click остаётся прямым; browser library double-click open сохранён.
 
 Browser tree сортирует items и child folders отдельно в каждой папке (root тоже) через localeCompare ru/numeric/base; сортируется копия render list, не show data и не setlist entries. Активный M — semantic red, S — amber/yellow, и на track panels, и в mixer/record strips.
+
+### Общая колонка каналов
+
+Слева от последовательности items находится одна общая панель Sections / Chord Track / каналов с M/S/R и контекстными операциями. Она закреплена при горизонтальной прокрутке, а по вертикали прокручивается вместе с дорожками. Повторяющиеся подписи и кнопки внутри items удалены; высоты строк синхронизируются между items, включая раскрытие Takes / comp. Патчи, клипы и дубли остаются индивидуальными для каждого item. Выбор Playback-файла доступен в ПКМ клипа или пустой дорожки и в Playback / stems. Кнопка добавления общего канала находится вверху общей колонки.
