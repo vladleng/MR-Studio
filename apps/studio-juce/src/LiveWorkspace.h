@@ -33,7 +33,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         stop.onClick = [this] { owner.action(32); };
         for (auto *button : {&play, &pause, &stop, &record, &previous, &next, &loop})
             button->getProperties().set("mrLiveTransport", true);
-        tunerPlaceholder = LiveLayout::placeholder("live_tuner.svg");
+        tunerPlaceholder = LiveLayout::drawable("live_tuner.svg");
         record.onClick = [this] { owner.action(33); };
         previous.onClick = [this] { owner.action(34); };
         next.onClick = [this] { owner.action(35); };

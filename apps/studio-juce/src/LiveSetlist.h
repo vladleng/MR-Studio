@@ -1,8 +1,9 @@
 #pragma once
 #include "Desktop.h"
-#include "LiveTheme.h"
 #include "LiveCardEditor.h"
 #include "LiveItemEditor.h"
+#include "LiveLayout.h"
+#include "LiveTheme.h"
 #include <MRConceptAssets.h>
 
 namespace ui {
@@ -298,12 +299,28 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                 percent = live::progress(state, row.itemId);
                 dirty = live::itemDirty(state, row.itemId);
                 tint = state["performance"]["itemColors"][juce::Identifier(row.itemId)].toString();
+                itemBase = LiveLayout::drawable("item_default_base.svg");
+                selectedBase = LiveLayout::drawable("item_selected_base.svg");
+                itemBase->replaceColour(juce::Colour(0xff78ad88), liveBlockColour(tint));
+                selectedBase->replaceColour(juce::Colour(0xffd0aa68), liveBlockColour(tint));
+                statusBase = LiveLayout::drawable("pill_base.svg");
+                priorityBase = LiveLayout::drawable("badge_base.svg");
+                progressBase = LiveLayout::drawable("track.svg");
+                statusBase->replaceColour(juce::Colour(0xff444541), juce::Colour(status == "Done"   ? 0xff285e4d
+                                                                                 : status == "Wait" ? 0xff725a23
+                                                                                 : status == "Wip"  ? 0xff355f83
+                                                                                                    : 0xff444541));
+                priorityBase->replaceColour(juce::Colour(0xff5a5a57), juce::Colour(priority == "P1"   ? 0xff99564a
+                                                                                   : priority == "P2" ? 0xff94613e
+                                                                                   : priority == "P3" ? 0xff887142
+                                                                                                      : 0xff5a5a57));
                 setTooltip(item["name"].toString() +
-                           (host.owner.liveDocument->projectFor(row.itemId) >= 0
-                                ? "\nAudio source ready"
-                                : "\nNo playback media") +
+                           (host.owner.liveDocument->projectFor(row.itemId) >= 0 ? "\nAudio source ready"
+                                                                                 : "\nNo playback media") +
                            (dirty ? "\nWorking item differs from Browser" : "\nSaved in Browser"));
             }
+            if (row.divider)
+                sectionBase = LiveLayout::drawable("set_header.svg");
             if (row.folder)
                 folderIcon =
                     juce::Drawable::createFromImageData(MRConceptAssets::folder_svg, MRConceptAssets::folder_svgSize);
@@ -339,26 +356,18 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                 return;
             }
             if (row.divider) {
-                g.setColour(tokens.colour(ColourRole::muted));
-                g.drawHorizontalLine(getHeight() / 2, inset + 2.f, static_cast<float>(getWidth() - 2));
-                g.setColour(tokens.colour(ColourRole::panel));
-                g.fillRect(inset + 8, 0,
-                           juce::GlyphArrangement::getStringWidthInt(host.owner.theme.font(12), row.name) + 12,
-                           getHeight());
+                sectionBase->drawWithin(g, bounds, juce::RectanglePlacement::stretchToFit, 1.f);
                 g.setColour(tokens.colour(ColourRole::text));
                 g.drawText(row.name, inset + 14, 0, getWidth() - inset - 18, getHeight(),
                            juce::Justification::centredLeft, true);
                 return;
             }
             const auto selected = host.data()["currentItem"].toString() == row.itemId;
-            g.setColour(tokens.colour(selected ? ColourRole::raised : ColourRole::deep));
-            g.fillRoundedRectangle(bounds, 4);
-            g.setColour(tokens.colour(selected ? ColourRole::focus : ColourRole::border));
-            g.drawRoundedRectangle(bounds, 4.f, .7f);
-            g.setColour(tint == "amber"   ? tokens.colour(ColourRole::warning)
-                        : tint == "green" ? tokens.colour(ColourRole::on)
-                                          : tokens.colour(ColourRole::muted));
-            g.fillRoundedRectangle(bounds.getX(), bounds.getY() + 4, 2, bounds.getHeight() - 8, 1);
+            (selected ? selectedBase : itemBase)->drawWithin(g, bounds, juce::RectanglePlacement::stretchToFit, 1.f);
+            if (selected) {
+                g.setColour(tokens.colour(ColourRole::focus));
+                g.drawRoundedRectangle(bounds, 4.f, .7f);
+            }
             const auto field = [&](const char *key) {
                 const auto value = cardLayout["fields"][key];
                 return juce::Rectangle<float>(
@@ -382,24 +391,27 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             if (showOrganizer) {
                 if (enabled("progress")) {
                     auto bar = field("progress");
-                    g.setColour(tokens.colour(ColourRole::border));
-                    g.fillRoundedRectangle(bar, 2);
+                    progressBase->drawWithin(g, bar, juce::RectanglePlacement::stretchToFit, 1.f);
                     bar.setWidth(bar.getWidth() * percent / 100.f);
-                    g.setColour(tokens.colour(ColourRole::on));
+                    g.setColour(juce::Colour(0xff59ad87));
                     g.fillRoundedRectangle(bar, 2);
                 }
                 if (enabled("priority")) {
-                    g.setColour(tokens.colour(priority == "P1"   ? ColourRole::error
-                                              : priority == "P2" ? ColourRole::warning
-                                                                 : ColourRole::muted));
+                    priorityBase->drawWithin(g, field("priority"), juce::RectanglePlacement::stretchToFit, 1.f);
+                    g.setColour(tokens.colour(ColourRole::text));
                     g.drawText(priority, field("priority"), juce::Justification::centred, true);
                 }
                 if (enabled("status")) {
-                    g.setColour(tokens.colour(status == "Done"   ? ColourRole::on
-                                              : status == "Wait" ? ColourRole::warning
-                                              : status == "Wip"  ? ColourRole::focus
-                                                                 : ColourRole::muted));
-                    g.drawText(status, field("status"), juce::Justification::centred, true);
+                    statusBase->drawWithin(g, field("status"), juce::RectanglePlacement::stretchToFit, 1.f);
+                    auto statusArea = field("status");
+                    const float dotSize = juce::jmin(4.f, statusArea.getHeight() / 3.f);
+                    g.setColour(juce::Colour(status == "Done"   ? 0xff6bc39d
+                                             : status == "Wait" ? 0xffd6ae58
+                                             : status == "Wip"  ? 0xff72b5e8
+                                                                : 0xffa0a39e));
+                    g.fillEllipse(statusArea.getX() + 5.f, statusArea.getCentreY() - dotSize / 2.f, dotSize, dotSize);
+                    g.setColour(tokens.colour(ColourRole::text));
+                    g.drawText(status, statusArea.withTrimmedLeft(10.f), juce::Justification::centred, true);
                 }
             }
             if (enabled("saved")) {
@@ -474,7 +486,8 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         juce::String status, priority, tint;
         int percent{};
         bool dirty{}, showOrganizer{}, dragged{};
-        std::unique_ptr<juce::Drawable> folderIcon;
+        std::unique_ptr<juce::Drawable> folderIcon, itemBase, selectedBase, sectionBase, statusBase, priorityBase,
+            progressBase;
     };
     int indexOf(const juce::String &id) const {
         for (std::size_t i = 0; i < rows.size(); ++i)

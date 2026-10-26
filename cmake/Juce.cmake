@@ -42,7 +42,13 @@ juce_add_binary_data(mrs_live_layout
   NAMESPACE MRLiveAssets HEADER_NAME MRLiveAssets.h
   SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-live-layout-v5.json"
           "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-live-interface-defaults-v1.json"
-          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/controls/live_tuner.svg")
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/controls/live_tuner.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/components/item_default_base.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/components/item_selected_base.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/components/set_header.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/status/pill_base.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/priority/badge_base.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/progress/track.svg")
 target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_live_layout)
 juce_add_binary_data(mrs_reverb_art NAMESPACE MRReverbArt HEADER_NAME MRReverbArt.h SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/reverb/plate_unit.svg")
 target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_reverb_art)
