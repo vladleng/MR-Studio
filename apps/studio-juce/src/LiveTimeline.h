@@ -30,11 +30,23 @@ class LiveTimeline final : public juce::Component {
     void refresh() {
         const auto next = owner.liveDocument ? owner.liveDocument->interfaceState : juce::var();
         const auto key = juce::JSON::toString(next, true);
+        const auto section = owner.app.musical().state().current_section;
+        const auto nextSection = section ? section->id.value : std::string();
+        const bool sectionChanged = nextSection != activeSection;
+        if (sectionChanged) {
+            activeSection = nextSection;
+            body.repaint();
+        }
         const auto playback = owner.displayState().playback;
-        const bool started = playback != observedPlayback &&
-                             (playback == mrs::PlaybackState::playing || playback == mrs::PlaybackState::stopped);
+        const bool started =
+            sectionChanged || (playback != observedPlayback &&
+                               (playback == mrs::PlaybackState::playing || playback == mrs::PlaybackState::stopped));
         observedPlayback = playback;
+        const bool focused = focusRevision != owner.liveTimelineFocusRevision;
+        focusRevision = owner.liveTimelineFocusRevision;
         if (key == signature) {
+            if (focused)
+                revealSelection();
             if (started)
                 revealTransport();
             return;
@@ -45,12 +57,8 @@ class LiveTimeline final : public juce::Component {
         signature = key;
         state = next;
         layout();
-        if (selectionChanged)
-            for (const auto &item : items)
-                if (item.value["id"] == state["currentItem"]) {
-                    viewport.setViewPosition(juce::jmax(0, item.bounds.getX() - 12), viewport.getViewPositionY());
-                    break;
-                }
+        if (selectionChanged || focused)
+            revealSelection();
         if (started)
             revealTransport();
         playhead.update();
@@ -70,14 +78,12 @@ class LiveTimeline final : public juce::Component {
         for (const auto &item : items) {
             if (item.value["id"] != state["currentItem"])
                 continue;
-            const auto meter = item.value["meter"].toString();
-            const double numerator = meter.upToFirstOccurrenceOf("/", false, false).getDoubleValue();
-            const double denominator = meter.fromFirstOccurrenceOf("/", false, false).getDoubleValue();
-            const double bpm = static_cast<double>(item.value["tempo"]);
-            if (numerator <= 0 || denominator <= 0 || bpm <= 0)
-                return {};
-            const double samplesPerBar = owner.project()->sample_rate * 60. / bpm * numerator * 4. / denominator;
-            const double bar = owner.visualSample() / samplesPerBar;
+            const auto project = owner.project();
+            const auto &meter = project->time.meters.front();
+            const auto ticksPerBar = 4 * mrs::ppq * meter.numerator / meter.denominator;
+            const mrs::Timeline clock(project->time, project->sample_rate);
+            const double bar = static_cast<double>(clock.to_ticks(static_cast<mrs::Sample>(owner.visualSample()))) /
+                               static_cast<double>(ticksPerBar);
             const double x = static_cast<double>(item.bounds.getX()) + 1. + (item.lead + bar) * item.scale;
             if (!std::isfinite(x) || x >= item.bounds.getRight())
                 return {};
@@ -113,6 +119,7 @@ class LiveTimeline final : public juce::Component {
         juce::var value;
         juce::Rectangle<int> bounds;
         double scale{}, lead{}, bars{};
+        bool preview{};
     };
     class Viewport final : public juce::Viewport {
       public:
@@ -129,6 +136,32 @@ class LiveTimeline final : public juce::Component {
         void mouseDown(const juce::MouseEvent &event) override {
             if (!event.mods.isLeftButtonDown())
                 return;
+            if (event.y >= headerHeight && event.y < headerHeight + rulerHeight + sectionHeight) {
+                for (const auto &item : parent.items) {
+                    if (!item.bounds.contains(event.getPosition()) || item.value["id"] != parent.state["currentItem"] ||
+                        !parent.owner.livePlaybackReady())
+                        continue;
+                    if (event.y < headerHeight + rulerHeight) {
+                        const auto project = parent.owner.project();
+                        const auto &meter = project->time.meters.front();
+                        const double bar = juce::jmax(0., (event.x - item.bounds.getX() - 1.) / item.scale - item.lead);
+                        const auto tick = static_cast<mrs::Tick>(std::llround(
+                            bar * static_cast<double>(4 * mrs::ppq * meter.numerator / meter.denominator)));
+                        parent.owner.run([&] {
+                            parent.owner.app.seek(mrs::Timeline(project->time, project->sample_rate).to_samples(tick));
+                        });
+                    } else if (const auto *sections = item.value["sections"].getArray())
+                        for (const auto &section : *sections)
+                            if (parent.extent(item, section, headerHeight + rulerHeight + 1, sectionHeight - 2)
+                                    .contains(event.getPosition())) {
+                                parent.owner.run([&] {
+                                    parent.owner.app.musical().seek_section({section["id"].toString().toStdString()});
+                                });
+                                break;
+                            }
+                }
+                return;
+            }
             for (const auto &item : parent.items)
                 if (item.bounds.contains(event.getPosition()) && event.y < headerHeight) {
                     const auto id = item.value["id"].toString();
@@ -161,6 +194,15 @@ class LiveTimeline final : public juce::Component {
         g.setColour(liveReferenceTokens().colour(ColourRole::border));
         g.drawRect(area, 1);
     }
+    void revealSelection() {
+        for (const auto &item : items)
+            if (item.value["id"] == state["currentItem"]) {
+                viewport.setViewPosition(juce::jmax(0, item.bounds.getX() - 12), viewport.getViewPositionY());
+                if (owner.livePlaybackReady())
+                    revealTransport();
+                break;
+            }
+    }
     void revealTransport() {
         const auto lineBounds = playheadBounds();
         if (lineBounds.isEmpty())
@@ -173,7 +215,20 @@ class LiveTimeline final : public juce::Component {
         items.clear();
         int x = 0;
         const int height = lanesTop + channelCount() * rowHeight;
-        const auto entries = live::activeSetlist(state)["entries"];
+        auto entries = live::activeSetlist(state)["entries"].clone();
+        const auto selected = state["currentItem"].toString();
+        bool found = false;
+        if (const auto *values = entries.getArray())
+            for (const auto &entry : *values)
+                found = found || entry["itemId"].toString() == selected;
+        if (!found && live::find(state, "items", selected).isObject()) {
+            auto preview = live::object();
+            live::put(preview, "itemId", selected);
+            live::put(preview, "browserPreview", true);
+            if (!entries.isArray())
+                entries = juce::Array<juce::var>();
+            entries.getArray()->add(preview);
+        }
         if (const auto *values = entries.getArray())
             for (const auto &entry : *values) {
                 const auto item = live::find(state, "items", entry["itemId"].toString());
@@ -186,7 +241,8 @@ class LiveTimeline final : public juce::Component {
                 // The model permits 1000 entries, 4096 bars/lead and 128 px/bar.
                 // Keep their complete geometry within a signed-int scroll surface.
                 const int width = juce::jlimit(6, 1048578, juce::roundToInt((bars + lead) * scale) + 2);
-                items.push_back({item, {x, 0, width, height}, scale, lead, bars});
+                items.push_back(
+                    {item, {x, 0, width, height}, scale, lead, bars, static_cast<bool>(entry["browserPreview"])});
                 x += width;
             }
         body.setSize(juce::jmax(x, viewport.getMaximumVisibleWidth()),
@@ -224,7 +280,9 @@ class LiveTimeline final : public juce::Component {
                 liveBlockColour(state["performance"]["itemColors"][juce::Identifier(id)].toString());
             g.setColour(itemColour.withAlpha(.23f));
             g.fillRect(x, 0, width, headerHeight);
-            text(g, item.value["name"].toString(), {x + 10, 4, juce::jmax(0, width - 20), 26});
+            text(g,
+                 item.value["name"].toString() + (item.preview ? juce::String::fromUTF8(" · Browser") : juce::String()),
+                 {x + 10, 4, juce::jmax(0, width - 20), 26});
             text(g,
                  item.value["tempo"].toString() + " BPM · " + item.value["meter"].toString() + " · " +
                      juce::String(item.bars) + " bars",
@@ -239,9 +297,14 @@ class LiveTimeline final : public juce::Component {
                     text(g, juce::String(bar + 1), {bx + 3, headerHeight, 38, rulerHeight}, true);
             }
             if (const auto *sections = item.value["sections"].getArray())
-                for (const auto &section : *sections)
-                    block(g, extent(item, section, headerHeight + rulerHeight + 1, sectionHeight - 2),
-                          section["name"].toString(), section["color"]);
+                for (const auto &section : *sections) {
+                    const auto area = extent(item, section, headerHeight + rulerHeight + 1, sectionHeight - 2);
+                    block(g, area, section["name"].toString(), section["color"]);
+                    if (selected && section["id"].toString().toStdString() == activeSection) {
+                        g.setColour(tokens.colour(ColourRole::focus));
+                        g.drawRect(area, 2);
+                    }
+                }
             const auto chords = state["performance"]["chords"][juce::Identifier(id)];
             if (const auto *values = chords.getArray())
                 for (const auto &chord : *values)
@@ -300,6 +363,8 @@ class LiveTimeline final : public juce::Component {
     juce::var state;
     juce::String signature, revealedItem;
     std::vector<Item> items;
+    std::string activeSection;
+    std::uint64_t focusRevision{};
     int channelWidth{150};
     mrs::PlaybackState observedPlayback{mrs::PlaybackState::stopped};
 };

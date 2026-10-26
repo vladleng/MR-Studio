@@ -24,16 +24,30 @@ inline void validatePlayback(const juce::var &state) {
             throw std::runtime_error("Playback gain must be -60..12 dB");
     }
 }
-inline void playbackPaths(juce::var &state, const juce::File &show, bool reading) {
+inline void playbackPaths(juce::var &state, const juce::File &show, bool reading, bool savedVersions = true) {
     auto rows = state["performance"]["nativePlayback"];
-    if (!rows.isObject())
+    if (rows.isObject())
+        for (const auto &pair : rows.getDynamicObject()->getProperties()) {
+            const auto resolved = show.getParentDirectory().getChildFile(pair.value["file"].toString());
+            auto row = pair.value;
+            put(row, "file",
+                reading ? resolved.getFullPathName() : resolved.getRelativePathFrom(show.getParentDirectory()));
+        }
+    // Saved item versions must use the same coordinate system as working references.
+    if (!savedVersions)
         return;
-    for (auto &pair : rows.getDynamicObject()->getProperties()) {
-        const auto name = pair.value["file"].toString();
-        const auto resolved = show.getParentDirectory().getChildFile(name);
-        auto row = pair.value;
-        put(row, "file",
-            reading ? resolved.getFullPathName() : resolved.getRelativePathFrom(show.getParentDirectory()));
-    }
+    const auto library = state["library"];
+    if (library.isObject())
+        for (const auto &pair : library.getDynamicObject()->getProperties()) {
+            if (!pair.value.isString())
+                continue;
+            auto saved = juce::JSON::parse(pair.value.toString());
+            if (!saved["performance"]["nativePlayback"].isObject())
+                continue;
+            if (reading)
+                validatePlayback(saved);
+            playbackPaths(saved, show, reading, false);
+            put(map(state, "library"), pair.name, juce::JSON::toString(saved, true, 17));
+        }
 }
 } // namespace ui::live

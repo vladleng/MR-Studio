@@ -462,6 +462,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         void mouseDown(const juce::MouseEvent &event) override {
             stopTimer();
             dragged = false;
+            primaryPressed = event.mods.isLeftButtonDown();
             host.owner.liveShowEditing = true;
             host.focusIndex = host.indexOf(row.id);
             grabKeyboardFocus();
@@ -475,7 +476,10 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         void mouseDoubleClick(const juce::MouseEvent &event) override {
             if (event.mods.isLeftButtonDown()) {
                 stopTimer();
-                host.rename(row);
+                if (host.browser)
+                    host.activate(row);
+                else
+                    host.rename(row);
             }
         }
         void mouseDrag(const juce::MouseEvent &event) override {
@@ -492,9 +496,14 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             host.owner.startDragging(payload, this);
         }
         void mouseUp(const juce::MouseEvent &event) override {
-            if (event.mods.isLeftButtonDown() && !dragged && event.getNumberOfClicks() == 1 &&
-                (!host.activationBlocked || !host.activationBlocked()))
-                startTimer(500);
+            const bool click = primaryPressed && !dragged && event.getNumberOfClicks() == 1;
+            primaryPressed = false;
+            if (click && (!host.activationBlocked || !host.activationBlocked())) {
+                if (host.browser)
+                    host.activate(row);
+                else
+                    startTimer(500);
+            }
         }
         bool keyPressed(const juce::KeyPress &key) override {
             if (key.getKeyCode() == juce::KeyPress::F10Key && key.getModifiers().isShiftDown()) {
@@ -519,7 +528,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         juce::var item, cardLayout;
         juce::String status, priority, tint;
         int percent{};
-        bool dirty{}, showOrganizer{}, dragged{};
+        bool dirty{}, showOrganizer{}, dragged{}, primaryPressed{};
         std::unique_ptr<juce::Drawable> folderIcon, itemBase, selectedBase, sectionBase, statusBase, priorityBase,
             progressBase;
     };

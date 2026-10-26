@@ -97,10 +97,18 @@ vendor-plugin behavior or mixed-DPI. Native visual acceptance remains open.
 
 ## Первый runtime-срез #29: item Playback
 
-В native show `interface.performance.nativePlayback[itemId]` хранит `file`, `gain` (dB, −60…+12), `mute`, `solo`. Это опциональное дополнение native show v2; browser export/layout v5 не изменяются. В памяти путь абсолютный, в `.mrlive` — относительно каталога show; Save as пересчитывает ссылку, не копируя исходный WAV. Состояние входит в show Undo/Redo. Browser library/version semantics и multistem mapping остаются последующими срезами.
+В native show `interface.performance.nativePlayback[itemId]` хранит `file`, `gain` (dB, −60…+12), `mute`, `solo`. Это опциональное дополнение native show v2; browser export/layout v5 не изменяются. В памяти путь абсолютный, в `.mrlive` — относительно каталога show; Save as пересчитывает ссылку, не копируя исходный WAV. Состояние входит в show Undo/Redo. Ссылка на WAV и настройки Playback входят в itemVersion: добавление/замена аудио или изменение mix отмечает расхождение с Browser; Save for All обновляет saved version. Save show сохраняет и рабочие изменения, и Browser version, не подменяя Save for All. Относительные пути пересчитываются в обоих состояниях при Save as. Multistem mapping остаётся последующим срезом.
 
 На первом этапе поддерживается один WAV на item в существующей панели Playback / stems. Рабочий Project создаётся штатным Core из этой ссылки, без открытия/создания `.mrsproject`; декодирование/ресэмплинг выполняет существующий WAV import worker, публикацию — `Application::poll`. Play/Pause/Stop и счётчик секунд используют общий EngineTransport; gain/Mute/Solo — SetTrackMix/shared mixer; peak и waveform берутся из Core, не из браузерной симуляции. Несвязанные browser timeline clips/patches этим автоматически не подключаются.
 
 Смена item останавливает старый runtime и отменяет его незавершённый импорт штатным lifecycle Core. Ошибка/отсутствие файла блокирует Play и показывает причину. Переключение на этом этапе не является seamless/preloaded: безопасная концертная предзагрузка/переходы принадлежат #30/#31. Физические ASIO/MIDI/слух проверяются отдельно.
 
 Плейхэд основного timeline использует общий компонент Studio `PlayheadLine` и наблюдаемую позицию Core через `VisualTransport`, без отдельного UI clock. Samples переводятся в координаты выбранного item по его темпу/размеру, сохранённым scale и lead. При выборе другого item показывается его начало; не подключённый к Playback item не отображает фиктивный плейхэд. Эти display bindings не означают готовую интеграцию секций/patches или time-stretch.
+
+## Browser focus и музыкальные bindings
+
+ЛКМ Browser активирует item и показывает его на timeline. Повторный выбор текущего item возвращает фокус без остановки аудио. Item вне активного setlist показывается отдельным Browser preview без автоматического добавления reference в setlist.
+
+Tempo/meter, sections и authored chords выбранного item проецируются в общий Project через Core SetMusicalData. Следующая/предыдущая секция, section loop, ruler seek и section click используют общий MusicalTimeline/EngineTransport. Current/next section и current chord читаются из shared context; elapsed/remaining — из фактических samples/длины PCM. Изменение музыкальных данных требует Stop и выключенного loop. Show Undo отделён от истории автоматически создаваемого runtime Project.
+
+Browser допускает перекрытия authored spans. Core использует одну музыкальную полосу: runtime range предыдущего события заканчивается на старте следующего; при одинаковом старте остаётся последнее. Авторские границы в show/saved versions не переписываются. Это правило действует только при проекции, не является time-stretch или редакторским изменением данных.

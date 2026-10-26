@@ -171,6 +171,7 @@ public:
     Id merge_midi_clips(std::vector<Id>);
     std::vector<Id> copy_clips(std::vector<Id>,Sample delta,int track_delta=0);
     void set_time_map(TimeMap);
+    void set_musical_data(TimeMap,std::vector<Chord>,std::vector<ArrangerSection>,std::vector<Marker> = {});
     void set_meters(const TimeMap& expected,std::vector<MeterPoint>);
     void set_tempos(const TimeMap& expected,std::vector<TempoPoint>);
     std::vector<Id> transform_sections(const std::vector<ArrangerSection>&,Tick delta,bool copy);

@@ -141,7 +141,25 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         auto statusArea = reference.bounds("system.status", getWidth(), getHeight()).reduced(10);
         g.setColour(owner.message.isEmpty() ? tokens.colour(ColourRole::muted) : tokens.colour(ColourRole::warning));
         g.setFont(owner.theme.font(11));
-        g.drawFittedText(owner.footerStatus(), statusArea, juce::Justification::topLeft, 4);
+        auto statusText = owner.footerStatus();
+        if (owner.livePlaybackReady()) {
+            const auto &context = owner.app.musical().state();
+            const auto project = owner.project();
+            const mrs::Timeline clock(project->time, project->sample_rate);
+            const auto pos = clock.musical_position(clock.to_ticks(head.sample));
+            const double elapsed = static_cast<double>(head.sample) / project->sample_rate;
+            const double total = static_cast<double>(project->clips.front().length) / project->sample_rate;
+            statusText += "\nBar " + juce::String(pos.bar) + ":" + juce::String(pos.beat) + ":" +
+                          juce::String(pos.tick) + "  |  " + juce::String(elapsed, 1) + " s  |  remaining " +
+                          juce::String(juce::jmax(0., total - elapsed), 1) + " s";
+            if (context.current_section)
+                statusText += "\n" + juce::String::fromUTF8(context.current_section->name.c_str());
+            if (context.next_section)
+                statusText += " -> " + juce::String::fromUTF8(context.next_section->name.c_str());
+            if (context.current_chord)
+                statusText += "  |  " + juce::String::fromUTF8(context.current_chord->symbol.c_str());
+        }
+        g.drawFittedText(statusText, statusArea, juce::Justification::topLeft, 5);
     }
 
   private:
@@ -238,15 +256,19 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         timeline.refresh();
         playbackPanel.sync();
         const auto projectState = owner.app.services().projects->state();
-        undoButton.setEnabled(owner.liveShowEditing ? owner.liveUndo.canUndo() : projectState.can_undo);
-        redoButton.setEnabled(owner.liveShowEditing ? owner.liveUndo.canRedo() : projectState.can_redo);
+        const bool showHistory = owner.liveShowEditing || (owner.liveDocument && owner.liveDocument->projects.empty());
+        undoButton.setEnabled(showHistory ? owner.liveUndo.canUndo() : projectState.can_undo);
+        redoButton.setEnabled(showHistory ? owner.liveUndo.canRedo() : projectState.can_redo);
         const auto state = owner.displayState();
         const bool linked = !owner.liveDocument || owner.liveDocument->currentLinked();
         play.setEnabled(linked || owner.livePlaybackReady());
         record.setEnabled(linked);
-        previous.setEnabled(linked && !owner.app.recording());
-        next.setEnabled(linked && !owner.app.recording());
-        loop.setEnabled(linked && !owner.app.recording());
+        const bool sectionsReady = owner.livePlaybackReady() && !owner.project()->sections.empty();
+        previous.setEnabled((linked || sectionsReady) && !owner.app.recording());
+        next.setEnabled((linked || sectionsReady) && !owner.app.recording());
+        loop.setEnabled((linked || (sectionsReady && (owner.app.musical().state().current_section ||
+                                                      owner.app.engine()->state().loop))) &&
+                        !owner.app.recording());
         play.setToggleState(state.playback == mrs::PlaybackState::playing, juce::dontSendNotification);
         pause.setToggleState(state.playback == mrs::PlaybackState::paused, juce::dontSendNotification);
         record.setToggleState(owner.app.recording(), juce::dontSendNotification);

@@ -329,6 +329,8 @@ inline juce::var itemVersion(const juce::var &state, const juce::String &id) {
         put(arrangement, id, row);
         put(perf, "arrangement", arrangement);
     }
+    if (source["nativePlayback"][juce::Identifier(id)].isObject())
+        put(perf, "nativePlayback", pick(source["nativePlayback"], {id}));
     put(snapshot, "performance", perf);
     return snapshot;
 }

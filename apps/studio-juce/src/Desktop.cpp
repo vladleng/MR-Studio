@@ -391,7 +391,7 @@ void Desktop::action(int n){if(busyGesture()){if(n==34||n==35||n==48||n==49||n==
     else if(n==3){if(documentFile()==juce::File())action(4);else saveFile(documentFile());}
     else if(n==4)choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& f){saveFile(f.withFileExtension(liveDocument?"mrlive":"mrsproject"));},liveDocument?"*.mrlive":"*.mrsproject");
     else if(n==5)choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){importFiles({f.getFullPathName()});},"*.wav");
-    else if((n==10||n==11)&&app.workspace()==mrs::desktop::Workspace::live&&liveShowEditing){undoLiveInterface(n==11);}
+    else if((n==10||n==11)&&app.workspace()==mrs::desktop::Workspace::live&&(liveShowEditing||(liveDocument&&liveDocument->projects.empty()))){undoLiveInterface(n==11);}
     else if(n==10 || n==11){if(!app.history_preserves_plugins(n==11))closeEditors(true);if(n==10)app.undo();else app.redo();refresh(true);}
     else if(n==20)selectedTrack=app.add_audio_track("Audio "+std::to_string(project()->tracks.size()+1));
     else if(n==28)selectedTrack=app.add_instrument_track("Instrument "+std::to_string(project()->tracks.size()+1));

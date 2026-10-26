@@ -1,8 +1,27 @@
 #include "Desktop.h"
 #include "LiveLayout.h"
+#include "LiveMusicalState.h"
 
 namespace ui {
 namespace {
+void validateMusicalEdit(Desktop &owner, const juce::var &copy) {
+    if (owner.liveDocument->projects.empty()) {
+        const auto prior = owner.liveDocument->interfaceState["currentItem"].toString();
+        const auto id = live::find(copy, "items", prior).isObject() ? prior : juce::String();
+        const auto music = live::musicalVersion(copy, id);
+        if (live::canonical(music) !=
+            live::canonical(live::musicalVersion(owner.liveDocument->interfaceState,
+                                                 owner.liveDocument->interfaceState["currentItem"].toString()))) {
+            if (owner.app.recording() || owner.app.engine()->state().playback != mrs::PlaybackState::stopped ||
+                owner.app.engine()->state().loop)
+                throw std::runtime_error("Stop Playback and turn off section loop before changing musical data");
+            const auto projection = live::musicalProjection(music);
+            auto candidate = *owner.project();
+            mrs::SetMusicalData{projection.time, projection.chords, projection.sections, {}}.apply(candidate);
+            candidate.validate();
+        }
+    }
+}
 class LiveInterfaceEdit final : public juce::UndoableAction {
   public:
     LiveInterfaceEdit(Desktop &desktop, const juce::var &oldState, const juce::var &newState)
@@ -56,6 +75,7 @@ void Desktop::prepareLiveInterface(bool saved) {
     livePlaybackFile.clear();
     livePlaybackError.clear();
     livePlaybackMixKey.clear();
+    liveMusicalKey.clear();
     livePlaybackLoading = false;
     liveUndo.clearUndoHistory();
     liveShowEditing = false;
@@ -96,6 +116,7 @@ void Desktop::applyLiveInterface(const juce::var &value) {
             bindings.getDynamicObject()->removeProperty(key);
     }
     live::validatePlayback(copy);
+    validateMusicalEdit(*this, copy);
     auto transaction = liveDocument->clone();
     transaction.interfaceState = copy;
     transaction.validate();
@@ -109,6 +130,7 @@ void Desktop::editLiveInterface(const juce::String &label, std::function<void(ju
     auto draft = liveDocument->interfaceState.clone();
     edit(draft);
     live::validate(draft);
+    validateMusicalEdit(*this, draft);
     if (live::canonical(draft) == live::canonical(liveDocument->interfaceState))
         return;
     liveShowEditing = true;
@@ -150,6 +172,12 @@ void Desktop::importLiveShow(const juce::File &file) {
 void Desktop::selectLiveItem(const juce::String &id) {
     if (!liveDocument || !live::find(liveDocument->interfaceState, "items", id).isObject())
         throw std::runtime_error("Missing show item");
+    if (liveDocument->projects.empty() && liveDocument->interfaceState["currentItem"].toString() == id) {
+        ++liveTimelineFocusRevision;
+        syncLivePlayback();
+        refresh();
+        return;
+    }
     const int index = liveDocument->projectFor(id);
     if (index >= 0) {
         selectLiveProject(index);
@@ -170,6 +198,7 @@ void Desktop::selectLiveItem(const juce::String &id) {
         reconnectDevice(session);
         liveEmptyRevision = std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
     }
+    ++liveTimelineFocusRevision;
     livePlaybackItem.clear();
     syncLivePlayback();
     liveShowEditing = true;
@@ -262,38 +291,52 @@ void Desktop::syncLivePlayback() {
     const auto id = liveDocument->interfaceState["currentItem"].toString();
     const auto row = live::playback(liveDocument->interfaceState, id);
     const auto file = row["file"].toString();
-    if (livePlaybackItem != id || livePlaybackFile != file) {
+    const auto music = live::musicalVersion(liveDocument->interfaceState, id);
+    const auto musicKey = live::canonical(music);
+    const bool mediaChanged = livePlaybackItem != id || livePlaybackFile != file;
+    const bool musicChanged = musicKey != liveMusicalKey;
+    if (mediaChanged || musicChanged) {
         if (app.recording())
             throw std::runtime_error("Stop recording before changing Playback");
-        const bool reload = file.isNotEmpty() || livePlaybackFile.isNotEmpty();
-        changed = reload;
+        const bool reload = mediaChanged && (file.isNotEmpty() || livePlaybackFile.isNotEmpty());
+        const bool restartImport = livePlaybackLoading;
+        if (restartImport)
+            app.cancel_wav_import();
+        livePlaybackLoading = false;
+        livePlaybackError.clear();
         livePlaybackItem = id;
         livePlaybackFile = file;
         livePlaybackMixKey.clear();
-        livePlaybackError.clear();
-        livePlaybackLoading = false;
-        if (reload) {
-            const bool session = app.audio_name() != "Offline clock (no sound)" && app.audio_name() != "Disconnected";
-            closeEditors();
-            cancelPreview();
-            app.new_project(session ? prefs.rate : 48000);
-            resetDevice();
-            selectedTrack.reset();
-            selectedClip.reset();
-            reconnectDevice(session);
-        }
-        if (file.isNotEmpty()) {
-            if (!juce::File(file).existsAsFile())
-                livePlaybackError = "Playback file is missing: " + file;
-            else {
-                try {
+        changed = true;
+        try {
+            if (reload) {
+                const bool session =
+                    app.audio_name() != "Offline clock (no sound)" && app.audio_name() != "Disconnected";
+                closeEditors();
+                cancelPreview();
+                app.new_project(session ? prefs.rate : 48000);
+                selectedTrack.reset();
+                selectedClip.reset();
+                const auto projection = live::musicalProjection(music);
+                app.set_musical_data(projection.time, projection.chords, projection.sections);
+                resetDevice();
+                reconnectDevice(session);
+            } else if (musicChanged) {
+                const auto projection = live::musicalProjection(music);
+                app.set_musical_data(projection.time, projection.chords, projection.sections);
+            }
+            if (file.isNotEmpty() && (mediaChanged || restartImport || project()->clips.empty())) {
+                if (!juce::File(file).existsAsFile())
+                    livePlaybackError = "Playback file is missing: " + file;
+                else {
                     app.queue_wav_import({std::filesystem::path(file.toWideCharPointer())});
                     livePlaybackLoading = true;
-                } catch (const std::exception &error) {
-                    livePlaybackError = error.what();
                 }
             }
+        } catch (const std::exception &error) {
+            livePlaybackError = juce::String::fromUTF8(error.what());
         }
+        liveMusicalKey = musicKey;
     }
     if (livePlaybackLoading && !app.wav_import_status().busy) {
         changed = true;

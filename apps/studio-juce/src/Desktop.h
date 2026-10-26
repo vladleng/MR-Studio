@@ -85,7 +85,7 @@ public:
     void setLivePlaybackMix(double,bool,bool);
     void syncLivePlayback();
     bool livePlaybackReady() const;
-    juce::String livePlaybackItem, livePlaybackFile, livePlaybackMixKey, livePlaybackError;
+    juce::String livePlaybackItem, livePlaybackFile, livePlaybackMixKey, livePlaybackError, liveMusicalKey;
     bool livePlaybackLoading{};
     void bindLiveItem(const juce::String&,const juce::File&);
     void prepareLiveInterface(bool saved);
@@ -95,7 +95,7 @@ public:
     void undoLiveInterface(bool redo=false);
     juce::UndoManager liveUndo{32*1024*1024,1};
     juce::String liveSavedContents;
-    std::uint64_t liveUiRevision{};
+    std::uint64_t liveUiRevision{}, liveTimelineFocusRevision{};
     bool liveShowEditing{};
     juce::File documentFile() const;
     bool songDirty() const;

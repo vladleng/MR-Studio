@@ -266,8 +266,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     desktop.editLiveInterface("Empty setlist",
                               [](auto &state) { live::activeEntries(state) = juce::Array<juce::var>(); });
     timeline->refresh();
-    liveCheck(timeline->itemCount() == 0 && timeline->channelCount() == 4,
-              "An empty setlist retains the shared channel column");
+    liveCheck(timeline->itemCount() == 1 && timeline->channelCount() == 4 &&
+                  live::activeEntries(desktop.liveDocument->interfaceState).size() == 0,
+              "Empty setlist previews selected item without inserting it and retains shared channels");
     desktop.action(10);
     timeline->refresh();
     desktop.app.new_project();
@@ -374,6 +375,18 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         playbackDesktop.app.disconnect();
         playbackDesktop.selectLiveItem(id);
         playbackDesktop.attachLivePlayback(id, waveFile);
+        liveCheck(live::itemDirty(playbackDesktop.liveDocument->interfaceState, id),
+                  "Attaching audio marks item content unsaved against Browser");
+        playbackDesktop.editLiveInterface("Save for All", [&](auto &state) { live::saveItem(state, id); });
+        liveCheck(!live::itemDirty(playbackDesktop.liveDocument->interfaceState, id),
+                  "Save for All captures audio reference and clears saved dot");
+        playbackDesktop.undoLiveInterface();
+        liveCheck(live::itemDirty(playbackDesktop.liveDocument->interfaceState, id),
+                  "Undo Save for All restores unsaved audio dot");
+        playbackDesktop.undoLiveInterface(true);
+        liveCheck(!live::itemDirty(playbackDesktop.liveDocument->interfaceState, id),
+                  "Redo Save for All restores saved audio version");
+
         const auto waitPlayback = [&] {
             const auto deadline = juce::Time::getMillisecondCounter() + 5000;
             while (playbackDesktop.livePlaybackLoading && juce::Time::getMillisecondCounter() < deadline) {
@@ -386,6 +399,10 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(playbackDesktop.livePlaybackReady() && playbackDesktop.project()->clips.size() == 1 &&
                       playbackDesktop.liveDocument->projects.empty(),
                   "WAV materializes into shared Core without Studio project references");
+
+        liveCheck(playbackDesktop.project()->time.tempos.front().bpm == 92 &&
+                      playbackDesktop.project()->sections.size() == 4,
+                  "Native tempo and sections materialize in shared Project");
         playbackDesktop.app.connect(std::make_unique<LivePlaybackTestDevice>(), {0, 48000, 128, {}, {0, 1}, 1});
         auto *playbackTimeline = dynamic_cast<LiveTimeline *>(liveComponent(playbackDesktop, "live-show-timeline"));
         liveCheck(playbackTimeline != nullptr, "Playback has native timeline");
@@ -443,6 +460,10 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(transportLine->getX() == startX &&
                       std::abs(playbackTimeline->playheadBounds().getX() - startPosition) < .001f,
                   "Stop returns timeline playhead to item start");
+
+        liveCheck(live::itemDirty(playbackDesktop.liveDocument->interfaceState, id),
+                  "Changing saved item mix makes content unsaved");
+        playbackDesktop.editLiveInterface("Save for All", [&](auto &state) { live::saveItem(state, id); });
         const auto playbackShow = folder.getChildFile("playback.mrlive");
         playbackDesktop.saveFile(playbackShow);
         const auto playbackSaved = LiveDocument::read(playbackShow);
@@ -455,10 +476,117 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         const auto savedJson = juce::JSON::parse(playbackShow.loadFileAsString());
         liveCheck(live::playback(savedJson["interface"], id)["file"].toString() == "live-tone.wav",
                   "Playback reference is relative to the show folder");
+
+        liveCheck(!live::itemDirty(playbackSaved.interfaceState, id),
+                  "Saved audio item remains green after media path round-trip");
+        const auto movedShow = folder.getChildFile("relocated").getChildFile("copy.mrlive");
+        playbackSaved.write(movedShow);
+        const auto moved = LiveDocument::read(movedShow);
+        liveCheck(!live::itemDirty(moved.interfaceState, id) &&
+                      live::playback(moved.interfaceState, id)["file"].toString() == waveFile.getFullPathName(),
+                  "Save as rebases both working audio and saved Browser version");
         playbackDesktop.openFile(playbackShow);
         playbackDesktop.syncLivePlayback();
         waitPlayback();
         liveCheck(playbackDesktop.livePlaybackReady(), "Reopened show prepares its audio again");
+
+        const auto projected = playbackDesktop.project();
+        playbackDesktop.action(10);
+        liveCheck(playbackDesktop.project() == projected && playbackDesktop.livePlaybackReady(),
+                  "Show Undo never undoes generated Core projection after reopen");
+        playbackDesktop.app.connect(std::make_unique<LivePlaybackTestDevice>(), {0, 48000, 128, {}, {0, 1}, 1});
+        playbackDesktop.editLiveInterface("Musical context", [&](auto &state) {
+            auto &item = live::require(state, "items", id);
+            live::put(item, "tempo", 90.);
+            live::put(item, "meter", "3/4");
+            live::put(*live::property(item, "sections").getArray()->getRawDataPointer(), "length", 22.);
+            auto chord = live::object();
+            live::put(chord, "id", "native-chord-test");
+            live::put(chord, "symbol", "C");
+            live::put(chord, "start", 0.);
+            live::put(chord, "length", 2.);
+            juce::Array<juce::var> chords;
+            chords.add(chord);
+            live::put(live::map(live::performance(state), "chords"), id, chords);
+        });
+        playbackDesktop.syncLivePlayback();
+        liveCheck(playbackDesktop.livePlaybackReady() && playbackDesktop.project()->time.tempos.front().bpm == 90 &&
+                      playbackDesktop.project()->time.meters.front().numerator == 3 &&
+                      playbackDesktop.project()->chords.size() == 1,
+                  "Tempo meter and Chord Track use shared Project without reimporting audio");
+        liveCheck(playbackDesktop.project()->sections[0].end == playbackDesktop.project()->sections[1].start &&
+                      static_cast<double>(live::find(playbackDesktop.liveDocument->interfaceState, "items",
+                                                     id)["sections"][0]["length"]) == 22.,
+                  "Core resolves section overlap at next start without rewriting authored show spans");
+        playbackDesktop.app.poll();
+        liveCheck(playbackDesktop.app.musical().state().current_chord.has_value(),
+                  "Shared musical context exposes authored chord");
+        playbackDesktop.action(35);
+        render();
+        playbackDesktop.app.poll();
+        const auto verse = playbackDesktop.project()->sections[1];
+        const mrs::Timeline musicClock(playbackDesktop.project()->time, 48000);
+        liveCheck(playbackDesktop.app.engine()->state().sample == musicClock.to_samples(verse.start) &&
+                      playbackDesktop.app.musical().state().current_section->id == verse.id,
+                  "Next Section seeks shared transport under item meter and tempo");
+        playbackDesktop.action(36);
+        render();
+        liveCheck(
+            playbackDesktop.app.engine()->state().loop ==
+                std::optional<mrs::LoopRange>{{musicClock.to_samples(verse.start), musicClock.to_samples(verse.end)}},
+            "Section Loop reaches real engine sample range");
+        playbackDesktop.action(36);
+        render();
+        playbackDesktop.app.poll();
+        playbackDesktop.action(34);
+        render();
+        playbackDesktop.app.poll();
+        liveCheck(playbackDesktop.app.engine()->state().sample == 0 && !playbackDesktop.app.engine()->state().loop,
+                  "Previous Section and Loop Off affect real transport");
+        playbackTimeline->refresh();
+        auto *timelineBody = liveComponent(*playbackTimeline, "live-timeline-items");
+        liveCheck(timelineBody != nullptr, "Native timeline body exists");
+        const auto view =
+            playbackDesktop.liveDocument->interfaceState["performance"]["arrangement"][juce::Identifier(id)];
+        const double viewScale = view.hasProperty("scale") ? static_cast<double>(view["scale"]) : 16.;
+        const double viewLead = view.hasProperty("lead") ? static_cast<double>(view["lead"]) : 0.;
+        const auto seekTime = juce::Time::getCurrentTime();
+        const auto seekClick = [&](juce::Point<float> point) {
+            return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), point,
+                                    juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier), 1, 0, 0, 0, 0,
+                                    timelineBody, timelineBody, seekTime, point, seekTime, 1, false);
+        };
+        const float rulerX = static_cast<float>(1. + (viewLead + 1.) * viewScale);
+        timelineBody->mouseDown(seekClick({rulerX, 72.f}));
+        render();
+        playbackDesktop.app.poll();
+        liveCheck(playbackDesktop.app.engine()->state().sample == musicClock.to_samples(3 * mrs::ppq),
+                  "Timeline ruler seeks real audio under 3/4 meter");
+        const float verseX = static_cast<float>(1. + (viewLead + 22.) * viewScale);
+        timelineBody->mouseDown(seekClick({verseX, 100.f}));
+        render();
+        playbackDesktop.app.poll();
+        liveCheck(playbackDesktop.app.engine()->state().sample == musicClock.to_samples(verse.start),
+                  "Timeline section click seeks authored Core section");
+        playbackDesktop.action(32);
+        render();
+        playbackDesktop.app.poll();
+        playbackDesktop.action(30);
+        render();
+        bool musicBlocked = false;
+        try {
+            playbackDesktop.editLiveInterface(
+                "Unsafe tempo", [&](auto &state) { live::put(live::require(state, "items", id), "tempo", 100.); });
+        } catch (const std::exception &) {
+            musicBlocked = true;
+        }
+        liveCheck(musicBlocked && playbackDesktop.project()->time.tempos.front().bpm == 90 &&
+                      static_cast<double>(
+                          live::find(playbackDesktop.liveDocument->interfaceState, "items", id)["tempo"]) == 90,
+                  "Playing tempo changes are rejected without mutating show or Core");
+        playbackDesktop.action(32);
+        render();
+        playbackDesktop.app.poll();
         playbackDesktop.selectLiveItem(second);
         liveCheck(!playbackDesktop.livePlaybackReady() && playbackDesktop.project()->clips.empty(),
                   "Changing to an empty item clears previous audio");
@@ -468,6 +596,32 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             if (auto *scroll = dynamic_cast<juce::Viewport *>(child))
                 liveCheck(scroll->getViewPositionX() > 0,
                           "Selecting next item reveals its start instead of retaining previous scroll");
+
+        auto *browserWorkspace = dynamic_cast<LiveWorkspace *>(liveComponent(playbackDesktop, "mr-live-workspace"));
+        liveCheck(browserWorkspace != nullptr, "Browser workspace exists");
+        browserWorkspace->showBrowser(true);
+        livePump();
+        auto *browserCard = liveComponent(playbackDesktop, "live-browser-" + id);
+        liveCheck(browserCard != nullptr, "Browser item exists");
+        const auto t = juce::Time::getCurrentTime();
+        const juce::Point<float> p{8, 8};
+        const auto click = [&](int mods) {
+            return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), p, juce::ModifierKeys(mods), 1,
+                                    0, 0, 0, 0, browserCard, browserCard, t, p, t, 1, false);
+        };
+        browserCard->mouseDown(click(juce::ModifierKeys::leftButtonModifier));
+        browserCard->mouseUp(click(0));
+        liveCheck(playbackDesktop.liveDocument->interfaceState["currentItem"].toString() == id,
+                  "Released-button Browser click activates item");
+        waitPlayback();
+        playbackTimeline->refresh();
+        playbackDesktop.editLiveInterface("Library-only view",
+                                          [](auto &state) { live::activeEntries(state) = juce::Array<juce::var>(); });
+        playbackTimeline->refresh();
+        liveCheck(playbackTimeline->itemCount() == 1 &&
+                      live::activeEntries(playbackDesktop.liveDocument->interfaceState).size() == 0,
+                  "Browser item outside active setlist appears as preview without modifying setlist");
+        playbackDesktop.selectLiveItem(second);
         const auto badWave = folder.getChildFile("invalid.wav");
         badWave.replaceWithText("not a WAV");
         playbackDesktop.attachLivePlayback(second, badWave);

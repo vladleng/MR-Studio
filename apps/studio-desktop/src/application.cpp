@@ -1492,6 +1492,12 @@ std::vector<Id> Application::copy_clips(std::vector<Id> ids,Sample delta,int tra
     require(!ids.empty(),"Select clips to copy");std::set<std::string> unique;for(const auto& id:ids)require(unique.insert(id.value).second,"duplicate source clip");
     command.source=std::move(ids);for(std::size_t i=0;i<command.source.size();++i)command.created.push_back(new_id());command.delta=delta;command.track_delta=track_delta;edit(command,{},true);return command.created;
 }
+void Application::set_musical_data(TimeMap time,std::vector<Chord> chords,std::vector<ArrangerSection> sections,std::vector<Marker> markers){
+    require_not_playing();require_not_recording();require(!engine_->state().loop,"Turn off section loop before replacing musical data");
+    const auto p=services_.projects->state().project;
+    if(p->time==time&&p->chords==chords&&p->sections==sections&&p->markers==markers)return;
+    edit(SetMusicalData{std::move(time),std::move(chords),std::move(sections),std::move(markers)});
+}
 void Application::set_time_map(TimeMap time){
     const auto p=services_.projects->state().project;const SetMusicalData command{std::move(time),p->chords,p->sections,p->markers};auto candidate=*p;command.apply(candidate);edit_timing(std::move(candidate),&command);
 }
