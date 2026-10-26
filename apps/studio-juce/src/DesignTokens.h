@@ -10,9 +10,9 @@ struct DesignTokens {
     static constexpr std::array<const char*,10> metricNames{"controlFont","compactFont","mixerFont","menuFont","fontWidth","density","radius","stroke","iconSize","gap"};
     static constexpr std::array<float,10> minimum{10,10,10,10,.8f,.8f,0,.5f,12,4},maximum{20,18,16,20,1.2f,1.4f,16,2,32,24};
     bool uds{};
-    std::array<juce::uint32,12> colours{0xff212830,0xff212830,0xff2d353e,0xff2f3841,0xff212830,0xffdce3ea,0xff9daabc,0xff3d444d,0xff006dcc,0xff3098ee,0xffd94747,0xffd5b63e};
+    std::array<juce::uint32,12> colours{0xff242629,0xff242629,0xff303237,0xff35383c,0xff242629,0xffdce3ea,0xff9daabc,0xff45484d,0xff006dcc,0xff3098ee,0xffd94747,0xffd5b63e};
     std::array<float,10> metrics{14,13,12,14,1.04f,1,6,1,20,12};
-    static DesignTokens target(){DesignTokens t;t.uds=true;t.colours={0xff111720,0xff171e28,0xff222c3c,0xff2d394e,0xff192333,0xffdae5f4,0xff7188ab,0xff4b5f7b,0xff91bbee,0xff7ab69e,0xffe68f88,0xffe2c070};return t;}
+    static DesignTokens target(){DesignTokens t;t.uds=true;t.colours={0xff1d1f22,0xff242629,0xff292b2e,0xff35383c,0xff202225,0xffdae5f4,0xff7188ab,0xff4b5f7b,0xff91bbee,0xff7ab69e,0xffe68f88,0xffe2c070};return t;}
     juce::Colour colour(ColourRole r)const{return juce::Colour(colours[static_cast<std::size_t>(r)]);}
     juce::String name()const{return uds?"MR UDS Preview":"Accepted 0.4f";}
     DesignTokens defaults()const{return uds?target():DesignTokens{};}
