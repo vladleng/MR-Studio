@@ -1,13 +1,58 @@
 {
   "name": "MR Studio Native Plugin SVG Kit",
   "version": "0.2",
-  "total_asset_svg": 237,
+  "total_asset_svg": 283,
   "assets": [
-    {"id":"icons/concept_pack/sample_one_shot","file":"svg/icons/concept_pack/sample_one_shot.svg","size":[24,24],"source":"Original MR Studio vector, Issue #263","license":"Same as project; original artwork"},
-    {"id":"icons/editor_attach","file":"svg/icons/editor_attach.svg","size":[24,24],"source":"Original MR Studio vector, Issue #88","license":"Same as project; original artwork"},
-    {"id":"icons/editor_detach","file":"svg/icons/editor_detach.svg","size":[24,24],"source":"Original MR Studio vector, Issue #88","license":"Same as project; original artwork"},
-    {"id":"icons/editor_fullscreen","file":"svg/icons/editor_fullscreen.svg","size":[24,24],"source":"Original MR Studio vector, Issue #88","license":"Same as project; original artwork"},
-    {"id":"icons/editor_restore","file":"svg/icons/editor_restore.svg","size":[24,24],"source":"Original MR Studio vector, Issue #88","license":"Same as project; original artwork"},
+    {
+      "id": "icons/concept_pack/sample_one_shot",
+      "file": "svg/icons/concept_pack/sample_one_shot.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #263",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "icons/editor_attach",
+      "file": "svg/icons/editor_attach.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #88",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "icons/editor_detach",
+      "file": "svg/icons/editor_detach.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #88",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "icons/editor_fullscreen",
+      "file": "svg/icons/editor_fullscreen.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #88",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "icons/editor_restore",
+      "file": "svg/icons/editor_restore.svg",
+      "size": [
+        24,
+        24
+      ],
+      "source": "Original MR Studio vector, Issue #88",
+      "license": "Same as project; original artwork"
+    },
     {
       "id": "controls/knob_arc",
       "file": "svg/controls/knob_arc.svg",
@@ -541,7 +586,7 @@
       "kind": "state_sample",
       "sample_normalized": 0.55,
       "thumb_origin": [
-        11.0,
+        11,
         77
       ],
       "axis": "y"
@@ -594,7 +639,7 @@
       "kind": "state_sample",
       "sample_normalized": 0.55,
       "thumb_origin": [
-        11.0,
+        11,
         77
       ],
       "axis": "y"
@@ -624,7 +669,7 @@
       "kind": "state_sample",
       "sample_normalized": 0.55,
       "thumb_origin": [
-        11.0,
+        11,
         77
       ],
       "axis": "y"
@@ -654,7 +699,7 @@
       "kind": "state_sample",
       "sample_normalized": 0.55,
       "thumb_origin": [
-        11.0,
+        11,
         77
       ],
       "axis": "y"
@@ -684,7 +729,7 @@
       "kind": "state_sample",
       "sample_normalized": 0.55,
       "thumb_origin": [
-        11.0,
+        11,
         77
       ],
       "axis": "y"
@@ -714,7 +759,7 @@
       "kind": "state_sample",
       "sample_normalized": 0.55,
       "thumb_origin": [
-        11.0,
+        11,
         77
       ],
       "axis": "y"
@@ -744,7 +789,7 @@
       "kind": "state_sample",
       "sample_normalized": 0.55,
       "thumb_origin": [
-        19.0,
+        19,
         95
       ],
       "axis": "y"
@@ -797,7 +842,7 @@
       "kind": "state_sample",
       "sample_normalized": 0.55,
       "thumb_origin": [
-        19.0,
+        19,
         95
       ],
       "axis": "y"
@@ -827,7 +872,7 @@
       "kind": "state_sample",
       "sample_normalized": 0.55,
       "thumb_origin": [
-        19.0,
+        19,
         95
       ],
       "axis": "y"
@@ -857,7 +902,7 @@
       "kind": "state_sample",
       "sample_normalized": 0.55,
       "thumb_origin": [
-        19.0,
+        19,
         95
       ],
       "axis": "y"
@@ -887,7 +932,7 @@
       "kind": "state_sample",
       "sample_normalized": 0.55,
       "thumb_origin": [
-        19.0,
+        19,
         95
       ],
       "axis": "y"
@@ -917,7 +962,7 @@
       "kind": "state_sample",
       "sample_normalized": 0.55,
       "thumb_origin": [
-        19.0,
+        19,
         95
       ],
       "axis": "y"
@@ -2714,6 +2759,558 @@
         24
       ],
       "source": "Original MR Studio vector, Issue #212",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/todo",
+      "file": "svg/manager/status/todo.svg",
+      "size": [
+        66,
+        20
+      ],
+      "role": "status",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/todo_glyph",
+      "file": "svg/manager/status/todo_glyph.svg",
+      "size": [
+        16,
+        16
+      ],
+      "role": "icon",
+      "usage": "icon",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/wait",
+      "file": "svg/manager/status/wait.svg",
+      "size": [
+        66,
+        20
+      ],
+      "role": "status",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/wait_glyph",
+      "file": "svg/manager/status/wait_glyph.svg",
+      "size": [
+        16,
+        16
+      ],
+      "role": "icon",
+      "usage": "icon",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/wip",
+      "file": "svg/manager/status/wip.svg",
+      "size": [
+        66,
+        20
+      ],
+      "role": "status",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/wip_glyph",
+      "file": "svg/manager/status/wip_glyph.svg",
+      "size": [
+        16,
+        16
+      ],
+      "role": "icon",
+      "usage": "icon",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/done",
+      "file": "svg/manager/status/done.svg",
+      "size": [
+        66,
+        20
+      ],
+      "role": "status",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/done_glyph",
+      "file": "svg/manager/status/done_glyph.svg",
+      "size": [
+        16,
+        16
+      ],
+      "role": "icon",
+      "usage": "icon",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/blocked",
+      "file": "svg/manager/status/blocked.svg",
+      "size": [
+        78,
+        20
+      ],
+      "role": "status",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/blocked_glyph",
+      "file": "svg/manager/status/blocked_glyph.svg",
+      "size": [
+        16,
+        16
+      ],
+      "role": "icon",
+      "usage": "icon",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/pill_base",
+      "file": "svg/manager/status/pill_base.svg",
+      "size": [
+        66,
+        20
+      ],
+      "role": "template",
+      "usage": "template",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/priority/p1",
+      "file": "svg/manager/priority/p1.svg",
+      "size": [
+        30,
+        18
+      ],
+      "role": "priority",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/priority/p2",
+      "file": "svg/manager/priority/p2.svg",
+      "size": [
+        30,
+        18
+      ],
+      "role": "priority",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/priority/p3",
+      "file": "svg/manager/priority/p3.svg",
+      "size": [
+        30,
+        18
+      ],
+      "role": "priority",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/priority/p4",
+      "file": "svg/manager/priority/p4.svg",
+      "size": [
+        30,
+        18
+      ],
+      "role": "priority",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/priority/badge_base",
+      "file": "svg/manager/priority/badge_base.svg",
+      "size": [
+        30,
+        18
+      ],
+      "role": "template",
+      "usage": "template",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/priority/flag",
+      "file": "svg/manager/priority/flag.svg",
+      "size": [
+        24,
+        24
+      ],
+      "role": "icon",
+      "usage": "icon",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/progress/empty",
+      "file": "svg/manager/progress/empty.svg",
+      "size": [
+        82,
+        6
+      ],
+      "role": "progress",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/progress/quarter",
+      "file": "svg/manager/progress/quarter.svg",
+      "size": [
+        82,
+        6
+      ],
+      "role": "progress",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/progress/half",
+      "file": "svg/manager/progress/half.svg",
+      "size": [
+        82,
+        6
+      ],
+      "role": "progress",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/progress/three_quarters",
+      "file": "svg/manager/progress/three_quarters.svg",
+      "size": [
+        82,
+        6
+      ],
+      "role": "progress",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/progress/complete",
+      "file": "svg/manager/progress/complete.svg",
+      "size": [
+        82,
+        6
+      ],
+      "role": "progress",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/progress/track",
+      "file": "svg/manager/progress/track.svg",
+      "size": [
+        82,
+        6
+      ],
+      "role": "template",
+      "usage": "template",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/indicators/inactive",
+      "file": "svg/manager/indicators/inactive.svg",
+      "size": [
+        10,
+        10
+      ],
+      "role": "indicator",
+      "usage": "template",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/indicators/ready",
+      "file": "svg/manager/indicators/ready.svg",
+      "size": [
+        10,
+        10
+      ],
+      "role": "indicator",
+      "usage": "template",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/set_header",
+      "file": "svg/manager/components/set_header.svg",
+      "size": [
+        334,
+        30
+      ],
+      "role": "template",
+      "usage": "template",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/set_header_example",
+      "file": "svg/manager/components/set_header_example.svg",
+      "size": [
+        334,
+        30
+      ],
+      "role": "example",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/item_default_base",
+      "file": "svg/manager/components/item_default_base.svg",
+      "size": [
+        334,
+        52
+      ],
+      "role": "template",
+      "usage": "template",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/item_default",
+      "file": "svg/manager/components/item_default.svg",
+      "size": [
+        334,
+        52
+      ],
+      "role": "example",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/item_selected_base",
+      "file": "svg/manager/components/item_selected_base.svg",
+      "size": [
+        334,
+        52
+      ],
+      "role": "template",
+      "usage": "template",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/item_selected",
+      "file": "svg/manager/components/item_selected.svg",
+      "size": [
+        334,
+        52
+      ],
+      "role": "example",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/search",
+      "file": "svg/manager/components/search.svg",
+      "size": [
+        334,
+        24
+      ],
+      "role": "example",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/search_base",
+      "file": "svg/manager/components/search_base.svg",
+      "size": [
+        334,
+        24
+      ],
+      "role": "template",
+      "usage": "template",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/controls/mute",
+      "file": "svg/manager/controls/mute.svg",
+      "size": [
+        24,
+        22
+      ],
+      "role": "control",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/controls/mute_active",
+      "file": "svg/manager/controls/mute_active.svg",
+      "size": [
+        24,
+        22
+      ],
+      "role": "control",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/controls/solo",
+      "file": "svg/manager/controls/solo.svg",
+      "size": [
+        24,
+        22
+      ],
+      "role": "control",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/controls/solo_active",
+      "file": "svg/manager/controls/solo_active.svg",
+      "size": [
+        24,
+        22
+      ],
+      "role": "control",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/controls/record",
+      "file": "svg/manager/controls/record.svg",
+      "size": [
+        24,
+        22
+      ],
+      "role": "control",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/controls/record_active",
+      "file": "svg/manager/controls/record_active.svg",
+      "size": [
+        24,
+        22
+      ],
+      "role": "control",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/controls/menu_dots",
+      "file": "svg/manager/controls/menu_dots.svg",
+      "size": [
+        24,
+        24
+      ],
+      "role": "icon",
+      "usage": "icon",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/channel_card_example",
+      "file": "svg/manager/components/channel_card_example.svg",
+      "size": [
+        144,
+        108
+      ],
+      "role": "example",
+      "usage": "reference",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/panel_frame",
+      "file": "svg/manager/components/panel_frame.svg",
+      "size": [
+        168,
+        120
+      ],
+      "role": "template",
+      "usage": "template",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/actions/add_task",
+      "file": "svg/manager/actions/add_task.svg",
+      "size": [
+        24,
+        24
+      ],
+      "role": "icon",
+      "usage": "icon",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/actions/checklist",
+      "file": "svg/manager/actions/checklist.svg",
+      "size": [
+        24,
+        24
+      ],
+      "role": "icon",
+      "usage": "icon",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/actions/expand",
+      "file": "svg/manager/actions/expand.svg",
+      "size": [
+        24,
+        24
+      ],
+      "role": "icon",
+      "usage": "icon",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/actions/organizer",
+      "file": "svg/manager/actions/organizer.svg",
+      "size": [
+        24,
+        24
+      ],
+      "role": "icon",
+      "usage": "icon",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
       "license": "Same as project; original artwork"
     }
   ],
