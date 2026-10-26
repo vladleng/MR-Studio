@@ -141,24 +141,26 @@ class LiveTimeline final : public juce::Component {
                     if (!item.bounds.contains(event.getPosition()) || item.value["id"] != parent.state["currentItem"] ||
                         !parent.owner.livePlaybackReady())
                         continue;
+                    const auto project = parent.owner.project();
+                    const auto &meter = project->time.meters.front();
+                    const double bar = (event.x - item.bounds.getX() - 1.) / item.scale - item.lead;
+                    if (bar < 0 && event.y >= headerHeight + rulerHeight)
+                        return;
+                    const auto tick = static_cast<mrs::Tick>(std::llround(
+                        juce::jmax(0., bar) * static_cast<double>(4 * mrs::ppq * meter.numerator / meter.denominator)));
                     if (event.y < headerHeight + rulerHeight) {
-                        const auto project = parent.owner.project();
-                        const auto &meter = project->time.meters.front();
-                        const double bar = juce::jmax(0., (event.x - item.bounds.getX() - 1.) / item.scale - item.lead);
-                        const auto tick = static_cast<mrs::Tick>(std::llround(
-                            bar * static_cast<double>(4 * mrs::ppq * meter.numerator / meter.denominator)));
                         parent.owner.run([&] {
                             parent.owner.app.seek(mrs::Timeline(project->time, project->sample_rate).to_samples(tick));
                         });
-                    } else if (const auto *sections = item.value["sections"].getArray())
-                        for (const auto &section : *sections)
-                            if (parent.extent(item, section, headerHeight + rulerHeight + 1, sectionHeight - 2)
-                                    .contains(event.getPosition())) {
-                                parent.owner.run([&] {
-                                    parent.owner.app.musical().seek_section({section["id"].toString().toStdString()});
-                                });
+                    } else {
+                        // Resolve clicks against the same single-valued lane used by Core.
+                        for (const auto &section : project->sections)
+                            if (section.start <= tick && tick < section.end) {
+                                parent.owner.run([&] { parent.owner.app.musical().seek_section(section.id); });
                                 break;
                             }
+                    }
+                    return;
                 }
                 return;
             }

@@ -562,12 +562,12 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         playbackDesktop.app.poll();
         liveCheck(playbackDesktop.app.engine()->state().sample == musicClock.to_samples(3 * mrs::ppq),
                   "Timeline ruler seeks real audio under 3/4 meter");
-        const float verseX = static_cast<float>(1. + (viewLead + 22.) * viewScale);
+        const float verseX = static_cast<float>(1. + (viewLead + 21.75) * viewScale);
         timelineBody->mouseDown(seekClick({verseX, 100.f}));
         render();
         playbackDesktop.app.poll();
         liveCheck(playbackDesktop.app.engine()->state().sample == musicClock.to_samples(verse.start),
-                  "Timeline section click seeks authored Core section");
+                  "Section click within authored overlap selects the same section as Core");
         playbackDesktop.action(32);
         render();
         playbackDesktop.app.poll();
@@ -615,6 +615,22 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   "Released-button Browser click activates item");
         waitPlayback();
         playbackTimeline->refresh();
+        livePump();
+        browserCard = liveComponent(playbackDesktop, "live-browser-" + id);
+        liveCheck(browserCard != nullptr, "Active Browser row survives refresh");
+        const auto focusProject = playbackDesktop.project();
+        for (auto *child : playbackTimeline->getChildren())
+            if (auto *scroll = dynamic_cast<juce::Viewport *>(child))
+                scroll->setViewPosition(1000, 0);
+        browserCard->mouseDown(click(juce::ModifierKeys::leftButtonModifier));
+        browserCard->mouseUp(click(0));
+        playbackTimeline->refresh();
+        liveCheck(playbackDesktop.project() == focusProject,
+                  "Reclicking active Browser item does not restart Core audio");
+        for (auto *child : playbackTimeline->getChildren())
+            if (auto *scroll = dynamic_cast<juce::Viewport *>(child))
+                liveCheck(scroll->getViewPositionX() == 0,
+                          "Reclicking active Browser item focuses timeline even without selection change");
         playbackDesktop.editLiveInterface("Library-only view",
                                           [](auto &state) { live::activeEntries(state) = juce::Array<juce::var>(); });
         playbackTimeline->refresh();
