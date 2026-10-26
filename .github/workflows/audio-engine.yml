@@ -10,6 +10,11 @@ on:
         description: Complete integration suite
         type: boolean
         default: false
+      checks:
+        description: Targeted Live checks or normal profile
+        type: choice
+        options: [profile, live]
+        default: profile
       ara:
         description: Include ARA2 in Windows Release (disable only for diagnostic builds)
         type: boolean
@@ -37,11 +42,27 @@ jobs:
       # PR and push always produce a complete ARA2-enabled Windows build.
       # Manual dispatch defaults ON but permits a deliberate ARA-OFF diagnostic.
       ARA: ${{ github.event_name != 'workflow_dispatch' || inputs.ara }}
+      CHECK_SCOPE: ${{ inputs.checks || 'profile' }}
       INTEGRATION: ${{ inputs.integration || contains(github.event.head_commit.message, '[ci full]') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          fetch-depth: 2
+      - name: Select explicitly requested check scope
+        shell: pwsh
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $scope=$env:CHECK_SCOPE
+          if($env:GITHUB_EVENT_NAME -eq 'pull_request'){
+            $subject=& git log -1 --format=%s $env:PR_HEAD_SHA
+            if($LASTEXITCODE){throw 'Cannot read PR head check scope'}
+            if($subject -match '\[ci live\]'){$scope='live'}
+          }
+          if($env:INTEGRATION -eq 'true'){$scope='integration'}
+          "CHECK_SCOPE=$scope" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Check scope: $scope"
       - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: build/sdk
@@ -62,7 +83,8 @@ jobs:
         shell: pwsh
         run: |
           $args=@('--build','build/windows','--config','Release','--parallel','2')
-          if($env:INTEGRATION -ne 'true'){
+          if($env:CHECK_SCOPE -eq 'live'){$args+=@('--target','MoonRiverStudioJuce')}
+          elseif($env:INTEGRATION -ne 'true'){
             $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
             if($env:ARA -eq 'true'){$args+=@('mrs_ara_tests','mrs_ara_clip_tests','mrs_ai_ara_tests')}
           }
@@ -73,16 +95,17 @@ jobs:
         shell: pwsh
         run: |
           $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
-          if($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(stretch_contract|model|transport|commands|serialization|track_folders)|stretch_.*|clip_stretch_.*|ai_.*|ara_.*|juce_(live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(wav_import|track_folders))$')}
+          if($env:CHECK_SCOPE -eq 'live'){$args+=@('-R','^juce_live_(entry_smoke|application)$')}
+          elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(stretch_contract|model|transport|commands|serialization|track_folders)|stretch_.*|clip_stretch_.*|ai_.*|ara_.*|juce_(live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(wav_import|track_folders))$')}
           & ctest @args
           if($LASTEXITCODE){
             if(Test-Path 'build/windows/live-application-failure.txt'){Get-Content 'build/windows/live-application-failure.txt'}
             if(Test-Path 'build/windows/live-entry-failure.txt'){Get-Content 'build/windows/live-entry-failure.txt'}
             if(Test-Path 'build/windows/library261-failure.txt'){Get-Content 'build/windows/library261-failure.txt'}
-            throw 'CTest failed; full integration never excludes known failures'
+            throw "CTest failed ($env:CHECK_SCOPE)"
           }
       - name: Stretch foundation evidence (synthetic, not ASIO)
-        if: success()
+        if: success() && env.CHECK_SCOPE != 'live'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build/stretch-evidence | Out-Null
@@ -100,7 +123,7 @@ jobs:
           @('MR Studio 0.8.3 stretch foundation. Synthetic evidence, not ASIO or user listening acceptance.', 'mrs_stretch_bench.exe --seconds 300 --warmup 30 --repeats 3 --voices 8 --ratio 1.25', 'Experimental manual clip controls/cache playback are integrated; final realtime/quality acceptance remains in #59/#62.') | Set-Content build/stretch-evidence/README.txt
           Get-ChildItem build/stretch-evidence -File | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String -Width 240 | Set-Content build/stretch-evidence/SHA256.txt
       - name: Upload stretch evidence
-        if: success()
+        if: success() && env.CHECK_SCOPE != 'live'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: MR-Studio-0.8.3-Stretch-Evidence-${{ github.sha }}
@@ -113,6 +136,7 @@ jobs:
         shell: pwsh
         env:
           CI_TEST_RESULT: ${{ steps.test.outcome }}
+          CI_CHECK_SCOPE: ${{ env.CHECK_SCOPE }}
         run: ./tools/ci/Package-Windows.ps1 -Ara:($env:ARA -eq 'true')
       - name: Upload Windows runtime
         if: always() && steps.package.outcome == 'success'

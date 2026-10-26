@@ -30,8 +30,15 @@ class LiveTimeline final : public juce::Component {
     void refresh() {
         const auto next = owner.liveDocument ? owner.liveDocument->interfaceState : juce::var();
         const auto key = juce::JSON::toString(next, true);
-        if (key == signature)
+        const auto playback = owner.displayState().playback;
+        const bool started = playback != observedPlayback &&
+                             (playback == mrs::PlaybackState::playing || playback == mrs::PlaybackState::stopped);
+        observedPlayback = playback;
+        if (key == signature) {
+            if (started)
+                revealTransport();
             return;
+        }
         const auto selectedItem = next["currentItem"].toString();
         const bool selectionChanged = selectedItem != revealedItem;
         revealedItem = selectedItem;
@@ -44,6 +51,8 @@ class LiveTimeline final : public juce::Component {
                     viewport.setViewPosition(juce::jmax(0, item.bounds.getX() - 12), viewport.getViewPositionY());
                     break;
                 }
+        if (started)
+            revealTransport();
         playhead.update();
         body.repaint();
         repaint();
@@ -151,6 +160,14 @@ class LiveTimeline final : public juce::Component {
     static void line(juce::Graphics &g, juce::Rectangle<int> area) {
         g.setColour(liveReferenceTokens().colour(ColourRole::border));
         g.drawRect(area, 1);
+    }
+    void revealTransport() {
+        const auto lineBounds = playheadBounds();
+        if (lineBounds.isEmpty())
+            return;
+        const int x = juce::roundToInt(lineBounds.getX());
+        if (x < viewport.getViewPositionX() || x >= viewport.getViewPositionX() + viewport.getMaximumVisibleWidth())
+            viewport.setViewPosition(juce::jmax(0, x - 24), viewport.getViewPositionY());
     }
     void layout() {
         items.clear();
@@ -284,5 +301,6 @@ class LiveTimeline final : public juce::Component {
     juce::String signature, revealedItem;
     std::vector<Item> items;
     int channelWidth{150};
+    mrs::PlaybackState observedPlayback{mrs::PlaybackState::stopped};
 };
 } // namespace ui

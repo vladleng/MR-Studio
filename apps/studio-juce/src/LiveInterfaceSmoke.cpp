@@ -400,9 +400,17 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             for (int n = 0; n < 4; ++n)
                 playbackDesktop.app.engine()->process(nullptr, audio.data(), 128);
         };
+        for (auto *child : playbackTimeline->getChildren())
+            if (auto *scroll = dynamic_cast<juce::Viewport *>(child))
+                scroll->setViewPosition(1000, 0);
         playbackDesktop.action(30);
         render();
         const float fullLevel = std::abs(audio[200]);
+        playbackTimeline->refresh();
+        for (auto *child : playbackTimeline->getChildren())
+            if (auto *scroll = dynamic_cast<juce::Viewport *>(child))
+                liveCheck(scroll->getViewPositionX() <= playbackTimeline->playheadBounds().getX(),
+                          "Starting Playback reveals an off-screen playhead");
         transportLine->update();
         liveCheck(transportLine->getHeight() > 0 && playbackTimeline->playheadBounds().getX() > startPosition,
                   "Timeline playhead advances with rendered Core audio");
