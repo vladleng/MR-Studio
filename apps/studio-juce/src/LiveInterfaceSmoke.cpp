@@ -6,6 +6,24 @@
 
 namespace ui {
 namespace {
+// A manually driven test device: no second engine and no concurrent audio clock.
+class LivePlaybackTestDevice final : public mrs::audio::IAudioDevice {
+  public:
+    std::vector<mrs::audio::DeviceInfo> enumerate() override {
+        return {{0, "Live PCM test", {}, {"L", "R"}, 32, 2048, 128, -1}};
+    }
+    void control_panel(int) override {}
+    void open(const mrs::audio::DeviceConfig &, std::shared_ptr<mrs::audio::AudioEngine>) override {
+        phase = mrs::audio::DevicePhase::open;
+    }
+    void start() override { phase = mrs::audio::DevicePhase::running; }
+    void stop() override { phase = mrs::audio::DevicePhase::stopped; }
+    void close() noexcept override { phase = mrs::audio::DevicePhase::closed; }
+    mrs::audio::DeviceStatus status() override { return {phase, 48000, 0, 0, 0, {}}; }
+
+  private:
+    mrs::audio::DevicePhase phase{mrs::audio::DevicePhase::closed};
+};
 void liveCheck(bool condition, const char *text) {
     if (!condition)
         throw std::runtime_error(text);
@@ -368,7 +386,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(playbackDesktop.livePlaybackReady() && playbackDesktop.project()->clips.size() == 1 &&
                       playbackDesktop.liveDocument->projects.empty(),
                   "WAV materializes into shared Core without Studio project references");
-        playbackDesktop.app.disconnect(); // Manual process() must never race the offline device callback.
+        playbackDesktop.app.connect(std::make_unique<LivePlaybackTestDevice>(), {0, 48000, 128, {}, {0, 1}, 1});
         std::array<float, 256> audio{};
         const auto render = [&] {
             for (int n = 0; n < 4; ++n)
