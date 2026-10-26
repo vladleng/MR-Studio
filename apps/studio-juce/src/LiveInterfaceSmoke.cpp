@@ -9,8 +9,12 @@ namespace {
 // A manually driven test device: no second engine and no concurrent audio clock.
 class LivePlaybackTestDevice final : public mrs::audio::IAudioDevice {
   public:
+    explicit LivePlaybackTestDevice(int count = 2) : outputs(count) {}
     std::vector<mrs::audio::DeviceInfo> enumerate() override {
-        return {{0, "Live PCM test", {}, {"L", "R"}, 32, 2048, 128, -1}};
+        std::vector<std::string> names;
+        for (int i = 0; i < outputs; ++i)
+            names.push_back("Output " + std::to_string(i + 1));
+        return {{0, "Live PCM test", {}, names, 32, 2048, 128, -1}};
     }
     void control_panel(int) override {}
     void open(const mrs::audio::DeviceConfig &, std::shared_ptr<mrs::audio::AudioEngine>) override {
@@ -22,6 +26,7 @@ class LivePlaybackTestDevice final : public mrs::audio::IAudioDevice {
     mrs::audio::DeviceStatus status() override { return {phase, 48000, 0, 0, 0, {}}; }
 
   private:
+    int outputs{2};
     mrs::audio::DevicePhase phase{mrs::audio::DevicePhase::closed};
 };
 void liveCheck(bool condition, const char *text) {
@@ -759,6 +764,137 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         waitPlayback();
         liveCheck(playbackDesktop.livePlaybackReady() && playbackDesktop.livePlaybackItem == id,
                   "Rapid item switch cannot publish a stale import");
+    }
+    {
+        // Opposite-phase PCM proves shared-sample alignment and independent physical routing.
+        const auto positive = folder.getChildFile("live-multi-tone.wav"),
+                   negative = folder.getChildFile("live-inverted.wav");
+        for (const auto &target : {positive, negative}) {
+            liveCheck(folder.getChildFile("live-tone.wav").copyFileTo(target), "Prepare synthetic stem header");
+            std::fstream wave(std::filesystem::path(target.getFullPathName().toWideCharPointer()),
+                              std::ios::in | std::ios::out | std::ios::binary);
+            wave.seekp(44);
+            for (int frame = 0; frame < 48000; ++frame) {
+                const int value = (4096 + (frame * 137) % 4096) * (target == positive ? 1 : -1);
+                const auto bits = static_cast<unsigned short>(value);
+                for (int channel = 0; channel < 2; ++channel) {
+                    wave.put(static_cast<char>(bits & 255));
+                    wave.put(static_cast<char>((bits >> 8) & 255));
+                }
+            }
+        }
+        Desktop multi(true, false, true);
+        multi.importLiveShow(fixture);
+        multi.selectLiveItem(id);
+        multi.addLivePlaybackStems(id, {positive, negative});
+        const auto waitMulti = [&] {
+            const auto until = juce::Time::getMillisecondCounter() + 5000;
+            while (multi.livePlaybackLoading && juce::Time::getMillisecondCounter() < until) {
+                multi.app.poll();
+                multi.syncLivePlayback();
+                juce::Thread::sleep(1);
+            }
+        };
+        waitMulti();
+        liveCheck(multi.livePlaybackReady() && multi.project()->tracks.size() == 2 &&
+                      multi.project()->clips.size() == 2 && multi.project()->clips[0].start == 0 &&
+                      multi.project()->clips[1].start == 0,
+                  "Batch stem import publishes parallel Core clips at the same sample");
+        const auto rows = live::playbackRows(multi.liveDocument->interfaceState, id);
+        const auto stemKey = rows[1]["id"].toString();
+        liveCheck(live::find(multi.liveDocument->interfaceState, "channels", stemKey)["type"].toString() == "Playback",
+                  "Additional stem uses the shared show channel layout");
+        multi.app.connect(std::make_unique<LivePlaybackTestDevice>(4), {0, 48000, 128, {}, {0, 1, 2, 3}, 1});
+        std::array<float, 512> audio{};
+        const auto renderMulti = [&] {
+            for (int i = 0; i < 4; ++i)
+                multi.app.engine()->process(nullptr, audio.data(), 128);
+        };
+        multi.app.play();
+        renderMulti();
+        liveCheck(std::all_of(audio.begin(), audio.end(), [](float value) { return std::abs(value) < .0001f; }),
+                  "Opposite-phase stems cancel sample-locked through shared Core mixer");
+        multi.livePlaybackStem = stemKey;
+        multi.setLivePlaybackMix(0., true, false);
+        renderMulti();
+        liveCheck(audio[400] > .03f && audio[401] > .03f, "Muting one stem leaves the other audible");
+        multi.undoLiveInterface();
+        multi.syncLivePlayback();
+        renderMulti();
+        liveCheck(std::abs(audio[400]) < .0001f, "Show Undo restores both synchronized stems");
+        multi.app.seek(1234);
+        renderMulti();
+        liveCheck(std::all_of(audio.begin(), audio.end(), [](float value) { return std::abs(value) < .0001f; }) &&
+                      multi.app.engine()->state().sample == 1746,
+                  "Shared seek moves every stem to the same sample");
+        multi.setLivePlaybackMix(0., false, true);
+        renderMulti();
+        liveCheck(audio[400] < -.03f, "Stem Solo excludes the other shared Core channel");
+        multi.app.stop();
+        renderMulti();
+        multi.setLivePlaybackMix(0., false, false);
+        multi.livePlaybackStem.clear();
+        multi.setLivePlaybackOutputs({0, 1});
+        multi.livePlaybackStem = stemKey;
+        multi.setLivePlaybackOutputs({2, 3});
+        multi.app.play();
+        renderMulti();
+        liveCheck(audio[400] > .03f && audio[401] > .03f && audio[402] < -.03f && audio[403] < -.03f,
+                  "Physical output pairs carry separate stems without leaking to Master");
+        const auto beforeRoute = multi.liveDocument->signature();
+        bool routeBlocked = false;
+        try {
+            multi.setLivePlaybackOutputs({0});
+        } catch (const std::exception &) {
+            routeBlocked = true;
+        }
+        liveCheck(routeBlocked && multi.liveDocument->signature() == beforeRoute,
+                  "Playing routing changes preserve show atomically");
+        multi.app.stop();
+        renderMulti();
+        routeBlocked = false;
+        try {
+            multi.setLivePlaybackOutputs({9});
+        } catch (const std::exception &) {
+            routeBlocked = true;
+        }
+        liveCheck(routeBlocked && multi.liveDocument->signature() == beforeRoute,
+                  "Inactive output is rejected before state publication");
+        multi.setLivePlaybackTrim(.02, .08);
+        liveCheck(multi.project()->clips[0].length == 48000 && multi.project()->clips[1].source_offset == 960 &&
+                      multi.project()->clips[1].length == 2880,
+                  "Stem trim edits only its own source window");
+        multi.editLiveInterface("Save stem version", [&](auto &state) { live::saveItem(state, id); });
+        const auto show = folder.getChildFile("stems.mrlive");
+        multi.saveFile(show);
+        const auto stemSaved = LiveDocument::read(show);
+        const auto savedRows = live::playbackRows(stemSaved.interfaceState, id);
+        liveCheck(savedRows.size() == 2 && !live::itemDirty(stemSaved.interfaceState, id) &&
+                      savedRows[1]["file"].toString() == negative.getFullPathName() &&
+                      live::playbackOutputs(savedRows[1]) == std::vector<int>({2, 3}),
+                  "All stem paths, trims and routes survive mrlive round-trip");
+        const auto relocated = folder.getChildFile("stems-save-as").getChildFile("show.mrlive");
+        stemSaved.write(relocated);
+        const auto moved = LiveDocument::read(relocated);
+        liveCheck(live::playbackRows(moved.interfaceState, id)[1]["file"].toString() == negative.getFullPathName() &&
+                      !live::itemDirty(moved.interfaceState, id),
+                  "Save as rebases additional stem references");
+        multi.removeLivePlaybackStem();
+        waitMulti();
+        liveCheck(multi.livePlaybackReady() && multi.project()->clips.size() == 1,
+                  "Removing a stem reloads the remaining batch safely");
+        multi.undoLiveInterface();
+        multi.syncLivePlayback();
+        waitMulti();
+        // Reload runs offline with two outputs; route 3/4 must fail closed instead of silently downmixing.
+        liveCheck(!multi.livePlaybackReady() && multi.livePlaybackError.isNotEmpty(),
+                  "Unavailable saved physical route blocks Playback rather than leaking to Master");
+        multi.livePlaybackStem = stemKey;
+        multi.setLivePlaybackOutputs({});
+        liveCheck(multi.livePlaybackReady(), "Unavailable route can be repaired to Master without discarding media");
+        multi.refresh();
+        auto *choice = dynamic_cast<juce::ComboBox *>(liveComponent(multi, "live-stem-choice"));
+        liveCheck(choice && choice->getNumItems() == 2, "Native Playback panel lists all real stems");
     }
     desktop.home.reset();
     liveCheck(folder.deleteRecursively(), "Native interface fixture cleanup");

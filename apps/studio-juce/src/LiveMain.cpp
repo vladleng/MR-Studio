@@ -149,6 +149,23 @@ class LiveApplication final : public juce::JUCEApplication {
     }
     bool moreThanOneInstanceAllowed() override { return false; }
     void initialise(const juce::String &args) override {
+        if (args.contains("--live-entry-smoke")) {
+            try {
+                const auto tokens = juce::StringArray::fromTokens(args, true);
+                const int at = tokens.indexOf("--show-fixture");
+                if (at < 0 || at + 1 >= tokens.size())
+                    throw std::runtime_error("Missing show fixture");
+                ui::liveInterfaceSmoke(juce::File(tokens[at + 1].unquoted()));
+                setApplicationReturnValue(0);
+            } catch (const std::exception &error) {
+                juce::File::getCurrentWorkingDirectory()
+                    .getChildFile("live-entry-failure.txt")
+                    .replaceWithText(error.what());
+                setApplicationReturnValue(1);
+            }
+            quit();
+            return;
+        }
         if (args.contains("--live-application-smoke")) {
             try {
                 const auto check = [](bool value, const char *error) {

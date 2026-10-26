@@ -6,22 +6,53 @@ class LivePlaybackPanel final : public juce::Component {
   public:
     explicit LivePlaybackPanel(Desktop &desktop) : owner(desktop) {
         setComponentID("live-playback-panel");
-        for (auto *c : std::array<juce::Component *, 10>{&chooseFile, &fileName, &gain, &mute, &solo, &trimStart,
-                                                         &trimEnd, &trimApply, &startLabel, &endLabel})
+        for (auto *c : std::array<juce::Component *, 14>{&chooseFile, &fileName, &gain, &mute, &solo, &trimStart,
+                                                         &trimEnd, &trimApply, &startLabel, &endLabel, &stemChoice,
+                                                         &addStem, &removeStem, &outputChoice})
             addAndMakeVisible(c);
         chooseFile.setButtonText("Choose WAV...");
         chooseFile.onClick = [this] {
             if (!owner.liveDocument)
                 return;
-            const auto id = owner.liveDocument->interfaceState["currentItem"].toString();
+            const auto id = owner.liveDocument->interfaceState["currentItem"].toString(), stem = owner.livePlaybackStem;
             juce::Component::SafePointer<Desktop> safe(&owner);
             owner.choose(
                 juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                [safe, id](const auto &file) {
+                [safe, id, stem](const auto &file) {
                     if (safe)
-                        safe->run([&] { safe->attachLivePlayback(id, file); });
+                        safe->run([&] { safe->attachLivePlayback(id, file, stem); });
                 },
                 "*.wav");
+        };
+        stemChoice.setComponentID("live-stem-choice");
+        addStem.setComponentID("live-add-stems");
+        removeStem.setComponentID("live-remove-stem");
+        outputChoice.setComponentID("live-stem-output");
+        stemChoice.onChange = [this] {
+            const int index = stemChoice.getSelectedId() - 1;
+            if (index >= 0 && index < static_cast<int>(stemKeys.size())) {
+                owner.livePlaybackStem = stemKeys[static_cast<std::size_t>(index)];
+                owner.refresh();
+            }
+        };
+        addStem.onClick = [this] {
+            if (!owner.liveDocument)
+                return;
+            const auto id = owner.liveDocument->interfaceState["currentItem"].toString();
+            stemChooser = std::make_unique<juce::FileChooser>("Add WAV stems", juce::File(), "*.wav", true);
+            juce::Component::SafePointer<Desktop> safe(&owner);
+            stemChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles |
+                                         juce::FileBrowserComponent::canSelectMultipleItems,
+                                     [safe, id](const auto &result) {
+                                         if (safe)
+                                             safe->run([&] { safe->addLivePlaybackStems(id, result.getResults()); });
+                                     });
+        };
+        removeStem.onClick = [this] { owner.run([&] { owner.removeLivePlaybackStem(); }); };
+        outputChoice.onChange = [this] {
+            const int index = outputChoice.getSelectedId() - 1;
+            if (index >= 0 && index < static_cast<int>(routes.size()))
+                owner.run([&] { owner.setLivePlaybackOutputs(routes[static_cast<std::size_t>(index)]); });
         };
         trimStart.setComponentID("live-trim-start");
         trimEnd.setComponentID("live-trim-end");
@@ -47,13 +78,18 @@ class LivePlaybackPanel final : public juce::Component {
     }
     void resized() override {
         auto area = getLocalBounds().reduced(8);
-        area.removeFromTop(24);
+        auto header = area.removeFromTop(24);
+        header.removeFromLeft(124);
+        removeStem.setBounds(header.removeFromRight(24).reduced(1));
+        addStem.setBounds(header.removeFromRight(24).reduced(1));
+        stemChoice.setBounds(header.reduced(1));
         auto row = area.removeFromTop(28);
         chooseFile.setBounds(row.removeFromRight(110));
         fileName.setBounds(row);
         row = area.removeFromTop(28);
         mute.setBounds(row.removeFromLeft(28).reduced(1));
         solo.setBounds(row.removeFromLeft(28).reduced(1));
+        outputChoice.setBounds(row.reduced(1));
         gain.setBounds(area.removeFromTop(30));
         row = area.removeFromTop(26);
         trimApply.setBounds(row.removeFromRight(52).reduced(1));
@@ -67,7 +103,9 @@ class LivePlaybackPanel final : public juce::Component {
         g.setColour(juce::Colour(0xffdae5f4));
         g.setFont(owner.theme.font(12.f));
         g.drawText("Playback / stems", 8, 4, getWidth() - 16, 22, juce::Justification::left);
-        const float peak = owner.livePlaybackReady() ? juce::jmax(owner.peaks[0].left, owner.peaks[0].right) : 0.f;
+        const float peak = owner.livePlaybackReady() ? juce::jmax(owner.peaks[owner.livePlaybackIndex()].left,
+                                                                  owner.peaks[owner.livePlaybackIndex()].right)
+                                                     : 0.f;
         auto bar = getLocalBounds().reduced(10).withTrimmedTop(144).withHeight(6).toFloat();
         g.setColour(juce::Colour(0xff343638));
         g.fillRect(bar);
@@ -75,7 +113,7 @@ class LivePlaybackPanel final : public juce::Component {
         g.setColour(juce::Colour(0xff59ad87));
         g.fillRect(bar);
         if (owner.livePlaybackReady()) {
-            const auto clip = owner.project()->clips.front();
+            const auto clip = owner.project()->clips[owner.livePlaybackIndex()];
             const auto area = getLocalBounds().reduced(10).withTrimmedTop(158).toFloat();
             if (const auto *wave = owner.app.clip_waveform(clip)) {
                 g.setColour(juce::Colour(0xff17b5da));
@@ -96,7 +134,63 @@ class LivePlaybackPanel final : public juce::Component {
     void sync() {
         const auto id =
             owner.liveDocument ? owner.liveDocument->interfaceState["currentItem"].toString() : juce::String();
-        const auto row = owner.liveDocument ? live::playback(owner.liveDocument->interfaceState, id) : juce::var();
+        const auto rows =
+            owner.liveDocument ? live::playbackRows(owner.liveDocument->interfaceState, id) : std::vector<juce::var>();
+        const auto row = owner.liveDocument
+                             ? live::playbackStem(owner.liveDocument->interfaceState, id, owner.livePlaybackStem)
+                             : juce::var();
+        juce::String nextStems = id;
+        for (const auto &entry : rows)
+            nextStems += entry["id"].toString() + entry["file"].toString();
+        if (nextStems != stemSignature) {
+            stemSignature = nextStems;
+            stemChoice.clear(juce::dontSendNotification);
+            stemKeys.clear();
+            for (std::size_t i = 0; i < rows.size(); ++i) {
+                stemKeys.push_back(i == 0 ? juce::String() : rows[i]["id"].toString());
+                stemChoice.addItem(juce::File(rows[i]["file"].toString()).getFileNameWithoutExtension(),
+                                   static_cast<int>(i + 1));
+            }
+        }
+        stemChoice.setSelectedId(rows.empty() ? 0 : static_cast<int>(owner.livePlaybackIndex() + 1),
+                                 juce::dontSendNotification);
+        addStem.setEnabled(id.isNotEmpty() && rows.size() < 32 && !owner.app.recording());
+        removeStem.setEnabled(owner.livePlaybackIndex() > 0 && !owner.app.recording());
+        const auto active = owner.app.active_outputs();
+        juce::String routeKey;
+        for (const auto &name : owner.app.output_names())
+            routeKey += juce::String::fromUTF8(name.c_str()) + "|";
+        for (int output : active)
+            routeKey += juce::String(output) + ":";
+        if (routeKey != outputSignature || routes.empty()) {
+            outputSignature = routeKey;
+            routes = {{}};
+            outputChoice.clear(juce::dontSendNotification);
+            outputChoice.addItem("Master", 1);
+            const auto names = owner.app.output_names();
+            const auto name = [&](int output) {
+                return output >= 0 && static_cast<std::size_t>(output) < names.size()
+                           ? juce::String::fromUTF8(names[static_cast<std::size_t>(output)].c_str())
+                           : "Out " + juce::String(output + 1);
+            };
+            for (std::size_t i = 0; i < active.size(); ++i) {
+                routes.push_back({active[i]});
+                outputChoice.addItem(name(active[i]), static_cast<int>(routes.size()));
+                if (i + 1 < active.size()) {
+                    routes.push_back({active[i], active[i + 1]});
+                    outputChoice.addItem(name(active[i]) + " / " + name(active[i + 1]),
+                                         static_cast<int>(routes.size()));
+                }
+            }
+        }
+        int routeId = 0;
+        for (std::size_t i = 0; i < routes.size(); ++i)
+            if (routes[i] == live::playbackOutputs(row))
+                routeId = static_cast<int>(i + 1);
+        outputChoice.setSelectedId(routeId, juce::dontSendNotification);
+        outputChoice.setTextWhenNothingSelected("Output unavailable");
+        outputChoice.setEnabled(row.isObject() && !owner.app.recording() &&
+                                owner.app.engine()->state().playback != mrs::PlaybackState::playing);
         chooseFile.setEnabled(id.isNotEmpty() && !owner.app.recording());
         fileName.setText(row.isObject() ? juce::File(row["file"].toString()).getFileName() : "No audio connected",
                          juce::dontSendNotification);
@@ -115,8 +209,9 @@ class LivePlaybackPanel final : public juce::Component {
         trimApply.setEnabled(canTrim);
         if (ready) {
             const auto project = owner.project();
-            const auto clip = project->clips.front();
-            const auto nextTrim = id + ":" + juce::String(clip.start) + ":" + juce::String(clip.length);
+            const auto clip = project->clips[owner.livePlaybackIndex()];
+            const auto nextTrim =
+                id + owner.livePlaybackStem + ":" + juce::String(clip.start) + ":" + juce::String(clip.length);
             if (nextTrim != trimSignature) {
                 trimSignature = nextTrim;
                 trimStart.setText(juce::String(static_cast<double>(clip.start) / project->sample_rate, 6), false);
@@ -151,6 +246,11 @@ class LivePlaybackPanel final : public juce::Component {
     juce::TextEditor trimStart, trimEnd;
     juce::TextButton trimApply{"Trim"};
     juce::Label startLabel{{}, "In"}, endLabel{{}, "Out"};
-    juce::String trimSignature;
+    juce::String trimSignature, stemSignature, outputSignature;
+    juce::ComboBox stemChoice, outputChoice;
+    juce::TextButton addStem{"+"}, removeStem{"-"};
+    std::vector<juce::String> stemKeys;
+    std::vector<std::vector<int>> routes;
+    std::unique_ptr<juce::FileChooser> stemChooser;
 };
 } // namespace ui

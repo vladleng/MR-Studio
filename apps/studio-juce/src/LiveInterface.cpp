@@ -28,23 +28,33 @@ void validatePlaybackEdit(Desktop &owner, const juce::var &copy) {
     if (!owner.livePlaybackReady())
         return;
     const auto id = owner.liveDocument->interfaceState["currentItem"].toString();
-    const auto before = live::playback(owner.liveDocument->interfaceState, id);
-    const auto after = live::playback(copy, id);
-    if (before["file"] != after["file"] ||
-        (before["trimStart"] == after["trimStart"] && before["trimEnd"] == after["trimEnd"]))
+    const auto before = live::playbackRows(owner.liveDocument->interfaceState, id);
+    const auto after = live::playbackRows(copy, id);
+    if (live::playbackMediaKey(owner.liveDocument->interfaceState, id) != live::playbackMediaKey(copy, id))
         return;
-    if (owner.app.recording() || owner.app.engine()->state().playback == mrs::PlaybackState::playing)
-        throw std::runtime_error("Pause or stop Playback before trimming audio");
     const auto project = owner.project();
-    const auto frames = owner.app.source_frames(project->clips.front().id);
-    const auto start =
-        static_cast<mrs::Sample>(std::llround(static_cast<double>(after["trimStart"]) * project->sample_rate));
-    const auto end =
-        after["trimEnd"].isVoid()
-            ? frames
-            : static_cast<mrs::Sample>(std::llround(static_cast<double>(after["trimEnd"]) * project->sample_rate));
-    if (start < 0 || end <= start || end > frames)
-        throw std::runtime_error("Trim must stay inside the original WAV source");
+    const auto active = owner.app.active_outputs();
+    for (std::size_t i = 0; i < after.size(); ++i) {
+        const bool trimChanged =
+            before[i]["trimStart"] != after[i]["trimStart"] || before[i]["trimEnd"] != after[i]["trimEnd"];
+        const bool routeChanged = live::playbackOutputs(before[i]) != live::playbackOutputs(after[i]);
+        if (!trimChanged && !routeChanged)
+            continue;
+        if (owner.app.recording() || owner.app.engine()->state().playback == mrs::PlaybackState::playing)
+            throw std::runtime_error("Pause or stop Playback before trimming or routing audio");
+        const auto frames = owner.app.source_frames(project->clips[i].id);
+        const auto start =
+            static_cast<mrs::Sample>(std::llround(static_cast<double>(after[i]["trimStart"]) * project->sample_rate));
+        const auto end = after[i]["trimEnd"].isVoid()
+                             ? frames
+                             : static_cast<mrs::Sample>(
+                                   std::llround(static_cast<double>(after[i]["trimEnd"]) * project->sample_rate));
+        if (start < 0 || end <= start || end > frames)
+            throw std::runtime_error("Trim must stay inside the original WAV source");
+        for (const auto channel : live::playbackOutputs(after[i]))
+            if (std::find(active.begin(), active.end(), channel) == active.end())
+                throw std::runtime_error("Enable the physical output in Audio settings first");
+    }
 }
 class LiveInterfaceEdit final : public juce::UndoableAction {
   public:
@@ -118,6 +128,9 @@ void Desktop::newLiveShow() {
 }
 void Desktop::prepareLiveInterface(bool saved) {
     livePlaybackItem.clear();
+    livePlaybackStem.clear();
+    livePlaybackMediaKey.clear();
+    livePlaybackDeviceKey.clear();
     livePlaybackFile.clear();
     livePlaybackError.clear();
     livePlaybackMixKey.clear();
@@ -290,7 +303,103 @@ void Desktop::bindLiveItem(const juce::String &id, const juce::File &file) {
 } // namespace ui
 
 namespace ui {
-void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file) {
+namespace {
+juce::String addPlaybackChannel(juce::var &state, const juce::String &name) {
+    if (state["channels"].size() >= 128)
+        throw std::runtime_error("Show channel limit reached");
+    auto channel = live::object();
+    const auto id = juce::Uuid().toString();
+    live::put(channel, "id", id);
+    live::put(channel, "name", name);
+    live::put(channel, "type", "Playback");
+    live::put(channel, "gain", 0.);
+    live::put(channel, "pan", 0.);
+    for (const auto *key : {"mute", "solo", "armed", "monitor"})
+        live::put(channel, key, false);
+    live::put(channel, "recordGain", juce::var());
+    live::put(channel, "patches", juce::Array<juce::var>());
+    live::put(channel, "archivedPatches", juce::Array<juce::var>());
+    live::property(state, "channels").getArray()->add(channel);
+    for (auto &item : *live::property(state, "items").getArray()) {
+        auto track = live::object();
+        live::put(track, "id", juce::Uuid().toString());
+        live::put(track, "channelId", id);
+        for (const auto *key : {"patchId", "subPatchId", "media", "recordTrack"})
+            live::put(track, key, juce::var());
+        live::put(track, "patchOrder", juce::Array<juce::var>());
+        live::put(track, "spans", live::object());
+        live::put(track, "playbackGain", 0.);
+        if (!item["tracks"].isArray())
+            live::put(item, "tracks", juce::Array<juce::var>());
+        live::property(item, "tracks").getArray()->add(track);
+    }
+    return id;
+}
+void ensurePlaybackChannel(juce::var &state) {
+    for (const auto &channel : *state["channels"].getArray())
+        if (channel["type"].toString() == "Playback")
+            return;
+    addPlaybackChannel(state, "Backing");
+}
+} // namespace
+void Desktop::addLivePlaybackStems(const juce::String &id, const juce::Array<juce::File> &files) {
+    if (!liveDocument || !live::find(liveDocument->interfaceState, "items", id).isObject())
+        throw std::runtime_error("Select a Live item first");
+    if (app.recording())
+        throw std::runtime_error("Stop recording before changing stems");
+    if (files.isEmpty())
+        return;
+    for (const auto &file : files)
+        if (!file.existsAsFile() || !file.hasFileExtension("wav"))
+            throw std::runtime_error("Select existing WAV files");
+    editLiveInterface("Add Playback stems", [&](auto &state) {
+        ensurePlaybackChannel(state);
+        auto root = live::playback(state, id);
+        if (!root.isObject())
+            root = live::object();
+        std::set<juce::String> used;
+        for (const auto &channel : *state["channels"].getArray())
+            if (channel["type"].toString() == "Playback") {
+                used.insert(channel["id"].toString());
+                break;
+            }
+        for (const auto &stem : live::playbackRows(state, id))
+            if (stem["id"].isString())
+                used.insert(stem["id"].toString());
+        for (const auto &file : files) {
+            auto stem = live::object();
+            live::put(stem, "file", file.getFullPathName());
+            live::put(stem, "gain", 0.);
+            live::put(stem, "mute", false);
+            live::put(stem, "solo", false);
+            if (!root["file"].isString()) {
+                root = stem;
+                continue;
+            }
+            auto values = root["stems"];
+            if (!values.isArray()) {
+                values = juce::Array<juce::var>();
+                live::put(root, "stems", values);
+            }
+            if (values.size() >= 31)
+                throw std::runtime_error("Playback supports up to 32 stems");
+            juce::String channelId;
+            for (const auto &channel : *state["channels"].getArray())
+                if (channel["type"].toString() == "Playback" && !used.contains(channel["id"].toString())) {
+                    channelId = channel["id"].toString();
+                    break;
+                }
+            if (channelId.isEmpty())
+                channelId = addPlaybackChannel(state, file.getFileNameWithoutExtension());
+            used.insert(channelId);
+            live::put(stem, "id", channelId);
+            values.getArray()->add(stem);
+        }
+        live::put(live::map(live::performance(state), "nativePlayback"), id, root);
+    });
+    syncLivePlayback();
+}
+void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file, const juce::String &stem) {
     if (!liveDocument || !live::find(liveDocument->interfaceState, "items", id).isObject())
         throw std::runtime_error("Select a Live item first");
     if (app.recording())
@@ -298,7 +407,10 @@ void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file)
     if (!file.existsAsFile() || !file.hasFileExtension("wav"))
         throw std::runtime_error("Select an existing WAV file");
     editLiveInterface("Attach Playback WAV", [&](auto &state) {
-        auto row = live::playback(state, id).clone();
+        ensurePlaybackChannel(state);
+        auto row = live::playbackStem(state, id, stem);
+        if (stem.isNotEmpty() && !row.isObject())
+            throw std::runtime_error("Playback stem was removed");
         if (!row.isObject()) {
             row = live::object();
             live::put(row, "gain", 0.);
@@ -309,7 +421,8 @@ void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file)
         row.getDynamicObject()->removeProperty("trimStart");
         row.getDynamicObject()->removeProperty("trimEnd");
         live::put(row, "file", file.getFullPathName());
-        live::put(live::map(live::performance(state), "nativePlayback"), id, row);
+        if (stem.isEmpty())
+            live::put(live::map(live::performance(state), "nativePlayback"), id, row);
     });
     if (liveDocument->interfaceState["currentItem"].toString() == id)
         livePlaybackItem.clear();
@@ -320,7 +433,7 @@ void Desktop::setLivePlaybackMix(double gain, bool mute, bool solo) {
         throw std::runtime_error("Playback is not ready");
     const auto id = liveDocument->interfaceState["currentItem"].toString();
     editLiveInterface("Playback mix", [&](auto &state) {
-        auto &row = live::map(live::map(live::performance(state), "nativePlayback"), id);
+        auto row = live::playbackStem(state, id, livePlaybackStem);
         live::put(row, "gain", gain);
         live::put(row, "mute", mute);
         live::put(row, "solo", solo);
@@ -334,19 +447,64 @@ void Desktop::setLivePlaybackTrim(double start, double end) {
         throw std::runtime_error("Invalid Playback trim range");
     const auto id = liveDocument->interfaceState["currentItem"].toString();
     editLiveInterface("Trim Playback", [&](auto &state) {
-        auto &row = live::map(live::map(live::performance(state), "nativePlayback"), id);
+        auto row = live::playbackStem(state, id, livePlaybackStem);
         live::put(row, "trimStart", start);
         live::put(row, "trimEnd", end);
     });
+    syncLivePlayback();
+}
+std::size_t Desktop::livePlaybackIndex() const {
+    if (!liveDocument || livePlaybackStem.isEmpty())
+        return 0;
+    const auto rows =
+        live::playbackRows(liveDocument->interfaceState, liveDocument->interfaceState["currentItem"].toString());
+    for (std::size_t i = 1; i < rows.size(); ++i)
+        if (rows[i]["id"].toString() == livePlaybackStem)
+            return i;
+    return 0;
+}
+void Desktop::setLivePlaybackOutputs(const std::vector<int> &outputs) {
+    if (!liveDocument || app.recording() || app.engine()->state().playback == mrs::PlaybackState::playing)
+        throw std::runtime_error("Pause or stop Playback before routing audio");
+    const auto active = app.active_outputs();
+    for (const auto output : outputs)
+        if (std::find(active.begin(), active.end(), output) == active.end())
+            throw std::runtime_error("Enable the physical output in Audio settings first");
+    const auto id = liveDocument->interfaceState["currentItem"].toString();
+    if (!live::playbackStem(liveDocument->interfaceState, id, livePlaybackStem).isObject())
+        throw std::runtime_error("Choose a Playback stem first");
+    editLiveInterface("Playback output", [&](auto &state) {
+        auto row = live::playbackStem(state, id, livePlaybackStem);
+        juce::Array<juce::var> channels;
+        for (int output : outputs)
+            channels.add(output);
+        live::put(row, "outputs", channels);
+    });
+    if (!project()->clips.empty())
+        livePlaybackError.clear();
+    syncLivePlayback();
+}
+void Desktop::removeLivePlaybackStem() {
+    if (!liveDocument || livePlaybackStem.isEmpty())
+        throw std::runtime_error("The primary Playback cannot be removed here");
+    const auto id = liveDocument->interfaceState["currentItem"].toString(), stem = livePlaybackStem;
+    editLiveInterface("Remove Playback stem", [&](auto &state) {
+        auto stems = live::playback(state, id)["stems"];
+        for (int i = stems.size(); --i >= 0;)
+            if (stems[i]["id"].toString() == stem)
+                stems.getArray()->remove(i);
+    });
+    livePlaybackStem.clear();
     syncLivePlayback();
 }
 bool Desktop::livePlaybackReady() const {
     if (!liveDocument || livePlaybackLoading || livePlaybackError.isNotEmpty() || app.wav_import_status().busy)
         return false;
     const auto id = liveDocument->interfaceState["currentItem"].toString();
-    return id == livePlaybackItem && livePlaybackFile.isNotEmpty() &&
-           live::playback(liveDocument->interfaceState, id)["file"].toString() == livePlaybackFile &&
-           project()->tracks.size() == 1 && !project()->clips.empty();
+    const auto rows = live::playbackRows(liveDocument->interfaceState, id);
+    return id == livePlaybackItem && !rows.empty() &&
+           livePlaybackMediaKey == live::playbackMediaKey(liveDocument->interfaceState, id) &&
+           project()->tracks.size() == rows.size() && project()->clips.size() == rows.size();
 }
 void Desktop::syncLivePlayback() {
     if (!liveDocument || !liveDocument->projects.empty())
@@ -354,10 +512,16 @@ void Desktop::syncLivePlayback() {
     bool changed = false;
     const auto id = liveDocument->interfaceState["currentItem"].toString();
     const auto row = live::playback(liveDocument->interfaceState, id);
+    const auto rows = live::playbackRows(liveDocument->interfaceState, id);
     const auto file = row["file"].toString();
+    const auto mediaKey = live::playbackMediaKey(liveDocument->interfaceState, id);
+    juce::String deviceKey;
+    for (int output : app.active_outputs())
+        deviceKey += juce::String(output) + ":";
     const auto music = live::musicalVersion(liveDocument->interfaceState, id);
     const auto musicKey = live::canonical(music);
-    const bool mediaChanged = livePlaybackItem != id || livePlaybackFile != file;
+    const bool mediaChanged = livePlaybackItem != id || livePlaybackMediaKey != mediaKey ||
+                              (livePlaybackError.isNotEmpty() && livePlaybackDeviceKey != deviceKey);
     const bool musicChanged = musicKey != liveMusicalKey;
     if (mediaChanged || musicChanged) {
         if (app.recording())
@@ -370,6 +534,10 @@ void Desktop::syncLivePlayback() {
         livePlaybackError.clear();
         livePlaybackItem = id;
         livePlaybackFile = file;
+        livePlaybackMediaKey = mediaKey;
+        livePlaybackDeviceKey = deviceKey;
+        if (livePlaybackIndex() == 0)
+            livePlaybackStem.clear();
         livePlaybackMixKey.clear();
         changed = true;
         try {
@@ -390,12 +558,16 @@ void Desktop::syncLivePlayback() {
                 app.set_musical_data(projection.time, projection.chords, projection.sections);
             }
             if (file.isNotEmpty() && (mediaChanged || restartImport || project()->clips.empty())) {
-                if (!juce::File(file).existsAsFile())
-                    livePlaybackError = "Playback file is missing: " + file;
-                else {
-                    app.queue_wav_import({std::filesystem::path(file.toWideCharPointer())});
-                    livePlaybackLoading = true;
+                std::vector<std::filesystem::path> paths;
+                for (const auto &stem : rows) {
+                    const juce::File source(stem["file"].toString());
+                    if (!source.existsAsFile())
+                        throw std::runtime_error("Playback file is missing: " + source.getFullPathName().toStdString());
+                    paths.emplace_back(source.getFullPathName().toWideCharPointer());
                 }
+                app.queue_wav_import(
+                    paths); // No target: all clips start at the same sample, in one shared Core import.
+                livePlaybackLoading = true;
             }
         } catch (const std::exception &error) {
             livePlaybackError = juce::String::fromUTF8(error.what());
@@ -405,36 +577,54 @@ void Desktop::syncLivePlayback() {
     if (livePlaybackLoading && !app.wav_import_status().busy) {
         changed = true;
         livePlaybackLoading = false;
-        if (project()->tracks.size() != 1 || project()->clips.empty())
+        if (project()->tracks.size() != rows.size() || project()->clips.size() != rows.size())
             livePlaybackError = juce::String::fromUTF8(app.wav_import_status().message.c_str());
     }
     if (livePlaybackReady()) {
         const auto key = live::canonical(row);
         if (key != livePlaybackMixKey) {
             const auto snapshot = project();
-            const auto clip = snapshot->clips.front();
-            const auto frames = app.source_frames(clip.id);
-            const auto start =
-                static_cast<mrs::Sample>(std::llround(static_cast<double>(row["trimStart"]) * snapshot->sample_rate));
-            const auto end = row["trimEnd"].isVoid()
-                                 ? frames
-                                 : static_cast<mrs::Sample>(
-                                       std::llround(static_cast<double>(row["trimEnd"]) * snapshot->sample_rate));
-            if (start < 0 || end <= start || end > frames) {
-                livePlaybackError = "Saved trim exceeds the original WAV source; attach the correct WAV again";
-                app.stop();
-                app.disconnect(); // Never expose an untrimmed replacement as ready audio.
-                liveEmptyRevision =
-                    std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
-                return;
+            const auto active = app.active_outputs();
+            // Validate the complete batch before any Core trim/route is published.
+            for (std::size_t i = 0; i < rows.size(); ++i) {
+                const auto frames = app.source_frames(snapshot->clips[i].id);
+                const auto start = static_cast<mrs::Sample>(
+                    std::llround(static_cast<double>(rows[i]["trimStart"]) * snapshot->sample_rate));
+                const auto end = rows[i]["trimEnd"].isVoid()
+                                     ? frames
+                                     : static_cast<mrs::Sample>(std::llround(static_cast<double>(rows[i]["trimEnd"]) *
+                                                                             snapshot->sample_rate));
+                bool valid = start >= 0 && end > start && end <= frames;
+                for (const auto output : live::playbackOutputs(rows[i]))
+                    valid = valid && std::find(active.begin(), active.end(), output) != active.end();
+                if (!valid) {
+                    livePlaybackError =
+                        "Playback trim or output is unavailable. Check WAV sources and active Audio outputs.";
+                    app.stop();
+                    liveEmptyRevision =
+                        std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
+                    return;
+                }
             }
-            if (clip.start != start || clip.length != end - start)
-                app.trim_clip(clip.id, start, end);
-            auto mix = project()->tracks.front().mix;
-            mix.gain = static_cast<float>(std::pow(10., static_cast<double>(row["gain"]) / 20.));
-            mix.mute = static_cast<bool>(row["mute"]);
-            mix.solo = static_cast<bool>(row["solo"]);
-            app.set_track_mix(project()->tracks.front().id, mix);
+            for (std::size_t i = 0; i < rows.size(); ++i) {
+                const auto clip = project()->clips[i];
+                const auto start = static_cast<mrs::Sample>(
+                    std::llround(static_cast<double>(rows[i]["trimStart"]) * snapshot->sample_rate));
+                const auto end = rows[i]["trimEnd"].isVoid()
+                                     ? app.source_frames(clip.id)
+                                     : static_cast<mrs::Sample>(std::llround(static_cast<double>(rows[i]["trimEnd"]) *
+                                                                             snapshot->sample_rate));
+                if (clip.start != start || clip.length != end - start)
+                    app.trim_clip(clip.id, start, end);
+                const auto outputs = live::playbackOutputs(rows[i]);
+                if (project()->tracks[i].hardware_outputs != outputs)
+                    app.set_hardware_output(project()->tracks[i].id, outputs);
+                auto mix = project()->tracks[i].mix;
+                mix.gain = static_cast<float>(std::pow(10., static_cast<double>(rows[i]["gain"]) / 20.));
+                mix.mute = static_cast<bool>(rows[i]["mute"]);
+                mix.solo = static_cast<bool>(rows[i]["solo"]);
+                app.set_track_mix(project()->tracks[i].id, mix);
+            }
             livePlaybackMixKey = key;
             changed = true;
         }

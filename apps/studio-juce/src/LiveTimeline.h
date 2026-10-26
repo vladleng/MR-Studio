@@ -48,7 +48,10 @@ class LiveTimeline final : public juce::Component {
     }
     void refresh() {
         syncChannel();
-        const bool waveReady = owner.livePlaybackReady() && owner.app.clip_waveform(owner.project()->clips.front());
+        int waveReady = 0;
+        if (owner.livePlaybackReady())
+            for (const auto &clip : owner.project()->clips)
+                waveReady += owner.app.clip_waveform(clip) ? 1 : 0;
         if (waveReady != observedWaveform) {
             observedWaveform = waveReady;
             body.repaint(); // Worker completion does not edit the show.
@@ -137,7 +140,7 @@ class LiveTimeline final : public juce::Component {
                 text(g, channel["name"].toString(), {8, y + 8, channelWidth - 16, 24});
                 text(g, channel["type"].toString(), {8, y + 34, channelWidth - 16, 20}, true);
                 // Host bindings arrive separately; these controls must not simulate mute/record.
-                if (y != playbackLaneY())
+                if (playbackIndexForChannel(state["currentItem"].toString(), channel["id"].toString()) < 0)
                     text(g, channel["type"].toString() == "Playback" ? "M   S" : "M   S   R",
                          {8, y + 58, channelWidth - 16, 22}, true);
                 line(g, {0, y, channelWidth, rowHeight});
@@ -152,6 +155,48 @@ class LiveTimeline final : public juce::Component {
         juce::Rectangle<int> bounds;
         double scale{}, lead{}, bars{};
         bool preview{};
+    };
+    class StemMix final : public juce::Component {
+      public:
+        StemMix(LiveTimeline &timeline, juce::String stem) : key(std::move(stem)), parent(timeline) {
+            for (auto *control : std::array<juce::Component *, 3>{&mute, &solo, &gain})
+                addAndMakeVisible(control);
+            mute.setClickingTogglesState(true);
+            solo.setClickingTogglesState(true);
+            gain.setRange(-60., 12., .1);
+            gain.setSliderStyle(juce::Slider::LinearHorizontal);
+            gain.setTextBoxStyle(juce::Slider::TextBoxRight, false, 54, 18);
+            gain.setTextValueSuffix(" dB");
+            mute.onClick = solo.onClick = gain.onDragEnd = [this] { commit(); };
+            gain.onValueChange = [this] {
+                if (!gain.isMouseButtonDown())
+                    commit();
+            };
+        }
+        void resized() override {
+            mute.setBounds(8, 0, 26, 22);
+            solo.setBounds(36, 0, 26, 22);
+            gain.setBounds(6, 26, juce::jmax(0, getWidth() - 12), 24);
+        }
+        void sync(const juce::var &row) {
+            mute.setToggleState(static_cast<bool>(row["mute"]), juce::dontSendNotification);
+            solo.setToggleState(static_cast<bool>(row["solo"]), juce::dontSendNotification);
+            if (!gain.isMouseButtonDown())
+                gain.setValue(static_cast<double>(row["gain"]), juce::dontSendNotification);
+            setEnabled(parent.owner.livePlaybackReady());
+        }
+        juce::String key;
+
+      private:
+        void commit() {
+            parent.owner.run([&] {
+                parent.owner.livePlaybackStem = key;
+                parent.owner.setLivePlaybackMix(gain.getValue(), mute.getToggleState(), solo.getToggleState());
+            });
+        }
+        LiveTimeline &parent;
+        juce::TextButton mute{"M"}, solo{"S"};
+        juce::Slider gain;
     };
     class Viewport final : public juce::Viewport {
       public:
@@ -171,13 +216,22 @@ class LiveTimeline final : public juce::Component {
         void mouseDown(const juce::MouseEvent &event) override {
             if (!event.mods.isLeftButtonDown())
                 return;
-            if (parent.owner.livePlaybackReady() && event.y >= parent.playbackLaneY() + 10 &&
-                event.y < parent.playbackLaneY() + rowHeight - 10) {
+            if (parent.owner.livePlaybackReady() && event.y >= lanesTop + 10) {
                 for (const auto &item : parent.items) {
                     if (item.value["id"] != parent.state["currentItem"] || !item.bounds.contains(event.getPosition()))
                         continue;
-                    const auto clip = parent.owner.project()->clips.front();
-                    const auto bounds = parent.audioBounds(item, clip, parent.playbackLaneY());
+                    const int lane = (event.y - lanesTop) / rowHeight;
+                    if (lane < 0 || lane >= parent.state["channels"].size())
+                        continue;
+                    const auto channelId = parent.state["channels"][lane]["id"].toString();
+                    const int index = parent.playbackIndexForChannel(item.value["id"].toString(), channelId);
+                    if (index < 0)
+                        continue;
+                    const auto rows = live::playbackRows(parent.state, item.value["id"].toString());
+                    parent.owner.livePlaybackStem =
+                        index == 0 ? juce::String() : rows[static_cast<std::size_t>(index)]["id"].toString();
+                    const auto clip = parent.owner.project()->clips[static_cast<std::size_t>(index)];
+                    const auto bounds = parent.audioBounds(item, clip, lanesTop + lane * rowHeight);
                     const bool canTrim = parent.owner.app.engine()->state().playback != mrs::PlaybackState::playing &&
                                          !parent.owner.app.recording();
                     if (canTrim && bounds.getWidth() >= 12 &&
@@ -188,6 +242,7 @@ class LiveTimeline final : public juce::Component {
                         dragLeft = std::abs(event.position.x - bounds.getX()) <= 5;
                         dragPosition = event.position.x;
                         dragStart = event.position.x;
+                        parent.owner.refresh();
                         return;
                     }
                     parent.owner.run([&] { parent.owner.app.seek(parent.sampleAt(item, event.position.x)); });
@@ -247,7 +302,8 @@ class LiveTimeline final : public juce::Component {
             dragItem.clear();
             repaint();
             if (id.isEmpty() || std::abs(dragPosition - dragStart) < 1.f || !parent.owner.livePlaybackReady() ||
-                parent.state["currentItem"].toString() != id || parent.owner.project()->clips.front() != dragClip)
+                parent.state["currentItem"].toString() != id ||
+                parent.owner.project()->clips[parent.owner.livePlaybackIndex()] != dragClip)
                 return;
             for (const auto &item : parent.items)
                 if (item.value["id"].toString() == id) {
@@ -337,10 +393,12 @@ class LiveTimeline final : public juce::Component {
                 double bars = numeric(view["length"], numeric(item["bars"], 1, 1, 4096), 1, 4096);
                 if (item["id"] == state["currentItem"] && owner.livePlaybackReady()) {
                     const auto project = owner.project();
-                    const auto clip = project->clips.front();
+                    mrs::Sample end = 0;
+                    for (const auto &clip : project->clips)
+                        end = juce::jmax(end, clip.start + clip.length);
                     const auto &meter = project->time.meters.front();
                     const mrs::Timeline clock(project->time, project->sample_rate);
-                    bars = juce::jmax(bars, std::ceil(static_cast<double>(clock.to_ticks(clip.start + clip.length)) /
+                    bars = juce::jmax(bars, std::ceil(static_cast<double>(clock.to_ticks(end)) /
                                                       (4. * mrs::ppq * meter.numerator / meter.denominator)));
                     bars = juce::jmin(bars, 4096.); // Keep the existing bounded scroll-surface contract.
                 }
@@ -419,8 +477,9 @@ class LiveTimeline final : public juce::Component {
             int y = lanesTop;
             if (const auto *channels = state["channels"].getArray())
                 for (const auto &channel : *channels) {
-                    if (y == playbackLaneY() && live::playback(state, id).isObject()) {
-                        paintAudio(g, item, y);
+                    const int playbackIndex = playbackIndexForChannel(id, channel["id"].toString());
+                    if (playbackIndex >= 0) {
+                        paintAudio(g, item, y, static_cast<std::size_t>(playbackIndex));
                     } else if (const auto *tracks = item.value["tracks"].getArray())
                         for (const auto &track : *tracks)
                             if (track["channelId"] == channel["id"])
@@ -431,6 +490,18 @@ class LiveTimeline final : public juce::Component {
             g.setColour(selected ? tokens.colour(ColourRole::focus) : itemColour);
             g.drawRect(item.bounds);
         }
+    }
+    int playbackIndexForChannel(const juce::String &item, const juce::String &channelId) const {
+        const auto rows = live::playbackRows(state, item);
+        if (rows.empty())
+            return -1;
+        for (std::size_t i = 1; i < rows.size(); ++i)
+            if (rows[i]["id"].toString() == channelId)
+                return static_cast<int>(i);
+        for (const auto &channel : *state["channels"].getArray())
+            if (channel["type"].toString() == "Playback")
+                return channel["id"].toString() == channelId ? 0 : -1;
+        return -1;
     }
     int playbackLaneY() const {
         if (const auto *channels = state["channels"].getArray())
@@ -460,8 +531,8 @@ class LiveTimeline final : public juce::Component {
         const float start = x(clip.start), end = x(clip.start + clip.length);
         return {start, static_cast<float>(y + 10), juce::jmax(1.f, end - start), static_cast<float>(rowHeight - 20)};
     }
-    void paintAudio(juce::Graphics &g, const Item &item, int y) const {
-        const auto row = live::playback(state, item.value["id"].toString());
+    void paintAudio(juce::Graphics &g, const Item &item, int y, std::size_t index) const {
+        const auto row = live::playbackRows(state, item.value["id"].toString())[index];
         if (item.value["id"] != state["currentItem"] || !owner.livePlaybackReady()) {
             text(g, juce::File(row["file"].toString()).getFileName(),
                  {item.bounds.getX() + 8, y + 10, item.bounds.getWidth() - 16, 28});
@@ -473,7 +544,7 @@ class LiveTimeline final : public juce::Component {
             return;
         }
         const auto project = owner.project();
-        const auto clip = project->clips.front();
+        const auto clip = project->clips[index];
         const auto area = audioBounds(item, clip, y);
         block(g, area.getSmallestIntegerContainer(), {}, "blue");
         text(g,
@@ -494,15 +565,39 @@ class LiveTimeline final : public juce::Component {
     void commitMix() {
         if (owner.livePlaybackReady())
             owner.run([&] {
+                owner.livePlaybackStem.clear();
                 owner.setLivePlaybackMix(playbackGain.getValue(), playbackMute.getToggleState(),
                                          playbackSolo.getToggleState());
             });
     }
     void syncChannel() {
-        const auto row = owner.liveDocument
-                             ? live::playback(owner.liveDocument->interfaceState,
-                                              owner.liveDocument->interfaceState["currentItem"].toString())
-                             : juce::var();
+        const auto current =
+            owner.liveDocument ? owner.liveDocument->interfaceState["currentItem"].toString() : juce::String();
+        const auto bindings = owner.liveDocument ? live::playbackRows(owner.liveDocument->interfaceState, current)
+                                                 : std::vector<juce::var>();
+        juce::String channelsKey = current;
+        for (std::size_t i = 1; i < bindings.size(); ++i)
+            channelsKey += bindings[i]["id"].toString();
+        if (channelsKey != stemControlsKey) {
+            stemControlsKey = channelsKey;
+            stemControls.clear();
+            for (std::size_t i = 1; i < bindings.size(); ++i) {
+                auto control = std::make_unique<StemMix>(*this, bindings[i]["id"].toString());
+                addAndMakeVisible(*control);
+                stemControls.push_back(std::move(control));
+            }
+        }
+        for (auto &control : stemControls) {
+            int lane = -1;
+            for (int i = 0; i < state["channels"].size(); ++i)
+                if (state["channels"][i]["id"].toString() == control->key)
+                    lane = i;
+            const int top = lanesTop + lane * rowHeight + 58 - viewport.getViewPositionY();
+            control->setBounds(0, top, channelWidth, 50);
+            control->setVisible(lane >= 0 && top + 50 > 0 && top < getHeight());
+            control->sync(live::playbackStem(owner.liveDocument->interfaceState, current, control->key));
+        }
+        const auto row = owner.liveDocument ? live::playback(owner.liveDocument->interfaceState, current) : juce::var();
         const auto y = playbackLaneY() - viewport.getViewPositionY();
         const bool visible = y >= lanesTop - viewport.getViewPositionY() && y + rowHeight > 0 && y < getHeight();
         for (auto *control : std::array<juce::Component *, 3>{&playbackMute, &playbackSolo, &playbackGain}) {
@@ -555,13 +650,15 @@ class LiveTimeline final : public juce::Component {
     PlayheadLine playhead;
     juce::TextButton playbackMute{"M"}, playbackSolo{"S"};
     juce::Slider playbackGain;
+    std::vector<std::unique_ptr<StemMix>> stemControls;
+    juce::String stemControlsKey;
     juce::var state;
     juce::String signature, revealedItem;
     std::vector<Item> items;
     std::string activeSection;
     std::uint64_t focusRevision{};
     int channelWidth{150};
-    bool observedWaveform{};
+    int observedWaveform{};
     mrs::PlaybackState observedPlayback{mrs::PlaybackState::stopped};
 };
 } // namespace ui

@@ -83,7 +83,7 @@ jobs:
         shell: pwsh
         run: |
           $args=@('--build','build/windows','--config','Release','--parallel','2')
-          if($env:CHECK_SCOPE -eq 'live'){$args+=@('--target','MoonRiverStudioJuce')}
+          if($env:CHECK_SCOPE -eq 'live'){$args+=@('--target','MRLiveJuce')}
           elseif($env:INTEGRATION -ne 'true'){
             $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
             if($env:ARA -eq 'true'){$args+=@('mrs_ara_tests','mrs_ara_clip_tests','mrs_ai_ara_tests')}
@@ -120,13 +120,13 @@ jobs:
           if($LASTEXITCODE){throw 'Stretch ratio fixture failed'}
           & build/windows/Release/mrs_stretch_bench.exe --seconds 10 --warmup 1 --ratio 1 --pitch 7 --output build/stretch-evidence/pitch-7.wav | Set-Content build/stretch-evidence/pitch.csv
           if($LASTEXITCODE){throw 'Stretch pitch fixture failed'}
-          @('MR Studio 0.8.4 stretch foundation. Synthetic evidence, not ASIO or user listening acceptance.', 'mrs_stretch_bench.exe --seconds 300 --warmup 30 --repeats 3 --voices 8 --ratio 1.25', 'Experimental manual clip controls/cache playback are integrated; final realtime/quality acceptance remains in #59/#62.') | Set-Content build/stretch-evidence/README.txt
+          @('MR Studio 0.8.5 stretch foundation. Synthetic evidence, not ASIO or user listening acceptance.', 'mrs_stretch_bench.exe --seconds 300 --warmup 30 --repeats 3 --voices 8 --ratio 1.25', 'Experimental manual clip controls/cache playback are integrated; final realtime/quality acceptance remains in #59/#62.') | Set-Content build/stretch-evidence/README.txt
           Get-ChildItem build/stretch-evidence -File | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String -Width 240 | Set-Content build/stretch-evidence/SHA256.txt
       - name: Upload stretch evidence
         if: success() && env.CHECK_SCOPE != 'live'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-0.8.4-Stretch-Evidence-${{ github.sha }}
+          name: MR-Studio-0.8.5-Stretch-Evidence-${{ github.sha }}
           path: build/stretch-evidence/
           if-no-files-found: error
           retention-days: 14
@@ -137,12 +137,12 @@ jobs:
         env:
           CI_TEST_RESULT: ${{ steps.test.outcome }}
           CI_CHECK_SCOPE: ${{ env.CHECK_SCOPE }}
-        run: ./tools/ci/Package-Windows.ps1 -Ara:($env:ARA -eq 'true')
+        run: ./tools/ci/Package-Windows.ps1 -Ara:($env:ARA -eq 'true') -LiveOnly:($env:CHECK_SCOPE -eq 'live')
       - name: Upload Windows runtime
         if: always() && steps.package.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-0.8.4-Windows-${{ github.sha }}-ara-${{ env.ARA }}
+          name: ${{ env.CHECK_SCOPE == 'live' && 'MR-Live' || 'MR-Studio' }}-0.8.5-Windows-${{ github.sha }}-ara-${{ env.ARA }}
           path: build/package/
           if-no-files-found: error
           retention-days: 14
