@@ -134,11 +134,11 @@ class LivePlaybackPanel final : public juce::Component {
   private:
     void commitTrim() {
         owner.run([&] {
-            const auto start = juce::JSON::parse(trimStart.getText());
-            const auto end = juce::JSON::parse(trimEnd.getText());
-            if (!live::number(start) || !live::number(end))
+            // JSON::parse accepts objects/arrays, not scalar JSON numbers.
+            const auto values = juce::JSON::parse("[" + trimStart.getText() + "," + trimEnd.getText() + "]");
+            if (!values.isArray() || values.size() != 2 || !live::number(values[0]) || !live::number(values[1]))
                 throw std::runtime_error("Enter Trim Start and End in seconds");
-            owner.setLivePlaybackTrim(static_cast<double>(start), static_cast<double>(end));
+            owner.setLivePlaybackTrim(static_cast<double>(values[0]), static_cast<double>(values[1]));
         });
     }
     void commit() {
