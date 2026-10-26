@@ -65,7 +65,7 @@ class LiveWindow final : public juce::DocumentWindow, private juce::Timer {
         setBounds(0, 0, 1400, 850);
         const bool restored =
             host().view.windowState.isNotEmpty() && restoreWindowStateFromString(host().view.windowState);
-        constrainToDisplay(!restored);
+        constrainToDisplay(!restored, !restored);
         host().liveWorkspace->fitWindowRequested = [this] { constrainToDisplay(true); };
         setVisible(true);
         ui::applyGraphiteWindowCaption(*this);
@@ -101,8 +101,8 @@ class LiveWindow final : public juce::DocumentWindow, private juce::Timer {
             display = displays.getPrimaryDisplay();
         return display ? display->userBounds.toNearestInt() : juce::Rectangle<int>(0, 0, 1280, 720);
     }
-    void constrainToDisplay(bool centre) {
-        const auto work = workArea(centre);
+    void constrainToDisplay(bool centre, bool initial = false) {
+        const auto work = workArea(initial);
         lastWorkArea = work;
         juce::BorderSize<int> frame(32, 8, 8, 8);
         if (auto *peer = getPeer())

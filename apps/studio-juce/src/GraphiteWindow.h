@@ -18,9 +18,9 @@ inline void applyGraphiteWindowCaption(juce::Component &window) {
                 const BOOL dark = TRUE;
                 if (FAILED(set(handle, 20, &dark, sizeof(dark))))
                     set(handle, 19, &dark, sizeof(dark));
-                const COLORREF background = RGB(36, 38, 41), text = RGB(218, 229, 244);
-                set(handle, 35, &background, sizeof(background));
-                set(handle, 36, &text, sizeof(text));
+                const COLORREF captionBackground = RGB(36, 38, 41), captionText = RGB(218, 229, 244);
+                set(handle, 35, &captionBackground, sizeof(captionBackground));
+                set(handle, 36, &captionText, sizeof(captionText));
             }
             FreeLibrary(library);
         }
