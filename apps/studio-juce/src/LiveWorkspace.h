@@ -136,10 +136,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
                                           tunerHeight},
                                          juce::RectanglePlacement::centred, 1.f);
         }
-        const auto stems = reference.bounds("playback.stems", getWidth(), getHeight()).reduced(10);
         g.setColour(tokens.colour(ColourRole::text));
         g.setFont(owner.theme.font(12));
-        g.drawText("Playback / stems", stems.withHeight(24), juce::Justification::left);
         auto statusArea = reference.bounds("system.status", getWidth(), getHeight()).reduced(10);
         g.setColour(owner.message.isEmpty() ? tokens.colour(ColourRole::muted) : tokens.colour(ColourRole::warning));
         g.setFont(owner.theme.font(11));
