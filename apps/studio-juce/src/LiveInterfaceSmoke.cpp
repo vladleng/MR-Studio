@@ -387,6 +387,14 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                       playbackDesktop.liveDocument->projects.empty(),
                   "WAV materializes into shared Core without Studio project references");
         playbackDesktop.app.connect(std::make_unique<LivePlaybackTestDevice>(), {0, 48000, 128, {}, {0, 1}, 1});
+        auto *playbackTimeline = dynamic_cast<LiveTimeline *>(liveComponent(playbackDesktop, "live-show-timeline"));
+        liveCheck(playbackTimeline != nullptr, "Playback has native timeline");
+        playbackTimeline->refresh();
+        auto *transportLine = dynamic_cast<PlayheadLine *>(liveComponent(*playbackTimeline, "live-transport-playhead"));
+        liveCheck(transportLine != nullptr, "Timeline owns a real transport playhead");
+        transportLine->update();
+        const int startX = transportLine->getX();
+        const float startPosition = playbackTimeline->playheadBounds().getX();
         std::array<float, 256> audio{};
         const auto render = [&] {
             for (int n = 0; n < 4; ++n)
@@ -395,6 +403,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         playbackDesktop.action(30);
         render();
         const float fullLevel = std::abs(audio[200]);
+        transportLine->update();
+        liveCheck(transportLine->getHeight() > 0 && playbackTimeline->playheadBounds().getX() > startPosition,
+                  "Timeline playhead advances with rendered Core audio");
         liveCheck(fullLevel > .01f && playbackDesktop.app.engine()->state().sample > 0,
                   "Live transport produces actual PCM through shared AudioEngine");
         playbackDesktop.setLivePlaybackMix(-6., false, true);
@@ -412,9 +423,18 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         render();
         liveCheck(playbackDesktop.app.engine()->state().playback == mrs::PlaybackState::paused,
                   "Live Pause reaches shared Transport");
+        transportLine->update();
+        const int pausedX = transportLine->getX();
+        render();
+        transportLine->update();
+        liveCheck(transportLine->getX() == pausedX, "Paused playhead stays at actual transport position");
         playbackDesktop.action(32);
         render();
         liveCheck(playbackDesktop.app.engine()->state().sample == 0, "Live Stop resets actual transport position");
+        transportLine->update();
+        liveCheck(transportLine->getX() == startX &&
+                      std::abs(playbackTimeline->playheadBounds().getX() - startPosition) < .001f,
+                  "Stop returns timeline playhead to item start");
         const auto playbackShow = folder.getChildFile("playback.mrlive");
         playbackDesktop.saveFile(playbackShow);
         const auto playbackSaved = LiveDocument::read(playbackShow);
@@ -434,6 +454,12 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         playbackDesktop.selectLiveItem(second);
         liveCheck(!playbackDesktop.livePlaybackReady() && playbackDesktop.project()->clips.empty(),
                   "Changing to an empty item clears previous audio");
+        playbackTimeline->refresh();
+        liveCheck(playbackTimeline->playheadBounds().isEmpty(), "Unbound item does not show a fake transport playhead");
+        for (auto *child : playbackTimeline->getChildren())
+            if (auto *scroll = dynamic_cast<juce::Viewport *>(child))
+                liveCheck(scroll->getViewPositionX() > 0,
+                          "Selecting next item reveals its start instead of retaining previous scroll");
         const auto badWave = folder.getChildFile("invalid.wav");
         badWave.replaceWithText("not a WAV");
         playbackDesktop.attachLivePlayback(second, badWave);

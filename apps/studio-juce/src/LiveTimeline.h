@@ -7,13 +7,16 @@ namespace ui {
 // Native projection of the editor show. Geometry is metadata, never an audio clock.
 class LiveTimeline final : public juce::Component {
   public:
-    explicit LiveTimeline(Desktop &desktop) : owner(desktop), body(*this), viewport(*this) {
+    explicit LiveTimeline(Desktop &desktop)
+        : owner(desktop), body(*this), viewport(*this), playhead([this] { return playheadBounds(); }) {
         setComponentID("live-show-timeline");
         setName("MR Live item timeline");
         addAndMakeVisible(viewport);
+        body.addAndMakeVisible(playhead);
+        playhead.setComponentID("live-transport-playhead");
         viewport.setViewedComponent(&body, false);
         viewport.setScrollBarsShown(true, true);
-        setTitle("Show layout; audio and patch bindings are not yet connected");
+        setTitle("Show timeline; playhead follows Core Transport, track/patch bindings are still in progress");
     }
     ~LiveTimeline() override { viewport.setViewedComponent(nullptr, false); }
     void setChannelWidth(int width) {
@@ -29,9 +32,19 @@ class LiveTimeline final : public juce::Component {
         const auto key = juce::JSON::toString(next, true);
         if (key == signature)
             return;
+        const auto selectedItem = next["currentItem"].toString();
+        const bool selectionChanged = selectedItem != revealedItem;
+        revealedItem = selectedItem;
         signature = key;
         state = next;
         layout();
+        if (selectionChanged)
+            for (const auto &item : items)
+                if (item.value["id"] == state["currentItem"]) {
+                    viewport.setViewPosition(juce::jmax(0, item.bounds.getX() - 12), viewport.getViewPositionY());
+                    break;
+                }
+        playhead.update();
         body.repaint();
         repaint();
     }
@@ -40,6 +53,29 @@ class LiveTimeline final : public juce::Component {
     juce::Rectangle<int> itemBounds(int index) const {
         return index >= 0 && index < itemCount() ? items[static_cast<std::size_t>(index)].bounds
                                                  : juce::Rectangle<int>();
+    }
+    // Body coordinates. Position is observed from Core; no independent UI clock.
+    juce::Rectangle<float> playheadBounds() {
+        if (!owner.livePlaybackReady())
+            return {};
+        for (const auto &item : items) {
+            if (item.value["id"] != state["currentItem"])
+                continue;
+            const auto meter = item.value["meter"].toString();
+            const double numerator = meter.upToFirstOccurrenceOf("/", false, false).getDoubleValue();
+            const double denominator = meter.fromFirstOccurrenceOf("/", false, false).getDoubleValue();
+            const double bpm = static_cast<double>(item.value["tempo"]);
+            if (numerator <= 0 || denominator <= 0 || bpm <= 0)
+                return {};
+            const double samplesPerBar = owner.project()->sample_rate * 60. / bpm * numerator * 4. / denominator;
+            const double bar = owner.visualSample() / samplesPerBar;
+            const double x = static_cast<double>(item.bounds.getX()) + 1. + (item.lead + bar) * item.scale;
+            if (!std::isfinite(x) || x >= item.bounds.getRight())
+                return {};
+            return {static_cast<float>(x), static_cast<float>(headerHeight), 1.f,
+                    static_cast<float>(item.bounds.getHeight() - headerHeight)};
+        }
+        return {};
     }
     void paint(juce::Graphics &g) override {
         const auto tokens = liveReferenceTokens();
@@ -243,8 +279,9 @@ class LiveTimeline final : public juce::Component {
     Desktop &owner;
     Body body;
     Viewport viewport;
+    PlayheadLine playhead;
     juce::var state;
-    juce::String signature;
+    juce::String signature, revealedItem;
     std::vector<Item> items;
     int channelWidth{150};
 };
