@@ -109,7 +109,7 @@ class LiveTimeline final : public juce::Component {
     }
     void text(juce::Graphics &g, const juce::String &value, juce::Rectangle<int> area, bool muted = false) const {
         g.setColour(liveReferenceTokens().colour(muted ? ColourRole::muted : ColourRole::text));
-        g.setFont(owner.theme.font(muted ? 10 : 12));
+        g.setFont(owner.theme.font(muted ? 10.f : 12.f));
         g.drawText(value, area, juce::Justification::centredLeft, true);
     }
     static void line(juce::Graphics &g, juce::Rectangle<int> area) {
