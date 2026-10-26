@@ -66,7 +66,7 @@ class LivePlaybackPanel final : public juce::Component {
                 drawWaveform(g, *wave, area, 0., static_cast<double>(clip.length) / juce::jmax(1.f, area.getWidth()));
             }
             const auto fraction = juce::jlimit(
-                0., 1., static_cast<double>(owner.displayState().sample) / juce::jmax<mrs::Sample>(1, clip.length));
+                0., 1., static_cast<double>(owner.displayState().sample) / static_cast<double>(juce::jmax<mrs::Sample>(1, clip.length)));
             g.setColour(juce::Colours::white);
             g.drawVerticalLine(juce::roundToInt(area.getX() + area.getWidth() * fraction), area.getY(),
                                area.getBottom());
