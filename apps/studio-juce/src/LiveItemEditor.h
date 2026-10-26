@@ -235,13 +235,13 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         }
         for (auto *button : {static_cast<juce::TextButton *>(&apply), &saveAll, &addToSetlist})
             addAndMakeVisible(button);
-        const juce::StringArray actionNames{"Расположение элементов...",
+        const juce::StringArray actionNames{juce::String::fromUTF8("Расположение элементов..."),
                                             "Priority / Progress...",
-                                            "Свойства",
-                                            "Убрать из setlist",
-                                            "↑",
-                                            "↓",
-                                            "Создать разделитель",
+                                            juce::String::fromUTF8("Свойства"),
+                                            juce::String::fromUTF8("Убрать из setlist"),
+                                            juce::String::fromUTF8("↑"),
+                                            juce::String::fromUTF8("↓"),
+                                            juce::String::fromUTF8("Создать разделитель"),
                                             "Undo show",
                                             "Redo show"};
         for (int i = 0; i < actionNames.size(); ++i) {
