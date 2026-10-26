@@ -159,6 +159,29 @@ void liveInterfaceSmoke(const juce::File &fixture) {
               "Card constructor one-step Undo");
     auto *native = dynamic_cast<LiveWorkspace *>(liveComponent(desktop, "mr-live-workspace"));
     liveCheck(native != nullptr, "Native show workspace exists");
+    auto *timeline = dynamic_cast<LiveTimeline *>(liveComponent(desktop, "live-show-timeline"));
+    liveCheck(timeline != nullptr, "Native show timeline exists");
+    timeline->refresh();
+    const auto beforeTimeline = live::canonical(desktop.liveDocument->interfaceState);
+    liveCheck(timeline->itemCount() == 3 && timeline->channelCount() == 4,
+              "Timeline uses active setlist and shared show channel definitions");
+    const auto originalWidth = timeline->itemBounds(0).getWidth();
+    liveCheck(timeline->itemBounds(1).getX() == timeline->itemBounds(0).getRight(),
+              "Items form one horizontal sequence with aligned lanes");
+    timeline->refresh();
+    liveCheck(live::canonical(desktop.liveDocument->interfaceState) == beforeTimeline,
+              "Native timeline projection does not alter imported show data");
+    desktop.editLiveInterface("Timeline scale", [&](auto &state) {
+        auto view = live::object();
+        live::put(view, "scale", 8);
+        live::put(view, "lead", 2);
+        live::put(live::map(live::performance(state), "arrangement"), id, view);
+    });
+    timeline->refresh();
+    liveCheck(timeline->itemBounds(0).getWidth() == 706, "Native timeline uses saved bar scale and lead-in");
+    desktop.action(10);
+    timeline->refresh();
+    liveCheck(timeline->itemBounds(0).getWidth() == originalWidth, "Timeline follows metadata Undo");
     livePump();
     native->showBrowser(true);
     livePump();
@@ -175,9 +198,20 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     liveCheck(live::activeSetlist(desktop.liveDocument->interfaceState)["entries"].size() == count + 1 &&
                   desktop.liveDocument->interfaceState["items"].size() == 3,
               "Browser drop inserts a reference, not a copied item");
+    timeline->refresh();
+    liveCheck(timeline->itemCount() == 4, "Repeated setlist reference appears as a separate timeline item");
     desktop.action(10);
-    liveCheck(live::activeSetlist(desktop.liveDocument->interfaceState)["entries"].size() == count,
-              "Drop is one Undo transaction");
+    timeline->refresh();
+    liveCheck(timeline->itemCount() == 3 &&
+                  live::activeSetlist(desktop.liveDocument->interfaceState)["entries"].size() == count,
+              "Drop Undo restores both setlist and timeline");
+    desktop.editLiveInterface("Empty setlist",
+                              [](auto &state) { live::activeEntries(state) = juce::Array<juce::var>(); });
+    timeline->refresh();
+    liveCheck(timeline->itemCount() == 0 && timeline->channelCount() == 4,
+              "An empty setlist retains the shared channel column");
+    desktop.action(10);
+    timeline->refresh();
     desktop.app.new_project();
     desktop.app.add_audio_track("Real shared channel");
     const auto song = folder.getChildFile("song.mrsproject");
@@ -206,6 +240,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         livePump();
         livePreview(desktop, "workspace-" + juce::String(size.x));
     }
+    native->showBrowser(false);
+    livePump();
+    livePreview(desktop, "timeline-1920");
     LiveItemEditor card(desktop, id);
     card.setVisible(true);
     livePump();
