@@ -893,6 +893,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         multi.setLivePlaybackOutputs({});
         liveCheck(multi.livePlaybackReady(), "Unavailable route can be repaired to Master without discarding media");
         multi.refresh();
+        livePump(); // Playback selector is synchronized by the workspace UI timer, not Desktop::refresh.
         auto *choice = dynamic_cast<juce::ComboBox *>(liveComponent(multi, "live-stem-choice"));
         liveCheck(choice && choice->getNumItems() == 2, "Native Playback panel lists all real stems");
     }
