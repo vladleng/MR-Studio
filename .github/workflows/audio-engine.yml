@@ -97,13 +97,13 @@ jobs:
           if($LASTEXITCODE){throw 'Stretch ratio fixture failed'}
           & build/windows/Release/mrs_stretch_bench.exe --seconds 10 --warmup 1 --ratio 1 --pitch 7 --output build/stretch-evidence/pitch-7.wav | Set-Content build/stretch-evidence/pitch.csv
           if($LASTEXITCODE){throw 'Stretch pitch fixture failed'}
-          @('MR Studio 8.1.1 stretch foundation. Synthetic evidence, not ASIO or user listening acceptance.', 'mrs_stretch_bench.exe --seconds 300 --warmup 30 --repeats 3 --voices 8 --ratio 1.25', 'Experimental manual clip controls/cache playback are integrated; final realtime/quality acceptance remains in #59/#62.') | Set-Content build/stretch-evidence/README.txt
+          @('MR Studio 0.8.2 stretch foundation. Synthetic evidence, not ASIO or user listening acceptance.', 'mrs_stretch_bench.exe --seconds 300 --warmup 30 --repeats 3 --voices 8 --ratio 1.25', 'Experimental manual clip controls/cache playback are integrated; final realtime/quality acceptance remains in #59/#62.') | Set-Content build/stretch-evidence/README.txt
           Get-ChildItem build/stretch-evidence -File | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String -Width 240 | Set-Content build/stretch-evidence/SHA256.txt
       - name: Upload stretch evidence
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-8.1.1-Stretch-Evidence-${{ github.sha }}
+          name: MR-Studio-0.8.2-Stretch-Evidence-${{ github.sha }}
           path: build/stretch-evidence/
           if-no-files-found: error
           retention-days: 14
@@ -118,7 +118,7 @@ jobs:
         if: always() && steps.package.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-8.1.1-Windows-${{ github.sha }}-ara-${{ env.ARA }}
+          name: MR-Studio-0.8.2-Windows-${{ github.sha }}-ara-${{ env.ARA }}
           path: build/package/
           if-no-files-found: error
           retention-days: 14

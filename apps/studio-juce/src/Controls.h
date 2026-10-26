@@ -95,6 +95,8 @@ public:
         setColour(juce::Slider::trackColourId,c(ColourRole::focus));setColour(juce::Slider::thumbColourId,c(ColourRole::focus));setColour(juce::Slider::backgroundColourId,c(ColourRole::deep));
         setColour(juce::Slider::textBoxTextColourId,c(ColourRole::text));setColour(juce::Slider::textBoxBackgroundColourId,c(ColourRole::deep));setColour(juce::Slider::textBoxOutlineColourId,c(ColourRole::border));
     }
+    void useLiveContextStyle(bool enabled){liveContext_=enabled;}
+    bool liveContextStyle()const noexcept{return liveContext_;}
     void setPopupOpacity(float alpha){popupOpacity_=juce::jlimit(.7f,1.f,alpha);setColour(juce::PopupMenu::backgroundColourId,role(ColourRole::window,surface).withAlpha(popupOpacity_));}
     float popupOpacity()const noexcept{return popupOpacity_;}
     bool isPreview()const noexcept{return preview_.has_value();}
@@ -192,7 +194,24 @@ public:
     juce::Font getPopupMenuFont() override { return preview_?roleFont(3):browserFont(); }
     void getIdealPopupMenuItemSize(const juce::String& text,bool separator,int height,int& width,int& resultHeight) override {
         // V4 reduces the glyph height after removing 2px from its item bounds.
-        juce::LookAndFeel_V4::getIdealPopupMenuItemSize(text,separator,separator?height:juce::jmax(22,height),width,resultHeight);
+        juce::LookAndFeel_V4::getIdealPopupMenuItemSize(text,separator,separator?height:juce::jmax(liveContext_?30:22,height),width,resultHeight);
+    }
+    void drawPopupMenuItem(juce::Graphics& g,const juce::Rectangle<int>& area,bool separator,bool active,
+                           bool highlighted,bool ticked,bool sub,const juce::String& text,
+                           const juce::String& shortcut,const juce::Drawable* icon,const juce::Colour* colour)override{
+        if(!liveContext_){juce::LookAndFeel_V4::drawPopupMenuItem(g,area,separator,active,highlighted,ticked,sub,text,shortcut,icon,colour);return;}
+        if(separator){g.setColour(role(ColourRole::border,outline));g.fillRect(area.reduced(8).withHeight(1));return;}
+        const auto bounds=area.toFloat().reduced(3.f,1.f);
+        if(highlighted&&active){g.setColour(role(ColourRole::raised,raised));g.fillRoundedRectangle(bounds,2.f);g.setColour(role(ColourRole::focus,accent));g.drawRoundedRectangle(bounds.reduced(.5f),2.f,1.f);}
+        g.setColour(role(active?ColourRole::text:ColourRole::muted,primaryText).withAlpha(active?1.f:.5f));
+        g.setFont(getPopupMenuFont().boldened());
+        g.drawText((ticked?juce::String::fromUTF8("✓ "):juce::String())+text,area.reduced(12,0).withTrimmedRight(sub?14:0),juce::Justification::centredLeft,true);
+        if(sub)g.drawText(">",area.withWidth(18).withX(area.getRight()-18),juce::Justification::centred);
+    }
+    int getCallOutBoxBorderSize(const juce::CallOutBox& box)override{return liveContext_?4:juce::LookAndFeel_V4::getCallOutBoxBorderSize(box);}
+    void drawCallOutBoxBackground(juce::CallOutBox& box,juce::Graphics& g,const juce::Path& path,juce::Image& cache)override{
+        if(!liveContext_){juce::LookAndFeel_V4::drawCallOutBoxBackground(box,g,path,cache);return;}
+        drawPopupSurface(g,box.getWidth(),box.getHeight(),popupOpacity_,role(ColourRole::window,surface),role(ColourRole::border,menuBorder));
     }
     void drawPopupMenuBackground(juce::Graphics& g,int width,int height) override {drawPopupSurface(g,width,height,popupOpacity_,role(ColourRole::window,surface),role(ColourRole::border,menuBorder));}
     void drawPopupMenuBackgroundWithOptions(juce::Graphics& g,int width,int height,const juce::PopupMenu::Options& options)override{PopupBackdrop* best{};double distance=1.e20;const auto target=options.getTargetScreenArea().getCentre();for(auto& candidate:popupBackdrops)if(candidate->owner&&candidate->getWidth()==width&&candidate->getHeight()==height){const auto bounds=candidate->owner->getScreenBounds();const auto centre=bounds.getCentre();const auto dx=static_cast<double>(centre.x)-target.x,dy=static_cast<double>(centre.y)-target.y;const auto score=dx*dx+dy*dy+(bounds.contains(target)?1.e12:0.);if(score<=distance){distance=score;best=candidate.get();}}if(best)best->paint(g);else drawPopupMenuBackground(g,width,height);}
@@ -247,6 +266,7 @@ public:
         g.drawRoundedRectangle(b.getLocalBounds().reduced(1).toFloat(),radius(),stroke());
     }
 private:
+    bool liveContext_{};
     float popupOpacity_{popupFillAlpha};
     std::vector<std::unique_ptr<PopupBackdrop>> popupBackdrops;
     std::unique_ptr<ConceptSkin> concept_;

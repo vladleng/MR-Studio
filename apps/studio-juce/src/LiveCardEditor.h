@@ -1,5 +1,6 @@
 #pragma once
 #include "Desktop.h"
+#include "LiveContext.h"
 #include "LiveTheme.h"
 
 namespace ui {
@@ -7,7 +8,7 @@ class LiveCardEditor final : public juce::Component {
   public:
     LiveCardEditor(Desktop &desktop, juce::var fallback)
         : owner(&desktop), defaults(std::move(fallback)), stage(*this) {
-        theme.applyPreview(liveReferenceTokens());
+        configureLiveContext(theme, static_cast<float>(desktop.view.liveMenuOpacity));
         setLookAndFeel(&theme);
         setSize(620, 360);
         setName("Item button layout");
@@ -72,7 +73,7 @@ class LiveCardEditor final : public juce::Component {
     }
     ~LiveCardEditor() override { setLookAndFeel(nullptr); }
     std::function<void()> close;
-    void paint(juce::Graphics &g) override { g.fillAll(theme.role(ColourRole::window, surface)); }
+    void paint(juce::Graphics &) override {}
     void resized() override {
         auto area = getLocalBounds().reduced(12);
         fields.setBounds(area.removeFromTop(28));
@@ -217,14 +218,13 @@ inline void openLiveCardEditor(Desktop &owner, const juce::var &defaults) {
     if (!owner.liveDocument)
         return;
     auto content = std::make_unique<LiveCardEditor>(owner, defaults);
-    auto window = std::make_unique<EditorWindow>("Item button layout", content.release());
-    window->setOwner(owner);
-    auto *editor = dynamic_cast<LiveCardEditor *>(window->getContentComponent());
-    juce::Component::SafePointer<EditorWindow> safe(window.get());
+    auto *editor = content.get();
+    const auto target = juce::Rectangle<int>(juce::Desktop::getMousePosition(), {1, 1});
+    auto &box = showLiveContext(std::move(content), owner, target);
+    juce::Component::SafePointer<juce::CallOutBox> safe(&box);
     editor->close = [safe] {
         if (safe)
-            safe->closeButtonPressed();
+            safe->dismiss();
     };
-    owner.windows.push_back(std::move(window));
 }
 } // namespace ui

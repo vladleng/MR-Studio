@@ -48,7 +48,15 @@ juce_add_binary_data(mrs_live_layout
           "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/components/set_header.svg"
           "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/status/pill_base.svg"
           "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/priority/badge_base.svg"
-          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/progress/track.svg")
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/progress/track.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/actions/organizer.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/actions/add_task.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/actions/checklist.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/actions/expand.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/status/todo_glyph.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/status/wait_glyph.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/status/wip_glyph.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/status/done_glyph.svg")
 target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_live_layout)
 juce_add_binary_data(mrs_reverb_art NAMESPACE MRReverbArt HEADER_NAME MRReverbArt.h SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/reverb/plate_unit.svg")
 target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_reverb_art)

@@ -71,6 +71,12 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                       .addedTo(live::fitWindow({100, -100, 1920, 1080}, secondMonitor, {32, 8, 8, 8}, false))),
               "Negative-coordinate secondary monitor is supported");
     ViewSettings appearance;
+    liveCheck(appearance.liveMenuOpacity == .9, "Live context defaults to ten percent transparency");
+    auto oldAppearance = juce::JSON::parse(appearance.encode());
+    oldAppearance.getDynamicObject()->removeProperty("liveContextStyleVersion");
+    oldAppearance.getDynamicObject()->setProperty("liveMenuOpacity", .85);
+    liveCheck(ViewSettings::decode(juce::JSON::toString(oldAppearance)).liveMenuOpacity == .9,
+              "Previous Live defaults migrate to accepted context opacity");
     appearance.liveUiZoom = 1.25;
     appearance.liveMenuOpacity = .7;
     appearance.liveWindowOpacity = .8;
@@ -283,6 +289,19 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     countTasks(card);
     liveCheck(taskFields == 7, "Native organizer creates all visible task editors");
     livePreview(card, "organizer");
+    const auto beforeContext = juce::JSON::toString(desktop.liveDocument->interfaceState);
+    auto contextContent = std::make_unique<LiveItemEditor>(desktop, id);
+    auto &contextBox = showLiveContext(std::move(contextContent), desktop, desktop.getScreenBounds().withSize(1, 1));
+    livePump();
+    liveCheck(contextBox.getParentComponent() == &desktop &&
+                  dynamic_cast<Theme *>(&contextBox.getLookAndFeel())->liveContextStyle(),
+              "Item editor uses an owned contextual surface");
+    liveCheck(desktop.getLocalBounds().contains(contextBox.getBounds()), "Item contextual panel fits the workspace");
+    livePreview(desktop, "item-context");
+    contextBox.dismiss();
+    livePump();
+    liveCheck(juce::JSON::toString(desktop.liveDocument->interfaceState) == beforeContext,
+              "Opening and dismissing item context preserves show data");
     LiveCardEditor cardLayout(desktop, layout.defaults["itemCardLayout"]);
     livePreview(cardLayout, "card-layout");
     const auto wrongName = folder.getChildFile("chosen-name.json");

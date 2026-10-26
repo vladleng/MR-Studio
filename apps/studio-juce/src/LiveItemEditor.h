@@ -1,5 +1,6 @@
 #pragma once
 #include "Desktop.h"
+#include "LiveContext.h"
 #include "LiveTheme.h"
 
 namespace ui {
@@ -11,6 +12,11 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
         addAndMakeVisible(useTemplate);
         tree.setRootItemVisible(false);
         tree.setDefaultOpenness(true);
+        tree.setIndentSize(12);
+        addRoot.setArt(art->addTask.get());
+        useTemplate.setArt(art->checklist.get());
+        addRoot.setButtonText("   + New sub-item");
+        useTemplate.setButtonText("   Create optional template");
         addRoot.onClick = [this] {
             edit("Add task", [&](auto &state) { live::addTask(state, itemId, {}, "New sub-item"); });
         };
@@ -74,8 +80,11 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
             name.setText(value["title"].toString(), false);
             name.setInputRestrictions(120);
             name.setTitle("Task title");
+            name.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
+            name.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
             percent.setText(juce::String(juce::roundToInt(live::taskProgress(values, taskId))), false);
             percent.setTitle("Task progress percent");
+            configureLiveProgress(percent);
             bool hasChildren = false;
             if (const auto *entries = values.getArray())
                 for (const auto &entry : *entries)
@@ -96,13 +105,16 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
                 host.edit("Remove task", [&](auto &stateData) { live::removeTask(stateData, host.itemId, taskId); });
             };
         }
+        void paint(juce::Graphics &g) override {
+            paintLiveProgress(g, percent.getBounds(), percent.getText().getDoubleValue(), *art);
+        }
         void resized() override {
             auto area = getLocalBounds().reduced(1);
-            state.setBounds(area.removeFromLeft(76));
+            state.setBounds(area.removeFromLeft(108));
             area.removeFromLeft(4);
+            percent.setBounds(area.removeFromRight(80).reduced(2, 0));
             remove.setBounds(area.removeFromRight(24));
             add.setBounds(area.removeFromRight(24));
-            percent.setBounds(area.removeFromRight(46).reduced(2, 0));
             name.setBounds(area.reduced(2, 0));
         }
 
@@ -131,7 +143,8 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
         }
         LiveOrganizer &host;
         juce::String taskId;
-        juce::ComboBox state;
+        juce::SharedResourcePointer<LiveContextArt> art;
+        LiveStatusBox state;
         juce::TextEditor name, percent;
         juce::TextButton add{"+"}, remove{"x"};
     };
@@ -172,21 +185,24 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
     juce::String itemId;
     juce::TreeView tree;
     std::unique_ptr<Node> root;
-    juce::TextButton addRoot{"+ New sub-item"}, useTemplate{"Create optional template"};
+    juce::SharedResourcePointer<LiveContextArt> art;
+    LiveContextAction addRoot, useTemplate;
     std::uint64_t observed{};
 };
-class LiveItemEditor final : public juce::Component {
+class LiveItemEditor final : public juce::Component, private juce::Timer {
   public:
     LiveItemEditor(Desktop &desktop, const juce::String &id) : owner(&desktop), itemId(id), organizer(desktop, id) {
-        setSize(720, 620);
-        setName("Item properties and organizer");
+        setName("Item context panel");
+        setComponentID("live-item-context");
         getProperties().set("mrLiveShowEditor", true);
-        theme.applyPreview(liveReferenceTokens());
+        configureLiveContext(theme, static_cast<float>(desktop.view.liveMenuOpacity));
         setLookAndFeel(&theme);
         const auto state = desktop.liveDocument->interfaceState;
         const auto item = live::find(state, "items", id);
         original = properties(state, id);
         name.setText(item["name"].toString(), false);
+        name.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
+        name.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
         tempo.setText(item["tempo"].toString(), false);
         meter.addItemList({"2/4", "3/4", "4/4", "5/4", "6/8", "7/8", "12/8"}, 1);
         meter.setText(item["meter"].toString(), juce::dontSendNotification);
@@ -204,6 +220,7 @@ class LiveItemEditor final : public juce::Component {
             juce::StringArray{"P1", "P2", "P3", "P4"}.indexOf(workflow["priority"].toString()),
             juce::dontSendNotification);
         progress.setText(juce::String(live::progress(state, id)), false);
+        configureLiveProgress(progress);
         progress.setEnabled(live::tasks(state, id).size() == 0);
         const std::array<juce::Component *, 10> fields{&name,  &status, &priority, &progress, &tempo,
                                                        &meter, &key,    &duration, &notes,    &organizer};
@@ -216,9 +233,48 @@ class LiveItemEditor final : public juce::Component {
             addAndMakeVisible(labels[static_cast<std::size_t>(i)]);
             fields[static_cast<std::size_t>(i)]->setTitle(captions[i]);
         }
-        for (auto *button : {&apply, &cancel, &saveAll, &addToSetlist})
+        for (auto *button : {static_cast<juce::TextButton *>(&apply), &saveAll, &addToSetlist})
             addAndMakeVisible(button);
+        const juce::StringArray actionNames{"Расположение элементов...",
+                                            "Priority / Progress...",
+                                            "Свойства",
+                                            "Убрать из setlist",
+                                            "↑",
+                                            "↓",
+                                            "Создать разделитель",
+                                            "Undo show",
+                                            "Redo show"};
+        for (int i = 0; i < actionNames.size(); ++i) {
+            auto button = std::make_unique<LiveContextAction>();
+            button->setButtonText(actionNames[i]);
+            button->setArt(i == 0 ? art->expand.get() : i == 1 ? art->organizer.get() : nullptr);
+            button->onClick = [this, i] {
+                if (i == 1) {
+                    priority.grabKeyboardFocus();
+                    return;
+                }
+                if (i == 2) {
+                    notesVisible = !notesVisible;
+                    setSize(getWidth(), notesVisible ? 580 : 520);
+                    return;
+                }
+                if (i == 7 || i == 8) {
+                    if (owner)
+                        owner->undoLiveInterface(i == 8);
+                    return;
+                }
+                const std::array<int, 9> commands{13, 0, 0, 6, 30, 31, 12, 20, 21};
+                if (action)
+                    action(commands[static_cast<std::size_t>(i)]);
+            };
+            addAndMakeVisible(*button);
+            actions.push_back(std::move(button));
+        }
+        apply.setArt(art->checklist.get());
+        labels[0].setText("Title", juce::dontSendNotification);
+        labels[3].setText("Progress", juce::dontSendNotification);
         addAndMakeVisible(error);
+        apply.setButtonText(juce::String::fromUTF8("Применить"));
         apply.onClick = [this] { applyChanges(); };
         cancel.onClick = [this] {
             if (close)
@@ -238,35 +294,123 @@ class LiveItemEditor final : public juce::Component {
                                              [&](auto &stateData) { live::insertEntry(stateData, itemId); });
                 });
         };
+        name.onReturnKey = [this] { commitRootName(); };
+        name.onFocusLost = name.onReturnKey;
+        status.onChange = [this] { commitRootWorkflow(); };
+        progress.onReturnKey = [this] { commitRootWorkflow(); };
+        progress.onFocusLost = progress.onReturnKey;
+        startTimerHz(10);
+        setActions({}, false);
+        setSize(660, 520);
     }
-    ~LiveItemEditor() override { setLookAndFeel(nullptr); }
+    ~LiveItemEditor() override {
+        stopTimer();
+        name.onFocusLost = {};
+        progress.onFocusLost = {};
+        setLookAndFeel(nullptr);
+    }
     std::function<void()> close;
-    void paint(juce::Graphics &g) override { g.fillAll(theme.role(ColourRole::window, surface)); }
+    void setActions(std::function<void(int)> handler, bool entryActions) {
+        action = std::move(handler);
+        for (const int i : {0, 3, 4, 5, 6})
+            actions[static_cast<std::size_t>(i)]->setEnabled(static_cast<bool>(action) &&
+                                                             (i == 0 || i == 6 || entryActions));
+    }
+    void paint(juce::Graphics &g) override {
+        g.setColour(theme.role(ColourRole::border, outline));
+        g.drawHorizontalLine(28, 8.f, static_cast<float>(getWidth() - 8));
+        paintLiveProgress(g, progress.getBounds(), progress.getText().getDoubleValue(), *art);
+        art->organizer->drawWithin(g, {8.f, 6.f, 14.f, 14.f}, juce::RectanglePlacement::centred, 1.f);
+    }
     void resized() override {
-        auto area = getLocalBounds().reduced(12);
-        auto first = area.removeFromTop(60);
-        place(labels[0], name, first.removeFromLeft(330));
-        place(labels[1], status, first.removeFromLeft(110));
-        place(labels[2], priority, first.removeFromLeft(100));
-        place(labels[3], progress, first);
-        area.removeFromTop(4);
-        organizer.setBounds(area.removeFromTop(260));
-        area.removeFromTop(8);
-        auto row = area.removeFromTop(58);
-        place(labels[4], tempo, row.removeFromLeft(150));
-        place(labels[5], meter, row.removeFromLeft(150));
-        place(labels[6], key, row.removeFromLeft(150));
-        place(labels[7], duration, row);
-        auto actions = area.removeFromBottom(38);
-        apply.setBounds(actions.removeFromRight(86).reduced(2));
-        cancel.setBounds(actions.removeFromRight(86).reduced(2));
-        saveAll.setBounds(actions.removeFromLeft(120).reduced(2));
-        addToSetlist.setBounds(actions.reduced(2));
-        error.setBounds(area.removeFromBottom(28));
-        place(labels[8], notes, area);
+        auto area = getLocalBounds().reduced(8);
+        auto headings = area.removeFromTop(24);
+        labels[1].setBounds(headings.removeFromLeft(112).withTrimmedLeft(18));
+        labels[3].setBounds(headings.removeFromRight(80));
+        labels[0].setBounds(headings);
+        auto rootRow = area.removeFromTop(32);
+        status.setBounds(rootRow.removeFromLeft(108));
+        rootRow.removeFromLeft(4);
+        progress.setBounds(rootRow.removeFromRight(80).reduced(2, 0));
+        name.setBounds(rootRow.reduced(2, 0));
+        organizer.setBounds(area.removeFromTop(180));
+        const int third = area.getWidth() / 3;
+        auto first = area.removeFromTop(50);
+        place(labels[2], priority, first.removeFromLeft(third));
+        place(labels[4], tempo, first.removeFromLeft(third));
+        place(labels[5], meter, first);
+        auto second = area.removeFromTop(50);
+        place(labels[6], key, second.removeFromLeft(third));
+        place(labels[7], duration, second.removeFromLeft(third));
+        apply.setBounds(second.withTrimmedTop(20).reduced(2, 0));
+        labels[8].setVisible(notesVisible);
+        notes.setVisible(notesVisible);
+        if (notesVisible)
+            place(labels[8], notes, area.removeFromTop(58));
+        error.setBounds(area.removeFromTop(20));
+        auto buttons = area;
+        std::vector<juce::TextButton *> cells{actions[0].get(), actions[1].get(), &saveAll,         actions[2].get(),
+                                              &addToSetlist,    actions[3].get(), actions[4].get(), actions[5].get(),
+                                              actions[6].get(), actions[7].get(), actions[8].get()};
+        for (std::size_t i = 0; i < cells.size(); ++i) {
+            const int col = static_cast<int>(i % 3), row = static_cast<int>(i / 3);
+            cells[i]->setBounds(buttons.getX() + col * third, buttons.getY() + row * 28, third - 3, 25);
+        }
     }
 
   private:
+    void commitRootName() {
+        if (!owner || !owner->liveDocument)
+            return;
+        if (name.getText().trim().isEmpty()) {
+            name.setText(live::find(owner->liveDocument->interfaceState, "items", itemId)["name"].toString(), false);
+            return;
+        }
+        owner->run([&] {
+            owner->editLiveInterface("Item title", [&](auto &state) {
+                live::put(live::require(state, "items", itemId), "name", name.getText().trim());
+            });
+        });
+    }
+    void commitRootWorkflow() {
+        if (!owner || !owner->liveDocument)
+            return;
+        owner->run([&] {
+            owner->editLiveInterface("Item status / progress", [&](auto &state) {
+                const auto flow = live::workflow(state, itemId);
+                const int percent = live::tasks(state, itemId).size() ? static_cast<int>(flow["progress"])
+                                                                      : juce::roundToInt(numeric(progress.getText()));
+                live::setWorkflow(state, itemId, status.getText(), flow["priority"].toString(), percent);
+            });
+        });
+    }
+    void timerCallback() override {
+        if (!owner || !owner->liveDocument)
+            return;
+        const auto state = owner->liveDocument->interfaceState;
+        if (!live::find(state, "items", itemId).isObject()) {
+            if (close)
+                close();
+            return;
+        }
+        if (observedRevision != owner->liveUiRevision) {
+            observedRevision = owner->liveUiRevision;
+            if (!name.hasKeyboardFocus(true))
+                name.setText(live::find(state, "items", itemId)["name"].toString(), false);
+            if (!status.hasKeyboardFocus(true))
+                status.setText(live::workflow(state, itemId)["status"].toString(), juce::dontSendNotification);
+            if (!progress.hasKeyboardFocus(true) && !live::tasks(state, itemId).size())
+                progress.setText(juce::String(live::progress(state, itemId)), false);
+            actions[7]->setEnabled(owner->liveUndo.canUndo());
+            actions[8]->setEnabled(owner->liveUndo.canRedo());
+        }
+        if (live::tasks(state, itemId).size()) {
+            progress.setText(juce::String(live::progress(state, itemId)), false);
+            progress.setEnabled(false);
+        } else
+            progress.setEnabled(true);
+        repaint();
+    }
     static void place(juce::Label &label, juce::Component &field, juce::Rectangle<int> bounds) {
         label.setBounds(bounds.removeFromTop(20));
         field.setBounds(bounds.reduced(3, 0));
@@ -274,9 +418,9 @@ class LiveItemEditor final : public juce::Component {
     static juce::String properties(const juce::var &state, const juce::String &id) {
         auto result = live::object();
         const auto item = live::find(state, "items", id);
-        for (const auto *field : {"name", "tempo", "meter", "key", "duration", "notes"})
+        for (const auto *field : {"tempo", "meter", "key", "duration", "notes"})
             live::put(result, field, item[field]);
-        live::put(result, "workflow", live::workflow(state, id));
+        live::put(result, "priority", live::workflow(state, id)["priority"]);
         return live::canonical(result);
     }
     static double numeric(const juce::String &text) {
@@ -312,36 +456,45 @@ class LiveItemEditor final : public juce::Component {
             success = true;
         });
         if (success) {
-            if (close)
-                close();
+            original = properties(owner->liveDocument->interfaceState, itemId);
+            error.setText({}, juce::dontSendNotification);
         } else
             error.setText(owner->message, juce::dontSendNotification);
     }
     juce::Component::SafePointer<Desktop> owner;
     juce::String itemId, original;
+    std::function<void(int)> action;
     Theme theme;
     LiveOrganizer organizer;
     std::array<juce::Label, 9> labels;
     juce::TextEditor name, tempo, key, duration, notes, progress;
-    juce::ComboBox status, priority, meter;
+    LiveStatusBox status;
+    juce::ComboBox priority, meter;
     juce::Label error;
-    juce::TextButton apply{"Apply"}, cancel{"Cancel"}, saveAll{"Save for All"}, addToSetlist{"Add to Setlist"};
+    juce::SharedResourcePointer<LiveContextArt> art;
+    bool notesVisible{};
+    std::uint64_t observedRevision{~std::uint64_t{0}};
+    std::vector<std::unique_ptr<LiveContextAction>> actions;
+    LiveContextAction apply;
+    juce::TextButton cancel{"Cancel"}, saveAll{"Save for All"}, addToSetlist{"Add to Setlist"};
 };
-inline void openLiveItemEditor(Desktop &owner, const juce::String &id) {
+inline void openLiveItemEditor(Desktop &owner, const juce::String &id, juce::Component *anchor = nullptr,
+                               juce::Rectangle<int> point = {}, std::function<void(int)> action = {},
+                               bool entryActions = false) {
     if (!owner.liveDocument)
         return;
+    if (!anchor)
+        anchor = &owner;
+    if (point.isEmpty())
+        point = anchor->getScreenBounds().withSizeKeepingCentre(1, 1);
     auto content = std::make_unique<LiveItemEditor>(owner, id);
-    auto window = std::make_unique<EditorWindow>("Item", content.release());
-    window->setOwner(owner);
-    window->getProperties().set("mrLiveShowEditor", true);
-    auto *editor = dynamic_cast<LiveItemEditor *>(window->getContentComponent());
-    juce::Component::SafePointer<EditorWindow> safe(window.get());
+    content->setActions(std::move(action), entryActions);
+    auto *editor = content.get();
+    auto &box = showLiveContext(std::move(content), owner, point);
+    juce::Component::SafePointer<juce::CallOutBox> safe(&box);
     editor->close = [safe] {
         if (safe)
-            safe->closeButtonPressed();
+            safe->dismiss();
     };
-    window->setResizable(true, false);
-    window->setResizeLimits(660, 600, 1200, 1200);
-    owner.windows.push_back(std::move(window));
 }
 } // namespace ui

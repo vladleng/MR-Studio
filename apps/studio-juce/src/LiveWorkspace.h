@@ -1,6 +1,7 @@
 #pragma once
 #include "Desktop.h"
 #include "LiveChannels.h"
+#include "LiveContext.h"
 #include "LiveLayout.h"
 #include "LiveSetlist.h"
 #include "LiveTheme.h"
@@ -15,7 +16,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
           legacyChannels(desktop) {
         setComponentID("mr-live-workspace");
         setName("MR Live");
-        nativeTheme.applyPreview(liveReferenceTokens());
+        configureLiveContext(nativeTheme, static_cast<float>(owner.view.liveMenuOpacity));
         nativeTheme.useConceptAssets(true);
         nativeTheme.setPopupOpacity(static_cast<float>(owner.view.liveMenuOpacity));
         setLookAndFeel(&nativeTheme);
@@ -164,7 +165,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         zoom.addItem(100, "Fit to window", true, owner.view.liveUiZoom == 0);
         for (const int percent : {75, 100, 125, 150})
             zoom.addItem(1000 + percent, juce::String(percent) + "%", true, owner.view.liveUiZoom == percent / 100.);
-        for (const int percent : {70, 85, 100})
+        for (const int percent : {70, 85, 90, 100})
             menus.addItem(2000 + percent, juce::String(100 - percent) + "% transparency", true,
                           std::abs(owner.view.liveMenuOpacity - percent / 100.) < .001);
         for (const int percent : {80, 90, 100})
@@ -197,7 +198,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
                 if (action == 100 || action == 101)
                     view.liveUiZoom = 0;
                 if (action == 101) {
-                    view.liveMenuOpacity = .85;
+                    view.liveMenuOpacity = .9;
                     view.liveWindowOpacity = 1.;
                 }
                 if (action >= 1075 && action <= 1150)

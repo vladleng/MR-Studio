@@ -225,7 +225,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
     void rename(const RowData &row) {
         if (row.folder || row.divider) {
             juce::Component::SafePointer<Desktop> safe(&owner);
-            owner.textDialog("Rename", row.name, [safe, row](const auto &text) {
+            promptLiveContext(owner, "Rename", row.name, [safe, row](const auto &text) {
                 if (!safe)
                     return;
                 safe->editLiveInterface("Rename", [&](auto &state) {
@@ -242,7 +242,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         } else {
             const auto item = live::find(data(), "items", row.itemId);
             juce::Component::SafePointer<Desktop> safe(&owner);
-            owner.textDialog("Item name", item["name"].toString(), [safe, id = row.itemId](const auto &text) {
+            promptLiveContext(owner, "Item name", item["name"].toString(), [safe, id = row.itemId](const auto &text) {
                 if (safe)
                     safe->editLiveInterface("Item name", [&](auto &state) {
                         live::put(live::require(state, "items", id), "name", text.trim());
@@ -250,10 +250,33 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             });
         }
     }
+    void showItemContext(const RowData &row, juce::Component &anchor, juce::Rectangle<int> point = {}) {
+        juce::Component::SafePointer<LiveSetlist> safe(this);
+        openLiveItemEditor(
+            owner, row.itemId, &anchor, point,
+            [safe, row](int command) {
+                if (safe) {
+                    safe->owner.liveShowEditing = true;
+                    safe->owner.run([&] { safe->handle(command, row); });
+                }
+            },
+            !browser);
+    }
     void context(RowData row) {
         if (!owner.liveDocument)
             return;
+        if (row.itemId.isNotEmpty()) {
+            showItemContext(row, *this);
+            return;
+        }
         juce::PopupMenu popup;
+        popup.setLookAndFeel(&getLookAndFeel());
+        if (!browser && !row.folder && !row.divider) {
+            popup.addItem(40, "+ Setlist");
+            popup.addItem(41, juce::String::fromUTF8("Переименовать setlist"));
+            popup.addItem(42, juce::String::fromUTF8("Удалить setlist"), data()["setlists"].size() > 1);
+            popup.addSeparator();
+        }
         if (row.itemId.isNotEmpty()) {
             popup.addItem(1, "Properties / organizer...");
             popup.addItem(2, "Save for All");
@@ -264,14 +287,14 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             popup.addSeparator();
         } else if (row.folder || row.divider)
             popup.addItem(5, "Rename...");
-        popup.addItem(10, "New item...");
+        popup.addItem(10, "+ Item");
         popup.addItem(11, "New folder...");
         if (!browser)
-            popup.addItem(12, "New divider...");
+            popup.addItem(12, juce::String::fromUTF8("Создать разделитель"));
         popup.addItem(13, "Item button layout...");
         popup.addSeparator();
-        popup.addItem(20, "Undo", owner.liveUndo.canUndo());
-        popup.addItem(21, "Redo", owner.liveUndo.canRedo());
+        popup.addItem(20, "Undo show", owner.liveUndo.canUndo());
+        popup.addItem(21, "Redo show", owner.liveUndo.canRedo());
         juce::Component::SafePointer<LiveSetlist> safe(this);
         popup.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this), [safe, row](int choice) {
             if (!safe)
@@ -433,7 +456,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             grabKeyboardFocus();
             if (event.mods.isPopupMenu()) {
                 if (row.itemId.isNotEmpty())
-                    openLiveItemEditor(host.owner, row.itemId);
+                    host.showItemContext(row, *this, {event.getScreenX(), event.getScreenY(), 1, 1});
                 else
                     host.context(row);
             }
@@ -602,8 +625,46 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         body.setSize(width, juce::jmax(y, viewport.getHeight()));
     }
     void handle(int choice, const RowData &row) {
+        if (choice == 40 || choice == 41) {
+            juce::Component::SafePointer<Desktop> safe(&owner);
+            const auto list = live::activeSetlist(data());
+            const auto setId = list["id"].toString();
+            promptLiveContext(owner, choice == 40 ? "New setlist" : "Rename setlist",
+                              choice == 40 ? juce::String() : list["name"].toString(),
+                              [safe, choice, setId](const auto &text) {
+                                  if (safe)
+                                      safe->editLiveInterface("Setlist", [&](auto &state) {
+                                          if (choice == 41)
+                                              live::put(live::require(state, "setlists", setId), "name", text.trim());
+                                          else {
+                                              auto set = live::object();
+                                              const auto id = live::freshId();
+                                              live::put(set, "id", id);
+                                              live::put(set, "name", text.trim());
+                                              live::put(set, "entries", juce::Array<juce::var>());
+                                              live::array(state, "setlists").add(set);
+                                              live::put(state, "activeSetlist", id);
+                                          }
+                                      });
+                              });
+            return;
+        }
+        if (choice == 42) {
+            owner.editLiveInterface("Remove setlist", [](auto &state) {
+                auto &sets = live::array(state, "setlists");
+                if (sets.size() < 2)
+                    return;
+                for (int i = 0; i < sets.size(); ++i)
+                    if (sets[i]["id"] == state["activeSetlist"]) {
+                        sets.remove(i);
+                        break;
+                    }
+                live::put(state, "activeSetlist", sets[0]["id"]);
+            });
+            return;
+        }
         if (choice == 1)
-            openLiveItemEditor(owner, row.itemId);
+            showItemContext(row, *this);
         else if (choice == 2)
             owner.editLiveInterface("Save for All", [&](auto &state) { live::saveItem(state, row.itemId); });
         else if (choice == 3) {
@@ -635,39 +696,50 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         else if (choice == 10 || choice == 11 || choice == 12) {
             juce::Component::SafePointer<Desktop> safe(&owner);
             const auto folder = row.folder ? juce::var(row.id) : juce::var();
-            owner.textDialog(choice == 10   ? "New item"
-                             : choice == 11 ? "New folder"
-                                            : "New divider",
-                             "", [safe, choice, folder, target = row.id](const auto &text) {
-                                 if (!safe)
-                                     return;
-                                 safe->editLiveInterface("Create show entry", [&](auto &state) {
-                                     if (choice == 10) {
-                                         const auto id = live::addItem(state, text, folder);
-                                         live::insertEntry(state, id);
-                                     } else if (choice == 11) {
-                                         auto value = live::object();
-                                         live::put(value, "id", live::freshId());
-                                         live::put(value, "name", text.trim());
-                                         live::put(value, "parent", folder);
-                                         live::array(state, "folders").add(value);
-                                     } else {
-                                         auto value = live::object();
-                                         live::put(value, "id", live::freshId());
-                                         live::put(value, "type", "divider");
-                                         live::put(value, "name", text.trim());
-                                         auto &entries = *live::activeEntries(state).getArray();
-                                         int at = entries.size();
-                                         for (int i = 0; i < entries.size(); ++i)
-                                             if (entries[i]["id"].toString() == target)
-                                                 at = i;
-                                         entries.insert(at, value);
-                                     }
-                                 });
-                             });
+            promptLiveContext(owner,
+                              choice == 10   ? "New item"
+                              : choice == 11 ? "New folder"
+                                             : "New divider",
+                              "", [safe, choice, folder, target = row.id](const auto &text) {
+                                  if (!safe)
+                                      return;
+                                  safe->editLiveInterface("Create show entry", [&](auto &state) {
+                                      if (choice == 10) {
+                                          const auto id = live::addItem(state, text, folder);
+                                          live::insertEntry(state, id);
+                                      } else if (choice == 11) {
+                                          auto value = live::object();
+                                          live::put(value, "id", live::freshId());
+                                          live::put(value, "name", text.trim());
+                                          live::put(value, "parent", folder);
+                                          live::array(state, "folders").add(value);
+                                      } else {
+                                          auto value = live::object();
+                                          live::put(value, "id", live::freshId());
+                                          live::put(value, "type", "divider");
+                                          live::put(value, "name", text.trim());
+                                          auto &entries = *live::activeEntries(state).getArray();
+                                          int at = entries.size();
+                                          for (int i = 0; i < entries.size(); ++i)
+                                              if (entries[i]["id"].toString() == target)
+                                                  at = i;
+                                          entries.insert(at, value);
+                                      }
+                                  });
+                              });
         } else if (choice == 13)
             openLiveCardEditor(owner, defaults);
-        else if (choice == 20)
+        else if (choice == 30 || choice == 31) {
+            owner.editLiveInterface("Move setlist entry", [&](auto &state) {
+                auto &entries = *live::activeEntries(state).getArray();
+                for (int i = 0; i < entries.size(); ++i)
+                    if (entries[i]["id"].toString() == row.id) {
+                        const int target = juce::jlimit(0, entries.size() - 1, i + (choice == 30 ? -1 : 1));
+                        entries.move(i, target);
+                        break;
+                    }
+            });
+        } else if (choice == 20)
             owner.undoLiveInterface();
         else if (choice == 21)
             owner.undoLiveInterface(true);
