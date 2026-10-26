@@ -83,3 +83,14 @@ Full native Timeline, Playback, patches, MIDI, Live audio persistence and lifecy
 remain in #28/#29/#30–#33. Studio export to Live as Playback is a subsequent,
 explicit workflow. Software previews do not certify physical ASIO/MIDI, hearing,
 vendor-plugin behavior or mixed-DPI. Native visual acceptance remains open.
+
+## Полный комплект передачи интерфейса
+
+Для следующего чата передаются совместно:
+
+1. Оригинальный `assets/ui/mr-uds/layouts/mr-live-layout-v5.json` — принятые блоки/геометрия.
+2. `assets/ui/mr-uds/layouts/mr-live-interface-defaults-v1.json` — отдельно выгруженные исходные настройки кнопки item (revision 2), статусы/priority, переключатель органайзера и описание его необязательного шаблона. Это defaults из исходников, **не пользовательские данные браузера**.
+3. Весь `tools/design-lab/live/` — работающая логика/модели/валидаторы/тесты; canonical assets `assets/ui/mr-uds/` и `assets/ui/icons/transport/`.
+4. Этот handoff, `MR_LIVE_LAYOUT_EDITOR.md`, `LIVE_WORKFLOW.md`, `AGENTS.md` и GUI skill.
+
+Этого комплекта достаточно для продолжения native реализации интерфейса и его согласованного поведения. Для точного восстановления пользовательских items, папок, собственных координат полей кнопки и задач нужен дополнительный **пользовательский demo show JSON**: в своём браузере открыть Files → сохранение demo show либо ПКМ Setlist → «Экспорт demo show» и приложить скачанный файл. Он хранится в localStorage пользователя (`mr-live-demo-show-v1`); среда разработки не имеет доступа к этому localStorage. Пока такого файла нет, не заменять его тестовыми данными и не заявлять восстановление пользовательского show.
