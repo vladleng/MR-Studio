@@ -1,5 +1,6 @@
 #pragma once
 #include "Desktop.h"
+#include "LiveChannels.h"
 #include "LiveLayout.h"
 #include "LiveSetlist.h"
 #include "LiveTheme.h"
@@ -10,7 +11,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
   public:
     explicit LiveWorkspace(Desktop &desktop)
         : owner(desktop), setlist(desktop, false, reference.defaults["itemCardLayout"]),
-          browserItems(desktop, true, reference.defaults["itemCardLayout"]), timeline(desktop) {
+          browserItems(desktop, true, reference.defaults["itemCardLayout"]), timeline(desktop),
+          legacyChannels(desktop) {
         setComponentID("mr-live-workspace");
         setName("MR Live");
         nativeTheme.applyPreview(liveReferenceTokens());
@@ -23,6 +25,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             addAndMakeVisible(component);
         addChildComponent(browserItems);
         addAndMakeVisible(timeline);
+        addChildComponent(legacyChannels);
         files.onClick = [this] { filesMenu(); };
         options.onClick = [this] { optionsMenu(); };
         play.onClick = [this] { owner.action(30); };
@@ -74,8 +77,9 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         setlist.setBounds(reference.bounds("show.setlist", getWidth(), getHeight()));
         const auto channelBounds = reference.bounds("track.channels", getWidth(), getHeight());
         const auto timelineBounds = reference.bounds("song.timeline", getWidth(), getHeight());
-        timeline.setBounds(channelBounds.getUnion(timelineBounds));
-        timeline.setChannelWidth(timelineBounds.getX() - channelBounds.getX());
+        legacyChannels.setBounds(channelBounds);
+        timeline.setBounds(showLegacyChannels ? timelineBounds : channelBounds.getUnion(timelineBounds));
+        timeline.setChannelWidth(showLegacyChannels ? 0 : timelineBounds.getX() - channelBounds.getX());
         const auto header = reference.bounds("control.header", getWidth(), getHeight());
         auto transport = juce::Rectangle<int>(header.getCentreX() - 178, header.getCentreY() - 16, 224, 32);
         for (auto *button : {&previous, &play, &pause, &stop, &next, &loop, &record})
@@ -173,6 +177,17 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             setlist.refresh();
             browserItems.refresh();
         }
+        // Only the non-application compatibility adapter can expose real Core rows
+        // without show channel definitions. Dedicated MR Live always uses the show.
+        const bool legacy = !owner.standaloneLive && owner.liveDocument && owner.liveDocument->currentLinked() &&
+                            owner.liveDocument->interfaceState["channels"].size() == 0;
+        if (legacy != showLegacyChannels) {
+            showLegacyChannels = legacy;
+            legacyChannels.setVisible(legacy);
+            resized();
+        }
+        if (legacy)
+            legacyChannels.refresh();
         timeline.refresh();
         const auto projectState = owner.app.services().projects->state();
         undoButton.setEnabled(owner.liveShowEditing ? owner.liveUndo.canUndo() : projectState.can_undo);
@@ -195,6 +210,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     Theme nativeTheme;
     LiveSetlist setlist, browserItems;
     LiveTimeline timeline;
+    LiveChannels legacyChannels;
+    bool showLegacyChannels{};
     std::unique_ptr<juce::Drawable> tunerPlaceholder;
     juce::TextButton files{"Files"}, options{"Options"}, play{"Play"}, pause{"Pause"}, stop{"Stop"},
         record{"Record (R)"}, previous{"< Section"}, next{"Section >"}, loop{"Loop section"}, undoButton{"Undo"},

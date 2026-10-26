@@ -17,7 +17,7 @@ class LiveTimeline final : public juce::Component {
     }
     ~LiveTimeline() override { viewport.setViewedComponent(nullptr, false); }
     void setChannelWidth(int width) {
-        channelWidth = juce::jmax(80, width);
+        channelWidth = juce::jmax(0, width);
         resized();
     }
     void resized() override {
