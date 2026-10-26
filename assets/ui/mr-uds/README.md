@@ -92,3 +92,9 @@ node assets/ui/mr-uds/render_concept_pack.cjs
 ## MR Library sample type — #263
 
 `svg/icons/concept_pack/sample_one_shot.svg` adds an original 24 px bar glyph for One-shot. Library Loop, Play and Stop reuse the existing transport SVGs. The manifest and extension catalogue include the new icon; no generator was run.
+
+## MR Manager Kit v1 — 2026-10-26
+
+В `svg/manager/` добавлено **46 отдельных оригинальных SVG**: статусы, приоритеты, прогресс, индикаторы, карточки Items/Setlist, M/S/R и действия органайзера. `catalogs/manager-v1.json`, `tokens/manager.json`, [HTML-галерея](previews/manager.html); новые ID `manager/*` добавлены в общий `manifest.json`.
+
+Слои `reference` визуально показывают примеры с текстом; `template` не содержит данных пользователя. Это ассеты, не реализация JUCE/runtime, и они пока не встроены в Windows приложение.
