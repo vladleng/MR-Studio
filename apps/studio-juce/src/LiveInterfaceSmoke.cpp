@@ -660,7 +660,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         playbackDesktop.app.poll();
         liveCheck(playbackDesktop.app.engine()->state().sample == musicClock.to_samples(3 * mrs::ppq),
                   "Timeline ruler seeks real audio under 3/4 meter");
-        const float audioX = static_cast<float>(1. + (viewLead + .05 / 2.) * viewScale);
+        const float audioX = static_cast<float>(1. + (viewLead + .5 / 2.) * viewScale);
         int playbackLane = 0;
         for (const auto &channel : *playbackDesktop.liveDocument->interfaceState["channels"].getArray()) {
             if (channel["type"].toString() == "Playback")
@@ -669,7 +669,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         }
         timelineBody->mouseDown(seekClick({audioX, static_cast<float>(158 + playbackLane * 124 + 32)}));
         render();
-        liveCheck(std::abs(playbackDesktop.app.engine()->state().sample - 2400) < 50,
+        liveCheck(std::abs(playbackDesktop.app.engine()->state().sample - 24000) < 50,
                   "Clicking the real Playback lane seeks shared audio to that time");
         const float verseX = static_cast<float>(1. + (viewLead + 21.75) * viewScale);
         timelineBody->mouseDown(seekClick({verseX, 100.f}));

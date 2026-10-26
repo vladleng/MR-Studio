@@ -340,7 +340,7 @@ class LiveTimeline final : public juce::Component {
                     const auto clip = project->clips.front();
                     const auto &meter = project->time.meters.front();
                     const mrs::Timeline clock(project->time, project->sample_rate);
-                    bars = juce::jmax(bars, std::ceil(clock.to_ticks(clip.start + clip.length) /
+                    bars = juce::jmax(bars, std::ceil(static_cast<double>(clock.to_ticks(clip.start + clip.length)) /
                                                       (4. * mrs::ppq * meter.numerator / meter.denominator)));
                     bars = juce::jmin(bars, 4096.); // Keep the existing bounded scroll-surface contract.
                 }
@@ -443,8 +443,8 @@ class LiveTimeline final : public juce::Component {
         const auto project = owner.project();
         const auto &meter = project->time.meters.front();
         const double bar = juce::jmax(0., (x - item.bounds.getX() - 1.) / item.scale - item.lead);
-        const auto tick =
-            static_cast<mrs::Tick>(std::llround(bar * (4 * mrs::ppq * meter.numerator / meter.denominator)));
+        const auto tick = static_cast<mrs::Tick>(
+            std::llround(bar * static_cast<double>(4 * mrs::ppq * meter.numerator / meter.denominator)));
         return mrs::Timeline(project->time, project->sample_rate).to_samples(tick);
     }
     juce::Rectangle<float> audioBounds(const Item &item, const mrs::Clip &clip, int y) const {
@@ -454,7 +454,8 @@ class LiveTimeline final : public juce::Component {
         const mrs::Timeline clock(project->time, project->sample_rate);
         const auto x = [&](mrs::Sample sample) {
             return static_cast<float>(item.bounds.getX() + 1. +
-                                      (item.lead + clock.to_ticks(sample) / ticksPerBar) * item.scale);
+                                      (item.lead + static_cast<double>(clock.to_ticks(sample)) / ticksPerBar) *
+                                          item.scale);
         };
         const float start = x(clip.start), end = x(clip.start + clip.length);
         return {start, static_cast<float>(y + 10), juce::jmax(1.f, end - start), static_cast<float>(rowHeight - 20)};
