@@ -167,13 +167,15 @@ class LiveTimeline final : public juce::Component {
             g.setColour(tokens.colour(ColourRole::panel));
             g.fillRect(item.bounds);
             const bool selected = id == state["currentItem"].toString();
-            g.setColour(tokens.colour(selected ? ColourRole::focus : ColourRole::border).withAlpha(.22f));
+            const auto itemColour =
+                liveBlockColour(state["performance"]["itemColors"][juce::Identifier(id)].toString());
+            g.setColour(itemColour.withAlpha(.23f));
             g.fillRect(x, 0, width, headerHeight);
-            text(g, item.value["name"].toString(), {x + 10, 4, width - 20, 26});
+            text(g, item.value["name"].toString(), {x + 10, 4, juce::jmax(0, width - 20), 26});
             text(g,
                  item.value["tempo"].toString() + " BPM · " + item.value["meter"].toString() + " · " +
                      juce::String(item.bars) + " bars",
-                 {x + 10, 30, width - 20, 22}, true);
+                 {x + 10, 30, juce::jmax(0, width - 20), 22}, true);
             const int step = juce::jmax(1, static_cast<int>(std::ceil(item.bars / 16)));
             for (int bar = 0; bar < static_cast<int>(std::ceil(item.bars)); ++bar) {
                 const int bx = x + 1 + juce::roundToInt((item.lead + bar) * item.scale);
@@ -202,7 +204,7 @@ class LiveTimeline final : public juce::Component {
                     line(g, {x, y, width, rowHeight});
                     y += rowHeight;
                 }
-            g.setColour(tokens.colour(selected ? ColourRole::focus : ColourRole::border));
+            g.setColour(selected ? tokens.colour(ColourRole::focus) : itemColour);
             g.drawRect(item.bounds);
         }
     }
@@ -213,7 +215,8 @@ class LiveTimeline final : public juce::Component {
             if (const auto *values = clips.getArray())
                 for (const auto &clip : *values) {
                     const auto bounds = extent(item, clip, y + 10, rowHeight - 20);
-                    block(g, bounds, track["media"]["name"].toString(), "blue");
+                    block(g, bounds, {}, "blue");
+                    text(g, track["media"]["name"].toString(), bounds.reduced(6).withHeight(28));
                     text(g, "Audio file not connected", bounds.reduced(6).withTrimmedTop(44).withHeight(22), true);
                 }
             return;
