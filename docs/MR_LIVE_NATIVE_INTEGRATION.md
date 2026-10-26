@@ -116,3 +116,11 @@ vendor-plugin behavior or mixed-DPI. Native visual acceptance remains open.
 Tempo/meter, sections и authored chords выбранного item проецируются в общий Project через Core SetMusicalData. Следующая/предыдущая секция, section loop, ruler seek и section click используют общий MusicalTimeline/EngineTransport. Current/next section и current chord читаются из shared context; elapsed/remaining — из фактических samples/длины PCM. Изменение музыкальных данных требует Stop и выключенного loop. Show Undo отделён от истории автоматически создаваемого runtime Project.
 
 Browser допускает перекрытия authored spans. Core использует одну музыкальную полосу: runtime range предыдущего события заканчивается на старте следующего; при одинаковом старте остаётся последнее. Авторские границы в show/saved versions не переписываются. Это правило действует только при проекции, не является time-stretch или редакторским изменением данных.
+
+## Прямой запуск MR Live
+
+`MR Live.exe` запускается самостоятельно из каталога runtime, без запуска MR Studio и окна выбора проекта. Без аргументов открывает последний успешно открытый/сохранённый `.mrlive`; при первом запуске — чистый пустой untitled show. Options → Open last show on startup отключает восстановление, чтобы всегда начинать с пустого show. Последний путь и режим хранятся в отдельных Live view settings, вне show. Unsaved changes сами не восстанавливаются: на закрытии/смене документа действует обычная защита сохранения.
+
+`MR Live.exe "путь к show.mrlive"` и `--open-show "путь"` открывают указанный show приоритетно. Для Windows Open with можно выбрать `MR Live.exe`; автоматическая регистрация file association в этой поставке не выполняется. `--empty-show` принудительно открывает пустой show, `--new-show "путь"` сохраняет совместимость с созданием через Home. Повторный запуск без аргументов только фокусирует уже открытое рабочее окно; перед явной сменой show проверяются несохранённые изменения. Отсутствующий/повреждённый последний документ оставляет пустое рабочее окно с неблокирующим сообщением, без перезаписи файла.
+
+Files → New MR Live show создаёт пустой show сразу, без предварительного Save dialog. Первый Save запрашивает `.mrlive` path; первый edit включает dirty/close protection, Undo до исходного пустого состояния снимает dirty. Общий Core и независимый Live workflow сохраняются.

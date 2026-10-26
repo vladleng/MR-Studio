@@ -127,7 +127,7 @@ Desktop::Desktop(bool test,bool startAtHome,bool liveApplication):standaloneLive
     for(std::size_t i=0;i<contextLabels.size();++i){auto& l=contextLabels[i];addAndMakeVisible(l);l.setComponentID("musical-context-"+juce::String(static_cast<int>(i)));l.setFont(theme.font(12));l.setColour(juce::Label::textColourId,juce::Colours::lightgrey);l.setInterceptsMouseClicks(true,false);}
     setSize(1400,850);refresh(true);setWorkspace(standaloneLive?mrs::desktop::Workspace::live:testing?mrs::desktop::Workspace::mix:prefs.workspace==mrs::desktop::Workspace::live?mrs::desktop::Workspace::arrange:prefs.workspace);
     liveWorkspace=std::make_unique<LiveWorkspace>(*this);addChildComponent(*liveWorkspace);
-    home=std::make_unique<ProjectHome>(*this);addChildComponent(*home);if(!standaloneLive&&(!testing||startAtHome)){showProjectHome(true);if(!testing)home->rescan();}if(standaloneLive){liveDocument.emplace();prepareLiveInterface(false);showProjectHome(false);liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};}startTimerHz(30);
+    home=std::make_unique<ProjectHome>(*this);addChildComponent(*home);if(!standaloneLive&&(!testing||startAtHome)){showProjectHome(true);if(!testing)home->rescan();}if(standaloneLive){liveDocument.emplace();prepareLiveInterface(true);showProjectHome(false);liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};}startTimerHz(30);
 }
 Desktop::~Desktop(){
     araDockResizeFrame={};pendingAraDockHeight.reset();resizingAraDock=nullptr;
@@ -148,7 +148,7 @@ void Desktop::saveSettings(){if(testing)return;
     publishSettings(juce::File(juce::String(prefsFile.wstring().c_str())),label(mrs::desktop::encode_preferences(prefs)));
     publishSettings(juce::File(juce::String(viewFile.wstring().c_str())),view.encode());
 }
-void Desktop::remember(){if(testing)return;mrs::desktop::remember_project(prefs,path(documentFile()));saveSettings();}
+void Desktop::remember(){if(standaloneLive&&liveFile.existsAsFile())view.lastLiveShow=liveFile.getFullPathName();if(testing)return;mrs::desktop::remember_project(prefs,path(documentFile()));saveSettings();}
 void Desktop::reconnectDevice(bool session){if(testing||(!session&&!prefs.reconnect_audio)||prefs.device_name.empty())return;
 #ifdef MRS_HAS_ASIO
     auto device=mrs::audio::make_asio_device();auto infos=device->enumerate();
@@ -232,7 +232,7 @@ void Desktop::importFiles(const juce::StringArray& files){closeEditors();std::ve
 void Desktop::choose(int chooserOptions,std::function<void(const juce::File&)> callback,juce::String pattern){
     const auto studio=juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio").getChildFile("Projects");
     const bool showFiles=pattern=="*.mrlive";const auto initial=showFiles?(liveFile==juce::File()?studio.getSiblingFile("Lives"):liveFile):(app.path().empty()?studio:juce::File(juce::String(app.path().wstring().c_str())));
-    chooser=std::make_unique<juce::FileChooser>("Moon River Studio",initial,pattern,true);
+    chooser=std::make_unique<juce::FileChooser>(standaloneLive?"MR Live":"Moon River Studio",initial,pattern,true);
     juce::Component::SafePointer<Desktop> safe(this);
     chooser->launchAsync(chooserOptions,[safe,callback=std::move(callback)](const juce::FileChooser& result){
         if(safe && result.getResult()!=juce::File())safe->run([&]{callback(result.getResult());});
@@ -383,7 +383,7 @@ void Desktop::action(int n){if(busyGesture()){if(n==34||n==35||n==48||n==49||n==
     if(n>=500&&n<=700){auto c=app.click_settings();if(n==500)c.playback=!c.playback;else if(n==501)c.recording=!c.recording;else if(n==502)c.accent=!c.accent;else if(n==503)c.playback=c.recording=!(c.playback||c.recording);else if(n==504){if(c.count_bars){lastCountBars=c.count_bars;c.count_bars=0;}else c.count_bars=lastCountBars;}else if(n>=510&&n<=514)c.count_bars=n-510;else if(n>=600)c.level=n-600;else return;app.set_click_settings(c);if(c.count_bars)lastCountBars=c.count_bars;prefs.click=c;saveSettings();return;}
     if(n==9)return;
     if(n==702){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){importLiveShow(file);},"*.json");});return;}
-    if(n==701){auto createShow=[this]{choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& file){createLive(file);},"*.mrlive");};if(standaloneLive)confirmDiscard(createShow);else createShow();return;}
+    if(n==701){if(standaloneLive){confirmDiscard([this]{run([this]{newLiveShow();});});return;}auto createShow=[this]{choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& file){createLive(file);},"*.mrlive");};createShow();return;}
     if(n==8){confirmDiscard([this]{run([&]{closeEditors();cancelPreview();app.pause();app.new_project();liveDocument.reset();liveFile=juce::File();prepareLiveInterface(false);app.workspace(mrs::desktop::Workspace::arrange);resetDevice();selectedTrack.reset();selectedClip.reset();selectedClips.clear();refresh(true);showProjectHome(true);projectSessionStarted=false;home->rescan();});});return;}
     if(n==6){app.pause();showProjectHome(true);home->rescan();return;}
     if(n>=1000){auto at=static_cast<std::size_t>(n-1000);if(at<prefs.recent_projects.size()){const auto f=juce::File(label(prefs.recent_projects[at]));confirmDiscard([this,f]{run([&]{openFile(f);});});}return;}

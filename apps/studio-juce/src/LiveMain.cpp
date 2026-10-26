@@ -6,21 +6,41 @@
 #include <mrs/version.hpp>
 
 namespace {
-void applyRequest(ui::Desktop &desktop, const juce::String &args) {
+bool applyRequest(ui::Desktop &desktop, const juce::String &args) {
     const auto tokens = juce::StringArray::fromTokens(args, true);
     for (const auto &flag : {juce::String("--new-show"), juce::String("--open-show")}) {
         const int at = tokens.indexOf(flag);
         if (at >= 0) {
-            if (at + 1 >= tokens.size())
+            if (at != 0 || tokens.size() != 2)
                 throw std::runtime_error("Missing .mrlive show path");
             const auto file = juce::File::getCurrentWorkingDirectory().getChildFile(tokens[at + 1].unquoted());
             if (flag == "--new-show")
                 desktop.createLive(file);
             else
                 desktop.openFile(file);
-            return;
+            return true;
         }
     }
+    if (tokens.isEmpty())
+        return false;
+    if (tokens.size() == 1 && tokens[0] == "--empty-show") {
+        desktop.newLiveShow();
+        return true;
+    }
+    if (tokens.size() != 1 || !tokens[0].unquoted().endsWithIgnoreCase(".mrlive"))
+        throw std::runtime_error("Open a .mrlive file or use --empty-show");
+    desktop.openFile(juce::File::getCurrentWorkingDirectory().getChildFile(tokens[0].unquoted()));
+    return true;
+}
+void startLive(ui::Desktop &desktop, const juce::String &args) {
+    if (applyRequest(desktop, args) || !desktop.view.liveRestoreLastShow || desktop.view.lastLiveShow.isEmpty())
+        return;
+    const juce::File last(desktop.view.lastLiveShow);
+    if (!last.existsAsFile()) {
+        throw std::runtime_error("Last show was not found. A new empty show is ready.");
+    }
+    // openFile parses/validates before replacing the clean untitled document.
+    desktop.openFile(last);
 }
 class LiveShell final : public juce::Component {
   public:
@@ -156,6 +176,9 @@ class LiveApplication final : public juce::JUCEApplication {
                           "Live UI zoom changes presentation without editing the show");
                 }
                 ui::Desktop live(true, false, true);
+                check(live.liveDocument && live.liveDocument->interfaceState["items"].size() == 0 &&
+                          live.documentFile() == juce::File() && !live.documentDirty(),
+                      "Direct MR Live launch has a clean untitled empty show without a file chooser");
                 check(!live.projectHomeVisible() && live.project()->tracks.empty(),
                       "MR Live starts without Studio Home or demo tracks");
                 live.setWorkspace(mrs::desktop::Workspace::arrange);
@@ -184,11 +207,54 @@ class LiveApplication final : public juce::JUCEApplication {
                 check(live.project()->tracks.empty() && live.liveDocument->projects.empty(),
                       "Imported Live show does not load a Studio song");
                 const auto saved = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                                       .getNonexistentChildFile("mr-live-application", ".mrlive", false);
+                                       .getNonexistentChildFile("mr-live-application show", ".mrlive", false);
                 live.saveFile(saved);
                 live.openFile(saved);
                 check(live.liveDocument->interfaceState["items"].size() == 3 && !live.documentDirty(),
                       "Dedicated MR Live application saves and reopens its own show");
+                check(live.view.lastLiveShow == saved.getFullPathName(),
+                      "Successful save/open remembers the last Live show");
+                ui::Desktop direct(true, false, true);
+                startLive(direct, saved.getFullPathName().quoted());
+                check(direct.documentFile() == saved && direct.liveDocument->interfaceState["items"].size() == 3 &&
+                          !direct.projectHomeVisible(),
+                      "Direct quoted mrlive argument opens the show without Studio Home");
+                direct.action(701);
+                check(direct.documentFile() == juce::File() &&
+                          direct.liveDocument->interfaceState["items"].size() == 0 && !direct.documentDirty(),
+                      "New Live show is immediately editable without choosing a save location");
+                direct.editLiveInterface("First edit", [](auto &state) { ui::live::addItem(state, "Untitled item"); });
+                check(direct.documentDirty(), "The first edit of an untitled show enables unsaved-change protection");
+                direct.undoLiveInterface();
+                check(!direct.documentDirty(), "Undo of the first edit restores a clean empty show");
+                direct.view.lastLiveShow = saved.getFullPathName();
+                startLive(direct, {});
+                check(direct.documentFile() == saved, "Plain launch restores the last show");
+                const auto savedBytes = saved.loadFileAsString();
+                startLive(direct, "--empty-show");
+                check(direct.documentFile() == juce::File() && !direct.documentDirty() &&
+                          saved.loadFileAsString() == savedBytes,
+                      "Forced empty launch never overwrites the last show");
+                direct.view.liveRestoreLastShow = false;
+                const auto preferences = ui::ViewSettings::decode(direct.view.encode());
+                check(!preferences.liveRestoreLastShow && preferences.lastLiveShow == saved.getFullPathName(),
+                      "Startup choice and remembered show round-trip in Live view settings");
+                startLive(direct, {});
+                check(direct.documentFile() == juce::File(), "Always-empty startup ignores the remembered show");
+                startLive(direct, "--open-show " + saved.getFullPathName().quoted());
+                check(direct.documentFile() == saved, "Explicit file takes priority over always-empty preference");
+                direct.newLiveShow();
+                direct.view.liveRestoreLastShow = true;
+                const auto broken = saved.getSiblingFile(saved.getFileNameWithoutExtension() + " broken.mrlive");
+                check(broken.replaceWithText("invalid show"), "Prepare corrupt startup fixture");
+                direct.view.lastLiveShow = broken.getFullPathName();
+                direct.run([&] { startLive(direct, {}); });
+                check(direct.documentFile() == juce::File() && !direct.documentDirty() && direct.message.isNotEmpty(),
+                      "Corrupt last show leaves an editable clean empty workspace with a nonmodal error");
+                check(broken.deleteFile(), "Corrupt startup fixture cleanup");
+                direct.run([&] { startLive(direct, {}); });
+                check(direct.documentFile() == juce::File() && !direct.documentDirty() && direct.message.isNotEmpty(),
+                      "Missing last show falls back to the empty workspace");
                 check(saved.deleteFile(), "MR Live application fixture cleanup");
                 ui::Desktop studio(true, true);
                 const auto project = studio.project();
@@ -218,12 +284,14 @@ class LiveApplication final : public juce::JUCEApplication {
                 executable.getSiblingFile("mrs_crash_reporter.exe").getFullPathName().toWideCharPointer()),
             mrs::desktop::application_version.data());
         window = std::make_unique<LiveWindow>();
-        window->host().run([&] { applyRequest(window->host(), args); });
+        window->host().run([&] { startLive(window->host(), args); });
     }
     void anotherInstanceStarted(const juce::String &args) override {
         if (!window)
             return;
         window->toFront(true);
+        if (args.trim().isEmpty())
+            return; // A second plain launch only focuses the working show.
         window->host().confirmDiscard(
             [this, args] { window->host().run([&] { applyRequest(window->host(), args); }); });
     }

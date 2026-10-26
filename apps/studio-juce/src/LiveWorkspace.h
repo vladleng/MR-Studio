@@ -148,7 +148,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             const mrs::Timeline clock(project->time, project->sample_rate);
             const auto pos = clock.musical_position(clock.to_ticks(head.sample));
             const double elapsed = static_cast<double>(head.sample) / project->sample_rate;
-            const double total = static_cast<double>(project->clips.front().start + project->clips.front().length) / project->sample_rate;
+            const double total = static_cast<double>(project->clips.front().start + project->clips.front().length) /
+                                 project->sample_rate;
             statusText += "\nBar " + juce::String(pos.bar) + ":" + juce::String(pos.beat) + ":" +
                           juce::String(pos.tick) + "  |  " + juce::String(elapsed, 1) + " s  |  remaining " +
                           juce::String(juce::jmax(0., total - elapsed), 1) + " s";
@@ -166,7 +167,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     void filesMenu() {
         juce::PopupMenu popup;
         popup.setLookAndFeel(&nativeTheme);
-        popup.addItem(701, "New MR Live show...");
+        popup.addItem(701, "New MR Live show");
         popup.addItem(2, "Open...");
         popup.addItem(3, "Save");
         popup.addItem(4, "Save as...");
@@ -199,6 +200,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         appearance.addItem(101, "Reset appearance");
         popup.addSubMenu("Appearance", appearance);
         popup.addItem(102, "Fit window to screen");
+        popup.addItem(103, "Open last show on startup", true, owner.view.liveRestoreLastShow);
         popup.addSeparator();
         popup.addItem(40, "Audio settings...");
         juce::Component::SafePointer<LiveWorkspace> safe(this);
@@ -209,7 +211,10 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
                 safe->showBrowser(!safe->browserVisible);
             else if (action == 2)
                 openLiveCardEditor(safe->owner, safe->reference.defaults["itemCardLayout"]);
-            else if (action == 40)
+            else if (action == 103) {
+                safe->owner.view.liveRestoreLastShow = !safe->owner.view.liveRestoreLastShow;
+                safe->owner.run([&] { safe->owner.saveSettings(); });
+            } else if (action == 40)
                 safe->owner.action(40);
             else if (action == 102) {
                 if (safe->fitWindowRequested)

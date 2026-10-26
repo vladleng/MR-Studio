@@ -94,6 +94,28 @@ void Desktop::launchLive(const juce::File &file, bool create) {
     }
     refresh();
 }
+void Desktop::newLiveShow() {
+    if (!standaloneLive)
+        throw std::runtime_error("A blank Live show belongs to the MR Live application");
+    if (app.recording())
+        throw std::runtime_error("Stop recording before creating a new show");
+    const bool session = app.audio_name() != "Offline clock (no sound)" && app.audio_name() != "Disconnected";
+    closeEditors();
+    cancelPreview();
+    app.new_project(session ? prefs.rate : 48000);
+    liveDocument.emplace();
+    liveFile = juce::File();
+    prepareLiveInterface(true); // Clean untitled document; first edit enables Save/close confirmation.
+    selectedTrack.reset();
+    selectedClip.reset();
+    selectedClips.clear();
+    resetDevice();
+    app.workspace(mrs::desktop::Workspace::live);
+    liveEmptyRevision = std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
+    showProjectHome(false);
+    refresh(true);
+    reconnectDevice(session);
+}
 void Desktop::prepareLiveInterface(bool saved) {
     livePlaybackItem.clear();
     livePlaybackFile.clear();
