@@ -31,7 +31,7 @@ endforeach()
 list(APPEND concept_controls "${PROJECT_SOURCE_DIR}/assets/ui/icons/transport/metronome.svg")
 juce_add_binary_data(mrs_concept_assets NAMESPACE MRConceptAssets HEADER_NAME MRConceptAssets.h SOURCES ${concept_icons} ${concept_controls})
 target_link_libraries(mrs_juce_assets PUBLIC mrs_concept_assets)
-juce_add_gui_app(MoonRiverStudioJuce VERSION 0.7.1 PRODUCT_NAME "Moon River Studio JUCE")
+juce_add_gui_app(MoonRiverStudioJuce VERSION ${PROJECT_VERSION} PRODUCT_NAME "Moon River Studio JUCE")
 # Accepted Track Header layout is shipped as a self-contained, immutable GUI resource.
 # No external JSON is required for normal Release startup; developer overrides remain opt-in.
 juce_add_binary_data(mrs_track_header_layout
@@ -294,7 +294,7 @@ get_target_property(mrs_live_host_links MoonRiverStudioJuce LINK_LIBRARIES)
 list(REMOVE_ITEM mrs_live_host_links MoonRiverStudioJuce_rc_lib)
 get_target_property(mrs_live_host_definitions MoonRiverStudioJuce COMPILE_DEFINITIONS)
 get_target_property(mrs_live_host_options MoonRiverStudioJuce COMPILE_OPTIONS)
-juce_add_gui_app(MRLiveJuce VERSION 0.7.1 PRODUCT_NAME "MR Live")
+juce_add_gui_app(MRLiveJuce VERSION ${PROJECT_VERSION} PRODUCT_NAME "MR Live")
 target_sources(MRLiveJuce PRIVATE ${mrs_live_host_sources} apps/studio-juce/src/LiveMain.cpp)
 target_compile_features(MRLiveJuce PRIVATE cxx_std_20)
 target_compile_definitions(MRLiveJuce PRIVATE ${mrs_live_host_definitions})

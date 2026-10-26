@@ -14,9 +14,9 @@ $asioLicenses=@(Get-ChildItem -LiteralPath "$Build/_deps/portaudio-build" -Recur
 if(!$asioLicenses.Count){throw 'ASIO license notice missing'}
 Copy-Item -LiteralPath $asioLicenses[0].FullName -Destination "$Output/ASIO-SDK-LICENSE.txt"
 $version=(Get-Item -LiteralPath $gui).VersionInfo.FileVersion
-if($version -ne '0.7.1'){throw "Unexpected Windows version $version"}
+if($version -ne '8.1.1'){throw "Unexpected Windows version $version"}
 $sha=& git rev-parse HEAD
-@("MR Studio 0.7.1; source $sha; Windows Release; ARA=$Ara",'Launch Moon River Studio JUCE.exe. Home launches the separate MR Live.exe application. SDKs and third-party plugins are not included.','Development acceptance artifact. See the included license notices; commercial distribution is not certified by CI.','CI results do not certify physical ASIO/MIDI/DPI performance. See run test logs for integration status.') | Set-Content -LiteralPath "$Output/README.txt" -Encoding UTF8
+@("MR Studio 8.1.1; source $sha; Windows Release; ARA=$Ara",'Launch Moon River Studio JUCE.exe. Home launches the separate MR Live.exe application. SDKs and third-party plugins are not included.','Development acceptance artifact. See the included license notices; commercial distribution is not certified by CI.','CI results do not certify physical ASIO/MIDI/DPI performance. See run test logs for integration status.') | Set-Content -LiteralPath "$Output/README.txt" -Encoding UTF8
 $env:CI_TEST_RESULT | Set-Content -LiteralPath "$Output/CI-TEST-RESULT.txt" -Encoding UTF8
 $files=@(Get-ChildItem -LiteralPath $Output -File | Sort-Object Name | ForEach-Object {@{name=$_.Name;bytes=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash}})
 @{source=$sha;version=$version;ara=[bool]$Ara;run=$env:GITHUB_RUN_ID;tests=$env:CI_TEST_RESULT;runner_image=$env:ImageVersion;sdk_lock_sha256=(Get-FileHash -LiteralPath "$PSScriptRoot/sdk-lock.json").Hash;files=$files} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$Output/SHA256.json" -Encoding UTF8
