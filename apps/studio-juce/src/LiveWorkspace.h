@@ -17,6 +17,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         setName("MR Live");
         nativeTheme.applyPreview(liveReferenceTokens());
         nativeTheme.useConceptAssets(true);
+        nativeTheme.setPopupOpacity(static_cast<float>(owner.view.liveMenuOpacity));
         setLookAndFeel(&nativeTheme);
         addMouseListener(this, true);
         for (auto *component :
@@ -58,6 +59,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         removeMouseListener(this);
         setLookAndFeel(nullptr);
     }
+    std::function<void()> appearanceChanged, fitWindowRequested;
     void showBrowser(bool visible) {
         browserVisible = visible;
         browserItems.setVisible(visible);
@@ -141,6 +143,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
   private:
     void filesMenu() {
         juce::PopupMenu popup;
+        popup.setLookAndFeel(&nativeTheme);
         popup.addItem(701, "New MR Live show...");
         popup.addItem(2, "Open...");
         popup.addItem(3, "Save");
@@ -154,8 +157,26 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     }
     void optionsMenu() {
         juce::PopupMenu popup;
+        popup.setLookAndFeel(&nativeTheme);
         popup.addItem(1, "Browser items", true, browserVisible);
         popup.addItem(2, "Item button layout...", owner.liveDocument.has_value());
+        juce::PopupMenu appearance, zoom, menus, window;
+        zoom.addItem(100, "Fit to window", true, owner.view.liveUiZoom == 0);
+        for (const int percent : {75, 100, 125, 150})
+            zoom.addItem(1000 + percent, juce::String(percent) + "%", true, owner.view.liveUiZoom == percent / 100.);
+        for (const int percent : {70, 85, 100})
+            menus.addItem(2000 + percent, juce::String(100 - percent) + "% transparency", true,
+                          std::abs(owner.view.liveMenuOpacity - percent / 100.) < .001);
+        for (const int percent : {80, 90, 100})
+            window.addItem(3000 + percent, juce::String(100 - percent) + "% transparency", true,
+                           std::abs(owner.view.liveWindowOpacity - percent / 100.) < .001);
+        appearance.addSectionHeader("Graphite");
+        appearance.addSubMenu("UI scale", zoom);
+        appearance.addSubMenu("Menu transparency", menus);
+        appearance.addSubMenu("Window transparency", window);
+        appearance.addItem(101, "Reset appearance");
+        popup.addSubMenu("Appearance", appearance);
+        popup.addItem(102, "Fit window to screen");
         popup.addSeparator();
         popup.addItem(40, "Audio settings...");
         juce::Component::SafePointer<LiveWorkspace> safe(this);
@@ -168,6 +189,28 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
                 openLiveCardEditor(safe->owner, safe->reference.defaults["itemCardLayout"]);
             else if (action == 40)
                 safe->owner.action(40);
+            else if (action == 102) {
+                if (safe->fitWindowRequested)
+                    safe->fitWindowRequested();
+            } else if (action == 100 || action == 101 || (action >= 1075 && action <= 3150)) {
+                auto &view = safe->owner.view;
+                if (action == 100 || action == 101)
+                    view.liveUiZoom = 0;
+                if (action == 101) {
+                    view.liveMenuOpacity = .85;
+                    view.liveWindowOpacity = 1.;
+                }
+                if (action >= 1075 && action <= 1150)
+                    view.liveUiZoom = (action - 1000) / 100.;
+                if (action >= 2070 && action <= 2100)
+                    view.liveMenuOpacity = (action - 2000) / 100.;
+                if (action >= 3080 && action <= 3100)
+                    view.liveWindowOpacity = (action - 3000) / 100.;
+                safe->nativeTheme.setPopupOpacity(static_cast<float>(view.liveMenuOpacity));
+                if (safe->appearanceChanged)
+                    safe->appearanceChanged();
+                safe->owner.run([&] { safe->owner.saveSettings(); });
+            }
         });
     }
     void timerCallback() override {

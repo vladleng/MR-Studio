@@ -1,4 +1,6 @@
 #include "Desktop.h"
+#include "GraphiteWindow.h"
+#include "LiveWindowLayout.h"
 #include "LiveWorkspace.h"
 #include <mrs/diagnostics.hpp>
 #include <mrs/version.hpp>
@@ -20,20 +22,104 @@ void applyRequest(ui::Desktop &desktop, const juce::String &args) {
         }
     }
 }
-class LiveWindow final : public juce::DocumentWindow {
+class LiveShell final : public juce::Component {
   public:
-    LiveWindow() : DocumentWindow("MR Live", juce::Colour(ui::surface), allButtons) {
+    explicit LiveShell(bool testing = false) : desktop(testing, false, true) {
+        addAndMakeVisible(viewport);
+        viewport.setViewedComponent(&desktop, false);
+        viewport.setScrollBarsShown(true, true);
+        desktop.liveWorkspace->appearanceChanged = [this] { applyAppearance(); };
+    }
+    ~LiveShell() override {
+        desktop.liveWorkspace->appearanceChanged = {};
+        viewport.setViewedComponent(nullptr, false);
+    }
+    void resized() override { applyAppearance(); }
+    void paint(juce::Graphics &g) override { g.fillAll(ui::liveReferenceTokens().colour(ui::ColourRole::canvas)); }
+    void applyAppearance() {
+        viewport.setBounds(getLocalBounds());
+        const auto scale = ui::live::fitUiScale(viewport.getMaximumVisibleWidth(), viewport.getMaximumVisibleHeight(),
+                                                desktop.view.liveUiZoom);
+        desktop.setTransform(juce::AffineTransform::scale(scale));
+        desktop.setSize(
+            juce::jmax(1200,
+                       static_cast<int>(std::floor(static_cast<float>(viewport.getMaximumVisibleWidth()) / scale))),
+            juce::jmax(700,
+                       static_cast<int>(std::floor(static_cast<float>(viewport.getMaximumVisibleHeight()) / scale))));
+        if (auto *window = findParentComponentOfClass<juce::DocumentWindow>())
+            window->setAlpha(static_cast<float>(desktop.view.liveWindowOpacity));
+    }
+    ui::Desktop desktop;
+
+  private:
+    juce::Viewport viewport;
+};
+class LiveWindow final : public juce::DocumentWindow, private juce::Timer {
+  public:
+    explicit LiveWindow(bool testing = false)
+        : DocumentWindow("MR Live", ui::liveReferenceTokens().colour(ui::ColourRole::panel), allButtons) {
         setUsingNativeTitleBar(true);
-        setContentOwned(new ui::Desktop(false, false, true), true);
+        shell = new LiveShell(testing);
+        setContentOwned(shell, true);
         setResizable(true, false);
-        setResizeLimits(1200, 700, 3840, 2160);
-        centreWithSize(1920, 1080);
+        setBounds(0, 0, 1400, 850);
+        const bool restored =
+            host().view.windowState.isNotEmpty() && restoreWindowStateFromString(host().view.windowState);
+        constrainToDisplay(!restored);
+        host().liveWorkspace->fitWindowRequested = [this] { constrainToDisplay(true); };
         setVisible(true);
+        ui::applyGraphiteWindowCaption(*this);
+        shell->applyAppearance();
+        startTimer(500);
     }
-    ui::Desktop &host() { return *static_cast<ui::Desktop *>(getContentComponent()); }
+    ~LiveWindow() override {
+        stopTimer();
+        host().liveWorkspace->fitWindowRequested = {};
+        rememberWindow();
+    }
+    ui::Desktop &host() { return shell->desktop; }
     void closeButtonPressed() override {
-        host().confirmDiscard([] { juce::JUCEApplication::getInstance()->quit(); });
+        host().confirmDiscard([this] {
+            rememberWindow();
+            juce::JUCEApplication::getInstance()->quit();
+        });
     }
+
+  private:
+    void rememberWindow() {
+        host().view.windowState = getWindowStateAsString();
+        try {
+            host().saveSettings();
+        } catch (...) {
+        }
+    }
+    juce::Rectangle<int> workArea(bool initial = false) const {
+        const auto &displays = juce::Desktop::getInstance().getDisplays();
+        const auto *display = initial ? displays.getDisplayForPoint(juce::Desktop::getMousePosition().toFloat())
+                                      : displays.getDisplayForRect(getBounds());
+        if (!display)
+            display = displays.getPrimaryDisplay();
+        return display ? display->userBounds.toNearestInt() : juce::Rectangle<int>(0, 0, 1280, 720);
+    }
+    void constrainToDisplay(bool centre) {
+        const auto work = workArea(centre);
+        lastWorkArea = work;
+        juce::BorderSize<int> frame(32, 8, 8, 8);
+        if (auto *peer = getPeer())
+            if (const auto actual = peer->getFrameSizeIfPresent())
+                frame = *actual;
+        const auto available = frame.subtractedFrom(work.reduced(4));
+        setResizeLimits(juce::jmin(900, available.getWidth()), juce::jmin(540, available.getHeight()),
+                        juce::jmax(1, available.getWidth()), juce::jmax(1, available.getHeight()));
+        if (!isFullScreen())
+            setBounds(ui::live::fitWindow(getBounds(), work, frame, centre));
+    }
+    void timerCallback() override {
+        if (workArea() != lastWorkArea)
+            constrainToDisplay(false);
+    }
+    LiveShell *shell{};
+    juce::Rectangle<int> lastWorkArea;
 };
 class LiveApplication final : public juce::JUCEApplication {
   public:
@@ -49,6 +135,26 @@ class LiveApplication final : public juce::JUCEApplication {
                     if (!value)
                         throw std::runtime_error(error);
                 };
+                {
+                    LiveWindow native(true);
+                    const auto &displays = juce::Desktop::getInstance().getDisplays();
+                    const auto *display = displays.getDisplayForRect(native.getBounds());
+                    check(display && display->userBounds.toNearestInt().contains(native.getBounds()),
+                          "MR Live window fits the work area on real Windows peer creation");
+                    if (auto *peer = native.getPeer())
+                        if (const auto border = peer->getFrameSizeIfPresent())
+                            check(display->userBounds.toNearestInt().contains((*border).addedTo(native.getBounds())),
+                                  "Native Windows caption and frame also fit the working screen");
+                    check(native.getContentComponent()->getLocalBounds().contains(native.host().getBoundsInParent()),
+                          "Automatic scale keeps the full interface reachable");
+                    const auto before = native.host().documentDirty();
+                    native.host().view.liveUiZoom = 1.5;
+                    native.host().view.liveMenuOpacity = .7;
+                    native.host().liveWorkspace->appearanceChanged();
+                    check(native.host().getTransform() == juce::AffineTransform::scale(1.5f) &&
+                              native.host().documentDirty() == before,
+                          "Live UI zoom changes presentation without editing the show");
+                }
                 ui::Desktop live(true, false, true);
                 check(!live.projectHomeVisible() && live.project()->tracks.empty(),
                       "MR Live starts without Studio Home or demo tracks");

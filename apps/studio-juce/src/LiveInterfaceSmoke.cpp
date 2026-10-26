@@ -1,3 +1,4 @@
+#include "LiveWindowLayout.h"
 #include "LiveWorkspace.h"
 #include "ProjectHome.h"
 #include <windows.h>
@@ -56,6 +57,32 @@ void liveInterfaceSmoke(const juce::File &fixture) {
               "User card settings override bundled defaults");
     liveCheck(live::progress(imported, id) == 50, "Recursive organizer progress");
     liveCheck(!live::itemDirty(imported, id), "Imported saved Browser version stays saved");
+    for (const float dpi : {1.f, 1.25f, 1.5f, 2.f}) {
+        const juce::Rectangle<int> work(0, 0, juce::roundToInt(1920.f / dpi), juce::roundToInt(1040.f / dpi));
+        const juce::BorderSize<int> frame(32, 8, 8, 8);
+        const auto fitted = live::fitWindow({-200, -100, 1920, 1080}, work, frame, true);
+        liveCheck(work.contains(frame.addedTo(fitted)), "Full Live window including title bar fits work area at DPI");
+        const auto restored = live::fitWindow({4000, -800, 1920, 1080}, work, frame, false);
+        liveCheck(work.contains(frame.addedTo(restored)), "Off-screen saved window is recovered after display changes");
+    }
+    const juce::Rectangle<int> secondMonitor(-1280, 0, 1280, 984);
+    liveCheck(secondMonitor.contains(
+                  juce::BorderSize<int>(32, 8, 8, 8)
+                      .addedTo(live::fitWindow({100, -100, 1920, 1080}, secondMonitor, {32, 8, 8, 8}, false))),
+              "Negative-coordinate secondary monitor is supported");
+    ViewSettings appearance;
+    appearance.liveUiZoom = 1.25;
+    appearance.liveMenuOpacity = .7;
+    appearance.liveWindowOpacity = .8;
+    const auto savedAppearance = ViewSettings::decode(appearance.encode());
+    liveCheck(savedAppearance.liveUiZoom == 1.25 && savedAppearance.liveMenuOpacity == .7 &&
+                  savedAppearance.liveWindowOpacity == .8,
+              "Appearance preferences round-trip outside show metadata");
+    Theme isolatedTheme;
+    isolatedTheme.setPopupOpacity(.7f);
+    Theme studioTheme;
+    liveCheck(isolatedTheme.popupOpacity() == .7f && studioTheme.popupOpacity() == popupFillAlpha,
+              "Live popup opacity does not change Studio defaults");
     LiveLayout layout;
     liveCheck(layout.bounds("show.setlist", 1920, 1080) == juce::Rectangle<int>(0, 80, 380, 624),
               "Native geometry uses accepted v5");

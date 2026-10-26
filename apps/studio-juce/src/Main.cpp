@@ -5,6 +5,7 @@
 #include "ReverbKit.h"
 #include "ShellChrome.h"
 #include "AssetDesign.h"
+#include "GraphiteWindow.h"
 #include "J1Smoke.h"
 #include "ReverbBrowser.h"
 #include "ToneBrowser.h"
@@ -30,6 +31,7 @@ public:
         }
         if(desktop&&!fixture&&!desktop->view.windowState.isEmpty())restoreWindowStateFromString(desktop->view.windowState);
         setVisible(true);
+        ui::applyGraphiteWindowCaption(*this);
         if(fixture&&desktop&&kitPilot)ui::setupReverbKitPreview(*desktop);
     }
     ~Window() override {auto* desktop=dynamic_cast<ui::Desktop*>(getContentComponent());if(desktop){desktop->view.windowState=getWindowStateAsString();try{desktop->saveSettings();}catch(...){} }}
