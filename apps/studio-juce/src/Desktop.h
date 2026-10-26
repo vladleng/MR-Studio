@@ -83,6 +83,7 @@ public:
     void selectLiveItem(const juce::String&);
     void attachLivePlayback(const juce::String&,const juce::File&);
     void setLivePlaybackMix(double,bool,bool);
+    void setLivePlaybackTrim(double startSeconds, double endSeconds);
     void syncLivePlayback();
     bool livePlaybackReady() const;
     juce::String livePlaybackItem, livePlaybackFile, livePlaybackMixKey, livePlaybackError, liveMusicalKey;

@@ -22,6 +22,30 @@ void validateMusicalEdit(Desktop &owner, const juce::var &copy) {
         }
     }
 }
+// Preflight before committing show history, including Undo/Redo. Core owns the source extent.
+void validatePlaybackEdit(Desktop &owner, const juce::var &copy) {
+    live::validatePlayback(copy);
+    if (!owner.livePlaybackReady())
+        return;
+    const auto id = owner.liveDocument->interfaceState["currentItem"].toString();
+    const auto before = live::playback(owner.liveDocument->interfaceState, id);
+    const auto after = live::playback(copy, id);
+    if (before["file"] != after["file"] ||
+        (before["trimStart"] == after["trimStart"] && before["trimEnd"] == after["trimEnd"]))
+        return;
+    if (owner.app.recording() || owner.app.engine()->state().playback == mrs::PlaybackState::playing)
+        throw std::runtime_error("Pause or stop Playback before trimming audio");
+    const auto project = owner.project();
+    const auto frames = owner.app.source_frames(project->clips.front().id);
+    const auto start =
+        static_cast<mrs::Sample>(std::llround(static_cast<double>(after["trimStart"]) * project->sample_rate));
+    const auto end =
+        after["trimEnd"].isVoid()
+            ? frames
+            : static_cast<mrs::Sample>(std::llround(static_cast<double>(after["trimEnd"]) * project->sample_rate));
+    if (start < 0 || end <= start || end > frames)
+        throw std::runtime_error("Trim must stay inside the original WAV source");
+}
 class LiveInterfaceEdit final : public juce::UndoableAction {
   public:
     LiveInterfaceEdit(Desktop &desktop, const juce::var &oldState, const juce::var &newState)
@@ -117,6 +141,7 @@ void Desktop::applyLiveInterface(const juce::var &value) {
     }
     live::validatePlayback(copy);
     validateMusicalEdit(*this, copy);
+    validatePlaybackEdit(*this, copy);
     auto transaction = liveDocument->clone();
     transaction.interfaceState = copy;
     transaction.validate();
@@ -131,6 +156,7 @@ void Desktop::editLiveInterface(const juce::String &label, std::function<void(ju
     edit(draft);
     live::validate(draft);
     validateMusicalEdit(*this, draft);
+    validatePlaybackEdit(*this, draft);
     if (live::canonical(draft) == live::canonical(liveDocument->interfaceState))
         return;
     liveShowEditing = true;
@@ -257,6 +283,9 @@ void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file)
             live::put(row, "mute", false);
             live::put(row, "solo", false);
         }
+        // A replacement source starts with its complete extent, retaining the item mix.
+        row.getDynamicObject()->removeProperty("trimStart");
+        row.getDynamicObject()->removeProperty("trimEnd");
         live::put(row, "file", file.getFullPathName());
         live::put(live::map(live::performance(state), "nativePlayback"), id, row);
     });
@@ -273,6 +302,19 @@ void Desktop::setLivePlaybackMix(double gain, bool mute, bool solo) {
         live::put(row, "gain", gain);
         live::put(row, "mute", mute);
         live::put(row, "solo", solo);
+    });
+    syncLivePlayback();
+}
+void Desktop::setLivePlaybackTrim(double start, double end) {
+    if (!livePlaybackReady())
+        throw std::runtime_error("Playback is not ready");
+    if (!std::isfinite(start) || !std::isfinite(end) || start < 0. || end <= start)
+        throw std::runtime_error("Invalid Playback trim range");
+    const auto id = liveDocument->interfaceState["currentItem"].toString();
+    editLiveInterface("Trim Playback", [&](auto &state) {
+        auto &row = live::map(live::map(live::performance(state), "nativePlayback"), id);
+        live::put(row, "trimStart", start);
+        live::put(row, "trimEnd", end);
     });
     syncLivePlayback();
 }
@@ -347,6 +389,25 @@ void Desktop::syncLivePlayback() {
     if (livePlaybackReady()) {
         const auto key = live::canonical(row);
         if (key != livePlaybackMixKey) {
+            const auto snapshot = project();
+            const auto clip = snapshot->clips.front();
+            const auto frames = app.source_frames(clip.id);
+            const auto start =
+                static_cast<mrs::Sample>(std::llround(static_cast<double>(row["trimStart"]) * snapshot->sample_rate));
+            const auto end = row["trimEnd"].isVoid()
+                                 ? frames
+                                 : static_cast<mrs::Sample>(
+                                       std::llround(static_cast<double>(row["trimEnd"]) * snapshot->sample_rate));
+            if (start < 0 || end <= start || end > frames) {
+                livePlaybackError = "Saved trim exceeds the original WAV source; attach the correct WAV again";
+                app.stop();
+                app.disconnect(); // Never expose an untrimmed replacement as ready audio.
+                liveEmptyRevision =
+                    std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
+                return;
+            }
+            if (clip.start != start || clip.length != end - start)
+                app.trim_clip(clip.id, start, end);
             auto mix = project()->tracks.front().mix;
             mix.gain = static_cast<float>(std::pow(10., static_cast<double>(row["gain"]) / 20.));
             mix.mute = static_cast<bool>(row["mute"]);

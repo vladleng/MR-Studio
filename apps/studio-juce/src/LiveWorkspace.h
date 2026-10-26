@@ -148,7 +148,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             const mrs::Timeline clock(project->time, project->sample_rate);
             const auto pos = clock.musical_position(clock.to_ticks(head.sample));
             const double elapsed = static_cast<double>(head.sample) / project->sample_rate;
-            const double total = static_cast<double>(project->clips.front().length) / project->sample_rate;
+            const double total = static_cast<double>(project->clips.front().start + project->clips.front().length) / project->sample_rate;
             statusText += "\nBar " + juce::String(pos.bar) + ":" + juce::String(pos.beat) + ":" +
                           juce::String(pos.tick) + "  |  " + juce::String(elapsed, 1) + " s  |  remaining " +
                           juce::String(juce::jmax(0., total - elapsed), 1) + " s";

@@ -22,6 +22,12 @@ inline void validatePlayback(const juce::var &state) {
         if (!(gain.isDouble() || gain.isInt()) || !std::isfinite(static_cast<double>(gain)) ||
             static_cast<double>(gain) < -60. || static_cast<double>(gain) > 12.)
             throw std::runtime_error("Playback gain must be -60..12 dB");
+        const auto start = row["trimStart"], end = row["trimEnd"];
+        if ((!start.isVoid() &&
+             (!number(start) || (static_cast<double>(start) < 0. || static_cast<double>(start) > 1.e9))) ||
+            (!end.isVoid() && (!number(end) || (static_cast<double>(end) <= static_cast<double>(start) ||
+                                                static_cast<double>(end) > 1.e9))))
+            throw std::runtime_error("Invalid Playback trim range");
     }
 }
 inline void playbackPaths(juce::var &state, const juce::File &show, bool reading, bool savedVersions = true) {

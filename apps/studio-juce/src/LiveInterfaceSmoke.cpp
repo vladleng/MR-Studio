@@ -356,7 +356,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                 u16(value >> 16);
             };
             out.write("RIFF", 4);
-            u32(36 + 19200);
+            u32(36 + 192000);
             out.write("WAVEfmt ", 8);
             u32(16);
             u16(1);
@@ -366,8 +366,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             u16(4);
             u16(16);
             out.write("data", 4);
-            u32(19200);
-            for (int n = 0; n < 9600; ++n)
+            u32(192000);
+            for (int n = 0; n < 96000; ++n)
                 u16(8192);
         }
         Desktop playbackDesktop(true, false, true);
@@ -461,6 +461,97 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                       std::abs(playbackTimeline->playheadBounds().getX() - startPosition) < .001f,
                   "Stop returns timeline playhead to item start");
 
+        playbackDesktop.editLiveInterface("Zoom for clip editing", [&](auto &state) {
+            auto &viewState = live::map(live::map(live::performance(state), "arrangement"), id);
+            live::put(viewState, "scale", 128.);
+        });
+        playbackTimeline->refresh();
+        auto *trimTimelineBody = liveComponent(*playbackTimeline, "live-timeline-items");
+        const auto dragTime = juce::Time::getCurrentTime();
+        const auto dragEvent = [&](float x) {
+            const juce::Point<float> point{x, 426.f};
+            return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), point,
+                                    juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier), 1, 0, 0, 0, 0,
+                                    trimTimelineBody, trimTimelineBody, dragTime, point, dragTime, 1, false);
+        };
+        const auto untrimmed = playbackDesktop.project();
+        trimTimelineBody->mouseDown(dragEvent(1.f));
+        trimTimelineBody->mouseDrag(dragEvent(4.f));
+        liveCheck(playbackDesktop.project() == untrimmed, "Trim drag previews without publishing per-frame Core edits");
+        trimTimelineBody->mouseUp(dragEvent(4.f));
+        liveCheck(playbackDesktop.project()->clips.front().start > 0 &&
+                      playbackDesktop.project()->clips.front().start ==
+                          playbackDesktop.project()->clips.front().source_offset,
+                  "Releasing the left clip edge commits nondestructive trim");
+        playbackDesktop.undoLiveInterface();
+        playbackDesktop.syncLivePlayback();
+        liveCheck(playbackDesktop.project()->clips.front().length == 48000,
+                  "One show Undo reverses the whole edge drag");
+
+        // Trim uses the existing Core source window; no destructive WAV rewrite or second audio path.
+        auto *trimIn = dynamic_cast<juce::TextEditor *>(liveComponent(playbackDesktop, "live-trim-start"));
+        auto *trimOut = dynamic_cast<juce::TextEditor *>(liveComponent(playbackDesktop, "live-trim-end"));
+        auto *trimButton = dynamic_cast<juce::TextButton *>(liveComponent(playbackDesktop, "live-trim-apply"));
+        liveCheck(trimIn && trimOut && trimButton, "Playback exposes precise source trim controls");
+        trimIn->setText("0.02", false);
+        trimOut->setText("0.08", false);
+        trimButton->onClick();
+        liveCheck(playbackDesktop.project()->clips.front().start == 960 &&
+                      playbackDesktop.project()->clips.front().source_offset == 960 &&
+                      playbackDesktop.project()->clips.front().length == 2880,
+                  "Trim maps seconds into the real Core source window");
+        const auto trimmedProject = playbackDesktop.project();
+        bool trimRejected = false;
+        try {
+            playbackDesktop.setLivePlaybackTrim(.02, 2.);
+        } catch (const std::exception &) {
+            trimRejected = true;
+        }
+        liveCheck(trimRejected && playbackDesktop.project() == trimmedProject,
+                  "Out-of-source trim is rejected without committing show or Core changes");
+        playbackDesktop.undoLiveInterface();
+        playbackDesktop.syncLivePlayback();
+        liveCheck(playbackDesktop.project()->clips.front().start == 0 &&
+                      playbackDesktop.project()->clips.front().source_offset == 0 &&
+                      playbackDesktop.project()->clips.front().length == 48000,
+                  "Show Undo restores the full original source extent");
+        playbackDesktop.undoLiveInterface(true);
+        playbackDesktop.syncLivePlayback();
+        liveCheck(playbackDesktop.project()->clips.front().length == 2880, "Show Redo restores nondestructive trim");
+        playbackDesktop.app.connect(std::make_unique<LivePlaybackTestDevice>(), {0, 48000, 128, {}, {0, 1}, 1});
+        playbackDesktop.app.seek(0);
+        playbackDesktop.app.play();
+        render();
+        liveCheck(std::abs(audio[200]) < .0001f, "Trimmed source prefix is silent on the actual timeline");
+        const auto beforePlayingTrim = playbackDesktop.liveDocument->signature();
+        trimRejected = false;
+        try {
+            playbackDesktop.setLivePlaybackTrim(0., 1.);
+        } catch (const std::exception &) {
+            trimRejected = true;
+        }
+        liveCheck(trimRejected && playbackDesktop.liveDocument->signature() == beforePlayingTrim,
+                  "Playing trim guard preserves show history atomically");
+        playbackDesktop.app.seek(960);
+        render();
+        liveCheck(std::abs(audio[200]) > .01f, "Trim retains audible original PCM inside the source window");
+        playbackDesktop.app.stop();
+        render();
+        playbackTimeline->refresh();
+        auto *channelMute = dynamic_cast<juce::TextButton *>(liveComponent(*playbackTimeline, "live-channel-mute"));
+        auto *channelSolo = dynamic_cast<juce::TextButton *>(liveComponent(*playbackTimeline, "live-channel-solo"));
+        auto *channelGain = dynamic_cast<juce::Slider *>(liveComponent(*playbackTimeline, "live-channel-gain"));
+        liveCheck(channelMute && channelSolo && channelGain && channelMute->isEnabled(),
+                  "Playback channel has bound mix controls");
+        channelMute->setToggleState(true, juce::dontSendNotification);
+        channelMute->onClick();
+        liveCheck(playbackDesktop.project()->tracks.front().mix.mute,
+                  "Channel Mute edits the same shared mixer as the Playback panel");
+        playbackDesktop.undoLiveInterface();
+        playbackDesktop.syncLivePlayback();
+        playbackTimeline->refresh();
+        liveCheck(!channelMute->getToggleState(), "Channel controls reflect show Undo");
+
         liveCheck(live::itemDirty(playbackDesktop.liveDocument->interfaceState, id),
                   "Changing saved item mix makes content unsaved");
         playbackDesktop.editLiveInterface("Save for All", [&](auto &state) { live::saveItem(state, id); });
@@ -471,6 +562,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                       live::playback(playbackSaved.interfaceState, id)["file"].toString() ==
                           waveFile.getFullPathName() &&
                       static_cast<double>(live::playback(playbackSaved.interfaceState, id)["gain"]) == -6. &&
+                      static_cast<double>(live::playback(playbackSaved.interfaceState, id)["trimStart"]) == .02 &&
+                      static_cast<double>(live::playback(playbackSaved.interfaceState, id)["trimEnd"]) == .08 &&
                       !playbackDesktop.documentDirty(),
                   "Playback media and mix round-trip solely through mrlive");
         const auto savedJson = juce::JSON::parse(playbackShow.loadFileAsString());
@@ -488,12 +581,17 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         playbackDesktop.openFile(playbackShow);
         playbackDesktop.syncLivePlayback();
         waitPlayback();
+        liveCheck(playbackDesktop.livePlaybackReady() &&
+                      playbackDesktop.project()->clips.front().source_offset == 960 &&
+                      playbackDesktop.project()->clips.front().length == 2880,
+                  "Reopened show materializes saved trim in shared Core");
         liveCheck(playbackDesktop.livePlaybackReady(), "Reopened show prepares its audio again");
 
         const auto projected = playbackDesktop.project();
         playbackDesktop.action(10);
         liveCheck(playbackDesktop.project() == projected && playbackDesktop.livePlaybackReady(),
                   "Show Undo never undoes generated Core projection after reopen");
+        playbackDesktop.setLivePlaybackTrim(0., 1.);
         playbackDesktop.app.connect(std::make_unique<LivePlaybackTestDevice>(), {0, 48000, 128, {}, {0, 1}, 1});
         playbackDesktop.editLiveInterface("Musical context", [&](auto &state) {
             auto &item = live::require(state, "items", id);
@@ -562,6 +660,17 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         playbackDesktop.app.poll();
         liveCheck(playbackDesktop.app.engine()->state().sample == musicClock.to_samples(3 * mrs::ppq),
                   "Timeline ruler seeks real audio under 3/4 meter");
+        const float audioX = static_cast<float>(1. + (viewLead + .05 / 2.) * viewScale);
+        int playbackLane = 0;
+        for (const auto &channel : *playbackDesktop.liveDocument->interfaceState["channels"].getArray()) {
+            if (channel["type"].toString() == "Playback")
+                break;
+            ++playbackLane;
+        }
+        timelineBody->mouseDown(seekClick({audioX, static_cast<float>(158 + playbackLane * 124 + 32)}));
+        render();
+        liveCheck(std::abs(playbackDesktop.app.engine()->state().sample - 2400) < 50,
+                  "Clicking the real Playback lane seeks shared audio to that time");
         const float verseX = static_cast<float>(1. + (viewLead + 21.75) * viewScale);
         timelineBody->mouseDown(seekClick({verseX, 100.f}));
         render();
