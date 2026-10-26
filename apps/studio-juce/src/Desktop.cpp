@@ -165,7 +165,7 @@ void Desktop::reconnectDevice(bool session){if(testing||(!session&&!prefs.reconn
 void Desktop::openFile(const juce::File& f){if(!standaloneLive&&!testing&&f.hasFileExtension("mrlive")){launchLive(f,false);return;}if(standaloneLive&&!f.hasFileExtension("mrlive"))throw std::runtime_error("MR Live opens .mrlive show documents");mrs::diagnostics::event("project_open_begin "+f.getFullPathName().toStdString());const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();cancelPreview();if(f.hasFileExtension("mrlive")){
     auto showState=LiveDocument::read(f);if(standaloneLive&&!showState.projects.empty())throw std::runtime_error("This development show uses obsolete Studio project references");
     if(showState.active>=0)app.open_project(path(showState.projects.at(static_cast<std::size_t>(showState.active))));else app.new_project(session?prefs.rate:48000);
-    liveDocument=std::move(showState);liveFile=f;prepareLiveInterface(true);app.workspace(mrs::desktop::Workspace::live);
+    livePlaybackItem.clear();livePlaybackFile.clear();liveDocument=std::move(showState);liveFile=f;prepareLiveInterface(true);app.workspace(mrs::desktop::Workspace::live);
 }else{const bool leavingLive=liveDocument.has_value()||app.workspace()==mrs::desktop::Workspace::live;app.open_project(path(f));liveDocument.reset();liveFile=juce::File();prepareLiveInterface(false);if(leavingLive)app.workspace(mrs::desktop::Workspace::arrange);}
 resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();showProjectHome(false);reconnectDevice(session);if(liveDocument&&liveDocument->active<0)liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};else liveEmptyRevision.reset();mrs::diagnostics::event("project_open_end");}
 bool Desktop::songDirty() const{
@@ -419,7 +419,7 @@ void Desktop::action(int n){if(busyGesture()){if(n==34||n==35||n==48||n==49||n==
     else if(n==25 && arrangement->markers->hasSelection()){arrangement->markers->removeSelected();}
     else if(n==25 && arrangement->chords->hasSelection()){arrangement->chords->removeSelected();}
     else if(n==25 && selectedClip){std::vector<mrs::Id> clips;for(const auto& c:project()->clips)if(selectedClips.contains(c.id.value)||c.id==selectedClip)clips.push_back(c.id);app.remove_clips(std::move(clips));selectedClip.reset();selectedClips.clear();}
-    else if(n==30){if(app.workspace()==mrs::desktop::Workspace::live&&liveDocument&&!liveDocument->currentLinked())throw std::runtime_error("Playback is not available for this item");app.play();}else if(n==31)app.pause();else if(n==32){if(app.recording())app.stop_recording();app.stop();}
+    else if(n==30){if(app.workspace()==mrs::desktop::Workspace::live&&liveDocument&&!liveDocument->currentLinked()&&!livePlaybackReady())throw std::runtime_error("Playback is not available for this item");app.play();}else if(n==31)app.pause();else if(n==32){if(app.recording())app.stop_recording();app.stop();}
     else if(n==33){if(app.workspace()==mrs::desktop::Workspace::live&&liveDocument&&!liveDocument->currentLinked())throw std::runtime_error("Recording is not available for this item");if(app.recording()){app.stop_recording();app.stop();refresh(true);}else app.start_project_recording(path(juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio").getChildFile("Projects")));}
     else if(n==48)app.musical().previous_marker();else if(n==49)app.musical().next_marker();else if(n==50||n==51)navigationMenu(n==50);
     else if(n==34)app.musical().previous_section();else if(n==35)app.musical().next_section();
@@ -642,7 +642,7 @@ void Desktop::updateRecordingPreview(){
     audioRecordingPreview=std::move(nextWaveforms);
 }
 void Desktop::focusLost(FocusChangeType){spaceHeld=false;}
-void Desktop::timerCallback(){try{const bool wasRecording=app.recording();app.poll();
+void Desktop::timerCallback(){try{const bool wasRecording=app.recording();app.poll();syncLivePlayback();
     const auto importing=app.wav_import_status();
     if(importing.busy)message="Preparing WAV import: "+juce::String(static_cast<int>(importing.progress*100.f))+"% (Esc to cancel)";
     else if(wavImportRevision!=importing.revision)message=label(importing.message);

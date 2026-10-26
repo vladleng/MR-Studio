@@ -3,6 +3,7 @@
 #include "LiveChannels.h"
 #include "LiveContext.h"
 #include "LiveLayout.h"
+#include "LivePlaybackPanel.h"
 #include "LiveSetlist.h"
 #include "LiveTheme.h"
 #include "LiveTimeline.h"
@@ -12,8 +13,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
   public:
     explicit LiveWorkspace(Desktop &desktop)
         : owner(desktop), setlist(desktop, false, reference.defaults["itemCardLayout"]),
-          browserItems(desktop, true, reference.defaults["itemCardLayout"]), timeline(desktop),
-          legacyChannels(desktop) {
+          browserItems(desktop, true, reference.defaults["itemCardLayout"]), timeline(desktop), legacyChannels(desktop),
+          playbackPanel(desktop) {
         setComponentID("mr-live-workspace");
         setName("MR Live");
         configureLiveContext(nativeTheme, static_cast<float>(owner.view.liveMenuOpacity));
@@ -27,6 +28,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             addAndMakeVisible(component);
         addChildComponent(browserItems);
         addAndMakeVisible(timeline);
+        addAndMakeVisible(playbackPanel);
         addChildComponent(legacyChannels);
         files.onClick = [this] { filesMenu(); };
         options.onClick = [this] { optionsMenu(); };
@@ -70,6 +72,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     }
     bool itemsBrowserVisible() const { return browserVisible; }
     void resized() override {
+        playbackPanel.setBounds(reference.bounds("playback.stems", getWidth(), getHeight()));
         const auto size = getLocalBounds();
         const auto toolbar = reference.bounds("control.toolbar", size.getWidth(), size.getHeight());
         auto controls = toolbar.reduced(6).withHeight(32);
@@ -120,8 +123,10 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
                    header.getCentreX() + 54, header.getCentreY() - 20, 120, 24, juce::Justification::left);
         g.setFont(owner.theme.font(9));
         g.setColour(tokens.colour(ColourRole::muted));
-        g.drawText(head.playback == mrs::PlaybackState::playing ? "PLAYING" : "STOPPED", header.getCentreX() + 54,
-                   header.getCentreY() + 4, 120, 18, juce::Justification::left);
+        g.drawText(head.playback == mrs::PlaybackState::playing  ? "PLAYING"
+                   : head.playback == mrs::PlaybackState::paused ? "PAUSED"
+                                                                 : "STOPPED",
+                   header.getCentreX() + 54, header.getCentreY() + 4, 120, 18, juce::Justification::left);
         if (tunerPlaceholder) {
             const float tunerHeight = juce::jmin(64.f, static_cast<float>(header.getHeight()));
             const float tunerWidth = 264.f * tunerHeight / 64.f;
@@ -233,12 +238,13 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         if (legacy)
             legacyChannels.refresh();
         timeline.refresh();
+        playbackPanel.sync();
         const auto projectState = owner.app.services().projects->state();
         undoButton.setEnabled(owner.liveShowEditing ? owner.liveUndo.canUndo() : projectState.can_undo);
         redoButton.setEnabled(owner.liveShowEditing ? owner.liveUndo.canRedo() : projectState.can_redo);
         const auto state = owner.displayState();
         const bool linked = !owner.liveDocument || owner.liveDocument->currentLinked();
-        play.setEnabled(linked);
+        play.setEnabled(linked || owner.livePlaybackReady());
         record.setEnabled(linked);
         previous.setEnabled(linked && !owner.app.recording());
         next.setEnabled(linked && !owner.app.recording());
@@ -255,6 +261,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     LiveSetlist setlist, browserItems;
     LiveTimeline timeline;
     LiveChannels legacyChannels;
+    LivePlaybackPanel playbackPanel;
     bool showLegacyChannels{};
     std::unique_ptr<juce::Drawable> tunerPlaceholder;
     juce::TextButton files{"Files"}, options{"Options"}, play{"Play"}, pause{"Pause"}, stop{"Stop"},

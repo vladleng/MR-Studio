@@ -81,6 +81,12 @@ public:
     void addLiveProject(const juce::File&);
     void importLiveShow(const juce::File&);
     void selectLiveItem(const juce::String&);
+    void attachLivePlayback(const juce::String&,const juce::File&);
+    void setLivePlaybackMix(double,bool,bool);
+    void syncLivePlayback();
+    bool livePlaybackReady() const;
+    juce::String livePlaybackItem, livePlaybackFile, livePlaybackMixKey, livePlaybackError;
+    bool livePlaybackLoading{};
     void bindLiveItem(const juce::String&,const juce::File&);
     void prepareLiveInterface(bool saved);
     void updateLiveDirty();

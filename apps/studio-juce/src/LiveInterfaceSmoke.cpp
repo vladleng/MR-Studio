@@ -1,6 +1,7 @@
 #include "LiveWindowLayout.h"
 #include "LiveWorkspace.h"
 #include "ProjectHome.h"
+#include <fstream>
 #include <windows.h>
 
 namespace ui {
@@ -322,6 +323,112 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     liveCheck(LiveDocument::read(old).interfaceState["items"].size() == 1,
               "Native v1 files migrate to catalog metadata");
     liveCheck(fixture.loadFileAsString() == original, "Editor source export remains unchanged");
+    {
+        // Synthetic PCM only: exercise shared rendering without ASIO or personal media.
+        const auto waveFile = folder.getChildFile("live-tone.wav");
+        {
+            std::ofstream out(std::filesystem::path(waveFile.getFullPathName().toWideCharPointer()), std::ios::binary);
+            auto u16 = [&](unsigned value) {
+                out.put(static_cast<char>(value & 255));
+                out.put(static_cast<char>((value >> 8) & 255));
+            };
+            auto u32 = [&](unsigned value) {
+                u16(value & 65535);
+                u16(value >> 16);
+            };
+            out.write("RIFF", 4);
+            u32(36 + 19200);
+            out.write("WAVEfmt ", 8);
+            u32(16);
+            u16(1);
+            u16(2);
+            u32(48000);
+            u32(192000);
+            u16(4);
+            u16(16);
+            out.write("data", 4);
+            u32(19200);
+            for (int n = 0; n < 9600; ++n)
+                u16(8192);
+        }
+        Desktop playbackDesktop(true, false, true);
+        playbackDesktop.importLiveShow(fixture);
+        playbackDesktop.app.disconnect();
+        playbackDesktop.selectLiveItem(id);
+        playbackDesktop.attachLivePlayback(id, waveFile);
+        const auto waitPlayback = [&] {
+            const auto deadline = juce::Time::getMillisecondCounter() + 5000;
+            while (playbackDesktop.livePlaybackLoading && juce::Time::getMillisecondCounter() < deadline) {
+                playbackDesktop.app.poll();
+                playbackDesktop.syncLivePlayback();
+                juce::Thread::sleep(1);
+            }
+        };
+        waitPlayback();
+        liveCheck(playbackDesktop.livePlaybackReady() && playbackDesktop.project()->clips.size() == 1 &&
+                      playbackDesktop.liveDocument->projects.empty(),
+                  "WAV materializes into shared Core without Studio project references");
+        playbackDesktop.app.disconnect(); // Manual process() must never race the offline device callback.
+        std::array<float, 256> audio{};
+        const auto render = [&] {
+            for (int n = 0; n < 4; ++n)
+                playbackDesktop.app.engine()->process(nullptr, audio.data(), 128);
+        };
+        playbackDesktop.action(30);
+        render();
+        const float fullLevel = std::abs(audio[200]);
+        liveCheck(fullLevel > .01f && playbackDesktop.app.engine()->state().sample > 0,
+                  "Live transport produces actual PCM through shared AudioEngine");
+        playbackDesktop.setLivePlaybackMix(-6., false, true);
+        render();
+        liveCheck(std::abs(audio[200]) < fullLevel * .75f && playbackDesktop.project()->tracks.front().mix.solo,
+                  "Item gain and Solo reach the Core mixer");
+        playbackDesktop.setLivePlaybackMix(-6., true, true);
+        render();
+        liveCheck(std::abs(audio[200]) < .0001f, "Mute silences rendered audio");
+        playbackDesktop.undoLiveInterface();
+        playbackDesktop.syncLivePlayback();
+        render();
+        liveCheck(std::abs(audio[200]) > .01f, "Show Undo restores audible mixer state");
+        playbackDesktop.action(31);
+        render();
+        liveCheck(playbackDesktop.app.engine()->state().playback == mrs::PlaybackState::paused,
+                  "Live Pause reaches shared Transport");
+        playbackDesktop.action(32);
+        render();
+        liveCheck(playbackDesktop.app.engine()->state().sample == 0, "Live Stop resets actual transport position");
+        const auto playbackShow = folder.getChildFile("playback.mrlive");
+        playbackDesktop.saveFile(playbackShow);
+        const auto playbackSaved = LiveDocument::read(playbackShow);
+        liveCheck(playbackSaved.projects.empty() &&
+                      live::playback(playbackSaved.interfaceState, id)["file"].toString() ==
+                          waveFile.getFullPathName() &&
+                      static_cast<double>(live::playback(playbackSaved.interfaceState, id)["gain"]) == -6. &&
+                      !playbackDesktop.documentDirty(),
+                  "Playback media and mix round-trip solely through mrlive");
+        const auto savedJson = juce::JSON::parse(playbackShow.loadFileAsString());
+        liveCheck(live::playback(savedJson["interface"], id)["file"].toString() == "live-tone.wav",
+                  "Playback reference is relative to the show folder");
+        playbackDesktop.openFile(playbackShow);
+        playbackDesktop.syncLivePlayback();
+        waitPlayback();
+        liveCheck(playbackDesktop.livePlaybackReady(), "Reopened show prepares its audio again");
+        playbackDesktop.selectLiveItem(second);
+        liveCheck(!playbackDesktop.livePlaybackReady() && playbackDesktop.project()->clips.empty(),
+                  "Changing to an empty item clears previous audio");
+        const auto badWave = folder.getChildFile("invalid.wav");
+        badWave.replaceWithText("not a WAV");
+        playbackDesktop.attachLivePlayback(second, badWave);
+        waitPlayback();
+        liveCheck(!playbackDesktop.livePlaybackReady() && playbackDesktop.livePlaybackError.isNotEmpty() &&
+                      playbackDesktop.project()->clips.empty(),
+                  "Decode failure disables Playback and cannot retain old song audio");
+        playbackDesktop.attachLivePlayback(second, waveFile);
+        playbackDesktop.selectLiveItem(id);
+        waitPlayback();
+        liveCheck(playbackDesktop.livePlaybackReady() && playbackDesktop.livePlaybackItem == id,
+                  "Rapid item switch cannot publish a stale import");
+    }
     desktop.home.reset();
     liveCheck(folder.deleteRecursively(), "Native interface fixture cleanup");
 }

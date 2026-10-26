@@ -52,6 +52,11 @@ void Desktop::launchLive(const juce::File &file, bool create) {
     refresh();
 }
 void Desktop::prepareLiveInterface(bool saved) {
+    livePlaybackItem.clear();
+    livePlaybackFile.clear();
+    livePlaybackError.clear();
+    livePlaybackMixKey.clear();
+    livePlaybackLoading = false;
     liveUndo.clearUndoHistory();
     liveShowEditing = false;
     if (liveDocument) {
@@ -81,6 +86,16 @@ void Desktop::applyLiveInterface(const juce::var &value) {
     if (live::find(copy, "setlists", set.toString()).isObject())
         live::put(copy, "activeSetlist", set);
     live::validate(copy);
+    auto bindings = copy["performance"]["nativePlayback"];
+    if (bindings.isObject()) {
+        juce::StringArray removed;
+        for (const auto &pair : bindings.getDynamicObject()->getProperties())
+            if (!live::find(copy, "items", pair.name.toString()).isObject())
+                removed.add(pair.name.toString());
+        for (const auto &key : removed)
+            bindings.getDynamicObject()->removeProperty(key);
+    }
+    live::validatePlayback(copy);
     auto transaction = liveDocument->clone();
     transaction.interfaceState = copy;
     transaction.validate();
@@ -155,6 +170,8 @@ void Desktop::selectLiveItem(const juce::String &id) {
         reconnectDevice(session);
         liveEmptyRevision = std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
     }
+    livePlaybackItem.clear();
+    syncLivePlayback();
     liveShowEditing = true;
     updateLiveDirty();
     ++liveUiRevision;
@@ -192,5 +209,111 @@ void Desktop::bindLiveItem(const juce::String &id, const juce::File &file) {
     liveEmptyRevision.reset();
     refresh(true);
     reconnectDevice(session);
+}
+} // namespace ui
+
+namespace ui {
+void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file) {
+    if (!liveDocument || !live::find(liveDocument->interfaceState, "items", id).isObject())
+        throw std::runtime_error("Select a Live item first");
+    if (app.recording())
+        throw std::runtime_error("Stop recording before changing Playback");
+    if (!file.existsAsFile() || !file.hasFileExtension("wav"))
+        throw std::runtime_error("Select an existing WAV file");
+    editLiveInterface("Attach Playback WAV", [&](auto &state) {
+        auto row = live::playback(state, id).clone();
+        if (!row.isObject()) {
+            row = live::object();
+            live::put(row, "gain", 0.);
+            live::put(row, "mute", false);
+            live::put(row, "solo", false);
+        }
+        live::put(row, "file", file.getFullPathName());
+        live::put(live::map(live::performance(state), "nativePlayback"), id, row);
+    });
+    if (liveDocument->interfaceState["currentItem"].toString() == id)
+        livePlaybackItem.clear();
+    syncLivePlayback();
+}
+void Desktop::setLivePlaybackMix(double gain, bool mute, bool solo) {
+    if (!liveDocument || !livePlaybackReady())
+        throw std::runtime_error("Playback is not ready");
+    const auto id = liveDocument->interfaceState["currentItem"].toString();
+    editLiveInterface("Playback mix", [&](auto &state) {
+        auto &row = live::map(live::map(live::performance(state), "nativePlayback"), id);
+        live::put(row, "gain", gain);
+        live::put(row, "mute", mute);
+        live::put(row, "solo", solo);
+    });
+    syncLivePlayback();
+}
+bool Desktop::livePlaybackReady() const {
+    if (!liveDocument || livePlaybackLoading || livePlaybackError.isNotEmpty() || app.wav_import_status().busy)
+        return false;
+    const auto id = liveDocument->interfaceState["currentItem"].toString();
+    return id == livePlaybackItem && livePlaybackFile.isNotEmpty() &&
+           live::playback(liveDocument->interfaceState, id)["file"].toString() == livePlaybackFile &&
+           project()->tracks.size() == 1 && !project()->clips.empty();
+}
+void Desktop::syncLivePlayback() {
+    if (!liveDocument || !liveDocument->projects.empty())
+        return; // Legacy compatibility stays separate.
+    bool changed = false;
+    const auto id = liveDocument->interfaceState["currentItem"].toString();
+    const auto row = live::playback(liveDocument->interfaceState, id);
+    const auto file = row["file"].toString();
+    if (livePlaybackItem != id || livePlaybackFile != file) {
+        if (app.recording())
+            throw std::runtime_error("Stop recording before changing Playback");
+        const bool reload = file.isNotEmpty() || livePlaybackFile.isNotEmpty();
+        changed = reload;
+        livePlaybackItem = id;
+        livePlaybackFile = file;
+        livePlaybackMixKey.clear();
+        livePlaybackError.clear();
+        livePlaybackLoading = false;
+        if (reload) {
+            const bool session = app.audio_name() != "Offline clock (no sound)" && app.audio_name() != "Disconnected";
+            closeEditors();
+            cancelPreview();
+            app.new_project(session ? prefs.rate : 48000);
+            resetDevice();
+            selectedTrack.reset();
+            selectedClip.reset();
+            reconnectDevice(session);
+        }
+        if (file.isNotEmpty()) {
+            if (!juce::File(file).existsAsFile())
+                livePlaybackError = "Playback file is missing: " + file;
+            else {
+                try {
+                    app.queue_wav_import({std::filesystem::path(file.toWideCharPointer())});
+                    livePlaybackLoading = true;
+                } catch (const std::exception &error) {
+                    livePlaybackError = error.what();
+                }
+            }
+        }
+    }
+    if (livePlaybackLoading && !app.wav_import_status().busy) {
+        changed = true;
+        livePlaybackLoading = false;
+        if (project()->tracks.size() != 1 || project()->clips.empty())
+            livePlaybackError = juce::String::fromUTF8(app.wav_import_status().message.c_str());
+    }
+    if (livePlaybackReady()) {
+        const auto key = live::canonical(row);
+        if (key != livePlaybackMixKey) {
+            auto mix = project()->tracks.front().mix;
+            mix.gain = static_cast<float>(std::pow(10., static_cast<double>(row["gain"]) / 20.));
+            mix.mute = static_cast<bool>(row["mute"]);
+            mix.solo = static_cast<bool>(row["solo"]);
+            app.set_track_mix(project()->tracks.front().id, mix);
+            livePlaybackMixKey = key;
+            changed = true;
+        }
+    }
+    if (changed)
+        liveEmptyRevision = std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
 }
 } // namespace ui

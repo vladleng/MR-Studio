@@ -1,0 +1,39 @@
+#pragma once
+#include "LiveShowState.h"
+#include <cmath>
+
+namespace ui::live {
+// Show-owned references/settings; decoded audio and transport belong to shared Core.
+inline juce::var playback(const juce::var &state, const juce::String &item) {
+    return state["performance"]["nativePlayback"][juce::Identifier(item)];
+}
+inline void validatePlayback(const juce::var &state) {
+    const auto rows = state["performance"]["nativePlayback"];
+    if (rows.isVoid())
+        return;
+    if (!rows.isObject())
+        throw std::runtime_error("Invalid Live Playback bindings");
+    for (const auto &pair : rows.getDynamicObject()->getProperties()) {
+        const auto row = pair.value;
+        if (!find(state, "items", pair.name.toString()).isObject() || !row.isObject() || !row["file"].isString() ||
+            row["file"].toString().isEmpty() || !row["mute"].isBool() || !row["solo"].isBool())
+            throw std::runtime_error("Invalid Live Playback item binding");
+        const auto gain = row["gain"];
+        if (!(gain.isDouble() || gain.isInt()) || !std::isfinite(static_cast<double>(gain)) ||
+            static_cast<double>(gain) < -60. || static_cast<double>(gain) > 12.)
+            throw std::runtime_error("Playback gain must be -60..12 dB");
+    }
+}
+inline void playbackPaths(juce::var &state, const juce::File &show, bool reading) {
+    auto rows = state["performance"]["nativePlayback"];
+    if (!rows.isObject())
+        return;
+    for (auto &pair : rows.getDynamicObject()->getProperties()) {
+        const auto name = pair.value["file"].toString();
+        const auto resolved = show.getParentDirectory().getChildFile(name);
+        auto row = pair.value;
+        put(row, "file",
+            reading ? resolved.getFullPathName() : resolved.getRelativePathFrom(show.getParentDirectory()));
+    }
+}
+} // namespace ui::live

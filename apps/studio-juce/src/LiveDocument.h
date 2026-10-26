@@ -1,9 +1,11 @@
 #pragma once
+#include "LivePlaybackState.h"
 #include "LiveShowState.h"
 #include <vector>
 
 namespace ui {
-// Metadata document. Song/audio/plugin state is always owned by .mrsproject.
+// Show-owned metadata/media references; current Playback is projected into shared Core.
+// Studio-project references below are retained only for legacy compatibility.
 struct LiveDocument {
     juce::String title{"MR Live"};
     std::vector<juce::File> projects;
@@ -47,6 +49,7 @@ struct LiveDocument {
                 throw std::runtime_error("MR Live songs must reference .mrsproject");
         if (interfaceState.isObject()) {
             live::validate(interfaceState);
+            live::validatePlayback(interfaceState);
             for (const auto &[id, index] : itemProjects)
                 if (!live::find(interfaceState, "items", id).isObject() || index < 0 ||
                     index >= static_cast<int>(projects.size()))
@@ -67,7 +70,10 @@ struct LiveDocument {
             refs.add(absolute ? project.getFullPathName() : project.getRelativePathFrom(file.getParentDirectory()));
         live::put(value, "projects", refs);
         if (interfaceState.isObject()) {
-            live::put(value, "interface", interfaceState.clone());
+            auto savedInterface = interfaceState.clone();
+            if (!absolute)
+                live::playbackPaths(savedInterface, file, false);
+            live::put(value, "interface", savedInterface);
             auto links = live::object();
             for (const auto &[id, index] : itemProjects)
                 live::put(links, id, index);
@@ -104,6 +110,8 @@ struct LiveDocument {
             if (!value["interface"].isObject() || !value["itemProjects"].isObject())
                 throw std::runtime_error("Missing MR Live interface metadata");
             result.interfaceState = value["interface"].clone();
+            live::validatePlayback(result.interfaceState);
+            live::playbackPaths(result.interfaceState, file, true);
             for (const auto &pair : value["itemProjects"].getDynamicObject()->getProperties()) {
                 if (!pair.value.isInt())
                     throw std::runtime_error("Invalid item project index");

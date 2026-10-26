@@ -94,3 +94,11 @@ vendor-plugin behavior or mixed-DPI. Native visual acceptance remains open.
 4. Этот handoff, `MR_LIVE_LAYOUT_EDITOR.md`, `LIVE_WORKFLOW.md`, `AGENTS.md` и GUI skill.
 
 Этого комплекта достаточно для продолжения native реализации интерфейса и его согласованного поведения. Для точного восстановления пользовательских items, папок, собственных координат полей кнопки и задач нужен дополнительный **пользовательский demo show JSON**: в своём браузере открыть Files → сохранение demo show либо ПКМ Setlist → «Экспорт demo show» и приложить скачанный файл. Он хранится в localStorage пользователя (`mr-live-demo-show-v1`); среда разработки не имеет доступа к этому localStorage. Пока такого файла нет, не заменять его тестовыми данными и не заявлять восстановление пользовательского show.
+
+## Первый runtime-срез #29: item Playback
+
+В native show `interface.performance.nativePlayback[itemId]` хранит `file`, `gain` (dB, −60…+12), `mute`, `solo`. Это опциональное дополнение native show v2; browser export/layout v5 не изменяются. В памяти путь абсолютный, в `.mrlive` — относительно каталога show; Save as пересчитывает ссылку, не копируя исходный WAV. Состояние входит в show Undo/Redo. Browser library/version semantics и multistem mapping остаются последующими срезами.
+
+На первом этапе поддерживается один WAV на item в существующей панели Playback / stems. Рабочий Project создаётся штатным Core из этой ссылки, без открытия/создания `.mrsproject`; декодирование/ресэмплинг выполняет существующий WAV import worker, публикацию — `Application::poll`. Play/Pause/Stop и позиция используют общий EngineTransport; gain/Mute/Solo — SetTrackMix/shared mixer; peak и waveform берутся из Core, не из браузерной симуляции. Несвязанные browser timeline clips/patches этим автоматически не подключаются.
+
+Смена item останавливает старый runtime и отменяет его незавершённый импорт штатным lifecycle Core. Ошибка/отсутствие файла блокирует Play и показывает причину. Переключение на этом этапе не является seamless/preloaded: безопасная концертная предзагрузка/переходы принадлежат #30/#31. Физические ASIO/MIDI/слух проверяются отдельно.
