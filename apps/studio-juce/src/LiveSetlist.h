@@ -296,7 +296,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         popup.addItem(20, "Undo show", owner.liveUndo.canUndo());
         popup.addItem(21, "Redo show", owner.liveUndo.canRedo());
         juce::Component::SafePointer<LiveSetlist> safe(this);
-        popup.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this), [safe, row](int choice) {
+        popup.showMenuAsync(liveMenuOptions(*this), [safe, row](int choice) {
             if (!safe)
                 return;
             safe->owner.liveShowEditing = true;
@@ -362,7 +362,14 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                             juce::jmax(height, static_cast<double>(field["y"]) + static_cast<double>(field["h"]) + 5.);
                 }
             }
-            return static_cast<float>(height);
+            return static_cast<float>(height) - cardGap();
+        }
+        float cardGap() const {
+            const auto fields = cardLayout["fields"];
+            const float nameBottom =
+                static_cast<float>(fields["name"]["y"]) + juce::jmin(14.f, static_cast<float>(fields["name"]["h"]));
+            const float metadataTop = fields["metadata"]["y"];
+            return juce::jlimit(0.f, 6.f, metadataTop - nameBottom - 2.f);
         }
         void paint(juce::Graphics &g) override {
             const auto tokens = liveReferenceTokens();
@@ -395,8 +402,12 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                 const auto value = cardLayout["fields"][key];
                 return juce::Rectangle<float>(
                     bounds.getX() + static_cast<float>(value["x"]) * bounds.getWidth() / 100.f,
-                    static_cast<float>(value["y"]), static_cast<float>(value["w"]) * bounds.getWidth() / 100.f,
-                    static_cast<float>(value["h"]));
+                    static_cast<float>(value["y"]) - (juce::String(key) == "metadata" ||
+                                                              juce::String(key) == "status" ||
+                                                              juce::String(key) == "priority"
+                                                          ? cardGap()
+                                                          : 0.f),
+                    static_cast<float>(value["w"]) * bounds.getWidth() / 100.f, static_cast<float>(value["h"]));
             };
             const auto enabled = [&](const char *key) {
                 return static_cast<bool>(cardLayout["fields"][key]["visible"]);

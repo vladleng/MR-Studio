@@ -188,6 +188,7 @@ public:
         g.setColour(editor.findColour(juce::TextEditor::backgroundColourId));g.fillRoundedRectangle(juce::Rectangle<float>(0,0,static_cast<float>(width),static_cast<float>(height)).reduced(.5f),radius());
     }
     void drawTextEditorOutline(juce::Graphics& g,int width,int height,juce::TextEditor& editor) override {
+        if(liveContext_ && static_cast<bool>(editor.getProperties()["liveTableCell"])) { if(editor.hasKeyboardFocus(true)){g.setColour(role(ColourRole::focus,accent));g.drawHorizontalLine(height-1,0.f,static_cast<float>(width));} return; }
         g.setColour(editor.hasKeyboardFocus(true)?role(ColourRole::focus,0xff87ceeb):role(ColourRole::border,outline));g.drawRoundedRectangle(juce::Rectangle<float>(0,0,static_cast<float>(width),static_cast<float>(height)).reduced(.5f),radius(),stroke());
     }
     juce::Font getMenuBarFont(juce::MenuBarComponent&, int, const juce::String&) override { return font(13); }

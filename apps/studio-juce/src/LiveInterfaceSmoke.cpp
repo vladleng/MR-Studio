@@ -70,6 +70,12 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   juce::BorderSize<int>(32, 8, 8, 8)
                       .addedTo(live::fitWindow({100, -100, 1920, 1080}, secondMonitor, {32, 8, 8, 8}, false))),
               "Negative-coordinate secondary monitor is supported");
+    const juce::Rectangle<int> contextArea(0, 0, 1200, 700);
+    liveCheck(liveContextBounds({100, 120}, {600, 520}, contextArea).getPosition() == juce::Point<int>(102, 122),
+              "Context opens to bottom right of pointer");
+    for (const auto pointer : {juce::Point<int>{0, 0}, {1199, 699}, {1199, 0}, {0, 699}})
+        liveCheck(contextArea.contains(liveContextBounds(pointer, {600, 520}, contextArea)),
+                  "Context remains inside workspace at every corner");
     ViewSettings appearance;
     liveCheck(appearance.liveMenuOpacity == .9, "Live context defaults to ten percent transparency");
     auto oldAppearance = juce::JSON::parse(appearance.encode());

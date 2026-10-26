@@ -80,8 +80,10 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
             name.setText(value["title"].toString(), false);
             name.setInputRestrictions(120);
             name.setTitle("Task title");
+            name.getProperties().set("liveTableCell", true);
             name.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
             name.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+            name.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
             percent.setText(juce::String(juce::roundToInt(live::taskProgress(values, taskId))), false);
             percent.setTitle("Task progress percent");
             configureLiveProgress(percent);
@@ -106,13 +108,15 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
             };
         }
         void paint(juce::Graphics &g) override {
+            g.setColour(juce::Colour(0xff343638));
+            g.drawHorizontalLine(getHeight() - 1, 0.f, static_cast<float>(getWidth()));
             paintLiveProgress(g, percent.getBounds(), percent.getText().getDoubleValue(), *art);
         }
         void resized() override {
             auto area = getLocalBounds().reduced(1);
             state.setBounds(area.removeFromLeft(108));
             area.removeFromLeft(4);
-            percent.setBounds(area.removeFromRight(80).reduced(2, 0));
+            percent.setBounds(area.removeFromRight(128).reduced(2, 0));
             remove.setBounds(area.removeFromRight(24));
             add.setBounds(area.removeFromRight(24));
             name.setBounds(area.reduced(2, 0));
@@ -201,8 +205,10 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         const auto item = live::find(state, "items", id);
         original = properties(state, id);
         name.setText(item["name"].toString(), false);
+        name.getProperties().set("liveTableCell", true);
         name.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
         name.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+        name.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
         tempo.setText(item["tempo"].toString(), false);
         meter.addItemList({"2/4", "3/4", "4/4", "5/4", "6/8", "7/8", "12/8"}, 1);
         meter.setText(item["meter"].toString(), juce::dontSendNotification);
@@ -301,7 +307,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         progress.onFocusLost = progress.onReturnKey;
         startTimerHz(10);
         setActions({}, false);
-        setSize(660, 520);
+        setSize(600, 520);
     }
     ~LiveItemEditor() override {
         stopTimer();
@@ -319,6 +325,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
     void paint(juce::Graphics &g) override {
         g.setColour(theme.role(ColourRole::border, outline));
         g.drawHorizontalLine(28, 8.f, static_cast<float>(getWidth() - 8));
+        g.drawHorizontalLine(63, 8.f, static_cast<float>(getWidth() - 8));
         paintLiveProgress(g, progress.getBounds(), progress.getText().getDoubleValue(), *art);
         art->organizer->drawWithin(g, {8.f, 6.f, 14.f, 14.f}, juce::RectanglePlacement::centred, 1.f);
     }
@@ -326,12 +333,12 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         auto area = getLocalBounds().reduced(8);
         auto headings = area.removeFromTop(24);
         labels[1].setBounds(headings.removeFromLeft(112).withTrimmedLeft(18));
-        labels[3].setBounds(headings.removeFromRight(80));
+        labels[3].setBounds(headings.removeFromRight(128));
         labels[0].setBounds(headings);
         auto rootRow = area.removeFromTop(32);
         status.setBounds(rootRow.removeFromLeft(108));
         rootRow.removeFromLeft(4);
-        progress.setBounds(rootRow.removeFromRight(80).reduced(2, 0));
+        progress.setBounds(rootRow.removeFromRight(128).reduced(2, 0));
         name.setBounds(rootRow.reduced(2, 0));
         organizer.setBounds(area.removeFromTop(180));
         const int third = area.getWidth() / 3;
@@ -486,7 +493,7 @@ inline void openLiveItemEditor(Desktop &owner, const juce::String &id, juce::Com
     if (!anchor)
         anchor = &owner;
     if (point.isEmpty())
-        point = anchor->getScreenBounds().withSizeKeepingCentre(1, 1);
+        point = {juce::Desktop::getMousePosition(), {1, 1}};
     auto content = std::make_unique<LiveItemEditor>(owner, id);
     content->setActions(std::move(action), entryActions);
     auto *editor = content.get();

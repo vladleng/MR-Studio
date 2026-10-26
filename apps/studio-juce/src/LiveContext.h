@@ -66,6 +66,7 @@ inline void paintLiveProgress(juce::Graphics &g, juce::Rectangle<int> bounds, do
     g.fillRoundedRectangle(bar, 2.f);
 }
 inline void configureLiveProgress(juce::TextEditor &editor) {
+    editor.getProperties().set("liveTableCell", true);
     editor.setJustification(juce::Justification::centredRight);
     editor.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
     editor.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
@@ -92,6 +93,19 @@ class LiveContextViewport final : public juce::Component {
     Theme theme;
     juce::Viewport viewport;
 };
+inline juce::Rectangle<int> liveContextBounds(juce::Point<int> pointer, juce::Point<int> size,
+                                              juce::Rectangle<int> area) {
+    const int width = juce::jmin(size.x, area.getWidth());
+    const int height = juce::jmin(size.y, area.getHeight());
+    return {juce::jlimit(area.getX(), area.getRight() - width, pointer.x + 2),
+            juce::jlimit(area.getY(), area.getBottom() - height, pointer.y + 2), width, height};
+}
+inline juce::PopupMenu::Options liveMenuOptions(juce::Component &owner) {
+    return juce::PopupMenu::Options()
+        .withTargetComponent(&owner)
+        .withTargetScreenArea({juce::Desktop::getMousePosition(), {1, 1}})
+        .withPreferredPopupDirection(juce::PopupMenu::Options::PopupDirection::downwards);
+}
 inline juce::CallOutBox &showLiveContext(std::unique_ptr<juce::Component> content, juce::Component &owner,
                                          juce::Rectangle<int> target) {
     auto *parent = owner.getTopLevelComponent();
@@ -109,6 +123,9 @@ inline juce::CallOutBox &showLiveContext(std::unique_ptr<juce::Component> conten
         juce::CallOutBox::launchAsynchronously(std::move(viewport), parent->getLocalArea(nullptr, target), parent);
     box.setLookAndFeel(contextTheme);
     box.setArrowSize(0.f);
+    box.resized();
+    box.setTopLeftPosition(liveContextBounds(parent->getLocalPoint(nullptr, target.getTopLeft()),
+                                             {box.getWidth(), box.getHeight()}, parent->getLocalBounds()).getPosition());
     box.getProperties().set("mrLiveContext", true);
     box.setDismissalMouseClicksAreAlwaysConsumed(true);
     return box;

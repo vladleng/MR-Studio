@@ -151,7 +151,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         popup.addItem(4, "Save as...");
         popup.addItem(702, "Import editor show JSON...");
         juce::Component::SafePointer<Desktop> safe(&owner);
-        popup.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&files), [safe](int action) {
+        popup.showMenuAsync(liveMenuOptions(files), [safe](int action) {
             if (safe && action)
                 safe->action(action);
         });
@@ -181,7 +181,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         popup.addSeparator();
         popup.addItem(40, "Audio settings...");
         juce::Component::SafePointer<LiveWorkspace> safe(this);
-        popup.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&options), [safe](int action) {
+        popup.showMenuAsync(liveMenuOptions(options), [safe](int action) {
             if (!safe)
                 return;
             if (action == 1)
