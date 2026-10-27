@@ -454,14 +454,21 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             "; model="+juce::JSON::toString(juce::var(actualNotes))+"; dirty="+juce::String(desktop.liveDirty?1:0)).toStdString());
     // Once focus is outside the editor, a pending text notification still must
     // win over the panel's revision-driven refresh.
+    const auto notesBeforePending=actualNotes;
+    desktop.liveUndo.beginNewTransaction("Notes pending input");
     tempoField->grabKeyboardFocus();
     notesField->insertTextAtCaret(" pending"); ++desktop.liveUiRevision; livePump();
     liveCheck(live::find(desktop.liveDocument->interfaceState,"items",id)["notes"].toString()=="Immediate note\nSecond line pending",
               "Notes survive pending async notification after blur");
     notesField->grabKeyboardFocus(); livePump();
     desktop.undoLiveInterface(); livePump();
-    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["notes"].toString() == oldNotes && notesField->getText()==oldNotes,
-              "Immediate property edits retain show Undo");
+    for(int retry=0; retry<8 && notesField->getText()!=notesBeforePending; ++retry) livePump();
+    const auto undoneNotes=live::find(desktop.liveDocument->interfaceState,"items",id)["notes"].toString();
+    if(undoneNotes!=notesBeforePending || notesField->getText()!=notesBeforePending)
+        throw std::runtime_error(("Notes focused Undo mismatch: expected="+juce::JSON::toString(juce::var(notesBeforePending))+
+            "; model="+juce::JSON::toString(juce::var(undoneNotes))+"; field="+
+            juce::JSON::toString(juce::var(notesField->getText()))).toStdString());
+    desktop.setLiveItemNotes(id,oldNotes); livePump();
     tempoField->grabKeyboardFocus(); livePump();
     const auto oldName = live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString();
     nameField->setText("Immediate title", true); livePump();
