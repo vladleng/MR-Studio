@@ -88,6 +88,32 @@ inline std::vector<int> playbackOutputs(const juce::var &row) {
             result.push_back(static_cast<int>(output));
     return result;
 }
+// The native source row owns stem gain; the common channel owns the show mix.
+inline juce::String playbackChannelId(const juce::var &state, const juce::var &row) {
+    if (row["id"].isString()) return row["id"].toString();
+    for (const auto &channel : *state["channels"].getArray())
+        if (channel["type"].toString() == "Playback") return channel["id"].toString();
+    return {};
+}
+inline double itemPlaybackGain(const juce::var &state, const juce::String &id) {
+    const auto value = find(state, "items", id)["playbackGroupGain"];
+    return value.isVoid() ? 0. : static_cast<double>(value);
+}
+inline mrs::Track::Mix playbackMix(const juce::var &state, const juce::String &id, const juce::var &row) {
+    const auto channel = find(state, "channels", playbackChannelId(state, row));
+    mrs::Track::Mix mix;
+    const double group = static_cast<bool>(row["cue"]) ? 0. : playbackGain(state) + itemPlaybackGain(state, id);
+    mix.gain = static_cast<float>(std::pow(10., (static_cast<double>(row["gain"]) + group +
+                                                static_cast<double>(channel["gain"])) / 20.));
+    mix.pan = static_cast<float>(static_cast<double>(channel["pan"]));
+    mix.mute = static_cast<bool>(row["mute"]) || static_cast<bool>(channel["mute"]);
+    mix.solo = static_cast<bool>(row["solo"]) || static_cast<bool>(channel["solo"]);
+    return mix;
+}
+inline juce::String playbackMixKey(const juce::var &state, const juce::String &id) {
+    return canonical(playback(state, id)) + canonical(liveAudio(state)) +
+           juce::String(itemPlaybackGain(state, id), 17) + canonical(state["channels"]);
+}
 inline void validatePlaybackRow(const juce::var &row) {
     if ((!row["cue"].isVoid() && !row["cue"].isBool()) || !row.isObject() || !row["file"].isString() ||
         row["file"].toString().isEmpty() || !row["mute"].isBool() || !row["solo"].isBool())
@@ -122,6 +148,7 @@ inline void validatePlayback(const juce::var &state) {
         if (!find(state, "items", pair.name.toString()).isObject())
             throw std::runtime_error("Missing Playback item");
         validatePlaybackRow(pair.value);
+        for (const auto &row : playbackRows(state, pair.name.toString())) playbackMix(state, pair.name.toString(), row).validate();
         const auto stems = pair.value["stems"];
         if (!stems.isVoid()) {
             if (!stems.isArray() || stems.size() > 31)

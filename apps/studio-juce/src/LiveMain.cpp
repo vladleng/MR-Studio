@@ -135,6 +135,8 @@ class LiveWindow final : public juce::DocumentWindow, private juce::Timer {
             setBounds(ui::live::fitWindow(getBounds(), work, frame, centre));
     }
     void timerCallback() override {
+        const auto caption = "MR Live - " + host().projectCaption();
+        if (getName() != caption) setName(caption);
         if (workArea() != lastWorkArea)
             constrainToDisplay(false);
     }

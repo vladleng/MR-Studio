@@ -4,6 +4,7 @@
 #include "LiveChannels.h"
 #include "LiveContext.h"
 #include "LiveLayout.h"
+#include "LiveMixer.h"
 #include "LivePlaybackPanel.h"
 #include "LiveSetlist.h"
 #include "LiveTheme.h"
@@ -15,7 +16,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     explicit LiveWorkspace(Desktop &desktop)
         : owner(desktop), setlist(desktop, false, reference.defaults["itemCardLayout"]),
           browserItems(desktop, true, reference.defaults["itemCardLayout"]), timeline(desktop), legacyChannels(desktop),
-          playbackPanel(desktop) {
+          playbackPanel(desktop), mixer(desktop) {
         setComponentID("mr-live-workspace");
         setName("MR Live");
         configureLiveContext(nativeTheme, static_cast<float>(owner.view.liveMenuOpacity));
@@ -31,6 +32,11 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         addAndMakeVisible(timeline);
         addAndMakeVisible(playbackPanel);
         addChildComponent(legacyChannels);
+        addChildComponent(mixer);
+        addAndMakeVisible(mixerButton);
+        mixerButton.setComponentID("live-mixer-toggle");
+        mixerButton.onClick = [this] { mixerVisible = !mixerVisible; mixer.setVisible(mixerVisible); resized(); };
+        playbackPanel.layoutChanged = [this] { resized(); };
         files.onClick = [this] { filesMenu(); };
         options.onClick = [this] { optionsMenu(); };
         play.onClick = [this] { owner.action(30); };
@@ -73,7 +79,10 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     }
     bool itemsBrowserVisible() const { return browserVisible; }
     void resized() override {
-        playbackPanel.setBounds(reference.bounds("playback.stems", getWidth(), getHeight()));
+        auto playbackBounds = reference.bounds("playback.stems", getWidth(), getHeight());
+        playbackBounds.setY(playbackBounds.getBottom() - playbackPanel.preferredHeight());
+        playbackBounds.setHeight(playbackPanel.preferredHeight());
+        playbackPanel.setBounds(playbackBounds);
         const auto size = getLocalBounds();
         const auto toolbar = reference.bounds("control.toolbar", size.getWidth(), size.getHeight());
         auto controls = toolbar.reduced(6).withHeight(32);
@@ -81,7 +90,10 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         options.setBounds(controls.removeFromLeft(52).reduced(1));
         undoButton.setBounds(controls.removeFromLeft(26));
         redoButton.setBounds(controls.removeFromLeft(26));
-        setlist.setBounds(reference.bounds("show.setlist", getWidth(), getHeight()));
+        mixerButton.setBounds(controls.removeFromLeft(58));
+        auto setlistBounds = reference.bounds("show.setlist", getWidth(), getHeight());
+        setlistBounds.setBottom(playbackPanel.getY());
+        setlist.setBounds(setlistBounds);
         const auto channelBounds = reference.bounds("track.channels", getWidth(), getHeight());
         const auto timelineBounds = reference.bounds("song.timeline", getWidth(), getHeight());
         legacyChannels.setBounds(channelBounds);
@@ -93,8 +105,11 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             button->setBounds(transport.removeFromLeft(32).reduced(2));
         const int width = juce::jmin(380, juce::jmax(220, getWidth() - setlist.getRight() - 16));
         browserItems.setBounds(setlist.getRight() + 2, setlist.getY(), width, setlist.getHeight());
-        if (browserVisible)
-            browserItems.toFront(false);
+        if (browserVisible) browserItems.toFront(false);
+        mixer.setBounds(juce::jmax(setlist.getRight(), getWidth() - 620),
+                        juce::jmax(setlist.getY(), getHeight() - 340),
+                        juce::jmin(620, getWidth() - setlist.getRight()), juce::jmin(340, getHeight() - setlist.getY()));
+        if (mixerVisible) mixer.toFront(false);
     }
     void mouseDown(const juce::MouseEvent &event) override {
         if (!event.mods.isLeftButtonDown())
@@ -117,6 +132,13 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
              {"control.toolbar", "control.header", "song.timeline", "playback.stems", "system.status"})
             fill(type);
         const auto header = reference.bounds("control.header", getWidth(), getHeight());
+        g.setColour(tokens.colour(ColourRole::text));
+        g.setFont(owner.theme.font(12));
+        const auto title = owner.projectCaption();
+        g.drawText(title, header.getX() + 10, header.getY() + 4,
+                   juce::jmax(0, header.getCentreX() - 190 - header.getX()), header.getHeight() - 8,
+                   juce::Justification::centredLeft, true);
+
         const auto head = owner.displayState();
         g.setColour(tokens.colour(ColourRole::text));
         g.setFont(owner.theme.font(14));
@@ -284,6 +306,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             legacyChannels.refresh();
         timeline.refresh();
         playbackPanel.sync();
+        if (mixerVisible) mixer.sync();
+        mixerButton.setToggleState(mixerVisible, juce::dontSendNotification);
         const auto projectState = owner.app.services().projects->state();
         const bool showHistory = owner.liveShowEditing || (owner.liveDocument && owner.liveDocument->projects.empty());
         undoButton.setEnabled(showHistory ? owner.liveUndo.canUndo() : projectState.can_undo);
@@ -311,6 +335,9 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     LiveTimeline timeline;
     LiveChannels legacyChannels;
     LivePlaybackPanel playbackPanel;
+    LiveMixer mixer;
+    juce::TextButton mixerButton{"Mixer"};
+    bool mixerVisible{};
     bool showLegacyChannels{};
     std::unique_ptr<juce::Drawable> tunerPlaceholder;
     juce::TextButton files{"Files"}, options{"Options"}, play{"Play"}, pause{"Pause"}, stop{"Stop"},

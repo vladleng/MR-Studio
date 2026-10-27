@@ -85,6 +85,11 @@ class LiveInterfaceEdit final : public juce::UndoableAction {
         owner->applyLiveInterface(before);
         return true;
     }
+    juce::UndoableAction *createCoalescedAction(juce::UndoableAction *next) override {
+        const auto *edit = dynamic_cast<LiveInterfaceEdit *>(next);
+        if (!edit || owner != edit->owner || live::canonical(after) != live::canonical(edit->before)) return nullptr;
+        return owner ? new LiveInterfaceEdit(*owner, before, edit->after) : nullptr;
+    }
     int getSizeInUnits() override {
         return static_cast<int>(juce::JSON::toString(before).getNumBytesAsUTF8() +
                                 juce::JSON::toString(after).getNumBytesAsUTF8());
@@ -166,6 +171,7 @@ void Desktop::prepareLiveInterface(bool saved) {
     app.set_click_settings({});
     livePlaybackLoading = false;
     liveUndo.clearUndoHistory();
+    liveTypingLabel.clear();
     liveShowEditing = false;
     if (liveDocument) {
         const LiveLayout reference;
@@ -213,7 +219,7 @@ void Desktop::applyLiveInterface(const juce::var &value) {
     updateLiveDirty();
     ++liveUiRevision;
 }
-void Desktop::editLiveInterface(const juce::String &label, std::function<void(juce::var &)> edit) {
+void Desktop::editLiveInterface(const juce::String &label, std::function<void(juce::var &)> edit, bool coalesceTyping) {
     if (!liveDocument)
         throw std::runtime_error("Create or open a MR Live show first");
     auto draft = liveDocument->interfaceState.clone();
@@ -224,11 +230,15 @@ void Desktop::editLiveInterface(const juce::String &label, std::function<void(ju
     if (live::canonical(draft) == live::canonical(liveDocument->interfaceState))
         return;
     liveShowEditing = true;
-    liveUndo.beginNewTransaction(label);
+    const auto now = juce::Time::getMillisecondCounter();
+    if (!coalesceTyping || liveTypingLabel != label || now - liveTypingAt > 800) liveUndo.beginNewTransaction(label);
     liveUndo.perform(new LiveInterfaceEdit(*this, liveDocument->interfaceState, draft));
-    liveUndo.beginNewTransaction();
+    liveTypingLabel = coalesceTyping ? label : juce::String();
+    liveTypingAt = now;
+    if (!coalesceTyping) liveUndo.beginNewTransaction();
 }
 void Desktop::undoLiveInterface(bool redoAction) {
+    liveTypingLabel.clear();
     liveShowEditing = true;
     if (redoAction)
         liveUndo.redo();
@@ -355,35 +365,7 @@ void Desktop::bindLiveItem(const juce::String &id, const juce::File &file) {
 namespace ui {
 namespace {
 juce::String addPlaybackChannel(juce::var &state, const juce::String &name) {
-    if (state["channels"].size() >= 128)
-        throw std::runtime_error("Show channel limit reached");
-    auto channel = live::object();
-    const auto id = juce::Uuid().toString();
-    live::put(channel, "id", id);
-    live::put(channel, "name", name);
-    live::put(channel, "type", "Playback");
-    live::put(channel, "gain", 0.);
-    live::put(channel, "pan", 0.);
-    for (const auto *key : {"mute", "solo", "armed", "monitor"})
-        live::put(channel, key, false);
-    live::put(channel, "recordGain", juce::var());
-    live::put(channel, "patches", juce::Array<juce::var>());
-    live::put(channel, "archivedPatches", juce::Array<juce::var>());
-    live::property(state, "channels").getArray()->add(channel);
-    for (auto &item : *live::property(state, "items").getArray()) {
-        auto track = live::object();
-        live::put(track, "id", juce::Uuid().toString());
-        live::put(track, "channelId", id);
-        for (const auto *key : {"patchId", "subPatchId", "media", "recordTrack"})
-            live::put(track, key, juce::var());
-        live::put(track, "patchOrder", juce::Array<juce::var>());
-        live::put(track, "spans", live::object());
-        live::put(track, "playbackGain", 0.);
-        if (!item["tracks"].isArray())
-            live::put(item, "tracks", juce::Array<juce::var>());
-        live::property(item, "tracks").getArray()->add(track);
-    }
-    return id;
+    return live::addChannel(state, "Playback", name);
 }
 void ensurePlaybackChannel(juce::var &state) {
     for (const auto &channel : *state["channels"].getArray())
@@ -500,6 +482,38 @@ void Desktop::setLivePlaybackMix(double gain, bool mute, bool solo) {
         live::put(row, "solo", solo);
     });
     syncLivePlayback();
+}
+void Desktop::setLiveItemPlaybackGain(double gain) {
+    if (!liveDocument) return;
+    const auto id = liveDocument->interfaceState["currentItem"].toString();
+    editLiveInterface("Item Playback level", [&](auto &state) {
+        live::put(live::require(state, "items", id), "playbackGroupGain", gain);
+    });
+    syncLivePlayback();
+}
+void Desktop::setLiveChannelMix(const juce::String &id, double gain, double pan, bool mute, bool solo) {
+    app.cancel_mix_preview();
+    editLiveInterface("Channel mix", [&](auto &state) {
+        auto &channel = live::require(state, "channels", id);
+        live::put(channel, "gain", gain);
+        live::put(channel, "pan", pan);
+        live::put(channel, "mute", mute);
+        live::put(channel, "solo", solo);
+    });
+    syncLivePlayback();
+}
+void Desktop::previewLiveChannelMix(const juce::String &id, double gain, double pan, bool mute, bool solo) {
+    if (!liveDocument || !livePlaybackReady()) return;
+    auto state = liveDocument->interfaceState.clone();
+    auto &channel = live::require(state, "channels", id);
+    live::put(channel, "gain", gain); live::put(channel, "pan", pan);
+    live::put(channel, "mute", mute); live::put(channel, "solo", solo);
+    const auto item = state["currentItem"].toString();
+    const auto rows = live::playbackRows(state, item);
+    for (std::size_t i = 0; i < rows.size(); ++i) if (live::playbackChannelId(state, rows[i]) == id) {
+        const auto mix = live::playbackMix(state, item, rows[i]); mix.validate();
+        app.preview_mix(project()->tracks[i].id, mix, project()->master_gain); return;
+    }
 }
 void Desktop::setLivePlaybackTrim(double start, double end) {
     if (!livePlaybackReady())
@@ -773,12 +787,7 @@ void Desktop::syncLivePlayback() {
             layout.click = live::liveClick(liveDocument->interfaceState);
             for (const auto &stem : rows) {
                 mrs::desktop::Application::PlaybackStem settings;
-                settings.mix.gain = static_cast<float>(std::pow(
-                    10., (static_cast<double>(stem["gain"]) +
-                          (static_cast<bool>(stem["cue"]) ? 0. : live::playbackGain(liveDocument->interfaceState))) /
-                             20.));
-                settings.mix.mute = static_cast<bool>(stem["mute"]);
-                settings.mix.solo = static_cast<bool>(stem["solo"]);
+                settings.mix = live::playbackMix(liveDocument->interfaceState, id, stem);
                 settings.outputs = live::playbackOutputs(stem);
                 settings.begin = static_cast<double>(stem["trimStart"]);
                 settings.end = stem["trimEnd"].isVoid() ? -1. : static_cast<double>(stem["trimEnd"]);
@@ -863,7 +872,7 @@ void Desktop::syncLivePlayback() {
         }
     }
     if (livePlaybackReady()) {
-        const auto key = live::canonical(row) + live::canonical(live::liveAudio(liveDocument->interfaceState));
+        const auto key = live::playbackMixKey(liveDocument->interfaceState, id);
         if (key != livePlaybackMixKey) {
             const auto snapshot = project();
             const auto active = app.active_outputs();
@@ -901,13 +910,7 @@ void Desktop::syncLivePlayback() {
                 const auto outputs = live::playbackOutputs(rows[i]);
                 if (project()->tracks[i].hardware_outputs != outputs)
                     app.set_hardware_output(project()->tracks[i].id, outputs);
-                auto mix = project()->tracks[i].mix;
-                mix.gain = static_cast<float>(std::pow(
-                    10., (static_cast<double>(rows[i]["gain"]) +
-                          (static_cast<bool>(rows[i]["cue"]) ? 0. : live::playbackGain(liveDocument->interfaceState))) /
-                             20.));
-                mix.mute = static_cast<bool>(rows[i]["mute"]);
-                mix.solo = static_cast<bool>(rows[i]["solo"]);
+                auto mix = live::playbackMix(liveDocument->interfaceState, id, rows[i]);
                 app.set_track_mix(project()->tracks[i].id, mix);
             }
             livePlaybackMixKey = key;

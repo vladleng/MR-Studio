@@ -224,6 +224,26 @@ inline void validate(const juce::var &state) {
     if (!state["performance"].isObject() || !state["channels"].isArray() || state["channels"].size() > 128)
         throw std::runtime_error("Invalid show interface state");
     const auto perf = state["performance"];
+    for (const auto &item : *state["items"].getArray()) {
+        const auto gain = item["playbackGroupGain"];
+        if (!gain.isVoid() && (!number(gain) || static_cast<double>(gain) < -60 || static_cast<double>(gain) > 12))
+            throw std::runtime_error("Item Playback level must be -60..12 dB");
+    }
+    std::set<juce::String> channelIds;
+    for (const auto &channel : *state["channels"].getArray()) {
+        if (!named(channel["id"]) || !channelIds.insert(channel["id"].toString()).second)
+            throw std::runtime_error("Invalid or duplicate channel ID");
+        for (const auto *key : {"gain", "pan"}) {
+            const auto v = channel[key];
+            const bool pan = juce::String(key) == "pan";
+            if (!v.isVoid() && (!number(v) || static_cast<double>(v) < (pan ? -1. : -60.) ||
+                               static_cast<double>(v) > (pan ? 1. : 12.)))
+                throw std::runtime_error("Invalid channel mix");
+        }
+        for (const auto *key : {"mute", "solo"})
+            if (!channel[key].isVoid() && !channel[key].isBool()) throw std::runtime_error("Invalid channel switch");
+    }
+
     validateLayout(perf["itemCardLayout"]);
     if (!perf["showOrganizer"].isVoid() && !perf["showOrganizer"].isBool())
         throw std::runtime_error("Invalid organizer visibility");
@@ -270,6 +290,23 @@ inline void validate(const juce::var &state) {
                 saved["items"][0]["id"].toString() != pair.name.toString())
                 throw std::runtime_error("Invalid saved item snapshot");
         }
+}
+inline juce::String addChannel(juce::var &state, const juce::String &type, const juce::String &name) {
+    if (state["channels"].size() >= 128) throw std::runtime_error("Show channel limit reached");
+    auto channel = object(); const auto id = juce::Uuid().toString();
+    put(channel, "id", id); put(channel, "name", name); put(channel, "type", type);
+    put(channel, "gain", 0.); put(channel, "pan", 0.);
+    for (const auto *key : {"mute", "solo", "armed", "monitor"}) put(channel, key, false);
+    put(channel, "patches", juce::Array<juce::var>()); put(channel, "archivedPatches", juce::Array<juce::var>());
+    property(state, "channels").getArray()->add(channel);
+    for (auto &item : *property(state, "items").getArray()) {
+        auto track = object(); put(track, "id", juce::Uuid().toString()); put(track, "channelId", id);
+        for (const auto *key : {"patchId", "subPatchId", "media", "recordTrack"}) put(track, key, {});
+        put(track, "patchOrder", juce::Array<juce::var>()); put(track, "spans", object()); put(track, "playbackGain", 0.);
+        if (!item["tracks"].isArray()) put(item, "tracks", juce::Array<juce::var>());
+        property(item, "tracks").getArray()->add(track);
+    }
+    return id;
 }
 inline juce::var importDemo(const juce::String &bytes) {
     if (bytes.getNumBytesAsUTF8() > 1024 * 1024)

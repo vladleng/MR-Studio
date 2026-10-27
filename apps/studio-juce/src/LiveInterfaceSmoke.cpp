@@ -319,7 +319,32 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     };
     countTasks(card);
     liveCheck(taskFields == 7, "Native organizer creates all visible task editors");
+    auto *notesField = dynamic_cast<juce::TextEditor *>(liveComponent(card, "live-item-notes"));
+    auto *nameField = dynamic_cast<juce::TextEditor *>(liveComponent(card, "live-item-name"));
+    auto *tempoField = dynamic_cast<juce::TextEditor *>(liveComponent(card, "live-item-tempo"));
+    liveCheck(notesField && notesField->isVisible() && nameField && tempoField, "Item fields are visible without Properties or Apply");
+    liveCheck(notesField->getY() < tempoField->getY(), "Notes are directly below tasks, above musical properties");
+    const auto oldNotes = live::find(desktop.liveDocument->interfaceState, "items", id)["notes"].toString();
+    notesField->setText("Immediate note", true); livePump();
+    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["notes"].toString() == "Immediate note" && desktop.liveDirty,
+              "Typing notes immediately updates the show without Apply");
+    desktop.undoLiveInterface(); livePump();
+    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["notes"].toString() == oldNotes,
+              "Immediate property edits retain show Undo");
+    const auto oldName = live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString();
+    nameField->setText("Immediate title", true); livePump();
+    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == "Immediate title", "Item title commits on text change");
+    desktop.undoLiveInterface(); livePump();
+    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == oldName, "Title Undo restores prior value");
     livePreview(card, "organizer");
+    auto *mixerToggle = dynamic_cast<juce::TextButton *>(liveComponent(desktop, "live-mixer-toggle"));
+    liveCheck(mixerToggle, "Mixer has a toolbar toggle");
+    mixerToggle->onClick(); livePump();
+    auto *mixer = liveComponent(desktop, "live-mixer");
+    liveCheck(mixer && mixer->isVisible(), "Mixer drawer opens independently of item Browser");
+    livePreview(desktop, "mixer");
+    mixerToggle->onClick(); livePump();
+    liveCheck(!mixer->isVisible(), "Repeated Mixer toggle closes drawer");
     const auto beforeContext = juce::JSON::toString(desktop.liveDocument->interfaceState);
     auto contextContent = std::make_unique<LiveItemEditor>(desktop, id);
     auto &contextBox = showLiveContext(std::move(contextContent), desktop, desktop.getScreenBounds().withSize(1, 1));
@@ -927,12 +952,43 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(multi.project()->clips[0].length == 48000 && multi.project()->clips[1].source_offset == 960 &&
                       multi.project()->clips[1].length == 2880,
                   "Stem trim edits only its own source window");
+        // Item group, stem and persistent channel levels remain independent.
+        const auto musicChannel = live::playbackChannelId(multi.liveDocument->interfaceState, rows[0]);
+        multi.editLiveInterface("Baseline item", [&](auto &state) { live::saveItem(state, id); });
+        multi.setLiveChannelMix(musicChannel, -3., .25, false, false);
+        liveCheck(!live::itemDirty(multi.liveDocument->interfaceState, id), "Channel mix does not dirty saved item content");
+        multi.setLiveItemPlaybackGain(-6.);
+        const auto expectedGain = std::pow(10., (-6.020599913 - 6. - 3.) / 20.);
+        liveCheck(std::abs(multi.project()->tracks[0].mix.gain - expectedGain) < .00001 &&
+                      std::abs(multi.project()->tracks[0].mix.pan - .25f) < .00001f,
+                  "Core receives stem + item group + persistent channel gain and pan");
+        liveCheck(live::itemDirty(multi.liveDocument->interfaceState, id), "Item Playback gain dirties item content");
+        liveCheck(std::abs(multi.project()->tracks[1].mix.gain - 1.f) < .00001f,
+                  "Cue remains independent of item Playback group gain");
+        multi.editLiveInterface("Another item Playback level", [&](auto &state) {
+            live::put(live::require(state, "items", second), "playbackGroupGain", -12.);
+        });
+        liveCheck(live::itemPlaybackGain(multi.liveDocument->interfaceState, second) == -12. &&
+                      live::itemPlaybackGain(multi.liveDocument->interfaceState, id) == -6., "Each item stores its own aggregate Playback level");
+        multi.editLiveInterface("Fold stems", [](auto &state) { live::put(live::performance(state), "stemsExpanded", false); });
+        multi.syncLivePlayback();
+        liveCheck(multi.project()->clips.size() == 2 && std::abs(multi.project()->tracks[0].mix.gain - expectedGain) < .00001,
+                  "Folding stems preserves Core clips and mix");
+        multi.editLiveInterface("Expand stems", [](auto &state) { live::put(live::performance(state), "stemsExpanded", true); });
+        // Preview uses existing Core publication without modifying show/history.
+        const auto beforePreview = multi.liveDocument->signature();
+        multi.previewLiveChannelMix(musicChannel, -9., -.5, false, false);
+        liveCheck(multi.liveDocument->signature() == beforePreview, "Mixer preview leaves persistent values unchanged");
+        multi.app.cancel_mix_preview();
         multi.editLiveInterface("Save stem version", [&](auto &state) { live::saveItem(state, id); });
         const auto show = folder.getChildFile("stems.mrlive");
         multi.saveFile(show);
         const auto stemSaved = LiveDocument::read(show);
         const auto savedRows = live::playbackRows(stemSaved.interfaceState, id);
         liveCheck(savedRows.size() == 2 && !live::itemDirty(stemSaved.interfaceState, id) &&
+                      live::itemPlaybackGain(stemSaved.interfaceState, id) == -6. &&
+                      live::itemPlaybackGain(stemSaved.interfaceState, second) == -12. &&
+                      static_cast<double>(live::find(stemSaved.interfaceState, "channels", musicChannel)["gain"]) == -3. &&
                       savedRows[1]["file"].toString() == negative.getFullPathName() &&
                       static_cast<bool>(savedRows[1]["cue"]) &&
                       std::abs(live::playbackGain(stemSaved.interfaceState) + 6.020599913) < .000001 &&

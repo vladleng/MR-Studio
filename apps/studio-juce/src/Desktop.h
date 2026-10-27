@@ -92,6 +92,9 @@ public:
     std::size_t livePlaybackIndex() const;
     juce::String livePlaybackStem, livePlaybackMediaKey, livePlaybackDeviceKey;
     void setLivePlaybackMix(double,bool,bool);
+    void setLiveItemPlaybackGain(double);
+    void setLiveChannelMix(const juce::String&, double, double, bool, bool);
+    void previewLiveChannelMix(const juce::String&, double, double, bool, bool);
     void setLivePlaybackTrim(double startSeconds, double endSeconds);
     void syncLivePlayback();
     bool livePlaybackReady() const;
@@ -111,7 +114,9 @@ public:
     void bindLiveItem(const juce::String&,const juce::File&);
     void prepareLiveInterface(bool saved);
     void updateLiveDirty();
-    void editLiveInterface(const juce::String&,std::function<void(juce::var&)>);
+    void editLiveInterface(const juce::String&,std::function<void(juce::var&)>,bool coalesceTyping=false);
+    juce::String liveTypingLabel;
+    juce::uint32 liveTypingAt{};
     void applyLiveInterface(const juce::var&);
     void undoLiveInterface(bool redo=false);
     juce::UndoManager liveUndo{32*1024*1024,1};
