@@ -29,6 +29,15 @@ bool channel_color_only(Project a,const Project& b){
     for(std::size_t i=0;i<a.tracks.size();++i)a.tracks[i].color=b.tracks[i].color;
     return a==b;
 }
+audio::ClickSettings mapped_click(audio::ClickSettings settings, const std::vector<int>& outputs) {
+    for (auto* channel : {&settings.output_left, &settings.output_right}) {
+        if (*channel < 0) continue;
+        const auto found = std::find(outputs.begin(), outputs.end(), *channel);
+        require(found != outputs.end(), "Click output is unavailable; enable it in Audio settings");
+        *channel = static_cast<int>(found - outputs.begin());
+    }
+    return settings;
+}
 void configure_count(audio::RenderGraph& graph,const Project& project,const audio::ClickSettings& click,Sample sample){
     if(!click.count_bars)return;
     const Timeline timeline(project.time,project.sample_rate);const auto tick=timeline.to_ticks(sample);const auto musical=timeline.musical_position(tick);
@@ -1717,6 +1726,7 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_
         }
         return result;
     };
+    result.click = mapped_click(click_settings_, c.outputs);
     result.master_outputs = project->master_outputs.empty() ? std::vector<std::size_t>{0} : mapped(project->master_outputs);
     if (project->master_outputs.empty() && c.outputs.size()>1) result.master_outputs.push_back(1);
     for (const auto& track : project->tracks) if (track.kind != TrackKind::midi) result.hardware_outputs.push_back(mapped(track.hardware_outputs));
@@ -1837,7 +1847,7 @@ void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::De
     const auto previous_defaults=default_inputs_; default_inputs_=defaults;
     try {
         audio::RenderGraph graph;
-        if (offline) { prepare_mixer(graph); prepare_midi_clips(graph); prepare_inserts(graph,c); }
+        if (offline) { prepare_mixer(graph); prepare_midi_clips(graph); graph.click=mapped_click(click_settings_,c.outputs); prepare_inserts(graph,c); }
         else graph = render(c);
         engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192,c.buffer_frames,c.processing_workers},std::move(graph),position);
         device->open(c,engine_); device->start(); audio_name_ = info->name; device_ = std::move(device); device_config_ = c; device_info_ = *info; default_inputs_ = defaults; poll();
@@ -1896,7 +1906,7 @@ void Application::play() { require(audio_running(),"connect audio or choose Offl
     if (ara_ && engine_->state().playback!=PlaybackState::playing && ara_->poll()) {unsaved_=true;refresh_ara(false);}
 #endif
     transport_->play(); }
-void Application::set_click_settings(audio::ClickSettings settings){settings.validate();require_not_recording();if(settings==click_settings_)return;require(engine_->enqueue({audio::ControlKind::click,(settings.playback?1:0)|(settings.recording?2:0)|(settings.accent?4:0),settings.level}),"transport control queue full");click_settings_=settings;}
+void Application::set_click_settings(audio::ClickSettings settings){settings.validate();require_not_recording();if(settings==click_settings_)return;const auto mapped = mapped_click(settings, active_outputs());require(engine_->enqueue({audio::ControlKind::click,mapped.control_flags(),settings.level}),"transport control queue full");click_settings_=settings;}
 void Application::pause() { if (recording()) (void)stop_recording(); else transport_->pause(); }
 void Application::stop() { if (recording()) (void)stop_recording(); transport_->stop(); }
 void Application::seek(Sample sample) { require_not_recording(); transport_->seek(sample); }

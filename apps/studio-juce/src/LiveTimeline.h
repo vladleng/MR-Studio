@@ -1,7 +1,9 @@
 #pragma once
 #include "Desktop.h"
+#include "LiveMusicalState.h"
 #include "LiveShowState.h"
 #include "LiveTheme.h"
+#include "LiveWaveformCache.h"
 #include "WaveformView.h"
 
 namespace ui {
@@ -48,6 +50,16 @@ class LiveTimeline final : public juce::Component {
     }
     void refresh() {
         syncChannel();
+        std::vector<juce::String> visibleFiles;
+        const auto visible = viewport.getViewArea();
+        for (const auto &item : items)
+            if (item.bounds.intersects(visible))
+                for (const auto &row : live::playbackRows(state, item.value["id"].toString()))
+                    visibleFiles.push_back(row["file"].toString());
+        if (waveforms.sync(visibleFiles)) {
+            layout();
+            body.repaint();
+        }
         int waveReady = 0;
         if (owner.livePlaybackReady())
             for (const auto &clip : owner.project()->clips)
@@ -107,7 +119,7 @@ class LiveTimeline final : public juce::Component {
     }
     // Body coordinates. Position is observed from Core; no independent UI clock.
     juce::Rectangle<float> playheadBounds() {
-        if (!owner.livePlaybackReady())
+        if (!owner.liveTransportReady())
             return {};
         for (const auto &item : items) {
             if (item.value["id"] != state["currentItem"])
@@ -402,6 +414,21 @@ class LiveTimeline final : public juce::Component {
                                                       (4. * mrs::ppq * meter.numerator / meter.denominator)));
                     bars = juce::jmin(bars, 4096.); // Keep the existing bounded scroll-surface contract.
                 }
+                for (const auto &row : live::playbackRows(state, item["id"].toString())) {
+                    const auto *cached = waveforms.find(row["file"].toString());
+                    if (!cached || !cached->wave)
+                        continue;
+                    const auto projection = live::musicalProjection(live::musicalVersion(state, item["id"].toString()));
+                    const double seconds = row["trimEnd"].isVoid()
+                                               ? static_cast<double>(cached->wave->frames()) / cached->rate
+                                               : static_cast<double>(row["trimEnd"]);
+                    const mrs::Timeline clock(projection.time, cached->rate);
+                    const auto &meter = projection.time.meters.front();
+                    bars = juce::jmin(
+                        4096., juce::jmax(bars, std::ceil(static_cast<double>(clock.to_ticks(static_cast<mrs::Sample>(
+                                                              std::llround(seconds * cached->rate)))) /
+                                                          (4. * mrs::ppq * meter.numerator / meter.denominator))));
+                }
                 // The model permits 1000 entries, 4096 bars/lead and 128 px/bar.
                 // Keep their complete geometry within a signed-int scroll surface.
                 const int width = juce::jlimit(6, 1048578, juce::roundToInt((bars + lead) * scale) + 2);
@@ -536,11 +563,34 @@ class LiveTimeline final : public juce::Component {
         if (item.value["id"] != state["currentItem"] || !owner.livePlaybackReady()) {
             text(g, juce::File(row["file"].toString()).getFileName(),
                  {item.bounds.getX() + 8, y + 10, item.bounds.getWidth() - 16, 28});
-            text(g,
-                 item.value["id"] != state["currentItem"]
-                     ? "Select item to load audio"
-                     : (owner.livePlaybackLoading ? "Loading WAV..." : owner.livePlaybackError),
-                 {item.bounds.getX() + 8, y + 42, item.bounds.getWidth() - 16, 28}, true);
+            const auto *cached = waveforms.find(row["file"].toString());
+            if (cached && cached->wave) {
+                const auto projection =
+                    live::musicalProjection(live::musicalVersion(state, item.value["id"].toString()));
+                const mrs::Timeline clock(projection.time, cached->rate);
+                const double ticksPerBar = 4. * mrs::ppq * projection.time.meters.front().numerator /
+                                           projection.time.meters.front().denominator;
+                const double startSeconds = static_cast<double>(row["trimStart"]);
+                const double endSeconds = row["trimEnd"].isVoid()
+                                              ? static_cast<double>(cached->wave->frames()) / cached->rate
+                                              : static_cast<double>(row["trimEnd"]);
+                const auto x = [&](double seconds) {
+                    return static_cast<float>(item.bounds.getX() + 1. +
+                                              (item.lead + static_cast<double>(clock.to_ticks(static_cast<mrs::Sample>(
+                                                               std::llround(seconds * cached->rate)))) /
+                                                               ticksPerBar) *
+                                                  item.scale);
+                };
+                const juce::Rectangle<float> area{x(startSeconds), static_cast<float>(y + 40),
+                                                  juce::jmax(1.f, x(endSeconds) - x(startSeconds)),
+                                                  static_cast<float>(rowHeight - 54)};
+                g.setColour(juce::Colour(0xff17b5da));
+                drawWaveform(g, *cached->wave, area, startSeconds * cached->rate,
+                             (endSeconds - startSeconds) * cached->rate / juce::jmax(1.f, area.getWidth()));
+            } else {
+                text(g, cached ? cached->error : "Preparing waveform...",
+                     {item.bounds.getX() + 8, y + 42, item.bounds.getWidth() - 16, 28}, true);
+            }
             return;
         }
         const auto project = owner.project();
@@ -645,6 +695,7 @@ class LiveTimeline final : public juce::Component {
             }
     }
     Desktop &owner;
+    LiveWaveformCache waveforms;
     Body body;
     Viewport viewport;
     PlayheadLine playhead;

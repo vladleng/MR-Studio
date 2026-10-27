@@ -6,9 +6,9 @@ class LivePlaybackPanel final : public juce::Component {
   public:
     explicit LivePlaybackPanel(Desktop &desktop) : owner(desktop) {
         setComponentID("live-playback-panel");
-        for (auto *c : std::array<juce::Component *, 14>{&chooseFile, &fileName, &gain, &mute, &solo, &trimStart,
+        for (auto *c : std::array<juce::Component *, 15>{&chooseFile, &fileName, &gain, &mute, &solo, &trimStart,
                                                          &trimEnd, &trimApply, &startLabel, &endLabel, &stemChoice,
-                                                         &addStem, &removeStem, &outputChoice})
+                                                         &addStem, &removeStem, &outputChoice, &cue})
             addAndMakeVisible(c);
         chooseFile.setButtonText("Choose WAV...");
         chooseFile.onClick = [this] {
@@ -73,6 +73,10 @@ class LivePlaybackPanel final : public juce::Component {
         };
         mute.onClick = [this] { commit(); };
         solo.onClick = [this] { commit(); };
+        cue.setComponentID("live-stem-cue");
+        cue.setClickingTogglesState(true);
+        cue.setTooltip("Cue WAV: independent of the global Playback level; choose its output separately");
+        cue.onClick = [this] { owner.run([&] { owner.setLiveCue(cue.getToggleState()); }); };
         mute.setClickingTogglesState(true);
         solo.setClickingTogglesState(true);
     }
@@ -89,6 +93,7 @@ class LivePlaybackPanel final : public juce::Component {
         row = area.removeFromTop(28);
         mute.setBounds(row.removeFromLeft(28).reduced(1));
         solo.setBounds(row.removeFromLeft(28).reduced(1));
+        cue.setBounds(row.removeFromLeft(44).reduced(1));
         outputChoice.setBounds(row.reduced(1));
         gain.setBounds(area.removeFromTop(30));
         row = area.removeFromTop(26);
@@ -194,6 +199,8 @@ class LivePlaybackPanel final : public juce::Component {
         chooseFile.setEnabled(id.isNotEmpty() && !owner.app.recording());
         fileName.setText(row.isObject() ? juce::File(row["file"].toString()).getFileName() : "No audio connected",
                          juce::dontSendNotification);
+        cue.setEnabled(row.isObject() && !owner.app.recording());
+        cue.setToggleState(static_cast<bool>(row["cue"]), juce::dontSendNotification);
         const bool ready = owner.livePlaybackReady();
         gain.setEnabled(ready);
         mute.setEnabled(ready);
@@ -240,7 +247,7 @@ class LivePlaybackPanel final : public juce::Component {
         owner.run([&] { owner.setLivePlaybackMix(gain.getValue(), mute.getToggleState(), solo.getToggleState()); });
     }
     Desktop &owner;
-    juce::TextButton chooseFile, mute{"M"}, solo{"S"};
+    juce::TextButton chooseFile, mute{"M"}, solo{"S"}, cue{"Cue"};
     juce::Label fileName;
     juce::Slider gain;
     juce::TextEditor trimStart, trimEnd;

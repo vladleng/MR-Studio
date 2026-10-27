@@ -187,7 +187,7 @@ ProcessingDomains AudioEngine::compile_domains(const RenderGraph& graph,
 void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState initial) {
     if(speculative_||mixed_owner_)throw std::logic_error("stop the process producer before preparing audio");
     stop_library_preview(); // never retain a stream decoded for the previous device rate
-    graph.click.validate();metronome_.prepare(graph.click_time,config.sample_rate);graph.meters=prepare_meters(graph.click_time,config.sample_rate);click_=graph.click;
+    graph.click.validate();if(graph.click.output_left>=static_cast<int>(config.output_channels)||graph.click.output_right>=static_cast<int>(config.output_channels))throw std::invalid_argument("Click output outside stream");metronome_.prepare(graph.click_time,config.sample_rate);graph.meters=prepare_meters(graph.click_time,config.sample_rate);click_=graph.click;
     if(graph.count_frames<0||graph.count_frames>max_sample||(graph.count_frames&&(!std::isfinite(graph.count_beat_frames)||graph.count_beat_frames<1||graph.count_beats<1||graph.count_beats>64)))throw std::invalid_argument("invalid precount");
     count_started_=false;record_start_ns_=0;initial.count_remaining=graph.count_frames;
     // Caller has stopped the device; this also joins a timed-out worker batch.
@@ -619,7 +619,11 @@ void AudioEngine::apply_control(const Control& control) noexcept {
     if(control.kind==ControlKind::seek||control.kind==ControlKind::prepared_seek)metronome_.reset();
     if(control.kind==ControlKind::stop||control.kind==ControlKind::seek){for(auto& lane:midi_playback_)lane.forget();}
     switch (control.kind) {
-        case ControlKind::click: click_.playback=(control.a&1)!=0;click_.recording=(control.a&2)!=0;click_.accent=(control.a&4)!=0;click_.level=static_cast<int>(std::clamp(control.b,Sample{0},Sample{100}));metronome_.reset();break;
+        case ControlKind::click: click_.playback=(control.a&1)!=0;click_.recording=(control.a&2)!=0;click_.accent=(control.a&4)!=0;click_.level=static_cast<int>(std::clamp(control.b,Sample{0},Sample{100}));
+            click_.output_left=static_cast<int>((control.a>>8)&255)-1;
+            click_.output_right=static_cast<int>((control.a>>16)&255)-1;
+            if(click_.output_left>=static_cast<int>(config_.output_channels)||click_.output_right>=static_cast<int>(config_.output_channels)){click_.playback=click_.recording=false;click_.output_left=click_.output_right=-1;}
+            metronome_.reset();break;
         case ControlKind::monitor: monitor_enabled_ = control.a != 0; break;
         case ControlKind::play: if (rt_.playback != PlaybackState::playing) { rt_.play_start=rt_.sample; pending_play_anchor_=pending_seek_.has_value(); } if(rt_.count_remaining){count_started_=true;rt_.playback=PlaybackState::paused;}else rt_.playback = PlaybackState::playing; break;
         case ControlKind::pause:
@@ -677,9 +681,10 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         const auto elapsed=graph_.count_frames-rt_.count_remaining;const auto now=midi_clock_ns();
         process_block(input,output,count,input_flags);
         if(processing_fault_.load()){rt_.count_remaining=0;count_started_=false;rt_.playback=PlaybackState::paused;publish();return;}
-        for(std::uint32_t i=0;i<count;++i){const auto click=metronome_.count_sample(elapsed+i,graph_.count_beat_frames,graph_.count_beats,click_.accent,click_.level/100.f)*master_envelope_[i];
+        for(std::uint32_t i=0;i<count;++i){const auto click=metronome_.count_sample(elapsed+i,graph_.count_beat_frames,graph_.count_beats,click_.accent,click_.level/100.f)*(click_.output_left<0?master_envelope_[i]:1.f);
             const auto add=[&](std::size_t c){auto& value=output[static_cast<std::size_t>(i)*config_.output_channels+c];value=std::clamp(value+click,-1.f,1.f);};
-            if(graph_.master_outputs.empty()){for(std::uint32_t c=0;c<std::min(2U,config_.output_channels);++c)add(c);}else for(const auto c:graph_.master_outputs)add(c);
+            if(click_.output_left>=0){add(static_cast<std::size_t>(click_.output_left));if(click_.output_right>=0)add(static_cast<std::size_t>(click_.output_right));}
+            else if(graph_.master_outputs.empty()){for(std::uint32_t c=0;c<std::min(2U,config_.output_channels);++c)add(c);}else for(const auto c:graph_.master_outputs)add(c);
         }
         rt_.count_remaining-=count;
         if(!rt_.count_remaining){count_started_=false;rt_.playback=PlaybackState::playing;record_start_ns_=now+static_cast<std::uint64_t>(1e9*count/config_.sample_rate);metronome_.reset();if(mixed_owner_)++control_revision_;}
@@ -959,7 +964,7 @@ void AudioEngine::process_block(const float* input, float* output, std::uint32_t
         const auto click=rt_.count_remaining?0.f:metronome_.sample(click_position,block_playing&&(capturing?click_.recording:click_.playback),click_.accent,click_.level/100.f);
         std::array<float,max_channels> master{};
         for (std::uint32_t c=0; c<config_.output_channels; ++c) {
-            auto sample = (output[offset+c]+(c<2?click:0.f))*master_envelope_[frame];
+            auto sample = (output[offset+c]+(c<2&&click_.output_left<0?click:0.f))*master_envelope_[frame];
             if (!std::isfinite(sample)) sample = 0;
             master[c] = sample;
             if (c<2) block_peaks[max_mixer_tracks][c] = std::max(block_peaks[max_mixer_tracks][c],std::abs(sample));
@@ -971,6 +976,10 @@ void AudioEngine::process_block(const float* input, float* output, std::uint32_t
             output[offset+graph_.master_outputs[0]] += config_.output_channels == 1 ? master[0] : (master[0]+master[1])*0.5f;
         } else {
             output[offset+graph_.master_outputs[0]] += master[0]; output[offset+graph_.master_outputs[1]] += master[1];
+        }
+        if(click_.output_left>=0){
+            output[offset+static_cast<std::size_t>(click_.output_left)] += click;
+            if(click_.output_right>=0)output[offset+static_cast<std::size_t>(click_.output_right)] += click;
         }
         for (std::uint32_t c=0; c<config_.output_channels; ++c) {
             auto& sample = output[offset+c]; if (!std::isfinite(sample)) sample = 0;

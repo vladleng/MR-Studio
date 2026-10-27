@@ -1,8 +1,54 @@
 #pragma once
 #include "LiveShowState.h"
 #include <cmath>
+#include <mrs/metronome.hpp>
 
 namespace ui::live {
+inline juce::var liveAudio(const juce::var &state) { return state["performance"]["nativeLiveAudio"]; }
+inline double playbackGain(const juce::var &state) {
+    const auto value = liveAudio(state)["gain"];
+    return value.isVoid() ? 0. : static_cast<double>(value);
+}
+inline mrs::audio::ClickSettings liveClick(const juce::var &state) {
+    mrs::audio::ClickSettings result;
+    const auto value = liveAudio(state)["click"];
+    if (!value.isObject())
+        return result;
+    result.playback = static_cast<bool>(value["enabled"]);
+    result.accent = value["accent"].isVoid() || static_cast<bool>(value["accent"]);
+    result.level = value["level"].isVoid() ? 20 : static_cast<int>(value["level"]);
+    if (const auto *outputs = value["outputs"].getArray(); outputs && !outputs->isEmpty()) {
+        result.output_left = static_cast<int>((*outputs)[0]);
+        if (outputs->size() == 2)
+            result.output_right = static_cast<int>((*outputs)[1]);
+    }
+    return result;
+}
+inline void validateLiveAudio(const juce::var &state) {
+    const auto value = liveAudio(state);
+    if (value.isVoid())
+        return;
+    if (!value.isObject())
+        throw std::runtime_error("Invalid Live audio settings");
+    const auto gain = value["gain"];
+    if (!gain.isVoid() && (!number(gain) || static_cast<double>(gain) < -60. || static_cast<double>(gain) > 12.))
+        throw std::runtime_error("Live Playback gain must be -60..12 dB");
+    const auto click = value["click"];
+    if (click.isVoid())
+        return;
+    if (!click.isObject() || !click["enabled"].isBool() || (!click["accent"].isVoid() && !click["accent"].isBool()) ||
+        (!click["level"].isVoid() && !click["level"].isInt()))
+        throw std::runtime_error("Invalid Live Click settings");
+    const auto outputs = click["outputs"];
+    if (!outputs.isVoid()) {
+        if (!outputs.isArray() || outputs.size() > 2)
+            throw std::runtime_error("Click needs mono/stereo outputs or Master");
+        for (const auto &output : *outputs.getArray())
+            if (!output.isInt() || static_cast<int>(output) < 0 || static_cast<int>(output) > 127)
+                throw std::runtime_error("Invalid Click output");
+    }
+    liveClick(state).validate();
+}
 // Show-owned references/settings; decoded audio and transport belong to shared Core.
 inline juce::var playback(const juce::var &state, const juce::String &item) {
     return state["performance"]["nativePlayback"][juce::Identifier(item)];
@@ -43,8 +89,8 @@ inline std::vector<int> playbackOutputs(const juce::var &row) {
     return result;
 }
 inline void validatePlaybackRow(const juce::var &row) {
-    if (!row.isObject() || !row["file"].isString() || row["file"].toString().isEmpty() || !row["mute"].isBool() ||
-        !row["solo"].isBool())
+    if ((!row["cue"].isVoid() && !row["cue"].isBool()) || !row.isObject() || !row["file"].isString() ||
+        row["file"].toString().isEmpty() || !row["mute"].isBool() || !row["solo"].isBool())
         throw std::runtime_error("Invalid Live Playback binding");
     const auto gain = row["gain"];
     if (!number(gain) || static_cast<double>(gain) < -60. || static_cast<double>(gain) > 12.)
@@ -66,6 +112,7 @@ inline void validatePlaybackRow(const juce::var &row) {
     }
 }
 inline void validatePlayback(const juce::var &state) {
+    validateLiveAudio(state);
     const auto bindings = state["performance"]["nativePlayback"];
     if (bindings.isVoid())
         return;

@@ -860,6 +860,69 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         }
         liveCheck(routeBlocked && multi.liveDocument->signature() == beforeRoute,
                   "Inactive output is rejected before state publication");
+        multi.setLiveCue(true);
+        auto liveClickSettings = live::liveClick(multi.liveDocument->interfaceState);
+        multi.setLiveAudio(-6.020599913, liveClickSettings);
+        multi.app.play();
+        renderMulti();
+        liveCheck(std::abs(audio[400] + audio[402] * .5f) < .0001f && audio[400] > .01f,
+                  "Global Playback gain affects direct music outputs but leaves Cue at its own level");
+        multi.undoLiveInterface();
+        multi.syncLivePlayback();
+        renderMulti();
+        liveCheck(std::abs(audio[400] + audio[402]) < .0001f,
+                  "Show Undo restores global Playback gain without changing Cue");
+        multi.app.stop();
+        renderMulti();
+        liveClickSettings.playback = true;
+        liveClickSettings.output_left = 2;
+        liveClickSettings.output_right = 3;
+        multi.setLiveAudio(-6.020599913, liveClickSettings);
+        multi.livePlaybackStem.clear();
+        multi.setLivePlaybackMix(0., true, false);
+        multi.livePlaybackStem = stemKey;
+        multi.setLivePlaybackMix(0., true, false);
+        multi.app.play();
+        renderMulti();
+        float clickPeak = 0.f;
+        for (std::size_t frame = 0; frame < 128; ++frame) {
+            liveCheck(std::abs(audio[frame * 4]) < .0001f && std::abs(audio[frame * 4 + 1]) < .0001f &&
+                          audio[frame * 4 + 2] == audio[frame * 4 + 3],
+                      "Routed Click stays out of Master and follows the same stereo pair");
+            clickPeak = (std::max)(clickPeak, std::abs(audio[frame * 4 + 2]));
+        }
+        liveCheck(clickPeak > .001f, "Shared Core metronome reaches the dedicated Live Click outputs");
+        auto reroutedClick = liveClickSettings;
+        reroutedClick.output_left = 0;
+        reroutedClick.output_right = 1;
+        const auto beforeClickRoute = multi.liveDocument->signature();
+        bool clickRouteBlocked = false;
+        try {
+            multi.setLiveAudio(0., reroutedClick);
+        } catch (const std::exception &) {
+            clickRouteBlocked = true;
+        }
+        liveCheck(clickRouteBlocked && multi.liveDocument->signature() == beforeClickRoute,
+                  "Click route changes during Playback fail before show mutation");
+        multi.app.stop();
+        renderMulti();
+        reroutedClick.output_left = 9;
+        clickRouteBlocked = false;
+        try {
+            multi.setLiveAudio(0., reroutedClick);
+        } catch (const std::exception &) {
+            clickRouteBlocked = true;
+        }
+        liveCheck(clickRouteBlocked && multi.liveDocument->signature() == beforeClickRoute,
+                  "Unavailable Click route is rejected before show publication");
+        liveClickSettings.playback = false;
+        // Keep Click on Master for the existing offline two-output reload fixture below.
+        liveClickSettings.output_left = liveClickSettings.output_right = -1;
+        multi.setLiveAudio(-6.020599913, liveClickSettings);
+        multi.livePlaybackStem.clear();
+        multi.setLivePlaybackMix(0., false, false);
+        multi.livePlaybackStem = stemKey;
+        multi.setLivePlaybackMix(0., false, false);
         multi.setLivePlaybackTrim(.02, .08);
         liveCheck(multi.project()->clips[0].length == 48000 && multi.project()->clips[1].source_offset == 960 &&
                       multi.project()->clips[1].length == 2880,
@@ -871,6 +934,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         const auto savedRows = live::playbackRows(stemSaved.interfaceState, id);
         liveCheck(savedRows.size() == 2 && !live::itemDirty(stemSaved.interfaceState, id) &&
                       savedRows[1]["file"].toString() == negative.getFullPathName() &&
+                      static_cast<bool>(savedRows[1]["cue"]) &&
+                      std::abs(live::playbackGain(stemSaved.interfaceState) + 6.020599913) < .000001 &&
                       live::playbackOutputs(savedRows[1]) == std::vector<int>({2, 3}),
                   "All stem paths, trims and routes survive mrlive round-trip");
         const auto relocated = folder.getChildFile("stems-save-as").getChildFile("show.mrlive");
@@ -896,6 +961,69 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         livePump(); // Playback selector is synchronized by the workspace UI timer, not Desktop::refresh.
         auto *choice = dynamic_cast<juce::ComboBox *>(liveComponent(multi, "live-stem-choice"));
         liveCheck(choice && choice->getNumItems() == 2, "Native Playback panel lists all real stems");
+    }
+    {
+        Desktop clickOnly(true, false, true);
+        clickOnly.importLiveShow(fixture);
+        clickOnly.selectLiveItem(id);
+        clickOnly.app.connect(std::make_unique<LivePlaybackTestDevice>(4), {0, 48000, 128, {}, {1, 3}, 1});
+        mrs::audio::ClickSettings clickOnlySettings;
+        clickOnlySettings.playback = true;
+        clickOnlySettings.output_left = 3;
+        clickOnly.setLiveAudio(0., clickOnlySettings);
+        liveCheck(clickOnly.liveTransportReady() && !clickOnly.livePlaybackReady(),
+                  "Click-only item can run the shared Transport without a WAV");
+        clickOnly.action(30);
+        std::array<float, 256> clickOnlyAudio{};
+        clickOnly.app.engine()->process(nullptr, clickOnlyAudio.data(), 128);
+        float mappedPeak = 0.f;
+        for (std::size_t frame = 0; frame < 128; ++frame) {
+            liveCheck(clickOnlyAudio[frame * 2] == 0.f,
+                      "Physical Click output does not leak into another stream channel");
+            mappedPeak = (std::max)(mappedPeak, std::abs(clickOnlyAudio[frame * 2 + 1]));
+        }
+        liveCheck(mappedPeak > .001f, "Physical output 4 maps to stream channel 2 with nonconsecutive active outputs");
+        clickOnly.app.stop();
+        clickOnly.app.engine()->process(nullptr, clickOnlyAudio.data(), 128);
+        const auto clickShow = folder.getChildFile("click.mrlive");
+        clickOnly.saveFile(clickShow);
+        const auto reopenedClick = LiveDocument::read(clickShow);
+        liveCheck(live::liveClick(reopenedClick.interfaceState) == clickOnlySettings,
+                  "Click enabled/accent/level/physical route survive mrlive round-trip");
+        // A show requesting a missing Click output must not silently fall back to Master.
+        clickOnly.app.disconnect();
+        clickOnly.app.set_click_settings({});
+        clickOnly.app.connect(std::make_unique<LivePlaybackTestDevice>(), {0, 48000, 128, {}, {0, 1}, 1});
+        clickOnly.syncLivePlayback();
+        liveCheck(!clickOnly.liveTransportReady() && clickOnly.livePlaybackError.isNotEmpty() &&
+                      !clickOnly.app.click_settings().playback,
+                  "Unavailable saved Click route stops Playback and disables the click fail-closed");
+        clickOnlySettings.output_left = -1;
+        clickOnly.setLiveAudio(0., clickOnlySettings);
+        liveCheck(clickOnly.liveTransportReady(), "Missing Click output can be explicitly repaired to Master");
+        LiveAudioPanel audioSettings(clickOnly);
+        liveCheck(liveComponent(audioSettings, "live-audio-output") != nullptr,
+                  "Live context exposes Click route settings through the native controls");
+        LiveWaveformCache displayCache;
+        const auto source = folder.getChildFile("live-tone.wav").getFullPathName();
+        const auto waitWave = [&] {
+            const auto until = juce::Time::getMillisecondCounter() + 5000;
+            while (juce::Time::getMillisecondCounter() < until) {
+                displayCache.sync({source});
+                const auto *entry = displayCache.find(source);
+                if (entry && entry->wave)
+                    return true;
+                juce::Thread::sleep(5);
+            }
+            return false;
+        };
+        liveCheck(waitWave(), "Display-only cache prepares actual WAV peaks without activating an item");
+        const auto *cached = displayCache.find(source);
+        liveCheck(cached && cached->rate == 48000 && cached->wave->frames() == 48000,
+                  "Inactive waveform retains original sample rate and duration");
+        displayCache.sync({});
+        liveCheck(displayCache.find(source) && displayCache.find(source)->wave,
+                  "Waveform survives item deactivation / leaving the visible timeline");
     }
     desktop.home.reset();
     liveCheck(folder.deleteRecursively(), "Native interface fixture cleanup");

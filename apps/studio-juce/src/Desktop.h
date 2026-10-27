@@ -86,12 +86,16 @@ public:
     void addLivePlaybackStems(const juce::String&, const juce::Array<juce::File>&);
     void removeLivePlaybackStem();
     void setLivePlaybackOutputs(const std::vector<int>&);
+    void setLiveCue(bool);
+    void setLiveAudio(double gain, mrs::audio::ClickSettings);
+    juce::String liveAudioKey;
     std::size_t livePlaybackIndex() const;
     juce::String livePlaybackStem, livePlaybackMediaKey, livePlaybackDeviceKey;
     void setLivePlaybackMix(double,bool,bool);
     void setLivePlaybackTrim(double startSeconds, double endSeconds);
     void syncLivePlayback();
     bool livePlaybackReady() const;
+    bool liveTransportReady() const;
     juce::String livePlaybackItem, livePlaybackFile, livePlaybackMixKey, livePlaybackError, liveMusicalKey;
     bool livePlaybackLoading{};
     void bindLiveItem(const juce::String&,const juce::File&);

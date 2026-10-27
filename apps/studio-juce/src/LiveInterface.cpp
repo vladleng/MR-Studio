@@ -25,6 +25,19 @@ void validateMusicalEdit(Desktop &owner, const juce::var &copy) {
 // Preflight before committing show history, including Undo/Redo. Core owns the source extent.
 void validatePlaybackEdit(Desktop &owner, const juce::var &copy) {
     live::validatePlayback(copy);
+    const auto oldClick = live::liveClick(owner.liveDocument->interfaceState), newClick = live::liveClick(copy);
+    if (newClick != oldClick) {
+        if (owner.app.recording())
+            throw std::runtime_error("Stop recording before changing Click");
+        if (newClick.output_left != oldClick.output_left || newClick.output_right != oldClick.output_right) {
+            if (owner.app.engine()->state().playback == mrs::PlaybackState::playing)
+                throw std::runtime_error("Pause or stop before routing Click");
+            const auto enabled = owner.app.active_outputs();
+            for (int output : {newClick.output_left, newClick.output_right})
+                if (output >= 0 && std::find(enabled.begin(), enabled.end(), output) == enabled.end())
+                    throw std::runtime_error("Enable the Click output in Audio settings first");
+        }
+    }
     if (!owner.livePlaybackReady())
         return;
     const auto id = owner.liveDocument->interfaceState["currentItem"].toString();
@@ -112,6 +125,8 @@ void Desktop::newLiveShow() {
     const bool session = app.audio_name() != "Offline clock (no sound)" && app.audio_name() != "Disconnected";
     closeEditors();
     cancelPreview();
+    app.set_click_settings({});
+    liveAudioKey.clear();
     app.new_project(session ? prefs.rate : 48000);
     liveDocument.emplace();
     liveFile = juce::File();
@@ -135,6 +150,8 @@ void Desktop::prepareLiveInterface(bool saved) {
     livePlaybackError.clear();
     livePlaybackMixKey.clear();
     liveMusicalKey.clear();
+    liveAudioKey.clear();
+    app.set_click_settings({});
     livePlaybackLoading = false;
     liveUndo.clearUndoHistory();
     liveShowEditing = false;
@@ -217,6 +234,8 @@ void Desktop::importLiveShow(const juce::File &file) {
     const bool session = app.audio_name() != "Offline clock (no sound)" && app.audio_name() != "Disconnected";
     closeEditors();
     cancelPreview();
+    app.set_click_settings({});
+    liveAudioKey.clear();
     app.new_project(session ? prefs.rate : 48000);
     resetDevice();
     liveDocument = std::move(imported);
@@ -249,6 +268,8 @@ void Desktop::selectLiveItem(const juce::String &id) {
         const bool session = app.audio_name() != "Offline clock (no sound)" && app.audio_name() != "Disconnected";
         closeEditors();
         cancelPreview();
+        app.set_click_settings({});
+        liveAudioKey.clear();
         app.new_project(session ? prefs.rate : 48000);
         resetDevice();
         liveDocument->active = -1;
@@ -484,6 +505,42 @@ void Desktop::setLivePlaybackOutputs(const std::vector<int> &outputs) {
         livePlaybackError.clear();
     syncLivePlayback();
 }
+void Desktop::setLiveCue(bool cue) {
+    if (app.recording())
+        throw std::runtime_error("Stop recording before changing Cue");
+    if (!liveDocument)
+        throw std::runtime_error("Open a show first");
+    const auto id = liveDocument->interfaceState["currentItem"].toString();
+    if (!live::playbackStem(liveDocument->interfaceState, id, livePlaybackStem).isObject())
+        throw std::runtime_error("Choose a stem first");
+    editLiveInterface("Playback / Cue role", [&](auto &state) {
+        auto stem = live::playbackStem(state, id, livePlaybackStem);
+        live::put(stem, "cue", cue);
+    });
+    syncLivePlayback();
+}
+void Desktop::setLiveAudio(double gain, mrs::audio::ClickSettings click) {
+    if (app.recording())
+        throw std::runtime_error("Stop recording before changing Live audio");
+    click.validate();
+    editLiveInterface("Live Playback / Click", [&](auto &state) {
+        auto settings = live::map(live::performance(state), "nativeLiveAudio");
+        live::put(settings, "gain", gain);
+        auto value = live::object();
+        live::put(value, "enabled", click.playback);
+        live::put(value, "accent", click.accent);
+        live::put(value, "level", click.level);
+        juce::Array<juce::var> outputs;
+        if (click.output_left >= 0)
+            outputs.add(click.output_left);
+        if (click.output_right >= 0)
+            outputs.add(click.output_right);
+        live::put(value, "outputs", outputs);
+        live::put(settings, "click", value);
+    });
+    livePlaybackError.clear();
+    syncLivePlayback();
+}
 void Desktop::removeLivePlaybackStem() {
     if (!liveDocument || livePlaybackStem.isEmpty())
         throw std::runtime_error("The primary Playback cannot be removed here");
@@ -505,6 +562,16 @@ bool Desktop::livePlaybackReady() const {
     return id == livePlaybackItem && !rows.empty() &&
            livePlaybackMediaKey == live::playbackMediaKey(liveDocument->interfaceState, id) &&
            project()->tracks.size() == rows.size() && project()->clips.size() == rows.size();
+}
+bool Desktop::liveTransportReady() const {
+    if (livePlaybackReady())
+        return true;
+    if (!liveDocument || livePlaybackLoading || livePlaybackError.isNotEmpty())
+        return false;
+    const auto &state = liveDocument->interfaceState;
+    const auto id = state["currentItem"].toString();
+    return live::find(state, "items", id).isObject() && live::playbackRows(state, id).empty() &&
+           live::liveClick(state).playback && liveMusicalKey == live::canonical(live::musicalVersion(state, id));
 }
 void Desktop::syncLivePlayback() {
     if (!liveDocument || !liveDocument->projects.empty())
@@ -546,6 +613,8 @@ void Desktop::syncLivePlayback() {
                     app.audio_name() != "Offline clock (no sound)" && app.audio_name() != "Disconnected";
                 closeEditors();
                 cancelPreview();
+                app.set_click_settings({});
+                liveAudioKey.clear();
                 app.new_project(session ? prefs.rate : 48000);
                 selectedTrack.reset();
                 selectedClip.reset();
@@ -580,8 +649,21 @@ void Desktop::syncLivePlayback() {
         if (project()->tracks.size() != rows.size() || project()->clips.size() != rows.size())
             livePlaybackError = juce::String::fromUTF8(app.wav_import_status().message.c_str());
     }
+    const auto audioKey = live::canonical(live::liveAudio(liveDocument->interfaceState)) + deviceKey;
+    if (audioKey != liveAudioKey) {
+        try {
+            app.set_click_settings(live::liveClick(liveDocument->interfaceState));
+            liveAudioKey = audioKey;
+        } catch (const std::exception &error) {
+            app.stop();
+            app.set_click_settings({});
+            liveAudioKey = audioKey; // Retry only after an explicit settings/device change.
+            livePlaybackError = juce::String::fromUTF8(error.what());
+            return;
+        }
+    }
     if (livePlaybackReady()) {
-        const auto key = live::canonical(row);
+        const auto key = live::canonical(row) + live::canonical(live::liveAudio(liveDocument->interfaceState));
         if (key != livePlaybackMixKey) {
             const auto snapshot = project();
             const auto active = app.active_outputs();
@@ -620,7 +702,10 @@ void Desktop::syncLivePlayback() {
                 if (project()->tracks[i].hardware_outputs != outputs)
                     app.set_hardware_output(project()->tracks[i].id, outputs);
                 auto mix = project()->tracks[i].mix;
-                mix.gain = static_cast<float>(std::pow(10., static_cast<double>(rows[i]["gain"]) / 20.));
+                mix.gain = static_cast<float>(std::pow(
+                    10., (static_cast<double>(rows[i]["gain"]) +
+                          (static_cast<bool>(rows[i]["cue"]) ? 0. : live::playbackGain(liveDocument->interfaceState))) /
+                             20.));
                 mix.mute = static_cast<bool>(rows[i]["mute"]);
                 mix.solo = static_cast<bool>(rows[i]["solo"]);
                 app.set_track_mix(project()->tracks[i].id, mix);

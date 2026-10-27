@@ -785,6 +785,38 @@ void metronome(){
         }
         CHECK(click.sample(end,false,true,1)==0);
     }
+    // Direct Click bypasses Master, respects physical stream mapping, allocates nothing,
+    // follows shared seek/loop, and uses the same route during count-in.
+    {
+        AudioEngine routed;
+        RenderGraph graph;
+        graph.master_outputs={0,1}; graph.master_gain=0;
+        graph.click.playback=true; graph.click.output_left=2; graph.click.output_right=3;
+        routed.prepare({48000,0,4,128},graph,{PlaybackState::paused,0,std::nullopt});
+        CHECK(routed.enqueue({ControlKind::play}));
+        std::array<float,512> out{};
+        allocation_check::count=0; allocation_check::enabled=true;
+        routed.process(nullptr,out.data(),128);
+        allocation_check::enabled=false;
+        CHECK(allocation_check::count==0);
+        float direct=0;
+        for(std::size_t i=0;i<128;++i){CHECK(out[i*4]==0&&out[i*4+1]==0);CHECK(out[i*4+2]==out[i*4+3]);direct=std::max(direct,std::abs(out[i*4+2]));}
+        CHECK(direct>.01f);
+        CHECK(routed.enqueue({ControlKind::seek,0}));
+        std::array<float,512> again{};routed.process(nullptr,again.data(),128);CHECK(out==again);
+        auto settings=graph.click;settings.output_right=-1;
+        CHECK(routed.enqueue({ControlKind::click,settings.control_flags(),settings.level}));
+        CHECK(routed.enqueue({ControlKind::seek,0}));routed.process(nullptr,out.data(),128);
+        for(std::size_t i=0;i<128;++i)CHECK(out[i*4]==0&&out[i*4+1]==0&&out[i*4+3]==0);
+        settings.playback=false;CHECK(routed.enqueue({ControlKind::click,settings.control_flags(),settings.level}));
+        routed.process(nullptr,out.data(),128);CHECK(std::all_of(out.begin(),out.end(),[](float value){return value==0;}));
+        graph.count_frames=256;graph.count_beat_frames=24000;graph.count_beats=4;
+        routed.prepare({48000,0,4,128},graph,{PlaybackState::paused,0,std::nullopt});
+        CHECK(routed.enqueue({ControlKind::play}));routed.process(nullptr,out.data(),128);
+        for(std::size_t i=0;i<128;++i)CHECK(out[i*4]==0&&out[i*4+1]==0&&out[i*4+2]==out[i*4+3]);
+        CHECK(std::any_of(out.begin(),out.end(),[](float value){return std::abs(value)>.01f;}));
+        graph.click.output_left=4;bool rejected=false;try{routed.prepare({48000,0,4,128},graph);}catch(const std::invalid_argument&){rejected=true;}CHECK(rejected);
+    }
     TempFile count_file,cancel_file;auto recorder=std::make_shared<Recorder>(count_file.path,48000,500);
     RenderGraph graph;graph.recordings={recorder};graph.click.recording=true;graph.count_frames=193;graph.count_beat_frames=48.25;graph.count_beats=4;
     AudioEngine engine;engine.prepare({48000,1,2,256},graph,{PlaybackState::paused,500,std::nullopt});std::array<float,512> output{};std::array<float,256> input{};for(std::size_t i=0;i<input.size();++i)input[i]=static_cast<float>(i)/512;

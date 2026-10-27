@@ -1,5 +1,6 @@
 #pragma once
 #include "Desktop.h"
+#include "LiveAudioPanel.h"
 #include "LiveChannels.h"
 #include "LiveContext.h"
 #include "LiveLayout.h"
@@ -204,6 +205,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         popup.addItem(102, "Fit window to screen");
         popup.addItem(103, "Open last show on startup", true, owner.view.liveRestoreLastShow);
         popup.addSeparator();
+        popup.addItem(41, "Playback / Click / Cue...", owner.liveDocument.has_value());
         popup.addItem(40, "Audio settings...");
         juce::Component::SafePointer<LiveWorkspace> safe(this);
         popup.showMenuAsync(liveMenuOptions(options), [safe](int action) {
@@ -216,7 +218,9 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             else if (action == 103) {
                 safe->owner.view.liveRestoreLastShow = !safe->owner.view.liveRestoreLastShow;
                 safe->owner.run([&] { safe->owner.saveSettings(); });
-            } else if (action == 40)
+            } else if (action == 41)
+                openLiveAudio(safe->owner);
+            else if (action == 40)
                 safe->owner.action(40);
             else if (action == 102) {
                 if (safe->fitWindowRequested)
@@ -268,9 +272,9 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         redoButton.setEnabled(showHistory ? owner.liveUndo.canRedo() : projectState.can_redo);
         const auto state = owner.displayState();
         const bool linked = !owner.liveDocument || owner.liveDocument->currentLinked();
-        play.setEnabled(linked || owner.livePlaybackReady());
+        play.setEnabled(linked || owner.liveTransportReady());
         record.setEnabled(linked);
-        const bool sectionsReady = owner.livePlaybackReady() && !owner.project()->sections.empty();
+        const bool sectionsReady = owner.liveTransportReady() && !owner.project()->sections.empty();
         previous.setEnabled((linked || sectionsReady) && !owner.app.recording());
         next.setEnabled((linked || sectionsReady) && !owner.app.recording());
         loop.setEnabled((linked || (sectionsReady && (owner.app.musical().state().current_section ||
