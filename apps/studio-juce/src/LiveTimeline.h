@@ -723,7 +723,7 @@ class LiveTimeline final : public juce::Component {
             owner.liveDocument ? owner.liveDocument->interfaceState["currentItem"].toString() : juce::String();
         const auto bindings = owner.liveDocument ? live::playbackRows(owner.liveDocument->interfaceState, current)
                                                  : std::vector<juce::var>();
-        juce::String channelsKey;
+        juce::String channelsKey = primaryChannel()["id"].toString() + "|";
         const auto channels = owner.liveDocument ? owner.liveDocument->interfaceState["channels"] : juce::var();
         if (const auto *entries = channels.getArray()) for (const auto &channel : *entries) channelsKey += channel["id"].toString();
         if (channelsKey != stemControlsKey) {

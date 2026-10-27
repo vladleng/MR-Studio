@@ -483,7 +483,14 @@ inline juce::String addItem(juce::var &state, const juce::String &name, const ju
     put(item, "key", "");
     put(item, "duration", 0);
     put(item, "notes", "");
-    put(item, "tracks", juce::Array<juce::var>());
+    juce::Array<juce::var> tracks;
+    if (const auto *channels = state["channels"].getArray()) for (const auto &channel : *channels) {
+        auto track = object(); put(track, "id", freshId()); put(track, "channelId", channel["id"]);
+        for (const auto *key : {"patchId", "subPatchId", "media", "recordTrack"}) put(track, key, {});
+        put(track, "patchOrder", juce::Array<juce::var>()); put(track, "spans", object()); put(track, "playbackGain", 0.);
+        tracks.add(track);
+    }
+    put(item, "tracks", tracks);
     put(item, "sections", juce::Array<juce::var>());
     array(state, "items").add(item);
     saveItem(state, id);
