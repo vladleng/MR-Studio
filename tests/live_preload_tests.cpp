@@ -115,6 +115,14 @@ void run() {
     Application app;
     app.new_project();
     app.workspace(Workspace::live);
+    app.disconnect();
+    auto offline = app.prepare_playback({a});
+    ready(app, offline);
+    Application::PlaybackLayout offlineLayout;
+    offlineLayout.stems.resize(1);
+    app.activate_playback(offline, offlineLayout);
+    check(app.audio_name() == "Offline clock (no sound)" && app.services().projects->state().project->clips.size() == 1,
+          "Disconnected editing materializes WAV using the shared offline clock");
     const auto calls = std::make_shared<Calls>();
     app.connect(std::make_unique<Device>(calls), {0, 48000, 128, {}, {0, 1, 2, 3}, 1});
     const auto engine = app.engine();

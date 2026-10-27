@@ -963,7 +963,14 @@ void Application::install_playback(Project candidate,
     std::map<std::string,std::shared_ptr<const audio::AudioData>> decoded,
     std::shared_ptr<PreparedWavImport> media,audio::ClickSettings click) {
     require(workspace_==Workspace::live&&path_.empty(),"Playback handoff requires a Live runtime");
-    require_not_recording();require(device_&&device_config_,"Connect audio before switching Playback");
+    require_not_recording();
+    if(!device_||!device_config_){
+        // Editing/preparing a show remains available after explicit Disconnect.
+        // Reuse the normal Core offline clock; never reopen a live hardware handle here.
+        const auto savedClick=click_settings_;click_settings_={};
+        try{start_empty_clock();}catch(...){click_settings_=savedClick;throw;}
+        click_settings_=savedClick;
+    }
     const auto previous=services_.projects->state().project;
     require(previous->master_inserts.empty()&&previous->ara_bindings.empty()&&
         std::all_of(previous->tracks.begin(),previous->tracks.end(),[](const auto& track){

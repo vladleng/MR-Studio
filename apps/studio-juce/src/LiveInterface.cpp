@@ -704,6 +704,17 @@ void Desktop::syncLivePlayback() {
     if (!liveDocument || !liveDocument->projects.empty())
         return;
     bool changed = false;
+    const auto selectedId = liveDocument->interfaceState["currentItem"].toString();
+    const auto selectedIndex = live::entryIndex(liveDocument->interfaceState, selectedId, liveCurrentEntry);
+    const auto selectedEntry =
+        selectedIndex < 0
+            ? juce::String()
+            : live::activeSetlist(liveDocument->interfaceState)["entries"][selectedIndex]["id"].toString();
+    if (selectedEntry != liveCurrentEntry) {
+        liveCurrentEntry = selectedEntry;
+        ++liveUiRevision;
+        ++liveTimelineFocusRevision;
+    }
     const auto id =
         livePendingItem.isNotEmpty() ? livePendingItem : liveDocument->interfaceState["currentItem"].toString();
     if (!live::find(liveDocument->interfaceState, "items", id).isObject()) {

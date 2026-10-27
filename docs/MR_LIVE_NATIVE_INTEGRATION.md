@@ -159,4 +159,6 @@ Application.prepare_playback переиспользует PreparedWavImport: т�
 
 Это срез WAV/Click/Cue: активные инструменты, inserts/hosted plugins/ARA не заменяются этим handoff; их lifecycle относится к #32/#33. Ручной выбор начинает новый item в sample 0 и Stopped, без неявного autoplay. Options → Previous item / Next item использует тот же путь; Status показывает следующий item и readiness его media. Callback не получает нового alloc/free/locks/I/O. Стресс-проверка fake device проверяет многократные переходы, PCM/routes/tempo, сохранение одного Engine/одного open и rollback; её время не является физическим ASIO latency.
 
+После явного Disconnect редактирование/загрузка WAV остаются доступны: install_playback включает штатные Core Offline clock, если открытого устройства нет. Это не переоткрытие существующего ASIO handle; физические routes по-прежнему валидируются, недоступные выходы не downmix в Master.
+
 Runtime preload и устранение повторного импорта реализованы, но **stop/start остаётся границей ручного handoff**. Автоматический sample-boundary переход на конце item, no-dropout во время непрерывного воспроизведения, per-song end policy и физический ASIO stress этим не заявляются и остаются последующим объёмом #30/#31.
