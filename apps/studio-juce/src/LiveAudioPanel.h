@@ -102,6 +102,6 @@ class LiveAudioPanel final : public juce::Component {
 };
 inline void openLiveAudio(Desktop &owner) {
     if (owner.liveDocument)
-        showLiveContext(std::make_unique<LiveAudioPanel>(owner), owner, {juce::Desktop::getMousePosition(), {1, 1}});
+        showLiveContext(std::make_unique<LiveAudioPanel>(owner), owner, liveContextTarget(juce::Desktop::getMousePosition()));
 }
 } // namespace ui

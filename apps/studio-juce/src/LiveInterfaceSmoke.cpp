@@ -97,6 +97,11 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                       .addedTo(live::fitWindow({100, -100, 1920, 1080}, secondMonitor, {32, 8, 8, 8}, false))),
               "Negative-coordinate secondary monitor is supported");
     const juce::Rectangle<int> contextArea(0, 0, 1200, 700);
+    for (const auto pointer : {juce::Point<int>{348, 117}, juce::Point<int>{-800, 260}}) {
+        const auto target = liveContextTarget(pointer);
+        liveCheck(target.getPosition() == pointer && target.getWidth() == 1 && target.getHeight() == 1,
+                  "Context target preserves screen coordinates and uses a one-pixel size");
+    }
     liveCheck(liveContextBounds({100, 120}, {600, 520}, contextArea).getPosition() == juce::Point<int>(102, 122),
               "Context opens to bottom right of pointer");
     for (const auto pointer : {juce::Point<int>{0, 0}, {1199, 699}, {1199, 0}, {0, 699}})

@@ -219,7 +219,7 @@ inline void openLiveCardEditor(Desktop &owner, const juce::var &defaults) {
         return;
     auto content = std::make_unique<LiveCardEditor>(owner, defaults);
     auto *editor = content.get();
-    const auto target = juce::Rectangle<int>(juce::Desktop::getMousePosition(), {1, 1});
+    const auto target = liveContextTarget(juce::Desktop::getMousePosition());
     auto &box = showLiveContext(std::move(content), owner, target);
     juce::Component::SafePointer<juce::CallOutBox> safe(&box);
     editor->close = [safe] {

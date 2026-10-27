@@ -51,7 +51,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                 });
             };
             menuButton.setComponentID("live-setlist-menu");
-            menuButton.onClick = [this] { context({}, {menuButton.getScreenBounds().getBottomLeft(), {1, 1}}); };
+            menuButton.onClick = [this] { context({}, liveContextTarget(menuButton.getScreenBounds().getBottomLeft())); };
             setlists.onChange = [this] {
                 if (syncing || !owner.liveDocument)
                     return;
@@ -123,7 +123,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         const auto pointer = event.getScreenPosition();
         owner.liveShowEditing = true;
         grabKeyboardFocus();
-        if (event.mods.isPopupMenu()) context({}, {pointer, {1, 1}});
+        if (event.mods.isPopupMenu()) context({}, liveContextTarget(pointer));
     }
     bool keyPressed(const juce::KeyPress &key) override {
         if (key.getModifiers().isCtrlDown() && (key.getKeyCode() == 'Z' || key.getKeyCode() == 'z')) {
@@ -265,7 +265,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             !browser);
     }
     void context(RowData row, juce::Rectangle<int> target = {}) {
-        if (target.isEmpty()) target = {juce::Desktop::getMousePosition(), {1, 1}};
+        if (target.isEmpty()) target = liveContextTarget(juce::Desktop::getMousePosition());
         if (!owner.liveDocument)
             return;
         if (row.itemId.isNotEmpty()) {
@@ -474,9 +474,9 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             grabKeyboardFocus();
             if (event.mods.isPopupMenu()) {
                 if (row.itemId.isNotEmpty())
-                    host.showItemContext(row, *this, {pointer, {1, 1}});
+                    host.showItemContext(row, *this, liveContextTarget(pointer));
                 else
-                    host.context(row, {pointer, {1, 1}});
+                    host.context(row, liveContextTarget(pointer));
             }
         }
         void mouseDoubleClick(const juce::MouseEvent &event) override {

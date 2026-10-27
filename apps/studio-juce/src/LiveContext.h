@@ -100,10 +100,14 @@ inline juce::Rectangle<int> liveContextBounds(juce::Point<int> pointer, juce::Po
     return {juce::jlimit(area.getX(), area.getRight() - width, pointer.x + 2),
             juce::jlimit(area.getY(), area.getBottom() - height, pointer.y + 2), width, height};
 }
+// Rectangle(Point, Point) means two corners in JUCE, not position and size.
+inline juce::Rectangle<int> liveContextTarget(juce::Point<int> screen) {
+    return {screen.x, screen.y, 1, 1};
+}
 inline juce::PopupMenu::Options liveMenuOptions(juce::Component &owner) {
     return juce::PopupMenu::Options()
         .withTargetComponent(&owner)
-        .withTargetScreenArea({juce::Desktop::getMousePosition(), {1, 1}})
+        .withTargetScreenArea(liveContextTarget(juce::Desktop::getMousePosition()))
         .withPreferredPopupDirection(juce::PopupMenu::Options::PopupDirection::downwards);
 }
 inline juce::CallOutBox &showLiveContext(std::unique_ptr<juce::Component> content, juce::Component &owner,
@@ -124,13 +128,8 @@ inline juce::CallOutBox &showLiveContext(std::unique_ptr<juce::Component> conten
     box.setLookAndFeel(contextTheme);
     box.setArrowSize(0.f);
     box.resized();
-    const auto anchor = parent->getLocalArea(nullptr, target);
-    const auto bounds = liveContextBounds(parent->getLocalPoint(nullptr, target.getTopLeft()),
-                                          {box.getWidth(), box.getHeight()},
-                                          parent->getLocalBounds());
-    // Keep JUCE's stored fitting area consistent with our pointer placement.
-    // Moving only the box leaves childBoundsChanged free to recenter it later.
-    box.updatePosition(anchor, bounds);
+    box.setTopLeftPosition(liveContextBounds(parent->getLocalPoint(nullptr, target.getTopLeft()),
+                                             {box.getWidth(), box.getHeight()}, parent->getLocalBounds()).getPosition());
     box.getProperties().set("mrLiveContext", true);
     box.setDismissalMouseClicksAreAlwaysConsumed(true);
     return box;
@@ -169,7 +168,7 @@ template <typename Owner, typename Commit>
 void promptLiveContext(Owner &owner, const juce::String &title, const juce::String &initial, Commit commit) {
     auto content = std::make_unique<LiveContextPrompt>(title, initial);
     auto *prompt = content.get();
-    auto &box = showLiveContext(std::move(content), owner, {juce::Desktop::getMousePosition(), {1, 1}});
+    auto &box = showLiveContext(std::move(content), owner, liveContextTarget(juce::Desktop::getMousePosition()));
     juce::Component::SafePointer<juce::CallOutBox> popup(&box);
     juce::Component::SafePointer<Owner> safe(&owner);
     juce::Component::SafePointer<LiveContextPrompt> promptPanel(prompt);

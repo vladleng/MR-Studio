@@ -490,7 +490,7 @@ inline void openLiveItemEditor(Desktop &owner, const juce::String &id, juce::Com
     if (!anchor)
         anchor = &owner;
     if (point.isEmpty())
-        point = {juce::Desktop::getMousePosition(), {1, 1}};
+        point = liveContextTarget(juce::Desktop::getMousePosition());
     auto content = std::make_unique<LiveItemEditor>(owner, id);
     content->setActions(std::move(action), entryActions);
     auto *editor = content.get();
