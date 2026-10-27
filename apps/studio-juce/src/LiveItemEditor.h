@@ -226,6 +226,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         notes.setMultiLine(true);
         notes.setReturnKeyStartsNewLine(true);
         notes.setText(item["notes"].toString(), false);
+        observedNotes = notes.getText();
         const auto workflow = live::workflow(state, id);
         status.addItemList({"Done", "Wait", "Todo", "Wip"}, 1);
         status.setSelectedItemIndex(
@@ -424,11 +425,17 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
             if (!progress.hasKeyboardFocus(true) && !live::tasks(state, itemId).size())
                 progress.setText(juce::String(live::progress(state, itemId)), false);
             const auto item = live::find(state, "items", itemId);
-            for (auto *field : {&tempo, &key, &duration, &notes})
-                if (!field->hasKeyboardFocus(true)) {
-                    const char *k = field == &tempo ? "tempo" : field == &key ? "key" : field == &duration ? "duration" : "notes";
-                    field->setText(item[k].toString(), false);
-                }
+            for (auto *field : {&tempo, &key, &duration, &notes}) {
+                const char *k = field == &tempo ? "tempo" : field == &key ? "key" : field == &duration ? "duration" : "notes";
+                if (field == &notes) {
+                    // TextEditor posts change notifications asynchronously.
+                    // Pending input wins; otherwise Undo must update even a
+                    // focused Notes field before a later focus-loss callback.
+                    if (notes.getText() != observedNotes) continue;
+                    notes.setText(item[k].toString(), false);
+                    observedNotes = notes.getText();
+                } else if (!field->hasKeyboardFocus(true)) field->setText(item[k].toString(), false);
+            }
             if (!meter.hasKeyboardFocus(true)) meter.setText(item["meter"].toString(), juce::dontSendNotification);
             if (!priority.hasKeyboardFocus(true)) priority.setText(live::workflow(state, itemId)["priority"].toString(), juce::dontSendNotification);
             actions[7]->setEnabled(owner->liveUndo.canUndo());
@@ -460,7 +467,10 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
                                   &field == &key ? "key" : "notes";
             const auto value = (&field == &tempo || &field == &duration)
                                    ? juce::var(numeric(field.getText())) : juce::var(field.getText());
-            if (&field == &notes) owner->setLiveItemNotes(itemId, field.getText());
+            if (&field == &notes) {
+                owner->setLiveItemNotes(itemId, field.getText());
+                observedNotes = field.getText();
+            }
             else owner->editLiveInterface("Item " + itemId + " " + juce::String(keyName), [&](auto &state) {
                 live::put(live::require(state, "items", itemId), keyName, value);
             }, true);
@@ -477,6 +487,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
     juce::Component::SafePointer<Desktop> owner;
     juce::String itemId;
     std::function<void(int)> action;
+    juce::String observedNotes;
     Theme theme;
     LiveOrganizer organizer;
     std::array<juce::Label, 9> labels;

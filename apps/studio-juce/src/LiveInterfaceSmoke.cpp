@@ -438,20 +438,37 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     liveCheck(notesField && notesField->isVisible() && nameField && tempoField, "Item fields are visible without Properties or Apply");
     liveCheck(notesField->getY() < tempoField->getY(), "Notes are directly below tasks, above musical properties");
     const auto oldNotes = live::find(desktop.liveDocument->interfaceState, "items", id)["notes"].toString();
+    card.addToDesktop(juce::ComponentPeer::windowIsTemporary);
+    card.toFront(true); livePump();
+    notesField->grabKeyboardFocus(); livePump();
+    liveCheck(notesField->hasKeyboardFocus(true), "Notes input has native keyboard focus");
     notesField->setText("Immediate note", true);
+    livePump();
     notesField->moveCaretToEnd();
     liveCheck(notesField->keyPressed(juce::KeyPress(juce::KeyPress::returnKey)), "Notes handles Enter as a new line");
+    livePump();
     notesField->insertTextAtCaret("Second line"); livePump();
-    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["notes"].toString() == "Immediate note\nSecond line" && desktop.liveDirty,
-              "Typing notes immediately updates the show without Apply");
+    const auto actualNotes=live::find(desktop.liveDocument->interfaceState,"items",id)["notes"].toString();
+    if(actualNotes != "Immediate note\nSecond line" || !desktop.liveDirty)
+        throw std::runtime_error(("Notes input/model mismatch: field="+juce::JSON::toString(juce::var(notesField->getText()))+
+            "; model="+juce::JSON::toString(juce::var(actualNotes))+"; dirty="+juce::String(desktop.liveDirty?1:0)).toStdString());
+    // Once focus is outside the editor, a pending text notification still must
+    // win over the panel's revision-driven refresh.
+    tempoField->grabKeyboardFocus();
+    notesField->insertTextAtCaret(" pending"); ++desktop.liveUiRevision; livePump();
+    liveCheck(live::find(desktop.liveDocument->interfaceState,"items",id)["notes"].toString()=="Immediate note\nSecond line pending",
+              "Notes survive pending async notification after blur");
+    notesField->grabKeyboardFocus(); livePump();
     desktop.undoLiveInterface(); livePump();
-    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["notes"].toString() == oldNotes,
+    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["notes"].toString() == oldNotes && notesField->getText()==oldNotes,
               "Immediate property edits retain show Undo");
+    tempoField->grabKeyboardFocus(); livePump();
     const auto oldName = live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString();
     nameField->setText("Immediate title", true); livePump();
     liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == "Immediate title", "Item title commits on text change");
     desktop.undoLiveInterface(); livePump();
     liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == oldName, "Title Undo restores prior value");
+    card.removeFromDesktop();
     livePreview(card, "organizer");
     auto *mixerToggle = dynamic_cast<juce::TextButton *>(liveComponent(desktop, "live-mixer-toggle"));
     liveCheck(mixerToggle, "Mixer has a toolbar toggle");
