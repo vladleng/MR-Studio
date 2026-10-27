@@ -260,7 +260,7 @@ class LiveTimeline final : public juce::Component {
         void commit() {
             parent.owner.run([&] {
                 const auto channel = live::find(parent.state, "channels", key);
-                parent.owner.setLiveChannelMix(key, gain.getValue(), static_cast<double>(channel["pan"]), mute.getToggleState(), solo.getToggleState());
+                parent.owner.setLiveChannelMix(key, gain.getValue(), live::channelPan(channel), mute.getToggleState(), solo.getToggleState());
             });
         }
         LiveTimeline &parent;
@@ -699,7 +699,7 @@ class LiveTimeline final : public juce::Component {
         if (!owner.liveDocument) return;
         const auto channel = primaryChannel();
         if (channel.isObject()) owner.run([&] {
-            owner.setLiveChannelMix(channel["id"].toString(), playbackGain.getValue(), static_cast<double>(channel["pan"]),
+            owner.setLiveChannelMix(channel["id"].toString(), playbackGain.getValue(), live::channelPan(channel),
                                     playbackMute.getToggleState(), playbackSolo.getToggleState());
         });
     }

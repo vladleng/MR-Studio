@@ -498,7 +498,7 @@ void Desktop::setLiveChannelMix(const juce::String &id, double gain, double pan,
     editLiveInterface("Channel mix", [&](auto &state) {
         auto &channel = live::require(state, "channels", id);
         live::put(channel, "gain", gain);
-        live::put(channel, "pan", pan);
+        live::put(channel, "pan", pan * 100.);
         live::put(channel, "mute", mute);
         live::put(channel, "solo", solo);
     });
@@ -508,7 +508,7 @@ void Desktop::previewLiveChannelMix(const juce::String &id, double gain, double 
     if (!liveDocument || !livePlaybackReady()) return;
     auto state = liveDocument->interfaceState.clone();
     auto &channel = live::require(state, "channels", id);
-    live::put(channel, "gain", gain); live::put(channel, "pan", pan);
+    live::put(channel, "gain", gain); live::put(channel, "pan", pan * 100.);
     live::put(channel, "mute", mute); live::put(channel, "solo", solo);
     const auto item = state["currentItem"].toString();
     const auto rows = live::playbackRows(state, item);

@@ -106,13 +106,17 @@ inline double itemPlaybackGain(const juce::var &state, const juce::String &id) {
     const auto value = find(state, "items", id)["playbackGroupGain"];
     return value.isVoid() ? 0. : static_cast<double>(value);
 }
+// Show/editor channel pan is percent (-100..100). Core uses a normalized scalar.
+inline double channelPan(const juce::var &channel) {
+    return static_cast<double>(channel["pan"]) / 100.;
+}
 inline mrs::Track::Mix playbackMix(const juce::var &state, const juce::String &id, const juce::var &row) {
     const auto channel = find(state, "channels", playbackChannelId(state, row));
     mrs::Track::Mix mix;
     const double group = static_cast<bool>(row["cue"]) ? 0. : playbackGain(state) + itemPlaybackGain(state, id);
     mix.gain = static_cast<float>(std::pow(10., (static_cast<double>(row["gain"]) + group +
                                                 static_cast<double>(channel["gain"])) / 20.));
-    mix.pan = static_cast<float>(static_cast<double>(channel["pan"]));
+    mix.pan = static_cast<float>(channelPan(channel));
     mix.mute = static_cast<bool>(row["mute"]) || static_cast<bool>(channel["mute"]);
     mix.solo = static_cast<bool>(row["solo"]) || static_cast<bool>(channel["solo"]);
     return mix;

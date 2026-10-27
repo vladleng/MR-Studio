@@ -128,6 +128,43 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     const auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory)
                             .getNonexistentChildFile("mr-live-interface", "", false);
     liveCheck(folder.createDirectory().wasOk(), "Native show temporary folder");
+    {
+        // Freeze the pre-0.8.6 document shape without using the current writer/validator.
+        auto legacy = live::object();
+        live::put(legacy, "schema", "mr-live-show"); live::put(legacy, "version", 2);
+        live::put(legacy, "title", "Legacy percent pan"); live::put(legacy, "active", -1);
+        live::put(legacy, "projects", juce::Array<juce::var>()); live::put(legacy, "itemProjects", live::object());
+        auto state = imported.clone();
+        const double pans[]{-100., 1., 75., -1.};
+        for (int i = 0; i < state["channels"].size(); ++i) {
+            auto channel = state["channels"][i]; live::put(channel, "pan", pans[i]);
+        }
+        auto row = live::object(); live::put(row, "file", "legacy.wav"); live::put(row, "gain", 0.);
+        live::put(row, "mute", false); live::put(row, "solo", false);
+        live::put(live::map(live::performance(state), "nativePlayback"), id, row);
+        live::saveItem(state, id); // Browser snapshot also contains the historical percent values.
+        live::put(legacy, "interface", state);
+        const auto file = folder.getChildFile("legacy-percent-pan.mrlive");
+        const auto bytes = juce::JSON::toString(legacy, false, 17);
+        liveCheck(file.replaceWithText(bytes), "Prepare legacy percent-pan save");
+        const auto loaded = LiveDocument::read(file);
+        liveCheck(file.loadFileAsString() == bytes, "Opening a legacy save does not rewrite the original");
+        for (int i = 0; i < state["channels"].size(); ++i)
+            liveCheck(static_cast<double>(loaded.interfaceState["channels"][i]["pan"]) == pans[i] &&
+                          std::abs(live::channelPan(loaded.interfaceState["channels"][i]) - pans[i] / 100.) < .000001,
+                      "Legacy percent pan retains both extremes and near-centre values");
+        liveCheck(std::abs(live::playbackMix(loaded.interfaceState, id, live::playback(loaded.interfaceState, id)).pan - .75f) < .000001f,
+                  "Legacy Playback pan is normalized only at the Core boundary");
+        const auto roundtrip = folder.getChildFile("legacy-percent-pan-roundtrip.mrlive");
+        loaded.write(roundtrip);
+        const auto reopened = LiveDocument::read(roundtrip);
+        liveCheck(live::canonical(reopened.interfaceState) == live::canonical(loaded.interfaceState),
+                  "Old save and Browser versions round-trip without pan conversion in the document");
+        auto invalid = state.clone(); auto channel = invalid["channels"][0]; live::put(channel, "pan", 101.);
+        bool rejected = false;
+        try { live::validate(invalid); } catch (const std::exception &) { rejected = true; }
+        liveCheck(rejected, "Out-of-range show pan still fails validation");
+    }
     Desktop desktop(true, true);
     desktop.importLiveShow(fixture);
     liveCheck(desktop.liveDocument && desktop.project()->tracks.empty() && !desktop.liveDocument->currentLinked(),

@@ -66,7 +66,7 @@ class LiveMixer final : public juce::Component {
             const auto channel = live::find(state, "channels", id);
             name.setText(channel["name"].toString(), juce::dontSendNotification);
             if (!gain.gesturing() && !gain.hasKeyboardFocus(true)) gain.setValue(static_cast<double>(channel["gain"]));
-            if (!pan.isMouseButtonDown() && !pan.hasKeyboardFocus(true)) pan.setValue(static_cast<double>(channel["pan"]), juce::dontSendNotification);
+            if (!pan.isMouseButtonDown() && !pan.hasKeyboardFocus(true)) pan.setValue(live::channelPan(channel), juce::dontSendNotification);
             mute.setToggleState(static_cast<bool>(channel["mute"]), juce::dontSendNotification);
             solo.setToggleState(static_cast<bool>(channel["solo"]), juce::dontSendNotification);
             meter = 0.f;

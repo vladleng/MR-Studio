@@ -236,8 +236,8 @@ inline void validate(const juce::var &state) {
         for (const auto *key : {"gain", "pan"}) {
             const auto v = channel[key];
             const bool pan = juce::String(key) == "pan";
-            if (!v.isVoid() && (!number(v) || static_cast<double>(v) < (pan ? -1. : -60.) ||
-                               static_cast<double>(v) > (pan ? 1. : 12.)))
+            if (!v.isVoid() && (!number(v) || static_cast<double>(v) < (pan ? -100. : -60.) ||
+                               static_cast<double>(v) > (pan ? 100. : 12.)))
                 throw std::runtime_error("Invalid channel mix");
         }
         for (const auto *key : {"mute", "solo"})
