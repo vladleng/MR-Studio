@@ -405,6 +405,7 @@ void Desktop::addLivePlaybackStems(const juce::String &id, const juce::Array<juc
             live::put(stem, "mute", false);
             live::put(stem, "solo", false);
             if (!root["file"].isString()) {
+                live::put(stem, "gain", live::importedStemGain(state, id, stem));
                 root = stem;
                 continue;
             }
@@ -425,6 +426,7 @@ void Desktop::addLivePlaybackStems(const juce::String &id, const juce::Array<juc
                 channelId = addPlaybackChannel(state, file.getFileNameWithoutExtension());
             used.insert(channelId);
             live::put(stem, "id", channelId);
+            live::put(stem, "gain", live::importedStemGain(state, id, stem));
             values.getArray()->add(stem);
         }
         live::put(live::map(live::performance(state), "nativePlayback"), id, root);
@@ -445,7 +447,7 @@ void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file,
             throw std::runtime_error("Playback stem was removed");
         if (!row.isObject()) {
             row = live::object();
-            live::put(row, "gain", 0.);
+            live::put(row, "gain", live::importedStemGain(state, id, row));
             live::put(row, "mute", false);
             live::put(row, "solo", false);
         }

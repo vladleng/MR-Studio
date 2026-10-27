@@ -126,12 +126,12 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
 
       private:
         void change(const juce::String &label, const juce::Identifier &field, const juce::var &value) {
-            host.edit(label, [&](auto &stateData) {
+            host.edit(label + " " + taskId, [&](auto &stateData) {
                 auto &tasksMap = live::map(live::performance(stateData), "itemTasks");
                 auto &task = live::require(tasksMap, host.itemId, taskId);
                 if (task[field] != value)
                     live::put(task, field, value);
-            });
+            }, field == juce::Identifier("title"));
         }
         void changeName() {
             const auto text = name.getText().trim();
@@ -139,13 +139,15 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
                 change("Task title", "title", text);
         }
         void changeProgress() {
-            host.edit("Task progress", [&](auto &stateData) {
+            host.edit("Task progress " + taskId, [&](auto &stateData) {
                 auto &task = live::require(live::map(live::performance(stateData), "itemTasks"), host.itemId, taskId);
-                const double value = percent.getText().getDoubleValue();
-                if (!std::isfinite(value) || value < 0 || value > 100)
+                const auto text = percent.getText().trim().toStdString();
+                std::size_t used = 0;
+                const double value = std::stod(text, &used);
+                if (used != text.size() || !std::isfinite(value) || value < 0 || value > 100)
                     throw std::runtime_error("Progress must be 0..100");
                 live::put(task, "progress", value);
-            });
+            }, true);
         }
         LiveOrganizer &host;
         juce::String taskId;
@@ -155,9 +157,8 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
         juce::TextButton add{"+"}, remove{"x"};
     };
     juce::var data() const { return owner && owner->liveDocument ? owner->liveDocument->interfaceState : juce::var(); }
-    void edit(const juce::String &label, std::function<void(juce::var &)> action) {
-        if (owner)
-            owner->run([&] { owner->editLiveInterface(label, std::move(action)); });
+    void edit(const juce::String &label, std::function<void(juce::var &)> action, bool typing = false) {
+        if (owner) owner->run([&] { owner->editLiveInterface(label, std::move(action), typing); });
     }
     void append(Node &parent, const juce::var &entries, const juce::var &parentId, int depth) {
         if (depth > 8)

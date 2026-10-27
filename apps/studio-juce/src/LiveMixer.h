@@ -75,7 +75,7 @@ class LiveMixer final : public juce::Component {
             for (std::size_t i = 0; i < rows.size(); ++i)
                 if (owner.livePlaybackReady() && live::playbackChannelId(state, rows[i]) == id && i < owner.peaks.size())
                     meter = juce::jmax(owner.peaks[i].left, owner.peaks[i].right);
-            setTooltip(channel["type"].toString() == "Playback" ? "Show-wide channel mix" : "Show-wide mix; input/processor binding continues in #32");
+            setTooltip(channel["type"].toString() == "Playback" ? "Show-wide channel mix" : "No input or processor assigned");
             repaint();
         }
         void resized() override {

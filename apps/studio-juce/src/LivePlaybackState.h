@@ -95,6 +95,13 @@ inline juce::String playbackChannelId(const juce::var &state, const juce::var &r
         if (channel["type"].toString() == "Playback") return channel["id"].toString();
     return {};
 }
+inline double importedStemGain(const juce::var &state, const juce::String &item, const juce::var &row) {
+    const auto channel = playbackChannelId(state, row);
+    const auto tracks = find(state, "items", item)["tracks"];
+    if (const auto *entries = tracks.getArray()) for (const auto &track : *entries)
+        if (track["channelId"].toString() == channel && number(track["playbackGain"])) return static_cast<double>(track["playbackGain"]);
+    return 0.;
+}
 inline double itemPlaybackGain(const juce::var &state, const juce::String &id) {
     const auto value = find(state, "items", id)["playbackGroupGain"];
     return value.isVoid() ? 0. : static_cast<double>(value);

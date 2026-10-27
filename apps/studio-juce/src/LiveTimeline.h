@@ -224,8 +224,10 @@ class LiveTimeline final : public juce::Component {
     class StemMix final : public juce::Component {
       public:
         StemMix(LiveTimeline &timeline, juce::String stem) : key(std::move(stem)), parent(timeline) {
-            for (auto *control : std::array<juce::Component *, 3>{&mute, &solo, &gain})
+            for (auto *control : std::array<juce::Component *, 4>{&mute, &solo, &gain, &arm})
                 addAndMakeVisible(control);
+            arm.setEnabled(false);
+            arm.setTooltip("Recording is not available for this channel yet");
             mute.setClickingTogglesState(true);
             solo.setClickingTogglesState(true);
             gain.setRange(-60., 12., .1);
@@ -241,9 +243,11 @@ class LiveTimeline final : public juce::Component {
         void resized() override {
             mute.setBounds(8, 0, 26, 22);
             solo.setBounds(36, 0, 26, 22);
+            arm.setBounds(64, 0, 26, 22);
             gain.setBounds(6, 26, juce::jmax(0, getWidth() - 12), 24);
         }
         void sync(const juce::var &row) {
+            arm.setVisible(row["type"].toString() != "Playback");
             mute.setToggleState(static_cast<bool>(row["mute"]), juce::dontSendNotification);
             solo.setToggleState(static_cast<bool>(row["solo"]), juce::dontSendNotification);
             if (!gain.isMouseButtonDown())
@@ -260,7 +264,7 @@ class LiveTimeline final : public juce::Component {
             });
         }
         LiveTimeline &parent;
-        juce::TextButton mute{"M"}, solo{"S"};
+        juce::TextButton mute{"M"}, solo{"S"}, arm{"R"};
         juce::Slider gain;
     };
     class Viewport final : public juce::Viewport {

@@ -1047,7 +1047,11 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                       !multi.livePlaybackLoading && multi.livePlaybackReady() && multi.project()->clips.size() == 1 &&
                       multi.app.engine() == sharedEngine && multi.app.engine()->state().sample == 0,
                   "A ready next item switches synchronously through the same Core without reimport");
+        liveCheck(std::abs(multi.project()->tracks[0].mix.gain - std::pow(10., (-6.020599913 - 12. - 3.) / 20.)) < .00001,
+                  "Switching item restores its group gain while keeping the channel fader");
         multi.stepLiveItem(-1);
+        liveCheck(std::abs(multi.project()->tracks[0].mix.gain - expectedGain) < .00001,
+                  "Returning to previous item restores its independent Playback group");
         liveCheck(multi.livePlaybackReady() && multi.project()->clips.size() == 2 &&
                       multi.liveDocument->interfaceState["currentItem"].toString() == id,
                   "Warm previous-item selection restores its stems/trim/routes");
