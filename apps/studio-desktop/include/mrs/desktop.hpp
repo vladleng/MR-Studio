@@ -125,6 +125,16 @@ public:
     void cancel_wav_import();
     struct WavImportStatus {bool busy{};float progress{};std::uint64_t revision{};std::string message;};
     WavImportStatus wav_import_status() const;
+    // Non-RT, bounded performance media preparation; independent of active project revision.
+    struct PlaybackPreparation;
+    struct PlaybackStem { Track::Mix mix; std::vector<int> outputs; double begin{}, end{-1}; };
+    struct PlaybackLayout { TimeMap time; std::vector<Chord> chords; std::vector<ArrangerSection> sections;
+        std::vector<PlaybackStem> stems; audio::ClickSettings click; };
+    std::shared_ptr<PlaybackPreparation> prepare_playback(const std::vector<std::filesystem::path>&);
+    WavImportStatus playback_preparation(const std::shared_ptr<PlaybackPreparation>&);
+    void cancel_playback(const std::shared_ptr<PlaybackPreparation>&);
+    void activate_playback(const std::shared_ptr<PlaybackPreparation>&, const PlaybackLayout&);
+
     std::vector<Id> import_midi(const std::vector<std::filesystem::path>&,std::optional<Id> target={},Tick start=0);
     bool history_preserves_plugins(bool redo) const;
     bool history_changes_only_inputs(bool redo) const; // permits frontend editor retention before Undo/Redo
@@ -405,6 +415,10 @@ private:
     void commit_wav_import(const std::shared_ptr<PreparedWavImport>&,std::optional<Id>,Sample);
     void validate_wav_import(std::size_t,std::optional<Id>,Sample) const;
     void poll_wav_import();
+    std::vector<std::shared_ptr<PlaybackPreparation>> playback_preparations_;
+    void install_playback(Project,std::map<std::string,std::shared_ptr<const audio::AudioData>>,
+                          std::shared_ptr<PreparedWavImport>,audio::ClickSettings);
+
     void stop_wav_imports();
     struct CachedAsset {
         std::shared_ptr<std::atomic<bool>> cancel{std::make_shared<std::atomic<bool>>(false)};

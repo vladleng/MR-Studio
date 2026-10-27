@@ -951,7 +951,14 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         multi.undoLiveInterface();
         multi.syncLivePlayback();
         waitMulti();
-        // Reload runs offline with two outputs; route 3/4 must fail closed instead of silently downmixing.
+        liveCheck(multi.livePlaybackReady() && multi.app.active_outputs() == std::vector<int>({0, 1, 2, 3}),
+                  "Stem reload and Undo preserve the same active physical output selection");
+        // Explicit device change removes outputs 3/4; saved routing must still fail closed.
+        multi.app.disconnect();
+        multi.app.new_project();
+        multi.app.connect(std::make_unique<LivePlaybackTestDevice>(), {0, 48000, 128, {}, {0, 1}, 1});
+        multi.syncLivePlayback();
+        waitMulti();
         liveCheck(!multi.livePlaybackReady() && multi.livePlaybackError.isNotEmpty(),
                   "Unavailable saved physical route blocks Playback rather than leaking to Master");
         multi.livePlaybackStem = stemKey;
@@ -961,6 +968,63 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         livePump(); // Playback selector is synchronized by the workspace UI timer, not Desktop::refresh.
         auto *choice = dynamic_cast<juce::ComboBox *>(liveComponent(multi, "live-stem-choice"));
         liveCheck(choice && choice->getNumItems() == 2, "Native Playback panel lists all real stems");
+        const auto sharedEngine = multi.app.engine();
+        multi.attachLivePlayback(second, positive);
+        const auto activeBeforePreload = multi.app.services().projects;
+        const auto savedBeforePreload = multi.liveDocument->signature();
+        multi.app.play();
+        renderMulti();
+        const auto preloadDeadline = juce::Time::getMillisecondCounter() + 5000;
+        while (!multi.liveNextStatus.contains("audio ready") && juce::Time::getMillisecondCounter() < preloadDeadline) {
+            multi.app.poll();
+            multi.syncLivePlayback();
+            renderMulti();
+            juce::Thread::sleep(1);
+        }
+        liveCheck(multi.liveNextItem == second && multi.liveNextStatus.contains("audio ready") &&
+                      multi.app.services().projects == activeBeforePreload &&
+                      multi.liveDocument->signature() == savedBeforePreload &&
+                      multi.app.engine()->state().playback == mrs::PlaybackState::playing,
+                  "Next-item preload follows setlist order without publishing a project or editing the show");
+        multi.stepLiveItem(1);
+        liveCheck(multi.liveDocument->interfaceState["currentItem"].toString() == second &&
+                      !multi.livePlaybackLoading && multi.livePlaybackReady() && multi.project()->clips.size() == 1 &&
+                      multi.app.engine() == sharedEngine && multi.app.engine()->state().sample == 0,
+                  "A ready next item switches synchronously through the same Core without reimport");
+        multi.stepLiveItem(-1);
+        liveCheck(multi.livePlaybackReady() && multi.project()->clips.size() == 2 &&
+                      multi.liveDocument->interfaceState["currentItem"].toString() == id,
+                  "Warm previous-item selection restores its stems/trim/routes");
+        const auto third = multi.liveDocument->interfaceState["items"][2]["id"].toString();
+        const auto broken = folder.getChildFile("preload-invalid.wav");
+        broken.replaceWithText("invalid WAV");
+        multi.attachLivePlayback(third, broken);
+        const auto beforeFailedSwitch = multi.app.services().projects;
+        multi.app.play();
+        renderMulti();
+        multi.selectLiveItem(third);
+        waitMulti();
+        liveCheck(multi.liveDocument->interfaceState["currentItem"].toString() == id &&
+                      multi.app.services().projects == beforeFailedSwitch &&
+                      multi.app.engine()->state().playback == mrs::PlaybackState::playing &&
+                      multi.livePlaybackReady() && multi.livePreloadError.isNotEmpty(),
+                  "Failed cold selection keeps the current item/audio and reports its preparation error");
+        multi.editLiveInterface("Repeat item entry", [&](auto &state) {
+            auto repeated = live::object();
+            live::put(repeated, "id", "repeat-alpha");
+            live::put(repeated, "itemId", id);
+            live::activeEntries(state).getArray()->insert(4, repeated);
+        });
+        multi.selectLiveItem(id);
+        multi.stepLiveItem(1);
+        multi.stepLiveItem(1);
+        liveCheck(multi.liveCurrentEntry == "repeat-alpha" &&
+                      multi.liveDocument->interfaceState["currentItem"].toString() == id &&
+                      live::neighborItem(multi.liveDocument->interfaceState, 1, multi.liveCurrentEntry) == third,
+                  "Repeated item references advance by entry identity rather than returning to the first occurrence");
+        multi.stepLiveItem(-1);
+        liveCheck(multi.liveDocument->interfaceState["currentItem"].toString() == second,
+                  "Previous item across a repeated reference follows the actual setlist order");
     }
     {
         Desktop clickOnly(true, false, true);

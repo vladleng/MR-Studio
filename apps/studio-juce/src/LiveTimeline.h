@@ -122,7 +122,7 @@ class LiveTimeline final : public juce::Component {
         if (!owner.liveTransportReady())
             return {};
         for (const auto &item : items) {
-            if (item.value["id"] != state["currentItem"])
+            if (!currentEntry(item))
                 continue;
             const auto project = owner.project();
             const auto &meter = project->time.meters.front();
@@ -167,7 +167,13 @@ class LiveTimeline final : public juce::Component {
         juce::Rectangle<int> bounds;
         double scale{}, lead{}, bars{};
         bool preview{};
+        juce::String entry;
     };
+    bool currentEntry(const Item &item) const {
+        if (item.value["id"] != state["currentItem"])
+            return false;
+        return item.preview || owner.liveCurrentEntry.isEmpty() || item.entry == owner.liveCurrentEntry;
+    }
     class StemMix final : public juce::Component {
       public:
         StemMix(LiveTimeline &timeline, juce::String stem) : key(std::move(stem)), parent(timeline) {
@@ -291,12 +297,12 @@ class LiveTimeline final : public juce::Component {
             }
             for (const auto &item : parent.items)
                 if (item.bounds.contains(event.getPosition()) && event.y < headerHeight) {
-                    const auto id = item.value["id"].toString();
+                    const auto id = item.value["id"].toString(), entry = item.entry;
                     juce::Component::SafePointer<Desktop> safe(&parent.owner);
                     parent.owner.confirmDiscard(
-                        [safe, id] {
+                        [safe, id, entry] {
                             if (safe)
-                                safe->run([&] { safe->selectLiveItem(id); });
+                                safe->run([&] { safe->selectLiveItem(id, entry); });
                         },
                         true);
                     break;
@@ -361,7 +367,7 @@ class LiveTimeline final : public juce::Component {
     }
     void revealSelection() {
         for (const auto &item : items)
-            if (item.value["id"] == state["currentItem"]) {
+            if (currentEntry(item)) {
                 viewport.setViewPosition(juce::jmax(0, item.bounds.getX() - 12), viewport.getViewPositionY());
                 if (owner.livePlaybackReady())
                     revealTransport();
@@ -432,8 +438,13 @@ class LiveTimeline final : public juce::Component {
                 // The model permits 1000 entries, 4096 bars/lead and 128 px/bar.
                 // Keep their complete geometry within a signed-int scroll surface.
                 const int width = juce::jlimit(6, 1048578, juce::roundToInt((bars + lead) * scale) + 2);
-                items.push_back(
-                    {item, {x, 0, width, height}, scale, lead, bars, static_cast<bool>(entry["browserPreview"])});
+                items.push_back({item,
+                                 {x, 0, width, height},
+                                 scale,
+                                 lead,
+                                 bars,
+                                 static_cast<bool>(entry["browserPreview"]),
+                                 entry["id"].toString()});
                 x += width;
             }
         body.setSize(juce::jmax(x, viewport.getMaximumVisibleWidth()),
@@ -606,6 +617,11 @@ class LiveTimeline final : public juce::Component {
             g.setColour(juce::Colour(0xff17b5da));
             drawWaveform(g, *wave, waveformArea, static_cast<double>(clip.source_offset),
                          static_cast<double>(clip.length) / juce::jmax(1.f, waveformArea.getWidth()));
+        } else if (const auto *cached = waveforms.find(row["file"].toString()); cached && cached->wave) {
+            const double ratio = static_cast<double>(cached->rate) / project->sample_rate;
+            g.setColour(juce::Colour(0xff17b5da));
+            drawWaveform(g, *cached->wave, waveformArea, static_cast<double>(clip.source_offset) * ratio,
+                         static_cast<double>(clip.length) * ratio / juce::jmax(1.f, waveformArea.getWidth()));
         }
         if (body.trimming()) {
             g.setColour(liveReferenceTokens().colour(ColourRole::focus));

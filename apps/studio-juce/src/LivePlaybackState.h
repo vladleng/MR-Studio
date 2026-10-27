@@ -137,6 +137,32 @@ inline void validatePlayback(const juce::var &state) {
         }
     }
 }
+inline int entryIndex(const juce::var &state, const juce::String &item, const juce::String &preferred = {}) {
+    const auto entries = activeSetlist(state)["entries"];
+    int first = -1;
+    for (int i = 0; i < entries.size(); ++i)
+        if (entries[i]["itemId"].toString() == item) {
+            if (entries[i]["id"].toString() == preferred)
+                return i;
+            if (first < 0)
+                first = i;
+        }
+    return first;
+}
+inline juce::var neighborEntry(const juce::var &state, int direction, const juce::String &preferred = {}) {
+    direction = direction < 0 ? -1 : 1;
+    const auto entries = activeSetlist(state)["entries"];
+    int at = entryIndex(state, state["currentItem"].toString(), preferred);
+    if (at < 0)
+        at = direction > 0 ? -1 : entries.size();
+    for (int i = at + direction; i >= 0 && i < entries.size(); i += direction)
+        if (find(state, "items", entries[i]["itemId"].toString()).isObject())
+            return entries[i];
+    return {};
+}
+inline juce::String neighborItem(const juce::var &state, int direction, const juce::String &preferred = {}) {
+    return neighborEntry(state, direction, preferred)["itemId"].toString();
+}
 inline void playbackPaths(juce::var &state, const juce::File &show, bool reading, bool savedVersions = true) {
     auto rows = state["performance"]["nativePlayback"];
     if (rows.isObject())

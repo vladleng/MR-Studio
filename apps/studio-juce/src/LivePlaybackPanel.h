@@ -132,7 +132,7 @@ class LivePlaybackPanel final : public juce::Component {
             g.drawVerticalLine(juce::roundToInt(area.getX() + area.getWidth() * fraction), area.getY(),
                                area.getBottom());
         }
-        const auto text = owner.livePlaybackLoading ? juce::String("Loading WAV...") : owner.livePlaybackError;
+        const auto text = owner.livePlaybackLoading ? juce::String("Preparing Playback...") : owner.livePlaybackError;
         g.setColour(juce::Colour(0xffdae5f4));
         g.drawFittedText(text, getLocalBounds().reduced(8).withTrimmedTop(158), juce::Justification::topLeft, 3);
     }

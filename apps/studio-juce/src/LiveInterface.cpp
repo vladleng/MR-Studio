@@ -142,6 +142,18 @@ void Desktop::newLiveShow() {
     reconnectDevice(session);
 }
 void Desktop::prepareLiveInterface(bool saved) {
+    for (const auto &entry : livePreparedItems)
+        app.cancel_playback(entry.media);
+    livePreparedItems.clear();
+    liveCurrentEntry.clear();
+    livePendingEntry.clear();
+    livePlaybackStore.reset();
+    livePendingItem.clear();
+    liveFailedPlaybackKey.clear();
+    liveNextKey.clear();
+    liveNextItem.clear();
+    liveNextStatus.clear();
+    livePreloadError.clear();
     livePlaybackItem.clear();
     livePlaybackStem.clear();
     livePlaybackMediaKey.clear();
@@ -249,10 +261,27 @@ void Desktop::importLiveShow(const juce::File &file) {
     reconnectDevice(session);
     liveEmptyRevision = std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
 }
-void Desktop::selectLiveItem(const juce::String &id) {
+void Desktop::selectLiveItem(const juce::String &id, const juce::String &entry) {
     if (!liveDocument || !live::find(liveDocument->interfaceState, "items", id).isObject())
         throw std::runtime_error("Missing show item");
-    if (liveDocument->projects.empty() && liveDocument->interfaceState["currentItem"].toString() == id) {
+    if (liveDocument->projects.empty()) {
+        if (app.recording())
+            throw std::runtime_error("Stop recording before changing items");
+        livePreloadError.clear();
+        liveFailedPlaybackKey.clear();
+        const auto index =
+            live::entryIndex(liveDocument->interfaceState, id, entry.isNotEmpty() ? entry : liveCurrentEntry);
+        livePendingEntry = index < 0
+                               ? juce::String()
+                               : live::activeSetlist(liveDocument->interfaceState)["entries"][index]["id"].toString();
+        const bool anotherEntry = entry.isNotEmpty() && livePendingEntry != liveCurrentEntry;
+        if (liveDocument->interfaceState["currentItem"].toString() != id || livePlaybackItem != id || anotherEntry)
+            livePendingItem = id;
+        else {
+            livePendingItem.clear();
+            livePendingEntry.clear();
+            livePlaybackLoading = false;
+        }
         ++liveTimelineFocusRevision;
         syncLivePlayback();
         refresh();
@@ -445,8 +474,19 @@ void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file,
         if (stem.isEmpty())
             live::put(live::map(live::performance(state), "nativePlayback"), id, row);
     });
+    // Choosing a WAV explicitly refreshes even a same-path preparation after an external edit.
+    for (auto it = livePreparedItems.begin(); it != livePreparedItems.end();) {
+        if (it->id == id) {
+            app.cancel_playback(it->media);
+            it = livePreparedItems.erase(it);
+        } else
+            ++it;
+    }
+    liveFailedPlaybackKey.clear();
     if (liveDocument->interfaceState["currentItem"].toString() == id)
         livePlaybackItem.clear();
+    if (liveNextItem == id)
+        liveNextKey.clear();
     syncLivePlayback();
 }
 void Desktop::setLivePlaybackMix(double gain, bool mute, bool solo) {
@@ -573,11 +613,116 @@ bool Desktop::liveTransportReady() const {
     return live::find(state, "items", id).isObject() && live::playbackRows(state, id).empty() &&
            live::liveClick(state).playback && liveMusicalKey == live::canonical(live::musicalVersion(state, id));
 }
+std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> Desktop::prepareLivePlayback(const juce::String &id) {
+    const auto &state = liveDocument->interfaceState;
+    const auto key = live::playbackMediaKey(state, id) + ":" + juce::String(project()->sample_rate);
+    for (auto &entry : livePreparedItems)
+        if (entry.id == id && entry.key == key)
+            return entry.media;
+    for (auto it = livePreparedItems.begin(); it != livePreparedItems.end();) {
+        if (it->id == id) {
+            app.cancel_playback(it->media);
+            it = livePreparedItems.erase(it);
+        } else
+            ++it;
+    }
+    std::vector<std::filesystem::path> paths;
+    for (const auto &row : live::playbackRows(state, id))
+        paths.emplace_back(row["file"].toString().toWideCharPointer());
+    auto media = app.prepare_playback(paths);
+    livePreparedItems.push_back({id, key, media});
+    while (livePreparedItems.size() > 3) {
+        auto victim = std::find_if(livePreparedItems.begin(), livePreparedItems.end(), [&](const auto &entry) {
+            return entry.id != state["currentItem"].toString() && entry.id != livePendingItem && entry.id != id;
+        });
+        if (victim == livePreparedItems.end())
+            break;
+        app.cancel_playback(victim->media);
+        livePreparedItems.erase(victim);
+    }
+    return media;
+}
+void Desktop::syncLivePreload() {
+    if (!liveDocument || !liveDocument->projects.empty())
+        return;
+    const auto &state = liveDocument->interfaceState;
+    const auto nextEntry = live::neighborEntry(state, 1, liveCurrentEntry);
+    const auto id = nextEntry["itemId"].toString();
+    const auto key = nextEntry["id"].toString() + id + live::playbackMediaKey(state, id) + ":" +
+                     juce::String(project()->sample_rate);
+    try {
+        if (key != liveNextKey) {
+            liveNextKey = key;
+            liveNextItem = id;
+            liveNextStatus.clear();
+            if (id.isNotEmpty())
+                prepareLivePlayback(id);
+        }
+        if (id.isEmpty())
+            return;
+        const auto found = std::find_if(livePreparedItems.begin(), livePreparedItems.end(),
+                                        [&](const auto &entry) { return entry.id == id; });
+        if (found == livePreparedItems.end())
+            return;
+        const auto status = app.playback_preparation(found->media);
+        const auto name = live::find(state, "items", id)["name"].toString();
+        liveNextStatus = "Next: " + name + " — " +
+                         (status.busy ? "preparing " + juce::String(static_cast<int>(status.progress * 100)) + "%"
+                          : status.message.empty() ? "audio ready"
+                                                   : "unavailable: " + juce::String::fromUTF8(status.message.c_str()));
+    } catch (const std::exception &error) {
+        liveNextStatus = "Next: unavailable — " + juce::String::fromUTF8(error.what());
+    }
+}
+void Desktop::cancelLiveSwitch() {
+    const auto id = livePendingItem;
+    if (id.isEmpty())
+        return;
+    for (auto it = livePreparedItems.begin(); it != livePreparedItems.end();) {
+        if (it->id == id) {
+            app.cancel_playback(it->media);
+            it = livePreparedItems.erase(it);
+        } else
+            ++it;
+    }
+    livePendingItem.clear();
+    livePendingEntry.clear();
+    livePlaybackLoading = false;
+    livePreloadError = "Item switch cancelled";
+    if (liveNextItem == id)
+        liveNextStatus = "Next: cancelled";
+}
+void Desktop::stepLiveItem(int direction) {
+    if (!liveDocument)
+        return;
+    const auto entry = live::neighborEntry(liveDocument->interfaceState, direction, liveCurrentEntry);
+    const auto id = entry["itemId"].toString();
+    if (id.isNotEmpty())
+        selectLiveItem(id, entry["id"].toString());
+}
 void Desktop::syncLivePlayback() {
     if (!liveDocument || !liveDocument->projects.empty())
-        return; // Legacy compatibility stays separate.
+        return;
     bool changed = false;
-    const auto id = liveDocument->interfaceState["currentItem"].toString();
+    const auto id =
+        livePendingItem.isNotEmpty() ? livePendingItem : liveDocument->interfaceState["currentItem"].toString();
+    if (!live::find(liveDocument->interfaceState, "items", id).isObject()) {
+        livePendingItem.clear();
+        livePlaybackLoading = false;
+        if (livePlaybackItem.isNotEmpty()) {
+            auto empty = app.prepare_playback({});
+            app.activate_playback(empty, {});
+            livePlaybackItem.clear();
+            livePlaybackFile.clear();
+            livePlaybackMediaKey.clear();
+            liveMusicalKey.clear();
+            liveAudioKey.clear();
+            liveEmptyRevision = std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
+            refresh(true);
+        }
+        syncLivePreload();
+        return;
+    }
     const auto row = live::playback(liveDocument->interfaceState, id);
     const auto rows = live::playbackRows(liveDocument->interfaceState, id);
     const auto file = row["file"].toString();
@@ -587,67 +732,111 @@ void Desktop::syncLivePlayback() {
         deviceKey += juce::String(output) + ":";
     const auto music = live::musicalVersion(liveDocument->interfaceState, id);
     const auto musicKey = live::canonical(music);
-    const bool mediaChanged = livePlaybackItem != id || livePlaybackMediaKey != mediaKey ||
+    const auto failureKey = id + live::canonical(row) + live::canonical(live::liveAudio(liveDocument->interfaceState)) +
+                            musicKey + deviceKey;
+    const bool mediaChanged = (livePendingItem.isNotEmpty() && livePendingEntry != liveCurrentEntry) ||
+                              livePlaybackStore != app.services().projects || livePlaybackItem != id ||
+                              livePlaybackMediaKey != mediaKey ||
                               (livePlaybackError.isNotEmpty() && livePlaybackDeviceKey != deviceKey);
-    const bool musicChanged = musicKey != liveMusicalKey;
-    if (mediaChanged || musicChanged) {
+    if (!mediaChanged)
+        livePlaybackLoading = false;
+    if (mediaChanged) {
+        if (liveFailedPlaybackKey == failureKey)
+            return;
         if (app.recording())
             throw std::runtime_error("Stop recording before changing Playback");
-        const bool reload = mediaChanged && (file.isNotEmpty() || livePlaybackFile.isNotEmpty());
-        const bool restartImport = livePlaybackLoading;
-        if (restartImport)
-            app.cancel_wav_import();
-        livePlaybackLoading = false;
-        livePlaybackError.clear();
-        livePlaybackItem = id;
-        livePlaybackFile = file;
-        livePlaybackMediaKey = mediaKey;
-        livePlaybackDeviceKey = deviceKey;
-        if (livePlaybackIndex() == 0)
-            livePlaybackStem.clear();
-        livePlaybackMixKey.clear();
-        changed = true;
+        std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> media;
         try {
-            if (reload) {
-                const bool session =
-                    app.audio_name() != "Offline clock (no sound)" && app.audio_name() != "Disconnected";
-                closeEditors();
-                cancelPreview();
-                app.set_click_settings({});
-                liveAudioKey.clear();
-                app.new_project(session ? prefs.rate : 48000);
-                selectedTrack.reset();
-                selectedClip.reset();
-                const auto projection = live::musicalProjection(music);
-                app.set_musical_data(projection.time, projection.chords, projection.sections);
-                resetDevice();
-                reconnectDevice(session);
-            } else if (musicChanged) {
-                const auto projection = live::musicalProjection(music);
-                app.set_musical_data(projection.time, projection.chords, projection.sections);
+            media = prepareLivePlayback(id);
+            const auto status = app.playback_preparation(media);
+            livePlaybackLoading = status.busy;
+            if (status.busy)
+                return; // Existing Core graph/device continues until the entire batch is ready.
+            if (!status.message.empty())
+                throw std::runtime_error(status.message);
+            const auto projection = live::musicalProjection(music);
+            mrs::desktop::Application::PlaybackLayout layout;
+            layout.time = projection.time;
+            layout.chords = projection.chords;
+            layout.sections = projection.sections;
+            layout.click = live::liveClick(liveDocument->interfaceState);
+            for (const auto &stem : rows) {
+                mrs::desktop::Application::PlaybackStem settings;
+                settings.mix.gain = static_cast<float>(std::pow(
+                    10., (static_cast<double>(stem["gain"]) +
+                          (static_cast<bool>(stem["cue"]) ? 0. : live::playbackGain(liveDocument->interfaceState))) /
+                             20.));
+                settings.mix.mute = static_cast<bool>(stem["mute"]);
+                settings.mix.solo = static_cast<bool>(stem["solo"]);
+                settings.outputs = live::playbackOutputs(stem);
+                settings.begin = static_cast<double>(stem["trimStart"]);
+                settings.end = stem["trimEnd"].isVoid() ? -1. : static_cast<double>(stem["trimEnd"]);
+                layout.stems.push_back(std::move(settings));
             }
-            if (file.isNotEmpty() && (mediaChanged || restartImport || project()->clips.empty())) {
-                std::vector<std::filesystem::path> paths;
-                for (const auto &stem : rows) {
-                    const juce::File source(stem["file"].toString());
-                    if (!source.existsAsFile())
-                        throw std::runtime_error("Playback file is missing: " + source.getFullPathName().toStdString());
-                    paths.emplace_back(source.getFullPathName().toWideCharPointer());
-                }
-                app.queue_wav_import(
-                    paths); // No target: all clips start at the same sample, in one shared Core import.
-                livePlaybackLoading = true;
+            closeEditors();
+            cancelPreview();
+            app.activate_playback(media, layout);
+            const bool selected = liveDocument->interfaceState["currentItem"].toString() != id;
+            live::put(liveDocument->interfaceState, "currentItem", id);
+            const auto entryIndex = live::entryIndex(
+                liveDocument->interfaceState, id, livePendingEntry.isNotEmpty() ? livePendingEntry : liveCurrentEntry);
+            liveCurrentEntry =
+                entryIndex < 0
+                    ? juce::String()
+                    : live::activeSetlist(liveDocument->interfaceState)["entries"][entryIndex]["id"].toString();
+            livePendingEntry.clear();
+            livePendingItem.clear();
+            livePlaybackLoading = false;
+            livePreloadError.clear();
+            livePlaybackError.clear();
+            liveFailedPlaybackKey.clear();
+            livePlaybackItem = id;
+            livePlaybackFile = file;
+            livePlaybackMediaKey = mediaKey;
+            livePlaybackStore = app.services().projects;
+            livePlaybackDeviceKey = deviceKey;
+            livePlaybackMixKey.clear();
+            liveMusicalKey = musicKey;
+            liveAudioKey.clear();
+            selectedTrack.reset();
+            selectedClip.reset();
+            if (livePlaybackIndex() == 0)
+                livePlaybackStem.clear();
+            if (selected) {
+                liveShowEditing = true;
+                updateLiveDirty();
+                ++liveTimelineFocusRevision;
             }
+            ++liveUiRevision;
+            changed = true;
+            refresh(true);
         } catch (const std::exception &error) {
-            livePlaybackError = juce::String::fromUTF8(error.what());
+            livePlaybackLoading = false;
+            const auto reason = juce::String::fromUTF8(error.what());
+            if (livePendingItem.isNotEmpty()) {
+                livePreloadError = "Cannot switch: " + reason;
+                if (id == liveNextItem)
+                    liveNextStatus = livePreloadError;
+                livePendingItem.clear();
+                livePendingEntry.clear();
+            } else {
+                livePlaybackError = reason;
+                liveFailedPlaybackKey = failureKey;
+            }
+            for (auto it = livePreparedItems.begin(); it != livePreparedItems.end();) {
+                if (it->id == id && (!media || !app.playback_preparation(media).message.empty())) {
+                    app.cancel_playback(it->media);
+                    it = livePreparedItems.erase(it);
+                } else
+                    ++it;
+            }
+            return;
         }
+    } else if (musicKey != liveMusicalKey) {
+        const auto projection = live::musicalProjection(music);
+        app.set_musical_data(projection.time, projection.chords, projection.sections);
         liveMusicalKey = musicKey;
-    }
-    if (livePlaybackLoading && !app.wav_import_status().busy) {
         changed = true;
-        livePlaybackLoading = false;
-        if (project()->tracks.size() != rows.size() || project()->clips.size() != rows.size())
-            livePlaybackError = juce::String::fromUTF8(app.wav_import_status().message.c_str());
     }
     const auto audioKey = live::canonical(live::liveAudio(liveDocument->interfaceState)) + deviceKey;
     if (audioKey != liveAudioKey) {
@@ -716,5 +905,6 @@ void Desktop::syncLivePlayback() {
     }
     if (changed)
         liveEmptyRevision = std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
+    syncLivePreload();
 }
 } // namespace ui

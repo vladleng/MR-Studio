@@ -626,6 +626,7 @@ bool Desktop::shortcutAllowedFor(juce::Component* focused) const {
 bool Desktop::workspaceShortcut(const juce::KeyPress& k){if(standaloneLive)return false;if(homeVisible||k.getModifiers().isAnyModifierKeyDown()||juce::Component::getCurrentlyModalComponent())return false;
     if(k.getKeyCode()==juce::KeyPress::F2Key){run([&]{toggleEditor();});return true;}if(k.getKeyCode()==juce::KeyPress::F3Key){const bool open=app.workspace()!=mrs::desktop::Workspace::mix;if(open&&clipEditorOpen())toggleEditor();setWorkspace(open?mrs::desktop::Workspace::mix:mrs::desktop::Workspace::arrange);return true;}if(k.getKeyCode()==juce::KeyPress::F5Key){sidebar=!sidebar;resized();repaint();return true;}return false;}
 bool Desktop::keyPressed(const juce::KeyPress& k){if(workspaceShortcut(k))return true;if(!shortcutAllowed())return false;
+    if(k.getKeyCode()==juce::KeyPress::escapeKey&&livePendingItem.isNotEmpty()){cancelLiveSwitch();return true;}
     if(k.getKeyCode()==juce::KeyPress::escapeKey&&app.stretch_status().busy){app.cancel_stretch();return true;}
     if(k.getKeyCode()==juce::KeyPress::escapeKey&&app.wav_import_status().busy){app.cancel_wav_import();return true;}
     if(homeVisible){if(k.getModifiers().isCtrlDown()&&k.getKeyCode()=='O'){action(2);return true;}if(k.getModifiers().isCtrlDown()&&k.getKeyCode()=='N'){action(1);return true;}return false;}

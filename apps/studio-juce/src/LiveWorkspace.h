@@ -143,6 +143,14 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         g.setColour(owner.message.isEmpty() ? tokens.colour(ColourRole::muted) : tokens.colour(ColourRole::warning));
         g.setFont(owner.theme.font(11));
         auto statusText = owner.footerStatus();
+        if (owner.livePendingItem.isNotEmpty())
+            statusText +=
+                "\nPreparing item: " +
+                live::find(owner.liveDocument->interfaceState, "items", owner.livePendingItem)["name"].toString();
+        else if (owner.livePreloadError.isNotEmpty())
+            statusText += "\n" + owner.livePreloadError;
+        else if (owner.liveNextStatus.isNotEmpty())
+            statusText += "\n" + owner.liveNextStatus;
         if (owner.livePlaybackReady()) {
             const auto &context = owner.app.musical().state();
             const auto project = owner.project();
@@ -205,6 +213,14 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         popup.addItem(102, "Fit window to screen");
         popup.addItem(103, "Open last show on startup", true, owner.view.liveRestoreLastShow);
         popup.addSeparator();
+        popup.addItem(
+            42, "Previous item",
+            owner.liveDocument &&
+                live::neighborItem(owner.liveDocument->interfaceState, -1, owner.liveCurrentEntry).isNotEmpty());
+        popup.addItem(
+            43, "Next item",
+            owner.liveDocument &&
+                live::neighborItem(owner.liveDocument->interfaceState, 1, owner.liveCurrentEntry).isNotEmpty());
         popup.addItem(41, "Playback / Click / Cue...", owner.liveDocument.has_value());
         popup.addItem(40, "Audio settings...");
         juce::Component::SafePointer<LiveWorkspace> safe(this);
@@ -218,7 +234,9 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             else if (action == 103) {
                 safe->owner.view.liveRestoreLastShow = !safe->owner.view.liveRestoreLastShow;
                 safe->owner.run([&] { safe->owner.saveSettings(); });
-            } else if (action == 41)
+            } else if (action == 42 || action == 43)
+                safe->owner.run([&] { safe->owner.stepLiveItem(action == 43 ? 1 : -1); });
+            else if (action == 41)
                 openLiveAudio(safe->owner);
             else if (action == 40)
                 safe->owner.action(40);

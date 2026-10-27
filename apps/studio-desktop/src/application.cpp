@@ -957,6 +957,79 @@ void Application::set_send_bypassed(const Id& id,std::size_t index,bool bypass) 
     auto sends=t->sends;sends[index].bypass=bypass;
     services_.projects->execute(SetTrackSends{id,std::move(sends)});cancel_mix_preview();
 }
+// Performance projection, not a user project edit. Preparation happens while the old
+// graph owns its immutable assets; only stop/quiesce/prepare/start touches the device.
+void Application::install_playback(Project candidate,
+    std::map<std::string,std::shared_ptr<const audio::AudioData>> decoded,
+    std::shared_ptr<PreparedWavImport> media,audio::ClickSettings click) {
+    require(workspace_==Workspace::live&&path_.empty(),"Playback handoff requires a Live runtime");
+    require_not_recording();require(device_&&device_config_,"Connect audio before switching Playback");
+    const auto previous=services_.projects->state().project;
+    require(previous->master_inserts.empty()&&previous->ara_bindings.empty()&&
+        std::all_of(previous->tracks.begin(),previous->tracks.end(),[](const auto& track){
+            return track.kind==TrackKind::audio&&track.inserts.empty()&&!track.input_monitor;
+        }),"Prepared Playback handoff does not replace live instruments/plugins");
+    require(std::all_of(graphs_->state().graph->nodes.begin(),graphs_->state().graph->nodes.end(),[](const auto& node){return node.format==processing::ProcessorFormat::native;}),"Prepared Playback handoff does not replace hosted graph plugins");
+    candidate.validate();click.validate();const auto config=*device_config_;
+    require(candidate.sample_rate==config.sample_rate,"Prepared Playback rate no longer matches the device");
+    validate_hardware(candidate,config);(void)mapped_click(click,config.outputs);
+    auto head=engine_->state();require(!head.count_remaining,"End count-in before switching items");
+    auto nextProjects=std::make_shared<ProjectStore>(candidate);
+    auto nextTransport=std::make_shared<audio::EngineTransport>(engine_,Timeline(candidate.time,candidate.sample_rate));
+    auto nextMusical=std::make_unique<MusicalTimeline>(Services{nextProjects,nextTransport},[this]{require_not_recording();require(!engine_->state().count_remaining,"End count-in before navigating");});
+    auto nextObserver=nextProjects->subscribe([this](const ProjectState&){if(ai_worker_)ai_worker_->cancel_all();});
+    auto nextSession=new_id();
+    const auto oldServices=services_;const auto oldTransport=transport_;const auto oldClick=click_settings_;
+    const auto oldApplied=applied_mix_revision_;auto oldPrepared=std::move(prepared_);
+    auto oldAssets=std::move(assets_);auto oldStaging=std::move(import_staging_);
+    auto oldTracks=std::move(mixer_tracks_);auto oldInserts=std::move(insert_runtime_);
+    std::unique_ptr<MusicalTimeline> oldMusical;
+    std::optional<audio::RenderGraph> rollbackGraph;
+    bool stopped=false,published=false;
+    try {
+        for(auto& [source,data]:decoded)cache_asset(source,std::move(data));
+        import_staging_.push_back(std::move(media));
+        click_settings_=click;preparing_project_=&candidate;
+        auto graph=render(config); // shared graph builder, WAV decode/resample already completed
+        preparing_project_=nullptr;
+        device_->stop();stopped=true;engine_->quiesce();head=engine_->state();rollbackGraph=engine_->stopped_graph();
+        // Scalar mixer controls may be newer than the graph's original construction.
+        rollbackGraph->master_gain=previous->master_gain;
+        for(std::size_t i=0;i<previous->tracks.size();++i)rollbackGraph->mixer[i]=previous->tracks[i].mix;
+        auto initial=audio::RealtimeState{};initial.playback=PlaybackState::stopped;
+        engine_->prepare({config.sample_rate,static_cast<std::uint32_t>(config.inputs.size()),
+            static_cast<std::uint32_t>(config.outputs.size()),8192,config.buffer_frames,config.processing_workers},std::move(graph),initial);
+        oldMusical=std::move(musical_);services_={nextProjects,nextTransport};transport_=nextTransport;musical_=std::move(nextMusical);published=true;
+        device_->start(); // same open hardware handle: no close/open/enumeration on handoff
+    } catch (...) {
+        const auto error=std::current_exception();preparing_project_=nullptr;
+        if(stopped){try{device_->stop();}catch(...){}engine_->quiesce();}
+        for(auto& [source,cached]:assets_){(void)source;*cached.cancel=true;}
+        assets_=std::move(oldAssets);import_staging_=std::move(oldStaging);
+        mixer_tracks_=std::move(oldTracks);insert_runtime_=std::move(oldInserts);
+        prepared_=std::move(oldPrepared);applied_mix_revision_=oldApplied;click_settings_=oldClick;
+        if(published){services_=oldServices;transport_=oldTransport;musical_=std::move(oldMusical);}
+        if(stopped&&rollbackGraph){
+            auto restore=head;if(restore.playback==PlaybackState::playing)restore.playback=PlaybackState::paused;
+            try {
+                engine_->prepare({config.sample_rate,static_cast<std::uint32_t>(config.inputs.size()),
+                    static_cast<std::uint32_t>(config.outputs.size()),8192,config.buffer_frames,config.processing_workers},std::move(*rollbackGraph),restore);
+                if(head.playback==PlaybackState::playing)require(engine_->enqueue({audio::ControlKind::play}),"Cannot resume previous Playback");
+                device_->start();
+            }catch(...){disconnect();throw std::runtime_error("Playback handoff rolled back; audio could not restart");}
+        }else if(stopped){try{device_->start();}catch(...){disconnect();}}
+        std::rethrow_exception(error);
+    }
+    // Commit application metadata only after the prepared graph/device successfully started.
+    for(auto& [source,cached]:oldAssets){(void)source;*cached.cancel=true;}
+    cancel_wav_import();if(ai_worker_)ai_worker_->cancel_all();
+    ai_project_changed_=std::move(nextObserver);
+    ai_session_=std::move(nextSession);++*ai_permission_revision_;ai_receipts_.clear();ai_operations_.clear();ai_applied_operations_.clear();
+    document_.project=std::move(candidate);document_.mixer.clear();
+    armed_.reset();armed_tracks_.clear();owned_media_.clear();waveform_error_.clear();
+    applied_mix_revision_=nextProjects->state().revision;saved_project_revision_=saved_graph_revision_=0;unsaved_=true;
+    try{transport_->poll();musical_->refresh();}catch(const std::exception&){/* UI poll retries projections; audio/model already committed. */}
+}
 void Application::rebuild_audio(bool retain_inserts) {
     if (!device_ || !device_config_) return;
     // A freshly opened offline document can deliberately have no plugin runtime

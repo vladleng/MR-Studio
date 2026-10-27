@@ -81,7 +81,7 @@ public:
     void selectLiveProject(int);
     void addLiveProject(const juce::File&);
     void importLiveShow(const juce::File&);
-    void selectLiveItem(const juce::String&);
+    void selectLiveItem(const juce::String&, const juce::String &entry = {});
     void attachLivePlayback(const juce::String&,const juce::File&, const juce::String &stem = {});
     void addLivePlaybackStems(const juce::String&, const juce::Array<juce::File>&);
     void removeLivePlaybackStem();
@@ -98,6 +98,16 @@ public:
     bool liveTransportReady() const;
     juce::String livePlaybackItem, livePlaybackFile, livePlaybackMixKey, livePlaybackError, liveMusicalKey;
     bool livePlaybackLoading{};
+    struct LivePreparedItem {juce::String id,key;std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> media;};
+    std::vector<LivePreparedItem> livePreparedItems;
+    std::shared_ptr<mrs::IProjectStore> livePlaybackStore;
+    juce::String liveCurrentEntry, livePendingEntry;
+    juce::String livePendingItem, liveFailedPlaybackKey, liveNextKey, liveNextItem, liveNextStatus, livePreloadError;
+    std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> prepareLivePlayback(const juce::String&);
+    void syncLivePreload();
+    void stepLiveItem(int direction);
+    void cancelLiveSwitch();
+
     void bindLiveItem(const juce::String&,const juce::File&);
     void prepareLiveInterface(bool saved);
     void updateLiveDirty();

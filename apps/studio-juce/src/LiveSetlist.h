@@ -213,12 +213,12 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         }
         if (row.divider)
             return;
-        const auto id = row.itemId;
+        const auto id = row.itemId, entry = browser ? juce::String() : row.id;
         juce::Component::SafePointer<Desktop> safe(&owner);
         owner.confirmDiscard(
-            [safe, id] {
+            [safe, id, entry] {
                 if (safe)
-                    safe->run([&] { safe->selectLiveItem(id); });
+                    safe->run([&] { safe->selectLiveItem(id, entry); });
             },
             true);
     }
@@ -392,7 +392,9 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                            juce::Justification::centredLeft, true);
                 return;
             }
-            const auto selected = host.data()["currentItem"].toString() == row.itemId;
+            const auto selected =
+                host.data()["currentItem"].toString() == row.itemId &&
+                (host.browser || host.owner.liveCurrentEntry.isEmpty() || host.owner.liveCurrentEntry == row.id);
             (selected ? selectedBase : itemBase)->drawWithin(g, bounds, juce::RectanglePlacement::stretchToFit, 1.f);
             if (selected) {
                 g.setColour(tokens.colour(ColourRole::focus));

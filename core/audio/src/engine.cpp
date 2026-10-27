@@ -184,6 +184,10 @@ ProcessingDomains AudioEngine::compile_domains(const RenderGraph& graph,
         plan.merges.push_back({no_mixer_track, no_mixer_track, 0, D::MergeKind::legacy, master_input});
     return plan;
 }
+RenderGraph AudioEngine::stopped_graph() const {
+    if(speculative_||mixed_owner_)throw std::logic_error("quiesce the device before capturing its graph");
+    auto copy=graph_;copy.click=click_;return copy;
+}
 void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState initial) {
     if(speculative_||mixed_owner_)throw std::logic_error("stop the process producer before preparing audio");
     stop_library_preview(); // never retain a stream decoded for the previous device rate

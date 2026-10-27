@@ -270,6 +270,8 @@ public:
     // alive until callback is stopped again. No RT ownership/deallocation.
     // Optional quiescent state retains a stopped/paused position and loop; never autoplay.
     void prepare(RenderConfig, RenderGraph, RealtimeState initial = {});
+    // Device stopped and quiesced. Control-thread rollback ownership, never an RT snapshot.
+    RenderGraph stopped_graph() const;
     struct TimingPlan {
         std::uint32_t rate{};TimeMap time;Metronome metronome;
         std::vector<RenderGraph::TempoSegment> tempos;
