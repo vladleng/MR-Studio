@@ -512,8 +512,8 @@ class LiveTimeline final : public juce::Component {
                 selection=hit(item,selectedLane,barAt(item,event.position.x));
                 repaint();
                 if(selection.isEmpty())return true;
-                rows=live::musicalRows(originalState,id,selectedLane).clone();
-                const auto row=live::spanById(rows,selection);
+                editRows=live::musicalRows(originalState,id,selectedLane).clone();
+                const auto row=live::spanById(editRows,selection);
                 const double left=item.bounds.getX()+1+(item.lead+static_cast<double>(row["start"]))*item.scale;
                 const double rightX=left+static_cast<double>(row["length"])*item.scale;
                 mode=std::abs(event.position.x-left)<=5?live::SpanGesture::left:
@@ -539,7 +539,7 @@ class LiveTimeline final : public juce::Component {
                     live::setItemView(preview,editingItem.value["id"].toString(),juce::Identifier(viewKey),
                         juce::jlimit(viewKey=="lead"?0.:1.,4096.,live::barSnap(initial+delta)));
                 } else {
-                    const auto next=live::editMusicalSpan(rows,selection,delta,mode,selectedLane,copy);
+                    const auto next=live::editMusicalSpan(editRows,selection,delta,mode,selectedLane,copy);
                     live::setMusicalRows(preview,selectedItem,selectedLane,next);
                 }
                 invalid=false; parent.state=preview; parent.layout(); parent.playhead.update(); repaint();
@@ -559,7 +559,7 @@ class LiveTimeline final : public juce::Component {
             if (viewKey.isEmpty() && copy) {
                 const auto committed=live::musicalRows(parent.owner.liveDocument->interfaceState,selectedItem,selectedLane);
                 if (const auto *values=committed.getArray()) for(const auto &row:*values)
-                    if (!live::spanById(rows,row["id"].toString()).isObject()) selection=row["id"].toString();
+                    if (!live::spanById(editRows,row["id"].toString()).isObject()) selection=row["id"].toString();
                 repaint();
             }
         }
@@ -626,7 +626,7 @@ class LiveTimeline final : public juce::Component {
         live::MusicalLane selectedLane{live::MusicalLane::sections};
         live::SpanGesture mode{live::SpanGesture::move};
         juce::String selectedItem,selection,viewKey,baseline;
-        juce::var originalState,rows;
+        juce::var originalState,editRows;
         bool trimming() const { return dragItem.isNotEmpty(); }
         float trimX() const { return dragPosition; }
 
