@@ -97,7 +97,10 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         const auto channelBounds = reference.bounds("track.channels", getWidth(), getHeight());
         const auto timelineBounds = reference.bounds("song.timeline", getWidth(), getHeight());
         legacyChannels.setBounds(channelBounds);
-        timeline.setBounds(showLegacyChannels ? timelineBounds : channelBounds.getUnion(timelineBounds));
+        const int dockHeight = juce::jmin(340, timelineBounds.getHeight() / 2);
+        auto timelineArea = showLegacyChannels ? timelineBounds : channelBounds.getUnion(timelineBounds);
+        if (mixerVisible) timelineArea.setBottom(timelineArea.getBottom() - dockHeight);
+        timeline.setBounds(timelineArea);
         timeline.setChannelWidth(showLegacyChannels ? 0 : timelineBounds.getX() - channelBounds.getX());
         const auto header = reference.bounds("control.header", getWidth(), getHeight());
         auto transport = juce::Rectangle<int>(header.getCentreX() - 178, header.getCentreY() - 16, 224, 32);
@@ -106,9 +109,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         const int width = juce::jmin(380, juce::jmax(220, getWidth() - setlist.getRight() - 16));
         browserItems.setBounds(setlist.getRight() + 2, setlist.getY(), width, setlist.getHeight());
         if (browserVisible) browserItems.toFront(false);
-        mixer.setBounds(juce::jmax(setlist.getRight(), getWidth() - 620),
-                        juce::jmax(setlist.getY(), getHeight() - 340),
-                        juce::jmin(620, getWidth() - setlist.getRight()), juce::jmin(340, getHeight() - setlist.getY()));
+        mixer.setBounds(timelineBounds.getX(), timelineBounds.getBottom() - dockHeight,
+                        timelineBounds.getWidth(), dockHeight);
         if (mixerVisible) mixer.toFront(false);
     }
     void mouseDown(const juce::MouseEvent &event) override {

@@ -1,33 +1,30 @@
 #pragma once
 #include "Desktop.h"
 #include "WaveformView.h"
+#include "LivePlaybackView.h"
 namespace ui {
 class LivePlaybackPanel final : public juce::Component {
   public:
     explicit LivePlaybackPanel(Desktop &desktop) : owner(desktop) {
         setComponentID("live-playback-panel");
-        for (auto *c : std::array<juce::Component *, 15>{&chooseFile, &fileName, &gain, &mute, &solo, &trimStart,
-                                                         &trimEnd, &trimApply, &startLabel, &endLabel, &stemChoice,
-                                                         &addStem, &removeStem, &outputChoice, &cue})
+        for (auto *c : std::array<juce::Component *, 13>{&chooseFile, &fileName, &trimStart, &trimEnd,
+                   &trimApply, &startLabel, &endLabel, &addStem, &removeStem, &outputChoice, &cue, &groupGain, &groupLabel})
             addAndMakeVisible(c);
-        addAndMakeVisible(groupGain);
-        addAndMakeVisible(groupLabel);
-        addAndMakeVisible(fold);
+        addAndMakeVisible(stemsViewport);
+        addAndMakeVisible(detailsClose);
+        stemsViewport.setViewedComponent(&stemsBody, false);
+        stemsViewport.setScrollBarsShown(true, false);
         groupLabel.setText("Item Playback", juce::dontSendNotification);
         groupGain.setComponentID("live-item-playback-gain");
         groupGain.setTitle("Playback level for this item");
         groupGain.setRange(-60, 12, .1);
         groupGain.setSliderStyle(juce::Slider::LinearHorizontal);
-        groupGain.setTextBoxStyle(juce::Slider::TextBoxRight, false, 68, 22);
+        groupGain.setTextBoxStyle(juce::Slider::TextBoxRight, false, 64, 20);
         groupGain.setTextValueSuffix(" dB");
         groupGain.onDragEnd = [this] { commitGroup(); };
         groupGain.onValueChange = [this] { if (!groupGain.isMouseButtonDown()) commitGroup(); };
-        fold.setComponentID("live-stems-fold");
-        fold.onClick = [this] {
-            owner.run([&] { owner.editLiveInterface("Fold Playback stems", [&](auto &state) {
-                live::put(live::performance(state), "stemsExpanded", !expanded);
-            }); });
-        };
+        detailsClose.setTitle("Close stem settings");
+        detailsClose.onClick = [this] { detailsVisible = false; requestLayout(); };
         chooseFile.setButtonText("Choose WAV...");
         chooseFile.onClick = [this] {
             if (!owner.liveDocument)
@@ -42,17 +39,9 @@ class LivePlaybackPanel final : public juce::Component {
                 },
                 "*.wav");
         };
-        stemChoice.setComponentID("live-stem-choice");
         addStem.setComponentID("live-add-stems");
         removeStem.setComponentID("live-remove-stem");
         outputChoice.setComponentID("live-stem-output");
-        stemChoice.onChange = [this] {
-            const int index = stemChoice.getSelectedId() - 1;
-            if (index >= 0 && index < static_cast<int>(stemKeys.size())) {
-                owner.livePlaybackStem = stemKeys[static_cast<std::size_t>(index)];
-                owner.refresh();
-            }
-        };
         addStem.onClick = [this] {
             if (!owner.liveDocument)
                 return;
@@ -80,121 +69,92 @@ class LivePlaybackPanel final : public juce::Component {
         trimApply.setTooltip("Apply nondestructive trim (pause or stop first)");
         trimStart.onReturnKey = trimEnd.onReturnKey = [this] { commitTrim(); };
         trimApply.onClick = [this] { commitTrim(); };
-        gain.setRange(-60, 12, .1);
-        gain.setSliderStyle(juce::Slider::LinearHorizontal);
-        gain.setTextBoxStyle(juce::Slider::TextBoxRight, false, 68, 22);
-        gain.setTextValueSuffix(" dB");
-        gain.onDragEnd = [this] { commit(); };
-        gain.onValueChange = [this] {
-            if (!gain.isMouseButtonDown())
-                commit();
-        };
-        mute.onClick = [this] { commit(); };
-        solo.onClick = [this] { commit(); };
         cue.setComponentID("live-stem-cue");
         cue.setClickingTogglesState(true);
         cue.setTooltip("Cue WAV: independent of the global Playback level; choose its output separately");
         cue.onClick = [this] { owner.run([&] { owner.setLiveCue(cue.getToggleState()); }); };
-        mute.setClickingTogglesState(true);
-        solo.setClickingTogglesState(true);
     }
+    ~LivePlaybackPanel() override { stemsViewport.setViewedComponent(nullptr, false); }
     std::function<void()> layoutChanged;
-    int preferredHeight() const { return expanded ? 270 : 72; }
+    int preferredHeight() const { return detailsVisible ? 370 : 270; }
+    int stemCount() const { return static_cast<int>(stemRows.size()); }
+    void showStemDetails(const juce::String &stem) {
+        owner.livePlaybackStem = stem;
+        detailsVisible = true;
+        requestLayout();
+        sync();
+    }
     void resized() override {
         auto area = getLocalBounds().reduced(8);
         auto header = area.removeFromTop(24);
-        fold.setBounds(header.removeFromLeft(24));
-        header.removeFromLeft(100);
-        removeStem.setBounds(header.removeFromRight(24).reduced(1));
-        addStem.setBounds(header.removeFromRight(24).reduced(1));
-        stemChoice.setBounds(header.reduced(1));
-        auto group = area.removeFromTop(30);
+        addStem.setBounds(header.removeFromRight(26).reduced(1));
+        auto group = area.removeFromTop(28);
         groupLabel.setBounds(group.removeFromLeft(82));
         groupGain.setBounds(group);
-        if (!expanded) return;
-        auto row = area.removeFromTop(28);
-        chooseFile.setBounds(row.removeFromRight(110));
-        fileName.setBounds(row);
-        row = area.removeFromTop(28);
-        mute.setBounds(row.removeFromLeft(28).reduced(1));
-        solo.setBounds(row.removeFromLeft(28).reduced(1));
-        cue.setBounds(row.removeFromLeft(44).reduced(1));
-        outputChoice.setBounds(row.reduced(1));
-        gain.setBounds(area.removeFromTop(30));
-        row = area.removeFromTop(26);
-        trimApply.setBounds(row.removeFromRight(52).reduced(1));
-        auto startArea = row.removeFromLeft(row.getWidth() / 2);
-        startLabel.setBounds(startArea.removeFromLeft(20));
-        trimStart.setBounds(startArea.reduced(1));
-        endLabel.setBounds(row.removeFromLeft(26));
-        trimEnd.setBounds(row.reduced(1));
+        area.removeFromTop(4);
+        if (detailsVisible) {
+            auto details = area.removeFromBottom(96);
+            auto row = details.removeFromTop(26);
+            detailsClose.setBounds(row.removeFromRight(24));
+            removeStem.setBounds(row.removeFromRight(24));
+            chooseFile.setBounds(row.removeFromRight(110));
+            fileName.setBounds(row);
+            row = details.removeFromTop(28);
+            cue.setBounds(row.removeFromLeft(44).reduced(1));
+            outputChoice.setBounds(row.reduced(1));
+            row = details.removeFromTop(26);
+            trimApply.setBounds(row.removeFromRight(52).reduced(1));
+            auto start = row.removeFromLeft(row.getWidth() / 2);
+            startLabel.setBounds(start.removeFromLeft(20)); trimStart.setBounds(start.reduced(1));
+            endLabel.setBounds(row.removeFromLeft(26)); trimEnd.setBounds(row.reduced(1));
+        } else if (stemRows.empty()) chooseFile.setBounds(area.removeFromTop(28));
+        stemsViewport.setBounds(area);
+        const int width = juce::jmax(1, stemsViewport.getMaximumVisibleWidth());
+        int y = 0;
+        for (auto &row : stemRows) { row->setBounds(0, y, width, 58); y += 58; }
+        stemsBody.setSize(width, juce::jmax(y, stemsViewport.getHeight()));
     }
     void paint(juce::Graphics &g) override {
         g.setColour(juce::Colour(0xffdae5f4));
         g.setFont(owner.theme.font(12.f));
-        g.drawText("Playback / stems", 34, 4, 114, 22, juce::Justification::left);
-        if (!expanded) return;
-        const float peak = owner.livePlaybackReady() ? juce::jmax(owner.peaks[owner.livePlaybackIndex()].left,
-                                                                  owner.peaks[owner.livePlaybackIndex()].right)
-                                                     : 0.f;
-        auto bar = getLocalBounds().reduced(10).withTrimmedTop(174).withHeight(6).toFloat();
-        g.setColour(juce::Colour(0xff343638));
-        g.fillRect(bar);
-        bar.setWidth(bar.getWidth() * juce::jlimit(0.f, 1.f, peak));
-        g.setColour(juce::Colour(0xff59ad87));
-        g.fillRect(bar);
-        if (owner.livePlaybackReady()) {
-            const auto clip = owner.project()->clips[owner.livePlaybackIndex()];
-            const auto area = getLocalBounds().reduced(10).withTrimmedTop(188).toFloat();
-            if (const auto *wave = owner.app.clip_waveform(clip)) {
-                g.setColour(juce::Colour(0xff17b5da));
-                drawWaveform(g, *wave, area, static_cast<double>(clip.source_offset),
-                             static_cast<double>(clip.length) / juce::jmax(1.f, area.getWidth()));
-            }
-            const auto fraction = juce::jlimit(0., 1.,
-                                               static_cast<double>(owner.displayState().sample - clip.start) /
-                                                   static_cast<double>(juce::jmax<mrs::Sample>(1, clip.length)));
-            g.setColour(juce::Colours::white);
-            g.drawVerticalLine(juce::roundToInt(area.getX() + area.getWidth() * fraction), area.getY(),
-                               area.getBottom());
+        g.drawText("Playback / stems", 8, 4, getWidth() - 44, 22, juce::Justification::left);
+        if (stemRows.empty()) {
+            const auto message = owner.livePlaybackLoading ? juce::String("Preparing Playback...") : owner.livePlaybackError;
+            g.drawFittedText(message, getLocalBounds().reduced(8).withTrimmedTop(100), juce::Justification::topLeft, 3);
         }
-        const auto text = owner.livePlaybackLoading ? juce::String("Preparing Playback...") : owner.livePlaybackError;
-        g.setColour(juce::Colour(0xffdae5f4));
-        g.drawFittedText(text, getLocalBounds().reduced(8).withTrimmedTop(188), juce::Justification::topLeft, 3);
     }
     void sync() {
         const auto id =
             owner.liveDocument ? owner.liveDocument->interfaceState["currentItem"].toString() : juce::String();
-        const bool nextExpanded = !owner.liveDocument || owner.liveDocument->interfaceState["performance"]["stemsExpanded"].isVoid() ||
-                                  static_cast<bool>(owner.liveDocument->interfaceState["performance"]["stemsExpanded"]);
-        if (nextExpanded != expanded) { expanded = nextExpanded; if (layoutChanged) layoutChanged(); else resized(); }
-        fold.setButtonText(expanded ? "v" : ">");
-        for (auto *c : std::array<juce::Component *, 15>{&chooseFile, &fileName, &gain, &mute, &solo, &trimStart,
-                        &trimEnd, &trimApply, &startLabel, &endLabel, &stemChoice, &addStem, &removeStem, &outputChoice, &cue})
-            c->setVisible(expanded);
+        if (id != currentItem) {
+            currentItem = id; detailsVisible = false; requestLayout();
+        }
         groupGain.setEnabled(id.isNotEmpty());
         if (!groupGain.isMouseButtonDown() && owner.liveDocument)
             groupGain.setValue(live::itemPlaybackGain(owner.liveDocument->interfaceState, id), juce::dontSendNotification);
-        const auto rows =
-            owner.liveDocument ? live::playbackRows(owner.liveDocument->interfaceState, id) : std::vector<juce::var>();
-        const auto row = owner.liveDocument
-                             ? live::playbackStem(owner.liveDocument->interfaceState, id, owner.livePlaybackStem)
-                             : juce::var();
+        const auto rows = owner.liveDocument ? live::playbackRows(owner.liveDocument->interfaceState, id) : std::vector<juce::var>();
+        const auto row = owner.liveDocument ? live::playbackStem(owner.liveDocument->interfaceState, id, owner.livePlaybackStem) : juce::var();
         juce::String nextStems = id;
-        for (const auto &entry : rows)
-            nextStems += entry["id"].toString() + entry["file"].toString();
+        for (const auto &entry : rows) nextStems += "|" + entry["id"].toString();
         if (nextStems != stemSignature) {
             stemSignature = nextStems;
-            stemChoice.clear(juce::dontSendNotification);
-            stemKeys.clear();
+            stemRows.clear();
             for (std::size_t i = 0; i < rows.size(); ++i) {
-                stemKeys.push_back(i == 0 ? juce::String() : rows[i]["id"].toString());
-                stemChoice.addItem(juce::File(rows[i]["file"].toString()).getFileNameWithoutExtension(),
-                                   static_cast<int>(i + 1));
+                auto stemRow = std::make_unique<StemRow>(*this, id, i == 0 ? juce::String() : rows[i]["id"].toString());
+                stemsBody.addAndMakeVisible(*stemRow); stemRows.push_back(std::move(stemRow));
             }
+            resized();
         }
-        stemChoice.setSelectedId(rows.empty() ? 0 : static_cast<int>(owner.livePlaybackIndex() + 1),
-                                 juce::dontSendNotification);
+        std::vector<juce::String> files;
+        for (std::size_t i = 0; i < rows.size(); ++i)
+            if (!owner.livePlaybackReady() || i >= owner.project()->clips.size() || !owner.app.clip_waveform(owner.project()->clips[i]))
+                files.push_back(rows[i]["file"].toString());
+        waveforms.sync(files);
+        for (auto &stemRow : stemRows) stemRow->sync();
+        for (auto *c : std::array<juce::Component *, 12>{&chooseFile, &fileName, &trimStart, &trimEnd, &trimApply,
+                          &startLabel, &endLabel, &removeStem, &outputChoice, &cue, &detailsClose, &stemsViewport})
+            c->setVisible(c == &stemsViewport || (c == &chooseFile && rows.empty()) || detailsVisible);
+        chooseFile.setButtonText(rows.empty() ? "Choose WAV..." : "Replace WAV...");
         addStem.setEnabled(id.isNotEmpty() && rows.size() < 32 && !owner.app.recording());
         removeStem.setEnabled(owner.livePlaybackIndex() > 0 && !owner.app.recording());
         const auto active = owner.app.active_outputs();
@@ -238,13 +198,6 @@ class LivePlaybackPanel final : public juce::Component {
         cue.setEnabled(row.isObject() && !owner.app.recording());
         cue.setToggleState(static_cast<bool>(row["cue"]), juce::dontSendNotification);
         const bool ready = owner.livePlaybackReady();
-        gain.setEnabled(ready);
-        mute.setEnabled(ready);
-        solo.setEnabled(ready);
-        if (!gain.isMouseButtonDown())
-            gain.setValue(row.isObject() ? static_cast<double>(row["gain"]) : 0., juce::dontSendNotification);
-        mute.setToggleState(static_cast<bool>(row["mute"]), juce::dontSendNotification);
-        solo.setToggleState(static_cast<bool>(row["solo"]), juce::dontSendNotification);
         const bool canTrim =
             ready && !owner.app.recording() && owner.app.engine()->state().playback != mrs::PlaybackState::playing;
         trimStart.setEnabled(canTrim);
@@ -270,6 +223,68 @@ class LivePlaybackPanel final : public juce::Component {
     }
 
   private:
+    class StemRow final : public juce::Component {
+      public:
+        StemRow(LivePlaybackPanel &panel, juce::String item, juce::String stem)
+            : host(panel), itemId(std::move(item)), stemId(std::move(stem)) {
+            const auto key = itemId + ":" + (stemId.isEmpty() ? "primary" : stemId);
+            setComponentID("live-stem-row-" + key);
+            for (auto *c : std::array<juce::Component *, 4>{&level, &mute, &solo, &details}) addAndMakeVisible(c);
+            level.setComponentID("live-stem-level-" + key);
+            level.setTitle("Stem level"); level.setRange(-60, 12, .1);
+            level.setSliderStyle(juce::Slider::LinearHorizontal);
+            level.setTextBoxStyle(juce::Slider::TextBoxRight, false, 58, 18); level.setTextValueSuffix(" dB");
+            level.onDragEnd = [this] { commit(); };
+            level.onValueChange = [this] { if (!level.isMouseButtonDown()) commit(); };
+            for (auto *button : {&mute, &solo}) { button->setClickingTogglesState(true); button->onClick = [this] { commit(); }; }
+            details.setTitle("Stem file, trim and output settings");
+            details.onClick = [this] { host.showStemDetails(stemId); };
+        }
+        void resized() override {
+            auto header = getLocalBounds().removeFromTop(20);
+            details.setBounds(header.removeFromRight(24).reduced(1));
+            solo.setBounds(header.removeFromRight(24).reduced(1)); mute.setBounds(header.removeFromRight(24).reduced(1));
+            level.setBounds(2, 36, getWidth() - 4, 20);
+        }
+        void sync() {
+            if (!host.owner.liveDocument) return;
+            const auto row = live::playbackStem(host.owner.liveDocument->interfaceState, itemId, stemId);
+            if (!level.isMouseButtonDown()) level.setValue(static_cast<double>(row["gain"]), juce::dontSendNotification);
+            mute.setToggleState(static_cast<bool>(row["mute"]), juce::dontSendNotification);
+            solo.setToggleState(static_cast<bool>(row["solo"]), juce::dontSendNotification);
+            setEnabled(row.isObject()); repaint();
+        }
+        void paint(juce::Graphics &g) override {
+            if (!host.owner.liveDocument) return;
+            const auto state = host.owner.liveDocument->interfaceState;
+            const auto rows = live::playbackRows(state, itemId);
+            std::size_t index = rows.size();
+            for (std::size_t i = 0; i < rows.size(); ++i)
+                if ((i == 0 && stemId.isEmpty()) || (i > 0 && rows[i]["id"].toString() == stemId)) { index = i; break; }
+            if (index == rows.size()) return;
+            g.setColour(juce::Colour(0xffdae5f4)); g.setFont(host.owner.theme.font(10.f));
+            g.drawText(juce::File(rows[index]["file"].toString()).getFileNameWithoutExtension(), 4, 0,
+                       juce::jmax(0, getWidth() - 80), 20, juce::Justification::centredLeft, true);
+            const auto source = live::playbackWaveform(host.owner, host.waveforms, state, itemId, index);
+            const juce::Rectangle<float> area{4.f, 22.f, static_cast<float>(juce::jmax(1, getWidth() - 8)), 12.f};
+            if (source.wave && source.length > 0) {
+                g.setColour(juce::Colour(0xff17b5da));
+                drawPeakEnvelope(g, 1, [&](double a, double b, std::uint32_t) { return source.display(a, b); }, area,
+                                 source.start, source.length / area.getWidth());
+            } else {
+                const auto *cached = host.waveforms.find(rows[index]["file"].toString());
+                g.drawText(cached && cached->error.isNotEmpty() ? "File unavailable" : "Preparing waveform...",
+                           area.getSmallestIntegerContainer(), juce::Justification::centredLeft, true);
+            }
+        }
+      private:
+        void commit() { host.owner.run([&] { host.owner.setLivePlaybackStemMix(itemId, stemId, level.getValue(), mute.getToggleState(), solo.getToggleState()); }); }
+        LivePlaybackPanel &host;
+        juce::String itemId, stemId;
+        juce::Slider level;
+        juce::TextButton mute{"M"}, solo{"S"}, details{"..."};
+    };
+    void requestLayout() { if (layoutChanged) layoutChanged(); else resized(); }
     void commitGroup() { owner.run([&] { owner.setLiveItemPlaybackGain(groupGain.getValue()); }); }
     void commitTrim() {
         owner.run([&] {
@@ -280,23 +295,23 @@ class LivePlaybackPanel final : public juce::Component {
             owner.setLivePlaybackTrim(static_cast<double>(values[0]), static_cast<double>(values[1]));
         });
     }
-    void commit() {
-        owner.run([&] { owner.setLivePlaybackMix(gain.getValue(), mute.getToggleState(), solo.getToggleState()); });
-    }
     Desktop &owner;
-    juce::TextButton chooseFile, mute{"M"}, solo{"S"}, cue{"Cue"};
+    juce::TextButton chooseFile, cue{"Cue"}, detailsClose{"x"};
     juce::Label fileName;
-    juce::Slider gain, groupGain;
+    juce::Slider groupGain;
     juce::Label groupLabel;
-    juce::TextButton fold;
-    bool expanded{true};
+    bool detailsVisible{};
+    juce::String currentItem;
     juce::TextEditor trimStart, trimEnd;
     juce::TextButton trimApply{"Trim"};
     juce::Label startLabel{{}, "In"}, endLabel{{}, "Out"};
     juce::String trimSignature, stemSignature, outputSignature;
-    juce::ComboBox stemChoice, outputChoice;
+    juce::ComboBox outputChoice;
     juce::TextButton addStem{"+"}, removeStem{"-"};
-    std::vector<juce::String> stemKeys;
+    juce::Viewport stemsViewport;
+    juce::Component stemsBody;
+    LiveWaveformCache waveforms;
+    std::vector<std::unique_ptr<StemRow>> stemRows;
     std::vector<std::vector<int>> routes;
     std::unique_ptr<juce::FileChooser> stemChooser;
 };

@@ -8,6 +8,13 @@
 
 Совместимость панорамы: `channels[].pan` в show/editor и Browser snapshots хранится в процентах **−100…100**, включая значения около центра ±1. `channelPan()` переводит его в Core scalar **−1…1**; normalized API `setLiveChannelMix`/preview сохраняет обратно `pan * 100`. Открытие прежнего `.mrlive` не переписывает его и не сбрасывает значения. Проверка процентов как normalized scalar в build 336 была регрессией `Invalid channel mix`.
 
+Уточнения интерфейса после build 337:
+- Меню Setlist использует ту же owned context surface с 90% opacity, что и item. ПКМ передаёт координаты события до смены фокуса; кнопка «…» — нижний край собственной кнопки. Позиция переводится из screen в координаты окна и ограничивается его границами.
+- Mixer — нижняя панель от левого края **сетки таймлайна**, на всю её ширину; открытие резервирует высоту под панель.
+- Playback на таймлайне — контейнер. Его раскрытие (`performance.stemsExpanded`) вставляет дочерние строки непосредственно под ним, включая первичный WAV; сворачивание скрывает эти строки. В родительской строке отображается среднее реальных peak envelopes всех её источников, с учётом sample rate, source offset и trim. Это визуальное представление, не новый audio mix/backend.
+- **Playback / stems** всегда показывает список всех стемов текущего item: узкая волна и отдельный узкий горизонтальный фейдер на строке; общий item Playback level — сверху. Сворачивание дорожки не скрывает список. Файл/trim/route/Cue доступны через «…» соответствующего стема. Изменение фейдера адресует item/stem по стабильным IDs и не переключает выбранный stem.
+- Это перенос представления над существующими nativePlayback/channels: IDs, источники, уровни, routing и Core lifecycle не пересоздаются. Раскладка дочерних строк — view projection, она не меняет item content dirty.
+
 Статус на 2026-10-25: **браузерный этап интерфейса завершён и принят пользователем; следующий этап — native JUCE UI и подключение реального SHARED Core MR Studio**. Завершение макетирования не означает готовность аудио/runtime.
 
 Tracking: [#14 roadmap](https://github.com/vladleng/MR-Studio/issues/14), [#272 редактор](https://github.com/vladleng/MR-Studio/issues/272), [#28 native UI](https://github.com/vladleng/MR-Studio/issues/28), [#29 shared integration](https://github.com/vladleng/MR-Studio/issues/29), [#274 главная страница и Live Projects](https://github.com/vladleng/MR-Studio/issues/274), [#30 show lifecycle](https://github.com/vladleng/MR-Studio/issues/30). Исходники прототипа — PR #273, тематическая ветка `codex/mr-live-layout-editor`; merge в main не выполнен.

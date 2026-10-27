@@ -19,6 +19,11 @@ class LiveMixer final : public juce::Component {
         for (auto &strip : strips) { strip->setBounds(x, 0, 118, juce::jmax(180, getHeight() - 18)); x += 118; }
         body.setSize(juce::jmax(x, getWidth()), juce::jmax(180, getHeight() - 18));
     }
+    void paint(juce::Graphics &g) override {
+        const auto tokens = liveReferenceTokens();
+        g.fillAll(tokens.colour(ColourRole::panel));
+        g.setColour(tokens.colour(ColourRole::border)); g.drawHorizontalLine(0, 0.f, static_cast<float>(getWidth()));
+    }
     void sync() {
         if (!owner.liveDocument) return;
         const auto state = owner.liveDocument->interfaceState;

@@ -1,5 +1,6 @@
 #include "LiveWindowLayout.h"
 #include "LiveWorkspace.h"
+#include "../../../tests/live_playback_view_checks.hpp"
 #include "ProjectHome.h"
 #include <fstream>
 #include <windows.h>
@@ -70,6 +71,7 @@ void livePreview(juce::Component &component, const juce::String &name) {
 }
 } // namespace
 void liveInterfaceSmoke(const juce::File &fixture) {
+    live::test::playbackViews();
     liveCheck(fixture.existsAsFile(), "Pass --show-fixture with the editor show fixture");
     const auto original = fixture.loadFileAsString();
     const auto imported = live::importDemo(original);
@@ -379,9 +381,39 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     mixerToggle->onClick(); livePump();
     auto *mixer = liveComponent(desktop, "live-mixer");
     liveCheck(mixer && mixer->isVisible(), "Mixer drawer opens independently of item Browser");
+    const auto grid = layout.bounds("song.timeline", desktop.getWidth(), desktop.getHeight());
+    liveCheck(mixer->getX() == grid.getX() && mixer->getWidth() == grid.getWidth(),
+              "Mixer dock starts at the timeline grid and spans its width");
     livePreview(desktop, "mixer");
     mixerToggle->onClick(); livePump();
     liveCheck(!mixer->isVisible(), "Repeated Mixer toggle closes drawer");
+    auto *setlistMenu = dynamic_cast<juce::TextButton *>(liveComponent(desktop, "live-setlist-menu"));
+    liveCheck(setlistMenu != nullptr, "Setlist provides an explicit menu anchor");
+    const auto beforeMenus = desktop.liveDocument->signature();
+    const auto checkMenu = [&](juce::Point<int> screen) {
+        livePump();
+        auto *menu = liveComponent(desktop, "live-setlist-context");
+        liveCheck(menu != nullptr, "Setlist uses the owned context surface");
+        auto *box = menu->findParentComponentOfClass<juce::CallOutBox>();
+        const auto point = desktop.getLocalPoint(nullptr, screen);
+        liveCheck(box && box->getX() == point.x + 2 && box->getY() == point.y + 2,
+                  "Setlist menu opens just below/right of the triggering point");
+        box->dismiss(); livePump();
+    };
+    setlistMenu->onClick(); checkMenu(setlistMenu->getScreenBounds().getBottomLeft());
+    auto *setlistSurface = liveComponent(desktop, "live-setlist");
+    const auto menuTime = juce::Time::getCurrentTime();
+    for (const float scale : {1.f, .75f}) {
+        desktop.setTransform(juce::AffineTransform::scale(scale));
+        const juce::Point<float> point{32.f, 150.f};
+        const juce::MouseEvent contextClick(juce::Desktop::getInstance().getMainMouseSource(), point,
+            juce::ModifierKeys(juce::ModifierKeys::rightButtonModifier), 1, 0, 0, 0, 0,
+            setlistSurface, setlistSurface, menuTime, point, menuTime, 1, false);
+        setlistSurface->mouseDown(contextClick); checkMenu(contextClick.getScreenPosition());
+    }
+    desktop.setTransform(juce::AffineTransform());
+    liveCheck(desktop.liveDocument->signature() == beforeMenus, "Opening Setlist menus does not edit the show");
+
     const auto beforeContext = juce::JSON::toString(desktop.liveDocument->interfaceState);
     auto contextContent = std::make_unique<LiveItemEditor>(desktop, id);
     auto &contextBox = showLiveContext(std::move(contextContent), desktop, desktop.getScreenBounds().withSize(1, 1));
@@ -529,6 +561,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   "Stop returns timeline playhead to item start");
 
         playbackDesktop.editLiveInterface("Zoom for clip editing", [&](auto &state) {
+            live::put(live::performance(state), "stemsExpanded", true);
             auto &viewState = live::map(live::map(live::performance(state), "arrangement"), id);
             live::put(viewState, "scale", 128.);
         });
@@ -536,7 +569,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         auto *trimTimelineBody = liveComponent(*playbackTimeline, "live-timeline-items");
         const auto dragTime = juce::Time::getCurrentTime();
         const auto dragEvent = [&](float x) {
-            const juce::Point<float> point{x, 426.f};
+            const auto channel = live::playbackContainer(playbackDesktop.liveDocument->interfaceState);
+            const juce::Point<float> point{x, static_cast<float>(playbackTimeline->playbackStemLaneBounds(channel).getY() + 20)};
             return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), point,
                                     juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier), 1, 0, 0, 0, 0,
                                     trimTimelineBody, trimTimelineBody, dragTime, point, dragTime, 1, false);
@@ -1058,9 +1092,16 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         multi.setLivePlaybackOutputs({});
         liveCheck(multi.livePlaybackReady(), "Unavailable route can be repaired to Master without discarding media");
         multi.refresh();
-        livePump(); // Playback selector is synchronized by the workspace UI timer, not Desktop::refresh.
-        auto *choice = dynamic_cast<juce::ComboBox *>(liveComponent(multi, "live-stem-choice"));
-        liveCheck(choice && choice->getNumItems() == 2, "Native Playback panel lists all real stems");
+        livePump(); // The sidebar synchronizes on its UI timer.
+        auto *panel = dynamic_cast<LivePlaybackPanel *>(liveComponent(multi, "live-playback-panel"));
+        liveCheck(panel && panel->stemCount() == 2, "Playback sidebar shows all real stems simultaneously");
+        auto *firstLevel = dynamic_cast<juce::Slider *>(liveComponent(*panel, "live-stem-level-" + id + ":primary"));
+        liveCheck(firstLevel != nullptr, "Each stem has its own compact horizontal fader");
+        const auto selectedStem = multi.livePlaybackStem;
+        firstLevel->setValue(-4., juce::sendNotificationSync);
+        liveCheck(static_cast<double>(live::playback(multi.liveDocument->interfaceState, id)["gain"]) == -4. &&
+                      multi.livePlaybackStem == selectedStem, "Sidebar fader edits its own stem without changing selection");
+        multi.undoLiveInterface(); multi.syncLivePlayback();
         const auto sharedEngine = multi.app.engine();
         multi.attachLivePlayback(second, positive);
         const auto activeBeforePreload = multi.app.services().projects;

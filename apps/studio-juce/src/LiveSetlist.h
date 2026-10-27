@@ -1,5 +1,6 @@
 #pragma once
 #include "Desktop.h"
+#include "LiveActionMenu.h"
 #include "LiveCardEditor.h"
 #include "LiveItemEditor.h"
 #include "LiveLayout.h"
@@ -49,7 +50,8 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                     });
                 });
             };
-            menuButton.onClick = [this] { context({}); };
+            menuButton.setComponentID("live-setlist-menu");
+            menuButton.onClick = [this] { context({}, {menuButton.getScreenBounds().getBottomLeft(), {1, 1}}); };
             setlists.onChange = [this] {
                 if (syncing || !owner.liveDocument)
                     return;
@@ -118,10 +120,10 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
     void mouseDown(const juce::MouseEvent &event) override {
         if (event.originalComponent != this && event.originalComponent != &body && event.originalComponent != &viewport)
             return;
+        const auto pointer = event.getScreenPosition();
         owner.liveShowEditing = true;
         grabKeyboardFocus();
-        if (event.mods.isPopupMenu())
-            context({});
+        if (event.mods.isPopupMenu()) context({}, {pointer, {1, 1}});
     }
     bool keyPressed(const juce::KeyPress &key) override {
         if (key.getModifiers().isCtrlDown() && (key.getKeyCode() == 'Z' || key.getKeyCode() == 'z')) {
@@ -262,11 +264,12 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             },
             !browser);
     }
-    void context(RowData row) {
+    void context(RowData row, juce::Rectangle<int> target = {}) {
+        if (target.isEmpty()) target = {juce::Desktop::getMousePosition(), {1, 1}};
         if (!owner.liveDocument)
             return;
         if (row.itemId.isNotEmpty()) {
-            showItemContext(row, *this);
+            showItemContext(row, *this, target);
             return;
         }
         juce::PopupMenu popup;
@@ -296,7 +299,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         popup.addItem(20, "Undo show", owner.liveUndo.canUndo());
         popup.addItem(21, "Redo show", owner.liveUndo.canRedo());
         juce::Component::SafePointer<LiveSetlist> safe(this);
-        popup.showMenuAsync(liveMenuOptions(*this), [safe, row](int choice) {
+        showLiveActionMenu(popup, owner, target, [safe, row](int choice) {
             if (!safe)
                 return;
             safe->owner.liveShowEditing = true;
@@ -462,6 +465,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             }
         }
         void mouseDown(const juce::MouseEvent &event) override {
+            const auto pointer = event.getScreenPosition();
             stopTimer();
             dragged = false;
             primaryPressed = event.mods.isLeftButtonDown();
@@ -470,9 +474,9 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             grabKeyboardFocus();
             if (event.mods.isPopupMenu()) {
                 if (row.itemId.isNotEmpty())
-                    host.showItemContext(row, *this, {event.getScreenX(), event.getScreenY(), 1, 1});
+                    host.showItemContext(row, *this, {pointer, {1, 1}});
                 else
-                    host.context(row);
+                    host.context(row, {pointer, {1, 1}});
             }
         }
         void mouseDoubleClick(const juce::MouseEvent &event) override {

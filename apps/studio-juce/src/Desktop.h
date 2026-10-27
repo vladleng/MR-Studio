@@ -92,6 +92,7 @@ public:
     std::size_t livePlaybackIndex() const;
     juce::String livePlaybackStem, livePlaybackMediaKey, livePlaybackDeviceKey;
     void setLivePlaybackMix(double,bool,bool);
+    void setLivePlaybackStemMix(const juce::String&, const juce::String&, double, bool, bool);
     void setLiveItemPlaybackGain(double);
     void setLiveChannelMix(const juce::String&, double, double, bool, bool);
     void previewLiveChannelMix(const juce::String&, double, double, bool, bool);

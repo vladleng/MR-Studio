@@ -175,6 +175,42 @@ inline void validatePlayback(const juce::var &state) {
         }
     }
 }
+struct PlaybackLane {
+    juce::String channel;
+    bool container{}, child{};
+};
+inline juce::String playbackContainer(const juce::var &state) {
+    if (const auto *channels = state["channels"].getArray())
+        for (const auto &channel : *channels)
+            if (channel["type"].toString() == "Playback") return channel["id"].toString();
+    return {};
+}
+inline bool playbackExpanded(const juce::var &state) {
+    return static_cast<bool>(state["performance"]["stemsExpanded"]);
+}
+inline std::vector<PlaybackLane> playbackLanes(const juce::var &state) {
+    std::vector<PlaybackLane> result;
+    const auto primary = playbackContainer(state);
+    std::set<juce::String> children;
+    bool primarySource = false;
+    if (const auto *items = state["items"].getArray())
+        for (const auto &item : *items) {
+            const auto rows = playbackRows(state, item["id"].toString());
+            primarySource = primarySource || !rows.empty();
+            for (std::size_t i = 1; i < rows.size(); ++i) children.insert(rows[i]["id"].toString());
+        }
+    if (const auto *channels = state["channels"].getArray())
+        for (const auto &channel : *channels) {
+            const auto id = channel["id"].toString();
+            if (children.contains(id)) continue;
+            result.push_back({id, id == primary, false});
+            if (id != primary || !playbackExpanded(state)) continue;
+            if (primarySource) result.push_back({primary, false, true});
+            for (const auto &child : *channels)
+                if (children.contains(child["id"].toString())) result.push_back({child["id"].toString(), false, true});
+        }
+    return result;
+}
 inline int entryIndex(const juce::var &state, const juce::String &item, const juce::String &preferred = {}) {
     const auto entries = activeSetlist(state)["entries"];
     int first = -1;

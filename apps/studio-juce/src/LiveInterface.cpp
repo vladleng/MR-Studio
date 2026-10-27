@@ -476,12 +476,14 @@ void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file,
 void Desktop::setLivePlaybackMix(double gain, bool mute, bool solo) {
     if (!liveDocument || !livePlaybackReady())
         throw std::runtime_error("Playback is not ready");
-    const auto id = liveDocument->interfaceState["currentItem"].toString();
-    editLiveInterface("Playback mix", [&](auto &state) {
-        auto row = live::playbackStem(state, id, livePlaybackStem);
-        live::put(row, "gain", gain);
-        live::put(row, "mute", mute);
-        live::put(row, "solo", solo);
+    setLivePlaybackStemMix(liveDocument->interfaceState["currentItem"].toString(), livePlaybackStem, gain, mute, solo);
+}
+void Desktop::setLivePlaybackStemMix(const juce::String &id, const juce::String &stem, double gain, bool mute, bool solo) {
+    if (!liveDocument || !live::playbackStem(liveDocument->interfaceState, id, stem).isObject())
+        throw std::runtime_error("Playback stem was removed");
+    editLiveInterface("Playback stem mix", [&](auto &state) {
+        auto row = live::playbackStem(state, id, stem);
+        live::put(row, "gain", gain); live::put(row, "mute", mute); live::put(row, "solo", solo);
     });
     syncLivePlayback();
 }
