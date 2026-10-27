@@ -396,8 +396,12 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(menu != nullptr, "Setlist uses the owned context surface");
         auto *box = menu->findParentComponentOfClass<juce::CallOutBox>();
         const auto point = desktop.getLocalPoint(nullptr, screen);
-        liveCheck(box && box->getX() == point.x + 2 && box->getY() == point.y + 2,
-                  "Setlist menu opens just below/right of the triggering point");
+        if (!box || box->getX() != point.x + 2 || box->getY() != point.y + 2) {
+            livePreview(desktop, "setlist-anchor-failure");
+            throw std::runtime_error(("Setlist menu anchor: expected " + point.translated(2, 2).toString() +
+                "; actual " + (box ? box->getBounds().toString() : juce::String("missing box")) +
+                "; horizontal scale " + juce::String(desktop.getTransform().mat00)).toStdString());
+        }
         box->dismiss(); livePump();
     };
     setlistMenu->onClick(); checkMenu(setlistMenu->getScreenBounds().getBottomLeft());

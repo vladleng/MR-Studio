@@ -124,8 +124,13 @@ inline juce::CallOutBox &showLiveContext(std::unique_ptr<juce::Component> conten
     box.setLookAndFeel(contextTheme);
     box.setArrowSize(0.f);
     box.resized();
-    box.setTopLeftPosition(liveContextBounds(parent->getLocalPoint(nullptr, target.getTopLeft()),
-                                             {box.getWidth(), box.getHeight()}, parent->getLocalBounds()).getPosition());
+    const auto anchor = parent->getLocalArea(nullptr, target);
+    const auto bounds = liveContextBounds(parent->getLocalPoint(nullptr, target.getTopLeft()),
+                                          {box.getWidth(), box.getHeight()},
+                                          parent->getLocalBounds());
+    // Keep JUCE's stored fitting area consistent with our pointer placement.
+    // Moving only the box leaves childBoundsChanged free to recenter it later.
+    box.updatePosition(anchor, bounds);
     box.getProperties().set("mrLiveContext", true);
     box.setDismissalMouseClicksAreAlwaysConsumed(true);
     return box;
