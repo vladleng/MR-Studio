@@ -1,6 +1,7 @@
 #include "LiveWindowLayout.h"
 #include "LiveWorkspace.h"
 #include "../../../tests/live_playback_view_checks.hpp"
+#include "../../../tests/live_timeline_edit_checks.hpp"
 #include "ProjectHome.h"
 #include <fstream>
 #include <windows.h>
@@ -69,9 +70,77 @@ void livePreview(juce::Component &component, const juce::String &name) {
             "Live preview export");
     }
 }
+void liveTimelineAuthoringSmoke(const juce::File &fixture) {
+    Desktop editing(true,false,true);editing.importLiveShow(fixture);editing.setSize(1200,800);
+    const auto id=editing.liveDocument->interfaceState["items"][0]["id"].toString();
+    editing.selectLiveItem(id);
+    editing.editLiveInterface("Timeline test setup",[&](auto &state){
+        live::put(live::require(state,"items",id),"sections",juce::Array<juce::var>());
+        live::put(live::map(live::performance(state),"chords"),id,juce::Array<juce::var>());
+        live::setItemView(state,id,"scale",32.);live::setItemView(state,id,"lead",2.);live::setItemView(state,id,"length",24.);
+    });editing.refresh();
+    auto *timeline=dynamic_cast<LiveTimeline *>(liveComponent(editing,"live-show-timeline"));
+    liveCheck(timeline!=nullptr,"Authoring timeline exists");timeline->refresh();
+    auto *body=liveComponent(editing,"live-timeline-items");liveCheck(body!=nullptr,"Authoring timeline body exists");
+    auto bounds=timeline->itemBounds(id);
+    const float origin=static_cast<float>(bounds.getX()+1+64);
+    const auto event=[&](float x,float y,int clicks=1,juce::ModifierKeys mods=juce::ModifierKeys::leftButtonModifier){
+        const auto now=juce::Time::getCurrentTime(); const juce::Point<float> point{x,y};
+        return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,mods,1,0,0,0,0,body,body,now,point,now,clicks,false);
+    };
+    body->mouseDoubleClick(event(origin+64.f,96.f,2));timeline->refresh();
+    auto rows=live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::sections);
+    liveCheck(rows.size()==1 && rows[0]["name"].toString()=="Verse" && static_cast<double>(rows[0]["start"])==2.,
+              "Double-click empty Sections creates native Verse at common origin");
+    const auto section=rows[0]["id"].toString();
+    const auto before=editing.liveDocument->signature();
+    body->mouseDown(event(origin+80.f,96.f));body->mouseDrag(event(origin+144.f,96.f));
+    liveCheck(editing.liveDocument->signature()==before,"Musical drag is preview only until release");
+    body->mouseUp(event(origin+144.f,96.f));timeline->refresh();
+    rows=live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::sections);
+    liveCheck(static_cast<double>(live::spanById(rows,section)["start"])==4.,"Section gesture commits snapped range");
+    editing.undoLiveInterface();timeline->refresh();
+    liveCheck(editing.liveDocument->signature()==before,"One Undo restores complete section gesture");
+    body->mouseDown(event(origin+80.f,96.f));body->mouseDrag(event(origin+112.f,96.f));
+    body->keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));body->mouseUp(event(origin+112.f,96.f));
+    liveCheck(editing.liveDocument->signature()==before,"Escape cancels gesture without history or model writes");
+    body->mouseDoubleClick(event(origin+32.f,136.f,2));timeline->refresh();
+    rows=live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::chords);
+    liveCheck(rows.size()==1 && static_cast<double>(rows[0]["start"])==1.,"Chord creation shares the Sections origin");
+    body->mouseDown(event(origin+48.f,136.f));
+    liveCheck(body->keyPressed(juce::KeyPress(juce::KeyPress::deleteKey)),"Delete handles selected chord");timeline->refresh();
+    liveCheck(live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::chords).size()==0,"Delete removes actual chord metadata");
+    editing.undoLiveInterface();timeline->refresh();
+    const auto musical=live::canonical(live::musicalVersion(editing.liveDocument->interfaceState,id));
+    bounds=timeline->itemBounds(id);
+    body->mouseDown(event(static_cast<float>(bounds.getRight()-2),180.f));
+    body->mouseDrag(event(static_cast<float>(bounds.getRight()-130),180.f));
+    body->mouseUp(event(static_cast<float>(bounds.getRight()-130),180.f));timeline->refresh();
+    const auto view=editing.liveDocument->interfaceState["performance"]["arrangement"][juce::Identifier(id)];
+    liveCheck(static_cast<double>(view["length"])==20. && static_cast<double>(view["scale"])==32.,
+              "Right grip changes explicit item end without changing scale");
+    liveCheck(live::canonical(live::musicalVersion(editing.liveDocument->interfaceState,id))==musical,
+              "Shrinking item preserves hidden musical events");
+    const auto file=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("live-timeline-edit",".mrlive",false);
+    editing.saveFile(file);const auto reopened=LiveDocument::read(file);file.deleteFile();
+    liveCheck(live::canonical(reopened.interfaceState)==live::canonical(editing.liveDocument->interfaceState),
+              "Native musical edits and explicit item end survive Save/Open");
+    editing.liveUndo.clearUndoHistory();
+    const auto oldNotes=live::find(editing.liveDocument->interfaceState,"items",id)["notes"].toString();
+    const auto text=juce::String::repeatedString("notes ",150);
+    editing.setLiveItemNotes(id,text);editing.setLiveItemNotes(id,text+"\nNext line");
+    liveCheck(editing.liveUndo.getNumberOfUnitsTakenUpByStoredCommands() <=
+                  static_cast<int>(oldNotes.getNumBytesAsUTF8()+text.getNumBytesAsUTF8()+100),
+              "Notes Undo stores text rather than repeated full show snapshots");
+    editing.undoLiveInterface();
+    liveCheck(live::find(editing.liveDocument->interfaceState,"items",id)["notes"].toString()==oldNotes && !editing.liveDirty,
+              "One Notes Undo restores saved text and clears the show dirty flag");
+}
 } // namespace
 void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::playbackViews();
+    live::test::timelineEditing();
+    liveTimelineAuthoringSmoke(fixture);
     liveCheck(fixture.existsAsFile(), "Pass --show-fixture with the editor show fixture");
     const auto original = fixture.loadFileAsString();
     const auto imported = live::importDemo(original);
@@ -369,8 +438,11 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     liveCheck(notesField && notesField->isVisible() && nameField && tempoField, "Item fields are visible without Properties or Apply");
     liveCheck(notesField->getY() < tempoField->getY(), "Notes are directly below tasks, above musical properties");
     const auto oldNotes = live::find(desktop.liveDocument->interfaceState, "items", id)["notes"].toString();
-    notesField->setText("Immediate note", true); livePump();
-    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["notes"].toString() == "Immediate note" && desktop.liveDirty,
+    notesField->setText("Immediate note", true);
+    notesField->moveCaretToEnd();
+    liveCheck(notesField->keyPressed(juce::KeyPress(juce::KeyPress::returnKey)), "Notes handles Enter as a new line");
+    notesField->insertTextAtCaret("Second line"); livePump();
+    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["notes"].toString() == "Immediate note\nSecond line" && desktop.liveDirty,
               "Typing notes immediately updates the show without Apply");
     desktop.undoLiveInterface(); livePump();
     liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["notes"].toString() == oldNotes,
@@ -909,6 +981,10 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         const auto stemKey = rows[1]["id"].toString();
         liveCheck(live::find(multi.liveDocument->interfaceState, "channels", stemKey)["type"].toString() == "Playback",
                   "Additional stem uses the shared show channel layout");
+        LiveMixer aggregateMixer(multi); aggregateMixer.setSize(800,300); aggregateMixer.sync();
+        liveCheck(liveComponent(aggregateMixer,"live-mixer-gain-"+live::playbackContainer(multi.liveDocument->interfaceState)) &&
+                      !liveComponent(aggregateMixer,"live-mixer-gain-"+stemKey),
+                  "Mixer exposes aggregate Playback without separate stem strips");
         multi.app.connect(std::make_unique<LivePlaybackTestDevice>(4), {0, 48000, 128, {}, {0, 1, 2, 3}, 1});
         std::array<float, 512> audio{};
         const auto renderMulti = [&] {
@@ -919,6 +995,11 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         renderMulti();
         liveCheck(std::all_of(audio.begin(), audio.end(), [](float value) { return std::abs(value) < .0001f; }),
                   "Opposite-phase stems cancel sample-locked through shared Core mixer");
+        const auto aggregateChannel=live::playbackContainer(multi.liveDocument->interfaceState);
+        multi.setLiveChannelMix(aggregateChannel,-6.,0.,false,false);renderMulti();
+        liveCheck(std::abs(multi.project()->tracks[0].mix.gain-multi.project()->tracks[1].mix.gain)<.00001f &&
+                      std::abs(audio[400])<.0001f,"Playback channel fader changes all musical stems while preserving their balance");
+        multi.undoLiveInterface();multi.syncLivePlayback();renderMulti();
         multi.livePlaybackStem = stemKey;
         multi.setLivePlaybackMix(0., true, false);
         renderMulti();

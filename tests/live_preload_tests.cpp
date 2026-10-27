@@ -168,6 +168,27 @@ void run() {
     render();
     check(out[400] == 0 && out[401] == 0 && out[402] < -.03f && out[403] > .03f,
           "Prepared stems have no cross-song or Master leakage");
+    app.seek(0); render();
+    const auto baseLeft = out[402], baseRight = out[403];
+    const auto mixState = app.services().projects->state();
+    auto leftMix = mixState.project->tracks[0].mix, rightMix = mixState.project->tracks[1].mix;
+    leftMix.gain = .25f; rightMix.gain = .5f;
+    app.seek(0);
+    check(app.preview_mixes({{mixState.project->tracks[0].id,leftMix},{mixState.project->tracks[1].id,rightMix}},mixState.project->master_gain),
+          "Group mix preview uses one shared bounded mixer update");
+    render();
+    check(std::abs((1.f-out[402]/baseLeft)/.75f-(1.f-out[403]/baseRight)/.5f)<.00001f,
+          "Both channels enter the same existing Core fader ramp");
+    for (int i=0; i<3; ++i) render();
+    check(std::abs(out[402]-baseLeft*.25f)<.00001f && std::abs(out[403]-baseRight*.5f)<.00001f,
+          "Group preview affects both routed stems coherently");
+    check(app.services().projects->state().revision==mixState.revision,
+          "Mix preview does not write Project history");
+    app.cancel_mix_preview(); app.seek(0);
+    for (int i=0; i<4; ++i) render();
+    check(std::abs(out[402]-baseLeft)<.00001f && std::abs(out[403]-baseRight)<.00001f,
+          "Cancel restores all previewed channels");
+    check(!app.preview_mixes({{new_id(),leftMix}},1.f),"Unknown group preview channel is rejected");
     const auto start = std::chrono::steady_clock::now();
     for (int i = 0; i < 32; ++i) {
         app.activate_playback(first, one);

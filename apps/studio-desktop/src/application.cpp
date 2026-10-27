@@ -1489,6 +1489,25 @@ bool Application::preview_mix(std::optional<Id> id, Track::Mix mix, float master
     }
     return engine_->enqueue_mix(update);
 }
+bool Application::preview_mixes(const std::vector<std::pair<Id, Track::Mix>>& mixes, float master) {
+    // UI-thread preparation; one bounded, coherent update uses the existing RT queue.
+    require(std::isfinite(master) && master >= 0 && master <= 16, "invalid master gain");
+    const auto p = services_.projects->state().project;
+    for (const auto& [id, mix] : mixes) {
+        mix.validate();
+        if (std::none_of(p->tracks.begin(), p->tracks.end(), [&](const auto& t) { return t.id == id && t.kind != TrackKind::midi; })) return false;
+    }
+    audio::MixerUpdate update; update.master_gain = master;
+    for (const auto& t : p->tracks) if (t.kind != TrackKind::midi) {
+        if (update.count >= mixer_tracks_.size() || mixer_tracks_[update.count] != t.id) return false;
+        for (std::size_t j=0; j<t.sends.size(); ++j) update.send_gains[update.count][j] = t.sends[j].bypass?0.f:t.sends[j].gain;
+        update.midi_monitor[update.count] = t.midi_monitor; update.input_monitoring[update.count] = t.input_monitor;
+        auto mix = t.mix;
+        for (const auto& entry : mixes) if (entry.first == t.id) { mix = entry.second; break; }
+        update.tracks[update.count++] = mix;
+    }
+    return update.count == mixer_tracks_.size() && engine_->enqueue_mix(update);
+}
 bool Application::preview_send_gain(const Id& source,const Id& bus,float gain) {
     require(std::isfinite(gain)&&gain>=0&&gain<=16,"invalid send gain");
     audio::MixerUpdate update;const auto p=services_.projects->state().project;update.master_gain=p->master_gain;bool found=false;

@@ -1,6 +1,7 @@
 #pragma once
 #include "Desktop.h"
 #include "LiveTheme.h"
+#include "LivePlaybackState.h"
 
 namespace ui {
 // Persistent show-channel controls; processing uses the shared Core mix API.
@@ -27,12 +28,15 @@ class LiveMixer final : public juce::Component {
     void sync() {
         if (!owner.liveDocument) return;
         const auto state = owner.liveDocument->interfaceState;
+        std::vector<juce::String> channels;
+        for (const auto &lane : live::playbackLanes(state))
+            if (!lane.child) channels.push_back(lane.channel);
         juce::String next;
-        for (const auto &channel : *state["channels"].getArray()) next += channel["id"].toString() + "|";
+        for (const auto &channel : channels) next += channel + "|";
         if (next != signature) {
             signature = next; strips.clear();
-            for (const auto &channel : *state["channels"].getArray()) {
-                auto strip = std::make_unique<Strip>(owner, channel["id"].toString());
+            for (const auto &channel : channels) {
+                auto strip = std::make_unique<Strip>(owner, channel);
                 body.addAndMakeVisible(*strip); strips.push_back(std::move(strip));
             }
             resized();
@@ -78,8 +82,10 @@ class LiveMixer final : public juce::Component {
             const auto item = state["currentItem"].toString();
             const auto rows = live::playbackRows(state, item);
             for (std::size_t i = 0; i < rows.size(); ++i)
-                if (owner.livePlaybackReady() && live::playbackChannelId(state, rows[i]) == id && i < owner.peaks.size())
-                    meter = juce::jmax(owner.peaks[i].left, owner.peaks[i].right);
+                if (owner.livePlaybackReady() && i < owner.peaks.size() &&
+                    (live::playbackChannelId(state, rows[i]) == id ||
+                     (id == live::playbackContainer(state) && !static_cast<bool>(rows[i]["cue"]))))
+                    meter = juce::jmax(meter, juce::jmax(owner.peaks[i].left, owner.peaks[i].right));
             setTooltip(channel["type"].toString() == "Playback" ? "Show-wide channel mix" : "No input or processor assigned");
             repaint();
         }

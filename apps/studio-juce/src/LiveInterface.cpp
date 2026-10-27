@@ -99,7 +99,49 @@ class LiveInterfaceEdit final : public juce::UndoableAction {
     juce::Component::SafePointer<Desktop> owner;
     juce::var before, after;
 };
+// Notes are plain text. Typing must not clone/validate every media, patch and
+// musical binding, or retain full show snapshots for each keystroke.
+class LiveNotesEdit final : public juce::UndoableAction {
+  public:
+    LiveNotesEdit(Desktop &desktop, juce::String item, juce::String oldText, juce::String newText)
+        : owner(&desktop), id(std::move(item)), before(std::move(oldText)), after(std::move(newText)) {}
+    bool perform() override { return apply(after); }
+    bool undo() override { return apply(before); }
+    juce::UndoableAction *createCoalescedAction(juce::UndoableAction *next) override {
+        const auto *edit = dynamic_cast<LiveNotesEdit *>(next);
+        return edit && owner && owner == edit->owner && id == edit->id && after == edit->before
+            ? new LiveNotesEdit(*owner, id, before, edit->after) : nullptr;
+    }
+    int getSizeInUnits() override { return static_cast<int>(before.getNumBytesAsUTF8() + after.getNumBytesAsUTF8()); }
+  private:
+    bool apply(const juce::String &text) {
+        if (!owner || !owner->liveDocument) return false;
+        live::put(live::require(owner->liveDocument->interfaceState, "items", id), "notes", text);
+        owner->updateLiveDirty();
+        ++owner->liveUiRevision;
+        return true;
+    }
+    juce::Component::SafePointer<Desktop> owner;
+    juce::String id, before, after;
+};
 } // namespace
+void Desktop::setLiveItemNotes(const juce::String &id, const juce::String &text) {
+    if (!liveDocument || text.length() > 4000) throw std::runtime_error("Notes must be at most 4000 characters");
+    auto &item = live::require(liveDocument->interfaceState, "items", id);
+    const auto before = item["notes"].toString();
+    if (before == text) return;
+    // Retain the document size bound without running unrelated runtime preflight.
+    const auto bytes = juce::JSON::toString(liveDocument->interfaceState).getNumBytesAsUTF8() +
+        juce::JSON::toString(juce::var(text)).getNumBytesAsUTF8() - juce::JSON::toString(juce::var(before)).getNumBytesAsUTF8();
+    if (bytes > 1024 * 1024)
+        throw std::runtime_error("Show interface exceeds 1 MiB");
+    const auto now = juce::Time::getMillisecondCounter();
+    const auto label = "Item notes " + id;
+    if (liveTypingLabel != label || now - liveTypingAt > 800) liveUndo.beginNewTransaction(label);
+    liveShowEditing = true;
+    liveUndo.perform(new LiveNotesEdit(*this, id, before, text));
+    liveTypingLabel = label; liveTypingAt = now;
+}
 void Desktop::launchLive(const juce::File &file, bool create) {
     if (liveLaunchOverride) {
         liveLaunchOverride(file, create);
@@ -514,10 +556,12 @@ void Desktop::previewLiveChannelMix(const juce::String &id, double gain, double 
     live::put(channel, "mute", mute); live::put(channel, "solo", solo);
     const auto item = state["currentItem"].toString();
     const auto rows = live::playbackRows(state, item);
-    for (std::size_t i = 0; i < rows.size(); ++i) if (live::playbackChannelId(state, rows[i]) == id) {
+    std::vector<std::pair<mrs::Id, mrs::Track::Mix>> mixes;
+    for (std::size_t i = 0; i < rows.size(); ++i) {
         const auto mix = live::playbackMix(state, item, rows[i]); mix.validate();
-        app.preview_mix(project()->tracks[i].id, mix, project()->master_gain); return;
+        mixes.emplace_back(project()->tracks[i].id, mix);
     }
+    app.preview_mixes(mixes, project()->master_gain);
 }
 void Desktop::setLivePlaybackTrim(double start, double end) {
     if (!livePlaybackReady())

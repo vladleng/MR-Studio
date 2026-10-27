@@ -183,11 +183,15 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
             tree.restoreOpennessState(*openness, false);
         useTemplate.setVisible(entries.size() == 0);
         observed = owner ? owner->liveUiRevision : 0;
+        taskSignature = live::canonical(entries);
     }
     void timerCallback() override {
         const auto *focused = juce::Component::getCurrentlyFocusedComponent();
         const bool typing = dynamic_cast<const juce::TextEditor *>(focused) && tree.isParentOf(focused);
-        if (owner && isShowing() && !typing && observed != owner->liveUiRevision) rebuild();
+        if (owner && isShowing() && !typing && observed != owner->liveUiRevision) {
+            observed = owner->liveUiRevision;
+            if (taskSignature != live::canonical(live::tasks(data(), itemId))) rebuild();
+        }
     }
     juce::Component::SafePointer<Desktop> owner;
     juce::String itemId;
@@ -196,6 +200,7 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
     juce::SharedResourcePointer<LiveContextArt> art;
     LiveContextAction addRoot, useTemplate;
     std::uint64_t observed{};
+    juce::String taskSignature;
 };
 class LiveItemEditor final : public juce::Component, private juce::Timer {
   public:
@@ -219,6 +224,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         key.setText(item["key"].toString(), false);
         duration.setText(item["duration"].toString(), false);
         notes.setMultiLine(true);
+        notes.setReturnKeyStartsNewLine(true);
         notes.setText(item["notes"].toString(), false);
         const auto workflow = live::workflow(state, id);
         status.addItemList({"Done", "Wait", "Todo", "Wip"}, 1);
@@ -454,7 +460,8 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
                                   &field == &key ? "key" : "notes";
             const auto value = (&field == &tempo || &field == &duration)
                                    ? juce::var(numeric(field.getText())) : juce::var(field.getText());
-            owner->editLiveInterface("Item " + itemId + " " + juce::String(keyName), [&](auto &state) {
+            if (&field == &notes) owner->setLiveItemNotes(itemId, field.getText());
+            else owner->editLiveInterface("Item " + itemId + " " + juce::String(keyName), [&](auto &state) {
                 live::put(live::require(state, "items", itemId), keyName, value);
             }, true);
             error.setText({}, juce::dontSendNotification);

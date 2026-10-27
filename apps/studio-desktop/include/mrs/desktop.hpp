@@ -273,6 +273,7 @@ public:
     void set_plugin_parameter(std::optional<Id>,const Id&,std::uint32_t,float);
     NativeInsert capture_insert(std::optional<Id>,const Id&);
     bool preview_mix(std::optional<Id>, Track::Mix, float master_gain);
+    bool preview_mixes(const std::vector<std::pair<Id, Track::Mix>>&, float master_gain);
     bool preview_send_gain(const Id& source,const Id& bus,float gain);
     void cancel_mix_preview();
     void connect(std::unique_ptr<audio::IAudioDevice>, audio::DeviceConfig);

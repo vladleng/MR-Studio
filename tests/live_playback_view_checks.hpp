@@ -52,5 +52,14 @@ inline void playbackViews() {
               lanes[3].channel == drums && lanes[3].child && lanes[4].channel == bass && lanes[4].child && lanes[5].channel == vocal,
           "Expansion inserts every stem, including the primary WAV, directly under Playback");
     check(canonical(state) == before && !itemDirty(state, item), "Display projection/fold does not rewrite item content, IDs or media");
+    put(require(state,"channels",backing),"gain",-6.);put(require(state,"channels",drums),"gain",-3.);
+    auto source=drumRow.clone();put(source,"gain",-2.);
+    check(close(playbackMix(state,item,source).gain,static_cast<float>(std::pow(10.,-11./20.))),
+          "Aggregate Playback gain covers children and retains legacy channel/stem trims");
+    put(source,"cue",true);
+    check(close(playbackMix(state,item,source).gain,static_cast<float>(std::pow(10.,-5./20.))),
+          "Cue does not inherit aggregate musical Playback gain");
+    auto primaryCue=row.clone();put(primaryCue,"cue",true);
+    check(close(playbackMix(state,item,primaryCue).gain,1.f),"A primary-source Cue also bypasses the musical group gain");
 }
 } // namespace ui::live::test
