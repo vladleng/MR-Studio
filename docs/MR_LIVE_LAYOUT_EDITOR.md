@@ -1,5 +1,7 @@
 # MR Live — браузерный редактор и согласование интерфейса
 
+Актуальная архитектура: **MR Live — самостоятельное приложение на общем Core**, без открытия Studio-проекта через item. Старые формулировки «внутри Studio» и «ссылки на .mrsproject» ниже сохраняются как история браузерного этапа и не определяют native workflow. См. [актуальную матрицу интерфейса](MR_LIVE_INTERFACE_AUDIT.md) и [решение пользователя](MR_LIVE_NATIVE_INTEGRATION.md).
+
 Статус на 2026-10-25: браузерный этап завершён и принят пользователем. Принят макет v5; следующий этап — native интеграция MR Live в MR Studio с реальным SHARED Core. [Артефакт и handoff](MR_LIVE_NATIVE_INTEGRATION.md).
 Tracking: [#28 UI Foundation](https://github.com/vladleng/MR-Studio/issues/28), первый этап [#272 Online Layout Editor](https://github.com/vladleng/MR-Studio/issues/272).
 Решения пользователя: 24–25 октября 2026. Вход следующего этапа: «Новый проект MR Live» на главной странице и вкладка MR Live в браузере проектов (#274).

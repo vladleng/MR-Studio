@@ -1,5 +1,9 @@
 # MR Live — передача принятого интерфейса в MR Studio
 
+Актуальная сверка native реализации и задач на 2026-10-27: [матрица покрытия](MR_LIVE_INTERFACE_AUDIT.md). MR Live.exe запускается напрямую; Home Studio — дополнительный вход. Исторический статус браузерной передачи ниже не означает отсутствие уже принятого native runtime.
+
+Уточнение пользователя: **Playback / stems** содержит общий Playback level выбранного item и индивидуальные уровни его stems. **Mixer** содержит постоянный общий фейдер каждого канала на всё show, неизменный при смене item/patch. Требуемый item Playback group gain (#292) отличается от существующего show-wide `nativeLiveAudio.gain`; это целевой контракт, а не уже завершённый binding. Mixer — #279, folds — #280.
+
 Статус на 2026-10-25: **браузерный этап интерфейса завершён и принят пользователем; следующий этап — native JUCE UI и подключение реального SHARED Core MR Studio**. Завершение макетирования не означает готовность аудио/runtime.
 
 Tracking: [#14 roadmap](https://github.com/vladleng/MR-Studio/issues/14), [#272 редактор](https://github.com/vladleng/MR-Studio/issues/272), [#28 native UI](https://github.com/vladleng/MR-Studio/issues/28), [#29 shared integration](https://github.com/vladleng/MR-Studio/issues/29), [#274 главная страница и Live Projects](https://github.com/vladleng/MR-Studio/issues/274), [#30 show lifecycle](https://github.com/vladleng/MR-Studio/issues/30). Исходники прототипа — PR #273, тематическая ветка `codex/mr-live-layout-editor`; merge в main не выполнен.
