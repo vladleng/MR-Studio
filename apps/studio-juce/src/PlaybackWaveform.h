@@ -13,8 +13,8 @@ struct PlaybackWaveformSource {
         if (!wave || rate <= 0 || length <= 0 || end <= begin || end <= start || begin >= start + length)
             return {};
         const bool silence = begin < start || end > start + length;
-        begin = std::max(begin, start);
-        end = std::min(end, start + length);
+        begin = (std::max)(begin, start);
+        end = (std::min)(end, start + length);
         mrs::audio::Peak result;
         for (std::uint32_t c = 0; c < wave->channels(); ++c) {
             const auto peak = wave->display((offset + begin - start) * rate, (offset + end - start) * rate, c);
@@ -22,8 +22,8 @@ struct PlaybackWaveformSource {
             result.maximum += peak.maximum / wave->channels();
         }
         if (silence) {
-            result.minimum = std::min(0.f, result.minimum);
-            result.maximum = std::max(0.f, result.maximum);
+            result.minimum = (std::min)(0.f, result.minimum);
+            result.maximum = (std::max)(0.f, result.maximum);
         }
         return result;
     }

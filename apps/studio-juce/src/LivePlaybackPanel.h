@@ -225,8 +225,8 @@ class LivePlaybackPanel final : public juce::Component {
   private:
     class StemRow final : public juce::Component {
       public:
-        StemRow(LivePlaybackPanel &panel, juce::String item, juce::String stem)
-            : host(panel), itemId(std::move(item)), stemId(std::move(stem)) {
+        StemRow(LivePlaybackPanel &playbackView, juce::String item, juce::String stem)
+            : host(playbackView), itemId(std::move(item)), stemId(std::move(stem)) {
             const auto key = itemId + ":" + (stemId.isEmpty() ? "primary" : stemId);
             setComponentID("live-stem-row-" + key);
             for (auto *c : std::array<juce::Component *, 4>{&level, &mute, &solo, &details}) addAndMakeVisible(c);

@@ -23,6 +23,6 @@ inline PlaybackWaveformSource playbackWaveform(Desktop &owner, const LiveWavefor
     const double start = static_cast<double>(row["trimStart"]);
     const double end = row["trimEnd"].isVoid() ? static_cast<double>(cached->wave->frames()) / cached->rate
                                              : static_cast<double>(row["trimEnd"]);
-    return {cached->wave.get(), static_cast<double>(cached->rate), start, start, std::max(0., end - start)};
+    return {cached->wave.get(), static_cast<double>(cached->rate), start, start, (std::max)(0., end - start)};
 }
 } // namespace ui::live

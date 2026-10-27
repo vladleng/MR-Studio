@@ -1093,9 +1093,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(multi.livePlaybackReady(), "Unavailable route can be repaired to Master without discarding media");
         multi.refresh();
         livePump(); // The sidebar synchronizes on its UI timer.
-        auto *panel = dynamic_cast<LivePlaybackPanel *>(liveComponent(multi, "live-playback-panel"));
-        liveCheck(panel && panel->stemCount() == 2, "Playback sidebar shows all real stems simultaneously");
-        auto *firstLevel = dynamic_cast<juce::Slider *>(liveComponent(*panel, "live-stem-level-" + id + ":primary"));
+        auto *playbackSidebar = dynamic_cast<LivePlaybackPanel *>(liveComponent(multi, "live-playback-panel"));
+        liveCheck(playbackSidebar && playbackSidebar->stemCount() == 2, "Playback sidebar shows all real stems simultaneously");
+        auto *firstLevel = dynamic_cast<juce::Slider *>(liveComponent(*playbackSidebar, "live-stem-level-" + id + ":primary"));
         liveCheck(firstLevel != nullptr, "Each stem has its own compact horizontal fader");
         const auto selectedStem = multi.livePlaybackStem;
         firstLevel->setValue(-4., juce::sendNotificationSync);

@@ -667,7 +667,7 @@ class LiveTimeline final : public juce::Component {
         for (std::size_t i = 0; i < rows.size(); ++i) {
             const auto source = live::playbackWaveform(owner, waveforms, state, id, i);
             sources.push_back(source);
-            end = std::max(end, source.start + source.length);
+            end = (std::max)(end, source.start + source.length);
             ready += source.wave ? 1 : 0;
             const auto *cached = waveforms.find(rows[i]["file"].toString());
             unavailable += !source.wave && cached && cached->error.isNotEmpty() ? 1 : 0;
@@ -678,7 +678,7 @@ class LiveTimeline final : public juce::Component {
         const double ticksPerBar = 4. * mrs::ppq * meter.numerator / meter.denominator;
         const float x = static_cast<float>(item.bounds.getX() + 1. + item.lead * item.scale);
         const float right = static_cast<float>(x + static_cast<double>(clock.to_ticks(static_cast<mrs::Sample>(std::llround(end * 48000)))) / ticksPerBar * item.scale);
-        const juce::Rectangle<float> area{x, static_cast<float>(y + 8), std::max(1.f, right - x), static_cast<float>(rowHeight - 16)};
+        const juce::Rectangle<float> area{x, static_cast<float>(y + 8), (std::max)(1.f, right - x), static_cast<float>(rowHeight - 16)};
         if (ready) block(g, area.getSmallestIntegerContainer(), {}, "blue");
         text(g, "Playback · " + juce::String(static_cast<int>(rows.size())) + " stems" +
                      (unavailable ? " · file unavailable" : ready < static_cast<int>(rows.size()) ? " · preparing waveforms" : ""),
@@ -688,7 +688,7 @@ class LiveTimeline final : public juce::Component {
             g.setColour(juce::Colour(0xff17b5da));
             drawPeakEnvelope(g, 1, [&](double begin, double finish, std::uint32_t) {
                 return live::averagePlaybackEnvelope(sources, begin, finish);
-            }, waveArea, 0., end / std::max(1.f, waveArea.getWidth()));
+            }, waveArea, 0., end / (std::max)(1.f, waveArea.getWidth()));
         }
     }
     void paintAudio(juce::Graphics &g, const Item &item, int y, std::size_t index) const {
