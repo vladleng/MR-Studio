@@ -221,6 +221,10 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         }
         if (row.divider)
             return;
+        // Library selection does not create a timeline occurrence or change
+        // active playback. Only an item already in this setlist can be revealed.
+        if (browser && live::entryIndex(data(), row.itemId) < 0)
+            return;
         const auto id = row.itemId, entry = browser ? juce::String() : row.id;
         juce::Component::SafePointer<Desktop> safe(&owner);
         owner.confirmDiscard(

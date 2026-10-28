@@ -482,6 +482,7 @@ inline juce::String addItem(juce::var &state, const juce::String &name, const ju
     put(item, "meter", "4/4");
     put(item, "key", "");
     put(item, "duration", 0);
+    put(item, "bars", 16.);
     put(item, "notes", "");
     juce::Array<juce::var> tracks;
     if (const auto *channels = state["channels"].getArray()) for (const auto &channel : *channels) {

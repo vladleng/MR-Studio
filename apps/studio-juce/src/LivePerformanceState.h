@@ -54,8 +54,9 @@ inline double performanceEndBars(const juce::var& state,const juce::String& item
     const auto source=find(state,"items",item);if(!source.isObject())throw std::runtime_error("Performance item was removed");
     if(!std::isfinite(renderedBars)||renderedBars<0.)throw std::runtime_error("Invalid rendered performance extent");
     const auto explicitEnd=state["performance"]["arrangement"][juce::Identifier(item)]["length"];
-    const double bars=explicitEnd.isVoid()?(std::min)(4096.,(std::max)({1.,static_cast<double>(source["bars"]),renderedBars})):static_cast<double>(explicitEnd);
-    if(!std::isfinite(bars)||bars<1.||bars>4096.)throw std::runtime_error("Invalid performance item end");
+    const double fallback=source["bars"].isVoid()?16.:static_cast<double>(source["bars"]);
+    const double bars=explicitEnd.isVoid()?(std::min)(4096.,renderedBars>0.?renderedBars:(std::max)(1.,fallback)):static_cast<double>(explicitEnd);
+    if(!std::isfinite(bars)||bars<=0.||bars>4096.)throw std::runtime_error("Invalid performance item end");
     return bars;
 }
 inline mrs::PerformancePlan preparePerformancePlan(const juce::var& state,const juce::String& item,

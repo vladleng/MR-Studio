@@ -131,7 +131,6 @@ void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave)
     juce::String preview;
     navigation.editLiveInterface("Short Browser preview fixture",[&](auto& state){
         preview=live::addItem(state,"Short Browser preview");
-        live::put(live::require(state,"items",preview),"bars",1.);
         live::setItemView(state,preview,"scale",16.);
     });
     LiveTimeline focus(navigation);focus.setSize(1200,700);focus.refresh();
@@ -144,18 +143,29 @@ void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave)
         focus.refresh();
         const int headerX=focus.itemBounds(item).getX()-focusViewport->getViewPositionX();
         liveCheck(navigation.liveDocument->interfaceState["currentItem"].toString()==item&&headerX>=0&&headerX<=12,
-                  "Explicit selection reveals the requested item header at the left, including a short final Browser preview");
+                  "Explicit selection reveals the requested item header at the left, including a short final setlist item");
         for(int i=0;i<3;++i){livePump();focus.refresh();}
         const int settledX=focus.itemBounds(item).getX()-focusViewport->getViewPositionX();
         liveCheck(settledX>=0&&settledX<=12,"Selected header stays focused after asynchronous refresh");
     };
     liveCheck(live::entryIndex(navigation.liveDocument->interfaceState,preview)<0,"Preview item is outside the active setlist");
-    selectAndCheck(preview,{});
+    auto* browser=dynamic_cast<LiveSetlist*>(liveComponent(navigation,"live-items-browser"));
+    liveCheck(browser!=nullptr,"Items browser exists");
+    const auto beforeBrowser=navigation.liveDocument->interfaceState["currentItem"].toString();
+    const int beforeCount=focus.itemCount();
+    browser->activate({preview,preview,"Short Browser preview",0,false,false});
+    for(int i=0;i<3;++i)livePump();
+    focus.refresh();
+    liveCheck(navigation.liveDocument->interfaceState["currentItem"].toString()==beforeBrowser&&
+              focus.itemCount()==beforeCount&&focus.itemBounds(preview).isEmpty()&&
+              live::entryIndex(navigation.liveDocument->interfaceState,preview)<0,
+              "Browser selection outside setlist leaves active playback, setlist and timeline unchanged");
     selectAndCheck(first,entry);
     navigation.editLiveInterface("Add short preview to end of setlist",[&](auto& state){live::insertEntry(state,preview);});
     const auto previewIndex=live::entryIndex(navigation.liveDocument->interfaceState,preview);
     const auto previewEntry=live::activeSetlist(navigation.liveDocument->interfaceState)["entries"][previewIndex]["id"].toString();
     selectAndCheck(preview,previewEntry);
+    liveCheck(focus.itemBounds(preview).getWidth()==16*16+2,"New empty timeline item occupies sixteen bars at its current zoom");
     selectAndCheck(second,{});
     navigation.editLiveInterface("Repeat an item at the end",[&](auto& state){live::insertEntry(state,second);});
     const auto duplicateEntries=live::activeSetlist(navigation.liveDocument->interfaceState)["entries"];
@@ -510,9 +520,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     desktop.editLiveInterface("Empty setlist",
                               [](auto &state) { live::activeEntries(state) = juce::Array<juce::var>(); });
     timeline->refresh();
-    liveCheck(timeline->itemCount() == 1 && timeline->channelCount() == 4 &&
+    liveCheck(timeline->itemCount() == 0 && timeline->channelCount() == 4 &&
                   live::activeEntries(desktop.liveDocument->interfaceState).size() == 0,
-              "Empty setlist previews selected item without inserting it and retains shared channels");
+              "Empty setlist has no timeline items and retains shared channels");
     desktop.action(10);
     timeline->refresh();
     desktop.app.new_project();
@@ -1088,9 +1098,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         playbackDesktop.editLiveInterface("Library-only view",
                                           [](auto &state) { live::activeEntries(state) = juce::Array<juce::var>(); });
         playbackTimeline->refresh();
-        liveCheck(playbackTimeline->itemCount() == 1 &&
+        liveCheck(playbackTimeline->itemCount() == 0 &&
                       live::activeEntries(playbackDesktop.liveDocument->interfaceState).size() == 0,
-                  "Browser item outside active setlist appears as preview without modifying setlist");
+                  "Browser item outside active setlist is absent from timeline");
         playbackDesktop.selectLiveItem(second);
         const auto badWave = folder.getChildFile("invalid.wav");
         badWave.replaceWithText("not a WAV");

@@ -9,7 +9,7 @@ inline void performancePolicies(){
     auto section=object();put(section,"id","part");put(section,"name","Intro");put(section,"start",0.);put(section,"length",4.);put(section,"color","blue");
     put(require(state,"items",item),"sections",juce::Array<juce::var>{section});
     {const auto newPlan=preparePerformancePlan(state,item,mrs::TimeMap{}, {},48000,0.);
-        check(newPlan.end==96000,"A new item without bars has the same one-bar fallback as the timeline");}
+        check(newPlan.end==16*96000,"A new empty item has a sixteen-bar performance extent");}
     put(require(state,"items",item),"bars",8.);
     check(itemPerformanceMode(state,item)==mrs::PerformanceMode::normal,"Missing legacy mode defaults to normal");
     saveItem(state,item);setPerformanceMode(state,item,"part",mrs::PerformanceMode::loop);
@@ -44,6 +44,8 @@ inline void performancePolicies(){
     std::vector<mrs::ArrangerSection> parts{{{"part"},"Intro",0,16*mrs::ppq,{}}};
     auto plan=preparePerformancePlan(state,item,time,parts,48000,12.);
     check(plan.end==1152000 && plan.sections[0].end==384000,"Implicit item end follows longer real rendered extent through Core Timeline");
+    check(preparePerformancePlan(state,item,time,parts,48000,.5).end==48000,
+          "Short audio replaces authored empty duration rather than retaining a silent tail");
     put(map(map(performance(state),"arrangement"),item),"length",2.);
     plan=preparePerformancePlan(state,item,time,parts,48000,12.);
     check(plan.end==192000 && plan.sections[0].mode==mrs::PerformanceMode::normal,

@@ -250,11 +250,21 @@ void run() {
     check(calls->stops==autoStops&&calls->starts==autoStarts&&calls->opens==1&&app.engine()==engine,
           "Automatic transition uses the same running device and engine without stop/start");
     render();check(engine->state().sample==127&&engine->state().playback==PlaybackState::stopped,"Next stop mode executes in the adopted graph");
-    auto extended=autoOne;extended.token=102;extended.extend_to_audio=true;extended.performance->end=1;
+    auto extended=autoOne;extended.token=102;extended.extend_to_audio=true;extended.performance->end=16*96000;
+    extended.performance->sections={{0,16*96000,PerformanceMode::loop}};
     extended.performance->mode=PerformanceMode::stop;app.activate_playback(first,extended);
-    app.seek(95990);app.play();render();
-    check(engine->state().sample==96000&&engine->state().playback==PlaybackState::stopped,
-          "Implicit WAV extent rounds to the same full bar as the visible timeline");
+    const auto audioEnd=app.playback_sources().front().length;
+    app.seek(audioEnd-10);app.play();render();
+    check(engine->state().sample==audioEnd&&engine->state().playback==PlaybackState::stopped,
+          "Short audio replaces the sixteen-bar empty default and stops at its exact sample end");
+    auto multiExtent=extended;multiExtent.token=103;multiExtent.stems.resize(2);
+    multiExtent.stems[0].end=.05;
+    app.activate_playback(second,multiExtent);
+    check(app.playback_sources()[0].length<app.playback_sources()[1].length,"Multistem extent fixture has a shorter first stem");
+    Sample longest{};for(const auto& clip:app.playback_sources())longest=std::max(longest,clip.start+clip.length);
+    app.seek(longest-10);app.play();render();
+    check(engine->state().sample==longest&&engine->state().playback==PlaybackState::stopped,
+          "Multistem item ends at the longest prepared audio source");
     app.activate_playback(first,one);
     const auto start = std::chrono::steady_clock::now();
     for (int i = 0; i < 32; ++i) {

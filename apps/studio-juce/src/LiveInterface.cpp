@@ -10,8 +10,17 @@ mrs::desktop::Application::PlaybackLayout performanceLayout(const juce::var& sta
     mrs::desktop::Application::PlaybackLayout layout;
     layout.time=projection.time;layout.chords=projection.chords;layout.sections=projection.sections;
     layout.stems=live::playbackStemLayouts(state,id,rate);layout.click=live::liveClick(state);
-    layout.performance=live::preparePerformancePlan(state,id,projection.time,projection.sections,rate,0.);
-    layout.extend_to_audio=state["performance"]["arrangement"][juce::Identifier(id)]["length"].isVoid();layout.token=token;return layout;
+    layout.extend_to_audio=state["performance"]["arrangement"][juce::Identifier(id)]["length"].isVoid();
+    // Preserve all authored sections until Core knows the actual audio extent.
+    double preparingAudio=0.;
+    if(layout.extend_to_audio&&!live::playbackRows(state,id).empty()){
+        preparingAudio=live::performanceEndBars(state,id,0.);
+        const auto& meter=projection.time.meters.front();
+        const double ticksPerBar=4.*mrs::ppq*meter.numerator/meter.denominator;
+        for(const auto& section:projection.sections)preparingAudio=(std::max)(preparingAudio,static_cast<double>(section.end)/ticksPerBar);
+    }
+    layout.performance=live::preparePerformancePlan(state,id,projection.time,projection.sections,rate,preparingAudio);
+    layout.token=token;return layout;
 }
 void validateMusicalEdit(Desktop &owner, const juce::var &copy) {
     if (owner.liveDocument->projects.empty()) {
@@ -1064,8 +1073,16 @@ void Desktop::syncLivePlayback() {
         const auto projection=live::musicalProjection(music);
         const auto snapshot=project();mrs::Sample end{};for(const auto& clip:snapshot->clips)end=(std::max)(end,clip.start+clip.length);
         const mrs::Timeline clock(projection.time,snapshot->sample_rate);const auto& meter=projection.time.meters.front();
-        const auto renderedBars=std::ceil(static_cast<double>(clock.to_ticks(end))/(4.*mrs::ppq*meter.numerator/meter.denominator));
+        const auto renderedBars=static_cast<double>(clock.to_ticks(end))/(4.*mrs::ppq*meter.numerator/meter.denominator);
         auto policy=live::preparePerformancePlan(liveDocument->interfaceState,id,projection.time,projection.sections,snapshot->sample_rate,renderedBars);
+        if(end>0&&liveDocument->interfaceState["performance"]["arrangement"][juce::Identifier(id)]["length"].isVoid()){
+            policy.end=(std::min)(end,clock.to_samples(static_cast<mrs::Tick>(4096.*4.*mrs::ppq*meter.numerator/meter.denominator)));
+            std::erase_if(policy.sections,[&](const auto& section){return section.start>=policy.end;});
+            for(auto& section:policy.sections)if(section.end>policy.end){
+                section.end=policy.end;
+                if(section.mode==mrs::PerformanceMode::stop||section.mode==mrs::PerformanceMode::loop)section.mode=mrs::PerformanceMode::normal;
+            }
+        }
         app.set_performance_plan(std::move(policy));livePerformanceKey=policyKey;
     }
     if (changed)

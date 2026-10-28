@@ -191,8 +191,14 @@ void Application::activate_playback_impl(const std::shared_ptr<PlaybackPreparati
         const Timeline clock(candidate.time,candidate.sample_rate);const auto& meter=candidate.time.meters.front();
         const double ticksPerBar=4.*ppq*meter.numerator/meter.denominator;Sample end{};
         for(const auto& clip:candidate.clips)end=std::max(end,clip.start+clip.length);
-        const auto bars=std::min(4096.,std::ceil(static_cast<double>(clock.to_ticks(end))/ticksPerBar));
-        policy->end=std::max(policy->end,clock.to_samples(static_cast<Tick>(std::llround(bars*ticksPerBar))));
+        if(end>0){
+            policy->end=std::min(end,clock.to_samples(static_cast<Tick>(std::llround(4096.*ticksPerBar))));
+            std::erase_if(policy->sections,[&](const auto& section){return section.start>=policy->end;});
+            for(auto& section:policy->sections)if(section.end>policy->end){
+                section.end=policy->end;
+                if(section.mode==PerformanceMode::stop||section.mode==PerformanceMode::loop)section.mode=PerformanceMode::normal;
+            }
+        }
     }
     candidate.validate();install_playback(std::move(candidate),std::move(decoded),job->media,layout.click,std::move(policy),layout.token,staged);
     if(staged)staged_playback_->sources=std::move(sources);

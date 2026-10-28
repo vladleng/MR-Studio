@@ -245,14 +245,13 @@ class LiveTimeline final : public juce::Component {
         juce::var value;
         juce::Rectangle<int> bounds;
         double scale{}, lead{}, bars{};
-        bool preview{};
         juce::String entry;
         bool collapsed{};
     };
     bool currentEntry(const Item &item) const {
         if (item.value["id"] != state["currentItem"])
             return false;
-        return item.preview || owner.liveCurrentEntry.isEmpty() || item.entry == owner.liveCurrentEntry;
+        return owner.liveCurrentEntry.isEmpty() || item.entry == owner.liveCurrentEntry;
     }
     class StemMix final : public juce::Component {
       public:
@@ -761,19 +760,6 @@ class LiveTimeline final : public juce::Component {
         lanes = live::playbackLanes(state);
         const int height = lanesTop + static_cast<int>(lanes.size()) * rowHeight;
         auto entries = live::activeSetlist(state)["entries"].clone();
-        const auto selected = state["currentItem"].toString();
-        bool found = false;
-        if (const auto *values = entries.getArray())
-            for (const auto &entry : *values)
-                found = found || entry["itemId"].toString() == selected;
-        if (!found && live::find(state, "items", selected).isObject()) {
-            auto preview = live::object();
-            live::put(preview, "itemId", selected);
-            live::put(preview, "browserPreview", true);
-            if (!entries.isArray())
-                entries = juce::Array<juce::var>();
-            entries.getArray()->add(preview);
-        }
         if (const auto *values = entries.getArray())
             for (const auto &entry : *values) {
                 const auto item = live::find(state, "items", entry["itemId"].toString());
@@ -782,7 +768,8 @@ class LiveTimeline final : public juce::Component {
                 const auto view = state["performance"]["arrangement"][juce::Identifier(item["id"].toString())];
                 const double scale = numeric(view["scale"], 16, 4, 128);
                 const double lead = numeric(view["lead"], 0, 0, 4096);
-                double bars = numeric(view["length"], numeric(item["bars"], 1, 1, 4096), 1, 4096);
+                double bars = numeric(view["length"], numeric(item["bars"], 16, 1, 4096), 1, 4096);
+                double audioBars = 0.;
                 if (!view.hasProperty("length") && item["id"] == state["currentItem"] && owner.livePlaybackReady()) {
                     const auto project = owner.project();
                     mrs::Sample end = 0;
@@ -790,28 +777,28 @@ class LiveTimeline final : public juce::Component {
                         end = juce::jmax(end, clip.start + clip.length);
                     const auto &meter = project->time.meters.front();
                     const mrs::Timeline clock(project->time, project->sample_rate);
-                    bars = juce::jmax(bars, std::ceil(static_cast<double>(clock.to_ticks(end)) /
-                                                      (4. * mrs::ppq * meter.numerator / meter.denominator)));
-                    bars = juce::jmin(bars, 4096.); // Keep the existing bounded scroll-surface contract.
+                    audioBars = static_cast<double>(clock.to_ticks(end)) /
+                                                      (4. * mrs::ppq * meter.numerator / meter.denominator);
                 }
                 if (!view.hasProperty("length")) for (const auto &row : live::playbackRows(state, item["id"].toString())) {
                     const auto regions=live::playbackRegions(state,item["id"].toString(),row);
                     if(const auto* regionValues=regions.getArray())for(const auto& region:*regionValues)
-                        bars=juce::jmin(4096.,juce::jmax(bars,std::ceil(static_cast<double>(region["start"])+static_cast<double>(region["length"]))));
+                        audioBars=juce::jmax(audioBars,static_cast<double>(region["start"])+static_cast<double>(region["length"]));
+                    if(regions.isArray())continue;
                     const auto *cached = waveforms.find(row["file"].toString());
                     if (!cached || !cached->wave)
                         continue;
                     const auto projection = live::musicalProjection(live::musicalVersion(state, item["id"].toString()));
-                    const double seconds = row["trimEnd"].isVoid()
+                    const double trimEnd = row["trimEnd"].isVoid()
                                                ? static_cast<double>(cached->wave->frames()) / cached->rate
                                                : static_cast<double>(row["trimEnd"]);
+                    const double seconds = juce::jmax(0., trimEnd - static_cast<double>(row["trimStart"]));
                     const mrs::Timeline clock(projection.time, cached->rate);
                     const auto &meter = projection.time.meters.front();
-                    bars = juce::jmin(
-                        4096., juce::jmax(bars, std::ceil(static_cast<double>(clock.to_ticks(static_cast<mrs::Sample>(
-                                                              std::llround(seconds * cached->rate)))) /
-                                                          (4. * mrs::ppq * meter.numerator / meter.denominator))));
+                    audioBars = juce::jmax(audioBars, static_cast<double>(clock.to_ticks(static_cast<mrs::Sample>(
+                        std::llround(seconds * cached->rate)))) / (4. * mrs::ppq * meter.numerator / meter.denominator));
                 }
+                if (!view.hasProperty("length") && audioBars > 0.) bars = juce::jmin(4096., audioBars);
                 // The model permits 1000 entries, 4096 bars/lead and 128 px/bar.
                 // Keep their complete geometry within a signed-int scroll surface.
                 const bool collapsed = static_cast<bool>(state["performance"]["collapsedItems"][juce::Identifier(entry["id"].toString())]);
@@ -821,11 +808,10 @@ class LiveTimeline final : public juce::Component {
                                  scale,
                                  lead,
                                  bars,
-                                 static_cast<bool>(entry["browserPreview"]),
                                  entry["id"].toString(), collapsed});
                 x += width;
             }
-        // Even a short final item (including a temporary Browser preview) must
+        // Even a short final item (including a collapsed entry) must
         // be scrollable to the left edge, rather than clamped at the far right
         // behind the preceding song. This is view space, not show duration.
         const int focusWidth = items.empty() ? 0 : items.back().bounds.getX() + viewport.getMaximumVisibleWidth();
@@ -869,7 +855,7 @@ class LiveTimeline final : public juce::Component {
             g.setColour(itemColour.withAlpha(.23f));
             g.fillRect(x, 0, width, headerHeight);
             text(g,
-                 item.value["name"].toString() + (item.preview ? juce::String::fromUTF8(" · Browser") : juce::String()),
+                 item.value["name"].toString(),
                  {x + 10, 4, juce::jmax(0, width - 64), 26});
             text(g,
                  item.value["tempo"].toString() + " BPM · " + item.value["meter"].toString() + " · " +
