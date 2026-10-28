@@ -18,6 +18,7 @@
 #include <thread>
 
 namespace ui {
+struct LivePreflightJob;
 namespace kit { class MRNativeParameterHost; }
 class Desktop;
 class Arrangement;
@@ -86,6 +87,11 @@ public:
     void addLivePlaybackStems(const juce::String&, const juce::Array<juce::File>&);
     void removeLivePlaybackStem();
     void setLivePlaybackOutputs(const std::vector<int>&);
+    void repairLivePlaybackOutputs(const juce::String&,const juce::String&);
+    void requireLiveRepair(const juce::String&,bool global=false);
+    void commitLiveRelink(const juce::String&,const juce::String&,const juce::File&);
+    void invalidateLivePlayback(const juce::String&);
+    void pollLivePreflightJobs();
     void setLiveCue(bool);
     void setLiveAudio(double gain, mrs::audio::ClickSettings);
     juce::String liveAudioKey;
@@ -106,6 +112,8 @@ public:
     juce::String liveAutoItem,liveAutoEntry,liveAutoKey,livePerformanceKey;
     struct LivePreparedItem {juce::String id,key;std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> media;};
     std::vector<LivePreparedItem> livePreparedItems;
+    std::vector<std::shared_ptr<LivePreflightJob>> livePreflightJobs;
+    std::uint64_t liveSourceCheckEpoch{};
     std::shared_ptr<mrs::IProjectStore> livePlaybackStore;
     juce::String liveCurrentEntry, livePendingEntry;
     juce::String livePendingItem, liveFailedPlaybackKey, liveNextKey, liveNextItem, liveNextStatus, livePreloadError;

@@ -34,6 +34,20 @@ void validateMusicalEdit(Desktop &owner, const juce::var &copy) {
 // Preflight before committing show history, including Undo/Redo. Core owns the source extent.
 void validatePlaybackEdit(Desktop &owner, const juce::var &copy) {
     live::validatePlayback(copy);
+    if(owner.liveAutoToken){
+        const auto target=owner.liveAutoItem;
+        const auto graphKey=[&](const juce::var& value){return live::playbackMediaKey(value,target)+live::playbackMixKey(value,target)+
+            live::playbackRegionsKey(value,target)+live::canonical(live::musicalVersion(value,target))+live::performanceKey(value,target)+
+            live::canonical(live::liveAudio(value));};
+        const auto nextEntry=live::nextPerformanceEntry(copy,owner.liveCurrentEntry)["id"].toString();
+        if(graphKey(copy)!=graphKey(owner.liveDocument->interfaceState)||nextEntry!=owner.liveAutoEntry){
+            // Withdraw before committing show edits, so an already prepared
+            // successor can never become audible with superseded bindings.
+            if(!owner.app.cancel_staged_playback()||owner.app.playback_token()==owner.liveAutoToken)
+                throw std::runtime_error("Item transition in progress; retry the edit after it completes");
+            owner.liveAutoKey.clear();owner.liveAutoToken=0;
+        }
+    }
     const auto current=owner.liveDocument->interfaceState["currentItem"].toString();
     if(live::performanceKey(copy,current)!=live::performanceKey(owner.liveDocument->interfaceState,current)&&
        (owner.app.recording()||owner.app.engine()->state().playback==mrs::PlaybackState::playing))
@@ -211,6 +225,7 @@ void Desktop::newLiveShow() {
     reconnectDevice(session);
 }
 void Desktop::prepareLiveInterface(bool saved) {
+    ++liveSourceCheckEpoch;
     for (const auto &entry : livePreparedItems)
         app.cancel_playback(entry.media);
     livePreparedItems.clear();
@@ -526,6 +541,9 @@ void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file,
         if (stem.isEmpty())
             live::put(live::map(live::performance(state), "nativePlayback"), id, row);
     });
+    invalidateLivePlayback(id);syncLivePlayback();
+}
+void Desktop::invalidateLivePlayback(const juce::String& id){
     // Choosing a WAV explicitly refreshes even a same-path preparation after an external edit.
     for (auto it = livePreparedItems.begin(); it != livePreparedItems.end();) {
         if (it->id == id) {
@@ -539,8 +557,17 @@ void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file,
         livePlaybackItem.clear();
     if (liveNextItem == id)
         liveNextKey.clear();
-    syncLivePlayback();
 }
+void Desktop::commitLiveRelink(const juce::String& item,const juce::String& stem,const juce::File& file){
+    requireLiveRepair(item);
+    if(!file.existsAsFile())throw std::runtime_error("Replacement WAV is missing");
+    editLiveInterface("Relink Playback WAV",[&](auto& state){auto row=live::playbackStem(state,item,stem);
+        if(!row.isObject())throw std::runtime_error("Playback source was removed");
+        live::put(row,"file",file.getFullPathName());
+    });
+    invalidateLivePlayback(item);syncLivePlayback();
+}
+
 void Desktop::setLivePlaybackMix(double gain, bool mute, bool solo) {
     if (!liveDocument || !livePlaybackReady())
         throw std::runtime_error("Playback is not ready");
@@ -611,6 +638,25 @@ std::size_t Desktop::livePlaybackIndex() const {
         if (rows[i]["id"].toString() == livePlaybackStem)
             return i;
     return 0;
+}
+void Desktop::requireLiveRepair(const juce::String& item,bool global){
+    if(!liveDocument||app.recording())throw std::runtime_error("Open a show and stop recording before repairing sources");
+    if(liveAutoToken&&(liveAutoItem==item||global)){
+        if(!app.cancel_staged_playback())throw std::runtime_error("Item transition in progress; retry repair");
+        if(app.playback_token()==liveAutoToken)syncLivePlayback();
+        else{liveAutoKey.clear();liveAutoToken=0;}
+    }
+    if((global||liveDocument->interfaceState["currentItem"].toString()==item)&&app.engine()->state().playback==mrs::PlaybackState::playing)
+        throw std::runtime_error("Pause or stop before repairing active outputs or media");
+}
+void Desktop::repairLivePlaybackOutputs(const juce::String& item,const juce::String& stem){
+    requireLiveRepair(item);const bool active=liveDocument->interfaceState["currentItem"].toString()==item;
+    editLiveInterface("Repair Playback output",[&](auto& state){auto row=live::playbackStem(state,item,stem);
+        if(!row.isObject())throw std::runtime_error("Playback source was removed");
+        live::put(row,"outputs",juce::Array<juce::var>());
+    });
+    if(active)livePlaybackError.clear();
+    liveFailedPlaybackKey.clear();syncLivePlayback();
 }
 void Desktop::setLivePlaybackOutputs(const std::vector<int> &outputs) {
     if (!liveDocument || app.recording() || app.engine()->state().playback == mrs::PlaybackState::playing)
@@ -755,18 +801,22 @@ void Desktop::syncLivePreload() {
         const auto name = live::find(state, "items", id)["name"].toString();
         liveNextStatus = "Next: " + name + " — " +
                          (status.busy ? "preparing " + juce::String(static_cast<int>(status.progress * 100)) + "%"
-                          : status.message.empty() ? "audio ready"
+                          : status.message.empty() ? "media ready"
                                                    : "unavailable: " + juce::String::fromUTF8(status.message.c_str()));
-        const auto performanceStatus=app.engine()->performance_status();
         const auto stageKey=key+live::canonical(live::musicalVersion(state,id))+live::playbackMixKey(state,id)+live::playbackRegionsKey(state,id)+
             live::performanceKey(state,id)+live::performanceKey(state,livePlaybackItem)+live::playbackMixKey(state,livePlaybackItem)+
-            live::canonical(live::liveAudio(state))+juce::String(static_cast<juce::int64>(performanceStatus.manual_revision));
+            live::canonical(live::liveAudio(state));
         if(!status.busy&&status.message.empty()&&liveRuntimeToken&&app.audio_running()&&livePendingItem.isEmpty()&&
            (liveAutoKey!=stageKey||app.staged_playback_token()==0)){
             const auto token=++liveTokenSerial;
             app.stage_playback(found->media,performanceLayout(state,id,project()->sample_rate,token),liveRuntimeToken);
             liveAutoToken=token;liveAutoItem=id;liveAutoEntry=nextEntry["id"].toString();liveAutoKey=stageKey;
         }
+        if(app.staged_playback_token())liveNextStatus="Next: "+name+" — audio ready; graph prepared";
+        const auto boundary=app.engine()->performance_status();
+        if((boundary.action==mrs::PerformanceAction::next||boundary.action==mrs::PerformanceAction::next_stopped)&&
+           app.engine()->state().playback==mrs::PlaybackState::stopped)
+            liveNextStatus+="; waiting at item end";
 
     } catch (const std::exception &error) {
         liveNextStatus = "Next: unavailable — " + juce::String::fromUTF8(error.what());

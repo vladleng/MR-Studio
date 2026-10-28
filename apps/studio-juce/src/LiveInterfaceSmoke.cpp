@@ -1309,7 +1309,17 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   multi.livePlaybackItem==second&&multi.livePlaybackReady()&&multi.app.engine()==sharedEngine&&
                   multi.app.engine()->state().playback==mrs::PlaybackState::playing,
                   "Native UI follows the Core boundary and entry identity without manual activation");
-        multi.app.stop();renderMulti();multi.stepLiveItem(-1);multi.applyLiveInterface(beforeAutomatic);multi.syncLivePlayback();
+        multi.app.stop();renderMulti();multi.stepLiveItem(-1);
+        multi.editLiveInterface("Advance and wait fixture",[&](auto& state){live::setPerformanceMode(state,id,id,mrs::PerformanceMode::stop);});
+        multi.syncLivePlayback();const auto waitingToken=multi.liveAutoToken;
+        multi.app.play();
+        for(int block=0;block<2000&&multi.app.engine()->performance_status().token!=waitingToken;++block)
+            multi.app.engine()->process(nullptr,audio.data(),128);
+        multi.app.poll();multi.syncLivePlayback();
+        liveCheck(waitingToken&&multi.liveDocument->interfaceState["currentItem"].toString()==second&&
+                  multi.app.engine()->state().sample==0&&multi.app.engine()->state().playback==mrs::PlaybackState::stopped,
+                  "Item play-to-end advances the native playhead to its successor and waits for Play");
+        multi.stepLiveItem(-1);multi.applyLiveInterface(beforeAutomatic);multi.syncLivePlayback();
         const auto third = multi.liveDocument->interfaceState["items"][2]["id"].toString();
         const auto broken = folder.getChildFile("preload-invalid.wav");
         broken.replaceWithText("invalid WAV");
@@ -1324,6 +1334,38 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                       multi.app.engine()->state().playback == mrs::PlaybackState::playing &&
                       multi.livePlaybackReady() && multi.livePreloadError.isNotEmpty(),
                   "Failed cold selection keeps the current item/audio and reports its preparation error");
+        multi.editLiveInterface("Inactive trim before relink",[&](auto& state){auto row=live::playback(state,third);live::put(row,"trimStart",.01);live::put(row,"trimEnd",.08);});
+        const auto beforeRepair=multi.liveDocument->interfaceState.clone();
+        const auto repairProject=multi.app.services().projects;const auto repairToken=multi.app.playback_token();
+        {
+            LivePreflightPanel inspection(multi);
+            const auto deadline=juce::Time::getMillisecondCounter()+5000;
+            while(inspection.busy()&&juce::Time::getMillisecondCounter()<deadline){inspection.pollInspection();juce::Thread::sleep(1);}
+            liveCheck(!inspection.busy()&&inspection.sourceCount()>=2&&multi.app.services().projects==repairProject,
+                      "Show source inspection checks inactive media without replacing the active Core project");
+        }
+        const auto pollRepairs=[&]{const auto deadline=juce::Time::getMillisecondCounter()+5000;
+            while(std::any_of(multi.livePreflightJobs.begin(),multi.livePreflightJobs.end(),[](const auto& job){return static_cast<bool>(job->completion);})&&juce::Time::getMillisecondCounter()<deadline){
+                multi.pollLivePreflightJobs();renderMulti();juce::Thread::sleep(1);}
+        };
+        queueLiveRelink(multi,third,{},broken);pollRepairs();
+        liveCheck(live::canonical(multi.liveDocument->interfaceState)==live::canonical(beforeRepair),
+                  "Corrupt replacement is rejected before show bindings/history are changed");
+        queueLiveRelink(multi,third,{},positive);pollRepairs();
+        liveCheck(live::playback(multi.liveDocument->interfaceState,third)["file"].toString()==positive.getFullPathName()&&
+                  multi.app.services().projects==repairProject&&multi.app.playback_token()==repairToken&&
+                  multi.app.engine()->state().playback==mrs::PlaybackState::playing&&
+                  static_cast<double>(live::playback(multi.liveDocument->interfaceState,third)["trimStart"])==.01&&
+                  static_cast<double>(live::playback(multi.liveDocument->interfaceState,third)["trimEnd"])==.08,
+                  "Inactive source relink preserves the active item, shared engine and running playback");
+        multi.editLiveInterface("Unavailable inactive output fixture",[&](auto& state){auto row=live::playback(state,third);live::put(row,"outputs",juce::Array<juce::var>{99});});
+        multi.repairLivePlaybackOutputs(third,{});
+        liveCheck(live::playbackOutputs(live::playback(multi.liveDocument->interfaceState,third)).empty()&&multi.app.services().projects==repairProject,
+                  "Inactive output can be explicitly repaired to Master without switching items");
+        multi.undoLiveInterface();multi.syncLivePlayback();
+        liveCheck(live::playbackOutputs(live::playback(multi.liveDocument->interfaceState,third))==std::vector<int>{99},
+                  "Output repair remains a show Undo action");
+        multi.applyLiveInterface(beforeRepair);multi.syncLivePlayback();
         multi.editLiveInterface("Repeat item entry", [&](auto &state) {
             auto repeated = live::object();
             live::put(repeated, "id", "repeat-alpha");

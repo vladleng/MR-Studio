@@ -30,14 +30,46 @@ void performance(){
     CHECK(engine.transition_phase(prepared)==AudioEngine::TransitionPhase::adopted);
     CHECK(!outgoing.expired());
     CHECK(engine.acknowledge_transition(prepared));CHECK(!outgoing.expired());prepared.reset();CHECK(outgoing.expired());
-    // Stop after preparation invalidates queued automatic adoption, and holds position.
-    engine.prepare({48000,0,1,32},graph(5,plan));CHECK(engine.enqueue({ControlKind::play}));
+    // Preparation before Play remains valid; manual Stop itself cannot autoplay.
+    engine.prepare({48000,0,1,32},graph(5,plan));
     prepared=engine.prepare_transition(graph(6,next),5);CHECK(engine.stage_transition(prepared));
-    CHECK(engine.enqueue({ControlKind::stop}));process(2);CHECK(engine.performance_status().token==5);
+    CHECK(engine.enqueue({ControlKind::play}));CHECK(engine.enqueue({ControlKind::stop}));process(2);
+    CHECK(engine.performance_status().token==5&&engine.state().playback==PlaybackState::stopped);
     CHECK(engine.enqueue({ControlKind::play}));process(8);
-    CHECK(engine.performance_status().token==5&&engine.transition_phase(prepared)==AudioEngine::TransitionPhase::cancelled);
-    // A missing prepared successor stops at the real end instead of advancing on UI time.
+    CHECK(engine.performance_status().token==6&&engine.state().sample==3);
+    CHECK(engine.acknowledge_transition(prepared));prepared.reset();
+    // Natural end can wait for late preparation, driven by the next device block.
+    engine.prepare({48000,0,1,32},graph(12,plan));CHECK(engine.enqueue({ControlKind::play}));process(8);
     CHECK(engine.state().sample==5&&engine.state().playback==PlaybackState::stopped);
+    prepared=engine.prepare_transition(graph(13,next),12);CHECK(engine.stage_transition(prepared));process(2);
+    CHECK(engine.performance_status().token==13&&engine.state().sample==2&&engine.state().playback==PlaybackState::playing);
+    CHECK(engine.acknowledge_transition(prepared));prepared.reset();
+    // An item Stop advances to the next graph at zero and waits for an explicit Play.
+    auto stopPlan=plan;stopPlan.mode=PerformanceMode::stop;
+    engine.prepare({48000,0,1,32},graph(14,stopPlan));CHECK(engine.enqueue({ControlKind::play}));
+    prepared=engine.prepare_transition(graph(15,next),14);CHECK(engine.stage_transition(prepared));process(8);
+    CHECK(engine.performance_status().token==15&&engine.state().sample==0&&engine.state().playback==PlaybackState::stopped);
+    for(int i=5;i<8;++i)CHECK(out[i]==0.f);
+    CHECK(engine.acknowledge_transition(prepared));prepared.reset();
+    CHECK(engine.enqueue({ControlKind::play}));process(2);CHECK(engine.state().sample==2);
+    // Explicit Stop while waiting cancels a late automatic resume.
+    engine.prepare({48000,0,1,32},graph(16,plan));CHECK(engine.enqueue({ControlKind::play}));process(8);
+    CHECK(engine.enqueue({ControlKind::stop}));process(1);
+    prepared=engine.prepare_transition(graph(17,next),16);CHECK(engine.stage_transition(prepared));process(2);
+    CHECK(engine.performance_status().token==16&&engine.state().playback==PlaybackState::stopped);
+    CHECK(engine.cancel_transition(prepared));prepared.reset();
+    // A late successor of a Stop item is selected silently, not auto-started.
+    engine.prepare({48000,0,1,32},graph(18,stopPlan));CHECK(engine.enqueue({ControlKind::play}));process(8);
+    CHECK(engine.performance_status().action==PerformanceAction::next_stopped);
+    prepared=engine.prepare_transition(graph(19,next),18);CHECK(engine.stage_transition(prepared));process(2);
+    CHECK(engine.performance_status().token==19&&engine.state().sample==0&&engine.state().playback==PlaybackState::stopped);
+    CHECK(out[0]==0&&out[1]==0);CHECK(engine.acknowledge_transition(prepared));prepared.reset();
+    // Pause cancels a natural-end request just like manual Stop.
+    engine.prepare({48000,0,1,32},graph(20,plan));CHECK(engine.enqueue({ControlKind::play}));process(8);
+    CHECK(engine.enqueue({ControlKind::pause}));process(1);
+    prepared=engine.prepare_transition(graph(21,next),20);CHECK(engine.stage_transition(prepared));process(2);
+    CHECK(engine.performance_status().token==20&&engine.state().playback!=PlaybackState::playing);
+    CHECK(engine.cancel_transition(prepared));prepared.reset();
     // Click switches with the graph, preserving the outgoing prefix of the device block.
     auto clickGraph=graph(8,next,0.f);clickGraph.click.playback=true;clickGraph.click.level=60;clickGraph.click.output_left=0;
     clickGraph.click_time.tempos={{0,90}};

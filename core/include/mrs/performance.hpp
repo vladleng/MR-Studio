@@ -28,7 +28,7 @@ struct PerformancePlan {
         }
     }
 };
-enum class PerformanceAction { none, skip, stop, loop, next };
+enum class PerformanceAction { none, skip, stop, loop, next, next_stopped };
 struct PerformanceDecision { PerformanceAction action{PerformanceAction::none}; Sample target{}; };
 inline bool performanceManualLoop(const PerformancePlan& plan,const std::optional<LoopRange>& loop) noexcept {
     return loop && loop->start>=0 && loop->start<loop->end && loop->end<=plan.end;
@@ -43,7 +43,7 @@ inline PerformanceDecision performanceDecision(const PerformancePlan& plan,Sampl
         return at>=manualLoop->end?PerformanceDecision{PerformanceAction::loop,manualLoop->start}:PerformanceDecision{};
     if(at>=plan.end){
         if(plan.mode==PerformanceMode::loop)return {PerformanceAction::loop,0};
-        return {plan.mode==PerformanceMode::stop?PerformanceAction::stop:PerformanceAction::next,plan.end};
+        return {plan.mode==PerformanceMode::stop?PerformanceAction::next_stopped:PerformanceAction::next,plan.end};
     }
     // A naturally completed loop/stop wins over the next section's entry,
     // matching the accepted show workflow. Explicit seek does not re-fire it.

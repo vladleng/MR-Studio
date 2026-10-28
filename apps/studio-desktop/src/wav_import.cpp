@@ -131,6 +131,9 @@ Application::WavImportStatus Application::playback_preparation(const std::shared
     }
     return {job->pending.valid(),job->progress.load(std::memory_order_relaxed),0,job->error};
 }
+std::vector<std::pair<std::uintmax_t,fs::file_time_type>> Application::playback_stamps(const std::shared_ptr<PlaybackPreparation>& job) const {
+    return job?job->stamps:std::vector<std::pair<std::uintmax_t,fs::file_time_type>>{};
+}
 void Application::cancel_playback(const std::shared_ptr<PlaybackPreparation>& job){if(job)job->stop.request_stop();}
 void Application::activate_playback(const std::shared_ptr<PlaybackPreparation>& job,const PlaybackLayout& layout){
     require_import(cancel_staged_playback(),"Playback transition is being adopted; retry navigation");

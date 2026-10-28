@@ -382,7 +382,7 @@ private:
     bool performance_arrived_{},performance_stalled_{};
     void resolve_performance() noexcept;
     void jump_performance(Sample) noexcept;
-    bool adopt_transition() noexcept;
+    bool adopt_transition(bool play) noexcept;
 
     void consume_controls() noexcept;
     bool owns_voice(const Voice& v) const noexcept {return v.mixer_track==no_mixer_track||domain_owned_[v.mixer_track];}

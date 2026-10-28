@@ -6,6 +6,7 @@
 #include "LiveLayout.h"
 #include "LiveMixer.h"
 #include "LivePlaybackPanel.h"
+#include "LivePreflightPanel.h"
 #include "LiveSetlist.h"
 #include "LiveTheme.h"
 #include "LiveTimeline.h"
@@ -251,6 +252,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             owner.liveDocument &&
                 live::neighborItem(owner.liveDocument->interfaceState, 1, owner.liveCurrentEntry).isNotEmpty());
         popup.addItem(41, "Playback / Click / Cue...", owner.liveDocument.has_value());
+        popup.addItem(105,"Show / source check...",owner.liveDocument.has_value());
         popup.addItem(104,"Back to start on Stop",owner.liveDocument.has_value(),
             owner.liveDocument&&static_cast<bool>(owner.liveDocument->interfaceState["performance"]["backToStart"]));
         popup.addItem(40, "Audio settings...");
@@ -269,6 +271,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
                 safe->owner.run([&] { safe->owner.saveSettings(); });
             } else if (action == 42 || action == 43)
                 safe->owner.run([&] { safe->owner.stepLiveItem(action == 43 ? 1 : -1); });
+            else if(action==105)openLivePreflight(safe->owner);
             else if (action == 41)
                 openLiveAudio(safe->owner);
             else if (action == 40)

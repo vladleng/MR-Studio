@@ -643,7 +643,7 @@ void Desktop::updateRecordingPreview(){
     audioRecordingPreview=std::move(nextWaveforms);
 }
 void Desktop::focusLost(FocusChangeType){spaceHeld=false;}
-void Desktop::timerCallback(){try{const bool wasRecording=app.recording();app.poll();syncLivePlayback();
+void Desktop::timerCallback(){try{const bool wasRecording=app.recording();app.poll();syncLivePlayback();pollLivePreflightJobs();
     const auto importing=app.wav_import_status();
     if(importing.busy)message="Preparing WAV import: "+juce::String(static_cast<int>(importing.progress*100.f))+"% (Esc to cancel)";
     else if(wavImportRevision!=importing.revision)message=label(importing.message);

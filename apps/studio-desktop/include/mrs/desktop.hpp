@@ -135,6 +135,7 @@ public:
     std::shared_ptr<PlaybackPreparation> prepare_playback(const std::vector<std::filesystem::path>&);
     WavImportStatus playback_preparation(const std::shared_ptr<PlaybackPreparation>&);
     void cancel_playback(const std::shared_ptr<PlaybackPreparation>&);
+    std::vector<std::pair<std::uintmax_t,std::filesystem::file_time_type>> playback_stamps(const std::shared_ptr<PlaybackPreparation>&) const;
     void activate_playback(const std::shared_ptr<PlaybackPreparation>&, const PlaybackLayout&);
     void stage_playback(const std::shared_ptr<PlaybackPreparation>&, const PlaybackLayout&,std::uint64_t expected);
     bool cancel_staged_playback();

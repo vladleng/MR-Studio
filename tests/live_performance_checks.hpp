@@ -49,7 +49,7 @@ inline void performancePolicies(){
     check(static_cast<double>(find(state,"items",item)["sections"][0]["length"])==4.,"Policy preparation never rewrites hidden content");
     check(mrs::performanceDecision(plan,plan.end).action==mrs::PerformanceAction::next,"Normal end describes next-item intent, not fake UI playback");
     setPerformanceMode(state,item,item,mrs::PerformanceMode::stop);plan=preparePerformancePlan(state,item,time,parts,48000,0.);
-    check(mrs::performanceDecision(plan,plan.end).action==mrs::PerformanceAction::stop,"Stop item holds exact visible end");
+    check(mrs::performanceDecision(plan,plan.end).action==mrs::PerformanceAction::next_stopped,"Stop item advances to its successor without autoplay");
     setPerformanceMode(state,item,item,mrs::PerformanceMode::loop);plan=preparePerformancePlan(state,item,time,parts,48000,0.);
     check(mrs::performanceDecision(plan,plan.end).target==0 && mrs::performanceDecision(plan,plan.end).action==mrs::PerformanceAction::loop,"Loop item returns to musical origin");
     mrs::PerformancePlan boundaries;boundaries.end=1000;boundaries.sections={{100,200,mrs::PerformanceMode::skip},{300,400,mrs::PerformanceMode::stop},{500,600,mrs::PerformanceMode::loop}};boundaries.validate();

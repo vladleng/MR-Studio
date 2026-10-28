@@ -230,7 +230,7 @@ struct AudioEngine::ControlInfo {
 struct AudioEngine::PreparedTransition {
     std::unique_ptr<PreparedState> next;
     std::shared_ptr<const ControlInfo> info;
-    std::uint64_t expected{},manual{},mix{};
+    std::uint64_t expected{},mix{};
     std::atomic<TransitionPhase> phase{TransitionPhase::prepared};
 };
 const RenderGraph& AudioEngine::control_graph() const noexcept{return control_info_?control_info_->graph:graph_;}
@@ -246,7 +246,7 @@ std::shared_ptr<AudioEngine::PreparedTransition> AudioEngine::prepare_transition
     if(!current.performance || expected_token!=current.performance_token || !graph.performance || !graph.performance_token ||
         graph.performance->mode==PerformanceMode::skip || !sourceOnly(current)||!sourceOnly(graph)||current.master_outputs!=graph.master_outputs)
         throw std::invalid_argument("Automatic handoff requires prepared Playback/Cue graph with stable device routes");
-    auto result=std::make_shared<PreparedTransition>();result->expected=expected_token;result->manual=last_manual_sent_.load(std::memory_order_acquire);result->mix=last_mix_sent_.load(std::memory_order_acquire);
+    auto result=std::make_shared<PreparedTransition>();result->expected=expected_token;result->mix=last_mix_sent_.load(std::memory_order_acquire);
     result->next=prepare_state(config_,std::move(graph),{});result->info=std::make_shared<ControlInfo>(*result->next);return result;
 }
 bool AudioEngine::stage_transition(const std::shared_ptr<PreparedTransition>& next){
@@ -851,16 +851,15 @@ void AudioEngine::jump_performance(Sample sample) noexcept {
     if(graph_.master_inserts)graph_.master_inserts->panic();
     for(auto& voice:graph_.voices)if(voice.stream)voice.stream->begin(voice.source_offset+std::clamp(sample-voice.start,Sample{0},voice.length-1));
 }
-bool AudioEngine::adopt_transition() noexcept {
+bool AudioEngine::adopt_transition(bool play) noexcept {
     auto* next=pending_transition_.exchange(nullptr,std::memory_order_acq_rel);if(!next)return false;
-    if(next->expected!=graph_.performance_token || next->manual!=manual_revision_ || next->manual!=last_manual_sent_.load(std::memory_order_acquire) ||
-        next->mix!=last_mix_sent_.load(std::memory_order_acquire)){
+    if(next->expected!=graph_.performance_token || next->mix!=last_mix_sent_.load(std::memory_order_acquire)){
         next->phase.store(TransitionPhase::cancelled,std::memory_order_release);return false;
     }
     next->phase.store(TransitionPhase::acquired,std::memory_order_release);
     for(auto& voice:graph_.voices)if(voice.stream){if(voice.stream->end())++disk_underruns_;}
     if(graph_.external_midi)graph_.external_midi->panic();
-    swap_state(*next->next,true);rt_={};rt_.playback=PlaybackState::playing;
+    swap_state(*next->next,true);rt_={};rt_.playback=play?PlaybackState::playing:PlaybackState::stopped;
     performance_arrived_=false;performance_action_=PerformanceAction::none;performance_stalled_=false;
     pending_seek_.reset();pending_play_anchor_=false;count_started_=false;record_start_ns_=0;
     audition_tails_={};audition_live_busy_={};audition_live_notes_={};audition_live_sustain_={};external_gate_.fill(true);midi_monitor_release_={};++midi_generation_;
@@ -877,12 +876,23 @@ bool AudioEngine::adopt_transition() noexcept {
     next->phase.store(TransitionPhase::adopted,std::memory_order_release);return true;
 }
 void AudioEngine::resolve_performance() noexcept {
-    if(!graph_.performance || rt_.playback!=PlaybackState::playing)return;
+    if(!graph_.performance)return;
+    const auto advances=[](PerformanceAction action){return action==PerformanceAction::next||action==PerformanceAction::next_stopped;};
+    // Late preparation is accepted by the device clock. Stop/Pause/seek clear
+    // this natural-end request, so control polling can never restart manually stopped audio.
+    if(rt_.playback!=PlaybackState::playing){
+        if(rt_.playback!=PlaybackState::stopped||!advances(performance_action_)||
+           !adopt_transition(performance_action_==PerformanceAction::next))return;
+        if(rt_.playback!=PlaybackState::playing)return;
+    }
     for(unsigned remaining=0;remaining<130;++remaining){
         const auto decision=performanceDecision(*graph_.performance,rt_.sample,rt_.loop,performance_arrived_);
         if(decision.action==PerformanceAction::none)return;
         if(decision.action==PerformanceAction::skip || decision.action==PerformanceAction::loop){jump_performance(decision.target);continue;}
-        if(decision.action==PerformanceAction::next && adopt_transition())continue;
+        if(advances(decision.action)&&adopt_transition(decision.action==PerformanceAction::next)){
+            if(rt_.playback!=PlaybackState::playing)return;
+            continue;
+        }
         performance_action_=decision.action;performance_arrived_=false;++performance_end_serial_;rt_.playback=PlaybackState::stopped;return;
     }
     performance_stalled_=true;performance_action_=PerformanceAction::stop;++performance_end_serial_;rt_.playback=PlaybackState::stopped;

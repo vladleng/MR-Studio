@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <mrs/desktop.hpp>
+#include <mrs/playback_preflight.hpp>
 #include <thread>
 
 namespace {
@@ -112,6 +113,24 @@ void run() {
     wav(a);
     wav(b, -1);
     wav(r, 1, 44100);
+    {using namespace mrs::audio;
+        PlaybackSourceCheck source;source.key="source";source.file=a;
+        const std::array<int,2> outputs{0,1};
+        const auto inspect=[&]{return check_playback_sources(std::span<const PlaybackSourceCheck>(&source,1),48000,outputs).front();};
+        check(inspect().code==PlaybackCheckCode::ok,"Preflight checks a valid WAV without activating a project");
+        source.outputs={9};check(inspect().code==PlaybackCheckCode::outputs,"Preflight explains unavailable physical outputs");
+        source.outputs.clear();source.end=10.;check(inspect().code==PlaybackCheckCode::trim,"Preflight rejects out-of-source trim");
+        source.end=-1;source.regions=std::vector<PlaybackSourceCheck::Region>{{4790,20}};
+        check(inspect().code==PlaybackCheckCode::regions,"Preflight checks source bounds of audio regions");source.regions.reset();
+        source.expected=PlaybackFileStamp{0,std::filesystem::last_write_time(a)};
+        check(inspect().code==PlaybackCheckCode::changed,"Preflight detects stale prepared media");source.expected.reset();
+        source.file=r;check(inspect().resample&&inspect().frames==4800,"Preflight uses the shared resampler extent");
+        source.file=folder.path/"missing.wav";check(inspect().code==PlaybackCheckCode::missing,"Preflight reports missing sources");
+        const auto corrupt=folder.path/"corrupt.wav";{std::ofstream out(corrupt);out<<"invalid";}source.file=corrupt;
+        check(inspect().code==PlaybackCheckCode::unreadable,"Preflight reports corrupt WAV without changing sources");
+        std::stop_source cancelled;cancelled.request_stop();
+        check(check_playback_sources(std::span<const PlaybackSourceCheck>(&source,1),48000,outputs,cancelled.get_token()).empty(),"Preflight cancellation retires outside audio processing");
+    }
     Application app;
     app.new_project();
     app.workspace(Workspace::live);
