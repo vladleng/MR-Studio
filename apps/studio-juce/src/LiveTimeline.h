@@ -489,6 +489,10 @@ class LiveTimeline final : public juce::Component {
                     if(parent.currentEntry(item) && parent.owner.livePlaybackReady())parent.owner.run([&]{parent.owner.app.seek(parent.sampleAt(item,event.position.x));});
                     return true;
                 }
+                // Pointer selection retains the accepted click-to-seek action.
+                // A subsequent drag still edits only the preview until release.
+                if(!scissors && !clipEdge && parent.currentEntry(item) && parent.owner.livePlaybackReady())
+                    parent.owner.run([&]{parent.owner.app.seek(parent.sampleAt(item,event.position.x));});
                 editRows=regionRows(item,index).clone();
                 if(scissors && !clipEdge){parent.owner.run([&]{commitClips(live::splitPlaybackRegion(editRows,clipSelection,barAt(item,event.position.x)),"Split Playback region");});return true;}
                 originalState=parent.state.clone();baseline=live::canonical(parent.owner.liveDocument->interfaceState);
