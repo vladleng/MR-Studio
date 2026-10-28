@@ -203,7 +203,7 @@ Control/mix сообщения помечены item token; устаревшие
 
 Для dedicated Playback projection включённые физические ASIO inputs не создают monitor routes у каналов без Monitor/Arm. Это не ослабляет guard на настоящий input processing: реальные monitor/armed routes остаются и не допускаются prepared WAV handoff. Stage не меняет applied mixer revision текущего item. Runtime acknowledgement обновляет frontend revision baseline (без ложного Studio Save song gate) и сбрасывает display interpolation по новому item token.
 
-Отложенный single-click сетлиста принадлежит самому списку и удерживает entry ID; repaint/rebuild карточек не теряет клик. При double-click/drag/смене фокуса вне rebuild или setlist ожидание отменяется. Timeline layout сохраняет видимый selected/browsed entry как scroll anchor при асинхронной подгрузке waveform extent, чтобы расширение предыдущих items не уводило выбор за пределы экрана.
+Отложенный single-click сетлиста принадлежит самому списку и удерживает entry ID; repaint/rebuild карточек не теряет клик. При double-click/drag, новом явном выборе или смене show/setlist ожидание отменяется по navigation revision; сама потеря фокуса/rebuild не отменяет уже принятый клик. Drag guard использует elapsed time от optional timestamp и остаётся корректным при большом Windows uptime и wraparound uint32, включая отсутствие предшествующего drag. Timeline layout сохраняет видимый selected/browsed entry как scroll anchor при асинхронной подгрузке waveform extent, чтобы расширение предыдущих items не уводило выбор за пределы экрана.
 
 ## Source preflight и безопасная перепривязка (#288, первый срез)
 

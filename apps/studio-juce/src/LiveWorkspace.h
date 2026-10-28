@@ -58,9 +58,9 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         redoButton.onClick = [this] { owner.action(11); };
         undoButton.getProperties().set("mrHostIcon", "action_undo");
         redoButton.getProperties().set("mrHostIcon", "action_redo");
-        const auto guard = [this] { blockedUntil = juce::Time::getMillisecondCounter() + 250; };
+        const auto guard = [this] { dragStartedAt = juce::Time::getMillisecondCounter(); };
         const auto blocked = [this] {
-            return static_cast<juce::int32>(blockedUntil - juce::Time::getMillisecondCounter()) > 0;
+            return live::clickBlockedAfterDrag(dragStartedAt,juce::Time::getMillisecondCounter());
         };
         setlist.toggleBrowser = [this] { showBrowser(!browserVisible); };
         for (auto *list : {&setlist, &browserItems}) {
@@ -360,6 +360,6 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         record{"Record (R)"}, previous{"< Section"}, next{"Section >"}, loop{"Loop section"}, undoButton{"Undo"},
         redoButton{"Redo"};
     bool browserVisible{};
-    juce::uint32 blockedUntil{};
+    std::optional<juce::uint32> dragStartedAt;
 };
 } // namespace ui

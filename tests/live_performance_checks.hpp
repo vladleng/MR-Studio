@@ -2,6 +2,8 @@
 #include "../apps/studio-juce/src/LivePlaybackState.h"
 namespace ui::live::test {
 inline void performancePolicies(){
+    if(clickBlockedAfterDrag({},0xb0000000u)||!clickBlockedAfterDrag(0xfffffff0u,0x10u)||clickBlockedAfterDrag(0xfffffff0u,0x200u))
+        throw std::runtime_error("Click guard must handle long uptime and timer wraparound");
     const auto check=[](bool pass,const char* message){if(!pass)throw std::runtime_error(message);};
     auto state=empty();const auto item=addItem(state,"Performance");
     auto section=object();put(section,"id","part");put(section,"name","Intro");put(section,"start",0.);put(section,"length",4.);put(section,"color","blue");

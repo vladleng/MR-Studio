@@ -5,6 +5,10 @@
 #include <mrs/metronome.hpp>
 
 namespace ui::live {
+inline bool clickBlockedAfterDrag(std::optional<juce::uint32> started,juce::uint32 now){
+    return started&&static_cast<juce::uint32>(now-*started)<250u;
+}
+
 inline juce::var liveAudio(const juce::var &state) { return state["performance"]["nativeLiveAudio"]; }
 inline double playbackGain(const juce::var &state) {
     const auto value = liveAudio(state)["gain"];

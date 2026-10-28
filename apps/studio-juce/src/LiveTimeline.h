@@ -355,6 +355,7 @@ class LiveTimeline final : public juce::Component {
             }
         }
         void mouseDown(const juce::MouseEvent &event) override {
+            if(event.mods.isLeftButtonDown())++parent.owner.liveSelectionRevision;
             if (beginClipEdit(event)) return;
             if (beginEdit(event)) return;
             if (!event.mods.isLeftButtonDown())

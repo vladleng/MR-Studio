@@ -108,12 +108,26 @@ void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave)
     auto* card=liveComponent(*list,"live-entry-"+entry);liveCheck(card!=nullptr,"Setlist click target exists");
     const auto now=juce::Time::getCurrentTime();const juce::Point<float> pointer{8,8};
     const auto event=[&](int mods){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),pointer,juce::ModifierKeys(mods),1,0,0,0,0,card,card,now,pointer,now,1,false);};
+    liveCheck(!list->activationBlocked||!list->activationBlocked(),"Setlist click is not drag-blocked before any drag");
+    liveCheck(!navigation.songDirty(),"Selection fixture does not require a Studio song-save dialog");
     card->mouseDown(event(juce::ModifierKeys::leftButtonModifier));card->mouseUp(event(0));
-    ++navigation.liveUiRevision;list->refresh(); // Destroy/recreate cards before delayed single-click fires.
+    liveCheck(list->hasPendingActivation(),"Setlist mouse release schedules its entry activation");
+    const auto selectionRevision=navigation.liveSelectionRevision;
+    ++navigation.liveUiRevision;list->refresh();
+    liveCheck(list->hasPendingActivation(),"Row rebuild retains the scheduled activation"); // Destroy/recreate cards before delayed single-click fires.
     const auto deadline=juce::Time::getMillisecondCounter()+5000;
     while((navigation.liveDocument->interfaceState["currentItem"].toString()!=first||navigation.livePlaybackLoading)&&juce::Time::getMillisecondCounter()<deadline)livePump();
-    liveCheck(navigation.liveDocument->interfaceState["currentItem"].toString()==first&&navigation.liveCurrentEntry==entry,
-              "Pending setlist click survives row refresh and activates its original entry ID");
+    if(navigation.liveDocument->interfaceState["currentItem"].toString()!=first||navigation.liveCurrentEntry!=entry)
+        throw std::runtime_error(("Pending setlist click failed: current="+navigation.liveDocument->interfaceState["currentItem"].toString()+
+            "; expected="+first+"; entry="+navigation.liveCurrentEntry+"; pending="+navigation.livePendingItem+
+            "; scheduled="+juce::String(list->hasPendingActivation()?1:0)+
+            "; selection revision="+juce::String(static_cast<juce::int64>(navigation.liveSelectionRevision))+"/"+juce::String(static_cast<juce::int64>(selectionRevision))+"; message="+navigation.message+"; preload="+navigation.livePreloadError).toStdString());
+    card=liveComponent(*list,"live-entry-"+entry);liveCheck(card!=nullptr,"Activated setlist entry remains addressable");
+    card->mouseDown(event(juce::ModifierKeys::leftButtonModifier));card->mouseUp(event(0));
+    navigation.selectLiveItem(third);
+    for(int i=0;i<5;++i)livePump();
+    liveCheck(navigation.liveDocument->interfaceState["currentItem"].toString()==third&&!list->hasPendingActivation(),
+              "New explicit selection supersedes the delayed setlist click");
 }
 void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     Desktop editing(true,false,true);editing.importLiveShow(fixture);editing.setSize(1200,800);

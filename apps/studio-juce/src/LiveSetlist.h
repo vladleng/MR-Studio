@@ -81,6 +81,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         const auto value = data()["performance"]["itemCardLayout"];
         return value.isObject() ? value : defaults;
     }
+    bool hasPendingActivation()const{return pendingActivation.has_value();}
     void refresh() {
         if (revision != owner.liveUiRevision)
             rebuild();
@@ -123,6 +124,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         if (event.originalComponent != this && event.originalComponent != &body && event.originalComponent != &viewport)
             return;
         const auto pointer = event.getScreenPosition();
+        cancelActivation();++owner.liveSelectionRevision;
         owner.liveShowEditing = true;
         grabKeyboardFocus();
         if (event.mods.isPopupMenu()) context({}, liveContextTarget(pointer));
@@ -139,6 +141,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             return true;
         }
         if (key.getKeyCode() == juce::KeyPress::upKey || key.getKeyCode() == juce::KeyPress::downKey) {
+            ++owner.liveSelectionRevision;cancelActivation();
             focusIndex = juce::jlimit(0, juce::jmax(0, static_cast<int>(rows.size()) - 1),
                                       focusIndex + (key.getKeyCode() == juce::KeyPress::upKey ? -1 : 1));
             focusRow();
@@ -206,6 +209,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         repaint();
     }
     void activate(const RowData &row) {
+        ++owner.liveSelectionRevision;
         owner.liveShowEditing = true;
         if (row.folder) {
             if (collapsed.contains(row.id))
@@ -474,7 +478,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         }
         void mouseDown(const juce::MouseEvent &event) override {
             const auto pointer = event.getScreenPosition();
-            host.cancelActivation();
+            host.cancelActivation();++host.owner.liveSelectionRevision;
             dragged = false;
             primaryPressed = event.mods.isLeftButtonDown();
             host.owner.liveShowEditing = true;
@@ -527,7 +531,8 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             return host.keyPressed(key);
         }
         void focusLost(FocusChangeType) override {
-            if(!host.rebuilding)host.cancelActivation();
+            // A committed click survives focus changes from rebuilding controls.
+            // A newer explicit navigation is detected by the host revision.
             repaint();
         }
 
@@ -542,12 +547,12 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             progressBase;
     };
     void scheduleActivation(const RowData& row){
-        pendingActivation=row;pendingSetlist=data()["activeSetlist"].toString();startTimer(500);
+        pendingActivation=row;pendingSetlist=data()["activeSetlist"].toString();pendingSelectionRevision=owner.liveSelectionRevision;startTimer(500);
     }
     void cancelActivation(){stopTimer();pendingActivation.reset();}
     void timerCallback()override{
         const auto target=pendingActivation;const auto list=pendingSetlist;cancelActivation();
-        if(!target||list!=data()["activeSetlist"].toString()||(activationBlocked&&activationBlocked()))return;
+        if(!target||pendingSelectionRevision!=owner.liveSelectionRevision||list!=data()["activeSetlist"].toString()||(activationBlocked&&activationBlocked()))return;
         const auto at=indexOf(target->id);
         if(at>=0){const auto row=rows[static_cast<std::size_t>(at)];activate(row);}
     }
@@ -601,7 +606,6 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                     {item["id"].toString(), item["id"].toString(), item["name"].toString(), depth, false, false});
     }
     void rebuild() {
-        const juce::ScopedValueSetter<bool> rebuildingGuard(rebuilding,true);
         const auto state = data();
         const bool hadFocus = body.isParentOf(juce::Component::getCurrentlyFocusedComponent());
         const auto selected = focusIndex >= 0 && focusIndex < static_cast<int>(rows.size())
@@ -797,7 +801,8 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
     std::set<juce::String> collapsed;
     std::uint64_t revision{~0ULL};
     int focusIndex{-1}, dropY{-1};
-    bool syncing{},rebuilding{};
+    bool syncing{};
+    std::uint64_t pendingSelectionRevision{};
     std::optional<RowData> pendingActivation;
     juce::String pendingSetlist;
 };

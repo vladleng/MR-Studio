@@ -116,6 +116,7 @@ public:
     std::uint64_t liveSourceCheckEpoch{};
     std::shared_ptr<mrs::IProjectStore> livePlaybackStore;
     juce::String liveCurrentEntry, livePendingEntry;
+    std::uint64_t liveSelectionRevision{};
     juce::String livePendingItem, liveFailedPlaybackKey, liveNextKey, liveNextItem, liveNextStatus, livePreloadError;
     std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> prepareLivePlayback(const juce::String&);
     void syncLivePreload();

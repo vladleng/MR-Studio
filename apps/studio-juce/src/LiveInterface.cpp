@@ -225,7 +225,7 @@ void Desktop::newLiveShow() {
     reconnectDevice(session);
 }
 void Desktop::prepareLiveInterface(bool saved) {
-    ++liveSourceCheckEpoch;
+    ++liveSourceCheckEpoch;++liveSelectionRevision;
     for (const auto &entry : livePreparedItems)
         app.cancel_playback(entry.media);
     livePreparedItems.clear();
@@ -352,6 +352,7 @@ void Desktop::importLiveShow(const juce::File &file) {
     liveEmptyRevision = std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
 }
 void Desktop::selectLiveItem(const juce::String &id, const juce::String &entry) {
+    ++liveSelectionRevision;
     if (!liveDocument || !live::find(liveDocument->interfaceState, "items", id).isObject())
         throw std::runtime_error("Missing show item");
     if (liveDocument->projects.empty()) {
