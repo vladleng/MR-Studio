@@ -35,11 +35,11 @@ Source commits/push в тематической ветке разрешены в
 
 ## Архитектура и безопасность
 
-- MR Studio — **одна** Windows/JUCE/C++/ASIO DAW, Live Mode встроен в тот же Core/проект, не отдельный аудиодвижок.
+- MR Studio и MR Live — два самостоятельных Windows/JUCE/C++/ASIO приложения на **общем коде Core**, но с разными пользовательскими workflow. **MR Live.exe** запускается напрямую либо из Home MR Studio, работает с собственным show-документом `.mrlive` и утверждённым интерфейсом v5. MR Live item не открывает `.mrsproject` и не переключает пользователя в Studio; экспорт Playback из Studio в MR Live — отдельный будущий этап (#291). Общие Audio Engine/ASIO/Transport/Project Model/GraphStore/MIDI/plugin host переиспользуются без второго backend или двойного аудиотракта. Performance Mode (#290) — будущее отдельное представление поверх того же show и Core. Принятое решение пользователя от 2026-10-25; см. `docs/MR_LIVE_NATIVE_INTEGRATION.md` и #28/#29/#30.
 - Изменения через принятые Commands/Model; сохраняй Undo/Redo, project persistence, plugin/editor lifetime, PDC, transport и raw recording. Миграции и новый формат состояния — только по обоснованной необходимости.
 - **Audio callback:** никаких новых alloc/free, mutex/locks, disk/network I/O, UI calls. IR/NAM decode, подготовка эффектов, пересборка графа — вне callback; безопасный lifecycle worker/DSP и переключение. Не допускай двойного аудиотракта.
 - **Studio mixing ≠ Live/recording:** 128 сэмплов не обязательны для всех студийных эффектов. RT производительность подтверждай callback/xrun измерениями, не одним процентом CPU.
-- **GUI всей MR Studio (DAW/Live/все native plugins):** пользователь утвердил единый визуальный стиль `docs/MR_UNIFIED_DESIGN_SYSTEM.md` (dark blue-graphite, flat, тонкая светлая SVG-контурная графика) и skill `.codex/skills/mr-unified-gui/SKILL.md`. Реализуй в рамках назначенного GUI Issue с опорой на #189 MR UI Kit. До отдельной приёмки этапа действующая `ui::Theme` и ранее принятые экраны/цвета остаются as-built; не перекрашивай всё сразу, не меняй DSP и сторонние VST3 GUI.
+- **GUI MR Studio и MR Live (DAW/Live/все native plugins):** пользователь утвердил единый визуальный стиль `docs/MR_UNIFIED_DESIGN_SYSTEM.md` (dark blue-graphite, flat, тонкая светлая SVG-контурная графика) и skill `.codex/skills/mr-unified-gui/SKILL.md`. Реализуй в рамках назначенного GUI Issue с опорой на #189 MR UI Kit. До отдельной приёмки этапа действующая `ui::Theme` и ранее принятые экраны/цвета остаются as-built; не перекрашивай всё сразу, не меняй DSP и сторонние VST3 GUI.
 
 ## Разработка и публикация
 
