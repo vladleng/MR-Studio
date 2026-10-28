@@ -77,6 +77,10 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     std::function<void()> appearanceChanged, fitWindowRequested;
     void showBrowser(bool visible) {
         browserVisible = visible;
+        if (!visible) {
+            owner.liveBrowserItem.clear();
+            owner.app.stop_library_preview();
+        }
         browserItems.setVisible(visible);
         resized();
         if (visible)
