@@ -458,6 +458,7 @@ void Desktop::addLivePlaybackStems(const juce::String &id, const juce::Array<juc
             live::put(stem, "solo", false);
             if (!root["file"].isString()) {
                 live::put(stem, "gain", live::importedStemGain(state, id, stem));
+                live::resetPlaybackRegions(state,id,stem);
                 root = stem;
                 continue;
             }
@@ -479,6 +480,7 @@ void Desktop::addLivePlaybackStems(const juce::String &id, const juce::Array<juc
             used.insert(channelId);
             live::put(stem, "id", channelId);
             live::put(stem, "gain", live::importedStemGain(state, id, stem));
+            live::resetPlaybackRegions(state,id,stem);
             values.getArray()->add(stem);
         }
         live::put(live::map(live::performance(state), "nativePlayback"), id, root);
@@ -507,9 +509,7 @@ void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file,
         row.getDynamicObject()->removeProperty("trimStart");
         row.getDynamicObject()->removeProperty("trimEnd");
         live::put(row, "file", file.getFullPathName());
-        const auto track=live::playbackTrackId(state,id,row);
-        if(track.isNotEmpty())live::map(live::performance(state),"clips").getDynamicObject()->removeProperty(juce::Identifier(track));
-        row.getDynamicObject()->removeProperty("regions");
+        live::resetPlaybackRegions(state,id,row);
         if (stem.isEmpty())
             live::put(live::map(live::performance(state), "nativePlayback"), id, row);
     });

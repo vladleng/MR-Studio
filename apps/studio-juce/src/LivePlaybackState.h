@@ -163,6 +163,11 @@ inline void setPlaybackRegions(juce::var &state,const juce::String &item,const j
     if(track.isEmpty())put(row,"regions",rows.clone());
     else put(map(performance(state),"clips"),track,rows.clone());
 }
+inline void resetPlaybackRegions(juce::var &state,const juce::String &item,juce::var row) {
+    const auto track=playbackTrackId(state,item,row);
+    if(track.isNotEmpty())map(performance(state),"clips").getDynamicObject()->removeProperty(juce::Identifier(track));
+    row.getDynamicObject()->removeProperty("regions");
+}
 inline double playbackSecondsPerBar(const juce::var &state,const juce::String &item) {
     const auto source=find(state,"items",item);const auto meter=source["meter"].toString();
     return 60./static_cast<double>(source["tempo"])*4.*meter.upToFirstOccurrenceOf("/",false,false).getDoubleValue()/
