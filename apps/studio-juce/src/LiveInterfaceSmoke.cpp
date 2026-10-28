@@ -152,15 +152,41 @@ void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave)
     auto* browser=dynamic_cast<LiveSetlist*>(liveComponent(navigation,"live-items-browser"));
     liveCheck(browser!=nullptr,"Items browser exists");
     const auto beforeBrowser=navigation.liveDocument->interfaceState["currentItem"].toString();
+    const auto beforeFocus=navigation.liveTimelineFocusRevision;
+    const auto beforeSample=navigation.app.engine()->state().sample;
+    const auto beforeEntry=navigation.liveCurrentEntry;
     const int beforeCount=focus.itemCount();
     browser->activate({preview,preview,"Short Browser preview",0,false,false});
     for(int i=0;i<3;++i)livePump();
     focus.refresh();
-    liveCheck(navigation.liveDocument->interfaceState["currentItem"].toString()==beforeBrowser&&
+    liveCheck(navigation.liveBrowserItem==preview &&
+              navigation.liveDocument->interfaceState["currentItem"].toString()==beforeBrowser&&
+              navigation.liveTimelineFocusRevision==beforeFocus &&
+              navigation.app.engine()->state().sample==beforeSample &&
+              navigation.liveCurrentEntry==beforeEntry &&
               focus.itemCount()==beforeCount&&focus.itemBounds(preview).isEmpty()&&
               live::entryIndex(navigation.liveDocument->interfaceState,preview)<0,
-              "Browser selection outside setlist leaves active playback, setlist and timeline unchanged");
+              "Browser-only item selects for inspection without altering setlist, Core or timeline");
+    // Even a library item already present in the setlist must not activate the show.
+    browser->activate({first,first,"Fixture Alpha",0,false,false});
+    for(int i=0;i<3;++i)livePump();
+    focus.refresh();
+    liveCheck(navigation.liveBrowserItem==first &&
+              navigation.liveDocument->interfaceState["currentItem"].toString()==beforeBrowser &&
+              navigation.liveCurrentEntry==beforeEntry &&
+              navigation.liveTimelineFocusRevision==beforeFocus &&
+              navigation.app.engine()->state().sample==beforeSample &&
+              focus.itemCount()==beforeCount,
+              "Browser inspection of existing setlist item never selects its timeline occurrence");
+    auto* panel=dynamic_cast<LivePlaybackPanel*>(liveComponent(navigation,"live-playback-panel"));
+    liveCheck(panel!=nullptr,"Browser inspection has Playback/Stems panel");
+    panel->sync();
+    auto* audition=dynamic_cast<juce::TextButton*>(liveComponent(*panel,"live-browser-audition"));
+    liveCheck(panel->stemCount()>0 && audition && audition->isEnabled(),
+              "Browser inspection displays WAV/stems and offers independent audition");
     selectAndCheck(first,entry);
+    liveCheck(navigation.liveBrowserItem.isEmpty(),
+              "Explicit Setlist selection restores show Playback/Stems inspection");
     navigation.editLiveInterface("Add short preview to end of setlist",[&](auto& state){live::insertEntry(state,preview);});
     const auto previewIndex=live::entryIndex(navigation.liveDocument->interfaceState,preview);
     const auto previewEntry=live::activeSetlist(navigation.liveDocument->interfaceState)["entries"][previewIndex]["id"].toString();
