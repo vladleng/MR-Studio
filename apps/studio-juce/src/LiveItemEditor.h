@@ -471,6 +471,15 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
                                   &field == &key ? "key" : "notes";
             const auto value = (&field == &tempo || &field == &duration)
                                    ? juce::var(numeric(field.getText())) : juce::var(field.getText());
+            // JSON distinguishes 100 from 100.0. Merely leaving a numeric
+            // editor must not convert its stored type and insert an Undo step.
+            if (&field == &tempo || &field == &duration) {
+                const auto previous = live::find(owner->liveDocument->interfaceState, "items", itemId)[keyName];
+                if (live::number(previous) && static_cast<double>(previous) == static_cast<double>(value)) {
+                    error.setText({}, juce::dontSendNotification);
+                    return;
+                }
+            }
             if (&field == &notes) {
                 owner->setLiveItemNotes(itemId, field.getText());
                 observedNotes = field.getText();

@@ -460,7 +460,10 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     notesField->insertTextAtCaret(" pending"); ++desktop.liveUiRevision; livePump();
     liveCheck(live::find(desktop.liveDocument->interfaceState,"items",id)["notes"].toString()=="Immediate note\nSecond line pending",
               "Notes survive pending async notification after blur");
+    const auto beforeNotesFocus=live::canonical(desktop.liveDocument->interfaceState);
     notesField->grabKeyboardFocus(); livePump();
+    liveCheck(live::canonical(desktop.liveDocument->interfaceState)==beforeNotesFocus,
+              "Leaving unchanged Tempo preserves stored JSON and does not create a spurious edit");
     desktop.undoLiveInterface();
     // A late focus notification must not write the old view over the model
     // before the revision timer can display the undone value.
