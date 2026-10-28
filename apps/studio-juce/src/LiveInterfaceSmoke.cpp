@@ -1102,28 +1102,48 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), p, juce::ModifierKeys(mods), 1,
                                     0, 0, 0, 0, browserCard, browserCard, t, p, t, 1, false);
         };
+        const auto beforeInspectionItem = playbackDesktop.liveDocument->interfaceState["currentItem"].toString();
+        const auto beforeInspectionEntry = playbackDesktop.liveCurrentEntry;
+        const auto beforeInspectionFocus = playbackDesktop.liveTimelineFocusRevision;
+        const auto beforeInspectionProject = playbackDesktop.project();
+        const auto beforeInspectionSample = playbackDesktop.app.engine()->state().sample;
+        const auto beforeInspectionShow = playbackDesktop.liveDocument->signature();
         browserCard->mouseDown(click(juce::ModifierKeys::leftButtonModifier));
         browserCard->mouseUp(click(0));
-        liveCheck(playbackDesktop.liveDocument->interfaceState["currentItem"].toString() == id,
-                  "Released-button Browser click activates item");
-        waitPlayback();
+        liveCheck(playbackDesktop.liveBrowserItem == id &&
+                      playbackDesktop.liveDocument->interfaceState["currentItem"].toString() == beforeInspectionItem &&
+                      playbackDesktop.liveCurrentEntry == beforeInspectionEntry &&
+                      playbackDesktop.liveTimelineFocusRevision == beforeInspectionFocus &&
+                      playbackDesktop.project() == beforeInspectionProject &&
+                      playbackDesktop.app.engine()->state().sample == beforeInspectionSample &&
+                      playbackDesktop.liveDocument->signature() == beforeInspectionShow,
+                  "Released-button Browser click inspects item without activating show or moving transport");
+        auto *inspectedPlayback = dynamic_cast<LivePlaybackPanel *>(
+            liveComponent(playbackDesktop, "live-playback-panel"));
+        liveCheck(inspectedPlayback != nullptr, "Browser inspection displays Playback/Stems");
+        inspectedPlayback->sync();
+        auto *listenButton = dynamic_cast<juce::TextButton *>(
+            liveComponent(*inspectedPlayback, "live-browser-audition"));
+        liveCheck(inspectedPlayback->stemCount() > 0 && listenButton && listenButton->isEnabled(),
+                  "Browser inspection exposes WAV and independent Listen control");
         playbackTimeline->refresh();
         livePump();
         browserCard = liveComponent(playbackDesktop, "live-browser-" + id);
-        liveCheck(browserCard != nullptr, "Active Browser row survives refresh");
-        const auto focusProject = playbackDesktop.project();
+        liveCheck(browserCard != nullptr, "Inspected Browser row survives refresh");
         for (auto *child : playbackTimeline->getChildren())
             if (auto *scroll = dynamic_cast<juce::Viewport *>(child))
                 scroll->setViewPosition(1000, 0);
         browserCard->mouseDown(click(juce::ModifierKeys::leftButtonModifier));
         browserCard->mouseUp(click(0));
         playbackTimeline->refresh();
-        liveCheck(playbackDesktop.project() == focusProject,
-                  "Reclicking active Browser item does not restart Core audio");
-        for (auto *child : playbackTimeline->getChildren())
-            if (auto *scroll = dynamic_cast<juce::Viewport *>(child))
-                liveCheck(scroll->getViewPositionX() == 0,
-                          "Reclicking active Browser item focuses timeline even without selection change");
+        liveCheck(playbackDesktop.liveBrowserItem == id &&
+                      playbackDesktop.liveDocument->interfaceState["currentItem"].toString() == beforeInspectionItem &&
+                      playbackDesktop.liveCurrentEntry == beforeInspectionEntry &&
+                      playbackDesktop.liveTimelineFocusRevision == beforeInspectionFocus &&
+                      playbackDesktop.project() == beforeInspectionProject &&
+                      playbackDesktop.app.engine()->state().sample == beforeInspectionSample &&
+                      playbackDesktop.liveDocument->signature() == beforeInspectionShow,
+                  "Reclicking Browser item leaves show selection, Core graph and timeline focus unchanged");
         playbackDesktop.editLiveInterface("Library-only view",
                                           [](auto &state) { live::activeEntries(state) = juce::Array<juce::var>(); });
         playbackTimeline->refresh();
