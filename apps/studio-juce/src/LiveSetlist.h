@@ -209,6 +209,15 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         repaint();
     }
     void activate(const RowData &row) {
+        if (browser && !row.folder && !row.divider) {
+            // Library inspection never activates a setlist occurrence, Core graph or timeline.
+            if (live::find(data(), "items", row.itemId).isObject()) {
+                owner.app.stop_library_preview();
+                owner.liveBrowserItem = row.itemId;
+                ++owner.liveUiRevision;
+            }
+            return;
+        }
         ++owner.liveSelectionRevision;
         owner.liveShowEditing = true;
         if (row.folder) {
@@ -220,10 +229,6 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             return;
         }
         if (row.divider)
-            return;
-        // Library selection does not create a timeline occurrence or change
-        // active playback. Only an item already in this setlist can be revealed.
-        if (browser && live::entryIndex(data(), row.itemId) < 0)
             return;
         const auto id = row.itemId, entry = browser ? juce::String() : row.id;
         juce::Component::SafePointer<Desktop> safe(&owner);
@@ -413,8 +418,9 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                 return;
             }
             const auto selected =
-                host.data()["currentItem"].toString() == row.itemId &&
-                (host.browser || host.owner.liveCurrentEntry.isEmpty() || host.owner.liveCurrentEntry == row.id);
+                (host.browser ? host.owner.liveBrowserItem == row.itemId :
+                    host.data()["currentItem"].toString() == row.itemId &&
+                    (host.owner.liveCurrentEntry.isEmpty() || host.owner.liveCurrentEntry == row.id));
             (selected ? selectedBase : itemBase)->drawWithin(g, bounds, juce::RectanglePlacement::stretchToFit, 1.f);
             if (selected) {
                 g.setColour(tokens.colour(ColourRole::focus));
@@ -483,10 +489,10 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         }
         void mouseDown(const juce::MouseEvent &event) override {
             const auto pointer = event.getScreenPosition();
-            host.cancelActivation();++host.owner.liveSelectionRevision;
+            host.cancelActivation();
+            if (!host.browser) { ++host.owner.liveSelectionRevision; host.owner.liveShowEditing = true; }
             dragged = false;
             primaryPressed = event.mods.isLeftButtonDown();
-            host.owner.liveShowEditing = true;
             host.focusIndex = host.indexOf(row.id);
             grabKeyboardFocus();
             if (event.mods.isPopupMenu()) {
