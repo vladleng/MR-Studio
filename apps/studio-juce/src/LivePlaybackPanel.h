@@ -83,7 +83,8 @@ class LivePlaybackPanel final : public juce::Component {
     int preferredHeight() const { return detailsVisible ? 370 : 270; }
     int stemCount() const { return static_cast<int>(stemRows.size()); }
     void showStemDetails(const juce::String &stem) {
-        owner.livePlaybackStem = stem;
+        if (inspecting()) browserStem = stem;
+        else owner.livePlaybackStem = stem;
         detailsVisible = true;
         requestLayout();
         sync();
@@ -143,14 +144,15 @@ class LivePlaybackPanel final : public juce::Component {
             : juce::String();
         if (id != currentItem || preview != previousInspecting) {
             currentItem = id; previousInspecting = preview; detailsVisible = false;
-            previewFile.clear(); requestLayout();
+            browserStem.clear(); previewFile.clear(); requestLayout();
         }
         groupLabel.setText(preview ? "Browser WAV" : "Item Playback", juce::dontSendNotification);
         groupGain.setEnabled(id.isNotEmpty() && !preview);
         if (!groupGain.isMouseButtonDown() && owner.liveDocument)
             groupGain.setValue(live::itemPlaybackGain(owner.liveDocument->interfaceState, id), juce::dontSendNotification);
         const auto rows = owner.liveDocument ? live::playbackRows(owner.liveDocument->interfaceState, id) : std::vector<juce::var>();
-        const auto row = owner.liveDocument ? live::playbackStem(owner.liveDocument->interfaceState, id, owner.livePlaybackStem) : juce::var();
+        const auto row = owner.liveDocument ? live::playbackStem(owner.liveDocument->interfaceState, id,
+            preview ? browserStem : owner.livePlaybackStem) : juce::var();
         juce::String nextStems = id;
         for (const auto &entry : rows) nextStems += "|" + entry["id"].toString();
         if (nextStems != stemSignature) {
@@ -364,7 +366,7 @@ class LivePlaybackPanel final : public juce::Component {
     juce::Slider groupGain;
     juce::Label groupLabel;
     bool detailsVisible{}, previousInspecting{};
-    juce::String currentItem, previewFile;
+    juce::String currentItem, previewFile, browserStem;
     juce::TextEditor trimStart, trimEnd;
     juce::TextButton trimApply{"Trim"};
     juce::Label startLabel{{}, "In"}, endLabel{{}, "Out"};
