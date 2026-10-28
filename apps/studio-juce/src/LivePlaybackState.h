@@ -1,5 +1,6 @@
 #pragma once
 #include "LiveShowState.h"
+#include "LivePerformanceState.h"
 #include <cmath>
 #include <mrs/metronome.hpp>
 
@@ -234,6 +235,7 @@ inline void validatePlaybackRow(const juce::var &row) {
     }
 }
 inline void validatePlayback(const juce::var &state) {
+    validatePerformance(state);
     validateLiveAudio(state);
     const auto bindings = state["performance"]["nativePlayback"];
     if (bindings.isVoid())

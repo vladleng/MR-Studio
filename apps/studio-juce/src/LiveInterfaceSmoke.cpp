@@ -3,6 +3,7 @@
 #include "../../../tests/live_playback_view_checks.hpp"
 #include "../../../tests/live_timeline_edit_checks.hpp"
 #include "../../../tests/live_clip_edit_checks.hpp"
+#include "../../../tests/live_performance_checks.hpp"
 #include "ProjectHome.h"
 #include <fstream>
 #include <windows.h>
@@ -140,6 +141,18 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     editing.saveFile(file);const auto reopened=LiveDocument::read(file);file.deleteFile();
     liveCheck(live::canonical(reopened.interfaceState)==live::canonical(editing.liveDocument->interfaceState),
               "Native musical edits and explicit item end survive Save/Open");
+    const auto beforeModes=editing.liveDocument->signature();const auto modeEngine=editing.app.engine();
+    editing.editLiveInterface("Section mode fixture",[&](auto& state){live::setPerformanceMode(state,id,section,mrs::PerformanceMode::loop);});
+    editing.editLiveInterface("Item mode fixture",[&](auto& state){live::setPerformanceMode(state,id,id,mrs::PerformanceMode::stop);});
+    liveCheck(live::itemPerformanceMode(editing.liveDocument->interfaceState,section)==mrs::PerformanceMode::loop &&
+              live::itemPerformanceMode(editing.liveDocument->interfaceState,id)==mrs::PerformanceMode::stop && editing.app.engine()==modeEngine,
+              "Item/section modes are authored on the same show and Engine");
+    editing.saveFile(file);const auto modeShow=LiveDocument::read(file);file.deleteFile();
+    liveCheck(live::itemPerformanceMode(modeShow.interfaceState,section)==mrs::PerformanceMode::loop &&
+              live::itemPerformanceMode(modeShow.interfaceState,id)==mrs::PerformanceMode::stop,"Performance modes survive native mrlive Save/Open");
+    editing.undoLiveInterface();editing.undoLiveInterface();
+    liveCheck(editing.liveDocument->signature()==beforeModes,"Show Undo restores both mode edits exactly");
+    editing.saveFile(file);file.deleteFile();
     editing.liveUndo.clearUndoHistory();
     const auto oldNotes=live::find(editing.liveDocument->interfaceState,"items",id)["notes"].toString();
     const auto text=juce::String::repeatedString("notes ",150);
@@ -156,6 +169,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::playbackViews();
     live::test::timelineEditing();
     live::test::clipEditing();
+    live::test::performancePolicies();
     liveTimelineAuthoringSmoke(fixture);
     liveCheck(fixture.existsAsFile(), "Pass --show-fixture with the editor show fixture");
     const auto original = fixture.loadFileAsString();

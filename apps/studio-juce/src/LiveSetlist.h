@@ -1,6 +1,7 @@
 #pragma once
 #include "Desktop.h"
 #include "LiveActionMenu.h"
+#include "LivePerformanceUI.h"
 #include "LiveCardEditor.h"
 #include "LiveItemEditor.h"
 #include "LiveLayout.h"
@@ -285,6 +286,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             popup.addItem(2, "Save for All");
             popup.addItem(4, "Add to Setlist");
             popup.addItem(5, "Rename...");
+            addLivePerformanceModes(popup,data(),row.itemId,60);
             if (!browser)
                 popup.addItem(6, "Remove this Setlist entry");
             popup.addSeparator();
@@ -303,7 +305,12 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             if (!safe)
                 return;
             safe->owner.liveShowEditing = true;
-            safe->owner.run([&] { safe->handle(choice, row); });
+            safe->owner.run([&] {
+                if(choice>=60 && choice<64)safe->owner.editLiveInterface("Item performance mode",[&](auto& state){
+                    live::setPerformanceMode(state,row.itemId,row.itemId,static_cast<mrs::PerformanceMode>(choice-60));
+                });
+                else safe->handle(choice, row);
+            });
         });
     }
 

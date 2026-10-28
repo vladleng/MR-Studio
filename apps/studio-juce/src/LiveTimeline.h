@@ -5,6 +5,7 @@
 #include "LiveMusicalEditor.h"
 #include "LiveClipEditor.h"
 #include "LiveActionMenu.h"
+#include "LivePerformanceUI.h"
 #include "LivePlaybackView.h"
 #include "LiveShowState.h"
 #include "LiveTheme.h"
@@ -323,7 +324,11 @@ class LiveTimeline final : public juce::Component {
             if(hoverClip(event)){repaint();return;}
             repaint();
             setTooltip("Double-click Sections or Chord Track to add; right-click for properties");
-            for (const auto &item : parent.items) if (!item.collapsed && item.bounds.contains(event.getPosition())) {
+            for (const auto &item : parent.items) if ((!item.collapsed || event.y<headerHeight) && item.bounds.contains(event.getPosition())) {
+                if(event.y<30 && event.x>=item.bounds.getRight()-48 && event.x<item.bounds.getRight()-26){
+                    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+                    setTooltip(live::performanceModeLabel(live::itemPerformanceMode(parent.state,item.value["id"].toString())));return;
+                }
                 if(event.y>=32 && event.y<56 && event.x>=item.bounds.getX()+6 && event.x<item.bounds.getX()+54) {
                     setMouseCursor(juce::MouseCursor::PointingHandCursor);setTooltip("− / + : timeline zoom");return;
                 }
@@ -337,6 +342,8 @@ class LiveTimeline final : public juce::Component {
                         } else if (target.mode != live::SpanGesture::move) {
                             setMouseCursor(noteTrimCursor(target.mode == live::SpanGesture::right));setTooltip("Trim musical event");
                         }
+                        if(lane==live::MusicalLane::sections && target.mode==live::SpanGesture::move)
+                            setTooltip(live::performanceModeLabel(live::itemPerformanceMode(parent.state,target.id)));
                         return;
                     }
                 }
@@ -536,8 +543,12 @@ class LiveTimeline final : public juce::Component {
         double clipSourceBars{};int clipEdge{},guideY{-1};float guideX{};
         bool beginEdit(const juce::MouseEvent &event) {
             for (const auto &item : parent.items) {
-                if(item.collapsed || !item.bounds.contains(event.getPosition()))continue;
+                if(!item.bounds.contains(event.getPosition()) || (item.collapsed && event.y>=headerHeight))continue;
                 const auto id=item.value["id"].toString();
+                if(event.y<headerHeight && (event.mods.isPopupMenu() || (event.y<30 && event.x>=item.bounds.getRight()-48 && event.x<item.bounds.getRight()-26))){
+                    if(event.mods.isPopupMenu() || event.mods.isLeftButtonDown())showLivePerformanceModes(parent.owner,id,id,event.getScreenPosition());
+                    return true;
+                }
                 if(event.y>=32 && event.y<56 && event.x>=item.bounds.getX()+6 && event.x<item.bounds.getX()+54) {
                     if(event.mods.isLeftButtonDown()) {
                         const double scale=juce::jlimit(4.,128.,item.scale*(event.x<item.bounds.getX()+30?.8:1.25));
@@ -657,16 +668,22 @@ class LiveTimeline final : public juce::Component {
             juce::PopupMenu menu;
             menu.addItem(1,"Properties / color...",selection.isNotEmpty());
             menu.addItem(2,"Duplicate",selection.isNotEmpty());menu.addItem(3,"Remove",selection.isNotEmpty());
+            if(selectedLane==live::MusicalLane::sections && selection.isNotEmpty()){
+                menu.addSeparator();addLivePerformanceModes(menu,parent.state,selection,50);
+            }
             menu.addSeparator();
             const juce::StringArray names{"Intro","Verse","Chorus","Bridge","Solo","Outro"};
             if(selectedLane==live::MusicalLane::chords)menu.addItem(10,"Add chord");
             else for(int i=0;i<names.size();++i)menu.addItem(10+i,"Add "+names[i]);
             juce::Component::SafePointer<Body> safe(this);
-            showLiveActionMenu(menu,parent.owner,liveContextTarget(screen),[safe,item,at,screen,names](int result){
+            showLiveActionMenu(menu,parent.owner,liveContextTarget(screen),[safe,item,at,screen,names,modeTarget=selection](int result){
                 if(!safe)return;
                 if(result==1)safe->properties(screen);
                 if(result==3)safe->removeSelected();
-                if(result>=10)safe->create(item,safe->selectedLane,at,names[result-10]);
+                if(result>=50 && result<54){safe->parent.owner.run([&]{safe->parent.owner.editLiveInterface("Section performance mode",[&](auto& state){
+                    live::setPerformanceMode(state,item.value["id"].toString(),modeTarget,static_cast<mrs::PerformanceMode>(result-50));
+                });});return;}
+                if(result>=10 && result<16)safe->create(item,safe->selectedLane,at,names[result-10]);
                 if(result==2) {
                     const auto original=live::spanById(live::musicalRows(safe->parent.state,safe->selectedItem,safe->selectedLane),safe->selection);
                     safe->parent.owner.run([&]{safe->parent.owner.editLiveInterface("Duplicate musical event",[&](auto &state){
@@ -836,12 +853,13 @@ class LiveTimeline final : public juce::Component {
             g.fillRect(x, 0, width, headerHeight);
             text(g,
                  item.value["name"].toString() + (item.preview ? juce::String::fromUTF8(" · Browser") : juce::String()),
-                 {x + 10, 4, juce::jmax(0, width - 20), 26});
+                 {x + 10, 4, juce::jmax(0, width - 64), 26});
             text(g,
                  item.value["tempo"].toString() + " BPM · " + item.value["meter"].toString() + " · " +
                      juce::String(item.bars) + " bars",
                  {x + 58, 30, juce::jmax(0, width - 68), 22}, true);
             text(g, "−   +", {x + 8, 32, 48, 22});
+            performanceArt->draw(g,live::itemPerformanceMode(state,id),{x+width-48,8,18,18});
             text(g, item.collapsed ? ">" : "v", {x + width - 24, 4, 20, 26});
             if (item.collapsed) { line(g, item.bounds); continue; }
             g.setColour(tokens.colour(ColourRole::focus).withAlpha(.7f));
@@ -859,7 +877,11 @@ class LiveTimeline final : public juce::Component {
             if (const auto *sections = item.value["sections"].getArray())
                 for (const auto &section : *sections) {
                     const auto area = extent(item, section, headerHeight + rulerHeight + 1, sectionHeight - 2);
-                    block(g, area, section["name"].toString(), section["color"]);
+                    block(g, area, {}, section["color"]);
+                    if(area.getWidth()>=30){
+                        text(g,section["name"].toString(),area.reduced(6,0).withTrimmedRight(20));
+                        performanceArt->draw(g,live::itemPerformanceMode(state,section["id"].toString()),{area.getRight()-24,area.getCentreY()-8,16,16});
+                    }else if(area.getWidth()>12)text(g,section["name"].toString(),area.reduced(4,0));
                     if (body.selectedItem == id && body.selection == section["id"].toString()) {
                         g.setColour(tokens.colour(body.editing && body.invalid ? ColourRole::error : ColourRole::focus)); g.drawRect(area, 2);
                     }
@@ -1095,6 +1117,7 @@ class LiveTimeline final : public juce::Component {
     }
     Desktop &owner;
     LiveWaveformCache waveforms;
+    juce::SharedResourcePointer<LivePerformanceArt> performanceArt;
     Body body;
     Viewport viewport;
     PlayheadLine playhead;
