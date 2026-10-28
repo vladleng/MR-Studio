@@ -861,7 +861,7 @@ class LiveTimeline final : public juce::Component {
                  item.value["tempo"].toString() + " BPM · " + item.value["meter"].toString() + " · " +
                      juce::String(item.bars) + " bars",
                  {x + 58, 30, juce::jmax(0, width - 68), 22}, true);
-            text(g, "−   +", {x + 8, 32, 48, 22});
+            text(g, "-   +", {x + 8, 32, 48, 22});
             performanceArt->draw(g,live::itemPerformanceMode(state,id),{x+width-48,8,18,18});
             text(g, item.collapsed ? ">" : "v", {x + width - 24, 4, 20, 26});
             if (item.collapsed) { line(g, item.bounds); continue; }
