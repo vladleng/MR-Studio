@@ -952,6 +952,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             auto &item = live::require(state, "items", id);
             live::put(item, "tempo", 90.);
             live::put(item, "meter", "3/4");
+            // One-second PCM exercises trim and natural audio extent above. Musical
+            // navigation below needs an explicit show length covering Verse (bar 21.5).
+            live::setItemView(state, id, "length", 86.);
             live::put(*live::property(item, "sections").getArray()->getRawDataPointer(), "length", 22.);
             auto chord = live::object();
             live::put(chord, "id", "native-chord-test");
