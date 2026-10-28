@@ -9,7 +9,7 @@
 #include <MRConceptAssets.h>
 
 namespace ui {
-class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget {
+class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget, private juce::Timer {
   public:
     struct RowData {
         juce::String id, itemId, name;
@@ -69,6 +69,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         rebuild();
     }
     ~LiveSetlist() override {
+        cancelActivation();
         body.removeMouseListener(this);
         viewport.setViewedComponent(nullptr, false);
     }
@@ -315,7 +316,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
     }
 
   private:
-    class Card final : public juce::Component, private juce::Timer, public juce::SettableTooltipClient {
+    class Card final : public juce::Component, public juce::SettableTooltipClient {
       public:
         Card(LiveSetlist &source, RowData value) : host(source), row(std::move(value)) {
             setWantsKeyboardFocus(true);
@@ -358,7 +359,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                 folderIcon =
                     juce::Drawable::createFromImageData(MRConceptAssets::folder_svg, MRConceptAssets::folder_svgSize);
         }
-        ~Card() override { stopTimer(); }
+        ~Card() override { host.cancelActivation(); }
         float preferredHeight() const {
             if (row.folder || row.divider)
                 return 28.f;
@@ -473,7 +474,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         }
         void mouseDown(const juce::MouseEvent &event) override {
             const auto pointer = event.getScreenPosition();
-            stopTimer();
+            host.cancelActivation();
             dragged = false;
             primaryPressed = event.mods.isLeftButtonDown();
             host.owner.liveShowEditing = true;
@@ -488,7 +489,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         }
         void mouseDoubleClick(const juce::MouseEvent &event) override {
             if (event.mods.isLeftButtonDown()) {
-                stopTimer();
+                host.cancelActivation();
                 if (host.browser)
                     host.activate(row);
                 else
@@ -499,7 +500,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             if (dragged || !event.mods.isLeftButtonDown() || event.getDistanceFromDragStart() < 6)
                 return;
             dragged = true;
-            stopTimer();
+            host.cancelActivation();
             if (host.dragGuard)
                 host.dragGuard();
             auto payload = live::object();
@@ -515,7 +516,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                 if (host.browser)
                     host.activate(row);
                 else
-                    startTimer(500);
+                    host.scheduleActivation(row);
             }
         }
         bool keyPressed(const juce::KeyPress &key) override {
@@ -526,16 +527,11 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             return host.keyPressed(key);
         }
         void focusLost(FocusChangeType) override {
-            stopTimer();
+            if(!host.rebuilding)host.cancelActivation();
             repaint();
         }
 
       private:
-        void timerCallback() override {
-            stopTimer();
-            if (!host.activationBlocked || !host.activationBlocked())
-                host.activate(row);
-        }
         LiveSetlist &host;
         RowData row;
         juce::var item, cardLayout;
@@ -545,6 +541,16 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         std::unique_ptr<juce::Drawable> folderIcon, itemBase, selectedBase, sectionBase, statusBase, priorityBase,
             progressBase;
     };
+    void scheduleActivation(const RowData& row){
+        pendingActivation=row;pendingSetlist=data()["activeSetlist"].toString();startTimer(500);
+    }
+    void cancelActivation(){stopTimer();pendingActivation.reset();}
+    void timerCallback()override{
+        const auto target=pendingActivation;const auto list=pendingSetlist;cancelActivation();
+        if(!target||list!=data()["activeSetlist"].toString()||(activationBlocked&&activationBlocked()))return;
+        const auto at=indexOf(target->id);
+        if(at>=0){const auto row=rows[static_cast<std::size_t>(at)];activate(row);}
+    }
     int indexOf(const juce::String &id) const {
         for (std::size_t i = 0; i < rows.size(); ++i)
             if (rows[i].id == id)
@@ -595,6 +601,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                     {item["id"].toString(), item["id"].toString(), item["name"].toString(), depth, false, false});
     }
     void rebuild() {
+        const juce::ScopedValueSetter<bool> rebuildingGuard(rebuilding,true);
         const auto state = data();
         const bool hadFocus = body.isParentOf(juce::Component::getCurrentlyFocusedComponent());
         const auto selected = focusIndex >= 0 && focusIndex < static_cast<int>(rows.size())
@@ -790,6 +797,8 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
     std::set<juce::String> collapsed;
     std::uint64_t revision{~0ULL};
     int focusIndex{-1}, dropY{-1};
-    bool syncing{};
+    bool syncing{},rebuilding{};
+    std::optional<RowData> pendingActivation;
+    juce::String pendingSetlist;
 };
 } // namespace ui

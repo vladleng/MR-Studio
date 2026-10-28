@@ -1009,7 +1009,7 @@ void Application::install_playback(Project candidate,
             require(engine_->stage_transition(pending->transition),"Playback changed while staging transition");
             staged_playback_=std::move(pending);
             assets_=std::move(oldAssets);import_staging_=std::move(oldStaging);mixer_tracks_=std::move(oldTracks);
-            insert_runtime_=std::move(oldInserts);prepared_=std::move(oldPrepared);click_settings_=oldClick;return;
+            insert_runtime_=std::move(oldInserts);prepared_=std::move(oldPrepared);click_settings_=oldClick;applied_mix_revision_=oldApplied;return;
         }
         device_->stop();stopped=true;engine_->quiesce();head=engine_->state();rollbackGraph=engine_->stopped_graph();
         // Scalar mixer controls may be newer than the graph's original construction.
@@ -1954,7 +1954,10 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_
     for (const auto& track : project->tracks) if (track.kind == TrackKind::audio) {
         // A connected physical selector alone is not a live DSP dependency.
         // Mixed ownership changes are rebuilt while stopped by Monitor/Arm.
-        if(c.process_buffer_frames&&c.processing_workers>=2&&!track.input_monitor&&!track_armed(track.id))continue;
+        const bool livePlayback=workspace_==Workspace::live&&path_.empty()&&(preparing_project_||result.performance.has_value());
+        // Enabled ASIO inputs do not make a muted Playback track a live-input
+        // graph. Keep real Monitor/Arm routes and their handoff safety guards.
+        if((livePlayback||(c.process_buffer_frames&&c.processing_workers>=2))&&!track.input_monitor&&!track_armed(track.id))continue;
         const auto inputs=track_inputs(track,default_inputs_);
         const auto found_track=std::find(mixer_tracks_.begin(),mixer_tracks_.end(),track.id);
         const auto index=static_cast<std::size_t>(found_track-mixer_tracks_.begin());

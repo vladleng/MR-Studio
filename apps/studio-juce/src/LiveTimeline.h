@@ -747,6 +747,16 @@ class LiveTimeline final : public juce::Component {
             viewport.setViewPosition(juce::jmax(0, x - 24), viewport.getViewPositionY());
     }
     void layout() {
+        // Waveform completion can widen preceding items. Retain the visible
+        // selected entry (or the browsed entry) at the same viewport position.
+        const auto visible=viewport.getViewArea();const Item* anchor=nullptr;
+        for(const auto& item:items)if(item.bounds.intersects(visible)){
+            if(!anchor)anchor=&item;
+            if(currentEntry(item)){anchor=&item;break;}
+        }
+        const auto anchorEntry=anchor?anchor->entry:juce::String();
+        const auto anchorItem=anchor?anchor->value["id"].toString():juce::String();
+        const int anchorScreenX=anchor?anchor->bounds.getX()-visible.getX():0;
         items.clear();
         int x = 0;
         lanes = live::playbackLanes(state);
@@ -818,6 +828,10 @@ class LiveTimeline final : public juce::Component {
             }
         body.setSize(juce::jmax(x, viewport.getMaximumVisibleWidth()),
                      juce::jmax(height, viewport.getMaximumVisibleHeight()));
+        if(anchorItem.isNotEmpty())for(const auto& item:items)
+            if(item.entry==anchorEntry&&item.value["id"].toString()==anchorItem){
+                viewport.setViewPosition(juce::jmax(0,juce::jmin(item.bounds.getRight()-1,item.bounds.getX()-anchorScreenX)),visible.getY());break;
+            }
     }
     juce::Rectangle<int> extent(const Item &item, const juce::var &span, int y, int height, double offset = 0) const {
         const double start = numeric(span["start"], 0, 0, 4096) + offset;

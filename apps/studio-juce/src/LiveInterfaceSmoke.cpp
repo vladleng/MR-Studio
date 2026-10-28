@@ -18,7 +18,7 @@ class LivePlaybackTestDevice final : public mrs::audio::IAudioDevice {
         std::vector<std::string> names;
         for (int i = 0; i < outputs; ++i)
             names.push_back("Output " + std::to_string(i + 1));
-        return {{0, "Live PCM test", {}, names, 32, 2048, 128, -1}};
+        return {{0, "Live PCM test", {"Input 1","Input 2"}, names, 32, 2048, 128, -1}};
     }
     void control_panel(int) override {}
     void open(const mrs::audio::DeviceConfig &, std::shared_ptr<mrs::audio::AudioEngine>) override {
@@ -71,6 +71,48 @@ void livePreview(juce::Component &component, const juce::String &name) {
                 *stream),
             "Live preview export");
     }
+}
+void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave){
+    Desktop navigation(true,false,true);navigation.importLiveShow(fixture);navigation.setSize(1200,800);
+    navigation.app.connect(std::make_unique<LivePlaybackTestDevice>(),{0,48000,128,{}, {0,1},1});
+    const auto values=navigation.liveDocument->interfaceState["items"];
+    const auto first=values[0]["id"].toString(),second=values[1]["id"].toString(),third=values[2]["id"].toString();
+    navigation.selectLiveItem(third);navigation.attachLivePlayback(first,wave);navigation.attachLivePlayback(second,wave);
+    navigation.editLiveInterface("Cold waveform geometry fixture",[&](auto& state){
+        for(const auto& id:{first,second,third}){auto item=live::require(state,"items",id);live::put(item,"bars",1.);live::put(item,"tempo",1000.);live::setItemView(state,id,"scale",128.);}
+    });navigation.syncLivePlayback();
+    {
+        LiveTimeline cold(navigation);cold.setSize(640,700);cold.refresh();
+        auto* viewport=dynamic_cast<juce::Viewport*>(cold.getChildComponent(0));
+        if(!viewport)for(auto* child:cold.getChildren())if(auto* candidate=dynamic_cast<juce::Viewport*>(child))viewport=candidate;
+        liveCheck(viewport!=nullptr,"Cold timeline has a viewport");
+        const auto deadline=juce::Time::getMillisecondCounter()+5000;
+        while(cold.itemBounds(third).getX()<1000&&juce::Time::getMillisecondCounter()<deadline){cold.refresh();juce::Thread::sleep(1);}
+        liveCheck(cold.itemBounds(third).getX()>1000,"Delayed WAV metadata expands preceding items");
+        liveCheck(viewport->getViewArea().intersects(cold.itemBounds(third)),
+                  "Waveform reflow keeps the selected entry visible instead of revealing a middle item");
+        auto* body=viewport->getViewedComponent();const auto target=cold.itemBounds(second);
+        viewport->setViewPosition(juce::jmax(0,target.getX()-12),0);
+        const auto time=juce::Time::getCurrentTime();const juce::Point<float> point{static_cast<float>(target.getX()+60),16.f};
+        body->mouseDown(juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier),1,0,0,0,0,body,body,time,point,time,1,false));
+        const auto clickDeadline=juce::Time::getMillisecondCounter()+5000;
+        while(navigation.liveDocument->interfaceState["currentItem"].toString()!=second&&juce::Time::getMillisecondCounter()<clickDeadline)livePump();
+        cold.refresh();
+        liveCheck(navigation.liveDocument->interfaceState["currentItem"].toString()==second&&viewport->getViewArea().intersects(cold.itemBounds(second)),
+                  "Timeline header click activates and reveals the clicked entry after asynchronous reflow");
+    }
+    auto* list=dynamic_cast<LiveSetlist*>(liveComponent(navigation,"live-setlist"));
+    juce::String entry;for(const auto& row:*live::activeSetlist(navigation.liveDocument->interfaceState)["entries"].getArray())if(row["itemId"].toString()==first){entry=row["id"].toString();break;}
+    liveCheck(list&&entry.isNotEmpty(),"Selection fixture has the first setlist entry");
+    auto* card=liveComponent(*list,"live-entry-"+entry);liveCheck(card!=nullptr,"Setlist click target exists");
+    const auto now=juce::Time::getCurrentTime();const juce::Point<float> pointer{8,8};
+    const auto event=[&](int mods){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),pointer,juce::ModifierKeys(mods),1,0,0,0,0,card,card,now,pointer,now,1,false);};
+    card->mouseDown(event(juce::ModifierKeys::leftButtonModifier));card->mouseUp(event(0));
+    ++navigation.liveUiRevision;list->refresh(); // Destroy/recreate cards before delayed single-click fires.
+    const auto deadline=juce::Time::getMillisecondCounter()+5000;
+    while((navigation.liveDocument->interfaceState["currentItem"].toString()!=first||navigation.livePlaybackLoading)&&juce::Time::getMillisecondCounter()<deadline)livePump();
+    liveCheck(navigation.liveDocument->interfaceState["currentItem"].toString()==first&&navigation.liveCurrentEntry==entry,
+              "Pending setlist click survives row refresh and activates its original entry ID");
 }
 void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     Desktop editing(true,false,true);editing.importLiveShow(fixture);editing.setSize(1200,800);
@@ -611,6 +653,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             for (int n = 0; n < 96000; ++n)
                 u16(8192);
         }
+        liveSelectionRefreshSmoke(fixture,waveFile);
         Desktop playbackDesktop(true, false, true);
         playbackDesktop.importLiveShow(fixture);
         playbackDesktop.app.disconnect();
@@ -1051,7 +1094,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(liveComponent(aggregateMixer,"live-mixer-gain-"+live::playbackContainer(multi.liveDocument->interfaceState)) &&
                       !liveComponent(aggregateMixer,"live-mixer-gain-"+stemKey),
                   "Mixer exposes aggregate Playback without separate stem strips");
-        multi.app.connect(std::make_unique<LivePlaybackTestDevice>(4), {0, 48000, 128, {}, {0, 1, 2, 3}, 1});
+        multi.app.connect(std::make_unique<LivePlaybackTestDevice>(4), {0, 48000, 128, {0, 1}, {0, 1, 2, 3}, 1});
         std::array<float, 512> audio{};
         const auto renderMulti = [&] {
             for (int i = 0; i < 4; ++i)
@@ -1309,6 +1352,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   multi.livePlaybackItem==second&&multi.livePlaybackReady()&&multi.app.engine()==sharedEngine&&
                   multi.app.engine()->state().playback==mrs::PlaybackState::playing,
                   "Native UI follows the Core boundary and entry identity without manual activation");
+        liveCheck(!multi.songDirty(),"Automatic runtime projection does not trigger a Studio song-save guard");
         multi.app.stop();renderMulti();multi.stepLiveItem(-1);
         multi.editLiveInterface("Advance and wait fixture",[&](auto& state){live::setPerformanceMode(state,id,id,mrs::PerformanceMode::stop);});
         multi.syncLivePlayback();const auto waitingToken=multi.liveAutoToken;

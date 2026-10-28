@@ -70,7 +70,7 @@ class Device final : public audio::IAudioDevice {
   public:
     explicit Device(std::shared_ptr<Calls> value) : calls(std::move(value)) {}
     std::vector<audio::DeviceInfo> enumerate() override {
-        return {{0, "Prepared Playback test", {}, {"1", "2", "3", "4"}, 32, 2048, 128, -1}};
+        return {{0, "Prepared Playback test", {"Input 1","Input 2"}, {"1", "2", "3", "4"}, 32, 2048, 128, -1}};
     }
     void control_panel(int) override {}
     void open(const audio::DeviceConfig &, std::shared_ptr<audio::AudioEngine>) override {
@@ -143,7 +143,7 @@ void run() {
     check(app.audio_name() == "Offline clock (no sound)" && app.services().projects->state().project->clips.size() == 1,
           "Disconnected editing materializes WAV using the shared offline clock");
     const auto calls = std::make_shared<Calls>();
-    app.connect(std::make_unique<Device>(calls), {0, 48000, 128, {}, {0, 1, 2, 3}, 1});
+    app.connect(std::make_unique<Device>(calls), {0, 48000, 128, {0, 1}, {0, 1, 2, 3}, 1});
     const auto engine = app.engine();
     const auto graphStore = app.graphs();
     Application::PlaybackLayout one;

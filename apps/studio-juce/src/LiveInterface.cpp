@@ -863,6 +863,8 @@ void Desktop::syncLivePlayback() {
         livePlaybackMixKey=live::playbackMixKey(liveDocument->interfaceState,id);
         livePlaybackRegionsKey=live::playbackRegionsKey(liveDocument->interfaceState,id);
         livePlaybackError.clear();
+        liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};
+        visualTransport.reset();lastVisualSample=0;lastDisplayState={};
         selectedTrack.reset();selectedClip.reset();++liveUiRevision;++liveTimelineFocusRevision;refresh(true);
     }
     bool changed = false;
@@ -930,6 +932,7 @@ void Desktop::syncLivePlayback() {
             auto layout=performanceLayout(liveDocument->interfaceState,id,project()->sample_rate,++liveTokenSerial);
             closeEditors();cancelPreview();app.activate_playback(media,layout);
             liveRuntimeToken=layout.token;livePerformanceKey=live::performanceKey(liveDocument->interfaceState,id);
+            visualTransport.reset();lastVisualSample=0;lastDisplayState={};
             liveAutoKey.clear();liveAutoToken=0;
             const bool selected = liveDocument->interfaceState["currentItem"].toString() != id;
             live::put(liveDocument->interfaceState, "currentItem", id);
