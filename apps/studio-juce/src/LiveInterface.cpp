@@ -240,6 +240,8 @@ void Desktop::prepareLiveInterface(bool saved) {
     livePreparedItems.clear();
     liveCurrentEntry.clear();
     livePendingEntry.clear();
+    liveBrowserItem.clear();
+    app.stop_library_preview();
     livePlaybackStore.reset();
     livePendingItem.clear();
     liveFailedPlaybackKey.clear();
@@ -361,6 +363,9 @@ void Desktop::importLiveShow(const juce::File &file) {
     liveEmptyRevision = std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
 }
 void Desktop::selectLiveItem(const juce::String &id, const juce::String &entry) {
+    // Explicit show selection exits Browser inspection and its independent audition.
+    liveBrowserItem.clear();
+    app.stop_library_preview();
     ++liveSelectionRevision;
     if (!liveDocument || !live::find(liveDocument->interfaceState, "items", id).isObject())
         throw std::runtime_error("Missing show item");
