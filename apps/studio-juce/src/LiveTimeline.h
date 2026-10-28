@@ -574,7 +574,15 @@ class LiveTimeline final : public juce::Component {
                 copy=event.mods.isAltDown() && selectedLane==live::MusicalLane::chords && mode==live::SpanGesture::move;
                 editing=true;parent.body.repaint();
                 if(selectedLane==live::MusicalLane::sections && parent.currentEntry(item) && parent.owner.liveTransportReady()) {
-                    parent.owner.run([&]{parent.owner.app.musical().seek_section({selection.toStdString()});});
+                    // Edge selection is for editing authored geometry. Navigation
+                    // resolves against Core's single-valued lane, including old
+                    // shows where a later section truncates an overlapping one.
+                    const auto project=parent.owner.project();const auto& meter=project->time.meters.front();
+                    const double at=barAt(item,event.position.x);
+                    const auto tick=static_cast<mrs::Tick>(std::llround(at*static_cast<double>(4*mrs::ppq*meter.numerator/meter.denominator)));
+                    for(const auto& section:project->sections)if(section.start<=tick && tick<section.end){
+                        parent.owner.run([&]{parent.owner.app.musical().seek_section(section.id);});break;
+                    }
                 }
                 return true;
             }
