@@ -1124,8 +1124,11 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         renderMulti();
         liveCheck(std::abs(audio[400] + audio[402]) < .0001f,
                   "Show Undo restores global Playback gain without changing Cue");
+        const auto clickStopPosition=multi.app.engine()->state().sample;
         multi.app.stop();
         renderMulti();
+        liveCheck(multi.app.engine()->state().sample==clickStopPosition,
+                  "Stop holds the current position when Back to start is disabled");
         liveClickSettings.playback = true;
         liveClickSettings.output_left = 2;
         liveClickSettings.output_right = 3;
@@ -1134,6 +1137,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         multi.setLivePlaybackMix(0., true, false);
         multi.livePlaybackStem = stemKey;
         multi.setLivePlaybackMix(0., true, false);
+        // Route testing needs a known beat, independently of the Stop preference.
+        multi.app.seek(0);
         multi.app.play();
         renderMulti();
         float clickPeak = 0.f;

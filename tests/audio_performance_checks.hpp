@@ -57,4 +57,14 @@ void performance(){
     CHECK(engine.state().playback==PlaybackState::stopped&&engine.state().sample==3);
     CHECK(engine.acknowledge_transition(prepared));prepared.reset();
 
+    // A held Stop resumes between beats; explicit seek establishes the click origin.
+    plan.end=48000;auto heldClick=graph(11,plan,0.f);heldClick.click.playback=true;heldClick.click.output_left=0;
+    engine.prepare({48000,0,1,32},std::move(heldClick));CHECK(engine.enqueue({ControlKind::play}));process(16);
+    CHECK(std::any_of(out.begin(),out.begin()+16,[](float value){return std::abs(value)>.001f;}));
+    CHECK(engine.enqueue({ControlKind::stop}));process(16);CHECK(engine.state().sample==16);
+    CHECK(engine.enqueue({ControlKind::play}));process(16);
+    CHECK(std::all_of(out.begin(),out.begin()+16,[](float value){return value==0.f;}));
+    CHECK(engine.enqueue({ControlKind::seek,0}));process(16);
+    CHECK(std::any_of(out.begin(),out.begin()+16,[](float value){return std::abs(value)>.001f;}));
+
 }
