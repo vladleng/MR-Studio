@@ -210,6 +210,8 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
     }
     void activate(const RowData &row) {
         if (browser && !row.folder && !row.divider) {
+            // Supersede any delayed Setlist click without activating the show.
+            ++owner.liveSelectionRevision;
             // Library inspection never activates a setlist occurrence, Core graph or timeline.
             if (live::find(data(), "items", row.itemId).isObject()) {
                 owner.app.stop_library_preview();
@@ -490,7 +492,8 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         void mouseDown(const juce::MouseEvent &event) override {
             const auto pointer = event.getScreenPosition();
             host.cancelActivation();
-            if (!host.browser) { ++host.owner.liveSelectionRevision; host.owner.liveShowEditing = true; }
+            ++host.owner.liveSelectionRevision; // Cancel a stale Setlist pending activation.
+            if (!host.browser) host.owner.liveShowEditing = true;
             dragged = false;
             primaryPressed = event.mods.isLeftButtonDown();
             host.focusIndex = host.indexOf(row.id);
