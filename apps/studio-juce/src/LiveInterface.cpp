@@ -1,6 +1,7 @@
 #include "Desktop.h"
 #include "LiveLayout.h"
 #include "LiveMusicalState.h"
+#include "LiveClipProjection.h"
 
 namespace ui {
 namespace {
@@ -51,11 +52,14 @@ void validatePlaybackEdit(Desktop &owner, const juce::var &copy) {
         const bool trimChanged =
             before[i]["trimStart"] != after[i]["trimStart"] || before[i]["trimEnd"] != after[i]["trimEnd"];
         const bool routeChanged = live::playbackOutputs(before[i]) != live::playbackOutputs(after[i]);
-        if (!trimChanged && !routeChanged)
+        const bool regionsChanged=live::canonical(live::playbackRegions(owner.liveDocument->interfaceState,id,before[i])) !=
+            live::canonical(live::playbackRegions(copy,id,after[i])) ||
+            live::playbackSecondsPerBar(owner.liveDocument->interfaceState,id)!=live::playbackSecondsPerBar(copy,id);
+        if (!trimChanged && !routeChanged && !regionsChanged)
             continue;
         if (owner.app.recording() || owner.app.engine()->state().playback == mrs::PlaybackState::playing)
             throw std::runtime_error("Pause or stop Playback before trimming or routing audio");
-        const auto frames = owner.app.source_frames(project->clips[i].id);
+        const auto frames = owner.app.source_frames(owner.app.playback_sources()[i].id);
         const auto start =
             static_cast<mrs::Sample>(std::llround(static_cast<double>(after[i]["trimStart"]) * project->sample_rate));
         const auto end = after[i]["trimEnd"].isVoid()
@@ -64,10 +68,16 @@ void validatePlaybackEdit(Desktop &owner, const juce::var &copy) {
                                    std::llround(static_cast<double>(after[i]["trimEnd"]) * project->sample_rate));
         if (start < 0 || end <= start || end > frames)
             throw std::runtime_error("Trim must stay inside the original WAV source");
+        const auto settings=live::playbackStemLayout(copy,id,after[i],project->sample_rate);
+        if(settings.regions)for(const auto& region:*settings.regions)
+            if(region.offset<0 || region.length<=0 || region.offset>frames || region.length>frames-region.offset)
+                throw std::runtime_error("Region must stay inside the original WAV source");
         for (const auto channel : live::playbackOutputs(after[i]))
             if (std::find(active.begin(), active.end(), channel) == active.end())
                 throw std::runtime_error("Enable the physical output in Audio settings first");
     }
+    if(live::playbackRegionsKey(owner.liveDocument->interfaceState,id)!=live::playbackRegionsKey(copy,id))
+        owner.app.validate_playback_regions(live::playbackStemLayouts(copy,id,project->sample_rate));
 }
 class LiveInterfaceEdit final : public juce::UndoableAction {
   public:
@@ -497,6 +507,9 @@ void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file,
         row.getDynamicObject()->removeProperty("trimStart");
         row.getDynamicObject()->removeProperty("trimEnd");
         live::put(row, "file", file.getFullPathName());
+        const auto track=live::playbackTrackId(state,id,row);
+        if(track.isNotEmpty())live::map(live::performance(state),"clips").getDynamicObject()->removeProperty(juce::Identifier(track));
+        row.getDynamicObject()->removeProperty("regions");
         if (stem.isEmpty())
             live::put(live::map(live::performance(state), "nativePlayback"), id, row);
     });
@@ -663,7 +676,7 @@ bool Desktop::livePlaybackReady() const {
     const auto rows = live::playbackRows(liveDocument->interfaceState, id);
     return id == livePlaybackItem && !rows.empty() &&
            livePlaybackMediaKey == live::playbackMediaKey(liveDocument->interfaceState, id) &&
-           project()->tracks.size() == rows.size() && project()->clips.size() == rows.size();
+           project()->tracks.size() == rows.size() && app.playback_sources().size() == rows.size();
 }
 bool Desktop::liveTransportReady() const {
     if (livePlaybackReady())
@@ -806,7 +819,7 @@ void Desktop::syncLivePlayback() {
     const auto music = live::musicalVersion(liveDocument->interfaceState, id);
     const auto musicKey = live::canonical(music);
     const auto failureKey = id + live::canonical(row) + live::canonical(live::liveAudio(liveDocument->interfaceState)) +
-                            musicKey + deviceKey;
+                            musicKey + deviceKey + live::playbackRegionsKey(liveDocument->interfaceState,id);
     const bool mediaChanged = (livePendingItem.isNotEmpty() && livePendingEntry != liveCurrentEntry) ||
                               livePlaybackStore != app.services().projects || livePlaybackItem != id ||
                               livePlaybackMediaKey != mediaKey ||
@@ -833,14 +846,7 @@ void Desktop::syncLivePlayback() {
             layout.chords = projection.chords;
             layout.sections = projection.sections;
             layout.click = live::liveClick(liveDocument->interfaceState);
-            for (const auto &stem : rows) {
-                mrs::desktop::Application::PlaybackStem settings;
-                settings.mix = live::playbackMix(liveDocument->interfaceState, id, stem);
-                settings.outputs = live::playbackOutputs(stem);
-                settings.begin = static_cast<double>(stem["trimStart"]);
-                settings.end = stem["trimEnd"].isVoid() ? -1. : static_cast<double>(stem["trimEnd"]);
-                layout.stems.push_back(std::move(settings));
-            }
+            layout.stems=live::playbackStemLayouts(liveDocument->interfaceState,id,project()->sample_rate);
             closeEditors();
             cancelPreview();
             app.activate_playback(media, layout);
@@ -863,7 +869,7 @@ void Desktop::syncLivePlayback() {
             livePlaybackMediaKey = mediaKey;
             livePlaybackStore = app.services().projects;
             livePlaybackDeviceKey = deviceKey;
-            livePlaybackMixKey.clear();
+            livePlaybackMixKey.clear();livePlaybackRegionsKey.clear();
             liveMusicalKey = musicKey;
             liveAudioKey.clear();
             selectedTrack.reset();
@@ -926,7 +932,7 @@ void Desktop::syncLivePlayback() {
             const auto active = app.active_outputs();
             // Validate the complete batch before any Core trim/route is published.
             for (std::size_t i = 0; i < rows.size(); ++i) {
-                const auto frames = app.source_frames(snapshot->clips[i].id);
+                const auto frames = app.source_frames(app.playback_sources()[i].id);
                 const auto start = static_cast<mrs::Sample>(
                     std::llround(static_cast<double>(rows[i]["trimStart"]) * snapshot->sample_rate));
                 const auto end = rows[i]["trimEnd"].isVoid()
@@ -945,16 +951,12 @@ void Desktop::syncLivePlayback() {
                     return;
                 }
             }
+            const auto regionsKey=live::playbackRegionsKey(liveDocument->interfaceState,id);
+            if(regionsKey!=livePlaybackRegionsKey){
+                app.set_playback_regions(live::playbackStemLayouts(liveDocument->interfaceState,id,snapshot->sample_rate));
+                livePlaybackRegionsKey=regionsKey;
+            }
             for (std::size_t i = 0; i < rows.size(); ++i) {
-                const auto clip = project()->clips[i];
-                const auto start = static_cast<mrs::Sample>(
-                    std::llround(static_cast<double>(rows[i]["trimStart"]) * snapshot->sample_rate));
-                const auto end = rows[i]["trimEnd"].isVoid()
-                                     ? app.source_frames(clip.id)
-                                     : static_cast<mrs::Sample>(std::llround(static_cast<double>(rows[i]["trimEnd"]) *
-                                                                             snapshot->sample_rate));
-                if (clip.start != start || clip.length != end - start)
-                    app.trim_clip(clip.id, start, end);
                 const auto outputs = live::playbackOutputs(rows[i]);
                 if (project()->tracks[i].hardware_outputs != outputs)
                     app.set_hardware_output(project()->tracks[i].id, outputs);

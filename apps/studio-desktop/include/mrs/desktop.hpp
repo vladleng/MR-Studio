@@ -127,13 +127,17 @@ public:
     WavImportStatus wav_import_status() const;
     // Non-RT, bounded performance media preparation; independent of active project revision.
     struct PlaybackPreparation;
-    struct PlaybackStem { Track::Mix mix; std::vector<int> outputs; double begin{}, end{-1}; };
+    struct PlaybackRegion { Id id; Sample start{}, length{1}, offset{}; };
+    struct PlaybackStem { Track::Mix mix; std::vector<int> outputs; double begin{}, end{-1}; std::optional<std::vector<PlaybackRegion>> regions{}; };
     struct PlaybackLayout { TimeMap time; std::vector<Chord> chords; std::vector<ArrangerSection> sections;
         std::vector<PlaybackStem> stems; audio::ClickSettings click; };
     std::shared_ptr<PlaybackPreparation> prepare_playback(const std::vector<std::filesystem::path>&);
     WavImportStatus playback_preparation(const std::shared_ptr<PlaybackPreparation>&);
     void cancel_playback(const std::shared_ptr<PlaybackPreparation>&);
     void activate_playback(const std::shared_ptr<PlaybackPreparation>&, const PlaybackLayout&);
+    const std::vector<Clip>& playback_sources() const;
+    void set_playback_regions(const std::vector<PlaybackStem>&);
+    void validate_playback_regions(const std::vector<PlaybackStem>&);
 
     std::vector<Id> import_midi(const std::vector<std::filesystem::path>&,std::optional<Id> target={},Tick start=0);
     bool history_preserves_plugins(bool redo) const;
@@ -417,6 +421,9 @@ private:
     void validate_wav_import(std::size_t,std::optional<Id>,Sample) const;
     void poll_wav_import();
     std::vector<std::shared_ptr<PlaybackPreparation>> playback_preparations_;
+    void configure_playback_regions(const std::vector<PlaybackStem>&,bool publish);
+    Id playback_source_project_;
+    std::vector<Clip> playback_sources_;
     void install_playback(Project,std::map<std::string,std::shared_ptr<const audio::AudioData>>,
                           std::shared_ptr<PreparedWavImport>,audio::ClickSettings);
 

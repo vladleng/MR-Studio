@@ -156,7 +156,24 @@ void Application::activate_playback(const std::shared_ptr<PlaybackPreparation>& 
         candidate.clips.push_back({new_id(),track.id,import_text(entry.original.filename()),begin,end-begin,begin,source});
         candidate.tracks.push_back(std::move(track));
     }
+    auto sources=candidate.clips;
+    auto sourceProject=candidate.id;
+    candidate.clips.clear();
+    for(std::size_t i=0;i<layout.stems.size();++i) {
+        if(!layout.stems[i].regions){candidate.clips.push_back(sources[i]);continue;}
+        for(const auto& region:*layout.stems[i].regions){
+            auto clip=sources[i];clip.id=region.id;clip.start=region.start;clip.length=region.length;clip.source_offset=region.offset;
+            require_import(clip.source_offset>=0&&clip.length>0&&clip.source_offset<=job->media->entries[i].data->frames()&&
+                clip.length<=job->media->entries[i].data->frames()-clip.source_offset,"Playback region exceeds source WAV");
+            candidate.clips.push_back(std::move(clip));
+        }
+    }
+    require_import(candidate.clips.size()<=audio::max_voices,"Too many Playback regions");
+    std::size_t streamed{},bytes{};
+    for(const auto& clip:candidate.clips){const auto& data=decoded.at(clip.source);if(data->file){++streamed;bytes+=8*8192*static_cast<std::size_t>(data->channels)*sizeof(float);}}
+    require_import(streamed<=32&&bytes<=256*1024*1024,"Disk voice budget exceeded (32 voices / 256 MiB)");
     candidate.validate();install_playback(std::move(candidate),std::move(decoded),job->media,layout.click);
+    playback_sources_=std::move(sources);playback_source_project_=std::move(sourceProject);
 }
 void Application::validate_wav_import(std::size_t count,std::optional<Id> target,Sample start) const {
     require_not_playing();require_not_recording();

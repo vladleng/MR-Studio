@@ -3,13 +3,25 @@
 #include <algorithm>
 #include <cmath>
 #include <span>
+#include <vector>
 
 namespace ui::live {
 // Display envelopes only. No PCM mixing, voices or audio-thread state.
 struct PlaybackWaveformSource {
     const mrs::audio::Waveform *wave{};
     double rate{}, start{}, offset{}, length{};
+    struct Region {double start{},offset{},length{};};
+    std::vector<Region> regions{};
+    bool hasRegions{};
     mrs::audio::Peak display(double begin, double end) const {
+        if(hasRegions){
+            mrs::audio::Peak sum;
+            for(const auto& region:regions){
+                PlaybackWaveformSource source{wave,rate,region.start,region.offset,region.length};
+                const auto peak=source.display(begin,end);sum.minimum+=peak.minimum;sum.maximum+=peak.maximum;
+            }
+            return sum;
+        }
         if (!wave || rate <= 0 || length <= 0 || end <= begin || end <= start || begin >= start + length)
             return {};
         const bool silence = begin < start || end > start + length;

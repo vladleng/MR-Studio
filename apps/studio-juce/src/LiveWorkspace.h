@@ -35,6 +35,10 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         addChildComponent(mixer);
         addAndMakeVisible(mixerButton);
         mixerButton.setComponentID("live-mixer-toggle");
+        for(auto* button:{&pointerTool,&scissorsTool})addAndMakeVisible(button);
+        pointerTool.setComponentID("live-pointer-tool");scissorsTool.setComponentID("live-scissors-tool");
+        pointerTool.getProperties().set("mrHostIcon","tool_pointer");scissorsTool.getProperties().set("mrHostIcon","tool_split");
+        pointerTool.onClick=[this]{timeline.setClipScissors(false);};scissorsTool.onClick=[this]{timeline.setClipScissors(true);};
         mixerButton.onClick = [this] { mixerVisible = !mixerVisible; mixer.setVisible(mixerVisible); resized(); };
         playbackPanel.layoutChanged = [this] { resized(); };
         files.onClick = [this] { filesMenu(); };
@@ -91,6 +95,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         undoButton.setBounds(controls.removeFromLeft(26));
         redoButton.setBounds(controls.removeFromLeft(26));
         mixerButton.setBounds(controls.removeFromLeft(58));
+        pointerTool.setBounds(controls.removeFromLeft(28));scissorsTool.setBounds(controls.removeFromLeft(28));
         auto setlistBounds = reference.bounds("show.setlist", getWidth(), getHeight());
         setlistBounds.setBottom(playbackPanel.getY());
         setlist.setBounds(setlistBounds);
@@ -328,6 +333,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         pause.setToggleState(state.playback == mrs::PlaybackState::paused, juce::dontSendNotification);
         record.setToggleState(owner.app.recording(), juce::dontSendNotification);
         loop.setToggleState(owner.app.engine()->state().loop.has_value(), juce::dontSendNotification);
+        pointerTool.setToggleState(!timeline.clipScissors(),juce::dontSendNotification);
+        scissorsTool.setToggleState(timeline.clipScissors(),juce::dontSendNotification);
         repaint();
     }
     Desktop &owner;
@@ -338,7 +345,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     LiveChannels legacyChannels;
     LivePlaybackPanel playbackPanel;
     LiveMixer mixer;
-    juce::TextButton mixerButton{"Mixer"};
+    juce::TextButton mixerButton{"Mixer"},pointerTool{"Pointer"},scissorsTool{"Scissors"};
     bool mixerVisible{};
     bool showLegacyChannels{};
     std::unique_ptr<juce::Drawable> tunerPlaceholder;

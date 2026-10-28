@@ -2,6 +2,7 @@
 #include "LiveWorkspace.h"
 #include "../../../tests/live_playback_view_checks.hpp"
 #include "../../../tests/live_timeline_edit_checks.hpp"
+#include "../../../tests/live_clip_edit_checks.hpp"
 #include "ProjectHome.h"
 #include <fstream>
 #include <windows.h>
@@ -104,6 +105,20 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     body->mouseDown(event(origin+80.f,96.f));body->mouseDrag(event(origin+112.f,96.f));
     body->keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));body->mouseUp(event(origin+112.f,96.f));
     liveCheck(editing.liveDocument->signature()==before,"Escape cancels gesture without history or model writes");
+    body->mouseMove(event(origin+64.f,96.f));
+    liveCheck(body->getMouseCursor()==noteTrimCursor(false),"Free section edge uses bracket cursor");
+    editing.editLiveInterface("Shared seam fixture",[&](auto& state){
+        live::setMusicalRows(state,id,live::MusicalLane::sections,live::newMusicalSpan(state,id,live::MusicalLane::sections,10.,24.,"Chorus"));
+    });timeline->refresh();
+    const float seam=origin+320.f;
+    body->mouseMove(event(seam-1.f,96.f));
+    liveCheck(body->getMouseCursor()==juce::MouseCursor(juce::MouseCursor::LeftRightResizeCursor),"Touching section edges use shared resize arrow");
+    body->mouseDown(event(seam,96.f));body->mouseDrag(event(seam+32.f,96.f));body->mouseUp(event(seam+32.f,96.f));timeline->refresh();
+    rows=live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::sections);
+    liveCheck(static_cast<double>(rows[0]["length"])==9. && static_cast<double>(rows[1]["start"])==11. && static_cast<double>(rows[1]["length"])==7.,
+              "Native seam drag commits both neighbouring boundaries together");
+    editing.undoLiveInterface();editing.undoLiveInterface();timeline->refresh();
+    liveCheck(editing.liveDocument->signature()==before,"Seam Undo and fixture Undo preserve original section data");
     body->mouseDoubleClick(event(origin+32.f,136.f,2));timeline->refresh();
     rows=live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::chords);
     liveCheck(rows.size()==1 && static_cast<double>(rows[0]["start"])==1.,"Chord creation shares the Sections origin");
@@ -140,6 +155,7 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
 void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::playbackViews();
     live::test::timelineEditing();
+    live::test::clipEditing();
     liveTimelineAuthoringSmoke(fixture);
     liveCheck(fixture.existsAsFile(), "Pass --show-fixture with the editor show fixture");
     const auto original = fixture.loadFileAsString();
@@ -689,9 +705,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         };
         const auto untrimmed = playbackDesktop.project();
         trimTimelineBody->mouseDown(dragEvent(1.f));
-        trimTimelineBody->mouseDrag(dragEvent(4.f));
+        trimTimelineBody->mouseDrag(dragEvent(33.f));
         liveCheck(playbackDesktop.project() == untrimmed, "Trim drag previews without publishing per-frame Core edits");
-        trimTimelineBody->mouseUp(dragEvent(4.f));
+        trimTimelineBody->mouseUp(dragEvent(33.f));
         liveCheck(playbackDesktop.project()->clips.front().start > 0 &&
                       playbackDesktop.project()->clips.front().start ==
                           playbackDesktop.project()->clips.front().source_offset,
@@ -1327,6 +1343,44 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         LiveAudioPanel audioSettings(clickOnly);
         liveCheck(liveComponent(audioSettings, "live-audio-output") != nullptr,
                   "Live context exposes Click route settings through the native controls");
+        {
+            Desktop clipHost(true,false,true);clipHost.importLiveShow(fixture);clipHost.app.disconnect();clipHost.selectLiveItem(id);
+            clipHost.editLiveInterface("Clip edit fixture",[&](auto& state){
+                live::put(live::require(state,"items",id),"tempo",240.);
+                live::setItemView(state,id,"scale",128.);live::setItemView(state,id,"lead",2.);live::setItemView(state,id,"length",8.);
+            });
+            clipHost.attachLivePlayback(id,folder.getChildFile("live-tone.wav"));
+            const auto readyUntil=juce::Time::getMillisecondCounter()+5000;
+            while(juce::Time::getMillisecondCounter()<readyUntil){
+                clipHost.app.poll();clipHost.syncLivePlayback();clipHost.refresh();
+                if(clipHost.livePlaybackReady() && clipHost.app.clip_waveform(clipHost.app.playback_sources()[0]))break;
+                juce::Thread::sleep(1);
+            }
+            liveCheck(clipHost.livePlaybackReady(),"Clip authoring has the prepared shared source");
+            auto* clipTimeline=dynamic_cast<LiveTimeline*>(liveComponent(clipHost,"live-show-timeline"));
+            liveCheck(clipTimeline!=nullptr,"Clip authoring timeline exists");clipTimeline->refresh();
+            auto* clipBody=liveComponent(*clipTimeline,"live-timeline-items");
+            const auto clipBounds=clipTimeline->itemBounds(id);
+            const auto channel=live::playbackContainer(clipHost.liveDocument->interfaceState);
+            const float clipOrigin=static_cast<float>(clipBounds.getX()+1+256);
+            const float clipY=static_cast<float>(clipTimeline->playbackStemLaneBounds(channel).getY()+20);
+            const auto mouse=[&](float x){const auto now=juce::Time::getCurrentTime();const juce::Point<float> point{x,clipY};return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys::leftButtonModifier,1,0,0,0,0,clipBody,clipBody,now,point,now,1,false);};
+            clipTimeline->setClipScissors(true);clipBody->mouseDown(mouse(clipOrigin+64.f));clipTimeline->refresh();
+            liveCheck(clipHost.project()->clips.size()==2 && clipHost.project()->clips[1].source_offset==24000 && clipTimeline->clipScissors(),
+                      "Native Scissors splits actual Core regions and stays selected");
+            clipTimeline->setClipScissors(false);
+            clipBody->mouseDown(mouse(clipOrigin+96.f));clipBody->mouseDrag(mouse(clipOrigin+160.f));
+            liveCheck(clipHost.project()->clips[1].start==24000,"Clip drag remains UI preview until release");
+            clipBody->mouseUp(mouse(clipOrigin+160.f));clipTimeline->refresh();
+            liveCheck(clipHost.project()->clips[1].start==48000 && clipHost.project()->clips[1].source_offset==24000,
+                      "Native Pointer moves cut region without source slip");
+            clipHost.undoLiveInterface();clipHost.syncLivePlayback();clipTimeline->refresh();
+            liveCheck(clipHost.project()->clips[1].start==24000,"One show Undo reverses the whole region drag");
+            const auto clipShow=folder.getChildFile("clip-edits.mrlive");clipHost.saveFile(clipShow);
+            const auto savedClips=LiveDocument::read(clipShow);
+            liveCheck(live::playbackRegions(savedClips.interfaceState,id,live::playback(savedClips.interfaceState,id)).size()==2,
+                      "Native split arrangement survives mrlive Save/Open");
+        }
         LiveWaveformCache displayCache;
         const auto source = folder.getChildFile("live-tone.wav").getFullPathName();
         const auto waitWave = [&] {

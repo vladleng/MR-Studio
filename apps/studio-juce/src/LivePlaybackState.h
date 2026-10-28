@@ -130,7 +130,80 @@ inline mrs::Track::Mix playbackMix(const juce::var &state, const juce::String &i
 }
 inline juce::String playbackMixKey(const juce::var &state, const juce::String &id) {
     return canonical(playback(state, id)) + canonical(liveAudio(state)) +
-           juce::String(itemPlaybackGain(state, id), 17) + canonical(state["channels"]);
+           juce::String(itemPlaybackGain(state, id), 17) + canonical(state["channels"]) + canonical(state["performance"]["clips"]);
+}
+// Browser regions are in bars, keyed by the item track ID. Native-only
+// sources without a browser track retain the same rows on their source binding.
+inline juce::String playbackTrackId(const juce::var &state,const juce::String &item,const juce::var &row) {
+    const auto tracks=find(state,"items",item)["tracks"];
+    if(const auto* values=tracks.getArray())for(const auto& track:*values)
+        if(track["channelId"].toString()==playbackChannelId(state,row))return track["id"].toString();
+    return {};
+}
+inline juce::var playbackRegions(const juce::var &state,const juce::String &item,const juce::var &row) {
+    const auto track=playbackTrackId(state,item,row);
+    return track.isEmpty()?row["regions"]:state["performance"]["clips"][juce::Identifier(track)];
+}
+inline void validatePlaybackRegions(const juce::var &rows) {
+    if(rows.isVoid())return;
+    if(!rows.isArray() || rows.size()>128)throw std::runtime_error("Playback supports up to 128 regions");
+    std::set<juce::String> ids;
+    for(const auto& row:*rows.getArray()){
+        if(!named(row["id"])||!ids.insert(row["id"].toString()).second||!number(row["start"])||!number(row["length"])||!number(row["offset"])||
+            static_cast<double>(row["start"])<0.||static_cast<double>(row["length"])<.25||
+            static_cast<double>(row["start"])+static_cast<double>(row["length"])>4096.+1.e-7||static_cast<double>(row["offset"])<0. || static_cast<double>(row["offset"])+static_cast<double>(row["length"])>1.e9)
+            throw std::runtime_error("Invalid Playback region");
+    }
+}
+inline void setPlaybackRegions(juce::var &state,const juce::String &item,const juce::String &stem,const juce::var &rows) {
+    validatePlaybackRegions(rows);
+    auto row=playbackStem(state,item,stem);
+    if(!row.isObject())throw std::runtime_error("Playback source was removed");
+    const auto track=playbackTrackId(state,item,row);
+    if(track.isEmpty())put(row,"regions",rows.clone());
+    else put(map(performance(state),"clips"),track,rows.clone());
+}
+inline double playbackSecondsPerBar(const juce::var &state,const juce::String &item) {
+    const auto source=find(state,"items",item);const auto meter=source["meter"].toString();
+    return 60./static_cast<double>(source["tempo"])*4.*meter.upToFirstOccurrenceOf("/",false,false).getDoubleValue()/
+        meter.fromFirstOccurrenceOf("/",false,false).getDoubleValue();
+}
+inline juce::var defaultPlaybackRegions(const juce::var &row,double sourceBars,double secondsPerBar) {
+    const double start=static_cast<double>(row["trimStart"])/secondsPerBar;
+    const double end=row["trimEnd"].isVoid()?sourceBars:static_cast<double>(row["trimEnd"])/secondsPerBar;
+    auto region=object();put(region,"id","source");put(region,"start",start);put(region,"length",end-start);put(region,"offset",start);
+    return juce::Array<juce::var>{region};
+}
+inline double clipSnap(double value){return std::round(value*4.)/4.;}
+inline juce::var editPlaybackRegion(const juce::var &rows,const juce::String &id,double delta,int edge,double sourceBars) {
+    auto result=rows.clone();bool found=false;
+    for(auto& row:*result.getArray())if(row["id"].toString()==id){
+        found=true;const double start=row["start"],length=row["length"],offset=row["offset"];
+        if(!edge)put(row,"start",juce::jlimit(0.,4096.-length,clipSnap(start+delta)));
+        if(edge<0){const double change=juce::jlimit((std::max)(-start,-offset),length-.25,clipSnap(start+delta)-start);
+            put(row,"start",start+change);put(row,"offset",offset+change);put(row,"length",length-change);}
+        if(edge>0)put(row,"length",juce::jlimit(.25,(std::min)(sourceBars-offset,4096.-start),clipSnap(start+length+delta)-start));
+    }
+    if(!found)throw std::runtime_error("Playback region was removed");
+    validatePlaybackRegions(result);return result;
+}
+inline juce::var splitPlaybackRegion(const juce::var &rows,const juce::String &id,double at) {
+    auto result=rows.clone();bool found=false;
+    for(int i=0;i<result.size();++i)if(result[i]["id"].toString()==id){
+        auto left=result[i].clone(),right=left.clone();const double start=left["start"],length=left["length"];
+        at=clipSnap(at);const double first=at-start;
+        if(first<.25 || length-first<.25)throw std::runtime_error("Cut must leave at least 1/4 bar on each side");
+        put(left,"length",first);put(right,"id",freshId());put(right,"start",at);put(right,"length",length-first);
+        put(right,"offset",static_cast<double>(left["offset"])+first);
+        result.getArray()->set(i,left);result.getArray()->insert(i+1,right);found=true;break;
+    }
+    if(!found)throw std::runtime_error("Playback region was removed");
+    validatePlaybackRegions(result);return result;
+}
+inline juce::String playbackRegionsKey(const juce::var& state,const juce::String& item){
+    juce::Array<juce::var> rows;
+    for(const auto& row:playbackRows(state,item))rows.add(juce::Array<juce::var>{row["trimStart"],row["trimEnd"],playbackRegions(state,item,row)});
+    return canonical(rows)+juce::String(playbackSecondsPerBar(state,item),17);
 }
 inline void validatePlaybackRow(const juce::var &row) {
     if ((!row["cue"].isVoid() && !row["cue"].isBool()) || !row.isObject() || !row["file"].isString() ||
@@ -166,7 +239,7 @@ inline void validatePlayback(const juce::var &state) {
         if (!find(state, "items", pair.name.toString()).isObject())
             throw std::runtime_error("Missing Playback item");
         validatePlaybackRow(pair.value);
-        for (const auto &row : playbackRows(state, pair.name.toString())) playbackMix(state, pair.name.toString(), row).validate();
+        for (const auto &row : playbackRows(state, pair.name.toString())) { playbackMix(state, pair.name.toString(), row).validate(); validatePlaybackRegions(playbackRegions(state,pair.name.toString(),row)); }
         const auto stems = pair.value["stems"];
         if (!stems.isVoid()) {
             if (!stems.isArray() || stems.size() > 31)

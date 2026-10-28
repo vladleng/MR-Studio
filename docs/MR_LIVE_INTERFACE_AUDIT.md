@@ -43,11 +43,11 @@ MR Live.exe запускается непосредственно в пусто�
 | FX / Files / MR Library Browser | Отдельный assets browser; существующий item Browser его не заменяет | #281 → #28 |
 | Header/toolbar/sidebar | Mixer/Browser actions, transport navigation/readout, скрытие Playback/Status с возвратом места Setlist | #286 → #28 |
 | Контекстные меню | Сохранить graphite/manager assets/90% opacity, открытие справа снизу указателя с clamp; закончить пропущенные actions | #286 → #28 |
-| Sections / Chord Track | Импорт/отрисовка и seek/loop есть; native create/edit/move/resize/copy/context ещё нужны | #282 → #28; #29 |
-| Origin / lead / scale / item length | Данные читаются; полноценные жесты/контролы прототипа не перенесены | #282 → #28 |
+| Sections / Chord Track | Native authoring принят в 0.8.7 build 347; shared seam/bracket cursor/non-overlap обеих полос подготовлены для 0.8.8, runtime ожидается | #282 → #28; #29 |
+| Origin / lead / scale / item length | Native origin/lead/zoom/explicit end приняты в 0.8.7 build 347 | #282 → #28 |
 | Playback, WAV, stems, trim, routes | Реальный общий Core PCM runtime принят до 330; не объявлять весь родитель завершённым | #31 |
 | Waveform неактивных items | Реальные waveform приняты; не равны резидентности всего аудио в RAM | #31 |
-| Pointer/Scissors, multi-clip editing | Source trim window не заменяет performance.clips / move/split/delete/restore | #283 → #31 |
+| Pointer/Scissors, multi-clip editing | 0.8.8: mapping performance.clips, Pointer/Scissors, move/split/delete/restore и multi-region Core подготовлены; Windows runtime ещё не запускался | #283 → #31 |
 | Click и Cue WAV | Приняты; сохранять независимый routing и gain | #31 |
 | Текстовые markers/cues/notes | Item notes есть; marker/text cue UI и subscriptions ещё нужны; Cue WAV их не заменяет | #29 |
 | Item/section normal/skip/stop/loop | Частичный section loop не завершает end policies и linked stopRecord | #287 → #30 |

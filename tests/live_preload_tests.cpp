@@ -189,6 +189,32 @@ void run() {
     check(std::abs(out[402]-baseLeft)<.00001f && std::abs(out[403]-baseRight)<.00001f,
           "Cancel restores all previewed channels");
     check(!app.preview_mixes({{new_id(),leftMix}},1.f),"Unknown group preview channel is rejected");
+    // Regions use the already prepared source and the same Core mixer/device.
+    auto arranged=one;
+    arranged.stems[0].regions=std::vector<Application::PlaybackRegion>{
+        {{"region-left"},0,1200,0},{{"region-right"},1200,1200,1200}};
+    app.activate_playback(first,arranged);
+    const auto originalSource=app.playback_sources().front();
+    check(app.services().projects->state().project->clips.size()==2 &&
+          app.services().projects->state().project->clips[1].source_offset==1200,
+          "Prepared handoff materializes multiple regions and their source offsets");
+    app.play();render();const auto singleRegion=out[400];
+    rejects([&]{app.set_playback_regions(arranged.stems);});
+    app.pause();render();arranged.stems[0].regions->at(1).start=0;
+    app.set_playback_regions(arranged.stems);app.seek(0);app.play();render();
+    check(singleRegion>.03f && std::abs(out[400]-2.f*singleRegion)<.00001f,
+          "Overlapping regions sum through the existing Core mixer");
+    app.pause();render();auto invalidRegions=arranged.stems;invalidRegions[0].regions->at(0).offset=4800;
+    const auto priorRegions=app.services().projects->state().project;
+    rejects([&]{app.validate_playback_regions(invalidRegions);});
+    check(app.services().projects->state().project==priorRegions,"Invalid source offset leaves model/audio unchanged");
+    arranged.stems[0].regions->clear();app.set_playback_regions(arranged.stems);
+    check(app.services().projects->state().project->clips.empty() && app.source_frames(originalSource.id)==4800,
+          "Deleting all regions retains source extent for restore");
+    app.set_playback_regions(one.stems);
+    check(app.services().projects->state().project->clips.size()==1 &&
+          app.services().projects->state().project->clips.front().length==4800 && app.engine()==engine && calls->opens==1,
+          "Restore recovers complete source without a second engine or reopening device");
     const auto start = std::chrono::steady_clock::now();
     for (int i = 0; i < 32; ++i) {
         app.activate_playback(first, one);

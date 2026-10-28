@@ -26,6 +26,26 @@ inline void timelineEditing() {
     setMusicalRows(state,item,MusicalLane::sections,sections);
     sections=newMusicalSpan(state,item,MusicalLane::sections,8.,32.,"Chorus");
     check(sections[1]["color"].toString()=="violet","Section templates preserve accepted color defaults");
+    for(const auto lane:{MusicalLane::sections,MusicalLane::chords}){
+        const auto a=sections[0]["id"].toString(),b=sections[1]["id"].toString();
+        auto contiguous=sections.clone();
+        if(lane==MusicalLane::chords)for(auto& row:*contiguous.getArray())put(row,"symbol","Am");
+        const auto target=musicalHit(contiguous,8.01,.15);
+        check(target.id==a && target.mode==SpanGesture::joined,"Both sides of a seam resolve to one shared boundary");
+        auto joined=editMusicalSpan(contiguous,a,2.,SpanGesture::joined,lane);
+        check(static_cast<double>(spanById(joined,a)["length"])==10. &&
+              static_cast<double>(spanById(joined,b)["start"])==10. && static_cast<double>(spanById(joined,b)["length"])==6.,
+              "Joined resize preserves outer boundaries without gaps/overlap");
+        joined=editMusicalSpan(contiguous,a,100.,SpanGesture::joined,lane);
+        check(static_cast<double>(spanById(joined,b)["length"])==.25,"Shared boundary respects neighbour minimum length");
+        check(musicalHit(contiguous,-.01,.15).mode==SpanGesture::left && musicalHit(contiguous,16.01,.15).mode==SpanGesture::right,
+              "Outer edge hit areas include a small margin outside event");
+        auto overlap=contiguous.clone();put(overlap.getArray()->getReference(1),"start",7.);
+        rejected=false;try{validateMusicalRows(overlap,lane);}catch(...){rejected=true;}
+        check(rejected,"Both Sections and Chords reject overlapping properties");
+        const auto clamped=editMusicalSpan(contiguous,a,10.,SpanGesture::move,lane);
+        check(static_cast<double>(spanById(clamped,a)["start"])==0.,"Both lanes clamp drag against neighbours");
+    }
     setMusicalRows(state,item,MusicalLane::sections,sections);
     setMusicalRows(state,item,MusicalLane::chords,copied);
     const auto source=canonical(find(state,"items",item));

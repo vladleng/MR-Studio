@@ -100,7 +100,7 @@ public:
     void syncLivePlayback();
     bool livePlaybackReady() const;
     bool liveTransportReady() const;
-    juce::String livePlaybackItem, livePlaybackFile, livePlaybackMixKey, livePlaybackError, liveMusicalKey;
+    juce::String livePlaybackItem, livePlaybackFile, livePlaybackMixKey, livePlaybackRegionsKey, livePlaybackError, liveMusicalKey;
     bool livePlaybackLoading{};
     struct LivePreparedItem {juce::String id,key;std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> media;};
     std::vector<LivePreparedItem> livePreparedItems;

@@ -5,7 +5,7 @@
 
 namespace ui::live {
 enum class MusicalLane { sections, chords };
-enum class SpanGesture { move, left, right };
+enum class SpanGesture { move, left, right, joined };
 inline double barSnap(double value) { return std::round(value * 4.) / 4.; }
 inline juce::var musicalRows(const juce::var &state, const juce::String &item, MusicalLane lane) {
     return lane == MusicalLane::sections ? find(state, "items", item)["sections"]
@@ -33,16 +33,14 @@ inline void validateMusicalRows(const juce::var &rows, MusicalLane lane) {
             throw std::runtime_error("Musical event must stay within 0..4096 bars (minimum 1/4 bar)");
         sorted.push_back(row);
     }
-    // Sections in the accepted browser format may overlap; Core resolves later
-    // starts. Chords are explicitly single-valued and reject overlap atomically.
-    if (lane == MusicalLane::chords) {
+    {
         std::sort(sorted.begin(), sorted.end(), [](const auto &a, const auto &b) {
             return static_cast<double>(a["start"]) < static_cast<double>(b["start"]);
         });
         for (std::size_t i = 1; i < sorted.size(); ++i)
             if (static_cast<double>(sorted[i]["start"]) + 1.e-7 <
                 static_cast<double>(sorted[i-1]["start"]) + static_cast<double>(sorted[i-1]["length"]))
-                throw std::runtime_error("Chords cannot overlap");
+                throw std::runtime_error("Sections and chords cannot overlap within their lane");
     }
 }
 inline void setMusicalRows(juce::var &state, const juce::String &item, MusicalLane lane, const juce::var &rows) {
@@ -58,11 +56,29 @@ inline juce::var editMusicalSpan(const juce::var &rows, const juce::String &id, 
     if (!original.isObject()) throw std::runtime_error("Musical event no longer exists");
     const double start = original["start"], length = original["length"], end = start + length;
     double left = 0, right = 4096;
-    if (lane == MusicalLane::chords && !copy) for (const auto &row : *rows.getArray()) {
+    if (!copy) for (const auto &row : *rows.getArray()) {
         if (row["id"].toString() == id) continue;
         const double a = row["start"], b = a + static_cast<double>(row["length"]);
         if (b <= start + 1.e-7) left = (std::max)(left, b);
         if (a >= end - 1.e-7) right = (std::min)(right, a);
+    }
+    if (mode == SpanGesture::joined) {
+        juce::String neighbour;
+        double limit = 4096.;
+        for (const auto &row : *rows.getArray())
+            if (row["id"].toString() != id && std::abs(static_cast<double>(row["start"]) - end) < 1.e-7) {
+                neighbour = row["id"].toString();
+                limit = static_cast<double>(row["start"]) + static_cast<double>(row["length"]);
+                break;
+            }
+        if (neighbour.isEmpty()) throw std::runtime_error("Joined boundary no longer exists");
+        const double boundary = juce::jlimit(start + .25, limit - .25, barSnap(end + delta));
+        for (auto &row : *result.getArray()) {
+            if (row["id"].toString() == id) put(row, "length", boundary - start);
+            if (row["id"].toString() == neighbour) { put(row, "start", boundary); put(row, "length", limit - boundary); }
+        }
+        validateMusicalRows(result, lane);
+        return result;
     }
     auto next = original.clone();
     if (mode == SpanGesture::move) put(next, "start", juce::jlimit(left, right - length, barSnap(start + delta)));
@@ -75,6 +91,40 @@ inline juce::var editMusicalSpan(const juce::var &rows, const juce::String &id, 
     else for (auto &row : *result.getArray()) if (row["id"].toString() == id) row = next;
     validateMusicalRows(result, lane);
     return result;
+}
+struct MusicalHit {
+    juce::String id;
+    SpanGesture mode{SpanGesture::move};
+};
+inline MusicalHit musicalHit(const juce::var &rows, double at, double tolerance) {
+    MusicalHit edge;
+    double distance = tolerance + 1.;
+    if (const auto *values = rows.getArray()) for (const auto &row : *values) {
+        const double start = row["start"], end = start + static_cast<double>(row["length"]);
+        for (bool right : {false, true}) {
+            const double d = std::abs(at - (right ? end : start));
+            if (d > tolerance || d >= distance) continue;
+            edge = {row["id"].toString(), right ? SpanGesture::right : SpanGesture::left};
+            distance = d;
+        }
+    }
+    if (edge.id.isNotEmpty()) {
+        const auto row = spanById(rows, edge.id);
+        const double boundary = static_cast<double>(row["start"]) +
+            (edge.mode == SpanGesture::right ? static_cast<double>(row["length"]) : 0.);
+        if (const auto *values = rows.getArray()) for (const auto &other : *values) {
+            if (other["id"].toString() == edge.id) continue;
+            const double otherStart = other["start"], otherEnd = otherStart + static_cast<double>(other["length"]);
+            if ((edge.mode == SpanGesture::right && std::abs(otherStart - boundary) < 1.e-7) ||
+                (edge.mode == SpanGesture::left && std::abs(otherEnd - boundary) < 1.e-7))
+                return {edge.mode == SpanGesture::right ? edge.id : other["id"].toString(), SpanGesture::joined};
+        }
+        return edge;
+    }
+    if (const auto *values = rows.getArray()) for (const auto &row : *values)
+        if (at >= static_cast<double>(row["start"]) && at < static_cast<double>(row["start"]) + static_cast<double>(row["length"]))
+            return {row["id"].toString(), SpanGesture::move};
+    return {};
 }
 inline juce::var newMusicalSpan(const juce::var &state, const juce::String &item, MusicalLane lane,
                                  double at, double end, const juce::String &name = "Verse") {

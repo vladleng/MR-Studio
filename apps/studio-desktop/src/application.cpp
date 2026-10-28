@@ -1519,11 +1519,56 @@ bool Application::preview_send_gain(const Id& source,const Id& bus,float gain) {
     if(!found||update.count!=mixer_tracks_.size())return false;
     return engine_->enqueue_mix(update);
 }
+const std::vector<Clip>& Application::playback_sources() const {
+    static const std::vector<Clip> empty;
+    return services_.projects->state().project->id==playback_source_project_?playback_sources_:empty;
+}
 Sample Application::source_frames(const Id& id) {
     const auto p = services_.projects->state().project;
     const auto it = std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip) { return clip.id == id; });
-    require(it != p->clips.end(),"unknown clip");
-    return asset(it->source)->frames();
+    if(it!=p->clips.end())return asset(it->source)->frames();
+    const auto& sources=playback_sources();
+    const auto source=std::find_if(sources.begin(),sources.end(),[&](const auto& clip){return clip.id==id;});
+    require(source!=sources.end(),"unknown clip");return asset(source->source)->frames();
+}
+void Application::set_playback_regions(const std::vector<PlaybackStem>& stems) {configure_playback_regions(stems,true);}
+void Application::validate_playback_regions(const std::vector<PlaybackStem>& stems) {configure_playback_regions(stems,false);}
+void Application::configure_playback_regions(const std::vector<PlaybackStem>& stems,bool publish) {
+    require_not_playing();require_not_recording();
+    const auto current=services_.projects->state().project;
+    require(workspace_==Workspace::live && path_.empty() && current->id==playback_source_project_,"Region editing requires prepared Live Playback");
+    require(current->tracks.size()==playback_sources_.size(),"Playback tracks changed; reload the item");
+    for(std::size_t i=0;i<playback_sources_.size();++i)require(current->tracks[i].id==playback_sources_[i].track,"Playback source mapping changed");
+    const auto& sources=playback_sources();require(stems.size()==sources.size(),"Playback source mapping changed");
+    auto nextSources=sources;
+    struct Regions final:ICommand {
+        std::vector<Clip> clips;
+        std::string_view name()const override{return "Set Playback regions";}
+        void apply(Project& p)const override{p.clips=clips;}
+    } command;
+    const auto rate=services_.projects->state().project->sample_rate;
+    for(std::size_t i=0;i<stems.size();++i){
+        const auto& settings=stems[i];auto& source=nextSources[i];const auto frames=source_frames(source.id);
+        require(std::isfinite(settings.begin)&&std::isfinite(settings.end)&&settings.begin>=0&&settings.begin<=static_cast<double>(max_sample)/rate&&settings.end>=-1&&settings.end<=static_cast<double>(max_sample)/rate,"Invalid Playback trim");
+        const auto start=static_cast<Sample>(std::llround(settings.begin*rate));
+        const auto end=settings.end<0?frames:static_cast<Sample>(std::llround(settings.end*rate));
+        require(start>=0&&end>start&&end<=frames,"Playback trim exceeds source WAV");
+        source.start=start;source.source_offset=start;source.length=end-start;
+        if(!settings.regions){command.clips.push_back(source);continue;}
+        for(const auto& region:*settings.regions){
+            auto clip=source;clip.id=region.id;clip.start=region.start;clip.length=region.length;clip.source_offset=region.offset;
+            require(clip.source_offset>=0&&clip.length>0&&clip.source_offset<=frames&&clip.length<=frames-clip.source_offset,"Playback region exceeds source WAV");
+            command.clips.push_back(std::move(clip));
+        }
+    }
+    auto candidate=*services_.projects->state().project;candidate.clips=command.clips;candidate.validate();
+    require(candidate.clips.size()<=audio::max_voices,"Too many Playback regions");
+    std::size_t streamed{},bytes{};
+    for(const auto& clip:candidate.clips){const auto data=asset(clip.source);if(data->file){++streamed;bytes+=8*8192*static_cast<std::size_t>(data->channels)*sizeof(float);}}
+    require(streamed<=32 && bytes<=256*1024*1024,"Disk voice budget exceeded (32 voices / 256 MiB)");
+    if(!publish)return;
+    if(command.clips!=services_.projects->state().project->clips)edit(command);
+    playback_sources_=std::move(nextSources);
 }
 void Application::move_clip(const Id& id, const Id& track, Sample start) {
     const auto p=services_.projects->state().project;const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});require(c!=p->clips.end(),"unknown clip");

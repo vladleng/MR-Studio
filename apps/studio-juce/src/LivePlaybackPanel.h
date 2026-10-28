@@ -147,7 +147,7 @@ class LivePlaybackPanel final : public juce::Component {
         }
         std::vector<juce::String> files;
         for (std::size_t i = 0; i < rows.size(); ++i)
-            if (!owner.livePlaybackReady() || i >= owner.project()->clips.size() || !owner.app.clip_waveform(owner.project()->clips[i]))
+            if (!owner.livePlaybackReady() || i >= owner.app.playback_sources().size() || !owner.app.clip_waveform(owner.app.playback_sources()[i]))
                 files.push_back(rows[i]["file"].toString());
         waveforms.sync(files);
         for (auto &stemRow : stemRows) stemRow->sync();
@@ -199,13 +199,17 @@ class LivePlaybackPanel final : public juce::Component {
         cue.setToggleState(static_cast<bool>(row["cue"]), juce::dontSendNotification);
         const bool ready = owner.livePlaybackReady();
         const bool canTrim =
-            ready && !owner.app.recording() && owner.app.engine()->state().playback != mrs::PlaybackState::playing;
+            ready && !live::playbackRegions(owner.liveDocument->interfaceState,id,row).isArray() && !owner.app.recording() && owner.app.engine()->state().playback != mrs::PlaybackState::playing;
         trimStart.setEnabled(canTrim);
         trimEnd.setEnabled(canTrim);
         trimApply.setEnabled(canTrim);
+        const auto trimHint=row.isObject() && live::playbackRegions(owner.liveDocument->interfaceState,id,row).isArray()
+            ? "Edit cut regions using their timeline edges or Region properties" : "Source window in seconds";
+        for(auto* field:{&trimStart,&trimEnd})field->setTooltip(trimHint);
+        trimApply.setTooltip(trimHint);
         if (ready) {
             const auto project = owner.project();
-            const auto clip = project->clips[owner.livePlaybackIndex()];
+            const auto clip = owner.app.playback_sources()[owner.livePlaybackIndex()];
             const auto nextTrim =
                 id + owner.livePlaybackStem + ":" + juce::String(clip.start) + ":" + juce::String(clip.length);
             if (nextTrim != trimSignature) {
