@@ -363,7 +363,8 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                 folderIcon =
                     juce::Drawable::createFromImageData(MRConceptAssets::folder_svg, MRConceptAssets::folder_svgSize);
         }
-        ~Card() override { host.cancelActivation(); }
+        // Pending activation belongs to LiveSetlist and must survive row replacement.
+        ~Card() override = default;
         float preferredHeight() const {
             if (row.folder || row.divider)
                 return 28.f;
