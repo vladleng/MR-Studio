@@ -461,7 +461,11 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     liveCheck(live::find(desktop.liveDocument->interfaceState,"items",id)["notes"].toString()=="Immediate note\nSecond line pending",
               "Notes survive pending async notification after blur");
     notesField->grabKeyboardFocus(); livePump();
-    desktop.undoLiveInterface(); livePump();
+    desktop.undoLiveInterface();
+    // A late focus notification must not write the old view over the model
+    // before the revision timer can display the undone value.
+    notesField->onFocusLost();
+    livePump();
     for(int retry=0; retry<8 && notesField->getText()!=notesBeforePending; ++retry) livePump();
     const auto undoneNotes=live::find(desktop.liveDocument->interfaceState,"items",id)["notes"].toString();
     if(undoneNotes!=notesBeforePending || notesField->getText()!=notesBeforePending)

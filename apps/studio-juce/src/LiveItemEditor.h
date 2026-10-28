@@ -462,6 +462,10 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
     }
     void commitProperty(juce::TextEditor &field) {
         if (!owner || !owner->liveDocument) return;
+        // Focus changes and queued TextEditor notifications can arrive after
+        // show Undo, before the timer has mirrored the restored model. Only
+        // newly typed text may commit; an unchanged view must not redo Undo.
+        if (&field == &notes && field.getText() == observedNotes) return;
         try {
             const char *keyName = &field == &tempo ? "tempo" : &field == &duration ? "duration" :
                                   &field == &key ? "key" : "notes";
