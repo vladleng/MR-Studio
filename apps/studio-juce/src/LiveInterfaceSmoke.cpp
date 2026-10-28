@@ -78,8 +78,9 @@ void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave)
     const auto values=navigation.liveDocument->interfaceState["items"];
     const auto first=values[0]["id"].toString(),second=values[1]["id"].toString(),third=values[2]["id"].toString();
     navigation.selectLiveItem(third);navigation.attachLivePlayback(first,wave);navigation.attachLivePlayback(second,wave);
+    // Valid show limits: a one-second WAV spans seven 1/4 bars at 400 BPM.
     navigation.editLiveInterface("Cold waveform geometry fixture",[&](auto& state){
-        for(const auto& id:{first,second,third}){auto item=live::require(state,"items",id);live::put(item,"bars",1.);live::put(item,"tempo",1000.);live::setItemView(state,id,"scale",128.);}
+        for(const auto& id:{first,second,third}){auto item=live::require(state,"items",id);live::put(item,"bars",1.);live::put(item,"tempo",400.);live::put(item,"meter","1/4");live::setItemView(state,id,"scale",128.);}
     });navigation.syncLivePlayback();
     {
         LiveTimeline cold(navigation);cold.setSize(640,700);cold.refresh();
