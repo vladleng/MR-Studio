@@ -133,6 +133,17 @@ Application::WavImportStatus Application::playback_preparation(const std::shared
 }
 void Application::cancel_playback(const std::shared_ptr<PlaybackPreparation>& job){if(job)job->stop.request_stop();}
 void Application::activate_playback(const std::shared_ptr<PlaybackPreparation>& job,const PlaybackLayout& layout){
+    require_import(cancel_staged_playback(),"Playback transition is being adopted; retry navigation");
+    activate_playback_impl(job,layout,false);
+}
+void Application::stage_playback(const std::shared_ptr<PlaybackPreparation>& job,const PlaybackLayout& layout,std::uint64_t expected){
+    require_import(audio_running(),"Connect audio before staging an automatic transition");
+    require_import(expected==playback_token()&&expected==performance_token_,"Playback changed while preparing transition");
+    require_import(cancel_staged_playback(),"Playback transition is being adopted");
+    require_import(expected==performance_token_,"Playback advanced while preparing the next graph");
+    activate_playback_impl(job,layout,true);
+}
+void Application::activate_playback_impl(const std::shared_ptr<PlaybackPreparation>& job,const PlaybackLayout& layout,bool staged){
     require_import(job&&!playback_preparation(job).busy&&job->media&&job->error.empty()&&!job->stop.stop_requested(),"Playback preparation is not ready");
     require_import(job->rate==services_.projects->state().project->sample_rate,"Playback preparation rate changed");
     require_import(layout.stems.size()==job->media->entries.size(),"Prepared stem mapping mismatch");
@@ -172,8 +183,17 @@ void Application::activate_playback(const std::shared_ptr<PlaybackPreparation>& 
     std::size_t streamed{},bytes{};
     for(const auto& clip:candidate.clips){const auto& data=decoded.at(clip.source);if(data->file){++streamed;bytes+=8*8192*static_cast<std::size_t>(data->channels)*sizeof(float);}}
     require_import(streamed<=32&&bytes<=256*1024*1024,"Disk voice budget exceeded (32 voices / 256 MiB)");
-    candidate.validate();install_playback(std::move(candidate),std::move(decoded),job->media,layout.click);
-    playback_sources_=std::move(sources);playback_source_project_=std::move(sourceProject);
+    auto policy=layout.performance;
+    if(policy&&layout.extend_to_audio){
+        const Timeline clock(candidate.time,candidate.sample_rate);const auto& meter=candidate.time.meters.front();
+        const double ticksPerBar=4.*ppq*meter.numerator/meter.denominator;Sample end{};
+        for(const auto& clip:candidate.clips)end=std::max(end,clip.start+clip.length);
+        const auto bars=std::min(4096.,std::ceil(static_cast<double>(clock.to_ticks(end))/ticksPerBar));
+        policy->end=std::max(policy->end,clock.to_samples(static_cast<Tick>(std::llround(bars*ticksPerBar))));
+    }
+    candidate.validate();install_playback(std::move(candidate),std::move(decoded),job->media,layout.click,std::move(policy),layout.token,staged);
+    if(staged)staged_playback_->sources=std::move(sources);
+    else{playback_sources_=std::move(sources);playback_source_project_=std::move(sourceProject);}
 }
 void Application::validate_wav_import(std::size_t count,std::optional<Id> target,Sample start) const {
     require_not_playing();require_not_recording();

@@ -12,6 +12,7 @@ public:
     ~ReadAhead();
     ReadAhead(const ReadAhead&) = delete;
     ReadAhead& operator=(const ReadAhead&) = delete;
+    void warm_jumps(std::span<const Sample>); // before publication only; immutable RT lookup
     void prime(Sample); // control-only bounded wait, throws on media error/timeout
     void loop(Sample first) noexcept;
     void begin(Sample first) noexcept;
@@ -21,8 +22,10 @@ public:
     bool read(Sample frame, std::uint32_t channel, float& value) noexcept;
     bool end() noexcept; // true if this callback missed any source frames
     std::uint64_t errors() const noexcept { return errors_.load(); }
-    std::size_t bytes() const { return pages*static_cast<std::size_t>(page_frames)*file_->channels*sizeof(float); }
+    std::size_t bytes() const { return (pages+jump_pages_.size())*static_cast<std::size_t>(page_frames)*file_->channels*sizeof(float); }
 private:
+    struct WarmPage { Sample page; std::vector<float> samples; };
+    std::vector<WarmPage> jump_pages_;
     struct Slot {
         std::atomic<int> owner{}; // 0 free, -1 worker, +1 callback
         std::atomic<Sample> page{-1}; // published tag; control reads without pinning callback data

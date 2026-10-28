@@ -5,8 +5,8 @@
 #include <vector>
 
 namespace mrs {
-// Prepared outside audio processing. This first slice defines policy; the
-// EngineTransport boundary consumer is connected in the next #287 slice.
+// Immutable policy prepared outside audio processing; AudioEngine consumes it
+// on exact sample boundaries within the device callback.
 enum class PerformanceMode { normal, skip, stop, loop };
 struct PerformanceSection {
     Sample start{}, end{};

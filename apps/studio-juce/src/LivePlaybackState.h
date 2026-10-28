@@ -321,6 +321,13 @@ inline juce::var neighborEntry(const juce::var &state, int direction, const juce
             return entries[i];
     return {};
 }
+inline juce::var nextPerformanceEntry(const juce::var& state,const juce::String& preferred){
+    const auto entries=activeSetlist(state)["entries"];
+    const auto at=entryIndex(state,state["currentItem"].toString(),preferred);
+    for(int i=at+1;i<entries.size();++i){const auto id=entries[i]["itemId"].toString();
+        if(find(state,"items",id).isObject()&&itemPerformanceMode(state,id)!=mrs::PerformanceMode::skip)return entries[i];}
+    return {};
+}
 inline juce::String neighborItem(const juce::var &state, int direction, const juce::String &preferred = {}) {
     return neighborEntry(state, direction, preferred)["itemId"].toString();
 }

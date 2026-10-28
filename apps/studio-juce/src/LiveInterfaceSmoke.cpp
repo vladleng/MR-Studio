@@ -694,6 +694,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         render();
         transportLine->update();
         liveCheck(transportLine->getX() == pausedX, "Paused playhead stays at actual transport position");
+        playbackDesktop.editLiveInterface("Stop returns to start fixture",[&](auto& state){live::put(live::performance(state),"backToStart",true);});
+        playbackDesktop.syncLivePlayback();
         playbackDesktop.action(32);
         render();
         liveCheck(playbackDesktop.app.engine()->state().sample == 0, "Live Stop resets actual transport position");
@@ -1284,6 +1286,22 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(multi.livePlaybackReady() && multi.project()->clips.size() == 2 &&
                       multi.liveDocument->interfaceState["currentItem"].toString() == id,
                   "Warm previous-item selection restores its stems/trim/routes");
+        const auto beforeAutomatic=multi.liveDocument->interfaceState.clone();
+        multi.editLiveInterface("Automatic boundary fixture",[&](auto& state){
+            live::put(live::map(live::map(live::performance(state),"arrangement"),id),"length",1.);
+            live::setPerformanceMode(state,id,id,mrs::PerformanceMode::normal);
+            live::setPerformanceMode(state,second,second,mrs::PerformanceMode::stop);
+        });multi.syncLivePlayback();multi.app.play();renderMulti();multi.app.poll();multi.syncLivePlayback();
+        const auto automaticToken=multi.liveAutoToken;const auto automaticEntry=multi.liveAutoEntry;
+        liveCheck(automaticToken!=0,"Next native graph is staged before the current item end");
+        for(int block=0;block<2000&&multi.app.engine()->performance_status().token!=automaticToken;++block)
+            multi.app.engine()->process(nullptr,audio.data(),128);
+        multi.app.poll();multi.syncLivePlayback();
+        liveCheck(multi.liveDocument->interfaceState["currentItem"].toString()==second&&multi.liveCurrentEntry==automaticEntry&&
+                  multi.livePlaybackItem==second&&multi.livePlaybackReady()&&multi.app.engine()==sharedEngine&&
+                  multi.app.engine()->state().playback==mrs::PlaybackState::playing,
+                  "Native UI follows the Core boundary and entry identity without manual activation");
+        multi.app.stop();renderMulti();multi.stepLiveItem(-1);multi.applyLiveInterface(beforeAutomatic);multi.syncLivePlayback();
         const auto third = multi.liveDocument->interfaceState["items"][2]["id"].toString();
         const auto broken = folder.getChildFile("preload-invalid.wav");
         broken.replaceWithText("invalid WAV");

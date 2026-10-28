@@ -173,7 +173,8 @@ void ownership() {
 #endif
 MRS_NOINLINE void* operator new(std::size_t bytes) {
     if(allocations_enabled.load(std::memory_order_relaxed))++allocations;
-    if(auto p=std::malloc(bytes?bytes:1))return p;throw std::bad_alloc();
+    if(auto p=std::malloc(bytes?bytes:1))return p;
+    throw std::bad_alloc();
 }
 MRS_NOINLINE void* operator new[](std::size_t bytes){return ::operator new(bytes);}
 MRS_NOINLINE void operator delete(void* p) noexcept{std::free(p);}

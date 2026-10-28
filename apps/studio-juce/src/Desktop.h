@@ -102,6 +102,8 @@ public:
     bool liveTransportReady() const;
     juce::String livePlaybackItem, livePlaybackFile, livePlaybackMixKey, livePlaybackRegionsKey, livePlaybackError, liveMusicalKey;
     bool livePlaybackLoading{};
+    std::uint64_t liveTokenSerial{},liveRuntimeToken{},liveAutoToken{};
+    juce::String liveAutoItem,liveAutoEntry,liveAutoKey,livePerformanceKey;
     struct LivePreparedItem {juce::String id,key;std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> media;};
     std::vector<LivePreparedItem> livePreparedItems;
     std::shared_ptr<mrs::IProjectStore> livePlaybackStore;

@@ -221,7 +221,7 @@ void Application::replace(persistence::ProjectDocument next) {
     auto graphs = std::make_shared<processing::GraphStore>(next.graph);
     const auto ai_session = new_id();
     if(ai_worker_)ai_worker_->cancel_all();
-    disconnect();
+    disconnect();performance_plan_.reset();performance_token_=0;staged_playback_.reset();
     stop_stretch();
     engine_->prepare({next.project.sample_rate,0,2,8192},{});
     auto transport = std::make_shared<audio::EngineTransport>(engine_,Timeline(next.project.time,next.project.sample_rate));
@@ -961,7 +961,7 @@ void Application::set_send_bypassed(const Id& id,std::size_t index,bool bypass) 
 // graph owns its immutable assets; only stop/quiesce/prepare/start touches the device.
 void Application::install_playback(Project candidate,
     std::map<std::string,std::shared_ptr<const audio::AudioData>> decoded,
-    std::shared_ptr<PreparedWavImport> media,audio::ClickSettings click) {
+    std::shared_ptr<PreparedWavImport> media,audio::ClickSettings click,std::optional<PerformancePlan> performance,std::uint64_t token,bool staged) {
     require(workspace_==Workspace::live&&path_.empty(),"Playback handoff requires a Live runtime");
     require_not_recording();
     if(!device_||!device_config_){
@@ -999,6 +999,18 @@ void Application::install_playback(Project candidate,
         click_settings_=click;preparing_project_=&candidate;
         auto graph=render(config); // shared graph builder, WAV decode/resample already completed
         preparing_project_=nullptr;
+        graph.performance=performance;graph.performance_token=token;
+        if(staged){
+            auto pending=std::make_shared<StagedPlayback>();
+            pending->transition=engine_->prepare_transition(std::move(graph),performance_token_);
+            pending->project=std::move(candidate);pending->assets=std::move(assets_);pending->media=std::move(import_staging_);
+            pending->tracks=std::move(mixer_tracks_);pending->inserts=std::move(insert_runtime_);pending->prepared=std::move(prepared_);
+            pending->click=click;pending->performance=std::move(performance);pending->token=token;
+            require(engine_->stage_transition(pending->transition),"Playback changed while staging transition");
+            staged_playback_=std::move(pending);
+            assets_=std::move(oldAssets);import_staging_=std::move(oldStaging);mixer_tracks_=std::move(oldTracks);
+            insert_runtime_=std::move(oldInserts);prepared_=std::move(oldPrepared);click_settings_=oldClick;return;
+        }
         device_->stop();stopped=true;engine_->quiesce();head=engine_->state();rollbackGraph=engine_->stopped_graph();
         // Scalar mixer controls may be newer than the graph's original construction.
         rollbackGraph->master_gain=previous->master_gain;
@@ -1027,6 +1039,7 @@ void Application::install_playback(Project candidate,
         }else if(stopped){try{device_->start();}catch(...){disconnect();}}
         std::rethrow_exception(error);
     }
+    performance_plan_=std::move(performance);performance_token_=token;
     // Commit application metadata only after the prepared graph/device successfully started.
     for(auto& [source,cached]:oldAssets){(void)source;*cached.cancel=true;}
     cancel_wav_import();if(ai_worker_)ai_worker_->cancel_all();
@@ -1037,7 +1050,41 @@ void Application::install_playback(Project candidate,
     applied_mix_revision_=nextProjects->state().revision;saved_project_revision_=saved_graph_revision_=0;unsaved_=true;
     try{transport_->poll();musical_->refresh();}catch(const std::exception&){/* UI poll retries projections; audio/model already committed. */}
 }
+bool Application::cancel_staged_playback(){
+    if(!staged_playback_)return true;
+    if(engine_->cancel_transition(staged_playback_->transition)){staged_playback_.reset();return true;}
+    poll_staged_playback();return !staged_playback_;
+}
+void Application::poll_staged_playback(){
+    if(!staged_playback_)return;
+    const auto phase=engine_->transition_phase(staged_playback_->transition);
+    if(phase==audio::AudioEngine::TransitionPhase::cancelled){staged_playback_.reset();return;}
+    if(phase!=audio::AudioEngine::TransitionPhase::adopted)return;
+    auto& next=*staged_playback_;
+    // Construct control-side services before retiring the outgoing render state.
+    auto projects=std::make_shared<ProjectStore>(next.project);
+    auto transport=std::make_shared<audio::EngineTransport>(engine_,Timeline(next.project.time,next.project.sample_rate));
+    auto musical=std::make_unique<MusicalTimeline>(Services{projects,transport},[this]{require_not_recording();});
+    auto observer=projects->subscribe([this](const ProjectState&){if(ai_worker_)ai_worker_->cancel_all();});
+    require(engine_->acknowledge_transition(next.transition),"Playback transition acknowledgement failed");
+    for(auto& [key,value]:assets_){(void)key;*value.cancel=true;}
+    assets_=std::move(next.assets);import_staging_=std::move(next.media);mixer_tracks_=std::move(next.tracks);
+    insert_runtime_=std::move(next.inserts);prepared_=std::move(next.prepared);click_settings_=next.click;
+    performance_plan_=std::move(next.performance);performance_token_=next.token;
+    services_={projects,transport};transport_=std::move(transport);musical_=std::move(musical);ai_project_changed_=std::move(observer);
+    playback_sources_=std::move(next.sources);playback_source_project_=next.project.id;
+    document_.project=std::move(next.project);document_.mixer.clear();armed_.reset();armed_tracks_.clear();owned_media_.clear();
+    applied_mix_revision_=projects->state().revision;staged_playback_.reset();
+    transport_->poll();musical_->refresh();
+}
+void Application::set_performance_plan(PerformancePlan plan){
+    plan.validate();require_not_playing();require_not_recording();const auto expected=performance_token_;
+    require(cancel_staged_playback()&&expected==performance_token_,"Playback transition in progress; retry policy edit");
+    auto previous=performance_plan_;performance_plan_=std::move(plan);
+    try{rebuild_audio(true);}catch(...){performance_plan_=std::move(previous);throw;}
+}
 void Application::rebuild_audio(bool retain_inserts) {
+    require(cancel_staged_playback(),"Playback transition in progress; retry edit");
     if (!device_ || !device_config_) return;
     // A freshly opened offline document can deliberately have no plugin runtime
     // yet. Bootstrap that runtime once; subsequent I/R transitions retain it.
@@ -1850,6 +1897,7 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_
     synchronize_ara(project);
 #endif
     audio::RenderGraph result;
+    result.performance=performance_plan_;result.performance_token=performance_token_;
     result.click=click_settings_;result.click_time=project->time;
     if(recording())configure_count(result,*project,click_settings_,engine_->state().sample);
     for (const auto& capture : captures_) result.recordings.push_back(capture.recorder);
@@ -2008,8 +2056,10 @@ void Application::disconnect() {
     external_midi_->panic();if(midi_outputs_)midi_outputs_->routes({});
     stop_reverb_loaders();++insert_generation_;insert_runtime_.clear(); prepared_.reset(); device_config_.reset(); device_info_.reset(); audio_name_ = "Disconnected";
     if (transport_) { engine_->prepare({engine_->config().sample_rate,0,2,8192},{}); transport_->poll(); }
+    staged_playback_.reset();
 }
 void Application::poll() {
+    poll_staged_playback();
     poll_reverbs();
     publish_midi_routes();
     publish_inserts();

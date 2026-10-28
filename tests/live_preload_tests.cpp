@@ -215,6 +215,28 @@ void run() {
     check(app.services().projects->state().project->clips.size()==1 &&
           app.services().projects->state().project->clips.front().length==4800 && app.engine()==engine && calls->opens==1,
           "Restore recovers complete source without a second engine or reopening device");
+    // Automatic Core handoff: different track counts and routes, no device stop/start.
+    auto autoOne=one;autoOne.performance=PerformancePlan{};autoOne.performance->end=65;autoOne.token=100;
+    auto autoTwo=two;autoTwo.performance=PerformancePlan{};autoTwo.performance->end=127;autoTwo.performance->mode=PerformanceMode::stop;autoTwo.token=101;
+    app.activate_playback(first,autoOne);app.play();
+    const auto autoStops=calls->stops,autoStarts=calls->starts;
+    app.stage_playback(second,autoTwo,100);
+    check(app.services().projects->state().project->tracks.size()==1,"Staging retains current control model");
+    render();
+    check(engine->performance_status().token==101&&engine->state().sample==63,"Callback adopts prepared item at intra-block boundary");
+    check(out[64*4]>.03f&&out[65*4]==0&&out[65*4+2]<-.03f,"PCM switches source/routes on the exact frame");
+    app.poll();
+    check(app.services().projects->state().project->tracks.size()==2&&app.playback_sources().size()==2&&
+          app.services().projects->state().project->time.tempos.front().bpm==90,"Poll adopts next Core project, sources and musical timeline");
+    check(calls->stops==autoStops&&calls->starts==autoStarts&&calls->opens==1&&app.engine()==engine,
+          "Automatic transition uses the same running device and engine without stop/start");
+    render();check(engine->state().sample==127&&engine->state().playback==PlaybackState::stopped,"Next stop mode executes in the adopted graph");
+    auto extended=autoOne;extended.token=102;extended.extend_to_audio=true;extended.performance->end=1;
+    extended.performance->mode=PerformanceMode::stop;app.activate_playback(first,extended);
+    app.seek(95990);app.play();render();
+    check(engine->state().sample==96000&&engine->state().playback==PlaybackState::stopped,
+          "Implicit WAV extent rounds to the same full bar as the visible timeline");
+    app.activate_playback(first,one);
     const auto start = std::chrono::steady_clock::now();
     for (int i = 0; i < 32; ++i) {
         app.activate_playback(first, one);

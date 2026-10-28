@@ -43,11 +43,18 @@ inline void setPerformanceMode(juce::var& state,const juce::String& item,const j
     if(mode==mrs::PerformanceMode::normal)modes.getDynamicObject()->removeProperty(juce::Identifier(target));
     else put(modes,target,performanceModeName(mode));
 }
+inline juce::String performanceKey(const juce::var& state,const juce::String& item){
+    auto result=juce::String();const auto perf=state["performance"];
+    result<<performanceModeName(itemPerformanceMode(state,item))<<":"<<perf["backToStart"].toString()<<":"<<perf["stopRecord"].toString();
+    const auto source=find(state,"items",item);
+    if(const auto* rows=source["sections"].getArray())for(const auto& row:*rows)result<<":"<<row["id"].toString()<<"="<<performanceModeName(itemPerformanceMode(state,row["id"].toString()));
+    result<<":"<<source["bars"].toString()<<":"<<perf["arrangement"][juce::Identifier(item)]["length"].toString();return result;
+}
 inline double performanceEndBars(const juce::var& state,const juce::String& item,double renderedBars){
     const auto source=find(state,"items",item);if(!source.isObject())throw std::runtime_error("Performance item was removed");
     if(!std::isfinite(renderedBars)||renderedBars<0.)throw std::runtime_error("Invalid rendered performance extent");
     const auto explicitEnd=state["performance"]["arrangement"][juce::Identifier(item)]["length"];
-    const double bars=explicitEnd.isVoid()?(std::min)(4096.,(std::max)(static_cast<double>(source["bars"]),renderedBars)):static_cast<double>(explicitEnd);
+    const double bars=explicitEnd.isVoid()?(std::min)(4096.,(std::max)({1.,static_cast<double>(source["bars"]),renderedBars})):static_cast<double>(explicitEnd);
     if(!std::isfinite(bars)||bars<1.||bars>4096.)throw std::runtime_error("Invalid performance item end");
     return bars;
 }

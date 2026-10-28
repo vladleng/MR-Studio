@@ -21,7 +21,7 @@
 
 namespace allocation_check {
 thread_local bool enabled = false;
-std::atomic<std::uint64_t> count{};
+std::atomic<std::uint64_t> count{},frees{};
 }
 #ifdef _MSC_VER
 #define MRS_TEST_NOINLINE __declspec(noinline)
@@ -36,10 +36,10 @@ MRS_TEST_NOINLINE void* operator new(std::size_t bytes) {
     throw std::bad_alloc();
 }
 MRS_TEST_NOINLINE void* operator new[](std::size_t bytes) { return ::operator new(bytes); }
-MRS_TEST_NOINLINE void operator delete(void* p) noexcept { std::free(p); }
-MRS_TEST_NOINLINE void operator delete[](void* p) noexcept { std::free(p); }
-MRS_TEST_NOINLINE void operator delete(void* p, std::size_t) noexcept { std::free(p); }
-MRS_TEST_NOINLINE void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+MRS_TEST_NOINLINE void operator delete(void* p) noexcept { if(p&&allocation_check::enabled)++allocation_check::frees;std::free(p); }
+MRS_TEST_NOINLINE void operator delete[](void* p) noexcept { ::operator delete(p); }
+MRS_TEST_NOINLINE void operator delete(void* p, std::size_t) noexcept { ::operator delete(p); }
+MRS_TEST_NOINLINE void operator delete[](void* p, std::size_t) noexcept { ::operator delete(p); }
 #undef MRS_TEST_NOINLINE
 namespace {
 using namespace mrs;
@@ -64,6 +64,7 @@ RenderGraph basic() {
     graph.monitor={{0,0,0.5F}, {0,1,0.5F}};
     return graph;
 }
+#include "audio_performance_checks.hpp"
 void render() {
     AudioEngine engine;
     engine.prepare({48000, 1, 2, 8}, basic());
@@ -249,6 +250,14 @@ void streaming() {
     auto cancel = std::make_shared<std::atomic<bool>>(true);
     rejects([&] { (void)Waveform(*asset,cancel); });
     auto engine = std::make_shared<AudioEngine>();
+    {RenderGraph performanceGraph;performanceGraph.voices={{asset,0,0,total,{{0,0,1}}}};
+        PerformancePlan policy;policy.end=total;policy.sections={{5,120000,PerformanceMode::skip}};
+        performanceGraph.performance=policy;performanceGraph.performance_token=700;
+        engine->prepare({48000,0,1,128},performanceGraph);CHECK(engine->enqueue({ControlKind::play}));std::array<float,128> pcm{};
+        allocation_check::enabled=true;engine->process(nullptr,pcm.data(),128);allocation_check::enabled=false;
+        for(Sample i=0;i<128;++i){const auto source=i<5?i:120000+i-5;CHECK(pcm[static_cast<std::size_t>(i)]==static_cast<float>(source%127)/256.f);}
+        CHECK(engine->metrics().disk_underruns==0);
+    }
     RenderGraph graph; graph.voices.push_back({asset,11,8188,100000,{{0,0,1}}});
     engine->prepare({48000,0,1,128},graph);
     EngineTransport transport{engine,Timeline{TimeMap{},48000}};
@@ -858,7 +867,7 @@ int main(int argc, char** argv) {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
         if(suite=="state_snapshot"){state_snapshot();std::cout<<"PASS state_snapshot: "<<assertions<<" checks\n";return 0;}
-        if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if(suite=="performance")performance();else if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();

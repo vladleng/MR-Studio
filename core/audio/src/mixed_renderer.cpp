@@ -34,6 +34,7 @@ struct MixedRenderer::Signals {MixedSignal wake,ready;};
 MixedRenderer::MixedRenderer(std::shared_ptr<AudioEngine> engine,std::uint32_t frames,std::uint32_t window)
     :device_(std::move(engine)),signals_(std::make_unique<Signals>()),frames_(frames),window_(window) {
     const auto& g=device_->graph_;
+    if(g.performance)return;
     bool playback=false;
     for(const auto& v:g.voices)if(v.mixer_track!=no_mixer_track&&device_->domains_.channels[v.mixer_track].owner==ProcessingDomains::Owner::ahead)playback=true;
     if(!window||!playback||device_->config_.processing_workers<2)return;

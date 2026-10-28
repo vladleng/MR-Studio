@@ -1,11 +1,13 @@
 #pragma once
-#include "../apps/studio-juce/src/LivePerformanceState.h"
+#include "../apps/studio-juce/src/LivePlaybackState.h"
 namespace ui::live::test {
 inline void performancePolicies(){
     const auto check=[](bool pass,const char* message){if(!pass)throw std::runtime_error(message);};
     auto state=empty();const auto item=addItem(state,"Performance");
     auto section=object();put(section,"id","part");put(section,"name","Intro");put(section,"start",0.);put(section,"length",4.);put(section,"color","blue");
     put(require(state,"items",item),"sections",juce::Array<juce::var>{section});
+    {const auto newPlan=preparePerformancePlan(state,item,mrs::TimeMap{}, {},48000,0.);
+        check(newPlan.end==96000,"A new item without bars has the same one-bar fallback as the timeline");}
     put(require(state,"items",item),"bars",8.);
     check(itemPerformanceMode(state,item)==mrs::PerformanceMode::normal,"Missing legacy mode defaults to normal");
     saveItem(state,item);setPerformanceMode(state,item,"part",mrs::PerformanceMode::loop);
@@ -22,6 +24,20 @@ inline void performancePolicies(){
     check(rejected,"A stale context target cannot receive a mode");
     auto invalid=state.clone();put(map(performance(invalid),"modes"),item,"invalid");
     rejected=false;try{validatePerformance(invalid);}catch(...){rejected=true;}check(rejected,"Unknown persisted mode is rejected");
+    {auto order=empty();const auto first=addItem(order,"First"),skipped=addItem(order,"Skip"),last=addItem(order,"Last");
+        setPerformanceMode(order,skipped,skipped,mrs::PerformanceMode::skip);put(order,"currentItem",first);
+        auto list=activeSetlist(order);auto& entries=array(list,"entries");
+        for(const auto& target:{first,skipped,last}){auto entry=object();put(entry,"id",target+"-entry");put(entry,"itemId",target);entries.add(entry);}
+        const auto initial=entries[0]["id"].toString();
+        check(nextPerformanceEntry(order,initial)["itemId"].toString()==last,"Auto next skips mode skip entries");
+        auto repeated=object();put(repeated,"id","repeat-first");put(repeated,"itemId",first);entries.add(repeated);
+        put(order,"currentItem",last);
+        check(nextPerformanceEntry(order,entries[2]["id"].toString())["id"].toString()=="repeat-first","Repeated item is resolved by entry identity");
+        put(order,"currentItem",first);
+        check(nextPerformanceEntry(order,"repeat-first").isVoid(),"Last repeated entry does not wrap into an infinite show");
+        setPerformanceMode(order,last,last,mrs::PerformanceMode::skip);
+        check(nextPerformanceEntry(order,initial)["id"].toString()=="repeat-first","Skipped successors still reach the next distinct entry");
+    }
     mrs::TimeMap time;time.tempos={{0,120.}};time.meters={{1,4,4}};
     std::vector<mrs::ArrangerSection> parts{{{"part"},"Intro",0,16*mrs::ppq,{}}};
     auto plan=preparePerformancePlan(state,item,time,parts,48000,12.);

@@ -251,6 +251,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             owner.liveDocument &&
                 live::neighborItem(owner.liveDocument->interfaceState, 1, owner.liveCurrentEntry).isNotEmpty());
         popup.addItem(41, "Playback / Click / Cue...", owner.liveDocument.has_value());
+        popup.addItem(104,"Back to start on Stop",owner.liveDocument.has_value(),
+            owner.liveDocument&&static_cast<bool>(owner.liveDocument->interfaceState["performance"]["backToStart"]));
         popup.addItem(40, "Audio settings...");
         juce::Component::SafePointer<LiveWorkspace> safe(this);
         popup.showMenuAsync(liveMenuOptions(options), [safe](int action) {
@@ -260,6 +262,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
                 safe->showBrowser(!safe->browserVisible);
             else if (action == 2)
                 openLiveCardEditor(safe->owner, safe->reference.defaults["itemCardLayout"]);
+            else if(action==104){safe->owner.run([&]{safe->owner.editLiveInterface("Back to start",[&](auto& state){
+                live::put(live::performance(state),"backToStart",!static_cast<bool>(state["performance"]["backToStart"]));});});}
             else if (action == 103) {
                 safe->owner.view.liveRestoreLastShow = !safe->owner.view.liveRestoreLastShow;
                 safe->owner.run([&] { safe->owner.saveSettings(); });

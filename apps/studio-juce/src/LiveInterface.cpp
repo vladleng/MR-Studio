@@ -5,6 +5,14 @@
 
 namespace ui {
 namespace {
+mrs::desktop::Application::PlaybackLayout performanceLayout(const juce::var& state,const juce::String& id,std::uint32_t rate,std::uint64_t token){
+    const auto projection=live::musicalProjection(live::musicalVersion(state,id));
+    mrs::desktop::Application::PlaybackLayout layout;
+    layout.time=projection.time;layout.chords=projection.chords;layout.sections=projection.sections;
+    layout.stems=live::playbackStemLayouts(state,id,rate);layout.click=live::liveClick(state);
+    layout.performance=live::preparePerformancePlan(state,id,projection.time,projection.sections,rate,0.);
+    layout.extend_to_audio=state["performance"]["arrangement"][juce::Identifier(id)]["length"].isVoid();layout.token=token;return layout;
+}
 void validateMusicalEdit(Desktop &owner, const juce::var &copy) {
     if (owner.liveDocument->projects.empty()) {
         const auto prior = owner.liveDocument->interfaceState["currentItem"].toString();
@@ -26,6 +34,10 @@ void validateMusicalEdit(Desktop &owner, const juce::var &copy) {
 // Preflight before committing show history, including Undo/Redo. Core owns the source extent.
 void validatePlaybackEdit(Desktop &owner, const juce::var &copy) {
     live::validatePlayback(copy);
+    const auto current=owner.liveDocument->interfaceState["currentItem"].toString();
+    if(live::performanceKey(copy,current)!=live::performanceKey(owner.liveDocument->interfaceState,current)&&
+       (owner.app.recording()||owner.app.engine()->state().playback==mrs::PlaybackState::playing))
+        throw std::runtime_error("Pause or stop before changing active performance modes");
     const auto oldClick = live::liveClick(owner.liveDocument->interfaceState), newClick = live::liveClick(copy);
     if (newClick != oldClick) {
         if (owner.app.recording())
@@ -218,7 +230,8 @@ void Desktop::prepareLiveInterface(bool saved) {
     livePlaybackFile.clear();
     livePlaybackError.clear();
     livePlaybackMixKey.clear();
-    liveMusicalKey.clear();
+    liveMusicalKey.clear();livePerformanceKey.clear();liveAutoKey.clear();liveAutoToken=liveRuntimeToken=0;
+    app.cancel_staged_playback();
     liveAudioKey.clear();
     app.set_click_settings({});
     livePlaybackLoading = false;
@@ -721,7 +734,7 @@ void Desktop::syncLivePreload() {
     if (!liveDocument || !liveDocument->projects.empty())
         return;
     const auto &state = liveDocument->interfaceState;
-    const auto nextEntry = live::neighborEntry(state, 1, liveCurrentEntry);
+    const auto nextEntry = live::nextPerformanceEntry(state, liveCurrentEntry);
     const auto id = nextEntry["itemId"].toString();
     const auto key = nextEntry["id"].toString() + id + live::playbackMediaKey(state, id) + ":" +
                      juce::String(project()->sample_rate);
@@ -733,8 +746,7 @@ void Desktop::syncLivePreload() {
             if (id.isNotEmpty())
                 prepareLivePlayback(id);
         }
-        if (id.isEmpty())
-            return;
+        if (id.isEmpty()) { app.cancel_staged_playback();liveAutoKey.clear();liveAutoToken=0;return; }
         const auto found = std::find_if(livePreparedItems.begin(), livePreparedItems.end(),
                                         [&](const auto &entry) { return entry.id == id; });
         if (found == livePreparedItems.end())
@@ -745,6 +757,17 @@ void Desktop::syncLivePreload() {
                          (status.busy ? "preparing " + juce::String(static_cast<int>(status.progress * 100)) + "%"
                           : status.message.empty() ? "audio ready"
                                                    : "unavailable: " + juce::String::fromUTF8(status.message.c_str()));
+        const auto performanceStatus=app.engine()->performance_status();
+        const auto stageKey=key+live::canonical(live::musicalVersion(state,id))+live::playbackMixKey(state,id)+live::playbackRegionsKey(state,id)+
+            live::performanceKey(state,id)+live::performanceKey(state,livePlaybackItem)+live::playbackMixKey(state,livePlaybackItem)+
+            live::canonical(live::liveAudio(state))+juce::String(static_cast<juce::int64>(performanceStatus.manual_revision));
+        if(!status.busy&&status.message.empty()&&liveRuntimeToken&&app.audio_running()&&livePendingItem.isEmpty()&&
+           (liveAutoKey!=stageKey||app.staged_playback_token()==0)){
+            const auto token=++liveTokenSerial;
+            app.stage_playback(found->media,performanceLayout(state,id,project()->sample_rate,token),liveRuntimeToken);
+            liveAutoToken=token;liveAutoItem=id;liveAutoEntry=nextEntry["id"].toString();liveAutoKey=stageKey;
+        }
+
     } catch (const std::exception &error) {
         liveNextStatus = "Next: unavailable — " + juce::String::fromUTF8(error.what());
     }
@@ -778,6 +801,20 @@ void Desktop::stepLiveItem(int direction) {
 void Desktop::syncLivePlayback() {
     if (!liveDocument || !liveDocument->projects.empty())
         return;
+    app.poll_playback_transition();
+    if(liveAutoToken&&app.playback_token()==liveAutoToken){
+        const auto id=liveAutoItem;liveRuntimeToken=liveAutoToken;liveAutoToken=0;liveAutoKey.clear();
+        live::put(liveDocument->interfaceState,"currentItem",id);liveCurrentEntry=liveAutoEntry;
+        livePlaybackItem=id;livePlaybackStore=app.services().projects;
+        livePlaybackMediaKey=live::playbackMediaKey(liveDocument->interfaceState,id);
+        livePlaybackFile=live::playback(liveDocument->interfaceState,id)["file"].toString();
+        liveMusicalKey=live::canonical(live::musicalVersion(liveDocument->interfaceState,id));
+        livePerformanceKey=live::performanceKey(liveDocument->interfaceState,id);
+        livePlaybackMixKey=live::playbackMixKey(liveDocument->interfaceState,id);
+        livePlaybackRegionsKey=live::playbackRegionsKey(liveDocument->interfaceState,id);
+        livePlaybackError.clear();
+        selectedTrack.reset();selectedClip.reset();++liveUiRevision;++liveTimelineFocusRevision;refresh(true);
+    }
     bool changed = false;
     const auto selectedId = liveDocument->interfaceState["currentItem"].toString();
     const auto selectedIndex = live::entryIndex(liveDocument->interfaceState, selectedId, liveCurrentEntry);
@@ -819,7 +856,7 @@ void Desktop::syncLivePlayback() {
     const auto music = live::musicalVersion(liveDocument->interfaceState, id);
     const auto musicKey = live::canonical(music);
     const auto failureKey = id + live::canonical(row) + live::canonical(live::liveAudio(liveDocument->interfaceState)) +
-                            musicKey + deviceKey + live::playbackRegionsKey(liveDocument->interfaceState,id);
+                            musicKey + deviceKey + live::playbackRegionsKey(liveDocument->interfaceState,id)+live::performanceKey(liveDocument->interfaceState,id);
     const bool mediaChanged = (livePendingItem.isNotEmpty() && livePendingEntry != liveCurrentEntry) ||
                               livePlaybackStore != app.services().projects || livePlaybackItem != id ||
                               livePlaybackMediaKey != mediaKey ||
@@ -840,16 +877,10 @@ void Desktop::syncLivePlayback() {
                 return; // Existing Core graph/device continues until the entire batch is ready.
             if (!status.message.empty())
                 throw std::runtime_error(status.message);
-            const auto projection = live::musicalProjection(music);
-            mrs::desktop::Application::PlaybackLayout layout;
-            layout.time = projection.time;
-            layout.chords = projection.chords;
-            layout.sections = projection.sections;
-            layout.click = live::liveClick(liveDocument->interfaceState);
-            layout.stems=live::playbackStemLayouts(liveDocument->interfaceState,id,project()->sample_rate);
-            closeEditors();
-            cancelPreview();
-            app.activate_playback(media, layout);
+            auto layout=performanceLayout(liveDocument->interfaceState,id,project()->sample_rate,++liveTokenSerial);
+            closeEditors();cancelPreview();app.activate_playback(media,layout);
+            liveRuntimeToken=layout.token;livePerformanceKey=live::performanceKey(liveDocument->interfaceState,id);
+            liveAutoKey.clear();liveAutoToken=0;
             const bool selected = liveDocument->interfaceState["currentItem"].toString() != id;
             live::put(liveDocument->interfaceState, "currentItem", id);
             const auto entryIndex = live::entryIndex(
@@ -909,8 +940,17 @@ void Desktop::syncLivePlayback() {
     } else if (musicKey != liveMusicalKey) {
         const auto projection = live::musicalProjection(music);
         app.set_musical_data(projection.time, projection.chords, projection.sections);
-        liveMusicalKey = musicKey;
+        liveMusicalKey = musicKey;livePerformanceKey.clear();
         changed = true;
+    }
+    const auto policyKey=live::performanceKey(liveDocument->interfaceState,id);
+    if(policyKey!=livePerformanceKey){
+        const auto projection=live::musicalProjection(music);
+        const auto snapshot=project();mrs::Sample end{};for(const auto& clip:snapshot->clips)end=(std::max)(end,clip.start+clip.length);
+        const mrs::Timeline clock(projection.time,snapshot->sample_rate);const auto& meter=projection.time.meters.front();
+        const auto renderedBars=std::ceil(static_cast<double>(clock.to_ticks(end))/(4.*mrs::ppq*meter.numerator/meter.denominator));
+        auto policy=live::preparePerformancePlan(liveDocument->interfaceState,id,projection.time,projection.sections,snapshot->sample_rate,renderedBars);
+        app.set_performance_plan(std::move(policy));livePerformanceKey=policyKey;
     }
     const auto audioKey = live::canonical(live::liveAudio(liveDocument->interfaceState)) + deviceKey;
     if (audioKey != liveAudioKey) {
@@ -954,7 +994,7 @@ void Desktop::syncLivePlayback() {
             const auto regionsKey=live::playbackRegionsKey(liveDocument->interfaceState,id);
             if(regionsKey!=livePlaybackRegionsKey){
                 app.set_playback_regions(live::playbackStemLayouts(liveDocument->interfaceState,id,snapshot->sample_rate));
-                livePlaybackRegionsKey=regionsKey;
+                livePlaybackRegionsKey=regionsKey;livePerformanceKey.clear();
             }
             for (std::size_t i = 0; i < rows.size(); ++i) {
                 const auto outputs = live::playbackOutputs(rows[i]);

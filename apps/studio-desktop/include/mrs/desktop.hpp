@@ -130,11 +130,18 @@ public:
     struct PlaybackRegion { Id id; Sample start{}, length{1}, offset{}; };
     struct PlaybackStem { Track::Mix mix; std::vector<int> outputs; double begin{}, end{-1}; std::optional<std::vector<PlaybackRegion>> regions{}; };
     struct PlaybackLayout { TimeMap time; std::vector<Chord> chords; std::vector<ArrangerSection> sections;
-        std::vector<PlaybackStem> stems; audio::ClickSettings click; };
+        std::vector<PlaybackStem> stems; audio::ClickSettings click;
+        std::optional<PerformancePlan> performance{}; std::uint64_t token{}; bool extend_to_audio{}; };
     std::shared_ptr<PlaybackPreparation> prepare_playback(const std::vector<std::filesystem::path>&);
     WavImportStatus playback_preparation(const std::shared_ptr<PlaybackPreparation>&);
     void cancel_playback(const std::shared_ptr<PlaybackPreparation>&);
     void activate_playback(const std::shared_ptr<PlaybackPreparation>&, const PlaybackLayout&);
+    void stage_playback(const std::shared_ptr<PlaybackPreparation>&, const PlaybackLayout&,std::uint64_t expected);
+    bool cancel_staged_playback();
+    std::uint64_t staged_playback_token() const {return staged_playback_?staged_playback_->token:0;}
+    std::uint64_t playback_token() const {return performance_token_;}
+    void poll_playback_transition(){poll_staged_playback();}
+    void set_performance_plan(PerformancePlan);
     const std::vector<Clip>& playback_sources() const;
     void set_playback_regions(const std::vector<PlaybackStem>&);
     void validate_playback_regions(const std::vector<PlaybackStem>&);
@@ -425,7 +432,11 @@ private:
     Id playback_source_project_;
     std::vector<Clip> playback_sources_;
     void install_playback(Project,std::map<std::string,std::shared_ptr<const audio::AudioData>>,
-                          std::shared_ptr<PreparedWavImport>,audio::ClickSettings);
+                          std::shared_ptr<PreparedWavImport>,audio::ClickSettings,std::optional<PerformancePlan>,std::uint64_t,bool staged=false);
+    void activate_playback_impl(const std::shared_ptr<PlaybackPreparation>&,const PlaybackLayout&,bool);
+    void poll_staged_playback();
+    std::optional<PerformancePlan> performance_plan_;
+    std::uint64_t performance_token_{};
 
     void stop_wav_imports();
     struct CachedAsset {
@@ -435,6 +446,16 @@ private:
         std::optional<audio::Waveform> peaks;
     };
     std::map<std::string,CachedAsset> assets_;
+    struct StagedPlayback {
+        std::shared_ptr<audio::AudioEngine::PreparedTransition> transition;
+        Project project; std::vector<Clip> sources;
+        std::map<std::string,CachedAsset> assets;
+        std::vector<std::shared_ptr<PreparedWavImport>> media;
+        std::vector<Id> tracks;std::map<std::string,InsertRuntime> inserts;
+        std::shared_ptr<processing::PreparedGraph> prepared;
+        audio::ClickSettings click;std::optional<PerformancePlan> performance;std::uint64_t token{};
+    };
+    std::shared_ptr<StagedPlayback> staged_playback_;
     struct StretchJob;
     std::shared_ptr<StretchJob> stretch_job_;
     std::vector<std::shared_ptr<StretchJob>> retired_stretch_;

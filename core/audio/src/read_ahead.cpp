@@ -7,6 +7,15 @@ ReadAhead::ReadAhead(std::shared_ptr<const WavFile> file) : file_(std::move(file
     for (auto& slot : slots_) slot.samples.resize(static_cast<std::size_t>(page_frames)*file_->channels);
     worker_ = std::thread([this] { run(); });
 }
+void ReadAhead::warm_jumps(std::span<const Sample> targets) {
+    std::vector<Sample> pages;
+    for(const auto target:targets){const auto first=std::clamp(target,Sample{0},file_->frame_count-1)/page_frames;
+        for(Sample n=0;n<2&& (first+n)*page_frames<file_->frame_count;++n)pages.push_back(first+n);}
+    std::sort(pages.begin(),pages.end());pages.erase(std::unique(pages.begin(),pages.end()),pages.end());
+    for(const auto page:pages){WarmPage next{page,std::vector<float>(static_cast<std::size_t>(page_frames)*file_->channels)};
+        const auto frames=std::min(page_frames,file_->frame_count-page*page_frames);
+        file_->read(page*page_frames,std::span<float>(next.samples).first(static_cast<std::size_t>(frames)*file_->channels));jump_pages_.push_back(std::move(next));}
+}
 ReadAhead::~ReadAhead() { quit_ = true; if (worker_.joinable()) worker_.join(); }
 void ReadAhead::loop(Sample first) noexcept { loop_.store(first < 0 ? -1 : first/page_frames,std::memory_order_release); }
 void ReadAhead::begin(Sample first) noexcept {
@@ -47,6 +56,8 @@ void ReadAhead::accept_seek(Sample first) noexcept {
 }
 bool ReadAhead::read(Sample frame, std::uint32_t channel, float& value) noexcept {
     const auto page = frame/page_frames;
+    const auto warm=std::lower_bound(jump_pages_.begin(),jump_pages_.end(),page,[](const auto& row,Sample key){return row.page<key;});
+    if(warm!=jump_pages_.end()&&warm->page==page){value=warm->samples[static_cast<std::size_t>(frame%page_frames)*file_->channels+channel];return true;}
     for (std::size_t i = 0; i < pages; ++i) if (pinned_[i] && slots_[i].page.load(std::memory_order_relaxed) == page) {
         value = slots_[i].samples[static_cast<std::size_t>(frame%page_frames)*file_->channels+channel];
         return true;
