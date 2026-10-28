@@ -373,7 +373,8 @@ void Desktop::selectLiveItem(const juce::String &id, const juce::String &entry) 
             livePendingEntry.clear();
             livePlaybackLoading = false;
         }
-        ++liveTimelineFocusRevision;
+        if (livePendingItem.isEmpty())
+            ++liveTimelineFocusRevision; // Reselect an already active entry immediately.
         syncLivePlayback();
         refresh();
         return;
@@ -966,8 +967,10 @@ void Desktop::syncLivePlayback() {
             if (selected) {
                 liveShowEditing = true;
                 updateLiveDirty();
-                ++liveTimelineFocusRevision;
             }
+            // Completion is the focus boundary, including another occurrence
+            // of the same item whose media preparation finished asynchronously.
+            ++liveTimelineFocusRevision;
             ++liveUiRevision;
             changed = true;
             refresh(true);

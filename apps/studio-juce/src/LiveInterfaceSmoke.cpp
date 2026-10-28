@@ -128,6 +128,45 @@ void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave)
     for(int i=0;i<5;++i)livePump();
     liveCheck(navigation.liveDocument->interfaceState["currentItem"].toString()==third&&!list->hasPendingActivation(),
               "New explicit selection supersedes the delayed setlist click");
+    juce::String preview;
+    navigation.editLiveInterface("Short Browser preview fixture",[&](auto& state){
+        preview=live::addItem(state,"Short Browser preview");
+        live::put(live::require(state,"items",preview),"bars",1.);
+        live::setItemView(state,preview,"scale",16.);
+    });
+    LiveTimeline focus(navigation);focus.setSize(1200,700);focus.refresh();
+    auto* focusViewport=dynamic_cast<juce::Viewport*>(focus.getChildComponent(0));
+    liveCheck(focusViewport!=nullptr,"Focus timeline has a viewport");
+    const auto selectAndCheck=[&](const juce::String& item,const juce::String& entryId){
+        navigation.selectLiveItem(item,entryId);
+        const auto until=juce::Time::getMillisecondCounter()+5000;
+        while((navigation.liveDocument->interfaceState["currentItem"].toString()!=item||navigation.livePlaybackLoading)&&juce::Time::getMillisecondCounter()<until)livePump();
+        focus.refresh();
+        const int headerX=focus.itemBounds(item).getX()-focusViewport->getViewPositionX();
+        liveCheck(navigation.liveDocument->interfaceState["currentItem"].toString()==item&&headerX>=0&&headerX<=12,
+                  "Explicit selection reveals the requested item header at the left, including a short final Browser preview");
+        for(int i=0;i<3;++i){livePump();focus.refresh();}
+        const int settledX=focus.itemBounds(item).getX()-focusViewport->getViewPositionX();
+        liveCheck(settledX>=0&&settledX<=12,"Selected header stays focused after asynchronous refresh");
+    };
+    liveCheck(live::entryIndex(navigation.liveDocument->interfaceState,preview)<0,"Preview item is outside the active setlist");
+    selectAndCheck(preview,{});
+    selectAndCheck(first,entry);
+    navigation.editLiveInterface("Add short preview to end of setlist",[&](auto& state){live::insertEntry(state,preview);});
+    const auto previewIndex=live::entryIndex(navigation.liveDocument->interfaceState,preview);
+    const auto previewEntry=live::activeSetlist(navigation.liveDocument->interfaceState)["entries"][previewIndex]["id"].toString();
+    selectAndCheck(preview,previewEntry);
+    selectAndCheck(second,{});
+    navigation.editLiveInterface("Repeat an item at the end",[&](auto& state){live::insertEntry(state,second);});
+    const auto duplicateEntries=live::activeSetlist(navigation.liveDocument->interfaceState)["entries"];
+    const auto duplicateEntry=duplicateEntries[duplicateEntries.size()-1]["id"].toString();
+    navigation.selectLiveItem(second,duplicateEntry);
+    const auto duplicateDeadline=juce::Time::getMillisecondCounter()+5000;
+    while(navigation.livePlaybackLoading&&juce::Time::getMillisecondCounter()<duplicateDeadline)livePump();
+    focus.refresh();
+    const int duplicateX=focus.itemBounds(focus.itemCount()-1).getX()-focusViewport->getViewPositionX();
+    liveCheck(navigation.liveCurrentEntry==duplicateEntry&&duplicateX>=0&&duplicateX<=12,
+              "Selecting another occurrence of the same item focuses its exact entry after activation");
 }
 void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     Desktop editing(true,false,true);editing.importLiveShow(fixture);editing.setSize(1200,800);

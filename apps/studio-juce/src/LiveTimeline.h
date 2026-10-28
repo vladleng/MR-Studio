@@ -114,7 +114,7 @@ class LiveTimeline final : public juce::Component {
         if (key == signature) {
             if (focused)
                 revealSelection();
-            if (started)
+            else if (started)
                 revealTransport();
             return;
         }
@@ -128,7 +128,7 @@ class LiveTimeline final : public juce::Component {
         syncChannel();
         if (selectionChanged || focused)
             revealSelection();
-        if (started)
+        else if (started)
             revealTransport();
         playhead.update();
         body.repaint();
@@ -734,8 +734,6 @@ class LiveTimeline final : public juce::Component {
         for (const auto &item : items)
             if (currentEntry(item)) {
                 viewport.setViewPosition(juce::jmax(0, item.bounds.getX() - 12), viewport.getViewPositionY());
-                if (owner.livePlaybackReady())
-                    revealTransport();
                 break;
             }
     }
@@ -827,7 +825,11 @@ class LiveTimeline final : public juce::Component {
                                  entry["id"].toString(), collapsed});
                 x += width;
             }
-        body.setSize(juce::jmax(x, viewport.getMaximumVisibleWidth()),
+        // Even a short final item (including a temporary Browser preview) must
+        // be scrollable to the left edge, rather than clamped at the far right
+        // behind the preceding song. This is view space, not show duration.
+        const int focusWidth = items.empty() ? 0 : items.back().bounds.getX() + viewport.getMaximumVisibleWidth();
+        body.setSize(juce::jmax(x, juce::jmax(focusWidth, viewport.getMaximumVisibleWidth())),
                      juce::jmax(height, viewport.getMaximumVisibleHeight()));
         if(anchorItem.isNotEmpty())for(const auto& item:items)
             if(item.entry==anchorEntry&&item.value["id"].toString()==anchorItem){
