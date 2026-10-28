@@ -637,6 +637,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             }
         };
         waitPlayback();
+        liveCheck(playbackDesktop.livePerformanceKey==live::performanceKey(playbackDesktop.liveDocument->interfaceState,id),
+                  "Activation finishes performance plan synchronization before Play");
         liveCheck(playbackDesktop.livePlaybackReady() && playbackDesktop.project()->clips.size() == 1 &&
                       playbackDesktop.liveDocument->projects.empty(),
                   "WAV materializes into shared Core without Studio project references");
@@ -662,6 +664,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             if (auto *scroll = dynamic_cast<juce::Viewport *>(child))
                 scroll->setViewPosition(1000, 0);
         playbackDesktop.action(30);
+        playbackDesktop.syncLivePlayback();
         render();
         const float fullLevel = std::abs(audio[200]);
         playbackTimeline->refresh();

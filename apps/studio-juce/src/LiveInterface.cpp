@@ -900,7 +900,9 @@ void Desktop::syncLivePlayback() {
             livePlaybackMediaKey = mediaKey;
             livePlaybackStore = app.services().projects;
             livePlaybackDeviceKey = deviceKey;
-            livePlaybackMixKey.clear();livePlaybackRegionsKey.clear();
+            livePlaybackMixKey.clear();
+            // activate_playback already installed these exact regions and plan.
+            livePlaybackRegionsKey=live::playbackRegionsKey(liveDocument->interfaceState,id);
             liveMusicalKey = musicKey;
             liveAudioKey.clear();
             selectedTrack.reset();
@@ -942,15 +944,6 @@ void Desktop::syncLivePlayback() {
         app.set_musical_data(projection.time, projection.chords, projection.sections);
         liveMusicalKey = musicKey;livePerformanceKey.clear();
         changed = true;
-    }
-    const auto policyKey=live::performanceKey(liveDocument->interfaceState,id);
-    if(policyKey!=livePerformanceKey){
-        const auto projection=live::musicalProjection(music);
-        const auto snapshot=project();mrs::Sample end{};for(const auto& clip:snapshot->clips)end=(std::max)(end,clip.start+clip.length);
-        const mrs::Timeline clock(projection.time,snapshot->sample_rate);const auto& meter=projection.time.meters.front();
-        const auto renderedBars=std::ceil(static_cast<double>(clock.to_ticks(end))/(4.*mrs::ppq*meter.numerator/meter.denominator));
-        auto policy=live::preparePerformancePlan(liveDocument->interfaceState,id,projection.time,projection.sections,snapshot->sample_rate,renderedBars);
-        app.set_performance_plan(std::move(policy));livePerformanceKey=policyKey;
     }
     const auto audioKey = live::canonical(live::liveAudio(liveDocument->interfaceState)) + deviceKey;
     if (audioKey != liveAudioKey) {
@@ -1006,6 +999,17 @@ void Desktop::syncLivePlayback() {
             livePlaybackMixKey = key;
             changed = true;
         }
+    }
+    // Region publication can change the implicit item end. Finish its plan in
+    // this synchronization pass, before callers can start playback.
+    const auto policyKey=live::performanceKey(liveDocument->interfaceState,id);
+    if(policyKey!=livePerformanceKey){
+        const auto projection=live::musicalProjection(music);
+        const auto snapshot=project();mrs::Sample end{};for(const auto& clip:snapshot->clips)end=(std::max)(end,clip.start+clip.length);
+        const mrs::Timeline clock(projection.time,snapshot->sample_rate);const auto& meter=projection.time.meters.front();
+        const auto renderedBars=std::ceil(static_cast<double>(clock.to_ticks(end))/(4.*mrs::ppq*meter.numerator/meter.denominator));
+        auto policy=live::preparePerformancePlan(liveDocument->interfaceState,id,projection.time,projection.sections,snapshot->sample_rate,renderedBars);
+        app.set_performance_plan(std::move(policy));livePerformanceKey=policyKey;
     }
     if (changed)
         liveEmptyRevision = std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
