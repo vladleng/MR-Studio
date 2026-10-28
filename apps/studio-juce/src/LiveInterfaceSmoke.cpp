@@ -178,11 +178,11 @@ void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave)
               navigation.app.engine()->state().sample==beforeSample &&
               focus.itemCount()==beforeCount,
               "Browser inspection of existing setlist item never selects its timeline occurrence");
-    auto* panel=dynamic_cast<LivePlaybackPanel*>(liveComponent(navigation,"live-playback-panel"));
-    liveCheck(panel!=nullptr,"Browser inspection has Playback/Stems panel");
-    panel->sync();
-    auto* audition=dynamic_cast<juce::TextButton*>(liveComponent(*panel,"live-browser-audition"));
-    liveCheck(panel->stemCount()>0 && audition && audition->isEnabled(),
+    auto* browserPlaybackPanel=dynamic_cast<LivePlaybackPanel*>(liveComponent(navigation,"live-playback-panel"));
+    liveCheck(browserPlaybackPanel!=nullptr,"Browser inspection has Playback/Stems panel");
+    browserPlaybackPanel->sync();
+    auto* audition=dynamic_cast<juce::TextButton*>(liveComponent(*browserPlaybackPanel,"live-browser-audition"));
+    liveCheck(browserPlaybackPanel->stemCount()>0 && audition && audition->isEnabled(),
               "Browser inspection displays WAV/stems and offers independent audition");
     selectAndCheck(first,entry);
     liveCheck(navigation.liveBrowserItem.isEmpty(),
