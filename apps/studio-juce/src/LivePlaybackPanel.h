@@ -7,14 +7,18 @@ class LivePlaybackPanel final : public juce::Component {
   public:
     explicit LivePlaybackPanel(Desktop &desktop) : owner(desktop) {
         setComponentID("live-playback-panel");
-        for (auto *c : std::array<juce::Component *, 13>{&chooseFile, &fileName, &trimStart, &trimEnd,
-                   &trimApply, &startLabel, &endLabel, &addStem, &removeStem, &outputChoice, &cue, &groupGain, &groupLabel})
+        for (auto *c : std::array<juce::Component *, 14>{&chooseFile, &fileName, &trimStart, &trimEnd,
+                   &trimApply, &startLabel, &endLabel, &addStem, &removeStem, &outputChoice, &cue, &groupGain, &groupLabel, &audition})
             addAndMakeVisible(c);
         addAndMakeVisible(stemsViewport);
         addAndMakeVisible(detailsClose);
         stemsViewport.setViewedComponent(&stemsBody, false);
         stemsViewport.setScrollBarsShown(true, false);
         groupLabel.setText("Item Playback", juce::dontSendNotification);
+        audition.setComponentID("live-browser-audition");
+        audition.setButtonText("Listen");
+        audition.setTooltip("Audition the first WAV from Browser without activating the setlist or show transport");
+        audition.onClick = [this] { owner.run([&] { auditionStem({}); }); };
         groupGain.setComponentID("live-item-playback-gain");
         groupGain.setTitle("Playback level for this item");
         groupGain.setRange(-60, 12, .1);
@@ -88,6 +92,7 @@ class LivePlaybackPanel final : public juce::Component {
         auto area = getLocalBounds().reduced(8);
         auto header = area.removeFromTop(24);
         addStem.setBounds(header.removeFromRight(26).reduced(1));
+        audition.setBounds(header.removeFromRight(70).reduced(1));
         auto group = area.removeFromTop(28);
         groupLabel.setBounds(group.removeFromLeft(82));
         groupGain.setBounds(group);
@@ -117,19 +122,28 @@ class LivePlaybackPanel final : public juce::Component {
     void paint(juce::Graphics &g) override {
         g.setColour(juce::Colour(0xffdae5f4));
         g.setFont(owner.theme.font(12.f));
-        g.drawText("Playback / stems", 8, 4, getWidth() - 44, 22, juce::Justification::left);
+        juce::String caption = "Playback / stems";
+        if (inspecting() && owner.liveDocument) {
+            const auto item = live::find(owner.liveDocument->interfaceState, "items", owner.liveBrowserItem);
+            caption += " - Browser: " + item["name"].toString();
+        }
+        g.drawFittedText(caption, 8, 4, juce::jmax(0, getWidth() - 112), 22,
+                         juce::Justification::left, 1);
         if (stemRows.empty()) {
             const auto message = owner.livePlaybackLoading ? juce::String("Preparing Playback...") : owner.livePlaybackError;
             g.drawFittedText(message, getLocalBounds().reduced(8).withTrimmedTop(100), juce::Justification::topLeft, 3);
         }
     }
     void sync() {
-        const auto id =
-            owner.liveDocument ? owner.liveDocument->interfaceState["currentItem"].toString() : juce::String();
+        const bool preview = inspecting();
+        const auto id = owner.liveDocument
+            ? (preview ? owner.liveBrowserItem : owner.liveDocument->interfaceState["currentItem"].toString())
+            : juce::String();
         if (id != currentItem) {
-            currentItem = id; detailsVisible = false; requestLayout();
+            currentItem = id; detailsVisible = false; previewFile.clear(); requestLayout();
         }
-        groupGain.setEnabled(id.isNotEmpty());
+        groupLabel.setText(preview ? "Browser WAV" : "Item Playback", juce::dontSendNotification);
+        groupGain.setEnabled(id.isNotEmpty() && !preview);
         if (!groupGain.isMouseButtonDown() && owner.liveDocument)
             groupGain.setValue(live::itemPlaybackGain(owner.liveDocument->interfaceState, id), juce::dontSendNotification);
         const auto rows = owner.liveDocument ? live::playbackRows(owner.liveDocument->interfaceState, id) : std::vector<juce::var>();
@@ -147,16 +161,21 @@ class LivePlaybackPanel final : public juce::Component {
         }
         std::vector<juce::String> files;
         for (std::size_t i = 0; i < rows.size(); ++i)
-            if (!owner.livePlaybackReady() || i >= owner.app.playback_sources().size() || !owner.app.clip_waveform(owner.app.playback_sources()[i]))
+            if (preview || !owner.livePlaybackReady() || owner.livePlaybackItem != id || i >= owner.app.playback_sources().size() || !owner.app.clip_waveform(owner.app.playback_sources()[i]))
                 files.push_back(rows[i]["file"].toString());
         waveforms.sync(files);
         for (auto &stemRow : stemRows) stemRow->sync();
+        audition.setVisible(preview);
+        const bool canListen = preview && !rows.empty() && !owner.app.recording() &&
+            owner.app.engine()->state().playback != mrs::PlaybackState::playing && owner.app.audio_running();
+        audition.setEnabled(canListen);
+        audition.setButtonText(preview && owner.app.library_preview_state().playing ? "Stop" : "Listen");
         for (auto *c : std::array<juce::Component *, 12>{&chooseFile, &fileName, &trimStart, &trimEnd, &trimApply,
                           &startLabel, &endLabel, &removeStem, &outputChoice, &cue, &detailsClose, &stemsViewport})
             c->setVisible(c == &stemsViewport || (c == &chooseFile && rows.empty()) || detailsVisible);
         chooseFile.setButtonText(rows.empty() ? "Choose WAV..." : "Replace WAV...");
-        addStem.setEnabled(id.isNotEmpty() && rows.size() < 32 && !owner.app.recording());
-        removeStem.setEnabled(owner.livePlaybackIndex() > 0 && !owner.app.recording());
+        addStem.setEnabled(id.isNotEmpty() && !preview && rows.size() < 32 && !owner.app.recording());
+        removeStem.setEnabled(!preview && owner.livePlaybackIndex() > 0 && !owner.app.recording());
         const auto active = owner.app.active_outputs();
         juce::String routeKey;
         for (const auto &name : owner.app.output_names())
@@ -190,14 +209,14 @@ class LivePlaybackPanel final : public juce::Component {
                 routeId = static_cast<int>(i + 1);
         outputChoice.setSelectedId(routeId, juce::dontSendNotification);
         outputChoice.setTextWhenNothingSelected("Output unavailable");
-        outputChoice.setEnabled(row.isObject() && !owner.app.recording() &&
+        outputChoice.setEnabled(!preview && row.isObject() && !owner.app.recording() &&
                                 owner.app.engine()->state().playback != mrs::PlaybackState::playing);
-        chooseFile.setEnabled(id.isNotEmpty() && !owner.app.recording());
+        chooseFile.setEnabled(id.isNotEmpty() && !preview && !owner.app.recording());
         fileName.setText(row.isObject() ? juce::File(row["file"].toString()).getFileName() : "No audio connected",
                          juce::dontSendNotification);
-        cue.setEnabled(row.isObject() && !owner.app.recording());
+        cue.setEnabled(!preview && row.isObject() && !owner.app.recording());
         cue.setToggleState(static_cast<bool>(row["cue"]), juce::dontSendNotification);
-        const bool ready = owner.livePlaybackReady();
+        const bool ready = !preview && owner.livePlaybackReady() && owner.livePlaybackItem == id;
         const bool canTrim =
             ready && !live::playbackRegions(owner.liveDocument->interfaceState,id,row).isArray() && !owner.app.recording() && owner.app.engine()->state().playback != mrs::PlaybackState::playing;
         trimStart.setEnabled(canTrim);
@@ -233,7 +252,7 @@ class LivePlaybackPanel final : public juce::Component {
             : host(playbackView), itemId(std::move(item)), stemId(std::move(stem)) {
             const auto key = itemId + ":" + (stemId.isEmpty() ? "primary" : stemId);
             setComponentID("live-stem-row-" + key);
-            for (auto *c : std::array<juce::Component *, 4>{&level, &mute, &solo, &details}) addAndMakeVisible(c);
+            for (auto *c : std::array<juce::Component *, 5>{&level, &mute, &solo, &details, &listen}) addAndMakeVisible(c);
             level.setComponentID("live-stem-level-" + key);
             level.setTitle("Stem level"); level.setRange(-60, 12, .1);
             level.setSliderStyle(juce::Slider::LinearHorizontal);
@@ -241,12 +260,16 @@ class LivePlaybackPanel final : public juce::Component {
             level.onDragEnd = [this] { commit(); };
             level.onValueChange = [this] { if (!level.isMouseButtonDown()) commit(); };
             for (auto *button : {&mute, &solo}) { button->setClickingTogglesState(true); button->onClick = [this] { commit(); }; }
+            listen.setButtonText("Play");
+            listen.setTitle("Listen to this Browser WAV stem without switching the show");
+            listen.onClick = [this] { host.owner.run([&] { host.auditionStem(stemId); }); };
             details.setTitle("Stem file, trim and output settings");
             details.onClick = [this] { host.showStemDetails(stemId); };
         }
         void resized() override {
             auto header = getLocalBounds().removeFromTop(20);
             details.setBounds(header.removeFromRight(24).reduced(1));
+            listen.setBounds(header.removeFromRight(42).reduced(1));
             solo.setBounds(header.removeFromRight(24).reduced(1)); mute.setBounds(header.removeFromRight(24).reduced(1));
             level.setBounds(2, 36, getWidth() - 4, 20);
         }
@@ -256,7 +279,16 @@ class LivePlaybackPanel final : public juce::Component {
             if (!level.isMouseButtonDown()) level.setValue(static_cast<double>(row["gain"]), juce::dontSendNotification);
             mute.setToggleState(static_cast<bool>(row["mute"]), juce::dontSendNotification);
             solo.setToggleState(static_cast<bool>(row["solo"]), juce::dontSendNotification);
-            setEnabled(row.isObject()); repaint();
+            setEnabled(row.isObject());
+            const bool preview = host.inspecting();
+            for (auto *control : std::array<juce::Component *, 3>{&level, &mute, &solo})
+                control->setEnabled(!preview);
+            listen.setVisible(preview);
+            listen.setEnabled(preview && row["file"].isString() && !host.owner.app.recording() &&
+                host.owner.app.engine()->state().playback != mrs::PlaybackState::playing && host.owner.app.audio_running());
+            listen.setButtonText(host.previewFile == row["file"].toString() &&
+                host.owner.app.library_preview_state().playing ? "Stop" : "Play");
+            repaint();
         }
         void paint(juce::Graphics &g) override {
             if (!host.owner.liveDocument) return;
@@ -286,8 +318,31 @@ class LivePlaybackPanel final : public juce::Component {
         LivePlaybackPanel &host;
         juce::String itemId, stemId;
         juce::Slider level;
-        juce::TextButton mute{"M"}, solo{"S"}, details{"..."};
+        juce::TextButton mute{"M"}, solo{"S"}, details{"..."}, listen{"Play"};
     };
+    bool inspecting() const {
+        return owner.liveDocument && owner.liveBrowserItem.isNotEmpty() &&
+            live::find(owner.liveDocument->interfaceState, "items", owner.liveBrowserItem).isObject();
+    }
+    void auditionStem(const juce::String &stem) {
+        if (!inspecting()) return;
+        if (owner.app.recording() || owner.app.engine()->state().playback == mrs::PlaybackState::playing)
+            throw std::runtime_error("Stop show playback before auditioning a Browser WAV");
+        const auto row = live::playbackStem(owner.liveDocument->interfaceState, owner.liveBrowserItem, stem);
+        const auto path = row["file"].toString();
+        if (!row.isObject() || path.isEmpty()) return;
+        const juce::File file(path);
+        if (!file.existsAsFile() || !file.hasFileExtension("wav"))
+            throw std::runtime_error("Browser preview WAV is missing or invalid");
+        if (previewFile == path && owner.app.library_preview_state().playing) {
+            owner.app.stop_library_preview();
+            previewFile.clear();
+            return;
+        }
+        if (!owner.app.play_library_preview(std::filesystem::path(file.getFullPathName().toWideCharPointer())))
+            throw std::runtime_error("Connect an audio output before Browser audition");
+        previewFile = path;
+    }
     void requestLayout() { if (layoutChanged) layoutChanged(); else resized(); }
     void commitGroup() { owner.run([&] { owner.setLiveItemPlaybackGain(groupGain.getValue()); }); }
     void commitTrim() {
@@ -300,12 +355,12 @@ class LivePlaybackPanel final : public juce::Component {
         });
     }
     Desktop &owner;
-    juce::TextButton chooseFile, cue{"Cue"}, detailsClose{"x"};
+    juce::TextButton chooseFile, cue{"Cue"}, detailsClose{"x"}, audition{"Listen"};
     juce::Label fileName;
     juce::Slider groupGain;
     juce::Label groupLabel;
     bool detailsVisible{};
-    juce::String currentItem;
+    juce::String currentItem, previewFile;
     juce::TextEditor trimStart, trimEnd;
     juce::TextButton trimApply{"Trim"};
     juce::Label startLabel{{}, "In"}, endLabel{{}, "Out"};
