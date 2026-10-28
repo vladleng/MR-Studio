@@ -8,11 +8,11 @@ ReadAhead::ReadAhead(std::shared_ptr<const WavFile> file) : file_(std::move(file
     worker_ = std::thread([this] { run(); });
 }
 void ReadAhead::warm_jumps(std::span<const Sample> targets) {
-    std::vector<Sample> pages;
+    std::vector<Sample> target_pages;
     for(const auto target:targets){const auto first=std::clamp(target,Sample{0},file_->frame_count-1)/page_frames;
-        for(Sample n=0;n<2&& (first+n)*page_frames<file_->frame_count;++n)pages.push_back(first+n);}
-    std::sort(pages.begin(),pages.end());pages.erase(std::unique(pages.begin(),pages.end()),pages.end());
-    for(const auto page:pages){WarmPage next{page,std::vector<float>(static_cast<std::size_t>(page_frames)*file_->channels)};
+        for(Sample n=0;n<2&& (first+n)*page_frames<file_->frame_count;++n)target_pages.push_back(first+n);}
+    std::sort(target_pages.begin(),target_pages.end());target_pages.erase(std::unique(target_pages.begin(),target_pages.end()),target_pages.end());
+    for(const auto page:target_pages){WarmPage next{page,std::vector<float>(static_cast<std::size_t>(page_frames)*file_->channels)};
         const auto frames=std::min(page_frames,file_->frame_count-page*page_frames);
         file_->read(page*page_frames,std::span<float>(next.samples).first(static_cast<std::size_t>(frames)*file_->channels));jump_pages_.push_back(std::move(next));}
 }
