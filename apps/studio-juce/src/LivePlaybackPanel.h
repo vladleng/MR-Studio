@@ -125,12 +125,14 @@ class LivePlaybackPanel final : public juce::Component {
         juce::String caption = "Playback / stems";
         if (inspecting() && owner.liveDocument) {
             const auto item = live::find(owner.liveDocument->interfaceState, "items", owner.liveBrowserItem);
-            caption += " - Browser: " + item["name"].toString();
+            caption += " - Browser: " + item["name"].toString() + " | " +
+                       item["tempo"].toString() + " BPM | " + item["meter"].toString();
         }
         g.drawFittedText(caption, 8, 4, juce::jmax(0, getWidth() - 112), 22,
                          juce::Justification::left, 1);
         if (stemRows.empty()) {
-            const auto message = owner.livePlaybackLoading ? juce::String("Preparing Playback...") : owner.livePlaybackError;
+            const auto message = inspecting() ? juce::String("No WAV or stems attached to this Browser item") :
+                owner.livePlaybackLoading ? juce::String("Preparing Playback...") : owner.livePlaybackError;
             g.drawFittedText(message, getLocalBounds().reduced(8).withTrimmedTop(100), juce::Justification::topLeft, 3);
         }
     }
@@ -139,8 +141,9 @@ class LivePlaybackPanel final : public juce::Component {
         const auto id = owner.liveDocument
             ? (preview ? owner.liveBrowserItem : owner.liveDocument->interfaceState["currentItem"].toString())
             : juce::String();
-        if (id != currentItem) {
-            currentItem = id; detailsVisible = false; previewFile.clear(); requestLayout();
+        if (id != currentItem || preview != previousInspecting) {
+            currentItem = id; previousInspecting = preview; detailsVisible = false;
+            previewFile.clear(); requestLayout();
         }
         groupLabel.setText(preview ? "Browser WAV" : "Item Playback", juce::dontSendNotification);
         groupGain.setEnabled(id.isNotEmpty() && !preview);
@@ -261,6 +264,7 @@ class LivePlaybackPanel final : public juce::Component {
             level.onValueChange = [this] { if (!level.isMouseButtonDown()) commit(); };
             for (auto *button : {&mute, &solo}) { button->setClickingTogglesState(true); button->onClick = [this] { commit(); }; }
             listen.setButtonText("Play");
+            listen.setComponentID("live-stem-audition-" + key);
             listen.setTitle("Listen to this Browser WAV stem without switching the show");
             listen.onClick = [this] { host.owner.run([&] { host.auditionStem(stemId); }); };
             details.setTitle("Stem file, trim and output settings");
@@ -359,7 +363,7 @@ class LivePlaybackPanel final : public juce::Component {
     juce::Label fileName;
     juce::Slider groupGain;
     juce::Label groupLabel;
-    bool detailsVisible{};
+    bool detailsVisible{}, previousInspecting{};
     juce::String currentItem, previewFile;
     juce::TextEditor trimStart, trimEnd;
     juce::TextButton trimApply{"Trim"};
