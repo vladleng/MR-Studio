@@ -241,6 +241,7 @@ void Desktop::prepareLiveInterface(bool saved) {
     liveCurrentEntry.clear();
     livePendingEntry.clear();
     liveBrowserItem.clear();
+    liveInputPilotTrack.reset(); // The previous Core project has been replaced.
     app.stop_library_preview();
     livePlaybackStore.reset();
     livePendingItem.clear();
@@ -363,6 +364,9 @@ void Desktop::importLiveShow(const juce::File &file) {
     liveEmptyRevision = std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
 }
 void Desktop::selectLiveItem(const juce::String &id, const juce::String &entry) {
+    if (liveInputPilotTrack && liveDocument &&
+        id != liveDocument->interfaceState["currentItem"].toString())
+        throw std::runtime_error("Disable Live Input pilot before changing Setlist item; plugin handoff is not ready");
     // Explicit show selection exits Browser inspection and its independent audition.
     liveBrowserItem.clear();
     app.stop_library_preview();
@@ -606,6 +610,51 @@ void Desktop::setLiveItemPlaybackGain(double gain) {
     });
     syncLivePlayback();
 }
+void Desktop::startLiveInputPilot(int physicalInput) {
+    if (!liveDocument || !liveDocument->projects.empty() || (!standaloneLive && !testing))
+        throw std::runtime_error("Live Input pilot requires the standalone MR Live show");
+    if (app.recording() || app.engine()->state().playback == mrs::PlaybackState::playing)
+        throw std::runtime_error("Stop or pause playback before changing a live input");
+    if (app.audio_name() == "Offline clock (no sound)" || app.audio_name() == "Disconnected" ||
+        !app.audio_running())
+        throw std::runtime_error("Connect an ASIO input/output device in Audio settings first");
+    const auto inputs=app.input_names();
+    if (physicalInput < 0 || static_cast<std::size_t>(physicalInput) >= inputs.size())
+        throw std::runtime_error("Selected physical input is no longer available");
+    const auto current=liveDocument->interfaceState["currentItem"].toString();
+    if (!live::find(liveDocument->interfaceState, "items", current).isObject() ||
+        !live::playbackRows(liveDocument->interfaceState, current).empty())
+        throw std::runtime_error("First Live Input pilot supports only an item without WAV/stems");
+    if (liveInputPilotTrack)
+        throw std::runtime_error("Disable the current Live Input pilot before changing its physical input");
+    if (livePendingItem.isNotEmpty() || livePlaybackLoading || !app.cancel_staged_playback())
+        throw std::runtime_error("Finish the current item transition before enabling Live Input");
+    liveAutoToken=0; liveAutoKey.clear();
+    const auto track=app.add_audio_track("Live Input (pilot)");
+    liveInputPilotTrack=track; // Keep a handle even if device rebind throws; Disable can safely clean up.
+    try {
+        app.set_track_input(track,physicalInput,false);
+        app.set_track_monitoring(track,true);
+    } catch (...) {
+        try { app.set_track_monitoring(track,false); app.remove_track(track); liveInputPilotTrack.reset(); }
+        catch (...) {} // Retain handle for an explicit Disable/Audio reconnect.
+        throw;
+    }
+    liveNextStatus="Live Input monitoring (pilot; no automatic patch/item switching)";
+    ++liveUiRevision;
+}
+void Desktop::stopLiveInputPilot() {
+    if (!liveInputPilotTrack) return;
+    if (app.recording() || app.engine()->state().playback == mrs::PlaybackState::playing)
+        throw std::runtime_error("Stop or pause before removing Live Input and VST3");
+    closeEditors();
+    const auto id=*liveInputPilotTrack;
+    app.set_track_monitoring(id,false);
+    app.remove_track(id); // Existing Core quiesces DSP and releases VST3 off callback.
+    liveInputPilotTrack.reset();
+    liveNextKey.clear(); liveNextStatus.clear();
+    ++liveUiRevision;
+}
 void Desktop::setLiveChannelMix(const juce::String &id, double gain, double pan, bool mute, bool solo) {
     app.cancel_mix_preview();
     editLiveInterface("Channel mix", [&](auto &state) {
@@ -795,6 +844,14 @@ std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> Desktop::prepare
 void Desktop::syncLivePreload() {
     if (!liveDocument || !liveDocument->projects.empty())
         return;
+    if (liveInputPilotTrack) {
+        // WAV-only prepared graph handoff cannot retire a running monitor/VST3.
+        // Keep the current shared Engine and input graph alive, never stage the next WAV.
+        app.cancel_staged_playback();
+        liveAutoKey.clear(); liveAutoToken = 0;
+        liveNextStatus = "Live Input pilot active: disable before item switch";
+        return;
+    }
     const auto &state = liveDocument->interfaceState;
     const auto nextEntry = live::nextPerformanceEntry(state, liveCurrentEntry);
     const auto id = nextEntry["itemId"].toString();
