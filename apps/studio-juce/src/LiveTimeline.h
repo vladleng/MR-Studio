@@ -188,7 +188,9 @@ class LiveTimeline final : public juce::Component {
             const auto label = index >= 0 ? juce::File(rows[static_cast<std::size_t>(index)]["file"].toString()).getFileNameWithoutExtension()
                                          : channel["name"].toString();
             const int indent = lane.container ? 30 : lane.child ? 22 : 8;
-            text(g, label, {indent, y + 4, channelWidth - indent - 8, 20});
+            // Reserve the title's right edge for the editor icon (Instrument).
+            const bool instrumentTitle=channel["type"].toString()=="Instrument";
+            text(g, label, {indent, y + 4, juce::jmax(0,channelWidth - indent - (instrumentTitle?36:8)), 20});
             if(lane.child || channel["type"].toString()=="Playback")text(g, lane.child ? "Stem" : channel["type"].toString(), {indent, y + 34, channelWidth - indent - 8, 20}, true);
             if (lane.child) {
                 g.setColour(tokens.colour(ColourRole::border));
