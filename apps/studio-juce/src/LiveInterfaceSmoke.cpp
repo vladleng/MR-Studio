@@ -285,6 +285,11 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     editing.undoLiveInterface();editing.undoLiveInterface();
     liveCheck(editing.liveDocument->signature()==beforeModes,"Show Undo restores both mode edits exactly");
     editing.saveFile(file);file.deleteFile();
+    liveCheck(editing.liveSavedSnapshot.has_value() &&
+              live::sameShowValue(editing.liveDocument->interfaceState,
+                                  editing.liveSavedSnapshot->interfaceState) &&
+              !editing.liveDirty,
+              "Saved show and its deep-cloned baseline compare equal before Notes Undo");
     editing.liveUndo.clearUndoHistory();
     const auto oldNotes=live::find(editing.liveDocument->interfaceState,"items",id)["notes"].toString();
     const auto text=juce::String::repeatedString("notes ",150);
