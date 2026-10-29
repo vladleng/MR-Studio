@@ -85,7 +85,7 @@ struct LiveDocument {
     }
     juce::String signature() const { return live::canonical(json({}, true)); }
     static LiveDocument read(const juce::File &file) {
-        if (!file.existsAsFile() || file.getSize() > 8 * 1024 * 1024)
+        if (!file.existsAsFile() || file.getSize() > live::maximumShowBytes)
             throw std::runtime_error("Missing or oversized MR Live show");
         juce::var value;
         const auto parsed = juce::JSON::parse(file.loadFileAsString(), value);
@@ -125,8 +125,8 @@ struct LiveDocument {
     }
     void write(const juce::File &file) const {
         const auto bytes = juce::JSON::toString(json(file), false, 17);
-        if (bytes.getNumBytesAsUTF8() > 8 * 1024 * 1024)
-            throw std::runtime_error("MR Live show exceeds 8 MiB");
+        if (bytes.getNumBytesAsUTF8() > live::maximumShowBytes)
+            throw std::runtime_error("MR Live show exceeds 64 MiB");
         if (file.getParentDirectory().createDirectory().failed())
             throw std::runtime_error("Cannot create MR Live folder");
         juce::TemporaryFile temporary(file);
