@@ -438,7 +438,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   live::decodeLiveInputProfile(saved).input==0,
                   "Standalone .mrlive preserves Live Input profile without Studio song/project refs");
         auto invalid=source.clone();
-        live::put(invalid["channels"][0]["liveInput"],"input",-5);
+        auto invalidProfile=invalid["channels"][0]["liveInput"];
+        live::put(invalidProfile,"input",-5);
         bool rejected=false;
         try {live::validateLiveInputProfiles(invalid);}catch(const std::exception&){rejected=true;}
         liveCheck(rejected, "Malformed saved physical input is rejected on validation");
