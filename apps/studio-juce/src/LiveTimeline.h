@@ -254,6 +254,39 @@ class LiveTimeline final : public juce::Component {
             return false;
         return owner.liveCurrentEntry.isEmpty() || item.entry == owner.liveCurrentEntry;
     }
+    // The compact no-frame piano glyph shares the MR UDS track_piano_compact
+    // motif without creating another SVG asset or altering vendor-owned GUI.
+    class InstrumentEditorIcon final : public juce::Button {
+      public:
+        InstrumentEditorIcon():juce::Button("Open VST3 Instrument editor") {
+            setTitle("Open instrument editor");
+            setWantsKeyboardFocus(true);
+        }
+        void paintButton(juce::Graphics& g,bool hovered,bool down) override {
+            const auto tokens=liveReferenceTokens();
+            const auto color=tokens.colour(down||hovered?ColourRole::focus:ColourRole::text)
+                                  .withMultipliedAlpha(isEnabled()?1.f:.35f);
+            g.setColour(color);
+            const auto bounds=getLocalBounds().toFloat().reduced(4.f,5.f);
+            g.drawRoundedRectangle(bounds,1.4f,1.2f);
+            for(int i=1;i<5;++i) {
+                const auto x=bounds.getX()+bounds.getWidth()*static_cast<float>(i)/5.f;
+                g.drawVerticalLine(juce::roundToInt(x),bounds.getY()+1.f,bounds.getBottom()-1.f);
+            }
+            for(int i : {1,2,4}) {
+                const auto x=bounds.getX()+bounds.getWidth()*static_cast<float>(i)/5.f;
+                g.fillRect(x-1.f,bounds.getY()+1.f,2.f,bounds.getHeight()*.52f);
+            }
+            if(hasKeyboardFocus(true)) {
+                g.setColour(tokens.colour(ColourRole::focus));
+                g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(.75f),2.f,1.f);
+            }
+        }
+    };
+    struct EditorGlyph {
+        juce::String channel;
+        std::unique_ptr<InstrumentEditorIcon> button;
+    };
     class StemMix final : public juce::Component {
       public:
         StemMix(LiveTimeline &timeline, juce::String stem) : key(std::move(stem)), parent(timeline), inputs(timeline.owner,key,LiveChannelControls::Surface::timeline) {
@@ -1067,11 +1100,47 @@ class LiveTimeline final : public juce::Component {
         if (channelsKey != stemControlsKey) {
             stemControlsKey = channelsKey;
             stemControls.clear();
+            editorGlyphs.clear();
             if (const auto *entries = channels.getArray()) for (const auto &channel : *entries) {
                 if (channel["id"] == primaryChannel()["id"]) continue;
-                auto control = std::make_unique<StemMix>(*this, channel["id"].toString());
-                addAndMakeVisible(*control); stemControls.push_back(std::move(control));
+                const auto channelId=channel["id"].toString();
+                auto control=std::make_unique<StemMix>(*this,channelId);
+                addAndMakeVisible(*control);stemControls.push_back(std::move(control));
+                if(channel["type"].toString()=="Instrument") {
+                    EditorGlyph glyph;
+                    glyph.channel=channelId;
+                    glyph.button=std::make_unique<InstrumentEditorIcon>();
+                    glyph.button->setComponentID("live-timeline-editor-"+channelId);
+                    glyph.button->onClick=[this,channelId] {
+                        owner.run([&] {
+                            if(!owner.liveDocument)return;
+                            const auto row=live::find(owner.liveDocument->interfaceState,"channels",channelId);
+                            const auto profile=row["liveInput"];
+                            if(!profile.isObject() || static_cast<int>(profile["version"])!=2)
+                                throw std::runtime_error("Choose a MIDI/VST3 instrument in Mixer first");
+                            const auto loaded=live::decodeLiveInputProfile(profile);
+                            if(loaded.inserts.empty() || loaded.inserts.front().kind!=mrs::InsertKind::vst3)
+                                throw std::runtime_error("Choose a VST3 instrument in Mixer first");
+                            owner.openLiveInsertEditor(channelId,loaded.inserts.front().id);
+                        });
+                    };
+                    addAndMakeVisible(*glyph.button);
+                    editorGlyphs.push_back(std::move(glyph));
+                }
             }
+        }
+        for(auto& glyph:editorGlyphs) {
+            const auto y=channelY(glyph.channel)-viewport.getViewPositionY();
+            glyph.button->setBounds(juce::jmax(0,channelWidth-30),y+2,24,22);
+            glyph.button->setVisible(y>=lanesTop && y+rowHeight>0 && y<getHeight());
+            const auto row=live::find(owner.liveDocument->interfaceState,"channels",glyph.channel);
+            const auto profile=row["liveInput"];
+            const bool active=profile.isObject() && static_cast<int>(profile["version"])==2
+                && profile["inserts"].size()>0;
+            glyph.button->setEnabled(active);
+            glyph.button->setTooltip(active?
+                "Open VST3 instrument editor: "+profile["inserts"][0]["name"].toString():
+                "Choose a VST3 instrument from Mixer first");
         }
         for (auto &control : stemControls) {
             const int y = channelY(control->key);
@@ -1140,6 +1209,7 @@ class LiveTimeline final : public juce::Component {
     juce::TextButton playbackMute{"M"}, playbackSolo{"S"};
     juce::Slider playbackGain;
     std::vector<std::unique_ptr<StemMix>> stemControls;
+    std::vector<EditorGlyph> editorGlyphs;
     juce::String stemControlsKey;
     juce::var state;
     juce::String signature, revealedItem;
