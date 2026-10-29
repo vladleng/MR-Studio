@@ -63,6 +63,7 @@ jobs:
             if($subject -match '\[ci live\]'){$scope='live'}
           }
           if($env:INTEGRATION -eq 'true'){$scope='integration'}
+          # 0.8.9-fix1 acceptance: MIDI/VSTi Timeline, Mixer FX, editor & input sentinel.
           # The Live-only executable is intentionally ARA-free. Keep ARA ON
           # by default for Studio/profile, including ARA tests and packaging.
           $buildAra=if($scope -eq 'live'){'false'}else{$env:ARA.ToLowerInvariant()}
