@@ -104,9 +104,13 @@ public:
     void previewLiveChannelMix(const juce::String&, double, double, bool, bool);
     // #297: single-input non-persistent pilot through the existing Core/ASIO/VST3 host.
     // No Live item/section handoff while a pilot monitor or insert is active.
-    void startLiveInputPilot(int physicalInput);
+    void startLiveInputPilot(int physicalInput, const juce::String& showChannel = {});
     void stopLiveInputPilot();
+    void saveLiveInputProfile(const juce::String& showChannel);
+    void loadLiveInputProfile(const juce::String& showChannel);
+    void enableLiveInputPilotMonitoring();
     std::optional<mrs::Id> liveInputPilotTrack;
+    juce::String liveInputPilotChannel;
     void setLivePlaybackTrim(double startSeconds, double endSeconds);
     void syncLivePlayback();
     bool livePlaybackReady() const;
