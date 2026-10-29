@@ -2140,8 +2140,16 @@ void Application::set_track_monitoring(const Id& id, bool enabled) {
     const SetTrackMonitoring command{id,enabled}; auto candidate=*services_.projects->state().project;
     command.apply(candidate); candidate.validate();
     const auto track=std::find_if(services_.projects->state().project->tracks.begin(),services_.projects->state().project->tracks.end(),[&](const auto& t){return t.id==id;});
-    if(device_config_&&device_config_->process_buffer_frames&&device_config_->processing_workers>=2&&audio_name_!="Offline clock (no sound)"&&
-        !track_armed(id)&&track->input_monitor!=enabled){edit(command,{},true);return;}
+    const bool liveRouteChange=workspace_==Workspace::live && path_.empty() &&
+        track->kind==TrackKind::audio && track->input_monitor!=enabled;
+    // Live Playback intentionally omits unmonitored device routes at graph
+    // preparation. Enabling a monitor must rebuild that route off callback,
+    // even when its physical input is already selected/open in ASIO.
+    if (liveRouteChange) require_not_playing();
+    if(!liveRouteChange&&device_config_&&device_config_->process_buffer_frames&&device_config_->processing_workers>=2&&
+        audio_name_!="Offline clock (no sound)"&&!track_armed(id)&&track->input_monitor!=enabled){
+        edit(command,{},true);return;
+    }
     auto next=device_config_; if (next) next->inputs=selected_inputs(candidate);
     const bool rebind=enabled && next && audio_name_ != "Offline clock (no sound)" &&
         std::any_of(next->inputs.begin(),next->inputs.end(),[&](int input) {
@@ -2150,7 +2158,7 @@ void Application::set_track_monitoring(const Id& id, bool enabled) {
     if (rebind) require_not_playing();
     if (rebind) audio::validate_device_config(*device_info_,*next);
     services_.projects->execute(command);
-    if (rebind) rebuild_audio(true); else publish_mix();
+    if (rebind || liveRouteChange) rebuild_audio(true); else publish_mix();
 }
 void Application::monitoring(bool enabled) {
     require(engine_->enqueue({audio::ControlKind::monitor,enabled ? 1 : 0}),"audio command queue full");
