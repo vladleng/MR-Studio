@@ -161,7 +161,10 @@ private:
         if(unknown>0)menu.addItem(0,"Unknown plugin type ("+juce::String(unknown)+") — rescan catalog",false);
         for(std::size_t i=0;i<saved.inserts.size();++i) {
             const auto& fx=saved.inserts[i];juce::PopupMenu slot;
-            slot.addItem(100+static_cast<int>(i)*10,"Open editor",owner.liveInputTrack(id).has_value());
+            // A saved VST3 can be edited before Monitor is enabled. An explicit
+            // editor request prepares the Core track, but leaves monitoring OFF.
+            slot.addItem(100+static_cast<int>(i)*10,"Open editor",
+                owner.liveInputTrack(id).has_value() || stopped);
             slot.addItem(101+static_cast<int>(i)*10,"Bypass",stopped,fx.bypass);
             slot.addItem(102+static_cast<int>(i)*10,"Move up",stopped&&i>(saved.instrument?1u:0u));
             slot.addItem(103+static_cast<int>(i)*10,"Move down",stopped&&i+1<saved.inserts.size()&&(!saved.instrument||i>0));
@@ -194,7 +197,11 @@ private:
                 if(action<100)return;
                 const auto i=static_cast<std::size_t>((action-100)/10);
                 const auto operation=(action-100)%10;if(i>=chain.size())return;
-                if(operation==0){const auto track=safe->owner.liveInputTrack(safe->id);if(track)safe->owner.openInsert(*track,chain[i].id);return;}
+                if(operation==0){
+                    const auto channel=safe->id;const auto slot=chain[i].id;
+                    safe->owner.openLiveInsertEditor(channel,slot);
+                    return;
+                }
                 if(operation==1)chain[i].bypass=!chain[i].bypass;
                 else if(operation==2&&i>(saved.instrument?1u:0u))std::swap(chain[i],chain[i-1]);
                 else if(operation==3&&i+1<chain.size()&&(!saved.instrument||i>0))std::swap(chain[i],chain[i+1]);
