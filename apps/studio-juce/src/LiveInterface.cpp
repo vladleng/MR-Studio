@@ -652,6 +652,10 @@ void Desktop::stopLiveInputPilot() {
     app.set_track_monitoring(id,false);
     app.remove_track(id); // Existing Core quiesces DSP and releases VST3 off callback.
     liveInputPilotTrack.reset();
+    // The pilot is a transient runtime track, not a user .mrsproject or show edit.
+    if (liveDocument && liveDocument->active < 0 && project()->tracks.empty() && project()->clips.empty())
+        liveEmptyRevision=std::pair{app.services().projects->state().revision,
+                                    app.graphs()->state().revision};
     liveNextKey.clear(); liveNextStatus.clear();
     ++liveUiRevision;
 }
