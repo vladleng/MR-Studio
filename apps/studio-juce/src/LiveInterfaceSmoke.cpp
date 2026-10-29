@@ -912,7 +912,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             nativeGain.kind=mrs::InsertKind::gain;nativeGain.gain=.5f;
             combined.app.set_inserts(anchorId,{nativeGain});
             const auto originalGeneration=combined.app.insert_generation();
-            const auto engine=combined.app.engine();
+            const auto combinedEngine=combined.app.engine();
             const auto first=combined.liveDocument->interfaceState["currentItem"].toString();
             const auto second=combined.liveDocument->interfaceState["items"][1]["id"].toString();
             combined.attachLivePlayback(second,waveFile);
@@ -925,7 +925,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                       combined.project()->tracks.back().id==anchorId &&
                       combined.project()->tracks.back().input_monitor &&
                       combined.project()->tracks.back().inserts==std::vector<mrs::NativeInsert>{nativeGain} &&
-                      combined.app.insert_generation()==originalGeneration && combined.app.engine()==engine &&
+                      combined.app.insert_generation()==originalGeneration && combined.app.engine()==combinedEngine &&
                       combined.app.playback_sources().size()==1,
                       "Manual WAV handoff keeps the same Core monitor, insert runtime and source mapping");
             combined.app.validate_playback_regions(
@@ -957,7 +957,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                       combined.project()->tracks.front().id==anchorId &&
                       combined.project()->tracks.front().input_monitor &&
                       combined.app.insert_generation()==originalGeneration &&
-                      combined.app.engine()==engine,
+                      combined.app.engine()==combinedEngine,
                       "Returning to empty item preserves live DSP and releases WAV-only sources");
             combined.stopLiveInputPilot();
         }
