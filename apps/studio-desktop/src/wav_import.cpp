@@ -147,6 +147,8 @@ void Application::stage_playback(const std::shared_ptr<PlaybackPreparation>& job
     activate_playback_impl(job,layout,true);
 }
 void Application::activate_playback_impl(const std::shared_ptr<PlaybackPreparation>& job,const PlaybackLayout& layout,bool staged){
+    if (staged && layout.live_track)
+        throw std::runtime_error("Active Live VST3 staging requires the separate #301 graph-lifetime implementation");
     require_import(job&&!playback_preparation(job).busy&&job->media&&job->error.empty()&&!job->stop.stop_requested(),"Playback preparation is not ready");
     require_import(job->rate==services_.projects->state().project->sample_rate,"Playback preparation rate changed");
     require_import(layout.stems.size()==job->media->entries.size(),"Prepared stem mapping mismatch");
@@ -200,7 +202,7 @@ void Application::activate_playback_impl(const std::shared_ptr<PlaybackPreparati
             }
         }
     }
-    candidate.validate();install_playback(std::move(candidate),std::move(decoded),job->media,layout.click,std::move(policy),layout.token,staged);
+    candidate.validate();install_playback(std::move(candidate),std::move(decoded),job->media,layout.click,std::move(policy),layout.token,staged,layout.live_track);
     if(staged)staged_playback_->sources=std::move(sources);
     else{playback_sources_=std::move(sources);playback_source_project_=std::move(sourceProject);}
 }
