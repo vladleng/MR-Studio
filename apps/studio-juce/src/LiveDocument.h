@@ -1,6 +1,7 @@
 #pragma once
 #include "LivePlaybackState.h"
 #include "LiveShowState.h"
+#include "LiveInputState.h"
 #include <vector>
 
 namespace ui {
@@ -49,6 +50,7 @@ struct LiveDocument {
                 throw std::runtime_error("MR Live songs must reference .mrsproject");
         if (interfaceState.isObject()) {
             live::validate(interfaceState);
+            live::validateLiveInputProfiles(interfaceState);
             live::validatePlayback(interfaceState);
             for (const auto &[id, index] : itemProjects)
                 if (!live::find(interfaceState, "items", id).isObject() || index < 0 ||
