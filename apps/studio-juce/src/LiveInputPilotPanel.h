@@ -33,7 +33,7 @@ public:
         addEffect.setComponentID("live-input-add-vst");
         const auto names=owner.app.input_names();
         for (std::size_t i=0;i<names.size();++i)
-            physicalInput.addItem(juce::String(i+1) + " - " +
+            physicalInput.addItem(juce::String(static_cast<int>(i+1)) + " - " +
                 juce::String::fromUTF8(names[i].c_str()),static_cast<int>(i+1));
         if (!names.empty()) physicalInput.setSelectedId(1,juce::dontSendNotification);
         for (std::size_t i=0;i<owner.catalog.size();++i) {
