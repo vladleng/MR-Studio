@@ -728,7 +728,7 @@ void Desktop::captureLiveInputs(juce::var& state) {
 }
 void Desktop::reconcileLiveInputs(const juce::var& state) {
     if(liveChannelTracks.empty())return;
-    const auto snapshot=project();auto next=liveChannelTracks;
+    const auto snapshot=project();auto channelTracks=liveChannelTracks;
     std::vector<mrs::Track> tracks;
     bool changed=false;
     for(const auto& [channel,id]:liveChannelTracks) {
@@ -736,13 +736,13 @@ void Desktop::reconcileLiveInputs(const juce::var& state) {
         const auto old=live::find(liveDocument->interfaceState,"channels",channel);
         const auto at=std::find_if(snapshot->tracks.begin(),snapshot->tracks.end(),[&](const auto& t){return t.id==id;});
         if(at==snapshot->tracks.end())throw std::runtime_error("Live channel Core track is missing");
-        if(!row.isObject() || !row["liveInput"].isObject()) {next.erase(channel);changed=true;continue;}
+        if(!row.isObject() || !row["liveInput"].isObject()) {channelTracks.erase(channel);changed=true;continue;}
         if(live::canonical(row["liveInput"])==live::canonical(old["liveInput"])) {
             tracks.push_back(*at); // mix is updated separately without rebuilding DSP
             continue;
         }
         const auto profile=live::decodeLiveInputProfile(row["liveInput"]);
-        if(profile.instrument && profile.inserts.empty()) {next.erase(channel);changed=true;continue;}
+        if(profile.instrument && profile.inserts.empty()) {channelTracks.erase(channel);changed=true;continue;}
         validateLiveHardware(*this,profile);
         auto track=liveTrack(state,channel,id);
         track.input_monitor=track.kind==mrs::TrackKind::audio && at->kind==mrs::TrackKind::audio && at->input_monitor;
@@ -751,7 +751,7 @@ void Desktop::reconcileLiveInputs(const juce::var& state) {
     }
     if(changed) {
         if(livePendingItem.isNotEmpty() || livePlaybackLoading)throw std::runtime_error("Finish the item transition first");
-        closeEditors();app.update_live_channels(liveInputTracks(),std::move(tracks));liveChannelTracks=std::move(next);
+        closeEditors();app.update_live_channels(liveInputTracks(),std::move(tracks));liveChannelTracks=std::move(channelTracks);
     }
 }
 void Desktop::configureLiveInput(const juce::String& requested,int input,bool stereo,const std::vector<int>& outputs) {
@@ -809,12 +809,12 @@ void Desktop::activateLiveChannel(const juce::String& requested) {
     const auto profile=live::decodeLiveInputProfile(live::find(liveDocument->interfaceState,"channels",channel)["liveInput"]);
     validateLiveHardware(*this,profile);
     auto tracks=std::vector<mrs::Track>{};
-    const auto ids=liveInputTracks();const auto snapshot=project();
-    for(const auto& id:ids)for(const auto& track:snapshot->tracks)if(track.id==id)tracks.push_back(track);
+    const auto trackIds=liveInputTracks();const auto snapshot=project();
+    for(const auto& id:trackIds)for(const auto& track:snapshot->tracks)if(track.id==id)tracks.push_back(track);
     const mrs::Id id{"live-input-"+channel.toStdString()};
     tracks.push_back(liveTrack(liveDocument->interfaceState,channel,id));
-    auto next=liveChannelTracks;next.emplace(channel,id); // allocate before publishing Core
-    app.update_live_channels(ids,std::move(tracks));liveChannelTracks=std::move(next);
+    auto channelTracks=liveChannelTracks;channelTracks.emplace(channel,id); // allocate before publishing Core
+    app.update_live_channels(trackIds,std::move(tracks));liveChannelTracks=std::move(channelTracks);
     liveAutoToken=0;liveAutoKey.clear();++liveUiRevision;
 }
 void Desktop::setLiveInputMonitor(const juce::String& requested,bool enabled) {

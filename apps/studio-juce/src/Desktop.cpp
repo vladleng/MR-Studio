@@ -170,8 +170,8 @@ void Desktop::openFile(const juce::File& f){if(!standaloneLive&&!testing&&f.hasF
 resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();showProjectHome(false);reconnectDevice(session);if(liveDocument&&liveDocument->active<0)liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};else liveEmptyRevision.reset();mrs::diagnostics::event("project_open_end");}
 bool Desktop::transientLiveRuntime() const{
     if(!standaloneLive || !liveDocument || !liveDocument->projects.empty())return false;
-    const auto p=project();const auto ids=liveInputTracks();const auto& sources=app.playback_sources();
-    if(ids.size()!=liveChannelTracks.size() || !p->master_inserts.empty() || p->tracks.size()!=sources.size()+ids.size())return false;
+    const auto p=project();const auto trackIds=liveInputTracks();const auto& sources=app.playback_sources();
+    if(trackIds.size()!=liveChannelTracks.size() || !p->master_inserts.empty() || p->tracks.size()!=sources.size()+trackIds.size())return false;
     for(std::size_t i=0;i<sources.size();++i)if(p->tracks[i].id!=sources[i].track)return false;
     return true;
 }
