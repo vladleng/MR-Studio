@@ -466,6 +466,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         // 30 Hz mix key depends on scalar mixer values, not binary VST3 blobs.
         const auto selectedItem=largeLoaded.interfaceState["currentItem"].toString();
         const auto baselineMixKey=live::playbackMixKey(largeLoaded.interfaceState,selectedItem);
+        liveCheck(baselineMixKey.getNumBytesAsUTF8()<16*1024,
+                  "Playback polling key must remain small with multi-megabyte VST3 preset data");
         auto modifiedShow=largeLoaded.interfaceState.clone();
         {
             auto channel=live::require(modifiedShow,"channels",channelId);
