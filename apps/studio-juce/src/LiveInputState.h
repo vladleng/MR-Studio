@@ -14,6 +14,7 @@ inline juce::String liveInputB64(const std::vector<std::byte>& bytes) {
 inline std::vector<std::byte> liveInputBytes(const juce::var& value) {
     if (!value.isString() || value.toString().length() > 350000)
         throw std::runtime_error("Invalid Live VST3 state encoding");
+    if (value.toString().isEmpty()) return {};
     juce::MemoryOutputStream output;
     if (!juce::Base64::convertFromBase64(output, value.toString()) || output.getDataSize() > 256 * 1024)
         throw std::runtime_error("Invalid Live VST3 state data");
