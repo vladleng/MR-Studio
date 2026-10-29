@@ -127,9 +127,10 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         if (!event.mods.isLeftButtonDown())
             return;
         auto *origin = event.originalComponent;
-        const bool inSetlist = origin == &setlist || setlist.isParentOf(origin);
-        const bool inBrowser = origin == &browserItems || browserItems.isParentOf(origin);
-        if (browserVisible && !inSetlist && !inBrowser)
+        // Playback/Stems, popup controls and transport must not close Browser.
+        // Only an intentional Timeline click dismisses this inspection view.
+        const bool inTimeline = origin == &timeline || timeline.isParentOf(origin);
+        if (browserVisible && inTimeline)
             showBrowser(false);
     }
     void paint(juce::Graphics &g) override {
@@ -226,7 +227,6 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     void optionsMenu() {
         juce::PopupMenu popup;
         popup.setLookAndFeel(&nativeTheme);
-        popup.addItem(1, "Browser items", true, browserVisible);
         popup.addItem(2, "Item button layout...", owner.liveDocument.has_value());
         juce::PopupMenu appearance, zoom, menus, window;
         zoom.addItem(100, "Fit to window", true, owner.view.liveUiZoom == 0);
@@ -264,9 +264,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         popup.showMenuAsync(liveMenuOptions(options), [safe](int action) {
             if (!safe)
                 return;
-            if (action == 1)
-                safe->showBrowser(!safe->browserVisible);
-            else if (action == 2)
+            if (action == 2)
                 openLiveCardEditor(safe->owner, safe->reference.defaults["itemCardLayout"]);
             else if(action==104){safe->owner.run([&]{safe->owner.editLiveInterface("Back to start",[&](auto& state){
                 live::put(live::performance(state),"backToStart",!static_cast<bool>(state["performance"]["backToStart"]));});});}
