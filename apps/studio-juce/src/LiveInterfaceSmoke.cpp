@@ -523,6 +523,24 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     livePump();
     native->showBrowser(true);
     livePump();
+    auto *playbackSurface = liveComponent(desktop, "live-playback-panel");
+    liveCheck(playbackSurface != nullptr, "Browser dismissal test has Playback/Stems panel");
+    const auto browserClick = [&](juce::Component *origin) {
+        const auto when = juce::Time::getCurrentTime();
+        const juce::Point<float> where{4.f, 4.f};
+        const juce::MouseEvent event(
+            juce::Desktop::getInstance().getMainMouseSource(), where,
+            juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier), 1, 0, 0, 0, 0,
+            origin, origin, when, where, when, 1, false);
+        native->mouseDown(event);
+    };
+    browserClick(playbackSurface);
+    liveCheck(native->itemsBrowserVisible(),
+              "Playback/Stems click does not dismiss Browser inspection");
+    browserClick(timeline);
+    liveCheck(!native->itemsBrowserVisible(),
+              "Timeline click explicitly dismisses Browser inspection");
+    native->showBrowser(true);
     auto *list = dynamic_cast<LiveSetlist *>(liveComponent(desktop, "live-setlist"));
     liveCheck(list != nullptr, "Native Setlist exists");
     const int count = live::activeSetlist(desktop.liveDocument->interfaceState)["entries"].size();
@@ -599,6 +617,23 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     auto *tempoField = dynamic_cast<juce::TextEditor *>(liveComponent(card, "live-item-tempo"));
     liveCheck(notesField && notesField->isVisible() && nameField && tempoField, "Item fields are visible without Properties or Apply");
     liveCheck(notesField->getY() < tempoField->getY(), "Notes are directly below tasks, above musical properties");
+    int rootActions = 0;
+    bool hasOldItemAction = false;
+    juce::StringArray availableActions;
+    int statusWidth = -1;
+    for (auto *child : card.getChildren()) {
+        if (auto *button = dynamic_cast<juce::TextButton *>(child)) {
+            ++rootActions;
+            availableActions.add(button->getButtonText());
+        }
+        if (auto *statusBox = dynamic_cast<LiveStatusBox *>(child))
+            statusWidth = statusBox->getWidth();
+    }
+    hasOldItemAction = availableActions.contains("Priority / Progress...") ||
+                       availableActions.contains("Add to Setlist") ||
+                       availableActions.contains("Undo show") || availableActions.contains("Redo show");
+    liveCheck(rootActions == 4 && !hasOldItemAction && statusWidth == 94,
+              "Item context keeps four compact actions and a narrower Status control");
     const auto oldNotes = live::find(desktop.liveDocument->interfaceState, "items", id)["notes"].toString();
     card.addToDesktop(juce::ComponentPeer::windowIsTemporary);
     card.toFront(true); livePump();
@@ -645,6 +680,20 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     desktop.undoLiveInterface(); livePump();
     liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == oldName, "Title Undo restores prior value");
     card.removeFromDesktop();
+    const int shortNotesHeight = notesField->getHeight();
+    const int shortPanelHeight = card.getHeight();
+    juce::String longNotes;
+    for (int line = 0; line < 18; ++line)
+        longNotes += "A longer note paragraph with wrapping and detail, line " +
+                     juce::String(line) + "\n";
+    notesField->setText(longNotes, true);
+    livePump();
+    liveCheck(notesField->getHeight() > shortNotesHeight && card.getHeight() > shortPanelHeight,
+              "Notes editor and context content grow as wrapped text expands");
+    notesField->setText(oldNotes, true);
+    livePump();
+    liveCheck(notesField->getHeight() == shortNotesHeight && card.getHeight() == shortPanelHeight,
+              "Notes editor and context content shrink after clearing long notes");
     livePreview(card, "organizer");
     auto *mixerToggle = dynamic_cast<juce::TextButton *>(liveComponent(desktop, "live-mixer-toggle"));
     liveCheck(mixerToggle, "Mixer has a toolbar toggle");
