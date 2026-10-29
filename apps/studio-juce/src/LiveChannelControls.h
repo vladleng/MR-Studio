@@ -40,23 +40,25 @@ public:
         const bool timelineInstrument=surface==Surface::timeline && type=="Instrument"&&!legacyAudio;
         const bool mixerInstrument=surface==Surface::mixer && type=="Instrument"&&!legacyAudio;
         setEnabled(type!="Playback");
+        const bool relayout=input.isVisible()==mixerInstrument || output.isVisible()==mixerInstrument;
         input.setVisible(!mixerInstrument);output.setVisible(!mixerInstrument);
         input.setEnabled(stopped);
         output.setEnabled(stopped&&!legacyAudio&&(!timelineInstrument||profile.isObject()));
         effects.setEnabled(!legacyAudio);
         if(timelineInstrument) {
-            juce::String midiName="MIDI Off";
             const auto midiId=profile["midiInput"].toString();
-            if(midiId.isNotEmpty()) {
-                midiName="Missing MIDI";
-                for(const auto& port:mrs::desktop::MidiInputs::ports()) {
+            const auto now=juce::Time::getMillisecondCounter();
+            if(cachedMidiId!=midiId || now-lastMidiRefresh>3000u) {
+                cachedMidiId=midiId;lastMidiRefresh=now;
+                cachedMidiName=midiId.isEmpty()?"MIDI Off":"Missing MIDI";
+                if(midiId.isNotEmpty())for(const auto& port:mrs::desktop::MidiInputs::ports()) {
                     if(juce::String::fromUTF8(port.id.c_str())==midiId) {
-                        midiName=juce::String::fromUTF8(port.name.c_str());break;
+                        cachedMidiName=juce::String::fromUTF8(port.name.c_str());break;
                     }
                 }
             }
-            input.setButtonText(midiName);
-            input.setTooltip("MIDI Input: "+midiName);
+            input.setButtonText(cachedMidiName);
+            input.setTooltip("MIDI Input: "+cachedMidiName);
             const int channel=profile.isObject()?static_cast<int>(profile["midiChannel"]):-1;
             output.setButtonText(profile.isObject()?(channel<0?"Omni":"MIDI Ch "+juce::String(channel+1)):"MIDI Channel");
             output.setTooltip("MIDI receive channel: Omni or 1–16");
@@ -82,7 +84,7 @@ public:
                 input.setButtonText("Missing input");input.setTooltip("Saved device unavailable: "+profile["deviceName"].toString());
             }
         }
-        resized();
+        if(relayout)resized();
     }
 private:
     juce::var profile()const{return owner.liveDocument?live::find(owner.liveDocument->interfaceState,"channels",id)["liveInput"]:juce::var{};}
@@ -282,6 +284,8 @@ private:
             safe->owner.setLiveInputEffects(safe->id,std::move(chain));safe->sync();
         });});
     }
-    Desktop& owner;juce::String id;Surface surface;juce::TextButton input{"Input"},output{"Master"},effects{"FX / VSTi"};
+    Desktop& owner;juce::String id;Surface surface;
+    juce::String cachedMidiId,cachedMidiName;juce::uint32 lastMidiRefresh{};
+    juce::TextButton input{"Input"},output{"Master"},effects{"FX / VSTi"};
 };
 } // namespace ui
