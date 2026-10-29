@@ -480,6 +480,12 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         inputPilot.saveLiveInputProfile(showChannel);
         liveCheck(inputPilot.liveDocument->interfaceState["channels"][0]["liveInput"].isObject(),
                   "Explicit Save to Show captures actual monitored Core track profile");
+        const auto pilotSaved=folder.getChildFile("pilot-shared-core-save.mrlive");
+        inputPilot.saveFile(pilotSaved);
+        const auto pilotLoaded=LiveDocument::read(pilotSaved);
+        liveCheck(pilotLoaded.projects.empty() && pilotLoaded.itemProjects.empty() &&
+                  pilotLoaded.interfaceState["channels"][0]["liveInput"].isObject(),
+                  "Saving .mrlive with active monitor does not create a linked Studio project");
         inputPilot.stopLiveInputPilot();
         liveCheck(!inputPilot.liveInputPilotTrack &&
                   inputPilot.project()->tracks.empty() &&
