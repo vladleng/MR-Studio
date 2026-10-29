@@ -163,9 +163,10 @@ inline void validateLayout(const juce::var &layout) {
     if (!static_cast<bool>(layout["fields"]["name"]["visible"]))
         throw std::runtime_error("Item name must stay visible");
 }
+inline constexpr std::int64_t maximumShowBytes=64ll*1024ll*1024ll;
 inline void validate(const juce::var &state) {
-    if (!state.isObject() || juce::JSON::toString(state).getNumBytesAsUTF8() > 1024 * 1024)
-        throw std::runtime_error("Show interface exceeds 1 MiB");
+    if (!state.isObject() || juce::JSON::toString(state).getNumBytesAsUTF8() > maximumShowBytes)
+        throw std::runtime_error("Show interface exceeds 64 MiB");
     std::set<juce::String> ids, items, folders, lists;
     for (const auto *key : {"items", "folders", "setlists"})
         if (!state[key].isArray() || state[key].size() > 500)
