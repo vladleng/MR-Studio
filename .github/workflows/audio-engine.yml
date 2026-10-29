@@ -63,7 +63,7 @@ jobs:
             if($subject -match '\[ci live\]'){$scope='live'}
           }
           if($env:INTEGRATION -eq 'true'){$scope='integration'}
-          # 0.8.9-fix1 acceptance: 16 MiB VST3 state, 64 MiB show, Mixer VSTi picker and Timeline editor icon.
+          # 0.8.9-fix1 acceptance: 30Hz Playback key and full-show dirty/Undo latency fixes, plus VST3/MIDI.
           # The Live-only executable is intentionally ARA-free. Keep ARA ON
           # by default for Studio/profile, including ARA tests and packaging.
           $buildAra=if($scope -eq 'live'){'false'}else{$env:ARA.ToLowerInvariant()}
