@@ -937,11 +937,13 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             liveCheck(LiveDocument::read(saved).projects.empty(),
                       "Saving combined Live + WAV does not create Studio project references");
             combined.app.play();
-            std::array<float,128> guitarSignal{};
+            std::array<float,128> guitarSignal{},silentInput{};
             std::array<float,256> wavOnly{},withGuitar{};
-            combined.app.engine()->process(nullptr,wavOnly.data(),128);
+            for(int block=0;block<4;++block)
+                combined.app.engine()->process(silentInput.data(),wavOnly.data(),128);
             guitarSignal.fill(.5f);
-            combined.app.engine()->process(guitarSignal.data(),withGuitar.data(),128);
+            for(int block=0;block<4;++block)
+                combined.app.engine()->process(guitarSignal.data(),withGuitar.data(),128);
             liveCheck(withGuitar[24]>wavOnly[24]+.02f,
                       "One active Core callback mixes WAV and monitored guitar through retained insert");
             bool blocked=false;
@@ -949,7 +951,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             liveCheck(blocked && combined.project()->tracks.back().id==anchorId,
                       "Active Playback cannot rehome a live insert graph while audio runs");
             combined.app.stop();
-            combined.app.engine()->process(nullptr,withGuitar.data(),128);
+            combined.app.engine()->process(silentInput.data(),withGuitar.data(),128);
             combined.selectLiveItem(first);
             liveCheck(combined.project()->tracks.size()==1 &&
                       combined.project()->tracks.front().id==anchorId &&
