@@ -169,18 +169,10 @@ void Desktop::openFile(const juce::File& f){if(!standaloneLive&&!testing&&f.hasF
 }else{const bool leavingLive=liveDocument.has_value()||app.workspace()==mrs::desktop::Workspace::live;app.open_project(path(f));liveDocument.reset();liveFile=juce::File();prepareLiveInterface(false);if(leavingLive)app.workspace(mrs::desktop::Workspace::arrange);}
 resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();showProjectHome(false);reconnectDevice(session);if(liveDocument&&liveDocument->active<0)liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};else liveEmptyRevision.reset();mrs::diagnostics::event("project_open_end");}
 bool Desktop::transientLiveRuntime() const{
-    if(!standaloneLive || !liveDocument || !liveDocument->projects.empty() || !liveInputPilotTrack)
-        return false;
-    const auto p=project();
-    if(p->tracks.empty() || p->tracks.back().id!=*liveInputPilotTrack || !p->master_inserts.empty())
-        return false;
-    const auto& sources=app.playback_sources();
-    if(p->tracks.size()==1 && p->clips.empty())return true; // pilot before Playback
-    if(sources.empty() || p->tracks.size()!=sources.size()+1)return false;
-    for(std::size_t i=0;i<sources.size();++i)
-        if(p->tracks[i].id!=sources[i].track)return false;
-    // The only authored state is show metadata; clips are a transient WAV
-    // projection and are persisted through source paths in .mrlive.
+    if(!standaloneLive || !liveDocument || !liveDocument->projects.empty() || liveChannelTracks.empty())return false;
+    const auto p=project();const auto ids=liveInputTracks();const auto& sources=app.playback_sources();
+    if(ids.size()!=liveChannelTracks.size() || !p->master_inserts.empty() || p->tracks.size()!=sources.size()+ids.size())return false;
+    for(std::size_t i=0;i<sources.size();++i)if(p->tracks[i].id!=sources[i].track)return false;
     return true;
 }
 bool Desktop::songDirty() const{
@@ -226,7 +218,7 @@ void Desktop::saveFile(const juce::File& f){
     if(standaloneLive&&songDirty()&&!transientInputOnly)
         throw std::runtime_error("Cannot save audio changes in this development build");
     if(liveDocument){
-        auto showState=liveDocument->clone();auto file=f.withFileExtension("mrlive");
+        auto showState=liveDocument->clone();captureLiveInputs(showState.interfaceState);auto file=f.withFileExtension("mrlive");
         if(songDirty()&&!transientInputOnly){
             liveDirty=true; // Keep unsaved references pending if publishing the show fails.
             auto song=app.path();

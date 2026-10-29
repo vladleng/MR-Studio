@@ -9,6 +9,7 @@
 #include "LivePlaybackView.h"
 #include "LiveShowState.h"
 #include "LiveTheme.h"
+#include "LiveInputPilotPanel.h"
 #include "LiveWaveformCache.h"
 #include "WaveformView.h"
 
@@ -188,7 +189,7 @@ class LiveTimeline final : public juce::Component {
                                          : channel["name"].toString();
             const int indent = lane.container ? 30 : lane.child ? 22 : 8;
             text(g, label, {indent, y + 8, channelWidth - indent - 8, 24});
-            text(g, lane.child ? "Stem" : channel["type"].toString(), {indent, y + 34, channelWidth - indent - 8, 20}, true);
+            if(lane.child || channel["type"].toString()=="Playback")text(g, lane.child ? "Stem" : channel["type"].toString(), {indent, y + 34, channelWidth - indent - 8, 20}, true);
             if (lane.child) {
                 g.setColour(tokens.colour(ColourRole::border));
                 g.drawVerticalLine(12, static_cast<float>(y), static_cast<float>(y + rowHeight));
@@ -255,7 +256,9 @@ class LiveTimeline final : public juce::Component {
     }
     class StemMix final : public juce::Component {
       public:
-        StemMix(LiveTimeline &timeline, juce::String stem) : key(std::move(stem)), parent(timeline) {
+        StemMix(LiveTimeline &timeline, juce::String stem) : key(std::move(stem)), parent(timeline), inputs(timeline.owner,key) {
+            addAndMakeVisible(inputs);addAndMakeVisible(monitor);
+            monitor.onClick=[this]{parent.owner.run([&]{parent.owner.setLiveInputMonitor(key,!monitor.getToggleState());});};
             for (auto *control : std::array<juce::Component *, 4>{&mute, &solo, &gain, &arm})
                 addAndMakeVisible(control);
             arm.setEnabled(false);
@@ -273,13 +276,20 @@ class LiveTimeline final : public juce::Component {
             };
         }
         void resized() override {
-            mute.setBounds(8, 0, 26, 22);
-            solo.setBounds(36, 0, 26, 22);
-            arm.setBounds(64, 0, 26, 22);
-            gain.setBounds(6, 26, juce::jmax(0, getWidth() - 12), 24);
+            inputs.setBounds(2,0,juce::jmax(0,getWidth()-4),44);
+            mute.setBounds(8, 46, 26, 22);solo.setBounds(36, 46, 26, 22);
+            arm.setBounds(64, 46, 26, 22);monitor.setBounds(92,46,juce::jmax(24,getWidth()-100),22);
+            gain.setBounds(6, 72, juce::jmax(0, getWidth() - 12), 24);
         }
         void sync(const juce::var &row) {
-            arm.setVisible(row["type"].toString() != "Playback");
+            const bool live=row["type"].toString()!="Playback";
+            arm.setVisible(live);inputs.setVisible(live);monitor.setVisible(live);inputs.sync();
+            bool monitoring=false;
+            if(const auto id=parent.owner.liveInputTrack(key))for(const auto& track:parent.owner.project()->tracks)if(track.id==*id)
+                monitoring=track.kind==mrs::TrackKind::instrument?track.midi_monitor:track.input_monitor;
+            monitor.setToggleState(monitoring,juce::dontSendNotification);
+            monitor.setEnabled(row["liveInput"].isObject()&&!parent.owner.app.recording()&&parent.owner.app.engine()->state().playback!=mrs::PlaybackState::playing);
+            monitor.setTooltip(monitoring?"Monitor ON":"Monitor OFF: explicit enable loads this channel through shared Core");
             mute.setToggleState(static_cast<bool>(row["mute"]), juce::dontSendNotification);
             solo.setToggleState(static_cast<bool>(row["solo"]), juce::dontSendNotification);
             if (!gain.isMouseButtonDown())
@@ -296,7 +306,8 @@ class LiveTimeline final : public juce::Component {
             });
         }
         LiveTimeline &parent;
-        juce::TextButton mute{"M"}, solo{"S"}, arm{"R"};
+        LiveChannelControls inputs;
+        juce::TextButton mute{"M"}, solo{"S"}, arm{"R"}, monitor{"I"};
         juce::Slider gain;
     };
     class Viewport final : public juce::Viewport {
@@ -1064,11 +1075,11 @@ class LiveTimeline final : public juce::Component {
         }
         for (auto &control : stemControls) {
             const int y = channelY(control->key);
-            const int top = y + 58 - viewport.getViewPositionY();
+            const int top = y + 26 - viewport.getViewPositionY();
             const auto lane = laneAt(y);
             const int indent = lane && lane->child ? 14 : 0;
-            control->setBounds(indent, top, juce::jmax(0, channelWidth - indent), 50);
-            control->setVisible(y >= lanesTop && top + 50 > 0 && top < getHeight());
+            control->setBounds(indent, top, juce::jmax(0, channelWidth - indent), 98);
+            control->setVisible(y >= lanesTop && top + 98 > 0 && top < getHeight());
             control->sync(live::find(owner.liveDocument->interfaceState, "channels", control->key));
         }
         const auto row = primaryChannel();

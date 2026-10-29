@@ -89,6 +89,9 @@ public:
     Id add_instrument_track(std::string name);
     Id add_instrument_track(std::string name, NativeInsert instrument);
     void set_midi_input(const Id&,std::string port,int channel=-1,bool monitor=true);
+    // Control-thread projection of show-owned channels. Unchanged hosted
+    // processors retain their identity; the entire graph/model edit rolls back.
+    void update_live_channels(const std::vector<Id>& owned, std::vector<Track> channels);
     void set_midi_output(const Id&,std::string port,int channel=-1);
     std::string midi_output_status(const Id&) const;
     void reconnect_midi();
@@ -133,7 +136,7 @@ public:
         std::vector<PlaybackStem> stems; audio::ClickSettings click;
         std::optional<PerformancePlan> performance{}; std::uint64_t token{}; bool extend_to_audio{};
         // #300: control-thread-only live audio anchor, never shared between concurrent staging graphs.
-        std::optional<Id> live_track{}; };
+        std::vector<Id> live_tracks{}; };
     std::shared_ptr<PlaybackPreparation> prepare_playback(const std::vector<std::filesystem::path>&);
     WavImportStatus playback_preparation(const std::shared_ptr<PlaybackPreparation>&);
     void cancel_playback(const std::shared_ptr<PlaybackPreparation>&);
@@ -436,7 +439,7 @@ private:
     std::vector<Clip> playback_sources_;
     void install_playback(Project,std::map<std::string,std::shared_ptr<const audio::AudioData>>,
                           std::shared_ptr<PreparedWavImport>,audio::ClickSettings,std::optional<PerformancePlan>,
-                          std::uint64_t,bool staged=false,std::optional<Id> live_track={});
+                          std::uint64_t,bool staged=false,std::vector<Id> live_tracks={});
     void activate_playback_impl(const std::shared_ptr<PlaybackPreparation>&,const PlaybackLayout&,bool);
     void poll_staged_playback();
     std::optional<PerformancePlan> performance_plan_;

@@ -18,8 +18,8 @@ class LiveMixer final : public juce::Component {
     void resized() override {
         viewport.setBounds(getLocalBounds());
         int x = 0;
-        for (auto &strip : strips) { strip->setBounds(x, 0, 118, juce::jmax(180, getHeight() - 18)); x += 118; }
-        body.setSize(juce::jmax(x, getWidth()), juce::jmax(180, getHeight() - 18));
+        for (auto &strip : strips) { strip->setBounds(x, 0, 118, juce::jmax(260, getHeight() - 18)); x += 118; }
+        body.setSize(juce::jmax(x, getWidth()), juce::jmax(260, getHeight() - 18));
     }
     void paint(juce::Graphics &g) override {
         const auto tokens = liveReferenceTokens();
@@ -48,11 +48,10 @@ class LiveMixer final : public juce::Component {
     class Strip final : public juce::Component, public juce::SettableTooltipClient {
       public:
         Strip(Desktop &desktop, juce::String channel) : owner(desktop), id(std::move(channel)),
-            gain(kit::ParameterSpec{"gain", "Level", kit::Unit::db, -60, 12, 0, .1, kit::Mapping::linear, 1}, true) {
-            for (auto *c : std::array<juce::Component *, 6>{&name, &inputFx, &gain, &pan, &mute, &solo}) addAndMakeVisible(c);
-            inputFx.setComponentID("live-mixer-input-" + id);
-            inputFx.setTooltip("Select a physical ASIO channel input, monitoring, FX and hardware outputs");
-            inputFx.onClick = [this] { openLiveInputPilot(owner,id); };
+            inputs(owner,id), gain(kit::ParameterSpec{"gain", "Level", kit::Unit::db, -60, 12, 0, .1, kit::Mapping::linear, 1}, true) {
+            for (auto *c : std::array<juce::Component *, 7>{&name, &inputs, &monitor, &gain, &pan, &mute, &solo}) addAndMakeVisible(c);
+            monitor.setComponentID("live-channel-monitor-"+id);
+            monitor.onClick=[this]{owner.run([&]{owner.setLiveInputMonitor(id,!monitor.getToggleState());});};
             gain.setComponentID("live-mixer-gain-" + id);
             pan.setComponentID("live-mixer-pan-" + id);
             mute.setComponentID("live-mixer-mute-" + id);
@@ -79,21 +78,13 @@ class LiveMixer final : public juce::Component {
             const auto channel = live::find(state, "channels", id);
             name.setText(channel["name"].toString(), juce::dontSendNotification);
             const auto kind=channel["type"].toString();
-            inputFx.setEnabled(kind!="Playback");
-            const bool activeInput=owner.liveInputPilotTrack && owner.liveInputPilotChannel==id;
+            inputs.setVisible(kind!="Playback");inputs.sync();monitor.setVisible(kind!="Playback");
+            const auto target=owner.liveInputTrack(id);const bool activeInput=target.has_value();
             bool monitoring=false;
-            if(activeInput)
-                for(const auto& track:owner.project()->tracks)
-                    if(track.id==*owner.liveInputPilotTrack) { monitoring=track.input_monitor;break; }
-            const auto profile=channel["liveInput"];
-            inputFx.setButtonText(activeInput ? (monitoring ? "Monitor ON / FX" : "Monitor OFF / FX")
-                : profile.isObject()
-                    ? "In " + juce::String(static_cast<int>(profile["input"])+1) +
-                      (static_cast<bool>(profile["stereo"]) ? " ST / FX" : " / FX")
-                    : "Input / FX");
-            inputFx.setTooltip(profile.isObject()
-                ? "ASIO " + profile["deviceName"].toString() + " / " + profile["inputName"].toString()
-                : "Assign ASIO input, monitoring, VST3 FX and hardware output to this show channel");
+            if(target)for(const auto& track:owner.project()->tracks)if(track.id==*target)monitoring=track.kind==mrs::TrackKind::instrument?track.midi_monitor:track.input_monitor;
+            monitor.setToggleState(monitoring,juce::dontSendNotification);
+            monitor.setEnabled(channel["liveInput"].isObject()&&!owner.app.recording()&&owner.app.engine()->state().playback!=mrs::PlaybackState::playing);
+            monitor.setTooltip(monitoring?"Monitor ON":"Monitor OFF");
             if (!gain.gesturing() && !gain.hasKeyboardFocus(true)) gain.setValue(static_cast<double>(channel["gain"]));
             if (!pan.isMouseButtonDown() && !pan.hasKeyboardFocus(true)) pan.setValue(live::channelPan(channel), juce::dontSendNotification);
             mute.setToggleState(static_cast<bool>(channel["mute"]), juce::dontSendNotification);
@@ -106,11 +97,11 @@ class LiveMixer final : public juce::Component {
                     (live::playbackChannelId(state, rows[i]) == id ||
                      (id == live::playbackContainer(state) && !static_cast<bool>(rows[i]["cue"]))))
                     meter = juce::jmax(meter, juce::jmax(owner.peaks[i].left, owner.peaks[i].right));
-            const bool liveInput=owner.liveInputPilotTrack && id==owner.liveInputPilotChannel;
+            const bool liveInput=activeInput;
             if(liveInput) {
                 const auto p=owner.project();
                 for(std::size_t i=0;i<p->tracks.size();++i)
-                    if(p->tracks[i].id==*owner.liveInputPilotTrack && i<owner.peaks.size()) {
+                    if(p->tracks[i].id==*target && i<owner.peaks.size()) {
                         meter=juce::jmax(owner.peaks[i].left,owner.peaks[i].right);
                         break;
                     }
@@ -123,9 +114,9 @@ class LiveMixer final : public juce::Component {
         void resized() override {
             auto area = getLocalBounds().reduced(6);
             name.setBounds(area.removeFromTop(24));
-            inputFx.setBounds(area.removeFromTop(24).reduced(0,1));
+            inputs.setBounds(area.removeFromTop(44));
             auto buttons = area.removeFromTop(28);
-            mute.setBounds(buttons.removeFromLeft(48).reduced(1)); solo.setBounds(buttons.reduced(1));
+            mute.setBounds(buttons.removeFromLeft(30).reduced(1));solo.setBounds(buttons.removeFromLeft(30).reduced(1));monitor.setBounds(buttons.reduced(1));
             pan.setBounds(area.removeFromTop(40));
             gain.setBounds(area.withTrimmedRight(10));
         }
@@ -144,7 +135,8 @@ class LiveMixer final : public juce::Component {
         Desktop &owner;
         juce::String id;
         juce::Label name;
-        juce::TextButton inputFx{"Input / FX"};
+        LiveChannelControls inputs;
+        juce::TextButton monitor{"I"};
         kit::MRFader gain;
         juce::Slider pan;
         juce::TextButton mute{"M"}, solo{"S"};

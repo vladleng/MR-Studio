@@ -4,7 +4,7 @@
 #include <cstring>
 
 namespace ui::live {
-// Show-owned VST3 descriptors; the live Core track stays transient. Capturing
+// Show-owned VST3 descriptors; stable Core tracks are runtime projections. Capturing
 // current processor states must happen on the control thread while stopped.
 inline juce::String liveInputB64(const std::vector<std::byte>& bytes) {
     if (bytes.size() > 256 * 1024)
@@ -24,11 +24,17 @@ inline std::vector<std::byte> liveInputBytes(const juce::var& value) {
 }
 inline juce::var liveInputProfile(const mrs::Track& track, const juce::String& physicalName,
                                   const juce::String& deviceName, const std::vector<mrs::NativeInsert>& captured) {
-    if (track.kind != mrs::TrackKind::audio || track.input < 0 || physicalName.isEmpty() ||
+    if ((track.kind != mrs::TrackKind::audio && track.kind != mrs::TrackKind::instrument) ||
+        (track.kind == mrs::TrackKind::audio && (track.input < 0 || physicalName.isEmpty())) ||
         physicalName.length() > 256 || !named(deviceName, 256) || captured.size() > 8)
         throw std::runtime_error("Invalid Live Input track/profile");
     auto profile = object();
-    put(profile, "version", 1);
+    put(profile, "version", track.kind==mrs::TrackKind::instrument ? 2 : 1);
+    if(track.kind==mrs::TrackKind::instrument) {
+        put(profile,"kind","instrument");
+        put(profile,"midiInput",juce::String::fromUTF8(track.midi_input.c_str()));
+        put(profile,"midiChannel",track.midi_channel);
+    }
     put(profile, "input", track.input);
     put(profile, "inputName", physicalName);
     put(profile, "deviceName", deviceName);
@@ -70,6 +76,9 @@ inline juce::var liveInputProfile(const mrs::Track& track, const juce::String& p
     return profile;
 }
 struct LiveInputLoaded {
+    bool instrument{};
+    juce::String midiInput;
+    int midiChannel{-1};
     int input{-1};
     juce::String name, device;
     bool stereo{};
@@ -78,8 +87,8 @@ struct LiveInputLoaded {
     std::vector<mrs::NativeInsert> inserts;
 };
 inline LiveInputLoaded decodeLiveInputProfile(const juce::var& state) {
-    if (!state.isObject() || !state["version"].isInt() || static_cast<int>(state["version"]) != 1 ||
-        !state["input"].isInt() || !named(state["inputName"], 256) ||
+    if (!state.isObject() || !state["version"].isInt() || (static_cast<int>(state["version"]) != 1 && static_cast<int>(state["version"]) != 2) ||
+        !state["input"].isInt() || !state["inputName"].isString() || state["inputName"].toString().length()>256 ||
         !named(state["deviceName"], 256) ||
         !state["stereo"].isBool() || !state["mix"].isObject() ||
         !state["outputs"].isArray() || state["outputs"].size() > 2 ||
@@ -87,7 +96,15 @@ inline LiveInputLoaded decodeLiveInputProfile(const juce::var& state) {
         throw std::runtime_error("Invalid saved Live Input profile");
     LiveInputLoaded result;
     result.input=static_cast<int>(state["input"]);
-    if(result.input<0 || result.input>=64) throw std::runtime_error("Invalid Live Input index");
+    result.instrument=static_cast<int>(state["version"])==2;
+    if(result.instrument) {
+        if(state["kind"].toString()!="instrument" || !state["midiInput"].isString() ||
+           state["midiInput"].toString().length()>512 || !state["midiChannel"].isInt() ||
+           static_cast<int>(state["midiChannel"]) < -1 || static_cast<int>(state["midiChannel"])>15)
+            throw std::runtime_error("Invalid Live MIDI input");
+        result.midiInput=state["midiInput"].toString();result.midiChannel=static_cast<int>(state["midiChannel"]);
+    } else if(result.input<0 || result.input>=64 || state["inputName"].toString().isEmpty())
+        throw std::runtime_error("Invalid Live Input index/name");
     result.name=state["inputName"].toString();
     result.device=state["deviceName"].toString();
     result.stereo=static_cast<bool>(state["stereo"]);

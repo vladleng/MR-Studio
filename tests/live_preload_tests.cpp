@@ -107,12 +107,63 @@ void ready(Application &app, const std::shared_ptr<Application::PlaybackPreparat
     }
     throw std::runtime_error("Playback preload timed out");
 }
+void live_channels(const std::filesystem::path& file) {
+    Application app;app.new_project(48000);app.workspace(Workspace::live);
+    const auto calls=std::make_shared<Calls>();app.connect(std::make_unique<Device>(calls),{0,48000,128,{0,1},{0,1,2,3}});
+    const auto engine=app.engine();
+    Track left{Id{"show-channel-left"},"Left",TrackKind::audio,{}};
+    left.input=0;left.input_monitor=true;left.hardware_outputs={0};
+    NativeInsert gain;gain.id=Id{"left-gain"};gain.kind=InsertKind::gain;gain.gain=.5f;left.inserts={gain};
+    Track right{Id{"show-channel-right"},"Right",TrackKind::audio,{}};
+    right.input=1;right.input_monitor=true;right.hardware_outputs={2};
+    gain.id=Id{"right-gain"};gain.gain=.25f;right.inserts={gain};
+    app.update_live_channels({}, {left,right});
+    const std::vector<Id> ids{left.id,right.id};
+    std::array<float,256> in{};std::array<float,512> out{};
+    for(std::size_t i=0;i<128;++i){in[i*2]=.4f;in[i*2+1]=.8f;}
+    const auto render=[&]{engine->process(in.data(),out.data(),128);};
+    render();render();
+    check(out[400]>.15f&&out[400]<.25f&&out[402]>.15f&&out[402]<.25f&&out[401]==0&&out[403]==0,
+          "Two physical channels run independent inputs, chains and direct outputs on one Core");
+    check(app.engine()==engine&&app.services().projects->state().project->tracks.size()==2,"Multi-input uses the original Engine");
+    auto media=app.prepare_playback({file});ready(app,media);
+    Application::PlaybackLayout layout;layout.stems.resize(1);layout.stems[0].outputs={1,3};layout.live_tracks=ids;
+    app.activate_playback(media,layout);app.play();render();render();
+    check(out[400]>.15f&&out[402]>.15f&&out[401]>.03f&&out[403]>.03f,
+          "Independent monitored channels and WAV Playback share the graph");
+    rejects([&]{app.activate_playback(media,layout);});
+    app.stop();render();
+    auto current=app.services().projects->state().project;
+    left=*std::find_if(current->tracks.begin(),current->tracks.end(),[&](const auto& t){return t.id==left.id;});
+    right=*std::find_if(current->tracks.begin(),current->tracks.end(),[&](const auto& t){return t.id==right.id;});
+    left.input_monitor=false;app.update_live_channels(ids,{left,right});
+    app.activate_playback(media,layout);render();render();
+    check(out[400]==0&&out[402]>.15f,"Stopped item handoff retains Monitor OFF independently of the other live input");
+    auto invalid=layout;invalid.live_tracks={left.id,left.id};const auto previous=app.services().projects->state().project;
+    rejects([&]{app.activate_playback(media,invalid);});
+    check(app.services().projects->state().project==previous,"Duplicate live mapping rejects without changing the project");
+    right.hardware_outputs={9};rejects([&]{app.update_live_channels(ids,{left,right});});
+    check(app.services().projects->state().project==previous,"Invalid channel route leaves the old graph/model intact");
+    right.hardware_outputs={2};left.input_monitor=true;calls->failStart=true;
+    rejects([&]{app.update_live_channels(ids,{left,right});});render();render();
+    check(app.services().projects->state().project==previous&&app.audio_running()&&out[400]==0&&out[402]>.15f,
+          "Channel restart failure rolls back model, inputs, device and running PCM");
+    app.update_live_channels(ids,{left,right});render();render();
+    check(out[400]>.15f&&out[402]>.15f,"Explicit monitor re-enable restores only the chosen channel");
+    auto empty=app.prepare_playback({});ready(app,empty);Application::PlaybackLayout emptyLayout;emptyLayout.live_tracks=ids;
+    app.activate_playback(empty,emptyLayout);render();render();
+    check(app.services().projects->state().project->tracks.size()==2&&app.playback_sources().empty()&&out[400]>.15f&&out[402]>.15f,
+          "WAV to empty item retains both stable input channels and their chains");
+    app.update_live_channels(ids,{});
+    check(app.services().projects->state().project->tracks.empty(),"Removing Live channels retires their runtime off callback");
+}
 void run() {
     Folder folder;
     const auto a = folder.path / "a.wav", b = folder.path / "b.wav", r = folder.path / "resample.wav";
     wav(a);
     wav(b, -1);
     wav(r, 1, 44100);
+    live_channels(a);
     {using namespace mrs::audio;
         PlaybackSourceCheck source;source.key="source";source.file=a;
         const std::array<int,2> outputs{0,1};

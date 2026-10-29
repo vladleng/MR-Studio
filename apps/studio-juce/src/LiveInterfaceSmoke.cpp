@@ -455,12 +455,12 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         bool rejectedOffline=false;
         try { inputPilot.startLiveInputPilot(0); }
         catch (const std::exception&) { rejectedOffline=true; }
-        liveCheck(rejectedOffline && !inputPilot.liveInputPilotTrack,
+        liveCheck(rejectedOffline && !inputPilot.liveInputTrack(),
                   "Live Input pilot rejects the offline clock without changing Core");
         inputPilot.app.connect(std::make_unique<LivePlaybackTestDevice>(),
                                {0,48000,128,{0},{0,1}});
         inputPilot.startLiveInputPilot(0);
-        liveCheck(inputPilot.liveInputPilotTrack.has_value() &&
+        liveCheck(inputPilot.liveInputTrack().has_value() &&
                   inputPilot.project()->tracks.size()==1 &&
                   inputPilot.project()->tracks.front().kind==mrs::TrackKind::audio &&
                   inputPilot.project()->tracks.front().input==0 &&
@@ -480,30 +480,23 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         try { inputPilot.selectLiveItem("item-1"); switched=true; }
         catch (const std::exception&) {}
         liveCheck(!switched && inputPilot.liveDocument->interfaceState["currentItem"].toString()=="item-0" &&
-                  inputPilot.liveInputPilotTrack.has_value(),
+                  inputPilot.liveInputTrack().has_value(),
                   "Active setlist switch cannot retire a monitored Live Input");
         inputPilot.app.stop();
         inputPilot.app.engine()->process(pilotSilentInput.data(),pilotAudioOutput.data(),128);
-        auto* inputPanel=new LiveInputPilotPanel(inputPilot);
-        liveCheck(liveComponent(*inputPanel,"live-input-disable")!=nullptr &&
-                  liveComponent(*inputPanel,"live-input-plugin")!=nullptr,
-                  "Live Input pilot offers monitoring and shared VST3 insert controls");
-        liveCheck(liveComponent(*inputPanel,"live-input-stereo")!=nullptr &&
-                  liveComponent(*inputPanel,"live-input-output-route")!=nullptr,
-                  "#302 ASIO inspector uses real mono/stereo and output route controls");
-        delete inputPanel;
         const auto showChannel=inputPilot.liveDocument->interfaceState["channels"][0]["id"].toString();
-        LiveMixer channelMixer(inputPilot); channelMixer.setSize(700,220); channelMixer.sync();
-        auto* channelInputButton=dynamic_cast<juce::TextButton*>(
-            liveComponent(channelMixer,"live-mixer-input-"+showChannel));
-        liveCheck(channelInputButton && channelInputButton->isEnabled(),
-                  "#302 each non-Playback show channel offers its own Input / FX action");
-        LiveInputPilotPanel selectedInspector(inputPilot,showChannel);
-        liveCheck(liveComponent(selectedInspector,"live-input-channel")!=nullptr,
-                  "#302 Input / FX panel supports explicit show-channel selection");
-        inputPilot.saveLiveInputProfile(showChannel);
+        LiveChannelControls inputPanel(inputPilot,showChannel);
+        inputPanel.setSize(150,44);inputPanel.sync();
+        liveCheck(liveComponent(inputPanel,"live-channel-input-"+showChannel)!=nullptr &&
+                  liveComponent(inputPanel,"live-channel-output-"+showChannel)!=nullptr &&
+                  liveComponent(inputPanel,"live-channel-effects-"+showChannel)!=nullptr,
+                  "#302 channel embeds input, output and VST3 chain selectors");
+        LiveMixer channelMixer(inputPilot);channelMixer.setSize(700,300);channelMixer.sync();
+        liveCheck(liveComponent(channelMixer,"live-channel-input-"+showChannel)!=nullptr &&
+                  liveComponent(channelMixer,"live-channel-monitor-"+showChannel)!=nullptr,
+                  "#302 Mixer embeds the same channel selectors and monitoring");
         liveCheck(inputPilot.liveDocument->interfaceState["channels"][0]["liveInput"].isObject(),
-                  "Explicit Save to Show captures actual monitored Core track profile");
+                  "Channel input changes immediately belong to the show");
         const auto pilotSaved=folder.getChildFile("pilot-shared-core-save.mrlive");
         inputPilot.saveFile(pilotSaved);
         const auto pilotLoaded=LiveDocument::read(pilotSaved);
@@ -511,12 +504,12 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   pilotLoaded.interfaceState["channels"][0]["liveInput"].isObject(),
                   "Saving .mrlive with active monitor does not create a linked Studio project");
         inputPilot.stopLiveInputPilot();
-        liveCheck(!inputPilot.liveInputPilotTrack &&
+        liveCheck(!inputPilot.liveInputTrack() &&
                   inputPilot.project()->tracks.empty() &&
                   inputPilot.app.engine()==engine,
                   "Disabling Live Input safely removes temporary Core monitoring without a second engine");
         inputPilot.loadLiveInputProfile(showChannel);
-        liveCheck(inputPilot.liveInputPilotTrack &&
+        liveCheck(inputPilot.liveInputTrack() &&
                   inputPilot.project()->tracks.size()==1 &&
                   !inputPilot.project()->tracks.front().input_monitor &&
                   inputPilot.app.engine()==engine,
@@ -531,7 +524,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(inputPilot.project()->tracks.front().input_stereo &&
                   inputPilot.project()->tracks.front().input==0,
                   "#302 stereo input selection reaches a real shared Core audio track");
-        inputPilot.app.set_hardware_output(*inputPilot.liveInputPilotTrack,{0,1});
+        inputPilot.app.set_hardware_output(*inputPilot.liveInputTrack(),{0,1});
         inputPilot.saveLiveInputProfile(showChannel);
         const auto stereoProfile=live::decodeLiveInputProfile(
             live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"]);
@@ -944,7 +937,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             combined.app.connect(std::make_unique<LivePlaybackTestDevice>(),
                                  {0,48000,128,{0},{0,1},1});
             combined.startLiveInputPilot(0);
-            const auto combinedAnchorId=*combined.liveInputPilotTrack;
+            const auto combinedAnchorId=*combined.liveInputTrack();
             mrs::NativeInsert combinedNativeGain;combinedNativeGain.id=mrs::new_id();
             combinedNativeGain.kind=mrs::InsertKind::gain;combinedNativeGain.gain=.5f;
             combined.app.set_inserts(combinedAnchorId,{combinedNativeGain});

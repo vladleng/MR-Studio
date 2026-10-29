@@ -241,7 +241,7 @@ void Desktop::prepareLiveInterface(bool saved) {
     liveCurrentEntry.clear();
     livePendingEntry.clear();
     liveBrowserItem.clear();
-    liveInputPilotTrack.reset(); liveInputPilotChannel.clear(); // Previous Core project replaced.
+    liveChannelTracks.clear(); // Previous Core project replaced.
     app.stop_library_preview();
     livePlaybackStore.reset();
     livePendingItem.clear();
@@ -307,6 +307,7 @@ void Desktop::applyLiveInterface(const juce::var &value) {
     auto transaction = liveDocument->clone();
     transaction.interfaceState = copy;
     transaction.validate();
+    reconcileLiveInputs(copy);
     liveDocument->interfaceState = copy;
     updateLiveDirty();
     ++liveUiRevision;
@@ -364,17 +365,10 @@ void Desktop::importLiveShow(const juce::File &file) {
     liveEmptyRevision = std::pair{app.services().projects->state().revision, app.graphs()->state().revision};
 }
 void Desktop::selectLiveItem(const juce::String &id, const juce::String &entry) {
-    if (liveInputPilotTrack && liveDocument &&
-        id != liveDocument->interfaceState["currentItem"].toString()) {
-        // #300: only a quiescent manual switch may share one live VST3 graph.
-        if (app.engine()->state().playback==mrs::PlaybackState::playing)
-            throw std::runtime_error("Stop Playback before changing items with Live Input; seamless switching awaits #301");
-        const auto p=project();
-        const auto found=std::find_if(p->tracks.begin(),p->tracks.end(),
-            [&](const auto& track){return track.id==*liveInputPilotTrack;});
-        if(found==p->tracks.end() || !found->input_monitor)
-            throw std::runtime_error("Enable Live Input monitor before changing items, or Disable Live Input");
-    }
+    if (!liveChannelTracks.empty() && liveDocument &&
+        id != liveDocument->interfaceState["currentItem"].toString() &&
+        app.engine()->state().playback==mrs::PlaybackState::playing)
+        throw std::runtime_error("Stop Playback before changing items with Live Input; seamless switching awaits #301");
     // Explicit show selection exits Browser inspection and its independent audition.
     liveBrowserItem.clear();
     app.stop_library_preview();
@@ -618,148 +612,199 @@ void Desktop::setLiveItemPlaybackGain(double gain) {
     });
     syncLivePlayback();
 }
-void Desktop::startLiveInputPilot(int physicalInput, const juce::String& showChannel, bool stereo) {
-    if (!liveDocument || !liveDocument->projects.empty() || (!standaloneLive && !testing))
-        throw std::runtime_error("Live Input pilot requires the standalone MR Live show");
-    if (app.recording() || app.engine()->state().playback == mrs::PlaybackState::playing)
-        throw std::runtime_error("Stop or pause playback before changing a live input");
-    if (app.audio_name() == "Offline clock (no sound)" || app.audio_name() == "Disconnected" ||
-        !app.audio_running())
-        throw std::runtime_error("Connect an ASIO input/output device in Audio settings first");
-    const auto inputs=app.input_names();
-    if (physicalInput < 0 || static_cast<std::size_t>(physicalInput) >= inputs.size() ||
-        (stereo && static_cast<std::size_t>(physicalInput + 1) >= inputs.size()))
-        throw std::runtime_error("Selected mono/stereo physical input pair is unavailable");
-    const auto current=liveDocument->interfaceState["currentItem"].toString();
-    if (!live::find(liveDocument->interfaceState, "items", current).isObject() ||
-        !live::playbackRows(liveDocument->interfaceState, current).empty())
-        throw std::runtime_error("First Live Input pilot supports only an item without WAV/stems");
-    if (liveInputPilotTrack)
-        throw std::runtime_error("Disable the current Live Input pilot before changing its physical input");
-    if (showChannel.isNotEmpty() &&
-        (!live::find(liveDocument->interfaceState,"channels",showChannel).isObject() ||
-         live::find(liveDocument->interfaceState,"channels",showChannel)["type"].toString()=="Playback"))
-        throw std::runtime_error("Select a valid non-Playback show channel");
-    if (livePendingItem.isNotEmpty() || livePlaybackLoading || !app.cancel_staged_playback())
-        throw std::runtime_error("Finish the current item transition before enabling Live Input");
-    liveAutoToken=0; liveAutoKey.clear();
-    const auto track=app.add_audio_track("Live Input (pilot)");
-    liveInputPilotTrack=track; // Keep a handle even if device rebind throws; Disable can safely clean up.
-    liveInputPilotChannel=showChannel;
-    try {
-        app.set_track_input(track,physicalInput,stereo);
-        app.set_track_monitoring(track,true);
-    } catch (...) {
-        try { app.set_track_monitoring(track,false); app.remove_track(track); liveInputPilotTrack.reset();
-              liveInputPilotChannel.clear(); }
-        catch (...) {} // Retain handle for an explicit Disable/Audio reconnect.
-        throw;
+std::optional<mrs::Id> Desktop::liveInputTrack(const juce::String& channel) const {
+    if(channel.isEmpty()) return liveChannelTracks.empty()?std::nullopt:std::optional<mrs::Id>{liveChannelTracks.begin()->second};
+    const auto at=liveChannelTracks.find(channel);
+    return at==liveChannelTracks.end()?std::nullopt:std::optional<mrs::Id>{at->second};
+}
+std::vector<mrs::Id> Desktop::liveInputTracks() const {
+    std::vector<mrs::Id> result;
+    // Match actual Core tail order, independently of map ordering.
+    for(const auto& track:project()->tracks)
+        for(const auto& [channel,id]:liveChannelTracks) if(track.id==id) {result.push_back(id);break;}
+    return result;
+}
+namespace {
+juce::String inputChannel(Desktop& owner,juce::String channel) {
+    if(!owner.liveDocument || !owner.liveDocument->projects.empty() || (!owner.standaloneLive && !owner.testing))
+        throw std::runtime_error("Live channels require the standalone MR Live show");
+    if(channel.isEmpty()) for(const auto& row:*owner.liveDocument->interfaceState["channels"].getArray())
+        if(row["type"].toString()!="Playback") {channel=row["id"].toString();break;}
+    const auto row=live::find(owner.liveDocument->interfaceState,"channels",channel);
+    if(!row.isObject() || row["type"].toString()=="Playback")
+        throw std::runtime_error("Choose a non-Playback show channel");
+    return channel;
+}
+mrs::Track liveTrack(const juce::var& state,const juce::String& channel,const mrs::Id& id) {
+    const auto row=live::find(state,"channels",channel);
+    const auto profile=live::decodeLiveInputProfile(row["liveInput"]);
+    mrs::Track track{id,row["name"].toString().toStdString(),profile.instrument?mrs::TrackKind::instrument:mrs::TrackKind::audio,{}};
+    track.midi_input=profile.midiInput.toStdString();track.midi_channel=profile.midiChannel;track.midi_monitor=false;
+    track.input=profile.input;track.input_stereo=profile.stereo;track.hardware_outputs=profile.outputs;
+    track.inserts=profile.inserts;
+    // Show mixer is the sole authority; old A1 profile.mix remains readable.
+    track.mix.gain=static_cast<float>(std::pow(10.,static_cast<double>(row["gain"])/20.));
+    track.mix.pan=static_cast<float>(live::channelPan(row));
+    track.mix.mute=static_cast<bool>(row["mute"]);track.mix.solo=static_cast<bool>(row["solo"]);
+    return track;
+}
+void validateLiveHardware(Desktop& owner,const live::LiveInputLoaded& profile) {
+    if(owner.app.audio_name()=="Offline clock (no sound)" || owner.app.audio_name()=="Disconnected" || !owner.app.audio_running())
+        throw std::runtime_error("Connect the intended audio device in Audio settings");
+    if(profile.device!=juce::String::fromUTF8(owner.app.audio_name().c_str()))
+        throw std::runtime_error("Saved audio device is unavailable; explicitly select a new input");
+    if(profile.instrument) {
+        if(profile.inserts.empty())throw std::runtime_error("Choose a VST3 instrument on the channel first");
+        if(profile.midiInput.isNotEmpty()) {
+            const auto ports=mrs::desktop::MidiInputs::ports();
+            if(std::none_of(ports.begin(),ports.end(),[&](const auto& port){return port.id==profile.midiInput.toStdString();}))
+                throw std::runtime_error("Saved MIDI input is unavailable; select a connected port");
+        }
     }
-    liveNextStatus="Live Input monitoring (pilot; no automatic patch/item switching)";
-    ++liveUiRevision;
+    const auto inputs=owner.app.input_names();
+    if(!profile.instrument && (profile.input<0 || static_cast<std::size_t>(profile.input)>=inputs.size() ||
+       (profile.stereo && static_cast<std::size_t>(profile.input+1)>=inputs.size()) ||
+       juce::String::fromUTF8(inputs[static_cast<std::size_t>(profile.input)].c_str())!=profile.name))
+        throw std::runtime_error("Saved physical input is unavailable or its name changed");
+    for(const auto& fx:profile.inserts)
+        if(fx.kind==mrs::InsertKind::vst3 && !juce::File(juce::String::fromUTF8(fx.plugin_path.c_str())).exists())
+            throw std::runtime_error("Saved VST3 module is missing; channel settings are retained");
 }
-void Desktop::stopLiveInputPilot() {
-    if (!liveInputPilotTrack) return;
-    if (app.recording() || app.engine()->state().playback == mrs::PlaybackState::playing)
-        throw std::runtime_error("Stop or pause before removing Live Input and VST3");
-    closeEditors();
-    const auto id=*liveInputPilotTrack;
-    app.set_track_monitoring(id,false);
-    app.remove_track(id); // Existing Core quiesces DSP and releases VST3 off callback.
-    liveInputPilotTrack.reset(); liveInputPilotChannel.clear();
-    // The pilot is a transient runtime track, not a user .mrsproject or show edit.
-    if (liveDocument && liveDocument->active < 0 && project()->tracks.empty() && project()->clips.empty())
-        liveEmptyRevision=std::pair{app.services().projects->state().revision,
-                                    app.graphs()->state().revision};
-    liveNextKey.clear(); liveNextStatus.clear();
-    ++liveUiRevision;
 }
-void Desktop::saveLiveInputProfile(const juce::String& showChannel) {
-    if (!liveDocument || !liveInputPilotTrack || app.recording() ||
-        app.engine()->state().playback == mrs::PlaybackState::playing)
-        throw std::runtime_error("Stop transport and enable one Live Input before saving its profile");
-    const auto channel=live::find(liveDocument->interfaceState,"channels",showChannel);
-    if (!channel.isObject() || channel["type"].toString()=="Playback")
-        throw std::runtime_error("Choose a Guitar, Keys or Vocal show channel");
-    const auto projectSnapshot=project();
-    const auto it=std::find_if(projectSnapshot->tracks.begin(),projectSnapshot->tracks.end(),
-                               [&](const auto& t){return t.id==*liveInputPilotTrack;});
-    if(it==projectSnapshot->tracks.end()) throw std::runtime_error("Live Input runtime track missing");
+void Desktop::captureLiveInputs(juce::var& state) {
+    const auto snapshot=project();
+    for(const auto& [channel,id]:liveChannelTracks) {
+        const auto at=std::find_if(snapshot->tracks.begin(),snapshot->tracks.end(),[&](const auto& t){return t.id==id;});
+        if(at==snapshot->tracks.end())throw std::runtime_error("Live channel Core track is missing");
+        auto row=live::find(state,"channels",channel);if(!row.isObject())continue;
+        const auto saved=live::decodeLiveInputProfile(row["liveInput"]);
+        std::vector<mrs::NativeInsert> captured;
+        for(const auto& fx:at->inserts)captured.push_back(app.capture_insert(id,fx.id));
+        live::put(row,"liveInput",live::liveInputProfile(*at,saved.name,saved.device,captured));
+    }
+}
+void Desktop::reconcileLiveInputs(const juce::var& state) {
+    if(liveChannelTracks.empty())return;
+    const auto snapshot=project();auto next=liveChannelTracks;
+    std::vector<mrs::Track> tracks;
+    bool changed=false;
+    for(const auto& [channel,id]:liveChannelTracks) {
+        const auto row=live::find(state,"channels",channel);
+        const auto old=live::find(liveDocument->interfaceState,"channels",channel);
+        const auto at=std::find_if(snapshot->tracks.begin(),snapshot->tracks.end(),[&](const auto& t){return t.id==id;});
+        if(at==snapshot->tracks.end())throw std::runtime_error("Live channel Core track is missing");
+        if(!row.isObject() || !row["liveInput"].isObject()) {next.erase(channel);changed=true;continue;}
+        if(live::canonical(row["liveInput"])==live::canonical(old["liveInput"])) {
+            tracks.push_back(*at); // mix is updated separately without rebuilding DSP
+            continue;
+        }
+        validateLiveHardware(*this,live::decodeLiveInputProfile(row["liveInput"]));
+        auto track=liveTrack(state,channel,id);track.input_monitor=at->input_monitor;track.midi_monitor=at->midi_monitor;
+        tracks.push_back(std::move(track));changed=true;
+    }
+    if(changed) {
+        if(livePendingItem.isNotEmpty() || livePlaybackLoading)throw std::runtime_error("Finish the item transition first");
+        closeEditors();app.update_live_channels(liveInputTracks(),std::move(tracks));liveChannelTracks=std::move(next);
+    }
+}
+void Desktop::configureLiveInput(const juce::String& requested,int input,bool stereo,const std::vector<int>& outputs) {
+    const auto channel=inputChannel(*this,requested);
     const auto names=app.input_names();
-    if(it->input < 0 || static_cast<std::size_t>(it->input)>=names.size())
-        throw std::runtime_error("Physical input unavailable; profile not saved");
-    std::vector<mrs::NativeInsert> captured;
-    for(const auto& fx:it->inserts)
-        captured.push_back(app.capture_insert(it->id,fx.id));
-    const auto encoded=live::liveInputProfile(*it,
-        juce::String::fromUTF8(names[static_cast<std::size_t>(it->input)].c_str()),
-        juce::String::fromUTF8(app.audio_name().c_str()),captured);
-    liveInputPilotChannel=showChannel;
-    editLiveInterface("Save Live Input profile", [&](auto& state) {
-        live::put(live::require(state,"channels",showChannel),"liveInput",encoded);
+    if(input<0 || static_cast<std::size_t>(input)>=names.size() ||
+       (stereo && static_cast<std::size_t>(input+1)>=names.size()))
+        throw std::runtime_error("Selected physical mono/stereo input is unavailable");
+    auto draft=liveDocument->interfaceState.clone();captureLiveInputs(draft);
+    const auto row=live::find(draft,"channels",channel);
+    auto track=mrs::Track{mrs::Id{"live-input-"+channel.toStdString()},row["name"].toString().toStdString(),mrs::TrackKind::audio,{}};
+    track.input=input;track.input_stereo=stereo;track.hardware_outputs=outputs;
+    if(row["liveInput"].isObject()) {const auto saved=live::decodeLiveInputProfile(row["liveInput"]);if(!saved.instrument)track.inserts=saved.inserts;}
+    const auto profile=live::liveInputProfile(track,juce::String::fromUTF8(names[static_cast<std::size_t>(input)].c_str()),
+        juce::String::fromUTF8(app.audio_name().c_str()),track.inserts);
+    editLiveInterface("Channel audio input / output",[&](auto& state){
+        live::put(live::require(state,"channels",channel),"liveInput",profile);
     });
 }
-void Desktop::loadLiveInputProfile(const juce::String& showChannel) {
-    if (!liveDocument || liveInputPilotTrack || app.recording() ||
-        app.engine()->state().playback == mrs::PlaybackState::playing)
-        throw std::runtime_error("Stop playback and disable the existing Live Input before loading");
-    if(!standaloneLive && !testing) throw std::runtime_error("Live Input requires MR Live.exe");
-    const auto channel=live::find(liveDocument->interfaceState,"channels",showChannel);
-    if(!channel.isObject() || channel["type"].toString()=="Playback")
-        throw std::runtime_error("Choose a non-Playback Live channel");
-    const auto profile=live::decodeLiveInputProfile(channel["liveInput"]);
-    if(app.audio_name()=="Offline clock (no sound)" || app.audio_name()=="Disconnected" || !app.audio_running())
-        throw std::runtime_error("Connect the matching ASIO device to load this Live Input");
-    if(profile.device != juce::String::fromUTF8(app.audio_name().c_str()))
-        throw std::runtime_error("Saved ASIO device changed; choose the original audio device");
-    const auto inputs=app.input_names();
-    if(static_cast<std::size_t>(profile.input)>=inputs.size() ||
-       (profile.stereo && static_cast<std::size_t>(profile.input+1)>=inputs.size()) ||
-       juce::String::fromUTF8(inputs[static_cast<std::size_t>(profile.input)].c_str())!=profile.name)
-        throw std::runtime_error("Saved mono/stereo physical input mapping changed: inspect Audio settings");
-    const auto item=liveDocument->interfaceState["currentItem"].toString();
-    if(!live::find(liveDocument->interfaceState,"items",item).isObject() ||
-       !live::playbackRows(liveDocument->interfaceState,item).empty())
-        throw std::runtime_error("Load of Live Input profiles with WAV/stems awaits #299");
-    if(livePendingItem.isNotEmpty() || livePlaybackLoading || !app.cancel_staged_playback())
-        throw std::runtime_error("Finish item transition before loading Live Input");
-    for(const auto& fx:profile.inserts)
-        if(!juce::File(juce::String::fromUTF8(fx.plugin_path.c_str())).exists())
-            throw std::runtime_error("Saved VST3 module missing: keep profile unchanged and relink later");
-    liveAutoToken=0; liveAutoKey.clear();
-    auto id=app.add_audio_track(channel["name"].toString().toStdString());
-    liveInputPilotTrack=id;
-    liveInputPilotChannel=showChannel;
-    try {
-        app.set_track_input(id,profile.input,profile.stereo);
-        if(!profile.outputs.empty()) app.set_hardware_output(id,profile.outputs);
-        app.set_track_mix(id,profile.mix);
-        if(!profile.inserts.empty()) app.set_inserts(id,profile.inserts);
-        // Deliberately no set_track_monitoring(true). User must explicitly Enable.
-    } catch (...) {
-        try { closeEditors(); app.remove_track(id); liveInputPilotTrack.reset(); liveInputPilotChannel.clear(); }
-        catch (...) {} // Keep failed runtime visible for explicit cleanup; never mask original error.
-        throw;
+void Desktop::configureLiveMidi(const juce::String& requested,const juce::String& port,int midiChannel,const std::vector<int>& outputs) {
+    const auto channel=inputChannel(*this,requested);
+    if(live::find(liveDocument->interfaceState,"channels",channel)["type"].toString()!="Instrument")
+        throw std::runtime_error("MIDI / VSTi requires an Instrument channel");
+    auto draft=liveDocument->interfaceState.clone();captureLiveInputs(draft);
+    const auto row=live::find(draft,"channels",channel);
+    mrs::Track track{mrs::Id{"live-input-"+channel.toStdString()},row["name"].toString().toStdString(),mrs::TrackKind::instrument,{}};
+    track.input=-1;track.midi_input=port.toStdString();track.midi_channel=midiChannel;track.hardware_outputs=outputs;
+    if(row["liveInput"].isObject()) {
+        const auto saved=live::decodeLiveInputProfile(row["liveInput"]);
+        if(saved.instrument)track.inserts=saved.inserts;
     }
-    liveNextStatus="Loaded Live Input profile (monitor OFF until Enable)";
-    ++liveUiRevision;
+    if(midiChannel < -1 || midiChannel>15)throw std::runtime_error("Invalid MIDI channel");
+    const auto profile=live::liveInputProfile(track,{},juce::String::fromUTF8(app.audio_name().c_str()),track.inserts);
+    editLiveInterface("Channel MIDI input / output",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);});
 }
-void Desktop::enableLiveInputPilotMonitoring() {
-    if(!liveInputPilotTrack || app.recording() ||
-       app.engine()->state().playback==mrs::PlaybackState::playing)
-        throw std::runtime_error("Stop playback and load a Live Input before enabling monitor");
-    app.set_track_monitoring(*liveInputPilotTrack,true);
-    liveNextStatus="Live Input monitor ON (WAV/plugin handoff disabled)";
-    ++liveUiRevision;
+void Desktop::setLiveInputEffects(const juce::String& requested,std::vector<mrs::NativeInsert> effects) {
+    const auto channel=inputChannel(*this,requested);
+    auto draft=liveDocument->interfaceState.clone();captureLiveInputs(draft);
+    auto row=live::find(draft,"channels",channel);
+    const auto saved=live::decodeLiveInputProfile(row["liveInput"]);
+    auto track=liveTrack(draft,channel,mrs::Id{"live-input-"+channel.toStdString()});
+    const auto profile=live::liveInputProfile(track,saved.name,saved.device,effects);
+    editLiveInterface("Channel effect chain",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);});
+}
+void Desktop::loadLiveInputProfile(const juce::String& requested) {
+    const auto channel=inputChannel(*this,requested);
+    if(liveInputTrack(channel))return;
+    if(livePendingItem.isNotEmpty() || livePlaybackLoading)throw std::runtime_error("Finish the item transition first");
+    const auto profile=live::decodeLiveInputProfile(live::find(liveDocument->interfaceState,"channels",channel)["liveInput"]);
+    validateLiveHardware(*this,profile);
+    auto tracks=std::vector<mrs::Track>{};
+    const auto ids=liveInputTracks();const auto snapshot=project();
+    for(const auto& id:ids)for(const auto& track:snapshot->tracks)if(track.id==id)tracks.push_back(track);
+    const mrs::Id id{"live-input-"+channel.toStdString()};
+    tracks.push_back(liveTrack(liveDocument->interfaceState,channel,id));
+    auto next=liveChannelTracks;next.emplace(channel,id); // allocate before publishing Core
+    app.update_live_channels(ids,std::move(tracks));liveChannelTracks=std::move(next);
+    liveAutoToken=0;liveAutoKey.clear();++liveUiRevision;
+}
+void Desktop::setLiveInputMonitor(const juce::String& requested,bool enabled) {
+    const auto channel=inputChannel(*this,requested);
+    if(enabled)loadLiveInputProfile(channel);
+    const auto id=liveInputTrack(channel);if(!id)return;
+    const auto snapshot=project();std::vector<mrs::Track> tracks;
+    for(const auto& target:liveInputTracks())for(auto track:snapshot->tracks)if(track.id==target) {
+        if(target==*id) {if(track.kind==mrs::TrackKind::instrument)track.midi_monitor=enabled;else track.input_monitor=enabled;}
+        tracks.push_back(std::move(track));
+    }
+    app.update_live_channels(liveInputTracks(),std::move(tracks));++liveUiRevision;
+}
+void Desktop::startLiveInputPilot(int input,const juce::String& requested,bool stereo) {
+    const auto channel=inputChannel(*this,requested);
+    configureLiveInput(channel,input,stereo,{});setLiveInputMonitor(channel,true);
+}
+void Desktop::stopLiveInputPilot(const juce::String& requested) {
+    const auto channel=requested.isEmpty()?(liveChannelTracks.empty()?juce::String{}:liveChannelTracks.begin()->first):requested;
+    if(!liveInputTrack(channel))return;
+    auto state=liveDocument->interfaceState.clone();captureLiveInputs(state);
+    const auto snapshot=project();std::vector<mrs::Track> tracks;
+    for(const auto& [other,id]:liveChannelTracks)if(other!=channel)
+        for(const auto& track:snapshot->tracks)if(track.id==id)tracks.push_back(track);
+    closeEditors();app.update_live_channels(liveInputTracks(),std::move(tracks));liveChannelTracks.erase(channel);
+    liveDocument->interfaceState=state;updateLiveDirty();++liveUiRevision;
+}
+void Desktop::saveLiveInputProfile(const juce::String& requested) {
+    const auto channel=inputChannel(*this,requested);(void)channel;
+    auto state=liveDocument->interfaceState.clone();captureLiveInputs(state);
+    liveDocument->interfaceState=state;updateLiveDirty();++liveUiRevision;
+}
+void Desktop::enableLiveInputPilotMonitoring(const juce::String& channel) {
+    setLiveInputMonitor(inputChannel(*this,channel),true);
 }
 void Desktop::setLiveChannelMix(const juce::String &id, double gain, double pan, bool mute, bool solo) {
     app.cancel_mix_preview();
-    if (liveInputPilotTrack && liveInputPilotChannel == id) {
+    if (const auto target=liveInputTrack(id)) {
         mrs::Track::Mix mix;
         mix.gain=static_cast<float>(std::pow(10.,gain/20.));
         mix.pan=static_cast<float>(pan);
         mix.mute=mute;mix.solo=solo;mix.validate();
-        app.set_track_mix(*liveInputPilotTrack,mix);
+        app.set_track_mix(*target,mix);
     }
     editLiveInterface("Channel mix", [&](auto &state) {
         auto &channel = live::require(state, "channels", id);
@@ -771,13 +816,13 @@ void Desktop::setLiveChannelMix(const juce::String &id, double gain, double pan,
     syncLivePlayback();
 }
 void Desktop::previewLiveChannelMix(const juce::String &id, double gain, double pan, bool mute, bool solo) {
-    if (liveInputPilotTrack && liveInputPilotChannel==id) {
+    if (const auto target=liveInputTrack(id)) {
         mrs::Track::Mix mix;
         mix.gain=static_cast<float>(std::pow(10.,gain/20.));
         mix.pan=static_cast<float>(pan);mix.mute=mute;mix.solo=solo;
         if(std::isfinite(gain) && std::isfinite(pan) && mix.gain>=0.f &&
            mix.gain<=mrs::Track::Mix::maximum_gain && mix.pan>=-1.f && mix.pan<=1.f)
-            app.preview_mix(*liveInputPilotTrack,mix,project()->master_gain);
+            app.preview_mix(*target,mix,project()->master_gain);
         return;
     }
     if (!liveDocument || !livePlaybackReady()) return;
@@ -913,8 +958,7 @@ bool Desktop::livePlaybackReady() const {
     const auto rows = live::playbackRows(liveDocument->interfaceState, id);
     return id == livePlaybackItem && !rows.empty() &&
            livePlaybackMediaKey == live::playbackMediaKey(liveDocument->interfaceState, id) &&
-           project()->tracks.size() == rows.size() + (liveInputPilotTrack ? 1u : 0u) &&
-           (!liveInputPilotTrack || project()->tracks.back().id == *liveInputPilotTrack) &&
+           project()->tracks.size() == rows.size() + liveChannelTracks.size() &&
            app.playback_sources().size() == rows.size();
 }
 bool Desktop::liveTransportReady() const {
@@ -959,7 +1003,7 @@ std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> Desktop::prepare
 void Desktop::syncLivePreload() {
     if (!liveDocument || !liveDocument->projects.empty())
         return;
-    if (liveInputPilotTrack) {
+    if (!liveChannelTracks.empty()) {
         // WAV-only prepared graph handoff cannot retire a running monitor/VST3.
         // Keep the current shared Engine and input graph alive, never stage the next WAV.
         app.cancel_staged_playback();
@@ -1118,7 +1162,7 @@ void Desktop::syncLivePlayback() {
             if (!status.message.empty())
                 throw std::runtime_error(status.message);
             auto layout=performanceLayout(liveDocument->interfaceState,id,project()->sample_rate,++liveTokenSerial);
-            layout.live_track=liveInputPilotTrack;
+            layout.live_tracks=liveInputTracks();
             closeEditors();cancelPreview();app.activate_playback(media,layout);
             liveRuntimeToken=layout.token;livePerformanceKey=live::performanceKey(liveDocument->interfaceState,id);
             visualTransport.reset();lastVisualSample=0;lastDisplayState={};

@@ -1,267 +1,148 @@
 #pragma once
 #include "Desktop.h"
+#include "LiveInputState.h"
+#include "LiveTheme.h"
 #include "LiveContext.h"
-#include "LivePlaybackState.h"
 
 namespace ui {
-// #297: deliberately bounded first Live Input vertical slice.
-// Physical input, monitoring and hosted VST3 all belong to the existing
-// Application/Core graph. This panel owns no audio callback or plugin instance.
-class LiveInputPilotPanel final : public juce::Component {
+// Channel-local selectors use Core/catalog commands. Only a vendor editor gets
+// its own window; no channel configuration dialog or separate channel save.
+class LiveChannelControls final : public juce::Component {
 public:
-    explicit LiveInputPilotPanel(Desktop& desktop, const juce::String& preferredChannel = {}) : owner(desktop) {
-        setComponentID("live-input-pilot");
-        setSize(440, 424);
-        title.setText("Channel Input / FX (single active channel)", juce::dontSendNotification);
-        description.setText("Shared Core input + VST3. Save to Show stores channel profile.", juce::dontSendNotification);
-        description.setJustificationType(juce::Justification::centredLeft);
-        channelLabel.setText("Show channel (Guitar / Keys / Vocal)",juce::dontSendNotification);
-        inputLabel.setText("Physical ASIO input (select port or stereo pair)", juce::dontSendNotification);
-        vstLabel.setText("VST3 audio effect", juce::dontSendNotification);
-        for (auto* component : std::array<juce::Component*, 9>{
-            &title, &description, &inputLabel, &physicalInput, &enable,
-            &disable, &vstLabel, &vst3, &addEffect}) addAndMakeVisible(component);
-        for(auto* component:std::array<juce::Component*,4>{&channelLabel,&showChannel,&saveProfile,&loadProfile})
-            addAndMakeVisible(component);
-        addAndMakeVisible(openEditor);
-        addAndMakeVisible(stereoInput);
-        addAndMakeVisible(routeLabel);
-        addAndMakeVisible(outputRoute);
-        addAndMakeVisible(status);
-        routeLabel.setText("Channel hardware outputs", juce::dontSendNotification);
-        stereoInput.setButtonText("Stereo (input N + N+1)");
-        saveProfile.setButtonText("Save to Show");
-        loadProfile.setButtonText("Load from Show");
-        enable.setButtonText("Enable Monitor");
-        disable.setButtonText("Disable");
-        addEffect.setButtonText("Add VST3");
-        openEditor.setButtonText("Open editor");
-        showChannel.setComponentID("live-input-channel");
-        saveProfile.setComponentID("live-input-save-profile");
-        loadProfile.setComponentID("live-input-load-profile");
-        physicalInput.setComponentID("live-input-physical");
-        stereoInput.setComponentID("live-input-stereo");
-        outputRoute.setComponentID("live-input-output-route");
-        enable.setComponentID("live-input-enable");
-        disable.setComponentID("live-input-disable");
-        vst3.setComponentID("live-input-plugin");
-        addEffect.setComponentID("live-input-add-vst");
-        if(owner.liveDocument)
-            if(const auto* channels=owner.liveDocument->interfaceState["channels"].getArray())
-                for(const auto& channel:*channels) if(channel["type"].toString()!="Playback") {
-                    channelIds.push_back(channel["id"].toString());
-                    showChannel.addItem(channel["name"].toString(),static_cast<int>(channelIds.size()));
-                }
-        if(!channelIds.empty()) {
-            int selected=1;
-            for(std::size_t i=0;i<channelIds.size();++i)
-                if(channelIds[i]==(preferredChannel.isNotEmpty()?preferredChannel:owner.liveInputPilotChannel))
-                    selected=static_cast<int>(i+1);
-            showChannel.setSelectedId(selected,juce::dontSendNotification);
-        }
-        const auto names=owner.app.input_names();
-        for (std::size_t i=0;i<names.size();++i)
-            physicalInput.addItem(juce::String(static_cast<int>(i+1)) + " - " +
-                juce::String::fromUTF8(names[i].c_str()),static_cast<int>(i+1));
-        if (!names.empty()) physicalInput.setSelectedId(1,juce::dontSendNotification);
-        // Direct outputs must be selected from currently configured hardware ports;
-        // never create a virtual output or a second device.
-        outputRoutes.push_back({});
-        outputRoute.addItem("Master / default routing", 1);
-        const auto activeOutputs=owner.app.active_outputs();
-        for (const auto physical:activeOutputs) {
-            outputRoutes.push_back({physical});
-            outputRoute.addItem("Output " + juce::String(physical+1) + " (mono)",
-                                static_cast<int>(outputRoutes.size()));
-        }
-        for (std::size_t i=0;i+1<activeOutputs.size();++i)
-            if (activeOutputs[i+1]==activeOutputs[i]+1) {
-                outputRoutes.push_back({activeOutputs[i],activeOutputs[i+1]});
-                outputRoute.addItem("Outputs " + juce::String(activeOutputs[i]+1) + "/" +
-                                    juce::String(activeOutputs[i+1]+1) + " (stereo)",
-                                    static_cast<int>(outputRoutes.size()));
-            }
-        outputRoute.setSelectedId(1,juce::dontSendNotification);
-        if (owner.liveInputPilotTrack && owner.liveInputPilotChannel == selectedShowChannel()) {
-            for(const auto& track:owner.project()->tracks)
-                if(track.id==*owner.liveInputPilotTrack) {
-                    physicalInput.setSelectedId(track.input+1,juce::dontSendNotification);
-                    stereoInput.setToggleState(track.input_stereo,juce::dontSendNotification);
-                    for(std::size_t i=0;i<outputRoutes.size();++i)
-                        if(outputRoutes[i]==track.hardware_outputs)
-                            outputRoute.setSelectedId(static_cast<int>(i+1),juce::dontSendNotification);
-                    break;
-                }
-        } else if(owner.liveDocument) {
-            const auto saved=live::find(owner.liveDocument->interfaceState,"channels",selectedShowChannel())["liveInput"];
-            if(saved.isObject()) {
-                const auto profile=live::decodeLiveInputProfile(saved);
-                stereoInput.setToggleState(profile.stereo,juce::dontSendNotification);
-            }
-        }
-        for (std::size_t i=0;i<owner.catalog.size();++i) {
-            const auto& plugin=owner.catalog[i];
-            if (plugin.instrument.value_or(false)) continue;
-            pluginIndices.push_back(i);
-            vst3.addItem(juce::String::fromUTF8(plugin.name.c_str()),static_cast<int>(pluginIndices.size()));
-        }
-        if (!pluginIndices.empty()) vst3.setSelectedId(1,juce::dontSendNotification);
-        enable.onClick=[this] {
-            owner.run([&] {
-                if(owner.liveInputPilotTrack) {
-                    if(owner.liveInputPilotChannel!=selectedShowChannel())
-                        throw std::runtime_error("Disable the active channel before enabling another input");
-                    owner.enableLiveInputPilotMonitoring();
-                } else {
-                    owner.startLiveInputPilot(physicalInput.getSelectedId()-1,selectedShowChannel(),
-                                              stereoInput.getToggleState());
-                    if(const auto outputs=selectedOutputs(); !outputs.empty())
-                        owner.app.set_hardware_output(*owner.liveInputPilotTrack,outputs);
-                }
-            });
-            sync();
-        };
-        saveProfile.onClick=[this] {
-            owner.run([&] {owner.saveLiveInputProfile(selectedShowChannel());});
-            sync();
-        };
-        loadProfile.onClick=[this] {
-            owner.run([&] {owner.loadLiveInputProfile(selectedShowChannel());});
-            sync();
-        };
-        showChannel.onChange=[this] { sync(); };
-        outputRoute.onChange=[this] {
-            if(owner.liveInputPilotTrack && owner.liveInputPilotChannel==selectedShowChannel())
-                owner.run([&] { owner.app.set_hardware_output(*owner.liveInputPilotTrack,selectedOutputs()); });
-            sync();
-        };
-        disable.onClick=[this] {
-            owner.run([&] { owner.stopLiveInputPilot(); });
-            sync();
-        };
-        addEffect.onClick=[this] {
-            if (!owner.liveInputPilotTrack) return;
-            const int index=vst3.getSelectedId()-1;
-            if (index<0||static_cast<std::size_t>(index)>=pluginIndices.size()) return;
-            // Existing drop path probes unknown VST3 classes off RT and rejects VSTi on audio tracks.
-            owner.dropPlugin(*owner.liveInputPilotTrack,pluginIndices[static_cast<std::size_t>(index)]);
-            sync();
-        };
-        openEditor.onClick=[this] {
-            if (!owner.liveInputPilotTrack) return;
-            const auto project=owner.project();
-            for (const auto& track:project->tracks)
-                if (track.id==*owner.liveInputPilotTrack && !track.inserts.empty()) {
-                    const auto insert=track.inserts.back().id;
-                    owner.run([&] { owner.openInsert(track.id,insert); });
-                    break;
-                }
-        };
-        sync();
+    LiveChannelControls(Desktop& desktop,juce::String channel):owner(desktop),id(std::move(channel)) {
+        for(auto* button:{&input,&output,&effects})addAndMakeVisible(button);
+        input.setComponentID("live-channel-input-"+id);
+        output.setComponentID("live-channel-output-"+id);
+        effects.setComponentID("live-channel-effects-"+id);
+        input.onClick=[this]{inputMenu();};output.onClick=[this]{outputMenu();};effects.onClick=[this]{owner.run([&]{effectsMenu();});};
     }
     void resized() override {
-        auto area=getLocalBounds().reduced(12);
-        title.setBounds(area.removeFromTop(28));
-        description.setBounds(area.removeFromTop(24));
-        channelLabel.setBounds(area.removeFromTop(20));
-        showChannel.setBounds(area.removeFromTop(28));
-        inputLabel.setBounds(area.removeFromTop(20));
-        physicalInput.setBounds(area.removeFromTop(28));
-        stereoInput.setBounds(area.removeFromTop(24));
-        routeLabel.setBounds(area.removeFromTop(20));
-        outputRoute.setBounds(area.removeFromTop(28));
-        auto controls=area.removeFromTop(30);
-        enable.setBounds(controls.removeFromLeft(200).reduced(1));
-        disable.setBounds(controls.reduced(1));
-        area.removeFromTop(6);
-        vstLabel.setBounds(area.removeFromTop(20));
-        vst3.setBounds(area.removeFromTop(28));
-        auto effectControls=area.removeFromTop(30);
-        addEffect.setBounds(effectControls.removeFromLeft(200).reduced(1));
-        openEditor.setBounds(effectControls.reduced(1));
-        area.removeFromTop(6);
-        auto persistence=area.removeFromTop(30);
-        saveProfile.setBounds(persistence.removeFromLeft(200).reduced(1));
-        loadProfile.setBounds(persistence.reduced(1));
-        status.setBounds(area.removeFromTop(28));
+        auto r=getLocalBounds();auto row=r.removeFromTop(22);
+        input.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(1,0));output.setBounds(row.reduced(1,0));
+        effects.setBounds(r.removeFromTop(22).reduced(1,0));
     }
     void sync() {
-        const bool active=owner.liveInputPilotTrack.has_value();
-        const bool hardware=owner.app.audio_name()!="Offline clock (no sound)" &&
-            owner.app.audio_name()!="Disconnected" && owner.app.audio_running();
-        const bool stopped=owner.app.engine()->state().playback!=mrs::PlaybackState::playing &&
-            !owner.app.recording();
-        const bool emptyItem=owner.liveDocument &&
-            live::playbackRows(owner.liveDocument->interfaceState,
-                owner.liveDocument->interfaceState["currentItem"].toString()).empty();
-        const auto channel=selectedShowChannel();
-        const bool selectedActive=active && channel==owner.liveInputPilotChannel;
-        const auto profile=owner.liveDocument ? live::find(owner.liveDocument->interfaceState,"channels",channel)["liveInput"] : juce::var{};
-        bool monitoring=false;
-        if(active) for(const auto& track:owner.project()->tracks)
-            if(track.id==*owner.liveInputPilotTrack) monitoring=track.input_monitor;
-        physicalInput.setEnabled(!active && stopped);
-        stereoInput.setEnabled(!active && stopped);
-        outputRoute.setEnabled(stopped && (!active || selectedActive));
-        showChannel.setEnabled(!active);
-        enable.setEnabled(stopped && hardware && emptyItem &&
-                          (active ? selectedActive && !monitoring
-                                  : physicalInput.getNumItems()>0 && channel.isNotEmpty()));
-        disable.setEnabled(active && stopped);
-        saveProfile.setEnabled(selectedActive && stopped);
-        loadProfile.setEnabled(!active && stopped && hardware && emptyItem && profile.isObject());
-        addEffect.setEnabled(selectedActive && stopped && !pluginIndices.empty());
-        vst3.setEnabled(selectedActive && stopped && !pluginIndices.empty());
-        openEditor.setEnabled(false);
-        if(active && !selectedActive) {
-            status.setText("Another channel is active: Disable it before switching.",
-                           juce::dontSendNotification);
-            return;
-        }
-        if (!active) {
-            status.setText(hardware ? (profile.isObject() ? "Saved profile available; Load keeps Monitor OFF."
-                                                           : "Choose input/effects, then Save to Show.")
-                                    : "Connect a hardware input in Audio settings first.",
-                           juce::dontSendNotification);
-            return;
-        }
-        for (const auto& track:owner.project()->tracks)
-            if (track.id==*owner.liveInputPilotTrack) {
-                juce::String message = track.input_monitor ? "Monitor ON" : "Monitor OFF";
-                message += " - input " + juce::String(track.input+1);
-                if (!track.inserts.empty()) {
-                    const auto& fx=track.inserts.back();
-                    message += " - " + juce::String::fromUTF8(fx.plugin_name.c_str());
-                    message += " / " + juce::String(owner.app.plugin_latency(track.id,fx.id)) + " samples";
-                    openEditor.setEnabled(true);
-                }
-                status.setText(message,juce::dontSendNotification);
-                return;
-            }
-        status.setText("Pilot track unavailable - review the Core session",juce::dontSendNotification);
+        if(!owner.liveDocument)return;
+        const auto row=live::find(owner.liveDocument->interfaceState,"channels",id);
+        const auto profile=row["liveInput"];
+        const bool stopped=!owner.app.recording() && owner.app.engine()->state().playback!=mrs::PlaybackState::playing;
+        setEnabled(stopped && row["type"].toString()!="Playback");
+        input.setButtonText(profile.isObject()?(static_cast<int>(profile["version"])==2?"MIDI":"In "+juce::String(static_cast<int>(profile["input"])+1)+(static_cast<bool>(profile["stereo"])?" ST":"")):"Input");
+        input.setTooltip(profile.isObject()?profile["deviceName"].toString()+" / "+profile["inputName"].toString():"Choose audio input or MIDI / VSTi");
+        output.setButtonText(profile["outputs"].size()?"Out "+juce::String(static_cast<int>(profile["outputs"][0])+1):"Master");
+        effects.setButtonText("FX / VSTi ("+juce::String(profile["inserts"].size())+")");
+        effects.setTooltip("Instrument and effects: add, editor, bypass, reorder, remove. Saved with the show.");
     }
 private:
-    std::vector<int> selectedOutputs() const {
-        const int i=outputRoute.getSelectedId()-1;
-        return i>=0 && static_cast<std::size_t>(i)<outputRoutes.size()
-            ? outputRoutes[static_cast<std::size_t>(i)] : std::vector<int>{};
+    juce::var profile()const{return owner.liveDocument?live::find(owner.liveDocument->interfaceState,"channels",id)["liveInput"]:juce::var{};}
+    bool instrument()const {const auto p=profile();return p.isObject()&&static_cast<int>(p["version"])==2;}
+    void audio(int port,bool stereo,const std::vector<int>& route) {owner.configureLiveInput(id,port,stereo,route);}
+    void route(const std::vector<int>& outputs) {
+        const auto p=live::decodeLiveInputProfile(profile());
+        if(p.instrument)owner.configureLiveMidi(id,p.midiInput,p.midiChannel,outputs);
+        else audio(p.input,p.stereo,outputs);
     }
-    juce::String selectedShowChannel() const {
-        const int i=showChannel.getSelectedId()-1;
-        return i>=0 && static_cast<std::size_t>(i)<channelIds.size()
-            ? channelIds[static_cast<std::size_t>(i)] : juce::String{};
+    void inputMenu() {
+        juce::PopupMenu menu;menu.setLookAndFeel(&owner.theme);
+        const auto inputs=owner.app.input_names();
+        const auto saved=profile();
+        const auto channel=live::find(owner.liveDocument->interfaceState,"channels",id);
+        for(std::size_t i=0;i<inputs.size();++i) {
+            menu.addItem(100+static_cast<int>(i)*2,"Mono "+juce::String(static_cast<int>(i+1))+" - "+juce::String::fromUTF8(inputs[i].c_str()));
+            if(i+1<inputs.size())menu.addItem(101+static_cast<int>(i)*2,"Stereo "+juce::String(static_cast<int>(i+1))+"/"+juce::String(static_cast<int>(i+2))+" - "+juce::String::fromUTF8(inputs[i].c_str())+" / "+juce::String::fromUTF8(inputs[i+1].c_str()));
+        }
+        if(inputs.empty())menu.addItem(0,"Audio inputs unavailable: connect Audio settings",false);
+        const auto ports=mrs::desktop::MidiInputs::ports();
+        if(channel["type"].toString()=="Instrument") {
+            juce::PopupMenu midi;
+            midi.addItem(1000,"MIDI off / VSTi");
+            for(std::size_t i=0;i<ports.size();++i)midi.addItem(1001+static_cast<int>(i),juce::String::fromUTF8(ports[i].name.c_str()));
+            menu.addSubMenu("MIDI / VSTi",midi);
+            if(instrument()) {
+                juce::PopupMenu channels;channels.addItem(2000,"Omni",true,static_cast<int>(saved["midiChannel"])==-1);
+                for(int i=0;i<16;++i)channels.addItem(2001+i,"Channel "+juce::String(i+1),true,static_cast<int>(saved["midiChannel"])==i);
+                menu.addSubMenu("MIDI channel",channels);
+            }
+        }
+        if(saved.isObject())menu.addItem(3000,"Clear channel input and effects");
+        const auto signature=live::canonical(saved);
+        juce::Component::SafePointer<LiveChannelControls> safe(this);
+        menu.showMenuAsync(liveMenuOptions(input),[safe,ports,signature](int action){if(!safe||!action)return;
+            safe->owner.run([&]{
+                if(live::canonical(safe->profile())!=signature)throw std::runtime_error("Channel changed while menu was open; reopen it");
+                const auto saved=safe->profile();
+                const auto outputs=saved.isObject()?live::decodeLiveInputProfile(saved).outputs:std::vector<int>{};
+                if(action>=100 && action<1000)safe->audio((action-100)/2,(action-100)%2!=0,outputs);
+                else if(action>=1000 && action<2000) {
+                    const int i=action-1001;safe->owner.configureLiveMidi(safe->id,i<0?juce::String{}:juce::String::fromUTF8(ports.at(static_cast<std::size_t>(i)).id.c_str()),-1,outputs);
+                } else if(action>=2000 && action<=2016) {
+                    const auto p=live::decodeLiveInputProfile(saved);safe->owner.configureLiveMidi(safe->id,p.midiInput,action-2001,outputs);
+                } else if(action==3000)safe->owner.editLiveInterface("Clear channel input",[&](auto& state){live::require(state,"channels",safe->id).getDynamicObject()->removeProperty("liveInput");});
+            });safe->sync();
+        });
     }
-    Desktop& owner;
-    juce::Label title,description,channelLabel,inputLabel,routeLabel,vstLabel,status;
-    juce::ComboBox showChannel,physicalInput,outputRoute,vst3;
-    juce::ToggleButton stereoInput;
-    juce::TextButton enable,disable,addEffect,openEditor,saveProfile,loadProfile;
-    std::vector<std::size_t> pluginIndices;
-    std::vector<std::vector<int>> outputRoutes;
-    std::vector<juce::String> channelIds;
+    void outputMenu() {
+        if(!profile().isObject())return;
+        juce::PopupMenu menu;menu.setLookAndFeel(&owner.theme);menu.addItem(1,"Master");
+        std::vector<std::vector<int>> routes{{}};const auto outputs=owner.app.active_outputs();const auto names=owner.app.output_names();
+        const auto label=[&](int i){return juce::String(i+1)+" - "+(i>=0&&static_cast<std::size_t>(i)<names.size()?juce::String::fromUTF8(names[static_cast<std::size_t>(i)].c_str()):"Unavailable");};
+        for(auto out:outputs){routes.push_back({out});menu.addItem(static_cast<int>(routes.size()),label(out));}
+        for(std::size_t i=0;i+1<outputs.size();++i)if(outputs[i+1]==outputs[i]+1){routes.push_back({outputs[i],outputs[i+1]});menu.addItem(static_cast<int>(routes.size()),label(outputs[i])+" / "+label(outputs[i+1]));}
+        juce::Component::SafePointer<LiveChannelControls> safe(this);const auto signature=live::canonical(profile());
+        menu.showMenuAsync(liveMenuOptions(output),[safe,routes,signature](int action){if(safe&&action>0&&static_cast<std::size_t>(action)<=routes.size())safe->owner.run([&]{
+            if(live::canonical(safe->profile())!=signature)throw std::runtime_error("Channel changed; reopen output menu");
+            safe->route(routes[static_cast<std::size_t>(action-1)]);safe->sync();
+        });});
+    }
+    void effectsMenu() {
+        if(!profile().isObject())throw std::runtime_error("Choose the channel input first");
+        const auto saved=live::decodeLiveInputProfile(profile());
+        juce::PopupMenu menu,add;menu.setLookAndFeel(&owner.theme);
+        for(std::size_t i=0;i<owner.catalog.size();++i) {
+            const auto& plugin=owner.catalog[i];
+            // Unknown old catalog entries are probed only after explicit selection.
+            const bool synth=plugin.instrument.value_or(false);
+            if(synth && !saved.instrument)continue;
+            add.addItem(10000+static_cast<int>(i),juce::String::fromUTF8(plugin.name.c_str())+(synth?" [VSTi]":""));
+        }
+        if(add.getNumItems()==0)add.addItem(0,"Scan the plugin browser first",false);
+        menu.addSubMenu(saved.instrument&&saved.inserts.empty()?"Choose VSTi":"Add / replace plugin",add,saved.inserts.size()<8);
+        for(std::size_t i=0;i<saved.inserts.size();++i) {
+            const auto& fx=saved.inserts[i];juce::PopupMenu slot;
+            slot.addItem(100+static_cast<int>(i)*10,"Open editor",owner.liveInputTrack(id).has_value());
+            slot.addItem(101+static_cast<int>(i)*10,"Bypass",true,fx.bypass);
+            slot.addItem(102+static_cast<int>(i)*10,"Move up",i>(saved.instrument?1u:0u));
+            slot.addItem(103+static_cast<int>(i)*10,"Move down",i+1<saved.inserts.size()&&(!saved.instrument||i>0));
+            slot.addItem(104+static_cast<int>(i)*10,"Remove",!saved.instrument||i>0||saved.inserts.size()==1);
+            menu.addSubMenu(juce::String(static_cast<int>(i+1))+". "+juce::String::fromUTF8(fx.plugin_name.c_str()),slot);
+        }
+        const auto signature=live::canonical(profile());juce::Component::SafePointer<LiveChannelControls> safe(this);
+        menu.showMenuAsync(liveMenuOptions(effects),[safe,saved,signature](int action){if(!safe||!action)return;safe->owner.run([&]{
+            if(live::canonical(safe->profile())!=signature)throw std::runtime_error("Channel changed; reopen effect menu");
+            auto chain=saved.inserts;
+            if(action>=10000) {
+                const auto index=static_cast<std::size_t>(action-10000);if(index>=safe->owner.catalog.size())throw std::runtime_error("Plugin catalog changed");
+                auto plugin=safe->owner.catalog[index];
+                if(!plugin.instrument) {
+                    const auto found=mrs::processing::probe_vst3(plugin.path);
+                    const auto at=std::find_if(found.begin(),found.end(),[&](const auto& p){return p.class_id==plugin.class_id;});
+                    if(at==found.end())throw std::runtime_error("Plugin class is unavailable");plugin.instrument=at->instrument;
+                }
+                if(plugin.instrument.value_or(false) && !saved.instrument)throw std::runtime_error("VSTi requires a MIDI / Instrument channel");
+                if(saved.instrument&&chain.empty()&&!plugin.instrument.value_or(false))throw std::runtime_error("Choose a VSTi before adding audio effects");
+                mrs::NativeInsert fx;fx.id=mrs::new_id();fx.kind=mrs::InsertKind::vst3;fx.plugin_path=plugin.path;fx.class_id=plugin.class_id;fx.plugin_name=plugin.name;
+                if(saved.instrument&&plugin.instrument.value_or(false)&&!chain.empty())chain.front()=std::move(fx);else chain.push_back(std::move(fx));
+            } else {
+                const auto i=static_cast<std::size_t>((action-100)/10);const auto operation=(action-100)%10;if(i>=chain.size())return;
+                if(operation==0){const auto track=safe->owner.liveInputTrack(safe->id);if(track)safe->owner.openInsert(*track,chain[i].id);return;}
+                if(operation==1)chain[i].bypass=!chain[i].bypass;
+                else if(operation==2&&i>(saved.instrument?1u:0u))std::swap(chain[i],chain[i-1]);
+                else if(operation==3&&i+1<chain.size()&&(!saved.instrument||i>0))std::swap(chain[i],chain[i+1]);
+                else if(operation==4&&(!saved.instrument||i>0||chain.size()==1))chain.erase(chain.begin()+static_cast<std::ptrdiff_t>(i));
+            }
+            safe->owner.setLiveInputEffects(safe->id,std::move(chain));safe->sync();
+        });});
+    }
+    Desktop& owner;juce::String id;juce::TextButton input{"Input"},output{"Master"},effects{"FX / VSTi"};
 };
-inline void openLiveInputPilot(Desktop& desktop, const juce::String& channel = {}) {
-    showLiveContext(std::make_unique<LiveInputPilotPanel>(desktop,channel),desktop,
-                    liveContextTarget(juce::Desktop::getMousePosition()));
-}
 } // namespace ui

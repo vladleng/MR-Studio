@@ -105,12 +105,19 @@ public:
     // #302 A1: control a selected show channel using the shared Core/ASIO/VST3 host.
     // A single monitored runtime track remains the current limit until multi-channel graph work.
     void startLiveInputPilot(int physicalInput, const juce::String& showChannel = {}, bool stereo = false);
-    void stopLiveInputPilot();
+    void stopLiveInputPilot(const juce::String& showChannel = {});
     void saveLiveInputProfile(const juce::String& showChannel);
     void loadLiveInputProfile(const juce::String& showChannel);
-    void enableLiveInputPilotMonitoring();
-    std::optional<mrs::Id> liveInputPilotTrack;
-    juce::String liveInputPilotChannel;
+    void enableLiveInputPilotMonitoring(const juce::String& showChannel = {});
+    std::optional<mrs::Id> liveInputTrack(const juce::String& showChannel = {}) const;
+    std::vector<mrs::Id> liveInputTracks() const;
+    std::map<juce::String,mrs::Id> liveChannelTracks;
+    void captureLiveInputs(juce::var& state);
+    void reconcileLiveInputs(const juce::var& state);
+    void configureLiveInput(const juce::String&, int input, bool stereo, const std::vector<int>& outputs);
+    void configureLiveMidi(const juce::String&, const juce::String& port, int channel, const std::vector<int>& outputs);
+    void setLiveInputMonitor(const juce::String&, bool);
+    void setLiveInputEffects(const juce::String&, std::vector<mrs::NativeInsert>);
     void setLivePlaybackTrim(double startSeconds, double endSeconds);
     void syncLivePlayback();
     bool livePlaybackReady() const;
