@@ -95,9 +95,7 @@ private:
                     const auto row=live::find(safe->owner.liveDocument->interfaceState,"channels",safe->id);
                     if(row["type"].toString()!="Instrument" || !saved.isObject() || static_cast<int>(saved["version"])!=1)
                         throw std::runtime_error("Legacy channel changed; reopen the input menu");
-                    safe->owner.editLiveInterface("Convert legacy Instrument audio to Player",[&](auto& state){
-                        live::put(live::require(state,"channels",safe->id),"type","Player");
-                    },false,true);
+                    safe->owner.convertLegacyLiveInstrument(safe->id);
                 } else if(action>=100 && action<1000)safe->audio((action-100)/2,(action-100)%2!=0,outputs);
                 else if(action>=1000 && action<2000) {
                     const int i=action-1001;safe->owner.configureLiveMidi(safe->id,i<0?juce::String{}:juce::String::fromUTF8(ports.at(static_cast<std::size_t>(i)).id.c_str()),-1,outputs);
