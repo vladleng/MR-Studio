@@ -16,7 +16,7 @@ on:
         options: [profile, live]
         default: profile
       ara:
-        description: Include ARA2 in Windows Release (disable only for diagnostic builds)
+        description: Include ARA2 for Studio profile (Live-only always excludes ARA2)
         type: boolean
         default: true
 permissions:
@@ -27,9 +27,9 @@ concurrency:
 jobs:
   studio:
     # Migration branch with an open PR would otherwise launch two identical
-    # Windows builds on each ordinary commit. The PR is the quick acceptance
-    # gate WITH ARA2; extra push runs are only for explicit full integration.
-    # Main push release always retains ARA2.
+    # Windows builds on each ordinary commit. Live-only PR acceptance runs
+    # without ARA2; Studio profile and main releases retain ARA2 by default.
+    # Extra push runs are only for explicit full integration.
     if: >-
       ${{
         github.event_name != 'push' ||
@@ -39,8 +39,9 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 60
     env:
-      # PR and push always produce a complete ARA2-enabled Windows build.
-      # Manual dispatch defaults ON but permits a deliberate ARA-OFF diagnostic.
+      # Studio PR/push profiles retain ARA2 ON by default. The targeted Live
+      # scope forces ARA2 OFF before SDK acquisition, configure and packaging.
+      # Manual Studio ARA-OFF builds remain diagnostic only.
       ARA: ${{ github.event_name != 'workflow_dispatch' || inputs.ara }}
       CHECK_SCOPE: ${{ inputs.checks || 'profile' }}
       INTEGRATION: ${{ inputs.integration || contains(github.event.head_commit.message, '[ci full]') }}
