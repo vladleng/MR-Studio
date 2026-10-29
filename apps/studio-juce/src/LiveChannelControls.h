@@ -1,6 +1,7 @@
 #pragma once
 #include "Desktop.h"
 #include "LiveInputState.h"
+#include "LivePluginCatalog.h"
 #include "LiveTheme.h"
 #include "LiveContext.h"
 
@@ -134,25 +135,11 @@ private:
         juce::PopupMenu menu;menu.setLookAndFeel(&owner.theme);
         const auto catalog=owner.catalog; // Shared scanner catalog, never scan or probe from the menu.
         std::vector<mrs::processing::VstPlugin> choices; // Explicit action -> exact class identity after sorting.
-        const auto vendor=[](const auto& plugin) {
-            return plugin.vendor.empty()?juce::String::fromUTF8("Без вендора"):juce::String::fromUTF8(plugin.vendor.c_str());
-        };
         const auto appendType=[&](juce::PopupMenu& target,bool vsti) {
-            std::vector<std::size_t> indices;
-            for(std::size_t i=0;i<catalog.size();++i)
-                if(catalog[i].instrument.has_value()&&*catalog[i].instrument==vsti)indices.push_back(i);
-            std::stable_sort(indices.begin(),indices.end(),[&](std::size_t a,std::size_t b) {
-                const auto& x=catalog[a];const auto& y=catalog[b];
-                const auto vx=vendor(x),vy=vendor(y);
-                if(const auto c=vx.compareIgnoreCase(vy);c!=0)return c<0;
-                const auto nx=juce::String::fromUTF8(x.name.c_str()),ny=juce::String::fromUTF8(y.name.c_str());
-                if(const auto c=nx.compareIgnoreCase(ny);c!=0)return c<0;
-                if(x.class_id!=y.class_id)return x.class_id<y.class_id;
-                return x.path<y.path;
-            });
+            const auto indices=live::sortedPluginClasses(catalog,vsti);
             juce::PopupMenu folder;juce::String current;bool opened=false;
             for(const auto index:indices) {
-                const auto& plugin=catalog[index];const auto group=vendor(plugin);
+                const auto& plugin=catalog[index];const auto group=live::pluginVendor(plugin);
                 if(!opened||current.compareIgnoreCase(group)!=0) {
                     if(opened)target.addSubMenu(current,folder);
                     current=group;folder=juce::PopupMenu{};opened=true;
