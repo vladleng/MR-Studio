@@ -899,6 +899,58 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                 u16(8192);
         }
         liveSelectionRefreshSmoke(fixture,waveFile);
+        // #300: one Core graph contains a physical Live Input + WAV simultaneously.
+        // Manual switches are stopped/quiescent; #301 owns real-time seamless handoff.
+        {
+            Desktop combined(true,false,true);
+            combined.importLiveShow(fixture);
+            combined.app.connect(std::make_unique<LivePlaybackTestDevice>(),
+                                 {0,48000,128,{0},{0,1},1});
+            combined.startLiveInputPilot(0);
+            const auto anchorId=*combined.liveInputPilotTrack;
+            mrs::NativeInsert nativeGain;nativeGain.id=mrs::new_id();
+            nativeGain.kind=mrs::InsertKind::gain;nativeGain.gain=.5f;
+            combined.app.set_inserts(anchorId,{nativeGain});
+            const auto originalGeneration=combined.app.insert_generation();
+            const auto engine=combined.app.engine();
+            const auto first=combined.liveDocument->interfaceState["currentItem"].toString();
+            const auto second=combined.liveDocument->interfaceState["items"][1]["id"].toString();
+            combined.attachLivePlayback(second,waveFile);
+            combined.selectLiveItem(second);
+            const auto deadline=juce::Time::getMillisecondCounter()+5000;
+            while(combined.livePlaybackLoading && juce::Time::getMillisecondCounter()<deadline) {
+                combined.app.poll();combined.syncLivePlayback();juce::Thread::sleep(1);
+            }
+            liveCheck(combined.livePlaybackReady() && combined.project()->tracks.size()==2 &&
+                      combined.project()->tracks.back().id==anchorId &&
+                      combined.project()->tracks.back().input_monitor &&
+                      combined.project()->tracks.back().inserts==std::vector<mrs::NativeInsert>{nativeGain} &&
+                      combined.app.insert_generation()==originalGeneration && combined.app.engine()==engine &&
+                      combined.app.playback_sources().size()==1,
+                      "Manual WAV handoff keeps the same Core monitor, insert runtime and source mapping");
+            combined.app.validate_playback_regions(
+                live::playbackStemLayouts(combined.liveDocument->interfaceState,second,48000));
+            liveCheck(combined.transientLiveRuntime(),
+                      "Combined Live Input and Playback remain transient .mrlive runtime, not a Studio song");
+            const auto saved=folder.getChildFile("combined-input-wav.mrlive");
+            combined.saveFile(saved);
+            liveCheck(LiveDocument::read(saved).projects.empty(),
+                      "Saving combined Live + WAV does not create Studio project references");
+            combined.app.play();
+            bool blocked=false;
+            try{combined.selectLiveItem(first);}catch(const std::exception&){blocked=true;}
+            liveCheck(blocked && combined.project()->tracks.back().id==anchorId,
+                      "Active Playback cannot rehome a live insert graph while audio runs");
+            combined.app.stop();
+            combined.selectLiveItem(first);
+            liveCheck(combined.project()->tracks.size()==1 &&
+                      combined.project()->tracks.front().id==anchorId &&
+                      combined.project()->tracks.front().input_monitor &&
+                      combined.app.insert_generation()==originalGeneration &&
+                      combined.app.engine()==engine,
+                      "Returning to empty item preserves live DSP and releases WAV-only sources");
+            combined.stopLiveInputPilot();
+        }
         Desktop playbackDesktop(true, false, true);
         playbackDesktop.importLiveShow(fixture);
         playbackDesktop.app.disconnect();
