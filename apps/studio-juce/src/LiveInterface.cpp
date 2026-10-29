@@ -682,7 +682,9 @@ void Desktop::saveLiveInputProfile(const juce::String& showChannel) {
     std::vector<mrs::NativeInsert> captured;
     for(const auto& fx:it->inserts)
         captured.push_back(app.capture_insert(it->id,fx.id));
-    const auto encoded=live::liveInputProfile(*it,juce::String::fromUTF8(names[static_cast<std::size_t>(it->input)].c_str()),captured);
+    const auto encoded=live::liveInputProfile(*it,
+        juce::String::fromUTF8(names[static_cast<std::size_t>(it->input)].c_str()),
+        juce::String::fromUTF8(app.audio_name().c_str()),captured);
     liveInputPilotChannel=showChannel;
     editLiveInterface("Save Live Input profile", [&](auto& state) {
         live::put(live::require(state,"channels",showChannel),"liveInput",encoded);
@@ -699,6 +701,8 @@ void Desktop::loadLiveInputProfile(const juce::String& showChannel) {
     const auto profile=live::decodeLiveInputProfile(channel["liveInput"]);
     if(app.audio_name()=="Offline clock (no sound)" || app.audio_name()=="Disconnected" || !app.audio_running())
         throw std::runtime_error("Connect the matching ASIO device to load this Live Input");
+    if(profile.device != juce::String::fromUTF8(app.audio_name().c_str()))
+        throw std::runtime_error("Saved ASIO device changed; choose the original audio device");
     const auto inputs=app.input_names();
     if(static_cast<std::size_t>(profile.input)>=inputs.size() ||
        juce::String::fromUTF8(inputs[static_cast<std::size_t>(profile.input)].c_str())!=profile.name)
