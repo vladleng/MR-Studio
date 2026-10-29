@@ -438,6 +438,35 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   live::canonical(saved)==live::canonical(encoded) &&
                   live::decodeLiveInputProfile(saved).input==0,
                   "Standalone .mrlive preserves Live Input profile without Studio song/project refs");
+        // Reproduction of user save failure: sample/VSTi plugin state can
+        // exceed 256 KiB. 7 MiB raw expands to >8 MiB Base64 JSON, so this
+        // exercises both the Core state cap and the .mrlive file-size cap.
+        mrs::NativeInsert largeVst3;
+        largeVst3.id=mrs::new_id();largeVst3.kind=mrs::InsertKind::vst3;
+        largeVst3.plugin_path="test-large-state.vst3";
+        largeVst3.class_id="0123456789abcdef0123456789abcdef";
+        largeVst3.plugin_name="Large VST3 State";
+        largeVst3.component_state.assign(7u*1024u*1024u,std::byte{0x3f});
+        largeVst3.validate();
+        auto largeShow=doc.clone();
+        live::put(live::require(largeShow.interfaceState,"channels",channelId),"liveInput",
+                  live::liveInputProfile(input,"Physical Input 1","Test ASIO device",{largeVst3}));
+        const auto largeFile=folder.getChildFile("large-vst3-state.mrlive");
+        largeShow.write(largeFile);
+        liveCheck(largeFile.getSize()>8ll*1024ll*1024ll,
+                  "Large VST3 test must exceed previous 8 MiB show file limit");
+        const auto largeLoaded=LiveDocument::read(largeFile);
+        const auto roundtripState=live::decodeLiveInputProfile(
+            live::find(largeLoaded.interfaceState,"channels",channelId)["liveInput"]);
+        liveCheck(roundtripState.inserts.size()==1 &&
+                  roundtripState.inserts[0].component_state==largeVst3.component_state &&
+                  roundtripState.inserts[0].class_id==largeVst3.class_id,
+                  "VST3 state greater than 256 KiB survives whole-show save/reopen");
+        largeFile.deleteFile();
+        bool oversizedStateRejected=false;
+        try{(void)live::liveInputB64(std::vector<std::byte>(live::maximumLiveVst3StateBytes+1u));}
+        catch(const std::exception&){oversizedStateRejected=true;}
+        liveCheck(oversizedStateRejected,"Oversized VST3 binary state remains bounded");
         auto invalid=source.clone();
         auto invalidProfile=invalid["channels"][0]["liveInput"];
         live::put(invalidProfile,"input",-5);
