@@ -365,8 +365,16 @@ void Desktop::importLiveShow(const juce::File &file) {
 }
 void Desktop::selectLiveItem(const juce::String &id, const juce::String &entry) {
     if (liveInputPilotTrack && liveDocument &&
-        id != liveDocument->interfaceState["currentItem"].toString())
-        throw std::runtime_error("Disable Live Input pilot before changing Setlist item; plugin handoff is not ready");
+        id != liveDocument->interfaceState["currentItem"].toString()) {
+        // #300: only a quiescent manual switch may share one live VST3 graph.
+        if (app.engine()->state().playback==mrs::PlaybackState::playing)
+            throw std::runtime_error("Stop Playback before changing items with Live Input; seamless switching awaits #301");
+        const auto p=project();
+        const auto found=std::find_if(p->tracks.begin(),p->tracks.end(),
+            [&](const auto& track){return track.id==*liveInputPilotTrack;});
+        if(found==p->tracks.end() || !found->input_monitor)
+            throw std::runtime_error("Enable Live Input monitor before changing items, or Disable Live Input");
+    }
     // Explicit show selection exits Browser inspection and its independent audition.
     liveBrowserItem.clear();
     app.stop_library_preview();
@@ -903,7 +911,9 @@ bool Desktop::livePlaybackReady() const {
     const auto rows = live::playbackRows(liveDocument->interfaceState, id);
     return id == livePlaybackItem && !rows.empty() &&
            livePlaybackMediaKey == live::playbackMediaKey(liveDocument->interfaceState, id) &&
-           project()->tracks.size() == rows.size() && app.playback_sources().size() == rows.size();
+           project()->tracks.size() == rows.size() + (liveInputPilotTrack ? 1u : 0u) &&
+           (!liveInputPilotTrack || project()->tracks.back().id == *liveInputPilotTrack) &&
+           app.playback_sources().size() == rows.size();
 }
 bool Desktop::liveTransportReady() const {
     if (livePlaybackReady())
@@ -1106,6 +1116,7 @@ void Desktop::syncLivePlayback() {
             if (!status.message.empty())
                 throw std::runtime_error(status.message);
             auto layout=performanceLayout(liveDocument->interfaceState,id,project()->sample_rate,++liveTokenSerial);
+            layout.live_track=liveInputPilotTrack;
             closeEditors();cancelPreview();app.activate_playback(media,layout);
             liveRuntimeToken=layout.token;livePerformanceKey=live::performanceKey(liveDocument->interfaceState,id);
             visualTransport.reset();lastVisualSample=0;lastDisplayState={};
