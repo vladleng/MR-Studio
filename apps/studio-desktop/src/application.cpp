@@ -1396,6 +1396,19 @@ void Application::update_live_channels(const std::vector<Id>& owned,std::vector<
     };
     device_->stop();engine_->quiesce();
     const auto head=engine_->state();auto rollback=engine_->stopped_graph();
+    // Scalar mixer updates do not rewrite the graph's construction snapshot.
+    // A failed rebuild must restore the current committed mix, not that snapshot.
+    rollback.master_gain=before->master_gain;
+    std::size_t mixerIndex=0;
+    for(const auto& track:before->tracks)if(track.kind!=TrackKind::midi) {
+        rollback.mixer[mixerIndex]=track.mix;
+        rollback.input_monitoring[mixerIndex]=track.input_monitor;
+        rollback.midi_monitor[mixerIndex]=track.midi_monitor;
+        for(std::size_t j=0;j<track.sends.size();++j)
+            rollback.sends[mixerIndex][j].gain=track.sends[j].bypass?0.f:track.sends[j].gain;
+        ++mixerIndex;
+    }
+    const auto oldApplied=applied_mix_revision_;
     auto oldRuntime=insert_runtime_;auto oldMixer=mixer_tracks_;auto oldPrepared=prepared_;
     bool closed=false;
     try {
@@ -1431,7 +1444,7 @@ void Application::update_live_channels(const std::vector<Id>& owned,std::vector<
         const auto error=std::current_exception();preparing_project_=nullptr;
         try {
             device_->stop();engine_->quiesce();
-            insert_runtime_=std::move(oldRuntime);mixer_tracks_=std::move(oldMixer);prepared_=std::move(oldPrepared);
+            insert_runtime_=std::move(oldRuntime);mixer_tracks_=std::move(oldMixer);prepared_=std::move(oldPrepared);applied_mix_revision_=oldApplied;
             if(closed)device_->close();
             engine_->prepare({oldConfig.sample_rate,static_cast<std::uint32_t>(oldConfig.inputs.size()),static_cast<std::uint32_t>(oldConfig.outputs.size()),8192,oldConfig.buffer_frames,oldConfig.processing_workers},std::move(rollback),head);
             if(closed)device_->open(oldConfig,engine_);

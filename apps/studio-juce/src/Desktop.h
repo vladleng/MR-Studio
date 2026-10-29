@@ -142,7 +142,7 @@ public:
     void bindLiveItem(const juce::String&,const juce::File&);
     void prepareLiveInterface(bool saved);
     void updateLiveDirty();
-    void editLiveInterface(const juce::String&,std::function<void(juce::var&)>,bool coalesceTyping=false);
+    void editLiveInterface(const juce::String&,std::function<void(juce::var&)>,bool coalesceTyping=false,bool captureInputs=false);
     void setLiveItemNotes(const juce::String&,const juce::String&);
     juce::String liveTypingLabel;
     juce::uint32 liveTypingAt{};
@@ -150,7 +150,7 @@ public:
     void undoLiveInterface(bool redo=false);
     juce::UndoManager liveUndo{32*1024*1024,1};
     juce::String liveSavedContents;
-    std::uint64_t liveUiRevision{}, liveTimelineFocusRevision{};
+    std::uint64_t liveUiRevision{}, liveTimelineFocusRevision{}, liveDocumentGeneration{};
     bool liveShowEditing{};
     juce::File documentFile() const;
     bool songDirty() const;

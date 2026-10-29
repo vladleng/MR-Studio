@@ -454,6 +454,23 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         auto invalidMidi=midiProfile.clone();live::put(invalidMidi,"midiChannel",16);rejected=false;
         try{(void)live::decodeLiveInputProfile(invalidMidi);}catch(const std::exception&){rejected=true;}
         liveCheck(rejected,"Out-of-range saved MIDI channel rejects before activation");
+        mrs::NativeInsert old;old.id=mrs::new_id();old.kind=mrs::InsertKind::vst3;
+        old.plugin_path="fixture.vst3";old.class_id="fixture-class";
+        auto current=old;current.component_state=sampleState;current.controller_state={std::byte{3}};
+        current.parameters={{7,.75f}};
+        auto bypassed=old;bypassed.bypass=true;
+        std::vector<mrs::NativeInsert> edited{bypassed};
+        live::retainCapturedPluginState(edited,{old},{current});
+        liveCheck(edited[0].bypass && edited[0].component_state==current.component_state &&
+                  edited[0].controller_state==current.controller_state && edited[0].parameters==current.parameters,
+                  "Rack bypass retains fresh editor binary/controller/parameter state");
+        auto replacement=old;replacement.id=mrs::new_id();edited={replacement};
+        live::retainCapturedPluginState(edited,{old},{current});
+        liveCheck(edited[0]==replacement,"Replacing a plugin never inherits a different instance's state");
+        auto restored=old;restored.component_state={std::byte{9}};restored.parameters={{7,.25f}};edited={restored};
+        live::retainCapturedPluginState(edited,{old},{current});
+        liveCheck(edited[0].component_state==restored.component_state && edited[0].parameters==restored.parameters,
+                  "Explicit restored state takes precedence over capture");
     }
     // #297/#300: an active monitored Core input must never be retired by
     // an item switch while playback is running. Stopped manual handoff now

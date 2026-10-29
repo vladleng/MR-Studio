@@ -234,6 +234,7 @@ void Desktop::newLiveShow() {
     reconnectDevice(session);
 }
 void Desktop::prepareLiveInterface(bool saved) {
+    ++liveDocumentGeneration;
     ++liveSourceCheckEpoch;++liveSelectionRevision;
     for (const auto &entry : livePreparedItems)
         app.cancel_playback(entry.media);
@@ -320,10 +321,12 @@ void Desktop::applyLiveInterface(const juce::var &value) {
     updateLiveDirty();
     ++liveUiRevision;
 }
-void Desktop::editLiveInterface(const juce::String &label, std::function<void(juce::var &)> edit, bool coalesceTyping) {
+void Desktop::editLiveInterface(const juce::String &label, std::function<void(juce::var &)> edit, bool coalesceTyping, bool captureInputs) {
     if (!liveDocument)
         throw std::runtime_error("Create or open a MR Live show first");
-    auto draft = liveDocument->interfaceState.clone();
+    auto before = captureInputs ? liveDocument->interfaceState.clone() : liveDocument->interfaceState;
+    if(captureInputs)captureLiveInputs(before);
+    auto draft = before.clone();
     edit(draft);
     live::validate(draft);
     validateMusicalEdit(*this, draft);
@@ -333,7 +336,7 @@ void Desktop::editLiveInterface(const juce::String &label, std::function<void(ju
     liveShowEditing = true;
     const auto now = juce::Time::getMillisecondCounter();
     if (!coalesceTyping || liveTypingLabel != label || now - liveTypingAt > 800) liveUndo.beginNewTransaction(label);
-    liveUndo.perform(new LiveInterfaceEdit(*this, liveDocument->interfaceState, draft));
+    liveUndo.perform(new LiveInterfaceEdit(*this, before, draft));
     liveTypingLabel = coalesceTyping ? label : juce::String();
     liveTypingAt = now;
     if (!coalesceTyping) liveUndo.beginNewTransaction();
@@ -767,7 +770,7 @@ void Desktop::configureLiveInput(const juce::String& requested,int input,bool st
     stampLivePorts(*this,profile);
     editLiveInterface("Channel audio input / output",[&](auto& state){
         live::put(live::require(state,"channels",channel),"liveInput",profile);
-    });
+    },false,true);
 }
 void Desktop::configureLiveMidi(const juce::String& requested,const juce::String& port,int midiChannel,const std::vector<int>& outputs) {
     const auto channel=inputChannel(*this,requested);
@@ -785,17 +788,19 @@ void Desktop::configureLiveMidi(const juce::String& requested,const juce::String
     juce::String name;for(const auto& p:mrs::desktop::MidiInputs::ports())if(p.id==track.midi_input)name=juce::String::fromUTF8(p.name.c_str());
     auto profile=live::liveInputProfile(track,name,juce::String::fromUTF8(app.audio_name().c_str()),track.inserts);
     stampLivePorts(*this,profile);
-    editLiveInterface("Channel MIDI input / output",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);});
+    editLiveInterface("Channel MIDI input / output",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);},false,true);
 }
 void Desktop::setLiveInputEffects(const juce::String& requested,std::vector<mrs::NativeInsert> effects) {
     const auto channel=inputChannel(*this,requested);
+    const auto original=live::decodeLiveInputProfile(live::find(liveDocument->interfaceState,"channels",channel)["liveInput"]);
     auto draft=liveDocument->interfaceState.clone();captureLiveInputs(draft);
     auto row=live::find(draft,"channels",channel);
     const auto saved=live::decodeLiveInputProfile(row["liveInput"]);
+    live::retainCapturedPluginState(effects,original.inserts,saved.inserts);
     auto track=liveTrack(draft,channel,mrs::Id{"live-input-"+channel.toStdString()});
     auto profile=live::liveInputProfile(track,saved.name,saved.device,effects);
     for(const auto* key:{"inputRightName","outputNames"})if(!row["liveInput"][key].isVoid())live::put(profile,key,row["liveInput"][key].clone());
-    editLiveInterface("Channel effect chain",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);});
+    editLiveInterface("Channel effect chain",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);},false,true);
 }
 void Desktop::activateLiveChannel(const juce::String& requested) {
     const auto channel=inputChannel(*this,requested);

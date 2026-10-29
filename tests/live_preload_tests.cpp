@@ -151,10 +151,13 @@ void live_channels(const std::filesystem::path& file) {
     check(app.services().projects->state().project==previous,"Duplicate live mapping rejects without changing the project");
     right.hardware_outputs={9};rejects([&]{app.update_live_channels(ids,{left,right});});
     check(app.services().projects->state().project==previous,"Invalid channel route leaves the old graph/model intact");
+    auto quieter=right.mix;quieter.gain=.5f;app.set_track_mix(right.id,quieter);
+    app.poll();for(int i=0;i<4;++i)render();
+    const auto rollbackBefore=app.services().projects->state().project;
     right.hardware_outputs={2};left.input_monitor=true;calls->failStart=true;
     rejects([&]{app.update_live_channels(ids,{left,right});});render();render();
-    check(app.services().projects->state().project==previous&&app.audio_running()&&out[400]==0&&out[402]>.15f,
-          "Channel restart failure rolls back model, inputs, device and running PCM");
+    check(app.services().projects->state().project==rollbackBefore&&app.audio_running()&&out[400]==0&&out[402]>.08f&&out[402]<.12f,
+          "Channel restart failure rolls back model, inputs, device and latest mixer gain in running PCM");
     app.update_live_channels(ids,{left,right});render();render();
     check(out[400]>.15f&&out[402]>.15f,"Explicit monitor re-enable restores only the chosen channel");
     auto empty=app.prepare_playback({});ready(app,empty);Application::PlaybackLayout emptyLayout;emptyLayout.live_tracks=ids;

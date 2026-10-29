@@ -49,6 +49,7 @@ private:
     void inputMenu() {
         juce::PopupMenu menu;menu.setLookAndFeel(&owner.theme);
         const auto inputs=owner.app.input_names();
+        const auto device=owner.app.audio_name();
         const auto saved=profile();
         const auto channel=live::find(owner.liveDocument->interfaceState,"channels",id);
         for(std::size_t i=0;i<inputs.size();++i) {
@@ -69,11 +70,13 @@ private:
             }
         }
         if(saved.isObject())menu.addItem(3000,"Clear channel input and effects");
-        const auto signature=live::canonical(saved);
+        const auto signature=live::canonical(saved);const auto generation=owner.liveDocumentGeneration;
         juce::Component::SafePointer<LiveChannelControls> safe(this);
-        menu.showMenuAsync(liveMenuOptions(input),[safe,ports,signature](int action){if(!safe||!action)return;
+        menu.showMenuAsync(liveMenuOptions(input),[safe,ports,signature,generation,device,inputs](int action){if(!safe||!action)return;
             safe->owner.run([&]{
-                if(live::canonical(safe->profile())!=signature)throw std::runtime_error("Channel changed while menu was open; reopen it");
+                if(safe->owner.liveDocumentGeneration!=generation || live::canonical(safe->profile())!=signature)throw std::runtime_error("Channel changed while menu was open; reopen it");
+                if(safe->owner.app.audio_name()!=device || safe->owner.app.input_names()!=inputs)
+                    throw std::runtime_error("Audio device changed; reopen input menu");
                 const auto saved=safe->profile();
                 const auto outputs=saved.isObject()?live::decodeLiveInputProfile(saved).outputs:std::vector<int>{};
                 if(action>=100 && action<1000)safe->audio((action-100)/2,(action-100)%2!=0,outputs);
@@ -81,20 +84,23 @@ private:
                     const int i=action-1001;safe->owner.configureLiveMidi(safe->id,i<0?juce::String{}:juce::String::fromUTF8(ports.at(static_cast<std::size_t>(i)).id.c_str()),-1,outputs);
                 } else if(action>=2000 && action<=2016) {
                     const auto p=live::decodeLiveInputProfile(saved);safe->owner.configureLiveMidi(safe->id,p.midiInput,action-2001,outputs);
-                } else if(action==3000)safe->owner.editLiveInterface("Clear channel input",[&](auto& state){live::require(state,"channels",safe->id).getDynamicObject()->removeProperty("liveInput");});
-            });safe->sync();
+                } else if(action==3000)safe->owner.editLiveInterface("Clear channel input",[&](auto& state){live::require(state,"channels",safe->id).getDynamicObject()->removeProperty("liveInput");},false,true);
+            });if(safe)safe->sync();
         });
     }
     void outputMenu() {
         if(!profile().isObject())return;
         juce::PopupMenu menu;menu.setLookAndFeel(&owner.theme);menu.addItem(1,"Master");
         std::vector<std::vector<int>> routes{{}};const auto outputs=owner.app.active_outputs();const auto names=owner.app.output_names();
+        const auto device=owner.app.audio_name();
         const auto label=[&](int i){return juce::String(i+1)+" - "+(i>=0&&static_cast<std::size_t>(i)<names.size()?juce::String::fromUTF8(names[static_cast<std::size_t>(i)].c_str()):"Unavailable");};
         for(auto out:outputs){routes.push_back({out});menu.addItem(static_cast<int>(routes.size()),label(out));}
         for(std::size_t i=0;i+1<outputs.size();++i)if(outputs[i+1]==outputs[i]+1){routes.push_back({outputs[i],outputs[i+1]});menu.addItem(static_cast<int>(routes.size()),label(outputs[i])+" / "+label(outputs[i+1]));}
-        juce::Component::SafePointer<LiveChannelControls> safe(this);const auto signature=live::canonical(profile());
-        menu.showMenuAsync(liveMenuOptions(output),[safe,routes,signature](int action){if(safe&&action>0&&static_cast<std::size_t>(action)<=routes.size())safe->owner.run([&]{
-            if(live::canonical(safe->profile())!=signature)throw std::runtime_error("Channel changed; reopen output menu");
+        juce::Component::SafePointer<LiveChannelControls> safe(this);const auto signature=live::canonical(profile());const auto generation=owner.liveDocumentGeneration;
+        menu.showMenuAsync(liveMenuOptions(output),[safe,routes,signature,generation,device,outputs,names](int action){if(safe&&action>0&&static_cast<std::size_t>(action)<=routes.size())safe->owner.run([&]{
+            if(safe->owner.liveDocumentGeneration!=generation || live::canonical(safe->profile())!=signature)throw std::runtime_error("Channel changed; reopen output menu");
+            if(safe->owner.app.audio_name()!=device || safe->owner.app.output_names()!=names || safe->owner.app.active_outputs()!=outputs)
+                throw std::runtime_error("Audio device changed; reopen output menu");
             safe->route(routes[static_cast<std::size_t>(action-1)]);safe->sync();
         });});
     }
@@ -122,9 +128,9 @@ private:
             slot.addItem(104+static_cast<int>(i)*10,"Remove",stopped&&(!saved.instrument||i>0||saved.inserts.size()==1));
             menu.addSubMenu(juce::String(static_cast<int>(i+1))+". "+juce::String::fromUTF8(fx.plugin_name.c_str()),slot);
         }
-        const auto signature=live::canonical(profile());juce::Component::SafePointer<LiveChannelControls> safe(this);
-        menu.showMenuAsync(liveMenuOptions(effects),[safe,saved,signature,catalog](int action){if(!safe||!action)return;safe->owner.run([&]{
-            if(live::canonical(safe->profile())!=signature)throw std::runtime_error("Channel changed; reopen effect menu");
+        const auto signature=live::canonical(profile());const auto generation=owner.liveDocumentGeneration;juce::Component::SafePointer<LiveChannelControls> safe(this);
+        menu.showMenuAsync(liveMenuOptions(effects),[safe,saved,signature,catalog,generation](int action){if(!safe||!action)return;safe->owner.run([&]{
+            if(safe->owner.liveDocumentGeneration!=generation || live::canonical(safe->profile())!=signature)throw std::runtime_error("Channel changed; reopen effect menu");
             auto chain=saved.inserts;
             if(action>=10000) {
                 const auto index=static_cast<std::size_t>(action-10000);if(index>=catalog.size())throw std::runtime_error("Plugin catalog changed");

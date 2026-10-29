@@ -1,9 +1,27 @@
 #pragma once
 #include "LiveShowState.h"
 #include <mrs/core.hpp>
+#include <algorithm>
 #include <cstring>
 
 namespace ui::live {
+// A rack edit changes order/bypass/identity, while the editor owns the latest
+// binary and parameter state. Preserve that state for surviving instances.
+inline void retainCapturedPluginState(std::vector<mrs::NativeInsert>& edited,
+                                     const std::vector<mrs::NativeInsert>& original,
+                                     const std::vector<mrs::NativeInsert>& captured) {
+    for(auto& fx:edited) {
+        if(fx.kind!=mrs::InsertKind::vst3)continue;
+        const auto same=[&](const auto& old){return old.id==fx.id && old.kind==fx.kind &&
+            old.plugin_path==fx.plugin_path && old.class_id==fx.class_id;};
+        const auto before=std::find_if(original.begin(),original.end(),same);
+        const auto current=std::find_if(captured.begin(),captured.end(),same);
+        if(before==original.end() || current==captured.end())continue;
+        if(fx.component_state==before->component_state)fx.component_state=current->component_state;
+        if(fx.controller_state==before->controller_state)fx.controller_state=current->controller_state;
+        if(fx.parameters==before->parameters)fx.parameters=current->parameters;
+    }
+}
 // Show-owned VST3 descriptors; stable Core tracks are runtime projections. Capturing
 // current processor states must happen on the control thread while stopped.
 inline juce::String liveInputB64(const std::vector<std::byte>& bytes) {
