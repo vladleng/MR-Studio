@@ -256,7 +256,7 @@ class LiveTimeline final : public juce::Component {
     }
     class StemMix final : public juce::Component {
       public:
-        StemMix(LiveTimeline &timeline, juce::String stem) : key(std::move(stem)), parent(timeline), inputs(timeline.owner,key) {
+        StemMix(LiveTimeline &timeline, juce::String stem) : key(std::move(stem)), parent(timeline), inputs(timeline.owner,key,LiveChannelControls::Surface::timeline) {
             addAndMakeVisible(inputs);addAndMakeVisible(monitor);
             monitor.onClick=[this]{parent.owner.run([&]{parent.owner.setLiveInputMonitor(key,!monitor.getToggleState());});};
             for (auto *control : std::array<juce::Component *, 4>{&mute, &solo, &gain, &arm})
