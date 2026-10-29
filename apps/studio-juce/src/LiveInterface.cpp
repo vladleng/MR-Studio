@@ -740,6 +740,13 @@ void Desktop::enableLiveInputPilotMonitoring() {
 }
 void Desktop::setLiveChannelMix(const juce::String &id, double gain, double pan, bool mute, bool solo) {
     app.cancel_mix_preview();
+    if (liveInputPilotTrack && liveInputPilotChannel == id) {
+        mrs::Track::Mix mix;
+        mix.gain=static_cast<float>(std::pow(10.,gain/20.));
+        mix.pan=static_cast<float>(pan);
+        mix.mute=mute;mix.solo=solo;mix.validate();
+        app.set_track_mix(*liveInputPilotTrack,mix);
+    }
     editLiveInterface("Channel mix", [&](auto &state) {
         auto &channel = live::require(state, "channels", id);
         live::put(channel, "gain", gain);
@@ -750,6 +757,15 @@ void Desktop::setLiveChannelMix(const juce::String &id, double gain, double pan,
     syncLivePlayback();
 }
 void Desktop::previewLiveChannelMix(const juce::String &id, double gain, double pan, bool mute, bool solo) {
+    if (liveInputPilotTrack && liveInputPilotChannel==id) {
+        mrs::Track::Mix mix;
+        mix.gain=static_cast<float>(std::pow(10.,gain/20.));
+        mix.pan=static_cast<float>(pan);mix.mute=mute;mix.solo=solo;
+        if(std::isfinite(gain) && std::isfinite(pan) && mix.gain>=0.f &&
+           mix.gain<=mrs::Track::Mix::maximum_gain && mix.pan>=-1.f && mix.pan<=1.f)
+            app.preview_mix(*liveInputPilotTrack,mix,project()->master_gain);
+        return;
+    }
     if (!liveDocument || !livePlaybackReady()) return;
     auto state = liveDocument->interfaceState.clone();
     auto &channel = live::require(state, "channels", id);
