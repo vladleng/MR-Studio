@@ -24,17 +24,21 @@ inline void retainCapturedPluginState(std::vector<mrs::NativeInsert>& edited,
 }
 // Show-owned VST3 descriptors; stable Core tracks are runtime projections. Capturing
 // current processor states must happen on the control thread while stopped.
+// Large VSTi (Omnisphere, sample instruments) can exceed the old 256 KiB cap;
+// match the bounded Core VST3 state allowance and the whole-show file budget.
+inline constexpr std::size_t maximumLiveVst3StateBytes=16u*1024u*1024u;
+inline constexpr std::size_t maximumLiveVst3Base64Length=((maximumLiveVst3StateBytes+2u)/3u)*4u;
 inline juce::String liveInputB64(const std::vector<std::byte>& bytes) {
-    if (bytes.size() > 256 * 1024)
-        throw std::runtime_error("Live VST3 state exceeds 256 KiB");
+    if (bytes.size() > maximumLiveVst3StateBytes)
+        throw std::runtime_error("Live VST3 state exceeds 16 MiB");
     return bytes.empty() ? juce::String() : juce::Base64::toBase64(bytes.data(), bytes.size());
 }
 inline std::vector<std::byte> liveInputBytes(const juce::var& value) {
-    if (!value.isString() || value.toString().length() > 350000)
+    if (!value.isString() || static_cast<std::size_t>(value.toString().length()) > maximumLiveVst3Base64Length)
         throw std::runtime_error("Invalid Live VST3 state encoding");
     if (value.toString().isEmpty()) return {};
     juce::MemoryOutputStream output;
-    if (!juce::Base64::convertFromBase64(output, value.toString()) || output.getDataSize() > 256 * 1024)
+    if (!juce::Base64::convertFromBase64(output, value.toString()) || output.getDataSize() > maximumLiveVst3StateBytes)
         throw std::runtime_error("Invalid Live VST3 state data");
     std::vector<std::byte> result(output.getDataSize());
     if (!result.empty()) std::memcpy(result.data(), output.getData(), result.size());
