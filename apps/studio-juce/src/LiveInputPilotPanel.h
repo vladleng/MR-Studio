@@ -55,7 +55,8 @@ public:
             if (!owner.liveInputPilotTrack) return;
             const int index=vst3.getSelectedId()-1;
             if (index<0||static_cast<std::size_t>(index)>=pluginIndices.size()) return;
-            owner.addPlugin(*owner.liveInputPilotTrack,pluginIndices[static_cast<std::size_t>(index)]);
+            // Existing drop path probes unknown VST3 classes off RT and rejects VSTi on audio tracks.
+            owner.dropPlugin(*owner.liveInputPilotTrack,pluginIndices[static_cast<std::size_t>(index)]);
             sync();
         };
         openEditor.onClick=[this] {
