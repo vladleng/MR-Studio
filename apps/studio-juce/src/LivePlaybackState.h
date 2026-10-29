@@ -133,9 +133,25 @@ inline mrs::Track::Mix playbackMix(const juce::var &state, const juce::String &i
     mix.solo = static_cast<bool>(row["solo"]) || static_cast<bool>(channel["solo"]) || (groupChild && static_cast<bool>(primary["solo"]));
     return mix;
 }
+// The show channel may contain multi-megabyte Base64 VST3 component/controller
+// state. Playback's mix depends only on the four scalar mixer values and channel
+// identity, never on a Live Instrument's binary state, input, FX or patches.
+// Do NOT put entire channels into a key used by the 30 Hz UI/poll callback.
+inline juce::var playbackChannelMixSnapshot(const juce::var& state) {
+    juce::Array<juce::var> channels;
+    if (const auto* entries=state["channels"].getArray())
+        for (const auto& channel:*entries) {
+            auto mix=object();
+            for(const auto* key:{"id","type","gain","pan","mute","solo"})
+                put(mix,key,channel[key]);
+            channels.add(std::move(mix));
+        }
+    return juce::var(std::move(channels));
+}
 inline juce::String playbackMixKey(const juce::var &state, const juce::String &id) {
     return canonical(playback(state, id)) + canonical(liveAudio(state)) +
-           juce::String(itemPlaybackGain(state, id), 17) + canonical(state["channels"]) + canonical(state["performance"]["clips"]);
+           juce::String(itemPlaybackGain(state, id), 17) + canonical(playbackChannelMixSnapshot(state)) +
+           canonical(state["performance"]["clips"]);
 }
 // Browser regions are in bars, keyed by the item track ID. Native-only
 // sources without a browser track retain the same rows on their source binding.
