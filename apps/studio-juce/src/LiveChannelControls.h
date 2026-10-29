@@ -180,6 +180,8 @@ private:
         channels.addItem(2000,"Omni",true,current.midiChannel==-1);
         for(int i=0;i<16;++i)
             channels.addItem(2001+i,"MIDI Channel "+juce::String(i+1),true,current.midiChannel==i);
+        // The integer generation and juce::String signature must have separate
+        // auto declarations (MSVC C3538, Windows #382).
         const auto generation=owner.liveDocumentGeneration;
         const auto signature=live::canonical(saved);
         juce::Component::SafePointer<LiveChannelControls> safe(this);
