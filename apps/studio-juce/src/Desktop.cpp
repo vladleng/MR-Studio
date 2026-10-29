@@ -204,10 +204,18 @@ void Desktop::addLiveProject(const juce::File& file){
     selectedClip.reset();selectedTrack.reset();refresh(true);reconnectDevice(session);
 }
 void Desktop::saveFile(const juce::File& f){
-    if(standaloneLive&&songDirty())throw std::runtime_error("Cannot save audio changes in this development build");
+    const auto runtime=project();
+    const bool transientInputOnly=standaloneLive && liveDocument && liveDocument->projects.empty() &&
+        liveInputPilotTrack && runtime->tracks.size()==1 &&
+        runtime->tracks.front().id==*liveInputPilotTrack &&
+        runtime->clips.empty() && runtime->master_inserts.empty();
+    // A transient Live Input track is NOT an MRS project link. Save only its
+    // explicitly captured show profile; never create a Studio song on Save.
+    if(standaloneLive&&songDirty()&&!transientInputOnly)
+        throw std::runtime_error("Cannot save audio changes in this development build");
     if(liveDocument){
         auto showState=liveDocument->clone();auto file=f.withFileExtension("mrlive");
-        if(songDirty()){
+        if(songDirty()&&!transientInputOnly){
             liveDirty=true; // Keep unsaved references pending if publishing the show fails.
             auto song=app.path();
             if(song.empty()){
