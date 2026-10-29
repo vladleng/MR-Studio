@@ -183,6 +183,30 @@ Tempo/meter, sections и authored chords выбранного item проеци�
 
 Browser допускает перекрытия authored spans. Core использует одну музыкальную полосу: runtime range предыдущего события заканчивается на старте следующего; при одинаковом старте остаётся последнее. Авторские границы в show/saved versions не переписываются. Это правило действует только при проекции, не является time-stretch или редакторским изменением данных.
 
+## Контракт Instrument на Timeline и Mixer — 0.8.9-fix1 (#302/#281)
+
+В `MR Live` общая модель show-канала и один VST3 host не меняются, но
+контекстные органы управления разделены по назначению:
+
+- **Timeline / Instrument:** `MIDI Input` показывает *имя реально подключённого*
+  порта; если сохранённый порт не найден — `Missing MIDI`, если не выбран —
+  `MIDI Off`. Второе поле — `MIDI Channel` (`Omni` или 1–16) **вместо**
+  маршрута `Master`. Третье поле выбирает/заменяет **только VST3 Instrument**
+  в первом insert slot, позволяет открыть его редактор.
+- **Mixer / Instrument:** отвечает за **только Audio FX после VSTi**. Выбор
+  инструмента не дублируется, MIDI Input/Channel на этой компактной полосе
+  не повторяются. FX и состояния сохраняются в общем `.mrlive` show.
+- **Player/Audio:** сохраняют прежние физические input/output и Audio FX;
+  выходы/маршрутизация AudioEngine не изменяются. Перемещение Instrument VSTi
+  в другой FX-slot запрещено как прежде. Выбор MIDI-порта не обнуляет ранее
+  заданный MIDI Channel.
+
+Метка `fix1` применяется к **Live runtime artifact / README / manifest label**
+после версии `0.8.9`, а не к PE FileVersion/публичной версии продукта. Это
+сборка с source fixes классов VST3 cache, editor-open и значений MIDI no-input
+(`Core=-2`, сохранённый `.mrlive=-1`), ожидающая приёмки на Windows. Не считать
+`CI PASS` подтверждением открытия реальных сторонних GUI или отсутствия crash.
+
 ## Разделение ARA2 между MR Studio и MR Live (#303; 0.8.9)
 
 **MR Studio** остаётся ARA2 host при `MRS_BUILD_ARA=ON`; GUI Studio, ARA scanner,
