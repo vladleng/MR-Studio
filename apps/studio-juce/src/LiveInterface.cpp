@@ -780,6 +780,20 @@ void Desktop::reconcileLiveInputs(const juce::var& state) {
         closeEditors();app.update_live_channels(liveInputTracks(),std::move(tracks));liveChannelTracks=std::move(channelTracks);
     }
 }
+void Desktop::convertLegacyLiveInstrument(const juce::String& requested) {
+    const auto channel=inputChannel(*this,requested);
+    if(app.recording() || app.engine()->state().playback==mrs::PlaybackState::playing)
+        throw std::runtime_error("Stop playback before converting a Live channel");
+    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
+    if(row["type"].toString()!="Instrument" || !row["liveInput"].isObject() ||
+       live::decodeLiveInputProfile(row["liveInput"]).instrument)
+        throw std::runtime_error("Only legacy Instrument channels with audio profiles can be converted");
+    // Change the role only. Stable channel ID, item/patch associations, mix,
+    // physical input and VST3 descriptors are preserved by the show Undo transaction.
+    editLiveInterface("Convert legacy Instrument audio to Player",[&](auto& state) {
+        live::put(live::require(state,"channels",channel),"type","Player");
+    },false,true);
+}
 void Desktop::configureLiveInput(const juce::String& requested,int input,bool stereo,const std::vector<int>& outputs) {
     const auto channel=inputChannel(*this,requested);
     if(live::find(liveDocument->interfaceState,"channels",channel)["type"].toString()=="Instrument")
