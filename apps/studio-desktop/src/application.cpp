@@ -1619,7 +1619,10 @@ void Application::configure_playback_regions(const std::vector<PlaybackStem>& st
     require_not_playing();require_not_recording();
     const auto current=services_.projects->state().project;
     require(workspace_==Workspace::live && path_.empty() && current->id==playback_source_project_,"Region editing requires prepared Live Playback");
-    require(current->tracks.size()==playback_sources_.size(),"Playback tracks changed; reload the item");
+    const bool liveTail=current->tracks.size()==playback_sources_.size()+1 &&
+        current->tracks.back().kind==TrackKind::audio && current->tracks.back().input_monitor;
+    require(current->tracks.size()==playback_sources_.size() || liveTail,
+            "Playback tracks changed; reload the item");
     for(std::size_t i=0;i<playback_sources_.size();++i)require(current->tracks[i].id==playback_sources_[i].track,"Playback source mapping changed");
     const auto& sources=playback_sources();require(stems.size()==sources.size(),"Playback source mapping changed");
     auto nextSources=sources;
