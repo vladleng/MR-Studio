@@ -149,6 +149,7 @@ public:
     bool liveShowEditing{};
     juce::File documentFile() const;
     bool songDirty() const;
+    bool transientLiveRuntime() const;
     bool documentDirty() const{return liveDirty||songDirty();}
     std::optional<std::pair<std::uint64_t,std::uint64_t>> liveEmptyRevision;
     std::optional<LiveDocument> liveDocument;
