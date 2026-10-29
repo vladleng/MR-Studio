@@ -21,8 +21,9 @@ public:
     }
     void resized() override {
         auto r=getLocalBounds();
-        if(surface==Surface::mixer && !input.isVisible() && !output.isVisible()) {
-            effects.setBounds(r.reduced(1,0));
+        if(surface==Surface::mixer && !input.isVisible()) {
+            output.setBounds(r.removeFromTop(22).reduced(1,0));
+            effects.setBounds(r.removeFromTop(22).reduced(1,0));
             return;
         }
         auto row=r.removeFromTop(22);
@@ -40,8 +41,11 @@ public:
         const bool timelineInstrument=surface==Surface::timeline && type=="Instrument"&&!legacyAudio;
         const bool mixerInstrument=surface==Surface::mixer && type=="Instrument"&&!legacyAudio;
         setEnabled(type!="Playback");
-        const bool relayout=input.isVisible()==mixerInstrument || output.isVisible()==mixerInstrument;
-        input.setVisible(!mixerInstrument);output.setVisible(!mixerInstrument);
+        const bool relayout=input.isVisible()==mixerInstrument;
+        // Keep physical output routing in the Mixer. Timeline's second field
+        // now owns MIDI Channel instead of Master, but the audio route must
+        // remain adjustable on the actual Instrument mixer strip.
+        input.setVisible(!mixerInstrument);output.setVisible(true);
         input.setEnabled(stopped);
         output.setEnabled(stopped&&!legacyAudio&&(!timelineInstrument||profile.isObject()));
         effects.setEnabled(!legacyAudio);
