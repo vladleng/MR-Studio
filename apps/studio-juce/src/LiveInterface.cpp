@@ -179,8 +179,8 @@ void Desktop::setLiveItemNotes(const juce::String &id, const juce::String &text)
     // Retain the document size bound without running unrelated runtime preflight.
     const auto bytes = juce::JSON::toString(liveDocument->interfaceState).getNumBytesAsUTF8() +
         juce::JSON::toString(juce::var(text)).getNumBytesAsUTF8() - juce::JSON::toString(juce::var(before)).getNumBytesAsUTF8();
-    if (bytes > 1024 * 1024)
-        throw std::runtime_error("Show interface exceeds 1 MiB");
+    if (bytes > live::maximumShowBytes)
+        throw std::runtime_error("Show interface exceeds 64 MiB");
     const auto now = juce::Time::getMillisecondCounter();
     const auto label = "Item notes " + id;
     if (liveTypingLabel != label || now - liveTypingAt > 800) liveUndo.beginNewTransaction(label);
