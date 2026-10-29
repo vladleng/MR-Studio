@@ -115,7 +115,8 @@ public:
                 } else {
                     owner.startLiveInputPilot(physicalInput.getSelectedId()-1,selectedShowChannel(),
                                               stereoInput.getToggleState());
-                    owner.app.set_hardware_output(*owner.liveInputPilotTrack,selectedOutputs());
+                    if(const auto outputs=selectedOutputs(); !outputs.empty())
+                        owner.app.set_hardware_output(*owner.liveInputPilotTrack,outputs);
                 }
             });
             sync();
