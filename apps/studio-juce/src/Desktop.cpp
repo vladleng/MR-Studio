@@ -169,6 +169,13 @@ void Desktop::openFile(const juce::File& f){if(!standaloneLive&&!testing&&f.hasF
 }else{const bool leavingLive=liveDocument.has_value()||app.workspace()==mrs::desktop::Workspace::live;app.open_project(path(f));liveDocument.reset();liveFile=juce::File();prepareLiveInterface(false);if(leavingLive)app.workspace(mrs::desktop::Workspace::arrange);}
 resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();showProjectHome(false);reconnectDevice(session);if(liveDocument&&liveDocument->active<0)liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};else liveEmptyRevision.reset();mrs::diagnostics::event("project_open_end");}
 bool Desktop::songDirty() const{
+    if(standaloneLive && liveDocument && liveDocument->projects.empty() && liveInputPilotTrack) {
+        const auto runtime=project();
+        // This Core track is only the live monitor runtime. Explicit Save to
+        // Show writes its profile; it must not create a Studio project dirty flag.
+        if(runtime->tracks.size()==1 && runtime->tracks.front().id==*liveInputPilotTrack &&
+           runtime->clips.empty() && runtime->master_inserts.empty()) return false;
+    }
     if(liveDocument&&liveDocument->active<0&&liveEmptyRevision&&
        liveEmptyRevision->first==app.services().projects->state().revision&&
        liveEmptyRevision->second==app.graphs()->state().revision)return false;
