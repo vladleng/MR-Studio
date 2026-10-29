@@ -445,8 +445,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         try {live::validateLiveInputProfiles(invalid);}catch(const std::exception&){rejected=true;}
         liveCheck(rejected, "Malformed saved physical input is rejected on validation");
     }
-    // #297: The shared Core may monitor a physical input on an empty Live item,
-    // but must never silently retire that DSP across a WAV-only item handoff.
+    // #297/#300: an active monitored Core input must never be retired by
+    // an item switch while playback is running. Stopped manual handoff now
+    // belongs to #300 and is covered by the shared Live+WAV fixture below.
     {
         Desktop inputPilot(true,false,true);
         inputPilot.importLiveShow(fixture);
@@ -466,12 +467,23 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   inputPilot.project()->tracks.front().input_monitor &&
                   inputPilot.app.engine()==engine,
                   "Physical Live Input monitor uses the existing shared Core engine");
+        // Consume queued transport commands on the fake device clock before
+        // asserting the active-Play guard (the prior stopped-only assertion
+        // conflicted with the deliberately enabled #300 manual handoff).
+        std::array<float,128> pilotSilentInput{};
+        std::array<float,256> pilotAudioOutput{};
+        inputPilot.app.play();
+        inputPilot.app.engine()->process(pilotSilentInput.data(),pilotAudioOutput.data(),128);
+        liveCheck(inputPilot.app.engine()->state().playback==mrs::PlaybackState::playing,
+                  "Live Input guard test must reach an active Playback state");
         bool switched=false;
         try { inputPilot.selectLiveItem("item-1"); switched=true; }
         catch (const std::exception&) {}
         liveCheck(!switched && inputPilot.liveDocument->interfaceState["currentItem"].toString()=="item-0" &&
                   inputPilot.liveInputPilotTrack.has_value(),
-                  "Setlist switch cannot retire a monitored Live Input");
+                  "Active setlist switch cannot retire a monitored Live Input");
+        inputPilot.app.stop();
+        inputPilot.app.engine()->process(pilotSilentInput.data(),pilotAudioOutput.data(),128);
         auto* inputPanel=new LiveInputPilotPanel(inputPilot);
         liveCheck(liveComponent(*inputPanel,"live-input-disable")!=nullptr &&
                   liveComponent(*inputPanel,"live-input-plugin")!=nullptr,
