@@ -907,56 +907,56 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             combined.app.connect(std::make_unique<LivePlaybackTestDevice>(),
                                  {0,48000,128,{0},{0,1},1});
             combined.startLiveInputPilot(0);
-            const auto anchorId=*combined.liveInputPilotTrack;
-            mrs::NativeInsert nativeGain;nativeGain.id=mrs::new_id();
-            nativeGain.kind=mrs::InsertKind::gain;nativeGain.gain=.5f;
-            combined.app.set_inserts(anchorId,{nativeGain});
-            const auto originalGeneration=combined.app.insert_generation();
+            const auto combinedAnchorId=*combined.liveInputPilotTrack;
+            mrs::NativeInsert combinedNativeGain;combinedNativeGain.id=mrs::new_id();
+            combinedNativeGain.kind=mrs::InsertKind::gain;combinedNativeGain.gain=.5f;
+            combined.app.set_inserts(combinedAnchorId,{combinedNativeGain});
+            const auto combinedInsertGeneration=combined.app.insert_generation();
             const auto combinedEngine=combined.app.engine();
-            const auto first=combined.liveDocument->interfaceState["currentItem"].toString();
-            const auto second=combined.liveDocument->interfaceState["items"][1]["id"].toString();
-            combined.attachLivePlayback(second,waveFile);
-            combined.selectLiveItem(second);
-            const auto deadline=juce::Time::getMillisecondCounter()+5000;
-            while(combined.livePlaybackLoading && juce::Time::getMillisecondCounter()<deadline) {
+            const auto combinedFirstItem=combined.liveDocument->interfaceState["currentItem"].toString();
+            const auto combinedSecondItem=combined.liveDocument->interfaceState["items"][1]["id"].toString();
+            combined.attachLivePlayback(combinedSecondItem,waveFile);
+            combined.selectLiveItem(combinedSecondItem);
+            const auto combinedPreparationDeadline=juce::Time::getMillisecondCounter()+5000;
+            while(combined.livePlaybackLoading && juce::Time::getMillisecondCounter()<combinedPreparationDeadline) {
                 combined.app.poll();combined.syncLivePlayback();juce::Thread::sleep(1);
             }
             liveCheck(combined.livePlaybackReady() && combined.project()->tracks.size()==2 &&
-                      combined.project()->tracks.back().id==anchorId &&
+                      combined.project()->tracks.back().id==combinedAnchorId &&
                       combined.project()->tracks.back().input_monitor &&
-                      combined.project()->tracks.back().inserts==std::vector<mrs::NativeInsert>{nativeGain} &&
-                      combined.app.insert_generation()==originalGeneration && combined.app.engine()==combinedEngine &&
+                      combined.project()->tracks.back().inserts==std::vector<mrs::NativeInsert>{combinedNativeGain} &&
+                      combined.app.insert_generation()==combinedInsertGeneration && combined.app.engine()==combinedEngine &&
                       combined.app.playback_sources().size()==1,
                       "Manual WAV handoff keeps the same Core monitor, insert runtime and source mapping");
             combined.app.validate_playback_regions(
-                live::playbackStemLayouts(combined.liveDocument->interfaceState,second,48000));
+                live::playbackStemLayouts(combined.liveDocument->interfaceState,combinedSecondItem,48000));
             liveCheck(combined.transientLiveRuntime(),
                       "Combined Live Input and Playback remain transient .mrlive runtime, not a Studio song");
-            const auto saved=folder.getChildFile("combined-input-wav.mrlive");
-            combined.saveFile(saved);
-            liveCheck(LiveDocument::read(saved).projects.empty(),
+            const auto combinedSavedShow=folder.getChildFile("combined-input-wav.mrlive");
+            combined.saveFile(combinedSavedShow);
+            liveCheck(LiveDocument::read(combinedSavedShow).projects.empty(),
                       "Saving combined Live + WAV does not create Studio project references");
             combined.app.play();
-            std::array<float,128> guitarSignal{},silentInput{};
-            std::array<float,256> wavOnly{},withGuitar{};
-            for(int block=0;block<4;++block)
-                combined.app.engine()->process(silentInput.data(),wavOnly.data(),128);
-            guitarSignal.fill(.5f);
-            for(int block=0;block<4;++block)
-                combined.app.engine()->process(guitarSignal.data(),withGuitar.data(),128);
-            liveCheck(withGuitar[24]>wavOnly[24]+.02f,
+            std::array<float,128> combinedGuitarSignal{},combinedSilentInput{};
+            std::array<float,256> combinedPlaybackOutput{},combinedMonitoredOutput{};
+            for(int combinedBlock=0;combinedBlock<4;++combinedBlock)
+                combined.app.engine()->process(combinedSilentInput.data(),combinedPlaybackOutput.data(),128);
+            combinedGuitarSignal.fill(.5f);
+            for(int combinedBlock=0;combinedBlock<4;++combinedBlock)
+                combined.app.engine()->process(combinedGuitarSignal.data(),combinedMonitoredOutput.data(),128);
+            liveCheck(combinedMonitoredOutput[24]>combinedPlaybackOutput[24]+.02f,
                       "One active Core callback mixes WAV and monitored guitar through retained insert");
-            bool blocked=false;
-            try{combined.selectLiveItem(first);}catch(const std::exception&){blocked=true;}
-            liveCheck(blocked && combined.project()->tracks.back().id==anchorId,
+            bool combinedSwitchBlocked=false;
+            try{combined.selectLiveItem(combinedFirstItem);}catch(const std::exception&){combinedSwitchBlocked=true;}
+            liveCheck(combinedSwitchBlocked && combined.project()->tracks.back().id==combinedAnchorId,
                       "Active Playback cannot rehome a live insert graph while audio runs");
             combined.app.stop();
-            combined.app.engine()->process(silentInput.data(),withGuitar.data(),128);
-            combined.selectLiveItem(first);
+            combined.app.engine()->process(combinedSilentInput.data(),combinedMonitoredOutput.data(),128);
+            combined.selectLiveItem(combinedFirstItem);
             liveCheck(combined.project()->tracks.size()==1 &&
-                      combined.project()->tracks.front().id==anchorId &&
+                      combined.project()->tracks.front().id==combinedAnchorId &&
                       combined.project()->tracks.front().input_monitor &&
-                      combined.app.insert_generation()==originalGeneration &&
+                      combined.app.insert_generation()==combinedInsertGeneration &&
                       combined.app.engine()==combinedEngine,
                       "Returning to empty item preserves live DSP and releases WAV-only sources");
             combined.stopLiveInputPilot();
