@@ -619,6 +619,21 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         auto vsti=fx;vsti.id=mrs::new_id();vsti.class_id="synthetic-instrument";
         inputPilot.catalog.push_back({fx.plugin_path,fx.class_id,fx.plugin_name,"Synthetic Vendor","1",false});
         inputPilot.catalog.push_back({vsti.plugin_path,vsti.class_id,vsti.plugin_name,"Synthetic Vendor","1",true});
+        std::vector<mrs::processing::VstPlugin> mixedCatalog{
+            {"z.vst3","class-z","ZZZ","Zed","1",false},
+            {"a.vst3","class-b","Equal","Acme","1",false},
+            {"b.vst3","class-a","Equal","acme","1",false},
+            {"i.vst3","instrument-id","Equal","Acme","1",true},
+            {"unknown.vst3","unknown-id","Unknown","Acme","1",std::nullopt}};
+        const auto sortedFx=live::sortedPluginClasses(mixedCatalog,false);
+        const auto sortedVsti=live::sortedPluginClasses(mixedCatalog,true);
+        liveCheck(sortedFx==std::vector<std::size_t>{2,1,0} &&
+                  sortedVsti==std::vector<std::size_t>{3} &&
+                  live::findPluginClass(mixedCatalog,"b.vst3","class-a")==&mixedCatalog[2],
+                  "Vendor/name case-insensitive sorting preserves exact class ID across mixed VSTi/FX names");
+        liveCheck(live::findPluginClass(mixedCatalog,"unknown.vst3","unknown-id") &&
+                  !live::findPluginClass(mixedCatalog,"unknown.vst3","unknown-id")->instrument.has_value(),
+                  "Unknown plugin class stays distinct from a confirmed audio effect");
         inputPilot.setLiveInputEffects(showChannel,{fx});
         const auto fxBeforeRejected=live::canonical(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"]);
         refused=false;
