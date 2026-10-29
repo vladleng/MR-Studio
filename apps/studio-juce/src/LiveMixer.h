@@ -2,6 +2,7 @@
 #include "Desktop.h"
 #include "LiveTheme.h"
 #include "LivePlaybackState.h"
+#include "LiveInputPilotPanel.h"
 
 namespace ui {
 // Persistent show-channel controls; processing uses the shared Core mix API.
@@ -48,7 +49,10 @@ class LiveMixer final : public juce::Component {
       public:
         Strip(Desktop &desktop, juce::String channel) : owner(desktop), id(std::move(channel)),
             gain(kit::ParameterSpec{"gain", "Level", kit::Unit::db, -60, 12, 0, .1, kit::Mapping::linear, 1}, true) {
-            for (auto *c : std::array<juce::Component *, 5>{&name, &gain, &pan, &mute, &solo}) addAndMakeVisible(c);
+            for (auto *c : std::array<juce::Component *, 6>{&name, &inputFx, &gain, &pan, &mute, &solo}) addAndMakeVisible(c);
+            inputFx.setComponentID("live-mixer-input-" + id);
+            inputFx.setTooltip("Select a physical ASIO channel input, monitoring, FX and hardware outputs");
+            inputFx.onClick = [this] { openLiveInputPilot(owner,id); };
             gain.setComponentID("live-mixer-gain-" + id);
             pan.setComponentID("live-mixer-pan-" + id);
             mute.setComponentID("live-mixer-mute-" + id);
@@ -74,6 +78,11 @@ class LiveMixer final : public juce::Component {
             const auto state = owner.liveDocument->interfaceState;
             const auto channel = live::find(state, "channels", id);
             name.setText(channel["name"].toString(), juce::dontSendNotification);
+            const auto kind=channel["type"].toString();
+            inputFx.setEnabled(kind!="Playback");
+            const bool activeInput=owner.liveInputPilotTrack && owner.liveInputPilotChannel==id;
+            inputFx.setButtonText(activeInput ? "Input ON / FX"
+                : channel["liveInput"].isObject() ? "Saved Input / FX" : "Input / FX");
             if (!gain.gesturing() && !gain.hasKeyboardFocus(true)) gain.setValue(static_cast<double>(channel["gain"]));
             if (!pan.isMouseButtonDown() && !pan.hasKeyboardFocus(true)) pan.setValue(live::channelPan(channel), juce::dontSendNotification);
             mute.setToggleState(static_cast<bool>(channel["mute"]), juce::dontSendNotification);
@@ -102,7 +111,8 @@ class LiveMixer final : public juce::Component {
         }
         void resized() override {
             auto area = getLocalBounds().reduced(6);
-            name.setBounds(area.removeFromTop(26));
+            name.setBounds(area.removeFromTop(24));
+            inputFx.setBounds(area.removeFromTop(24).reduced(0,1));
             auto buttons = area.removeFromTop(28);
             mute.setBounds(buttons.removeFromLeft(48).reduced(1)); solo.setBounds(buttons.reduced(1));
             pan.setBounds(area.removeFromTop(40));
@@ -123,6 +133,7 @@ class LiveMixer final : public juce::Component {
         Desktop &owner;
         juce::String id;
         juce::Label name;
+        juce::TextButton inputFx{"Input / FX"};
         kit::MRFader gain;
         juce::Slider pan;
         juce::TextButton mute{"M"}, solo{"S"};
