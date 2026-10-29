@@ -1,0 +1,150 @@
+#pragma once
+#include "LiveShowState.h"
+#include <mrs/core.hpp>
+#include <cstring>
+
+namespace ui::live {
+// Show-owned VST3 descriptors; the live Core track stays transient. Capturing
+// current processor states must happen on the control thread while stopped.
+inline juce::String liveInputB64(const std::vector<std::byte>& bytes) {
+    if (bytes.size() > 256 * 1024)
+        throw std::runtime_error("Live VST3 state exceeds 256 KiB");
+    return bytes.empty() ? juce::String() : juce::Base64::toBase64(bytes.data(), bytes.size());
+}
+inline std::vector<std::byte> liveInputBytes(const juce::var& value) {
+    if (!value.isString() || value.toString().length() > 350000)
+        throw std::runtime_error("Invalid Live VST3 state encoding");
+    juce::MemoryOutputStream output;
+    if (!juce::Base64::convertFromBase64(output, value.toString()) || output.getDataSize() > 256 * 1024)
+        throw std::runtime_error("Invalid Live VST3 state data");
+    std::vector<std::byte> result(output.getDataSize());
+    if (!result.empty()) std::memcpy(result.data(), output.getData(), result.size());
+    return result;
+}
+inline juce::var liveInputProfile(const mrs::Track& track, const juce::String& physicalName,
+                                  const std::vector<mrs::NativeInsert>& captured) {
+    if (track.kind != mrs::TrackKind::audio || track.input < 0 || physicalName.isEmpty() ||
+        physicalName.length() > 256 || captured.size() > 8)
+        throw std::runtime_error("Invalid Live Input track/profile");
+    auto profile = object();
+    put(profile, "version", 1);
+    put(profile, "input", track.input);
+    put(profile, "inputName", physicalName);
+    put(profile, "stereo", track.input_stereo);
+    auto mix = object();
+    put(mix, "gain", track.mix.gain);
+    put(mix, "pan", track.mix.pan);
+    put(mix, "mute", track.mix.mute);
+    put(mix, "solo", track.mix.solo);
+    put(profile, "mix", mix);
+    juce::Array<juce::var> outputs;
+    for (int channel : track.hardware_outputs) outputs.add(channel);
+    put(profile, "outputs", outputs);
+    juce::Array<juce::var> plugins;
+    for (const auto& fx : captured) {
+        if (fx.kind != mrs::InsertKind::vst3 || fx.plugin_path.empty() ||
+            fx.class_id.empty() || fx.id.value.empty())
+            throw std::runtime_error("Live Input v1 accepts VST3 effects only");
+        fx.validate();
+        auto entry = object();
+        put(entry, "id", juce::String::fromUTF8(fx.id.value.c_str()));
+        put(entry, "path", juce::String::fromUTF8(fx.plugin_path.c_str()));
+        put(entry, "classId", juce::String::fromUTF8(fx.class_id.c_str()));
+        put(entry, "name", juce::String::fromUTF8(fx.plugin_name.c_str()));
+        put(entry, "bypass", fx.bypass);
+        put(entry, "component", liveInputB64(fx.component_state));
+        put(entry, "controller", liveInputB64(fx.controller_state));
+        juce::Array<juce::var> parameters;
+        for (const auto& parameter : fx.parameters) {
+            auto p = object();
+            put(p, "id", static_cast<juce::int64>(parameter.id));
+            put(p, "value", parameter.value);
+            parameters.add(p);
+        }
+        put(entry, "parameters", parameters);
+        plugins.add(entry);
+    }
+    put(profile, "inserts", plugins);
+    return profile;
+}
+struct LiveInputLoaded {
+    int input{-1};
+    juce::String name;
+    bool stereo{};
+    std::vector<int> outputs;
+    mrs::Track::Mix mix;
+    std::vector<mrs::NativeInsert> inserts;
+};
+inline LiveInputLoaded decodeLiveInputProfile(const juce::var& state) {
+    if (!state.isObject() || !state["version"].isInt() || static_cast<int>(state["version"]) != 1 ||
+        !state["input"].isInt() || !named(state["inputName"], 256) ||
+        !state["stereo"].isBool() || !state["mix"].isObject() ||
+        !state["outputs"].isArray() || state["outputs"].size() > 2 ||
+        !state["inserts"].isArray() || state["inserts"].size() > 8)
+        throw std::runtime_error("Invalid saved Live Input profile");
+    LiveInputLoaded result;
+    result.input=static_cast<int>(state["input"]);
+    if(result.input<0 || result.input>=64) throw std::runtime_error("Invalid Live Input index");
+    result.name=state["inputName"].toString();
+    result.stereo=static_cast<bool>(state["stereo"]);
+    auto mix=state["mix"];
+    if (!number(mix["gain"]) || !number(mix["pan"]) ||
+        !mix["mute"].isBool() || !mix["solo"].isBool())
+        throw std::runtime_error("Invalid Live Input mix");
+    result.mix.gain=static_cast<float>(static_cast<double>(mix["gain"]));
+    result.mix.pan=static_cast<float>(static_cast<double>(mix["pan"]));
+    result.mix.mute=static_cast<bool>(mix["mute"]);
+    result.mix.solo=static_cast<bool>(mix["solo"]);
+    result.mix.validate();
+    std::set<int> uniqueOutputs;
+    for(const auto& value : *state["outputs"].getArray()) {
+        if(!value.isInt() || static_cast<int>(value)<0 || static_cast<int>(value)>=64 ||
+           !uniqueOutputs.insert(static_cast<int>(value)).second)
+            throw std::runtime_error("Invalid Live Input output routing");
+        result.outputs.push_back(static_cast<int>(value));
+    }
+    std::set<std::string> uniqueIds;
+    for(const auto& value : *state["inserts"].getArray()) {
+        if (!value.isObject() || !named(value["id"], 128) || !named(value["path"], 4096) ||
+            !named(value["classId"], 256) || !value["name"].isString() ||
+            !value["bypass"].isBool() || !value["parameters"].isArray() ||
+            value["parameters"].size()>2048)
+            throw std::runtime_error("Invalid Live Input VST3 descriptor");
+        mrs::NativeInsert fx;
+        fx.id=mrs::Id{value["id"].toString().toStdString()};
+        if(!uniqueIds.insert(fx.id.value).second)
+            throw std::runtime_error("Duplicate Live Input VST3 insert");
+        fx.kind=mrs::InsertKind::vst3;
+        fx.plugin_path=value["path"].toString().toStdString();
+        fx.class_id=value["classId"].toString().toStdString();
+        fx.plugin_name=value["name"].toString().toStdString();
+        fx.bypass=static_cast<bool>(value["bypass"]);
+        fx.component_state=liveInputBytes(value["component"]);
+        fx.controller_state=liveInputBytes(value["controller"]);
+        for(const auto& parameter : *value["parameters"].getArray()) {
+            if(!parameter.isObject() || !number(parameter["id"]) || !number(parameter["value"]))
+                throw std::runtime_error("Invalid Live Input plugin parameter");
+            const auto id=static_cast<double>(parameter["id"]);
+            const auto level=static_cast<double>(parameter["value"]);
+            if(!std::isfinite(id) || id<0 || id>4294967295. || std::floor(id)!=id ||
+               !std::isfinite(level) || level<0 || level>1)
+                throw std::runtime_error("Invalid Live Input plugin parameter range");
+            fx.parameters.push_back({static_cast<std::uint32_t>(id),static_cast<float>(level)});
+        }
+        fx.validate();
+        result.inserts.push_back(std::move(fx));
+    }
+    return result;
+}
+inline void validateLiveInputProfiles(const juce::var& state) {
+    if(const auto* channels=state["channels"].getArray())
+        for(const auto& channel:*channels) {
+            const auto profile=channel["liveInput"];
+            if(!profile.isVoid()) {
+                if(channel["type"].toString()=="Playback")
+                    throw std::runtime_error("Playback is not a Live Input");
+                (void)decodeLiveInputProfile(profile);
+            }
+        }
+}
+} // namespace ui::live
