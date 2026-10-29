@@ -131,7 +131,9 @@ public:
     struct PlaybackStem { Track::Mix mix; std::vector<int> outputs; double begin{}, end{-1}; std::optional<std::vector<PlaybackRegion>> regions{}; };
     struct PlaybackLayout { TimeMap time; std::vector<Chord> chords; std::vector<ArrangerSection> sections;
         std::vector<PlaybackStem> stems; audio::ClickSettings click;
-        std::optional<PerformancePlan> performance{}; std::uint64_t token{}; bool extend_to_audio{}; };
+        std::optional<PerformancePlan> performance{}; std::uint64_t token{}; bool extend_to_audio{};
+        // #300: control-thread-only live audio anchor, never shared between concurrent staging graphs.
+        std::optional<Id> live_track{}; };
     std::shared_ptr<PlaybackPreparation> prepare_playback(const std::vector<std::filesystem::path>&);
     WavImportStatus playback_preparation(const std::shared_ptr<PlaybackPreparation>&);
     void cancel_playback(const std::shared_ptr<PlaybackPreparation>&);
@@ -433,7 +435,8 @@ private:
     Id playback_source_project_;
     std::vector<Clip> playback_sources_;
     void install_playback(Project,std::map<std::string,std::shared_ptr<const audio::AudioData>>,
-                          std::shared_ptr<PreparedWavImport>,audio::ClickSettings,std::optional<PerformancePlan>,std::uint64_t,bool staged=false);
+                          std::shared_ptr<PreparedWavImport>,audio::ClickSettings,std::optional<PerformancePlan>,
+                          std::uint64_t,bool staged=false,std::optional<Id> live_track={});
     void activate_playback_impl(const std::shared_ptr<PlaybackPreparation>&,const PlaybackLayout&,bool);
     void poll_staged_playback();
     std::optional<PerformancePlan> performance_plan_;
