@@ -5,6 +5,12 @@
 #include <mrs/diagnostics.hpp>
 #include <mrs/version.hpp>
 
+// MR Live uses the shared Core/VST3 host but never exposes the Studio ARA2 host.
+// Catch accidental PUBLIC compile-definition leakage at build time.
+#ifdef MRS_HAS_ARA
+#error "MR Live must not inherit the Studio-only ARA2 host"
+#endif
+
 namespace {
 bool applyRequest(ui::Desktop &desktop, const juce::String &args) {
     const auto tokens = juce::StringArray::fromTokens(args, true);
