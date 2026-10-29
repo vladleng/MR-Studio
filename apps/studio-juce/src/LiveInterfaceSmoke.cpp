@@ -650,6 +650,18 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         try{inputPilot.setLiveInputEffects(showChannel,{unknown});}catch(const std::exception&){refused=true;}
         liveCheck(refused && live::canonical(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"])==fxBeforeRejected,
                   "Unknown class ID cannot be treated as audio FX without scanner metadata");
+        // The FX editor may be requested while the show holds an inert plugin
+        // descriptor. A stale slot or missing vendor module must not activate
+        // monitoring, mutate the show, or leave a partial Core track.
+        refused=false;
+        try{inputPilot.openLiveInsertEditor(showChannel,unknown.id);}catch(const std::exception&){refused=true;}
+        liveCheck(refused && !inputPilot.liveInputTrack(showChannel),
+                  "Stale Live plugin menu action cannot activate a channel");
+        refused=false;
+        try{inputPilot.openLiveInsertEditor(showChannel,fx.id);}catch(const std::exception&){refused=true;}
+        liveCheck(refused && !inputPilot.liveInputTrack(showChannel) &&
+                  live::canonical(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"])==fxBeforeRejected,
+                  "Unavailable VST3 editor request preserves inactive channel and saved plugin descriptor");
         inputPilot.releaseLiveInput();
     }
     Desktop desktop(true, true);
