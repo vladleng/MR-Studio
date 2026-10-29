@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MoonRiverStudio VERSION 0.8.8 LANGUAGES C CXX)
+project(MoonRiverStudio VERSION 0.8.9 LANGUAGES C CXX)
 include(CTest)
 if(MSVC)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
