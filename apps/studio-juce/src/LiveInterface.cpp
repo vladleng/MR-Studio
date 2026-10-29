@@ -867,6 +867,24 @@ void Desktop::activateLiveChannel(const juce::String& requested) {
     app.update_live_channels(trackIds,std::move(tracks));liveChannelTracks=std::move(channelTracks);
     liveAutoToken=0;liveAutoKey.clear();++liveUiRevision;
 }
+void Desktop::openLiveInsertEditor(const juce::String& requested,const mrs::Id& slot) {
+    const auto channel=inputChannel(*this,requested);
+    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
+    const auto profile=live::decodeLiveInputProfile(row["liveInput"]);
+    validateLiveRole(row,profile);
+    const auto at=std::find_if(profile.inserts.begin(),profile.inserts.end(),
+        [&](const auto& fx){return fx.id==slot;});
+    if(at==profile.inserts.end())throw std::runtime_error("Channel plugin changed; reopen the FX menu");
+    if(at->kind!=mrs::InsertKind::vst3)throw std::runtime_error("Choose a VST3 plugin editor");
+
+    // Saved show descriptors are deliberately inert until the user explicitly
+    // requests a processor. Opening an editor is such a request; it must NOT
+    // implicitly enable audio/MIDI monitoring or start the transport.
+    if(!liveInputTrack(channel))activateLiveChannel(channel);
+    const auto track=liveInputTrack(channel);
+    if(!track)throw std::runtime_error("Cannot activate the channel plugin editor");
+    openInsert(*track,slot);
+}
 void Desktop::setLiveInputMonitor(const juce::String& requested,bool enabled) {
     const auto channel=inputChannel(*this,requested);
     if(enabled)activateLiveChannel(channel);
