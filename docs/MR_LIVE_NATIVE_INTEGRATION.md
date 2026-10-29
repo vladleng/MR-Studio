@@ -1,5 +1,13 @@
 # MR Live — передача принятого интерфейса в MR Studio
 
+## Текущий срез #32b1 / #298 — show-owned Live Input profiles (2026-10-29)
+
+Пользователь принял одноканальный Live Input/VST3 pilot (#297). В самостоятельном `.mrlive` теперь предусмотрено необязательное `channels[].liveInput` (version 1): физический input index + точная метка разъёма, mono/stereo, routing, Core Track::Mix, список VST3 (class ID/path/name, bypass, параметры, component/controller state). Данные ограничены по размеру и валидируются на чтении; старые show без профилей продолжают открываться. Live profile — состояние шоу, а не ссылка на `.mrsproject` и не самостоятельный Engine.
+
+Действия `Options → Live Input (pilot)`: выбрать show-канал Instrument/Player/Audio, включить один временный hardware monitor, добавить VST3 через общий host, `Save to Show`, сохранить сам `.mrlive`. Для восстановления: открыть show, подключить ASIO с прежним физическим именем input, выбрать show-канал и нажать `Load from Show`. Загруженный Core track **начинает с Monitor OFF**: явное `Enable Monitor` обязательно. Никакого автооткрытия VST3/ASIO или автозвука при запуске show. Отсутствие плагина или смена input-label должны выдавать ошибку без подмены сохранённого профиля. Пилотный проект/track transient; сохранение `.mrlive` не должно создавать Studio song. Поддержан один активный input, текущий item без WAV/stems; переключение items и подготовка WAV-only graph блокируются, пока пилот активен.
+
+Это **первый контракт сохранения и исходники**, а не завершённая совместная работа Live Input и Playback. Разделение persistent Live DSP lifetime и сменяемого WAV Playback graph — #299. Перенос параметров при смене патчей — #289, запись — #284, physical ASIO/vendor plugin/128 frames — отдельная Windows приёмка. Актуальные PASS/FAIL/NOT TESTED см. #298; не считать source commits тестом без Windows build.
+
 Актуальная сверка native реализации и задач на 2026-10-27: [матрица покрытия](MR_LIVE_INTERFACE_AUDIT.md). MR Live.exe запускается напрямую; Home Studio — дополнительный вход. Исторический статус браузерной передачи ниже не означает отсутствие уже принятого native runtime.
 
 Уточнение пользователя: **Playback / stems** содержит общий Playback level выбранного item и индивидуальные уровни его stems. **Mixer** содержит постоянный общий фейдер каждого канала на всё show, неизменный при смене item/patch. Требуемый item Playback group gain (#292) отличается от существующего show-wide `nativeLiveAudio.gain`; это целевой контракт, а не уже завершённый binding. Mixer — #279, folds — #280.
