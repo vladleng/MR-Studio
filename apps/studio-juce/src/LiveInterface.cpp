@@ -714,8 +714,9 @@ void Desktop::loadLiveInputProfile(const juce::String& showChannel) {
         throw std::runtime_error("Saved ASIO device changed; choose the original audio device");
     const auto inputs=app.input_names();
     if(static_cast<std::size_t>(profile.input)>=inputs.size() ||
+       (profile.stereo && static_cast<std::size_t>(profile.input+1)>=inputs.size()) ||
        juce::String::fromUTF8(inputs[static_cast<std::size_t>(profile.input)].c_str())!=profile.name)
-        throw std::runtime_error("Saved physical input name/index changed: inspect Audio settings");
+        throw std::runtime_error("Saved mono/stereo physical input mapping changed: inspect Audio settings");
     const auto item=liveDocument->interfaceState["currentItem"].toString();
     if(!live::find(liveDocument->interfaceState,"items",item).isObject() ||
        !live::playbackRows(liveDocument->interfaceState,item).empty())
