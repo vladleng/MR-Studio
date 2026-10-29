@@ -95,7 +95,12 @@ inline bool sameShowValue(const juce::var& left,const juce::var& right) {
             if(!sameShowValue(a->getReference(i),b->getReference(i)))return false;
         return true;
     }
-    return left.equalsWithSameType(right);
+    // JUCE var::clone() may normalize the storage type of a scalar while
+    // preserving its JSON value. Strict equalsWithSameType can then mark a
+    // newly cloned clean show dirty and prevent Undo from returning to clean.
+    // Use var value equality for leaves, retaining recursive exact property
+    // and array comparisons above (including opaque VST3 Base64 strings).
+    return left==right;
 }
 
 inline juce::var performance(const juce::var &state) { return state["performance"]; }
