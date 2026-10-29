@@ -168,14 +168,23 @@ void Desktop::openFile(const juce::File& f){if(!standaloneLive&&!testing&&f.hasF
     livePlaybackItem.clear();livePlaybackFile.clear();liveDocument=std::move(showState);liveFile=f;prepareLiveInterface(true);app.workspace(mrs::desktop::Workspace::live);
 }else{const bool leavingLive=liveDocument.has_value()||app.workspace()==mrs::desktop::Workspace::live;app.open_project(path(f));liveDocument.reset();liveFile=juce::File();prepareLiveInterface(false);if(leavingLive)app.workspace(mrs::desktop::Workspace::arrange);}
 resetDevice();selectedClip.reset();selectedTrack.reset();remember();refresh(true);arrangement->fit();showProjectHome(false);reconnectDevice(session);if(liveDocument&&liveDocument->active<0)liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};else liveEmptyRevision.reset();mrs::diagnostics::event("project_open_end");}
+bool Desktop::transientLiveRuntime() const{
+    if(!standaloneLive || !liveDocument || !liveDocument->projects.empty() || !liveInputPilotTrack)
+        return false;
+    const auto p=project();
+    if(p->tracks.empty() || p->tracks.back().id!=*liveInputPilotTrack || !p->master_inserts.empty())
+        return false;
+    const auto& sources=app.playback_sources();
+    if(p->tracks.size()==1 && p->clips.empty())return true; // pilot before Playback
+    if(sources.empty() || p->tracks.size()!=sources.size()+1)return false;
+    for(std::size_t i=0;i<sources.size();++i)
+        if(p->tracks[i].id!=sources[i].track)return false;
+    // The only authored state is show metadata; clips are a transient WAV
+    // projection and are persisted through source paths in .mrlive.
+    return true;
+}
 bool Desktop::songDirty() const{
-    if(standaloneLive && liveDocument && liveDocument->projects.empty() && liveInputPilotTrack) {
-        const auto runtime=project();
-        // This Core track is only the live monitor runtime. Explicit Save to
-        // Show writes its profile; it must not create a Studio project dirty flag.
-        if(runtime->tracks.size()==1 && runtime->tracks.front().id==*liveInputPilotTrack &&
-           runtime->clips.empty() && runtime->master_inserts.empty()) return false;
-    }
+    if(transientLiveRuntime()) return false;
     if(liveDocument&&liveDocument->active<0&&liveEmptyRevision&&
        liveEmptyRevision->first==app.services().projects->state().revision&&
        liveEmptyRevision->second==app.graphs()->state().revision)return false;
@@ -211,11 +220,7 @@ void Desktop::addLiveProject(const juce::File& file){
     selectedClip.reset();selectedTrack.reset();refresh(true);reconnectDevice(session);
 }
 void Desktop::saveFile(const juce::File& f){
-    const auto runtime=project();
-    const bool transientInputOnly=standaloneLive && liveDocument && liveDocument->projects.empty() &&
-        liveInputPilotTrack && runtime->tracks.size()==1 &&
-        runtime->tracks.front().id==*liveInputPilotTrack &&
-        runtime->clips.empty() && runtime->master_inserts.empty();
+    const bool transientInputOnly=transientLiveRuntime();
     // A transient Live Input track is NOT an MRS project link. Save only its
     // explicitly captured show profile; never create a Studio song on Save.
     if(standaloneLive&&songDirty()&&!transientInputOnly)
