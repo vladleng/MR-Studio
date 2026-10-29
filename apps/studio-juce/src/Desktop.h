@@ -102,9 +102,9 @@ public:
     void setLiveItemPlaybackGain(double);
     void setLiveChannelMix(const juce::String&, double, double, bool, bool);
     void previewLiveChannelMix(const juce::String&, double, double, bool, bool);
-    // #297: single-input non-persistent pilot through the existing Core/ASIO/VST3 host.
-    // No Live item/section handoff while a pilot monitor or insert is active.
-    void startLiveInputPilot(int physicalInput, const juce::String& showChannel = {});
+    // #302 A1: control a selected show channel using the shared Core/ASIO/VST3 host.
+    // A single monitored runtime track remains the current limit until multi-channel graph work.
+    void startLiveInputPilot(int physicalInput, const juce::String& showChannel = {}, bool stereo = false);
     void stopLiveInputPilot();
     void saveLiveInputProfile(const juce::String& showChannel);
     void loadLiveInputProfile(const juce::String& showChannel);
