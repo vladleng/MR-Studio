@@ -614,25 +614,29 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   "Redo re-applies the explicit Player conversion");
         // Metadata is keyed by plugin class ID, not display name or the VST3 module extension.
         mrs::NativeInsert fx;fx.id=mrs::new_id();fx.kind=mrs::InsertKind::vst3;
-        fx.plugin_path="synthetic-shared.vst3";fx.class_id="synthetic-effect";
+        fx.plugin_path="synthetic-shared.vst3";fx.class_id="0123456789abcdef0123456789abcdef";
         fx.plugin_name="Same Name";
-        auto vsti=fx;vsti.id=mrs::new_id();vsti.class_id="synthetic-instrument";
+        auto vsti=fx;vsti.id=mrs::new_id();vsti.class_id="fedcba9876543210fedcba9876543210";
+        // Use legitimate 32-hex VST3 class IDs: invalid IDs fail NativeInsert::validate
+        // before the metadata-based FX/VSTi assignment guards are exercised.
+        fx.validate();
+        vsti.validate();
         inputPilot.catalog.push_back({fx.plugin_path,fx.class_id,fx.plugin_name,"Synthetic Vendor","1",false});
         inputPilot.catalog.push_back({vsti.plugin_path,vsti.class_id,vsti.plugin_name,"Synthetic Vendor","1",true});
         std::vector<mrs::processing::VstPlugin> mixedCatalog{
-            {"z.vst3","class-z","ZZZ","Zed","1",false},
-            {"a.vst3","class-b","Equal","Acme","1",false},
-            {"b.vst3","class-a","Equal","acme","1",false},
-            {"i.vst3","instrument-id","Equal","Acme","1",true},
-            {"unknown.vst3","unknown-id","Unknown","Acme","1",std::nullopt}};
+            {"z.vst3","0000000000000000000000000000000a","ZZZ","Zed","1",false},
+            {"a.vst3","00000000000000000000000000000002","Equal","Acme","1",false},
+            {"b.vst3","00000000000000000000000000000001","Equal","acme","1",false},
+            {"i.vst3","00000000000000000000000000000003","Equal","Acme","1",true},
+            {"unknown.vst3","00000000000000000000000000000004","Unknown","Acme","1",std::nullopt}};
         const auto sortedFx=live::sortedPluginClasses(mixedCatalog,false);
         const auto sortedVsti=live::sortedPluginClasses(mixedCatalog,true);
         liveCheck(sortedFx==std::vector<std::size_t>{2,1,0} &&
                   sortedVsti==std::vector<std::size_t>{3} &&
-                  live::findPluginClass(mixedCatalog,"b.vst3","class-a")==&mixedCatalog[2],
+                  live::findPluginClass(mixedCatalog,"b.vst3","00000000000000000000000000000001")==&mixedCatalog[2],
                   "Vendor/name case-insensitive sorting preserves exact class ID across mixed VSTi/FX names");
-        liveCheck(live::findPluginClass(mixedCatalog,"unknown.vst3","unknown-id") &&
-                  !live::findPluginClass(mixedCatalog,"unknown.vst3","unknown-id")->instrument.has_value(),
+        liveCheck(live::findPluginClass(mixedCatalog,"unknown.vst3","00000000000000000000000000000004") &&
+                  !live::findPluginClass(mixedCatalog,"unknown.vst3","00000000000000000000000000000004")->instrument.has_value(),
                   "Unknown plugin class stays distinct from a confirmed audio effect");
         inputPilot.setLiveInputEffects(showChannel,{fx});
         const auto fxBeforeRejected=live::canonical(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"]);
@@ -640,7 +644,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         try{inputPilot.setLiveInputEffects(showChannel,{vsti});}catch(const std::exception&){refused=true;}
         liveCheck(refused && live::canonical(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"])==fxBeforeRejected,
                   "Player rejects VSTi with the same display name and does not change show/Undo");
-        auto unknown=fx;unknown.id=mrs::new_id();unknown.class_id="unknown-class";
+        auto unknown=fx;unknown.id=mrs::new_id();unknown.class_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        unknown.validate(); // syntactically valid class, but absent from scanner catalog
         refused=false;
         try{inputPilot.setLiveInputEffects(showChannel,{unknown});}catch(const std::exception&){refused=true;}
         liveCheck(refused && live::canonical(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"])==fxBeforeRejected,
