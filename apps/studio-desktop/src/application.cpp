@@ -965,6 +965,10 @@ void Application::install_playback(Project candidate,
     std::uint64_t token,bool staged,std::optional<Id> live_track) {
     require(workspace_==Workspace::live&&path_.empty(),"Playback handoff requires a Live runtime");
     require_not_recording();
+    if(live_track)
+        require(device_ && device_config_ && audio_name_!="Offline clock (no sound)" &&
+                audio_name_!="Disconnected" && audio_running(),
+                "Live Input + Playback requires a connected physical device; offline handoff is disabled");
     if(!device_||!device_config_){
         // Editing/preparing a show remains available after explicit Disconnect.
         // Reuse the normal Core offline clock; never reopen a live hardware handle here.
@@ -984,6 +988,12 @@ void Application::install_playback(Project candidate,
         require(anchor!=previous->tracks.end() && anchor->kind==TrackKind::audio &&
                 anchor->input_monitor && anchor->input>=0,
                 "Live Input anchor must be an enabled physical audio monitor");
+        require(std::find(device_config_->inputs.begin(),device_config_->inputs.end(),anchor->input)
+                    !=device_config_->inputs.end() &&
+                (!anchor->input_stereo ||
+                 std::find(device_config_->inputs.begin(),device_config_->inputs.end(),anchor->input+1)
+                    !=device_config_->inputs.end()),
+                "Physical Live Input is no longer assigned to active ASIO input streams");
         require(std::none_of(candidate.tracks.begin(),candidate.tracks.end(),
                 [&](const Track& track){return track.id==*live_track;}),
                 "Live Input anchor collides with Playback track");
