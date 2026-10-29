@@ -462,6 +462,22 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   roundtripState.inserts[0].component_state==largeVst3.component_state &&
                   roundtripState.inserts[0].class_id==largeVst3.class_id,
                   "VST3 state greater than 256 KiB survives whole-show save/reopen");
+        // Regression for UI starvation with large VSTi state: Playback's
+        // 30 Hz mix key depends on scalar mixer values, not binary VST3 blobs.
+        const auto selectedItem=largeLoaded.interfaceState["currentItem"].toString();
+        const auto baselineMixKey=live::playbackMixKey(largeLoaded.interfaceState,selectedItem);
+        auto modifiedShow=largeLoaded.interfaceState.clone();
+        {
+            auto channel=live::require(modifiedShow,"channels",channelId);
+            auto profile=channel["liveInput"];
+            auto insert=profile["inserts"][0];
+            live::put(insert,"component",juce::String("AA=="));
+        }
+        liveCheck(live::playbackMixKey(modifiedShow,selectedItem)==baselineMixKey,
+                  "Large VST3 binary state is excluded from the Playback polling mix key");
+        live::put(live::require(modifiedShow,"channels",channelId),"gain",-5.);
+        liveCheck(live::playbackMixKey(modifiedShow,selectedItem)!=baselineMixKey,
+                  "Playback mix key still tracks channel scalar gain");
         largeFile.deleteFile();
         bool oversizedStateRejected=false;
         try{(void)live::liveInputB64(std::vector<std::byte>(live::maximumLiveVst3StateBytes+1u));}
