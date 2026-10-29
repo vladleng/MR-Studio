@@ -82,7 +82,7 @@ public:
                                     static_cast<int>(outputRoutes.size()));
             }
         outputRoute.setSelectedId(1,juce::dontSendNotification);
-        if (owner.liveInputPilotTrack && owner.liveInputPilotChannel == selectedShowChannel())
+        if (owner.liveInputPilotTrack && owner.liveInputPilotChannel == selectedShowChannel()) {
             for(const auto& track:owner.project()->tracks)
                 if(track.id==*owner.liveInputPilotTrack) {
                     physicalInput.setSelectedId(track.input+1,juce::dontSendNotification);
@@ -92,7 +92,7 @@ public:
                             outputRoute.setSelectedId(static_cast<int>(i+1),juce::dontSendNotification);
                     break;
                 }
-        else if(owner.liveDocument) {
+        } else if(owner.liveDocument) {
             const auto saved=live::find(owner.liveDocument->interfaceState,"channels",selectedShowChannel())["liveInput"];
             if(saved.isObject()) {
                 const auto profile=live::decodeLiveInputProfile(saved);
