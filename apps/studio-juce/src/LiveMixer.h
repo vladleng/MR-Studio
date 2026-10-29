@@ -81,8 +81,19 @@ class LiveMixer final : public juce::Component {
             const auto kind=channel["type"].toString();
             inputFx.setEnabled(kind!="Playback");
             const bool activeInput=owner.liveInputPilotTrack && owner.liveInputPilotChannel==id;
-            inputFx.setButtonText(activeInput ? "Input ON / FX"
-                : channel["liveInput"].isObject() ? "Saved Input / FX" : "Input / FX");
+            bool monitoring=false;
+            if(activeInput)
+                for(const auto& track:owner.project()->tracks)
+                    if(track.id==*owner.liveInputPilotTrack) { monitoring=track.input_monitor;break; }
+            const auto profile=channel["liveInput"];
+            inputFx.setButtonText(activeInput ? (monitoring ? "Monitor ON / FX" : "Monitor OFF / FX")
+                : profile.isObject()
+                    ? "In " + juce::String(static_cast<int>(profile["input"])+1) +
+                      (static_cast<bool>(profile["stereo"]) ? " ST / FX" : " / FX")
+                    : "Input / FX");
+            inputFx.setTooltip(profile.isObject()
+                ? "ASIO " + profile["deviceName"].toString() + " / " + profile["inputName"].toString()
+                : "Assign ASIO input, monitoring, VST3 FX and hardware output to this show channel");
             if (!gain.gesturing() && !gain.hasKeyboardFocus(true)) gain.setValue(static_cast<double>(channel["gain"]));
             if (!pan.isMouseButtonDown() && !pan.hasKeyboardFocus(true)) pan.setValue(live::channelPan(channel), juce::dontSendNotification);
             mute.setToggleState(static_cast<bool>(channel["mute"]), juce::dontSendNotification);
