@@ -451,6 +451,16 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(midiLoaded.instrument && midiLoaded.midiInput=="saved-midi-port" && midiLoaded.midiChannel==15 &&
                   midiProfile["midiMonitor"].isVoid() && midiProfile["monitor"].isVoid(),
                   "MIDI descriptor preserves port/channel without authorizing automatic monitoring or plugin load");
+        // Saved .mrlive MIDI descriptors use -1, whereas the shared Core
+        // Project::validate requires -2 for every non-audio track. Verify the
+        // projection in both directions without changing the show schema.
+        auto coreSynth=synth;
+        coreSynth.input=live::liveCoreTrackInput(midiLoaded);
+        const auto coreCaptured=live::liveInputProfile(coreSynth,"MIDI keyboard","Test ASIO device",{});
+        liveCheck(midiLoaded.input==-1 && coreSynth.input==-2 &&
+                  static_cast<int>(coreCaptured["input"])==-1 &&
+                  live::decodeLiveInputProfile(coreCaptured).input==-1,
+                  "MIDI channel maps saved input -1 to Core input -2 and back on capture");
         auto invalidMidi=midiProfile.clone();live::put(invalidMidi,"midiChannel",16);rejected=false;
         try{(void)live::decodeLiveInputProfile(invalidMidi);}catch(const std::exception&){rejected=true;}
         liveCheck(rejected,"Out-of-range saved MIDI channel rejects before activation");
@@ -478,6 +488,17 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     {
         Desktop inputPilot(true,false,true);
         inputPilot.importLiveShow(fixture);
+        // Regression for 0.8.9 crash log: Core rejects input=-1 on Instrument
+        // even though it is the intentionally persisted MIDI descriptor value.
+        auto midiCandidate=*inputPilot.project();
+        mrs::Track candidateInstrument{mrs::new_id(),"MIDI core input regression",mrs::TrackKind::instrument,{}};
+        candidateInstrument.input=live::liveCoreTrackInput(live::LiveInputLoaded{true});
+        midiCandidate.tracks.push_back(candidateInstrument);
+        midiCandidate.validate();
+        midiCandidate.tracks.back().input=-1;
+        bool invalidMidiCore=false;
+        try{midiCandidate.validate();}catch(const std::exception&){invalidMidiCore=true;}
+        liveCheck(invalidMidiCore,"Core refuses the saved MIDI -1 sentinel; Live projection must use -2");
         const auto engine=inputPilot.app.engine();
         const auto showChannel=inputPilot.liveDocument->interfaceState["channels"][1]["id"].toString();
         liveCheck(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["type"].toString()=="Player",
