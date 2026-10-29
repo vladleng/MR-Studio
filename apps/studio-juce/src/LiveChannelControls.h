@@ -111,11 +111,7 @@ private:
                 midi.addItem(1000,"MIDI off / VSTi");
                 for(std::size_t i=0;i<ports.size();++i)midi.addItem(1001+static_cast<int>(i),juce::String::fromUTF8(ports[i].name.c_str()));
                 menu.addSubMenu("MIDI input",midi);
-                if(instrument()) {
-                    juce::PopupMenu channels;channels.addItem(2000,"Omni",true,static_cast<int>(saved["midiChannel"])==-1);
-                    for(int i=0;i<16;++i)channels.addItem(2001+i,"Channel "+juce::String(i+1),true,static_cast<int>(saved["midiChannel"])==i);
-                    menu.addSubMenu("MIDI channel",channels);
-                }
+
             }
         } else {
             for(std::size_t i=0;i<inputs.size();++i) {
@@ -142,14 +138,19 @@ private:
                     safe->owner.convertLegacyLiveInstrument(safe->id);
                 } else if(action>=100 && action<1000)safe->audio((action-100)/2,(action-100)%2!=0,outputs);
                 else if(action>=1000 && action<2000) {
-                    const int i=action-1001;safe->owner.configureLiveMidi(safe->id,i<0?juce::String{}:juce::String::fromUTF8(ports.at(static_cast<std::size_t>(i)).id.c_str()),-1,outputs);
-                } else if(action>=2000 && action<=2016) {
-                    const auto p=live::decodeLiveInputProfile(saved);safe->owner.configureLiveMidi(safe->id,p.midiInput,action-2001,outputs);
+                    const int i=action-1001;
+                    const int midiChannel=saved.isObject()?live::decodeLiveInputProfile(saved).midiChannel:-1;
+                    safe->owner.configureLiveMidi(safe->id,i<0?juce::String{}:juce::String::fromUTF8(ports.at(static_cast<std::size_t>(i)).id.c_str()),midiChannel,outputs);
                 } else if(action==3000)safe->owner.editLiveInterface("Clear channel input",[&](auto& state){live::require(state,"channels",safe->id).getDynamicObject()->removeProperty("liveInput");},false,true);
             });if(safe)safe->sync();
         });
     }
     void outputMenu() {
+        const auto row=live::find(owner.liveDocument->interfaceState,"channels",id);
+        if(surface==Surface::timeline && row["type"].toString()=="Instrument" && instrument()) {
+            midiChannelMenu();
+            return;
+        }
         if(!profile().isObject())return;
         juce::PopupMenu menu;menu.setLookAndFeel(&owner.theme);menu.addItem(1,"Master");
         std::vector<std::vector<int>> routes{{}};const auto outputs=owner.app.active_outputs();const auto names=owner.app.output_names();
@@ -164,6 +165,27 @@ private:
                 throw std::runtime_error("Audio device changed; reopen output menu");
             safe->route(routes[static_cast<std::size_t>(action-1)]);safe->sync();
         });});
+    }
+    void midiChannelMenu() {
+        const auto saved=profile();
+        if(!saved.isObject() || !instrument())return;
+        const auto current=live::decodeLiveInputProfile(saved);
+        juce::PopupMenu channels;channels.setLookAndFeel(&owner.theme);
+        channels.addItem(2000,"Omni",true,current.midiChannel==-1);
+        for(int i=0;i<16;++i)
+            channels.addItem(2001+i,"MIDI Channel "+juce::String(i+1),true,current.midiChannel==i);
+        const auto generation=owner.liveDocumentGeneration,signature=live::canonical(saved);
+        juce::Component::SafePointer<LiveChannelControls> safe(this);
+        channels.showMenuAsync(liveMenuOptions(output),[safe,generation,signature](int action) {
+            if(!safe || action<2000 || action>2016)return;
+            safe->owner.run([&]{
+                if(safe->owner.liveDocumentGeneration!=generation || live::canonical(safe->profile())!=signature)
+                    throw std::runtime_error("Channel changed while MIDI menu was open; reopen it");
+                const auto updated=live::decodeLiveInputProfile(safe->profile());
+                safe->owner.configureLiveMidi(safe->id,updated.midiInput,action-2001,updated.outputs);
+                safe->sync();
+            });
+        });
     }
     void effectsMenu() {
         if(!profile().isObject())throw std::runtime_error("Choose the channel input first");
