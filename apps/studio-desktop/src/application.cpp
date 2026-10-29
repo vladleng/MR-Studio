@@ -961,7 +961,8 @@ void Application::set_send_bypassed(const Id& id,std::size_t index,bool bypass) 
 // graph owns its immutable assets; only stop/quiesce/prepare/start touches the device.
 void Application::install_playback(Project candidate,
     std::map<std::string,std::shared_ptr<const audio::AudioData>> decoded,
-    std::shared_ptr<PreparedWavImport> media,audio::ClickSettings click,std::optional<PerformancePlan> performance,std::uint64_t token,bool staged) {
+    std::shared_ptr<PreparedWavImport> media,audio::ClickSettings click,std::optional<PerformancePlan> performance,
+    std::uint64_t token,bool staged,std::optional<Id> live_track) {
     require(workspace_==Workspace::live&&path_.empty(),"Playback handoff requires a Live runtime");
     require_not_recording();
     if(!device_||!device_config_){
@@ -972,10 +973,28 @@ void Application::install_playback(Project candidate,
         click_settings_=savedClick;
     }
     const auto previous=services_.projects->state().project;
+    const bool keepLive=live_track.has_value();
+    if(keepLive) {
+        // Manual quiescent-only bridge. The insert graph is borrowed by the new
+        // project only after the device and ahead workers have stopped.
+        require(!staged && engine_->state().playback!=PlaybackState::playing,
+                "Stop Playback before switching items with Live Input; seamless staging awaits #301");
+        const auto anchor=std::find_if(previous->tracks.begin(),previous->tracks.end(),
+            [&](const Track& track){return track.id==*live_track;});
+        require(anchor!=previous->tracks.end() && anchor->kind==TrackKind::audio &&
+                anchor->input_monitor && anchor->input>=0,
+                "Live Input anchor must be an enabled physical audio monitor");
+        require(std::none_of(candidate.tracks.begin(),candidate.tracks.end(),
+                [&](const Track& track){return track.id==*live_track;}),
+                "Live Input anchor collides with Playback track");
+        candidate.tracks.push_back(*anchor); // stable VST3 IDs and hardware/input routing
+    }
     require(previous->master_inserts.empty()&&previous->ara_bindings.empty()&&
-        std::all_of(previous->tracks.begin(),previous->tracks.end(),[](const auto& track){
-            return track.kind==TrackKind::audio&&track.inserts.empty()&&!track.input_monitor;
-        }),"Prepared Playback handoff does not replace live instruments/plugins");
+        std::all_of(previous->tracks.begin(),previous->tracks.end(),[&](const auto& track){
+            return track.kind==TrackKind::audio &&
+                (keepLive && track.id==*live_track ? track.input_monitor :
+                 track.inserts.empty()&&!track.input_monitor);
+        }),"Prepared Playback handoff does not replace unrelated live instruments/plugins");
     require(std::all_of(graphs_->state().graph->nodes.begin(),graphs_->state().graph->nodes.end(),[](const auto& node){return node.format==processing::ProcessorFormat::native;}),"Prepared Playback handoff does not replace hosted graph plugins");
     candidate.validate();click.validate();const auto config=*device_config_;
     require(candidate.sample_rate==config.sample_rate,"Prepared Playback rate no longer matches the device");
@@ -994,10 +1013,25 @@ void Application::install_playback(Project candidate,
     std::optional<audio::RenderGraph> rollbackGraph;
     bool stopped=false,published=false;
     try {
+        // The default WAV-only fast path remains unchanged. With a live anchor
+        // this stop/quiesce MUST precede reusing the mutable PreparedGraph.
+        if(keepLive) {
+            device_->stop();stopped=true;engine_->quiesce();
+            head=engine_->state();rollbackGraph=engine_->stopped_graph();
+            const auto retained=oldInserts.find(live_track->value);
+            const auto master=oldInserts.find(std::string{});
+            require(retained!=oldInserts.end()&&master!=oldInserts.end(),
+                    "Prepared Live Input insert runtime is missing");
+            insert_runtime_.emplace(live_track->value,retained->second);
+            insert_runtime_.emplace(std::string{},master->second);
+            // WAV stems have no inserts: they still reserve ordered Core slots.
+            for(const auto& track:candidate.tracks)
+                if(track.id!=*live_track)insert_runtime_.emplace(track.id.value,InsertRuntime{});
+        }
         for(auto& [source,data]:decoded)cache_asset(source,std::move(data));
         import_staging_.push_back(std::move(media));
         click_settings_=click;preparing_project_=&candidate;
-        auto graph=render(config); // shared graph builder, WAV decode/resample already completed
+        auto graph=render(config,keepLive); // one shared graph; plugin identity retained
         preparing_project_=nullptr;
         graph.performance=performance;graph.performance_token=token;
         if(staged){
@@ -1011,7 +1045,8 @@ void Application::install_playback(Project candidate,
             assets_=std::move(oldAssets);import_staging_=std::move(oldStaging);mixer_tracks_=std::move(oldTracks);
             insert_runtime_=std::move(oldInserts);prepared_=std::move(oldPrepared);click_settings_=oldClick;applied_mix_revision_=oldApplied;return;
         }
-        device_->stop();stopped=true;engine_->quiesce();head=engine_->state();rollbackGraph=engine_->stopped_graph();
+        if(!stopped) {device_->stop();stopped=true;engine_->quiesce();
+                      head=engine_->state();rollbackGraph=engine_->stopped_graph();}
         // Scalar mixer controls may be newer than the graph's original construction.
         rollbackGraph->master_gain=previous->master_gain;
         for(std::size_t i=0;i<previous->tracks.size();++i)rollbackGraph->mixer[i]=previous->tracks[i].mix;
