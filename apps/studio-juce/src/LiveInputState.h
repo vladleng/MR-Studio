@@ -23,14 +23,15 @@ inline std::vector<std::byte> liveInputBytes(const juce::var& value) {
     return result;
 }
 inline juce::var liveInputProfile(const mrs::Track& track, const juce::String& physicalName,
-                                  const std::vector<mrs::NativeInsert>& captured) {
+                                  const juce::String& deviceName, const std::vector<mrs::NativeInsert>& captured) {
     if (track.kind != mrs::TrackKind::audio || track.input < 0 || physicalName.isEmpty() ||
-        physicalName.length() > 256 || captured.size() > 8)
+        physicalName.length() > 256 || !named(deviceName, 256) || captured.size() > 8)
         throw std::runtime_error("Invalid Live Input track/profile");
     auto profile = object();
     put(profile, "version", 1);
     put(profile, "input", track.input);
     put(profile, "inputName", physicalName);
+    put(profile, "deviceName", deviceName);
     put(profile, "stereo", track.input_stereo);
     auto mix = object();
     put(mix, "gain", track.mix.gain);
@@ -70,7 +71,7 @@ inline juce::var liveInputProfile(const mrs::Track& track, const juce::String& p
 }
 struct LiveInputLoaded {
     int input{-1};
-    juce::String name;
+    juce::String name, device;
     bool stereo{};
     std::vector<int> outputs;
     mrs::Track::Mix mix;
@@ -79,6 +80,7 @@ struct LiveInputLoaded {
 inline LiveInputLoaded decodeLiveInputProfile(const juce::var& state) {
     if (!state.isObject() || !state["version"].isInt() || static_cast<int>(state["version"]) != 1 ||
         !state["input"].isInt() || !named(state["inputName"], 256) ||
+        !named(state["deviceName"], 256) ||
         !state["stereo"].isBool() || !state["mix"].isObject() ||
         !state["outputs"].isArray() || state["outputs"].size() > 2 ||
         !state["inserts"].isArray() || state["inserts"].size() > 8)
@@ -87,6 +89,7 @@ inline LiveInputLoaded decodeLiveInputProfile(const juce::var& state) {
     result.input=static_cast<int>(state["input"]);
     if(result.input<0 || result.input>=64) throw std::runtime_error("Invalid Live Input index");
     result.name=state["inputName"].toString();
+    result.device=state["deviceName"].toString();
     result.stereo=static_cast<bool>(state["stereo"]);
     auto mix=state["mix"];
     if (!number(mix["gain"]) || !number(mix["pan"]) ||
