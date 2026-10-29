@@ -242,3 +242,16 @@ Application.prepare_playback переиспользует PreparedWavImport: т�
 После явного Disconnect редактирование/загрузка WAV остаются доступны: install_playback включает штатные Core Offline clock, если открытого устройства нет. Это не переоткрытие существующего ASIO handle; физические routes по-прежнему валидируются, недоступные выходы не downmix в Master.
 
 Runtime preload и устранение повторного импорта реализованы, но **stop/start остаётся границей ручного handoff**. Автоматический sample-boundary переход на конце item, no-dropout во время непрерывного воспроизведения, per-song end policy и физический ASIO stress этим не заявляются и остаются последующим объёмом #30/#31.
+
+
+## #302 — штатные Live Channels: исходный срез A1 (29.10.2026)
+
+**Статус: SOURCE ONLY / NOT TESTED.** Начат перенос общих механизмов MR Studio на каналы MR Live. В native Mixer у каждого show-owned non-Playback channel появился `Input / FX` с выбранным channel ID. Он открывает существующий `LiveInputPilotPanel` с полями: физический вход текущего ASIO устройства, mono/stereo pair, route Master/direct active output(s), VST3 audio FX, monitor и явный Save to Show/Load from Show. Используются `Application::set_track_input`, `set_track_monitoring`, `set_hardware_output`, `set_inserts`, `capture_insert`, существующая сериализация `channels[].liveInput`. Второй audio/backend/plugin host не добавлен, WAV-guard и #300 stopped handoff не отключены. Новый smoke проверяет control IDs/Mixer action и shared Core stereo input + outputs profile.
+
+**Текущее ограничение:** это ещё **один активный runtime audio input track**, не полноценные несколько одновременно работающих каналов. До следующего среза физический вход или stereo mode можно менять только после Disable; смена канала при активной цепочке запрещена. Stereo требует реально доступную пару ASIO входов. Переназначение hardware route/новый insert производится вне активного Playback. Сохранение профиля явно инициируется пользователем; открытие show не включает monitoring автоматически. Ни fake GUI-контролы, ни тест mock driver не доказывают hardware PASS.
+
+**Дальше в #302:**
+1. Реальная show-owned mapping `channelId → Core Track ID` для **нескольких** каналов: управление созданием/удалением, mono/stereo vendor input и сохранение с безопасным lifecycle, включая смешанный WAV/stems graph. Убрать одноканальный pilot только после проверки lifetime/rollback и аппаратной приёмки.
+2. Per-channel plugin rack, FX Browser #281, routing/meters и глобальный Mixer #279 с независимым channel mix.
+3. Раздельный VSTi/MIDI путь через shared instrument hosting и MIDI Core #18/#24: hardware/device mapping и VSTi нужно проверить, не выдавать audio FX panel за готовый инструмент.
+4. Приёмка на Windows ASIO 48 kHz / 128, vendor VST3, затем hardware MIDI (отдельно). Не запускать Windows Actions и не объявлять PASS без проверки. #289 Patch/Sub-patch зависит от принятых штатных channel bindings, #301 seamless межпесенных переходов optional.
