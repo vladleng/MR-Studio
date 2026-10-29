@@ -86,7 +86,18 @@ class LiveMixer final : public juce::Component {
                     (live::playbackChannelId(state, rows[i]) == id ||
                      (id == live::playbackContainer(state) && !static_cast<bool>(rows[i]["cue"]))))
                     meter = juce::jmax(meter, juce::jmax(owner.peaks[i].left, owner.peaks[i].right));
-            setTooltip(channel["type"].toString() == "Playback" ? "Show-wide channel mix" : "No input or processor assigned");
+            const bool liveInput=owner.liveInputPilotTrack && id==owner.liveInputPilotChannel;
+            if(liveInput) {
+                const auto p=owner.project();
+                for(std::size_t i=0;i<p->tracks.size();++i)
+                    if(p->tracks[i].id==*owner.liveInputPilotTrack && i<owner.peaks.size()) {
+                        meter=juce::jmax(owner.peaks[i].left,owner.peaks[i].right);
+                        break;
+                    }
+            }
+            setTooltip(liveInput ? "Live Input via shared Core / VST3" :
+                       channel["type"].toString() == "Playback" ? "Show-wide channel mix" :
+                       "No input or processor assigned");
             repaint();
         }
         void resized() override {
