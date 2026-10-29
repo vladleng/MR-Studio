@@ -112,6 +112,7 @@ public:
     std::uint64_t liveSavedPluginEdits{};
     void captureLiveInputs(juce::var& state);
     void reconcileLiveInputs(const juce::var& state);
+    void convertLegacyLiveInstrument(const juce::String&);
     void configureLiveInput(const juce::String&, int input, bool stereo, const std::vector<int>& outputs);
     void configureLiveMidi(const juce::String&, const juce::String& port, int channel, const std::vector<int>& outputs);
     void setLiveInputMonitor(const juce::String&, bool);
