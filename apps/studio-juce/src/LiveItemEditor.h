@@ -424,12 +424,24 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
             progress.setEnabled(false);
         } else
             progress.setEnabled(true);
+        // A TextEditor may report its new layout after a queued text change.
+        // Reconcile on the UI timer as well as in onTextChange and Undo refresh.
+        updateNotesHeight();
         repaint();
     }
     void updateNotesHeight() {
         if (notes.getWidth() <= 0) return;
-        // 20px label + wrapped TextEditor height with padding, bounded for very long notes.
-        const int needed = juce::jlimit(72, 520, notes.getTextHeight() + 36);
+        const auto text = notes.getText();
+        int explicitLines = 1;
+        for (int i = 0; i < text.length(); ++i)
+            if (text[i] == '\n') ++explicitLines;
+        // TextEditor can report the previous laid-out height during a text
+        // notification. At minimum honour explicit line breaks immediately,
+        // and use the current wrapped layout whenever it is available.
+        const int lineHeight = juce::jmax(15, juce::roundToInt(
+            notes.getFont().getHeight() * notes.getLineSpacing()));
+        const int laidOutHeight = juce::jmax(notes.getTextHeight(), explicitLines * lineHeight);
+        const int needed = juce::jlimit(72, 520, laidOutHeight + 36);
         if (notesBlockHeight == needed) return;
         notesBlockHeight = needed;
         const int desiredContentHeight = 524 + notesBlockHeight - 72;
