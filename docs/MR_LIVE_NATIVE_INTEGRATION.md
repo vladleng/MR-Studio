@@ -183,6 +183,34 @@ Tempo/meter, sections и authored chords выбранного item проеци�
 
 Browser допускает перекрытия authored spans. Core использует одну музыкальную полосу: runtime range предыдущего события заканчивается на старте следующего; при одинаковом старте остаётся последнее. Авторские границы в show/saved versions не переписываются. Это правило действует только при проекции, не является time-stretch или редакторским изменением данных.
 
+## Разделение ARA2 между MR Studio и MR Live (#303; 0.8.9)
+
+**MR Studio** остаётся ARA2 host при `MRS_BUILD_ARA=ON`; GUI Studio, ARA scanner,
+ARA editor и профильные ARA-тесты сохраняются. **MR Live** — самостоятельное приложение
+без ARA2 (без `MRS_HAS_ARA`, ARA host/library, scanner и ARA-функций интерфейса),
+но с прежними общими Core, ASIO, VST3/VSTi, MIDI, Transport и .mrlive persistence.
+Это граница *сборочной цели*, а не выключатель ARA в Studio-проекте и не второй
+AudioEngine/plugin host.
+
+При сборке Studio с ARA ON `MRLiveJuce` линкует отдельную ARA-free компиляцию
+того же `mrs_desktop` (`mrs_desktop_live`) для исключения транзитивного
+`mrs_ara`. Общие аудио/плагин библиотеки не дублируются. Если глобальный
+`MRS_BUILD_ARA=OFF`, штатный `mrs_desktop` уже ARA-free и используется напрямую.
+`LiveMain.cpp` содержит compile-time guard на случай утечки `MRS_HAS_ARA`.
+
+Только для адресного профиля `checks=live` Actions принудительно устанавливает
+ARA OFF **до подготовки SDK/CMake**: не скачивает ARA SDK, не собирает ARA
+fixture/scanner. Профиль Studio и полная интеграция сохраняют обычный ARA ON
+по умолчанию; явный ARA OFF для Studio остаётся диагностическим режимом.
+Отдельный `MR-Live-0.8.9-Windows` пакет имеет `ara=false` и не включает
+`mrs_ara_scan.exe` или notices ARA SDK, что проверяет `Verify-Package.ps1`.
+Combined Studio+Live package при ARA ON по-прежнему включает ARA scanner
+**для Studio**; находящийся рядом `MR Live.exe` не использует его.
+
+Это исходники этапа #303, не заявление о Windows build PASS или аппаратной
+приёмке. `#302` (Live channels A2) и `#281` (plugin browser) отслеживаются
+отдельно. Не путать ARA с VST3-инструментами и эффектами реального времени.
+
 ## Прямой запуск MR Live
 
 `MR Live.exe` запускается самостоятельно из каталога runtime, без запуска MR Studio и окна выбора проекта. Без аргументов открывает последний успешно открытый/сохранённый `.mrlive`; при первом запуске — чистый пустой untitled show. Options → Open last show on startup отключает восстановление, чтобы всегда начинать с пустого show. Последний путь и режим хранятся в отдельных Live view settings, вне show. Unsaved changes сами не восстанавливаются: на закрытии/смене документа действует обычная защита сохранения.
