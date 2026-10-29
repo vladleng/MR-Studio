@@ -92,8 +92,8 @@ class LiveTimeline final : public juce::Component {
         // A 16 MiB VST3 preset lives in channel metadata. Never stringify the
         // entire show on every Timeline refresh: show edits, Undo and Open all
         // advance these revisions, while transport/focus have separate keys.
-        auto key=juce::String(owner.liveDocumentGeneration)+"|"+
-                 juce::String(owner.liveUiRevision)+"|"+
+        auto key=juce::String(static_cast<juce::int64>(owner.liveDocumentGeneration))+"|"+
+                 juce::String(static_cast<juce::int64>(owner.liveUiRevision))+"|"+
                  next["currentItem"].toString()+"|"+next["activeSetlist"].toString();
         if (owner.livePlaybackReady()) {
             const auto clip = owner.app.playback_sources().front();
