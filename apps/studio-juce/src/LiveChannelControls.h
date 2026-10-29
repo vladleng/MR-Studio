@@ -19,6 +19,9 @@ public:
         effects.setComponentID("live-channel-effects-"+id);
         input.onClick=[this]{inputMenu();};output.onClick=[this]{outputMenu();};effects.onClick=[this]{owner.run([&]{effectsMenu();});};
     }
+    void showInstrumentPicker(juce::Component& anchor) {
+        owner.run([this,&anchor]{effectsMenu(true,&anchor);});
+    }
     void resized() override {
         auto r=getLocalBounds();
         if(surface==Surface::mixer && !input.isVisible()) {
@@ -48,6 +51,7 @@ public:
         input.setVisible(!mixerInstrument);output.setVisible(true);
         input.setEnabled(stopped);
         output.setEnabled(stopped&&!legacyAudio&&(!timelineInstrument||profile.isObject()));
+        effects.setVisible(!timelineInstrument);
         effects.setEnabled(!legacyAudio);
         if(timelineInstrument) {
             const auto midiId=profile["midiInput"].toString();
@@ -196,7 +200,7 @@ private:
             });
         });
     }
-    void effectsMenu() {
+    void effectsMenu(bool instrumentPicker=false,juce::Component* anchor=nullptr) {
         if(!profile().isObject())throw std::runtime_error("Choose the channel input first");
         const auto row=live::find(owner.liveDocument->interfaceState,"channels",id);
         const auto kind=row["type"].toString();
@@ -225,20 +229,22 @@ private:
             if(opened)target.addSubMenu(current,folder);
             else target.addItem(0,vsti?"No scanned VST3 instruments":"No scanned audio effects",false);
         };
-        const bool timelineInstrument=saved.instrument && surface==Surface::timeline;
-        const bool mixerInstrument=saved.instrument && surface==Surface::mixer;
-        if(timelineInstrument) {
+        // Instrument picker lives on the Mixer strip. Timeline keeps only
+        // MIDI input/channel and an editor icon beside the track title.
+        const bool chooseInstrument=saved.instrument && (instrumentPicker || surface==Surface::timeline);
+        const bool mixerInstrument=saved.instrument && !chooseInstrument;
+        if(chooseInstrument) {
             juce::PopupMenu vsti;appendType(vsti,true);
             menu.addSubMenu(saved.inserts.empty()?"Choose VST3 Instrument":"Replace VST3 Instrument",vsti,stopped);
         }
-        if(!timelineInstrument) {
+        if(!chooseInstrument) {
             juce::PopupMenu audioFx;appendType(audioFx,false);
             menu.addSubMenu("Add Audio FX",audioFx,stopped&&saved.inserts.size()<8&&(!saved.instrument||!saved.inserts.empty()));
         }
         const auto unknown=static_cast<int>(std::count_if(catalog.begin(),catalog.end(),[](const auto& p){return !p.instrument.has_value();}));
         if(unknown>0)menu.addItem(0,"Unknown plugin type ("+juce::String(unknown)+") — rescan catalog",false);
         for(std::size_t i=mixerInstrument?1u:0u;i<saved.inserts.size();++i) {
-            if(timelineInstrument && i>0)break;
+            if(chooseInstrument && i>0)break;
             const auto& fx=saved.inserts[i];juce::PopupMenu slot;
             // A saved VST3 can be edited before Monitor is enabled. An explicit
             // editor request prepares the Core track, but leaves monitoring OFF.
@@ -252,7 +258,7 @@ private:
         }
         const auto signature=live::canonical(profile());const auto generation=owner.liveDocumentGeneration;
         juce::Component::SafePointer<LiveChannelControls> safe(this);
-        menu.showMenuAsync(liveMenuOptions(effects),[safe,saved,signature,choices,generation](int action){if(!safe||!action)return;safe->owner.run([&]{
+        menu.showMenuAsync(liveMenuOptions(anchor?*anchor:effects),[safe,saved,signature,choices,generation,instrumentPicker](int action){if(!safe||!action)return;safe->owner.run([&]{
             if(safe->owner.liveDocumentGeneration!=generation || live::canonical(safe->profile())!=signature)
                 throw std::runtime_error("Channel changed; reopen effect menu");
             auto chain=saved.inserts;
@@ -264,8 +270,8 @@ private:
                     throw std::runtime_error("Plugin catalog changed; reopen menu");
                 if(!plugin.instrument.has_value())throw std::runtime_error("Unknown VST3 class type; rescan catalog");
                 const bool vsti=*plugin.instrument;
-                if(saved.instrument && (safe->surface==Surface::timeline)!=vsti)
-                    throw std::runtime_error("VSTi belongs to Timeline; audio FX belongs to Mixer");
+                if(saved.instrument && (instrumentPicker || safe->surface==Surface::timeline)!=vsti)
+                    throw std::runtime_error("Choose VSTi from the Mixer instrument selector, audio FX from its FX slot");
                 if(vsti&&!saved.instrument)throw std::runtime_error("VSTi requires an Instrument channel");
                 if(!vsti&&saved.instrument&&chain.empty())throw std::runtime_error("Choose a VSTi before adding audio effects");
                 if((!vsti||!saved.instrument)&&chain.size()>=8)throw std::runtime_error("Live channel insert limit reached");
