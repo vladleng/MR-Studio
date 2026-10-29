@@ -479,14 +479,17 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         Desktop inputPilot(true,false,true);
         inputPilot.importLiveShow(fixture);
         const auto engine=inputPilot.app.engine();
+        const auto showChannel=inputPilot.liveDocument->interfaceState["channels"][1]["id"].toString();
+        liveCheck(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["type"].toString()=="Player",
+                  "Physical Live Input acceptance uses a Player rather than an Instrument");
         bool rejectedOffline=false;
-        try { inputPilot.startLiveAudioInput(0); }
+        try { inputPilot.startLiveAudioInput(0,showChannel); }
         catch (const std::exception&) { rejectedOffline=true; }
         liveCheck(rejectedOffline && !inputPilot.liveInputTrack(),
                   "Live Input pilot rejects the offline clock without changing Core");
         inputPilot.app.connect(std::make_unique<LivePlaybackTestDevice>(),
                                {0,48000,128,{0},{0,1}});
-        inputPilot.startLiveAudioInput(0);
+        inputPilot.startLiveAudioInput(0,showChannel);
         liveCheck(inputPilot.liveInputTrack().has_value() &&
                   inputPilot.project()->tracks.size()==1 &&
                   inputPilot.project()->tracks.front().kind==mrs::TrackKind::audio &&
@@ -511,7 +514,6 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   "Active setlist switch cannot retire a monitored Live Input");
         inputPilot.app.stop();
         inputPilot.app.engine()->process(pilotSilentInput.data(),pilotAudioOutput.data(),128);
-        const auto showChannel=inputPilot.liveDocument->interfaceState["channels"][0]["id"].toString();
         LiveChannelControls inputPanel(inputPilot,showChannel);
         inputPanel.setSize(150,44);inputPanel.sync();
         liveCheck(liveComponent(inputPanel,"live-channel-input-"+showChannel)!=nullptr &&
@@ -522,13 +524,13 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(liveComponent(channelMixer,"live-channel-input-"+showChannel)!=nullptr &&
                   liveComponent(channelMixer,"live-channel-monitor-"+showChannel)!=nullptr,
                   "#302 Mixer embeds the same channel selectors and monitoring");
-        liveCheck(inputPilot.liveDocument->interfaceState["channels"][0]["liveInput"].isObject(),
+        liveCheck(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"].isObject(),
                   "Channel input changes immediately belong to the show");
         const auto pilotSaved=folder.getChildFile("pilot-shared-core-save.mrlive");
         inputPilot.saveFile(pilotSaved);
         const auto pilotLoaded=LiveDocument::read(pilotSaved);
         liveCheck(pilotLoaded.projects.empty() && pilotLoaded.itemProjects.empty() &&
-                  pilotLoaded.interfaceState["channels"][0]["liveInput"].isObject(),
+                  live::find(pilotLoaded.interfaceState,"channels",showChannel)["liveInput"].isObject(),
                   "Saving .mrlive with active monitor does not create a linked Studio project");
         inputPilot.releaseLiveInput();
         liveCheck(!inputPilot.liveInputTrack() &&
@@ -579,6 +581,55 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         inputPilot.openFile(multiSaved);
         liveCheck(inputPilot.liveChannelTracks.empty() && inputPilot.project()->tracks.empty(),
                   "Open restores show settings with no automatic plugin activation or monitoring");
+        // #302/#281: preserve legacy Instrument audio profiles and use explicit Undoable conversion.
+        juce::String legacyChannel;
+        inputPilot.editLiveInterface("Create legacy Instrument fixture",[&](auto& state){
+            legacyChannel=live::addChannel(state,"Instrument","Legacy Guitar");
+            live::put(live::require(state,"channels",legacyChannel),"liveInput",
+                      live::find(state,"channels",showChannel)["liveInput"].clone());
+        });
+        const auto legacyBefore=live::canonical(live::find(inputPilot.liveDocument->interfaceState,"channels",legacyChannel)["liveInput"]);
+        const auto itemsBeforeConversion=live::canonical(inputPilot.liveDocument->interfaceState["items"]);
+        bool refused=false;
+        try{inputPilot.configureLiveInput(legacyChannel,0,false,{});}catch(const std::exception&){refused=true;}
+        liveCheck(refused,"Instrument rejects new physical audio input and keeps the legacy descriptor");
+        refused=false;
+        try{inputPilot.configureLiveMidi(legacyChannel,{},-1,{});}catch(const std::exception&){refused=true;}
+        liveCheck(refused,"MIDI selection cannot silently replace a legacy Instrument audio chain");
+        refused=false;
+        try{inputPilot.activateLiveChannel(legacyChannel);}catch(const std::exception&){refused=true;}
+        liveCheck(refused && !inputPilot.liveInputTrack(legacyChannel),
+                  "Legacy Instrument audio remains inactive until explicit conversion");
+        inputPilot.convertLegacyLiveInstrument(legacyChannel);
+        liveCheck(live::find(inputPilot.liveDocument->interfaceState,"channels",legacyChannel)["type"].toString()=="Player" &&
+                  live::canonical(live::find(inputPilot.liveDocument->interfaceState,"channels",legacyChannel)["liveInput"])==legacyBefore &&
+                  live::canonical(inputPilot.liveDocument->interfaceState["items"])==itemsBeforeConversion,
+                  "Undoable role conversion preserves channel ID, audio profile and item/patch relationships");
+        inputPilot.undoLiveInterface();
+        liveCheck(live::find(inputPilot.liveDocument->interfaceState,"channels",legacyChannel)["type"].toString()=="Instrument" &&
+                  live::canonical(live::find(inputPilot.liveDocument->interfaceState,"channels",legacyChannel)["liveInput"])==legacyBefore,
+                  "Undo restores the legacy Instrument role without deleting its profile");
+        inputPilot.undoLiveInterface(true);
+        liveCheck(live::find(inputPilot.liveDocument->interfaceState,"channels",legacyChannel)["type"].toString()=="Player",
+                  "Redo re-applies the explicit Player conversion");
+        // Metadata is keyed by plugin class ID, not display name or the VST3 module extension.
+        mrs::NativeInsert fx;fx.id=mrs::new_id();fx.kind=mrs::InsertKind::vst3;
+        fx.plugin_path="synthetic-shared.vst3";fx.class_id="synthetic-effect";
+        fx.plugin_name="Same Name";
+        auto vsti=fx;vsti.id=mrs::new_id();vsti.class_id="synthetic-instrument";
+        inputPilot.catalog.push_back({fx.plugin_path,fx.class_id,fx.plugin_name,"Synthetic Vendor","1",false});
+        inputPilot.catalog.push_back({vsti.plugin_path,vsti.class_id,vsti.plugin_name,"Synthetic Vendor","1",true});
+        inputPilot.setLiveInputEffects(showChannel,{fx});
+        const auto fxBeforeRejected=live::canonical(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"]);
+        refused=false;
+        try{inputPilot.setLiveInputEffects(showChannel,{vsti});}catch(const std::exception&){refused=true;}
+        liveCheck(refused && live::canonical(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"])==fxBeforeRejected,
+                  "Player rejects VSTi with the same display name and does not change show/Undo");
+        auto unknown=fx;unknown.id=mrs::new_id();unknown.class_id="unknown-class";
+        refused=false;
+        try{inputPilot.setLiveInputEffects(showChannel,{unknown});}catch(const std::exception&){refused=true;}
+        liveCheck(refused && live::canonical(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"])==fxBeforeRejected,
+                  "Unknown class ID cannot be treated as audio FX without scanner metadata");
         inputPilot.releaseLiveInput();
     }
     Desktop desktop(true, true);
