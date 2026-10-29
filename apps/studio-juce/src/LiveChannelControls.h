@@ -180,7 +180,8 @@ private:
         channels.addItem(2000,"Omni",true,current.midiChannel==-1);
         for(int i=0;i<16;++i)
             channels.addItem(2001+i,"MIDI Channel "+juce::String(i+1),true,current.midiChannel==i);
-        const auto generation=owner.liveDocumentGeneration,signature=live::canonical(saved);
+        const auto generation=owner.liveDocumentGeneration;
+        const auto signature=live::canonical(saved);
         juce::Component::SafePointer<LiveChannelControls> safe(this);
         channels.showMenuAsync(liveMenuOptions(output),[safe,generation,signature](int action) {
             if(!safe || action<2000 || action>2016)return;
