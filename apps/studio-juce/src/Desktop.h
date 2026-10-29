@@ -102,13 +102,10 @@ public:
     void setLiveItemPlaybackGain(double);
     void setLiveChannelMix(const juce::String&, double, double, bool, bool);
     void previewLiveChannelMix(const juce::String&, double, double, bool, bool);
-    // #302 A1: control a selected show channel using the shared Core/ASIO/VST3 host.
-    // A single monitored runtime track remains the current limit until multi-channel graph work.
-    void startLiveInputPilot(int physicalInput, const juce::String& showChannel = {}, bool stereo = false);
-    void stopLiveInputPilot(const juce::String& showChannel = {});
-    void saveLiveInputProfile(const juce::String& showChannel);
-    void loadLiveInputProfile(const juce::String& showChannel);
-    void enableLiveInputPilotMonitoring(const juce::String& showChannel = {});
+    // #302 A2: show-owned channels project to stable tracks in one shared Core.
+    void startLiveAudioInput(int physicalInput, const juce::String& showChannel = {}, bool stereo = false);
+    void releaseLiveInput(const juce::String& showChannel = {});
+    void activateLiveChannel(const juce::String& showChannel);
     std::optional<mrs::Id> liveInputTrack(const juce::String& showChannel = {}) const;
     std::vector<mrs::Id> liveInputTracks() const;
     std::map<juce::String,mrs::Id> liveChannelTracks;

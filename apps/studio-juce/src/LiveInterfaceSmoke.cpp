@@ -444,6 +444,16 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         bool rejected=false;
         try {live::validateLiveInputProfiles(invalid);}catch(const std::exception&){rejected=true;}
         liveCheck(rejected, "Malformed saved physical input is rejected on validation");
+        auto synth=input;synth.kind=mrs::TrackKind::instrument;synth.input=-1;synth.input_stereo=false;
+        synth.midi_input="saved-midi-port";synth.midi_channel=15;synth.midi_monitor=true;
+        const auto midiProfile=live::liveInputProfile(synth,"MIDI keyboard","Test ASIO device",{});
+        const auto midiLoaded=live::decodeLiveInputProfile(midiProfile);
+        liveCheck(midiLoaded.instrument && midiLoaded.midiInput=="saved-midi-port" && midiLoaded.midiChannel==15 &&
+                  midiProfile["midiMonitor"].isVoid() && midiProfile["monitor"].isVoid(),
+                  "MIDI descriptor preserves port/channel without authorizing automatic monitoring or plugin load");
+        auto invalidMidi=midiProfile.clone();live::put(invalidMidi,"midiChannel",16);rejected=false;
+        try{(void)live::decodeLiveInputProfile(invalidMidi);}catch(const std::exception&){rejected=true;}
+        liveCheck(rejected,"Out-of-range saved MIDI channel rejects before activation");
     }
     // #297/#300: an active monitored Core input must never be retired by
     // an item switch while playback is running. Stopped manual handoff now
@@ -453,13 +463,13 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         inputPilot.importLiveShow(fixture);
         const auto engine=inputPilot.app.engine();
         bool rejectedOffline=false;
-        try { inputPilot.startLiveInputPilot(0); }
+        try { inputPilot.startLiveAudioInput(0); }
         catch (const std::exception&) { rejectedOffline=true; }
         liveCheck(rejectedOffline && !inputPilot.liveInputTrack(),
                   "Live Input pilot rejects the offline clock without changing Core");
         inputPilot.app.connect(std::make_unique<LivePlaybackTestDevice>(),
                                {0,48000,128,{0},{0,1}});
-        inputPilot.startLiveInputPilot(0);
+        inputPilot.startLiveAudioInput(0);
         liveCheck(inputPilot.liveInputTrack().has_value() &&
                   inputPilot.project()->tracks.size()==1 &&
                   inputPilot.project()->tracks.front().kind==mrs::TrackKind::audio &&
@@ -503,24 +513,24 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(pilotLoaded.projects.empty() && pilotLoaded.itemProjects.empty() &&
                   pilotLoaded.interfaceState["channels"][0]["liveInput"].isObject(),
                   "Saving .mrlive with active monitor does not create a linked Studio project");
-        inputPilot.stopLiveInputPilot();
+        inputPilot.releaseLiveInput();
         liveCheck(!inputPilot.liveInputTrack() &&
                   inputPilot.project()->tracks.empty() &&
                   inputPilot.app.engine()==engine,
                   "Disabling Live Input safely removes temporary Core monitoring without a second engine");
-        inputPilot.loadLiveInputProfile(showChannel);
+        inputPilot.activateLiveChannel(showChannel);
         liveCheck(inputPilot.liveInputTrack() &&
                   inputPilot.project()->tracks.size()==1 &&
                   !inputPilot.project()->tracks.front().input_monitor &&
                   inputPilot.app.engine()==engine,
                   "Loading saved input profile restores Core track with monitor OFF");
-        inputPilot.enableLiveInputPilotMonitoring();
+        inputPilot.setLiveInputMonitor(showChannel,true);
         liveCheck(inputPilot.project()->tracks.front().input_monitor,
                   "Enabling a restored Live Input requires a separate explicit action");
-        inputPilot.stopLiveInputPilot();
+        inputPilot.releaseLiveInput();
         // #302 A1: use the existing Core stereo input and output routing commands
         // from the native channel inspector, without inventing a new audio host.
-        inputPilot.startLiveInputPilot(0,showChannel,true);
+        inputPilot.startLiveAudioInput(0,showChannel,true);
         liveCheck(inputPilot.project()->tracks.front().input_stereo &&
                   inputPilot.project()->tracks.front().input==0,
                   "#302 stereo input selection reaches a real shared Core audio track");
@@ -533,7 +543,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   "#302 channel stereo source and output routing belong to the saved show");
         juce::String secondChannel;
         inputPilot.editLiveInterface("Add second audio channel",[&](auto& state){secondChannel=live::addChannel(state,"Audio","Second input");});
-        inputPilot.startLiveInputPilot(1,secondChannel,false);
+        inputPilot.startLiveAudioInput(1,secondChannel,false);
         const auto firstCore=*inputPilot.liveInputTrack(showChannel),secondCore=*inputPilot.liveInputTrack(secondChannel);
         liveCheck(firstCore!=secondCore && inputPilot.project()->tracks.size()==2 && inputPilot.app.engine()==engine,
                   "#302 A2 maps two show channels to independent stable tracks on the original Core");
@@ -548,11 +558,11 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(live::find(multiLoaded.interfaceState,"channels",showChannel)["liveInput"].isObject() &&
                   live::find(multiLoaded.interfaceState,"channels",secondChannel)["liveInput"].isObject() && multiLoaded.projects.empty(),
                   "Ordinary Save persists every channel without separate channel Save actions");
-        inputPilot.stopLiveInputPilot(secondChannel);inputPilot.stopLiveInputPilot(showChannel);
+        inputPilot.releaseLiveInput(secondChannel);inputPilot.releaseLiveInput(showChannel);
         inputPilot.openFile(multiSaved);
         liveCheck(inputPilot.liveChannelTracks.empty() && inputPilot.project()->tracks.empty(),
                   "Open restores show settings with no automatic plugin activation or monitoring");
-        inputPilot.stopLiveInputPilot();
+        inputPilot.releaseLiveInput();
     }
     Desktop desktop(true, true);
     desktop.importLiveShow(fixture);
@@ -957,7 +967,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             combined.importLiveShow(fixture);
             combined.app.connect(std::make_unique<LivePlaybackTestDevice>(),
                                  {0,48000,128,{0},{0,1},1});
-            combined.startLiveInputPilot(0);
+            combined.startLiveAudioInput(0);
             const auto combinedAnchorId=*combined.liveInputTrack();
             mrs::NativeInsert combinedNativeGain;combinedNativeGain.id=mrs::new_id();
             combinedNativeGain.kind=mrs::InsertKind::gain;combinedNativeGain.gain=.5f;
@@ -1010,7 +1020,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                       combined.app.insert_generation()==combinedInsertGeneration &&
                       combined.app.engine()==combinedEngine,
                       "Returning to empty item preserves live DSP and releases WAV-only sources");
-            combined.stopLiveInputPilot();
+            combined.releaseLiveInput();
         }
         Desktop playbackDesktop(true, false, true);
         playbackDesktop.importLiveShow(fixture);

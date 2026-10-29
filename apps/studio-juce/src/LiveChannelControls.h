@@ -26,7 +26,7 @@ public:
         const auto row=live::find(owner.liveDocument->interfaceState,"channels",id);
         const auto profile=row["liveInput"];
         const bool stopped=!owner.app.recording() && owner.app.engine()->state().playback!=mrs::PlaybackState::playing;
-        setEnabled(stopped && row["type"].toString()!="Playback");
+        setEnabled(row["type"].toString()!="Playback");input.setEnabled(stopped);output.setEnabled(stopped);
         input.setButtonText(profile.isObject()?(static_cast<int>(profile["version"])==2?"MIDI":"In "+juce::String(static_cast<int>(profile["input"])+1)+(static_cast<bool>(profile["stereo"])?" ST":"")):"Input");
         input.setTooltip(profile.isObject()?profile["deviceName"].toString()+" / "+profile["inputName"].toString():"Choose audio input or MIDI / VSTi");
         output.setButtonText(profile["outputs"].size()?"Out "+juce::String(static_cast<int>(profile["outputs"][0])+1):"Master");
@@ -101,6 +101,7 @@ private:
     void effectsMenu() {
         if(!profile().isObject())throw std::runtime_error("Choose the channel input first");
         const auto saved=live::decodeLiveInputProfile(profile());
+        const bool stopped=!owner.app.recording() && owner.app.engine()->state().playback!=mrs::PlaybackState::playing;
         juce::PopupMenu menu,add;menu.setLookAndFeel(&owner.theme);
         const auto catalog=owner.catalog;
         for(std::size_t i=0;i<catalog.size();++i) {
@@ -111,14 +112,14 @@ private:
             add.addItem(10000+static_cast<int>(i),juce::String::fromUTF8(plugin.name.c_str())+(synth?" [VSTi]":""));
         }
         if(add.getNumItems()==0)add.addItem(0,"Scan the plugin browser first",false);
-        menu.addSubMenu(saved.instrument&&saved.inserts.empty()?"Choose VSTi":"Add / replace plugin",add,saved.inserts.size()<8||saved.instrument);
+        menu.addSubMenu(saved.instrument&&saved.inserts.empty()?"Choose VSTi":"Add / replace plugin",add,stopped&&(saved.inserts.size()<8||saved.instrument));
         for(std::size_t i=0;i<saved.inserts.size();++i) {
             const auto& fx=saved.inserts[i];juce::PopupMenu slot;
             slot.addItem(100+static_cast<int>(i)*10,"Open editor",owner.liveInputTrack(id).has_value());
-            slot.addItem(101+static_cast<int>(i)*10,"Bypass",true,fx.bypass);
-            slot.addItem(102+static_cast<int>(i)*10,"Move up",i>(saved.instrument?1u:0u));
-            slot.addItem(103+static_cast<int>(i)*10,"Move down",i+1<saved.inserts.size()&&(!saved.instrument||i>0));
-            slot.addItem(104+static_cast<int>(i)*10,"Remove",!saved.instrument||i>0||saved.inserts.size()==1);
+            slot.addItem(101+static_cast<int>(i)*10,"Bypass",stopped,fx.bypass);
+            slot.addItem(102+static_cast<int>(i)*10,"Move up",stopped&&i>(saved.instrument?1u:0u));
+            slot.addItem(103+static_cast<int>(i)*10,"Move down",stopped&&i+1<saved.inserts.size()&&(!saved.instrument||i>0));
+            slot.addItem(104+static_cast<int>(i)*10,"Remove",stopped&&(!saved.instrument||i>0||saved.inserts.size()==1));
             menu.addSubMenu(juce::String(static_cast<int>(i+1))+". "+juce::String::fromUTF8(fx.plugin_name.c_str()),slot);
         }
         const auto signature=live::canonical(profile());juce::Component::SafePointer<LiveChannelControls> safe(this);

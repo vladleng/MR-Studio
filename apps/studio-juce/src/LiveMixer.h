@@ -12,7 +12,7 @@ class LiveMixer final : public juce::Component {
         setComponentID("live-mixer");
         addAndMakeVisible(viewport);
         viewport.setViewedComponent(&body, false);
-        viewport.setScrollBarsShown(false, true);
+        viewport.setScrollBarsShown(true, true);
     }
     ~LiveMixer() override { viewport.setViewedComponent(nullptr, false); }
     void resized() override {

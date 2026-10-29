@@ -114,6 +114,9 @@ inline LiveInputLoaded decodeLiveInputProfile(const juce::var& state) {
     result.name=state["inputName"].toString();
     result.device=state["deviceName"].toString();
     result.stereo=static_cast<bool>(state["stereo"]);
+    if((!result.instrument && result.stereo && result.input>=63) ||
+       (result.instrument && (result.input!=-1 || result.stereo)))
+        throw std::runtime_error("Invalid Live input kind / stereo pair");
     if(!state["inputRightName"].isVoid()) {
         if(!named(state["inputRightName"],256))throw std::runtime_error("Invalid stereo port name");
         result.rightName=state["inputRightName"].toString();
@@ -190,7 +193,9 @@ inline void validateLiveInputProfiles(const juce::var& state) {
             if(!profile.isVoid()) {
                 if(channel["type"].toString()=="Playback")
                     throw std::runtime_error("Playback is not a Live Input");
-                (void)decodeLiveInputProfile(profile);
+                const auto decoded=decodeLiveInputProfile(profile);
+                if(decoded.instrument && channel["type"].toString()!="Instrument")
+                    throw std::runtime_error("MIDI / VSTi requires an Instrument show channel");
             }
         }
 }

@@ -17,7 +17,9 @@ Limits remain explicit: 64 Live input channels, the existing 128 mixer-track bud
 
 **Этап #301 (не реализован):** RT-safe separation persistent/live processing from replaceable WAV/stem state; immutable ahead-prepared WAV graph + one live plugin owner, bounded graph publication, safe tail/lifetime/PDC and smooth automatic playback transition while audio running. Это требует целевых RT-тестов и пользовательской физической приёмки ASIO/VST3/128 frames. #299 остаётся открытой до #301; #289 — отдельные patch/subpatch переключения.
 
-## Текущий срез #32b1 / #298 — show-owned Live Input profiles (2026-10-29)
+## Исторический срез #32b1 / #298 — show-owned Live Input profiles (2026-10-29)
+
+Workflow ниже относится к A1; действующий контракт A2 описан в начале документа.
 
 Пользователь принял одноканальный Live Input/VST3 pilot (#297). В самостоятельном `.mrlive` теперь предусмотрено необязательное `channels[].liveInput` (version 1): физический input index + точная метка разъёма, mono/stereo, routing, Core Track::Mix, список VST3 (class ID/path/name, bypass, параметры, component/controller state). Данные ограничены по размеру и валидируются на чтении; старые show без профилей продолжают открываться. Live profile — состояние шоу, а не ссылка на `.mrsproject` и не самостоятельный Engine.
 
@@ -257,9 +259,9 @@ Runtime preload и устранение повторного импорта ре
 
 **Статус: SOURCE ONLY / NOT TESTED.** Начат перенос общих механизмов MR Studio на каналы MR Live. В native Mixer у каждого show-owned non-Playback channel появился `Input / FX` с выбранным channel ID. Он открывает существующий `LiveInputPilotPanel` с полями: физический вход текущего ASIO устройства, mono/stereo pair, route Master/direct active output(s), VST3 audio FX, monitor и явный Save to Show/Load from Show. Используются `Application::set_track_input`, `set_track_monitoring`, `set_hardware_output`, `set_inserts`, `capture_insert`, существующая сериализация `channels[].liveInput`. Второй audio/backend/plugin host не добавлен, WAV-guard и #300 stopped handoff не отключены. Новый smoke проверяет control IDs/Mixer action и shared Core stereo input + outputs profile.
 
-**Текущее ограничение:** это ещё **один активный runtime audio input track**, не полноценные несколько одновременно работающих каналов. До следующего среза физический вход или stereo mode можно менять только после Disable; смена канала при активной цепочке запрещена. Stereo требует реально доступную пару ASIO входов. Переназначение hardware route/новый insert производится вне активного Playback. Сохранение профиля явно инициируется пользователем; открытие show не включает monitoring автоматически. Ни fake GUI-контролы, ни тест mock driver не доказывают hardware PASS.
+**Ограничение A1 (заменено A2 выше):** это ещё **один активный runtime audio input track**, не полноценные несколько одновременно работающих каналов. До следующего среза физический вход или stereo mode можно менять только после Disable; смена канала при активной цепочке запрещена. Stereo требует реально доступную пару ASIO входов. Переназначение hardware route/новый insert производится вне активного Playback. Сохранение профиля явно инициируется пользователем; открытие show не включает monitoring автоматически. Ни fake GUI-контролы, ни тест mock driver не доказывают hardware PASS.
 
-**Дальше в #302:**
+**План после A1 (реализованную часть A2 см. выше; приёмка отдельно):**
 1. Реальная show-owned mapping `channelId → Core Track ID` для **нескольких** каналов: управление созданием/удалением, mono/stereo vendor input и сохранение с безопасным lifecycle, включая смешанный WAV/stems graph. Убрать одноканальный pilot только после проверки lifetime/rollback и аппаратной приёмки.
 2. Per-channel plugin rack, FX Browser #281, routing/meters и глобальный Mixer #279 с независимым channel mix.
 3. Раздельный VSTi/MIDI путь через shared instrument hosting и MIDI Core #18/#24: hardware/device mapping и VSTi нужно проверить, не выдавать audio FX panel за готовый инструмент.

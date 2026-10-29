@@ -135,7 +135,7 @@ public:
     struct PlaybackLayout { TimeMap time; std::vector<Chord> chords; std::vector<ArrangerSection> sections;
         std::vector<PlaybackStem> stems; audio::ClickSettings click;
         std::optional<PerformancePlan> performance{}; std::uint64_t token{}; bool extend_to_audio{};
-        // #300: control-thread-only live audio anchor, never shared between concurrent staging graphs.
+        // #300/#302: control-thread-only persistent channels; no concurrent staging graph owns these processors.
         std::vector<Id> live_tracks{}; };
     std::shared_ptr<PlaybackPreparation> prepare_playback(const std::vector<std::filesystem::path>&);
     WavImportStatus playback_preparation(const std::shared_ptr<PlaybackPreparation>&);

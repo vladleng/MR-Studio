@@ -702,6 +702,7 @@ void validateLiveHardware(Desktop& owner,const live::LiveInputLoaded& profile) {
 }
 }
 void Desktop::captureLiveInputs(juce::var& state) {
+    if(!liveChannelTracks.empty())app.poll();
     const auto snapshot=project();
     for(const auto& [channel,id]:liveChannelTracks) {
         const auto at=std::find_if(snapshot->tracks.begin(),snapshot->tracks.end(),[&](const auto& t){return t.id==id;});
@@ -740,7 +741,9 @@ void Desktop::reconcileLiveInputs(const juce::var& state) {
         const auto profile=live::decodeLiveInputProfile(row["liveInput"]);
         if(profile.instrument && profile.inserts.empty()) {next.erase(channel);changed=true;continue;}
         validateLiveHardware(*this,profile);
-        auto track=liveTrack(state,channel,id);track.input_monitor=at->input_monitor;track.midi_monitor=at->midi_monitor;
+        auto track=liveTrack(state,channel,id);
+        track.input_monitor=track.kind==mrs::TrackKind::audio && at->kind==mrs::TrackKind::audio && at->input_monitor;
+        track.midi_monitor=track.kind!=mrs::TrackKind::instrument || (at->kind==mrs::TrackKind::instrument && at->midi_monitor);
         tracks.push_back(std::move(track));changed=true;
     }
     if(changed) {
@@ -794,7 +797,7 @@ void Desktop::setLiveInputEffects(const juce::String& requested,std::vector<mrs:
     for(const auto* key:{"inputRightName","outputNames"})if(!row["liveInput"][key].isVoid())live::put(profile,key,row["liveInput"][key].clone());
     editLiveInterface("Channel effect chain",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);});
 }
-void Desktop::loadLiveInputProfile(const juce::String& requested) {
+void Desktop::activateLiveChannel(const juce::String& requested) {
     const auto channel=inputChannel(*this,requested);
     if(liveInputTrack(channel))return;
     if(livePendingItem.isNotEmpty() || livePlaybackLoading)throw std::runtime_error("Finish the item transition first");
@@ -811,7 +814,7 @@ void Desktop::loadLiveInputProfile(const juce::String& requested) {
 }
 void Desktop::setLiveInputMonitor(const juce::String& requested,bool enabled) {
     const auto channel=inputChannel(*this,requested);
-    if(enabled)loadLiveInputProfile(channel);
+    if(enabled)activateLiveChannel(channel);
     const auto id=liveInputTrack(channel);if(!id)return;
     const auto snapshot=project();std::vector<mrs::Track> tracks;
     for(const auto& target:liveInputTracks())for(auto track:snapshot->tracks)if(track.id==target) {
@@ -820,11 +823,11 @@ void Desktop::setLiveInputMonitor(const juce::String& requested,bool enabled) {
     }
     app.update_live_channels(liveInputTracks(),std::move(tracks));++liveUiRevision;
 }
-void Desktop::startLiveInputPilot(int input,const juce::String& requested,bool stereo) {
+void Desktop::startLiveAudioInput(int input,const juce::String& requested,bool stereo) {
     const auto channel=inputChannel(*this,requested);
     configureLiveInput(channel,input,stereo,{});setLiveInputMonitor(channel,true);
 }
-void Desktop::stopLiveInputPilot(const juce::String& requested) {
+void Desktop::releaseLiveInput(const juce::String& requested) {
     const auto channel=requested.isEmpty()?(liveChannelTracks.empty()?juce::String{}:liveChannelTracks.begin()->first):requested;
     if(!liveInputTrack(channel))return;
     auto state=liveDocument->interfaceState.clone();captureLiveInputs(state);
@@ -833,14 +836,6 @@ void Desktop::stopLiveInputPilot(const juce::String& requested) {
         for(const auto& track:snapshot->tracks)if(track.id==id)tracks.push_back(track);
     closeEditors();app.update_live_channels(liveInputTracks(),std::move(tracks));liveChannelTracks.erase(channel);
     liveDocument->interfaceState=state;updateLiveDirty();++liveUiRevision;
-}
-void Desktop::saveLiveInputProfile(const juce::String& requested) {
-    const auto channel=inputChannel(*this,requested);(void)channel;
-    auto state=liveDocument->interfaceState.clone();captureLiveInputs(state);
-    liveDocument->interfaceState=state;updateLiveDirty();++liveUiRevision;
-}
-void Desktop::enableLiveInputPilotMonitoring(const juce::String& channel) {
-    setLiveInputMonitor(inputChannel(*this,channel),true);
 }
 void Desktop::setLiveChannelMix(const juce::String &id, double gain, double pan, bool mute, bool solo) {
     app.cancel_mix_preview();
