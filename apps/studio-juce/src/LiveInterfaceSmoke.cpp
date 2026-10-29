@@ -487,10 +487,25 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                       midiPort && midiPort->getButtonText()=="MIDI Ch 16" &&
                       instrumentButton && instrumentButton->getButtonText()=="Choose Instrument",
                       "Timeline Instrument labels show MIDI port/channel and VSTi, not Master or audio FX");
-            liveCheck(mixerInput && !mixerInput->isVisible() &&
-                      mixerOutput && mixerOutput->isVisible() && mixerOutput->getButtonText()=="Master" &&
+            // synth inherits hardware_outputs={0,1} from the audio fixture.
+            // A non-empty physical route must appear as "Out 1", not "Master";
+            // MIDI Channel replaces Master ONLY on the Timeline surface.
+            liveCheck(midiLoaded.outputs==std::vector<int>{0,1} &&
+                      mixerInput && !mixerInput->isVisible() &&
+                      mixerOutput && mixerOutput->isVisible() && mixerOutput->getButtonText()=="Out 1" &&
                       mixerFx && mixerFx->isVisible() && mixerFx->getButtonText()=="Audio FX (0)",
-                      "Instrument Mixer retains physical routing and audio FX, without duplicated MIDI/VSTi");
+                      "Instrument Mixer retains assigned physical output and audio FX, without duplicated MIDI/VSTi");
+            // The same Mixer selector must display Master for an intentionally
+            // empty physical output route (and never overwrite MIDI channel).
+            uiPilot.editLiveInterface("Default Instrument output",[&](auto& state) {
+                auto target=live::require(state,"channels",midiChannelId);
+                auto savedProfile=target["liveInput"];
+                live::put(savedProfile,"outputs",juce::Array<juce::var>{});
+            });
+            mixer.sync();timeline.sync();
+            liveCheck(mixerOutput->getButtonText()=="Master" &&
+                      midiPort->getButtonText()=="MIDI Ch 16",
+                      "Default physical output is Master in Mixer while Timeline keeps MIDI Channel");
         }
         auto invalidMidi=midiProfile.clone();live::put(invalidMidi,"midiChannel",16);rejected=false;
         try{(void)live::decodeLiveInputProfile(invalidMidi);}catch(const std::exception&){rejected=true;}
