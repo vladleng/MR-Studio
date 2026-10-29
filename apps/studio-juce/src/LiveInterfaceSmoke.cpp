@@ -461,6 +461,37 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   static_cast<int>(coreCaptured["input"])==-1 &&
                   live::decodeLiveInputProfile(coreCaptured).input==-1,
                   "MIDI channel maps saved input -1 to Core input -2 and back on capture");
+        // Timeline Instrument owns MIDI input/channel/VSTi. Mixer owns FX, not
+        // a second VSTi selector, and must not overwrite the .mrlive MIDI role.
+        {
+            Desktop uiPilot(true,false,true);uiPilot.importLiveShow(fixture);
+            juce::String midiChannelId;
+            uiPilot.editLiveInterface("MIDI channel control UI",[&](auto& state) {
+                midiChannelId=live::addChannel(state,"Instrument","Test MIDI");
+                live::put(live::require(state,"channels",midiChannelId),"liveInput",midiProfile.clone());
+            });
+            LiveChannelControls timeline(uiPilot,midiChannelId,LiveChannelControls::Surface::timeline);
+            LiveChannelControls mixer(uiPilot,midiChannelId,LiveChannelControls::Surface::mixer);
+            timeline.setBounds(0,0,220,44);mixer.setBounds(0,0,220,44);
+            timeline.sync();mixer.sync();
+            const auto getButton=[](LiveChannelControls& c,const juce::String& name) {
+                return dynamic_cast<juce::TextButton*>(c.findChildWithID(name));
+            };
+            auto* midiInput=getButton(timeline,"live-channel-input-"+midiChannelId);
+            auto* midiPort=getButton(timeline,"live-channel-output-"+midiChannelId);
+            auto* instrumentButton=getButton(timeline,"live-channel-effects-"+midiChannelId);
+            auto* mixerInput=getButton(mixer,"live-channel-input-"+midiChannelId);
+            auto* mixerOutput=getButton(mixer,"live-channel-output-"+midiChannelId);
+            auto* mixerFx=getButton(mixer,"live-channel-effects-"+midiChannelId);
+            liveCheck(midiInput && midiInput->getButtonText()=="Missing MIDI" &&
+                      midiPort && midiPort->getButtonText()=="MIDI Ch 16" &&
+                      instrumentButton && instrumentButton->getButtonText()=="Choose Instrument",
+                      "Timeline Instrument labels show MIDI port/channel and VSTi, not Master or audio FX");
+            liveCheck(mixerInput && !mixerInput->isVisible() &&
+                      mixerOutput && !mixerOutput->isVisible() &&
+                      mixerFx && mixerFx->isVisible() && mixerFx->getButtonText()=="Audio FX (0)",
+                      "Instrument Mixer owns audio effects without duplicated MIDI/VSTi controls");
+        }
         auto invalidMidi=midiProfile.clone();live::put(invalidMidi,"midiChannel",16);rejected=false;
         try{(void)live::decodeLiveInputProfile(invalidMidi);}catch(const std::exception&){rejected=true;}
         liveCheck(rejected,"Out-of-range saved MIDI channel rejects before activation");
