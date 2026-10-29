@@ -488,8 +488,19 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(liveComponent(*inputPanel,"live-input-disable")!=nullptr &&
                   liveComponent(*inputPanel,"live-input-plugin")!=nullptr,
                   "Live Input pilot offers monitoring and shared VST3 insert controls");
+        liveCheck(liveComponent(*inputPanel,"live-input-stereo")!=nullptr &&
+                  liveComponent(*inputPanel,"live-input-output-route")!=nullptr,
+                  "#302 ASIO inspector uses real mono/stereo and output route controls");
         delete inputPanel;
         const auto showChannel=inputPilot.liveDocument->interfaceState["channels"][0]["id"].toString();
+        LiveMixer channelMixer(inputPilot); channelMixer.setSize(700,220); channelMixer.sync();
+        auto* channelInputButton=dynamic_cast<juce::TextButton*>(
+            liveComponent(channelMixer,"live-mixer-input-"+showChannel));
+        liveCheck(channelInputButton && channelInputButton->isEnabled(),
+                  "#302 each non-Playback show channel offers its own Input / FX action");
+        LiveInputPilotPanel selectedInspector(inputPilot,showChannel);
+        liveCheck(liveComponent(selectedInspector,"live-input-channel")!=nullptr,
+                  "#302 Input / FX panel supports explicit show-channel selection");
         inputPilot.saveLiveInputProfile(showChannel);
         liveCheck(inputPilot.liveDocument->interfaceState["channels"][0]["liveInput"].isObject(),
                   "Explicit Save to Show captures actual monitored Core track profile");
