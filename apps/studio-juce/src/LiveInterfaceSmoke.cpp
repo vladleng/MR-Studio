@@ -497,6 +497,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                       "Instrument Mixer retains assigned physical output and audio FX, without duplicated MIDI/VSTi");
             // The same Mixer selector must display Master for an intentionally
             // empty physical output route (and never overwrite MIDI channel).
+            // Regression for Windows #383: the original fixture has Out 1,
+            // so asserting Master before clearing outputs is incorrect.
             uiPilot.editLiveInterface("Default Instrument output",[&](auto& state) {
                 auto target=live::require(state,"channels",midiChannelId);
                 auto savedProfile=target["liveInput"];
