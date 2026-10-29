@@ -2,6 +2,23 @@
 
 ## Show-owned channel bindings (#302 A2)
 
+### Уточнение типов каналов и выбора плагинов — 29.10.2026
+
+Целевой контракт пользователя (реализация и приёмка отслеживаются в #302 и #281):
+
+| Тип канала | Источник и обработка |
+| --- | --- |
+| Instrument | MIDI device/port + channel/Omni → VSTi → audio FX → выход. Физический audio input здесь не предлагается. |
+| Player | Живой mono/stereo audio input (гитара, микрофон, внешний инструмент) → audio FX → выход. MIDI/VSTi не предлагаются. |
+| Audio | Самостоятельная дорожка аудиозаписи с audio input, Monitor/Arm и audio FX; без VSTi. Реальный capture остаётся #284. |
+| Playback | Подготовленные WAV/stems; не live input и не VSTi. |
+
+Instrument и Player имеют дочернюю запись по #284; это не делает их одним типом. Общие channel mix, routing, patch/subpatch и один Core сохраняются. VSTi здесь означает инструмент в формате VST3, а не поддержку старого формата VST2.
+
+В контекстных селекторах канала и Mixer и в Browser использовать общий catalog с классификацией Instrument/Audio Effect по metadata конкретного plugin class ID. Выбор VSTi (создать/заменить инструмент) отделён от добавления post-instrument FX. Player/Audio показывают только audio effects. Внутри каждого подходящего раздела: **папка вендора → плагины**, вендоры и названия плагинов сортируются по алфавиту без учёта регистра; стабильный tie-breaker — class ID/path. Пустой vendor попадает в «Без вендора». Неизвестный тип не считать эффектом: показать отдельно как недоступный для назначения с предложением обновить scan metadata. Открытие меню не сканирует и не загружает плагины.
+
+Те же ограничения действуют при drag/drop, через команды назначения и при активации сохранённого профиля. Старые show с audio-профилем на Instrument не переназначать и не удалять молча: сохранить descriptor, показать конфликт и предложить явное Undoable преобразование Instrument → Player с сохранением channel ID, mix, chain и item/patch связей. Открытие show не активирует плагины/Monitor. Контракт выше — требование, не заявление о выполненной миграции: текущий A2 ещё допускает audio input на Instrument, а plugin menu пока плоское.
+
 Native channel headers and Mixer embed Input, Output, FX/VSTi and explicit Monitor controls. Audio channels select named mono/stereo device ports; Instrument channels can select a shared Core MIDI port/channel and a VST3 instrument followed by effects. Plugin editors use the existing host. Channel settings have no separate configuration window or Save/Load action: ordinary `.mrlive` Save captures every active channel's component/controller state and retains inactive/missing descriptors. Open restores descriptors only, without loading processors or enabling audio/MIDI monitoring. An explicit Monitor action validates the saved device, input pair, named outputs, MIDI port and modules before activation.
 
 Show channel IDs map to stable Core track IDs. `Application::update_live_channels` prepares one candidate graph off callback, retains unchanged processor instances, and publishes model/device changes through a rollback transaction. `PlaybackLayout::live_tracks` carries all active channel IDs across stopped manual WAV/stem/empty-item handoffs, including Monitor OFF channels. WAV sources remain first in the runtime track order. Playing item switches and staged/automatic handoffs with active channel runtimes remain guarded by #301. No additional Engine, ASIO device owner, MIDI bridge or VST3 host is introduced.
