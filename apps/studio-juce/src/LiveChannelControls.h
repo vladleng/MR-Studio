@@ -10,7 +10,9 @@ namespace ui {
 // its own window; no channel configuration dialog or separate channel save.
 class LiveChannelControls final : public juce::Component {
 public:
-    LiveChannelControls(Desktop& desktop,juce::String channel):owner(desktop),id(std::move(channel)) {
+    enum class Surface { timeline, mixer };
+    LiveChannelControls(Desktop& desktop,juce::String channel,Surface placement=Surface::timeline)
+        :owner(desktop),id(std::move(channel)),surface(placement) {
         for(auto* button:{&input,&output,&effects})addAndMakeVisible(button);
         input.setComponentID("live-channel-input-"+id);
         output.setComponentID("live-channel-output-"+id);
@@ -18,8 +20,14 @@ public:
         input.onClick=[this]{inputMenu();};output.onClick=[this]{outputMenu();};effects.onClick=[this]{owner.run([&]{effectsMenu();});};
     }
     void resized() override {
-        auto r=getLocalBounds();auto row=r.removeFromTop(22);
-        input.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(1,0));output.setBounds(row.reduced(1,0));
+        auto r=getLocalBounds();
+        if(surface==Surface::mixer && !input.isVisible() && !output.isVisible()) {
+            effects.setBounds(r.reduced(1,0));
+            return;
+        }
+        auto row=r.removeFromTop(22);
+        input.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(1,0));
+        output.setBounds(row.reduced(1,0));
         effects.setBounds(r.removeFromTop(22).reduced(1,0));
     }
     void sync() {
@@ -29,17 +37,52 @@ public:
         const bool stopped=!owner.app.recording() && owner.app.engine()->state().playback!=mrs::PlaybackState::playing;
         const auto type=row["type"].toString();
         const bool legacyAudio=type=="Instrument" && profile.isObject() && static_cast<int>(profile["version"])==1;
-        setEnabled(type!="Playback");input.setEnabled(stopped);output.setEnabled(stopped&&!legacyAudio);
+        const bool timelineInstrument=surface==Surface::timeline && type=="Instrument"&&!legacyAudio;
+        const bool mixerInstrument=surface==Surface::mixer && type=="Instrument"&&!legacyAudio;
+        setEnabled(type!="Playback");
+        input.setVisible(!mixerInstrument);output.setVisible(!mixerInstrument);
+        input.setEnabled(stopped);
+        output.setEnabled(stopped&&!legacyAudio&&(!timelineInstrument||profile.isObject()));
         effects.setEnabled(!legacyAudio);
-        input.setButtonText(legacyAudio?"Convert to Player":profile.isObject()?(static_cast<int>(profile["version"])==2?"MIDI":"In "+juce::String(static_cast<int>(profile["input"])+1)+(static_cast<bool>(profile["stereo"])?" ST":"")):type=="Instrument"?"MIDI":"Audio Input");
-        input.setTooltip(legacyAudio?"Legacy audio profile: explicitly convert to Player (Undo available)":profile.isObject()?profile["deviceName"].toString()+" / "+profile["inputName"].toString():type=="Instrument"?"Choose MIDI input; VSTi is selected in the instrument rack":"Choose physical mono/stereo audio input");
-        output.setButtonText(profile["outputs"].size()?"Out "+juce::String(static_cast<int>(profile["outputs"][0])+1):"Master");
-        effects.setButtonText(type=="Instrument"?(profile["inserts"].size()>0&&instrument()?profile["inserts"][0]["name"].toString()+" / FX":"VSTi / FX"):"Audio FX ("+juce::String(profile["inserts"].size())+")");
-        output.setTooltip(profile["outputNames"].size()?profile["outputNames"][0].toString():"Master / default hardware output");
-        if(!legacyAudio && profile.isObject() && profile["deviceName"].toString()!=juce::String::fromUTF8(owner.app.audio_name().c_str())) {
-            input.setButtonText("Missing input");input.setTooltip("Saved device unavailable: "+profile["deviceName"].toString());
+        if(timelineInstrument) {
+            juce::String midiName="MIDI Off";
+            const auto midiId=profile["midiInput"].toString();
+            if(midiId.isNotEmpty()) {
+                midiName="Missing MIDI";
+                for(const auto& port:mrs::desktop::MidiInputs::ports()) {
+                    if(juce::String::fromUTF8(port.id.c_str())==midiId) {
+                        midiName=juce::String::fromUTF8(port.name.c_str());break;
+                    }
+                }
+            }
+            input.setButtonText(midiName);
+            input.setTooltip("MIDI Input: "+midiName);
+            const int channel=profile.isObject()?static_cast<int>(profile["midiChannel"]):-1;
+            output.setButtonText(profile.isObject()?(channel<0?"Omni":"MIDI Ch "+juce::String(channel+1)):"MIDI Channel");
+            output.setTooltip("MIDI receive channel: Omni or 1–16");
+            effects.setButtonText(profile["inserts"].size()>0&&instrument()
+                ?profile["inserts"][0]["name"].toString():"Choose Instrument");
+            effects.setTooltip("VST3 instrument only. Audio FX belong to the Mixer.");
+        } else {
+            input.setButtonText(legacyAudio?"Convert to Player":profile.isObject()?
+                (static_cast<int>(profile["version"])==2?"MIDI":"In "+juce::String(static_cast<int>(profile["input"])+1)+(static_cast<bool>(profile["stereo"])?" ST":"")):
+                type=="Instrument"?"MIDI":"Audio Input");
+            input.setTooltip(legacyAudio?"Legacy audio profile: explicitly convert to Player (Undo available)":
+                profile.isObject()?profile["deviceName"].toString()+" / "+profile["inputName"].toString():
+                type=="Instrument"?"Choose MIDI input":"Choose physical mono/stereo audio input");
+            output.setButtonText(profile["outputs"].size()?"Out "+juce::String(static_cast<int>(profile["outputs"][0])+1):"Master");
+            output.setTooltip(profile["outputNames"].size()?profile["outputNames"][0].toString():"Master / default hardware output");
+            effects.setButtonText(mixerInstrument?"Audio FX ("+juce::String(juce::jmax(0,profile["inserts"].size()-1))+")":
+                type=="Instrument"?(profile["inserts"].size()>0&&instrument()?profile["inserts"][0]["name"].toString()+" / FX":"VSTi / FX"):
+                "Audio FX ("+juce::String(profile["inserts"].size())+")");
+            effects.setTooltip(legacyAudio?"Convert the legacy channel to Player first":
+                mixerInstrument?"Instrument audio effects only; choose VSTi on the Timeline":
+                type=="Instrument"?"VST3 instrument + audio effects":"Audio FX only — saved in the show");
+            if(!legacyAudio && profile.isObject() && profile["deviceName"].toString()!=juce::String::fromUTF8(owner.app.audio_name().c_str())) {
+                input.setButtonText("Missing input");input.setTooltip("Saved device unavailable: "+profile["deviceName"].toString());
+            }
         }
-        effects.setTooltip(legacyAudio?"Convert the legacy channel to Player first":type=="Instrument"?"VST3 instrument (first slot) and audio FX — saved in the show":"Audio FX only — saved in the show");
+        resized();
     }
 private:
     juce::var profile()const{return owner.liveDocument?live::find(owner.liveDocument->interfaceState,"channels",id)["liveInput"]:juce::var{};}
@@ -210,6 +253,6 @@ private:
             safe->owner.setLiveInputEffects(safe->id,std::move(chain));safe->sync();
         });});
     }
-    Desktop& owner;juce::String id;juce::TextButton input{"Input"},output{"Master"},effects{"FX / VSTi"};
+    Desktop& owner;juce::String id;Surface surface;juce::TextButton input{"Input"},output{"Master"},effects{"FX / VSTi"};
 };
 } // namespace ui
