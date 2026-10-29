@@ -53,7 +53,10 @@ inline juce::var liveInputProfile(const mrs::Track& track, const juce::String& p
         put(profile,"midiInput",juce::String::fromUTF8(track.midi_input.c_str()));
         put(profile,"midiChannel",track.midi_channel);
     }
-    put(profile, "input", track.input);
+    // Core uses -2 for tracks with no physical audio input, whereas the
+    // existing .mrlive MIDI descriptor uses -1. Keep saved shows compatible
+    // when capturing state from an activated Instrument channel.
+    put(profile, "input", track.kind==mrs::TrackKind::instrument ? -1 : track.input);
     put(profile, "inputName", physicalName);
     put(profile, "deviceName", deviceName);
     put(profile, "stereo", track.input_stereo);
@@ -110,6 +113,11 @@ struct LiveInputLoaded {
     mrs::Track::Mix mix;
     std::vector<mrs::NativeInsert> inserts;
 };
+inline int liveCoreTrackInput(const LiveInputLoaded& profile) noexcept {
+    // Instrument consumes MIDI, never a physical audio device input. Core
+    // Project::validate accepts -2 for every non-audio track, not -1.
+    return profile.instrument ? -2 : profile.input;
+}
 inline LiveInputLoaded decodeLiveInputProfile(const juce::var& state) {
     if (!state.isObject() || !state["version"].isInt() || (static_cast<int>(state["version"]) != 1 && static_cast<int>(state["version"]) != 2) ||
         !state["input"].isInt() || !state["inputName"].isString() || state["inputName"].toString().length()>256 ||
