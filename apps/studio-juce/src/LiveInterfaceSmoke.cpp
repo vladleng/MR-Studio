@@ -525,6 +525,20 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(inputPilot.project()->tracks.front().input_monitor,
                   "Enabling a restored Live Input requires a separate explicit action");
         inputPilot.stopLiveInputPilot();
+        // #302 A1: use the existing Core stereo input and output routing commands
+        // from the native channel inspector, without inventing a new audio host.
+        inputPilot.startLiveInputPilot(0,showChannel,true);
+        liveCheck(inputPilot.project()->tracks.front().input_stereo &&
+                  inputPilot.project()->tracks.front().input==0,
+                  "#302 stereo input selection reaches a real shared Core audio track");
+        inputPilot.app.set_hardware_output(*inputPilot.liveInputPilotTrack,{0,1});
+        inputPilot.saveLiveInputProfile(showChannel);
+        const auto stereoProfile=live::decodeLiveInputProfile(
+            live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"]);
+        liveCheck(stereoProfile.stereo && stereoProfile.outputs==std::vector<int>{0,1} &&
+                  stereoProfile.input==0,
+                  "#302 channel stereo source and direct output routing survive Save to Show");
+        inputPilot.stopLiveInputPilot();
     }
     Desktop desktop(true, true);
     desktop.importLiveShow(fixture);
