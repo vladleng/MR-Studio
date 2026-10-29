@@ -76,6 +76,28 @@ inline juce::var sorted(const juce::var &value) {
     return value;
 }
 inline juce::String canonical(const juce::var &value) { return juce::JSON::toString(sorted(value), true, 17); }
+// Equality on the in-memory show tree, preserving all fields (including
+// opaque VST3 state) without repeatedly JSON-encoding multi-megabyte strings.
+// This is used for UI dirty checks and no-op detection, not for file hashing.
+inline bool sameShowValue(const juce::var& left,const juce::var& right) {
+    if(left.isObject()||right.isObject()) {
+        const auto* a=left.getDynamicObject(),*b=right.getDynamicObject();
+        if(!a||!b||a->getProperties().size()!=b->getProperties().size())return false;
+        for(const auto& property:a->getProperties())
+            if(!b->hasProperty(property.name)||
+               !sameShowValue(property.value,b->getProperty(property.name)))return false;
+        return true;
+    }
+    if(left.isArray()||right.isArray()) {
+        const auto* a=left.getArray(),*b=right.getArray();
+        if(!a||!b||a->size()!=b->size())return false;
+        for(int i=0;i<a->size();++i)
+            if(!sameShowValue(a->getReference(i),b->getReference(i)))return false;
+        return true;
+    }
+    return left.equalsWithSameType(right);
+}
+
 inline juce::var performance(const juce::var &state) { return state["performance"]; }
 inline juce::var &performance(juce::var &state) { return map(state, "performance"); }
 inline juce::var workflow(const juce::var &state, const juce::String &id) {
