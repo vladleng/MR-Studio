@@ -1050,8 +1050,11 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             combined.importLiveShow(fixture);
             combined.app.connect(std::make_unique<LivePlaybackTestDevice>(),
                                  {0,48000,128,{0},{0,1},1});
-            combined.startLiveAudioInput(0);
-            const auto combinedAnchorId=*combined.liveInputTrack();
+            const auto player=combined.liveDocument->interfaceState["channels"][1]["id"].toString();
+            liveCheck(live::find(combined.liveDocument->interfaceState,"channels",player)["type"].toString()=="Player",
+                      "Shared Live + WAV uses the physical Player channel");
+            combined.startLiveAudioInput(0,player);
+            const auto combinedAnchorId=*combined.liveInputTrack(player);
             mrs::NativeInsert combinedNativeGain;combinedNativeGain.id=mrs::new_id();
             combinedNativeGain.kind=mrs::InsertKind::gain;combinedNativeGain.gain=.5f;
             combined.app.set_inserts(combinedAnchorId,{combinedNativeGain});
