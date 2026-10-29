@@ -469,12 +469,16 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(baselineMixKey.getNumBytesAsUTF8()<16*1024,
                   "Playback polling key must remain small with multi-megabyte VST3 preset data");
         auto modifiedShow=largeLoaded.interfaceState.clone();
+        liveCheck(live::sameShowValue(modifiedShow,largeLoaded.interfaceState),
+                  "Deep-cloned show is unchanged without JSON serialization");
         {
             auto channel=live::require(modifiedShow,"channels",channelId);
             auto profile=channel["liveInput"];
             auto insert=profile["inserts"][0];
             live::put(insert,"component",juce::String("AA=="));
         }
+        liveCheck(!live::sameShowValue(modifiedShow,largeLoaded.interfaceState),
+                  "In-memory show comparison still detects modified VST3 component state");
         liveCheck(live::playbackMixKey(modifiedShow,selectedItem)==baselineMixKey,
                   "Large VST3 binary state is excluded from the Playback polling mix key");
         live::put(live::require(modifiedShow,"channels",channelId),"gain",-5.);
