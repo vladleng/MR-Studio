@@ -403,6 +403,46 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         try { live::validate(invalid); } catch (const std::exception &) { rejected = true; }
         liveCheck(rejected, "Out-of-range show pan still fails validation");
     }
+    // #298: saved physical input, routed mix and plugin state are SHOW metadata,
+    // not a hidden .mrsproject. Reading must never arm a monitor automatically.
+    {
+        mrs::Track input;
+        input.id=mrs::new_id();
+        input.name="Guitar";
+        input.kind=mrs::TrackKind::audio;
+        input.input=0;
+        input.input_monitor=true; // must not be serialized as active monitoring
+        input.hardware_outputs={0,1};
+        input.mix.gain=.75f;
+        input.mix.pan=-.25f;
+        const auto encoded=live::liveInputProfile(input,"Physical Input 1",{});
+        const auto decoded=live::decodeLiveInputProfile(encoded);
+        liveCheck(decoded.input==0 && decoded.name=="Physical Input 1" &&
+                  decoded.outputs==input.hardware_outputs && decoded.mix==input.mix &&
+                  decoded.inserts.empty() && encoded["monitor"].isVoid(),
+                  "Live Input profile encodes physical binding/mix but never armed monitoring");
+        const std::vector<std::byte> sampleState{std::byte{0},std::byte{0x7f},std::byte{0xff}};
+        liveCheck(live::liveInputBytes(live::liveInputB64(sampleState))==sampleState &&
+                  live::liveInputBytes(juce::String{}).empty(),
+                  "VST3 component/controller bytes round-trip without loss");
+        auto source=imported.clone();
+        const auto channelId=source["channels"][0]["id"].toString();
+        live::put(live::require(source,"channels",channelId),"liveInput",encoded);
+        LiveDocument doc;doc.title="Profile saved";doc.interfaceState=source;
+        const auto file=folder.getChildFile("live-input-profile.mrlive");
+        doc.write(file);
+        const auto reopened=LiveDocument::read(file);
+        const auto saved=reopened.interfaceState["channels"][0]["liveInput"];
+        liveCheck(reopened.projects.empty() && reopened.active==-1 &&
+                  live::canonical(saved)==live::canonical(encoded) &&
+                  live::decodeLiveInputProfile(saved).input==0,
+                  "Standalone .mrlive preserves Live Input profile without Studio song/project refs");
+        auto invalid=source.clone();
+        live::put(invalid["channels"][0]["liveInput"],"input",-5);
+        bool rejected=false;
+        try {live::validateLiveInputProfiles(invalid);}catch(const std::exception&){rejected=true;}
+        liveCheck(rejected, "Malformed saved physical input is rejected on validation");
+    }
     // #297: The shared Core may monitor a physical input on an empty Live item,
     // but must never silently retire that DSP across a WAV-only item handoff.
     {
