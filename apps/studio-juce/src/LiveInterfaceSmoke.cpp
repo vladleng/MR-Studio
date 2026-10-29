@@ -499,6 +499,19 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                 midiChannelId=live::addChannel(state,"Instrument","Test MIDI");
                 live::put(live::require(state,"channels",midiChannelId),"liveInput",midiProfile.clone());
             });
+            LiveMixer realMixer(uiPilot);
+            realMixer.setSize(500,340);realMixer.sync();
+            auto* instrumentPick=dynamic_cast<juce::TextButton*>(
+                liveComponent(realMixer,"live-mixer-instrument-"+midiChannelId));
+            liveCheck(instrumentPick && instrumentPick->isVisible() &&
+                      instrumentPick->getButtonText()=="Choose VSTi",
+                      "Instrument VSTi selector is present in Mixer under pan/level");
+            LiveTimeline realTimeline(uiPilot);
+            realTimeline.setSize(600,540);realTimeline.refresh();
+            auto* editorIcon=dynamic_cast<juce::Button*>(
+                liveComponent(realTimeline,"live-timeline-editor-"+midiChannelId));
+            liveCheck(editorIcon!=nullptr && !editorIcon->isEnabled(),
+                      "Instrument timeline exposes an editor icon, disabled until VSTi is assigned");
             LiveChannelControls timeline(uiPilot,midiChannelId,LiveChannelControls::Surface::timeline);
             LiveChannelControls mixer(uiPilot,midiChannelId,LiveChannelControls::Surface::mixer);
             timeline.setBounds(0,0,220,44);mixer.setBounds(0,0,220,44);
