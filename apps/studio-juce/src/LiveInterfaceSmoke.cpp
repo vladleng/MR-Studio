@@ -488,9 +488,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                       instrumentButton && instrumentButton->getButtonText()=="Choose Instrument",
                       "Timeline Instrument labels show MIDI port/channel and VSTi, not Master or audio FX");
             liveCheck(mixerInput && !mixerInput->isVisible() &&
-                      mixerOutput && !mixerOutput->isVisible() &&
+                      mixerOutput && mixerOutput->isVisible() && mixerOutput->getButtonText()=="Master" &&
                       mixerFx && mixerFx->isVisible() && mixerFx->getButtonText()=="Audio FX (0)",
-                      "Instrument Mixer owns audio effects without duplicated MIDI/VSTi controls");
+                      "Instrument Mixer retains physical routing and audio FX, without duplicated MIDI/VSTi");
         }
         auto invalidMidi=midiProfile.clone();live::put(invalidMidi,"midiChannel",16);rejected=false;
         try{(void)live::decodeLiveInputProfile(invalidMidi);}catch(const std::exception&){rejected=true;}
