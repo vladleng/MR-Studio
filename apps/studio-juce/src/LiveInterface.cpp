@@ -133,13 +133,12 @@ class LiveInterfaceEdit final : public juce::UndoableAction {
     }
     juce::UndoableAction *createCoalescedAction(juce::UndoableAction *next) override {
         const auto *edit = dynamic_cast<LiveInterfaceEdit *>(next);
-        if (!edit || owner != edit->owner || live::canonical(after) != live::canonical(edit->before)) return nullptr;
+        if (!edit || owner != edit->owner || !live::sameShowValue(after,edit->before)) return nullptr;
         return owner ? new LiveInterfaceEdit(*owner, before, edit->after) : nullptr;
     }
-    int getSizeInUnits() override {
-        return static_cast<int>(juce::JSON::toString(before).getNumBytesAsUTF8() +
-                                juce::JSON::toString(after).getNumBytesAsUTF8());
-    }
+    // Undo snapshots share String backing storage for VST3 state. Avoid
+    // encoding multi-megabyte blobs just to estimate UndoManager units.
+    int getSizeInUnits() override { return 1024; }
 
   private:
     juce::Component::SafePointer<Desktop> owner;
@@ -277,13 +276,20 @@ void Desktop::prepareLiveInterface(bool saved) {
             live::put(perf, "showOrganizer", reference.defaults["showOrganizer"]);
         liveDocument->validate();
     }
-    liveSavedContents = saved && liveDocument ? liveDocument->signature() : juce::String();
+    liveSavedSnapshot = saved && liveDocument ? std::optional<LiveDocument>(liveDocument->clone()) : std::nullopt;
     liveSavedPluginEdits=app.plugin_edit_revision();
     updateLiveDirty();
     ++liveUiRevision;
 }
 void Desktop::updateLiveDirty() {
-    liveDirty = liveDocument && (liveSavedContents.isEmpty() || liveDocument->signature() != liveSavedContents);
+    if(!liveDocument) {liveDirty=false;return;}
+    if(!liveSavedSnapshot) {liveDirty=true;return;}
+    const auto& saved=*liveSavedSnapshot;
+    liveDirty=liveDocument->title!=saved.title ||
+        liveDocument->active!=saved.active ||
+        liveDocument->projects!=saved.projects ||
+        liveDocument->itemProjects!=saved.itemProjects ||
+        !live::sameShowValue(liveDocument->interfaceState,saved.interfaceState);
 }
 void Desktop::applyLiveInterface(const juce::var &value) {
     if (!liveDocument)
@@ -329,11 +335,11 @@ void Desktop::editLiveInterface(const juce::String &label, std::function<void(ju
     if(captureInputs)captureLiveInputs(before);
     auto draft = before.clone();
     edit(draft);
+    // Avoid redundant full-show JSON validation for no-op UI actions.
+    if(live::sameShowValue(draft,liveDocument->interfaceState))return;
     live::validate(draft);
-    validateMusicalEdit(*this, draft);
-    validatePlaybackEdit(*this, draft);
-    if (live::canonical(draft) == live::canonical(liveDocument->interfaceState))
-        return;
+    validateMusicalEdit(*this,draft);
+    validatePlaybackEdit(*this,draft);
     liveShowEditing = true;
     const auto now = juce::Time::getMillisecondCounter();
     if (!coalesceTyping || liveTypingLabel != label || now - liveTypingAt > 800) liveUndo.beginNewTransaction(label);
@@ -763,7 +769,7 @@ void Desktop::reconcileLiveInputs(const juce::var& state) {
         const auto at=std::find_if(snapshot->tracks.begin(),snapshot->tracks.end(),[&](const auto& t){return t.id==id;});
         if(at==snapshot->tracks.end())throw std::runtime_error("Live channel Core track is missing");
         if(!row.isObject() || !row["liveInput"].isObject()) {channelTracks.erase(channel);changed=true;continue;}
-        if(live::canonical(row["liveInput"])==live::canonical(old["liveInput"])) {
+        if(live::sameShowValue(row["liveInput"],old["liveInput"])) {
             tracks.push_back(*at); // mix is updated separately without rebuilding DSP
             continue;
         }
