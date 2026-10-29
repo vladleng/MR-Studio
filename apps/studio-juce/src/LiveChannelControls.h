@@ -216,15 +216,20 @@ private:
             if(opened)target.addSubMenu(current,folder);
             else target.addItem(0,vsti?"No scanned VST3 instruments":"No scanned audio effects",false);
         };
-        if(saved.instrument) {
+        const bool timelineInstrument=saved.instrument && surface==Surface::timeline;
+        const bool mixerInstrument=saved.instrument && surface==Surface::mixer;
+        if(timelineInstrument) {
             juce::PopupMenu vsti;appendType(vsti,true);
             menu.addSubMenu(saved.inserts.empty()?"Choose VST3 Instrument":"Replace VST3 Instrument",vsti,stopped);
         }
-        juce::PopupMenu audioFx;appendType(audioFx,false);
-        menu.addSubMenu("Add Audio FX",audioFx,stopped&&saved.inserts.size()<8&&(!saved.instrument||!saved.inserts.empty()));
+        if(!timelineInstrument) {
+            juce::PopupMenu audioFx;appendType(audioFx,false);
+            menu.addSubMenu("Add Audio FX",audioFx,stopped&&saved.inserts.size()<8&&(!saved.instrument||!saved.inserts.empty()));
+        }
         const auto unknown=static_cast<int>(std::count_if(catalog.begin(),catalog.end(),[](const auto& p){return !p.instrument.has_value();}));
         if(unknown>0)menu.addItem(0,"Unknown plugin type ("+juce::String(unknown)+") — rescan catalog",false);
-        for(std::size_t i=0;i<saved.inserts.size();++i) {
+        for(std::size_t i=mixerInstrument?1u:0u;i<saved.inserts.size();++i) {
+            if(timelineInstrument && i>0)break;
             const auto& fx=saved.inserts[i];juce::PopupMenu slot;
             // A saved VST3 can be edited before Monitor is enabled. An explicit
             // editor request prepares the Core track, but leaves monitoring OFF.
@@ -250,6 +255,8 @@ private:
                     throw std::runtime_error("Plugin catalog changed; reopen menu");
                 if(!plugin.instrument.has_value())throw std::runtime_error("Unknown VST3 class type; rescan catalog");
                 const bool vsti=*plugin.instrument;
+                if(saved.instrument && (safe->surface==Surface::timeline)!=vsti)
+                    throw std::runtime_error("VSTi belongs to Timeline; audio FX belongs to Mixer");
                 if(vsti&&!saved.instrument)throw std::runtime_error("VSTi requires an Instrument channel");
                 if(!vsti&&saved.instrument&&chain.empty())throw std::runtime_error("Choose a VSTi before adding audio effects");
                 if((!vsti||!saved.instrument)&&chain.size()>=8)throw std::runtime_error("Live channel insert limit reached");
