@@ -1,5 +1,6 @@
 #include <mrs/vst3.hpp>
 #include <windows.h>
+#include <algorithm>
 #include <fstream>
 #include <iomanip>
 #include <map>
