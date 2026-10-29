@@ -440,7 +440,8 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         // and use the current wrapped layout whenever it is available.
         const int lineHeight = juce::jmax(15, juce::roundToInt(
             notes.getFont().getHeight() * notes.getLineSpacing()));
-        const int laidOutHeight = juce::jmax(notes.getTextHeight(), explicitLines * lineHeight);
+        const int laidOutHeight = text.isEmpty() ? lineHeight
+            : juce::jmax(notes.getTextHeight(), explicitLines * lineHeight);
         const int needed = juce::jlimit(72, 520, laidOutHeight + 36);
         if (notesBlockHeight == needed) return;
         notesBlockHeight = needed;
