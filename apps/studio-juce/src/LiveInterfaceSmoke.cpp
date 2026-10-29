@@ -476,11 +476,25 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   liveComponent(*inputPanel,"live-input-plugin")!=nullptr,
                   "Live Input pilot offers monitoring and shared VST3 insert controls");
         delete inputPanel;
+        const auto showChannel=inputPilot.liveDocument->interfaceState["channels"][0]["id"].toString();
+        inputPilot.saveLiveInputProfile(showChannel);
+        liveCheck(inputPilot.liveDocument->interfaceState["channels"][0]["liveInput"].isObject(),
+                  "Explicit Save to Show captures actual monitored Core track profile");
         inputPilot.stopLiveInputPilot();
         liveCheck(!inputPilot.liveInputPilotTrack &&
                   inputPilot.project()->tracks.empty() &&
                   inputPilot.app.engine()==engine,
                   "Disabling Live Input safely removes temporary Core monitoring without a second engine");
+        inputPilot.loadLiveInputProfile(showChannel);
+        liveCheck(inputPilot.liveInputPilotTrack &&
+                  inputPilot.project()->tracks.size()==1 &&
+                  !inputPilot.project()->tracks.front().input_monitor &&
+                  inputPilot.app.engine()==engine,
+                  "Loading saved input profile restores Core track with monitor OFF");
+        inputPilot.enableLiveInputPilotMonitoring();
+        liveCheck(inputPilot.project()->tracks.front().input_monitor,
+                  "Enabling a restored Live Input requires a separate explicit action");
+        inputPilot.stopLiveInputPilot();
     }
     Desktop desktop(true, true);
     desktop.importLiveShow(fixture);
