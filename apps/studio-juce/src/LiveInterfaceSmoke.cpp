@@ -415,9 +415,10 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         input.hardware_outputs={0,1};
         input.mix.gain=.75f;
         input.mix.pan=-.25f;
-        const auto encoded=live::liveInputProfile(input,"Physical Input 1",{});
+        const auto encoded=live::liveInputProfile(input,"Physical Input 1","Test ASIO device",{});
         const auto decoded=live::decodeLiveInputProfile(encoded);
         liveCheck(decoded.input==0 && decoded.name=="Physical Input 1" &&
+                  decoded.device=="Test ASIO device" &&
                   decoded.outputs==input.hardware_outputs && decoded.mix==input.mix &&
                   decoded.inserts.empty() && encoded["monitor"].isVoid(),
                   "Live Input profile encodes physical binding/mix but never armed monitoring");
