@@ -50,6 +50,11 @@ inline juce::var liveInputProfile(const mrs::Track& track, const juce::String& p
     put(profile, "outputs", outputs);
     juce::Array<juce::var> plugins;
     for (const auto& fx : captured) {
+        if(fx.kind==mrs::InsertKind::gain) {
+            fx.validate();auto entry=object();
+            put(entry,"kind","gain");put(entry,"id",juce::String::fromUTF8(fx.id.value.c_str()));
+            put(entry,"gain",fx.gain);put(entry,"bypass",fx.bypass);plugins.add(entry);continue;
+        }
         if (fx.kind != mrs::InsertKind::vst3 || fx.plugin_path.empty() ||
             fx.class_id.empty() || fx.id.value.empty())
             throw std::runtime_error("Live Input v1 accepts VST3 effects only");
@@ -80,7 +85,8 @@ struct LiveInputLoaded {
     juce::String midiInput;
     int midiChannel{-1};
     int input{-1};
-    juce::String name, device;
+    juce::String name, device, rightName;
+    std::vector<juce::String> outputNames;
     bool stereo{};
     std::vector<int> outputs;
     mrs::Track::Mix mix;
@@ -99,7 +105,7 @@ inline LiveInputLoaded decodeLiveInputProfile(const juce::var& state) {
     result.instrument=static_cast<int>(state["version"])==2;
     if(result.instrument) {
         if(state["kind"].toString()!="instrument" || !state["midiInput"].isString() ||
-           state["midiInput"].toString().length()>512 || !state["midiChannel"].isInt() ||
+           state["midiInput"].toString().length()>256 || !state["midiChannel"].isInt() ||
            static_cast<int>(state["midiChannel"]) < -1 || static_cast<int>(state["midiChannel"])>15)
             throw std::runtime_error("Invalid Live MIDI input");
         result.midiInput=state["midiInput"].toString();result.midiChannel=static_cast<int>(state["midiChannel"]);
@@ -108,6 +114,10 @@ inline LiveInputLoaded decodeLiveInputProfile(const juce::var& state) {
     result.name=state["inputName"].toString();
     result.device=state["deviceName"].toString();
     result.stereo=static_cast<bool>(state["stereo"]);
+    if(!state["inputRightName"].isVoid()) {
+        if(!named(state["inputRightName"],256))throw std::runtime_error("Invalid stereo port name");
+        result.rightName=state["inputRightName"].toString();
+    }
     auto mix=state["mix"];
     if (!number(mix["gain"]) || !number(mix["pan"]) ||
         !mix["mute"].isBool() || !mix["solo"].isBool())
@@ -124,8 +134,24 @@ inline LiveInputLoaded decodeLiveInputProfile(const juce::var& state) {
             throw std::runtime_error("Invalid Live Input output routing");
         result.outputs.push_back(static_cast<int>(value));
     }
+    if(!state["outputNames"].isVoid()) {
+        if(!state["outputNames"].isArray() || state["outputNames"].size()!=state["outputs"].size())
+            throw std::runtime_error("Invalid output port names");
+        for(const auto& name:*state["outputNames"].getArray()) {
+            if(!named(name,256))throw std::runtime_error("Invalid output port name");
+            result.outputNames.push_back(name.toString());
+        }
+    }
     std::set<std::string> uniqueIds;
     for(const auto& value : *state["inserts"].getArray()) {
+        if(value["kind"].toString()=="gain") {
+            if(!value.isObject() || !named(value["id"],128) || !number(value["gain"]) || !value["bypass"].isBool())
+                throw std::runtime_error("Invalid Live native gain descriptor");
+            mrs::NativeInsert fx;fx.id=mrs::Id{value["id"].toString().toStdString()};fx.kind=mrs::InsertKind::gain;
+            if(!uniqueIds.insert(fx.id.value).second)throw std::runtime_error("Duplicate Live insert ID");
+            fx.gain=static_cast<float>(static_cast<double>(value["gain"]));fx.bypass=static_cast<bool>(value["bypass"]);
+            fx.validate();result.inserts.push_back(std::move(fx));continue;
+        }
         if (!value.isObject() || !named(value["id"], 128) || !named(value["path"], 4096) ||
             !named(value["classId"], 256) || !value["name"].isString() ||
             !value["bypass"].isBool() || !value["parameters"].isArray() ||

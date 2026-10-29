@@ -1,7 +1,7 @@
 #pragma once
 #include "Desktop.h"
 #include "LiveAudioPanel.h"
-#include "LiveInputPilotPanel.h"
+#include "LiveChannelControls.h"
 #include "LiveChannels.h"
 #include "LiveContext.h"
 #include "LiveLayout.h"

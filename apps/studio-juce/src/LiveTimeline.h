@@ -9,7 +9,7 @@
 #include "LivePlaybackView.h"
 #include "LiveShowState.h"
 #include "LiveTheme.h"
-#include "LiveInputPilotPanel.h"
+#include "LiveChannelControls.h"
 #include "LiveWaveformCache.h"
 #include "WaveformView.h"
 

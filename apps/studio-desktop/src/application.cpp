@@ -2210,7 +2210,7 @@ void Application::poll() {
     poll_reverbs();
     publish_midi_routes();
     publish_inserts();
-    for(auto& [key,r]:insert_runtime_){(void)key;if(r.graph && r.graph->consume_edits())unsaved_=true;}
+    for(auto& [key,r]:insert_runtime_){(void)key;if(r.graph && r.graph->consume_edits()){unsaved_=true;++plugin_edit_revision_;}}
     publish_mix();
     // Hidden pre-record capture runs while pre-count deliberately holds playback.
     // Read the coherent transport snapshot once; only a real stop ends the take.

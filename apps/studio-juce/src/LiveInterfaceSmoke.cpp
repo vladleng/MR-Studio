@@ -525,12 +525,33 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   inputPilot.project()->tracks.front().input==0,
                   "#302 stereo input selection reaches a real shared Core audio track");
         inputPilot.app.set_hardware_output(*inputPilot.liveInputTrack(),{0,1});
-        inputPilot.saveLiveInputProfile(showChannel);
+        inputPilot.saveFile(pilotSaved);
         const auto stereoProfile=live::decodeLiveInputProfile(
             live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"]);
         liveCheck(stereoProfile.stereo && stereoProfile.outputs==std::vector<int>{0,1} &&
                   stereoProfile.input==0,
-                  "#302 channel stereo source and direct output routing survive Save to Show");
+                  "#302 channel stereo source and output routing belong to the saved show");
+        juce::String secondChannel;
+        inputPilot.editLiveInterface("Add second audio channel",[&](auto& state){secondChannel=live::addChannel(state,"Audio","Second input");});
+        inputPilot.startLiveInputPilot(1,secondChannel,false);
+        const auto firstCore=*inputPilot.liveInputTrack(showChannel),secondCore=*inputPilot.liveInputTrack(secondChannel);
+        liveCheck(firstCore!=secondCore && inputPilot.project()->tracks.size()==2 && inputPilot.app.engine()==engine,
+                  "#302 A2 maps two show channels to independent stable tracks on the original Core");
+        inputPilot.setLiveChannelMix(secondChannel,-6.,.25,false,false);
+        inputPilot.undoLiveInterface();
+        auto secondMix=[&]{for(const auto& track:inputPilot.project()->tracks)if(track.id==secondCore)return track.mix;return mrs::Track::Mix{};};
+        liveCheck(std::abs(secondMix().gain-1.f)<.0001f,"Channel mixer Undo reaches the real Core mix");
+        inputPilot.undoLiveInterface(true);
+        liveCheck(std::abs(secondMix().gain-static_cast<float>(std::pow(10.,-.3)))<.0001f,"Channel mixer Redo reaches the real Core mix");
+        const auto multiSaved=folder.getChildFile("multi-input-show.mrlive");inputPilot.saveFile(multiSaved);
+        const auto multiLoaded=LiveDocument::read(multiSaved);
+        liveCheck(live::find(multiLoaded.interfaceState,"channels",showChannel)["liveInput"].isObject() &&
+                  live::find(multiLoaded.interfaceState,"channels",secondChannel)["liveInput"].isObject() && multiLoaded.projects.empty(),
+                  "Ordinary Save persists every channel without separate channel Save actions");
+        inputPilot.stopLiveInputPilot(secondChannel);inputPilot.stopLiveInputPilot(showChannel);
+        inputPilot.openFile(multiSaved);
+        liveCheck(inputPilot.liveChannelTracks.empty() && inputPilot.project()->tracks.empty(),
+                  "Open restores show settings with no automatic plugin activation or monitoring");
         inputPilot.stopLiveInputPilot();
     }
     Desktop desktop(true, true);

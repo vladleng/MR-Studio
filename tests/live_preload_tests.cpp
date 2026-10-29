@@ -62,6 +62,7 @@ void wav(const std::filesystem::path &path, int sign = 1, unsigned rate = 48000)
 struct Calls {
     int opens{}, closes{}, starts{}, stops{};
     bool failStart{};
+    std::vector<int> inputs;
 };
 class Device final : public audio::IAudioDevice {
     std::shared_ptr<Calls> calls;
@@ -73,8 +74,9 @@ class Device final : public audio::IAudioDevice {
         return {{0, "Prepared Playback test", {"Input 1","Input 2"}, {"1", "2", "3", "4"}, 32, 2048, 128, -1}};
     }
     void control_panel(int) override {}
-    void open(const audio::DeviceConfig &, std::shared_ptr<audio::AudioEngine>) override {
+    void open(const audio::DeviceConfig &config, std::shared_ptr<audio::AudioEngine>) override {
         ++calls->opens;
+        calls->inputs=config.inputs;
         phase = audio::DevicePhase::open;
     }
     void start() override {
@@ -121,7 +123,12 @@ void live_channels(const std::filesystem::path& file) {
     const std::vector<Id> ids{left.id,right.id};
     std::array<float,256> in{};std::array<float,512> out{};
     for(std::size_t i=0;i<128;++i){in[i*2]=.4f;in[i*2+1]=.8f;}
-    const auto render=[&]{engine->process(in.data(),out.data(),128);};
+    const auto render=[&]{
+        for(std::size_t frame=0;frame<128;++frame)
+            for(std::size_t stream=0;stream<calls->inputs.size();++stream)
+                in[frame*calls->inputs.size()+stream]=calls->inputs[stream]==0?.4f:.8f;
+        engine->process(calls->inputs.empty()?nullptr:in.data(),out.data(),128);
+    };
     render();render();
     check(out[400]>.15f&&out[400]<.25f&&out[402]>.15f&&out[402]<.25f&&out[401]==0&&out[403]==0,
           "Two physical channels run independent inputs, chains and direct outputs on one Core");

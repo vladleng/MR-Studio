@@ -112,6 +112,7 @@ public:
     std::optional<mrs::Id> liveInputTrack(const juce::String& showChannel = {}) const;
     std::vector<mrs::Id> liveInputTracks() const;
     std::map<juce::String,mrs::Id> liveChannelTracks;
+    std::uint64_t liveSavedPluginEdits{};
     void captureLiveInputs(juce::var& state);
     void reconcileLiveInputs(const juce::var& state);
     void configureLiveInput(const juce::String&, int input, bool stereo, const std::vector<int>& outputs);
@@ -157,7 +158,7 @@ public:
     juce::File documentFile() const;
     bool songDirty() const;
     bool transientLiveRuntime() const;
-    bool documentDirty() const{return liveDirty||songDirty();}
+    bool documentDirty() const{return liveDirty||songDirty()||(liveDocument&&!liveChannelTracks.empty()&&liveSavedPluginEdits!=app.plugin_edit_revision());}
     std::optional<std::pair<std::uint64_t,std::uint64_t>> liveEmptyRevision;
     std::optional<LiveDocument> liveDocument;
     juce::File liveFile;

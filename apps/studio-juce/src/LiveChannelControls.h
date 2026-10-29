@@ -30,7 +30,11 @@ public:
         input.setButtonText(profile.isObject()?(static_cast<int>(profile["version"])==2?"MIDI":"In "+juce::String(static_cast<int>(profile["input"])+1)+(static_cast<bool>(profile["stereo"])?" ST":"")):"Input");
         input.setTooltip(profile.isObject()?profile["deviceName"].toString()+" / "+profile["inputName"].toString():"Choose audio input or MIDI / VSTi");
         output.setButtonText(profile["outputs"].size()?"Out "+juce::String(static_cast<int>(profile["outputs"][0])+1):"Master");
-        effects.setButtonText("FX / VSTi ("+juce::String(profile["inserts"].size())+")");
+        effects.setButtonText(instrument()&&profile["inserts"].size()>0?profile["inserts"][0]["name"].toString()+" / FX":"FX / VSTi ("+juce::String(profile["inserts"].size())+")");
+        output.setTooltip(profile["outputNames"].size()?profile["outputNames"][0].toString():"Master / default hardware output");
+        if(profile.isObject() && profile["deviceName"].toString()!=juce::String::fromUTF8(owner.app.audio_name().c_str())) {
+            input.setButtonText("Missing input");input.setTooltip("Saved device unavailable: "+profile["deviceName"].toString());
+        }
         effects.setTooltip("Instrument and effects: add, editor, bypass, reorder, remove. Saved with the show.");
     }
 private:
@@ -98,15 +102,16 @@ private:
         if(!profile().isObject())throw std::runtime_error("Choose the channel input first");
         const auto saved=live::decodeLiveInputProfile(profile());
         juce::PopupMenu menu,add;menu.setLookAndFeel(&owner.theme);
-        for(std::size_t i=0;i<owner.catalog.size();++i) {
-            const auto& plugin=owner.catalog[i];
+        const auto catalog=owner.catalog;
+        for(std::size_t i=0;i<catalog.size();++i) {
+            const auto& plugin=catalog[i];
             // Unknown old catalog entries are probed only after explicit selection.
             const bool synth=plugin.instrument.value_or(false);
             if(synth && !saved.instrument)continue;
             add.addItem(10000+static_cast<int>(i),juce::String::fromUTF8(plugin.name.c_str())+(synth?" [VSTi]":""));
         }
         if(add.getNumItems()==0)add.addItem(0,"Scan the plugin browser first",false);
-        menu.addSubMenu(saved.instrument&&saved.inserts.empty()?"Choose VSTi":"Add / replace plugin",add,saved.inserts.size()<8);
+        menu.addSubMenu(saved.instrument&&saved.inserts.empty()?"Choose VSTi":"Add / replace plugin",add,saved.inserts.size()<8||saved.instrument);
         for(std::size_t i=0;i<saved.inserts.size();++i) {
             const auto& fx=saved.inserts[i];juce::PopupMenu slot;
             slot.addItem(100+static_cast<int>(i)*10,"Open editor",owner.liveInputTrack(id).has_value());
@@ -117,12 +122,12 @@ private:
             menu.addSubMenu(juce::String(static_cast<int>(i+1))+". "+juce::String::fromUTF8(fx.plugin_name.c_str()),slot);
         }
         const auto signature=live::canonical(profile());juce::Component::SafePointer<LiveChannelControls> safe(this);
-        menu.showMenuAsync(liveMenuOptions(effects),[safe,saved,signature](int action){if(!safe||!action)return;safe->owner.run([&]{
+        menu.showMenuAsync(liveMenuOptions(effects),[safe,saved,signature,catalog](int action){if(!safe||!action)return;safe->owner.run([&]{
             if(live::canonical(safe->profile())!=signature)throw std::runtime_error("Channel changed; reopen effect menu");
             auto chain=saved.inserts;
             if(action>=10000) {
-                const auto index=static_cast<std::size_t>(action-10000);if(index>=safe->owner.catalog.size())throw std::runtime_error("Plugin catalog changed");
-                auto plugin=safe->owner.catalog[index];
+                const auto index=static_cast<std::size_t>(action-10000);if(index>=catalog.size())throw std::runtime_error("Plugin catalog changed");
+                auto plugin=catalog[index];
                 if(!plugin.instrument) {
                     const auto found=mrs::processing::probe_vst3(plugin.path);
                     const auto at=std::find_if(found.begin(),found.end(),[&](const auto& p){return p.class_id==plugin.class_id;});

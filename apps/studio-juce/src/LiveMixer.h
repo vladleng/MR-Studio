@@ -2,7 +2,7 @@
 #include "Desktop.h"
 #include "LiveTheme.h"
 #include "LivePlaybackState.h"
-#include "LiveInputPilotPanel.h"
+#include "LiveChannelControls.h"
 
 namespace ui {
 // Persistent show-channel controls; processing uses the shared Core mix API.

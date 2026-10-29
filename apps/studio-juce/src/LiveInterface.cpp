@@ -276,6 +276,7 @@ void Desktop::prepareLiveInterface(bool saved) {
         liveDocument->validate();
     }
     liveSavedContents = saved && liveDocument ? liveDocument->signature() : juce::String();
+    liveSavedPluginEdits=app.plugin_edit_revision();
     updateLiveDirty();
     ++liveUiRevision;
 }
@@ -309,6 +310,13 @@ void Desktop::applyLiveInterface(const juce::var &value) {
     transaction.validate();
     reconcileLiveInputs(copy);
     liveDocument->interfaceState = copy;
+    // Undo/Redo and channel selection use the same show-wide scalar mix.
+    for(const auto& [channel,id]:liveChannelTracks) {
+        const auto row=live::find(copy,"channels",channel);mrs::Track::Mix mix;
+        mix.gain=static_cast<float>(std::pow(10.,static_cast<double>(row["gain"])/20.));
+        mix.pan=static_cast<float>(live::channelPan(row));mix.mute=static_cast<bool>(row["mute"]);mix.solo=static_cast<bool>(row["solo"]);
+        app.set_track_mix(id,mix);
+    }
     updateLiveDirty();
     ++liveUiRevision;
 }
@@ -625,6 +633,19 @@ std::vector<mrs::Id> Desktop::liveInputTracks() const {
     return result;
 }
 namespace {
+void stampLivePorts(Desktop& owner,juce::var& profile) {
+    const auto inputs=owner.app.input_names();const auto outputs=owner.app.output_names();
+    const int input=static_cast<int>(profile["input"]);
+    if(static_cast<bool>(profile["stereo"]) && input>=0 && static_cast<std::size_t>(input+1)<inputs.size())
+        live::put(profile,"inputRightName",juce::String::fromUTF8(inputs[static_cast<std::size_t>(input+1)].c_str()));
+    juce::Array<juce::var> names;
+    for(const auto& port:*profile["outputs"].getArray()) {
+        const int index=static_cast<int>(port);
+        if(index<0 || static_cast<std::size_t>(index)>=outputs.size())throw std::runtime_error("Channel output unavailable");
+        names.add(juce::String::fromUTF8(outputs[static_cast<std::size_t>(index)].c_str()));
+    }
+    live::put(profile,"outputNames",names);
+}
 juce::String inputChannel(Desktop& owner,juce::String channel) {
     if(!owner.liveDocument || !owner.liveDocument->projects.empty() || (!owner.standaloneLive && !owner.testing))
         throw std::runtime_error("Live channels require the standalone MR Live show");
@@ -639,7 +660,7 @@ mrs::Track liveTrack(const juce::var& state,const juce::String& channel,const mr
     const auto row=live::find(state,"channels",channel);
     const auto profile=live::decodeLiveInputProfile(row["liveInput"]);
     mrs::Track track{id,row["name"].toString().toStdString(),profile.instrument?mrs::TrackKind::instrument:mrs::TrackKind::audio,{}};
-    track.midi_input=profile.midiInput.toStdString();track.midi_channel=profile.midiChannel;track.midi_monitor=false;
+    track.midi_input=profile.midiInput.toStdString();track.midi_channel=profile.midiChannel;track.midi_monitor=!profile.instrument;
     track.input=profile.input;track.input_stereo=profile.stereo;track.hardware_outputs=profile.outputs;
     track.inserts=profile.inserts;
     // Show mixer is the sole authority; old A1 profile.mix remains readable.
@@ -666,6 +687,15 @@ void validateLiveHardware(Desktop& owner,const live::LiveInputLoaded& profile) {
        (profile.stereo && static_cast<std::size_t>(profile.input+1)>=inputs.size()) ||
        juce::String::fromUTF8(inputs[static_cast<std::size_t>(profile.input)].c_str())!=profile.name))
         throw std::runtime_error("Saved physical input is unavailable or its name changed");
+    if(profile.stereo && profile.rightName.isNotEmpty() &&
+       juce::String::fromUTF8(inputs.at(static_cast<std::size_t>(profile.input+1)).c_str())!=profile.rightName)
+        throw std::runtime_error("Saved stereo partner name changed; explicitly select the intended pair");
+    const auto outputs=owner.app.output_names();
+    for(std::size_t i=0;i<profile.outputNames.size();++i) {
+        const auto port=static_cast<std::size_t>(profile.outputs[i]);
+        if(port>=outputs.size() || juce::String::fromUTF8(outputs[port].c_str())!=profile.outputNames[i])
+            throw std::runtime_error("Saved output name changed; explicitly select the intended output");
+    }
     for(const auto& fx:profile.inserts)
         if(fx.kind==mrs::InsertKind::vst3 && !juce::File(juce::String::fromUTF8(fx.plugin_path.c_str())).exists())
             throw std::runtime_error("Saved VST3 module is missing; channel settings are retained");
@@ -680,7 +710,16 @@ void Desktop::captureLiveInputs(juce::var& state) {
         const auto saved=live::decodeLiveInputProfile(row["liveInput"]);
         std::vector<mrs::NativeInsert> captured;
         for(const auto& fx:at->inserts)captured.push_back(app.capture_insert(id,fx.id));
-        live::put(row,"liveInput",live::liveInputProfile(*at,saved.name,saved.device,captured));
+        auto profile=live::liveInputProfile(*at,saved.name,saved.device,captured);
+        const auto prior=row["liveInput"];
+        if(!prior["inputRightName"].isVoid())live::put(profile,"inputRightName",prior["inputRightName"].clone());
+        if(live::canonical(prior["outputs"])==live::canonical(profile["outputs"])) {
+            if(!prior["outputNames"].isVoid())live::put(profile,"outputNames",prior["outputNames"].clone());
+        } else {
+            if(saved.device!=juce::String::fromUTF8(app.audio_name().c_str()))throw std::runtime_error("Cannot capture changed routes from a different audio device");
+            stampLivePorts(*this,profile);
+        }
+        live::put(row,"liveInput",profile);
     }
 }
 void Desktop::reconcileLiveInputs(const juce::var& state) {
@@ -698,7 +737,9 @@ void Desktop::reconcileLiveInputs(const juce::var& state) {
             tracks.push_back(*at); // mix is updated separately without rebuilding DSP
             continue;
         }
-        validateLiveHardware(*this,live::decodeLiveInputProfile(row["liveInput"]));
+        const auto profile=live::decodeLiveInputProfile(row["liveInput"]);
+        if(profile.instrument && profile.inserts.empty()) {next.erase(channel);changed=true;continue;}
+        validateLiveHardware(*this,profile);
         auto track=liveTrack(state,channel,id);track.input_monitor=at->input_monitor;track.midi_monitor=at->midi_monitor;
         tracks.push_back(std::move(track));changed=true;
     }
@@ -718,8 +759,9 @@ void Desktop::configureLiveInput(const juce::String& requested,int input,bool st
     auto track=mrs::Track{mrs::Id{"live-input-"+channel.toStdString()},row["name"].toString().toStdString(),mrs::TrackKind::audio,{}};
     track.input=input;track.input_stereo=stereo;track.hardware_outputs=outputs;
     if(row["liveInput"].isObject()) {const auto saved=live::decodeLiveInputProfile(row["liveInput"]);if(!saved.instrument)track.inserts=saved.inserts;}
-    const auto profile=live::liveInputProfile(track,juce::String::fromUTF8(names[static_cast<std::size_t>(input)].c_str()),
+    auto profile=live::liveInputProfile(track,juce::String::fromUTF8(names[static_cast<std::size_t>(input)].c_str()),
         juce::String::fromUTF8(app.audio_name().c_str()),track.inserts);
+    stampLivePorts(*this,profile);
     editLiveInterface("Channel audio input / output",[&](auto& state){
         live::put(live::require(state,"channels",channel),"liveInput",profile);
     });
@@ -737,7 +779,9 @@ void Desktop::configureLiveMidi(const juce::String& requested,const juce::String
         if(saved.instrument)track.inserts=saved.inserts;
     }
     if(midiChannel < -1 || midiChannel>15)throw std::runtime_error("Invalid MIDI channel");
-    const auto profile=live::liveInputProfile(track,{},juce::String::fromUTF8(app.audio_name().c_str()),track.inserts);
+    juce::String name;for(const auto& p:mrs::desktop::MidiInputs::ports())if(p.id==track.midi_input)name=juce::String::fromUTF8(p.name.c_str());
+    auto profile=live::liveInputProfile(track,name,juce::String::fromUTF8(app.audio_name().c_str()),track.inserts);
+    stampLivePorts(*this,profile);
     editLiveInterface("Channel MIDI input / output",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);});
 }
 void Desktop::setLiveInputEffects(const juce::String& requested,std::vector<mrs::NativeInsert> effects) {
@@ -746,7 +790,8 @@ void Desktop::setLiveInputEffects(const juce::String& requested,std::vector<mrs:
     auto row=live::find(draft,"channels",channel);
     const auto saved=live::decodeLiveInputProfile(row["liveInput"]);
     auto track=liveTrack(draft,channel,mrs::Id{"live-input-"+channel.toStdString()});
-    const auto profile=live::liveInputProfile(track,saved.name,saved.device,effects);
+    auto profile=live::liveInputProfile(track,saved.name,saved.device,effects);
+    for(const auto* key:{"inputRightName","outputNames"})if(!row["liveInput"][key].isVoid())live::put(profile,key,row["liveInput"][key].clone());
     editLiveInterface("Channel effect chain",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);});
 }
 void Desktop::loadLiveInputProfile(const juce::String& requested) {
