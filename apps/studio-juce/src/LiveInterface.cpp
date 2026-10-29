@@ -962,7 +962,7 @@ void Desktop::syncLivePreload() {
         // Keep the current shared Engine and input graph alive, never stage the next WAV.
         app.cancel_staged_playback();
         liveAutoKey.clear(); liveAutoToken = 0;
-        liveNextStatus = "Live Input pilot active: disable before item switch";
+        liveNextStatus = "Live Input active: Stop before manual item switch; automatic next is not ready";
         return;
     }
     const auto &state = liveDocument->interfaceState;
