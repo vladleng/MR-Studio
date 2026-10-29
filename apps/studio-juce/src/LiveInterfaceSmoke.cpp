@@ -403,6 +403,44 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         try { live::validate(invalid); } catch (const std::exception &) { rejected = true; }
         liveCheck(rejected, "Out-of-range show pan still fails validation");
     }
+    // #297: The shared Core may monitor a physical input on an empty Live item,
+    // but must never silently retire that DSP across a WAV-only item handoff.
+    {
+        Desktop inputPilot(true,false,true);
+        inputPilot.importLiveShow(fixture);
+        const auto engine=inputPilot.app.engine();
+        bool rejectedOffline=false;
+        try { inputPilot.startLiveInputPilot(0); }
+        catch (const std::exception&) { rejectedOffline=true; }
+        liveCheck(rejectedOffline && !inputPilot.liveInputPilotTrack,
+                  "Live Input pilot rejects the offline clock without changing Core");
+        inputPilot.app.connect(std::make_unique<LivePlaybackTestDevice>(),
+                               {0,48000,128,{0},{0,1}});
+        inputPilot.startLiveInputPilot(0);
+        liveCheck(inputPilot.liveInputPilotTrack.has_value() &&
+                  inputPilot.project()->tracks.size()==1 &&
+                  inputPilot.project()->tracks.front().kind==mrs::TrackKind::audio &&
+                  inputPilot.project()->tracks.front().input==0 &&
+                  inputPilot.project()->tracks.front().input_monitor &&
+                  inputPilot.app.engine()==engine,
+                  "Physical Live Input monitor uses the existing shared Core engine");
+        bool switched=false;
+        try { inputPilot.selectLiveItem("item-1"); switched=true; }
+        catch (const std::exception&) {}
+        liveCheck(!switched && inputPilot.liveDocument->interfaceState["currentItem"].toString()=="item-0" &&
+                  inputPilot.liveInputPilotTrack.has_value(),
+                  "Setlist switch cannot retire a monitored Live Input");
+        auto* inputPanel=new LiveInputPilotPanel(inputPilot);
+        liveCheck(liveComponent(*inputPanel,"live-input-disable")!=nullptr &&
+                  liveComponent(*inputPanel,"live-input-plugin")!=nullptr,
+                  "Live Input pilot offers monitoring and shared VST3 insert controls");
+        delete inputPanel;
+        inputPilot.stopLiveInputPilot();
+        liveCheck(!inputPilot.liveInputPilotTrack &&
+                  inputPilot.project()->tracks.empty() &&
+                  inputPilot.app.engine()==engine,
+                  "Disabling Live Input safely removes temporary Core monitoring without a second engine");
+    }
     Desktop desktop(true, true);
     desktop.importLiveShow(fixture);
     liveCheck(desktop.liveDocument && desktop.project()->tracks.empty() && !desktop.liveDocument->currentLinked(),
