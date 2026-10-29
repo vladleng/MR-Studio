@@ -250,38 +250,18 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
             addAndMakeVisible(labels[static_cast<std::size_t>(i)]);
             fields[static_cast<std::size_t>(i)]->setTitle(captions[i]);
         }
-        for (auto *button : {&saveAll, &addToSetlist})
-            addAndMakeVisible(button);
+        addAndMakeVisible(saveAll);
+        // Compact context: actions duplicated by direct fields or toolbar are omitted.
         const juce::StringArray actionNames{juce::String::fromUTF8("Расположение элементов..."),
-                                            "Priority / Progress...",
-                                            juce::String::fromUTF8("Свойства"),
                                             juce::String::fromUTF8("Убрать из setlist"),
-                                            juce::String::fromUTF8("↑"),
-                                            juce::String::fromUTF8("↓"),
-                                            juce::String::fromUTF8("Создать разделитель"),
-                                            "Undo show",
-                                            "Redo show"};
+                                            juce::String::fromUTF8("Создать разделитель")};
         for (int i = 0; i < actionNames.size(); ++i) {
             auto button = std::make_unique<LiveContextAction>();
             button->setButtonText(actionNames[i]);
-            button->setArt(i == 0 ? art->expand.get() : i == 1 ? art->organizer.get() : nullptr);
+            button->setArt(i == 0 ? art->expand.get() : nullptr);
             button->onClick = [this, i] {
-                if (i == 1) {
-                    priority.grabKeyboardFocus();
-                    return;
-                }
-                if (i == 2) {
-                    notes.grabKeyboardFocus();
-                    return;
-                }
-                if (i == 7 || i == 8) {
-                    if (owner)
-                        owner->undoLiveInterface(i == 8);
-                    return;
-                }
-                const std::array<int, 9> commands{13, 0, 0, 6, 30, 31, 12, 20, 21};
-                if (action)
-                    action(commands[static_cast<std::size_t>(i)]);
+                const std::array<int, 3> commands{13, 6, 12};
+                if (action) action(commands[static_cast<std::size_t>(i)]);
             };
             addAndMakeVisible(*button);
             actions.push_back(std::move(button));
@@ -300,20 +280,16 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
                                              [&](auto &stateData) { live::saveItem(stateData, itemId); });
                 });
         };
-        addToSetlist.onClick = [this] {
-            if (owner)
-                owner->run([&] {
-                    owner->editLiveInterface("Add item to setlist",
-                                             [&](auto &stateData) { live::insertEntry(stateData, itemId); });
-                });
-        };
         name.setComponentID("live-item-name");
         notes.setComponentID("live-item-notes");
         tempo.setComponentID("live-item-tempo");
         notes.setInputRestrictions(4000);
         name.onTextChange = [this] { if (name.getText().trim().isNotEmpty()) commitRootName(); };
         for (auto *field : {&tempo, &key, &duration, &notes}) {
-            field->onTextChange = [this, field] { commitProperty(*field); };
+            field->onTextChange = [this, field] {
+                if (field == &notes) updateNotesHeight();
+                commitProperty(*field);
+            };
             field->onFocusLost = [this, field] { commitProperty(*field); };
         }
         meter.onChange = [this] { commitMeter(); };
@@ -326,7 +302,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         progress.onFocusLost = progress.onReturnKey;
         startTimerHz(10);
         setActions({}, false);
-        setSize(600, 580);
+        setSize(600, 524);
     }
     ~LiveItemEditor() override {
         stopTimer();
@@ -338,9 +314,9 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
     std::function<void()> close;
     void setActions(std::function<void(int)> handler, bool entryActions) {
         action = std::move(handler);
-        for (const int i : {0, 3, 4, 5, 6})
+        for (const int i : {0, 1, 2})
             actions[static_cast<std::size_t>(i)]->setEnabled(static_cast<bool>(action) &&
-                                                             (i == 0 || i == 6 || entryActions));
+                                                             (i != 1 || entryActions));
     }
     void paint(juce::Graphics &g) override {
         g.setColour(theme.role(ColourRole::border, outline));
@@ -352,16 +328,16 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
     void resized() override {
         auto area = getLocalBounds().reduced(8);
         auto headings = area.removeFromTop(24);
-        labels[1].setBounds(headings.removeFromLeft(112).withTrimmedLeft(18));
+        labels[1].setBounds(headings.removeFromLeft(98).withTrimmedLeft(16));
         labels[3].setBounds(headings.removeFromRight(128));
         labels[0].setBounds(headings);
         auto rootRow = area.removeFromTop(32);
-        status.setBounds(rootRow.removeFromLeft(108));
+        status.setBounds(rootRow.removeFromLeft(94));
         rootRow.removeFromLeft(4);
         progress.setBounds(rootRow.removeFromRight(128).reduced(2, 0));
         name.setBounds(rootRow.reduced(2, 0));
         organizer.setBounds(area.removeFromTop(180));
-        place(labels[8], notes, area.removeFromTop(72));
+        place(labels[8], notes, area.removeFromTop(notesBlockHeight));
         const int third = area.getWidth() / 3;
         auto first = area.removeFromTop(50);
         place(labels[2], priority, first.removeFromLeft(third));
@@ -372,13 +348,16 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         place(labels[7], duration, second.removeFromLeft(third));
         error.setBounds(area.removeFromTop(20));
         auto buttons = area;
-        std::vector<juce::TextButton *> cells{actions[0].get(), actions[1].get(), &saveAll,         actions[2].get(),
-                                              &addToSetlist,    actions[3].get(), actions[4].get(), actions[5].get(),
-                                              actions[6].get(), actions[7].get(), actions[8].get()};
+        const int half = buttons.getWidth() / 2;
+        const std::array<juce::TextButton *, 4> cells{actions[0].get(), &saveAll,
+                                                      actions[1].get(), actions[2].get()};
         for (std::size_t i = 0; i < cells.size(); ++i) {
-            const int col = static_cast<int>(i % 3), row = static_cast<int>(i / 3);
-            cells[i]->setBounds(buttons.getX() + col * third, buttons.getY() + row * 28, third - 3, 25);
+            const int col = static_cast<int>(i % 2), row = static_cast<int>(i / 2);
+            cells[i]->setBounds(buttons.getX() + col * half, buttons.getY() + row * 28,
+                                (col == 0 ? half : buttons.getWidth() - half) - 3, 25);
         }
+        // Resize content (not the popover) so its parent viewport scrolls when Notes is long.
+        updateNotesHeight();
     }
 
   private:
@@ -434,12 +413,11 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
                     if (notes.getText() != observedNotes) continue;
                     notes.setText(item[k].toString(), false);
                     observedNotes = notes.getText();
+                    updateNotesHeight();
                 } else if (!field->hasKeyboardFocus(true)) field->setText(item[k].toString(), false);
             }
             if (!meter.hasKeyboardFocus(true)) meter.setText(item["meter"].toString(), juce::dontSendNotification);
             if (!priority.hasKeyboardFocus(true)) priority.setText(live::workflow(state, itemId)["priority"].toString(), juce::dontSendNotification);
-            actions[7]->setEnabled(owner->liveUndo.canUndo());
-            actions[8]->setEnabled(owner->liveUndo.canRedo());
         }
         if (live::tasks(state, itemId).size()) {
             progress.setText(juce::String(live::progress(state, itemId)), false);
@@ -447,6 +425,15 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         } else
             progress.setEnabled(true);
         repaint();
+    }
+    void updateNotesHeight() {
+        if (notes.getWidth() <= 0) return;
+        // 20px label + wrapped TextEditor height with padding, bounded for very long notes.
+        const int needed = juce::jlimit(72, 520, notes.getTextHeight() + 36);
+        if (notesBlockHeight == needed) return;
+        notesBlockHeight = needed;
+        const int desiredContentHeight = 524 + notesBlockHeight - 72;
+        if (getHeight() != desiredContentHeight) setSize(getWidth(), desiredContentHeight);
     }
     static void place(juce::Label &label, juce::Component &field, juce::Rectangle<int> bounds) {
         label.setBounds(bounds.removeFromTop(20));
@@ -501,6 +488,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
     juce::String itemId;
     std::function<void(int)> action;
     juce::String observedNotes;
+    int notesBlockHeight{72};
     Theme theme;
     LiveOrganizer organizer;
     std::array<juce::Label, 9> labels;
@@ -511,7 +499,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
     juce::SharedResourcePointer<LiveContextArt> art;
     std::uint64_t observedRevision{~std::uint64_t{0}};
     std::vector<std::unique_ptr<LiveContextAction>> actions;
-    juce::TextButton cancel{"Cancel"}, saveAll{"Save for All"}, addToSetlist{"Add to Setlist"};
+    juce::TextButton cancel{"Cancel"}, saveAll{"Save for All"};
 };
 inline void openLiveItemEditor(Desktop &owner, const juce::String &id, juce::Component *anchor = nullptr,
                                juce::Rectangle<int> point = {}, std::function<void(int)> action = {},
