@@ -672,7 +672,32 @@ mrs::Track liveTrack(const juce::var& state,const juce::String& channel,const mr
     track.mix.mute=static_cast<bool>(row["mute"]);track.mix.solo=static_cast<bool>(row["solo"]);
     return track;
 }
+void validateLiveRole(const juce::var& row,const live::LiveInputLoaded& profile) {
+    const auto kind=row["type"].toString();
+    if(kind=="Instrument"&&!profile.instrument)
+        throw std::runtime_error("Legacy Instrument audio profile: explicitly convert this channel to Player");
+    if((kind=="Player"||kind=="Audio")&&profile.instrument)
+        throw std::runtime_error("VSTi / MIDI input requires an Instrument channel");
+    if(kind!="Instrument"&&kind!="Player"&&kind!="Audio")
+        throw std::runtime_error("Playback cannot have a Live Input");
+}
+void validateLivePluginClasses(const Desktop& owner,const live::LiveInputLoaded& profile) {
+    if(profile.instrument && !profile.inserts.empty() && profile.inserts.front().kind!=mrs::InsertKind::vst3)
+        throw std::runtime_error("Instrument slot must contain a VST3 instrument");
+    for(std::size_t i=0;i<profile.inserts.size();++i) {
+        const auto& fx=profile.inserts[i];
+        if(fx.kind!=mrs::InsertKind::vst3)continue; // Native gain processors are audio FX.
+        const auto entry=std::find_if(owner.catalog.begin(),owner.catalog.end(),[&](const auto& p) {
+            return p.class_id==fx.class_id && p.path==fx.plugin_path;
+        });
+        if(entry==owner.catalog.end() || !entry->instrument.has_value())
+            throw std::runtime_error("VST3 class type unavailable in catalog; rescan plugins before assigning or monitoring");
+        if(*entry->instrument!=(profile.instrument && i==0))
+            throw std::runtime_error("VST3 instrument belongs in the first Instrument slot; audio channels/FX accept effects only");
+    }
+}
 void validateLiveHardware(Desktop& owner,const live::LiveInputLoaded& profile) {
+    validateLivePluginClasses(owner,profile);
     if(owner.app.audio_name()=="Offline clock (no sound)" || owner.app.audio_name()=="Disconnected" || !owner.app.audio_running())
         throw std::runtime_error("Connect the intended audio device in Audio settings");
     if(profile.device!=juce::String::fromUTF8(owner.app.audio_name().c_str()))
@@ -742,6 +767,7 @@ void Desktop::reconcileLiveInputs(const juce::var& state) {
             continue;
         }
         const auto profile=live::decodeLiveInputProfile(row["liveInput"]);
+        validateLiveRole(row,profile);
         if(profile.instrument && profile.inserts.empty()) {channelTracks.erase(channel);changed=true;continue;}
         validateLiveHardware(*this,profile);
         auto track=liveTrack(state,channel,id);
@@ -756,6 +782,8 @@ void Desktop::reconcileLiveInputs(const juce::var& state) {
 }
 void Desktop::configureLiveInput(const juce::String& requested,int input,bool stereo,const std::vector<int>& outputs) {
     const auto channel=inputChannel(*this,requested);
+    if(live::find(liveDocument->interfaceState,"channels",channel)["type"].toString()=="Instrument")
+        throw std::runtime_error("Instrument uses MIDI / VSTi, not a physical audio input; convert legacy audio to Player");
     const auto names=app.input_names();
     if(input<0 || static_cast<std::size_t>(input)>=names.size() ||
        (stereo && static_cast<std::size_t>(input+1)>=names.size()))
@@ -774,8 +802,11 @@ void Desktop::configureLiveInput(const juce::String& requested,int input,bool st
 }
 void Desktop::configureLiveMidi(const juce::String& requested,const juce::String& port,int midiChannel,const std::vector<int>& outputs) {
     const auto channel=inputChannel(*this,requested);
-    if(live::find(liveDocument->interfaceState,"channels",channel)["type"].toString()!="Instrument")
+    const auto current=live::find(liveDocument->interfaceState,"channels",channel);
+    if(current["type"].toString()!="Instrument")
         throw std::runtime_error("MIDI / VSTi requires an Instrument channel");
+    if(current["liveInput"].isObject() && !live::decodeLiveInputProfile(current["liveInput"]).instrument)
+        throw std::runtime_error("Legacy Instrument audio profile is preserved; convert to Player before choosing MIDI");
     auto draft=liveDocument->interfaceState.clone();captureLiveInputs(draft);
     const auto row=live::find(draft,"channels",channel);
     mrs::Track track{mrs::Id{"live-input-"+channel.toStdString()},row["name"].toString().toStdString(),mrs::TrackKind::instrument,{}};
@@ -796,6 +827,10 @@ void Desktop::setLiveInputEffects(const juce::String& requested,std::vector<mrs:
     auto draft=liveDocument->interfaceState.clone();captureLiveInputs(draft);
     auto row=live::find(draft,"channels",channel);
     const auto saved=live::decodeLiveInputProfile(row["liveInput"]);
+    validateLiveRole(row,saved);
+    auto forValidation=saved;
+    forValidation.inserts=effects;
+    validateLivePluginClasses(*this,forValidation); // Backend enforcement, not just menu filtering.
     live::retainCapturedPluginState(effects,original.inserts,saved.inserts);
     auto track=liveTrack(draft,channel,mrs::Id{"live-input-"+channel.toStdString()});
     auto profile=live::liveInputProfile(track,saved.name,saved.device,effects);
@@ -806,7 +841,9 @@ void Desktop::activateLiveChannel(const juce::String& requested) {
     const auto channel=inputChannel(*this,requested);
     if(liveInputTrack(channel))return;
     if(livePendingItem.isNotEmpty() || livePlaybackLoading)throw std::runtime_error("Finish the item transition first");
-    const auto profile=live::decodeLiveInputProfile(live::find(liveDocument->interfaceState,"channels",channel)["liveInput"]);
+    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
+    const auto profile=live::decodeLiveInputProfile(row["liveInput"]);
+    validateLiveRole(row,profile);
     validateLiveHardware(*this,profile);
     auto tracks=std::vector<mrs::Track>{};
     const auto trackIds=liveInputTracks();const auto snapshot=project();
