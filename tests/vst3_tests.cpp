@@ -69,7 +69,7 @@ void scan(const std::filesystem::path& module,const std::filesystem::path& helpe
     // Existing installations may still have a v1 catalog and a current
     // fingerprint index: a normal rescan must upgrade class metadata without
     // requiring users to delete caches or their saved plugin descriptors.
-    {std::ofstream out(cache,std::ios::trunc);const auto& p=list.front();out<<"MRS_VST3_CACHE 1 1\\n"<<std::quoted(p.path)<<' '<<std::quoted(p.class_id)<<' '<<std::quoted(p.name)<<' '<<std::quoted(p.vendor)<<' '<<std::quoted(p.version)<<'\\n';}
+    {std::ofstream out(cache,std::ios::trunc);const auto& p=list.front();out<<"MRS_VST3_CACHE 1 1\n"<<std::quoted(p.path)<<' '<<std::quoted(p.class_id)<<' '<<std::quoted(p.name)<<' '<<std::quoted(p.vendor)<<' '<<std::quoted(p.version)<<'\n';}
     const auto refreshed=scan_vst3(folder,helper,cache);
     CHECK(refreshed==list&&refreshed.front().instrument.has_value()&&!refreshed.front().instrument.value());
     // The second read must retain the fast unchanged-plugin scan path.
