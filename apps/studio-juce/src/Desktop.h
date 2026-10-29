@@ -151,7 +151,7 @@ public:
     void applyLiveInterface(const juce::var&);
     void undoLiveInterface(bool redo=false);
     juce::UndoManager liveUndo{32*1024*1024,1};
-    juce::String liveSavedContents;
+    std::optional<LiveDocument> liveSavedSnapshot;
     std::uint64_t liveUiRevision{}, liveTimelineFocusRevision{}, liveDocumentGeneration{};
     bool liveShowEditing{};
     juce::File documentFile() const;
