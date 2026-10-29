@@ -1,4 +1,5 @@
 #include "Desktop.h"
+#include "LivePluginCatalog.h"
 #include "LiveLayout.h"
 #include "LiveMusicalState.h"
 #include "LiveClipProjection.h"
@@ -687,10 +688,8 @@ void validateLivePluginClasses(const Desktop& owner,const live::LiveInputLoaded&
     for(std::size_t i=0;i<profile.inserts.size();++i) {
         const auto& fx=profile.inserts[i];
         if(fx.kind!=mrs::InsertKind::vst3)continue; // Native gain processors are audio FX.
-        const auto entry=std::find_if(owner.catalog.begin(),owner.catalog.end(),[&](const auto& p) {
-            return p.class_id==fx.class_id && p.path==fx.plugin_path;
-        });
-        if(entry==owner.catalog.end() || !entry->instrument.has_value())
+        const auto* entry=live::findPluginClass(owner.catalog,fx.plugin_path,fx.class_id);
+        if(!entry || !entry->instrument.has_value())
             throw std::runtime_error("VST3 class type unavailable in catalog; rescan plugins before assigning or monitoring");
         if(*entry->instrument!=(profile.instrument && i==0))
             throw std::runtime_error("VST3 instrument belongs in the first Instrument slot; audio channels/FX accept effects only");
