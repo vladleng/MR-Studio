@@ -688,12 +688,18 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                      juce::String(line) + "\n";
     notesField->setText(longNotes, true);
     livePump();
-    liveCheck(notesField->getHeight() > shortNotesHeight && card.getHeight() > shortPanelHeight,
-              "Notes editor and context content grow as wrapped text expands");
+    if (notesField->getHeight() <= shortNotesHeight || card.getHeight() <= shortPanelHeight)
+        throw std::runtime_error(("Notes auto-grow: previous field/panel " + juce::String(shortNotesHeight) +
+            "/" + juce::String(shortPanelHeight) + ", current " + juce::String(notesField->getHeight()) +
+            "/" + juce::String(card.getHeight()) + ", laid-out text " +
+            juce::String(notesField->getTextHeight())).toStdString());
     notesField->setText(oldNotes, true);
     livePump();
-    liveCheck(notesField->getHeight() == shortNotesHeight && card.getHeight() == shortPanelHeight,
-              "Notes editor and context content shrink after clearing long notes");
+    if (notesField->getHeight() != shortNotesHeight || card.getHeight() != shortPanelHeight)
+        throw std::runtime_error(("Notes auto-shrink: previous field/panel " + juce::String(shortNotesHeight) +
+            "/" + juce::String(shortPanelHeight) + ", current " + juce::String(notesField->getHeight()) +
+            "/" + juce::String(card.getHeight()) + ", laid-out text " +
+            juce::String(notesField->getTextHeight())).toStdString());
     livePreview(card, "organizer");
     auto *mixerToggle = dynamic_cast<juce::TextButton *>(liveComponent(desktop, "live-mixer-toggle"));
     liveCheck(mixerToggle, "Mixer has a toolbar toggle");
