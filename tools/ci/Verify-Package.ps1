@@ -15,9 +15,15 @@ foreach($file in (Get-ChildItem -LiteralPath $root -Recurse -File)){
  if($file.DirectoryName -ne $root -or ($file.Name -ne 'SHA256.json' -and !$names.Contains($file.Name))){throw 'Unmanifested artifact content'}
  if($file.Extension -in @('.pdb','.vst3','.wav','.nam','.zip','.lib','.h','.cpp')){throw 'Non-runtime content in artifact'}
 }
+if($manifest.application -notin @('MR Live','MR Studio + MR Live')){throw 'Unknown package application'}
+if($manifest.application -eq 'MR Live' -and $manifest.ara){throw 'MR Live-only package must be ARA-free'}
 [string[]]$applications=if($manifest.application -eq 'MR Live'){@('MR Live.exe')}else{@('Moon River Studio JUCE.exe','MR Live.exe')}
 if($manifest.application -eq 'MR Live' -and $names.Contains('Moon River Studio JUCE.exe')){throw 'Studio executable is not part of a Live-only package'}
 foreach($required in ($applications + @('mrs_vst3_scan.exe','mrs_crash_reporter.exe','ASIO-SDK-LICENSE.txt','JUCE-LICENSE.md','CI-TEST-RESULT.txt','Signalsmith-Stretch-LICENSE.txt','Signalsmith-Linear-LICENSE.txt'))){if(!$names.Contains($required)){throw "Required package entry missing: $required"}}
-if($manifest.ara -and !$names.Contains('mrs_ara_scan.exe')){throw 'ARA helper missing'}
+$araFiles=@('mrs_ara_scan.exe','ARA-API-LICENSE.txt','ARA-Library-LICENSE.txt')
+foreach($name in $araFiles){
+ if($manifest.ara -and !$names.Contains($name)){throw "ARA runtime/notice missing: $name"}
+ if(!$manifest.ara -and $names.Contains($name)){throw "ARA content forbidden in ARA-free package: $name"}
+}
 foreach($application in $applications){if((Get-Item -LiteralPath (Join-Path $root $application)).VersionInfo.FileVersion -ne '0.8.9'){throw "PE version mismatch: $application"}}
 [pscustomobject]@{source=$manifest.source;version=$manifest.version;files=$names.Count;tests=$manifest.tests;ara=$manifest.ara;run=$manifest.run;integrity='PASS'}
