@@ -48,7 +48,7 @@ class LiveMixer final : public juce::Component {
     class Strip final : public juce::Component, public juce::SettableTooltipClient {
       public:
         Strip(Desktop &desktop, juce::String channel) : owner(desktop), id(std::move(channel)),
-            inputs(owner,id), gain(kit::ParameterSpec{"gain", "Level", kit::Unit::db, -60, 12, 0, .1, kit::Mapping::linear, 1}, true) {
+            inputs(owner,id,LiveChannelControls::Surface::mixer), gain(kit::ParameterSpec{"gain", "Level", kit::Unit::db, -60, 12, 0, .1, kit::Mapping::linear, 1}, true) {
             for (auto *c : std::array<juce::Component *, 7>{&name, &inputs, &monitor, &gain, &pan, &mute, &solo}) addAndMakeVisible(c);
             monitor.setComponentID("live-channel-monitor-"+id);
             monitor.onClick=[this]{owner.run([&]{owner.setLiveInputMonitor(id,!monitor.getToggleState());});};
