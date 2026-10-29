@@ -183,6 +183,36 @@ Tempo/meter, sections и authored chords выбранного item проеци�
 
 Browser допускает перекрытия authored spans. Core использует одну музыкальную полосу: runtime range предыдущего события заканчивается на старте следующего; при одинаковом старте остаётся последнее. Авторские границы в show/saved versions не переписываются. Это правило действует только при проекции, не является time-stretch или редакторским изменением данных.
 
+## Исправление задержек UI после больших VST3 state (после Windows #385)
+
+Жалоба пользовательской приёмки: при сохранённом большом instrument/VST3
+state нажатия кнопок MR Live обрабатываются с ощутимым запаздыванием.
+Статический анализ выявил два синхронных пути сериализации show в JUCE
+message thread (это **гипотеза фактического bottleneck до Windows профилирования**):
+
+1. `Desktop::timerCallback` с частотой ~30 Hz вызывает
+   `syncLivePlayback()` → `live::playbackMixKey()`, где прежняя реализация
+   канонизировала **всё `state.channels`**, включая многомегабайтные
+   `liveInput.inserts[].component/controller`. В новой реализации
+   `playbackChannelMixSnapshot` содержит только `id/type/gain/pan/mute/solo`.
+   Изменения громкости/панорамы/M/S по-прежнему инвалидируют Playback mix key;
+   MIDI input, VSTi binary state/FX и patches не должны запускать его пересчёт.
+2. Каждое `editLiveInterface` выполняло несколько полных JSON-канонизаций:
+   no-op equality, Undo sizing/coalescing, dirty state, сравнение rack перед
+   `reconcileLiveInputs`. Применено рекурсивное in-memory `sameShowValue`,
+   сравнивающее **включая** binary payload без нового JSON/Base64 encode;
+   `liveSavedSnapshot` хранит документ на момент Save/Open (и позволяет
+   правильно отследить Undo к чистому состоянию), Undo sizing теперь
+   консервативное фиксированное значение. Схема, size cap и полная
+   сериализация **при Save/Load** не изменены; `live::validate` сохранена.
+
+Адресные регрессионные проверки: 7 MiB тестовый VST3 state в шоу не должен
+раздувать Playback mix key (менее 16 KiB), изменение его component bytes не
+пересоздаёт key, но замечается in-memory dirty comparison; изменение mix.gain
+меняет Playback key. Сторонние VST3/GUIs, стабильность UX и измерения времени
+на Windows остаются **NOT TESTED**. Изменения [skip ci] в Draft PR #275; не
+считать #385 PASS проверкой этого source commit.
+
 ## Instrument UI и сохранение большого VST3 state — после Windows #384
 
 По пользовательским скриншотам MR Live 0.8.9-fix1:
