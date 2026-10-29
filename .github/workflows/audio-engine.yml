@@ -142,7 +142,7 @@ jobs:
         if: always() && steps.package.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ env.CHECK_SCOPE == 'live' && 'MR-Live' || 'MR-Studio' }}-0.8.8-Windows-${{ github.sha }}-ara-${{ env.ARA }}
+          name: ${{ env.CHECK_SCOPE == 'live' && 'MR-Live' || 'MR-Studio' }}-0.8.9-Windows-${{ github.sha }}-ara-${{ env.ARA }}
           path: build/package/
           if-no-files-found: error
           retention-days: 14
