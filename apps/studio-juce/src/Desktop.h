@@ -106,6 +106,7 @@ public:
     void startLiveAudioInput(int physicalInput, const juce::String& showChannel = {}, bool stereo = false);
     void releaseLiveInput(const juce::String& showChannel = {});
     void activateLiveChannel(const juce::String& showChannel);
+    void openLiveInsertEditor(const juce::String& showChannel, const mrs::Id& slot);
     std::optional<mrs::Id> liveInputTrack(const juce::String& showChannel = {}) const;
     std::vector<mrs::Id> liveInputTracks() const;
     std::map<juce::String,mrs::Id> liveChannelTracks;
