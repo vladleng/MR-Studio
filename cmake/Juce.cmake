@@ -303,6 +303,26 @@ get_target_property(mrs_live_host_sources MoonRiverStudioJuce SOURCES)
 list(FILTER mrs_live_host_sources EXCLUDE REGEX "(^|/)Main\\.cpp$")
 list(FILTER mrs_live_host_sources EXCLUDE REGEX "JuceLibraryCode/")
 get_target_property(mrs_live_host_links MoonRiverStudioJuce LINK_LIBRARIES)
+# ARA is an opt-in Studio editing feature, not a dependency of the Live executable.
+# The Studio desktop library has ARA through a PUBLIC link when enabled, so merely
+# omitting mrs_ara_scan.exe would leave Live with ARA symbols and UI definitions.
+# Build the same application host sources WITHOUT ARA for Live while sharing the
+# audio engine, persistence, AI and VST3 infrastructure with Studio.
+if(MRS_BUILD_ARA)
+  if(NOT "mrs_desktop" IN_LIST mrs_live_host_links)
+    message(FATAL_ERROR "Expected mrs_desktop in Live host links before ARA split")
+  endif()
+  get_target_property(mrs_desktop_live_sources mrs_desktop SOURCES)
+  add_library(mrs_desktop_live STATIC ${mrs_desktop_live_sources})
+  target_include_directories(mrs_desktop_live PUBLIC "${PROJECT_SOURCE_DIR}/apps/studio-desktop/include")
+  target_link_libraries(mrs_desktop_live PUBLIC mrs_audio mrs_persistence mrs_ai)
+  target_link_libraries(mrs_desktop_live PRIVATE winmm)
+  if(MSVC)
+    target_compile_options(mrs_desktop_live PRIVATE /Zi)
+  endif()
+  list(REMOVE_ITEM mrs_live_host_links mrs_desktop)
+  list(APPEND mrs_live_host_links mrs_desktop_live)
+endif()
 # Each executable owns its VERSION/identity resource; never link Studio's RC into Live.
 list(REMOVE_ITEM mrs_live_host_links MoonRiverStudioJuce_rc_lib)
 get_target_property(mrs_live_host_definitions MoonRiverStudioJuce COMPILE_DEFINITIONS)
@@ -322,11 +342,7 @@ foreach(helper mrs_vst3_scan mrs_crash_reporter)
   add_custom_command(TARGET MRLiveJuce POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "$<TARGET_FILE:${helper}>" "$<TARGET_FILE_DIR:MRLiveJuce>/$<TARGET_FILE_NAME:${helper}>")
 endforeach()
-if(MRS_BUILD_ARA)
-  add_dependencies(MRLiveJuce mrs_ara_scan)
-  add_custom_command(TARGET MRLiveJuce POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "$<TARGET_FILE:mrs_ara_scan>" "$<TARGET_FILE_DIR:MRLiveJuce>/mrs_ara_scan.exe")
-endif()
+# Do not copy the Studio-only ARA helper into the standalone MR Live runtime.
 add_dependencies(MoonRiverStudioJuce MRLiveJuce)
 add_custom_command(TARGET MoonRiverStudioJuce POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
   "$<TARGET_FILE:MRLiveJuce>" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/MR Live.exe")
