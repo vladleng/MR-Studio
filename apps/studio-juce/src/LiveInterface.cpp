@@ -618,7 +618,7 @@ void Desktop::setLiveItemPlaybackGain(double gain) {
     });
     syncLivePlayback();
 }
-void Desktop::startLiveInputPilot(int physicalInput, const juce::String& showChannel) {
+void Desktop::startLiveInputPilot(int physicalInput, const juce::String& showChannel, bool stereo) {
     if (!liveDocument || !liveDocument->projects.empty() || (!standaloneLive && !testing))
         throw std::runtime_error("Live Input pilot requires the standalone MR Live show");
     if (app.recording() || app.engine()->state().playback == mrs::PlaybackState::playing)
@@ -627,8 +627,9 @@ void Desktop::startLiveInputPilot(int physicalInput, const juce::String& showCha
         !app.audio_running())
         throw std::runtime_error("Connect an ASIO input/output device in Audio settings first");
     const auto inputs=app.input_names();
-    if (physicalInput < 0 || static_cast<std::size_t>(physicalInput) >= inputs.size())
-        throw std::runtime_error("Selected physical input is no longer available");
+    if (physicalInput < 0 || static_cast<std::size_t>(physicalInput) >= inputs.size() ||
+        (stereo && static_cast<std::size_t>(physicalInput + 1) >= inputs.size()))
+        throw std::runtime_error("Selected mono/stereo physical input pair is unavailable");
     const auto current=liveDocument->interfaceState["currentItem"].toString();
     if (!live::find(liveDocument->interfaceState, "items", current).isObject() ||
         !live::playbackRows(liveDocument->interfaceState, current).empty())
@@ -646,7 +647,7 @@ void Desktop::startLiveInputPilot(int physicalInput, const juce::String& showCha
     liveInputPilotTrack=track; // Keep a handle even if device rebind throws; Disable can safely clean up.
     liveInputPilotChannel=showChannel;
     try {
-        app.set_track_input(track,physicalInput,false);
+        app.set_track_input(track,physicalInput,stereo);
         app.set_track_monitoring(track,true);
     } catch (...) {
         try { app.set_track_monitoring(track,false); app.remove_track(track); liveInputPilotTrack.reset();
