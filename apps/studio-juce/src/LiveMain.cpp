@@ -201,6 +201,15 @@ class LiveApplication final : public juce::JUCEApplication {
                           "Live UI zoom changes presentation without editing the show");
                 }
                 ui::Desktop live(true, false, true);
+                if(live.liveDocument && live.documentDirty()) {
+                    const auto details=live.liveSavedSnapshot
+                        ? ui::live::firstShowDifference(live.liveDocument->interfaceState,
+                                                         live.liveSavedSnapshot->interfaceState)
+                        : juce::String("snapshot not present");
+                    throw std::runtime_error("Direct MR Live launch is dirty: liveDirty="+
+                        std::to_string(live.liveDirty)+" songDirty="+std::to_string(live.songDirty())+
+                        " difference="+details.toStdString());
+                }
                 check(live.liveDocument && live.liveDocument->interfaceState["items"].size() == 0 &&
                           live.documentFile() == juce::File() && !live.documentDirty(),
                       "Direct MR Live launch has a clean untitled empty show without a file chooser");
