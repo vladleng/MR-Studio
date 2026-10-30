@@ -80,19 +80,20 @@ inline juce::String canonical(const juce::var &value) { return juce::JSON::toStr
 // opaque VST3 state) without repeatedly JSON-encoding multi-megabyte strings.
 // This is used for UI dirty checks and no-op detection, not for file hashing.
 inline bool sameShowValue(const juce::var& left,const juce::var& right) {
+    // JUCE arrays also report isObject(); handle arrays before DynamicObject.
+    if(left.isArray()||right.isArray()) {
+        const auto* a=left.getArray(),*b=right.getArray();
+        if(!a||!b||a->size()!=b->size())return false;
+        for(int i=0;i<a->size();++i)
+            if(!sameShowValue(a->getReference(i),b->getReference(i)))return false;
+        return true;
+    }
     if(left.isObject()||right.isObject()) {
         const auto* a=left.getDynamicObject(),*b=right.getDynamicObject();
         if(!a||!b||a->getProperties().size()!=b->getProperties().size())return false;
         for(const auto& property:a->getProperties())
             if(!b->hasProperty(property.name)||
                !sameShowValue(property.value,b->getProperty(property.name)))return false;
-        return true;
-    }
-    if(left.isArray()||right.isArray()) {
-        const auto* a=left.getArray(),*b=right.getArray();
-        if(!a||!b||a->size()!=b->size())return false;
-        for(int i=0;i<a->size();++i)
-            if(!sameShowValue(a->getReference(i),b->getReference(i)))return false;
         return true;
     }
     // JUCE var::clone() may normalize the storage type of a scalar while
@@ -107,11 +108,25 @@ inline bool sameShowValue(const juce::var& left,const juce::var& right) {
 // state blobs. Returns only the first differing path and short leaf summaries.
 inline juce::String firstShowDifference(const juce::var& a,const juce::var& b,
                                         const juce::String& path="$") {
+    if(a.isArray()||b.isArray()) {
+        const auto* aa=a.getArray(),*bb=b.getArray();
+        if(!aa||!bb)return path+" (array type differs: current="+
+            juce::String(a.isArray()?"array":a.isObject()?"object":a.isVoid()?"void":"scalar")+
+            ", saved="+juce::String(b.isArray()?"array":b.isObject()?"object":b.isVoid()?"void":"scalar")+")";
+        if(aa->size()!=bb->size())
+            return path+" (array count "+juce::String(aa->size())+" vs "+juce::String(bb->size())+")";
+        for(int i=0;i<aa->size();++i) {
+            const auto result=firstShowDifference(aa->getReference(i),bb->getReference(i),
+                                                  path+"["+juce::String(i)+"]");
+            if(result.isNotEmpty())return result;
+        }
+        return {};
+    }
     if(a.isObject()||b.isObject()) {
         const auto* ao=a.getDynamicObject(),*bo=b.getDynamicObject();
         if(!ao||!bo)return path+" (object type differs: current="+
-            juce::String(a.isObject()?"object":a.isArray()?"array":a.isVoid()?"void":"scalar")+
-            ", saved="+juce::String(b.isObject()?"object":b.isArray()?"array":b.isVoid()?"void":"scalar")+")";
+            juce::String(a.isArray()?"array":a.isObject()?"object":a.isVoid()?"void":"scalar")+
+            ", saved="+juce::String(b.isArray()?"array":b.isObject()?"object":b.isVoid()?"void":"scalar")+")";
         if(ao->getProperties().size()!=bo->getProperties().size())
             return path+" (property count "+juce::String(ao->getProperties().size())+
                    " vs "+juce::String(bo->getProperties().size())+")";
@@ -119,20 +134,6 @@ inline juce::String firstShowDifference(const juce::var& a,const juce::var& b,
             if(!bo->hasProperty(prop.name))return path+"."+prop.name.toString()+" (missing)";
             const auto result=firstShowDifference(prop.value,bo->getProperty(prop.name),
                                                   path+"."+prop.name.toString());
-            if(result.isNotEmpty())return result;
-        }
-        return {};
-    }
-    if(a.isArray()||b.isArray()) {
-        const auto* aa=a.getArray(),*bb=b.getArray();
-        if(!aa||!bb)return path+" (array type differs: current="+
-            juce::String(a.isObject()?"object":a.isArray()?"array":a.isVoid()?"void":"scalar")+
-            ", saved="+juce::String(b.isObject()?"object":b.isArray()?"array":b.isVoid()?"void":"scalar")+")";
-        if(aa->size()!=bb->size())
-            return path+" (array count "+juce::String(aa->size())+" vs "+juce::String(bb->size())+")";
-        for(int i=0;i<aa->size();++i) {
-            const auto result=firstShowDifference(aa->getReference(i),bb->getReference(i),
-                                                  path+"["+juce::String(i)+"]");
             if(result.isNotEmpty())return result;
         }
         return {};

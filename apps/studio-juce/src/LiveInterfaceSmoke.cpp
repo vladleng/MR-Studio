@@ -4,6 +4,7 @@
 #include "../../../tests/live_timeline_edit_checks.hpp"
 #include "../../../tests/live_clip_edit_checks.hpp"
 #include "../../../tests/live_performance_checks.hpp"
+#include "../../../tests/live_show_value_checks.hpp"
 #include "ProjectHome.h"
 #include <fstream>
 #include <windows.h>
@@ -314,6 +315,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::timelineEditing();
     live::test::clipEditing();
     live::test::performancePolicies();
+    live::test::showValueEquality();
     liveTimelineAuthoringSmoke(fixture);
     liveCheck(fixture.existsAsFile(), "Pass --show-fixture with the editor show fixture");
     const auto original = fixture.loadFileAsString();
