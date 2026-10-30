@@ -1,9 +1,23 @@
 #pragma once
 #include "../apps/studio-juce/src/LiveStudioOneImportPlan.h"
+#include "../apps/studio-juce/src/Settings.h"
 
 namespace ui::live::test {
 inline void studioOneImportPlan() {
     const auto fail = [](const char* reason) { throw std::runtime_error(reason); };
+    // .show selection is a USER preference, not project/setlist state.
+    ViewSettings preferences;
+    preferences.lastLiveShow = "previous.mrlive";
+    preferences.lastStudioOneShow = "C:/Shows/Selected.show";
+    const auto persisted = ViewSettings::decode(preferences.encode());
+    if (persisted.lastStudioOneShow != preferences.lastStudioOneShow ||
+        persisted.lastLiveShow != "previous.mrlive")
+        fail("Last .show user preference must round-trip independently of .mrlive");
+    const auto legacy = juce::JSON::parse(preferences.encode());
+    auto oldSettings = legacy.clone();
+    oldSettings.getDynamicObject()->removeProperty("lastStudioOneShow");
+    if (ViewSettings::decode(juce::JSON::toString(oldSettings)).lastStudioOneShow.isNotEmpty())
+        fail("Older settings files must default to no remembered .show");
     StudioOneShowScan scan;
     for (int i = 0; i < 2; ++i) {
         ShowContextSong song;
