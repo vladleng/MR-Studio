@@ -898,8 +898,11 @@ class LiveTimeline final : public juce::Component {
                     item["id"] == body.editingItem.value["id"];
                 const bool previewLength = previewThisItem && body.viewKey == "length";
                 if (previewThisItem && body.viewKey == "lead") lead = body.previewViewValue;
+                // During the gesture, retain the original authored/audio-derived
+                // width instead of walking Playback sources on every mouse move.
+                if (previewThisItem) bars = previewLength ? body.previewViewValue : body.editingItem.bars;
                 double audioBars = 0.;
-                if (!view.hasProperty("length") && !previewLength && item["id"] == state["currentItem"] && owner.livePlaybackReady()) {
+                if (!view.hasProperty("length") && !previewThisItem && item["id"] == state["currentItem"] && owner.livePlaybackReady()) {
                     const auto project = owner.project();
                     mrs::Sample end = 0;
                     for (const auto &clip : project->clips)
@@ -909,7 +912,7 @@ class LiveTimeline final : public juce::Component {
                     audioBars = static_cast<double>(clock.to_ticks(end)) /
                                                       (4. * mrs::ppq * meter.numerator / meter.denominator);
                 }
-                if (!view.hasProperty("length") && !previewLength) for (const auto &row : live::playbackRows(state, item["id"].toString())) {
+                if (!view.hasProperty("length") && !previewThisItem) for (const auto &row : live::playbackRows(state, item["id"].toString())) {
                     const auto regions=live::playbackRegions(state,item["id"].toString(),row);
                     if(const auto* regionValues=regions.getArray())for(const auto& region:*regionValues)
                         audioBars=juce::jmax(audioBars,static_cast<double>(region["start"])+static_cast<double>(region["length"]));
@@ -928,7 +931,6 @@ class LiveTimeline final : public juce::Component {
                         std::llround(seconds * cached->rate)))) / (4. * mrs::ppq * meter.numerator / meter.denominator));
                 }
                 if (!view.hasProperty("length") && audioBars > 0.) bars = juce::jmin(4096., audioBars);
-                if (previewLength) bars = body.previewViewValue;
                 // The model permits 1000 entries, 4096 bars/lead and 128 px/bar.
                 // Keep their complete geometry within a signed-int scroll surface.
                 const bool collapsed = static_cast<bool>(state["performance"]["collapsedItems"][juce::Identifier(entry["id"].toString())]);
