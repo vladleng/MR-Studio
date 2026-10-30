@@ -1,5 +1,6 @@
 #pragma once
 #include "LiveShowContextImport.h"
+#include "LiveStudioOneChordDecoder.h"
 #include <juce_core/juce_core.h>
 #include <array>
 #include <cctype>
@@ -185,6 +186,12 @@ inline StudioOneShowScan readStudioOneShowXml(const std::string& sourceXml) {
                             for (const auto* key : {"root","intervals","type","bass"})
                                 put(row,key,encoded->getStringAttribute(key));
                             raw.add(row);
+                            auto normalized = object();
+                            put(normalized, "id", row["id"]);
+                            put(normalized, "start", start);
+                            put(normalized, "length", length);
+                            put(normalized, "symbol", decodeStudioOneChord(*encoded));
+                            parsed.add(normalized);
                         } else {
                             const auto name = span->getStringAttribute("name").trim().substring(0,120);
                             if (name.isEmpty()) throw std::runtime_error("Unnamed source section");
@@ -199,9 +206,13 @@ inline StudioOneShowScan readStudioOneShowXml(const std::string& sourceXml) {
                 if (isChords) {
                     source.sourceChordCount = count;
                     source.rawChords = raw;
-                    // Encoding of root/type/intervals is not yet a validated chord symbol.
-                    if (count) source.warnings.add("Encoded chords present; symbol decoder required");
-                    if (!compatible) source.warnings.add("Chords include unsupported/short spans");
+                    if (count && compatible) {
+                        try { validateMusicalRows(juce::var(parsed), MusicalLane::chords); }
+                        catch (const std::exception&) { compatible = false; }
+                    }
+                    if (count && compatible) source.chords = juce::var(parsed);
+                    if (count && !compatible)
+                        source.warnings.add("Chords contain unsupported symbols or invalid/overlapping spans");
                 } else {
                     source.sourceSectionCount = count;
                     if (count && compatible) {
