@@ -151,7 +151,7 @@ jobs:
         if: always() && steps.package.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ env.CHECK_SCOPE == 'live' && 'MR-Live-0.8.11-Upd3' || 'MR-Studio-0.8.10' }}-Windows-${{ github.sha }}-ara-${{ steps.live_scope.outputs.ara }}
+          name: ${{ env.CHECK_SCOPE == 'live' && 'MR-Live-0.8.12' || 'MR-Studio-0.8.10' }}-Windows-${{ github.sha }}-ara-${{ steps.live_scope.outputs.ara }}
           path: build/package/
           if-no-files-found: error
           retention-days: 14
