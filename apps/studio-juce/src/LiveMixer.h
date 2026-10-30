@@ -114,9 +114,11 @@ class LiveMixer final : public juce::Component {
                         break;
                     }
             }
-            setTooltip(liveInput ? "Live Input via shared Core / VST3" :
+            setTooltip(liveInput ? "Automatic Audio/MIDI monitoring via shared Core / VST3" :
                        channel["type"].toString() == "Playback" ? "Show-wide channel mix" :
-                       "No input or processor assigned");
+                       saved.isObject() && owner.liveAutoMonitorError.isNotEmpty() ?
+                           "Auto-monitor unavailable: "+owner.liveAutoMonitorError :
+                       "No valid Audio/MIDI input or processor assigned");
             repaint();
         }
         void resized() override {
