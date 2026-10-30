@@ -35,6 +35,21 @@ inline void studioOneShowReader() {
   </Attributes>
 </Show>)SHOW";
     const auto fail = [](const char* reason) { throw std::runtime_error(reason); };
+    const auto normalization = normalizeStudioOneXml(
+        "<Show><Attributes x:id=\"Model\" title=\"keep x:id=inside value :: here\"/></Show>");
+    if (normalization.find("x_id=\"Model\"") == std::string::npos ||
+        normalization.find("keep x:id=inside value :: here") == std::string::npos)
+        fail("Studio One XML compatibility transform modified an attribute value");
+    std::string tooDeep = "<Show>";
+    for (int i=0;i<65;++i) tooDeep += "<N>";
+    for (int i=0;i<65;++i) tooDeep += "</N>";
+    tooDeep += "</Show>";
+    try {
+        (void)readStudioOneShowXml(tooDeep);
+        fail("Excessive Studio One XML nesting must be rejected");
+    } catch (const std::runtime_error& error) {
+        if (!juce::String(error.what()).contains("nesting limit")) throw;
+    }
     const auto parsed = readStudioOneShowXml(fixture);
     if (parsed.items.size() != 2) fail("Studio One reader must keep both source items");
     const auto& first = parsed.items[0];
