@@ -74,6 +74,7 @@ public:
     void confirmDiscard(std::function<void()>,bool songOnly=false);
     void openFile(const juce::File&);
     void saveFile(const juce::File&);
+    void reportSaveError(const juce::String&);
     void newLiveShow();
     void createLive(const juce::File&);
     void launchLive(const juce::File&,bool create);

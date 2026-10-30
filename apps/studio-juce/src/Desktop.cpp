@@ -211,7 +211,15 @@ void Desktop::addLiveProject(const juce::File& file){
     const auto itemId=live::addItem(liveDocument->interfaceState,LiveDocument::projectLabel(file));live::insertEntry(liveDocument->interfaceState,itemId);live::put(liveDocument->interfaceState,"currentItem",itemId);liveDocument->itemProjects[itemId]=liveDocument->active;liveUndo.clearUndoHistory();updateLiveDirty();++liveUiRevision;
     selectedClip.reset();selectedTrack.reset();refresh(true);reconnectDevice(session);
 }
-void Desktop::saveFile(const juce::File& f){
+void Desktop::reportSaveError(const juce::String& reason){
+    message=reason;mrs::diagnostics::event("ui_save_error "+reason.toStdString());repaint();
+    if(standaloneLive&&!testing){
+        auto* alert=new StudioAlertWindow(*this,"Cannot save MR Live show",reason,juce::MessageBoxIconType::WarningIcon);
+        alert->addButton("OK",1,juce::KeyPress(juce::KeyPress::returnKey));
+        alert->enterModalState(true,nullptr,true);
+    }
+}
+void Desktop::saveFile(const juce::File& f) try {
     const bool transientInputOnly=transientLiveRuntime();
     // A transient Live Input track is NOT an MRS project link. Save only its
     // explicitly captured show profile; never create a Studio song on Save.
@@ -240,6 +248,10 @@ void Desktop::saveFile(const juce::File& f){
         const bool bindingsChanged=showState.itemProjects!=liveDocument->itemProjects;showState.write(file);if(bindingsChanged)liveUndo.clearUndoHistory();liveDocument=std::move(showState);liveFile=file;liveSavedSnapshot=liveDocument->savedComparisonSnapshot();liveSavedPluginEdits=app.plugin_edit_revision();updateLiveDirty();++liveUiRevision;remember();refresh();return;
     }
     auto destination=path(f);if(destination!=app.path())destination=mrs::desktop::project_folder_file(destination);app.save_project(destination);remember();refresh();}
+catch(const std::exception& error){
+    reportSaveError(juce::String::fromUTF8(error.what()));
+    throw; // Callers must retain dirty state and stop pending close/open actions.
+}
 void Desktop::importFiles(const juce::StringArray& files){closeEditors();std::vector<std::filesystem::path> paths;for(const auto& f:files)paths.push_back(path(juce::File(f)));app.queue_wav_import(paths);refresh(true);}
 void Desktop::choose(int chooserOptions,std::function<void(const juce::File&)> callback,juce::String pattern){
     const auto studio=juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio").getChildFile("Projects");
@@ -359,7 +371,7 @@ void Desktop::navigationMenu(bool sections){
     choices.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&contextLabels[sections?1:2]),[safe,store,navigationEntries,sections](int result){if(!safe||result<=0||result>static_cast<int>(navigationEntries.size()))return;safe->run([&]{if(store!=safe->app.services().projects)throw std::runtime_error("Project changed; reopen navigation list");if(safe->busyGesture())throw std::runtime_error("Finish editing before navigating");const auto& id=navigationEntries[static_cast<std::size_t>(result-1)].second;if(sections)safe->app.musical().seek_section(id);else safe->app.musical().seek_marker(id);});});
 }
 void Desktop::menuItemSelected(int n,int){action(n);}
-void Desktop::action(int n){if(busyGesture()){if(n==34||n==35||n==48||n==49||n==50||n==51){message="Finish editing before navigating";repaint();}return;}mrs::diagnostics::event("ui_action="+std::to_string(n));run([&]{if(standaloneLive&&n==1){action(701);return;}if(standaloneLive&&(n==6||n==8))return;if(standaloneLive&&n==2){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){openFile(file);},"*.mrlive");});return;}
+void Desktop::action(int n){if(busyGesture()){if(n==3||n==4){reportSaveError("Finish the active edit before saving the show");return;}if(n==34||n==35||n==48||n==49||n==50||n==51){message="Finish editing before navigating";repaint();}return;}mrs::diagnostics::event("ui_action="+std::to_string(n));run([&]{if(standaloneLive&&n==1){action(701);return;}if(standaloneLive&&(n==6||n==8))return;if(standaloneLive&&n==2){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){openFile(file);},"*.mrlive");});return;}
     if(n==710){
         if(app.recording())return;
         choose(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,

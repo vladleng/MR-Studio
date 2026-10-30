@@ -870,6 +870,17 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     desktop.saveFile(saved);
     liveCheck(!desktop.documentDirty() && desktop.liveDocument->projects.empty(),
               "Metadata save creates no phantom song");
+    const auto savedBytes=saved.loadFileAsString();
+    desktop.setPreview({},mrs::Track::Mix{},desktop.project()->master_gain,[]{return true;});
+    desktop.action(3);
+    liveCheck(desktop.message.contains("active edit")&&saved.loadFileAsString()==savedBytes,
+              "Save during an active gesture reports why it is blocked instead of silently dropping the command");
+    desktop.cancelPreview();desktop.action(3);
+    liveCheck(desktop.message.isEmpty()&&!desktop.documentDirty(),"Save action works once the gesture finishes");
+    desktop.run([&]{desktop.saveFile(saved.getChildFile("invalid.mrlive"));});
+    liveCheck(desktop.message.isNotEmpty()&&desktop.documentFile()==saved&&saved.loadFileAsString()==savedBytes,
+              "Failed save reports an error and preserves the original destination and saved file");
+    desktop.message.clear();
     const auto savedName = live::libraryItem(desktop.liveDocument->interfaceState, id)["name"].toString();
     desktop.editLiveInterface(
         "Name", [&](auto &state) { live::put(live::require(state, "items", id), "name", "Edited Alpha"); });

@@ -169,7 +169,7 @@ public:
             self.data_.numSamples=0;if(!safe_process(processor_,&self.data_))throw std::runtime_error("VST3: pending parameter state flush failed");
         }
         PluginState state;state.class_id=uid_;
-        const auto copy=[](MemoryStream& stream){if(stream.getSize()>1024*1024)throw std::runtime_error("VST3 state exceeds 1 MiB budget");std::vector<std::byte> v(static_cast<std::size_t>(stream.getSize()));if(!v.empty())std::memcpy(v.data(),stream.getData(),v.size());return v;};
+        const auto copy=[](MemoryStream& stream){if(stream.getSize()<0 || static_cast<std::uint64_t>(stream.getSize())>PluginState::maximum_bytes)throw std::runtime_error("VST3 state exceeds 16 MiB budget");std::vector<std::byte> v(static_cast<std::size_t>(stream.getSize()));if(!v.empty())std::memcpy(v.data(),stream.getData(),v.size());return v;};
         MemoryStream component,controller;ok(component_->getState(&component),"capture component state failed");state.component=copy(component);if(controller_->getState(&controller)==kResultOk)state.controller=copy(controller);return state;
     }
     std::vector<mrs::processing::ParameterInfo> parameters() const override{return infos_;}

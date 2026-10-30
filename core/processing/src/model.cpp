@@ -47,8 +47,8 @@ void GraphState::validate() const {
         if (n.id.value.empty() || n.id.value.size() > 128 || n.id == id ||
             !index.emplace(n.id.value,i).second || n.processor_id.empty() ||
             (n.format != ProcessorFormat::native && n.format != ProcessorFormat::vst3) ||
-            n.parameters.size() > 4096 || n.plugin.component.size() > 16 * 1024 * 1024 ||
-            n.plugin.controller.size() > 16 * 1024 * 1024)
+            n.parameters.size() > 4096 || n.plugin.component.size() > PluginState::maximum_bytes ||
+            n.plugin.controller.size() > PluginState::maximum_bytes)
             throw std::invalid_argument("invalid processor node/state");
         if (n.format == ProcessorFormat::vst3) {
             if (n.plugin.class_id.size() != 32 ||
