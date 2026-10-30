@@ -35,20 +35,10 @@ struct LiveDocument {
         result.interfaceState = interfaceState.clone();
         return result;
     }
-    // Build the saved-state comparison baseline once at Save/Open, not on
-    // each click or 30 Hz timer tick. JSON-normalizing the baseline prevents
-    // any JUCE var object/array identity or clone aliasing from making an
-    // untouched show appear dirty. This is an in-memory snapshot only.
-    LiveDocument savedComparisonSnapshot() const {
-        auto result=*this;
-        if(interfaceState.isObject()) {
-            const auto serialized=juce::JSON::toString(interfaceState);
-            result.interfaceState=juce::JSON::parse(serialized);
-            if(!result.interfaceState.isObject())
-                throw std::runtime_error("Cannot create saved show comparison snapshot");
-        }
-        return result;
-    }
+    // Keep an exact, independent baseline. JSON round-tripping with the default
+    // 15 decimal places rounds mixer/plugin values and can make Save look dirty
+    // immediately, even though write() stored the correct 17-place value.
+    LiveDocument savedComparisonSnapshot() const { return clone(); }
     int projectFor(const juce::String &id) const {
         const auto found = itemProjects.find(id);
         return found == itemProjects.end() ? -1 : found->second;

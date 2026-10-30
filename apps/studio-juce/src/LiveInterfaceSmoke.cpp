@@ -322,7 +322,7 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
               live::sameShowValue(editing.liveDocument->interfaceState,
                                   editing.liveSavedSnapshot->interfaceState) &&
               !editing.liveDirty,
-              "Saved show and its JSON-normalized baseline compare equal before Notes Undo");
+              "Saved show and its exact baseline compare equal before Notes Undo");
     editing.liveUndo.clearUndoHistory();
     const auto oldNotes=live::find(editing.liveDocument->interfaceState,"items",id)["notes"].toString();
     const auto text=juce::String::repeatedString("notes ",150);
@@ -348,6 +348,21 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::clipEditing();
     live::test::performancePolicies();
     live::test::showValueEquality();
+    // Save must clear dirty for realistic fractional channel/plugin values,
+    // without JSON's default precision changing the comparison baseline.
+    for(const double gainValue:{static_cast<double>(0.8912509f),static_cast<double>(0.001f),0.12345678901234566}){
+        LiveDocument precisionShow;precisionShow.interfaceState=live::object();
+        auto channel=live::object();live::put(channel,"gain",gainValue);
+        live::put(precisionShow.interfaceState,"channels",juce::Array<juce::var>{channel});
+        const auto baseline=precisionShow.savedComparisonSnapshot();
+        const auto written=juce::JSON::parse(juce::JSON::toString(precisionShow.interfaceState,false,17));
+        liveCheck(live::sameShowValue(precisionShow.interfaceState,baseline.interfaceState)&&
+                  live::sameShowValue(precisionShow.interfaceState,written),
+                  "Save baseline and written values agree for fractional mixer settings");
+        live::put(precisionShow.interfaceState["channels"].getArray()->getReference(0),"gain",gainValue+.001);
+        liveCheck(!live::sameShowValue(precisionShow.interfaceState,baseline.interfaceState),
+                  "A real mixer edit after Save still differs from its independent baseline");
+    }
     liveTimelineAuthoringSmoke(fixture);
     liveCheck(fixture.existsAsFile(), "Pass --show-fixture with the editor show fixture");
     const auto original = fixture.loadFileAsString();
@@ -870,6 +885,13 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     desktop.saveFile(saved);
     liveCheck(!desktop.documentDirty() && desktop.liveDocument->projects.empty(),
               "Metadata save creates no phantom song");
+    desktop.editLiveInterface("Fractional mixer Save regression",[](auto& state){
+        live::put(state["channels"].getArray()->getReference(0),"gain",static_cast<double>(0.8912509f));
+    });
+    desktop.action(3);desktop.app.poll();desktop.updateLiveDirty();
+    liveCheck(!desktop.documentDirty()&&!desktop.projectCaption().endsWith(" *")&&
+              live::sameShowValue(desktop.liveDocument->interfaceState,LiveDocument::read(saved).interfaceState),
+              "Successful Save clears the star and matches the reopened file with fractional mixer settings");
     const auto savedBytes=saved.loadFileAsString();
     desktop.setPreview({},mrs::Track::Mix{},desktop.project()->master_gain,[]{return true;});
     desktop.action(3);
