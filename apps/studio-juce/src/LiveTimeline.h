@@ -66,6 +66,36 @@ class LiveTimeline final : public juce::Component {
         layout();
         syncChannel();
     }
+    // Same horizontal zoom increments as MR Studio (+25%, -20%).
+    // Keep the scale per current .mrlive item, preserving Undo and Save/Open.
+    void zoom(double factor) {
+        if (!owner.liveDocument) return;
+        owner.run([&] {
+            owner.editLiveInterface("Timeline zoom", [&](auto& show) {
+                const auto itemId=show["currentItem"].toString();
+                if (!live::find(show,"items",itemId).isObject()) return;
+                const auto view=show["performance"]["arrangement"][juce::Identifier(itemId)];
+                const double oldScale=numeric(view["scale"],16.,4.,128.);
+                live::setItemView(show,itemId,"scale",juce::jlimit(4.,128.,oldScale*factor));
+            });
+        });
+    }
+    void zoomFit() {
+        if (!owner.liveDocument) return;
+        owner.run([&] {
+            owner.editLiveInterface("Fit timeline item", [&](auto& show) {
+                const auto itemId=show["currentItem"].toString();
+                const auto item=live::find(show,"items",itemId);
+                if (!item.isObject()) return;
+                const auto view=show["performance"]["arrangement"][juce::Identifier(itemId)];
+                const double bars=numeric(view["length"],numeric(item["bars"],16.,1.,4096.),1.,4096.);
+                const double lead=numeric(view["lead"],0.,0.,4096.);
+                const double width=static_cast<double>(juce::jmax(60,viewport.getMaximumVisibleWidth()-12));
+                const double scale=juce::jlimit(4.,128.,width/(bars+lead));
+                live::setItemView(show,itemId,"scale",scale);
+            });
+        });
+    }
     void setClipScissors(bool enabled){body.scissors=enabled;body.repaint();}
     bool clipScissors() const{return body.scissors;}
     void refresh() {
@@ -297,7 +327,9 @@ class LiveTimeline final : public juce::Component {
     class StemMix final : public juce::Component {
       public:
         StemMix(LiveTimeline &timeline, juce::String stem) : key(std::move(stem)), parent(timeline), inputs(timeline.owner,key,LiveChannelControls::Surface::timeline) {
-            addAndMakeVisible(inputs);addAndMakeVisible(monitor);
+            addAndMakeVisible(inputs);addAndMakeVisible(monitor);addAndMakeVisible(instrumentSelector);
+            instrumentSelector.setComponentID("live-timeline-instrument-" + key);
+            instrumentSelector.onClick=[this]{inputs.showInstrumentPicker(instrumentSelector);};
             monitor.onClick=[this]{parent.owner.run([&]{parent.owner.setLiveInputMonitor(key,!monitor.getToggleState());});};
             for (auto *control : std::array<juce::Component *, 4>{&mute, &solo, &gain, &arm})
                 addAndMakeVisible(control);
@@ -317,6 +349,9 @@ class LiveTimeline final : public juce::Component {
         }
         void resized() override {
             inputs.setBounds(2,0,juce::jmax(0,getWidth()-4),44);
+            // Timeline Instrument channels use only the first row of input
+            // selectors; place VSTi choice in the free second row.
+            instrumentSelector.setBounds(2,22,juce::jmax(0,getWidth()-4),22);
             mute.setBounds(8, 46, 26, 22);solo.setBounds(36, 46, 26, 22);
             arm.setBounds(64, 46, 26, 22);monitor.setBounds(92,46,juce::jmax(24,getWidth()-100),22);
             gain.setBounds(6, 72, juce::jmax(0, getWidth() - 12), 24);
@@ -324,6 +359,19 @@ class LiveTimeline final : public juce::Component {
         void sync(const juce::var &row) {
             const bool live=row["type"].toString()!="Playback";
             arm.setVisible(live);inputs.setVisible(live);monitor.setVisible(live);inputs.sync();
+            const auto profile=row["liveInput"];
+            const bool instrument=row["type"].toString()=="Instrument" &&
+                (!profile.isObject() || static_cast<int>(profile["version"])==2);
+            instrumentSelector.setVisible(instrument);
+            const auto name=profile.isObject() && profile["inserts"].size()>0
+                ?profile["inserts"][0]["name"].toString():juce::String();
+            instrumentSelector.setButtonText(name.isEmpty()?"Choose VSTi":name);
+            instrumentSelector.setTooltip(name.isEmpty()
+                ?"Select a VST3 instrument for this channel (shared catalog)"
+                :"Replace VST3 instrument: "+name);
+            instrumentSelector.setEnabled(instrument && profile.isObject() &&
+                !parent.owner.app.recording() &&
+                parent.owner.displayState().playback!=mrs::PlaybackState::playing);
             bool monitoring=false;
             if(const auto id=parent.owner.liveInputTrack(key))for(const auto& track:parent.owner.project()->tracks)if(track.id==*id)
                 monitoring=track.kind==mrs::TrackKind::instrument?track.midi_monitor:track.input_monitor;
@@ -348,6 +396,7 @@ class LiveTimeline final : public juce::Component {
         LiveTimeline &parent;
         LiveChannelControls inputs;
         juce::TextButton mute{"M"}, solo{"S"}, arm{"R"}, monitor{"I"};
+        juce::TextButton instrumentSelector{"Choose VSTi"};
         juce::Slider gain;
     };
     class Viewport final : public juce::Viewport {

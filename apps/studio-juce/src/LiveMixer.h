@@ -3,6 +3,7 @@
 #include "LiveTheme.h"
 #include "LivePlaybackState.h"
 #include "LiveChannelControls.h"
+#include <cmath>
 
 namespace ui {
 // Persistent show-channel controls; processing uses the shared Core mix API.
@@ -101,20 +102,22 @@ class LiveMixer final : public juce::Component {
             if (!pan.isMouseButtonDown() && !pan.hasKeyboardFocus(true)) pan.setValue(live::channelPan(channel), juce::dontSendNotification);
             mute.setToggleState(static_cast<bool>(channel["mute"]), juce::dontSendNotification);
             solo.setToggleState(static_cast<bool>(channel["solo"]), juce::dontSendNotification);
-            meter = 0.f;
+            meterLeft = meterRight = 0.f;
             const auto item = state["currentItem"].toString();
             const auto rows = live::playbackRows(state, item);
             for (std::size_t i = 0; i < rows.size(); ++i)
                 if (owner.livePlaybackReady() && i < owner.peaks.size() &&
                     (live::playbackChannelId(state, rows[i]) == id ||
                      (id == live::playbackContainer(state) && !static_cast<bool>(rows[i]["cue"]))))
-                    meter = juce::jmax(meter, juce::jmax(owner.peaks[i].left, owner.peaks[i].right));
+                    {meterLeft=juce::jmax(meterLeft,owner.peaks[i].left);
+                     meterRight=juce::jmax(meterRight,owner.peaks[i].right);}
             const bool liveInput=activeInput;
             if(liveInput) {
                 const auto p=owner.project();
                 for(std::size_t i=0;i<p->tracks.size();++i)
                     if(p->tracks[i].id==*target && i<owner.peaks.size()) {
-                        meter=juce::jmax(owner.peaks[i].left,owner.peaks[i].right);
+                        meterLeft=owner.peaks[i].left;
+                        meterRight=owner.peaks[i].right;
                         break;
                     }
             }
@@ -138,11 +141,23 @@ class LiveMixer final : public juce::Component {
             const auto tokens = liveReferenceTokens();
             g.fillAll(tokens.colour(ColourRole::panel));
             g.setColour(tokens.colour(ColourRole::border)); g.drawRect(getLocalBounds());
-            const auto height = juce::jmax(0, getHeight() - 110);
-            g.fillRect(getWidth() - 12, 104, 4, height);
-            g.setColour(tokens.colour(ColourRole::on));
-            const int level = juce::roundToInt(height * juce::jlimit(0.f, 1.f, meter));
-            g.fillRect(getWidth() - 12, 104 + height - level, 4, level);
+            // MR Studio mixer uses independent L/R peak bars aligned with
+            // the long fader. Keep the MR Live palette, no new meter colours.
+            const int height = juce::jmax(0, getHeight() - 116);
+            const auto meterBackground=tokens.colour(ColourRole::panel);
+            const auto active=tokens.colour(ColourRole::on);
+            const int baseY=102, baseX=getWidth()-17;
+            for (int i=0;i<2;++i) {
+                const int x=baseX+i*6;
+                const float value=juce::jlimit(0.f,1.f,i==0?meterLeft:meterRight);
+                // dB-distributed visual scale comparable to MR Studio,
+                // retaining actual shared-Core L/R peak values.
+                const float db=value>0.f?20.f*std::log10(value):-60.f;
+                const float fraction=juce::jlimit(0.f,1.f,(db+60.f)/60.f);
+                const int lit=juce::roundToInt(height*fraction);
+                g.setColour(meterBackground.darker(.2f));g.fillRect(x,baseY,4,height);
+                g.setColour(active);g.fillRect(x,baseY+height-lit,4,lit);
+            }
         }
       private:
         void commit() { owner.run([&] { owner.setLiveChannelMix(id, gain.value(), pan.getValue(), mute.getToggleState(), solo.getToggleState()); }); }
@@ -154,7 +169,7 @@ class LiveMixer final : public juce::Component {
         kit::MRFader gain;
         juce::Slider pan;
         juce::TextButton mute{"M"}, solo{"S"};
-        float meter{};
+        float meterLeft{},meterRight{};
     };
     Desktop &owner;
     juce::Viewport viewport;

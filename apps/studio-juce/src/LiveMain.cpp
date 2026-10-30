@@ -153,7 +153,7 @@ class LiveApplication final : public juce::JUCEApplication {
   public:
     const juce::String getApplicationName() override { return "MR Live"; }
     const juce::String getApplicationVersion() override {
-        return juce::String(mrs::desktop::application_version.data());
+        return juce::String(mrs::desktop::live_application_version.data());
     }
     bool moreThanOneInstanceAllowed() override { return false; }
     void initialise(const juce::String &args) override {
@@ -316,7 +316,7 @@ class LiveApplication final : public juce::JUCEApplication {
             std::filesystem::path(logs.getFullPathName().toWideCharPointer()),
             std::filesystem::path(
                 executable.getSiblingFile("mrs_crash_reporter.exe").getFullPathName().toWideCharPointer()),
-            mrs::desktop::application_version.data());
+            mrs::desktop::live_application_version.data());
         window = std::make_unique<LiveWindow>();
         window->host().run([&] { startLive(window->host(), args); });
     }
