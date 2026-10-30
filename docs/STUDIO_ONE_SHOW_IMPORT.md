@@ -1,6 +1,6 @@
 # MR Live 0.8.11 — Studio One Show Page context import (#305)
 
-**Development state: native .show reader, Smart Improviser chord decoder and atomic multi-item import plan exist in source; native item picker/preview/dialog NOT IMPLEMENTED.**
+**Development state: parser, Smart Improviser chord decoder, atomic multi-item plan and native JUCE import dialog implemented in feature-branch source; NEW GUI NOT YET WINDOWS-COMPILED OR USER ACCEPTED.**
 This is an independent MR Live compatibility feature owned by #305 under roadmap #14.
 The accepted baseline is MR Live **0.8.10**, from `main`. No change to its
 audio engine, VST3, mixer, render graph, or existing `.mrlive` schema is part of
@@ -155,8 +155,39 @@ requested source ordinal maps to a single explicitly chosen MR Live item
 and no mutation is committed on an invalid plan. A newly created item may
 adopt the source meter, whereas existing target meters are protected.
 One complete plan is intended to be applied inside
-`Desktop::editLiveInterface` for a **single Undo step**. This plan currently
-has synthetic C++ contract tests, but **no user-facing selector/dialog yet**.
+`Desktop::editLiveInterface` for a **single Undo step**. This plan has synthetic C++ contract tests; the native user-facing selector/dialog
+is now implemented in source, but its build, visual review and Save/Open
+acceptance are **NOT TESTED**.
+
+### Native import dialog — current source stage
+
+`apps/studio-juce/src/LiveStudioOneImportDialog.h` implements the real
+`MR Live → Files → Import Studio One Show (.show)...` entry, integrated in
+`LiveWorkspace.h`. The file chooser parses the selected Show **read-only**
+using the existing native reader, then displays its source items with
+**1-based original positions, titles, search/filter and initially no selection**.
+The source ordinal stays stable even with duplicate names and filtering.
+
+Each selected source item has separately configured MR Live destination
+(existing item ID or explicit creation), and four independently chosen
+Sections / Tempo / Chords / Length checkboxes. Unavailable fields are disabled;
+the right side displays the parsed values and compatibility warnings.
+
+`Preview` validates the **whole selection atomically** against a cloned
+in-memory show and lists source-to-target mapping and chosen fields. `Import`
+stays disabled until a successful Preview. After explicit Import, the same
+batch is applied through **one** `Desktop::editLiveInterface` operation
+(one Undo transaction). Cancel/dismissal only discards UI state. A changed
+MR Live document, concurrent edit, missing destination, duplicate mapping,
+invalid source data, unsupported chord/section or meter mismatch blocks the
+commit without partial data. Normal MR Live Save/Open handles persistence;
+there is no separate channel or import save operation.
+
+**Verification state:** native C++ GUI has **NOT TESTED** compilation,
+interactive behavior or Windows acceptance. Previous run #399
+[`41022966852`](https://github.com/vladleng/MR-Studio/actions/runs/41022966852)
+was PASS for the parser/decoder/import-plan source **before** adding this GUI.
+No build was launched for the dialog changes. Private sample remains off GitHub.
 
 ## Read-only schema probe (first source slice)
 
@@ -191,21 +222,21 @@ complexity limits and rejects suspicious paths. This is a research utility,
    decoded optional fields, raw chords, normalized chord symbols, availability
    and warnings. Smart Improviser model is used; verify new linkage and decoder
    with a future targeted Windows build.
-3. **TODO:** native source SetList selector and explicit MR Live target-item
-   mapping **before** four independent checkboxes and per-item preview; unavailable
-   data must be disabled. No automatic selection or name-only matching.
-4. Apply only selected, present fields to a **cloned** `.mrlive` model through
-   `editLiveInterface`, using `live::setMusicalRows` for validated non-overlap,
-   `live::setItemView` for the item end, one Undo entry, and normal Save/Open.
-   Reject ambiguous bar/beat/meter units rather than silently converting.
-5. Tests: real, redistributable fixture or a private on-device acceptance
-   sample; selected-field isolation; non-destructive Cancel; invalid archives,
-   Undo/Redo/Save/Open; unchanged channels, playback, FX and no ASIO work.
+3. **DONE (source only):** native file picker, original-ordinal source selector,
+   search/filter, explicit target mapping, four independent field checkboxes,
+   preview validation and non-destructive Cancel. Per-item availability is shown.
+4. **DONE (source only):** one atomic `editLiveInterface` Undo transaction
+   using validated source rows, cloned model and unchanged shared persistence.
+   Windows/interactive verification still required.
+5. **NEXT:** addressable Windows compile+Live smoke for new UI (no full CTest);
+   user acceptance on private `.show`, duplicate titles, Cancel, partial selection,
+   bad values, Undo/Redo and Save/Open. Playback, FX and ASIO remain untouched.
 
 ## Safety, version and release
 
 `0.8.11` is the **active issue version**, not an accepted binary.
-This source stage adds the standalone probe, native `LiveStudioOneShowReader.h`, `LiveShowContextImport.h` (atomic selected-field destination adapter with mandatory source ordinal), and synthetic tests wired into native Live smoke. The source item selector is specified but **not yet rendered as a working JUCE control**. This is `SOURCE ONLY`, not a Windows build, UI feature,
-hardware test or user acceptance. Avoid changes to `main`, new releases,
+This source stage adds the standalone probe, native `LiveStudioOneShowReader.h`, `LiveShowContextImport.h` (atomic selected-field destination adapter with mandatory source ordinal), and synthetic tests wired into native Live smoke. The source item selector/dialog is now implemented in JUCE source but is
+**not yet a tested Windows binary**; physical hardware, interactive runtime,
+Save/Open and user acceptance are **NOT TESTED**. Avoid changes to `main`, new releases,
 unrequested Windows Actions or merge until user approval. No proprietary
 Show, Song, media or vendor plugin assets in the repository.
