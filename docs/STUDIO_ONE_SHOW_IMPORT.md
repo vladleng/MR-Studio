@@ -6,6 +6,47 @@ The accepted baseline is MR Live **0.8.10**, from `main`. No change to its
 audio engine, VST3, mixer, render graph, or existing `.mrlive` schema is part of
 the investigation step.
 
+## 0.8.11-fix2 — Windows user-acceptance findings (30.10.2026)
+
+The user reported and illustrated three defects in the first native GUI build
+(Windows #400): checked source items could show non-zero Sections/Chords counts
+but their checkboxes were disabled; clicking outside closed the CallOutBox and
+discarded all selections; Import remained disabled without a clear explanation.
+
+**Changes in the current source branch (no new build yet):**
+
+- The parser retains raw **detected** counts and now discloses **usable** event
+  counts. It normalizes only floating-point roundoff of exact 1/4-bar events
+  (e.g. four Fever chords), never actually shorter musical events.
+- Studio One may retain arranger markers at or after the end of the SetList
+  item: these non-playable section markers are skipped with an explicit warning
+  including the number excluded. An absent section length can be inferred
+  **only** from the following section start or known item end. Unknown source
+  data is not fabricated; truly short chords and competing events remain
+  unavailable with an actionable reason.
+- `LiveStudioOneImportDialog` now launches as a persistent **modal
+  `juce::DialogWindow`**, not the auto-dismiss `CallOutBox`. Outside clicks
+  cannot discard selections; Cancel/close still discard draft choices without
+  touching MR Live.
+- Choosing source, target or fields updates validation automatically against
+  the cloned destination document. When the whole explicit mapping is valid,
+  Import becomes enabled; otherwise the reason names the source ordinal and
+  missing destination/field. The Preview button remains available.
+- The user-provided private `.show` was re-analyzed **locally and read-only**:
+  75 source items; **48/48** Section-bearing items compatible, with 5 trailing
+  section markers disclosed as skipped; **16/19** Chord-bearing items compatible
+  (4 near-quarter-bar values normalized in `Fever`, 91/91 usable). Remaining
+  incompatible chord lanes cannot be faithfully represented under MR Live's
+  current minimum 1/4-bar / no-overlap model, and are not silently truncated.
+- Synthetic regression cases added for floating-point quarter bars, out-of-item
+  section markers and genuinely short source chords.
+
+**Verification**: private structural check **PASS (Python, read-only)**;
+new native C++ compile, JUCE smoke, modal behavior, Undo/Redo, Save/Open and
+physical ASIO **NOT TESTED** until the next explicitly requested Windows run.
+Windows #400 PASS applies to the preceding, faulty GUI version; not this fix.
+This remains within Issue #305; version `0.8.11-fix2`.
+
 ## User scope and UX contract
 
 A user picks a Studio One / Fender Studio Pro `.show` file, **selects the source
