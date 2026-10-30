@@ -63,7 +63,7 @@ jobs:
             if($subject -match '\[ci live\]'){$scope='live'}
           }
           if($env:INTEGRATION -eq 'true'){$scope='integration'}
-          # 0.8.9-fix1 acceptance: dirty/Undo JUCE value equality regression, no 30Hz VST3 JSON work.
+          # 0.8.9-fix1 diagnostic: show first dirty mismatch paths in boot and Notes Undo failures.
           # The Live-only executable is intentionally ARA-free. Keep ARA ON
           # by default for Studio/profile, including ARA tests and packaging.
           $buildAra=if($scope -eq 'live'){'false'}else{$env:ARA.ToLowerInvariant()}
