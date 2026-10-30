@@ -1,6 +1,6 @@
 # MR Live 0.8.11 — Studio One Show Page context import (#305)
 
-**Development state: schema probe and schema-independent model application exist in source; native file import/UI NOT IMPLEMENTED.**
+**Development state: native read-only .show parser and destination adapter exist in source; item picker/preview/import UI NOT IMPLEMENTED.**
 This is an independent MR Live compatibility feature owned by #305 under roadmap #14.
 The accepted baseline is MR Live **0.8.10**, from `main`. No change to its
 audio engine, VST3, mixer, render graph, or existing `.mrlive` schema is part of
@@ -39,11 +39,11 @@ https://www.soundonsound.com/techniques/studio-one-show-page-revisited
 
 | Property | MR Live destination | Availability inside a real .show |
 | --- | --- | --- |
-| Sections | `items[].sections[]`, start/length in bars, name/color | **FOUND** as `SetListItemSection`; seconds-to-bars converter still pending |
-| Tempo (constant BPM) | `items[].tempo` | **FOUND** in each item as seconds/quarter; BPM converter pending |
+| Sections | `items[].sections[]`, start/length in bars, name/color | **PARSED** into bars on compatible source items; Studio One ARGB→MR UDS color map not verified |
+| Tempo (constant BPM) | `items[].tempo` | **PARSED** as `60 / secondsPerQuarter`, guarded against unsupported values |
 | Tempo changes | SHARED TimeMap supports points, but current Live projection uses one item BPM; requires explicit integration after verified source | **UNKNOWN; NOT SUPPORTED by current Live projection** |
-| Chords | `performance.chords[itemId][]`, symbol/start/length | **FOUND** as encoded `SetListItemChord`; musical symbol decoder pending |
-| Song length | `items[].bars` and `performance.arrangement[itemId].length` | **FOUND** as item `length` in seconds; bars converter pending |
+| Chords | `performance.chords[itemId][]`, symbol/start/length | **RAW PARSED** (root/type/intervals/bass and time spans); no verified chord symbol decoder, so Chords import stays disabled |
+| Song length | `items[].bars` and `performance.arrangement[itemId].length` | **PARSED** into bars using item-specific tempo and meter; no silent rounding |
 
 **Never claim import compatibility based solely on structural discovery.**
 The observed paths are verified for **one** real user Show. Other Studio One
@@ -81,6 +81,43 @@ import.** No actual user Show or excerpts are committed or uploaded to GitHub,
 PRs or CI; any future regression fixture must be synthetic or independently
 redistributable.
 
+## Native C++ reader source slice (30.10.2026)
+
+`apps/studio-juce/src/LiveStudioOneShowReader.h` implements
+`live::readStudioOneShow(const juce::File&)` plus a synthetic-testable
+`live::readStudioOneShowXml(std::string)`. It reads **only**
+`Show/show.xml` from the `.show` ZIP. It neither extracts nor opens
+audio, preset, VST, media or linked .song references.
+
+- Reads SetList in original order, including **duplicate titles**, with a
+  zero-based `sourceItemOrdinal`. User selection is **not inferred**.
+- Reads source meter, converts seconds-per-quarter to BPM, and converts
+  item length, section boundaries and encoded chord boundaries into bars.
+  Fractional bars retain precision.
+- Validates Sections against `LiveTimelineEditState.h` rules. For
+  unsupported or overlapping spans, **the entire category is unavailable**,
+  not partially imported. Retains count and warnings; no source is modified.
+- Retains chord `root / intervals / type / bass` encoding in a separate
+  `rawChords` preview DTO. **Does not invent chord symbols** or enable
+  Chords for import yet. Missing lanes are void (unavailable), never
+  interpreted as an empty lane to overwrite the destination.
+- Bounds ZIP entries (4096), expanded archive metadata (1 GiB), source
+  size (512 MiB), XML size (8 MiB), XML depth (64), XML node count
+  (100000) and source item count (500); rejects DTD/entities and unsafe paths.
+  Normalizes the source's `x:id` / `::` quirks **in memory only**.
+- The downstream `ShowContextSong` mapping still requires an explicit target
+  item ID. A source/target meter mismatch blocks Sections/Chords/Length
+  unless a later separately agreed meter-handling UI resolves it.
+
+**Private read-only validation:** real uploaded `.show` parsed with an
+independent Python equivalent of the XML normalization and time conversion:
+75 items / 48 with Sections / 19 with Chords; **43** section-bearing
+items satisfy the current section-span limits, **5** require a clear
+compatibility warning. Structural extraction and time conversion: **PASS
+(Python only)**. The actual Windows/JUCE C++ reader and synthetic C++
+smoke checks are **NOT TESTED** until the next targeted Windows run.
+The private file is not stored in GitHub.
+
 ## Read-only schema probe (first source slice)
 
 `tools/studio_one_show_probe.py` is a standalone Python 3 standard-library
@@ -105,20 +142,18 @@ not evidence that the Show is empty. The inspector has ZIP member/size/XML
 complexity limits and rejects suspicious paths. This is a research utility,
 **not** the final parser or a working GUI import.
 
-## Required next implementation slice (observed .show layout confirmed)
+## Remaining work in the same #305
 
-1. An actual user `.show` has confirmed a ZIP and `Show/show.xml` structure
-   (see evidence above). Implement a bounded reader supporting this observed
-   schema and distinguish other versions. Source is always read-only, never
-   automatically traverse linked `.song` paths or extract plug-in data.
-2. Implement a small versioned `ShowContextImportDTO` carrying source item
-   **index, title, optional stable ID**, optional musical fields, availability
-   and warnings; list/filter/select source items separately from destination mapping.
-   Keep source file parsing independent of MR Studio `.song`/.dawproject
-   importer (#3) and reuse the shared musical model.
-3. Show the source SetList selector and explicit target-item mapping **before**
-   the four independent checkboxes and per-item preview. Disable fields that
-   cannot be decoded reliably and disable Import until a valid source selection.
+1. **DONE (source):** verified the observed ZIP/Show XML structure and
+   implemented a bounded, read-only native reader; linked `.song` paths
+   are never traversed and media/plug-in data is never opened.
+2. **DONE (source):** `ShowContextSong` contains ordinal, title, source meter,
+   decoded optional fields, raw encoded chords, availability and warnings.
+   Next validate actual C++ behavior on Windows; decode chord symbols only
+   against independently verified musical mappings.
+3. **TODO:** native source SetList selector and explicit MR Live target-item
+   mapping **before** four independent checkboxes and per-item preview; unavailable
+   data must be disabled. No automatic selection or name-only matching.
 4. Apply only selected, present fields to a **cloned** `.mrlive` model through
    `editLiveInterface`, using `live::setMusicalRows` for validated non-overlap,
    `live::setItemView` for the item end, one Undo entry, and normal Save/Open.
@@ -130,7 +165,7 @@ complexity limits and rejects suspicious paths. This is a research utility,
 ## Safety, version and release
 
 `0.8.11` is the **active issue version**, not an accepted binary.
-This first step adds the standalone probe, `LiveShowContextImport.h` (atomic selected-field destination adapter with mandatory source ordinal), and synthetic tests wired into native Live smoke. The source item selector is specified but **not yet rendered as a working JUCE control**. This is `SOURCE ONLY`, not a Windows build, UI feature,
+This source stage adds the standalone probe, native `LiveStudioOneShowReader.h`, `LiveShowContextImport.h` (atomic selected-field destination adapter with mandatory source ordinal), and synthetic tests wired into native Live smoke. The source item selector is specified but **not yet rendered as a working JUCE control**. This is `SOURCE ONLY`, not a Windows build, UI feature,
 hardware test or user acceptance. Avoid changes to `main`, new releases,
 unrequested Windows Actions or merge until user approval. No proprietary
 Show, Song, media or vendor plugin assets in the repository.
