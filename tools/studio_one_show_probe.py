@@ -51,10 +51,10 @@ def _schema(xml_bytes: bytes) -> dict:
     # rejected instead of expanded.
     if b"<!DOCTYPE" in xml_bytes.upper() or b"<!ENTITY" in xml_bytes.upper():
         raise ProbeError("DTD and XML entity declarations are unsupported")
-    xml_bytes = re.sub(rb"(?<=\\s)x:id(?=\\s*=)", b"x_id", xml_bytes)
+    xml_bytes = re.sub(rb"(?<=\s)x:id(?=\s*=)", b"x_id", xml_bytes)
     xml_bytes = re.sub(
-        rb"(<\\s*/?\\s*[A-Za-z_][\\w.\\-]*)::([\\w.\\-]+)",
-        rb"\\1__\\2",
+        rb"(<\s*/?\s*[A-Za-z_][\w.\-]*)::([\w.\-]+)",
+        rb"\1__\2",
         xml_bytes,
     )
     # ElementTree does not fetch external entities; no file/network resolution.
