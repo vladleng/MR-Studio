@@ -86,11 +86,11 @@ void liveDisplayPollingSmoke(const juce::File& fixture,const juce::File& wave){
         polling.app.poll();polling.syncLivePlayback();juce::Thread::sleep(1);
     }
     liveCheck(polling.livePlaybackReady(),"Display polling fixture has a real prepared Playback row");
-    auto* panel=dynamic_cast<LivePlaybackPanel*>(liveComponent(polling,"live-playback-panel"));
+    auto* playbackPanelView=dynamic_cast<LivePlaybackPanel*>(liveComponent(polling,"live-playback-panel"));
     auto* timeline=dynamic_cast<LiveTimeline*>(liveComponent(polling,"live-show-timeline"));
     auto* mixer=dynamic_cast<LiveMixer*>(liveComponent(polling,"live-mixer"));
-    liveCheck(panel&&timeline&&mixer,"Concurrent display polling uses real Live components");
-    panel->sync();timeline->refresh();mixer->sync();
+    liveCheck(playbackPanelView&&timeline&&mixer,"Concurrent display polling uses real Live components");
+    playbackPanelView->sync();timeline->refresh();mixer->sync();
     const auto engine=polling.app.engine();
     std::atomic<bool> begin{};
     std::jthread callback([&]{
@@ -99,7 +99,7 @@ void liveDisplayPollingSmoke(const juce::File& fixture,const juce::File& wave){
         for(int block=0;block<50000;++block)engine->process(nullptr,output.data(),128);
     });
     begin=true;
-    for(int refresh=0;refresh<300;++refresh){panel->sync();timeline->refresh();mixer->sync();}
+    for(int refresh=0;refresh<300;++refresh){playbackPanelView->sync();timeline->refresh();mixer->sync();}
     callback.join();
     mrs::audio::RealtimeState head;
     liveCheck(engine->try_state(head)&&head.playback==mrs::PlaybackState::stopped,
