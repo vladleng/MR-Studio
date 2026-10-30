@@ -71,29 +71,27 @@ class LiveTimeline final : public juce::Component {
     void zoom(double factor) {
         if (!owner.liveDocument) return;
         owner.run([&] {
-            owner.editLiveInterface("Timeline zoom", [&](auto& show) {
-                const auto itemId=show["currentItem"].toString();
-                if (!live::find(show,"items",itemId).isObject()) return;
-                const auto view=show["performance"]["arrangement"][juce::Identifier(itemId)];
-                const double oldScale=numeric(view["scale"],16.,4.,128.);
-                live::setItemView(show,itemId,"scale",juce::jlimit(4.,128.,oldScale*factor));
-            });
+            const auto& show=owner.liveDocument->interfaceState;
+            const auto itemId=show["currentItem"].toString();
+            if (!live::find(show,"items",itemId).isObject()) return;
+            const auto view=show["performance"]["arrangement"][juce::Identifier(itemId)];
+            const double oldScale=numeric(view["scale"],16.,4.,128.);
+            owner.editLiveItemView(itemId,"scale",juce::jlimit(4.,128.,oldScale*factor));
         });
     }
     void zoomFit() {
         if (!owner.liveDocument) return;
         owner.run([&] {
-            owner.editLiveInterface("Fit timeline item", [&](auto& show) {
-                const auto itemId=show["currentItem"].toString();
-                const auto item=live::find(show,"items",itemId);
-                if (!item.isObject()) return;
-                const auto view=show["performance"]["arrangement"][juce::Identifier(itemId)];
-                const double bars=numeric(view["length"],numeric(item["bars"],16.,1.,4096.),1.,4096.);
-                const double lead=numeric(view["lead"],0.,0.,4096.);
-                const double width=static_cast<double>(juce::jmax(60,viewport.getMaximumVisibleWidth()-12));
-                const double scale=juce::jlimit(4.,128.,width/(bars+lead));
-                live::setItemView(show,itemId,"scale",scale);
-            });
+            const auto& show=owner.liveDocument->interfaceState;
+            const auto itemId=show["currentItem"].toString();
+            const auto item=live::find(show,"items",itemId);
+            if (!item.isObject()) return;
+            const auto view=show["performance"]["arrangement"][juce::Identifier(itemId)];
+            const double bars=numeric(view["length"],numeric(item["bars"],16.,1.,4096.),1.,4096.);
+            const double lead=numeric(view["lead"],0.,0.,4096.);
+            const double width=static_cast<double>(juce::jmax(60,viewport.getMaximumVisibleWidth()-12));
+            const double scale=juce::jlimit(4.,128.,width/(bars+lead));
+            owner.editLiveItemView(itemId,"scale",scale);
         });
     }
     void setClipScissors(bool enabled){body.scissors=enabled;body.repaint();}
@@ -652,7 +650,7 @@ class LiveTimeline final : public juce::Component {
                 if(event.y>=32 && event.y<56 && event.x>=item.bounds.getX()+6 && event.x<item.bounds.getX()+54) {
                     if(event.mods.isLeftButtonDown()) {
                         const double scale=juce::jlimit(4.,128.,item.scale*(event.x<item.bounds.getX()+30?.8:1.25));
-                        parent.owner.run([&]{parent.owner.editLiveInterface("Timeline zoom",[&](auto &state){live::setItemView(state,id,"scale",scale);});});
+                        parent.owner.run([&]{parent.owner.editLiveItemView(id,"scale",scale);});
                     }
                     return true;
                 }
@@ -668,13 +666,19 @@ class LiveTimeline final : public juce::Component {
                 if(!event.mods.isLeftButtonDown())return false;
                 grabKeyboardFocus();
                 clipEditing=false;
-                originalState=parent.state.clone(); baseline=live::canonical(parent.owner.liveDocument->interfaceState);
                 editingItem=item; dragStart=event.position.x; dragPosition=dragStart;
                 dragScreenX=static_cast<float>(event.getScreenPosition().x);
                 const auto screenPoint=event.getScreenPosition().toFloat();
                 screenUnits=getLocalPoint(nullptr,screenPoint.translated(1.f,0.f)).x-getLocalPoint(nullptr,screenPoint).x;
                 viewKey=!musical?(right?"length":origin?"lead":""):"";
-                if(viewKey.isNotEmpty()) { editing=true; return true; }
+                if(viewKey.isNotEmpty()) {
+                    // Item edges only change displayed geometry during drag.
+                    // No complete show clone/JSON serialization on mouse-down.
+                    previewViewValue=viewKey=="lead"?item.lead:item.bars;
+                    invalid=false;editing=true;return true;
+                }
+                originalState=parent.state.clone();
+                baseline=live::canonical(parent.owner.liveDocument->interfaceState);
                 clipSelection.clear();
                 selectedItem=id;selectedLane=event.y<lanesTop-chordHeight?live::MusicalLane::sections:live::MusicalLane::chords;
                 const auto target=live::musicalHit(live::musicalRows(parent.state,id,selectedLane),barAt(item,event.position.x),5./item.scale);
@@ -704,15 +708,20 @@ class LiveTimeline final : public juce::Component {
             // converted once at mouse-down remains stable at any UI zoom.
             dragPosition=dragStart+(static_cast<float>(event.getScreenPosition().x)-dragScreenX)*screenUnits;
             const double delta=(dragPosition-dragStart)/editingItem.scale;
+            if(viewKey.isNotEmpty()) {
+                const double initial=viewKey=="lead"?editingItem.lead:editingItem.bars;
+                const double value=juce::jlimit(viewKey=="lead"?0.:1.,4096.,live::barSnap(initial+delta));
+                if(value==previewViewValue)return;
+                previewViewValue=value;
+                invalid=false;
+                parent.layout();parent.playhead.update();repaint();
+                return;
+            }
             auto preview=originalState.clone();
             try {
                 if(clipEditing) {
                     const auto next=live::editPlaybackRegion(editRows,clipSelection,delta,clipEdge,clipSourceBars);
                     live::setPlaybackRegions(preview,clipItem,clipStem,next);
-                } else if(viewKey.isNotEmpty()) {
-                    const double initial=viewKey=="lead"?editingItem.lead:editingItem.bars;
-                    live::setItemView(preview,editingItem.value["id"].toString(),juce::Identifier(viewKey),
-                        juce::jlimit(viewKey=="lead"?0.:1.,4096.,live::barSnap(initial+delta)));
                 } else {
                     const auto next=live::editMusicalSpan(editRows,selection,delta,mode,selectedLane,copy);
                     live::setMusicalRows(preview,selectedItem,selectedLane,next);
@@ -722,6 +731,21 @@ class LiveTimeline final : public juce::Component {
         }
         void finishEdit() {
             const bool changed=std::abs(dragPosition-dragStart)>=1.f && !invalid;
+            if(viewKey.isNotEmpty()) {
+                const double result=previewViewValue;
+                const double initial=viewKey=="lead"?editingItem.lead:editingItem.bars;
+                const auto id=editingItem.value["id"].toString();
+                const auto key=viewKey;
+                editing=false;parent.layout();parent.playhead.update();repaint();
+                if(!changed || result==initial)return;
+                if(key=="lead")
+                    parent.owner.run([&]{parent.owner.editLiveItemView(id,"lead",result);});
+                else // The explicit length can affect Playback's authored extent.
+                    parent.owner.run([&]{parent.owner.editLiveInterface("Item length",[&](auto &state){
+                        live::setItemView(state,id,"length",result);
+                    });});
+                return;
+            }
             const auto next=parent.state.clone();
             editing=false; parent.state=parent.owner.liveDocument->interfaceState;parent.layout();parent.playhead.update();repaint();
             if(!changed || baseline!=live::canonical(parent.owner.liveDocument->interfaceState))return;
@@ -808,6 +832,7 @@ class LiveTimeline final : public juce::Component {
         live::MusicalLane selectedLane{live::MusicalLane::sections};
         live::SpanGesture mode{live::SpanGesture::move};
         juce::String selectedItem,selection,viewKey,baseline;
+        double previewViewValue{};
         juce::var originalState,editRows;
 
       private:
@@ -867,10 +892,14 @@ class LiveTimeline final : public juce::Component {
                     continue;
                 const auto view = state["performance"]["arrangement"][juce::Identifier(item["id"].toString())];
                 const double scale = numeric(view["scale"], 16, 4, 128);
-                const double lead = numeric(view["lead"], 0, 0, 4096);
+                double lead = numeric(view["lead"], 0, 0, 4096);
                 double bars = numeric(view["length"], numeric(item["bars"], 16, 1, 4096), 1, 4096);
+                const bool previewThisItem = body.editing && body.viewKey.isNotEmpty() &&
+                    item["id"] == body.editingItem.value["id"];
+                const bool previewLength = previewThisItem && body.viewKey == "length";
+                if (previewThisItem && body.viewKey == "lead") lead = body.previewViewValue;
                 double audioBars = 0.;
-                if (!view.hasProperty("length") && item["id"] == state["currentItem"] && owner.livePlaybackReady()) {
+                if (!view.hasProperty("length") && !previewLength && item["id"] == state["currentItem"] && owner.livePlaybackReady()) {
                     const auto project = owner.project();
                     mrs::Sample end = 0;
                     for (const auto &clip : project->clips)
@@ -880,7 +909,7 @@ class LiveTimeline final : public juce::Component {
                     audioBars = static_cast<double>(clock.to_ticks(end)) /
                                                       (4. * mrs::ppq * meter.numerator / meter.denominator);
                 }
-                if (!view.hasProperty("length")) for (const auto &row : live::playbackRows(state, item["id"].toString())) {
+                if (!view.hasProperty("length") && !previewLength) for (const auto &row : live::playbackRows(state, item["id"].toString())) {
                     const auto regions=live::playbackRegions(state,item["id"].toString(),row);
                     if(const auto* regionValues=regions.getArray())for(const auto& region:*regionValues)
                         audioBars=juce::jmax(audioBars,static_cast<double>(region["start"])+static_cast<double>(region["length"]));
@@ -899,6 +928,7 @@ class LiveTimeline final : public juce::Component {
                         std::llround(seconds * cached->rate)))) / (4. * mrs::ppq * meter.numerator / meter.denominator));
                 }
                 if (!view.hasProperty("length") && audioBars > 0.) bars = juce::jmin(4096., audioBars);
+                if (previewLength) bars = body.previewViewValue;
                 // The model permits 1000 entries, 4096 bars/lead and 128 px/bar.
                 // Keep their complete geometry within a signed-int scroll surface.
                 const bool collapsed = static_cast<bool>(state["performance"]["collapsedItems"][juce::Identifier(entry["id"].toString())]);
