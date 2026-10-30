@@ -301,6 +301,7 @@ void Desktop::prepareLiveInterface(bool saved) {
     livePendingEntry.clear();
     liveBrowserItem.clear();
     liveChannelTracks.clear(); // Previous Core project replaced.
+    liveAutoMonitorError.clear();
     app.stop_library_preview();
     livePlaybackStore.reset();
     livePendingItem.clear();
@@ -728,7 +729,9 @@ mrs::Track liveTrack(const juce::var& state,const juce::String& channel,const mr
     const auto row=live::find(state,"channels",channel);
     const auto profile=live::decodeLiveInputProfile(row["liveInput"]);
     mrs::Track track{id,row["name"].toString().toStdString(),profile.instrument?mrs::TrackKind::instrument:mrs::TrackKind::audio,{}};
-    track.midi_input=profile.midiInput.toStdString();track.midi_channel=profile.midiChannel;track.midi_monitor=!profile.instrument;
+    track.midi_input=profile.midiInput.toStdString();track.midi_channel=profile.midiChannel;
+    track.input_monitor=!profile.instrument; // Validated physical input: monitored by default.
+    track.midi_monitor=!profile.instrument || profile.midiInput.isNotEmpty(); // MIDI Off stays silent.
     // .mrlive Instrument descriptors keep input=-1; Core non-audio tracks
     // require input=-2. Always project the saved role onto Core semantics.
     track.input=live::liveCoreTrackInput(profile);track.input_stereo=profile.stereo;track.hardware_outputs=profile.outputs;
@@ -836,8 +839,8 @@ void Desktop::reconcileLiveInputs(const juce::var& state) {
         if(profile.instrument && profile.inserts.empty()) {channelTracks.erase(channel);changed=true;continue;}
         validateLiveHardware(*this,profile);
         auto track=liveTrack(state,channel,id);
-        track.input_monitor=track.kind==mrs::TrackKind::audio && at->kind==mrs::TrackKind::audio && at->input_monitor;
-        track.midi_monitor=track.kind!=mrs::TrackKind::instrument || (at->kind==mrs::TrackKind::instrument && at->midi_monitor);
+        track.input_monitor=!profile.instrument;
+        track.midi_monitor=!profile.instrument || profile.midiInput.isNotEmpty();
         tracks.push_back(std::move(track));changed=true;
     }
     if(changed) {
@@ -878,6 +881,7 @@ void Desktop::configureLiveInput(const juce::String& requested,int input,bool st
     editLiveInterface("Channel audio input / output",[&](auto& state){
         live::put(live::require(state,"channels",channel),"liveInput",profile);
     },false,true);
+    syncAutomaticLiveMonitoring();
 }
 void Desktop::configureLiveMidi(const juce::String& requested,const juce::String& port,int midiChannel,const std::vector<int>& outputs) {
     const auto channel=inputChannel(*this,requested);
@@ -899,6 +903,7 @@ void Desktop::configureLiveMidi(const juce::String& requested,const juce::String
     auto profile=live::liveInputProfile(track,name,juce::String::fromUTF8(app.audio_name().c_str()),track.inserts);
     stampLivePorts(*this,profile);
     editLiveInterface("Channel MIDI input / output",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);},false,true);
+    syncAutomaticLiveMonitoring();
 }
 void Desktop::setLiveInputEffects(const juce::String& requested,std::vector<mrs::NativeInsert> effects) {
     const auto channel=inputChannel(*this,requested);
@@ -915,6 +920,7 @@ void Desktop::setLiveInputEffects(const juce::String& requested,std::vector<mrs:
     auto profile=live::liveInputProfile(track,saved.name,saved.device,effects);
     for(const auto* key:{"inputRightName","outputNames"})if(!row["liveInput"][key].isVoid())live::put(profile,key,row["liveInput"][key].clone());
     editLiveInterface("Channel effect chain",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);},false,true);
+    syncAutomaticLiveMonitoring();
 }
 void Desktop::activateLiveChannel(const juce::String& requested) {
     const auto channel=inputChannel(*this,requested);
@@ -943,28 +949,42 @@ void Desktop::openLiveInsertEditor(const juce::String& requested,const mrs::Id& 
     if(at==profile.inserts.end())throw std::runtime_error("Channel plugin changed; reopen the FX menu");
     if(at->kind!=mrs::InsertKind::vst3)throw std::runtime_error("Choose a VST3 plugin editor");
 
-    // Saved show descriptors are deliberately inert until the user explicitly
-    // requests a processor. Opening an editor is such a request; it must NOT
-    // implicitly enable audio/MIDI monitoring or start the transport.
+    // An explicit editor request may prepare a channel when a saved VST3 is
+    // available. Monitor follows valid Audio/MIDI input routing; transport stays stopped.
     if(!liveInputTrack(channel))activateLiveChannel(channel);
     const auto track=liveInputTrack(channel);
     if(!track)throw std::runtime_error("Cannot activate the channel plugin editor");
     openInsert(*track,slot);
 }
-void Desktop::setLiveInputMonitor(const juce::String& requested,bool enabled) {
-    const auto channel=inputChannel(*this,requested);
-    if(enabled)activateLiveChannel(channel);
-    const auto id=liveInputTrack(channel);if(!id)return;
-    const auto snapshot=project();std::vector<mrs::Track> tracks;
-    for(const auto& target:liveInputTracks())for(auto track:snapshot->tracks)if(track.id==target) {
-        if(target==*id) {if(track.kind==mrs::TrackKind::instrument)track.midi_monitor=enabled;else track.input_monitor=enabled;}
-        tracks.push_back(std::move(track));
+void Desktop::syncAutomaticLiveMonitoring() {
+    if (!liveDocument || !liveDocument->projects.empty() ||
+        (!standaloneLive && !testing) || app.recording() ||
+        livePendingItem.isNotEmpty() || livePlaybackLoading ||
+        !app.audio_running() || app.audio_name()=="Offline clock (no sound)" ||
+        app.audio_name()=="Disconnected")
+        return;
+    liveAutoMonitorError.clear();
+    const auto show=liveDocument->interfaceState;
+    if(const auto* channels=show["channels"].getArray())for(const auto& row:*channels) {
+        const auto channel=row["id"].toString();
+        if(row["type"].toString()=="Playback" || !row["liveInput"].isObject() ||
+           liveInputTrack(channel)) continue;
+        try {
+            const auto profile=live::decodeLiveInputProfile(row["liveInput"]);
+            // Instrument requires both an explicit MIDI port and its VSTi.
+            // MIDI Off / incomplete presets never start a synth by surprise.
+            if(profile.instrument && (profile.midiInput.isEmpty() || profile.inserts.empty()))continue;
+            activateLiveChannel(channel); // Validates device/ports/routes/plugins before publication.
+        } catch(const std::exception& error) {
+            if(liveAutoMonitorError.isNotEmpty())liveAutoMonitorError+="\n";
+            liveAutoMonitorError+=row["name"].toString()+": "+juce::String::fromUTF8(error.what());
+            mrs::diagnostics::event("live_auto_monitor_skipped "+channel.toStdString()+" "+error.what());
+        }
     }
-    app.update_live_channels(liveInputTracks(),std::move(tracks));++liveUiRevision;
 }
 void Desktop::startLiveAudioInput(int input,const juce::String& requested,bool stereo) {
     const auto channel=inputChannel(*this,requested);
-    configureLiveInput(channel,input,stereo,{});setLiveInputMonitor(channel,true);
+    configureLiveInput(channel,input,stereo,{});
 }
 void Desktop::releaseLiveInput(const juce::String& requested) {
     const auto channel=requested.isEmpty()?(liveChannelTracks.empty()?juce::String{}:liveChannelTracks.begin()->first):requested;

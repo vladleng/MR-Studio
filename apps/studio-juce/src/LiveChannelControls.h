@@ -246,8 +246,8 @@ private:
         for(std::size_t i=mixerInstrument?1u:0u;i<saved.inserts.size();++i) {
             if(chooseInstrument && i>0)break;
             const auto& fx=saved.inserts[i];juce::PopupMenu slot;
-            // A saved VST3 can be edited before Monitor is enabled. An explicit
-            // editor request prepares the Core track, but leaves monitoring OFF.
+            // Editor access remains explicit; an assigned valid input is monitored
+            // automatically, without a separate Monitor button.
             slot.addItem(100+static_cast<int>(i)*10,"Open editor",
                 owner.liveInputTrack(id).has_value() || stopped);
             slot.addItem(101+static_cast<int>(i)*10,"Bypass",stopped,fx.bypass);

@@ -325,10 +325,9 @@ class LiveTimeline final : public juce::Component {
     class StemMix final : public juce::Component {
       public:
         StemMix(LiveTimeline &timeline, juce::String stem) : key(std::move(stem)), parent(timeline), inputs(timeline.owner,key,LiveChannelControls::Surface::timeline) {
-            addAndMakeVisible(inputs);addAndMakeVisible(monitor);addAndMakeVisible(instrumentSelector);
+            addAndMakeVisible(inputs);addAndMakeVisible(instrumentSelector);
             instrumentSelector.setComponentID("live-timeline-instrument-" + key);
             instrumentSelector.onClick=[this]{inputs.showInstrumentPicker(instrumentSelector);};
-            monitor.onClick=[this]{parent.owner.run([&]{parent.owner.setLiveInputMonitor(key,!monitor.getToggleState());});};
             for (auto *control : std::array<juce::Component *, 4>{&mute, &solo, &gain, &arm})
                 addAndMakeVisible(control);
             arm.setEnabled(false);
@@ -351,12 +350,12 @@ class LiveTimeline final : public juce::Component {
             // selectors; place VSTi choice in the free second row.
             instrumentSelector.setBounds(2,22,juce::jmax(0,getWidth()-4),22);
             mute.setBounds(8, 46, 26, 22);solo.setBounds(36, 46, 26, 22);
-            arm.setBounds(64, 46, 26, 22);monitor.setBounds(92,46,juce::jmax(24,getWidth()-100),22);
+            arm.setBounds(64, 46, 26, 22);
             gain.setBounds(6, 72, juce::jmax(0, getWidth() - 12), 24);
         }
         void sync(const juce::var &row) {
             const bool live=row["type"].toString()!="Playback";
-            arm.setVisible(live);inputs.setVisible(live);monitor.setVisible(live);inputs.sync();
+            arm.setVisible(live);inputs.setVisible(live);inputs.sync();
             const auto profile=row["liveInput"];
             const bool instrument=row["type"].toString()=="Instrument" &&
                 (!profile.isObject() || static_cast<int>(profile["version"])==2);
@@ -370,12 +369,6 @@ class LiveTimeline final : public juce::Component {
             instrumentSelector.setEnabled(instrument && profile.isObject() &&
                 !parent.owner.app.recording() &&
                 parent.owner.displayState().playback!=mrs::PlaybackState::playing);
-            bool monitoring=false;
-            if(const auto id=parent.owner.liveInputTrack(key))for(const auto& track:parent.owner.project()->tracks)if(track.id==*id)
-                monitoring=track.kind==mrs::TrackKind::instrument?track.midi_monitor:track.input_monitor;
-            monitor.setToggleState(monitoring,juce::dontSendNotification);
-            monitor.setEnabled(row["liveInput"].isObject()&&!parent.owner.app.recording()&&parent.owner.displayState().playback!=mrs::PlaybackState::playing);
-            monitor.setTooltip(monitoring?"Monitor ON":"Monitor OFF: explicit enable loads this channel through shared Core");
             mute.setToggleState(static_cast<bool>(row["mute"]), juce::dontSendNotification);
             solo.setToggleState(static_cast<bool>(row["solo"]), juce::dontSendNotification);
             if (!gain.isMouseButtonDown())
@@ -393,7 +386,7 @@ class LiveTimeline final : public juce::Component {
         }
         LiveTimeline &parent;
         LiveChannelControls inputs;
-        juce::TextButton mute{"M"}, solo{"S"}, arm{"R"}, monitor{"I"};
+        juce::TextButton mute{"M"}, solo{"S"}, arm{"R"};
         juce::TextButton instrumentSelector{"Choose VSTi"};
         juce::Slider gain;
     };

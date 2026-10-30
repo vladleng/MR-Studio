@@ -159,7 +159,10 @@ void Desktop::reconnectDevice(bool session){if(testing||(!session&&!prefs.reconn
     mrs::audio::DeviceConfig config{found->index,project()->sample_rate,prefs.buffer,{},prefs.outputs,prefs.processing_workers,prefs.process_buffer_frames};
     if(!view.inputs.trim().isEmpty())config.inputs=mrs::desktop::parse_outputs(view.inputs.toStdString());
     else if(prefs.monitor_input>=0)config.inputs={prefs.monitor_input};
-    try{app.connect(std::move(device),config);prefs.rate=config.sample_rate;saveSettings();}catch(...){resetDevice();throw;}
+    try{
+        app.connect(std::move(device),config);prefs.rate=config.sample_rate;saveSettings();
+        if(standaloneLive&&liveDocument)syncAutomaticLiveMonitoring();
+    }catch(...){resetDevice();throw;}
 #endif
 }
 void Desktop::openFile(const juce::File& f){if(!standaloneLive&&!testing&&f.hasFileExtension("mrlive")){launchLive(f,false);return;}if(standaloneLive&&!f.hasFileExtension("mrlive"))throw std::runtime_error("MR Live opens .mrlive show documents");mrs::diagnostics::event("project_open_begin "+f.getFullPathName().toStdString());const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();cancelPreview();if(f.hasFileExtension("mrlive")){

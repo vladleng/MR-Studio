@@ -50,11 +50,9 @@ class LiveMixer final : public juce::Component {
       public:
         Strip(Desktop &desktop, juce::String channel) : owner(desktop), id(std::move(channel)),
             inputs(owner,id,LiveChannelControls::Surface::mixer), gain(kit::ParameterSpec{"gain", "Level", kit::Unit::db, -60, 12, 0, .1, kit::Mapping::linear, 1}, true) {
-            for (auto *c : std::array<juce::Component *, 8>{&name, &inputs, &monitor, &gain, &pan, &mute, &solo, &instrumentSelector}) addAndMakeVisible(c);
+            for (auto *c : std::array<juce::Component *, 7>{&name, &inputs, &gain, &pan, &mute, &solo, &instrumentSelector}) addAndMakeVisible(c);
             instrumentSelector.setComponentID("live-mixer-instrument-"+id);
             instrumentSelector.onClick=[this]{inputs.showInstrumentPicker(instrumentSelector);};
-            monitor.setComponentID("live-channel-monitor-"+id);
-            monitor.onClick=[this]{owner.run([&]{owner.setLiveInputMonitor(id,!monitor.getToggleState());});};
             gain.setComponentID("live-mixer-gain-" + id);
             pan.setComponentID("live-mixer-pan-" + id);
             mute.setComponentID("live-mixer-mute-" + id);
@@ -81,7 +79,7 @@ class LiveMixer final : public juce::Component {
             const auto channel = live::find(state, "channels", id);
             name.setText(channel["name"].toString(), juce::dontSendNotification);
             const auto kind=channel["type"].toString();
-            inputs.setVisible(kind!="Playback");inputs.sync();monitor.setVisible(kind!="Playback");
+            inputs.setVisible(kind!="Playback");inputs.sync();
             const auto saved=channel["liveInput"];
             const bool instrument=kind=="Instrument" && (!saved.isObject() || static_cast<int>(saved["version"])==2);
             instrumentSelector.setVisible(instrument);
@@ -93,11 +91,6 @@ class LiveMixer final : public juce::Component {
             instrumentSelector.setTooltip(pluginName.isEmpty()?
                 "Choose a VST3 instrument from the scanned catalog":"Replace VST3 instrument: "+pluginName);
             const auto target=owner.liveInputTrack(id);const bool activeInput=target.has_value();
-            bool monitoring=false;
-            if(target)for(const auto& track:owner.project()->tracks)if(track.id==*target)monitoring=track.kind==mrs::TrackKind::instrument?track.midi_monitor:track.input_monitor;
-            monitor.setToggleState(monitoring,juce::dontSendNotification);
-            monitor.setEnabled(channel["liveInput"].isObject()&&!owner.app.recording()&&owner.displayState().playback!=mrs::PlaybackState::playing);
-            monitor.setTooltip(monitoring?"Monitor ON":"Monitor OFF");
             if (!gain.gesturing() && !gain.hasKeyboardFocus(true)) gain.setValue(static_cast<double>(channel["gain"]));
             if (!pan.isMouseButtonDown() && !pan.hasKeyboardFocus(true)) pan.setValue(live::channelPan(channel), juce::dontSendNotification);
             mute.setToggleState(static_cast<bool>(channel["mute"]), juce::dontSendNotification);
@@ -131,7 +124,7 @@ class LiveMixer final : public juce::Component {
             name.setBounds(area.removeFromTop(24));
             inputs.setBounds(area.removeFromTop(44));
             auto buttons = area.removeFromTop(28);
-            mute.setBounds(buttons.removeFromLeft(30).reduced(1));solo.setBounds(buttons.removeFromLeft(30).reduced(1));monitor.setBounds(buttons.reduced(1));
+            mute.setBounds(buttons.removeFromLeft(30).reduced(1));solo.setBounds(buttons.removeFromLeft(30).reduced(1));
             pan.setBounds(area.removeFromTop(40));
             if(instrumentSelector.isVisible())
                 instrumentSelector.setBounds(area.removeFromTop(22).reduced(1,0));
@@ -165,7 +158,7 @@ class LiveMixer final : public juce::Component {
         juce::String id;
         juce::Label name;
         LiveChannelControls inputs;
-        juce::TextButton monitor{"I"},instrumentSelector{"Choose VSTi"};
+        juce::TextButton instrumentSelector{"Choose VSTi"};
         kit::MRFader gain;
         juce::Slider pan;
         juce::TextButton mute{"M"}, solo{"S"};
