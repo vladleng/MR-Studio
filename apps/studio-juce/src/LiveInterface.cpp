@@ -169,6 +169,42 @@ class LiveNotesEdit final : public juce::UndoableAction {
     juce::Component::SafePointer<Desktop> owner;
     juce::String id, before, after;
 };
+// Timeline scale and lead-in are view-only: keep just the changed item's
+// small arrangement object in Undo, not the complete show / plugin state.
+class LiveItemViewEdit final : public juce::UndoableAction {
+  public:
+    LiveItemViewEdit(Desktop &desktop, juce::String item, juce::var oldView,
+                     juce::var newView, bool arrangementExisted)
+        : owner(&desktop), id(std::move(item)), before(std::move(oldView)),
+          after(std::move(newView)), hadArrangement(arrangementExisted) {}
+    bool perform() override { return apply(after); }
+    bool undo() override { return apply(before); }
+    int getSizeInUnits() override { return 128; }
+
+  private:
+    bool apply(const juce::var &view) {
+        if (!owner || !owner->liveDocument) return false;
+        auto &performance = live::performance(owner->liveDocument->interfaceState);
+        if (view.isObject()) {
+            auto &arrangement = live::map(performance, "arrangement");
+            live::put(arrangement, id, view.clone());
+        } else {
+            auto arrangement = performance["arrangement"];
+            if (arrangement.isObject()) {
+                arrangement.getDynamicObject()->removeProperty(juce::Identifier(id));
+                if (!hadArrangement && arrangement.getDynamicObject()->getProperties().size() == 0)
+                    performance.getDynamicObject()->removeProperty(juce::Identifier("arrangement"));
+            }
+        }
+        owner->updateLiveDirty();
+        ++owner->liveUiRevision;
+        return true;
+    }
+    juce::Component::SafePointer<Desktop> owner;
+    juce::String id;
+    juce::var before, after;
+    bool hadArrangement{};
+};
 } // namespace
 void Desktop::setLiveItemNotes(const juce::String &id, const juce::String &text) {
     if (!liveDocument || text.length() > 4000) throw std::runtime_error("Notes must be at most 4000 characters");
@@ -186,6 +222,28 @@ void Desktop::setLiveItemNotes(const juce::String &id, const juce::String &text)
     liveShowEditing = true;
     liveUndo.perform(new LiveNotesEdit(*this, id, before, text));
     liveTypingLabel = label; liveTypingAt = now;
+}
+void Desktop::editLiveItemView(const juce::String &id, const juce::Identifier &key, double value) {
+    if (!liveDocument || !live::find(liveDocument->interfaceState, "items", id).isObject())
+        throw std::runtime_error("Show item no longer exists");
+    const bool scale = key == juce::Identifier("scale");
+    const bool lead = key == juce::Identifier("lead");
+    if ((!scale && !lead) || !std::isfinite(value) ||
+        value < (scale ? 4. : 0.) || value > (scale ? 128. : 4096.))
+        throw std::runtime_error("Invalid item view range");
+    const auto arrangementState = liveDocument->interfaceState["performance"]["arrangement"];
+    const auto prior = arrangementState[juce::Identifier(id)];
+    auto updatedView = prior.isObject() ? prior.clone() : live::object();
+    // Match live::setItemView defaults, including the exact Undo baseline
+    // when a legacy item has no arrangement entry yet.
+    if (updatedView["scale"].isVoid()) live::put(updatedView, "scale", 16.);
+    if (updatedView["lead"].isVoid()) live::put(updatedView, "lead", 0.);
+    live::put(updatedView, key, value);
+    if (live::sameShowValue(prior, updatedView)) return;
+    liveShowEditing = true;
+    liveUndo.beginNewTransaction("Item " + key.toString());
+    liveUndo.perform(new LiveItemViewEdit(*this, id, prior, updatedView, arrangementState.isObject()));
+    liveUndo.beginNewTransaction();
 }
 void Desktop::launchLive(const juce::File &file, bool create) {
     if (liveLaunchOverride) {
