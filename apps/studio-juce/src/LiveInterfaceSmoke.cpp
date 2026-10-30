@@ -5,6 +5,7 @@
 #include "../../../tests/live_clip_edit_checks.hpp"
 #include "../../../tests/live_performance_checks.hpp"
 #include "../../../tests/live_show_value_checks.hpp"
+#include "../../../tests/live_show_context_import_checks.hpp"
 #include "ProjectHome.h"
 #include <fstream>
 #include <windows.h>
@@ -348,6 +349,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::clipEditing();
     live::test::performancePolicies();
     live::test::showValueEquality();
+    live::test::showContextSelection();
     // Save must clear dirty for realistic fractional channel/plugin values,
     // without JSON's default precision changing the comparison baseline.
     for(const double gainValue:{static_cast<double>(0.8912509f),static_cast<double>(0.001f),0.12345678901234566}){
