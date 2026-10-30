@@ -17,8 +17,8 @@ foreach($entry in $licenses.GetEnumerator()){Copy-Item -LiteralPath $entry.Key -
 $asioLicenses=@(Get-ChildItem -LiteralPath "$Build/_deps/portaudio-build" -Recurse -File -Filter LICENSE.txt | Where-Object {$_.FullName -match 'asiosdk|ASIOSDK'})
 if(!$asioLicenses.Count){throw 'ASIO license notice missing'}
 Copy-Item -LiteralPath $asioLicenses[0].FullName -Destination "$Output/ASIO-SDK-LICENSE.txt"
-$releaseLabel=if($LiveOnly){'0.8.11-Upd3'}else{'0.8.10'}
-$expectedVersion=if($LiveOnly){'0.8.11'}else{'0.8.10'}
+$releaseLabel=if($LiveOnly){'0.8.12'}else{'0.8.10'}
+$expectedVersion=if($LiveOnly){'0.8.12'}else{'0.8.10'}
 $version=(Get-Item -LiteralPath $gui).VersionInfo.FileVersion
 if($version -ne $expectedVersion){throw "Unexpected Windows version $version (expected $expectedVersion)"}
 $sha=& git rev-parse HEAD
