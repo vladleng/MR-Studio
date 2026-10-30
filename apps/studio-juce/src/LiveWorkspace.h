@@ -63,7 +63,11 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         addChildComponent(legacyChannels);
         addChildComponent(mixer);
         addChildComponent(mixerDivider);
-        mixerDivider.currentHeight=[this]{return owner.view.liveMixerHeight;};
+        mixerDivider.currentHeight=[this]{
+            const auto bounds=reference.bounds("song.timeline",getWidth(),getHeight());
+            const int maximum=juce::jmax(180,bounds.getHeight()-160);
+            return juce::jlimit(juce::jmin(260,maximum),maximum,owner.view.liveMixerHeight);
+        };
         mixerDivider.changeHeight=[this](int height) {
             const auto bounds=reference.bounds("song.timeline",getWidth(),getHeight());
             const int maximum=juce::jmax(180,bounds.getHeight()-160);
