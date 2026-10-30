@@ -74,7 +74,13 @@ inline double studioOneNumber(const juce::XmlElement& node, const char* attribut
 inline StudioOneShowScan readStudioOneShowXml(const std::string& sourceXml) {
     if (sourceXml.size() > 8 * 1024 * 1024)
         throw std::runtime_error("Studio One Show XML exceeds 8 MiB");
-    const auto normalized = normalizeStudioOneXml(sourceXml);
+    auto normalized = normalizeStudioOneXml(sourceXml);
+    // Studio One writes a UTF-8 BOM before the XML declaration.
+    if (normalized.size() >= 3 &&
+        static_cast<unsigned char>(normalized[0]) == 0xef &&
+        static_cast<unsigned char>(normalized[1]) == 0xbb &&
+        static_cast<unsigned char>(normalized[2]) == 0xbf)
+        normalized.erase(0, 3);
     juce::XmlDocument parser(juce::String::fromUTF8(normalized.data(), static_cast<int>(normalized.size())));
     auto root = parser.getDocumentElement();
     if (!root || !root->hasTagName("Show")) throw std::runtime_error("Unsupported Studio One XML");
@@ -184,12 +190,17 @@ inline StudioOneShowScan readStudioOneShow(const juce::File& file) {
     const int count = zip.getNumEntries();
     if (count < 1 || count > 4096) throw std::runtime_error("Invalid Studio One ZIP");
     int xmlEntry = -1;
+    std::uint64_t totalExpanded = 0;
     for (int i=0; i<count; ++i) {
         const auto* entry = zip.getEntry(i);
         if (!entry) throw std::runtime_error("Invalid Studio One archive member");
         const auto path = entry->filename.replaceCharacter('\\','/');
         if (path.startsWithChar('/') || path.contains("../") || path == ".." || path.contains(":/"))
             throw std::runtime_error("Unsafe archive path");
+        if (entry->uncompressedSize < 0 ||
+            static_cast<std::uint64_t>(entry->uncompressedSize) > 1024ull * 1024 * 1024 - totalExpanded)
+            throw std::runtime_error("Excessive total Show archive size");
+        totalExpanded += static_cast<std::uint64_t>(entry->uncompressedSize);
         if (entry->filename == "Show/show.xml") {
             if (xmlEntry >= 0) throw std::runtime_error("Duplicate Show/show.xml");
             if (entry->uncompressedSize < 1 || entry->uncompressedSize > 8 * 1024 * 1024)
