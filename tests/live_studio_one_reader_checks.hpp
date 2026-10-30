@@ -50,6 +50,14 @@ inline void studioOneShowReader() {
     } catch (const std::runtime_error& error) {
         if (!juce::String(error.what()).contains("nesting limit")) throw;
     }
+    // Studio Pro hex degree labels B (= 11th) / D (= 13th) are decoded by
+    // the accepted Smart Improviser chord model, not interpreted as decimals.
+    {
+        juce::XmlDocument xml("<Attributes root=\"1\" bass=\"0\" intervals=\"1 0 0 0 3 0 0 B 5 0 7 D\"/>");
+        const auto node = xml.getDocumentElement();
+        if (!node || decodeStudioOneChord(*node).isEmpty())
+            fail("Smart Improviser chord decoding with hex degrees and bass failed");
+    }
     const auto parsed = readStudioOneShowXml(fixture);
     if (parsed.items.size() != 2) fail("Studio One reader must keep both source items");
     const auto& first = parsed.items[0];
@@ -62,7 +70,8 @@ inline void studioOneShowReader() {
         first.sourceMeter != "4/4" || first.sourceSectionCount != 1 ||
         first.sourceChordCount != 1 || !first.sections.isArray() ||
         first.sections.size() != 1 || first.rawChords.size() != 1 ||
-        !first.chords.isVoid())
+        !first.chords.isArray() || first.chords.size() != 1 ||
+        first.chords[0]["symbol"].toString() != "C7")
         fail("Studio One Show raw chords, seconds-to-bars or section preview is invalid");
     if (std::abs(static_cast<double>(first.sections[0]["length"]) - 4.) > 1.e-6)
         fail("Studio One section length did not convert from seconds to bars");
@@ -78,15 +87,29 @@ inline void studioOneShowReader() {
     auto source = first;
     source.targetItemId = target;
     const auto before = state.clone();
-    applyShowContext(state, source, {.sections = true, .tempo = true, .length = true});
+    applyShowContext(state, source, {.sections = true, .tempo = true, .chords = true, .length = true});
     if (!sameShowValue(find(state,"items",other),find(before,"items",other)) ||
         std::abs(static_cast<double>(find(state,"items",target)["tempo"]) - 120.) > 1.e-6 ||
-        musicalRows(state,target,MusicalLane::sections).size() != 1)
+        musicalRows(state,target,MusicalLane::sections).size() != 1 ||
+        musicalRows(state,target,MusicalLane::chords).size() != 1)
         fail("Source import must only modify explicitly mapped MR Live target");
     const auto applied = state.clone();
+    // Unsupported extra source interval must not partially alter the target.
+    const auto malformed = readStudioOneShowXml(
+        "<Show><Attributes x:id=\"Model\"><Attributes x:id=\"setList\">"
+        "<List x:id=\"Items\"><SetListItem tempo=\"0.5\" length=\"8\" "
+        "timeSignature.numerator=\"4\" timeSignature.denominator=\"4\">"
+        "<List x:id=\"chords\"><SetListItemChord timeFormat=\"0\" localOffset=\"0\" length=\"2\">"
+        "<Attributes x:id=\"chord\" root=\"0\" intervals=\"1 0 0 0 3 0 0 5 0 0 7 Z\"/>"
+        "</SetListItemChord></List></SetListItem></List></Attributes></Attributes></Show>");
+    if (malformed.items.size() != 1 || !malformed.items[0].chords.isVoid() ||
+        malformed.items[0].warnings.isEmpty())
+        fail("Invalid encoded chord should disable only its source category");
+    auto badSource = malformed.items[0];
+    badSource.targetItemId = target;
     try {
-        applyShowContext(state, source, {.chords = true});
-        fail("Undecoded source chord symbols were silently accepted");
+        applyShowContext(state, badSource, {.chords = true});
+        fail("Invalid source chord must fail closed");
     } catch (const std::runtime_error& error) {
         if (!juce::String(error.what()).contains("unavailable")) throw;
     }
