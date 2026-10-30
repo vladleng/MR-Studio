@@ -2,6 +2,7 @@
 #include "Desktop.h"
 #include "LiveContext.h"
 #include "LiveStudioOneImportPlan.h"
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <set>
@@ -232,10 +233,13 @@ private:
                 syncConfiguration();
                 invalidatePreview();
             };
-            row->configure.onClick = [this, i] {
+            auto* selectedRow = row.get();
+            row->configure.onClick = [this, i, selectedRow] {
                 focused = static_cast<int>(i);
                 syncConfiguration();
-                rebuildSourceList();
+                for (auto& visible : rows)
+                    visible->configure.setToggleState(visible.get() == selectedRow,
+                                                      juce::dontSendNotification);
             };
             sourceBody.addAndMakeVisible(*row);
             rows.push_back(std::move(row));
