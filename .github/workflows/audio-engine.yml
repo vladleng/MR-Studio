@@ -63,7 +63,7 @@ jobs:
             if($subject -match '\[ci live\]'){$scope='live'}
           }
           if($env:INTEGRATION -eq 'true'){$scope='integration'}
-          # 0.8.9-fix1 acceptance: normalize saved-show snapshot once at Save/Open; verify dirty and Undo tests.
+          # 0.8.10 acceptance: verify exact saved snapshots and Save/Undo state.
           # The Live-only executable is intentionally ARA-free. Keep ARA ON
           # by default for Studio/profile, including ARA tests and packaging.
           $buildAra=if($scope -eq 'live'){'false'}else{$env:ARA.ToLowerInvariant()}
@@ -151,7 +151,7 @@ jobs:
         if: always() && steps.package.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ env.CHECK_SCOPE == 'live' && 'MR-Live-0.8.9-fix1' || 'MR-Studio-0.8.9' }}-Windows-${{ github.sha }}-ara-${{ steps.live_scope.outputs.ara }}
+          name: ${{ env.CHECK_SCOPE == 'live' && 'MR-Live-0.8.10' || 'MR-Studio-0.8.10' }}-Windows-${{ github.sha }}-ara-${{ steps.live_scope.outputs.ara }}
           path: build/package/
           if-no-files-found: error
           retention-days: 14

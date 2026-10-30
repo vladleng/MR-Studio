@@ -3,7 +3,7 @@ $ErrorActionPreference='Stop'
 $root=(Resolve-Path -LiteralPath $Package).Path
 $manifest=Get-Content -Raw -LiteralPath (Join-Path $root 'SHA256.json') | ConvertFrom-Json
 if($ExpectedSource -and $manifest.source -ne $ExpectedSource){throw 'Artifact source mismatch'}
-if($manifest.version -ne '0.8.9'){throw 'Artifact version mismatch'}
+if($manifest.version -ne '0.8.10'){throw 'Artifact version mismatch'}
 $names=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 foreach($file in $manifest.files){
  if($file.name -ne [IO.Path]::GetFileName($file.name) -or $file.name -in @('.','..') -or !$names.Add($file.name)){throw 'Invalid/duplicate artifact entry'}
@@ -25,5 +25,5 @@ foreach($name in $araFiles){
  if($manifest.ara -and !$names.Contains($name)){throw "ARA runtime/notice missing: $name"}
  if(!$manifest.ara -and $names.Contains($name)){throw "ARA content forbidden in ARA-free package: $name"}
 }
-foreach($application in $applications){if((Get-Item -LiteralPath (Join-Path $root $application)).VersionInfo.FileVersion -ne '0.8.9'){throw "PE version mismatch: $application"}}
+foreach($application in $applications){if((Get-Item -LiteralPath (Join-Path $root $application)).VersionInfo.FileVersion -ne '0.8.10'){throw "PE version mismatch: $application"}}
 [pscustomobject]@{source=$manifest.source;version=$manifest.version;files=$names.Count;tests=$manifest.tests;ara=$manifest.ara;run=$manifest.run;integrity='PASS'}
