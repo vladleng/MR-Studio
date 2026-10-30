@@ -9,6 +9,7 @@
 #include "LivePlaybackPanel.h"
 #include "LivePreflightPanel.h"
 #include "LiveSetlist.h"
+#include "LiveStudioOneImportDialog.h"
 #include "LiveTheme.h"
 #include "LiveTimeline.h"
 
@@ -219,10 +220,12 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         popup.addItem(3, "Save");
         popup.addItem(4, "Save as...");
         popup.addItem(702, "Import editor show JSON...");
+        popup.addItem(703, "Import Studio One Show (.show)...", owner.liveDocument.has_value());
         juce::Component::SafePointer<Desktop> safe(&owner);
         popup.showMenuAsync(liveMenuOptions(files), [safe](int action) {
-            if (safe && action)
-                safe->action(action);
+            if (!safe || !action) return;
+            if (action == 703) openStudioOneShowImport(*safe);
+            else safe->action(action);
         });
     }
     void optionsMenu() {

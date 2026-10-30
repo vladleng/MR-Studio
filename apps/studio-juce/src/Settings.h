@@ -35,6 +35,7 @@ struct ViewSettings {
     int browserWidth{260},trackHeight{128},mixerHeight{365},editorHeight{500};
     bool liveRestoreLastShow{true};
     juce::String lastLiveShow;
+    juce::String lastStudioOneShow; // Last validated .show import source; never part of project data.
     double liveUiZoom{}, liveMenuOpacity{.9}, liveWindowOpacity{1.};
     double pixelsPerSecond{30};
     int musicalLanes{31}; // UI only: Markers, Sections, Chords, Tempo, Meter.
@@ -44,6 +45,7 @@ struct ViewSettings {
     juce::String encode() const {
         auto* object=new juce::DynamicObject;
         object->setProperty("liveRestoreLastShow",liveRestoreLastShow);object->setProperty("lastLiveShow",lastLiveShow);
+        object->setProperty("lastStudioOneShow",lastStudioOneShow);
         object->setProperty("liveContextStyleVersion",1);object->setProperty("liveUiZoom",liveUiZoom);object->setProperty("liveMenuOpacity",liveMenuOpacity);object->setProperty("liveWindowOpacity",liveWindowOpacity);
         object->setProperty("version",1);object->setProperty("sidebar",sidebar);
         object->setProperty("musicalLanes",musicalLanes);
@@ -66,6 +68,7 @@ struct ViewSettings {
             throw std::runtime_error("Invalid JUCE view settings");
         if(value.hasProperty("liveRestoreLastShow")){if(!value["liveRestoreLastShow"].isBool())throw std::runtime_error("Invalid Live startup mode");result.liveRestoreLastShow=static_cast<bool>(value["liveRestoreLastShow"]);}
         result.lastLiveShow=value["lastLiveShow"].toString().substring(0,32768);
+        result.lastStudioOneShow=value["lastStudioOneShow"].toString().substring(0,32768);
         if(value.hasProperty("controllersOpen"))result.controllersOpen=static_cast<bool>(value["controllersOpen"]);if(value.hasProperty("editorAttached"))result.editorAttached=static_cast<bool>(value["editorAttached"]);
         if(value.hasProperty("noteClipColors")){if(!value["noteClipColors"].isBool())throw std::runtime_error("Invalid note color mode");result.noteClipColors=static_cast<bool>(value["noteClipColors"]);}
         if(value.hasProperty("musicalLanes")){const auto mask=value["musicalLanes"];if(!mask.isInt()||static_cast<int>(mask)<0||static_cast<int>(mask)>31)throw std::runtime_error("Invalid musical lane visibility");result.musicalLanes=static_cast<int>(mask);}
