@@ -186,12 +186,12 @@ inline StudioOneShowScan readStudioOneShowXml(const std::string& sourceXml) {
                             for (const auto* key : {"root","intervals","type","bass"})
                                 put(row,key,encoded->getStringAttribute(key));
                             raw.add(row);
-                            auto normalized = object();
-                            put(normalized, "id", row["id"]);
-                            put(normalized, "start", start);
-                            put(normalized, "length", length);
-                            put(normalized, "symbol", decodeStudioOneChord(*encoded));
-                            parsed.add(normalized);
+                            auto decodedChordRow = object();
+                            put(decodedChordRow, "id", row["id"]);
+                            put(decodedChordRow, "start", start);
+                            put(decodedChordRow, "length", length);
+                            put(decodedChordRow, "symbol", decodeStudioOneChord(*encoded));
+                            parsed.add(decodedChordRow);
                         } else {
                             const auto name = span->getStringAttribute("name").trim().substring(0,120);
                             if (name.isEmpty()) throw std::runtime_error("Unnamed source section");
