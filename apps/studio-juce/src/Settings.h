@@ -37,6 +37,7 @@ struct ViewSettings {
     juce::String lastLiveShow;
     juce::String lastStudioOneShow; // Last validated .show import source; never part of project data.
     double liveUiZoom{}, liveMenuOpacity{.9}, liveWindowOpacity{1.};
+    int liveMixerHeight{340}; // Independent MR Live dock height; MR Studio mixerHeight unchanged.
     double pixelsPerSecond{30};
     int musicalLanes{31}; // UI only: Markers, Sections, Chords, Tempo, Meter.
     juce::String windowState,inputs,deviceChannels;
@@ -47,6 +48,7 @@ struct ViewSettings {
         object->setProperty("liveRestoreLastShow",liveRestoreLastShow);object->setProperty("lastLiveShow",lastLiveShow);
         object->setProperty("lastStudioOneShow",lastStudioOneShow);
         object->setProperty("liveContextStyleVersion",1);object->setProperty("liveUiZoom",liveUiZoom);object->setProperty("liveMenuOpacity",liveMenuOpacity);object->setProperty("liveWindowOpacity",liveWindowOpacity);
+        object->setProperty("liveMixerHeight",liveMixerHeight);
         object->setProperty("version",1);object->setProperty("sidebar",sidebar);
         object->setProperty("musicalLanes",musicalLanes);
         juce::Array<juce::var> templates;for(const auto& item:sectionTemplates){auto* entry=new juce::DynamicObject;entry->setProperty("name",item.name);entry->setProperty("color",static_cast<int>(item.color));templates.add(juce::var(entry));}object->setProperty("sectionTemplates",templates);
@@ -69,6 +71,11 @@ struct ViewSettings {
         if(value.hasProperty("liveRestoreLastShow")){if(!value["liveRestoreLastShow"].isBool())throw std::runtime_error("Invalid Live startup mode");result.liveRestoreLastShow=static_cast<bool>(value["liveRestoreLastShow"]);}
         result.lastLiveShow=value["lastLiveShow"].toString().substring(0,32768);
         result.lastStudioOneShow=value["lastStudioOneShow"].toString().substring(0,32768);
+        if(value.hasProperty("liveMixerHeight")) {const auto h=value["liveMixerHeight"];
+            if(!h.isInt() || static_cast<int>(h)<200 || static_cast<int>(h)>1600)
+                throw std::runtime_error("Invalid Live mixer dock height");
+            result.liveMixerHeight=static_cast<int>(h);
+        }
         if(value.hasProperty("controllersOpen"))result.controllersOpen=static_cast<bool>(value["controllersOpen"]);if(value.hasProperty("editorAttached"))result.editorAttached=static_cast<bool>(value["editorAttached"]);
         if(value.hasProperty("noteClipColors")){if(!value["noteClipColors"].isBool())throw std::runtime_error("Invalid note color mode");result.noteClipColors=static_cast<bool>(value["noteClipColors"]);}
         if(value.hasProperty("musicalLanes")){const auto mask=value["musicalLanes"];if(!mask.isInt()||static_cast<int>(mask)<0||static_cast<int>(mask)>31)throw std::runtime_error("Invalid musical lane visibility");result.musicalLanes=static_cast<int>(mask);}
