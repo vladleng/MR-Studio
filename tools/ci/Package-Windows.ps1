@@ -17,10 +17,40 @@ foreach($entry in $licenses.GetEnumerator()){Copy-Item -LiteralPath $entry.Key -
 $asioLicenses=@(Get-ChildItem -LiteralPath "$Build/_deps/portaudio-build" -Recurse -File -Filter LICENSE.txt | Where-Object {$_.FullName -match 'asiosdk|ASIOSDK'})
 if(!$asioLicenses.Count){throw 'ASIO license notice missing'}
 Copy-Item -LiteralPath $asioLicenses[0].FullName -Destination "$Output/ASIO-SDK-LICENSE.txt"
-$releaseLabel=if($LiveOnly){'0.8.12'}else{'0.8.10'}
-$expectedVersion=if($LiveOnly){'0.8.12'}else{'0.8.10'}
+# Complete stage versions come from the workflow run name. Windows PE FILEVERSION is numeric.
+if($env:MR_STUDIO_VERSION -notmatch '^0\.[0-9]+\.[0-9]+(?:-(?:fix|Upd)[0-9]+)?
+$sha=& git rev-parse HEAD
+@("$application $releaseLabel; source $sha; Windows Release; ARA=$packageAra; MR Live ARA=OFF",'Launch MR Live.exe directly to work in MR Live; MR Studio does not need to be opened first. MR Live restores its last saved show by default (Options: Open last show on startup); --empty-show starts a blank show. To open a show, pass its quoted .mrlive path to MR Live.exe. Keep the runtime files together; SDKs and third-party plugins are not included.',"Checks: $env:CI_CHECK_SCOPE",'Development acceptance artifact. See the included license notices; commercial distribution is not certified by CI.','CI results do not certify physical ASIO/MIDI/DPI performance. See run test logs for integration status.') | Set-Content -LiteralPath "$Output/README.txt" -Encoding UTF8
+$env:CI_TEST_RESULT | Set-Content -LiteralPath "$Output/CI-TEST-RESULT.txt" -Encoding UTF8
+$files=@(Get-ChildItem -LiteralPath $Output -File | Sort-Object Name | ForEach-Object {@{name=$_.Name;bytes=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash}})
+@{application=$application;source=$sha;version=$releaseLabel;binary_version=$version;release_label=$releaseLabel;versions=@{studio=$env:MR_STUDIO_VERSION;live=$env:MR_LIVE_VERSION};ara=$packageAra;run=$env:GITHUB_RUN_ID;tests=$env:CI_TEST_RESULT;checks=$env:CI_CHECK_SCOPE;runner_image=$env:ImageVersion;sdk_lock_sha256=(Get-FileHash -LiteralPath "$PSScriptRoot/sdk-lock.json").Hash;files=$files} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$Output/SHA256.json" -Encoding UTF8
+foreach($file in $files){if((Get-FileHash -LiteralPath (Join-Path $Output $file.name)).Hash -ne $file.sha256){throw 'Package integrity failure'}}
+
+& (Join-Path $PSScriptRoot 'Verify-Package.ps1') -Package $Output -ExpectedSource $sha -ExpectedVersion $releaseLabel
+ -or
+   $env:MR_LIVE_VERSION -notmatch '^0\.[0-9]+\.[0-9]+(?:-(?:fix|Upd)[0-9]+)?
+$sha=& git rev-parse HEAD
+@("$application $releaseLabel; source $sha; Windows Release; ARA=$packageAra; MR Live ARA=OFF",'Launch MR Live.exe directly to work in MR Live; MR Studio does not need to be opened first. MR Live restores its last saved show by default (Options: Open last show on startup); --empty-show starts a blank show. To open a show, pass its quoted .mrlive path to MR Live.exe. Keep the runtime files together; SDKs and third-party plugins are not included.',"Checks: $env:CI_CHECK_SCOPE",'Development acceptance artifact. See the included license notices; commercial distribution is not certified by CI.','CI results do not certify physical ASIO/MIDI/DPI performance. See run test logs for integration status.') | Set-Content -LiteralPath "$Output/README.txt" -Encoding UTF8
+$env:CI_TEST_RESULT | Set-Content -LiteralPath "$Output/CI-TEST-RESULT.txt" -Encoding UTF8
+$files=@(Get-ChildItem -LiteralPath $Output -File | Sort-Object Name | ForEach-Object {@{name=$_.Name;bytes=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash}})
+@{application=$application;source=$sha;version=$version;release_label=$releaseLabel;ara=$packageAra;run=$env:GITHUB_RUN_ID;tests=$env:CI_TEST_RESULT;checks=$env:CI_CHECK_SCOPE;runner_image=$env:ImageVersion;sdk_lock_sha256=(Get-FileHash -LiteralPath "$PSScriptRoot/sdk-lock.json").Hash;files=$files} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$Output/SHA256.json" -Encoding UTF8
+foreach($file in $files){if((Get-FileHash -LiteralPath (Join-Path $Output $file.name)).Hash -ne $file.sha256){throw 'Package integrity failure'}}
+
+& (Join-Path $PSScriptRoot 'Verify-Package.ps1') -Package $Output -ExpectedSource $sha
+){
+ throw 'Missing or invalid release banner versions'
+}
+$releaseLabel=if($LiveOnly){$env:MR_LIVE_VERSION}else{$env:MR_STUDIO_VERSION}
+$expectedVersion=($releaseLabel -split '-')[0]
 $version=(Get-Item -LiteralPath $gui).VersionInfo.FileVersion
 if($version -ne $expectedVersion){throw "Unexpected Windows version $version (expected $expectedVersion)"}
+if(!$LiveOnly){
+ $liveExe=Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe'
+ $expectedLive=($env:MR_LIVE_VERSION -split '-')[0]
+ if((Get-Item -LiteralPath $liveExe).VersionInfo.FileVersion -ne $expectedLive){
+  throw "Unexpected bundled MR Live Windows version (expected $expectedLive)"
+ }
+}
 $sha=& git rev-parse HEAD
 @("$application $releaseLabel; source $sha; Windows Release; ARA=$packageAra; MR Live ARA=OFF",'Launch MR Live.exe directly to work in MR Live; MR Studio does not need to be opened first. MR Live restores its last saved show by default (Options: Open last show on startup); --empty-show starts a blank show. To open a show, pass its quoted .mrlive path to MR Live.exe. Keep the runtime files together; SDKs and third-party plugins are not included.',"Checks: $env:CI_CHECK_SCOPE",'Development acceptance artifact. See the included license notices; commercial distribution is not certified by CI.','CI results do not certify physical ASIO/MIDI/DPI performance. See run test logs for integration status.') | Set-Content -LiteralPath "$Output/README.txt" -Encoding UTF8
 $env:CI_TEST_RESULT | Set-Content -LiteralPath "$Output/CI-TEST-RESULT.txt" -Encoding UTF8
