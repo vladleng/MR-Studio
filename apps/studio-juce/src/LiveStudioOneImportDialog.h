@@ -110,6 +110,7 @@ public:
         previewButton.setComponentID("live-show-import-preview");
         importButton.setButtonText("Import");
         importButton.setComponentID("live-show-import-apply");
+        importButton.setEnabled(false);
         cancelButton.setButtonText("Cancel");
         previewButton.onClick = [this] { validatePreview(); };
         importButton.onClick = [this] { commitImport(); };
@@ -119,6 +120,7 @@ public:
         status.setColour(juce::Label::textColourId, juce::Colour(0xffd2b178));
         focused = -1;
         syncConfiguration();
+        updateSelectionCount();
         rebuildSourceList();
     }
     ~LiveStudioOneImportDialog() override {
@@ -191,7 +193,15 @@ private:
         }
         return false;
     }
+    void updateSelectionCount() {
+        const auto selected = static_cast<int>(std::count_if(drafts.begin(), drafts.end(),
+                                                       [](const Draft& draft) { return draft.selected; }));
+        sourceName.setText(sourceFileName + "  |  " + juce::String(static_cast<int>(scan.items.size())) +
+                           " source items  |  " + juce::String(selected) + " selected",
+                           juce::dontSendNotification);
+    }
     void invalidatePreview() {
+        updateSelectionCount();
         previewValid = false;
         previewPlan.clear();
         importButton.setEnabled(false);
