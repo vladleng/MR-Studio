@@ -95,14 +95,17 @@ python tools/studio_one_show_probe.py "D:\Shows\My Show\My Show.show" --output s
 python -m unittest discover -s tests -p "test_studio_one_show_probe.py"
 ```
 
-The report stays local. Before sharing it, inspect `xml_documents[].archive_path`:
+The report stays local and includes `source_item_count` when the ZIP contains the known
+`Show/show.xml` structure. The inspector now accounts for Studio One's `x:id`
+/ double-colon XML syntax without rewriting the source. Before sharing a report,
+inspect `xml_documents[].archive_path`:
 archive entry filenames may themselves contain private names. If the tool
 rejects the .show as non-ZIP, that is an honest **unsupported format** result,
 not evidence that the Show is empty. The inspector has ZIP member/size/XML
 complexity limits and rejects suspicious paths. This is a research utility,
 **not** the final parser or a working GUI import.
 
-## Required next implementation slice (after format confirmation)
+## Required next implementation slice (observed .show layout confirmed)
 
 1. An actual user `.show` has confirmed a ZIP and `Show/show.xml` structure
    (see evidence above). Implement a bounded reader supporting this observed
@@ -127,7 +130,7 @@ complexity limits and rejects suspicious paths. This is a research utility,
 ## Safety, version and release
 
 `0.8.11` is the **active issue version**, not an accepted binary.
-This first step adds the standalone probe, `LiveShowContextImport.h` (atomic selected-field destination adapter), and synthetic tests wired into native Live smoke. It is `SOURCE ONLY`, not a Windows build, UI feature,
+This first step adds the standalone probe, `LiveShowContextImport.h` (atomic selected-field destination adapter with mandatory source ordinal), and synthetic tests wired into native Live smoke. The source item selector is specified but **not yet rendered as a working JUCE control**. This is `SOURCE ONLY`, not a Windows build, UI feature,
 hardware test or user acceptance. Avoid changes to `main`, new releases,
 unrequested Windows Actions or merge until user approval. No proprietary
 Show, Song, media or vendor plugin assets in the repository.
