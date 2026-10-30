@@ -24,8 +24,8 @@ struct ShowContextSong {
     std::optional<double> bpm;
     std::optional<double> lengthBars;
     juce::var sections; // void: unavailable; array: source explicitly contains this lane
-    juce::var chords; // void until verified symbol decoder produces valid chords
-    juce::var rawChords; // encoded Studio One source data; never write directly to .mrlive
+    juce::var chords; // void if absent/unsupported; decoded with Smart Improviser when valid
+    juce::var rawChords; // original Studio One encoding; never write it directly to .mrlive
     int sourceSectionCount{};
     int sourceChordCount{};
     juce::StringArray warnings;
