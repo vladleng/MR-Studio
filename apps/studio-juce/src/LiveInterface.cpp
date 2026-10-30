@@ -730,8 +730,8 @@ mrs::Track liveTrack(const juce::var& state,const juce::String& channel,const mr
     const auto profile=live::decodeLiveInputProfile(row["liveInput"]);
     mrs::Track track{id,row["name"].toString().toStdString(),profile.instrument?mrs::TrackKind::instrument:mrs::TrackKind::audio,{}};
     track.midi_input=profile.midiInput.toStdString();track.midi_channel=profile.midiChannel;
-    track.input_monitor=!profile.instrument; // Validated physical input: monitored by default.
-    track.midi_monitor=!profile.instrument || profile.midiInput.isNotEmpty(); // MIDI Off stays silent.
+    const auto monitoring=live::liveAutomaticMonitor(profile);
+    track.input_monitor=monitoring.audio;track.midi_monitor=monitoring.midi;
     // .mrlive Instrument descriptors keep input=-1; Core non-audio tracks
     // require input=-2. Always project the saved role onto Core semantics.
     track.input=live::liveCoreTrackInput(profile);track.input_stereo=profile.stereo;track.hardware_outputs=profile.outputs;
@@ -839,8 +839,8 @@ void Desktop::reconcileLiveInputs(const juce::var& state) {
         if(profile.instrument && profile.inserts.empty()) {channelTracks.erase(channel);changed=true;continue;}
         validateLiveHardware(*this,profile);
         auto track=liveTrack(state,channel,id);
-        track.input_monitor=!profile.instrument;
-        track.midi_monitor=!profile.instrument || profile.midiInput.isNotEmpty();
+        const auto monitoring=live::liveAutomaticMonitor(profile);
+        track.input_monitor=monitoring.audio;track.midi_monitor=monitoring.midi;
         tracks.push_back(std::move(track));changed=true;
     }
     if(changed) {
