@@ -21,6 +21,8 @@ inline void showContextSelection() {
     put(chord, "color", "blue");
 
     ShowContextSong source;
+    source.sourceItemOrdinal = 0;
+    source.sourceItemTitle = "Synthetic source (duplicate titles are legal)";
     source.targetItemId = id;
     source.bpm = 92.;
     source.lengthBars = 8.;
@@ -38,6 +40,17 @@ inline void showContextSelection() {
         fail("Tempo-only import modified unselected context fields");
 
     const auto afterTempo = state.clone();
+    source.sourceItemOrdinal = -1;
+    try {
+        applyShowContext(state, source, {.tempo = true});
+        fail("Import without selected source item must fail closed");
+    } catch (const std::runtime_error& error) {
+        if (!juce::String(error.what()).contains("Select a source")) throw;
+    }
+    if (!sameShowValue(state, afterTempo))
+        fail("Unselected source item changed MR Live state");
+    source.sourceItemOrdinal = 0;
+
     source.hasTempoChanges = true;
     try {
         applyShowContext(state, source, {.tempo = true});
