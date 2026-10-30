@@ -103,6 +103,40 @@ inline bool sameShowValue(const juce::var& left,const juce::var& right) {
     return left==right;
 }
 
+// Diagnostics for preserving saved-show equality without re-encoding large VST3
+// state blobs. Returns only the first differing path and short leaf summaries.
+inline juce::String firstShowDifference(const juce::var& a,const juce::var& b,
+                                        const juce::String& path="$") {
+    if(a.isObject()||b.isObject()) {
+        const auto* ao=a.getDynamicObject(),*bo=b.getDynamicObject();
+        if(!ao||!bo)return path+" (object type differs)";
+        if(ao->getProperties().size()!=bo->getProperties().size())
+            return path+" (property count "+juce::String(ao->getProperties().size())+
+                   " vs "+juce::String(bo->getProperties().size())+")";
+        for(const auto& prop:ao->getProperties()) {
+            if(!bo->hasProperty(prop.name))return path+"."+prop.name.toString()+" (missing)";
+            const auto result=firstShowDifference(prop.value,bo->getProperty(prop.name),
+                                                  path+"."+prop.name.toString());
+            if(result.isNotEmpty())return result;
+        }
+        return {};
+    }
+    if(a.isArray()||b.isArray()) {
+        const auto* aa=a.getArray(),*bb=b.getArray();
+        if(!aa||!bb)return path+" (array type differs)";
+        if(aa->size()!=bb->size())
+            return path+" (array count "+juce::String(aa->size())+" vs "+juce::String(bb->size())+")";
+        for(int i=0;i<aa->size();++i) {
+            const auto result=firstShowDifference(aa->getReference(i),bb->getReference(i),
+                                                  path+"["+juce::String(i)+"]");
+            if(result.isNotEmpty())return result;
+        }
+        return {};
+    }
+    if(!(a==b))return path+" (scalar "+a.toString().substring(0,35)+" vs "+
+                      b.toString().substring(0,35)+")";
+    return {};
+}
 inline juce::var performance(const juce::var &state) { return state["performance"]; }
 inline juce::var &performance(juce::var &state) { return map(state, "performance"); }
 inline juce::var workflow(const juce::var &state, const juce::String &id) {
