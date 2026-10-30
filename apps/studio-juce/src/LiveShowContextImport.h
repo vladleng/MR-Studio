@@ -15,6 +15,10 @@ struct ShowContextSelection {
 };
 
 struct ShowContextSong {
+    // Original SetList ordinal is not replaceable by the title: source items
+    // may have duplicate names. Set ONLY after the user selects a source item.
+    int sourceItemOrdinal{-1};
+    juce::String sourceItemTitle;
     juce::String targetItemId;
     std::optional<double> bpm;
     std::optional<double> lengthBars;
@@ -27,6 +31,8 @@ inline void applyShowContext(juce::var& show, const ShowContextSong& source,
                              ShowContextSelection selection) {
     if (!selection.sections && !selection.tempo && !selection.chords && !selection.length)
         throw std::runtime_error("Select at least one musical context field");
+    if (source.sourceItemOrdinal < 0 || source.sourceItemTitle.trim().isEmpty())
+        throw std::runtime_error("Select a source Studio One Show item before importing");
     if (!find(show, "items", source.targetItemId).isObject())
         throw std::runtime_error("Target MR Live item was removed");
     // All validations happen on a detached clone, not on a show with live
