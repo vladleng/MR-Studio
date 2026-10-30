@@ -2,6 +2,7 @@
 #include "LiveShowContextImport.h"
 #include "LiveStudioOneChordDecoder.h"
 #include <juce_core/juce_core.h>
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cmath>
@@ -164,27 +165,70 @@ inline StudioOneShowScan readStudioOneShowXml(const std::string& sourceXml) {
             for (const auto& laneName : std::array<const char*,2>{"sections","chords"}) {
                 const bool isChords = juce::String(laneName) == "chords";
                 const auto* lane = studioOneChild(item, "List", laneName);
-                if (!lane) continue; // unavailable, never an empty replacement
+                if (!lane) continue;
                 juce::Array<juce::var> parsed, raw;
                 bool compatible = true;
-                int count = 0;
+                int count = 0, excludedOutside = 0, inferredLength = 0;
+                juce::String firstError;
                 for (auto* span = lane->getFirstChildElement(); span; span = span->getNextElement()) {
                     if (!span->hasTagName(isChords ? "SetListItemChord" : "SetListItemSection")) continue;
-                    if (++count > (isChords ? 256 : 128)) { compatible = false; break; }
+                    if (++count > (isChords ? 256 : 128)) {
+                        compatible = false;
+                        if (firstError.isEmpty()) firstError = "too many musical events";
+                        break;
+                    }
                     try {
                         if (span->getStringAttribute("timeFormat") != "0")
-                            throw std::runtime_error("Unknown source musical time format");
-                        const double start = studioOneNumber(*span,"localOffset") / secBar;
-                        const double length = studioOneNumber(*span,"length") / secBar;
-                        if (start < 0. || length < .25 - 1.e-7 || start + length > 4096. + 1.e-7)
-                            throw std::runtime_error("Musical span outside MR Live limits");
+                            throw std::runtime_error("unsupported musical time format");
+                        const double start = studioOneNumber(*span, "localOffset") / secBar;
+                        if (start < 0. || start > 4096.)
+                            throw std::runtime_error("musical event position outside supported range");
+                        // Studio One can retain trailing, zero-length arranger markers
+                        // beyond a SetList item's actual end. They are not playable
+                        // sections. Preserve source count and disclose each exclusion.
+                        if (!isChords && source.lengthBars &&
+                            start >= *source.lengthBars - 1.e-7) {
+                            ++excludedOutside;
+                            continue;
+                        }
+                        double length = 0.;
+                        if (span->hasAttribute("length")) {
+                            length = studioOneNumber(*span, "length") / secBar;
+                        } else if (!isChords && source.lengthBars) {
+                            // Missing source section length: bounded strictly by
+                            // the next section start or known item end, never guessed
+                            // from another document or musical context.
+                            double boundary = *source.lengthBars;
+                            for (auto* next = span->getNextElement(); next; next = next->getNextElement()) {
+                                if (!next->hasTagName("SetListItemSection")) continue;
+                                const auto nextStart = studioOneNumber(*next, "localOffset") / secBar;
+                                if (nextStart > start) boundary = (std::min)(boundary, nextStart);
+                                break;
+                            }
+                            length = boundary - start;
+                            ++inferredLength;
+                        } else {
+                            throw std::runtime_error("musical event length missing");
+                        }
+                        if (!std::isfinite(length) || length < 0.)
+                            throw std::runtime_error("musical event length invalid");
+                        // Reject real sub-quarter-bar events; only normalize binary
+                        // rounding of a musical span that was exactly 1/4 bar.
+                        if (length >= .25 - 1.e-7 && length < .25)
+                            length = .25;
+                        if (length < .25)
+                            throw std::runtime_error("event shorter than MR Live minimum 1/4 bar");
+                        if (start + length > 4096. + 1.e-7)
+                            throw std::runtime_error("musical event beyond 4096 bars");
                         auto row = object();
-                        put(row,"id",freshId()); put(row,"start",start); put(row,"length",length);
+                        put(row, "id", freshId());
+                        put(row, "start", start);
+                        put(row, "length", length);
                         if (isChords) {
-                            const auto* encoded = studioOneChild(span,"Attributes","chord");
-                            if (!encoded) throw std::runtime_error("Missing encoded chord data");
+                            const auto* encoded = studioOneChild(span, "Attributes", "chord");
+                            if (!encoded) throw std::runtime_error("encoded chord data missing");
                             for (const auto* key : {"root","intervals","type","bass"})
-                                put(row,key,encoded->getStringAttribute(key));
+                                put(row, key, encoded->getStringAttribute(key));
                             raw.add(row);
                             auto decodedChordRow = object();
                             put(decodedChordRow, "id", row["id"]);
@@ -193,35 +237,49 @@ inline StudioOneShowScan readStudioOneShowXml(const std::string& sourceXml) {
                             put(decodedChordRow, "symbol", decodeStudioOneChord(*encoded));
                             parsed.add(decodedChordRow);
                         } else {
-                            const auto name = span->getStringAttribute("name").trim().substring(0,120);
-                            if (name.isEmpty()) throw std::runtime_error("Unnamed source section");
-                            put(row,"name",name);
-                            // Source ARGB has no verified one-to-one MR UDS mapping.
+                            const auto name = span->getStringAttribute("name").trim().substring(0, 120);
+                            if (name.isEmpty()) throw std::runtime_error("section name missing");
+                            put(row, "name", name);
                             parsed.add(row);
                         }
-                    } catch (const std::exception&) {
-                        compatible = false; // category remains unavailable; no partial replacement
+                    } catch (const std::exception& error) {
+                        compatible = false;
+                        if (firstError.isEmpty()) firstError = juce::String::fromUTF8(error.what());
+                    }
+                }
+                if (count && compatible && !parsed.isEmpty()) {
+                    try {
+                        validateMusicalRows(juce::var(parsed),
+                            isChords ? MusicalLane::chords : MusicalLane::sections);
+                    } catch (const std::exception& error) {
+                        compatible = false;
+                        if (firstError.isEmpty()) firstError = juce::String::fromUTF8(error.what());
                     }
                 }
                 if (isChords) {
                     source.sourceChordCount = count;
                     source.rawChords = raw;
-                    if (count && compatible) {
-                        try { validateMusicalRows(juce::var(parsed), MusicalLane::chords); }
-                        catch (const std::exception&) { compatible = false; }
-                    }
-                    if (count && compatible) source.chords = juce::var(parsed);
-                    if (count && !compatible)
-                        source.warnings.add("Chords contain unsupported symbols or invalid/overlapping spans");
+                    if (count && compatible && !parsed.isEmpty())
+                        source.chords = juce::var(parsed);
+                    else if (count)
+                        source.warnings.add("Chords detected (" + juce::String(count) +
+                            "), but import unavailable: " +
+                            (firstError.isNotEmpty() ? firstError : juce::String("no usable chord events")));
                 } else {
                     source.sourceSectionCount = count;
-                    if (count && compatible) {
-                        try { validateMusicalRows(juce::var(parsed), MusicalLane::sections); }
-                        catch (const std::exception&) { compatible = false; }
-                    }
-                    if (count && compatible) source.sections = juce::var(parsed);
-                    if (count && !compatible)
-                        source.warnings.add("Sections include missing/short/overlapping spans");
+                    if (count && compatible && !parsed.isEmpty())
+                        source.sections = juce::var(parsed);
+                    else if (count)
+                        source.warnings.add("Sections detected (" + juce::String(count) +
+                            "), but import unavailable: " +
+                            (firstError.isNotEmpty() ? firstError : juce::String("no usable section events")));
+                    if (excludedOutside)
+                        source.warnings.add("Skipped " + juce::String(excludedOutside) +
+                            " section marker(s) at/after the item end (" +
+                            juce::String(parsed.size()) + " usable of " + juce::String(count) + ")");
+                    if (inferredLength)
+                        source.warnings.add("Inferred " + juce::String(inferredLength) +
+                            " section length(s) from known section/item boundaries");
                 }
             }
         } catch (const std::exception&) {
