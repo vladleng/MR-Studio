@@ -675,6 +675,8 @@ class LiveTimeline final : public juce::Component {
                     // Item edges only change displayed geometry during drag.
                     // No complete show clone/JSON serialization on mouse-down.
                     previewViewValue=viewKey=="lead"?item.lead:item.bars;
+                    editGeneration=parent.owner.liveDocumentGeneration;
+                    editRevision=parent.owner.liveUiRevision;
                     invalid=false;editing=true;return true;
                 }
                 originalState=parent.state.clone();
@@ -737,7 +739,9 @@ class LiveTimeline final : public juce::Component {
                 const auto id=editingItem.value["id"].toString();
                 const auto key=viewKey;
                 editing=false;parent.layout();parent.playhead.update();repaint();
-                if(!changed || result==initial)return;
+                if(!changed || result==initial || !parent.owner.liveDocument ||
+                   parent.owner.liveDocumentGeneration!=editGeneration ||
+                   parent.owner.liveUiRevision!=editRevision)return;
                 if(key=="lead")
                     parent.owner.run([&]{parent.owner.editLiveItemView(id,"lead",result);});
                 else // The explicit length can affect Playback's authored extent.
@@ -833,6 +837,7 @@ class LiveTimeline final : public juce::Component {
         live::SpanGesture mode{live::SpanGesture::move};
         juce::String selectedItem,selection,viewKey,baseline;
         double previewViewValue{};
+        std::uint64_t editGeneration{},editRevision{};
         juce::var originalState,editRows;
 
       private:
