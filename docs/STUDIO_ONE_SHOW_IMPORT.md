@@ -1,6 +1,6 @@
 # MR Live 0.8.11 — Studio One Show Page context import (#305)
 
-**Development state: native read-only .show parser and destination adapter exist in source; item picker/preview/import UI NOT IMPLEMENTED.**
+**Development state: native .show reader, Smart Improviser chord decoder and atomic multi-item import plan exist in source; native item picker/preview/dialog NOT IMPLEMENTED.**
 This is an independent MR Live compatibility feature owned by #305 under roadmap #14.
 The accepted baseline is MR Live **0.8.10**, from `main`. No change to its
 audio engine, VST3, mixer, render graph, or existing `.mrlive` schema is part of
@@ -42,7 +42,7 @@ https://www.soundonsound.com/techniques/studio-one-show-page-revisited
 | Sections | `items[].sections[]`, start/length in bars, name/color | **PARSED** into bars on compatible source items; Studio One ARGB→MR UDS color map not verified |
 | Tempo (constant BPM) | `items[].tempo` | **PARSED** as `60 / secondsPerQuarter`, guarded against unsupported values |
 | Tempo changes | SHARED TimeMap supports points, but current Live projection uses one item BPM; requires explicit integration after verified source | **UNKNOWN; NOT SUPPORTED by current Live projection** |
-| Chords | `performance.chords[itemId][]`, symbol/start/length | **RAW PARSED** (root/type/intervals/bass and time spans); no verified chord symbol decoder, so Chords import stays disabled |
+| Chords | `performance.chords[itemId][]`, symbol/start/length | **DECODED in source** using host-neutral Smart Improviser `ChordModel`; invalid/overlapping/short spans stay unavailable with diagnostics; C++ build NOT TESTED |
 | Song length | `items[].bars` and `performance.arrangement[itemId].length` | **PARSED** into bars using item-specific tempo and meter; no silent rounding |
 
 **Never claim import compatibility based solely on structural discovery.**
@@ -97,10 +97,21 @@ audio, preset, VST, media or linked .song references.
 - Validates Sections against `LiveTimelineEditState.h` rules. For
   unsupported or overlapping spans, **the entire category is unavailable**,
   not partially imported. Retains count and warnings; no source is modified.
-- Retains chord `root / intervals / type / bass` encoding in a separate
-  `rawChords` preview DTO. **Does not invent chord symbols** or enable
-  Chords for import yet. Missing lanes are void (unavailable), never
-  interpreted as an empty lane to overwrite the destination.
+- Parses the chord `root / intervals / type / bass` fields into a separate
+  `rawChords` diagnostic DTO, **and** maps supported data to Live `chords`
+  using the **exact accepted Smart Improviser ChordModel**. The imported
+  harmonic normalizer is a pinned, unchanged source snapshot from
+  `vladleng/Smart-Improviser` commit
+  `28f6bb3a4df06bb179a6a51a0415b99fc1b1a1f1`, under
+  `core/harmony/si_snapshot`. Source `intervals` are 12 hex values
+  (including `B` for 11 and `D` for 13) and `root` / `bass` are circle
+  of fifths indices; the Studio One adapter is in
+  `LiveStudioOneChordDecoder.h`. This avoids inventing an alternate harmony
+  engine in MR Live. Unknown symbols or invalid/overlapping/short events
+  disable the **entire chord category**, with a warning; missing lanes
+  remain void, never interpreted as an instruction to clear destination.
+  Studio One's `type` is preserved as raw source evidence but the canonical
+  symbol comes from normalized intervals/quality.
 - Bounds ZIP entries (4096), expanded archive metadata (1 GiB), source
   size (512 MiB), XML size (8 MiB), XML depth (64), XML node count
   (100000) and source item count (500); rejects DTD/entities and unsafe paths.
@@ -114,9 +125,38 @@ independent Python equivalent of the XML normalization and time conversion:
 75 items / 48 with Sections / 19 with Chords; **43** section-bearing
 items satisfy the current section-span limits, **5** require a clear
 compatibility warning. Structural extraction and time conversion: **PASS
-(Python only)**. The actual Windows/JUCE C++ reader and synthetic C++
-smoke checks are **NOT TESTED** until the next targeted Windows run.
+(Python only)**. The earlier native reader and synthetic checks passed in Windows
+[run #41018601841](https://github.com/vladleng/MR-Studio/actions/runs/41018601841).
+The subsequently added Smart Improviser linkage, decoder and multi-item
+plan remain **NOT TESTED** in Windows (a new build has not been requested).
 The private file is not stored in GitHub.
+
+### Smart Improviser integration and source selection contract
+
+The user identified the existing [Smart Improviser](https://github.com/vladleng/Smart-Improviser)
+harmonic normalization layer. We checked the accepted
+`src/core/context/HarmonicContext.h` and `src/core/model/ChordModel.h/.cpp`
+rather than building a competing chord vocabulary. The copied source snapshot
+is isolated as a non-RT static library `mrs_smart_chords`, linked only to
+the JUCE Studio/Live applications. Any later shared ecosystem dependency
+consolidation requires its own architectural decision; this task does not
+alter Smart Improviser's repo or its released plugin.
+
+The supplied private Show contains 948 chord records across 19 items.
+All 948 have 12 interval tokens and correspond to recognized qualities in
+Smart Improviser's harmonic model. **16 items** satisfy the present Live
+minimum-span/no-overlap constraints, **3 do not**. No private source
+songs/chord charts were committed. Preview must show the availability and
+warnings per source item.
+
+`LiveStudioOneImportPlan.h` adds atomic multi-source transactions: each
+requested source ordinal maps to a single explicitly chosen MR Live item
+(or explicit **create new**), duplicate source/target selections are rejected,
+and no mutation is committed on an invalid plan. A newly created item may
+adopt the source meter, whereas existing target meters are protected.
+One complete plan is intended to be applied inside
+`Desktop::editLiveInterface` for a **single Undo step**. This plan currently
+has synthetic C++ contract tests, but **no user-facing selector/dialog yet**.
 
 ## Read-only schema probe (first source slice)
 
@@ -148,9 +188,9 @@ complexity limits and rejects suspicious paths. This is a research utility,
    implemented a bounded, read-only native reader; linked `.song` paths
    are never traversed and media/plug-in data is never opened.
 2. **DONE (source):** `ShowContextSong` contains ordinal, title, source meter,
-   decoded optional fields, raw encoded chords, availability and warnings.
-   Next validate actual C++ behavior on Windows; decode chord symbols only
-   against independently verified musical mappings.
+   decoded optional fields, raw chords, normalized chord symbols, availability
+   and warnings. Smart Improviser model is used; verify new linkage and decoder
+   with a future targeted Windows build.
 3. **TODO:** native source SetList selector and explicit MR Live target-item
    mapping **before** four independent checkboxes and per-item preview; unavailable
    data must be disabled. No automatic selection or name-only matching.
