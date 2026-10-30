@@ -49,6 +49,11 @@ inline void applyStudioOneImportPlan(juce::var& show, const StudioOneShowScan& s
         if (!usedTargets.insert(mapped.targetItemId).second)
             throw std::runtime_error("Multiple source items cannot overwrite one destination");
         applyShowContext(candidate, mapped, request.fields);
+        // Browser renders the saved library snapshot, not just the working
+        // item. A freshly created item must show its IMPORTED metadata there,
+        // rather than the defaults captured by addItem().
+        if (request.createNewItem)
+            saveItem(candidate, mapped.targetItemId);
     }
     validate(candidate);
     show = std::move(candidate); // no partial changes on failure
