@@ -6,6 +6,10 @@ inline void showContextSelection() {
     auto state = empty();
     const auto id = addItem(state, "Synthetic source target");
     insertEntry(state, id);
+    // Two native items with the same display name must remain distinct.
+    // The explicit destination ID, never the title, determines which is edited.
+    const auto untouchedId = addItem(state, "Synthetic source target");
+    insertEntry(state, untouchedId);
     const auto initial = state.clone();
     auto row = object();
     put(row, "id", "synthetic-section-id");
@@ -70,6 +74,9 @@ inline void showContextSelection() {
         fail("Selected sections/chords/length were not projected to MR Live model");
     if (static_cast<double>(find(state, "items", id)["tempo"]) != 92.)
         fail("Unselected tempo was changed");
+    if (!sameShowValue(find(state, "items", untouchedId),
+                       find(initial, "items", untouchedId)))
+        fail("Import affected another item with an identical title");
 
     const auto afterApply = state.clone();
     source.lengthBars = 2.;
