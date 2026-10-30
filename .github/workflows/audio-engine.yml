@@ -10,8 +10,13 @@ on:
         description: Complete integration suite
         type: boolean
         default: false
+      checks:
+        description: Targeted Live checks or normal profile
+        type: choice
+        options: [profile, live]
+        default: profile
       ara:
-        description: Include ARA2 in Windows Release (disable only for diagnostic builds)
+        description: Include ARA2 for Studio profile (Live-only always excludes ARA2)
         type: boolean
         default: true
 permissions:
@@ -22,9 +27,9 @@ concurrency:
 jobs:
   studio:
     # Migration branch with an open PR would otherwise launch two identical
-    # Windows builds on each ordinary commit. The PR is the quick acceptance
-    # gate WITH ARA2; extra push runs are only for explicit full integration.
-    # Main push release always retains ARA2.
+    # Windows builds on each ordinary commit. Live-only PR acceptance runs
+    # without ARA2; Studio profile and main releases retain ARA2 by default.
+    # Extra push runs are only for explicit full integration.
     if: >-
       ${{
         github.event_name != 'push' ||
@@ -34,37 +39,63 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 60
     env:
-      # PR and push always produce a complete ARA2-enabled Windows build.
-      # Manual dispatch defaults ON but permits a deliberate ARA-OFF diagnostic.
+      # Studio PR/push profiles retain ARA2 ON by default. The targeted Live
+      # scope forces ARA2 OFF before SDK acquisition, configure and packaging.
+      # Manual Studio ARA-OFF builds remain diagnostic only.
       ARA: ${{ github.event_name != 'workflow_dispatch' || inputs.ara }}
+      CHECK_SCOPE: ${{ inputs.checks || 'profile' }}
       INTEGRATION: ${{ inputs.integration || contains(github.event.head_commit.message, '[ci full]') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          fetch-depth: 2
+      - name: Select explicitly requested check scope
+        id: live_scope
+        shell: pwsh
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $scope=$env:CHECK_SCOPE
+          if($env:GITHUB_EVENT_NAME -eq 'pull_request'){
+            $subject=& git log -1 --format=%s $env:PR_HEAD_SHA
+            if($LASTEXITCODE){throw 'Cannot read PR head check scope'}
+            if($subject -match '\[ci live\]'){$scope='live'}
+          }
+          if($env:INTEGRATION -eq 'true'){$scope='integration'}
+          # 0.8.10 acceptance: verify exact saved snapshots and Save/Undo state.
+          # The Live-only executable is intentionally ARA-free. Keep ARA ON
+          # by default for Studio/profile, including ARA tests and packaging.
+          $buildAra=if($scope -eq 'live'){'false'}else{$env:ARA.ToLowerInvariant()}
+          "CHECK_SCOPE=$scope" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "BUILD_ARA=$buildAra" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ara=$buildAra" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "scope=$scope" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Check scope: $scope; ARA build: $buildAra"
       - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: build/sdk
-          key: windows-sdk-${{ hashFiles('tools/ci/sdk-lock.json') }}-${{ env.ARA }}
+          key: windows-sdk-${{ hashFiles('tools/ci/sdk-lock.json') }}-${{ steps.live_scope.outputs.ara }}
       - name: Verify SDKs; never cache ASIO
         shell: pwsh
-        run: ./tools/ci/Prepare-Sdks.ps1 -Ara:($env:ARA -eq 'true')
+        run: ./tools/ci/Prepare-Sdks.ps1 -Ara:($env:BUILD_ARA -eq 'true')
       - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         if: github.event_name != 'pull_request'
         with:
           path: build/sdk
-          key: windows-sdk-${{ hashFiles('tools/ci/sdk-lock.json') }}-${{ env.ARA }}
+          key: windows-sdk-${{ hashFiles('tools/ci/sdk-lock.json') }}-${{ steps.live_scope.outputs.ara }}
       - name: Configure JUCE VST3 ASIO
         shell: pwsh
-        run: ./tools/ci/Configure-Windows.ps1 -Ara:($env:ARA -eq 'true')
+        run: ./tools/ci/Configure-Windows.ps1 -Ara:($env:BUILD_ARA -eq 'true')
       - name: Build Release
         id: build
         shell: pwsh
         run: |
           $args=@('--build','build/windows','--config','Release','--parallel','2')
-          if($env:INTEGRATION -ne 'true'){
+          if($env:CHECK_SCOPE -eq 'live'){$args+=@('--target','MRLiveJuce','mrs_audio_tests','mrs_live_preload_tests')}
+          elseif($env:INTEGRATION -ne 'true'){
             $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
-            if($env:ARA -eq 'true'){$args+=@('mrs_ara_tests','mrs_ara_clip_tests','mrs_ai_ara_tests')}
+            if($env:BUILD_ARA -eq 'true'){$args+=@('mrs_ara_tests','mrs_ara_clip_tests','mrs_ai_ara_tests')}
           }
           & cmake @args
           if($LASTEXITCODE){throw 'Release build failed'}
@@ -73,14 +104,17 @@ jobs:
         shell: pwsh
         run: |
           $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
-          if($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(stretch_contract|model|transport|commands|serialization|track_folders)|stretch_.*|clip_stretch_.*|ai_.*|ara_.*|juce_(clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(wav_import|track_folders))$')}
+          if($env:CHECK_SCOPE -eq 'live'){$args+=@('-R','^(juce_live_(entry_smoke|application)|audio_(metronome|performance)|desktop_live_preload)$')}
+          elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(stretch_contract|model|transport|commands|serialization|track_folders)|stretch_.*|clip_stretch_.*|ai_.*|ara_.*|juce_(live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(wav_import|track_folders))$')}
           & ctest @args
           if($LASTEXITCODE){
+            if(Test-Path 'build/windows/live-application-failure.txt'){Get-Content 'build/windows/live-application-failure.txt'}
+            if(Test-Path 'build/windows/live-entry-failure.txt'){Get-Content 'build/windows/live-entry-failure.txt'}
             if(Test-Path 'build/windows/library261-failure.txt'){Get-Content 'build/windows/library261-failure.txt'}
-            throw 'CTest failed; full integration never excludes known failures'
+            throw "CTest failed ($env:CHECK_SCOPE)"
           }
       - name: Stretch foundation evidence (synthetic, not ASIO)
-        if: success()
+        if: success() && env.CHECK_SCOPE != 'live'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build/stretch-evidence | Out-Null
@@ -95,13 +129,13 @@ jobs:
           if($LASTEXITCODE){throw 'Stretch ratio fixture failed'}
           & build/windows/Release/mrs_stretch_bench.exe --seconds 10 --warmup 1 --ratio 1 --pitch 7 --output build/stretch-evidence/pitch-7.wav | Set-Content build/stretch-evidence/pitch.csv
           if($LASTEXITCODE){throw 'Stretch pitch fixture failed'}
-          @('MR Studio 0.7.1 stretch foundation. Synthetic evidence, not ASIO or user listening acceptance.', 'mrs_stretch_bench.exe --seconds 300 --warmup 30 --repeats 3 --voices 8 --ratio 1.25', 'Experimental manual clip controls/cache playback are integrated; final realtime/quality acceptance remains in #59/#62.') | Set-Content build/stretch-evidence/README.txt
+          @('MR Studio 0.8.6 stretch foundation. Synthetic evidence, not ASIO or user listening acceptance.', 'mrs_stretch_bench.exe --seconds 300 --warmup 30 --repeats 3 --voices 8 --ratio 1.25', 'Experimental manual clip controls/cache playback are integrated; final realtime/quality acceptance remains in #59/#62.') | Set-Content build/stretch-evidence/README.txt
           Get-ChildItem build/stretch-evidence -File | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String -Width 240 | Set-Content build/stretch-evidence/SHA256.txt
       - name: Upload stretch evidence
-        if: success()
+        if: success() && env.CHECK_SCOPE != 'live'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-0.7.1-Stretch-Evidence-${{ github.sha }}
+          name: MR-Studio-0.8.6-Stretch-Evidence-${{ github.sha }}
           path: build/stretch-evidence/
           if-no-files-found: error
           retention-days: 14
@@ -111,12 +145,13 @@ jobs:
         shell: pwsh
         env:
           CI_TEST_RESULT: ${{ steps.test.outcome }}
-        run: ./tools/ci/Package-Windows.ps1 -Ara:($env:ARA -eq 'true')
+          CI_CHECK_SCOPE: ${{ env.CHECK_SCOPE }}
+        run: ./tools/ci/Package-Windows.ps1 -Ara:($env:BUILD_ARA -eq 'true') -LiveOnly:($env:CHECK_SCOPE -eq 'live')
       - name: Upload Windows runtime
         if: always() && steps.package.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-0.7.1-Windows-${{ github.sha }}-ara-${{ env.ARA }}
+          name: ${{ env.CHECK_SCOPE == 'live' && 'MR-Live-0.8.10' || 'MR-Studio-0.8.10' }}-Windows-${{ github.sha }}-ara-${{ steps.live_scope.outputs.ara }}
           path: build/package/
           if-no-files-found: error
           retention-days: 14
@@ -124,16 +159,20 @@ jobs:
         if: always() && steps.build.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: Windows-symbols-${{ github.sha }}-ara-${{ env.ARA }}
-          path: build/windows/MoonRiverStudioJuce_artefacts/Release/*.pdb
+          name: Windows-symbols-${{ github.sha }}-ara-${{ steps.live_scope.outputs.ara }}
+          path: |
+            build/windows/MoonRiverStudioJuce_artefacts/Release/*.pdb
+            build/windows/MRLiveJuce_artefacts/Release/*.pdb
           if-no-files-found: error
           retention-days: 7
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: Windows-test-results-${{ github.sha }}-ara-${{ env.ARA }}
+          name: Windows-test-results-${{ github.sha }}-ara-${{ steps.live_scope.outputs.ara }}
           path: |
+            build/windows/juce-live-entry-*.png
+            build/windows/juce-live-interface-*.png
             build/windows/juce-library261-*.png
             build/windows/juce-folder-mixer-*.png
             build/windows/stretch-dialog-*.png

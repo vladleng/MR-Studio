@@ -184,17 +184,103 @@ ProcessingDomains AudioEngine::compile_domains(const RenderGraph& graph,
         plan.merges.push_back({no_mixer_track, no_mixer_track, 0, D::MergeKind::legacy, master_input});
     return plan;
 }
-void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState initial) {
-    if(speculative_||mixed_owner_)throw std::logic_error("stop the process producer before preparing audio");
-    stop_library_preview(); // never retain a stream decoded for the previous device rate
-    graph.click.validate();metronome_.prepare(graph.click_time,config.sample_rate);graph.meters=prepare_meters(graph.click_time,config.sample_rate);click_=graph.click;
+RenderGraph AudioEngine::stopped_graph() const {
+    if(speculative_||mixed_owner_)throw std::logic_error("quiesce the device before capturing its graph");
+    auto copy=graph_;copy.click=click_;return copy;
+}
+struct AudioEngine::PreparedState {
+    Metronome metronome_{};
+    ClickSettings click_{};
+    RenderConfig config_{};
+    RenderGraph graph_{};
+    std::vector<processing::MidiBuffer> live_midi_buffers_{};
+    std::vector<processing::MidiBuffer> chunk_midi_buffers_{};
+    std::vector<MidiPlayback> midi_playback_{};
+    std::vector<MidiPlayback> external_playback_{};
+    std::vector<std::size_t> mix_levels_{};
+    std::vector<std::vector<std::size_t>> channel_levels_{};
+    CompensationReport compensation_{};
+    std::vector<CompensationDelay> route_delays_{};
+    std::vector<std::vector<CompensationDelay>> send_delays_{};
+    CompensationDelay legacy_delay_{};
+    ProcessingDomains domains_{};
+    std::vector<float> master_envelope_{};
+    std::vector<float> direct_output_{};
+    std::uint32_t insert_block_size_{};
+    std::vector<std::vector<float>> track_block_{};
+    std::vector<std::vector<float>> route_contributions_{};
+    std::vector<std::vector<std::vector<float>>> send_contributions_{};
+    std::vector<std::size_t> mix_order_{};
+    std::uint64_t scheduler_overhead_ns_{};
+    bool measure_channels_{};
+    std::unique_ptr<ChannelWorkers> workers_{};
+    RealtimeState initial;
+};
+struct AudioEngine::ControlInfo {
+    RenderGraph graph;
+    CompensationReport compensation;
+    ProcessingDomains domains;
+    std::uint32_t workers{1},scheduled{};
+    std::uint64_t overhead{};
+    explicit ControlInfo(const PreparedState& state):graph(state.graph_),compensation(state.compensation_),domains(state.domains_),
+        workers(state.workers_?state.workers_->count()+1:1),scheduled(state.workers_?state.workers_->audio_scheduled():0),overhead(state.scheduler_overhead_ns_){}
+    explicit ControlInfo(const AudioEngine& engine):graph(engine.graph_),compensation(engine.compensation_),domains(engine.domains_),
+        workers(engine.workers_?engine.workers_->count()+1:1),scheduled(engine.workers_?engine.workers_->audio_scheduled():0),overhead(engine.scheduler_overhead_ns_){}
+};
+struct AudioEngine::PreparedTransition {
+    std::unique_ptr<PreparedState> next;
+    std::shared_ptr<const ControlInfo> info;
+    std::uint64_t expected{},mix{};
+    std::atomic<TransitionPhase> phase{TransitionPhase::prepared};
+};
+const RenderGraph& AudioEngine::control_graph() const noexcept{return control_info_?control_info_->graph:graph_;}
+void AudioEngine::refresh_control_info(){control_info_=std::make_shared<ControlInfo>(*this);}
+const AudioEngine::CompensationReport& AudioEngine::compensation() const{return control_info_?control_info_->compensation:compensation_;}
+const ProcessingDomains& AudioEngine::processing_domains() const{return control_info_?control_info_->domains:domains_;}
+std::shared_ptr<AudioEngine::PreparedTransition> AudioEngine::prepare_transition(RenderGraph graph,std::uint64_t expected_token){
+    const auto& current=control_graph();
+    const auto sourceOnly=[](const RenderGraph& value){return value.recordings.empty()&&value.midi_recordings.empty()&&value.monitor.empty()&&value.editor_renderers.empty()&&
+        std::none_of(value.live_midi.begin(),value.live_midi.end(),[](bool v){return v;})&&
+        std::none_of(value.external_midi_tracks.begin(),value.external_midi_tracks.end(),[](bool v){return v;})&&
+        std::none_of(value.voices.begin(),value.voices.end(),[](const auto& v){return static_cast<bool>(v.renderer);});};
+    if(!current.performance || expected_token!=current.performance_token || !graph.performance || !graph.performance_token ||
+        graph.performance->mode==PerformanceMode::skip || !sourceOnly(current)||!sourceOnly(graph)||current.master_outputs!=graph.master_outputs)
+        throw std::invalid_argument("Automatic handoff requires prepared Playback/Cue graph with stable device routes");
+    auto result=std::make_shared<PreparedTransition>();result->expected=expected_token;result->mix=last_mix_sent_.load(std::memory_order_acquire);
+    result->next=prepare_state(config_,std::move(graph),{});result->info=std::make_shared<ControlInfo>(*result->next);return result;
+}
+bool AudioEngine::stage_transition(const std::shared_ptr<PreparedTransition>& next){
+    if(!next || next->expected!=control_graph().performance_token || next->phase.load()!=TransitionPhase::prepared)return false;
+    auto phase=TransitionPhase::prepared;if(!next->phase.compare_exchange_strong(phase,TransitionPhase::pending))return false;
+    PreparedTransition* empty{};
+    if(!pending_transition_.compare_exchange_strong(empty,next.get(),std::memory_order_release)){next->phase=TransitionPhase::prepared;return false;}return true;
+}
+bool AudioEngine::cancel_transition(const std::shared_ptr<PreparedTransition>& next) noexcept {
+    if(!next)return true;
+    auto* pointer=next.get();
+    if(pending_transition_.compare_exchange_strong(pointer,nullptr,std::memory_order_acq_rel)){next->phase.store(TransitionPhase::cancelled,std::memory_order_release);return true;}
+    auto phase=TransitionPhase::prepared;
+    if(next->phase.compare_exchange_strong(phase,TransitionPhase::cancelled))return true;
+    phase=next->phase.load(std::memory_order_acquire);return phase==TransitionPhase::cancelled||phase==TransitionPhase::acknowledged;
+}
+AudioEngine::TransitionPhase AudioEngine::transition_phase(const std::shared_ptr<PreparedTransition>& next) const noexcept{return next?next->phase.load(std::memory_order_acquire):TransitionPhase::cancelled;}
+bool AudioEngine::acknowledge_transition(const std::shared_ptr<PreparedTransition>& next){
+    if(!next || transition_phase(next)!=TransitionPhase::adopted)return false;
+    control_info_=next->info;set_profiling(profile_->enabled.load());next->phase.store(TransitionPhase::acknowledged,std::memory_order_release);return true;
+}
+AudioEngine::PerformanceStatus AudioEngine::performance_status() const noexcept {
+    return {published_performance_token_.load(std::memory_order_acquire),published_manual_revision_.load(std::memory_order_acquire),
+        published_end_serial_.load(std::memory_order_acquire),static_cast<PerformanceAction>(published_performance_action_.load()),published_performance_stalled_.load()};
+}
+std::unique_ptr<AudioEngine::PreparedState> AudioEngine::prepare_state(RenderConfig config, RenderGraph graph, RealtimeState initial) const {
+    auto next=std::make_unique<PreparedState>();
+    if(graph.performance){graph.performance->validate();if(!graph.performance_token || !graph.recordings.empty() || !graph.midi_recordings.empty() || graph.recording)throw std::invalid_argument("Performance requires playback-only graph and nonzero identity");}
+    graph.click.validate();if(graph.click.output_left>=static_cast<int>(config.output_channels)||graph.click.output_right>=static_cast<int>(config.output_channels))throw std::invalid_argument("Click output outside stream");next->metronome_.prepare(graph.click_time,config.sample_rate);graph.meters=prepare_meters(graph.click_time,config.sample_rate);next->click_=graph.click;
     if(graph.count_frames<0||graph.count_frames>max_sample||(graph.count_frames&&(!std::isfinite(graph.count_beat_frames)||graph.count_beat_frames<1||graph.count_beats<1||graph.count_beats>64)))throw std::invalid_argument("invalid precount");
-    count_started_=false;record_start_ns_=0;initial.count_remaining=graph.count_frames;
+    initial.count_remaining=graph.count_frames;
     // Caller has stopped the device; this also joins a timed-out worker batch.
-    workers_.reset();
-    midi_record_fault_=false;midi_monitor_release_={};
-    ++midi_generation_; // old route indices must never address a replacement graph
-    if(graph.external_midi){if(graph.external_midi_tracks.size()!=graph.mixer.size())throw std::invalid_argument("external MIDI track size mismatch");graph.external_midi->recover();}
+    next->workers_.reset();
+    if(graph.external_midi && graph.external_midi_tracks.size()!=graph.mixer.size())throw std::invalid_argument("external MIDI track size mismatch");
     if ((initial.playback != PlaybackState::stopped && initial.playback != PlaybackState::paused) ||
         initial.sample < 0 || initial.sample > max_sample || initial.play_start < 0 || initial.play_start > max_sample ||
         (initial.loop && (initial.loop->start < 0 || initial.loop->start >= initial.loop->end || initial.loop->end > max_sample)))
@@ -216,15 +302,15 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     if (graph.buses.empty()) graph.buses.assign(graph.mixer.size(),false);
     if(graph.live_midi.empty())graph.live_midi.assign(graph.mixer.size(),false);
     if(graph.live_midi.size()!=graph.mixer.size())throw std::invalid_argument("MIDI channel size mismatch");
-    live_midi_buffers_.resize(graph.mixer.size());audition_tails_={};audition_live_busy_={};audition_live_notes_={};audition_live_sustain_={};
+    next->live_midi_buffers_.resize(graph.mixer.size());
     if(graph.midi_notes.empty())graph.midi_notes.resize(graph.mixer.size());
     if(graph.midi_events.empty())graph.midi_events.resize(graph.mixer.size());
     if(graph.midi_monitor.empty())graph.midi_monitor.assign(graph.mixer.size(),true);
     if(graph.midi_events.size()!=graph.mixer.size()||graph.midi_monitor.size()!=graph.mixer.size())throw std::invalid_argument("MIDI event/monitor channel size mismatch");
     for(const auto& capture:graph.midi_recordings)if(!capture.recorder||capture.track>=graph.mixer.size()||!graph.live_midi[capture.track])throw std::invalid_argument("invalid MIDI recorder route");
     if(graph.midi_notes.size()!=graph.mixer.size())throw std::invalid_argument("MIDI playback channel size mismatch");
-    chunk_midi_buffers_.resize(graph.mixer.size());midi_playback_.resize(graph.mixer.size());
-    external_playback_.resize(graph.mixer.size());external_gate_.fill(true);
+    next->chunk_midi_buffers_.resize(graph.mixer.size());next->midi_playback_.resize(graph.mixer.size());
+    next->external_playback_.resize(graph.mixer.size());
     if(graph.external_midi){
         if(graph.external_midi_channels.empty())graph.external_midi_channels.assign(graph.mixer.size(),-1);
         if(graph.external_midi_channels.size()!=graph.mixer.size())throw std::invalid_argument("external MIDI channels mismatch");
@@ -232,10 +318,10 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
             const auto channel=graph.external_midi_channels[t];if(channel<-1||channel>15)throw std::invalid_argument("external MIDI channel range");
             auto notes=graph.midi_notes[t];auto events=graph.midi_events[t];
             if(channel>=0){for(auto& n:notes)n.channel=static_cast<std::uint8_t>(channel);for(auto& e:events)e.event.channel=static_cast<std::uint8_t>(channel);}
-            external_playback_[t].prepare(std::move(notes),std::move(events));
+            next->external_playback_[t].prepare(std::move(notes),std::move(events));
         }
     }
-    for(std::size_t t=0;t<graph.mixer.size();++t){if(graph.buses.size()==graph.mixer.size()&&graph.buses[t]&&(!graph.midi_notes[t].empty()||!graph.midi_events[t].empty()))throw std::invalid_argument("bus cannot contain MIDI playback");midi_playback_[t].prepare(graph.midi_notes[t],graph.midi_events[t]);}
+    for(std::size_t t=0;t<graph.mixer.size();++t){if(graph.buses.size()==graph.mixer.size()&&graph.buses[t]&&(!graph.midi_notes[t].empty()||!graph.midi_events[t].empty()))throw std::invalid_argument("bus cannot contain MIDI playback");next->midi_playback_[t].prepare(graph.midi_notes[t],graph.midi_events[t]);}
     if (graph.outputs.size() != graph.mixer.size() || graph.buses.size() != graph.mixer.size())
         throw std::invalid_argument("mixer routing size mismatch");
     if (graph.sends.empty()) graph.sends.resize(graph.mixer.size());
@@ -370,16 +456,23 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     CompensationDelay legacy;legacy.prepare(master_input,config.output_channels,delay_budget);
     compensation.memory_bytes=128*1024*1024-delay_budget;
     auto domains = compile_domains(graph, order, compensation, arrivals);
+    const auto jump_targets=graph.performance?1+static_cast<std::size_t>(std::count_if(graph.performance->sections.begin(),graph.performance->sections.end(),
+        [](const auto& section){return section.mode==PerformanceMode::skip||section.mode==PerformanceMode::loop;})):0;
     std::size_t stream_bytes{}, stream_count{};
     for (auto& voice : graph.voices) if (voice.asset->file&&!voice.renderer) {
         if (config.max_block > static_cast<std::uint32_t>(ReadAhead::page_frames))
             throw std::invalid_argument("streaming supports callback blocks up to 8192 frames");
-        stream_bytes += ReadAhead::pages*static_cast<std::size_t>(ReadAhead::page_frames)*voice.asset->channels*sizeof(float);
+        stream_bytes += (ReadAhead::pages+2*jump_targets)*static_cast<std::size_t>(ReadAhead::page_frames)*voice.asset->channels*sizeof(float);
         if (++stream_count > 32 || stream_bytes > 256*1024*1024)
             throw std::invalid_argument("disk voice budget exceeded (32 voices / 256 MiB)");
     }
     for (auto& voice : graph.voices) if (voice.asset->file&&!voice.renderer) {
         voice.stream = std::make_shared<ReadAhead>(voice.asset->file);
+        if(graph.performance){std::vector<Sample> targets{voice.source_offset};
+            for(const auto& section:graph.performance->sections)if(section.mode==PerformanceMode::skip||section.mode==PerformanceMode::loop){
+                const auto at=section.mode==PerformanceMode::skip?section.end:section.start;
+                targets.push_back(voice.source_offset+std::clamp(at-voice.start,Sample{0},voice.length-1));}
+            voice.stream->warm_jumps(targets);}
         voice.stream->prime(voice.source_offset+std::clamp(initial.sample-voice.start,Sample{0},voice.length-1));
         if (initial.loop && initial.loop->start < voice.start+voice.length && initial.loop->end > voice.start) {
             const auto source = voice.source_offset+std::max(Sample{0},initial.loop->start-voice.start);
@@ -394,33 +487,75 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     if(static_cast<std::uint64_t>(block_size)*config.output_channels*scratch_blocks*sizeof(float)>128ULL*1024*1024)
         throw std::invalid_argument("mixer scratch budget exceeded");
     const bool profiling=profile_&&profile_->enabled.load(std::memory_order_relaxed);
-    profile_=std::make_shared<ProfileStorage>();profile_->enabled=profiling;
-    config_ = config;
-    mix_levels_=std::move(levels);channel_levels_=std::move(channel_levels);
-    compensation_=std::move(compensation);route_delays_=std::move(routes);send_delays_=std::move(sends);legacy_delay_=std::move(legacy);
-    domains_=std::move(domains);
-    master_envelope_.resize(config.max_block);
-    direct_output_.resize(static_cast<std::size_t>(config.max_block)*config.output_channels);
-    graph_ = std::move(graph);set_profiling(profiling);
-    domain_owned_.fill(true);domain_input_=nullptr;domain_output_=nullptr;domain_meters_={};
-    insert_block_size_=block_size;
-    track_block_.assign(graph_.mixer.size(),std::vector<float>(static_cast<std::size_t>(insert_block_size_)*config.output_channels));
-    route_contributions_=track_block_;send_contributions_.clear();send_contributions_.resize(graph_.mixer.size());
-    for(std::size_t t=0;t<graph_.mixer.size();++t)send_contributions_[t].assign(graph_.sends[t].size(),std::vector<float>(static_cast<std::size_t>(insert_block_size_)*config.output_channels));
-    mix_order_ = std::move(order);
-    std::size_t width{};for(const auto& level:channel_levels_)width=std::max(width,level.size());
+    next->config_ = config;
+    next->mix_levels_=std::move(levels);next->channel_levels_=std::move(channel_levels);
+    next->compensation_=std::move(compensation);next->route_delays_=std::move(routes);next->send_delays_=std::move(sends);next->legacy_delay_=std::move(legacy);
+    next->domains_=std::move(domains);
+    next->master_envelope_.resize(config.max_block);
+    next->direct_output_.resize(static_cast<std::size_t>(config.max_block)*config.output_channels);
+    next->graph_ = std::move(graph);
+    for(const auto& chain:next->graph_.inserts)if(chain)chain->set_profiling(profiling);
+    if(next->graph_.processors)next->graph_.processors->set_profiling(profiling);
+    if(next->graph_.master_inserts)next->graph_.master_inserts->set_profiling(profiling);
+    next->insert_block_size_=block_size;
+    next->track_block_.assign(next->graph_.mixer.size(),std::vector<float>(static_cast<std::size_t>(next->insert_block_size_)*config.output_channels));
+    next->route_contributions_=next->track_block_;next->send_contributions_.clear();next->send_contributions_.resize(next->graph_.mixer.size());
+    for(std::size_t t=0;t<next->graph_.mixer.size();++t)next->send_contributions_[t].assign(next->graph_.sends[t].size(),std::vector<float>(static_cast<std::size_t>(next->insert_block_size_)*config.output_channels));
+    next->mix_order_ = std::move(order);
+    std::size_t width{};for(const auto& level:next->channel_levels_)width=std::max(width,level.size());
     if(config.processing_workers>1&&width>1)
-        workers_=std::make_unique<ChannelWorkers>(static_cast<std::uint32_t>(std::min<std::size_t>(config.processing_workers-1,width-1)),config.worker_mmcss);
-    scheduler_overhead_ns_=0;channel_cost_ns_.fill(0);
-    measure_channels_=workers_!=nullptr;
-    if(workers_) {
+        next->workers_=std::make_unique<ChannelWorkers>(static_cast<std::uint32_t>(std::min<std::size_t>(config.processing_workers-1,width-1)),config.worker_mmcss);
+    next->scheduler_overhead_ns_=0;
+    next->measure_channels_=next->workers_!=nullptr;
+    if(next->workers_) {
         std::array<std::uint64_t,32> samples{};
         const auto empty_job=[](void*,std::uint32_t) noexcept {};
         for(auto& sample:samples){const auto started=std::chrono::steady_clock::now();
-            if(!workers_->run(nullptr,empty_job,static_cast<std::uint32_t>(width),1000))throw std::runtime_error("audio worker calibration timed out");
+            if(!next->workers_->run(nullptr,empty_job,static_cast<std::uint32_t>(width),1000))throw std::runtime_error("audio worker calibration timed out");
             sample=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-started).count());}
-        std::sort(samples.begin(),samples.end());scheduler_overhead_ns_=std::max<std::uint64_t>(1,samples[samples.size()/2]);
+        std::sort(samples.begin(),samples.end());next->scheduler_overhead_ns_=std::max<std::uint64_t>(1,samples[samples.size()/2]);
     }
+    next->initial=initial;return next;
+}
+void AudioEngine::swap_state(PreparedState& next,bool keep_device_buffers) noexcept {
+    std::swap(metronome_,next.metronome_);
+    std::swap(click_,next.click_);
+    std::swap(graph_,next.graph_);
+    std::swap(live_midi_buffers_,next.live_midi_buffers_);
+    std::swap(chunk_midi_buffers_,next.chunk_midi_buffers_);
+    std::swap(midi_playback_,next.midi_playback_);
+    std::swap(external_playback_,next.external_playback_);
+    std::swap(mix_levels_,next.mix_levels_);
+    std::swap(channel_levels_,next.channel_levels_);
+    std::swap(compensation_,next.compensation_);
+    std::swap(route_delays_,next.route_delays_);
+    std::swap(send_delays_,next.send_delays_);
+    std::swap(legacy_delay_,next.legacy_delay_);
+    std::swap(domains_,next.domains_);
+    if(!keep_device_buffers)std::swap(master_envelope_,next.master_envelope_);
+    if(!keep_device_buffers)std::swap(direct_output_,next.direct_output_);
+    std::swap(insert_block_size_,next.insert_block_size_);
+    std::swap(track_block_,next.track_block_);
+    std::swap(route_contributions_,next.route_contributions_);
+    std::swap(send_contributions_,next.send_contributions_);
+    std::swap(mix_order_,next.mix_order_);
+    std::swap(scheduler_overhead_ns_,next.scheduler_overhead_ns_);
+    std::swap(measure_channels_,next.measure_channels_);
+    std::swap(workers_,next.workers_);
+}
+void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState initial) {
+    if(speculative_||mixed_owner_)throw std::logic_error("stop the process producer before preparing audio");
+    if(auto* pending=pending_transition_.exchange(nullptr))pending->phase.store(TransitionPhase::cancelled,std::memory_order_release);
+    stop_library_preview();
+    auto next=prepare_state(config,std::move(graph),initial);
+    const bool profiling=profile_&&profile_->enabled.load(std::memory_order_relaxed);
+    swap_state(*next);config_=config;initial=next->initial;
+    if(graph_.external_midi)graph_.external_midi->recover();
+    refresh_control_info();performance_arrived_=false;performance_stalled_=false;performance_action_=PerformanceAction::none;manual_revision_=last_manual_sent_.load(std::memory_order_acquire);
+    profile_=std::make_shared<ProfileStorage>();profile_->enabled=profiling;
+    count_started_=false;record_start_ns_=0;midi_record_fault_=false;midi_monitor_release_={};++midi_generation_;
+    audition_tails_={};audition_live_busy_={};audition_live_notes_={};audition_live_sustain_={};external_gate_.fill(true);
+    domain_owned_.fill(true);domain_input_=nullptr;domain_output_=nullptr;domain_meters_={};channel_cost_ns_.fill(0);
     processing_fault_=false;parallel_batches_=0;worker_timeouts_=0;
     MixerUpdate mix; mix.count = graph_.mixer.size(); mix.master_gain = graph_.master_gain;
     std::copy(graph_.mixer.begin(),graph_.mixer.end(),mix.tracks.begin());
@@ -442,15 +577,15 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     publish();
 }
 AudioEngine::TimingPlan AudioEngine::prepare_timing(const Project& p,std::span<const Id> tracks,bool capture_voices) const {
-    if(p.sample_rate!=config_.sample_rate||tracks.size()!=graph_.mixer.size())throw std::invalid_argument("timing plan requires the current rate and routing");
+    if(p.sample_rate!=config_.sample_rate||tracks.size()!=control_graph().mixer.size())throw std::invalid_argument("timing plan requires the current rate and routing");
     p.validate();TimingPlan plan;plan.rate=p.sample_rate;plan.time=p.time;const Timeline time(p.time,p.sample_rate);
-    if(capture_voices)plan.voices=graph_.voices;
+    if(capture_voices)plan.voices=control_graph().voices;
     plan.notes=compile_midi_clips(p,tracks);plan.events=compile_midi_events(p,tracks);plan.metronome.prepare(p.time,p.sample_rate);
     for(const auto& point:p.time.tempos){const auto sample=time.to_samples(point.tick);if(!plan.tempos.empty()&&sample<=plan.tempos.back().sample)throw std::invalid_argument("tempo points must occupy distinct audio samples");plan.tempos.push_back({sample,point.bpm,static_cast<double>(point.tick)/ppq});}
     plan.meters=prepare_meters(p.time,p.sample_rate);
     plan.playback.resize(tracks.size());plan.external.resize(tracks.size());
     for(std::size_t t=0;t<tracks.size();++t){plan.playback[t].prepare(plan.notes[t],plan.events[t]);
-        if(graph_.external_midi&&graph_.external_midi_tracks[t]){auto notes=plan.notes[t];auto events=plan.events[t];const auto channel=graph_.external_midi_channels[t];
+        if(control_graph().external_midi&&control_graph().external_midi_tracks[t]){auto notes=plan.notes[t];auto events=plan.events[t];const auto channel=control_graph().external_midi_channels[t];
             if(channel>=0){for(auto& n:notes)n.channel=static_cast<std::uint8_t>(channel);for(auto& e:events)e.event.channel=static_cast<std::uint8_t>(channel);}plan.external[t].prepare(std::move(notes),std::move(events));}}
     return plan;
 }
@@ -465,30 +600,35 @@ void AudioEngine::swap_timing(TimingPlan& plan,bool midi_only){
     }
     if(!midi_only){using std::swap;swap(metronome_,plan.metronome);swap(graph_.click_time,plan.time);graph_.tempos.swap(plan.tempos);graph_.meters.swap(plan.meters);}
     if(plan.voices)graph_.voices.swap(*plan.voices);
-    graph_.midi_notes.swap(plan.notes);graph_.midi_events.swap(plan.events);midi_playback_.swap(plan.playback);external_playback_.swap(plan.external);
+    graph_.midi_notes.swap(plan.notes);graph_.midi_events.swap(plan.events);midi_playback_.swap(plan.playback);external_playback_.swap(plan.external);refresh_control_info();
 }
 void AudioEngine::prime_streams(Sample position) {
-    for (auto& voice : graph_.voices) if (voice.stream)
+    for (auto& voice : control_graph().voices) if (voice.stream)
         voice.stream->prime(voice.source_offset+std::clamp(position-voice.start,Sample{0},voice.length-1));
 }
 void AudioEngine::prime_loop(std::optional<LoopRange> loop) {
-    for (auto& voice : graph_.voices) if (voice.stream) {
+    for (auto& voice : control_graph().voices) if (voice.stream) {
         if (loop && loop->start < voice.start+voice.length && loop->end > voice.start) {
             const auto source = voice.source_offset+std::max(Sample{0},loop->start-voice.start);
             voice.stream->loop(source); voice.stream->prime(source);
         } else voice.stream->loop(-1);
     }
 }
-bool AudioEngine::enqueue(Control control) noexcept { control.serial=control_revision_.fetch_add(1,std::memory_order_acq_rel)+1;const auto ok=controls_.push(control);++control_revision_;return ok; }
+bool AudioEngine::enqueue(Control control) noexcept {
+    control.serial=control_revision_.fetch_add(1,std::memory_order_acq_rel)+1;control.performance_token=control_graph().performance_token;
+    const auto ok=controls_.push(control);
+    if(ok && control.kind!=ControlKind::monitor && control.kind!=ControlKind::click)last_manual_sent_.store(control.serial,std::memory_order_release);
+    ++control_revision_;return ok;
+}
 bool AudioEngine::enqueue_mix(const MixerUpdate& update) noexcept {
-    if (update.count > update.tracks.size() || update.count != graph_.mixer.size() || !std::isfinite(update.master_gain) || update.master_gain < 0 || update.master_gain > 16) return false;
+    if (update.count > update.tracks.size() || update.count != control_graph().mixer.size() || !std::isfinite(update.master_gain) || update.master_gain < 0 || update.master_gain > 16) return false;
     for (std::size_t i=0; i<update.count; ++i) {
         const auto& m = update.tracks[i];
-        for (std::size_t j=0; j<graph_.sends[i].size(); ++j) if (!std::isfinite(update.send_gains[i][j]) || update.send_gains[i][j] < 0 || update.send_gains[i][j] > 16) return false;
+        for (std::size_t j=0; j<control_graph().sends[i].size(); ++j) if (!std::isfinite(update.send_gains[i][j]) || update.send_gains[i][j] < 0 || update.send_gains[i][j] > 16) return false;
         if (!std::isfinite(m.gain) || m.gain < 0 || m.gain > 16 || !std::isfinite(m.pan) || m.pan < -1 || m.pan > 1) return false;
     }
     // Scalar targets must not invalidate queued PCM or reset transport/DSP history.
-    auto message=update;message.serial=next_mix_serial_.fetch_add(1,std::memory_order_relaxed)+1;return mixer_controls_.push(message);
+    auto message=update;message.serial=next_mix_serial_.fetch_add(1,std::memory_order_relaxed)+1;message.performance_token=control_graph().performance_token;const auto ok=mixer_controls_.push(message);if(ok)last_mix_sent_.store(message.serial,std::memory_order_release);return ok;
 }
 void AudioEngine::set_mix(const MixerUpdate& update, bool ramp) noexcept {
     if (update.count > update.tracks.size()) return;
@@ -541,6 +681,11 @@ MixerMeters AudioEngine::take_meters() noexcept {
     return result;
 }
 void AudioEngine::publish() noexcept {
+    published_performance_token_.store(graph_.performance_token,std::memory_order_release);
+    published_manual_revision_.store(manual_revision_,std::memory_order_release);
+    published_end_serial_.store(performance_end_serial_,std::memory_order_release);
+    published_performance_action_.store(static_cast<int>(performance_action_),std::memory_order_release);
+    published_performance_stalled_.store(performance_stalled_,std::memory_order_release);
     if(speculative_)return;
     publish_delivered(rt_,{});
 }
@@ -580,6 +725,7 @@ RealtimeState AudioEngine::state() const {
     throw std::runtime_error("audio state busy; poll again");
 }
 bool AudioEngine::anticipation_safe() const noexcept {
+    if(graph_.performance)return false;
     if(!graph_.editor_renderers.empty())return false;
     for(const auto& voice:graph_.voices)if(voice.renderer)return false;
     if(graph_.external_midi)return false;
@@ -616,12 +762,19 @@ void AudioEngine::restore_mix(const MixHead& mix) noexcept {
     gate_=mix.gate;gate_target_=mix.gate_target;gate_step_=mix.gate_step;master_gain_=mix.master;master_target_=mix.master_target;master_step_=mix.master_step;mix_ramp_=mix.ramp;
 }
 void AudioEngine::apply_control(const Control& control) noexcept {
+    if(control.performance_token!=graph_.performance_token&&control.kind!=ControlKind::stop&&control.kind!=ControlKind::pause)return;
+    if(control.kind!=ControlKind::monitor && control.kind!=ControlKind::click){manual_revision_=control.serial;performance_arrived_=false;performance_action_=PerformanceAction::none;performance_stalled_=false;}
+
     if(control.kind==ControlKind::seek||control.kind==ControlKind::prepared_seek)metronome_.reset();
     if(control.kind==ControlKind::stop||control.kind==ControlKind::seek){for(auto& lane:midi_playback_)lane.forget();}
     switch (control.kind) {
-        case ControlKind::click: click_.playback=(control.a&1)!=0;click_.recording=(control.a&2)!=0;click_.accent=(control.a&4)!=0;click_.level=static_cast<int>(std::clamp(control.b,Sample{0},Sample{100}));metronome_.reset();break;
+        case ControlKind::click: click_.playback=(control.a&1)!=0;click_.recording=(control.a&2)!=0;click_.accent=(control.a&4)!=0;click_.level=static_cast<int>(std::clamp(control.b,Sample{0},Sample{100}));
+            click_.output_left=static_cast<int>((control.a>>8)&255)-1;
+            click_.output_right=static_cast<int>((control.a>>16)&255)-1;
+            if(click_.output_left>=static_cast<int>(config_.output_channels)||click_.output_right>=static_cast<int>(config_.output_channels)){click_.playback=click_.recording=false;click_.output_left=click_.output_right=-1;}
+            metronome_.reset();break;
         case ControlKind::monitor: monitor_enabled_ = control.a != 0; break;
-        case ControlKind::play: if (rt_.playback != PlaybackState::playing) { rt_.play_start=rt_.sample; pending_play_anchor_=pending_seek_.has_value(); } if(rt_.count_remaining){count_started_=true;rt_.playback=PlaybackState::paused;}else rt_.playback = PlaybackState::playing; break;
+        case ControlKind::play: if(graph_.performance && rt_.sample>=graph_.performance->end){rt_.sample=0;metronome_.reset();} if (rt_.playback != PlaybackState::playing) { rt_.play_start=rt_.sample; pending_play_anchor_=pending_seek_.has_value(); } if(rt_.count_remaining){count_started_=true;rt_.playback=PlaybackState::paused;}else rt_.playback = PlaybackState::playing; break;
         case ControlKind::pause:
             if(graph_.external_midi)graph_.external_midi->panic();
             rt_.count_remaining=0;count_started_=false;metronome_.reset();
@@ -632,7 +785,7 @@ void AudioEngine::apply_control(const Control& control) noexcept {
             rt_.count_remaining=0;count_started_=false;metronome_.reset();
             audition_tails_={};audition_live_busy_={};audition_live_notes_={};audition_live_sustain_={};
             reset_compensation();
-            pending_seek_.reset(); pending_play_anchor_=false; rt_.playback = PlaybackState::stopped; rt_.sample = rt_.play_start;
+            pending_seek_.reset(); pending_play_anchor_=false; rt_.playback = PlaybackState::stopped; if(!graph_.performance)rt_.sample=rt_.play_start;else if(graph_.performance->back_to_start)rt_.sample=0;
             if (graph_.processors) graph_.processors->panic();
             for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.inserts[t])graph_.inserts[t]->panic();
             if (graph_.master_inserts) graph_.master_inserts->panic();
@@ -640,7 +793,7 @@ void AudioEngine::apply_control(const Control& control) noexcept {
         case ControlKind::prepared_seek:
             if(graph_.external_midi)graph_.external_midi->panic();
             if (!graph_.recordings.empty()) { for (const auto& recorder : graph_.recordings) recorder->discontinuity(); break; }
-            if (control.a >= 0 && control.a <= max_sample) pending_seek_ = control.a;
+            if (control.a >= 0 && control.a <= max_sample) pending_seek_ = graph_.performance?(std::min)(control.a,graph_.performance->end):control.a;
             break;
         case ControlKind::seek:
             if(graph_.external_midi)graph_.external_midi->panic();
@@ -648,7 +801,7 @@ void AudioEngine::apply_control(const Control& control) noexcept {
             pending_seek_.reset();
             if (!graph_.recordings.empty()) { for (const auto& recorder : graph_.recordings) recorder->discontinuity(); break; }
             if (control.a >= 0 && control.a <= max_sample) {
-                rt_.sample = control.a;
+                rt_.sample = graph_.performance?(std::min)(control.a,graph_.performance->end):control.a;
                 if (graph_.processors) graph_.processors->panic();
                 for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.inserts[t])graph_.inserts[t]->panic();
                 if (graph_.master_inserts) graph_.master_inserts->panic();
@@ -656,7 +809,7 @@ void AudioEngine::apply_control(const Control& control) noexcept {
             break;
         case ControlKind::loop:
             if (!graph_.recordings.empty()) { for (const auto& recorder : graph_.recordings) recorder->discontinuity(); break; }
-            if (control.a >= 0 && control.a < control.b && control.b <= max_sample)
+            if (control.a >= 0 && control.a < control.b && control.b <= max_sample && (!graph_.performance || control.b<=graph_.performance->end))
                 rt_.loop = LoopRange{control.a, control.b};
             else if (control.a == 0 && control.b == 0) rt_.loop.reset();
             break;
@@ -677,9 +830,10 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         const auto elapsed=graph_.count_frames-rt_.count_remaining;const auto now=midi_clock_ns();
         process_block(input,output,count,input_flags);
         if(processing_fault_.load()){rt_.count_remaining=0;count_started_=false;rt_.playback=PlaybackState::paused;publish();return;}
-        for(std::uint32_t i=0;i<count;++i){const auto click=metronome_.count_sample(elapsed+i,graph_.count_beat_frames,graph_.count_beats,click_.accent,click_.level/100.f)*master_envelope_[i];
+        for(std::uint32_t i=0;i<count;++i){const auto click=metronome_.count_sample(elapsed+i,graph_.count_beat_frames,graph_.count_beats,click_.accent,click_.level/100.f)*(click_.output_left<0?master_envelope_[i]:1.f);
             const auto add=[&](std::size_t c){auto& value=output[static_cast<std::size_t>(i)*config_.output_channels+c];value=std::clamp(value+click,-1.f,1.f);};
-            if(graph_.master_outputs.empty()){for(std::uint32_t c=0;c<std::min(2U,config_.output_channels);++c)add(c);}else for(const auto c:graph_.master_outputs)add(c);
+            if(click_.output_left>=0){add(static_cast<std::size_t>(click_.output_left));if(click_.output_right>=0)add(static_cast<std::size_t>(click_.output_right));}
+            else if(graph_.master_outputs.empty()){for(std::uint32_t c=0;c<std::min(2U,config_.output_channels);++c)add(c);}else for(const auto c:graph_.master_outputs)add(c);
         }
         rt_.count_remaining-=count;
         if(!rt_.count_remaining){count_started_=false;rt_.playback=PlaybackState::playing;record_start_ns_=now+static_cast<std::uint64_t>(1e9*count/config_.sample_rate);metronome_.reset();if(mixed_owner_)++control_revision_;}
@@ -687,6 +841,61 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
         publish();return;
     }
     process_block(input,output,frames,input_flags);
+}
+void AudioEngine::jump_performance(Sample sample) noexcept {
+    for(auto& voice:graph_.voices)if(voice.stream){if(voice.stream->end())++disk_underruns_;}
+    rt_.sample=sample;pending_seek_.reset();performance_arrived_=false;metronome_.reset();reset_compensation();
+    if(graph_.external_midi)graph_.external_midi->panic();
+    if(graph_.processors)graph_.processors->panic();
+    for(const auto& chain:graph_.inserts)if(chain)chain->panic();
+    if(graph_.master_inserts)graph_.master_inserts->panic();
+    for(auto& voice:graph_.voices)if(voice.stream)voice.stream->begin(voice.source_offset+std::clamp(sample-voice.start,Sample{0},voice.length-1));
+}
+bool AudioEngine::adopt_transition(bool play) noexcept {
+    auto* next=pending_transition_.exchange(nullptr,std::memory_order_acq_rel);if(!next)return false;
+    if(next->expected!=graph_.performance_token || next->mix!=last_mix_sent_.load(std::memory_order_acquire)){
+        next->phase.store(TransitionPhase::cancelled,std::memory_order_release);return false;
+    }
+    next->phase.store(TransitionPhase::acquired,std::memory_order_release);
+    for(auto& voice:graph_.voices)if(voice.stream){if(voice.stream->end())++disk_underruns_;}
+    if(graph_.external_midi)graph_.external_midi->panic();
+    swap_state(*next->next,true);rt_={};rt_.playback=play?PlaybackState::playing:PlaybackState::stopped;
+    performance_arrived_=false;performance_action_=PerformanceAction::none;performance_stalled_=false;
+    pending_seek_.reset();pending_play_anchor_=false;count_started_=false;record_start_ns_=0;
+    audition_tails_={};audition_live_busy_={};audition_live_notes_={};audition_live_sustain_={};external_gate_.fill(true);midi_monitor_release_={};++midi_generation_;
+    domain_owned_.fill(true);domain_input_=nullptr;domain_output_=nullptr;domain_meters_={};channel_cost_ns_.fill(0);
+    MixerUpdate mix;mix.count=graph_.mixer.size();mix.master_gain=graph_.master_gain;
+    std::copy(graph_.mixer.begin(),graph_.mixer.end(),mix.tracks.begin());
+    std::copy(graph_.input_monitoring.begin(),graph_.input_monitoring.end(),mix.input_monitoring.begin());
+    std::copy(graph_.midi_monitor.begin(),graph_.midi_monitor.end(),mix.midi_monitor.begin());
+    for(std::size_t i=0;i<graph_.sends.size();++i)for(std::size_t j=0;j<graph_.sends[i].size();++j)mix.send_gains[i][j]=graph_.sends[i][j].gain;
+    set_mix(mix,false);monitor_enabled_=graph_.monitoring;
+    for(auto& row:meter_peaks_)for(auto& peak:row)peak.store(0,std::memory_order_relaxed);
+    for(auto& voice:graph_.voices)if(voice.stream)voice.stream->begin(voice.source_offset);
+    // Last access to next: control thread may now adopt metadata/retire old state.
+    next->phase.store(TransitionPhase::adopted,std::memory_order_release);return true;
+}
+void AudioEngine::resolve_performance() noexcept {
+    if(!graph_.performance)return;
+    const auto advances=[](PerformanceAction action){return action==PerformanceAction::next||action==PerformanceAction::next_stopped;};
+    // Late preparation is accepted by the device clock. Stop/Pause/seek clear
+    // this natural-end request, so control polling can never restart manually stopped audio.
+    if(rt_.playback!=PlaybackState::playing){
+        if(rt_.playback!=PlaybackState::stopped||!advances(performance_action_)||
+           !adopt_transition(performance_action_==PerformanceAction::next))return;
+        if(rt_.playback!=PlaybackState::playing)return;
+    }
+    for(unsigned remaining=0;remaining<130;++remaining){
+        const auto decision=performanceDecision(*graph_.performance,rt_.sample,rt_.loop,performance_arrived_);
+        if(decision.action==PerformanceAction::none)return;
+        if(decision.action==PerformanceAction::skip || decision.action==PerformanceAction::loop){jump_performance(decision.target);continue;}
+        if(advances(decision.action)&&adopt_transition(decision.action==PerformanceAction::next)){
+            if(rt_.playback!=PlaybackState::playing)return;
+            continue;
+        }
+        performance_action_=decision.action;performance_arrived_=false;++performance_end_serial_;rt_.playback=PlaybackState::stopped;return;
+    }
+    performance_stalled_=true;performance_action_=PerformanceAction::stop;++performance_end_serial_;rt_.playback=PlaybackState::stopped;
 }
 void AudioEngine::process_block(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags) noexcept {
     const auto external_now=graph_.external_midi?midi_clock_ns():0;
@@ -781,7 +990,7 @@ void AudioEngine::process_block(const float* input, float* output, std::uint32_t
     }
     std::fill_n(output, static_cast<std::size_t>(frames) * config_.output_channels, 0.0F);
     MixerUpdate mix;
-    for(int n=0;n<7&&mixer_controls_.pop(mix);++n){if(ahead_owner_)ahead_owner_->record_mix(mix);set_mix(mix,true);}
+    for(int n=0;n<7&&mixer_controls_.pop(mix);++n){if(mix.performance_token!=graph_.performance_token)continue;if(ahead_owner_)ahead_owner_->record_mix(mix);set_mix(mix,true);}
     if(mixed_owner_)mixed_owner_->begin(frames);
     if(speculative_)last_render_mix_=mix_head();
     std::array<std::array<float,2>,max_mixer_tracks+1> block_peaks{};
@@ -807,15 +1016,16 @@ void AudioEngine::process_block(const float* input, float* output, std::uint32_t
     const auto meter_at=[&](Sample sample,double quarter,double bpm){const auto next=next_meter(sample);const auto& point=*(next-1);const double width=point.numerator*4./point.denominator;const double bars=std::floor((std::max(0.,quarter-point.quarter)+bpm/(120.*config_.sample_rate))/width);return processing::MeterContext{point.numerator,point.denominator,point.quarter+bars*width,true};};
     std::uint64_t master_ns{};
     last_render_start_=rt_;
-    const auto block_position=rt_.sample;const auto block_playing=rt_.playback==PlaybackState::playing;
     for(std::uint32_t base=0;base<frames;){
         if(profile_block_){profile_duration_.fill(0);profile_path_.fill(0);}
         if(rt_.playback==PlaybackState::playing&&rt_.loop&&rt_.sample>=rt_.loop->end)
             rt_.sample=rt_.loop->start+(rt_.sample-rt_.loop->start)%(rt_.loop->end-rt_.loop->start);
+        resolve_performance();
         const auto position=rt_.sample;const auto playing=rt_.playback==PlaybackState::playing;const auto tempo=tempo_at(position);const auto meter=meter_at(position,tempo.quarter,tempo.bpm);
         auto count=std::min(insert_block_size_,frames-base);
         if(playing){const auto next=next_tempo(position);if(next!=graph_.tempos.end())count=static_cast<std::uint32_t>(std::min<Sample>(count,next->sample-position));}
         if(playing){const auto next=next_meter(position);if(next!=graph_.meters.end())count=static_cast<std::uint32_t>(std::min<Sample>(count,next->sample-position));}
+        if(playing && graph_.performance)count=static_cast<std::uint32_t>((std::min<Sample>)(count,nextPerformanceBoundary(*graph_.performance,rt_.sample,rt_.loop,performance_arrived_)-rt_.sample));
         if(playing&&rt_.loop)count=static_cast<std::uint32_t>(std::min<Sample>(count,rt_.loop->end-rt_.sample));
         if(graph_.external_midi){bool changed=false;for(std::size_t t=0;t<graph_.mixer.size();++t)if(graph_.external_midi_tracks[t]&&external_gate_[t]!=(gate_target_[t]>0)){external_gate_[t]=gate_target_[t]>0;changed=true;}
             if(changed){graph_.external_midi->panic();for(auto& scheduler:external_playback_)scheduler.invalidate();}}
@@ -946,20 +1156,26 @@ void AudioEngine::process_block(const float* input, float* output, std::uint32_t
         if(graph_.processors)graph_.processors->process(master_audio,count,position,playing,tempo.bpm,tempo.quarter,{},meter);
         if(graph_.master_inserts)graph_.master_inserts->process(master_audio,count,position,playing,tempo.bpm,tempo.quarter,{},meter);
         if(profile_block_)master_ns+=elapsed_ns(master_start);
+        // Click follows the exact per-chunk transport/graph, including a mid-block handoff.
+        const bool capturing=!graph_.recordings.empty()||!graph_.midi_recordings.empty();
+        for(std::uint32_t local=0;local<count;++local){const auto frame=base+local;const auto offset=static_cast<std::size_t>(frame)*config_.output_channels;
+            const auto click=rt_.count_remaining?0.f:metronome_.sample(position+local,playing&&(capturing?click_.recording:click_.playback),click_.accent,click_.level/100.f);
+            if(click_.output_left<0){for(std::uint32_t c=0;c<(std::min)(2u,config_.output_channels);++c)output[offset+c]+=click;}
+            else{direct_output_[offset+static_cast<std::size_t>(click_.output_left)]+=click;if(click_.output_right>=0)direct_output_[offset+static_cast<std::size_t>(click_.output_right)]+=click;}
+        }
+        if(playing)performance_arrived_=true;
         base+=count;
     }
+    resolve_performance();
     for (auto& voice : graph_.voices) if (owns_voice(voice)&&voice.stream && voice.stream->end())
         disk_underruns_.fetch_add(1,std::memory_order_relaxed);
     if(profile_block_){(speculative_?profile_->ahead_master:profile_->device_master).record(master_ns,frames);
         (speculative_?profile_->ahead_path:profile_->device_path).record(critical_ns+master_ns,frames);}
     for (std::uint32_t frame=0; frame<frames; ++frame) {
         const auto offset = static_cast<std::size_t>(frame)*config_.output_channels;
-        auto click_position=block_position+frame;if(rt_.loop&&click_position>=rt_.loop->end)click_position=rt_.loop->start+(click_position-rt_.loop->start)%(rt_.loop->end-rt_.loop->start);
-        const bool capturing=!graph_.recordings.empty()||!graph_.midi_recordings.empty();
-        const auto click=rt_.count_remaining?0.f:metronome_.sample(click_position,block_playing&&(capturing?click_.recording:click_.playback),click_.accent,click_.level/100.f);
         std::array<float,max_channels> master{};
         for (std::uint32_t c=0; c<config_.output_channels; ++c) {
-            auto sample = (output[offset+c]+(c<2?click:0.f))*master_envelope_[frame];
+            auto sample = output[offset+c]*master_envelope_[frame];
             if (!std::isfinite(sample)) sample = 0;
             master[c] = sample;
             if (c<2) block_peaks[max_mixer_tracks][c] = std::max(block_peaks[max_mixer_tracks][c],std::abs(sample));
@@ -1004,31 +1220,31 @@ void AudioEngine::observe(std::uint64_t ns, std::uint32_t frames, std::uint32_t 
 }
 void AudioEngine::set_profiling(bool enabled) noexcept {
     profile_->enabled.store(enabled,std::memory_order_relaxed);
-    for(const auto& chain:graph_.inserts)if(chain)chain->set_profiling(enabled);
-    if (graph_.processors)
-      graph_.processors->set_profiling(enabled);
-    if (graph_.master_inserts)
-      graph_.master_inserts->set_profiling(enabled);
+    for(const auto& chain:control_graph().inserts)if(chain)chain->set_profiling(enabled);
+    if (control_graph().processors)
+      control_graph().processors->set_profiling(enabled);
+    if (control_graph().master_inserts)
+      control_graph().master_inserts->set_profiling(enabled);
 }
-EngineProfile AudioEngine::profile() const noexcept {EngineProfile p;p.enabled=profile_->enabled.load(std::memory_order_relaxed);p.channels=graph_.mixer.size();
+EngineProfile AudioEngine::profile() const noexcept {EngineProfile p;p.enabled=profile_->enabled.load(std::memory_order_relaxed);p.channels=control_graph().mixer.size();
     for(std::size_t i=0;i<p.channels;++i){p.device[i]=profile_->device[i].read();p.ahead[i]=profile_->ahead[i].read();}
     for(std::size_t i=0;i<8;++i){p.device_workers[i]=profile_->device_workers[i].read();p.ahead_workers[i]=profile_->ahead_workers[i].read();}
     p.device_master=profile_->device_master.read();p.ahead_master=profile_->ahead_master.read();p.device_path=profile_->device_path.read();p.ahead_path=profile_->ahead_path.read();return p;
 }
-std::vector<std::shared_ptr<processing::PreparedGraph>> AudioEngine::profile_graphs() const {auto graphs=graph_.inserts;graphs.resize(graph_.mixer.size());graphs.push_back(graph_.processors);graphs.push_back(graph_.master_inserts);return graphs;}
+std::vector<std::shared_ptr<processing::PreparedGraph>> AudioEngine::profile_graphs() const {auto graphs=control_graph().inserts;graphs.resize(control_graph().mixer.size());graphs.push_back(control_graph().processors);graphs.push_back(control_graph().master_inserts);return graphs;}
 Metrics AudioEngine::metrics() const {
     Metrics m;
     m.ahead_memory_bytes=ahead_memory_bytes_.load();
     m.anticipation_active=anticipation_active_.load();m.process_buffer_frames=process_buffer_frames_.load();m.ahead_buffered_frames=ahead_buffered_frames_.load();
-    m.mixed_anticipation=mixed_anticipation_.load();m.monitoring_available=!graph_.monitor.empty()||std::any_of(graph_.live_midi.begin(),graph_.live_midi.end(),[](bool v){return v;});m.monitoring_compensation_frames=domains_.monitoring_compensation_frames;
+    m.mixed_anticipation=mixed_anticipation_.load();m.monitoring_available=!control_graph().monitor.empty()||std::any_of(control_graph().live_midi.begin(),control_graph().live_midi.end(),[](bool v){return v;});m.monitoring_compensation_frames=processing_domains().monitoring_compensation_frames;
     m.ahead_underruns=ahead_underruns_.load();m.ahead_invalidations=ahead_invalidations_.load();m.ahead_max_process_ns=ahead_max_process_ns_.load();
-    m.processing_workers=(workers_?workers_->count()+1:1)+(m.mixed_anticipation?1:0);
-    m.audio_scheduled_workers=workers_?workers_->audio_scheduled():0;
+    m.processing_workers=(control_info_?control_info_->workers:1)+(m.mixed_anticipation?1:0);
+    m.audio_scheduled_workers=control_info_?control_info_->scheduled:0;
     m.parallel_batches=parallel_batches_.load();m.worker_timeouts=worker_timeouts_.load();m.processing_fault=processing_fault_.load();
-    m.scheduler_overhead_ns=scheduler_overhead_ns_;
+    m.scheduler_overhead_ns=control_info_?control_info_->overhead:0;
     m.input_peak = input_peak_.load();
     m.disk_underruns = disk_underruns_.load();
-    for (const auto& voice : graph_.voices) if (voice.stream) m.disk_errors += voice.stream->errors();
+    for (const auto& voice : control_graph().voices) if (voice.stream) m.disk_errors += voice.stream->errors();
     m.callbacks = callbacks_.load(); m.input_overflows = input_overflows_.load();
     m.input_underflows = input_underflows_.load(); m.output_underflows = output_underflows_.load();
     m.output_overflows = output_overflows_.load(); m.deadline_misses = deadlines_.load();

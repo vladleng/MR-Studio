@@ -21,7 +21,7 @@
 
 namespace allocation_check {
 thread_local bool enabled = false;
-std::atomic<std::uint64_t> count{};
+std::atomic<std::uint64_t> count{},frees{};
 }
 #ifdef _MSC_VER
 #define MRS_TEST_NOINLINE __declspec(noinline)
@@ -36,10 +36,10 @@ MRS_TEST_NOINLINE void* operator new(std::size_t bytes) {
     throw std::bad_alloc();
 }
 MRS_TEST_NOINLINE void* operator new[](std::size_t bytes) { return ::operator new(bytes); }
-MRS_TEST_NOINLINE void operator delete(void* p) noexcept { std::free(p); }
-MRS_TEST_NOINLINE void operator delete[](void* p) noexcept { std::free(p); }
-MRS_TEST_NOINLINE void operator delete(void* p, std::size_t) noexcept { std::free(p); }
-MRS_TEST_NOINLINE void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+MRS_TEST_NOINLINE void operator delete(void* p) noexcept { if(p&&allocation_check::enabled)++allocation_check::frees;std::free(p); }
+MRS_TEST_NOINLINE void operator delete[](void* p) noexcept { ::operator delete(p); }
+MRS_TEST_NOINLINE void operator delete(void* p, std::size_t) noexcept { ::operator delete(p); }
+MRS_TEST_NOINLINE void operator delete[](void* p, std::size_t) noexcept { ::operator delete(p); }
 #undef MRS_TEST_NOINLINE
 namespace {
 using namespace mrs;
@@ -64,6 +64,7 @@ RenderGraph basic() {
     graph.monitor={{0,0,0.5F}, {0,1,0.5F}};
     return graph;
 }
+#include "audio_performance_checks.hpp"
 void render() {
     AudioEngine engine;
     engine.prepare({48000, 1, 2, 8}, basic());
@@ -249,6 +250,14 @@ void streaming() {
     auto cancel = std::make_shared<std::atomic<bool>>(true);
     rejects([&] { (void)Waveform(*asset,cancel); });
     auto engine = std::make_shared<AudioEngine>();
+    {RenderGraph performanceGraph;performanceGraph.voices={{asset,0,0,total,{{0,0,1}}}};
+        PerformancePlan policy;policy.end=total;policy.sections={{5,120000,PerformanceMode::skip}};
+        performanceGraph.performance=policy;performanceGraph.performance_token=700;
+        engine->prepare({48000,0,1,128},performanceGraph);CHECK(engine->enqueue({ControlKind::play}));std::array<float,128> pcm{};
+        allocation_check::enabled=true;engine->process(nullptr,pcm.data(),128);allocation_check::enabled=false;
+        for(Sample i=0;i<128;++i){const auto source=i<5?i:120000+i-5;CHECK(pcm[static_cast<std::size_t>(i)]==static_cast<float>(source%127)/256.f);}
+        CHECK(engine->metrics().disk_underruns==0);
+    }
     RenderGraph graph; graph.voices.push_back({asset,11,8188,100000,{{0,0,1}}});
     engine->prepare({48000,0,1,128},graph);
     EngineTransport transport{engine,Timeline{TimeMap{},48000}};
@@ -785,6 +794,38 @@ void metronome(){
         }
         CHECK(click.sample(end,false,true,1)==0);
     }
+    // Direct Click bypasses Master, respects physical stream mapping, allocates nothing,
+    // follows shared seek/loop, and uses the same route during count-in.
+    {
+        AudioEngine routed;
+        RenderGraph graph;
+        graph.master_outputs={0,1}; graph.master_gain=0;
+        graph.click.playback=true; graph.click.output_left=2; graph.click.output_right=3;
+        routed.prepare({48000,0,4,128},graph,{PlaybackState::paused,0,std::nullopt});
+        CHECK(routed.enqueue({ControlKind::play}));
+        std::array<float,512> out{};
+        allocation_check::count=0; allocation_check::enabled=true;
+        routed.process(nullptr,out.data(),128);
+        allocation_check::enabled=false;
+        CHECK(allocation_check::count==0);
+        float direct=0;
+        for(std::size_t i=0;i<128;++i){CHECK(out[i*4]==0&&out[i*4+1]==0);CHECK(out[i*4+2]==out[i*4+3]);direct=std::max(direct,std::abs(out[i*4+2]));}
+        CHECK(direct>.01f);
+        CHECK(routed.enqueue({ControlKind::seek,0}));
+        std::array<float,512> again{};routed.process(nullptr,again.data(),128);CHECK(out==again);
+        auto settings=graph.click;settings.output_right=-1;
+        CHECK(routed.enqueue({ControlKind::click,settings.control_flags(),settings.level}));
+        CHECK(routed.enqueue({ControlKind::seek,0}));routed.process(nullptr,out.data(),128);
+        for(std::size_t i=0;i<128;++i)CHECK(out[i*4]==0&&out[i*4+1]==0&&out[i*4+3]==0);
+        settings.playback=false;CHECK(routed.enqueue({ControlKind::click,settings.control_flags(),settings.level}));
+        routed.process(nullptr,out.data(),128);CHECK(std::all_of(out.begin(),out.end(),[](float value){return value==0;}));
+        graph.count_frames=256;graph.count_beat_frames=24000;graph.count_beats=4;
+        routed.prepare({48000,0,4,128},graph,{PlaybackState::paused,0,std::nullopt});
+        CHECK(routed.enqueue({ControlKind::play}));routed.process(nullptr,out.data(),128);
+        for(std::size_t i=0;i<128;++i)CHECK(out[i*4]==0&&out[i*4+1]==0&&out[i*4+2]==out[i*4+3]);
+        CHECK(std::any_of(out.begin(),out.end(),[](float value){return std::abs(value)>.01f;}));
+        graph.click.output_left=4;bool rejected=false;try{routed.prepare({48000,0,4,128},graph);}catch(const std::invalid_argument&){rejected=true;}CHECK(rejected);
+    }
     TempFile count_file,cancel_file;auto recorder=std::make_shared<Recorder>(count_file.path,48000,500);
     RenderGraph graph;graph.recordings={recorder};graph.click.recording=true;graph.count_frames=193;graph.count_beat_frames=48.25;graph.count_beats=4;
     AudioEngine engine;engine.prepare({48000,1,2,256},graph,{PlaybackState::paused,500,std::nullopt});std::array<float,512> output{};std::array<float,256> input{};for(std::size_t i=0;i<input.size();++i)input[i]=static_cast<float>(i)/512;
@@ -826,7 +867,7 @@ int main(int argc, char** argv) {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
         if(suite=="state_snapshot"){state_snapshot();std::cout<<"PASS state_snapshot: "<<assertions<<" checks\n";return 0;}
-        if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if(suite=="performance")performance();else if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();

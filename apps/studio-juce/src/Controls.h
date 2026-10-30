@@ -37,27 +37,27 @@ inline void configurePopupColours(juce::LookAndFeel& theme){
     theme.setColour(juce::PopupMenu::highlightedBackgroundColourId,juce::Colour(accent));
     theme.setColour(juce::PopupMenu::highlightedTextColourId,juce::Colours::white);
 }
-inline void drawPopupSurface(juce::Graphics& g,int width,int height){
-    g.setColour(juce::Colour(surface).withAlpha(popupFillAlpha));g.fillRoundedRectangle(0,0,static_cast<float>(width),static_cast<float>(height),4.f);g.setColour(juce::Colour(menuBorder));g.drawRoundedRectangle(.5f,.5f,width-1.f,height-1.f,4.f,1.f);
+inline void drawPopupSurface(juce::Graphics& g,int width,int height,float alpha=popupFillAlpha,juce::Colour fill=juce::Colour(surface),juce::Colour border=juce::Colour(menuBorder)){
+    g.setColour(fill.withAlpha(alpha));g.fillRoundedRectangle(0,0,static_cast<float>(width),static_cast<float>(height),4.f);g.setColour(border);g.drawRoundedRectangle(.5f,.5f,width-1.f,height-1.f,4.f,1.f);
 }
 
 // Snapshot only our own UI, once when a menu opens. Never capture the desktop,
 // vendor windows or audio data. A menu outside an MR window uses plain alpha.
 class PopupBackdrop final:public juce::Component {
-    juce::Image image;juce::Colour fill;
+    juce::Image image;juce::Colour fill;float opacity{popupFillAlpha};
     static juce::Component* findRoot(juce::Component& c){if(static_cast<bool>(c.getProperties()["mrPopupRoot"]))return &c;for(auto* child:c.getChildren())if(auto* root=findRoot(*child))return root;return nullptr;}
 public:
     juce::Component::SafePointer<juce::Component> owner;
-    PopupBackdrop(juce::Component& menu,juce::Colour colour):fill(colour),owner(&menu){
+    PopupBackdrop(juce::Component& menu,juce::Colour colour,float alpha=popupFillAlpha):fill(colour),opacity(alpha),owner(&menu){
         setInterceptsMouseClicks(false,false);setAccessible(false);setBounds(menu.getLocalBounds());
         auto& desktop=juce::Desktop::getInstance();const auto area=menu.getScreenBounds();
         for(int i=desktop.getNumComponents();--i>=0;){auto* root=findRoot(*desktop.getComponent(i));if(!root||!root->isVisible())continue;
             const auto intersection=area.getIntersection(root->getScreenBounds());if(intersection.isEmpty())continue;
-            const auto local=intersection.translated(-root->getScreenX(),-root->getScreenY());auto snapshot=root->createComponentSnapshot(local,true,1.f,juce::SoftwareImageType{});
-            if(snapshot.isValid()){juce::ImageConvolutionKernel kernel(7);kernel.createGaussianBlur(3.f);auto blurred=snapshot.createCopy();kernel.applyToImage(blurred,snapshot,snapshot.getBounds());image=juce::Image(juce::Image::ARGB,getWidth(),getHeight(),true);juce::Graphics graphics(image);graphics.drawImageAt(blurred,intersection.getX()-area.getX(),intersection.getY()-area.getY());}break;
+            const auto local=root->getLocalArea(nullptr,intersection);auto snapshot=root->createComponentSnapshot(local,true,1.f,juce::SoftwareImageType{});
+            if(snapshot.isValid()){juce::ImageConvolutionKernel kernel(7);kernel.createGaussianBlur(3.f);auto blurred=snapshot.createCopy();kernel.applyToImage(blurred,snapshot,snapshot.getBounds());image=juce::Image(juce::Image::ARGB,getWidth(),getHeight(),true);juce::Graphics graphics(image);graphics.drawImage(blurred,intersection.translated(-area.getX(),-area.getY()).toFloat());}break;
         }
     }
-    void paint(juce::Graphics& g)override{juce::Graphics::ScopedSaveState saved(g);juce::Path shape;shape.addRoundedRectangle(getLocalBounds().toFloat(),4.f);g.reduceClipRegion(shape);if(image.isValid())g.drawImageAt(image,0,0);g.setColour(fill.withAlpha(popupFillAlpha));g.fillAll();g.setColour(juce::Colour(menuBorder));g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(.5f),4.f,1.f);}
+    void paint(juce::Graphics& g)override{juce::Graphics::ScopedSaveState saved(g);juce::Path shape;shape.addRoundedRectangle(getLocalBounds().toFloat(),4.f);g.reduceClipRegion(shape);if(image.isValid())g.drawImageAt(image,0,0);g.setColour(fill.withAlpha(opacity));g.fillAll();g.setColour(juce::Colour(menuBorder));g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(.5f),4.f,1.f);}
 };
 
 class Theme final : public juce::LookAndFeel_V4 {
@@ -95,6 +95,10 @@ public:
         setColour(juce::Slider::trackColourId,c(ColourRole::focus));setColour(juce::Slider::thumbColourId,c(ColourRole::focus));setColour(juce::Slider::backgroundColourId,c(ColourRole::deep));
         setColour(juce::Slider::textBoxTextColourId,c(ColourRole::text));setColour(juce::Slider::textBoxBackgroundColourId,c(ColourRole::deep));setColour(juce::Slider::textBoxOutlineColourId,c(ColourRole::border));
     }
+    void useLiveContextStyle(bool enabled){liveContext_=enabled;}
+    bool liveContextStyle()const noexcept{return liveContext_;}
+    void setPopupOpacity(float alpha){popupOpacity_=juce::jlimit(.7f,1.f,alpha);setColour(juce::PopupMenu::backgroundColourId,role(ColourRole::window,surface).withAlpha(popupOpacity_));}
+    float popupOpacity()const noexcept{return popupOpacity_;}
     bool isPreview()const noexcept{return preview_.has_value();}
     void useConceptAssets(bool enabled){concept_=enabled?std::make_unique<ConceptSkin>():nullptr;}
     const ConceptSkin* conceptSkin()const noexcept{return concept_.get();}
@@ -184,17 +188,35 @@ public:
         g.setColour(editor.findColour(juce::TextEditor::backgroundColourId));g.fillRoundedRectangle(juce::Rectangle<float>(0,0,static_cast<float>(width),static_cast<float>(height)).reduced(.5f),radius());
     }
     void drawTextEditorOutline(juce::Graphics& g,int width,int height,juce::TextEditor& editor) override {
+        if(liveContext_ && static_cast<bool>(editor.getProperties()["liveTableCell"])) { if(editor.hasKeyboardFocus(true)){g.setColour(role(ColourRole::focus,accent));g.drawHorizontalLine(height-1,0.f,static_cast<float>(width));} return; }
         g.setColour(editor.hasKeyboardFocus(true)?role(ColourRole::focus,0xff87ceeb):role(ColourRole::border,outline));g.drawRoundedRectangle(juce::Rectangle<float>(0,0,static_cast<float>(width),static_cast<float>(height)).reduced(.5f),radius(),stroke());
     }
     juce::Font getMenuBarFont(juce::MenuBarComponent&, int, const juce::String&) override { return font(13); }
     juce::Font getPopupMenuFont() override { return preview_?roleFont(3):browserFont(); }
     void getIdealPopupMenuItemSize(const juce::String& text,bool separator,int height,int& width,int& resultHeight) override {
         // V4 reduces the glyph height after removing 2px from its item bounds.
-        juce::LookAndFeel_V4::getIdealPopupMenuItemSize(text,separator,separator?height:juce::jmax(22,height),width,resultHeight);
+        juce::LookAndFeel_V4::getIdealPopupMenuItemSize(text,separator,separator?height:juce::jmax(liveContext_?30:22,height),width,resultHeight);
     }
-    void drawPopupMenuBackground(juce::Graphics& g,int width,int height) override {drawPopupSurface(g,width,height);}
+    void drawPopupMenuItem(juce::Graphics& g,const juce::Rectangle<int>& area,bool separator,bool active,
+                           bool highlighted,bool ticked,bool sub,const juce::String& text,
+                           const juce::String& shortcut,const juce::Drawable* icon,const juce::Colour* colour)override{
+        if(!liveContext_){juce::LookAndFeel_V4::drawPopupMenuItem(g,area,separator,active,highlighted,ticked,sub,text,shortcut,icon,colour);return;}
+        if(separator){g.setColour(role(ColourRole::border,outline));g.fillRect(area.reduced(8).withHeight(1));return;}
+        const auto bounds=area.toFloat().reduced(3.f,1.f);
+        if(highlighted&&active){g.setColour(role(ColourRole::raised,raised));g.fillRoundedRectangle(bounds,2.f);g.setColour(role(ColourRole::focus,accent));g.drawRoundedRectangle(bounds.reduced(.5f),2.f,1.f);}
+        g.setColour(role(active?ColourRole::text:ColourRole::muted,primaryText).withAlpha(active?1.f:.5f));
+        g.setFont(getPopupMenuFont().boldened());
+        g.drawText((ticked?juce::String::fromUTF8("✓ "):juce::String())+text,area.reduced(12,0).withTrimmedRight(sub?14:0),juce::Justification::centredLeft,true);
+        if(sub)g.drawText(">",area.withWidth(18).withX(area.getRight()-18),juce::Justification::centred);
+    }
+    int getCallOutBoxBorderSize(const juce::CallOutBox& box)override{return liveContext_?4:juce::LookAndFeel_V4::getCallOutBoxBorderSize(box);}
+    void drawCallOutBoxBackground(juce::CallOutBox& box,juce::Graphics& g,const juce::Path& path,juce::Image& cache)override{
+        if(!liveContext_){juce::LookAndFeel_V4::drawCallOutBoxBackground(box,g,path,cache);return;}
+        drawPopupSurface(g,box.getWidth(),box.getHeight(),popupOpacity_,role(ColourRole::window,surface),role(ColourRole::border,menuBorder));
+    }
+    void drawPopupMenuBackground(juce::Graphics& g,int width,int height) override {drawPopupSurface(g,width,height,popupOpacity_,role(ColourRole::window,surface),role(ColourRole::border,menuBorder));}
     void drawPopupMenuBackgroundWithOptions(juce::Graphics& g,int width,int height,const juce::PopupMenu::Options& options)override{PopupBackdrop* best{};double distance=1.e20;const auto target=options.getTargetScreenArea().getCentre();for(auto& candidate:popupBackdrops)if(candidate->owner&&candidate->getWidth()==width&&candidate->getHeight()==height){const auto bounds=candidate->owner->getScreenBounds();const auto centre=bounds.getCentre();const auto dx=static_cast<double>(centre.x)-target.x,dy=static_cast<double>(centre.y)-target.y;const auto score=dx*dx+dy*dy+(bounds.contains(target)?1.e12:0.);if(score<=distance){distance=score;best=candidate.get();}}if(best)best->paint(g);else drawPopupMenuBackground(g,width,height);}
-    void preparePopupMenuWindow(juce::Component& window)override{juce::LookAndFeel_V4::preparePopupMenuWindow(window);std::erase_if(popupBackdrops,[](const auto& c){return !c->owner;});popupBackdrops.push_back(std::make_unique<PopupBackdrop>(window,role(ColourRole::window,surface)));}
+    void preparePopupMenuWindow(juce::Component& window)override{juce::LookAndFeel_V4::preparePopupMenuWindow(window);std::erase_if(popupBackdrops,[](const auto& c){return !c->owner;});popupBackdrops.push_back(std::make_unique<PopupBackdrop>(window,role(ColourRole::window,surface),popupOpacity_));}
     juce::Font getComboBoxFont(juce::ComboBox&) override {return preview_?roleFont(3):browserFont();}
     void drawComboBox(juce::Graphics& g,int width,int height,bool,int,int,int,int,juce::ComboBox& box) override {
         if(preview_){auto r=box.getLocalBounds().toFloat().reduced(.5f);g.setColour(box.findColour(juce::ComboBox::backgroundColourId));g.fillRoundedRectangle(r,radius());g.setColour(preview_->colour(ColourRole::border));g.drawRoundedRectangle(r,radius(),stroke());}else drawCard(g,{0.f,0.f,static_cast<float>(width),static_cast<float>(height)},box.findColour(juce::ComboBox::backgroundColourId));
@@ -218,6 +240,7 @@ public:
     juce::Font font(float size) const { return juce::Font(juce::FontOptions(face).withPointHeight(size)); }
     void drawButtonBackground(juce::Graphics& g, juce::Button& b, const juce::Colour& c,
                               bool hover, bool down) override {
+        if(static_cast<bool>(b.getProperties()["mrLiveTransport"])&&transport.contains(b.getButtonText().toStdString()))return;
         if(b.getProperties()["mrHostIcon"].toString().isNotEmpty())return;
         if(concept_){
             if(static_cast<bool>(b.getProperties()["mrChannelPlate"])){
@@ -244,6 +267,8 @@ public:
         g.drawRoundedRectangle(b.getLocalBounds().reduced(1).toFloat(),radius(),stroke());
     }
 private:
+    bool liveContext_{};
+    float popupOpacity_{popupFillAlpha};
     std::vector<std::unique_ptr<PopupBackdrop>> popupBackdrops;
     std::unique_ptr<ConceptSkin> concept_;
     std::optional<DesignTokens> preview_;

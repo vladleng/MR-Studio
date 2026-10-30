@@ -3,10 +3,17 @@
 #include <vector>
 
 namespace mrs::audio {
-// Application preferences, not project content. Published to DSP through controls.
+// Host preferences / Live show settings, not Core project content. Published through controls.
 struct ClickSettings {
     bool playback{}, recording{}, accent{true};
     int level{20}, count_bars{};
+    // Application: physical outputs. DSP: mapped stream indices. -1/-1 follows Master.
+    int output_left{-1}, output_right{-1};
+    std::int64_t control_flags() const noexcept {
+        return (playback ? 1 : 0) | (recording ? 2 : 0) | (accent ? 4 : 0) |
+               (static_cast<std::int64_t>(output_left + 1) << 8) |
+               (static_cast<std::int64_t>(output_right + 1) << 16);
+    }
     bool operator==(const ClickSettings&) const = default;
     void validate() const;
 };

@@ -5,6 +5,7 @@
 #include "ReverbKit.h"
 #include "ShellChrome.h"
 #include "AssetDesign.h"
+#include "GraphiteWindow.h"
 #include "J1Smoke.h"
 #include "ReverbBrowser.h"
 #include "ToneBrowser.h"
@@ -30,6 +31,7 @@ public:
         }
         if(desktop&&!fixture&&!desktop->view.windowState.isEmpty())restoreWindowStateFromString(desktop->view.windowState);
         setVisible(true);
+        ui::applyGraphiteWindowCaption(*this);
         if(fixture&&desktop&&kitPilot)ui::setupReverbKitPreview(*desktop);
     }
     ~Window() override {auto* desktop=dynamic_cast<ui::Desktop*>(getContentComponent());if(desktop){desktop->view.windowState=getWindowStateAsString();try{desktop->saveSettings();}catch(...){} }}
@@ -132,6 +134,14 @@ public:
             juce::File::getCurrentWorkingDirectory().getChildFile("library261-failure.txt").deleteFile();
             try{ui::libraryBrowserSmoke();setApplicationReturnValue(0);}
             catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("library261-failure.txt").replaceWithText(e.what());setApplicationReturnValue(1);}
+            quit();return;
+        }
+        if(args.contains("--live-entry-smoke")){
+            const auto failure=juce::File::getCurrentWorkingDirectory().getChildFile("live-entry-failure.txt");failure.deleteFile();
+            try{ui::projectHomeSmoke();const auto tokens=juce::StringArray::fromTokens(args,true);const int position=tokens.indexOf("--show-fixture");const auto fixture=position>=0&&position+1<tokens.size()?juce::File(tokens[position+1].unquoted()):juce::File();ui::liveInterfaceSmoke(fixture);
+                juce::ChildProcess liveProcess;const auto liveExecutable=juce::File::getSpecialLocation(juce::File::currentExecutableFile).getSiblingFile("MR Live.exe");
+                if(!liveExecutable.existsAsFile()||!liveProcess.start(juce::StringArray{liveExecutable.getFullPathName(),"--live-application-smoke","--show-fixture",fixture.getFullPathName()})||!liveProcess.waitForProcessToFinish(30000)||liveProcess.getExitCode()!=0)throw std::runtime_error("Dedicated MR Live application launch smoke failed");setApplicationReturnValue(0);}
+            catch(const std::exception& e){failure.replaceWithText(e.what());setApplicationReturnValue(1);}
             quit();return;
         }
         const bool aiSmoke=args.contains("--rig-shell-smoke")||args.contains("--tone-library-smoke")||args.contains("--ai-permissions-smoke")||args.contains("--ai-assistant-smoke");

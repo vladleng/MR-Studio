@@ -2,6 +2,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <mrs/device.hpp>
 #include <array>
+#include <cmath>
 #include <map>
 namespace ui {
 inline juce::String deviceLayout(const mrs::audio::DeviceInfo& info) {
@@ -32,6 +33,9 @@ struct ViewSettings {
     bool sidebar{true},snap{},controllersOpen{true},editorAttached{};
     bool noteClipColors{}; // Piano roll view preference; no project mutation.
     int browserWidth{260},trackHeight{128},mixerHeight{365},editorHeight{500};
+    bool liveRestoreLastShow{true};
+    juce::String lastLiveShow;
+    double liveUiZoom{}, liveMenuOpacity{.9}, liveWindowOpacity{1.};
     double pixelsPerSecond{30};
     int musicalLanes{31}; // UI only: Markers, Sections, Chords, Tempo, Meter.
     juce::String windowState,inputs,deviceChannels;
@@ -39,6 +43,8 @@ struct ViewSettings {
     juce::String reverbRoot;bool reverbQuadConfirmed{}; // global user library, never per-instance
     juce::String encode() const {
         auto* object=new juce::DynamicObject;
+        object->setProperty("liveRestoreLastShow",liveRestoreLastShow);object->setProperty("lastLiveShow",lastLiveShow);
+        object->setProperty("liveContextStyleVersion",1);object->setProperty("liveUiZoom",liveUiZoom);object->setProperty("liveMenuOpacity",liveMenuOpacity);object->setProperty("liveWindowOpacity",liveWindowOpacity);
         object->setProperty("version",1);object->setProperty("sidebar",sidebar);
         object->setProperty("musicalLanes",musicalLanes);
         juce::Array<juce::var> templates;for(const auto& item:sectionTemplates){auto* entry=new juce::DynamicObject;entry->setProperty("name",item.name);entry->setProperty("color",static_cast<int>(item.color));templates.add(juce::var(entry));}object->setProperty("sectionTemplates",templates);
@@ -58,10 +64,26 @@ struct ViewSettings {
         ViewSettings result;juce::var value;
         if(bytes.length()>32*1024*1024||juce::JSON::parse(bytes,value).failed()||!value.isObject()||static_cast<int>(value["version"])!=1)
             throw std::runtime_error("Invalid JUCE view settings");
+        if(value.hasProperty("liveRestoreLastShow")){if(!value["liveRestoreLastShow"].isBool())throw std::runtime_error("Invalid Live startup mode");result.liveRestoreLastShow=static_cast<bool>(value["liveRestoreLastShow"]);}
+        result.lastLiveShow=value["lastLiveShow"].toString().substring(0,32768);
         if(value.hasProperty("controllersOpen"))result.controllersOpen=static_cast<bool>(value["controllersOpen"]);if(value.hasProperty("editorAttached"))result.editorAttached=static_cast<bool>(value["editorAttached"]);
         if(value.hasProperty("noteClipColors")){if(!value["noteClipColors"].isBool())throw std::runtime_error("Invalid note color mode");result.noteClipColors=static_cast<bool>(value["noteClipColors"]);}
         if(value.hasProperty("musicalLanes")){const auto mask=value["musicalLanes"];if(!mask.isInt()||static_cast<int>(mask)<0||static_cast<int>(mask)>31)throw std::runtime_error("Invalid musical lane visibility");result.musicalLanes=static_cast<int>(mask);}
         if(value.hasProperty("sectionTemplates")){const auto* entries=value["sectionTemplates"].getArray();if(!entries||entries->size()>64)throw std::runtime_error("Invalid section templates");for(const auto& entry:*entries){const auto name=entry["name"].toString();const auto color=entry["color"];if(!entry.isObject()||name.trim().isEmpty()||name.length()>128||!color.isInt()||static_cast<int>(color)<0||static_cast<int>(color)>0xFFFFFF)throw std::runtime_error("Invalid section template");result.sectionTemplates.push_back({name,static_cast<std::uint32_t>(static_cast<int>(color))});}}
+        for (const auto& key : {"liveUiZoom", "liveMenuOpacity", "liveWindowOpacity"}) {
+            if (!value.hasProperty(key) || (juce::String(key)=="liveMenuOpacity"&&!value.hasProperty("liveContextStyleVersion"))) continue;
+            const auto v=value[key];
+            if (!(v.isInt()||v.isDouble())||!std::isfinite(static_cast<double>(v)))
+                throw std::runtime_error("Invalid Live appearance preference");
+            const double number=v;
+            if (juce::String(key)=="liveUiZoom") {
+                if (number!=0.&&(number<.75||number>1.5)) throw std::runtime_error("Invalid Live UI zoom");
+                result.liveUiZoom=number;
+            } else {
+                if(number<.7||number>1.) throw std::runtime_error("Invalid Live opacity");
+                if(juce::String(key)=="liveMenuOpacity")result.liveMenuOpacity=number;else result.liveWindowOpacity=number;
+            }
+        }
         result.sidebar=static_cast<bool>(value["sidebar"]);result.snap=static_cast<bool>(value["snap"]);
         result.browserWidth=juce::jlimit(200,700,static_cast<int>(value["browserWidth"]));
         result.trackHeight=juce::jlimit(40,360,static_cast<int>(value["trackHeight"]));

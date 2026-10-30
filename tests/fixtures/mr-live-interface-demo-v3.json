@@ -1,0 +1,632 @@
+{
+  "schema": "mr-live-demo-show",
+  "version": 3,
+  "channels": [
+    {
+      "id": "27a1d9d4-928d-4897-875a-78dcc383d76e",
+      "name": "Keys",
+      "type": "Instrument",
+      "gain": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "monitor": false,
+      "recordGain": 0,
+      "archivedPatches": [],
+      "patches": [
+        {
+          "id": "783ba0ec-f7b3-4c32-a8b7-163df6d530c5",
+          "name": "Default",
+          "color": "blue",
+          "engine": {
+            "instrument": "MR Instrument",
+            "plugins": [
+              "MR Strip"
+            ]
+          },
+          "parameters": {
+            "volume": 0,
+            "pan": 0,
+            "tone": 50,
+            "mix": 100
+          },
+          "subPatches": []
+        }
+      ],
+      "recordMute": false,
+      "recordSolo": false
+    },
+    {
+      "id": "16882f76-88d9-4c3b-982a-3d026807515e",
+      "name": "Guitar",
+      "type": "Player",
+      "gain": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "monitor": false,
+      "recordGain": 0,
+      "archivedPatches": [],
+      "patches": [
+        {
+          "id": "8ac218e0-73da-48c4-97c8-6da7bae2ea2c",
+          "name": "Default",
+          "color": "blue",
+          "engine": {
+            "instrument": null,
+            "plugins": [
+              "MR Rig"
+            ]
+          },
+          "parameters": {
+            "volume": 0,
+            "pan": 0,
+            "tone": 50,
+            "mix": 100
+          },
+          "subPatches": []
+        }
+      ],
+      "recordMute": false,
+      "recordSolo": false
+    },
+    {
+      "id": "bb5d3ccf-2ea5-47cb-8882-6eb61717e8b1",
+      "name": "Backing",
+      "type": "Playback",
+      "gain": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "monitor": false,
+      "recordGain": null,
+      "archivedPatches": [],
+      "patches": [],
+      "recordMute": false,
+      "recordSolo": false
+    },
+    {
+      "id": "b70d9196-c5cc-41d9-a089-bd443ea13b27",
+      "name": "Vocal",
+      "type": "Audio",
+      "gain": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "monitor": false,
+      "recordGain": null,
+      "archivedPatches": [],
+      "patches": [],
+      "recordMute": false,
+      "recordSolo": false
+    }
+  ],
+  "folders": [
+    {
+      "id": "fixture-folder-a",
+      "name": "Folder A",
+      "parent": null
+    },
+    {
+      "id": "fixture-folder-b",
+      "name": "Folder B",
+      "parent": "fixture-folder-a"
+    }
+  ],
+  "items": [
+    {
+      "id": "item-0",
+      "name": "Fixture Alpha",
+      "folder": "fixture-folder-a",
+      "tempo": 92,
+      "meter": "4/4",
+      "key": "C",
+      "duration": 222,
+      "notes": "",
+      "tracks": [
+        {
+          "id": "7f70ef40-0064-4d61-8636-a551c65b35c3",
+          "channelId": "27a1d9d4-928d-4897-875a-78dcc383d76e",
+          "patchId": "783ba0ec-f7b3-4c32-a8b7-163df6d530c5",
+          "subPatchId": null,
+          "patchOrder": [
+            "783ba0ec-f7b3-4c32-a8b7-163df6d530c5"
+          ],
+          "recordTrack": {
+            "id": "4ca13312-b97a-4a2b-9cab-356317c222d9"
+          },
+          "spans": {
+            "783ba0ec-f7b3-4c32-a8b7-163df6d530c5": {
+              "start": 0,
+              "length": 86,
+              "subs": {}
+            }
+          },
+          "media": null,
+          "playbackGain": 0
+        },
+        {
+          "id": "430fb2b0-9161-4bba-a377-c64f907d5e33",
+          "channelId": "16882f76-88d9-4c3b-982a-3d026807515e",
+          "patchId": "8ac218e0-73da-48c4-97c8-6da7bae2ea2c",
+          "subPatchId": null,
+          "patchOrder": [
+            "8ac218e0-73da-48c4-97c8-6da7bae2ea2c"
+          ],
+          "recordTrack": {
+            "id": "ff0ad90c-cc2c-4baf-9375-88b83fff90ba"
+          },
+          "spans": {
+            "8ac218e0-73da-48c4-97c8-6da7bae2ea2c": {
+              "start": 0,
+              "length": 86,
+              "subs": {}
+            }
+          },
+          "media": null,
+          "playbackGain": 0
+        },
+        {
+          "id": "df9443e0-32c8-4676-a8b3-0279835ca092",
+          "channelId": "bb5d3ccf-2ea5-47cb-8882-6eb61717e8b1",
+          "patchId": null,
+          "subPatchId": null,
+          "patchOrder": [],
+          "recordTrack": null,
+          "spans": {},
+          "media": {
+            "name": "Moon River · backing.wav",
+            "duration": 222
+          },
+          "playbackGain": 0
+        },
+        {
+          "id": "4f302fb4-1d8e-4751-81aa-6db9359b5720",
+          "channelId": "b70d9196-c5cc-41d9-a089-bd443ea13b27",
+          "patchId": null,
+          "subPatchId": null,
+          "patchOrder": [],
+          "recordTrack": null,
+          "spans": {},
+          "media": null,
+          "playbackGain": 0
+        }
+      ],
+      "bars": 86,
+      "sections": [
+        {
+          "id": "b84c784e-4d4a-4170-bb51-ef5b69e159dc",
+          "name": "Intro",
+          "start": 0,
+          "length": 21.5,
+          "color": "graphite"
+        },
+        {
+          "id": "106b871f-52c9-4f1b-9a1b-e5c813fad4ca",
+          "name": "Verse",
+          "start": 21.5,
+          "length": 21.5,
+          "color": "blue"
+        },
+        {
+          "id": "2bf24e77-537c-4b4d-bed1-6c8de6283418",
+          "name": "Chorus",
+          "start": 43,
+          "length": 21.5,
+          "color": "violet"
+        },
+        {
+          "id": "5bf94f25-0757-447e-870d-878d463ed1bd",
+          "name": "Outro",
+          "start": 64.5,
+          "length": 21.5,
+          "color": "teal"
+        }
+      ]
+    },
+    {
+      "id": "item-1",
+      "name": "Fixture Beta",
+      "folder": "fixture-folder-a",
+      "tempo": 100,
+      "meter": "4/4",
+      "key": "C",
+      "duration": 255,
+      "notes": "",
+      "tracks": [
+        {
+          "id": "9b7b62fa-d19d-4c4b-b980-1cc31d96dbd9",
+          "channelId": "27a1d9d4-928d-4897-875a-78dcc383d76e",
+          "patchId": "783ba0ec-f7b3-4c32-a8b7-163df6d530c5",
+          "subPatchId": null,
+          "patchOrder": [
+            "783ba0ec-f7b3-4c32-a8b7-163df6d530c5"
+          ],
+          "recordTrack": {
+            "id": "e3dbd125-1d8b-427c-bc92-1f825d082327"
+          },
+          "spans": {
+            "783ba0ec-f7b3-4c32-a8b7-163df6d530c5": {
+              "start": 0,
+              "length": 107,
+              "subs": {}
+            }
+          },
+          "media": null,
+          "playbackGain": 0
+        },
+        {
+          "id": "6b614d48-784b-429c-9ead-696e390f8ba3",
+          "channelId": "16882f76-88d9-4c3b-982a-3d026807515e",
+          "patchId": "8ac218e0-73da-48c4-97c8-6da7bae2ea2c",
+          "subPatchId": null,
+          "patchOrder": [
+            "8ac218e0-73da-48c4-97c8-6da7bae2ea2c"
+          ],
+          "recordTrack": {
+            "id": "198912bf-d4fc-487d-a7df-997941a68acd"
+          },
+          "spans": {
+            "8ac218e0-73da-48c4-97c8-6da7bae2ea2c": {
+              "start": 0,
+              "length": 107,
+              "subs": {}
+            }
+          },
+          "media": null,
+          "playbackGain": 0
+        },
+        {
+          "id": "46b8e4ea-cfa1-482b-833e-4cf84dc8d8b2",
+          "channelId": "bb5d3ccf-2ea5-47cb-8882-6eb61717e8b1",
+          "patchId": null,
+          "subPatchId": null,
+          "patchOrder": [],
+          "recordTrack": null,
+          "spans": {},
+          "media": {
+            "name": "Fly Me to the Moon · backing.wav",
+            "duration": 255
+          },
+          "playbackGain": 0
+        },
+        {
+          "id": "ecaabd53-3f0d-4fb3-9132-dc9c9d940f3a",
+          "channelId": "b70d9196-c5cc-41d9-a089-bd443ea13b27",
+          "patchId": null,
+          "subPatchId": null,
+          "patchOrder": [],
+          "recordTrack": null,
+          "spans": {},
+          "media": null,
+          "playbackGain": 0
+        }
+      ],
+      "bars": 107,
+      "sections": [
+        {
+          "id": "7ccdea18-2d9f-4383-93bb-06644f0af17a",
+          "name": "Intro",
+          "start": 0,
+          "length": 26.75,
+          "color": "graphite"
+        },
+        {
+          "id": "bf78c803-819f-44f6-af83-ffce09db6c5a",
+          "name": "Verse",
+          "start": 26.75,
+          "length": 26.75,
+          "color": "blue"
+        },
+        {
+          "id": "817844b3-7030-4ddf-b4c9-64913ce74b66",
+          "name": "Chorus",
+          "start": 53.5,
+          "length": 26.75,
+          "color": "violet"
+        },
+        {
+          "id": "9702a3c5-2077-4e0d-97f3-0329cfbf1cc1",
+          "name": "Outro",
+          "start": 80.25,
+          "length": 26.75,
+          "color": "teal"
+        }
+      ]
+    },
+    {
+      "id": "item-2",
+      "name": "Fixture Gamma",
+      "folder": "fixture-folder-b",
+      "tempo": 108,
+      "meter": "4/4",
+      "key": "C",
+      "duration": 288,
+      "notes": "",
+      "tracks": [
+        {
+          "id": "c13c0125-5ed9-4cd2-b4a5-51a2e0a0fa8d",
+          "channelId": "27a1d9d4-928d-4897-875a-78dcc383d76e",
+          "patchId": "783ba0ec-f7b3-4c32-a8b7-163df6d530c5",
+          "subPatchId": null,
+          "patchOrder": [
+            "783ba0ec-f7b3-4c32-a8b7-163df6d530c5"
+          ],
+          "recordTrack": {
+            "id": "b8df9a71-e01d-4990-a635-41927a73a132"
+          },
+          "spans": {
+            "783ba0ec-f7b3-4c32-a8b7-163df6d530c5": {
+              "start": 0,
+              "length": 130,
+              "subs": {}
+            }
+          },
+          "media": null,
+          "playbackGain": 0
+        },
+        {
+          "id": "a8948ec3-3f22-459f-ad61-2ee90b16735a",
+          "channelId": "16882f76-88d9-4c3b-982a-3d026807515e",
+          "patchId": "8ac218e0-73da-48c4-97c8-6da7bae2ea2c",
+          "subPatchId": null,
+          "patchOrder": [
+            "8ac218e0-73da-48c4-97c8-6da7bae2ea2c"
+          ],
+          "recordTrack": {
+            "id": "487f9c70-f0ef-4e0c-b7da-0559b6462539"
+          },
+          "spans": {
+            "8ac218e0-73da-48c4-97c8-6da7bae2ea2c": {
+              "start": 0,
+              "length": 130,
+              "subs": {}
+            }
+          },
+          "media": null,
+          "playbackGain": 0
+        },
+        {
+          "id": "8cc45eff-7141-4ca5-b369-2632365d5bee",
+          "channelId": "bb5d3ccf-2ea5-47cb-8882-6eb61717e8b1",
+          "patchId": null,
+          "subPatchId": null,
+          "patchOrder": [],
+          "recordTrack": null,
+          "spans": {},
+          "media": {
+            "name": "Autumn Leaves · backing.wav",
+            "duration": 288
+          },
+          "playbackGain": 0
+        },
+        {
+          "id": "a643baaf-248f-4fe0-ae8d-62bf93c99d6c",
+          "channelId": "b70d9196-c5cc-41d9-a089-bd443ea13b27",
+          "patchId": null,
+          "subPatchId": null,
+          "patchOrder": [],
+          "recordTrack": null,
+          "spans": {},
+          "media": null,
+          "playbackGain": 0
+        }
+      ],
+      "bars": 130,
+      "sections": [
+        {
+          "id": "e18962c9-925b-4e28-8651-e29cf63cdf78",
+          "name": "Intro",
+          "start": 0,
+          "length": 32.5,
+          "color": "graphite"
+        },
+        {
+          "id": "8e2817d1-a0f0-408c-8260-7fdb1bbd2c5b",
+          "name": "Verse",
+          "start": 32.5,
+          "length": 32.5,
+          "color": "blue"
+        },
+        {
+          "id": "c858d2e7-0d8a-4111-8d56-702e0321fb85",
+          "name": "Chorus",
+          "start": 65,
+          "length": 32.5,
+          "color": "violet"
+        },
+        {
+          "id": "527adabe-e84d-4e03-88c6-afe8341ba349",
+          "name": "Outro",
+          "start": 97.5,
+          "length": 32.5,
+          "color": "teal"
+        }
+      ]
+    }
+  ],
+  "setlists": [
+    {
+      "id": "set-1",
+      "name": "Native UI fixture",
+      "entries": [
+        {
+          "id": "fixture-divider-a",
+          "type": "divider",
+          "name": "Set 1"
+        },
+        {
+          "id": "entry-0",
+          "itemId": "item-0"
+        },
+        {
+          "id": "entry-1",
+          "itemId": "item-1"
+        },
+        {
+          "id": "fixture-divider-b",
+          "type": "divider",
+          "name": "Set 2"
+        },
+        {
+          "id": "entry-2",
+          "itemId": "item-2"
+        }
+      ]
+    }
+  ],
+  "activeSetlist": "set-1",
+  "currentItem": "item-0",
+  "viewRecordTracks": false,
+  "performance": {
+    "stopRecord": true,
+    "modes": {},
+    "takes": {},
+    "panels": {
+      "playback": true,
+      "status": true
+    },
+    "backToStart": false,
+    "itemColors": {},
+    "showOrganizer": false,
+    "arrangement": {},
+    "clips": {
+      "df9443e0-32c8-4676-a8b3-0279835ca092": [
+        {
+          "id": "a18d2484-914b-4c56-9638-532f48f1d117",
+          "start": 0,
+          "length": 86,
+          "offset": 0
+        }
+      ],
+      "46b8e4ea-cfa1-482b-833e-4cf84dc8d8b2": [
+        {
+          "id": "bf7df0fb-cf64-4f8f-a6df-e524e94b2fe4",
+          "start": 0,
+          "length": 107,
+          "offset": 0
+        }
+      ],
+      "8cc45eff-7141-4ca5-b369-2632365d5bee": [
+        {
+          "id": "c052d0d7-91d6-45a8-bbb5-31932a13e464",
+          "start": 0,
+          "length": 130,
+          "offset": 0
+        }
+      ]
+    },
+    "chords": {},
+    "itemWorkflow": {},
+    "itemTasks": {
+      "item-0": [
+        {
+          "id": "task-root-a",
+          "parent": null,
+          "title": "Branch A",
+          "status": "Todo",
+          "progress": 0
+        },
+        {
+          "id": "task-a",
+          "parent": "task-root-a",
+          "title": "First task",
+          "status": "Done",
+          "progress": 0
+        },
+        {
+          "id": "task-b",
+          "parent": "task-root-a",
+          "title": "Second task",
+          "status": "Todo",
+          "progress": 0
+        },
+        {
+          "id": "task-root-b",
+          "parent": null,
+          "title": "Branch B",
+          "status": "Todo",
+          "progress": 50
+        },
+        {
+          "id": "task-root-c",
+          "parent": null,
+          "title": "Branch C",
+          "status": "Todo",
+          "progress": 0
+        },
+        {
+          "id": "task-c",
+          "parent": "task-root-c",
+          "title": "Third task",
+          "status": "Todo",
+          "progress": 25
+        },
+        {
+          "id": "task-d",
+          "parent": "task-root-c",
+          "title": "Fourth task",
+          "status": "Todo",
+          "progress": 75
+        }
+      ]
+    },
+    "itemCardLayout": {
+      "revision": 2,
+      "height": 53,
+      "fields": {
+        "name": {
+          "x": 3,
+          "y": 8,
+          "w": 58,
+          "h": 20,
+          "visible": true
+        },
+        "metadata": {
+          "x": 3,
+          "y": 31,
+          "w": 58,
+          "h": 16,
+          "visible": true
+        },
+        "progress": {
+          "x": 64,
+          "y": 13,
+          "w": 27,
+          "h": 4,
+          "visible": true
+        },
+        "priority": {
+          "x": 64,
+          "y": 31,
+          "w": 9,
+          "h": 18,
+          "visible": true
+        },
+        "status": {
+          "x": 74,
+          "y": 31,
+          "w": 24,
+          "h": 20,
+          "visible": true
+        },
+        "saved": {
+          "x": 94,
+          "y": 11.5,
+          "w": 3,
+          "h": 7,
+          "visible": true
+        }
+      }
+    }
+  },
+  "library": {
+    "item-0": "{\"schema\":\"mr-live-demo-show\",\"version\":3,\"channels\":[{\"id\":\"27a1d9d4-928d-4897-875a-78dcc383d76e\",\"name\":\"Keys\",\"type\":\"Instrument\",\"gain\":0,\"pan\":0,\"mute\":false,\"solo\":false,\"armed\":false,\"monitor\":false,\"recordGain\":0,\"archivedPatches\":[],\"patches\":[{\"id\":\"783ba0ec-f7b3-4c32-a8b7-163df6d530c5\",\"name\":\"Default\",\"color\":\"blue\",\"engine\":{\"instrument\":\"MR Instrument\",\"plugins\":[\"MR Strip\"]},\"parameters\":{\"volume\":0,\"pan\":0,\"tone\":50,\"mix\":100},\"subPatches\":[]}],\"recordMute\":false,\"recordSolo\":false},{\"id\":\"16882f76-88d9-4c3b-982a-3d026807515e\",\"name\":\"Guitar\",\"type\":\"Player\",\"gain\":0,\"pan\":0,\"mute\":false,\"solo\":false,\"armed\":false,\"monitor\":false,\"recordGain\":0,\"archivedPatches\":[],\"patches\":[{\"id\":\"8ac218e0-73da-48c4-97c8-6da7bae2ea2c\",\"name\":\"Default\",\"color\":\"blue\",\"engine\":{\"instrument\":null,\"plugins\":[\"MR Rig\"]},\"parameters\":{\"volume\":0,\"pan\":0,\"tone\":50,\"mix\":100},\"subPatches\":[]}],\"recordMute\":false,\"recordSolo\":false},{\"id\":\"bb5d3ccf-2ea5-47cb-8882-6eb61717e8b1\",\"name\":\"Backing\",\"type\":\"Playback\",\"gain\":0,\"pan\":0,\"mute\":false,\"solo\":false,\"armed\":false,\"monitor\":false,\"recordGain\":null,\"archivedPatches\":[],\"patches\":[],\"recordMute\":false,\"recordSolo\":false},{\"id\":\"b70d9196-c5cc-41d9-a089-bd443ea13b27\",\"name\":\"Vocal\",\"type\":\"Audio\",\"gain\":0,\"pan\":0,\"mute\":false,\"solo\":false,\"armed\":false,\"monitor\":false,\"recordGain\":null,\"archivedPatches\":[],\"patches\":[],\"recordMute\":false,\"recordSolo\":false}],\"folders\":[{\"id\":\"fixture-folder-a\",\"name\":\"Folder A\",\"parent\":null},{\"id\":\"fixture-folder-b\",\"name\":\"Folder B\",\"parent\":\"fixture-folder-a\"}],\"items\":[{\"id\":\"item-0\",\"name\":\"Fixture Alpha\",\"folder\":\"fixture-folder-a\",\"tempo\":92,\"meter\":\"4/4\",\"key\":\"C\",\"duration\":222,\"notes\":\"\",\"tracks\":[{\"id\":\"7f70ef40-0064-4d61-8636-a551c65b35c3\",\"channelId\":\"27a1d9d4-928d-4897-875a-78dcc383d76e\",\"patchId\":null,\"subPatchId\":null,\"patchOrder\":[\"783ba0ec-f7b3-4c32-a8b7-163df6d530c5\"],\"recordTrack\":{\"id\":\"4ca13312-b97a-4a2b-9cab-356317c222d9\"},\"spans\":{\"783ba0ec-f7b3-4c32-a8b7-163df6d530c5\":{\"start\":0,\"length\":86,\"subs\":{}}},\"media\":null,\"playbackGain\":0},{\"id\":\"430fb2b0-9161-4bba-a377-c64f907d5e33\",\"channelId\":\"16882f76-88d9-4c3b-982a-3d026807515e\",\"patchId\":null,\"subPatchId\":null,\"patchOrder\":[\"8ac218e0-73da-48c4-97c8-6da7bae2ea2c\"],\"recordTrack\":{\"id\":\"ff0ad90c-cc2c-4baf-9375-88b83fff90ba\"},\"spans\":{\"8ac218e0-73da-48c4-97c8-6da7bae2ea2c\":{\"start\":0,\"length\":86,\"subs\":{}}},\"media\":null,\"playbackGain\":0},{\"id\":\"df9443e0-32c8-4676-a8b3-0279835ca092\",\"channelId\":\"bb5d3ccf-2ea5-47cb-8882-6eb61717e8b1\",\"patchId\":null,\"subPatchId\":null,\"patchOrder\":[],\"recordTrack\":null,\"spans\":{},\"media\":{\"name\":\"Moon River · backing.wav\",\"duration\":222},\"playbackGain\":0},{\"id\":\"4f302fb4-1d8e-4751-81aa-6db9359b5720\",\"channelId\":\"b70d9196-c5cc-41d9-a089-bd443ea13b27\",\"patchId\":null,\"subPatchId\":null,\"patchOrder\":[],\"recordTrack\":null,\"spans\":{},\"media\":null,\"playbackGain\":0}],\"bars\":86,\"sections\":[{\"id\":\"b84c784e-4d4a-4170-bb51-ef5b69e159dc\",\"name\":\"Intro\",\"start\":0,\"length\":21.5,\"color\":\"graphite\"},{\"id\":\"106b871f-52c9-4f1b-9a1b-e5c813fad4ca\",\"name\":\"Verse\",\"start\":21.5,\"length\":21.5,\"color\":\"blue\"},{\"id\":\"2bf24e77-537c-4b4d-bed1-6c8de6283418\",\"name\":\"Chorus\",\"start\":43,\"length\":21.5,\"color\":\"violet\"},{\"id\":\"5bf94f25-0757-447e-870d-878d463ed1bd\",\"name\":\"Outro\",\"start\":64.5,\"length\":21.5,\"color\":\"teal\"}]}],\"setlists\":[{\"id\":\"set-1\",\"name\":\"Saved item\",\"entries\":[]}],\"activeSetlist\":\"set-1\",\"currentItem\":\"item-0\",\"viewRecordTracks\":false,\"performance\":{\"stopRecord\":true,\"modes\":{},\"takes\":{},\"clips\":{\"df9443e0-32c8-4676-a8b3-0279835ca092\":[{\"id\":\"a18d2484-914b-4c56-9638-532f48f1d117\",\"start\":0,\"length\":86,\"offset\":0}]},\"chords\":{},\"itemColors\":{},\"itemWorkflow\":{}}}",
+    "item-1": "{\"schema\":\"mr-live-demo-show\",\"version\":3,\"channels\":[{\"id\":\"27a1d9d4-928d-4897-875a-78dcc383d76e\",\"name\":\"Keys\",\"type\":\"Instrument\",\"gain\":0,\"pan\":0,\"mute\":false,\"solo\":false,\"armed\":false,\"monitor\":false,\"recordGain\":0,\"archivedPatches\":[],\"patches\":[{\"id\":\"783ba0ec-f7b3-4c32-a8b7-163df6d530c5\",\"name\":\"Default\",\"color\":\"blue\",\"engine\":{\"instrument\":\"MR Instrument\",\"plugins\":[\"MR Strip\"]},\"parameters\":{\"volume\":0,\"pan\":0,\"tone\":50,\"mix\":100},\"subPatches\":[]}],\"recordMute\":false,\"recordSolo\":false},{\"id\":\"16882f76-88d9-4c3b-982a-3d026807515e\",\"name\":\"Guitar\",\"type\":\"Player\",\"gain\":0,\"pan\":0,\"mute\":false,\"solo\":false,\"armed\":false,\"monitor\":false,\"recordGain\":0,\"archivedPatches\":[],\"patches\":[{\"id\":\"8ac218e0-73da-48c4-97c8-6da7bae2ea2c\",\"name\":\"Default\",\"color\":\"blue\",\"engine\":{\"instrument\":null,\"plugins\":[\"MR Rig\"]},\"parameters\":{\"volume\":0,\"pan\":0,\"tone\":50,\"mix\":100},\"subPatches\":[]}],\"recordMute\":false,\"recordSolo\":false},{\"id\":\"bb5d3ccf-2ea5-47cb-8882-6eb61717e8b1\",\"name\":\"Backing\",\"type\":\"Playback\",\"gain\":0,\"pan\":0,\"mute\":false,\"solo\":false,\"armed\":false,\"monitor\":false,\"recordGain\":null,\"archivedPatches\":[],\"patches\":[],\"recordMute\":false,\"recordSolo\":false},{\"id\":\"b70d9196-c5cc-41d9-a089-bd443ea13b27\",\"name\":\"Vocal\",\"type\":\"Audio\",\"gain\":0,\"pan\":0,\"mute\":false,\"solo\":false,\"armed\":false,\"monitor\":false,\"recordGain\":null,\"archivedPatches\":[],\"patches\":[],\"recordMute\":false,\"recordSolo\":false}],\"folders\":[{\"id\":\"fixture-folder-a\",\"name\":\"Folder A\",\"parent\":null},{\"id\":\"fixture-folder-b\",\"name\":\"Folder B\",\"parent\":\"fixture-folder-a\"}],\"items\":[{\"id\":\"item-1\",\"name\":\"Fixture Beta\",\"folder\":\"fixture-folder-a\",\"tempo\":100,\"meter\":\"4/4\",\"key\":\"C\",\"duration\":255,\"notes\":\"\",\"tracks\":[{\"id\":\"9b7b62fa-d19d-4c4b-b980-1cc31d96dbd9\",\"channelId\":\"27a1d9d4-928d-4897-875a-78dcc383d76e\",\"patchId\":null,\"subPatchId\":null,\"patchOrder\":[\"783ba0ec-f7b3-4c32-a8b7-163df6d530c5\"],\"recordTrack\":{\"id\":\"e3dbd125-1d8b-427c-bc92-1f825d082327\"},\"spans\":{\"783ba0ec-f7b3-4c32-a8b7-163df6d530c5\":{\"start\":0,\"length\":107,\"subs\":{}}},\"media\":null,\"playbackGain\":0},{\"id\":\"6b614d48-784b-429c-9ead-696e390f8ba3\",\"channelId\":\"16882f76-88d9-4c3b-982a-3d026807515e\",\"patchId\":null,\"subPatchId\":null,\"patchOrder\":[\"8ac218e0-73da-48c4-97c8-6da7bae2ea2c\"],\"recordTrack\":{\"id\":\"198912bf-d4fc-487d-a7df-997941a68acd\"},\"spans\":{\"8ac218e0-73da-48c4-97c8-6da7bae2ea2c\":{\"start\":0,\"length\":107,\"subs\":{}}},\"media\":null,\"playbackGain\":0},{\"id\":\"46b8e4ea-cfa1-482b-833e-4cf84dc8d8b2\",\"channelId\":\"bb5d3ccf-2ea5-47cb-8882-6eb61717e8b1\",\"patchId\":null,\"subPatchId\":null,\"patchOrder\":[],\"recordTrack\":null,\"spans\":{},\"media\":{\"name\":\"Fly Me to the Moon · backing.wav\",\"duration\":255},\"playbackGain\":0},{\"id\":\"ecaabd53-3f0d-4fb3-9132-dc9c9d940f3a\",\"channelId\":\"b70d9196-c5cc-41d9-a089-bd443ea13b27\",\"patchId\":null,\"subPatchId\":null,\"patchOrder\":[],\"recordTrack\":null,\"spans\":{},\"media\":null,\"playbackGain\":0}],\"bars\":107,\"sections\":[{\"id\":\"7ccdea18-2d9f-4383-93bb-06644f0af17a\",\"name\":\"Intro\",\"start\":0,\"length\":26.75,\"color\":\"graphite\"},{\"id\":\"bf78c803-819f-44f6-af83-ffce09db6c5a\",\"name\":\"Verse\",\"start\":26.75,\"length\":26.75,\"color\":\"blue\"},{\"id\":\"817844b3-7030-4ddf-b4c9-64913ce74b66\",\"name\":\"Chorus\",\"start\":53.5,\"length\":26.75,\"color\":\"violet\"},{\"id\":\"9702a3c5-2077-4e0d-97f3-0329cfbf1cc1\",\"name\":\"Outro\",\"start\":80.25,\"length\":26.75,\"color\":\"teal\"}]}],\"setlists\":[{\"id\":\"set-1\",\"name\":\"Saved item\",\"entries\":[]}],\"activeSetlist\":\"set-1\",\"currentItem\":\"item-1\",\"viewRecordTracks\":false,\"performance\":{\"stopRecord\":true,\"modes\":{},\"takes\":{},\"clips\":{\"46b8e4ea-cfa1-482b-833e-4cf84dc8d8b2\":[{\"id\":\"bf7df0fb-cf64-4f8f-a6df-e524e94b2fe4\",\"start\":0,\"length\":107,\"offset\":0}]},\"chords\":{},\"itemColors\":{},\"itemWorkflow\":{}}}",
+    "item-2": "{\"schema\":\"mr-live-demo-show\",\"version\":3,\"channels\":[{\"id\":\"27a1d9d4-928d-4897-875a-78dcc383d76e\",\"name\":\"Keys\",\"type\":\"Instrument\",\"gain\":0,\"pan\":0,\"mute\":false,\"solo\":false,\"armed\":false,\"monitor\":false,\"recordGain\":0,\"archivedPatches\":[],\"patches\":[{\"id\":\"783ba0ec-f7b3-4c32-a8b7-163df6d530c5\",\"name\":\"Default\",\"color\":\"blue\",\"engine\":{\"instrument\":\"MR Instrument\",\"plugins\":[\"MR Strip\"]},\"parameters\":{\"volume\":0,\"pan\":0,\"tone\":50,\"mix\":100},\"subPatches\":[]}],\"recordMute\":false,\"recordSolo\":false},{\"id\":\"16882f76-88d9-4c3b-982a-3d026807515e\",\"name\":\"Guitar\",\"type\":\"Player\",\"gain\":0,\"pan\":0,\"mute\":false,\"solo\":false,\"armed\":false,\"monitor\":false,\"recordGain\":0,\"archivedPatches\":[],\"patches\":[{\"id\":\"8ac218e0-73da-48c4-97c8-6da7bae2ea2c\",\"name\":\"Default\",\"color\":\"blue\",\"engine\":{\"instrument\":null,\"plugins\":[\"MR Rig\"]},\"parameters\":{\"volume\":0,\"pan\":0,\"tone\":50,\"mix\":100},\"subPatches\":[]}],\"recordMute\":false,\"recordSolo\":false},{\"id\":\"bb5d3ccf-2ea5-47cb-8882-6eb61717e8b1\",\"name\":\"Backing\",\"type\":\"Playback\",\"gain\":0,\"pan\":0,\"mute\":false,\"solo\":false,\"armed\":false,\"monitor\":false,\"recordGain\":null,\"archivedPatches\":[],\"patches\":[],\"recordMute\":false,\"recordSolo\":false},{\"id\":\"b70d9196-c5cc-41d9-a089-bd443ea13b27\",\"name\":\"Vocal\",\"type\":\"Audio\",\"gain\":0,\"pan\":0,\"mute\":false,\"solo\":false,\"armed\":false,\"monitor\":false,\"recordGain\":null,\"archivedPatches\":[],\"patches\":[],\"recordMute\":false,\"recordSolo\":false}],\"folders\":[{\"id\":\"fixture-folder-a\",\"name\":\"Folder A\",\"parent\":null},{\"id\":\"fixture-folder-b\",\"name\":\"Folder B\",\"parent\":\"fixture-folder-a\"}],\"items\":[{\"id\":\"item-2\",\"name\":\"Fixture Gamma\",\"folder\":\"fixture-folder-b\",\"tempo\":108,\"meter\":\"4/4\",\"key\":\"C\",\"duration\":288,\"notes\":\"\",\"tracks\":[{\"id\":\"c13c0125-5ed9-4cd2-b4a5-51a2e0a0fa8d\",\"channelId\":\"27a1d9d4-928d-4897-875a-78dcc383d76e\",\"patchId\":null,\"subPatchId\":null,\"patchOrder\":[\"783ba0ec-f7b3-4c32-a8b7-163df6d530c5\"],\"recordTrack\":{\"id\":\"b8df9a71-e01d-4990-a635-41927a73a132\"},\"spans\":{\"783ba0ec-f7b3-4c32-a8b7-163df6d530c5\":{\"start\":0,\"length\":130,\"subs\":{}}},\"media\":null,\"playbackGain\":0},{\"id\":\"a8948ec3-3f22-459f-ad61-2ee90b16735a\",\"channelId\":\"16882f76-88d9-4c3b-982a-3d026807515e\",\"patchId\":null,\"subPatchId\":null,\"patchOrder\":[\"8ac218e0-73da-48c4-97c8-6da7bae2ea2c\"],\"recordTrack\":{\"id\":\"487f9c70-f0ef-4e0c-b7da-0559b6462539\"},\"spans\":{\"8ac218e0-73da-48c4-97c8-6da7bae2ea2c\":{\"start\":0,\"length\":130,\"subs\":{}}},\"media\":null,\"playbackGain\":0},{\"id\":\"8cc45eff-7141-4ca5-b369-2632365d5bee\",\"channelId\":\"bb5d3ccf-2ea5-47cb-8882-6eb61717e8b1\",\"patchId\":null,\"subPatchId\":null,\"patchOrder\":[],\"recordTrack\":null,\"spans\":{},\"media\":{\"name\":\"Autumn Leaves · backing.wav\",\"duration\":288},\"playbackGain\":0},{\"id\":\"a643baaf-248f-4fe0-ae8d-62bf93c99d6c\",\"channelId\":\"b70d9196-c5cc-41d9-a089-bd443ea13b27\",\"patchId\":null,\"subPatchId\":null,\"patchOrder\":[],\"recordTrack\":null,\"spans\":{},\"media\":null,\"playbackGain\":0}],\"bars\":130,\"sections\":[{\"id\":\"e18962c9-925b-4e28-8651-e29cf63cdf78\",\"name\":\"Intro\",\"start\":0,\"length\":32.5,\"color\":\"graphite\"},{\"id\":\"8e2817d1-a0f0-408c-8260-7fdb1bbd2c5b\",\"name\":\"Verse\",\"start\":32.5,\"length\":32.5,\"color\":\"blue\"},{\"id\":\"c858d2e7-0d8a-4111-8d56-702e0321fb85\",\"name\":\"Chorus\",\"start\":65,\"length\":32.5,\"color\":\"violet\"},{\"id\":\"527adabe-e84d-4e03-88c6-afe8341ba349\",\"name\":\"Outro\",\"start\":97.5,\"length\":32.5,\"color\":\"teal\"}]}],\"setlists\":[{\"id\":\"set-1\",\"name\":\"Saved item\",\"entries\":[]}],\"activeSetlist\":\"set-1\",\"currentItem\":\"item-2\",\"viewRecordTracks\":false,\"performance\":{\"stopRecord\":true,\"modes\":{},\"takes\":{},\"clips\":{\"8cc45eff-7141-4ca5-b369-2632365d5bee\":[{\"id\":\"c052d0d7-91d6-45a8-bbb5-31932a13e464\",\"start\":0,\"length\":130,\"offset\":0}]},\"chords\":{},\"itemColors\":{},\"itemWorkflow\":{}}}"
+  }
+}

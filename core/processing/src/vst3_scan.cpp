@@ -1,5 +1,6 @@
 #include <mrs/vst3.hpp>
 #include <windows.h>
+#include <algorithm>
 #include <fstream>
 #include <iomanip>
 #include <map>
@@ -46,7 +47,13 @@ std::vector<VstPlugin> scan_vst3(const std::filesystem::path& root,const std::fi
     if(ec)throw std::runtime_error("VST3 scan folder unavailable: "+ec.message());
     auto list=old;std::ofstream errors(cache.parent_path()/L"vst3-scan.log",std::ios::app);
     auto output=cache;output+=L".probe-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64());
-    for(const auto& candidate:paths){if(cancel && cancel->load())break;const auto path=std::filesystem::absolute(candidate).lexically_normal();const auto key=utf8(path),stampNow=fingerprint(path);if(stamps.contains(key)&&stamps[key]==stampNow)continue;
+    for(const auto& candidate:paths){if(cancel && cancel->load())break;const auto path=std::filesystem::absolute(candidate).lexically_normal();const auto key=utf8(path),stampNow=fingerprint(path);
+        // V1 catalog entries have no VSTi/FX class metadata. A subsequent V2
+        // save must not freeze them behind an unchanged file fingerprint.
+        // Re-probe only modules with unknown classes; retain fast incremental
+        // skips for all already classified modules.
+        const bool missingCategory=std::any_of(list.begin(),list.end(),[&](const auto& p){return p.path==key&&!p.instrument.has_value();});
+        if(stamps.contains(key)&&stamps[key]==stampNow&&!missingCategory)continue;
         std::erase_if(list,[&](const auto& p){return p.path==key;});
         // Failed modules keep their fingerprint and are retried only after a change/cache reset.
         stamps[key]=stampNow;

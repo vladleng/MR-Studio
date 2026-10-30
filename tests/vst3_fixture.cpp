@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <cstring>
 #include <array>
+#include <vector>
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/ivstmidicontrollers.h"
 extern void* moduleHandle;
@@ -20,7 +21,7 @@ extern "C" __declspec(dllexport) unsigned mrsFixtureCreations(){return fixtureCr
 static unsigned fixtureCaptures{};
 extern "C" __declspec(dllexport) unsigned mrsFixtureCaptures(){return fixtureCaptures;}
 class Fixture final : public SingleComponentEffect, public IMidiMapping {
-    float gain_{0.5f};bool activationReset_{},instrument_{},sustain_{},tempoContext_{},meterContext_{};float bend_{0.5f};
+    float gain_{0.5f};bool activationReset_{},instrument_{},sustain_{},tempoContext_{},meterContext_{},largeState_{};float bend_{0.5f};
     std::array<std::array<float,128>,16> notes_{};std::array<std::array<bool,128>,16> keys_{};
 public:
     tresult PLUGIN_API queryInterface(const TUID iid,void** obj) override{if(FUnknownPrivate::iidEqual(iid,IMidiMapping::iid)){*obj=static_cast<IMidiMapping*>(this);SingleComponentEffect::addRef();return kResultOk;}return SingleComponentEffect::queryInterface(iid,obj);}
@@ -28,11 +29,11 @@ public:
     uint32 PLUGIN_API release() override{return SingleComponentEffect::release();}
     tresult PLUGIN_API getMidiControllerAssignment(int32 bus,int16,int16 cc,ParamID& id) override{if(!instrument_||bus!=0)return kResultFalse;if(cc==64)id=300;else if(cc==129)id=301;else if(cc==128)id=302;else return kResultFalse;return kResultOk;}
     static FUnknown* create(void*){++fixtureCreations;return static_cast<IComponent*>(new Fixture);}
-    tresult PLUGIN_API initialize(FUnknown* context) override{auto result=SingleComponentEffect::initialize(context);if(result!=kResultOk)return result;wchar_t kindPath[32768]{};GetModuleFileNameW(static_cast<HMODULE>(moduleHandle),kindPath,32768);tempoContext_=wcsstr(kindPath,L"tempo-context")!=nullptr;meterContext_=wcsstr(kindPath,L"meter-context")!=nullptr;instrument_=wcsstr(kindPath,L"instrument.vst3")!=nullptr;if(!instrument_)addAudioInput(STR16("Input"),SpeakerArr::kStereo);addAudioOutput(STR16("Output"),SpeakerArr::kStereo);if(!instrument_)addAudioInput(STR16("Sidechain"),SpeakerArr::kStereo,kAux,0);else {addEventInput(STR16("MIDI"),16);parameters.addParameter(STR16("Sustain"),nullptr,0,0,ParameterInfo::kCanAutomate,300);parameters.addParameter(STR16("Bend"),nullptr,0,0.5,ParameterInfo::kCanAutomate,301);parameters.addParameter(STR16("Pressure"),nullptr,0,0,ParameterInfo::kCanAutomate,302);}parameters.addParameter(STR16("Gain"),nullptr,0,0.5,ParameterInfo::kCanAutomate,100);parameters.addParameter(STR16("Program"),nullptr,0,0,ParameterInfo::kIsProgramChange,200);wchar_t modulePath[32768]{};GetModuleFileNameW(static_cast<HMODULE>(moduleHandle),modulePath,32768);activationReset_=wcsstr(modulePath,L"activation-state.vst3")!=nullptr;if(wcsstr(modulePath,L"legacy-state.vst3"))for(ParamID id=1000;id<1300;++id)parameters.addParameter(STR16("Legacy control"),nullptr,0,0,ParameterInfo::kCanAutomate,id);return kResultOk;}
+    tresult PLUGIN_API initialize(FUnknown* context) override{auto result=SingleComponentEffect::initialize(context);if(result!=kResultOk)return result;wchar_t kindPath[32768]{};GetModuleFileNameW(static_cast<HMODULE>(moduleHandle),kindPath,32768);largeState_=wcsstr(kindPath,L"large-state.vst3")!=nullptr;tempoContext_=wcsstr(kindPath,L"tempo-context")!=nullptr;meterContext_=wcsstr(kindPath,L"meter-context")!=nullptr;instrument_=wcsstr(kindPath,L"instrument.vst3")!=nullptr;if(!instrument_)addAudioInput(STR16("Input"),SpeakerArr::kStereo);addAudioOutput(STR16("Output"),SpeakerArr::kStereo);if(!instrument_)addAudioInput(STR16("Sidechain"),SpeakerArr::kStereo,kAux,0);else {addEventInput(STR16("MIDI"),16);parameters.addParameter(STR16("Sustain"),nullptr,0,0,ParameterInfo::kCanAutomate,300);parameters.addParameter(STR16("Bend"),nullptr,0,0.5,ParameterInfo::kCanAutomate,301);parameters.addParameter(STR16("Pressure"),nullptr,0,0,ParameterInfo::kCanAutomate,302);}parameters.addParameter(STR16("Gain"),nullptr,0,0.5,ParameterInfo::kCanAutomate,100);parameters.addParameter(STR16("Program"),nullptr,0,0,ParameterInfo::kIsProgramChange,200);wchar_t modulePath[32768]{};GetModuleFileNameW(static_cast<HMODULE>(moduleHandle),modulePath,32768);activationReset_=wcsstr(modulePath,L"activation-state.vst3")!=nullptr;if(wcsstr(modulePath,L"legacy-state.vst3"))for(ParamID id=1000;id<1300;++id)parameters.addParameter(STR16("Legacy control"),nullptr,0,0,ParameterInfo::kCanAutomate,id);return kResultOk;}
     tresult PLUGIN_API setBusArrangements(SpeakerArrangement* ins,int32 ni,SpeakerArrangement* outs,int32 no) override{if(ni!=(instrument_?0:2)||no!=1)return kResultFalse;return SingleComponentEffect::setBusArrangements(ins,ni,outs,no);}
     // Re-setting the program selector also reloads its default sound, even at the same value.
     tresult PLUGIN_API setParamNormalized(ParamID id,ParamValue value) override{if(id==200)gain_=0.5f;return SingleComponentEffect::setParamNormalized(id,value);}
-    tresult PLUGIN_API getState(IBStream* s) override{++fixtureCaptures;return s->write(&gain_,sizeof(gain_),nullptr);}
+    tresult PLUGIN_API getState(IBStream* s) override{++fixtureCaptures;if(largeState_){std::vector<char> payload(2u*1024u*1024u,0x5a);std::memcpy(payload.data(),&gain_,sizeof(gain_));return s->write(payload.data(),static_cast<int32>(payload.size()),nullptr);}return s->write(&gain_,sizeof(gain_),nullptr);}
     tresult PLUGIN_API setState(IBStream* s) override{float v{};int32 n{};if(s->read(&v,sizeof(v),&n)!=kResultOk||n!=sizeof(v)||v<0||v>1)return kInvalidArgument;gain_=v;setParamNormalized(100,v);return kResultOk;}
     tresult PLUGIN_API setComponentState(IBStream* s) override{return setState(s);}
     tresult PLUGIN_API setActive(TBool active) override{if(active&&activationReset_)gain_=0.5f;return SingleComponentEffect::setActive(active);}

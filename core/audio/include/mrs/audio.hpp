@@ -3,6 +3,7 @@
 #include <mrs/metronome.hpp>
 #include <mrs/midi_playback.hpp>
 #include <mrs/core.hpp>
+#include <mrs/performance.hpp>
 #include <mrs/processing.hpp>
 #include <mrs/profiling.hpp>
 #include <array>
@@ -30,7 +31,7 @@ struct MixerUpdate {
     std::array<std::array<float,8>,max_mixer_tracks> send_gains{};
     std::array<bool,max_mixer_tracks> input_monitoring{};
     std::array<bool,max_mixer_tracks> midi_monitor = [] { std::array<bool,max_mixer_tracks> v{};v.fill(true);return v; }();
-    std::uint64_t serial{};
+    std::uint64_t serial{}, performance_token{};
 };
 struct StereoPeak { float left{}, right{}; };
 struct MixerMeters {
@@ -103,6 +104,8 @@ struct MonitorRoute { std::uint32_t input_channel{}, output_channel{}; float gai
 struct SendRoute { std::size_t destination{}; float gain{1}; bool pre_fader{}; };
 class ExternalMidiQueue;
 struct RenderGraph {
+    std::optional<PerformancePlan> performance{};
+    std::uint64_t performance_token{};
     std::vector<Voice> voices;
     std::vector<MonitorRoute> monitor;
     std::shared_ptr<processing::PreparedGraph> processors{};
@@ -244,7 +247,7 @@ private:
     std::atomic<std::uint64_t> epoch_{1},dropped_{};
     std::atomic<bool> fault_{};
 };
-struct Control { ControlKind kind{}; Sample a{}, b{}; std::uint64_t serial{}; };
+struct Control { ControlKind kind{}; Sample a{}, b{}; std::uint64_t serial{}, performance_token{}; };
 struct RealtimeState {
     PlaybackState playback{PlaybackState::stopped};
     Sample sample{};
@@ -270,6 +273,22 @@ public:
     // alive until callback is stopped again. No RT ownership/deallocation.
     // Optional quiescent state retains a stopped/paused position and loop; never autoplay.
     void prepare(RenderConfig, RenderGraph, RealtimeState initial = {});
+    // Control owns each handle through cancel/acknowledgement. The callback
+    // borrows a raw pointer, swaps only prepared storage, then release-publishes
+    // adopted. Retire the outgoing state on control, after acknowledgement (or
+    // after the device is stopped and prepare has withdrawn its pending pointer).
+    struct PreparedTransition;
+    enum class TransitionPhase { prepared, pending, acquired, adopted, acknowledged, cancelled };
+    std::shared_ptr<PreparedTransition> prepare_transition(RenderGraph,std::uint64_t expected_token);
+    bool stage_transition(const std::shared_ptr<PreparedTransition>&);
+    bool cancel_transition(const std::shared_ptr<PreparedTransition>&) noexcept;
+    TransitionPhase transition_phase(const std::shared_ptr<PreparedTransition>&) const noexcept;
+    bool acknowledge_transition(const std::shared_ptr<PreparedTransition>&);
+    struct PerformanceStatus {std::uint64_t token{},manual_revision{},end_serial{};PerformanceAction action{PerformanceAction::none};bool stalled{};};
+    PerformanceStatus performance_status() const noexcept;
+
+    // Device stopped and quiesced. Control-thread rollback ownership, never an RT snapshot.
+    RenderGraph stopped_graph() const;
     struct TimingPlan {
         std::uint32_t rate{};TimeMap time;Metronome metronome;
         std::vector<RenderGraph::TempoSegment> tempos;
@@ -308,8 +327,8 @@ public:
     std::vector<std::shared_ptr<processing::PreparedGraph>> profile_graphs() const; // UI only, channel order + legacy + Master
     RenderConfig config() const { return config_; }
     struct CompensationReport {std::vector<std::uint64_t> track_paths;std::uint64_t output{},master{};std::size_t memory_bytes{};};
-    const CompensationReport& compensation() const {return compensation_;} // prepared, control thread
-    const ProcessingDomains& processing_domains() const {return domains_;} // candidate plan, control thread
+    const CompensationReport& compensation() const; // prepared, control thread
+    const ProcessingDomains& processing_domains() const; // candidate plan, control thread
 private:
     friend struct AudioEngineTestAccess; // deterministic stopped-engine mailbox regression
     void process_block(const float*,float*,std::uint32_t,std::uint32_t) noexcept;
@@ -346,6 +365,25 @@ private:
     float* domain_output_{};
     std::uint32_t domain_stride_{}, job_base_{};
     std::array<StereoPeak,max_mixer_tracks> domain_meters_{};
+    struct PreparedState;
+    std::unique_ptr<PreparedState> prepare_state(RenderConfig,RenderGraph,RealtimeState) const;
+    void swap_state(PreparedState&,bool keep_device_buffers=false) noexcept;
+    struct ControlInfo;
+    std::shared_ptr<const ControlInfo> control_info_;
+    void refresh_control_info();
+    const RenderGraph& control_graph() const noexcept;
+    std::atomic<PreparedTransition*> pending_transition_{};
+    std::atomic<std::uint64_t> published_performance_token_{},published_manual_revision_{},published_end_serial_{};
+    std::atomic<int> published_performance_action_{};
+    std::atomic<bool> published_performance_stalled_{};
+    std::atomic<std::uint64_t> last_manual_sent_{},last_mix_sent_{};
+    std::uint64_t manual_revision_{},performance_end_serial_{};
+    PerformanceAction performance_action_{PerformanceAction::none};
+    bool performance_arrived_{},performance_stalled_{};
+    void resolve_performance() noexcept;
+    void jump_performance(Sample) noexcept;
+    bool adopt_transition(bool play) noexcept;
+
     void consume_controls() noexcept;
     bool owns_voice(const Voice& v) const noexcept {return v.mixer_track==no_mixer_track||domain_owned_[v.mixer_track];}
     bool speculative_{}; // changed only while both device and producer are stopped

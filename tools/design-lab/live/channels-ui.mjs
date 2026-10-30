@@ -1,0 +1,234 @@
+import {timelineTop} from './timeline-top.mjs';
+import {recordButton} from './recording-controls.mjs';
+import {addChord,clampChord} from './chord-model.mjs';
+import {itemView,splitClip,itemEnd,sourceBars} from './arrangement-model.mjs';
+import {modes} from './performance.mjs';
+import {transport,canRecord,hasRecordTrack} from './recording-runtime.mjs';
+import {placeExtent,extentGestures} from './timeline-gestures.mjs';
+import {editExtentGroup} from './timeline-model.mjs';
+import {showDocument,activeItem,editShow,editItem,dialog,contextMenu} from './show-browser.mjs';
+import {channelTypes,addChannel,removeChannel,makePatch,effectivePatch,parameterRanges,patchColors} from './channel-model.mjs';
+const el=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls;if(text!==undefined)n.textContent=text;return n;};
+const add=(p,cls,text,tag='div')=>{const n=el(tag,cls,text);p.append(n);return n;};
+const enabled=()=>document.getElementById('preview').checked;
+const btn=(p,text,fn,cls='strip-menu')=>{const b=add(p,cls,text,'button');b.type='button';b.disabled=!enabled();b.onclick=e=>{e.stopPropagation();fn();};return b;};
+function graphic(p,assets,id,cls,label){const img=el('img',cls);img.src=assets.get(id)||'';img.alt=label;img.dataset.slot=id;p.append(img);}
+function run(root,fn){try{fn();}catch(e){dialog(root,e.message,[],()=>{});}}
+function create(root){dialog(root,'Новый канал',[
+ ['type','Тип канала','Instrument',channelTypes.map(t=>[t,t])],['name','Название','New channel']
+ ],v=>editShow(d=>addChannel(d,v.type,v.name)));}
+const colorNames={graphite:'Графит',blue:'Синий',teal:'Бирюзовый',green:'Зелёный',amber:'Янтарный',red:'Красный',violet:'Фиолетовый',inherit:'Как у основного'};
+export function patchDialog(root,c,patch,itemId=activeItem()?.id){dialog(root,patch?'Свойства патча':'Новый патч',[
+ ['name','Название патча',patch?.name||'New patch'],['color','Цвет патча',patch?.color||'blue',patchColors.map(c=>[c,colorNames[c]])],
+ ['instrument','Инструмент',patch?.engine.instrument|| (c.type==='Instrument'?'MR Instrument':'')],
+ ['plugins','Плагины (через запятую)',patch?.engine.plugins.join(', ')||'MR Strip'],
+ ...Object.keys(parameterRanges).map(k=>[k,`Параметр ${k}`,patch?.parameters[k]??(k==='mix'?100:k==='tone'?50:0),'number'])
+ ],v=>editShow(d=>{const channel=d.channels.find(x=>x.id===c.id);const target=patch?channel.patches.find(p=>p.id===patch.id):makePatch(c.type,v.name);target.name=v.name;target.color=v.color;target.engine={instrument:v.instrument.trim()||null,plugins:v.plugins.split(',').map(s=>s.trim()).filter(Boolean)};target.parameters=Object.fromEntries(Object.keys(parameterRanges).map(k=>[k,Number(v[k])]));if(!patch){channel.patches.push(target);const track=d.items.find(i=>i.id===itemId)?.tracks.find(t=>t.channelId===c.id);if(track){track.patchOrder.push(target.id);track.patchId=target.id;track.subPatchId=null;}}}));}
+export function subDialog(root,c,patch,sub){
+ const fields=[['name','Название sub-patch',sub?.name||'Rhythm'],['color','Цвет sub-patch',sub?.color||'inherit',['inherit',...patchColors].map(c=>[c,c])]];
+ for(const k of Object.keys(parameterRanges)){fields.push([`use_${k}`,`Изменять ${k}`,Object.hasOwn(sub?.overrides||{},k),'checkbox'],[k,`Значение ${k}`,sub?.overrides[k]??patch.parameters[k],'number']);}
+ dialog(root,'Sub-patch · только параметры; инструмент и цепочка наследуются',fields,v=>editShow(d=>{
+  const p=d.channels.find(x=>x.id===c.id).patches.find(p=>p.id===patch.id);const target=sub?p.subPatches.find(s=>s.id===sub.id):{id:crypto.randomUUID(),name:'',overrides:{}};
+  target.name=v.name;target.color=v.color;target.overrides=Object.fromEntries(Object.keys(parameterRanges).filter(k=>Object.hasOwn(v,`use_${k}`)).map(k=>[k,Number(v[k])]));
+  if(!sub)p.subPatches.push(target);
+ }));
+}
+function trackFor(c,itemId=activeItem()?.id){return showDocument().items.find(i=>i.id===itemId)?.tracks.find(t=>t.channelId===c.id);}
+function updateTrack(c,fn,itemId=activeItem()?.id){editShow(d=>{const item=d.items.find(i=>i.id===itemId);d.currentItem=itemId;if(!item)throw Error('Выберите item');const t=item.tracks.find(t=>t.channelId===c.id);fn(t);if(t.patchId&&!t.patchOrder.includes(t.patchId))t.patchOrder.push(t.patchId);});}
+function commands(root,c,itemId=activeItem()?.id){const targets=[];const holder=el('div','');
+ targets.push(btn(holder,'+ Канал',()=>create(root)));
+ targets.push(btn(holder,'Переименовать канал',()=>dialog(root,'Название канала',[['name','Название',c.name]],v=>editShow(d=>d.channels.find(x=>x.id===c.id).name=v.name))));
+ const track=trackFor(c,itemId),patch=c.patches.find(p=>p.id===track?.patchId),sub=patch?.subPatches.find(s=>s.id===track?.subPatchId);
+ if(!['Audio','Playback'].includes(c.type)){
+  targets.push(btn(holder,'+ Патч',()=>patchDialog(root,c,undefined,itemId)));const available=c.patches.filter(p=>!track?.patchOrder.includes(p.id));if(available.length)targets.push(btn(holder,'Из библиотеки…',()=>dialog(root,'Добавить патч на трек',[['patch','Патч',available[0].id,available.map(p=>[p.id,p.name])]],v=>updateTrack(c,t=>{t.patchOrder.push(v.patch);t.patchId=v.patch;t.subPatchId=null;},itemId))));
+  if(patch){targets.push(btn(holder,'Свойства патча',()=>patchDialog(root,c,patch)),btn(holder,'+ Sub-patch',()=>subDialog(root,c,patch)));
+   if(sub)targets.push(btn(holder,'Свойства sub-patch',()=>subDialog(root,c,patch,sub)),btn(holder,'Удалить sub-patch',()=>dialog(root,'Удалить sub-patch?',[],()=>editShow(d=>{const p=d.channels.find(x=>x.id===c.id).patches.find(p=>p.id===patch.id);p.subPatches=p.subPatches.filter(s=>s.id!==sub.id);for(const item of d.items)for(const t of item.tracks)if(t.subPatchId===sub.id)t.subPatchId=null;}))));
+   targets.push(btn(holder,'Удалить патч',()=>dialog(root,'Удалить патч и очистить его назначения?',[],()=>editShow(d=>{const ch=d.channels.find(x=>x.id===c.id);ch.patches=ch.patches.filter(p=>p.id!==patch.id);for(const item of d.items)for(const t of item.tracks){t.patchOrder=t.patchOrder.filter(id=>id!==patch.id);if(t.patchId===patch.id){t.patchId=null;t.subPatchId=null;}}}))));
+  }
+ }
+ targets.push(btn(holder,'Удалить канал',()=>dialog(root,'Удалить канал и соответствующие треки всех items?',[],()=>editShow(d=>removeChannel(d,c.id)))));
+ return targets;
+}
+function channelContext(root,row,c,itemId=activeItem()?.id){row.oncontextmenu=e=>{if(!enabled())return;contextMenu(root,e,commands(root,c,itemId));};}
+function selectors(root,c){const track=trackFor(c),group=add(root,'patch-selectors');
+ if(c.type==='Audio'){add(group,'visual-caption','Audio · запись');for(const [key,label] of [['armed','R'],['monitor','MON']]){const b=btn(group,label,()=>run(root,()=>editShow(d=>{const ch=d.channels.find(x=>x.id===c.id);ch[key]=!ch[key];})));b.setAttribute('aria-pressed',String(c[key]));}return;}
+ const select=add(group,'patch-choice',undefined,'select');select.setAttribute('aria-label',`Патч ${c.name}`);select.add(new Option('Без патча',''));for(const p of c.patches)select.add(new Option(p.name,p.id));select.value=track?.patchId||'';select.disabled=!enabled()||!track;
+ select.onchange=()=>run(root,()=>updateTrack(c,t=>{t.patchId=select.value||null;t.subPatchId=null;}));
+ const patch=c.patches.find(p=>p.id===track?.patchId);const sub=add(group,'subpatch-choice',undefined,'select');sub.setAttribute('aria-label',`Sub-patch ${c.name}`);sub.add(new Option('Base · исходные параметры',''));for(const s of patch?.subPatches||[])sub.add(new Option(s.name,s.id));sub.value=track?.subPatchId||'';sub.disabled=!enabled()||!patch;
+ sub.onchange=()=>run(root,()=>updateTrack(c,t=>t.subPatchId=sub.value||null));
+ if(patch){const resolved=effectivePatch(c,track);add(group,'visual-caption',`${patch.engine.instrument||'Input'} → ${patch.engine.plugins.join(' → ')||'Direct'}`);add(group,'patch-parameter-summary',Object.entries(resolved.parameters).map(([k,v])=>`${k}: ${v}`).join(' · '));}
+}
+function demoMenu(root,anchor,names){root.querySelector('.preview-menu')?.remove();const menu=add(anchor.parentElement,'preview-menu');for(const name of names)btn(menu,name,()=>{menu.remove();anchor.title=`${name} · демо`;});}
+function level(root,c,kind){const row=add(root,`level-control ${kind!=='pan'?'volume':kind}-control`);
+ const input=add(row,'',undefined,'input');input.type='range';input.className=kind==='pan'?'pan-slider':'volume-slider';input.min=kind!=='pan'?-60:-100;input.max=kind!=='pan'?12:100;input.step=kind!=='pan'?.5:1;input.value=c[kind];input.disabled=!enabled();input.setAttribute('aria-label',`${kind==='recordGain'?'Громкость записи':kind==='gain'?'Громкость':'Панорама'} ${c.name}`);
+ input.dataset.channelLevel=c.id;input.dataset.kind=kind;
+ const output=add(row,'',valueText(kind,c[kind]),'output');output.dataset.channelReadout=c.id;output.dataset.kind=kind;
+ input.oninput=()=>syncLevel(c.id,kind,Number(input.value));input.onchange=()=>run(root,()=>{const block=input.closest('.block')?.dataset.id;const label=input.getAttribute('aria-label');editShow(d=>d.channels.find(x=>x.id===c.id)[kind]=Number(input.value));for(const n of document.querySelectorAll('[data-channel-level]'))if(n.dataset.channelLevel===c.id&&n.dataset.kind===kind&&n.closest('.block')?.dataset.id===block&&n.getAttribute('aria-label')===label)n.focus({preventScroll:true});});
+}
+function itemPlaybackLevel(root,c,item,track){
+ const row=add(root,'level-control volume-control item-playback-level');const input=add(row,'volume-slider',undefined,'input');input.type='range';input.min=-60;input.max=12;input.step=.5;input.value=track.playbackGain;input.disabled=!enabled();input.setAttribute('aria-label',`Громкость Playback: ${item.name} / ${c.name}`);const output=add(row,'',`${track.playbackGain} dB`,'output');input.oninput=()=>output.textContent=`${input.value} dB`;input.onchange=()=>run(root,()=>editShow(d=>d.items.find(i=>i.id===item.id).tracks.find(t=>t.id===track.id).playbackGain=Number(input.value)));row.title='Громкость файла этого item; суммируется с громкостью канала в микшере';
+}
+function valueText(kind,value){return kind!=='pan'?`${value} dB`:value===0?'C':`${Math.abs(value)}${value<0?'L':'R'}`;}
+function syncLevel(id,kind,value){for(const input of document.querySelectorAll('[data-channel-level]'))if(input.dataset.channelLevel===id&&input.dataset.kind===kind)input.value=value;for(const output of document.querySelectorAll('[data-channel-readout]'))if(output.dataset.channelReadout===id&&output.dataset.kind===kind)output.textContent=valueText(kind,value);}
+const collapsedItems=new Set(),openTakes=new Set();
+const colors={graphite:'#71808a',blue:'#729ed1',teal:'#65abae',green:'#78ad88',amber:'#c4a264',red:'#c27b78',violet:'#a98bc6'};
+function colorDialog(root,c,patch,sub){dialog(root,'Цвет блока',[['color','Цвет',sub?.color||patch.color,(sub?['inherit',...patchColors]:patchColors).map(k=>[k,colorNames[k]])]],v=>editShow(d=>{const p=d.channels.find(x=>x.id===c.id).patches.find(p=>p.id===patch.id);if(sub)p.subPatches.find(s=>s.id===sub.id).color=v.color;else p.color=v.color;}));}
+function geometryDialog(root,title,extent,submit){dialog(root,title,[['start','Начало (такты)',extent.start,'number'],['length','Длина (такты)',extent.length,'number']],v=>submit({start:Number(v.start),length:Number(v.length)}));}
+function trackEdit(item,c,fn){editItem(item.id,i=>fn(i.tracks.find(t=>t.channelId===c.id)));}
+function patchCard(root,lane,c,patch,assets,item){
+ const track=trackFor(c,item.id),span=track.spans[patch.id];const card=add(lane,'track-patch temporal-patch');card.dataset.patch=patch.id;card.dataset.extentId=patch.id;card.style.setProperty('--patch-color',colors[patch.color]);card.classList.toggle('active',track.patchId===patch.id);placeExtent(card,span,item.bars);
+ const header=btn(card,'',()=>run(root,()=>updateTrack(c,t=>{t.patchId=patch.id;t.subPatchId=null;},item.id)),'track-patch-title');header.setAttribute('aria-label',`Патч ${c.name}: ${patch.name}`);
+ graphic(header,assets,c.type==='Player'?'rig/amp_head':'icons/concept_pack/track_synth','patch-icon',c.type);add(header,'',patch.name,'span');
+ const subs=add(card,'subpatch-strips horizontal-subpatches');
+ const editSpan=next=>trackEdit(item,c,t=>t.spans=editExtentGroup(t.spans,patch.id,next,Math.abs(next.start-span.start)<1e-7?'right':Math.abs(next.start+next.length-span.start-span.length)<1e-7?'left':'replace',item.bars));
+ extentGestures(card,{enabled,limit:item.bars,value:()=>span,group:()=>track.spans,key:patch.id,commit:next=>run(root,()=>trackEdit(item,c,t=>t.spans=next)),moveTarget:'.track-patch-title'});
+ for(const sub of patch.subPatches){const pos=span.subs[sub.id];const b=btn(subs,sub.name,()=>run(root,()=>updateTrack(c,t=>{t.patchId=patch.id;t.subPatchId=sub.id;},item.id)),'track-subpatch temporal-subpatch');b.dataset.subpatch=sub.id;b.dataset.currentStart=span.start+pos.start;b.dataset.currentEnd=span.start+pos.start+pos.length;b.dataset.extentId=sub.id;b.setAttribute('aria-label',`Sub-patch ${c.name}: ${sub.name}`);b.setAttribute('aria-pressed',String(track.patchId===patch.id&&track.subPatchId===sub.id));b.style.setProperty('--patch-color',colors[sub.color==='inherit'?patch.color:sub.color]);placeExtent(b,pos,span.length);
+  const editSub=next=>trackEdit(item,c,t=>t.spans[patch.id].subs=editExtentGroup(t.spans[patch.id].subs,sub.id,next,Math.abs(next.start-pos.start)<1e-7?'right':Math.abs(next.start+next.length-pos.start-pos.length)<1e-7?'left':'replace',span.length));
+  extentGestures(b,{enabled,limit:span.length,value:()=>pos,group:()=>span.subs,key:sub.id,commit:next=>run(root,()=>trackEdit(item,c,t=>t.spans[patch.id].subs=next))});
+  b.oncontextmenu=e=>{if(!enabled())return;const holder=el('div','');contextMenu(root,e,[btn(holder,'Свойства sub-patch',()=>subDialog(root,c,patch,sub)),btn(holder,'Положение / длина…',()=>geometryDialog(root,sub.name,pos,editSub)),btn(holder,'Цвет sub-patch…',()=>colorDialog(root,c,patch,sub))]);};
+ }
+ const addSub=btn(card,'+ Sub-patch',()=>subDialog(root,c,patch),'subpatch-add');addSub.classList.add('temporal-add-sub');
+ card.oncontextmenu=e=>{if(!enabled())return;const holder=el('div','');contextMenu(root,e,[btn(holder,'Свойства патча',()=>patchDialog(root,c,patch,item.id)),btn(holder,'Положение / длина…',()=>geometryDialog(root,patch.name,span,editSpan)),btn(holder,'Цвет патча…',()=>colorDialog(root,c,patch)),btn(holder,'+ Sub-patch',()=>subDialog(root,c,patch)),btn(holder,'Убрать с трека',()=>updateTrack(c,t=>{t.patchOrder=t.patchOrder.filter(id=>id!==patch.id);if(t.patchId===patch.id){t.patchId=null;t.subPatchId=null;}},item.id))]);};
+ card.ondragover=e=>{if(enabled()&&e.dataTransfer.types.includes('text/mr-live-plugin'))e.preventDefault();};card.ondrop=e=>{e.preventDefault();e.stopPropagation();const plugin=e.dataTransfer.getData('text/mr-live-plugin');if(['MR Strip','MR Rig','MR Reverb','MR EQ'].includes(plugin))run(root,()=>editShow(d=>d.channels.find(x=>x.id===c.id).patches.find(p=>p.id===patch.id).engine.plugins.push(plugin)));};
+}
+function partDialog(root,item,part){dialog(root,part?'Часть песни':'Новая часть песни',[
+ ['name','Название части',part?.name||'Verse'],['start','Начало (такты)',part?.start||0,'number'],['length','Длина (такты)',part?.length||Math.min(8,item.bars),'number'],['color','Цвет части',part?.color||'blue',patchColors.map(k=>[k,colorNames[k]])]
+ ],v=>editItem(item.id,i=>{const value={id:part?.id||crypto.randomUUID(),name:v.name,start:Number(v.start),length:Number(v.length),color:v.color};if(part)Object.assign(i.sections.find(s=>s.id===part.id),value);else i.sections.push(value);}));}
+
+function parts(root,parent,item){const row=add(parent,'item-parts-row');const label=add(row,'item-parts-label');add(label,'','Sections');const lane=add(row,'section-lane');const position=e=>Math.max(0,Math.round((e.clientX-lane.getBoundingClientRect().left)/lane.getBoundingClientRect().width*item.bars*4)/4);const templates=['Intro','Verse','Chorus','Bridge','Solo','Outro'];const createAt=(name,start)=>run(root,()=>editItem(item.id,i=>{const end=Math.min(item.bars,...i.sections.filter(s=>s.start>start).map(s=>s.start));if(end-start<.25)throw Error('Нет места для секции');i.sections.push({id:crypto.randomUUID(),name,start,length:Math.min(8,end-start),color:name==='Chorus'?'violet':'blue'});}));lane.ondblclick=e=>{if(enabled()&&!e.target.closest('.song-part'))createAt('Verse',position(e));};lane.oncontextmenu=e=>{if(!enabled())return;const holder=el('div','');contextMenu(root,e,templates.map(name=>btn(holder,`Создать ${name}`,()=>createAt(name,position(e)))));};
+ for(const part of item.sections){const b=btn(lane,part.name,()=>{},'song-part');b.dataset.section=part.id;b.dataset.currentStart=part.start;b.dataset.currentEnd=part.start+part.length;b.style.setProperty('--patch-color',colors[part.color]);placeExtent(b,part,item.bars);const mode=modes.find(([key])=>key===(showDocument().performance.modes[part.id]||'normal'));const icon=add(b,'section-mode-icon',mode[1].split(' ')[0],'span');icon.title=mode[1];icon.setAttribute('aria-label',mode[1]);
+  const commit=next=>editItem(item.id,i=>Object.assign(i.sections.find(s=>s.id===part.id),next));
+  extentGestures(b,{enabled,limit:item.bars,value:()=>part,commit:next=>run(root,()=>commit(next))});
+  b.oncontextmenu=e=>{if(!enabled())return;const holder=el('div','');contextMenu(root,e,[...modes.map(([key,label])=>btn(holder,`${(showDocument().performance.modes[part.id]||'normal')===key?'✓ ':''}${label}`,()=>editShow(d=>d.performance.modes[part.id]=key))),btn(holder,'Свойства / цвет части…',()=>partDialog(root,item,part)),btn(holder,'Удалить часть',()=>editItem(item.id,i=>i.sections=i.sections.filter(p=>p.id!==part.id))),...templates.map(name=>btn(holder,`Создать ${name}`,()=>createAt(name,position(e))))]);};
+ }
+}
+function replaceMedia(doc,itemId,channelId,values){const item=doc.items.find(i=>i.id===itemId),track=item?.tracks.find(t=>t.channelId===channelId);if(!track)return;Object.assign(track.media,values);doc.performance.clips[track.id]=[{id:crypto.randomUUID(),start:0,length:sourceBars(item,track),offset:0}];}
+function mediaDialog(root,item,c){const media=trackFor(c,item.id).media;dialog(root,'Аудиофайл · demo metadata',[['name','Имя аудиофайла',media.name],['duration','Длительность, секунд',media.duration,'number']],v=>editShow(d=>{const track=d.items.find(i=>i.id===item.id).tracks.find(t=>t.channelId===c.id);if(Number(v.duration)!==track.media.duration)replaceMedia(d,item.id,c.id,{name:v.name,duration:Number(v.duration)});else track.media.name=v.name;}));}
+const mediaLoads=new Map();
+function chooseMedia(root,item,c){const input=document.createElement('input');input.type='file';input.accept='.wav,.aif,.aiff,.flac,.mp3,.ogg';input.hidden=true;root.append(input);input.onchange=()=>{const file=input.files[0];if(file){const key=`${item.id}/${c.id}`,token=Symbol();mediaLoads.set(key,token);run(root,()=>editShow(d=>replaceMedia(d,item.id,c.id,{name:file.name})));const audio=document.createElement('audio'),url=URL.createObjectURL(file);audio.preload='metadata';let timer;const cleanup=()=>{clearTimeout(timer);URL.revokeObjectURL(url);audio.removeAttribute('src');audio.load();};audio.onloadedmetadata=()=>{const duration=audio.duration;audio.onloadedmetadata=null;audio.onerror=null;if(mediaLoads.get(key)===token&&Number.isFinite(duration)&&duration>0&&duration<=86400)run(root,()=>editShow(d=>replaceMedia(d,item.id,c.id,{duration})));cleanup();};audio.onerror=()=>{audio.onerror=null;cleanup();};timer=setTimeout(cleanup,5000);audio.src=url;}input.remove();};input.addEventListener('cancel',()=>input.remove());input.click();}
+
+function recordView(root){const tools=add(root,'record-option-icons');for(const [label,slot,value,change] of [
+ ['Останавливать запись вместе с треком','icons/link',showDocument().performance.stopRecord,d=>d.performance.stopRecord=!d.performance.stopRecord],
+ ['View record tracks','icons/concept_pack/mixer_params',showDocument().viewRecordTracks,d=>d.viewRecordTracks=!d.viewRecordTracks]]){
+ const button=btn(tools,'',()=>run(root,()=>editShow(change)),'record-option-icon');button.title=label;button.setAttribute('aria-label',label);button.setAttribute('aria-pressed',String(value));const image=document.createElement('img');image.src=`../../../assets/ui/mr-uds/svg/${slot}.svg`;image.alt='';button.append(image);}}
+
+function arm(root,c){const b=btn(root,'R',()=>run(root,()=>editShow(d=>d.channels.find(x=>x.id===c.id).armed=!c.armed)),'record-arm');b.setAttribute('aria-label',`Запись: ${c.name}`);b.title='Подготовить канал к общей записи';b.setAttribute('aria-pressed',String(c.armed));b.classList.toggle('recording',transport.isRecording(c));return b;}
+function trackSwitches(root,c,record=false){const group=add(root,'track-switches');for(const [label,key] of [['M',record?'recordMute':'mute'],['S',record?'recordSolo':'solo']]){const b=btn(group,label,()=>run(root,()=>editShow(d=>{const channel=d.channels.find(x=>x.id===c.id);channel[key]=!channel[key];})),'track-channel-switch');b.dataset.switch=label;b.setAttribute('aria-label',`${record?'Record ':''}${label==='M'?'Mute':'Solo'}: ${c.name}`);b.setAttribute('aria-pressed',String(c[key]));}if(!record&&canRecord(c))arm(group,c);return group;}
+function recordRow(list,c,t,itemId){const row=add(list,'linked-channel-row item-track record-track');row.dataset.recordTrack=t.recordTrack.id;row.dataset.parentChannel=c.id;const title=add(row,'linked-channel-title');add(title,'channel-name',`${c.name} · Record`);add(title,'visual-caption','Дорожка записи');trackSwitches(title,c,true);const lane=add(row,'record-audio-lane',transport.isRecording(c,itemId)?'● RECORDING · демо без аудио':c.armed?'R · Готова к общей записи':'Дорожка записи · пусто');lane.classList.toggle('recording',transport.isRecording(c,itemId));
+ const originalItem=showDocument().items.find(i=>i.id===itemId),item={...originalItem,bars:itemEnd(showDocument(),originalItem)},view=itemView(showDocument(),itemId),time=add(lane,'record-time-lane');time.dataset.recordTime=t.recordTrack.id;time.dataset.item=itemId;const takesForLane=showDocument().performance.takes[t.recordTrack.id]||[];for(const take of takesForLane){const region=add(time,'recorded-region',`Take ${takesForLane.indexOf(take)+1}`);region.dataset.take=take.id;region.dataset.start=take.start;region.style.left=`${(take.start+view.lead)/(item.bars+view.lead)*100}%`;region.style.width=`${(take.end-take.start)/(item.bars+view.lead)*100}%`;region.classList.toggle('comp-selected',take.selected);}
+ const details=add(lane,'take-list',undefined,'details');details.open=openTakes.has(t.recordTrack.id);details.ontoggle=()=>{if(details.isConnected){if(details.open)openTakes.add(t.recordTrack.id);else openTakes.delete(t.recordTrack.id);}};add(details,'','Takes / comp','summary');const takes=showDocument().performance.takes[t.recordTrack.id]||[];
+ for(const take of takes){const line=add(details,'take-row');const choose=add(line,'',undefined,'input');choose.type='checkbox';choose.checked=take.selected;choose.disabled=!enabled();choose.setAttribute('aria-label',`Использовать ${take.id}`);choose.onchange=()=>editShow(d=>d.performance.takes[t.recordTrack.id].find(x=>x.id===take.id).selected=choose.checked);btn(line,'Ещё фрагмент',()=>editShow(d=>d.performance.takes[t.recordTrack.id].push({...take,id:crypto.randomUUID(),source:take.source||take.id,selected:false})));add(line,'',`Take ${takes.findIndex(x=>x.id===(take.source||take.id))+1} · ${take.start}–${take.end} такты`);btn(line,'Фрагмент…',()=>dialog(rootFor(lane),'Границы фрагмента',[['start','Начало',take.start,'number'],['end','Конец',take.end,'number']],v=>editShow(d=>Object.assign(d.performance.takes[t.recordTrack.id].find(x=>x.id===take.id),{start:Number(v.start),end:Number(v.end)}))));}
+ add(details,'visual-caption','Comp: '+takes.filter(x=>x.selected).map(x=>`${x.start}–${x.end}`).join(' · '));}
+function rootFor(node){return node.closest('.block')||node;}
+function recordStrip(root,strips,c,assets){const strip=add(strips,'mixer-strip record-strip');strip.dataset.recordChannel=c.id;strip.setAttribute('aria-label',`Дорожка записи ${c.name}`);add(strip,'record-strip-name',`${c.name} · REC`);const status=add(strip,'visual-caption',transport.isRecording(c)?'● REC':'Record');status.classList.toggle('recording',transport.isRecording(c));const controls=add(strip,'channel-controls');if(enabled()){const wrap=add(controls,'linked-fader');level(wrap,c,'recordGain');wrap.querySelector('input').className='preview-fader';}else graphic(controls,assets,'controls/concept_pack/fader_micro_normal','visual-fader','MR Micro');const value=add(strip,'gain-value',valueText('recordGain',c.recordGain));value.dataset.channelReadout=c.id;value.dataset.kind='recordGain';trackSwitches(strip,c,true);}
+function setItemView(item,values){editShow(d=>d.performance.arrangement[item.id]={...itemView(d,item.id),...values});}
+function itemWidthGrip(container,item,view){const grip=add(container,'item-width-grip item-width-right',undefined,'span');grip.title='Изменить конец item без изменения масштаба';grip.setAttribute('aria-label','Ширина item');grip.onpointerdown=e=>{if(!enabled()||e.button!==0)return;e.preventDefault();e.stopPropagation();const x=e.clientX,factor=container.getBoundingClientRect().width/container.offsetWidth;let length=item.bars;grip.setPointerCapture(e.pointerId);const clear=()=>{grip.onpointermove=null;grip.onpointerup=null;grip.onpointercancel=null;window.removeEventListener('blur',cancel);};const cancel=()=>{clear();container.style.width=`${2+(item.bars+view.lead)*view.scale}px`;};grip.onpointermove=ev=>{length=Math.max(1,Math.min(4096,Math.round((item.bars+(ev.clientX-x)/factor/view.scale)*4)/4));container.style.width=`${2+(length+view.lead)*view.scale}px`;};grip.onpointerup=()=>{clear();if(length!==item.bars)setItemView(item,{length});};grip.onpointercancel=cancel;window.addEventListener('blur',cancel);};}
+
+function itemOriginGrip(inner,container,item,view){const grip=add(inner,'item-origin-grip',undefined,'span');for(const side of ['left','right']){const icon=document.createElement('img');icon.src=`../../../assets/ui/mr-uds/svg/icons/chevron_${side}.svg`;icon.alt='';icon.draggable=false;grip.append(icon);}grip.style.left=`${0+view.lead*view.scale-12}px`;grip.title='Тянуть вправо — раскрыть область до item; влево — свернуть';grip.setAttribute('aria-label','Разделитель начала item');grip.onpointerdown=e=>{if(!enabled()||e.button!==0)return;e.preventDefault();e.stopPropagation();const x=e.clientX,factor=inner.getBoundingClientRect().width/inner.offsetWidth;let lead=view.lead;inner.dataset.originDragging='true';grip.setPointerCapture(e.pointerId);const paint=value=>{container.style.width=`${2+(item.bars+value)*view.scale}px`;inner.style.width=`${0+(item.bars+value)*view.scale}px`;grip.style.left=`${0+value*view.scale-12}px`;inner.querySelector('.item-ruler').style.marginLeft=`${0+value*view.scale}px`;for(const lane of inner.querySelectorAll('.section-lane,.chord-lane,.temporal-lane,.backing-audio-lane,.audio-record-lane'))lane.style.marginLeft=`${value*view.scale}px`;for(const region of inner.querySelectorAll('[data-take]')){const take=Object.values(showDocument().performance.takes).flat().find(t=>t.id===region.dataset.take);if(take){region.style.left=`${(take.start+value)/(item.bars+value)*100}%`;region.style.width=`${(take.end-take.start)/(item.bars+value)*100}%`;}}};const clear=()=>{delete inner.dataset.originDragging;grip.onpointermove=null;grip.onpointerup=null;grip.onpointercancel=null;window.removeEventListener('blur',cancel);};const cancel=()=>{clear();paint(view.lead);};grip.onpointermove=ev=>{lead=Math.max(0,Math.min(4096,Math.round((view.lead+(ev.clientX-x)/factor/view.scale)*4)/4));paint(lead);};grip.onpointerup=()=>{clear();if(lead!==view.lead)setItemView(item,{lead});};grip.onpointercancel=cancel;window.addEventListener('blur',cancel);};}
+function chordLane(root,parent,item){const row=add(parent,'item-chords-row');const label=add(row,'item-parts-label');add(label,'','Chord Track');const lane=add(row,'chord-lane');const chords=showDocument().performance.chords[item.id]||[];
+ const addAt=position=>run(root,()=>editShow(d=>addChord(d,item.id,position)));
+ const position=e=>Math.max(0,Math.round((e.clientX-lane.getBoundingClientRect().left)/lane.getBoundingClientRect().width*item.bars*4)/4);
+ lane.ondblclick=e=>{if(enabled()&&!e.target.closest('.chord-event'))addAt(position(e));};lane.oncontextmenu=e=>{if(!enabled())return;const holder=el('div','');contextMenu(root,e,[btn(holder,'Добавить аккорд',()=>addAt(position(e)))]);};
+ for(const chord of chords){const card=btn(lane,chord.symbol,()=>{lane.querySelectorAll('.chord-event').forEach(n=>n.classList.remove('selected'));card.classList.add('selected');card.focus();},'chord-event');card.dataset.chord=chord.id;card.style.setProperty('--chord-color',colors[chord.color||'graphite']);card.dataset.start=chord.start;card.dataset.end=chord.start+chord.length;placeExtent(card,chord,item.bars);card.title=`${chord.symbol} · ${chord.start}–${chord.start+chord.length}`;
+ const update=next=>editShow(d=>Object.assign(d.performance.chords[item.id].find(c=>c.id===chord.id),next));const remove=()=>editShow(d=>d.performance.chords[item.id]=d.performance.chords[item.id].filter(c=>c.id!==chord.id));
+ const edit=()=>dialog(root,'Аккорд',[['symbol','Обозначение',chord.symbol],['start','Начало (такты)',chord.start,'number'],['end','Конец (такты)',chord.start+chord.length,'number']],v=>update({symbol:v.symbol,start:Number(v.start),length:Number(v.end)-Number(v.start)}));
+ const duplicate=()=>run(root,()=>editShow(d=>d.performance.chords[item.id].push({...chord,id:crypto.randomUUID(),start:chord.start+chord.length})));
+ extentGestures(card,{enabled,limit:item.bars,value:()=>chord,allowCopy:true,constrain:(next,mode,copy)=>copy?next:clampChord(chords,chord.id,next,mode,item.bars),commit:(next,{copy})=>run(root,()=>copy?editShow(d=>d.performance.chords[item.id].push({...chord,...next,id:crypto.randomUUID()})):update(next))});card.ondblclick=e=>{e.stopPropagation();edit();};card.onkeydown=e=>{if(!enabled())return;if(['Delete','Backspace','Enter'].includes(e.key)){e.preventDefault();e.stopPropagation();if(e.key==='Enter')edit();else remove();}};card.oncontextmenu=e=>{if(!enabled())return;const holder=el('div','');contextMenu(root,e,[btn(holder,'Редактировать аккорд',edit),btn(holder,'Дублировать аккорд',duplicate),btn(holder,'Удалить аккорд',remove),btn(holder,'Добавить аккорд',()=>addAt(position(e))),...Object.entries(colors).map(([key,color])=>{const target=btn(holder,`Цвет: ${colorNames[key]}`,()=>update({color:key}));target.dataset.swatch=color;return target;})]);};
+ }
+}
+const playbackTools=new Map();
+function playbackClips(root,row,item,c,t,assets){const lane=add(row,'backing-audio-lane clip-lane');lane.style.overflow='hidden';const tool=playbackTools.get(t.id)||'pointer';lane.dataset.tool=tool;const setTool=next=>{playbackTools.set(t.id,next);window.dispatchEvent(new Event('demo-show-change'));};const toolMenu=holder=>[['pointer','↖ Указатель'],['scissors','✂ Ножницы']].map(([key,label])=>btn(holder,`${tool===key?'✓ ':''}${label}`,()=>setTool(key)));
+ for(const clip of showDocument().performance.clips[t.id]){const card=add(lane,'audio-clip');card.dataset.clip=clip.id;placeExtent(card,clip,item.bars);const label=add(card,'audio-file-name',t.media.name);const ns='http://www.w3.org/2000/svg',wave=document.createElementNS(ns,'svg'),image=document.createElementNS(ns,'image');wave.classList.add('visual-wave');wave.setAttribute('viewBox','0 0 160 56');wave.setAttribute('preserveAspectRatio','none');wave.setAttribute('aria-label','Демо waveform');image.setAttribute('href',assets.get('controls/concept_pack/waveform_audio_illustration')||'');image.setAttribute('width','160');image.setAttribute('height','56');wave.append(image);card.append(wave);wave.style.width=`${sourceBars(showDocument().items.find(i=>i.id===item.id),t)/clip.length*100}%`;wave.style.maxWidth='none';wave.style.position='absolute';wave.style.top='30px';wave.style.left=`${-clip.offset/clip.length*100}%`;
+  const at=e=>Math.round((e.clientX-lane.getBoundingClientRect().left)/lane.getBoundingClientRect().width*item.bars*4)/4;
+  card.addEventListener('pointerdown',e=>{if(enabled()&&tool==='scissors'&&e.button===0&&!e.target.closest('.extent-grip')){e.preventDefault();e.stopImmediatePropagation();}},true);
+  card.onclick=e=>{if(enabled()&&tool==='scissors'&&!e.target.closest('.extent-grip'))run(root,()=>editShow(d=>splitClip(d.performance.clips[t.id],clip.id,at(e))));};
+  const guide=add(card,'clip-cut-guide');card.onpointermove=e=>{const cut=at(e);guide.hidden=tool!=='scissors'||!!e.target.closest('.extent-grip')||cut<clip.start+.25||cut>clip.start+clip.length-.25;guide.style.left=`${(cut-clip.start)/clip.length*100}%`;};card.onpointerleave=()=>guide.hidden=true;guide.hidden=true;
+  extentGestures(card,{enabled,limit:item.bars,value:()=>clip,constrain:(next,mode)=>{if(mode==='right')next.length=Math.min(next.length,sourceBars(showDocument().items.find(i=>i.id===item.id),t)-clip.offset);if(mode==='left'){const end=clip.start+clip.length;next.start=Math.max(next.start,clip.start-clip.offset);next.length=end-next.start;}return next;},commit:next=>run(root,()=>editShow(d=>{const target=d.performance.clips[t.id].find(x=>x.id===clip.id);const offset=clip.offset+next.start-clip.start;if(next.length!==clip.length)target.offset=Math.max(0,offset);Object.assign(target,next);}))});
+  card.oncontextmenu=e=>{if(!enabled())return;const holder=el('div','');contextMenu(root,e,[...toolMenu(holder),btn(holder,'Положение / длина…',()=>geometryDialog(root,t.media.name,clip,next=>editShow(d=>Object.assign(d.performance.clips[t.id].find(x=>x.id===clip.id),next)))),btn(holder,'Удалить фрагмент',()=>editShow(d=>d.performance.clips[t.id]=d.performance.clips[t.id].filter(x=>x.id!==clip.id))),btn(holder,'Выбрать файл…',()=>chooseMedia(root,item,c)),btn(holder,'Свойства файла',()=>mediaDialog(root,item,c))]);};
+ }
+ lane.oncontextmenu=e=>{if(!enabled())return;const holder=el('div','');contextMenu(root,e,[...toolMenu(holder),btn(holder,'Выбрать файл…',()=>chooseMedia(root,item,c)),btn(holder,'Свойства файла',()=>mediaDialog(root,item,c)),btn(holder,'Восстановить целый файл',()=>editShow(d=>d.performance.clips[t.id]=[{id:crypto.randomUUID(),start:0,length:sourceBars(showDocument().items.find(i=>i.id===item.id),t),offset:0}]))]);};}
+function renderItem(root,assets,item,entry){
+ item={...item,bars:itemEnd(showDocument(),item)};
+ const container=add(root,'live-item-container');container.dataset.item=item.id;container.style.setProperty('--item-color',colors[showDocument().performance.itemColors[item.id]||'graphite']);container.dataset.entry=entry.id;const view=itemView(showDocument(),item.id);container.style.width=`${2+(item.bars+view.lead)*view.scale}px`;container.style.setProperty('--bar-px',`${view.scale}px`);container.classList.toggle('current-item',item.id===showDocument().currentItem);
+ const header=add(container,'live-item-header');btn(header,'−',()=>setItemView(item,{scale:Math.max(4,view.scale/1.25)}),'item-zoom').setAttribute('aria-label','Уменьшить item');btn(header,'+',()=>setItemView(item,{scale:Math.min(128,view.scale*1.25)}),'item-zoom').setAttribute('aria-label','Увеличить item');const toggle=btn(header,`${collapsedItems.has(entry.id)?'▸':'▾'} ${item.name}`,()=>{if(collapsedItems.has(entry.id))collapsedItems.delete(entry.id);else collapsedItems.add(entry.id);window.dispatchEvent(new Event('demo-show-change'));},'item-fold');toggle.setAttribute('aria-expanded',String(!collapsedItems.has(entry.id)));
+ add(header,'visual-caption',`${item.tempo} BPM · ${item.meter} · ${item.bars} тактов · ${item.tracks.length} tracks`);btn(header,'Открыть item',()=>editShow(d=>d.currentItem=item.id),'patch-add');const mode=modes.find(([key])=>key===(showDocument().performance.modes[item.id]||'normal'));const status=add(header,'item-mode-icon',mode[1].split(' ')[0],'span');status.title=mode[1];header.oncontextmenu=e=>{if(!enabled())return;const holder=el('div','');contextMenu(root,e,modes.map(([key,label])=>btn(holder,`${(showDocument().performance.modes[item.id]||'normal')===key?'✓ ':''}${label}`,()=>editShow(d=>d.performance.modes[item.id]=key))));};
+ if(collapsedItems.has(entry.id))return;
+ const scroll=add(container,'item-time-scroll');const inner=add(scroll,'item-time-content');inner.style.width=`${0+(item.bars+view.lead)*view.scale}px`;inner.dataset.timeItem=item.id;inner.dataset.scale=view.scale;inner.dataset.lead=view.lead;const cursor=add(inner,'item-playhead');cursor.dataset.playhead=item.id;
+ const ruler=add(inner,'timeline-ruler item-ruler');const step=Math.max(1,Math.ceil(item.bars/16));ruler.style.marginLeft=`${0+view.lead*view.scale}px`;ruler.style.width=`${item.bars*view.scale}px`;for(let n=0;n<item.bars;n+=step)add(ruler,'',String(n+1));ruler.onpointerdown=e=>{if(!enabled())return;transport.itemId=item.id;transport.position=Math.max(0,Math.min(item.bars,(e.clientX-ruler.getBoundingClientRect().left)/ruler.getBoundingClientRect().width*item.bars));editShow(d=>d.currentItem=item.id);};
+ parts(root,inner,item);chordLane(root,inner,item);
+ const list=add(inner,'channel-tracks');
+ for(const t of item.tracks){const c=showDocument().channels.find(c=>c.id===t.channelId);const row=add(list,'linked-channel-row item-track');row.dataset.channel=c.id;channelContext(root,row,c,item.id);
+  const title=add(row,'linked-channel-title');add(title,'channel-name',c.name);add(title,'visual-caption',c.type);trackSwitches(title,c);btn(title,'⋮',()=>{},'channel-dots').onclick=e=>contextMenu(root,e,commands(root,c,item.id));
+  if(c.type==='Playback'){playbackClips(root,row,item,c,t,assets);continue;}
+  if(c.type==='Audio'){const lane=add(row,'audio-record-lane',c.armed?'● Готов к записи · демо':'Audio · дорожка записи');continue;}
+  const lane=add(row,'patch-lane temporal-lane');for(const id of t.patchOrder)patchCard(root,lane,c,c.patches.find(p=>p.id===id),assets,item);
+  if(showDocument().viewRecordTracks&&hasRecordTrack(c))recordRow(list,c,t,item.id);
+ }
+ for(const lane of inner.querySelectorAll('.section-lane,.chord-lane,.temporal-lane,.backing-audio-lane,.audio-record-lane')){lane.style.width=`${item.bars*view.scale}px`;lane.style.marginLeft=`${view.lead*view.scale}px`;}
+ itemWidthGrip(container,item,view);itemOriginGrip(inner,container,item,view);
+}
+// Channel controls belong to the show, while clips, patches and takes belong to each item.
+function sharedChannels(root){
+ const doc=showDocument(),panel=add(root,'shared-track-panel');panel.setAttribute('aria-label','Общие каналы');
+ const top=add(panel,'shared-track-top');btn(top,'+ Track',()=>create(root),'channel-create');
+ add(panel,'shared-track-ruler');add(panel,'shared-track-label','Sections');add(panel,'shared-track-label','Chord Track');
+ for(const c of doc.channels){
+  const title=add(panel,'linked-channel-title shared-channel-title');title.dataset.channel=c.id;add(title,'channel-name',c.name);add(title,'visual-caption',c.type);trackSwitches(title,c);channelContext(root,title,c);
+  btn(title,'⋮',()=>{},'channel-dots').onclick=e=>contextMenu(root,e,commands(root,c));
+  if(doc.viewRecordTracks&&hasRecordTrack(c)){const record=add(panel,'linked-channel-title shared-record-title');record.dataset.parentChannel=c.id;add(record,'channel-name',`${c.name} · Record`);add(record,'visual-caption','Дорожка записи');trackSwitches(record,c,true);}
+ }
+ }
+function itemTracks(root,assets){
+ const doc=showDocument(),list=doc.setlists.find(s=>s.id===doc.activeSetlist);
+ const sequence=add(root,'setlist-timeline-items');
+ for(const entry of list.entries.filter(e=>e.itemId))renderItem(sequence,assets,doc.items.find(i=>i.id===entry.itemId),entry);
+ // No duplicated controls inside an item. File selection remains in the clip context menu / Playback block.
+ for(const label of sequence.querySelectorAll('.linked-channel-title,.item-parts-label'))label.remove();
+ const getGroups=()=>[...doc.channels.flatMap(c=>[
+  [document.querySelector('.shared-track-panel')?.querySelector(`[data-channel="${c.id}"]`),[...sequence.querySelectorAll(`.item-track[data-channel="${c.id}"]`)]],
+  ...(doc.viewRecordTracks&&hasRecordTrack(c)?[[document.querySelector('.shared-track-panel')?.querySelector(`[data-parent-channel="${c.id}"]`),[...sequence.querySelectorAll(`.record-track[data-parent-channel="${c.id}"]`)]]]:[])
+ ])];
+ const sync=()=>{if(!root.isConnected)return;for(const [label,rows] of getGroups()){if(!label)continue;const height=Math.max(100,...rows.map(row=>(row.firstElementChild?.offsetHeight||0)+1));label.style.height=`${height}px`;for(const row of rows)row.style.height=`${height}px`;}};
+ const observer=new ResizeObserver(sync);for(const [,rows] of getGroups())for(const row of rows)if(row.firstElementChild)observer.observe(row.firstElementChild);
+ const block=root.closest('.block');block._disposeTimeline=()=>observer.disconnect();requestAnimationFrame(()=>{sync();const side=document.querySelector('.visual-track-channels')?.closest('.block');if(side){let syncing=false;const follow=(from,to)=>{if(syncing)return;syncing=true;to.scrollTop=from.scrollTop;syncing=false;};block.onscroll=()=>follow(block,side);side.onscroll=()=>follow(side,block);side.scrollTop=block.scrollTop;}});
+ if(!list.entries.some(e=>e.itemId))add(sequence,'visual-caption','Сэтлист пуст. Добавьте items из Browser.');
+}
+
+export function renderChannelPanel(root,kind,assets){
+ if(kind==='channels'){sharedChannels(root);return;}
+ if(kind==='header'){const header=timelineTop(root,assets,enabled());recordView(header.querySelector('.timeline-header-left'));return;}
+ if(kind==='timeline'){itemTracks(root,assets);return;}
+ const channels=showDocument().channels;
+ root.classList.add('linked-channel-panel');
+ const createButton=kind==='playback'?null:btn(root,'+ Канал',()=>create(root),'channel-create');
+ if(!activeItem())add(root,'visual-caption','Выберите рабочий item в Setlist');
+ if(kind==='mixer'){
+  const tools=add(root,'mixer-tools');tools.append(createButton);recordView(tools);recordButton(tools,assets,enabled());btn(tools,'Stop',()=>window.dispatchEvent(new CustomEvent('live-transport-action',{detail:'transport.stop'})));const strips=add(root,'mixer-strips');
+  for(const c of channels){const strip=add(strips,'mixer-strip');strip.dataset.channel=c.id;channelContext(root,strip,c);
+   const header=add(strip,'strip-header');add(header,'channel-name',c.name);btn(header,'⋮',e=>{},'channel-dots').onclick=e=>contextMenu(root,e,commands(root,c));
+   strip.title=`${c.name} · ${c.type} · общая громкость канала для всех items и патчей`;strip.dataset.channelType=c.type;
+   const upper=add(strip,'strip-upper');
+   add(upper,'visual-caption',`${c.type} · Channel gain`);const inserts=add(upper,'strip-inserts');const p=c.patches.find(p=>p.id===trackFor(c)?.patchId);for(const plugin of p?.engine.plugins||[])btn(inserts,plugin,()=>patchDialog(root,c,p));
+   const sends=add(upper,'strip-sends');const send=btn(sends,'Sends…',()=>demoMenu(root,send,['Reverb bus','Delay bus','Добавить посыл…']));send.dataset.menu='send';
+   level(strip,c,'pan');
+   const controls=add(strip,'channel-controls');graphic(controls,assets,'controls/concept_pack/meter_empty','visual-meter','Демо meter');
+   if(enabled()){const wrap=add(controls,'linked-fader');level(wrap,c,'gain');wrap.querySelector('input').className='preview-fader';}else graphic(controls,assets,'controls/concept_pack/fader_micro_normal','visual-fader','MR Micro');
+   const output=add(strip,'gain-value visual-caption',valueText('gain',c.gain));output.dataset.channelReadout=c.id;output.dataset.kind='gain';
+   const switches=add(strip,'channel-switches');for(const [key,name] of [['mute','M'],['solo','S'],['armed','R'],['monitor','MON']]){const b=btn(switches,name,()=>run(root,()=>editShow(d=>{const ch=d.channels.find(x=>x.id===c.id);ch[key]=!ch[key];})));b.dataset.toggle=name;b.setAttribute('aria-pressed',String(c[key]));if(key==='armed'){b.disabled=!enabled()||!canRecord(c);b.setAttribute('aria-label',`Запись: ${c.name}`);b.classList.add('record-arm');b.classList.toggle('recording',transport.isRecording(c));}}
+   const out=btn(strip,'Main → Audio Out 1–2',()=>demoMenu(root,out,['Main','Audio Out 1–2','Audio Out 3–4']));out.dataset.menu='output';
+   if(showDocument().viewRecordTracks&&hasRecordTrack(c))recordStrip(root,strips,c,assets);
+  }
+ }else{
+  const list=add(root,kind==='timeline'?'channel-tracks':'linked-channel-list');
+  for(const c of channels.filter(c=>kind!=='playback'||c.type==='Playback')){
+   const row=add(list,'linked-channel-row');row.dataset.channel=c.id;channelContext(root,row,c);
+   const title=add(row,'linked-channel-title');add(title,'channel-name',c.name);add(title,'visual-caption',c.type);trackSwitches(title,c);btn(title,'⋮',()=>{},'channel-dots').onclick=e=>contextMenu(root,e,commands(root,c));
+   if(kind==='header'){const header=timelineTop(root,assets,enabled());recordView(header.querySelector('.timeline-header-left'));return;}
+ if(kind==='timeline'){const grid=add(row,'track-grid',c.type==='Audio'?'Audio · дорожка записи':c.type==='Instrument'?'Instrument · MIDI':`${c.type} · patch lane`);if(c.type==='Playback')graphic(grid,assets,'controls/concept_pack/waveform_audio_illustration','visual-wave','Демо waveform');}
+   if(kind==='playback'){const item=activeItem();const t=trackFor(c);if(t?.media){btn(row,t.media.name,()=>mediaDialog(root,item,c),'audio-file-name');btn(row,'Выбрать файл…',()=>chooseMedia(root,item,c),'patch-add');graphic(row,assets,'controls/concept_pack/waveform_audio_illustration','visual-wave','Демо waveform');}itemPlaybackLevel(row,c,item,t);}
+   if(kind==='inputs')selectors(row,c);
+   if(kind==='inputs'){const levels=add(row,'patch-levels');level(levels,c,'gain');level(levels,c,'pan');}
+  }
+  if(!list.childElementCount)add(list,'visual-caption','Нет каналов этого типа');
+ }
+}

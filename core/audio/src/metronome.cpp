@@ -4,7 +4,7 @@
 #include <stdexcept>
 
 namespace mrs::audio {
-void ClickSettings::validate() const {if(level<0||level>100||count_bars<0||count_bars>4)throw std::invalid_argument("invalid metronome settings");}
+void ClickSettings::validate() const {if(level<0||level>100||count_bars<0||count_bars>4||output_left < -1||output_left>127||output_right < -1||output_right>127||(output_left<0&&output_right>=0)||(output_left>=0&&output_left==output_right))throw std::invalid_argument("invalid metronome settings");}
 void Metronome::prepare(const TimeMap& map,std::uint32_t rate){
     map.validate();if(rate<8000||rate>768000)throw std::invalid_argument("invalid metronome rate");
     tempos_.clear();meters_.clear();double frame=0;Tick previous=0;double per=0;

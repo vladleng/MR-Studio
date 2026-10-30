@@ -78,6 +78,7 @@ struct ParameterChange {
 };
 enum class ProcessorFormat { native, vst3 };
 struct PluginState {
+    static constexpr std::size_t maximum_bytes=16u*1024u*1024u;
     std::string class_id; // VST3 FUID: exactly 32 hexadecimal characters
     std::vector<std::byte> component, controller; // opaque, off-thread ownership
     bool operator==(const PluginState&) const = default;

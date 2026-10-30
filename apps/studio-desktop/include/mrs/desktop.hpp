@@ -89,6 +89,9 @@ public:
     Id add_instrument_track(std::string name);
     Id add_instrument_track(std::string name, NativeInsert instrument);
     void set_midi_input(const Id&,std::string port,int channel=-1,bool monitor=true);
+    // Control-thread projection of show-owned channels. Unchanged hosted
+    // processors retain their identity; the entire graph/model edit rolls back.
+    void update_live_channels(const std::vector<Id>& owned, std::vector<Track> channels);
     void set_midi_output(const Id&,std::string port,int channel=-1);
     std::string midi_output_status(const Id&) const;
     void reconnect_midi();
@@ -125,6 +128,30 @@ public:
     void cancel_wav_import();
     struct WavImportStatus {bool busy{};float progress{};std::uint64_t revision{};std::string message;};
     WavImportStatus wav_import_status() const;
+    // Non-RT, bounded performance media preparation; independent of active project revision.
+    struct PlaybackPreparation;
+    struct PlaybackRegion { Id id; Sample start{}, length{1}, offset{}; };
+    struct PlaybackStem { Track::Mix mix; std::vector<int> outputs; double begin{}, end{-1}; std::optional<std::vector<PlaybackRegion>> regions{}; };
+    struct PlaybackLayout { TimeMap time; std::vector<Chord> chords; std::vector<ArrangerSection> sections;
+        std::vector<PlaybackStem> stems; audio::ClickSettings click;
+        std::optional<PerformancePlan> performance{}; std::uint64_t token{}; bool extend_to_audio{};
+        // #300/#302: control-thread-only persistent channels; no concurrent staging graph owns these processors.
+        std::vector<Id> live_tracks{}; };
+    std::shared_ptr<PlaybackPreparation> prepare_playback(const std::vector<std::filesystem::path>&);
+    WavImportStatus playback_preparation(const std::shared_ptr<PlaybackPreparation>&);
+    void cancel_playback(const std::shared_ptr<PlaybackPreparation>&);
+    std::vector<std::pair<std::uintmax_t,std::filesystem::file_time_type>> playback_stamps(const std::shared_ptr<PlaybackPreparation>&) const;
+    void activate_playback(const std::shared_ptr<PlaybackPreparation>&, const PlaybackLayout&);
+    void stage_playback(const std::shared_ptr<PlaybackPreparation>&, const PlaybackLayout&,std::uint64_t expected);
+    bool cancel_staged_playback();
+    std::uint64_t staged_playback_token() const {return staged_playback_?staged_playback_->token:0;}
+    std::uint64_t playback_token() const {return performance_token_;}
+    void poll_playback_transition(){poll_staged_playback();}
+    void set_performance_plan(PerformancePlan);
+    const std::vector<Clip>& playback_sources() const;
+    void set_playback_regions(const std::vector<PlaybackStem>&);
+    void validate_playback_regions(const std::vector<PlaybackStem>&);
+
     std::vector<Id> import_midi(const std::vector<std::filesystem::path>&,std::optional<Id> target={},Tick start=0);
     bool history_preserves_plugins(bool redo) const;
     bool history_changes_only_inputs(bool redo) const; // permits frontend editor retention before Undo/Redo
@@ -171,6 +198,7 @@ public:
     Id merge_midi_clips(std::vector<Id>);
     std::vector<Id> copy_clips(std::vector<Id>,Sample delta,int track_delta=0);
     void set_time_map(TimeMap);
+    void set_musical_data(TimeMap,std::vector<Chord>,std::vector<ArrangerSection>,std::vector<Marker> = {});
     void set_meters(const TimeMap& expected,std::vector<MeterPoint>);
     void set_tempos(const TimeMap& expected,std::vector<TempoPoint>);
     std::vector<Id> transform_sections(const std::vector<ArrangerSection>&,Tick delta,bool copy);
@@ -252,6 +280,7 @@ public:
     void preview_inserts(std::optional<Id>, const std::vector<NativeInsert>&);
     void cancel_insert_preview();
     std::uint64_t insert_generation() const {return insert_generation_;}
+    std::uint64_t plugin_edit_revision() const {return plugin_edit_revision_;}
     void transfer_insert(std::optional<Id> source,const Id& slot,std::optional<Id> destination,std::size_t boundary,bool move);
     bool open_plugin_editor(std::optional<Id>,const Id&,void*,int&,int&);
     void close_plugin_editors();
@@ -262,6 +291,7 @@ public:
     void set_plugin_parameter(std::optional<Id>,const Id&,std::uint32_t,float);
     NativeInsert capture_insert(std::optional<Id>,const Id&);
     bool preview_mix(std::optional<Id>, Track::Mix, float master_gain);
+    bool preview_mixes(const std::vector<std::pair<Id, Track::Mix>>&, float master_gain);
     bool preview_send_gain(const Id& source,const Id& bus,float gain);
     void cancel_mix_preview();
     void connect(std::unique_ptr<audio::IAudioDevice>, audio::DeviceConfig);
@@ -351,6 +381,7 @@ private:
     void poll_reverbs();
     const Project* preparing_project_{}; // Control-thread candidate, never published to project observers.
     std::uint64_t insert_generation_{};
+    std::uint64_t plugin_edit_revision_{};
     std::map<std::string,std::shared_ptr<processing::PreparedGraph>> staged_insert_graphs_;
     void publish_inserts();
     void capture_insert_state(Project&,std::optional<Id> authoritative={},bool callbacks_stopped=false);
@@ -404,6 +435,18 @@ private:
     void commit_wav_import(const std::shared_ptr<PreparedWavImport>&,std::optional<Id>,Sample);
     void validate_wav_import(std::size_t,std::optional<Id>,Sample) const;
     void poll_wav_import();
+    std::vector<std::shared_ptr<PlaybackPreparation>> playback_preparations_;
+    void configure_playback_regions(const std::vector<PlaybackStem>&,bool publish);
+    Id playback_source_project_;
+    std::vector<Clip> playback_sources_;
+    void install_playback(Project,std::map<std::string,std::shared_ptr<const audio::AudioData>>,
+                          std::shared_ptr<PreparedWavImport>,audio::ClickSettings,std::optional<PerformancePlan>,
+                          std::uint64_t,bool staged=false,std::vector<Id> live_tracks={});
+    void activate_playback_impl(const std::shared_ptr<PlaybackPreparation>&,const PlaybackLayout&,bool);
+    void poll_staged_playback();
+    std::optional<PerformancePlan> performance_plan_;
+    std::uint64_t performance_token_{};
+
     void stop_wav_imports();
     struct CachedAsset {
         std::shared_ptr<std::atomic<bool>> cancel{std::make_shared<std::atomic<bool>>(false)};
@@ -412,6 +455,16 @@ private:
         std::optional<audio::Waveform> peaks;
     };
     std::map<std::string,CachedAsset> assets_;
+    struct StagedPlayback {
+        std::shared_ptr<audio::AudioEngine::PreparedTransition> transition;
+        Project project; std::vector<Clip> sources;
+        std::map<std::string,CachedAsset> assets;
+        std::vector<std::shared_ptr<PreparedWavImport>> media;
+        std::vector<Id> tracks;std::map<std::string,InsertRuntime> inserts;
+        std::shared_ptr<processing::PreparedGraph> prepared;
+        audio::ClickSettings click;std::optional<PerformancePlan> performance;std::uint64_t token{};
+    };
+    std::shared_ptr<StagedPlayback> staged_playback_;
     struct StretchJob;
     std::shared_ptr<StretchJob> stretch_job_;
     std::vector<std::shared_ptr<StretchJob>> retired_stretch_;

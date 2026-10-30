@@ -132,7 +132,11 @@ void NativeInsert::validate() const {
     if(kind==InsertKind::reverb||wav_core(kind))reverb.validate();
     if(wav_core(kind)){require(reverb.channels<=2&&reverb.frames<=reverb.sample_rate,"Cab requires mono/stereo <=1s");require(cab_collection_id.size()<=4096&&cab_variant_id.size()<=4096,"Invalid Cab identity");require(std::isfinite(ir.mix)&&ir.mix>=0&&ir.mix<=1&&std::isfinite(ir.low_cut)&&ir.low_cut>=20&&ir.low_cut<=20000&&std::isfinite(ir.high_cut)&&ir.high_cut>=20&&ir.high_cut<=20000&&ir.low_cut<ir.high_cut,"Invalid Cab controls");}
     for (const auto& b : bands) require(std::isfinite(b.frequency) && b.frequency>=20 && b.frequency<=20000 && std::isfinite(b.gain) && b.gain>=-24 && b.gain<=24 && std::isfinite(b.q) && b.q>=0.1f && b.q<=10,"invalid EQ band");
-    require(component_state.size()<=1024*1024 && controller_state.size()<=1024*1024 && parameters.size()<=4096,"plugin state budget exceeded");
+    // VST3 instruments may serialize multi-megabyte preset/component state.
+    // Keep other insert types at the historical 1 MiB budget.
+    constexpr std::size_t vst3StateBudget=16u*1024u*1024u;
+    const auto stateBudget=kind==InsertKind::vst3?vst3StateBudget:1024u*1024u;
+    require(component_state.size()<=stateBudget && controller_state.size()<=stateBudget && parameters.size()<=4096,"plugin state budget exceeded");
     if (kind==InsertKind::vst3) {
         require(!plugin_path.empty() && plugin_path.size()<=32768 && plugin_name.size()<=4096 && class_id.size()==32 && class_id.find_first_not_of("0123456789abcdefABCDEF")==std::string::npos,"invalid VST3 identity");
         for (std::size_t i=0;i<parameters.size();++i) { const auto& p=parameters[i]; require(std::isfinite(p.value) && p.value>=0 && p.value<=1,"invalid VST3 parameter"); for(std::size_t j=0;j<i;++j) require(p.id!=parameters[j].id,"duplicate VST3 parameter"); }

@@ -20,7 +20,7 @@ inline void drawPeakEnvelope(juce::Graphics& g,std::uint32_t channels,Query quer
             const auto peak=query(begin,begin+samplesPerPixel,channel);
             const float top=centre-std::clamp(peak.maximum,-1.f,1.f)*scale,bottom=centre-std::clamp(peak.minimum,-1.f,1.f)*scale;
             const float middle=(top+bottom)*.5f;
-            return std::pair<float,float>{std::min(top,middle-.5f),std::max(bottom,middle+.5f)};};
+            return std::pair<float,float>{(std::min)(top,middle-.5f),(std::max)(bottom,middle+.5f)};};
         juce::Path envelope;envelope.startNewSubPath(static_cast<float>(first),bounds(first).first);
         for(int x=first+1;x<=last;++x)envelope.lineTo(static_cast<float>(x),bounds(x).first);
         for(int x=last;x>=first;--x)envelope.lineTo(static_cast<float>(x),bounds(x).second);
@@ -38,10 +38,10 @@ inline void drawRecordingWaveform(juce::Graphics& g,const mrs::audio::RecordPrev
     auto query=[&](double a,double b,std::uint32_t channel){
         if(b<=0||a>=wave.frames)return mrs::audio::Peak{};
         const auto count=wave.peaks.size()/wave.channels;
-        const auto first=std::min(count-1,static_cast<std::size_t>(std::max(0.,a)/wave.bin_frames));
-        const auto last=std::min(count,static_cast<std::size_t>(std::ceil(std::min(b,static_cast<double>(wave.frames))/wave.bin_frames)));
+        const auto first=(std::min)(count-1,static_cast<std::size_t>((std::max)(0.,a)/wave.bin_frames));
+        const auto last=(std::min)(count,static_cast<std::size_t>(std::ceil((std::min)(b,static_cast<double>(wave.frames))/wave.bin_frames)));
         auto peak=wave.peaks[first*wave.channels+channel];
-        for(auto bin=first+1;bin<last;++bin){const auto other=wave.peaks[bin*wave.channels+channel];peak.minimum=std::min(peak.minimum,other.minimum);peak.maximum=std::max(peak.maximum,other.maximum);}
+        for(auto bin=first+1;bin<last;++bin){const auto other=wave.peaks[bin*wave.channels+channel];peak.minimum=(std::min)(peak.minimum,other.minimum);peak.maximum=(std::max)(peak.maximum,other.maximum);}
         return peak;};
     drawPeakEnvelope(g,wave.channels,query,area,sourceOffset,samplesPerPixel);
 }

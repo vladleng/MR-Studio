@@ -5,6 +5,7 @@
 #include "SendLevel.h"
 #include "Settings.h"
 #include "Playhead.h"
+#include "LiveDocument.h"
 #include <mrs/desktop.hpp>
 #include <mrs/midi_import.hpp>
 #include <mrs/diagnostics.hpp>
@@ -17,6 +18,7 @@
 #include <thread>
 
 namespace ui {
+struct LivePreflightJob;
 namespace kit { class MRNativeParameterHost; }
 class Desktop;
 class Arrangement;
@@ -27,6 +29,7 @@ class Browser;
 class LibraryFoundationPanel;
 class FxPanel;
 class ProjectHome;
+class LiveWorkspace;
 class EditorWindow final : public juce::DocumentWindow {
 public:
     EditorWindow(juce::String,juce::Component*,bool show=true);
@@ -38,7 +41,7 @@ public:
 class Desktop final : public juce::Component, private juce::Timer,
                       public juce::MenuBarModel, public juce::DragAndDropContainer, public juce::DragAndDropTarget {
 public:
-    explicit Desktop(bool testing=false,bool startAtHome=false);
+    explicit Desktop(bool testing=false,bool startAtHome=false,bool liveApplication=false);
     ~Desktop() override;
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -68,9 +71,99 @@ public:
     void renameTrack(mrs::Id);
     void editClipStretch(mrs::Id);
     void renameClips(std::vector<mrs::Id>);
-    void confirmDiscard(std::function<void()>);
+    void confirmDiscard(std::function<void()>,bool songOnly=false);
     void openFile(const juce::File&);
     void saveFile(const juce::File&);
+    void reportSaveError(const juce::String&);
+    void newLiveShow();
+    void createLive(const juce::File&);
+    void launchLive(const juce::File&,bool create);
+    bool standaloneLive{};
+    std::function<void(const juce::File&,bool)> liveLaunchOverride;
+    void selectLiveProject(int);
+    void addLiveProject(const juce::File&);
+    void importLiveShow(const juce::File&);
+    void selectLiveItem(const juce::String&, const juce::String &entry = {});
+    void attachLivePlayback(const juce::String&,const juce::File&, const juce::String &stem = {});
+    void addLivePlaybackStems(const juce::String&, const juce::Array<juce::File>&);
+    void removeLivePlaybackStem();
+    void setLivePlaybackOutputs(const std::vector<int>&);
+    void repairLivePlaybackOutputs(const juce::String&,const juce::String&);
+    void requireLiveRepair(const juce::String&,bool global=false);
+    void commitLiveRelink(const juce::String&,const juce::String&,const juce::File&);
+    void invalidateLivePlayback(const juce::String&);
+    void pollLivePreflightJobs();
+    void setLiveCue(bool);
+    void setLiveAudio(double gain, mrs::audio::ClickSettings);
+    juce::String liveAudioKey;
+    std::size_t livePlaybackIndex() const;
+    juce::String livePlaybackStem, livePlaybackMediaKey, livePlaybackDeviceKey;
+    void setLivePlaybackMix(double,bool,bool);
+    void setLivePlaybackStemMix(const juce::String&, const juce::String&, double, bool, bool);
+    void setLiveItemPlaybackGain(double);
+    void setLiveChannelMix(const juce::String&, double, double, bool, bool);
+    void previewLiveChannelMix(const juce::String&, double, double, bool, bool);
+    // #302 A2: show-owned channels project to stable tracks in one shared Core.
+    void startLiveAudioInput(int physicalInput, const juce::String& showChannel = {}, bool stereo = false);
+    void releaseLiveInput(const juce::String& showChannel = {});
+    void activateLiveChannel(const juce::String& showChannel);
+    void openLiveInsertEditor(const juce::String& showChannel, const mrs::Id& slot);
+    std::optional<mrs::Id> liveInputTrack(const juce::String& showChannel = {}) const;
+    std::vector<mrs::Id> liveInputTracks() const;
+    std::map<juce::String,mrs::Id> liveChannelTracks;
+    std::uint64_t liveSavedPluginEdits{};
+    void captureLiveInputs(juce::var& state);
+    void reconcileLiveInputs(const juce::var& state);
+    void convertLegacyLiveInstrument(const juce::String&);
+    void configureLiveInput(const juce::String&, int input, bool stereo, const std::vector<int>& outputs);
+    void configureLiveMidi(const juce::String&, const juce::String& port, int channel, const std::vector<int>& outputs);
+    void setLiveInputMonitor(const juce::String&, bool);
+    void setLiveInputEffects(const juce::String&, std::vector<mrs::NativeInsert>);
+    void setLivePlaybackTrim(double startSeconds, double endSeconds);
+    void syncLivePlayback();
+    bool livePlaybackReady() const;
+    bool liveTransportReady() const;
+    juce::String livePlaybackItem, livePlaybackFile, livePlaybackMixKey, livePlaybackRegionsKey, livePlaybackError, liveMusicalKey;
+    bool livePlaybackLoading{};
+    std::uint64_t liveTokenSerial{},liveRuntimeToken{},liveAutoToken{};
+    juce::String liveAutoItem,liveAutoEntry,liveAutoKey,livePerformanceKey;
+    struct LivePreparedItem {juce::String id,key;std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> media;};
+    std::vector<LivePreparedItem> livePreparedItems;
+    std::vector<std::shared_ptr<LivePreflightJob>> livePreflightJobs;
+    std::uint64_t liveSourceCheckEpoch{};
+    std::shared_ptr<mrs::IProjectStore> livePlaybackStore;
+    juce::String liveCurrentEntry, livePendingEntry;
+    // Transient Browser inspection: independent of show selection, transport and Undo.
+    juce::String liveBrowserItem;
+    std::uint64_t liveSelectionRevision{};
+    juce::String livePendingItem, liveFailedPlaybackKey, liveNextKey, liveNextItem, liveNextStatus, livePreloadError;
+    std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> prepareLivePlayback(const juce::String&);
+    void syncLivePreload();
+    void stepLiveItem(int direction);
+    void cancelLiveSwitch();
+
+    void bindLiveItem(const juce::String&,const juce::File&);
+    void prepareLiveInterface(bool saved);
+    void updateLiveDirty();
+    void editLiveInterface(const juce::String&,std::function<void(juce::var&)>,bool coalesceTyping=false,bool captureInputs=false);
+    void setLiveItemNotes(const juce::String&,const juce::String&);
+    juce::String liveTypingLabel;
+    juce::uint32 liveTypingAt{};
+    void applyLiveInterface(const juce::var&);
+    void undoLiveInterface(bool redo=false);
+    juce::UndoManager liveUndo{32*1024*1024,1};
+    std::optional<LiveDocument> liveSavedSnapshot;
+    std::uint64_t liveUiRevision{}, liveTimelineFocusRevision{}, liveDocumentGeneration{};
+    bool liveShowEditing{};
+    juce::File documentFile() const;
+    bool songDirty() const;
+    bool transientLiveRuntime() const;
+    bool documentDirty() const{return liveDirty||songDirty()||(liveDocument&&!liveChannelTracks.empty()&&liveSavedPluginEdits!=app.plugin_edit_revision());}
+    std::optional<std::pair<std::uint64_t,std::uint64_t>> liveEmptyRevision;
+    std::optional<LiveDocument> liveDocument;
+    juce::File liveFile;
+    bool liveDirty{},liveLayoutActive{};
+    std::unique_ptr<LiveWorkspace> liveWorkspace;
     void showProjectHome(bool);
     bool projectHomeVisible() const{return homeVisible;}
     bool canReturnToProject() const{return projectSessionStarted;}
@@ -521,6 +614,8 @@ void trackFolderSmoke();
 void j2Smoke(Desktop&,const juce::File& fixture={});
 void j2PluginSmoke(Desktop&,const juce::File&);
 void j3Smoke(Desktop&);
+void projectHomeSmoke();
+void liveInterfaceSmoke(const juce::File&);
 void controllerScrollSmoke();
 void noteEditorLayoutSmoke();
 void midi4aSmoke(Desktop&,const juce::File&);

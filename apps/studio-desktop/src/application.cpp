@@ -29,6 +29,15 @@ bool channel_color_only(Project a,const Project& b){
     for(std::size_t i=0;i<a.tracks.size();++i)a.tracks[i].color=b.tracks[i].color;
     return a==b;
 }
+audio::ClickSettings mapped_click(audio::ClickSettings settings, const std::vector<int>& outputs) {
+    for (auto* channel : {&settings.output_left, &settings.output_right}) {
+        if (*channel < 0) continue;
+        const auto found = std::find(outputs.begin(), outputs.end(), *channel);
+        require(found != outputs.end(), "Click output is unavailable; enable it in Audio settings");
+        *channel = static_cast<int>(found - outputs.begin());
+    }
+    return settings;
+}
 void configure_count(audio::RenderGraph& graph,const Project& project,const audio::ClickSettings& click,Sample sample){
     if(!click.count_bars)return;
     const Timeline timeline(project.time,project.sample_rate);const auto tick=timeline.to_ticks(sample);const auto musical=timeline.musical_position(tick);
@@ -212,7 +221,7 @@ void Application::replace(persistence::ProjectDocument next) {
     auto graphs = std::make_shared<processing::GraphStore>(next.graph);
     const auto ai_session = new_id();
     if(ai_worker_)ai_worker_->cancel_all();
-    disconnect();
+    disconnect();performance_plan_.reset();performance_token_=0;staged_playback_.reset();
     stop_stretch();
     engine_->prepare({next.project.sample_rate,0,2,8192},{});
     auto transport = std::make_shared<audio::EngineTransport>(engine_,Timeline(next.project.time,next.project.sample_rate));
@@ -948,7 +957,192 @@ void Application::set_send_bypassed(const Id& id,std::size_t index,bool bypass) 
     auto sends=t->sends;sends[index].bypass=bypass;
     services_.projects->execute(SetTrackSends{id,std::move(sends)});cancel_mix_preview();
 }
+// Performance projection, not a user project edit. Preparation happens while the old
+// graph owns its immutable assets; only stop/quiesce/prepare/start touches the device.
+void Application::install_playback(Project candidate,
+    std::map<std::string,std::shared_ptr<const audio::AudioData>> decoded,
+    std::shared_ptr<PreparedWavImport> media,audio::ClickSettings click,std::optional<PerformancePlan> performance,
+    std::uint64_t token,bool staged,std::vector<Id> live_tracks) {
+    require(workspace_==Workspace::live&&path_.empty(),"Playback handoff requires a Live runtime");
+    require_not_recording();
+    if(!live_tracks.empty())
+        require(device_ && device_config_ && audio_name_!="Offline clock (no sound)" &&
+                audio_name_!="Disconnected" && audio_running(),
+                "Live Input + Playback requires a connected physical device; offline handoff is disabled");
+    if(!device_||!device_config_){
+        // Editing/preparing a show remains available after explicit Disconnect.
+        // Reuse the normal Core offline clock; never reopen a live hardware handle here.
+        const auto savedClick=click_settings_;click_settings_={};
+        try{start_empty_clock();}catch(...){click_settings_=savedClick;throw;}
+        click_settings_=savedClick;
+    }
+    const auto previous=services_.projects->state().project;
+    const bool keepLive=!live_tracks.empty();
+    const auto retainedTrack=[&](const Id& id){return std::find(live_tracks.begin(),live_tracks.end(),id)!=live_tracks.end();};
+    if(keepLive) {
+        // Manual quiescent-only bridge. The insert graph is borrowed by the new
+        // project only after the device and ahead workers have stopped.
+        require(!staged && engine_->state().playback!=PlaybackState::playing,
+                "Stop Playback before switching items with Live Input; seamless staging awaits #301");
+        require(live_tracks.size()<=64,"Too many persistent Live channels");
+        for(std::size_t i=0;i<live_tracks.size();++i) {
+        const auto& live_track=live_tracks[i];
+        require(std::find(live_tracks.begin(),live_tracks.begin()+i,live_track)==live_tracks.begin()+i,
+                "Duplicate persistent Live channel");
+        const auto anchor=std::find_if(previous->tracks.begin(),previous->tracks.end(),
+            [&](const Track& track){return track.id==live_track;});
+        require(anchor!=previous->tracks.end() &&
+                ((anchor->kind==TrackKind::audio && anchor->input>=0) || anchor->kind==TrackKind::instrument),
+                "Live Input anchor must be a configured audio or instrument channel");
+        require(anchor->kind!=TrackKind::audio || !anchor->input_monitor || (std::find(device_config_->inputs.begin(),device_config_->inputs.end(),anchor->input)
+                    !=device_config_->inputs.end() &&
+                (!anchor->input_stereo ||
+                 std::find(device_config_->inputs.begin(),device_config_->inputs.end(),anchor->input+1)
+                    !=device_config_->inputs.end())),
+                "Physical Live Input is no longer assigned to active ASIO input streams");
+        require(std::none_of(candidate.tracks.begin(),candidate.tracks.end(),
+                [&](const Track& track){return track.id==live_track;}),
+                "Live Input anchor collides with Playback track");
+        candidate.tracks.push_back(*anchor); // stable VST3 IDs and hardware/input routing
+        }
+    }
+    require(previous->master_inserts.empty()&&previous->ara_bindings.empty()&&
+        std::all_of(previous->tracks.begin(),previous->tracks.end(),[&](const auto& track){
+            return retainedTrack(track.id) || (track.kind==TrackKind::audio &&
+                 track.inserts.empty()&&!track.input_monitor);
+        }),"Prepared Playback handoff does not replace unrelated live instruments/plugins");
+    require(std::all_of(graphs_->state().graph->nodes.begin(),graphs_->state().graph->nodes.end(),[](const auto& node){return node.format==processing::ProcessorFormat::native;}),"Prepared Playback handoff does not replace hosted graph plugins");
+    candidate.validate();click.validate();const auto config=*device_config_;
+    require(candidate.sample_rate==config.sample_rate,"Prepared Playback rate no longer matches the device");
+    validate_hardware(candidate,config);(void)mapped_click(click,config.outputs);
+    auto head=engine_->state();require(!head.count_remaining,"End count-in before switching items");
+    auto nextProjects=std::make_shared<ProjectStore>(candidate);
+    auto nextTransport=std::make_shared<audio::EngineTransport>(engine_,Timeline(candidate.time,candidate.sample_rate));
+    auto nextMusical=std::make_unique<MusicalTimeline>(Services{nextProjects,nextTransport},[this]{require_not_recording();require(!engine_->state().count_remaining,"End count-in before navigating");});
+    auto nextObserver=nextProjects->subscribe([this](const ProjectState&){if(ai_worker_)ai_worker_->cancel_all();});
+    auto nextSession=new_id();
+    const auto oldServices=services_;const auto oldTransport=transport_;const auto oldClick=click_settings_;
+    const auto oldApplied=applied_mix_revision_;auto oldPrepared=std::move(prepared_);
+    auto oldAssets=std::move(assets_);auto oldStaging=std::move(import_staging_);
+    auto oldTracks=std::move(mixer_tracks_);auto oldInserts=std::move(insert_runtime_);
+    std::unique_ptr<MusicalTimeline> oldMusical;
+    std::optional<audio::RenderGraph> rollbackGraph;
+    bool stopped=false,published=false;
+    try {
+        // The default WAV-only fast path remains unchanged. With a live anchor
+        // this stop/quiesce MUST precede reusing the mutable PreparedGraph.
+        if(keepLive) {
+            device_->stop();stopped=true;engine_->quiesce();
+            head=engine_->state();rollbackGraph=engine_->stopped_graph();
+            const auto master=oldInserts.find(std::string{});
+            require(master!=oldInserts.end(),
+                    "Prepared Live Input insert runtime is missing");
+            for(const auto& id:live_tracks) {
+                const auto retained=oldInserts.find(id.value);
+                require(retained!=oldInserts.end(),"Prepared Live channel insert runtime is missing");
+                insert_runtime_.emplace(id.value,retained->second);
+            }
+            insert_runtime_.emplace(std::string{},master->second);
+            // WAV stems have no inserts: they still reserve ordered Core slots.
+            for(const auto& track:candidate.tracks)
+                if(!retainedTrack(track.id))insert_runtime_.emplace(track.id.value,InsertRuntime{});
+        }
+        for(auto& [source,data]:decoded)cache_asset(source,std::move(data));
+        import_staging_.push_back(std::move(media));
+        click_settings_=click;preparing_project_=&candidate;
+        auto graph=render(config,keepLive); // one shared graph; plugin identity retained
+        preparing_project_=nullptr;
+        graph.performance=performance;graph.performance_token=token;
+        if(staged){
+            auto pending=std::make_shared<StagedPlayback>();
+            pending->transition=engine_->prepare_transition(std::move(graph),performance_token_);
+            pending->project=std::move(candidate);pending->assets=std::move(assets_);pending->media=std::move(import_staging_);
+            pending->tracks=std::move(mixer_tracks_);pending->inserts=std::move(insert_runtime_);pending->prepared=std::move(prepared_);
+            pending->click=click;pending->performance=std::move(performance);pending->token=token;
+            require(engine_->stage_transition(pending->transition),"Playback changed while staging transition");
+            staged_playback_=std::move(pending);
+            assets_=std::move(oldAssets);import_staging_=std::move(oldStaging);mixer_tracks_=std::move(oldTracks);
+            insert_runtime_=std::move(oldInserts);prepared_=std::move(oldPrepared);click_settings_=oldClick;applied_mix_revision_=oldApplied;return;
+        }
+        if(!stopped) {device_->stop();stopped=true;engine_->quiesce();
+                      head=engine_->state();rollbackGraph=engine_->stopped_graph();}
+        // Scalar mixer controls may be newer than the graph's original construction.
+        rollbackGraph->master_gain=previous->master_gain;
+        for(std::size_t i=0;i<previous->tracks.size();++i)rollbackGraph->mixer[i]=previous->tracks[i].mix;
+        auto initial=audio::RealtimeState{};initial.playback=PlaybackState::stopped;
+        for(const auto& track:candidate.tracks)if(track.kind==TrackKind::instrument) {
+            const auto& runtime=insert_runtime_.at(track.id.value);
+            if(runtime.graph)runtime.graph->panic();
+        }
+        engine_->prepare({config.sample_rate,static_cast<std::uint32_t>(config.inputs.size()),
+            static_cast<std::uint32_t>(config.outputs.size()),8192,config.buffer_frames,config.processing_workers},std::move(graph),initial);
+        oldMusical=std::move(musical_);services_={nextProjects,nextTransport};transport_=nextTransport;musical_=std::move(nextMusical);published=true;
+        device_->start(); // same open hardware handle: no close/open/enumeration on handoff
+    } catch (...) {
+        const auto error=std::current_exception();preparing_project_=nullptr;
+        if(stopped){try{device_->stop();}catch(...){}engine_->quiesce();}
+        for(auto& [source,cached]:assets_){(void)source;*cached.cancel=true;}
+        assets_=std::move(oldAssets);import_staging_=std::move(oldStaging);
+        mixer_tracks_=std::move(oldTracks);insert_runtime_=std::move(oldInserts);
+        prepared_=std::move(oldPrepared);applied_mix_revision_=oldApplied;click_settings_=oldClick;
+        if(published){services_=oldServices;transport_=oldTransport;musical_=std::move(oldMusical);}
+        if(stopped&&rollbackGraph){
+            auto restore=head;if(restore.playback==PlaybackState::playing)restore.playback=PlaybackState::paused;
+            try {
+                engine_->prepare({config.sample_rate,static_cast<std::uint32_t>(config.inputs.size()),
+                    static_cast<std::uint32_t>(config.outputs.size()),8192,config.buffer_frames,config.processing_workers},std::move(*rollbackGraph),restore);
+                if(head.playback==PlaybackState::playing)require(engine_->enqueue({audio::ControlKind::play}),"Cannot resume previous Playback");
+                device_->start();
+            }catch(...){disconnect();throw std::runtime_error("Playback handoff rolled back; audio could not restart");}
+        }else if(stopped){try{device_->start();}catch(...){disconnect();}}
+        std::rethrow_exception(error);
+    }
+    performance_plan_=std::move(performance);performance_token_=token;
+    // Commit application metadata only after the prepared graph/device successfully started.
+    for(auto& [source,cached]:oldAssets){(void)source;*cached.cancel=true;}
+    cancel_wav_import();if(ai_worker_)ai_worker_->cancel_all();
+    ai_project_changed_=std::move(nextObserver);
+    ai_session_=std::move(nextSession);++*ai_permission_revision_;ai_receipts_.clear();ai_operations_.clear();ai_applied_operations_.clear();
+    document_.project=std::move(candidate);document_.mixer.clear();
+    armed_.reset();armed_tracks_.clear();owned_media_.clear();waveform_error_.clear();
+    applied_mix_revision_=nextProjects->state().revision;saved_project_revision_=saved_graph_revision_=0;unsaved_=true;
+    try{transport_->poll();musical_->refresh();}catch(const std::exception&){/* UI poll retries projections; audio/model already committed. */}
+}
+bool Application::cancel_staged_playback(){
+    if(!staged_playback_)return true;
+    if(engine_->cancel_transition(staged_playback_->transition)){staged_playback_.reset();return true;}
+    poll_staged_playback();return !staged_playback_;
+}
+void Application::poll_staged_playback(){
+    if(!staged_playback_)return;
+    const auto phase=engine_->transition_phase(staged_playback_->transition);
+    if(phase==audio::AudioEngine::TransitionPhase::cancelled){staged_playback_.reset();return;}
+    if(phase!=audio::AudioEngine::TransitionPhase::adopted)return;
+    auto& next=*staged_playback_;
+    // Construct control-side services before retiring the outgoing render state.
+    auto projects=std::make_shared<ProjectStore>(next.project);
+    auto transport=std::make_shared<audio::EngineTransport>(engine_,Timeline(next.project.time,next.project.sample_rate));
+    auto musical=std::make_unique<MusicalTimeline>(Services{projects,transport},[this]{require_not_recording();});
+    auto observer=projects->subscribe([this](const ProjectState&){if(ai_worker_)ai_worker_->cancel_all();});
+    require(engine_->acknowledge_transition(next.transition),"Playback transition acknowledgement failed");
+    for(auto& [key,value]:assets_){(void)key;*value.cancel=true;}
+    assets_=std::move(next.assets);import_staging_=std::move(next.media);mixer_tracks_=std::move(next.tracks);
+    insert_runtime_=std::move(next.inserts);prepared_=std::move(next.prepared);click_settings_=next.click;
+    performance_plan_=std::move(next.performance);performance_token_=next.token;
+    services_={projects,transport};transport_=std::move(transport);musical_=std::move(musical);ai_project_changed_=std::move(observer);
+    playback_sources_=std::move(next.sources);playback_source_project_=next.project.id;
+    document_.project=std::move(next.project);document_.mixer.clear();armed_.reset();armed_tracks_.clear();owned_media_.clear();
+    applied_mix_revision_=projects->state().revision;staged_playback_.reset();
+    transport_->poll();musical_->refresh();
+}
+void Application::set_performance_plan(PerformancePlan plan){
+    plan.validate();require_not_playing();require_not_recording();const auto expected=performance_token_;
+    require(cancel_staged_playback()&&expected==performance_token_,"Playback transition in progress; retry policy edit");
+    auto previous=performance_plan_;performance_plan_=std::move(plan);
+    try{rebuild_audio(true);}catch(...){performance_plan_=std::move(previous);throw;}
+}
 void Application::rebuild_audio(bool retain_inserts) {
+    require(cancel_staged_playback(),"Playback transition in progress; retry edit");
     if (!device_ || !device_config_) return;
     // A freshly opened offline document can deliberately have no plugin runtime
     // yet. Bootstrap that runtime once; subsequent I/R transitions retain it.
@@ -1163,6 +1357,102 @@ Id Application::add_instrument_track(std::string name,NativeInsert instrument) {
     }
     sync_arm();publish_midi_routes();return id;
 #endif
+}
+void Application::update_live_channels(const std::vector<Id>& owned,std::vector<Track> channels) {
+    require(workspace_==Workspace::live && path_.empty(),"Live channels require a show runtime");
+    require_not_playing();require_not_recording();
+    require(device_ && device_config_ && audio_running() && audio_name_!="Offline clock (no sound)",
+            "Connect the intended audio device before activating a Live channel");
+    require(cancel_staged_playback(),"Finish the pending Playback transition first");
+    require(channels.size()<=64,"Live supports at most 64 input channels");
+    const auto before=services_.projects->state().project;
+    auto candidate=*before;
+    const auto ownedTrack=[&](const Id& id){return std::find(owned.begin(),owned.end(),id)!=owned.end();};
+    require(std::none_of(candidate.clips.begin(),candidate.clips.end(),[&](const auto& clip){return ownedTrack(clip.track);}),
+            "A Live input cannot own Playback clips");
+    std::erase_if(candidate.tracks,[&](const auto& track){return ownedTrack(track.id);});
+    std::vector<Id> changed;
+    for(auto& track:channels) {
+        require(track.kind==TrackKind::audio || track.kind==TrackKind::instrument,"Unsupported Live channel type");
+        require(std::none_of(candidate.tracks.begin(),candidate.tracks.end(),[&](const auto& t){return t.id==track.id;}),
+                "Duplicate Live channel or Playback ID collision");
+        const auto old=std::find_if(before->tracks.begin(),before->tracks.end(),[&](const auto& t){return t.id==track.id;});
+        if(old==before->tracks.end() || old->kind!=track.kind || old->inserts!=track.inserts)
+            changed.push_back(track.id);
+        candidate.tracks.push_back(std::move(track));
+    }
+    candidate.validate();
+    require(candidate.tracks.size()<=audio::max_mixer_tracks,"Live + Playback exceeds the mixer channel budget");
+    if(candidate==*before)return;
+    require(device_info_.has_value(),"Audio device metadata unavailable");
+    auto config=*device_config_;config.inputs=selected_inputs(candidate);
+    audio::validate_device_config(*device_info_,config);validate_hardware(candidate,config);
+    const auto oldConfig=*device_config_;
+    const bool reopen=config.inputs!=oldConfig.inputs;
+    class Projection final:public ICommand {
+        Project next_;public:explicit Projection(Project p):next_(std::move(p)){}
+        std::string_view name()const override{return "Configure Live channels";}
+        void apply(Project& p)const override{p=next_;}
+    };
+    device_->stop();engine_->quiesce();
+    const auto head=engine_->state();auto rollback=engine_->stopped_graph();
+    // Scalar mixer updates do not rewrite the graph's construction snapshot.
+    // A failed rebuild must restore the current committed mix, not that snapshot.
+    rollback.master_gain=before->master_gain;
+    std::size_t mixerIndex=0;
+    for(const auto& track:before->tracks)if(track.kind!=TrackKind::midi) {
+        rollback.mixer[mixerIndex]=track.mix;
+        rollback.input_monitoring[mixerIndex]=track.input_monitor;
+        rollback.midi_monitor[mixerIndex]=track.midi_monitor;
+        for(std::size_t j=0;j<track.sends.size();++j)
+            rollback.sends[mixerIndex][j].gain=track.sends[j].bypass?0.f:track.sends[j].gain;
+        ++mixerIndex;
+    }
+    const auto oldApplied=applied_mix_revision_;
+    auto oldRuntime=insert_runtime_;auto oldMixer=mixer_tracks_;auto oldPrepared=prepared_;
+    bool closed=false;
+    try {
+        capture_insert_state(candidate,{},true);
+        for(const auto& track:candidate.tracks) {
+            if(std::find(changed.begin(),changed.end(),track.id)==changed.end())continue;
+            std::shared_ptr<processing::PreparedGraph> graph;
+            if(!track.inserts.empty())graph=std::make_shared<processing::PreparedGraph>(
+                processing::GraphSnapshot{std::make_shared<const processing::GraphState>(processing::insert_graph(track.inserts)),0,false,false},
+                processing::ProcessConfig{config.sample_rate,static_cast<std::uint32_t>(config.outputs.size()),config.buffer_frames,config.buffer_frames,track.kind==TrackKind::instrument}
+#ifdef MRS_HAS_VST3
+                ,processing::hosted_factory
+#endif
+            );
+            insert_runtime_[track.id.value]={std::move(graph),{}};
+        }
+        std::erase_if(insert_runtime_,[&](const auto& entry){return !entry.first.empty() &&
+            std::none_of(candidate.tracks.begin(),candidate.tracks.end(),[&](const auto& track){return track.id.value==entry.first;});});
+        insert_runtime_.try_emplace(std::string{},InsertRuntime{});
+        preparing_project_=&candidate;auto graph=render(config,true);preparing_project_=nullptr;
+        Projection command{candidate};auto transaction=services_.projects->prepare_transaction(&command);
+        require(static_cast<bool>(transaction),"Live channel transaction is empty");
+        if(reopen){device_->close();closed=true;}
+        for(const auto& track:candidate.tracks)if(track.kind==TrackKind::instrument) {
+            const auto& runtime=insert_runtime_.at(track.id.value);if(runtime.graph)runtime.graph->panic();
+        }
+        engine_->prepare({config.sample_rate,static_cast<std::uint32_t>(config.inputs.size()),static_cast<std::uint32_t>(config.outputs.size()),8192,config.buffer_frames,config.processing_workers},std::move(graph),head);
+        if(reopen)device_->open(config,engine_);
+        try {
+            transaction->commit();device_config_=config;device_->start();transaction->finish();
+        } catch(...) {transaction->rollback();throw;}
+    } catch(...) {
+        const auto error=std::current_exception();preparing_project_=nullptr;
+        try {
+            device_->stop();engine_->quiesce();
+            insert_runtime_=std::move(oldRuntime);mixer_tracks_=std::move(oldMixer);prepared_=std::move(oldPrepared);applied_mix_revision_=oldApplied;
+            if(closed)device_->close();
+            engine_->prepare({oldConfig.sample_rate,static_cast<std::uint32_t>(oldConfig.inputs.size()),static_cast<std::uint32_t>(oldConfig.outputs.size()),8192,oldConfig.buffer_frames,oldConfig.processing_workers},std::move(rollback),head);
+            if(closed)device_->open(oldConfig,engine_);
+            device_config_=oldConfig;device_->start();
+        }catch(...){disconnect();}
+        std::rethrow_exception(error);
+    }
+    sync_arm();publish_midi_routes();unsaved_=true;
 }
 void Application::set_midi_input(const Id& id,std::string port,int channel,bool monitor){
     require_not_recording();
@@ -1400,6 +1690,25 @@ bool Application::preview_mix(std::optional<Id> id, Track::Mix mix, float master
     }
     return engine_->enqueue_mix(update);
 }
+bool Application::preview_mixes(const std::vector<std::pair<Id, Track::Mix>>& mixes, float master) {
+    // UI-thread preparation; one bounded, coherent update uses the existing RT queue.
+    require(std::isfinite(master) && master >= 0 && master <= 16, "invalid master gain");
+    const auto p = services_.projects->state().project;
+    for (const auto& [id, mix] : mixes) {
+        mix.validate();
+        if (std::none_of(p->tracks.begin(), p->tracks.end(), [&](const auto& t) { return t.id == id && t.kind != TrackKind::midi; })) return false;
+    }
+    audio::MixerUpdate update; update.master_gain = master;
+    for (const auto& t : p->tracks) if (t.kind != TrackKind::midi) {
+        if (update.count >= mixer_tracks_.size() || mixer_tracks_[update.count] != t.id) return false;
+        for (std::size_t j=0; j<t.sends.size(); ++j) update.send_gains[update.count][j] = t.sends[j].bypass?0.f:t.sends[j].gain;
+        update.midi_monitor[update.count] = t.midi_monitor; update.input_monitoring[update.count] = t.input_monitor;
+        auto mix = t.mix;
+        for (const auto& entry : mixes) if (entry.first == t.id) { mix = entry.second; break; }
+        update.tracks[update.count++] = mix;
+    }
+    return update.count == mixer_tracks_.size() && engine_->enqueue_mix(update);
+}
 bool Application::preview_send_gain(const Id& source,const Id& bus,float gain) {
     require(std::isfinite(gain)&&gain>=0&&gain<=16,"invalid send gain");
     audio::MixerUpdate update;const auto p=services_.projects->state().project;update.master_gain=p->master_gain;bool found=false;
@@ -1411,11 +1720,59 @@ bool Application::preview_send_gain(const Id& source,const Id& bus,float gain) {
     if(!found||update.count!=mixer_tracks_.size())return false;
     return engine_->enqueue_mix(update);
 }
+const std::vector<Clip>& Application::playback_sources() const {
+    static const std::vector<Clip> empty;
+    return services_.projects->state().project->id==playback_source_project_?playback_sources_:empty;
+}
 Sample Application::source_frames(const Id& id) {
     const auto p = services_.projects->state().project;
     const auto it = std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip) { return clip.id == id; });
-    require(it != p->clips.end(),"unknown clip");
-    return asset(it->source)->frames();
+    if(it!=p->clips.end())return asset(it->source)->frames();
+    const auto& sources=playback_sources();
+    const auto source=std::find_if(sources.begin(),sources.end(),[&](const auto& clip){return clip.id==id;});
+    require(source!=sources.end(),"unknown clip");return asset(source->source)->frames();
+}
+void Application::set_playback_regions(const std::vector<PlaybackStem>& stems) {configure_playback_regions(stems,true);}
+void Application::validate_playback_regions(const std::vector<PlaybackStem>& stems) {configure_playback_regions(stems,false);}
+void Application::configure_playback_regions(const std::vector<PlaybackStem>& stems,bool publish) {
+    require_not_playing();require_not_recording();
+    const auto current=services_.projects->state().project;
+    require(workspace_==Workspace::live && path_.empty() && current->id==playback_source_project_,"Region editing requires prepared Live Playback");
+    const bool liveTail=current->tracks.size()==playback_sources_.size()+1 &&
+        current->tracks.back().kind==TrackKind::audio && current->tracks.back().input_monitor;
+    require(current->tracks.size()==playback_sources_.size() || liveTail,
+            "Playback tracks changed; reload the item");
+    for(std::size_t i=0;i<playback_sources_.size();++i)require(current->tracks[i].id==playback_sources_[i].track,"Playback source mapping changed");
+    const auto& sources=playback_sources();require(stems.size()==sources.size(),"Playback source mapping changed");
+    auto nextSources=sources;
+    struct Regions final:ICommand {
+        std::vector<Clip> clips;
+        std::string_view name()const override{return "Set Playback regions";}
+        void apply(Project& p)const override{p.clips=clips;}
+    } command;
+    const auto rate=services_.projects->state().project->sample_rate;
+    for(std::size_t i=0;i<stems.size();++i){
+        const auto& settings=stems[i];auto& source=nextSources[i];const auto frames=source_frames(source.id);
+        require(std::isfinite(settings.begin)&&std::isfinite(settings.end)&&settings.begin>=0&&settings.begin<=static_cast<double>(max_sample)/rate&&settings.end>=-1&&settings.end<=static_cast<double>(max_sample)/rate,"Invalid Playback trim");
+        const auto start=static_cast<Sample>(std::llround(settings.begin*rate));
+        const auto end=settings.end<0?frames:static_cast<Sample>(std::llround(settings.end*rate));
+        require(start>=0&&end>start&&end<=frames,"Playback trim exceeds source WAV");
+        source.start=start;source.source_offset=start;source.length=end-start;
+        if(!settings.regions){command.clips.push_back(source);continue;}
+        for(const auto& region:*settings.regions){
+            auto clip=source;clip.id=region.id;clip.start=region.start;clip.length=region.length;clip.source_offset=region.offset;
+            require(clip.source_offset>=0&&clip.length>0&&clip.source_offset<=frames&&clip.length<=frames-clip.source_offset,"Playback region exceeds source WAV");
+            command.clips.push_back(std::move(clip));
+        }
+    }
+    auto candidate=*services_.projects->state().project;candidate.clips=command.clips;candidate.validate();
+    require(candidate.clips.size()<=audio::max_voices,"Too many Playback regions");
+    std::size_t streamed{},bytes{};
+    for(const auto& clip:candidate.clips){const auto data=asset(clip.source);if(data->file){++streamed;bytes+=8*8192*static_cast<std::size_t>(data->channels)*sizeof(float);}}
+    require(streamed<=32 && bytes<=256*1024*1024,"Disk voice budget exceeded (32 voices / 256 MiB)");
+    if(!publish)return;
+    if(command.clips!=services_.projects->state().project->clips)edit(command);
+    playback_sources_=std::move(nextSources);
 }
 void Application::move_clip(const Id& id, const Id& track, Sample start) {
     const auto p=services_.projects->state().project;const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});require(c!=p->clips.end(),"unknown clip");
@@ -1491,6 +1848,12 @@ std::vector<Id> Application::copy_clips(std::vector<Id> ids,Sample delta,int tra
     struct Copies final:ICommand{std::vector<Id> source,created;Sample delta{};int track_delta{};std::string_view name()const override{return "Copy selected clips";}void apply(Project& p)const override{const Timeline time(p.time,p.sample_rate);for(std::size_t i=0;i<source.size();++i){const auto c=std::find_if(p.clips.begin(),p.clips.end(),[&](const auto& item){return item.id==source[i];});require(c!=p.clips.end(),"unknown source clip");const auto t=std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& item){return item.id==c->track;});const auto index=static_cast<int>(t-p.tracks.begin())+track_delta;require(index>=0&&index<static_cast<int>(p.tracks.size()),"copy exceeds track range");const auto start=clip_start(*c,time);require(delta>=-start&&delta<=max_sample-start,"copy exceeds timeline range");DuplicateClip{source[i],created[i],p.tracks[static_cast<std::size_t>(index)].id,start+delta}.apply(p);}}} command;
     require(!ids.empty(),"Select clips to copy");std::set<std::string> unique;for(const auto& id:ids)require(unique.insert(id.value).second,"duplicate source clip");
     command.source=std::move(ids);for(std::size_t i=0;i<command.source.size();++i)command.created.push_back(new_id());command.delta=delta;command.track_delta=track_delta;edit(command,{},true);return command.created;
+}
+void Application::set_musical_data(TimeMap time,std::vector<Chord> chords,std::vector<ArrangerSection> sections,std::vector<Marker> markers){
+    require_not_playing();require_not_recording();require(!engine_->state().loop,"Turn off section loop before replacing musical data");
+    const auto p=services_.projects->state().project;
+    if(p->time==time&&p->chords==chords&&p->sections==sections&&p->markers==markers)return;
+    edit(SetMusicalData{std::move(time),std::move(chords),std::move(sections),std::move(markers)});
 }
 void Application::set_time_map(TimeMap time){
     const auto p=services_.projects->state().project;const SetMusicalData command{std::move(time),p->chords,p->sections,p->markers};auto candidate=*p;command.apply(candidate);edit_timing(std::move(candidate),&command);
@@ -1691,6 +2054,7 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_
     synchronize_ara(project);
 #endif
     audio::RenderGraph result;
+    result.performance=performance_plan_;result.performance_token=performance_token_;
     result.click=click_settings_;result.click_time=project->time;
     if(recording())configure_count(result,*project,click_settings_,engine_->state().sample);
     for (const auto& capture : captures_) result.recordings.push_back(capture.recorder);
@@ -1711,6 +2075,7 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_
         }
         return result;
     };
+    result.click = mapped_click(click_settings_, c.outputs);
     result.master_outputs = project->master_outputs.empty() ? std::vector<std::size_t>{0} : mapped(project->master_outputs);
     if (project->master_outputs.empty() && c.outputs.size()>1) result.master_outputs.push_back(1);
     for (const auto& track : project->tracks) if (track.kind != TrackKind::midi) result.hardware_outputs.push_back(mapped(track.hardware_outputs));
@@ -1746,7 +2111,10 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_
     for (const auto& track : project->tracks) if (track.kind == TrackKind::audio) {
         // A connected physical selector alone is not a live DSP dependency.
         // Mixed ownership changes are rebuilt while stopped by Monitor/Arm.
-        if(c.process_buffer_frames&&c.processing_workers>=2&&!track.input_monitor&&!track_armed(track.id))continue;
+        const bool livePlayback=workspace_==Workspace::live&&path_.empty()&&(preparing_project_||result.performance.has_value());
+        // Enabled ASIO inputs do not make a muted Playback track a live-input
+        // graph. Keep real Monitor/Arm routes and their handoff safety guards.
+        if((livePlayback||(c.process_buffer_frames&&c.processing_workers>=2))&&!track.input_monitor&&!track_armed(track.id))continue;
         const auto inputs=track_inputs(track,default_inputs_);
         const auto found_track=std::find(mixer_tracks_.begin(),mixer_tracks_.end(),track.id);
         const auto index=static_cast<std::size_t>(found_track-mixer_tracks_.begin());
@@ -1831,7 +2199,7 @@ void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::De
     const auto previous_defaults=default_inputs_; default_inputs_=defaults;
     try {
         audio::RenderGraph graph;
-        if (offline) { prepare_mixer(graph); prepare_midi_clips(graph); prepare_inserts(graph,c); }
+        if (offline) { prepare_mixer(graph); prepare_midi_clips(graph); graph.click=mapped_click(click_settings_,c.outputs); prepare_inserts(graph,c); }
         else graph = render(c);
         engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192,c.buffer_frames,c.processing_workers},std::move(graph),position);
         device->open(c,engine_); device->start(); audio_name_ = info->name; device_ = std::move(device); device_config_ = c; device_info_ = *info; default_inputs_ = defaults; poll();
@@ -1848,12 +2216,14 @@ void Application::disconnect() {
     external_midi_->panic();if(midi_outputs_)midi_outputs_->routes({});
     stop_reverb_loaders();++insert_generation_;insert_runtime_.clear(); prepared_.reset(); device_config_.reset(); device_info_.reset(); audio_name_ = "Disconnected";
     if (transport_) { engine_->prepare({engine_->config().sample_rate,0,2,8192},{}); transport_->poll(); }
+    staged_playback_.reset();
 }
 void Application::poll() {
+    poll_staged_playback();
     poll_reverbs();
     publish_midi_routes();
     publish_inserts();
-    for(auto& [key,r]:insert_runtime_){(void)key;if(r.graph && r.graph->consume_edits())unsaved_=true;}
+    for(auto& [key,r]:insert_runtime_){(void)key;if(r.graph && r.graph->consume_edits()){unsaved_=true;++plugin_edit_revision_;}}
     publish_mix();
     // Hidden pre-record capture runs while pre-count deliberately holds playback.
     // Read the coherent transport snapshot once; only a real stop ends the take.
@@ -1890,7 +2260,7 @@ void Application::play() { require(audio_running(),"connect audio or choose Offl
     if (ara_ && engine_->state().playback!=PlaybackState::playing && ara_->poll()) {unsaved_=true;refresh_ara(false);}
 #endif
     transport_->play(); }
-void Application::set_click_settings(audio::ClickSettings settings){settings.validate();require_not_recording();if(settings==click_settings_)return;require(engine_->enqueue({audio::ControlKind::click,(settings.playback?1:0)|(settings.recording?2:0)|(settings.accent?4:0),settings.level}),"transport control queue full");click_settings_=settings;}
+void Application::set_click_settings(audio::ClickSettings settings){settings.validate();require_not_recording();if(settings==click_settings_)return;const auto mapped = mapped_click(settings, active_outputs());require(engine_->enqueue({audio::ControlKind::click,mapped.control_flags(),settings.level}),"transport control queue full");click_settings_=settings;}
 void Application::pause() { if (recording()) (void)stop_recording(); else transport_->pause(); }
 void Application::stop() { if (recording()) (void)stop_recording(); transport_->stop(); }
 void Application::seek(Sample sample) { require_not_recording(); transport_->seek(sample); }
@@ -1927,8 +2297,16 @@ void Application::set_track_monitoring(const Id& id, bool enabled) {
     const SetTrackMonitoring command{id,enabled}; auto candidate=*services_.projects->state().project;
     command.apply(candidate); candidate.validate();
     const auto track=std::find_if(services_.projects->state().project->tracks.begin(),services_.projects->state().project->tracks.end(),[&](const auto& t){return t.id==id;});
-    if(device_config_&&device_config_->process_buffer_frames&&device_config_->processing_workers>=2&&audio_name_!="Offline clock (no sound)"&&
-        !track_armed(id)&&track->input_monitor!=enabled){edit(command,{},true);return;}
+    const bool liveRouteChange=workspace_==Workspace::live && path_.empty() &&
+        track->kind==TrackKind::audio && track->input_monitor!=enabled;
+    // Live Playback intentionally omits unmonitored device routes at graph
+    // preparation. Enabling a monitor must rebuild that route off callback,
+    // even when its physical input is already selected/open in ASIO.
+    if (liveRouteChange) require_not_playing();
+    if(!liveRouteChange&&device_config_&&device_config_->process_buffer_frames&&device_config_->processing_workers>=2&&
+        audio_name_!="Offline clock (no sound)"&&!track_armed(id)&&track->input_monitor!=enabled){
+        edit(command,{},true);return;
+    }
     auto next=device_config_; if (next) next->inputs=selected_inputs(candidate);
     const bool rebind=enabled && next && audio_name_ != "Offline clock (no sound)" &&
         std::any_of(next->inputs.begin(),next->inputs.end(),[&](int input) {
@@ -1937,7 +2315,7 @@ void Application::set_track_monitoring(const Id& id, bool enabled) {
     if (rebind) require_not_playing();
     if (rebind) audio::validate_device_config(*device_info_,*next);
     services_.projects->execute(command);
-    if (rebind) rebuild_audio(true); else publish_mix();
+    if (rebind || liveRouteChange) rebuild_audio(true); else publish_mix();
 }
 void Application::monitoring(bool enabled) {
     require(engine_->enqueue({audio::ControlKind::monitor,enabled ? 1 : 0}),"audio command queue full");

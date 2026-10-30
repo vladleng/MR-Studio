@@ -31,15 +31,37 @@ endforeach()
 list(APPEND concept_controls "${PROJECT_SOURCE_DIR}/assets/ui/icons/transport/metronome.svg")
 juce_add_binary_data(mrs_concept_assets NAMESPACE MRConceptAssets HEADER_NAME MRConceptAssets.h SOURCES ${concept_icons} ${concept_controls})
 target_link_libraries(mrs_juce_assets PUBLIC mrs_concept_assets)
-juce_add_gui_app(MoonRiverStudioJuce VERSION 0.7.1 PRODUCT_NAME "Moon River Studio JUCE")
+juce_add_gui_app(MoonRiverStudioJuce VERSION ${PROJECT_VERSION} PRODUCT_NAME "Moon River Studio JUCE")
 # Accepted Track Header layout is shipped as a self-contained, immutable GUI resource.
 # No external JSON is required for normal Release startup; developer overrides remain opt-in.
 juce_add_binary_data(mrs_track_header_layout
   NAMESPACE MRTrackHeaderAssets HEADER_NAME MRTrackHeaderAssets.h
   SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-track-panel-layout-v1.json")
 target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_track_header_layout)
+juce_add_binary_data(mrs_live_layout
+  NAMESPACE MRLiveAssets HEADER_NAME MRLiveAssets.h
+  SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-live-layout-v5.json"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/layouts/mr-live-interface-defaults-v1.json"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/controls/live_tuner.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/components/item_default_base.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/components/item_selected_base.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/components/set_header.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/status/pill_base.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/priority/badge_base.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/progress/track.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/actions/organizer.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/actions/add_task.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/actions/checklist.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/actions/expand.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/status/todo_glyph.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/status/wait_glyph.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/status/wip_glyph.svg"
+          "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/manager/status/done_glyph.svg")
+target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_live_layout)
 juce_add_binary_data(mrs_reverb_art NAMESPACE MRReverbArt HEADER_NAME MRReverbArt.h SOURCES "${PROJECT_SOURCE_DIR}/assets/ui/mr-uds/svg/reverb/plate_unit.svg")
 target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_reverb_art)
+target_sources(MoonRiverStudioJuce PRIVATE apps/studio-juce/src/LiveInterface.cpp apps/studio-juce/src/LiveInterfaceSmoke.cpp)
+set_source_files_properties(apps/studio-juce/src/LiveInterface.cpp apps/studio-juce/src/LiveInterfaceSmoke.cpp PROPERTIES COMPILE_OPTIONS "/WX")
 add_library(mrs_diagnostics STATIC apps/diagnostics/src/session.cpp)
 target_include_directories(mrs_diagnostics PUBLIC apps/diagnostics/include)
 target_compile_features(mrs_diagnostics PUBLIC cxx_std_20)
@@ -132,6 +154,13 @@ if(BUILD_TESTING)
   add_test(NAME juce_clip_stretch COMMAND MoonRiverStudioJuce --clip-stretch-smoke)
   set_tests_properties(juce_clip_stretch PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
   set_tests_properties(juce_track_folders PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
+  # A Live-only CI run must not launch Studio/Home; default profile keeps its original entry coverage.
+  set(mrs_live_smoke_app MoonRiverStudioJuce)
+  if("$ENV{CHECK_SCOPE}" STREQUAL "live")
+    set(mrs_live_smoke_app MRLiveJuce)
+  endif()
+  add_test(NAME juce_live_entry_smoke COMMAND ${mrs_live_smoke_app} --live-entry-smoke --show-fixture "${PROJECT_SOURCE_DIR}/tests/fixtures/mr-live-interface-demo-v3.json")
+  set_tests_properties(juce_live_entry_smoke PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
   add_test(NAME juce_j1_smoke COMMAND MoonRiverStudioJuce --j1-smoke)
   set_tests_properties(juce_j1_smoke PROPERTIES TIMEOUT 30)
   add_dependencies(MoonRiverStudioJuce mrs_vst3_fixture)
@@ -266,4 +295,58 @@ if(BUILD_TESTING)
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/validation/ui205-p1")
   add_test(NAME juce_uds_shell COMMAND MoonRiverStudioJuce --uds-shell-smoke)
   set_tests_properties(juce_uds_shell PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/validation/ui205-p1")
+endif()
+
+# MR Live is a dedicated application. It reuses the same host/Core sources and
+# libraries; Studio's Main.cpp and its application/window entry are excluded.
+get_target_property(mrs_live_host_sources MoonRiverStudioJuce SOURCES)
+list(FILTER mrs_live_host_sources EXCLUDE REGEX "(^|/)Main\\.cpp$")
+list(FILTER mrs_live_host_sources EXCLUDE REGEX "JuceLibraryCode/")
+get_target_property(mrs_live_host_links MoonRiverStudioJuce LINK_LIBRARIES)
+# ARA is an opt-in Studio editing feature, not a dependency of the Live executable.
+# The Studio desktop library has ARA through a PUBLIC link when enabled, so merely
+# omitting mrs_ara_scan.exe would leave Live with ARA symbols and UI definitions.
+# Build the same application host sources WITHOUT ARA for Live while sharing the
+# audio engine, persistence, AI and VST3 infrastructure with Studio.
+if(MRS_BUILD_ARA)
+  if(NOT "mrs_desktop" IN_LIST mrs_live_host_links)
+    message(FATAL_ERROR "Expected mrs_desktop in Live host links before ARA split")
+  endif()
+  get_target_property(mrs_desktop_live_sources mrs_desktop SOURCES)
+  add_library(mrs_desktop_live STATIC ${mrs_desktop_live_sources})
+  target_include_directories(mrs_desktop_live PUBLIC "${PROJECT_SOURCE_DIR}/apps/studio-desktop/include")
+  target_link_libraries(mrs_desktop_live PUBLIC mrs_audio mrs_persistence mrs_ai)
+  target_link_libraries(mrs_desktop_live PRIVATE winmm)
+  if(MSVC)
+    target_compile_options(mrs_desktop_live PRIVATE /Zi)
+  endif()
+  list(REMOVE_ITEM mrs_live_host_links mrs_desktop)
+  list(APPEND mrs_live_host_links mrs_desktop_live)
+endif()
+# Each executable owns its VERSION/identity resource; never link Studio's RC into Live.
+list(REMOVE_ITEM mrs_live_host_links MoonRiverStudioJuce_rc_lib)
+get_target_property(mrs_live_host_definitions MoonRiverStudioJuce COMPILE_DEFINITIONS)
+get_target_property(mrs_live_host_options MoonRiverStudioJuce COMPILE_OPTIONS)
+juce_add_gui_app(MRLiveJuce VERSION ${PROJECT_VERSION} PRODUCT_NAME "MR Live")
+target_sources(MRLiveJuce PRIVATE ${mrs_live_host_sources} apps/studio-juce/src/LiveMain.cpp)
+target_compile_features(MRLiveJuce PRIVATE cxx_std_20)
+target_compile_definitions(MRLiveJuce PRIVATE ${mrs_live_host_definitions})
+target_compile_options(MRLiveJuce PRIVATE ${mrs_live_host_options})
+target_link_libraries(MRLiveJuce PRIVATE ${mrs_live_host_links})
+set_source_files_properties(apps/studio-juce/src/LiveMain.cpp PROPERTIES COMPILE_OPTIONS "/WX")
+if(MSVC)
+  target_link_options(MRLiveJuce PRIVATE /DEBUG:FULL /INCREMENTAL:NO /OPT:REF /OPT:ICF)
+endif()
+add_dependencies(MRLiveJuce mrs_vst3_scan mrs_crash_reporter)
+foreach(helper mrs_vst3_scan mrs_crash_reporter)
+  add_custom_command(TARGET MRLiveJuce POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "$<TARGET_FILE:${helper}>" "$<TARGET_FILE_DIR:MRLiveJuce>/$<TARGET_FILE_NAME:${helper}>")
+endforeach()
+# Do not copy the Studio-only ARA helper into the standalone MR Live runtime.
+add_dependencies(MoonRiverStudioJuce MRLiveJuce)
+add_custom_command(TARGET MoonRiverStudioJuce POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+  "$<TARGET_FILE:MRLiveJuce>" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/MR Live.exe")
+if(BUILD_TESTING)
+  add_test(NAME juce_live_application COMMAND MRLiveJuce --live-application-smoke --show-fixture "${PROJECT_SOURCE_DIR}/tests/fixtures/mr-live-interface-demo-v3.json")
+  set_tests_properties(juce_live_application PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
 endif()

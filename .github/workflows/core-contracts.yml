@@ -6,6 +6,12 @@ on:
   pull_request:
     paths: ['core/**', 'cmake/**', 'third_party/**', 'apps/studio-desktop/**', 'tests/**', 'CMakeLists.txt', '.github/workflows/core-contracts.yml']
   workflow_dispatch:
+    inputs:
+      checks:
+        description: Core profile or targeted Live channel / Playback contracts
+        type: choice
+        options: [profile, live]
+        default: profile
 permissions:
   contents: read
 jobs:
@@ -16,6 +22,25 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - run: cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_VST3=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=OFF
-      - run: cmake --build build/core --target mrs_core_tests mrs_core_check mrs_rig_tests mrs_ai_tests mrs_ai_query_tests mrs_ai_tool_tests mrs_sample_library_tests mrs_wav_import_tests mrs_clip_stretch_tests mrs_stretch_contract_tests mrs_stretch_tests mrs_stretch_bench --parallel 2 -- -k
-      - run: ctest --test-dir build/core --output-on-failure --no-tests=error -R '^(core_.*|stretch_.*|clip_stretch_.*|ai_.*|audio_sample_library|desktop_wav_import)$'
+          fetch-depth: 2
+      - name: Select explicitly requested check scope
+        id: scope
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          skip=false
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            subject=$(git log -1 --format=%s "$PR_HEAD_SHA")
+            if [[ "$subject" == *"[ci live]"* ]]; then skip=true; fi
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+      - if: steps.scope.outputs.skip != 'true'
+        run: cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_VST3=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=OFF
+      - if: steps.scope.outputs.skip != 'true' && inputs.checks != 'live'
+        run: cmake --build build/core --target mrs_core_tests mrs_core_check mrs_rig_tests mrs_ai_tests mrs_ai_query_tests mrs_ai_tool_tests mrs_sample_library_tests mrs_wav_import_tests mrs_clip_stretch_tests mrs_stretch_contract_tests mrs_stretch_tests mrs_stretch_bench --parallel 2 -- -k
+      - if: steps.scope.outputs.skip != 'true' && inputs.checks != 'live'
+        run: ctest --test-dir build/core --output-on-failure --no-tests=error -R '^(core_.*|stretch_.*|clip_stretch_.*|ai_.*|audio_sample_library|desktop_wav_import)$'
+      - if: inputs.checks == 'live'
+        run: cmake --build build/core --target mrs_live_preload_tests --parallel 2
+      - if: inputs.checks == 'live'
+        run: ctest --test-dir build/core --output-on-failure --no-tests=error -R '^desktop_live_preload$'

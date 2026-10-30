@@ -2,6 +2,7 @@
 #include <mrs/wav_resample.hpp>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <fstream>
 #include <limits>
 #include <stop_token>
@@ -97,6 +98,114 @@ struct Application::WavImportJob {
     std::optional<Id> target;
     Sample start{};
 };
+struct Application::PlaybackPreparation {
+    std::stop_source stop;
+    std::atomic<float> progress{};
+    std::future<std::shared_ptr<PreparedWavImport>> pending;
+    std::shared_ptr<PreparedWavImport> media;
+    std::uint32_t rate{};
+    std::vector<fs::path> paths;
+    std::vector<std::pair<std::uintmax_t,fs::file_time_type>> stamps;
+    std::string error;
+};
+std::shared_ptr<Application::PlaybackPreparation> Application::prepare_playback(const std::vector<fs::path>& paths){
+    require_import(workspace_==Workspace::live&&path_.empty(),"Performance preparation requires a Live runtime");
+    require_import(paths.size()<=32,"Live Playback supports up to 32 WAV stems");
+    // Retain cancelled jobs until their worker has finished; never join them in selection handlers.
+    std::erase_if(playback_preparations_,[&](const auto& job){
+        return job.use_count()==1&&!playback_preparation(job).busy;
+    });
+    require_import(playback_preparations_.size()<6,"Previous performance preparation is still cancelling");
+    auto job=std::make_shared<PlaybackPreparation>();job->rate=services_.projects->state().project->sample_rate;job->paths=paths;
+    for(const auto& path:paths){require_import(fs::is_regular_file(path),"Playback WAV is missing");job->stamps.emplace_back(fs::file_size(path),fs::last_write_time(path));}
+    if(paths.empty()){job->media=std::make_shared<PreparedWavImport>();job->progress=1;}
+    else job->pending=std::async(std::launch::async,[paths,rate=job->rate,token=job->stop.get_token(),progress=&job->progress]{
+        return PreparedWavImport::prepare(paths,rate,{},128*1024*1024,token,progress);
+    });
+    playback_preparations_.push_back(job);return job;
+}
+Application::WavImportStatus Application::playback_preparation(const std::shared_ptr<PlaybackPreparation>& job){
+    if(!job)return {false,0,0,"No preparation"};
+    if(job->pending.valid()&&job->pending.wait_for(std::chrono::seconds(0))==std::future_status::ready){
+        try{job->media=job->pending.get();}catch(const std::exception& error){job->error=error.what();}
+    }
+    return {job->pending.valid(),job->progress.load(std::memory_order_relaxed),0,job->error};
+}
+std::vector<std::pair<std::uintmax_t,fs::file_time_type>> Application::playback_stamps(const std::shared_ptr<PlaybackPreparation>& job) const {
+    return job?job->stamps:std::vector<std::pair<std::uintmax_t,fs::file_time_type>>{};
+}
+void Application::cancel_playback(const std::shared_ptr<PlaybackPreparation>& job){if(job)job->stop.request_stop();}
+void Application::activate_playback(const std::shared_ptr<PlaybackPreparation>& job,const PlaybackLayout& layout){
+    require_import(cancel_staged_playback(),"Playback transition is being adopted; retry navigation");
+    activate_playback_impl(job,layout,false);
+}
+void Application::stage_playback(const std::shared_ptr<PlaybackPreparation>& job,const PlaybackLayout& layout,std::uint64_t expected){
+    require_import(audio_running(),"Connect audio before staging an automatic transition");
+    require_import(expected==playback_token()&&expected==performance_token_,"Playback changed while preparing transition");
+    require_import(cancel_staged_playback(),"Playback transition is being adopted");
+    require_import(expected==performance_token_,"Playback advanced while preparing the next graph");
+    activate_playback_impl(job,layout,true);
+}
+void Application::activate_playback_impl(const std::shared_ptr<PlaybackPreparation>& job,const PlaybackLayout& layout,bool staged){
+    if (staged && !layout.live_tracks.empty())
+        throw std::runtime_error("Active Live VST3 staging requires the separate #301 graph-lifetime implementation");
+    require_import(job&&!playback_preparation(job).busy&&job->media&&job->error.empty()&&!job->stop.stop_requested(),"Playback preparation is not ready");
+    require_import(job->rate==services_.projects->state().project->sample_rate,"Playback preparation rate changed");
+    require_import(layout.stems.size()==job->media->entries.size(),"Prepared stem mapping mismatch");
+    try {
+        for(std::size_t i=0;i<job->paths.size();++i)
+            require_import(fs::file_size(job->paths[i])==job->stamps[i].first&&fs::last_write_time(job->paths[i])==job->stamps[i].second,"Prepared WAV changed; select the item again to reload it");
+    }catch(const std::exception& error){job->error=error.what();throw;}
+    Project candidate;candidate.id=new_id();candidate.title="MR Live Playback";candidate.sample_rate=job->rate;
+    candidate.time=layout.time;candidate.chords=layout.chords;candidate.sections=layout.sections;
+    std::map<std::string,std::shared_ptr<const audio::AudioData>> decoded;
+    for(std::size_t i=0;i<layout.stems.size();++i){
+        const auto& entry=job->media->entries[i];const auto& settings=layout.stems[i];
+        require_import(std::isfinite(settings.begin)&&std::isfinite(settings.end)&&settings.begin>=0&&settings.begin<=static_cast<double>(max_sample)/job->rate&&settings.end>=-1&&settings.end<=static_cast<double>(max_sample)/job->rate,"Invalid Playback trim");
+        const auto begin=static_cast<Sample>(std::llround(settings.begin*job->rate));
+        const auto end=settings.end<0?entry.data->frames():static_cast<Sample>(std::llround(settings.end*job->rate));
+        require_import(begin>=0&&end>begin&&end<=entry.data->frames(),"Playback trim is outside its WAV");
+        auto data=entry.data;
+        if(data->file){auto replacement=*data;auto metadata=std::make_shared<audio::WavFile>(*data->file);metadata->lifetime=job->media;replacement.file=std::move(metadata);data=std::make_shared<const audio::AudioData>(std::move(replacement));}
+        const auto source=import_text(entry.file);decoded[source]=data;
+        Track track{new_id(),import_text(entry.original.stem()),TrackKind::audio,{}};track.mix=settings.mix;track.hardware_outputs=settings.outputs;
+        candidate.clips.push_back({new_id(),track.id,import_text(entry.original.filename()),begin,end-begin,begin,source});
+        candidate.tracks.push_back(std::move(track));
+    }
+    auto sources=candidate.clips;
+    auto sourceProject=candidate.id;
+    candidate.clips.clear();
+    for(std::size_t i=0;i<layout.stems.size();++i) {
+        if(!layout.stems[i].regions){candidate.clips.push_back(sources[i]);continue;}
+        for(const auto& region:*layout.stems[i].regions){
+            auto clip=sources[i];clip.id=region.id;clip.start=region.start;clip.length=region.length;clip.source_offset=region.offset;
+            require_import(clip.source_offset>=0&&clip.length>0&&clip.source_offset<=job->media->entries[i].data->frames()&&
+                clip.length<=job->media->entries[i].data->frames()-clip.source_offset,"Playback region exceeds source WAV");
+            candidate.clips.push_back(std::move(clip));
+        }
+    }
+    require_import(candidate.clips.size()<=audio::max_voices,"Too many Playback regions");
+    std::size_t streamed{},bytes{};
+    for(const auto& clip:candidate.clips){const auto& data=decoded.at(clip.source);if(data->file){++streamed;bytes+=8*8192*static_cast<std::size_t>(data->channels)*sizeof(float);}}
+    require_import(streamed<=32&&bytes<=256*1024*1024,"Disk voice budget exceeded (32 voices / 256 MiB)");
+    auto policy=layout.performance;
+    if(policy&&layout.extend_to_audio){
+        const Timeline clock(candidate.time,candidate.sample_rate);const auto& meter=candidate.time.meters.front();
+        const double ticksPerBar=4.*ppq*meter.numerator/meter.denominator;Sample end{};
+        for(const auto& clip:candidate.clips)end=std::max(end,clip.start+clip.length);
+        if(end>0){
+            policy->end=std::min(end,clock.to_samples(static_cast<Tick>(std::llround(4096.*ticksPerBar))));
+            std::erase_if(policy->sections,[&](const auto& section){return section.start>=policy->end;});
+            for(auto& section:policy->sections)if(section.end>policy->end){
+                section.end=policy->end;
+                if(section.mode==PerformanceMode::stop||section.mode==PerformanceMode::loop)section.mode=PerformanceMode::normal;
+            }
+        }
+    }
+    candidate.validate();install_playback(std::move(candidate),std::move(decoded),job->media,layout.click,std::move(policy),layout.token,staged,layout.live_tracks);
+    if(staged)staged_playback_->sources=std::move(sources);
+    else{playback_sources_=std::move(sources);playback_source_project_=std::move(sourceProject);}
+}
 void Application::validate_wav_import(std::size_t count,std::optional<Id> target,Sample start) const {
     require_not_playing();require_not_recording();
     require_import(count>0&&count<=audio::max_voices,"Select 1..128 WAV files");
@@ -213,6 +322,9 @@ void Application::poll_wav_import(){
     }catch(const std::exception& error){wav_import_status_.message=std::string("WAV import failed: ")+error.what();}
 }
 void Application::stop_wav_imports(){
+    for(auto& job:playback_preparations_)job->stop.request_stop();
+    for(auto& job:playback_preparations_)if(job->pending.valid())job->pending.wait();
+    playback_preparations_.clear();
     if(wav_import_job_)wav_import_job_->stop.request_stop();
     for(auto& job:retired_imports_)job->stop.request_stop();
     if(wav_import_job_&&wav_import_job_->result.valid())wav_import_job_->result.wait();

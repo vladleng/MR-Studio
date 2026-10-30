@@ -430,6 +430,39 @@ void projectHomeSmoke(){
     const auto bad=folder.getChildFile("corrupt.mrsproject");check(bad.replaceWithText("not a project"),"corrupt fixture");home.run([&]{home.openFile(bad);});check(home.projectHomeVisible()&&home.app.path()==previous&&!home.message.isEmpty(),"corrupt project preserves loaded session");
     home.action(1);check(!home.projectHomeVisible()&&home.app.path().empty()&&home.project()->tracks.empty(),"New project leaves home with empty workspace");
     auto map=home.project()->time;map.tempos={{0,120},{mrs::ppq,60},{2*mrs::ppq,180}};home.app.set_time_map(map);home.app.seek(36025);std::array<float,256> silence{};home.app.engine()->process(nullptr,silence.data(),128);check(std::abs(home.visualTick()-1200.5)<.001,"visual MIDI position keeps fractional ticks across tempo change");
+    const auto showFile=folder.getChildFile("Lives/First.mrlive");
+    home.createLive(showFile);check(home.liveDocument.has_value()&&showFile.existsAsFile()&&home.app.workspace()==mrs::desktop::Workspace::live,"Home creates a native Live document");
+    check(!home.documentDirty(),"new empty show has no phantom song changes");
+    home.saveFile(showFile);check(LiveDocument::read(showFile).projects.empty(),"saving empty show does not manufacture a song");
+    home.openFile(showFile);check(!home.documentDirty(),"empty show reopens cleanly");
+    home.addLiveProject(a);home.app.add_audio_track("Live input");home.saveFile(showFile);
+    const auto document=LiveDocument::read(showFile);check(document.projects.size()==1&&document.projects.front()==a&&document.active==0,"show persists relative Studio reference");
+    const auto shared=home.app.services().projects;const auto engine=home.app.engine();
+    home.setWorkspace(mrs::desktop::Workspace::arrange);home.action(9);
+    check(home.app.services().projects==shared&&home.app.engine()==engine&&home.app.workspace()==mrs::desktop::Workspace::live,"Live cannot become Studio Arrange; common Core is retained");
+    home.openFile(showFile);check(home.liveDocument.has_value()&&home.app.path()==std::filesystem::path(a.getFullPathName().toWideCharPointer()),"show reopens active Studio song");
+    const auto nativeUntil=juce::Time::getMillisecondCounter()+100;
+    while(juce::Time::getMillisecondCounter()<nativeUntil){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}juce::Thread::sleep(1);}
+    juce::Component* liveView=nullptr;for(auto* c:home.getChildren())if(c->getComponentID()=="mr-live-workspace")liveView=c;
+    check(liveView&&liveView->isVisible()&&!home.arrangement->isVisible(),"show uses native Live workspace");
+    juce::TextButton* muteControl=nullptr;std::function<void(juce::Component&)> findMute=[&](juce::Component& root){for(auto* child:root.getChildren()){if(auto* candidate=dynamic_cast<juce::TextButton*>(child);candidate&&candidate->getButtonText()=="M")muteControl=candidate;findMute(*child);}};findMute(*liveView);
+    check(muteControl!=nullptr,"native channel control binds loaded project");muteControl->onClick();
+    check(home.project()->tracks.front().mix.mute,"native mute changes shared Project Model");home.action(10);
+    check(!home.project()->tracks.front().mix.mute,"native mute supports common Undo");home.message.clear();
+    for(const float scale:{1.f,1.5f}){auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-live-entry-"+juce::String(static_cast<int>(scale*100))+"-preview.png").createOutputStream();check(stream!=nullptr,"native Live snapshot stream");stream->setPosition(0);stream->truncate();check(juce::PNGImageFormat().writeImageToStream(home.createComponentSnapshot(home.getLocalBounds(),true,scale,juce::SoftwareImageType{}),*stream),"native Live snapshot");}
+    const auto preserved=home.app.services().projects;
+    const auto broken=folder.getChildFile("broken.mrlive");check(broken.replaceWithText("{}"),"invalid show fixture");
+    home.run([&]{home.openFile(broken);});check(home.app.services().projects==preserved&&home.liveFile==showFile&&!home.message.isEmpty(),"invalid show preserves current model/document");
+    auto missing=LiveDocument::read(showFile);missing.projects[0]=folder.getChildFile("absent.mrsproject");missing.write(broken);
+    home.run([&]{home.openFile(broken);});check(home.app.services().projects==preserved&&home.liveFile==showFile,"missing song preserves open show");
+    auto all=findHomeProjects(folder);check(all.files.size()==5,"Home discovers both show and Studio documents");
+    home.home->scanRoot(folder);for(int attempt=0;attempt<200&&home.home->loading();++attempt){std::this_thread::sleep_for(std::chrono::milliseconds(5));home.home->pollScan();}
+    check(home.home->projectCount()==3,"Studio tab excludes same-name Live show");
+    for(auto* c:home.home->getChildren())if(c->getComponentID()=="home-live-tab")dynamic_cast<juce::TextButton*>(c)->onClick();
+    check(home.home->projectCount()==2&&home.home->projectFile(0).hasFileExtension("mrlive"),"MR Live tab contains only shows");
+    for(auto* c:home.home->getChildren())if(c->getComponentID()=="home-studio-tab")dynamic_cast<juce::TextButton*>(c)->onClick();
+    check(home.home->projectCount()==3&&home.home->projectFile(0).hasFileExtension("mrsproject"),"switching back restores Studio list");
+    home.openFile(a);check(!home.liveDocument&&home.app.workspace()==mrs::desktop::Workspace::arrange,"ordinary project leaves Live document mode");
     home.home.reset();check(folder.deleteRecursively(),"home fixture cleanup");
 }
 void midi4bSmoke(Desktop& d,const juce::File& fixture){
