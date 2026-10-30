@@ -8,7 +8,7 @@
 #include <set>
 #include <vector>
 
-// #305 / MR Live 0.8.11 — read-only source selector; a single explicit
+// #305 / MR Live 0.8.11  -  read-only source selector; a single explicit
 // Import operation creates a single show Undo transaction.
 // No Studio One file content is persisted or uploaded.
 namespace ui {
@@ -276,7 +276,7 @@ private:
     }
     void updateSelectionCount() {
         if (sourceFileName.isEmpty()) {
-            sourceName.setText("No .show loaded — choose a file", juce::dontSendNotification);
+            sourceName.setText("No .show loaded  -  choose a file", juce::dontSendNotification);
             return;
         }
         const auto selected = static_cast<int>(std::count_if(drafts.begin(), drafts.end(),
@@ -317,7 +317,7 @@ private:
             auto row = std::make_unique<SourceRow>();
             row->selected.setButtonText(juce::String(static_cast<int>(i + 1)) + ". " + s.sourceItemTitle);
             row->selected.setTitle("Select source position " + juce::String(static_cast<int>(i + 1)));
-            row->selected.setTooltip(s.sourceItemTitle + " — source position " +
+            row->selected.setTooltip(s.sourceItemTitle + "  -  source position " +
                                      juce::String(static_cast<int>(i + 1)));
             row->selected.setToggleState(drafts[i].selected, juce::dontSendNotification);
             row->selected.setComponentID("live-show-import-item-" + juce::String(static_cast<int>(i)));
@@ -431,12 +431,12 @@ private:
             const auto plan = collectPlan();
             auto candidate = originalState.clone();
             live::applyStudioOneImportPlan(candidate, scan, plan);
-            juce::String explanation = "VALIDATED — " + juce::String(static_cast<int>(plan.size())) +
+            juce::String explanation = "VALIDATED  -  " + juce::String(static_cast<int>(plan.size())) +
                                        " item(s); no project changes yet.\n\n";
             for (const auto& request : plan) {
                 const auto& source = scan.items[static_cast<std::size_t>(request.sourceOrdinal)];
                 explanation += juce::String(request.sourceOrdinal + 1) + ". " + source.sourceItemTitle + "\n";
-                explanation += "  -> " + (request.createNewItem ? juce::String("[New Browser item — not added to Setlist]") :
+                explanation += "  -> " + (request.createNewItem ? juce::String("[New Browser item  -  not added to Setlist]") :
                     live::find(originalState,"items",request.targetItemId)["name"].toString()) + "\n";
                 explanation += "  Fields: ";
                 if (request.fields.sections) explanation += "Sections (" + juce::String(source.sourceSectionCount) + ") ";
@@ -493,7 +493,7 @@ inline void openStudioOneShowImport(Desktop& desktop) {
     auto* dialog = content.get();
     dialog->restoreLastSource();
     juce::DialogWindow::LaunchOptions options;
-    options.dialogTitle = "MR Live — Import Studio One Show";
+    options.dialogTitle = "MR Live  -  Import Studio One Show";
     options.dialogBackgroundColour = juce::Colour(0xff202831);
     options.content.setOwned(content.release());
     options.componentToCentreAround = desktop.getTopLevelComponent();
