@@ -75,6 +75,15 @@ inline void studioOneImportPlan() {
         all->getLast()["meter"].toString() != "4/4" ||
         static_cast<double>(all->getLast()["tempo"]) != 88.)
         fail("Explicit new item must preserve selected source metadata");
+    const auto createdId = all->getLast()["id"].toString();
+    const auto savedBrowserItem = libraryItem(show, createdId);
+    if (!savedBrowserItem.isObject() ||
+        savedBrowserItem["name"].toString() != "Same source title" ||
+        static_cast<double>(savedBrowserItem["tempo"]) != 88. ||
+        static_cast<double>(savedBrowserItem["bars"]) != 12.)
+        fail("Browser must display the imported snapshot, not default item values");
+    if (activeEntries(show).size() != previousSetlist.size())
+        fail("New Browser item must remain outside the Setlist");
     // An existing mapped item may already be on Setlist; preserve it, too.
     const auto previousEntries = activeEntries(show).clone();
     applyStudioOneImportPlan(show,scan,{{0,target1,false,{.tempo=true}}});
