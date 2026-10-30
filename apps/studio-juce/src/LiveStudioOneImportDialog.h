@@ -50,8 +50,8 @@ public:
         setComponentID("live-studio-one-show-import");
         setName("Studio One Show context import");
         setSize(900, 600);
-        for (auto* child : std::array<juce::Component*, 16>{
-                 &title, &sourceName, &search, &sources, &configureTitle, &target,
+        for (auto* child : std::array<juce::Component*, 17>{
+                 &title, &sourceName, &chooseShow, &search, &sources, &configureTitle, &target,
                  &sections, &tempo, &chords, &length, &previewTitle, &previewText,
                  &status, &previewButton, &importButton, &cancelButton})
             addAndMakeVisible(child);
@@ -59,8 +59,11 @@ public:
         sources.setScrollBarsShown(true, false);
         sourceBody.setInterceptsMouseClicks(true, true);
         title.setText("Import musical context from Studio One Show", juce::dontSendNotification);
-        sourceName.setText(sourceFileName + "  |  " + juce::String(static_cast<int>(scan.items.size())) +
-                           " source items (nothing selected)", juce::dontSendNotification);
+        sourceName.setText("No .show loaded", juce::dontSendNotification);
+        chooseShow.setButtonText("Choose .show...");
+        chooseShow.setTitle("Select a Studio One Show file without closing the import window");
+        chooseShow.setComponentID("live-show-import-choose-file");
+        chooseShow.onClick = [this] { chooseSourceFile(); };
         search.setTextToShowWhenEmpty("Filter source item titles", juce::Colours::grey);
         search.setTitle("Filter only: source positions and selections are preserved");
         search.setComponentID("live-show-import-search");
@@ -133,10 +136,34 @@ public:
     }
     std::function<void()> close;
 
+    // Opening the dialog reuses the last successfully read source. The user
+    // may switch sources inside the dialog; no musical import happens until
+    // Import is explicitly confirmed.
+    void restoreLastSource() {
+        if (!owner || owner->view.lastStudioOneShow.isEmpty()) {
+            status.setText("Choose a Studio One .show file to start importing.",
+                           juce::dontSendNotification);
+            return;
+        }
+        const juce::File previous(owner->view.lastStudioOneShow);
+        if (!previous.existsAsFile()) {
+            status.setText("Previous .show is missing. Use Choose .show... to locate it.",
+                           juce::dontSendNotification);
+            return;
+        }
+        try { loadSourceFile(previous); }
+        catch (const std::exception& error) {
+            status.setText("Cannot reopen last .show: " + juce::String::fromUTF8(error.what()),
+                           juce::dontSendNotification);
+        }
+    }
+
     void resized() override {
         auto area = getLocalBounds().reduced(12);
         title.setBounds(area.removeFromTop(26));
-        sourceName.setBounds(area.removeFromTop(22));
+        auto fileRow = area.removeFromTop(30);
+        chooseShow.setBounds(fileRow.removeFromRight(150).reduced(2));
+        sourceName.setBounds(fileRow.reduced(2));
         area.removeFromTop(6);
         auto bottom = area.removeFromBottom(42);
         cancelButton.setBounds(bottom.removeFromRight(112).reduced(3));
@@ -177,6 +204,8 @@ private:
     bool syncing{}, previewValid{};
     std::vector<live::StudioOneImportItem> previewPlan;
     juce::Label title, sourceName, configureTitle, previewTitle, status;
+    juce::TextButton chooseShow;
+    std::unique_ptr<juce::FileChooser> showChooser;
     juce::TextEditor search, previewText;
     juce::Viewport sources;
     juce::Component sourceBody;
@@ -185,6 +214,53 @@ private:
     juce::ToggleButton sections, tempo, chords, length;
     juce::TextButton previewButton, importButton, cancelButton;
 
+    void loadSourceFile(const juce::File& file) {
+        // Decode completely BEFORE changing the current draft or remembered
+        // file. A missing/corrupt replacement leaves the old source usable.
+        auto fresh = live::readStudioOneShow(file);
+        if (fresh.items.empty())
+            throw std::runtime_error("The selected .show has no SetList items");
+        scan = std::move(fresh);
+        sourceFileName = file.getFileName();
+        sourceName.setTooltip(file.getFullPathName());
+        drafts.assign(scan.items.size(), Draft{});
+        focused = -1;
+        search.clear();
+        syncConfiguration();
+        updateSelectionCount();
+        rebuildSourceList();
+        invalidatePreview();
+        status.setText("Loaded " + sourceFileName +
+                           ". Select source items, destinations and fields.",
+                       juce::dontSendNotification);
+        if (owner && owner->view.lastStudioOneShow != file.getFullPathName()) {
+            owner->view.lastStudioOneShow = file.getFullPathName();
+            owner->saveSettings(); // user preference only; not .mrlive content
+        }
+    }
+    void chooseSourceFile() {
+        if (!owner) return;
+        const auto lastPath = owner->view.lastStudioOneShow;
+        const auto initial = lastPath.isNotEmpty()
+            ? juce::File(lastPath)
+            : juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+        showChooser = std::make_unique<juce::FileChooser>(
+            "Choose Studio One Show", initial, "*.show", true);
+        juce::Component::SafePointer<LiveStudioOneImportDialog> safe(this);
+        showChooser->launchAsync(
+            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            [safe](const juce::FileChooser& chooser) {
+                if (!safe || !safe->owner) return;
+                const auto file = chooser.getResult();
+                if (file == juce::File()) return; // Cancel retains draft
+                try { safe->loadSourceFile(file); }
+                catch (const std::exception& error) {
+                    safe->status.setText("File not loaded: " +
+                        juce::String::fromUTF8(error.what()) +
+                        " (previous selection retained)", juce::dontSendNotification);
+                }
+            });
+    }
     bool documentCurrent() const {
         return owner && owner->liveDocument && owner->liveDocumentGeneration == documentGeneration &&
                live::sameShowValue(owner->liveDocument->interfaceState, originalState);
@@ -199,6 +275,10 @@ private:
         return false;
     }
     void updateSelectionCount() {
+        if (sourceFileName.isEmpty()) {
+            sourceName.setText("No .show loaded — choose a file", juce::dontSendNotification);
+            return;
+        }
         const auto selected = static_cast<int>(std::count_if(drafts.begin(), drafts.end(),
                                                        [](const Draft& draft) { return draft.selected; }));
         sourceName.setText(sourceFileName + "  |  " + juce::String(static_cast<int>(scan.items.size())) +
@@ -406,31 +486,24 @@ private:
 
 inline void openStudioOneShowImport(Desktop& desktop) {
     if (!desktop.liveDocument || desktop.app.recording()) return;
-    juce::Component::SafePointer<Desktop> safe(&desktop);
-    desktop.choose(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                   [safe](const juce::File& sourceFile) {
-        if (!safe || !safe->liveDocument) return;
-        safe->run([&] {
-            auto scan = live::readStudioOneShow(sourceFile);
-            auto content = std::make_unique<LiveStudioOneImportDialog>(*safe, std::move(scan),
-                                                                        sourceFile.getFileName());
-            auto* dialog = content.get();
-            // A long multi-item import must never be a CallOutBox: clicking
-            // the rest of MR Live would otherwise discard all selections.
-            juce::DialogWindow::LaunchOptions options;
-            options.dialogTitle = "MR Live — Import Studio One Show";
-            options.dialogBackgroundColour = juce::Colour(0xff202831);
-            options.content.setOwned(content.release());
-            options.componentToCentreAround = safe->getTopLevelComponent();
-            options.escapeKeyTriggersCloseButton = true;
-            options.useNativeTitleBar = true;
-            options.resizable = true;
-            auto* window = options.launchAsync();
-            juce::Component::SafePointer<juce::DialogWindow> safeWindow(window);
-            dialog->close = [safeWindow] {
-                if (safeWindow) safeWindow->exitModalState(0);
-            };
-        });
-    }, "*.show");
+    // Always show the same persistent dialog. Restore last file if available,
+    // or leave the picker visible if it was removed/moved/invalid.
+    auto content = std::make_unique<LiveStudioOneImportDialog>(
+        desktop, live::StudioOneShowScan{}, juce::String{});
+    auto* dialog = content.get();
+    dialog->restoreLastSource();
+    juce::DialogWindow::LaunchOptions options;
+    options.dialogTitle = "MR Live — Import Studio One Show";
+    options.dialogBackgroundColour = juce::Colour(0xff202831);
+    options.content.setOwned(content.release());
+    options.componentToCentreAround = desktop.getTopLevelComponent();
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = true;
+    auto* window = options.launchAsync();
+    juce::Component::SafePointer<juce::DialogWindow> safeWindow(window);
+    dialog->close = [safeWindow] {
+        if (safeWindow) safeWindow->exitModalState(0);
+    };
 }
 } // namespace ui
