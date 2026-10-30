@@ -614,7 +614,13 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         const auto midiLoaded=live::decodeLiveInputProfile(midiProfile);
         liveCheck(midiLoaded.instrument && midiLoaded.midiInput=="saved-midi-port" && midiLoaded.midiChannel==15 &&
                   midiProfile["midiMonitor"].isVoid() && midiProfile["monitor"].isVoid(),
-                  "MIDI descriptor preserves port/channel without authorizing automatic monitoring or plugin load");
+                  "MIDI descriptor preserves port/channel but not transient monitor state");
+        const auto autoMidi=live::liveAutomaticMonitor(midiLoaded);
+        auto midiOff=midiLoaded;midiOff.midiInput=juce::String{};
+        liveCheck(!autoMidi.audio && autoMidi.midi &&
+                  !live::liveAutomaticMonitor(midiOff).midi &&
+                  live::liveAutomaticMonitor(live::decodeLiveInputProfile(encoded)).audio,
+                  "Auto-monitor distinguishes Audio and MIDI; MIDI Off remains silent");
         // Saved .mrlive MIDI descriptors use -1, whereas the shared Core
         // Project::validate requires -2 for every non-audio track. Verify the
         // projection in both directions without changing the show schema.
@@ -767,9 +773,12 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   liveComponent(inputPanel,"live-channel-effects-"+showChannel)!=nullptr,
                   "#302 channel embeds input, output and VST3 chain selectors");
         LiveMixer channelMixer(inputPilot);channelMixer.setSize(700,300);channelMixer.sync();
+        auto* itemTimeline=dynamic_cast<LiveTimeline*>(liveComponent(inputPilot,"live-show-timeline"));
+        liveCheck(itemTimeline && liveComponent(*itemTimeline,"live-channel-monitor-"+showChannel)==nullptr,
+                  "#31 P2 Timeline does not expose the manual Monitor button");
         liveCheck(liveComponent(channelMixer,"live-channel-input-"+showChannel)!=nullptr &&
-                  liveComponent(channelMixer,"live-channel-monitor-"+showChannel)!=nullptr,
-                  "#302 Mixer embeds the same channel selectors and monitoring");
+                  liveComponent(channelMixer,"live-channel-monitor-"+showChannel)==nullptr,
+                  "#31 P2 Mixer keeps channel selectors and removes the manual Monitor button");
         liveCheck(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"].isObject(),
                   "Channel input changes immediately belong to the show");
         const auto pilotSaved=folder.getChildFile("pilot-shared-core-save.mrlive");
@@ -786,12 +795,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         inputPilot.activateLiveChannel(showChannel);
         liveCheck(inputPilot.liveInputTrack() &&
                   inputPilot.project()->tracks.size()==1 &&
-                  !inputPilot.project()->tracks.front().input_monitor &&
+                  inputPilot.project()->tracks.front().input_monitor &&
                   inputPilot.app.engine()==engine,
-                  "Loading saved input profile restores Core track with monitor OFF");
-        inputPilot.setLiveInputMonitor(showChannel,true);
-        liveCheck(inputPilot.project()->tracks.front().input_monitor,
-                  "Enabling a restored Live Input requires a separate explicit action");
+                  "Valid restored Audio Input automatically monitors through Core");
         inputPilot.releaseLiveInput();
         // #302 A1: use the existing Core stereo input and output routing commands
         // from the native channel inspector, without inventing a new audio host.
@@ -826,7 +832,18 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         inputPilot.releaseLiveInput(secondChannel);inputPilot.releaseLiveInput(showChannel);
         inputPilot.openFile(multiSaved);
         liveCheck(inputPilot.liveChannelTracks.empty() && inputPilot.project()->tracks.empty(),
-                  "Open restores show settings with no automatic plugin activation or monitoring");
+                  "Open with offline device retains profiles but cannot start monitoring");
+        inputPilot.syncAutomaticLiveMonitoring();
+        liveCheck(inputPilot.liveChannelTracks.empty()&&inputPilot.project()->tracks.empty(),
+                  "Auto-monitor refuses the offline clock");
+        inputPilot.app.connect(std::make_unique<LivePlaybackTestDevice>(),{0,48000,128,{0,1},{0,1}});
+        inputPilot.syncAutomaticLiveMonitoring();
+        liveCheck(inputPilot.liveInputTrack(showChannel) && inputPilot.liveInputTrack(secondChannel) &&
+                  inputPilot.project()->tracks.size()==2 &&
+                  std::all_of(inputPilot.project()->tracks.begin(),inputPilot.project()->tracks.end(),
+                              [](const auto& track){return track.input_monitor;}),
+                  "Reconnecting the correct device auto-monitors two saved audio channels independently");
+        inputPilot.releaseLiveInput(secondChannel);inputPilot.releaseLiveInput(showChannel);
         // #302/#281: preserve legacy Instrument audio profiles and use explicit Undoable conversion.
         juce::String legacyChannel;
         inputPilot.editLiveInterface("Create legacy Instrument fixture",[&](auto& state){
