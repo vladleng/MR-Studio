@@ -305,6 +305,24 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
               "Right grip changes explicit item end without changing scale");
     liveCheck(live::canonical(live::musicalVersion(editing.liveDocument->interfaceState,id))==musical,
               "Shrinking item preserves hidden musical events");
+    // Preview of the left item boundary must never mutate the live show
+    // until mouse-up. The visual geometry updates at drag speed, Undo once.
+    bounds=timeline->itemBounds(id);
+    const auto beforeLead=editing.liveDocument->interfaceState.clone();
+    const int oldItemWidth=bounds.getWidth();
+    const float leadGrip=static_cast<float>(bounds.getX()+1+2*32);
+    body->mouseDown(event(leadGrip,72.f));
+    body->mouseDrag(event(leadGrip+32.f,72.f));
+    liveCheck(live::sameShowValue(editing.liveDocument->interfaceState,beforeLead) &&
+              timeline->itemBounds(id).getWidth()==oldItemWidth+32,
+              "Left item edge previews geometry without a show edit");
+    body->mouseUp(event(leadGrip+32.f,72.f));timeline->refresh();
+    liveCheck(static_cast<double>(editing.liveDocument->interfaceState["performance"]
+              ["arrangement"][juce::Identifier(id)]["lead"])==3.,
+              "Left item edge commits once after mouse-up");
+    editing.undoLiveInterface();timeline->refresh();
+    liveCheck(live::sameShowValue(editing.liveDocument->interfaceState,beforeLead),
+              "Left item edge Undo restores exact arrangement metadata");
     const auto file=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("live-timeline-edit",".mrlive",false);
     editing.saveFile(file);const auto reopened=LiveDocument::read(file);file.deleteFile();
     liveCheck(live::canonical(reopened.interfaceState)==live::canonical(editing.liveDocument->interfaceState),
