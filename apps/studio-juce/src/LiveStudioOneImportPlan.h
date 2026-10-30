@@ -34,8 +34,9 @@ inline void applyStudioOneImportPlan(juce::var& show, const StudioOneShowScan& s
         if (request.createNewItem) {
             if (request.targetItemId.isNotEmpty())
                 throw std::runtime_error("New item creation conflicts with an existing target ID");
+            // Browser owns all items; Setlist contains only explicit live
+            // performance entries. Import must NOT place new items on stage.
             mapped.targetItemId = addItem(candidate, mapped.sourceItemTitle);
-            insertEntry(candidate, mapped.targetItemId);
             // Set the new target meter to the source meter only when explicitly
             // creating an item; never change an already existing target meter.
             if (mapped.sourceMeter.isNotEmpty())
