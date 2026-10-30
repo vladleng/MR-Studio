@@ -221,16 +221,22 @@ private:
             auto row = std::make_unique<SourceRow>();
             row->selected.setButtonText(juce::String(static_cast<int>(i + 1)) + ". " + s.sourceItemTitle);
             row->selected.setTitle("Select source position " + juce::String(static_cast<int>(i + 1)));
+            row->selected.setTooltip(s.sourceItemTitle + " — source position " +
+                                     juce::String(static_cast<int>(i + 1)));
             row->selected.setToggleState(drafts[i].selected, juce::dontSendNotification);
             row->selected.setComponentID("live-show-import-item-" + juce::String(static_cast<int>(i)));
             row->configure.setToggleState(focused == static_cast<int>(i), juce::dontSendNotification);
             row->summary.setText("S" + juce::String(s.sourceSectionCount) + "  C" +
                                  juce::String(s.sourceChordCount), juce::dontSendNotification);
             row->summary.setTooltip(s.warnings.joinIntoString(" | "));
-            row->selected.onClick = [this, i] {
+            auto* selectedToggleRow = row.get();
+            row->selected.onClick = [this, i, selectedToggleRow] {
                 drafts[i].selected = !drafts[i].selected;
                 focused = static_cast<int>(i);
                 syncConfiguration();
+                for (auto& visible : rows)
+                    visible->configure.setToggleState(visible.get() == selectedToggleRow,
+                                                      juce::dontSendNotification);
                 invalidatePreview();
             };
             auto* selectedRow = row.get();
