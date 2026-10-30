@@ -72,7 +72,7 @@ struct ViewSettings {
         result.lastLiveShow=value["lastLiveShow"].toString().substring(0,32768);
         result.lastStudioOneShow=value["lastStudioOneShow"].toString().substring(0,32768);
         if(value.hasProperty("liveMixerHeight")) {const auto h=value["liveMixerHeight"];
-            if(!h.isInt() || static_cast<int>(h)<200 || static_cast<int>(h)>1600)
+            if(!h.isInt() || static_cast<int>(h)<180 || static_cast<int>(h)>1600)
                 throw std::runtime_error("Invalid Live mixer dock height");
             result.liveMixerHeight=static_cast<int>(h);
         }
