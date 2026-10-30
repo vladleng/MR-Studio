@@ -45,6 +45,8 @@ public:
           originalState(desktop.liveDocument->interfaceState.clone()),
           documentGeneration(desktop.liveDocumentGeneration),
           drafts(scan.items.size()) {
+        configureLiveContext(theme, static_cast<float>(desktop.view.liveMenuOpacity));
+        setLookAndFeel(&theme);
         setComponentID("live-studio-one-show-import");
         setName("Studio One Show context import");
         setSize(900, 600);
@@ -127,6 +129,7 @@ public:
     ~LiveStudioOneImportDialog() override {
         sources.setViewedComponent(nullptr, false);
         rows.clear();
+        setLookAndFeel(nullptr);
     }
     std::function<void()> close;
 
@@ -163,6 +166,7 @@ public:
 
 private:
     juce::Component::SafePointer<Desktop> owner;
+    Theme theme;
     live::StudioOneShowScan scan;
     juce::String sourceFileName;
     juce::var originalState;
@@ -206,9 +210,21 @@ private:
         previewValid = false;
         previewPlan.clear();
         importButton.setEnabled(false);
-        status.setText("Selection updated — Preview again before importing.",
-                       juce::dontSendNotification);
-        previewText.setText("Preview is outdated. Click Preview to validate all selected items.", false);
+        try {
+            // Do not automatically choose any destination/field. Once the
+            // explicitly configured selections are complete, run the same
+            // detached preview as the button, so Import becomes available
+            // without a mysterious extra click.
+            (void)collectPlan();
+            validatePreview();
+        } catch (const std::exception& error) {
+            const auto reason = juce::String::fromUTF8(error.what());
+            status.setText("Not ready: " + reason, juce::dontSendNotification);
+            previewText.setText("Import not available yet.\n" + reason +
+                                "\n\nChoose Options for each selected source, set a destination "
+                                "and at least one available field. Preview or Import "
+                                "never changes the source file.", false);
+        }
     }
     void rebuildSourceList() {
         rows.clear();
@@ -281,8 +297,13 @@ private:
             tempo.setEnabled(available(source, 1));
             chords.setEnabled(available(source, 2));
             length.setEnabled(available(source, 3));
-            juce::String detail = "Detected  |  Sections: " + juce::String(source.sourceSectionCount) +
-                                  "  |  Chords: " + juce::String(source.sourceChordCount) + "\n";
+            juce::String detail = "Detected  |  Sections: " + juce::String(source.sourceSectionCount);
+            if (source.sections.isArray()) detail += " (usable " + juce::String(source.sections.size()) + ")";
+            detail += "  |  Chords: " + juce::String(source.sourceChordCount);
+            if (source.chords.isArray()) detail += " (usable " + juce::String(source.chords.size()) + ")";
+            detail += "\n";
+            if (source.sourceSectionCount && !source.sections.isArray()) detail += "Sections unavailable: see warning below\n";
+            if (source.sourceChordCount && !source.chords.isArray()) detail += "Chords unavailable: see warning below\n";
             detail += "Tempo: " + (source.bpm ? juce::String(*source.bpm, 2) + " BPM" : juce::String("unavailable"));
             detail += "  |  Meter: " + source.sourceMeter;
             detail += "  |  Length: " + (source.lengthBars ? juce::String(*source.lengthBars, 3) + " bars" :
@@ -308,12 +329,13 @@ private:
         for (std::size_t i = 0; i < drafts.size(); ++i) {
             const auto& d = drafts[i];
             if (!d.selected) continue;
+            const auto identity = "Source #" + std::to_string(i + 1) + ": ";
             if (!d.fields.sections && !d.fields.tempo && !d.fields.chords && !d.fields.length)
-                throw std::runtime_error("Every selected source needs at least one content field");
+                throw std::runtime_error(identity + "choose at least one available field");
             if (!d.createNew && d.targetItemId.isEmpty())
-                throw std::runtime_error("Every selected source needs an explicit MR Live target");
+                throw std::runtime_error(identity + "choose an MR Live destination or Create New");
             if (!d.createNew && !targets.insert(d.targetItemId).second)
-                throw std::runtime_error("Two source items select the same destination item");
+                throw std::runtime_error(identity + "destination already assigned to another source");
             result.push_back({static_cast<int>(i), d.targetItemId, d.createNew, d.fields});
         }
         if (result.empty()) throw std::runtime_error("Select at least one source Show item");
@@ -393,10 +415,21 @@ inline void openStudioOneShowImport(Desktop& desktop) {
             auto content = std::make_unique<LiveStudioOneImportDialog>(*safe, std::move(scan),
                                                                         sourceFile.getFileName());
             auto* dialog = content.get();
-            auto& box = showLiveContext(std::move(content), *safe,
-                                       liveContextTarget(juce::Desktop::getMousePosition()));
-            juce::Component::SafePointer<juce::CallOutBox> popup(&box);
-            dialog->close = [popup] { if (popup) popup->dismiss(); };
+            // A long multi-item import must never be a CallOutBox: clicking
+            // the rest of MR Live would otherwise discard all selections.
+            juce::DialogWindow::LaunchOptions options;
+            options.dialogTitle = "MR Live — Import Studio One Show";
+            options.dialogBackgroundColour = juce::Colour(0xff202831);
+            options.content.setOwned(content.release());
+            options.componentToCentreAround = safe->getTopLevelComponent();
+            options.escapeKeyTriggersCloseButton = true;
+            options.useNativeTitleBar = true;
+            options.resizable = true;
+            auto* window = options.launchAsync();
+            juce::Component::SafePointer<juce::DialogWindow> safeWindow(window);
+            dialog->close = [safeWindow] {
+                if (safeWindow) safeWindow->exitModalState(0);
+            };
         });
     }, "*.show");
 }
