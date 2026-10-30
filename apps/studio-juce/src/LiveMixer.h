@@ -144,7 +144,7 @@ class LiveMixer final : public juce::Component {
             // MR Studio mixer uses independent L/R peak bars aligned with
             // the long fader. Keep the MR Live palette, no new meter colours.
             const int height = juce::jmax(0, getHeight() - 116);
-            const auto background=tokens.colour(ColourRole::panel);
+            const auto meterBackground=tokens.colour(ColourRole::panel);
             const auto active=tokens.colour(ColourRole::on);
             const int baseY=102, baseX=getWidth()-17;
             for (int i=0;i<2;++i) {
@@ -155,7 +155,7 @@ class LiveMixer final : public juce::Component {
                 const float db=value>0.f?20.f*std::log10(value):-60.f;
                 const float fraction=juce::jlimit(0.f,1.f,(db+60.f)/60.f);
                 const int lit=juce::roundToInt(height*fraction);
-                g.setColour(background.darker(.2f));g.fillRect(x,baseY,4,height);
+                g.setColour(meterBackground.darker(.2f));g.fillRect(x,baseY,4,height);
                 g.setColour(active);g.fillRect(x,baseY+height-lit,4,lit);
             }
         }
