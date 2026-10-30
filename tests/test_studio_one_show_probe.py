@@ -37,7 +37,6 @@ class ShowProbeTests(unittest.TestCase):
         self.assertEqual(report["xml_documents"][0]["schema"]["root"], "Show")
         paths = {row["path"]: row for row in report["xml_documents"][0]["schema"]["paths"]}
         self.assertEqual(paths["Show/Songs/Song/Chords/Chord"]["attributes"], ["position", "symbol"])
-        self.assertIn("Devices", "") if False else None
         self.assertEqual(report["other_extensions"], {".preset": 1})
         self.assertNotIn("Private Show", str(report))
         self.assertNotIn("Hidden Song", str(report))
@@ -53,8 +52,10 @@ class ShowProbeTests(unittest.TestCase):
         self.source.write_bytes(b"not an archive")
         with self.assertRaisesRegex(ProbeError, "Not a ZIP"):
             inspect(self.source)
+        wrong = self.folder / "fake.song"
+        wrong.write_bytes(b"not an archive")
         with self.assertRaisesRegex(ProbeError, "Expected"):
-            inspect(self.folder / "fake.song")
+            inspect(wrong)
 
     def test_opaque_archive_is_not_mistaken_for_supported_import(self):
         self.make_show({"opaque.bin": b"unknown"})
