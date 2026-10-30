@@ -70,7 +70,7 @@ public:
         search.onTextChange = [this] { rebuildSourceList(); };
         configureTitle.setText("Select a source item, then configure its import", juce::dontSendNotification);
         target.setTextWhenNothingSelected("Choose destination item...");
-        target.addItem("Create a new MR Live item", 2);
+        target.addItem("Create new Browser item (not in Setlist)", 2);
         if (const auto* all = originalState["items"].getArray())
             for (const auto& item : *all) {
                 const auto id = item["id"].toString();
@@ -436,7 +436,7 @@ private:
             for (const auto& request : plan) {
                 const auto& source = scan.items[static_cast<std::size_t>(request.sourceOrdinal)];
                 explanation += juce::String(request.sourceOrdinal + 1) + ". " + source.sourceItemTitle + "\n";
-                explanation += "  -> " + (request.createNewItem ? juce::String("[New MR Live item]") :
+                explanation += "  -> " + (request.createNewItem ? juce::String("[New Browser item — not added to Setlist]") :
                     live::find(originalState,"items",request.targetItemId)["name"].toString()) + "\n";
                 explanation += "  Fields: ";
                 if (request.fields.sections) explanation += "Sections (" + juce::String(source.sourceSectionCount) + ") ";
