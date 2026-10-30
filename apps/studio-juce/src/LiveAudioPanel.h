@@ -52,7 +52,7 @@ class LiveAudioPanel final : public juce::Component {
                 selected = static_cast<int>(i + 1);
         output.setSelectedId(selected, juce::dontSendNotification);
         output.setTextWhenNothingSelected("Click output unavailable — choose a route");
-        const bool canRoute = desktop.app.engine()->state().playback != mrs::PlaybackState::playing;
+        const bool canRoute = desktop.displayState().playback != mrs::PlaybackState::playing;
         output.setEnabled(canRoute);
         apply.setButtonText("Apply");
         apply.onClick = [this, click]() mutable {

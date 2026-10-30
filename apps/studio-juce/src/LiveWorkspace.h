@@ -337,12 +337,12 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         previous.setEnabled((linked || sectionsReady) && !owner.app.recording());
         next.setEnabled((linked || sectionsReady) && !owner.app.recording());
         loop.setEnabled((linked || (sectionsReady && (owner.app.musical().state().current_section ||
-                                                      owner.app.engine()->state().loop))) &&
+                                                      state.loop))) &&
                         !owner.app.recording());
         play.setToggleState(state.playback == mrs::PlaybackState::playing, juce::dontSendNotification);
         pause.setToggleState(state.playback == mrs::PlaybackState::paused, juce::dontSendNotification);
         record.setToggleState(owner.app.recording(), juce::dontSendNotification);
-        loop.setToggleState(owner.app.engine()->state().loop.has_value(), juce::dontSendNotification);
+        loop.setToggleState(state.loop.has_value(), juce::dontSendNotification);
         pointerTool.setToggleState(!timeline.clipScissors(),juce::dontSendNotification);
         scissorsTool.setToggleState(timeline.clipScissors(),juce::dontSendNotification);
         repaint();

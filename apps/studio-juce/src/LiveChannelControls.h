@@ -38,7 +38,7 @@ public:
         if(!owner.liveDocument)return;
         const auto row=live::find(owner.liveDocument->interfaceState,"channels",id);
         const auto profile=row["liveInput"];
-        const bool stopped=!owner.app.recording() && owner.app.engine()->state().playback!=mrs::PlaybackState::playing;
+        const bool stopped=!owner.app.recording() && owner.displayState().playback!=mrs::PlaybackState::playing;
         const auto type=row["type"].toString();
         const bool legacyAudio=type=="Instrument" && profile.isObject() && static_cast<int>(profile["version"])==1;
         const bool timelineInstrument=surface==Surface::timeline && type=="Instrument"&&!legacyAudio;
@@ -209,7 +209,7 @@ private:
             throw std::runtime_error("Legacy audio profile: convert this channel to Player explicitly");
         if((kind!="Instrument"&&saved.instrument)||kind=="Playback")
             throw std::runtime_error("Saved plugin profile does not match channel type");
-        const bool stopped=!owner.app.recording() && owner.app.engine()->state().playback!=mrs::PlaybackState::playing;
+        const bool stopped=!owner.app.recording() && owner.displayState().playback!=mrs::PlaybackState::playing;
         juce::PopupMenu menu;menu.setLookAndFeel(&owner.theme);
         const auto catalog=owner.catalog; // Shared scanner catalog, never scan or probe from the menu.
         std::vector<mrs::processing::VstPlugin> choices; // Explicit action -> exact class identity after sorting.

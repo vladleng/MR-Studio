@@ -328,7 +328,7 @@ class LiveTimeline final : public juce::Component {
             if(const auto id=parent.owner.liveInputTrack(key))for(const auto& track:parent.owner.project()->tracks)if(track.id==*id)
                 monitoring=track.kind==mrs::TrackKind::instrument?track.midi_monitor:track.input_monitor;
             monitor.setToggleState(monitoring,juce::dontSendNotification);
-            monitor.setEnabled(row["liveInput"].isObject()&&!parent.owner.app.recording()&&parent.owner.app.engine()->state().playback!=mrs::PlaybackState::playing);
+            monitor.setEnabled(row["liveInput"].isObject()&&!parent.owner.app.recording()&&parent.owner.displayState().playback!=mrs::PlaybackState::playing);
             monitor.setTooltip(monitoring?"Monitor ON":"Monitor OFF: explicit enable loads this channel through shared Core");
             mute.setToggleState(static_cast<bool>(row["mute"]), juce::dontSendNotification);
             solo.setToggleState(static_cast<bool>(row["solo"]), juce::dontSendNotification);

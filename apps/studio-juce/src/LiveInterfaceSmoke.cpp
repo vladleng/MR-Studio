@@ -73,6 +73,38 @@ void livePreview(juce::Component &component, const juce::String &name) {
             "Live preview export");
     }
 }
+// Regression for build 390's AudioEngine::state() exception escaping UI refresh.
+// No vendor plugins/hardware: a single synthetic callback writer competes with
+// the actual Playback, Timeline and Mixer display readers while stopped.
+void liveDisplayPollingSmoke(const juce::File& fixture,const juce::File& wave){
+    Desktop polling(true,false,true);polling.importLiveShow(fixture);polling.setSize(1200,800);
+    polling.app.connect(std::make_unique<LivePlaybackTestDevice>(),{0,48000,128,{}, {0,1},1});
+    const auto id=polling.liveDocument->interfaceState["currentItem"].toString();
+    polling.attachLivePlayback(id,wave);
+    const auto deadline=juce::Time::getMillisecondCounter()+5000;
+    while(polling.livePlaybackLoading&&juce::Time::getMillisecondCounter()<deadline){
+        polling.app.poll();polling.syncLivePlayback();juce::Thread::sleep(1);
+    }
+    liveCheck(polling.livePlaybackReady(),"Display polling fixture has a real prepared Playback row");
+    auto* panel=dynamic_cast<LivePlaybackPanel*>(liveComponent(polling,"live-playback-panel"));
+    auto* timeline=dynamic_cast<LiveTimeline*>(liveComponent(polling,"live-show-timeline"));
+    auto* mixer=dynamic_cast<LiveMixer*>(liveComponent(polling,"live-mixer"));
+    liveCheck(panel&&timeline&&mixer,"Concurrent display polling uses real Live components");
+    panel->sync();timeline->refresh();mixer->sync();
+    const auto engine=polling.app.engine();
+    std::atomic<bool> begin{};
+    std::jthread callback([&]{
+        std::array<float,256> output{};
+        while(!begin.load())std::this_thread::yield();
+        for(int block=0;block<50000;++block)engine->process(nullptr,output.data(),128);
+    });
+    begin=true;
+    for(int refresh=0;refresh<300;++refresh){panel->sync();timeline->refresh();mixer->sync();}
+    callback.join();
+    mrs::audio::RealtimeState head;
+    liveCheck(engine->try_state(head)&&head.playback==mrs::PlaybackState::stopped,
+              "Concurrent display refresh leaves stopped playback intact without an escaping busy-state exception");
+}
 void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave){
     Desktop navigation(true,false,true);navigation.importLiveShow(fixture);navigation.setSize(1200,800);
     navigation.app.connect(std::make_unique<LivePlaybackTestDevice>(),{0,48000,128,{}, {0,1},1});
@@ -1209,6 +1241,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             for (int n = 0; n < 96000; ++n)
                 u16(8192);
         }
+        liveDisplayPollingSmoke(fixture,waveFile);
         liveSelectionRefreshSmoke(fixture,waveFile);
         // #300: one Core graph contains a physical Live Input + WAV simultaneously.
         // Manual switches are stopped/quiescent; #301 owns real-time seamless handoff.

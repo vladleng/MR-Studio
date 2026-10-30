@@ -138,6 +138,8 @@ class LivePlaybackPanel final : public juce::Component {
         }
     }
     void sync() {
+        // Display polling may retain the last snapshot while audio publishes;
+        // never use the throwing control-thread state() read from a UI timer.
         const bool preview = inspecting();
         const auto id = owner.liveDocument
             ? (preview ? owner.liveBrowserItem : owner.liveDocument->interfaceState["currentItem"].toString())
@@ -172,7 +174,7 @@ class LivePlaybackPanel final : public juce::Component {
         for (auto &stemRow : stemRows) stemRow->sync();
         audition.setVisible(preview);
         const bool canListen = preview && !rows.empty() && !owner.app.recording() &&
-            owner.app.engine()->state().playback != mrs::PlaybackState::playing && owner.app.audio_running();
+            owner.displayState().playback != mrs::PlaybackState::playing && owner.app.audio_running();
         audition.setEnabled(canListen);
         audition.setButtonText(preview && owner.app.library_preview_state().playing ? "Stop" : "Listen");
         for (auto *c : std::array<juce::Component *, 12>{&chooseFile, &fileName, &trimStart, &trimEnd, &trimApply,
@@ -215,7 +217,7 @@ class LivePlaybackPanel final : public juce::Component {
         outputChoice.setSelectedId(routeId, juce::dontSendNotification);
         outputChoice.setTextWhenNothingSelected("Output unavailable");
         outputChoice.setEnabled(!preview && row.isObject() && !owner.app.recording() &&
-                                owner.app.engine()->state().playback != mrs::PlaybackState::playing);
+                                owner.displayState().playback != mrs::PlaybackState::playing);
         chooseFile.setEnabled(id.isNotEmpty() && !preview && !owner.app.recording());
         fileName.setText(row.isObject() ? juce::File(row["file"].toString()).getFileName() : "No audio connected",
                          juce::dontSendNotification);
@@ -223,7 +225,7 @@ class LivePlaybackPanel final : public juce::Component {
         cue.setToggleState(static_cast<bool>(row["cue"]), juce::dontSendNotification);
         const bool ready = !preview && owner.livePlaybackReady() && owner.livePlaybackItem == id;
         const bool canTrim =
-            ready && !live::playbackRegions(owner.liveDocument->interfaceState,id,row).isArray() && !owner.app.recording() && owner.app.engine()->state().playback != mrs::PlaybackState::playing;
+            ready && !live::playbackRegions(owner.liveDocument->interfaceState,id,row).isArray() && !owner.app.recording() && owner.displayState().playback != mrs::PlaybackState::playing;
         trimStart.setEnabled(canTrim);
         trimEnd.setEnabled(canTrim);
         trimApply.setEnabled(canTrim);
@@ -291,7 +293,7 @@ class LivePlaybackPanel final : public juce::Component {
                 control->setEnabled(!preview);
             listen.setVisible(preview);
             listen.setEnabled(preview && row["file"].isString() && !host.owner.app.recording() &&
-                host.owner.app.engine()->state().playback != mrs::PlaybackState::playing && host.owner.app.audio_running());
+                host.owner.displayState().playback != mrs::PlaybackState::playing && host.owner.app.audio_running());
             listen.setButtonText(host.previewFile == row["file"].toString() &&
                 host.owner.app.library_preview_state().playing ? "Stop" : "Play");
             repaint();

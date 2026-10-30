@@ -85,7 +85,7 @@ class LiveMixer final : public juce::Component {
             const bool instrument=kind=="Instrument" && (!saved.isObject() || static_cast<int>(saved["version"])==2);
             instrumentSelector.setVisible(instrument);
             instrumentSelector.setEnabled(instrument && saved.isObject() &&
-                !owner.app.recording() && owner.app.engine()->state().playback!=mrs::PlaybackState::playing);
+                !owner.app.recording() && owner.displayState().playback!=mrs::PlaybackState::playing);
             const auto pluginName=saved.isObject() && saved["inserts"].size()>0 ?
                 saved["inserts"][0]["name"].toString() : juce::String();
             instrumentSelector.setButtonText(pluginName.isEmpty()?"Choose VSTi":pluginName);
@@ -95,7 +95,7 @@ class LiveMixer final : public juce::Component {
             bool monitoring=false;
             if(target)for(const auto& track:owner.project()->tracks)if(track.id==*target)monitoring=track.kind==mrs::TrackKind::instrument?track.midi_monitor:track.input_monitor;
             monitor.setToggleState(monitoring,juce::dontSendNotification);
-            monitor.setEnabled(channel["liveInput"].isObject()&&!owner.app.recording()&&owner.app.engine()->state().playback!=mrs::PlaybackState::playing);
+            monitor.setEnabled(channel["liveInput"].isObject()&&!owner.app.recording()&&owner.displayState().playback!=mrs::PlaybackState::playing);
             monitor.setTooltip(monitoring?"Monitor ON":"Monitor OFF");
             if (!gain.gesturing() && !gain.hasKeyboardFocus(true)) gain.setValue(static_cast<double>(channel["gain"]));
             if (!pan.isMouseButtonDown() && !pan.hasKeyboardFocus(true)) pan.setValue(live::channelPan(channel), juce::dontSendNotification);

@@ -154,7 +154,7 @@ class LivePreflightPanel final : public juce::Component,private juce::Timer {
             row->title.setTooltip(target.file);row->detail.setText(juce::String::fromUTF8(result.detail.c_str()),juce::dontSendNotification);
             row->detail.setColour(juce::Label::textColourId,result.code==Code::ok?juce::Colour(0xffa9bacb):juce::Colour(0xffe0ba79));
             failures+=result.code!=Code::ok;
-            const bool editable=owner&&!owner->app.recording()&&(target.item!=owner->liveDocument->interfaceState["currentItem"].toString()||owner->app.engine()->state().playback!=mrs::PlaybackState::playing);
+            const bool editable=owner&&!owner->app.recording()&&(target.item!=owner->liveDocument->interfaceState["currentItem"].toString()||owner->displayState().playback!=mrs::PlaybackState::playing);
             row->choose.setEnabled(editable&&!target.click);row->choose.setTooltip("Relink/reload WAV; trim, regions, channel and mix are retained.");
             row->master.setEnabled(editable&&result.code==Code::outputs);row->reload.setEnabled(editable&&!target.click);
             juce::Component::SafePointer<LivePreflightPanel> safe(this);
