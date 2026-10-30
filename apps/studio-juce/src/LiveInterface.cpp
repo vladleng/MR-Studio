@@ -231,18 +231,18 @@ void Desktop::editLiveItemView(const juce::String &id, const juce::Identifier &k
     if ((!scale && !lead) || !std::isfinite(value) ||
         value < (scale ? 4. : 0.) || value > (scale ? 128. : 4096.))
         throw std::runtime_error("Invalid item view range");
-    const auto arrangement = liveDocument->interfaceState["performance"]["arrangement"];
-    const auto prior = arrangement[juce::Identifier(id)];
-    auto next = prior.isObject() ? prior.clone() : live::object();
+    const auto arrangementState = liveDocument->interfaceState["performance"]["arrangement"];
+    const auto prior = arrangementState[juce::Identifier(id)];
+    auto updatedView = prior.isObject() ? prior.clone() : live::object();
     // Match live::setItemView defaults, including the exact Undo baseline
     // when a legacy item has no arrangement entry yet.
-    if (next["scale"].isVoid()) live::put(next, "scale", 16.);
-    if (next["lead"].isVoid()) live::put(next, "lead", 0.);
-    live::put(next, key, value);
-    if (live::sameShowValue(prior, next)) return;
+    if (updatedView["scale"].isVoid()) live::put(updatedView, "scale", 16.);
+    if (updatedView["lead"].isVoid()) live::put(updatedView, "lead", 0.);
+    live::put(updatedView, key, value);
+    if (live::sameShowValue(prior, updatedView)) return;
     liveShowEditing = true;
     liveUndo.beginNewTransaction("Item " + key.toString());
-    liveUndo.perform(new LiveItemViewEdit(*this, id, prior, next, arrangement.isObject()));
+    liveUndo.perform(new LiveItemViewEdit(*this, id, prior, updatedView, arrangementState.isObject()));
     liveUndo.beginNewTransaction();
 }
 void Desktop::launchLive(const juce::File &file, bool create) {
