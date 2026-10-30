@@ -1,10 +1,43 @@
 # MR Live 0.8.11 — Studio One Show Page context import (#305)
 
-**Development state: parser, Smart Improviser chord decoder, atomic multi-item plan and native JUCE import dialog implemented in feature-branch source; NEW GUI NOT YET WINDOWS-COMPILED OR USER ACCEPTED.**
+**Development state: Windows #401 PASS and user confirmed import of Fever into an existing item without losing audio (partial acceptance). New Browser-only creation and remembered-source UX in 0.8.11-Upd2 are SOURCE ONLY / NOT TESTED on Windows.**
 This is an independent MR Live compatibility feature owned by #305 under roadmap #14.
 The accepted baseline is MR Live **0.8.10**, from `main`. No change to its
 audio engine, VST3, mixer, render graph, or existing `.mrlive` schema is part of
 the investigation step.
+
+## 0.8.11-Upd2 — Browser-only imported items and remembered Show source
+
+After successful Windows #401, the user confirmed import of `Fever` over an
+existing MR Live item **without losing its audio**, and requested two UX
+additions before Issue #305 acceptance:
+
+1. **Create new:** source items are inserted into `items[]` (Items Browser)
+   only. The importer must **not** call `insertEntry`; a Setlist is a
+   performance selection, never the automatic destination. Existing items
+   retain their current Setlist membership and playback/mix. Immediately after
+   applying the selected musical context to a newly created item, call
+   `saveItem` so the **Browser library snapshot** shows imported BPM, sections
+   and length rather than the creation defaults. User can add Browser items
+   to a Setlist through the existing explicit action.
+2. **Remember source:** `ViewSettings.lastStudioOneShow` is persisted only in
+   the local view preferences. On Files → Import Studio One Show, open the
+   persistent dialog directly and read that file if it still exists and
+   parses successfully. There is **no automatic import**. If the source
+   is missing, corrupt or never selected, leave the dialog open with a
+   **Choose .show...** button. That button opens a file chooser within the
+   dialog; a valid replacement resets the source-only draft and becomes the
+   remembered file. Cancellation or invalid selection preserves the prior
+   usable source/draft. The path does not enter `.mrlive` or GitHub.
+
+Contract checks were extended: Browser-only new item, unchanged Setlist,
+up-to-date `libraryItem` snapshot, and view settings roundtrip with
+backwards compatibility (old settings lacking the path).
+
+**Status:** changes committed to existing Draft PR #306 under `0.8.11-Upd2`;
+native Windows compilation, actual GUI lifecycle and Save/Open acceptance are
+**NOT TESTED** for this update. Do not trigger extra Windows Actions or merge
+until explicitly requested. No new issue or change to shared audio engine.
 
 ## 0.8.11-fix2 — Windows user-acceptance findings (30.10.2026)
 
