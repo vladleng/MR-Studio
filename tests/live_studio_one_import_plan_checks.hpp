@@ -50,14 +50,22 @@ inline void studioOneImportPlan() {
     }
     if (!sameShowValue(show,updated)) fail("Invalid target changed imported state");
 
+    const auto previousSetlist = activeEntries(show).clone();
     applyStudioOneImportPlan(show,scan,{{1,{},true,{.tempo=true,.length=true}}});
     if (show["items"].size() != updated["items"].size() + 1)
-        fail("Explicit create-new must add precisely one item");
+        fail("Explicit create-new must add precisely one Browser item");
+    if (!sameShowValue(activeEntries(show), previousSetlist))
+        fail("Studio One import unexpectedly added a new item to Setlist");
     const auto* all = show["items"].getArray();
     if (!all || all->getLast()["name"].toString() != "Same source title" ||
         all->getLast()["meter"].toString() != "4/4" ||
         static_cast<double>(all->getLast()["tempo"]) != 88.)
         fail("Explicit new item must preserve selected source metadata");
+    // An existing mapped item may already be on Setlist; preserve it, too.
+    const auto previousEntries = activeEntries(show).clone();
+    applyStudioOneImportPlan(show,scan,{{0,target1,false,{.tempo=true}}});
+    if (!sameShowValue(activeEntries(show), previousEntries))
+        fail("Import into existing item must preserve Setlist membership");
     const auto beforeDuplicate = show.clone();
     try {
         applyStudioOneImportPlan(show,scan,{
