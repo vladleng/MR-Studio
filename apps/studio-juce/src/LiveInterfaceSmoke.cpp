@@ -298,6 +298,13 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
                   static_cast<int>(oldNotes.getNumBytesAsUTF8()+text.getNumBytesAsUTF8()+100),
               "Notes Undo stores text rather than repeated full show snapshots");
     editing.undoLiveInterface();
+    if(editing.liveDirty) {
+        const auto first=editing.liveSavedSnapshot ?
+            live::firstShowDifference(editing.liveDocument->interfaceState,
+                                      editing.liveSavedSnapshot->interfaceState)
+            : juce::String("snapshot not present");
+        throw std::runtime_error("Notes Undo stayed dirty: mismatch="+first.toStdString());
+    }
     liveCheck(live::find(editing.liveDocument->interfaceState,"items",id)["notes"].toString()==oldNotes && !editing.liveDirty,
               "One Notes Undo restores saved text and clears the show dirty flag");
 }
