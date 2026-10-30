@@ -4,6 +4,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -50,6 +51,43 @@ inline std::string normalizeStudioOneXml(const std::string& src) {
     return out;
 }
 
+inline void guardStudioOneXmlComplexity(const std::string& xml) {
+    std::size_t nodes = 0;
+    int depth = 0;
+    for (std::size_t i = 0; i < xml.size();) {
+        if (xml[i] != '<') { ++i; continue; }
+        if (xml.compare(i, 4, "<!--") == 0) {
+            const auto end = xml.find("-->", i + 4);
+            if (end == std::string::npos) throw std::runtime_error("Unterminated Studio One XML comment");
+            i = end + 3; continue;
+        }
+        if (xml.compare(i, 9, "<![CDATA[") == 0) {
+            const auto end = xml.find("]]>", i + 9);
+            if (end == std::string::npos) throw std::runtime_error("Unterminated Studio One XML CDATA");
+            i = end + 3; continue;
+        }
+        const bool endTag = i + 1 < xml.size() && xml[i + 1] == '/';
+        const bool declaration = i + 1 < xml.size() && (xml[i + 1] == '?' || xml[i + 1] == '!');
+        char quote = 0;
+        std::size_t j = i + 1;
+        for (; j < xml.size(); ++j) {
+            if (quote) { if (xml[j] == quote) quote = 0; }
+            else if (xml[j] == '"' || xml[j] == '\'') quote = xml[j];
+            else if (xml[j] == '>') break;
+        }
+        if (j == xml.size()) throw std::runtime_error("Unterminated Studio One XML tag");
+        if (!declaration) {
+            if (++nodes > 100000) throw std::runtime_error("Studio One XML node limit exceeded");
+            const bool selfClosing = j > i && xml[j - 1] == '/';
+            if (endTag) --depth;
+            else if (!selfClosing) ++depth;
+            if (depth < 0 || depth > 64) throw std::runtime_error("Studio One XML nesting limit exceeded");
+        }
+        i = j + 1;
+    }
+    if (depth != 0) throw std::runtime_error("Unbalanced Studio One XML elements");
+}
+
 inline const juce::XmlElement* studioOneChild(const juce::XmlElement* parent,
                                               const juce::String& tag, const juce::String& sourceId = {}) {
     if (!parent) return nullptr;
@@ -75,6 +113,7 @@ inline StudioOneShowScan readStudioOneShowXml(const std::string& sourceXml) {
     if (sourceXml.size() > 8 * 1024 * 1024)
         throw std::runtime_error("Studio One Show XML exceeds 8 MiB");
     auto normalized = normalizeStudioOneXml(sourceXml);
+    guardStudioOneXmlComplexity(normalized);
     // Studio One writes a UTF-8 BOM before the XML declaration.
     if (normalized.size() >= 3 &&
         static_cast<unsigned char>(normalized[0]) == 0xef &&
