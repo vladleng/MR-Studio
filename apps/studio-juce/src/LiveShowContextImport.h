@@ -19,11 +19,16 @@ struct ShowContextSong {
     // may have duplicate names. Set ONLY after the user selects a source item.
     int sourceItemOrdinal{-1};
     juce::String sourceItemTitle;
+    juce::String sourceMeter;  // source bar/beat basis; never change target meter silently
     juce::String targetItemId;
     std::optional<double> bpm;
     std::optional<double> lengthBars;
     juce::var sections; // void: unavailable; array: source explicitly contains this lane
-    juce::var chords;
+    juce::var chords; // void until verified symbol decoder produces valid chords
+    juce::var rawChords; // encoded Studio One source data; never write directly to .mrlive
+    int sourceSectionCount{};
+    int sourceChordCount{};
+    juce::StringArray warnings;
     bool hasTempoChanges{}; // current Live projection has only a constant item BPM
 };
 
@@ -35,6 +40,10 @@ inline void applyShowContext(juce::var& show, const ShowContextSong& source,
         throw std::runtime_error("Select a source Studio One Show item before importing");
     if (!find(show, "items", source.targetItemId).isObject())
         throw std::runtime_error("Target MR Live item was removed");
+    if ((selection.sections || selection.chords || selection.length) &&
+        source.sourceMeter.isNotEmpty() &&
+        find(show, "items", source.targetItemId)["meter"].toString() != source.sourceMeter)
+        throw std::runtime_error("Source and target meter differ; meter import is not in this scope");
     // All validations happen on a detached clone, not on a show with live
     // channels and VST3 binary states. Failure is a zero-mutation operation.
     auto candidate = show.clone();
