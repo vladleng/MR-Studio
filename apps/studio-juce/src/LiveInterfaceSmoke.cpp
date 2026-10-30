@@ -354,6 +354,31 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::showContextSelection();
     live::test::studioOneShowReader();
     live::test::studioOneImportPlan();
+    // 0.8.11-Upd3: Live dock preference is independent of Studio mixer,
+    // backwards-compatible and never stored inside a .mrlive show.
+    {
+        ViewSettings preferences;
+        preferences.mixerHeight=365;
+        preferences.liveMixerHeight=620;
+        const auto decoded=ViewSettings::decode(preferences.encode());
+        liveCheck(decoded.liveMixerHeight==620 && decoded.mixerHeight==365,
+                  "Live mixer height persists independently of Studio mixer");
+        auto legacy=juce::JSON::parse(preferences.encode());
+        legacy.getDynamicObject()->removeProperty("liveMixerHeight");
+        liveCheck(ViewSettings::decode(juce::JSON::toString(legacy)).liveMixerHeight==340,
+                  "Legacy settings use default Live mixer height");
+        auto show=live::empty();
+        const auto item=live::addItem(show,"Zoom regression");
+        live::setItemView(show,item,"scale",16.*1.25);
+        liveCheck(std::abs(static_cast<double>(
+            show["performance"]["arrangement"][juce::Identifier(item)]["scale"])-20.)<1.e-7,
+            "Live zoom-in matches Studio 1.25x gradation");
+        live::setItemView(show,item,"scale",20.*.8);
+        liveCheck(std::abs(static_cast<double>(
+            show["performance"]["arrangement"][juce::Identifier(item)]["scale"])-16.)<1.e-7,
+            "Live zoom-out matches Studio 0.8x gradation");
+        live::validate(show);
+    }
     // Save must clear dirty for realistic fractional channel/plugin values,
     // without JSON's default precision changing the comparison baseline.
     for(const double gainValue:{static_cast<double>(0.8912509f),static_cast<double>(0.001f),0.12345678901234566}){
