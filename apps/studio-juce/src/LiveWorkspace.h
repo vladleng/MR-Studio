@@ -15,6 +15,32 @@
 
 namespace ui {
 class LiveWorkspace final : public juce::Component, private juce::Timer {
+    // Same top-edge drag contract as the MR Studio mixer divider.
+    class MixerDivider final : public juce::Component {
+      public:
+        std::function<int()> currentHeight;
+        std::function<void(int)> changeHeight;
+        std::function<void()> commitHeight;
+        MixerDivider() {setMouseCursor(juce::MouseCursor::UpDownResizeCursor);
+            setComponentID("live-mixer-divider");setTitle("Drag to resize Mixer");}
+        void mouseDown(const juce::MouseEvent& e) override {
+            downY=e.getScreenY();startHeight=currentHeight?currentHeight():340;
+        }
+        void mouseDrag(const juce::MouseEvent& e) override {
+            if(changeHeight)changeHeight(startHeight+downY-e.getScreenY());
+        }
+        void mouseUp(const juce::MouseEvent&) override {
+            if(commitHeight)commitHeight();
+        }
+        void paint(juce::Graphics& g) override {
+            const auto tokens=liveReferenceTokens();
+            g.fillAll(tokens.colour(ColourRole::panel));
+            g.setColour(tokens.colour(ColourRole::border));
+            g.fillRect(0,getHeight()/2,getWidth(),1);
+        }
+      private:
+        int downY{},startHeight{340};
+    };
   public:
     explicit LiveWorkspace(Desktop &desktop)
         : owner(desktop), setlist(desktop, false, reference.defaults["itemCardLayout"]),
@@ -36,13 +62,36 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         addAndMakeVisible(playbackPanel);
         addChildComponent(legacyChannels);
         addChildComponent(mixer);
+        addChildComponent(mixerDivider);
+        mixerDivider.currentHeight=[this]{return owner.view.liveMixerHeight;};
+        mixerDivider.changeHeight=[this](int height) {
+            const auto bounds=reference.bounds("song.timeline",getWidth(),getHeight());
+            const int maximum=juce::jmax(180,bounds.getHeight()-160);
+            const int next=juce::jlimit(juce::jmin(260,maximum),maximum,height);
+            if(next!=owner.view.liveMixerHeight){owner.view.liveMixerHeight=next;resized();}
+        };
+        mixerDivider.commitHeight=[this]{owner.saveSettings();};
         addAndMakeVisible(mixerButton);
         mixerButton.setComponentID("live-mixer-toggle");
-        for(auto* button:{&pointerTool,&scissorsTool})addAndMakeVisible(button);
+        for(auto* button:{&pointerTool,&scissorsTool,&zoomOutButton,&zoomInButton,&zoomFitButton})addAndMakeVisible(button);
+        zoomOutButton.setComponentID("live-zoom-out");
+        zoomInButton.setComponentID("live-zoom-in");
+        zoomFitButton.setComponentID("live-zoom-fit");
+        zoomOutButton.setTooltip("Horizontal zoom out, 0.8x (MR Studio)");
+        zoomInButton.setTooltip("Horizontal zoom in, 1.25x (MR Studio)");
+        zoomFitButton.setTooltip("Fit current item to Timeline");
+        zoomOutButton.onClick=[this]{timeline.zoom(.8);};
+        zoomInButton.onClick=[this]{timeline.zoom(1.25);};
+        zoomFitButton.onClick=[this]{timeline.zoomFit();};
         pointerTool.setComponentID("live-pointer-tool");scissorsTool.setComponentID("live-scissors-tool");
         pointerTool.getProperties().set("mrHostIcon","tool_pointer");scissorsTool.getProperties().set("mrHostIcon","tool_split");
         pointerTool.onClick=[this]{timeline.setClipScissors(false);};scissorsTool.onClick=[this]{timeline.setClipScissors(true);};
-        mixerButton.onClick = [this] { mixerVisible = !mixerVisible; mixer.setVisible(mixerVisible); resized(); };
+        mixerButton.onClick = [this] {
+            mixerVisible = !mixerVisible;
+            mixer.setVisible(mixerVisible);
+            mixerDivider.setVisible(mixerVisible);
+            resized();
+        };
         playbackPanel.layoutChanged = [this] { resized(); };
         files.onClick = [this] { filesMenu(); };
         options.onClick = [this] { optionsMenu(); };
@@ -103,15 +152,19 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         redoButton.setBounds(controls.removeFromLeft(26));
         mixerButton.setBounds(controls.removeFromLeft(58));
         pointerTool.setBounds(controls.removeFromLeft(28));scissorsTool.setBounds(controls.removeFromLeft(28));
+        zoomOutButton.setBounds(controls.removeFromLeft(64).reduced(1));
+        zoomInButton.setBounds(controls.removeFromLeft(64).reduced(1));
+        zoomFitButton.setBounds(controls.removeFromLeft(52).reduced(1));
         auto setlistBounds = reference.bounds("show.setlist", getWidth(), getHeight());
         setlistBounds.setBottom(playbackPanel.getY());
         setlist.setBounds(setlistBounds);
         const auto channelBounds = reference.bounds("track.channels", getWidth(), getHeight());
         const auto timelineBounds = reference.bounds("song.timeline", getWidth(), getHeight());
         legacyChannels.setBounds(channelBounds);
-        const int dockHeight = juce::jmin(340, timelineBounds.getHeight() / 2);
+        const int dockMaximum=juce::jmax(180,timelineBounds.getHeight()-160);
+        const int dockHeight=juce::jlimit(juce::jmin(260,dockMaximum),dockMaximum,owner.view.liveMixerHeight);
         auto timelineArea = showLegacyChannels ? timelineBounds : channelBounds.getUnion(timelineBounds);
-        if (mixerVisible) timelineArea.setBottom(timelineArea.getBottom() - dockHeight);
+        if (mixerVisible) timelineArea.setBottom(timelineArea.getBottom() - dockHeight - 4);
         timeline.setBounds(timelineArea);
         timeline.setChannelWidth(showLegacyChannels ? 0 : timelineBounds.getX() - channelBounds.getX());
         const auto header = reference.bounds("control.header", getWidth(), getHeight());
@@ -123,7 +176,9 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         if (browserVisible) browserItems.toFront(false);
         mixer.setBounds(timelineBounds.getX(), timelineBounds.getBottom() - dockHeight,
                         timelineBounds.getWidth(), dockHeight);
-        if (mixerVisible) mixer.toFront(false);
+        mixerDivider.setBounds(timelineBounds.getX(), timelineBounds.getBottom()-dockHeight-4,
+                               timelineBounds.getWidth(), 7);
+        if (mixerVisible) {mixer.toFront(false);mixerDivider.toFront(false);}
     }
     void mouseDown(const juce::MouseEvent &event) override {
         if (!event.mods.isLeftButtonDown())
@@ -358,7 +413,9 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     LiveChannels legacyChannels;
     LivePlaybackPanel playbackPanel;
     LiveMixer mixer;
+    MixerDivider mixerDivider;
     juce::TextButton mixerButton{"Mixer"},pointerTool{"Pointer"},scissorsTool{"Scissors"};
+    juce::TextButton zoomOutButton{"Zoom -"},zoomInButton{"Zoom +"},zoomFitButton{"Fit"};
     bool mixerVisible{};
     bool showLegacyChannels{};
     std::unique_ptr<juce::Drawable> tunerPlaceholder;
