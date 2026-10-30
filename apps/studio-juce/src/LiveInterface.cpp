@@ -276,7 +276,7 @@ void Desktop::prepareLiveInterface(bool saved) {
             live::put(perf, "showOrganizer", reference.defaults["showOrganizer"]);
         liveDocument->validate();
     }
-    liveSavedSnapshot = saved && liveDocument ? std::optional<LiveDocument>(liveDocument->clone()) : std::nullopt;
+    liveSavedSnapshot = saved && liveDocument ? std::optional<LiveDocument>(liveDocument->savedComparisonSnapshot()) : std::nullopt;
     liveSavedPluginEdits=app.plugin_edit_revision();
     updateLiveDirty();
     ++liveUiRevision;
