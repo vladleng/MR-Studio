@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import re
 from pathlib import Path, PurePosixPath
 import sys
 import xml.etree.ElementTree as ET
@@ -43,8 +44,21 @@ def _xml_name(tag: str) -> str:
 
 
 def _schema(xml_bytes: bytes) -> dict:
+    # Studio One writes x:id without binding xmlns:x, and nested snapshot
+    # element names may contain invalid '::'. Correct ONLY these two syntax
+    # quirks in memory for read-only schema analysis. Never rewrite source.
+    # ET is deliberately non-networked, and active entity definitions are
+    # rejected instead of expanded.
+    if b"<!DOCTYPE" in xml_bytes.upper() or b"<!ENTITY" in xml_bytes.upper():
+        raise ProbeError("DTD and XML entity declarations are unsupported")
+    xml_bytes = re.sub(rb"(?<=\\s)x:id(?=\\s*=)", b"x_id", xml_bytes)
+    xml_bytes = re.sub(
+        rb"(<\\s*/?\\s*[A-Za-z_][\\w.\\-]*)::([\\w.\\-]+)",
+        rb"\\1__\\2",
+        xml_bytes,
+    )
     # ElementTree does not fetch external entities; no file/network resolution.
-    # The bounded input and bounded traversal also protect against oversized XML.
+    # The bounded input and traversal also protect against oversized XML.
     paths: dict[str, dict] = {}
     path_stack: list[str] = []
     nodes = 0
@@ -93,6 +107,7 @@ def inspect(path: Path) -> dict:
         "schema_version": 1,
         "status": "inspection-only",
         "archive_entries": 0,
+        "source_item_count": None,
         "xml_documents": [],
         "other_extensions": {},
         "warnings": [],
@@ -132,9 +147,15 @@ def inspect(path: Path) -> dict:
                     raw = stream.read(MAX_XML_BYTES + 1)
                 if len(raw) > MAX_XML_BYTES:
                     raise ProbeError("XML document expanded beyond its declared bound")
+                schema = _schema(raw)
+                if item.filename == "Show/show.xml" and schema["root"] == "Show":
+                    report["source_item_count"] = sum(
+                        row["count"] for row in schema["paths"]
+                        if row["path"] == "Show/Attributes/Attributes/List/SetListItem"
+                    )
                 report["xml_documents"].append({
                     "archive_path": item.filename,
-                    "schema": _schema(raw),
+                    "schema": schema,
                 })
     except (zipfile.BadZipFile, OSError, RuntimeError) as exc:
         raise ProbeError("Cannot inspect ZIP member or corrupt archive") from exc
