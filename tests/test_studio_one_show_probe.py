@@ -43,6 +43,37 @@ class ShowProbeTests(unittest.TestCase):
         self.assertNotIn("Gmaj7", str(report))
         self.assertNotIn("137", str(report))
 
+    def test_real_studio_one_xml_quirks_and_source_item_count(self):
+        # Synthetic document only: no user song titles, chords or preset data.
+        self.make_show({
+            "Show/show.xml": (
+                '<Show><Attributes x:id="Model"><Attributes x:id="setList">'
+                '<List x:id="Items">'
+                '<SetListItem tempo="0.5" length="64"/>'
+                '<SetListItem tempo="0.5" length="72"/>'
+                '</List></Attributes></Attributes>'
+                '<MixerSnapshot::ChannelState/><MixerSnapshot::ChannelState/>'
+                '</Show>'
+            )
+        })
+        report = inspect(self.source)
+        self.assertEqual(report["source_item_count"], 2)
+        schema = report["xml_documents"][0]["schema"]
+        paths = {row["path"]: row for row in schema["paths"]}
+        self.assertEqual(
+            paths["Show/Attributes/Attributes/List/SetListItem"]["count"], 2
+        )
+        self.assertIn("x_id", paths["Show/Attributes"]["attributes"])
+        self.assertNotIn("0.5", str(report))
+        self.assertNotIn("72", str(report))
+
+    def test_reject_xml_dtd(self):
+        self.make_show({
+            "Show/show.xml": '<!DOCTYPE Show [<!ENTITY value "unsafe">]><Show/>'
+        })
+        with self.assertRaisesRegex(ProbeError, "DTD"):
+            inspect(self.source)
+
     def test_reject_path_traversal(self):
         self.make_show({"../outside.xml": "<Show/>"})
         with self.assertRaisesRegex(ProbeError, "Unsafe ZIP"):
