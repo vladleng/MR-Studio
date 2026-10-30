@@ -109,7 +109,9 @@ inline juce::String firstShowDifference(const juce::var& a,const juce::var& b,
                                         const juce::String& path="$") {
     if(a.isObject()||b.isObject()) {
         const auto* ao=a.getDynamicObject(),*bo=b.getDynamicObject();
-        if(!ao||!bo)return path+" (object type differs)";
+        if(!ao||!bo)return path+" (object type differs: current="+
+            juce::String(a.isObject()?"object":a.isArray()?"array":a.isVoid()?"void":"scalar")+
+            ", saved="+juce::String(b.isObject()?"object":b.isArray()?"array":b.isVoid()?"void":"scalar")+")";
         if(ao->getProperties().size()!=bo->getProperties().size())
             return path+" (property count "+juce::String(ao->getProperties().size())+
                    " vs "+juce::String(bo->getProperties().size())+")";
@@ -123,7 +125,9 @@ inline juce::String firstShowDifference(const juce::var& a,const juce::var& b,
     }
     if(a.isArray()||b.isArray()) {
         const auto* aa=a.getArray(),*bb=b.getArray();
-        if(!aa||!bb)return path+" (array type differs)";
+        if(!aa||!bb)return path+" (array type differs: current="+
+            juce::String(a.isObject()?"object":a.isArray()?"array":a.isVoid()?"void":"scalar")+
+            ", saved="+juce::String(b.isObject()?"object":b.isArray()?"array":b.isVoid()?"void":"scalar")+")";
         if(aa->size()!=bb->size())
             return path+" (array count "+juce::String(aa->size())+" vs "+juce::String(bb->size())+")";
         for(int i=0;i<aa->size();++i) {
