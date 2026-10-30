@@ -289,7 +289,7 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
               live::sameShowValue(editing.liveDocument->interfaceState,
                                   editing.liveSavedSnapshot->interfaceState) &&
               !editing.liveDirty,
-              "Saved show and its deep-cloned baseline compare equal before Notes Undo");
+              "Saved show and its JSON-normalized baseline compare equal before Notes Undo");
     editing.liveUndo.clearUndoHistory();
     const auto oldNotes=live::find(editing.liveDocument->interfaceState,"items",id)["notes"].toString();
     const auto text=juce::String::repeatedString("notes ",150);
@@ -461,6 +461,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         largeVst3.component_state.assign(7u*1024u*1024u,std::byte{0x3f});
         largeVst3.validate();
         auto largeShow=doc.clone();
+        const auto cleanBaseline=largeShow.savedComparisonSnapshot();
+        liveCheck(live::sameShowValue(largeShow.interfaceState,cleanBaseline.interfaceState),
+                  "Saved comparison snapshot matches a cloned small show before large VST3 assignment");
         live::put(live::require(largeShow.interfaceState,"channels",channelId),"liveInput",
                   live::liveInputProfile(input,"Physical Input 1","Test ASIO device",{largeVst3}));
         const auto largeFile=folder.getChildFile("large-vst3-state.mrlive");
