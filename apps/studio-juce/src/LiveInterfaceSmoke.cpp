@@ -325,6 +325,13 @@ void liveOrganizerStructuralAndSavedItemSmoke(const juce::File& fixture) {
     Desktop host(true,false,true);
     host.importLiveShow(fixture);
     const auto id=host.liveDocument->interfaceState["currentItem"].toString();
+    // Keep this tree-view interaction deterministic: a newly appended row in
+    // the large imported fixture can be outside the TreeView's visible range.
+    host.editLiveInterface("Organizer structural smoke setup",[&](auto& state) {
+        auto taskMap=state["performance"]["itemTasks"];
+        if(taskMap.isObject())
+            taskMap.getDynamicObject()->removeProperty(juce::Identifier(id));
+    });
     const auto* showRoot=host.liveDocument->interfaceState.getDynamicObject();
     const int initial=live::tasks(host.liveDocument->interfaceState,id).size();
     const auto revision=host.liveUiRevision;
