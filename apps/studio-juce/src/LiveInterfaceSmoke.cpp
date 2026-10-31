@@ -1438,10 +1438,17 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     desktop.setLiveItemNotes(id,oldNotes); livePump();
     tempoField->grabKeyboardFocus(); livePump();
     const auto oldName = live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString();
+    nameField->grabKeyboardFocus(); livePump();
     nameField->setText("Immediate title", true); livePump();
-    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == "Immediate title", "Item title commits on text change");
+    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == oldName &&
+              nameField->getText() == "Immediate title",
+              "#31 Item title draft remains in the focused editor, without show-wide edit on typing");
+    nameField->onReturnKey(); livePump();
+    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == "Immediate title",
+              "#31 Item title commits once on Return");
     desktop.undoLiveInterface(); livePump();
-    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == oldName, "Title Undo restores prior value");
+    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == oldName,
+              "#31 Title Undo restores prior value after confirmed edit");
     card.removeFromDesktop();
     const int shortNotesHeight = notesField->getHeight();
     const int shortPanelHeight = card.getHeight();
