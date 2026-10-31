@@ -153,10 +153,24 @@ class LiveChannelMixEdit final : public juce::UndoableAction {
         live::put(editable,"pan",values.pan*100.);
         live::put(editable,"mute",values.mute);
         live::put(editable,"solo",values.solo);
-        // Mark dirty immediately when the mix differs from the saved value,
-        // without comparing large VST3 state. Exact recalculation remains
-        // necessary when the mix returns to its saved value (e.g. Undo).
-        if(owner->liveSavedSnapshot) {
+        // Track a clean baseline for *mix-only* edits. All unrelated show
+        // changes advance liveUiRevision and invalidate the fast comparison.
+        // This keeps repeated M/S toggles and their Undo instantaneous.
+        if(!owner->liveDirty && owner->liveSavedSnapshot)
+            owner->liveMixCleanBaseRevision=owner->liveUiRevision;
+        if(owner->liveSavedSnapshot && owner->liveMixCleanBaseRevision &&
+           *owner->liveMixCleanBaseRevision==owner->liveUiRevision) {
+            bool hasMixDiff=false;
+            if(const auto* channels=owner->liveDocument->interfaceState["channels"].getArray())
+                for(const auto& item:*channels) {
+                    const auto saved=live::find(owner->liveSavedSnapshot->interfaceState,
+                                                "channels",item["id"].toString());
+                    if(!saved.isObject() || !sameLiveMix(liveMixValues(item),liveMixValues(saved))) {
+                        hasMixDiff=true;break;
+                    }
+                }
+            owner->liveDirty=hasMixDiff;
+        } else if(owner->liveSavedSnapshot) {
             const auto saved=live::find(owner->liveSavedSnapshot->interfaceState,"channels",id);
             if(saved.isObject()&&sameLiveMix(liveMixValues(saved),values))
                 owner->updateLiveDirty();
