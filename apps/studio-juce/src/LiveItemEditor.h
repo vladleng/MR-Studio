@@ -511,14 +511,21 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         int explicitLines = 1;
         for (int i = 0; i < text.length(); ++i)
             if (text[i] == '\n') ++explicitLines;
-        // TextEditor can report the previous laid-out height during a text
-        // notification. At minimum honour explicit line breaks immediately,
-        // and use the current wrapped layout whenever it is available.
+        // TextEditor::getTextHeight() can include stale internal layout
+        // geometry during resizing. Measure the text independently at the
+        // *current editor width* to avoid runaway expansion on short notes.
         const int lineHeight = juce::jmax(15, juce::roundToInt(
             notes.getFont().getHeight() * notes.getLineSpacing()));
-        const int laidOutHeight = text.isEmpty() ? lineHeight
-            : juce::jmax(notes.getTextHeight(), explicitLines * lineHeight);
-        const int needed = juce::jlimit(72, 520, laidOutHeight + 36);
+        juce::AttributedString measured;
+        measured.setText(text);
+        measured.setFont(notes.getFont());
+        measured.setWordWrap(juce::AttributedString::WordWrap::byWord);
+        juce::TextLayout layout;
+        if(text.isNotEmpty())layout.createLayout(measured,static_cast<float>(
+            juce::jmax(60,notes.getWidth()-18)));
+        const int textHeight=juce::jmax(explicitLines*lineHeight,
+                                      juce::roundToInt(std::ceil(layout.getHeight())));
+        const int needed=juce::jlimit(72,520,textHeight+24);
         if (notesBlockHeight == needed) return;
         notesBlockHeight = needed;
         const int desiredContentHeight = 524 + notesBlockHeight - 72;
