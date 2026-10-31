@@ -4,8 +4,18 @@
 #include "LivePlaybackState.h"
 #include "LiveChannelControls.h"
 #include <cmath>
+#include <map>
 
 namespace ui {
+namespace live {
+// Stereo peaks are composited component-wise, including Cue/Click exclusion
+// below. This is UI-only: no new DSP/graph work or audio-callback access.
+inline void includeLiveMeterPeak(mrs::audio::StereoPeak& destination,
+                                 const mrs::audio::StereoPeak& sample) noexcept {
+    destination.left=std::max(destination.left,sample.left);
+    destination.right=std::max(destination.right,sample.right);
+}
+}
 // Persistent show-channel controls; processing uses the shared Core mix API.
 class LiveMixer final : public juce::Component {
   public:
@@ -30,20 +40,50 @@ class LiveMixer final : public juce::Component {
     void sync() {
         if (!owner.liveDocument) return;
         const auto state = owner.liveDocument->interfaceState;
-        std::vector<juce::String> channels;
-        for (const auto &lane : live::playbackLanes(state))
-            if (!lane.child) channels.push_back(lane.channel);
-        juce::String next;
-        for (const auto &channel : channels) next += channel + "|";
-        if (next != signature) {
-            signature = next; strips.clear();
-            for (const auto &channel : channels) {
-                auto strip = std::make_unique<Strip>(owner, channel);
-                body.addAndMakeVisible(*strip); strips.push_back(std::move(strip));
+        // Structural show lanes change only on show edits/open, never on meter
+        // ticks. Keep the card controls stable when transport is running.
+        if (observedGeneration != owner.liveDocumentGeneration ||
+            observedRevision != owner.liveUiRevision || signature.isEmpty()) {
+            std::vector<juce::String> channels;
+            for (const auto &lane : live::playbackLanes(state))
+                if (!lane.child) channels.push_back(lane.channel);
+            juce::String next;
+            for (const auto &channel : channels) next += channel + "|";
+            if (next != signature) {
+                signature = next; strips.clear();
+                for (const auto &channel : channels) {
+                    auto strip = std::make_unique<Strip>(owner, channel);
+                    body.addAndMakeVisible(*strip); strips.push_back(std::move(strip));
+                }
+                resized();
             }
-            resized();
+            observedGeneration=owner.liveDocumentGeneration;
+            observedRevision=owner.liveUiRevision;
         }
-        for (auto &strip : strips) strip->sync();
+        // Previously each strip rebuilt playbackRows and searched the full
+        // Core track list on *every* 15 Hz UI tick (N strips * N stems).
+        // Snapshot playback peaks once, then let each strip read its own pair.
+        std::map<juce::String,mrs::audio::StereoPeak> meters;
+        if (owner.livePlaybackReady()) {
+            const auto item=state["currentItem"].toString();
+            const auto rows=live::playbackRows(state,item);
+            const auto container=live::playbackContainer(state);
+            for(std::size_t i=0;i<rows.size() && i<owner.peaks.size();++i) {
+                const auto channel=live::playbackChannelId(state,rows[i]);
+                live::includeLiveMeterPeak(meters[channel],owner.peaks[i]);
+                if(!static_cast<bool>(rows[i]["cue"]))
+                    live::includeLiveMeterPeak(meters[container],owner.peaks[i]);
+            }
+        }
+        std::map<std::string,juce::String> coreChannels;
+        for (const auto &strip:strips)
+            if(const auto id=owner.liveInputTrack(strip->id))
+                coreChannels.emplace(id->value,strip->id);
+        const auto p=owner.project();
+        for(std::size_t i=0;i<p->tracks.size() && i<owner.peaks.size();++i)
+            if(const auto it=coreChannels.find(p->tracks[i].id.value);it!=coreChannels.end())
+                meters[it->second]=owner.peaks[i]; // Live input overrides Playback.
+        for (auto &strip : strips) strip->sync(meters);
     }
   private:
     class Strip final : public juce::Component, public juce::SettableTooltipClient {
@@ -74,7 +114,7 @@ class LiveMixer final : public juce::Component {
             }
         }
         ~Strip() override { gain.onEvent = {}; owner.app.cancel_mix_preview(); }
-        void sync() {
+        void sync(const std::map<juce::String,mrs::audio::StereoPeak>& meters) {
             const auto state = owner.liveDocument->interfaceState;
             const auto channel = live::find(state, "channels", id);
             name.setText(channel["name"].toString(), juce::dontSendNotification);
@@ -95,31 +135,19 @@ class LiveMixer final : public juce::Component {
             if (!pan.isMouseButtonDown() && !pan.hasKeyboardFocus(true)) pan.setValue(live::channelPan(channel), juce::dontSendNotification);
             mute.setToggleState(static_cast<bool>(channel["mute"]), juce::dontSendNotification);
             solo.setToggleState(static_cast<bool>(channel["solo"]), juce::dontSendNotification);
-            meterLeft = meterRight = 0.f;
-            const auto item = state["currentItem"].toString();
-            const auto rows = live::playbackRows(state, item);
-            for (std::size_t i = 0; i < rows.size(); ++i)
-                if (owner.livePlaybackReady() && i < owner.peaks.size() &&
-                    (live::playbackChannelId(state, rows[i]) == id ||
-                     (id == live::playbackContainer(state) && !static_cast<bool>(rows[i]["cue"]))))
-                    {meterLeft=juce::jmax(meterLeft,owner.peaks[i].left);
-                     meterRight=juce::jmax(meterRight,owner.peaks[i].right);}
-            const bool liveInput=activeInput;
-            if(liveInput) {
-                const auto p=owner.project();
-                for(std::size_t i=0;i<p->tracks.size();++i)
-                    if(p->tracks[i].id==*target && i<owner.peaks.size()) {
-                        meterLeft=owner.peaks[i].left;
-                        meterRight=owner.peaks[i].right;
-                        break;
-                    }
+            const auto found=meters.find(id);
+            const float left=found==meters.end()?0.f:found->second.left;
+            const float right=found==meters.end()?0.f:found->second.right;
+            if(left!=meterLeft || right!=meterRight) {
+                meterLeft=left;meterRight=right;
+                repaint(); // Meter-only paint; idle strips do not repaint.
             }
+            const bool liveInput=activeInput;
             setTooltip(liveInput ? "Automatic Audio/MIDI monitoring via shared Core / VST3" :
                        channel["type"].toString() == "Playback" ? "Show-wide channel mix" :
                        saved.isObject() && owner.liveAutoMonitorError.isNotEmpty() ?
                            "Auto-monitor unavailable: "+owner.liveAutoMonitorError :
                        "No valid Audio/MIDI input or processor assigned");
-            repaint();
         }
         void resized() override {
             auto area = getLocalBounds().reduced(6);
@@ -170,6 +198,7 @@ class LiveMixer final : public juce::Component {
     juce::Viewport viewport;
     juce::Component body;
     juce::String signature;
+    std::uint64_t observedGeneration{~std::uint64_t{0}},observedRevision{~std::uint64_t{0}};
     std::vector<std::unique_ptr<Strip>> strips;
 };
 } // namespace ui

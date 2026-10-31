@@ -368,6 +368,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     void timerCallback() override {
         if (!isVisible())
             return;
+        const auto started=juce::Time::getHighResolutionTicks();
         if (!owner.isDragAndDropActive()) {
             setlist.refresh();
             browserItems.refresh();
@@ -383,9 +384,14 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         }
         if (legacy)
             legacyChannels.refresh();
+        const auto listDone=juce::Time::getHighResolutionTicks();
         timeline.refresh();
+        const auto timelineDone=juce::Time::getHighResolutionTicks();
         playbackPanel.sync();
+        const auto playbackDone=juce::Time::getHighResolutionTicks();
         if (mixerVisible) mixer.sync();
+        const auto mixerDone=juce::Time::getHighResolutionTicks();
+        recordUiTimings({started,listDone,timelineDone,playbackDone,mixerDone});
         mixerButton.setToggleState(mixerVisible, juce::dontSendNotification);
         const auto projectState = owner.app.services().projects->state();
         const bool showHistory = owner.liveShowEditing || (owner.liveDocument && owner.liveDocument->projects.empty());
@@ -407,8 +413,30 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         loop.setToggleState(state.loop.has_value(), juce::dontSendNotification);
         pointerTool.setToggleState(!timeline.clipScissors(),juce::dontSendNotification);
         scissorsTool.setToggleState(timeline.clipScissors(),juce::dontSendNotification);
-        repaint();
+        // The workspace background is static. Its paint() also owns live
+        // transport time and status, so invalidate just those two regions;
+        // the interactive child components repaint their own changed values.
+        repaint(reference.bounds("control.header",getWidth(),getHeight()));
+        repaint(reference.bounds("system.status",getWidth(),getHeight()));
     }
+    void recordUiTimings(const std::array<juce::int64,5>& marks) {
+        for(std::size_t i=0;i<uiTotalMs.size();++i) {
+            const auto ms=juce::Time::highResolutionTicksToSeconds(marks[i+1]-marks[i])*1000.;
+            uiTotalMs[i]+=ms;
+            uiMaxMs[i]=std::max(uiMaxMs[i],ms);
+        }
+        if(++uiSamples<225)return; // 15 seconds at 15 Hz, no per-frame disk I/O.
+        const char* stages[]={"setlist","timeline","playback","mixer"};
+        std::string message="live_ui_profile samples="+std::to_string(uiSamples);
+        for(std::size_t i=0;i<uiTotalMs.size();++i) {
+            message+=" "+std::string(stages[i])+"_avg_ms="+std::to_string(uiTotalMs[i]/uiSamples);
+            message+=" "+std::string(stages[i])+"_max_ms="+std::to_string(uiMaxMs[i]);
+        }
+        mrs::diagnostics::event(message); // UI thread only; not the audio callback.
+        uiSamples=0;uiTotalMs.fill(0.);uiMaxMs.fill(0.);
+    }
+    std::array<double,4> uiTotalMs{},uiMaxMs{};
+    unsigned uiSamples{};
     Desktop &owner;
     LiveLayout reference;
     Theme nativeTheme;

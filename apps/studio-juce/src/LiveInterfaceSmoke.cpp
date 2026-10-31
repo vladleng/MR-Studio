@@ -775,6 +775,13 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   liveComponent(inputPanel,"live-channel-effects-"+showChannel)!=nullptr,
                   "#302 channel embeds input, output and VST3 chain selectors");
         LiveMixer channelMixer(inputPilot);channelMixer.setSize(700,300);channelMixer.sync();
+        // UI metering uses max per stereo side and must never sum Cue into
+        // the standard Playback group, or smear peaks between channels.
+        mrs::audio::StereoPeak peakA{},peakB{};
+        peakA.left=.75f;peakA.right=.12f;peakB.left=.15f;peakB.right=.8f;
+        live::includeLiveMeterPeak(peakA,peakB);
+        liveCheck(peakA.left==.75f && peakA.right==.8f,
+                  "#31 P3 shared mixer snapshot preserves independent L/R maximum peaks");
         auto* itemTimeline=dynamic_cast<LiveTimeline*>(liveComponent(inputPilot,"live-show-timeline"));
         liveCheck(itemTimeline && liveComponent(*itemTimeline,"live-channel-monitor-"+showChannel)==nullptr,
                   "#31 P2 Timeline does not expose the manual Monitor button");
