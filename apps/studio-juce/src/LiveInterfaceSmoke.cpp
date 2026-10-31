@@ -2163,19 +2163,59 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         });
         liveCheck(live::itemPlaybackGain(multi.liveDocument->interfaceState, second) == -12. &&
                       live::itemPlaybackGain(multi.liveDocument->interfaceState, id) == -6., "Each item stores its own aggregate Playback level");
-        multi.editLiveInterface("Fold stems", [](auto &state) { live::put(live::performance(state), "stemsExpanded", false); });
+        multi.setLivePlaybackStemsExpanded(true);
+        const auto foldStructure=multi.liveUiRevision;
+        const auto foldRevision=multi.livePlaybackFoldRevision;
+        multi.setLivePlaybackStemsExpanded(false);
+        liveCheck(multi.liveUiRevision==foldStructure &&
+                  multi.livePlaybackFoldRevision==foldRevision+1 &&
+                  !live::playbackExpanded(multi.liveDocument->interfaceState),
+                  "#31 extra Playback disclosure never clones or rebuilds structural show layout");
         multi.syncLivePlayback();
         liveCheck(multi.project()->clips.size() == 2 && std::abs(multi.project()->tracks[0].mix.gain - expectedGain) < .00001,
                   "Folding stems preserves Core clips and mix");
-        multi.editLiveInterface("Expand stems", [](auto &state) { live::put(live::performance(state), "stemsExpanded", true); });
+        multi.undoLiveInterface();
+        liveCheck(live::playbackExpanded(multi.liveDocument->interfaceState) &&
+                  multi.liveUiRevision==foldStructure,
+                  "#31 extra Playback fold Undo restores expanded state without structural revision");
+        multi.undoLiveInterface(true);
+        liveCheck(!live::playbackExpanded(multi.liveDocument->interfaceState),
+                  "#31 extra Playback fold Redo restores closed state");
+        multi.setLivePlaybackStemsExpanded(true);
         // Preview uses existing Core publication without modifying show/history.
         const auto beforePreview = multi.liveDocument->signature();
+        const live::PlaybackMixOverride previewMix{musicChannel,-9.,-.5,false,false};
+        auto legacyState=multi.liveDocument->interfaceState.clone();
+        auto& legacyChannel=live::require(legacyState,"channels",musicChannel);
+        live::put(legacyChannel,"gain",-9.);
+        live::put(legacyChannel,"pan",-50.);
+        live::put(legacyChannel,"mute",false);
+        live::put(legacyChannel,"solo",false);
+        for(const auto& playbackRow:live::playbackRows(multi.liveDocument->interfaceState,id)) {
+            const auto previous=live::playbackMix(legacyState,id,playbackRow);
+            const auto optimized=live::playbackMix(multi.liveDocument->interfaceState,id,playbackRow,&previewMix);
+            liveCheck(std::abs(previous.gain-optimized.gain)<.000001f &&
+                      std::abs(previous.pan-optimized.pan)<.000001f &&
+                      previous.mute==optimized.mute && previous.solo==optimized.solo,
+                      "#31 extra Playback preview matches legacy mix math without a show clone");
+        }
         multi.previewLiveChannelMix(musicChannel, -9., -.5, false, false);
         liveCheck(multi.liveDocument->signature() == beforePreview, "Mixer preview leaves persistent values unchanged");
         multi.app.cancel_mix_preview();
         multi.editLiveInterface("Save stem version", [&](auto &state) { live::saveItem(state, id); });
         const auto show = folder.getChildFile("stems.mrlive");
         multi.saveFile(show);
+        liveCheck(!multi.liveDirty,"Saved Playback show is clean before fold-only gesture");
+        const auto savedStructure=multi.liveUiRevision;
+        const auto savedFoldRevision=multi.livePlaybackFoldRevision;
+        multi.setLivePlaybackStemsExpanded(false);
+        liveCheck(multi.liveDirty && multi.liveUiRevision==savedStructure &&
+                  multi.livePlaybackFoldRevision==savedFoldRevision+1,
+                  "#31 extra Playback fold dirties only presentation state");
+        multi.undoLiveInterface();
+        liveCheck(!multi.liveDirty && multi.liveUiRevision==savedStructure &&
+                  live::playbackExpanded(multi.liveDocument->interfaceState),
+                  "#31 extra Playback fold Undo returns to clean saved state with no VST3 scan");
         const auto stemSaved = LiveDocument::read(show);
         const auto savedRows = live::playbackRows(stemSaved.interfaceState, id);
         liveCheck(savedRows.size() == 2 && !live::itemDirty(stemSaved.interfaceState, id) &&

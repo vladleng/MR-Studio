@@ -213,6 +213,40 @@ class LiveInterfaceEdit final : public juce::UndoableAction {
     juce::Component::SafePointer<Desktop> owner;
     juce::var before, after;
 };
+// #31 extra latency: scalar persisted Playback disclosure is not a full show edit.
+class LivePlaybackFoldEdit final : public juce::UndoableAction {
+ public:
+    LivePlaybackFoldEdit(Desktop& desktop,bool oldValue,bool newValue)
+        : owner(&desktop),before(oldValue),after(newValue),
+          generation(desktop.liveDocumentGeneration) {}
+    bool perform() override {return apply(after);}
+    bool undo() override {return apply(before);}
+    int getSizeInUnits() override {return 64;}
+ private:
+    bool apply(bool expanded) {
+        if(!owner||!owner->liveDocument||owner->liveDocumentGeneration!=generation)return false;
+        auto& performance=live::performance(owner->liveDocument->interfaceState);
+        live::put(performance,"stemsExpanded",expanded);
+        if(!owner->liveDirty && owner->liveSavedSnapshot) {
+            owner->liveFoldCleanUiRevision=owner->liveUiRevision;
+            owner->liveFoldCleanMixRevision=owner->liveChannelMixRevision;
+        }
+        if(owner->liveSavedSnapshot) {
+            const auto saved=live::playbackExpanded(owner->liveSavedSnapshot->interfaceState);
+            if(owner->liveFoldCleanUiRevision && owner->liveFoldCleanMixRevision &&
+               *owner->liveFoldCleanUiRevision==owner->liveUiRevision &&
+               *owner->liveFoldCleanMixRevision==owner->liveChannelMixRevision)
+                owner->liveDirty=expanded!=saved;
+            else if(expanded!=saved)owner->liveDirty=true;
+            else owner->updateLiveDirty(); // Other changes may still be dirty.
+        } else owner->liveDirty=true;
+        ++owner->livePlaybackFoldRevision;
+        return true;
+    }
+    juce::Component::SafePointer<Desktop> owner;
+    bool before{},after{};
+    std::uint64_t generation{};
+};
 // Notes are plain text. Typing must not clone/validate every media, patch and
 // musical binding, or retain full show snapshots for each keystroke.
 class LiveNotesEdit final : public juce::UndoableAction {
@@ -768,6 +802,16 @@ void Desktop::setLivePlaybackStemMix(const juce::String &id, const juce::String 
     });
     syncLivePlayback();
 }
+void Desktop::setLivePlaybackStemsExpanded(bool expanded) {
+    if(!liveDocument)throw std::runtime_error("Open a MR Live show first");
+    const auto prior=live::playbackExpanded(liveDocument->interfaceState);
+    if(prior==expanded)return;
+    liveShowEditing=true;
+    liveTypingLabel.clear();
+    liveUndo.beginNewTransaction("Fold Playback stems");
+    liveUndo.perform(new LivePlaybackFoldEdit(*this,prior,expanded));
+    liveUndo.beginNewTransaction();
+}
 void Desktop::setLiveItemPlaybackGain(double gain) {
     if (!liveDocument) return;
     const auto id = liveDocument->interfaceState["currentItem"].toString();
@@ -1115,18 +1159,21 @@ void Desktop::previewLiveChannelMix(const juce::String &id, double gain, double 
         return;
     }
     if (!liveDocument || !livePlaybackReady()) return;
-    auto state = liveDocument->interfaceState.clone();
-    auto &channel = live::require(state, "channels", id);
-    live::put(channel, "gain", gain); live::put(channel, "pan", pan * 100.);
-    live::put(channel, "mute", mute); live::put(channel, "solo", solo);
-    const auto item = state["currentItem"].toString();
-    const auto rows = live::playbackRows(state, item);
-    std::vector<std::pair<mrs::Id, mrs::Track::Mix>> mixes;
-    for (std::size_t i = 0; i < rows.size(); ++i) {
-        const auto mix = live::playbackMix(state, item, rows[i]); mix.validate();
-        mixes.emplace_back(project()->tracks[i].id, mix);
+    if(!std::isfinite(gain)||!std::isfinite(pan)||gain < -60.||gain > 12.||pan < -1.||pan > 1.)
+        return;
+    const auto& state=liveDocument->interfaceState;
+    if(!live::find(state,"channels",id).isObject())return;
+    const live::PlaybackMixOverride transientMix{id,gain,pan,mute,solo};
+    const auto item=state["currentItem"].toString();
+    const auto rows=live::playbackRows(state,item);
+    std::vector<std::pair<mrs::Id,mrs::Track::Mix>> mixes;
+    const auto current=project();
+    for(std::size_t i=0;i<rows.size() && i<current->tracks.size();++i) {
+        const auto mix=live::playbackMix(state,item,rows[i],&transientMix);
+        mix.validate();
+        mixes.emplace_back(current->tracks[i].id,mix);
     }
-    app.preview_mixes(mixes, project()->master_gain);
+    app.preview_mixes(mixes,current->master_gain);
 }
 void Desktop::setLivePlaybackTrim(double start, double end) {
     if (!livePlaybackReady())
