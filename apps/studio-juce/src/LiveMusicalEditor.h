@@ -24,6 +24,11 @@ class LiveMusicalEditor final : public juce::Component {
             fields[i]->setTitle(captions[static_cast<int>(i)]);
         }
         name.setInputRestrictions(120);
+        name.setComponentID("live-musical-name");
+        start.setComponentID("live-musical-start");
+        end.setComponentID("live-musical-end");
+        colors.setComponentID("live-musical-color");
+        apply.setComponentID("live-musical-apply");
         addAndMakeVisible(error); addAndMakeVisible(apply);
         apply.onClick = [this] { commit(); };
         for (auto *field : {&name,&start,&end}) field->onReturnKey = [this] { commit(); };
@@ -49,6 +54,22 @@ class LiveMusicalEditor final : public juce::Component {
         if (!owner || !owner->liveDocument) return;
         try {
             const double a=numeric(start.getText()), b=numeric(end.getText());
+            const auto current=live::spanById(
+                live::musicalRows(owner->liveDocument->interfaceState,itemId,lane),eventId);
+            if(!current.isObject()||!live::sameShowValue(current,original))
+                throw std::runtime_error("Event changed; reopen its properties");
+            const auto title=name.getText().trim();
+            const bool sameGeometry=a==static_cast<double>(original["start"])&&
+                b-a==static_cast<double>(original["length"]);
+            const auto originalColor=original["color"].isVoid()?
+                juce::String("blue"):original["color"].toString();
+            if(sameGeometry&&colors.getText()==originalColor) {
+                // Name-only edits don't need show-wide VST3 snapshots/preflight.
+                owner->setLiveMusicalName(itemId,eventId,
+                                           lane==live::MusicalLane::sections,title);
+                if(close)close();
+                return;
+            }
             owner->editLiveInterface("Musical event properties",[&](auto &state) {
                 auto rows=live::musicalRows(state,itemId,lane).clone(); bool found=false;
                 if (!rows.isArray()) throw std::runtime_error("Musical event no longer exists");
