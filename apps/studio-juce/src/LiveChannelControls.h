@@ -132,11 +132,11 @@ private:
         }
         const auto ports=mrs::desktop::MidiInputs::ports();
         if(saved.isObject()&&!legacyAudio)menu.addItem(3000,"Clear channel input and effects");
-        const auto signature=live::canonical(saved);const auto generation=owner.liveDocumentGeneration;
+        const auto signature=saved.clone();const auto generation=owner.liveDocumentGeneration;
         juce::Component::SafePointer<LiveChannelControls> safe(this);
         menu.showMenuAsync(liveMenuOptions(input),[safe,ports,signature,generation,device,inputs](int action){if(!safe||!action)return;
             safe->owner.run([&]{
-                if(safe->owner.liveDocumentGeneration!=generation || live::canonical(safe->profile())!=signature)throw std::runtime_error("Channel changed while menu was open; reopen it");
+                if(safe->owner.liveDocumentGeneration!=generation || !live::sameShowValue(safe->profile(),signature))throw std::runtime_error("Channel changed while menu was open; reopen it");
                 if(safe->owner.app.audio_name()!=device || safe->owner.app.input_names()!=inputs)
                     throw std::runtime_error("Audio device changed; reopen input menu");
                 const auto saved=safe->profile();
@@ -168,9 +168,9 @@ private:
         const auto label=[&](int i){return juce::String(i+1)+" - "+(i>=0&&static_cast<std::size_t>(i)<names.size()?juce::String::fromUTF8(names[static_cast<std::size_t>(i)].c_str()):"Unavailable");};
         for(auto out:outputs){routes.push_back({out});menu.addItem(static_cast<int>(routes.size()),label(out));}
         for(std::size_t i=0;i+1<outputs.size();++i)if(outputs[i+1]==outputs[i]+1){routes.push_back({outputs[i],outputs[i+1]});menu.addItem(static_cast<int>(routes.size()),label(outputs[i])+" / "+label(outputs[i+1]));}
-        juce::Component::SafePointer<LiveChannelControls> safe(this);const auto signature=live::canonical(profile());const auto generation=owner.liveDocumentGeneration;
+        juce::Component::SafePointer<LiveChannelControls> safe(this);const auto signature=profile().clone();const auto generation=owner.liveDocumentGeneration;
         menu.showMenuAsync(liveMenuOptions(output),[safe,routes,signature,generation,device,outputs,names](int action){if(safe&&action>0&&static_cast<std::size_t>(action)<=routes.size())safe->owner.run([&]{
-            if(safe->owner.liveDocumentGeneration!=generation || live::canonical(safe->profile())!=signature)throw std::runtime_error("Channel changed; reopen output menu");
+            if(safe->owner.liveDocumentGeneration!=generation || !live::sameShowValue(safe->profile(),signature))throw std::runtime_error("Channel changed; reopen output menu");
             if(safe->owner.app.audio_name()!=device || safe->owner.app.output_names()!=names || safe->owner.app.active_outputs()!=outputs)
                 throw std::runtime_error("Audio device changed; reopen output menu");
             safe->route(routes[static_cast<std::size_t>(action-1)]);safe->sync();
@@ -187,12 +187,12 @@ private:
         // The integer generation and juce::String signature must have separate
         // auto declarations (MSVC C3538, Windows #382).
         const auto generation=owner.liveDocumentGeneration;
-        const auto signature=live::canonical(saved);
+        const auto signature=saved.clone();
         juce::Component::SafePointer<LiveChannelControls> safe(this);
         channels.showMenuAsync(liveMenuOptions(output),[safe,generation,signature](int action) {
             if(!safe || action<2000 || action>2016)return;
             safe->owner.run([&]{
-                if(safe->owner.liveDocumentGeneration!=generation || live::canonical(safe->profile())!=signature)
+                if(safe->owner.liveDocumentGeneration!=generation || !live::sameShowValue(safe->profile(),signature))
                     throw std::runtime_error("Channel changed while MIDI menu was open; reopen it");
                 const auto updated=live::decodeLiveInputProfile(safe->profile());
                 safe->owner.configureLiveMidi(safe->id,updated.midiInput,action-2001,updated.outputs);
@@ -256,10 +256,10 @@ private:
             slot.addItem(104+static_cast<int>(i)*10,"Remove",stopped&&(!saved.instrument||i>0||saved.inserts.size()==1));
             menu.addSubMenu(juce::String(static_cast<int>(i+1))+". "+juce::String::fromUTF8(fx.plugin_name.c_str()),slot);
         }
-        const auto signature=live::canonical(profile());const auto generation=owner.liveDocumentGeneration;
+        const auto signature=profile().clone();const auto generation=owner.liveDocumentGeneration;
         juce::Component::SafePointer<LiveChannelControls> safe(this);
         menu.showMenuAsync(liveMenuOptions(anchor?*anchor:effects),[safe,saved,signature,choices,generation,instrumentPicker](int action){if(!safe||!action)return;safe->owner.run([&]{
-            if(safe->owner.liveDocumentGeneration!=generation || live::canonical(safe->profile())!=signature)
+            if(safe->owner.liveDocumentGeneration!=generation || !live::sameShowValue(safe->profile(),signature))
                 throw std::runtime_error("Channel changed; reopen effect menu");
             auto chain=saved.inserts;
             if(action>=10000) {

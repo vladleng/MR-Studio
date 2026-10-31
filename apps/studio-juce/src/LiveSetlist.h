@@ -31,7 +31,11 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             addAndMakeVisible(search);
             search.setTextToShowWhenEmpty("Search items", juce::Colours::grey);
             search.setTitle("Search Browser items and folders");
-            search.onTextChange = [this] { rebuild(); };
+            search.onTextChange = [this] {
+                const auto serial=++searchSerial;
+                juce::Component::SafePointer<LiveSetlist> safe(this);
+                juce::Timer::callAfterDelay(120,[safe,serial]{if(safe&&safe->searchSerial==serial)safe->rebuild();});
+            };
         } else {
             for (auto *component :
                  std::array<juce::Component *, 4>{&setlists, &browserButton, &organizerButton, &menuButton})
@@ -45,10 +49,8 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             };
             organizerButton.onClick = [this] {
                 owner.run([&] {
-                    owner.editLiveInterface("Organizer fields", [](auto &state) {
-                        auto &perf = live::performance(state);
-                        live::put(perf, "showOrganizer", !static_cast<bool>(perf["showOrganizer"]));
-                    });
+                    owner.setLivePresentation("showOrganizer",!static_cast<bool>(
+                        owner.liveDocument->interfaceState["performance"]["showOrganizer"]));
                 });
             };
             menuButton.setComponentID("live-setlist-menu");
@@ -83,12 +85,15 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
     }
     bool hasPendingActivation()const{return pendingActivation.has_value();}
     void refresh() {
-        if (revision != owner.liveUiRevision)
+        if (revision != owner.liveUiRevision || cardRevision != owner.liveEdits.cards || (browser && browserRevision != owner.liveEdits.browser))
             rebuild();
-        else if (notesRevision != owner.liveNotesRevision) {
+        else if (notesRevision != owner.liveNotesRevision || metadataRevision != owner.liveEdits.metadata) {
             // Notes affect only the saved dot, never card contents/layout/assets.
-            for (auto &card : cards) card->refreshNotes();
+            for(auto& row:rows)if(!browser&&row.itemId.isNotEmpty())
+                row.name=live::find(data(),"items",row.itemId)["name"].toString();
+            for (auto &card : cards) card->refreshMetadata();
             notesRevision = owner.liveNotesRevision;
+            metadataRevision = owner.liveEdits.metadata;
         }
     }
     void resized() override {
@@ -320,19 +325,12 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
     void rename(const RowData &row) {
         if (row.folder || row.divider) {
             juce::Component::SafePointer<Desktop> safe(&owner);
-            promptLiveContext(owner, "Rename", row.name, [safe, row](const auto &text) {
+            const auto listId=live::activeSetlist(data())["id"].toString();
+            promptLiveContext(owner, "Rename", row.name, [safe, row, listId](const auto &text) {
                 if (!safe)
                     return;
-                safe->editLiveInterface("Rename", [&](auto &state) {
-                    if (row.folder)
-                        live::put(live::require(state, "folders", row.id), "name", text.trim());
-                    else {
-                        auto &entries = *live::activeEntries(state).getArray();
-                        for (auto &entry : entries)
-                            if (entry["id"].toString() == row.id)
-                                live::put(entry, "name", text.trim());
-                    }
-                });
+                safe->renameLiveObject(row.folder?"folders":"divider",row.id,text,
+                    listId);
             });
         } else {
             const auto item = live::find(data(), "items", row.itemId);
@@ -419,7 +417,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                 status = flow["status"].toString();
                 priority = flow["priority"].toString();
                 percent = live::progress(state, row.itemId);
-                notesDirty=live::itemNotesDirtyState(state,row.itemId);
+                metadataDirty=live::itemMetadataDirtyState(state,row.itemId);
                 refreshNotes();
                 tint = state["performance"]["itemColors"][juce::Identifier(row.itemId)].toString();
                 itemBase = LiveLayout::drawable("item_default_base.svg");
@@ -601,9 +599,30 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             live::put(payload, "itemId", row.itemId);
             host.owner.startDragging(payload, this);
         }
+        static juce::Colour statusColor(const juce::String& value) {
+            return juce::Colour(value=="Done"?0xff285e4d:value=="Wait"?0xff725a23:value=="Wip"?0xff355f83:0xff444541);
+        }
+        static juce::Colour priorityColor(const juce::String& value) {
+            return juce::Colour(value=="P1"?0xff99564a:value=="P2"?0xff94613e:value=="P3"?0xff887142:0xff5a5a57);
+        }
+        void refreshMetadata() {
+            if(row.itemId.isEmpty())return;
+            const auto state=host.data();
+            if(!host.browser){item=live::find(state,"items",row.itemId);row.name=item["name"].toString();setName(row.name);}
+            const auto flow=live::workflow(state,row.itemId);
+            const auto newStatus=flow["status"].toString(),newPriority=flow["priority"].toString();
+            if(statusBase&&newStatus!=status)statusBase->replaceColour(statusColor(status),statusColor(newStatus));
+            if(priorityBase&&newPriority!=priority)priorityBase->replaceColour(priorityColor(priority),priorityColor(newPriority));
+            status=newStatus;priority=newPriority;percent=live::progress(state,row.itemId);
+            refreshNotes();
+            setTooltip(item["name"].toString()+
+                (host.owner.liveDocument->projectFor(row.itemId)>=0?"\nAudio source ready":"\nNo playback media")+
+                (dirty?"\nWorking item differs from Browser":"\nSaved in Browser"));
+            repaint();
+        }
         void refreshNotes() {
             if (row.itemId.isEmpty()) return;
-            const bool changed = notesDirty.dirty(host.data(),row.itemId);
+            const bool changed = metadataDirty.dirty(host.data(),row.itemId);
             if (dirty != changed) { dirty = changed; repaint(); }
         }
         void mouseUp(const juce::MouseEvent &event) override {
@@ -636,7 +655,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         juce::String status, priority, tint;
         int percent{};
         bool dirty{}, showOrganizer{}, dragged{}, primaryPressed{};
-        live::ItemNotesDirtyState notesDirty;
+        live::ItemMetadataDirtyState metadataDirty;
         std::unique_ptr<juce::Drawable> folderIcon, itemBase, selectedBase, sectionBase, statusBase, priorityBase,
             progressBase;
     };
@@ -731,6 +750,9 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         }
         syncing = false;
         revision = owner.liveUiRevision;
+        cardRevision = owner.liveEdits.cards;
+        browserRevision = owner.liveEdits.browser;
+        metadataRevision = owner.liveEdits.metadata;
         notesRevision = owner.liveNotesRevision;
         focusIndex = indexOf(selected);
         layoutRows();
@@ -757,11 +779,10 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             promptLiveContext(owner, choice == 40 ? "New setlist" : "Rename setlist",
                               choice == 40 ? juce::String() : list["name"].toString(),
                               [safe, choice, setId](const auto &text) {
+                                  if(safe&&choice==41){safe->renameLiveObject("setlists",setId,text);return;}
                                   if (safe)
                                       safe->editLiveInterface("Setlist", [&](auto &state) {
-                                          if (choice == 41)
-                                              live::put(live::require(state, "setlists", setId), "name", text.trim());
-                                          else {
+                                          {
                                               auto set = live::object();
                                               const auto id = live::freshId();
                                               live::put(set, "id", id);
@@ -881,7 +902,8 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
     std::vector<std::unique_ptr<Card>> cards;
     std::set<juce::String> collapsed;
     std::uint64_t revision{~0ULL};
-    std::uint64_t notesRevision{~0ULL};
+    std::uint64_t notesRevision{~0ULL},cardRevision{~0ULL},metadataRevision{~0ULL},browserRevision{~0ULL};
+    std::uint64_t searchSerial{};
     int focusIndex{-1}, dropY{-1};
     BrowserDrop browserDrop;
     bool syncing{};

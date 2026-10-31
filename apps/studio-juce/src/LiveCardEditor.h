@@ -7,12 +7,13 @@ namespace ui {
 class LiveCardEditor final : public juce::Component {
   public:
     LiveCardEditor(Desktop &desktop, juce::var fallback)
-        : owner(&desktop), defaults(std::move(fallback)), stage(*this) {
+        : owner(&desktop), generation(desktop.liveDocumentGeneration), defaults(std::move(fallback)), stage(*this) {
         configureLiveContext(theme, static_cast<float>(desktop.view.liveMenuOpacity));
         setLookAndFeel(&theme);
         setSize(620, 360);
         setName("Item button layout");
-        draft = desktop.liveDocument->interfaceState["performance"]["itemCardLayout"].clone();
+        original = desktop.liveDocument->interfaceState["performance"]["itemCardLayout"].clone();
+        draft = original.clone();
         if (!draft.isObject())
             draft = defaults.clone();
         addAndMakeVisible(stage);
@@ -57,10 +58,11 @@ class LiveCardEditor final : public juce::Component {
                 applyNumber(i);
             bool success = false;
             owner->run([&] {
+                if(generation!=owner->liveDocumentGeneration||!owner->liveDocument||
+                   !live::sameShowValue(original,owner->liveDocument->interfaceState["performance"]["itemCardLayout"]))
+                    throw std::runtime_error("Show/layout changed; reopen its editor");
                 live::validateLayout(draft);
-                owner->editLiveInterface("Item button layout", [&](auto &stateData) {
-                    live::put(live::performance(stateData), "itemCardLayout", draft.clone());
-                });
+                owner->setLivePresentation("itemCardLayout",draft);
                 success = true;
             });
             if (success) {
@@ -202,7 +204,8 @@ class LiveCardEditor final : public juce::Component {
         sync();
     }
     juce::Component::SafePointer<Desktop> owner;
-    juce::var defaults, draft;
+    std::uint64_t generation{};
+    juce::var defaults, draft, original;
     Theme theme;
     Preview stage;
     juce::ComboBox fields;
