@@ -734,11 +734,13 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         const auto showChannel=inputPilot.liveDocument->interfaceState["channels"][1]["id"].toString();
         liveCheck(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["type"].toString()=="Player",
                   "Physical Live Input acceptance uses a Player rather than an Instrument");
+        const auto offlineShowBefore=live::canonical(inputPilot.liveDocument->interfaceState);
         bool rejectedOffline=false;
         try { inputPilot.startLiveAudioInput(0,showChannel); }
         catch (const std::exception&) { rejectedOffline=true; }
-        liveCheck(rejectedOffline && !inputPilot.liveInputTrack(),
-                  "Live Input pilot rejects the offline clock without changing Core");
+        liveCheck(rejectedOffline && !inputPilot.liveInputTrack() &&
+                  live::canonical(inputPilot.liveDocument->interfaceState)==offlineShowBefore,
+                  "Offline device rejects new input assignment without mutating show or Core");
         inputPilot.app.connect(std::make_unique<LivePlaybackTestDevice>(),
                                {0,48000,128,{0},{0,1}});
         inputPilot.startLiveAudioInput(0,showChannel);
