@@ -866,6 +866,12 @@ void Desktop::configureLiveInput(const juce::String& requested,int input,bool st
     const auto channel=inputChannel(*this,requested);
     if(live::find(liveDocument->interfaceState,"channels",channel)["type"].toString()=="Instrument")
         throw std::runtime_error("Instrument uses MIDI / VSTi, not a physical audio input; convert legacy audio to Player");
+    // A new physical assignment is not a saved descriptor restore: require
+    // a running hardware device before mutating the show. The offline clock
+    // can expose placeholder names but must never create a live route.
+    if(!app.audio_running() || app.audio_name()=="Offline clock (no sound)" ||
+       app.audio_name()=="Disconnected")
+        throw std::runtime_error("Connect the intended audio device before selecting a physical input");
     const auto names=app.input_names();
     if(input<0 || static_cast<std::size_t>(input)>=names.size() ||
        (stereo && static_cast<std::size_t>(input+1)>=names.size()))
