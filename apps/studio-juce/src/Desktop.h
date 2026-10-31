@@ -158,6 +158,11 @@ public:
     juce::UndoManager liveUndo{32*1024*1024,1};
     std::optional<LiveDocument> liveSavedSnapshot;
     std::uint64_t liveUiRevision{}, liveTimelineFocusRevision{}, liveDocumentGeneration{};
+    // Scalar channel mix never changes structural lanes or item geometry.
+    std::uint64_t liveChannelMixRevision{};
+    // When a clean show is modified only by scalar mix, Undo can restore
+    // the clean state without rescanning large vendor VST3 preset blobs.
+    std::optional<std::uint64_t> liveMixCleanBaseRevision;
     bool liveShowEditing{};
     juce::File documentFile() const;
     bool songDirty() const;

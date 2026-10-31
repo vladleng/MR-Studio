@@ -115,6 +115,75 @@ void validatePlaybackEdit(Desktop &owner, const juce::var &copy) {
     if(live::playbackRegionsKey(owner.liveDocument->interfaceState,id)!=live::playbackRegionsKey(copy,id))
         owner.app.validate_playback_regions(live::playbackStemLayouts(copy,id,project->sample_rate));
 }
+// #31 P3: Audio/Instrument and Playback M/S must not clone or validate the
+// entire show (including VST3 component state) for four scalar mix values.
+// The action retains precisely the channel values needed for Undo/Redo.
+struct LiveMixValues {
+    double gain{},pan{};
+    bool mute{},solo{};
+};
+LiveMixValues liveMixValues(const juce::var& row) {
+    return {static_cast<double>(row["gain"]),live::channelPan(row),
+            static_cast<bool>(row["mute"]),static_cast<bool>(row["solo"])};
+}
+bool sameLiveMix(const LiveMixValues& a,const LiveMixValues& b) noexcept {
+    return a.gain==b.gain&&a.pan==b.pan&&a.mute==b.mute&&a.solo==b.solo;
+}
+class LiveChannelMixEdit final : public juce::UndoableAction {
+ public:
+    LiveChannelMixEdit(Desktop& desktop,juce::String channel,LiveMixValues oldMix,LiveMixValues newMix)
+        : owner(&desktop),id(std::move(channel)),before(oldMix),after(newMix){}
+    bool perform() override {return apply(after);}
+    bool undo() override {return apply(before);}
+    int getSizeInUnits() override {return 128;}
+ private:
+    bool apply(const LiveMixValues& values) {
+        if(!owner||!owner->liveDocument)return false;
+        auto channel=live::find(owner->liveDocument->interfaceState,"channels",id);
+        if(!channel.isObject())return false;
+        mrs::Track::Mix mix;
+        mix.gain=static_cast<float>(std::pow(10.,values.gain/20.));
+        mix.pan=static_cast<float>(values.pan);
+        mix.mute=values.mute;mix.solo=values.solo;
+        mix.validate();
+        const auto target=owner->liveInputTrack(id);
+        if(target)owner->app.set_track_mix(*target,mix);
+        auto& editable=live::require(owner->liveDocument->interfaceState,"channels",id);
+        live::put(editable,"gain",values.gain);
+        live::put(editable,"pan",values.pan*100.);
+        live::put(editable,"mute",values.mute);
+        live::put(editable,"solo",values.solo);
+        // Track a clean baseline for *mix-only* edits. All unrelated show
+        // changes advance liveUiRevision and invalidate the fast comparison.
+        // This keeps repeated M/S toggles and their Undo instantaneous.
+        if(!owner->liveDirty && owner->liveSavedSnapshot)
+            owner->liveMixCleanBaseRevision=owner->liveUiRevision;
+        if(owner->liveSavedSnapshot && owner->liveMixCleanBaseRevision &&
+           *owner->liveMixCleanBaseRevision==owner->liveUiRevision) {
+            bool hasMixDiff=false;
+            if(const auto* channels=owner->liveDocument->interfaceState["channels"].getArray())
+                for(const auto& item:*channels) {
+                    const auto saved=live::find(owner->liveSavedSnapshot->interfaceState,
+                                                "channels",item["id"].toString());
+                    if(!saved.isObject() || !sameLiveMix(liveMixValues(item),liveMixValues(saved))) {
+                        hasMixDiff=true;break;
+                    }
+                }
+            owner->liveDirty=hasMixDiff;
+        } else if(owner->liveSavedSnapshot) {
+            const auto saved=live::find(owner->liveSavedSnapshot->interfaceState,"channels",id);
+            if(saved.isObject()&&sameLiveMix(liveMixValues(saved),values))
+                owner->updateLiveDirty();
+            else owner->liveDirty=true;
+        } else owner->liveDirty=true;
+        ++owner->liveChannelMixRevision;
+        if(!target)owner->syncLivePlayback(); // Playback group/stems need Core mix projection.
+        return true;
+    }
+    juce::Component::SafePointer<Desktop> owner;
+    juce::String id;
+    LiveMixValues before,after;
+};
 class LiveInterfaceEdit final : public juce::UndoableAction {
   public:
     LiveInterfaceEdit(Desktop &desktop, const juce::var &oldState, const juce::var &newState)
@@ -388,17 +457,20 @@ void Desktop::applyLiveInterface(const juce::var &value) {
     ++liveUiRevision;
 }
 void Desktop::editLiveInterface(const juce::String &label, std::function<void(juce::var &)> edit, bool coalesceTyping, bool captureInputs) {
+    const auto started=juce::Time::getHighResolutionTicks();
     if (!liveDocument)
         throw std::runtime_error("Create or open a MR Live show first");
     auto before = captureInputs ? liveDocument->interfaceState.clone() : liveDocument->interfaceState;
     if(captureInputs)captureLiveInputs(before);
     auto draft = before.clone();
     edit(draft);
+    const auto prepared=juce::Time::getHighResolutionTicks();
     // Avoid redundant full-show JSON validation for no-op UI actions.
     if(live::sameShowValue(draft,liveDocument->interfaceState))return;
     live::validate(draft);
     validateMusicalEdit(*this,draft);
     validatePlaybackEdit(*this,draft);
+    const auto validated=juce::Time::getHighResolutionTicks();
     liveShowEditing = true;
     const auto now = juce::Time::getMillisecondCounter();
     if (!coalesceTyping || liveTypingLabel != label || now - liveTypingAt > 800) liveUndo.beginNewTransaction(label);
@@ -406,6 +478,21 @@ void Desktop::editLiveInterface(const juce::String &label, std::function<void(ju
     liveTypingLabel = coalesceTyping ? label : juce::String();
     liveTypingAt = now;
     if (!coalesceTyping) liveUndo.beginNewTransaction();
+    const auto completed=juce::Time::getHighResolutionTicks();
+    const auto elapsedMs=juce::Time::highResolutionTicksToSeconds(completed-started)*1000.;
+    // Scoped diagnostics only on unusually slow UI edits, at most once per
+    // second; never add work or locks in the AudioEngine callback.
+    static juce::uint32 lastSlowEditReport{};
+    const auto nowMs=juce::Time::getMillisecondCounter();
+    if(elapsedMs>=16. && nowMs-lastSlowEditReport>=1000u) {
+        lastSlowEditReport=nowMs;
+        const auto ms=[](juce::int64 ticks){return std::to_string(juce::Time::highResolutionTicksToSeconds(ticks)*1000.);};
+        mrs::diagnostics::event("live_ui_slow_edit label="+label.toStdString()+
+            " total_ms="+std::to_string(elapsedMs)+
+            " prepare_ms="+ms(prepared-started)+
+            " validate_ms="+ms(validated-prepared)+
+            " undo_ms="+ms(completed-validated));
+    }
 }
 void Desktop::undoLiveInterface(bool redoAction) {
     liveTypingLabel.clear();
@@ -1003,22 +1090,19 @@ void Desktop::releaseLiveInput(const juce::String& requested) {
     liveDocument->interfaceState=state;updateLiveDirty();++liveUiRevision;
 }
 void Desktop::setLiveChannelMix(const juce::String &id, double gain, double pan, bool mute, bool solo) {
+    if(!liveDocument)throw std::runtime_error("Open a MR Live show first");
+    auto row=live::find(liveDocument->interfaceState,"channels",id);
+    if(!row.isObject())throw std::runtime_error("Live channel no longer exists");
+    const auto oldMix=liveMixValues(row);
+    const LiveMixValues newMix{gain,pan,mute,solo};
+    if(sameLiveMix(oldMix,newMix))return;
+    if(!std::isfinite(gain)||!std::isfinite(pan)||gain < -60.||gain > 12.||pan < -1.||pan > 1.)
+        throw std::runtime_error("Invalid Live channel mix");
     app.cancel_mix_preview();
-    if (const auto target=liveInputTrack(id)) {
-        mrs::Track::Mix mix;
-        mix.gain=static_cast<float>(std::pow(10.,gain/20.));
-        mix.pan=static_cast<float>(pan);
-        mix.mute=mute;mix.solo=solo;mix.validate();
-        app.set_track_mix(*target,mix);
-    }
-    editLiveInterface("Channel mix", [&](auto &state) {
-        auto &channel = live::require(state, "channels", id);
-        live::put(channel, "gain", gain);
-        live::put(channel, "pan", pan * 100.);
-        live::put(channel, "mute", mute);
-        live::put(channel, "solo", solo);
-    });
-    syncLivePlayback();
+    liveShowEditing=true;
+    liveUndo.beginNewTransaction("Channel mix");
+    liveUndo.perform(new LiveChannelMixEdit(*this,id,oldMix,newMix));
+    liveUndo.beginNewTransaction();
 }
 void Desktop::previewLiveChannelMix(const juce::String &id, double gain, double pan, bool mute, bool solo) {
     if (const auto target=liveInputTrack(id)) {

@@ -775,6 +775,13 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   liveComponent(inputPanel,"live-channel-effects-"+showChannel)!=nullptr,
                   "#302 channel embeds input, output and VST3 chain selectors");
         LiveMixer channelMixer(inputPilot);channelMixer.setSize(700,300);channelMixer.sync();
+        // UI metering uses max per stereo side and must never sum Cue into
+        // the standard Playback group, or smear peaks between channels.
+        mrs::audio::StereoPeak peakA{},peakB{};
+        peakA.left=.75f;peakA.right=.12f;peakB.left=.15f;peakB.right=.8f;
+        live::includeLiveMeterPeak(peakA,peakB);
+        liveCheck(peakA.left==.75f && peakA.right==.8f,
+                  "#31 P3 shared mixer snapshot preserves independent L/R maximum peaks");
         auto* itemTimeline=dynamic_cast<LiveTimeline*>(liveComponent(inputPilot,"live-show-timeline"));
         liveCheck(itemTimeline && liveComponent(*itemTimeline,"live-channel-monitor-"+showChannel)==nullptr,
                   "#31 P2 Timeline does not expose the manual Monitor button");
@@ -820,10 +827,18 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         const auto firstCore=*inputPilot.liveInputTrack(showChannel),secondCore=*inputPilot.liveInputTrack(secondChannel);
         liveCheck(firstCore!=secondCore && inputPilot.project()->tracks.size()==2 && inputPilot.app.engine()==engine,
                   "#302 A2 maps two show channels to independent stable tracks on the original Core");
+        const auto structuralRevision=inputPilot.liveUiRevision;
+        const auto scalarRevision=inputPilot.liveChannelMixRevision;
         inputPilot.setLiveChannelMix(secondChannel,-6.,.25,false,false);
+        liveCheck(inputPilot.liveUiRevision==structuralRevision &&
+                  inputPilot.liveChannelMixRevision==scalarRevision+1,
+                  "#31 P3 M/S uses scalar Undo without rebuilding structural show layout");
         inputPilot.undoLiveInterface();
         auto secondMix=[&]{for(const auto& track:inputPilot.project()->tracks)if(track.id==secondCore)return track.mix;return mrs::Track::Mix{};};
-        liveCheck(std::abs(secondMix().gain-1.f)<.0001f,"Channel mixer Undo reaches the real Core mix");
+        liveCheck(std::abs(secondMix().gain-1.f)<.0001f &&
+                  inputPilot.liveUiRevision==structuralRevision &&
+                  inputPilot.liveChannelMixRevision==scalarRevision+2,
+                  "#31 P3 scalar mix Undo restores Core without Setlist/Timeline rebuild");
         inputPilot.undoLiveInterface(true);
         liveCheck(std::abs(secondMix().gain-static_cast<float>(std::pow(10.,-.3)))<.0001f,"Channel mixer Redo reaches the real Core mix");
         const auto multiSaved=folder.getChildFile("multi-input-show.mrlive");inputPilot.saveFile(multiSaved);
@@ -831,6 +846,14 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(live::find(multiLoaded.interfaceState,"channels",showChannel)["liveInput"].isObject() &&
                   live::find(multiLoaded.interfaceState,"channels",secondChannel)["liveInput"].isObject() && multiLoaded.projects.empty(),
                   "Ordinary Save persists every channel without separate channel Save actions");
+        liveCheck(!inputPilot.liveDirty,"Saved show is clean before fast M/S toggles");
+        const auto savedMixStructure=inputPilot.liveUiRevision;
+        inputPilot.setLiveChannelMix(secondChannel,-6.,.25,true,false);
+        liveCheck(inputPilot.liveDirty && inputPilot.liveUiRevision==savedMixStructure,
+                  "#31 P3 M/S immediately marks show dirty without a structural rebuild");
+        inputPilot.setLiveChannelMix(secondChannel,-6.,.25,false,false);
+        liveCheck(!inputPilot.liveDirty && inputPilot.liveUiRevision==savedMixStructure,
+                  "#31 P3 returning M/S to saved values restores clean status without full show scan");
         inputPilot.releaseLiveInput(secondChannel);inputPilot.releaseLiveInput(showChannel);
         inputPilot.openFile(multiSaved);
         liveCheck(inputPilot.liveChannelTracks.empty() && inputPilot.project()->tracks.empty(),
