@@ -12,8 +12,8 @@ namespace live {
 // below. This is UI-only: no new DSP/graph work or audio-callback access.
 inline void includeLiveMeterPeak(mrs::audio::StereoPeak& destination,
                                  const mrs::audio::StereoPeak& sample) noexcept {
-    destination.left=std::max(destination.left,sample.left);
-    destination.right=std::max(destination.right,sample.right);
+    destination.left=juce::jmax(destination.left,sample.left);
+    destination.right=juce::jmax(destination.right,sample.right);
 }
 }
 // Persistent show-channel controls; processing uses the shared Core mix API.
@@ -77,8 +77,8 @@ class LiveMixer final : public juce::Component {
         }
         std::map<std::string,juce::String> coreChannels;
         for (const auto &strip:strips)
-            if(const auto id=owner.liveInputTrack(strip->id))
-                coreChannels.emplace(id->value,strip->id);
+            if(const auto id=owner.liveInputTrack(strip->channelId()))
+                coreChannels.emplace(id->value,strip->channelId());
         const auto p=owner.project();
         for(std::size_t i=0;i<p->tracks.size() && i<owner.peaks.size();++i)
             if(const auto it=coreChannels.find(p->tracks[i].id.value);it!=coreChannels.end())
@@ -114,6 +114,7 @@ class LiveMixer final : public juce::Component {
             }
         }
         ~Strip() override { gain.onEvent = {}; owner.app.cancel_mix_preview(); }
+        const juce::String& channelId() const noexcept { return id; }
         void sync(const std::map<juce::String,mrs::audio::StereoPeak>& meters) {
             const auto state = owner.liveDocument->interfaceState;
             const auto channel = live::find(state, "channels", id);
