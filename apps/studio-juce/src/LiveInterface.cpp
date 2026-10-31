@@ -1163,13 +1163,13 @@ void Desktop::previewLiveChannelMix(const juce::String &id, double gain, double 
         return;
     const auto& state=liveDocument->interfaceState;
     if(!live::find(state,"channels",id).isObject())return;
-    const live::PlaybackMixOverride preview{id,gain,pan,mute,solo};
+    const live::PlaybackMixOverride transientMix{id,gain,pan,mute,solo};
     const auto item=state["currentItem"].toString();
     const auto rows=live::playbackRows(state,item);
     std::vector<std::pair<mrs::Id,mrs::Track::Mix>> mixes;
     const auto current=project();
     for(std::size_t i=0;i<rows.size() && i<current->tracks.size();++i) {
-        const auto mix=live::playbackMix(state,item,rows[i],&preview);
+        const auto mix=live::playbackMix(state,item,rows[i],&transientMix);
         mix.validate();
         mixes.emplace_back(current->tracks[i].id,mix);
     }
