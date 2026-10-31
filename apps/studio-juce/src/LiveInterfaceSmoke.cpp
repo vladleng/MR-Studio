@@ -334,7 +334,12 @@ void liveOrganizerStructuralAndSavedItemSmoke(const juce::File& fixture) {
               host.liveDocument->interfaceState.getDynamicObject()==showRoot,
               "#31 Fast add-root applies one small Undo and keeps show/VST3 root");
     const auto rootTask=rows[rows.size()-1]["id"].toString();
-    host.editLiveOrganizerTasks(id,"add",rootTask);
+    LiveItemEditor editor(host,id);
+    auto* childButton=dynamic_cast<juce::TextButton*>(
+        liveComponent(editor,"live-organizer-add-"+rootTask));
+    liveCheck(childButton&&static_cast<bool>(childButton->onClick),
+              "#31 Organizer exposes clickable add-child row action");
+    childButton->onClick();
     rows=live::tasks(host.liveDocument->interfaceState,id);
     const auto childTask=rows[rows.size()-1]["id"].toString();
     liveCheck(rows.size()==initial+2&&rows[rows.size()-1]["parent"].toString()==rootTask,
@@ -362,7 +367,11 @@ void liveOrganizerStructuralAndSavedItemSmoke(const juce::File& fixture) {
     host.setLiveItemTextProperty(id,"name",nextTitle);
     liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["name"].toString()==nextTitle,
               "#31 Browser Rename uses scalar Item text transaction");
-    host.saveLiveItemForAll(id);
+    auto* saveButton=dynamic_cast<juce::TextButton*>(
+        liveComponent(editor,"live-item-save-for-all"));
+    liveCheck(saveButton&&static_cast<bool>(saveButton->onClick),
+              "#31 Item Editor Save for All uses the fast library edit");
+    saveButton->onClick();
     liveCheck(live::libraryItem(host.liveDocument->interfaceState,id)["name"].toString()==nextTitle&&
               !live::itemDirty(host.liveDocument->interfaceState,id)&&
               host.liveDocument->interfaceState.getDynamicObject()==showRoot,
