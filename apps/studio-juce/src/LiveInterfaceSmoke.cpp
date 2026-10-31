@@ -1084,6 +1084,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         };
         const auto a=addFolder("A Folder"),z=addFolder("Z Folder");
         const auto itemA=live::addItem(show,"A Item"),itemZ=live::addItem(show,"Z Item");
+        live::saveItem(show,itemA);
+        liveCheck(!live::itemDirty(show,itemA),"Saved Browser item is clean before repositioning");
         auto root=[&]{return live::browserSiblings(show,{});};
         auto children=[&]{return live::browserSiblings(show,juce::var(z));};
         const auto indexOf=[](const auto& entries,const juce::String& key) {
@@ -1115,6 +1117,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(live::moveBrowserRow(show,itemA,false,{},live::BrowserDropMode::appendRoot) &&
                   root().back().id==itemA && indexOf(root(),itemZ)>=0,
                   "#31 P4 Blank-space drop appends to root without alphabetical re-sorting");
+        liveCheck(!live::itemDirty(show,itemA),
+                  "#31 P4 Browser order and folder moves do not dirty saved musical item content");
         live::validate(show);
         auto persistent=desktop.liveDocument->clone();persistent.interfaceState=show;
         persistent.validate();
