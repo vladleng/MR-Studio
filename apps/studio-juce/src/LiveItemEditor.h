@@ -18,19 +18,10 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
         addRoot.setButtonText("   + New sub-item");
         useTemplate.setButtonText("   Create optional template");
         addRoot.onClick = [this] {
-            edit("Add task", [&](auto &state) { live::addTask(state, itemId, {}, "New sub-item"); });
+            if(owner)owner->run([&] {owner->editLiveOrganizerTasks(itemId,"add");});
         };
         useTemplate.onClick = [this] {
-            edit("Task template", [&](auto &state) {
-                for (const auto &name : juce::StringArray::fromTokens(
-                         juce::String::fromUTF8("Композиция|Гармония|Инструментовка|Рыба"), "|", "")) {
-                    const auto taskId = live::addTask(state, itemId, {}, name);
-                    if (name == juce::String::fromUTF8("Рыба")) {
-                        live::addTask(state, itemId, taskId, "Drums");
-                        live::addTask(state, itemId, taskId, "Bass");
-                    }
-                }
-            });
+            if(owner)owner->run([&] {owner->editLiveOrganizerTasks(itemId,"template");});
         };
         startTimerHz(10);
         rebuild();
@@ -105,12 +96,17 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
             percent.onFocusLost = [this] { changeProgress(); };
             add.setTitle("Add child task");
             remove.setTitle("Remove task and children");
+            add.setComponentID("live-organizer-add-" + taskId);
+            remove.setComponentID("live-organizer-remove-" + taskId);
             add.onClick = [this] {
-                host.edit("Add child task",
-                          [&](auto &stateData) { live::addTask(stateData, host.itemId, taskId, "New sub-item"); });
+                if(host.owner)host.owner->run([&] {
+                    host.owner->editLiveOrganizerTasks(host.itemId,"add",taskId);
+                });
             };
             remove.onClick = [this] {
-                host.edit("Remove task", [&](auto &stateData) { live::removeTask(stateData, host.itemId, taskId); });
+                if(host.owner)host.owner->run([&] {
+                    host.owner->editLiveOrganizerTasks(host.itemId,"remove",taskId);
+                });
             };
         }
         void paint(juce::Graphics &g) override {
@@ -307,11 +303,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
                 close();
         };
         saveAll.onClick = [this] {
-            if (owner)
-                owner->run([&] {
-                    owner->editLiveInterface("Save item for all",
-                                             [&](auto &stateData) { live::saveItem(stateData, itemId); });
-                });
+            if(owner)owner->run([&] {owner->saveLiveItemForAll(itemId);});
         };
         name.setComponentID("live-item-name");
         status.setComponentID("live-item-status");
