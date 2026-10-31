@@ -487,6 +487,29 @@ inline bool itemDirty(const juce::var &state, const juce::String &id) {
     const auto parsed = juce::JSON::parse(saved.toString());
     return canonical(content(itemVersion(state, id))) != canonical(content(parsed));
 }
+// Construct once per structural UI revision. Rechecking a Notes-only edit
+// then touches only a short string, never a saved VST3 snapshot.
+struct ItemNotesDirtyState {
+    bool otherChanges{true};
+    juce::var savedNotes;
+    bool dirty(const juce::var& state,const juce::String& id) const {
+        return otherChanges||!sameShowValue(savedNotes,find(state,"items",id)["notes"]);
+    }
+};
+inline ItemNotesDirtyState itemNotesDirtyState(const juce::var& state,const juce::String& id) {
+    ItemNotesDirtyState result;
+    const auto saved=state["library"][juce::Identifier(id)];
+    if(!saved.isString())return result;
+    auto stored=content(juce::JSON::parse(saved.toString()));
+    auto current=content(itemVersion(state,id));
+    result.savedNotes=stored["item"]["notes"];
+    if(stored["item"].isObject()&&current["item"].isObject()) {
+        stored["item"].getDynamicObject()->removeProperty("notes");
+        current["item"].getDynamicObject()->removeProperty("notes");
+        result.otherChanges=canonical(current)!=canonical(stored);
+    }
+    return result;
+}
 inline void saveItem(juce::var &state, const juce::String &id) {
     put(map(state, "library"), id, juce::JSON::toString(itemVersion(state, id), true, 17));
 }

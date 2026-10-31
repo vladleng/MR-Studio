@@ -322,9 +322,10 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         name.onFocusLost = name.onReturnKey;
         for (auto *field : {&tempo, &key, &duration, &notes}) {
             if (field == &notes) {
-                // Notes retain the existing live editing until their own #31 stage.
+                // Notes stay live/coalesced; Desktop maintains an exact byte-size cache.
                 field->onTextChange = [this, field] {
-                    updateNotesHeight();
+                    // Height follows on the UI timer, at most 10 times/sec;
+                    // do not run a second text layout for every typed character.
                     commitProperty(*field);
                 };
             } else field->onReturnKey = [this, field] { commitProperty(*field); };
@@ -482,7 +483,8 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
                     // Pending input wins; otherwise Undo must update even a
                     // focused Notes field before a later focus-loss callback.
                     if (notes.getText() != observedNotes) continue;
-                    notes.setText(item[k].toString(), false);
+                    if (notes.getText() != item[k].toString())
+                        notes.setText(item[k].toString(), false);
                     observedNotes = notes.getText();
                     updateNotesHeight();
                 } else {
@@ -494,6 +496,12 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
             if (!meter.hasKeyboardFocus(true)) meter.setText(item["meter"].toString(), juce::dontSendNotification);
             if (!priority.hasKeyboardFocus(true)) priority.setText(live::workflow(state, itemId)["priority"].toString(), juce::dontSendNotification);
         }
+        if (observedNotesRevision != owner->liveNotesRevision && notes.getText() == observedNotes) {
+            observedNotesRevision = owner->liveNotesRevision;
+            const auto model = live::find(state, "items", itemId)["notes"].toString();
+            if (notes.getText() != model) notes.setText(model, false);
+            observedNotes = model;
+        }
         if (live::tasks(state, itemId).size()) {
             progress.setText(juce::String(live::progress(state, itemId)), false);
             observedRootProgress=progress.getText();
@@ -501,24 +509,34 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         } else
             progress.setEnabled(true);
         // A TextEditor may report its new layout after a queued text change.
-        // Reconcile on the UI timer as well as in onTextChange and Undo refresh.
+        // Reconcile on the UI timer as well as after resize and Undo refresh.
         updateNotesHeight();
         repaint();
     }
     void updateNotesHeight() {
         if (notes.getWidth() <= 0) return;
         const auto text = notes.getText();
+        if(notesLayoutWidth==notes.getWidth()&&notesLayoutText==text)return;
+        notesLayoutWidth=notes.getWidth();
+        notesLayoutText=text;
         int explicitLines = 1;
-        for (int i = 0; i < text.length(); ++i)
-            if (text[i] == '\n') ++explicitLines;
-        // TextEditor can report the previous laid-out height during a text
-        // notification. At minimum honour explicit line breaks immediately,
-        // and use the current wrapped layout whenever it is available.
+        auto characters=text.getCharPointer();
+        while(!characters.isEmpty())if(characters.getAndAdvance()=='\n')++explicitLines;
+        // TextEditor::getTextHeight() can include stale internal layout
+        // geometry during resizing. Measure the text independently at the
+        // *current editor width* to avoid runaway expansion on short notes.
         const int lineHeight = juce::jmax(15, juce::roundToInt(
             notes.getFont().getHeight() * notes.getLineSpacing()));
-        const int laidOutHeight = text.isEmpty() ? lineHeight
-            : juce::jmax(notes.getTextHeight(), explicitLines * lineHeight);
-        const int needed = juce::jlimit(72, 520, laidOutHeight + 36);
+        juce::AttributedString measured;
+        measured.setText(text);
+        measured.setFont(notes.getFont());
+        measured.setWordWrap(juce::AttributedString::WordWrap::byWord);
+        juce::TextLayout layout;
+        if(text.isNotEmpty())layout.createLayout(measured,static_cast<float>(
+            juce::jmax(60,notes.getWidth()-18)));
+        const int textHeight=juce::jmax(explicitLines*lineHeight,
+                                      juce::roundToInt(std::ceil(layout.getHeight())));
+        const int needed=juce::jlimit(72,520,textHeight+24);
         if (notesBlockHeight == needed) return;
         notesBlockHeight = needed;
         const int desiredContentHeight = 524 + notesBlockHeight - 72;
@@ -546,6 +564,13 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         const char *keyName = &field == &tempo ? "tempo" : &field == &duration ? "duration" :
                               &field == &key ? "key" : "notes";
         const auto previous = live::find(owner->liveDocument->interfaceState, "items", itemId)[keyName];
+        if (notesField && previous.toString() != observedNotes) {
+            // An Undo/Open can precede the timer or a queued focus-loss callback.
+            // Never reapply the stale editor buffer over the newer model.
+            field.setText(previous.toString(), false);
+            observedNotes = field.getText();
+            return;
+        }
         if (!notesField && previous.toString() != observed) {
             field.setText(previous.toString(), false);
             observed = field.getText();
@@ -599,7 +624,10 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
     juce::String itemId;
     std::function<void(int)> action;
     juce::String observedNotes, observedName, observedTempo, observedKey, observedDuration, observedRootProgress;
+    std::uint64_t observedNotesRevision{~std::uint64_t{0}};
     int notesBlockHeight{72};
+    int notesLayoutWidth{-1};
+    juce::String notesLayoutText;
     Theme theme;
     LiveOrganizer organizer;
     std::array<juce::Label, 9> labels;

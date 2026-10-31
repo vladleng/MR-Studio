@@ -536,8 +536,7 @@ class LiveTimeline final : public juce::Component {
                 selectedLane = event.y < lanesTop - chordHeight ? live::MusicalLane::sections : live::MusicalLane::chords;
                 const double at = barAt(item,event.position.x);
                 selection = hit(item,selectedLane,at);
-                if(selection.isNotEmpty()) properties(event.getScreenPosition());
-                else create(item,selectedLane,at,"Verse");
+                if(selection.isEmpty()) create(item,selectedLane,at,"Verse");
                 return;
             }
         }
@@ -798,7 +797,11 @@ class LiveTimeline final : public juce::Component {
             parent.layout();parent.playhead.update();repaint();
         }
         void properties(juce::Point<int> screen=juce::Desktop::getMousePosition()) {
-            if(selection.isNotEmpty())openLiveMusicalEditor(parent.owner,selectedItem,selectedLane,selection,screen);
+            if(selection.isNotEmpty())for(const auto &item:parent.items)
+                if(item.value["id"].toString()==selectedItem) {
+                    const auto row=live::spanById(live::musicalRows(parent.state,selectedItem,selectedLane),selection);
+                    context(item,static_cast<double>(row["start"]),screen);return;
+                }
         }
         void removeSelected() {
             if(selection.isEmpty())return;
@@ -818,7 +821,6 @@ class LiveTimeline final : public juce::Component {
         }
         void context(Item item,double at,juce::Point<int> screen) {
             juce::PopupMenu menu;
-            menu.addItem(1,"Properties / color...",selection.isNotEmpty());
             menu.addItem(2,"Duplicate",selection.isNotEmpty());menu.addItem(3,"Remove",selection.isNotEmpty());
             if(selectedLane==live::MusicalLane::sections && selection.isNotEmpty()){
                 menu.addSeparator();addLivePerformanceModes(menu,parent.state,selection,50);
@@ -828,23 +830,37 @@ class LiveTimeline final : public juce::Component {
             if(selectedLane==live::MusicalLane::chords)menu.addItem(10,"Add chord");
             else for(int i=0;i<names.size();++i)menu.addItem(10+i,"Add "+names[i]);
             juce::Component::SafePointer<Body> safe(this);
-            showLiveActionMenu(menu,parent.owner,liveContextTarget(screen),[safe,item,at,screen,names,modeTarget=selection](int result){
-                if(!safe)return;
-                if(result==1)safe->properties(screen);
-                if(result==3)safe->removeSelected();
-                if(result>=50 && result<54){safe->parent.owner.run([&]{safe->parent.owner.editLiveInterface("Section performance mode",[&](auto& state){
-                    live::setPerformanceMode(state,item.value["id"].toString(),modeTarget,static_cast<mrs::PerformanceMode>(result-50));
-                });});return;}
-                if(result>=10 && result<16)safe->create(item,safe->selectedLane,at,names[result-10]);
-                if(result==2) {
-                    const auto original=live::spanById(live::musicalRows(safe->parent.state,safe->selectedItem,safe->selectedLane),safe->selection);
-                    safe->parent.owner.run([&]{safe->parent.owner.editLiveInterface("Duplicate musical event",[&](auto &state){
-                        const auto values=live::musicalRows(state,safe->selectedItem,safe->selectedLane);
-                        live::setMusicalRows(state,safe->selectedItem,safe->selectedLane,
-                            live::editMusicalSpan(values,safe->selection,static_cast<double>(original["length"]),live::SpanGesture::move,safe->selectedLane,true));
-                    });});
-                }
-            });
+            const auto targetItem=selectedItem,targetEvent=selection;
+            const auto targetLane=selectedLane;
+            const auto generation=parent.owner.liveDocumentGeneration;
+            auto invoke=[safe,item,at,names,targetItem,targetEvent,targetLane,generation](int result){
+                if(!safe||!safe->parent.owner.liveDocument||
+                   generation!=safe->parent.owner.liveDocumentGeneration)return;
+                safe->parent.owner.run([&]{
+                    if(result==3)safe->parent.owner.editLiveInterface("Remove musical event",[&](auto &state){
+                        auto rows=live::musicalRows(state,targetItem,targetLane).clone();
+                        if(!rows.isArray())throw std::runtime_error("Musical event no longer exists");
+                        for(int i=rows.size();--i>=0;)
+                            if(rows[i]["id"].toString()==targetEvent)rows.getArray()->remove(i);
+                        live::setMusicalRows(state,targetItem,targetLane,rows);
+                    });
+                    if(result>=50&&result<54)safe->parent.owner.editLiveInterface("Section performance mode",[&](auto &state){
+                        live::setPerformanceMode(state,targetItem,targetEvent,static_cast<mrs::PerformanceMode>(result-50));
+                    });
+                    if(result>=10&&result<16)safe->create(item,targetLane,at,names[result-10]);
+                    if(result==2)safe->parent.owner.editLiveInterface("Duplicate musical event",[&](auto &state){
+                        const auto rows=live::musicalRows(state,targetItem,targetLane);
+                        const auto source=live::spanById(rows,targetEvent);
+                        if(!source.isObject())throw std::runtime_error("Musical event no longer exists");
+                        live::setMusicalRows(state,targetItem,targetLane,
+                            live::editMusicalSpan(rows,targetEvent,static_cast<double>(source["length"]),
+                                                 live::SpanGesture::move,targetLane,true));
+                    });
+                });
+            };
+            if(selection.isNotEmpty())
+                openLiveMusicalEditor(parent.owner,selectedItem,selectedLane,selection,screen,menu,std::move(invoke));
+            else showLiveActionMenu(menu,parent.owner,liveContextTarget(screen),std::move(invoke));
         }
         static double barAt(const Item &item,float x) {return (x-item.bounds.getX()-1.)/item.scale-item.lead;}
         juce::String hit(const Item &item,live::MusicalLane lane,double at) const {
