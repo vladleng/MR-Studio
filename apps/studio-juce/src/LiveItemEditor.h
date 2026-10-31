@@ -78,6 +78,8 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
                 juce::StringArray{"Done", "Wait", "Todo", "Wip"}.indexOf(value["status"].toString()),
                 juce::dontSendNotification);
             name.setText(value["title"].toString(), false);
+            observedName = name.getText();
+            name.setComponentID("live-organizer-title-" + taskId);
             name.setInputRestrictions(120);
             name.setTitle("Task title");
             name.getProperties().set("liveTableCell", true);
@@ -85,6 +87,9 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
             name.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
             name.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
             percent.setText(juce::String(juce::roundToInt(live::taskProgress(values, taskId))), false);
+            observedProgress = percent.getText();
+            percent.setComponentID("live-organizer-progress-" + taskId);
+            state.setComponentID("live-organizer-status-" + taskId);
             percent.setTitle("Task progress percent");
             configureLiveProgress(percent);
             bool hasChildren = false;
@@ -92,11 +97,10 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
                 for (const auto &entry : *entries)
                     hasChildren = hasChildren || entry["parent"].toString() == taskId;
             percent.setEnabled(!hasChildren && value["status"].toString() != "Done");
-            state.onChange = [this] { change("Task status", "status", state.getText()); };
-            name.onTextChange = [this] { if (name.getText().trim().isNotEmpty()) changeName(); };
+            state.onChange = [this] { host.changeTask(taskId, "status", state.getText()); };
+            // Keep keyboard drafts local; do not clone/validate the show per key.
             name.onReturnKey = [this] { changeName(); };
             name.onFocusLost = [this] { changeName(); };
-            percent.onTextChange = [this] { if (percent.getText().trim().isNotEmpty()) changeProgress(); };
             percent.onReturnKey = [this] { changeProgress(); };
             percent.onFocusLost = [this] { changeProgress(); };
             add.setTitle("Add child task");
@@ -125,38 +129,62 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
         }
 
       private:
-        void change(const juce::String &label, const juce::Identifier &field, const juce::var &value) {
-            host.edit(label + " " + taskId, [&](auto &stateData) {
-                auto &tasksMap = live::map(live::performance(stateData), "itemTasks");
-                auto &task = live::require(tasksMap, host.itemId, taskId);
-                if (task[field] != value)
-                    live::put(task, field, value);
-            }, field == juce::Identifier("title"));
-        }
         void changeName() {
-            const auto text = name.getText().trim();
-            if (text.isNotEmpty())
-                change("Task title", "title", text);
+            const auto current=host.taskField(taskId,"title").toString();
+            if(current!=observedName) {
+                name.setText(current,false);
+                observedName=current;
+                return; // Undo/external edit wins over a stale focus-loss callback.
+            }
+            const auto text=name.getText().trim();
+            if(text==observedName)return;
+            if(text.isEmpty()) {
+                name.setText(current,false);
+                return;
+            }
+            host.changeTask(taskId,"title",text);
+            observedName=host.taskField(taskId,"title").toString();
+            if(name.getText()!=observedName)name.setText(observedName,false);
         }
         void changeProgress() {
-            host.edit("Task progress " + taskId, [&](auto &stateData) {
-                auto &task = live::require(live::map(live::performance(stateData), "itemTasks"), host.itemId, taskId);
-                const auto text = percent.getText().trim().toStdString();
-                std::size_t used = 0;
-                const double value = std::stod(text, &used);
-                if (used != text.size() || !std::isfinite(value) || value < 0 || value > 100)
+            const auto current=juce::String(juce::roundToInt(
+                live::taskProgress(live::tasks(host.data(),host.itemId),taskId)));
+            if(current!=observedProgress) {
+                percent.setText(current,false);
+                observedProgress=current;
+                return; // Late focus-loss must not overwrite an Undo.
+            }
+            if(percent.getText()==observedProgress)return;
+            if(host.owner)host.owner->run([&] {
+                const auto text=percent.getText().trim().toStdString();
+                std::size_t used=0;
+                const auto value=std::stod(text,&used);
+                if(used!=text.size()||!std::isfinite(value))
                     throw std::runtime_error("Progress must be 0..100");
-                live::put(task, "progress", value);
-            }, true);
+                host.owner->setLiveOrganizerField(host.itemId,taskId,"progress",value);
+            });
+            observedProgress=juce::String(juce::roundToInt(
+                live::taskProgress(live::tasks(host.data(),host.itemId),taskId)));
+            if(percent.getText()!=observedProgress)percent.setText(observedProgress,false);
         }
         LiveOrganizer &host;
-        juce::String taskId;
+        juce::String taskId, observedName, observedProgress;
         juce::SharedResourcePointer<LiveContextArt> art;
         LiveStatusBox state;
         juce::TextEditor name, percent;
         juce::TextButton add{"+"}, remove{"x"};
     };
     juce::var data() const { return owner && owner->liveDocument ? owner->liveDocument->interfaceState : juce::var(); }
+    juce::var taskField(const juce::String& id,const juce::Identifier& key) const {
+        const auto entries=live::tasks(data(),itemId);
+        if(const auto* tasks=entries.getArray())
+            for(const auto& task:*tasks)
+                if(task["id"].toString()==id)return task[key];
+        return {};
+    }
+    void changeTask(const juce::String& id,const juce::Identifier& key,const juce::var& value) {
+        if(owner)owner->run([&] {owner->setLiveOrganizerField(itemId,id,key,value);});
+    }
     void edit(const juce::String &label, std::function<void(juce::var &)> action, bool typing = false) {
         if (owner) owner->run([&] { owner->editLiveInterface(label, std::move(action), typing); });
     }
