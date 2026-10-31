@@ -166,7 +166,6 @@ public:
     std::uint64_t liveChannelMixRevision{};
     // Scalar Playback item/stem edits must not reset clean mix/fold baselines.
     std::uint64_t livePlaybackScalarRevision{};
-    std::optional<std::uint64_t> liveMixCleanPlaybackRevision, liveFoldCleanPlaybackRevision;
     // Fold is presentation-only, without structural show revision.
     std::uint64_t livePlaybackFoldRevision{};
     std::optional<std::uint64_t> liveFoldCleanUiRevision, liveFoldCleanMixRevision;
