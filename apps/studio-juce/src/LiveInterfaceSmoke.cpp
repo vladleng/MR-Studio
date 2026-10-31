@@ -967,10 +967,23 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     editing.liveUndo.clearUndoHistory();
     const auto oldNotes=live::find(editing.liveDocument->interfaceState,"items",id)["notes"].toString();
     const auto text=juce::String::repeatedString("notes ",150);
-    editing.setLiveItemNotes(id,text);editing.setLiveItemNotes(id,text+"\nNext line");
-    liveCheck(editing.liveUndo.getNumberOfUnitsTakenUpByStoredCommands() <=
-                  static_cast<int>(oldNotes.getNumBytesAsUTF8()+text.getNumBytesAsUTF8()+100),
-              "Notes Undo stores text rather than repeated full show snapshots");
+    const auto finalText=text+"\nNext line";
+    const auto patchApplications=editing.liveLocalPatchApplications;
+    const auto channelsBeforeNotes=editing.liveDocument->interfaceState["channels"];
+    editing.setLiveItemNotes(id,text);editing.setLiveItemNotes(id,finalText);
+    const int actions=editing.liveUndo.getNumActionsInCurrentTransaction();
+    const int storedUnits=editing.liveUndo.getNumberOfUnitsTakenUpByStoredCommands();
+    // History units now include the common action/container overhead as well
+    // as retained text. Keep a small fixed descriptor allowance and separately
+    // verify coalescing and the real local-path/unchanged-channel behavior.
+    const auto maxUnits=static_cast<int>(oldNotes.getNumBytesAsUTF8()+finalText.getNumBytesAsUTF8()+1024);
+    if(actions!=1||storedUnits>maxUnits||
+       editing.liveLocalPatchApplications!=patchApplications+2||
+       editing.liveDocument->interfaceState["channels"].getArray()!=channelsBeforeNotes.getArray())
+        throw std::runtime_error(("Notes local Undo regression: actions="+juce::String(actions)+
+            ", units="+juce::String(storedUnits)+", max="+juce::String(maxUnits)+
+            ", patch applications="+juce::String(static_cast<juce::int64>(
+                editing.liveLocalPatchApplications-patchApplications))).toStdString());
     editing.undoLiveInterface();
     if(editing.liveDirty) {
         const auto first=editing.liveSavedSnapshot ?
