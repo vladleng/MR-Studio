@@ -583,6 +583,15 @@ void Desktop::flushAraDockResize(){
 void Desktop::mouseDrag(const juce::MouseEvent& e){const auto local=e.getEventRelativeTo(this);if(resizingBrowser)resizeBrowser(getWidth()-local.x);if(resizingMixer){const int height=mixerDragHeight+mixerDragY-local.y;if(resizingAraDock)pendingAraDockHeight=height;else resizeMixer(height);}}
 void Desktop::mouseUp(const juce::MouseEvent&){flushAraDockResize();araDockResizeFrame={};pendingAraDockHeight.reset();resizingAraDock=nullptr;if(resizingBrowser||resizingMixer)saveSettings();resizingBrowser=resizingMixer=false;}
 void Desktop::refresh(bool force){
+    // Native Live owns its own visible UI via LiveWorkspace (15 Hz). Updating
+    // the hidden Studio arrange/mixer tree on every Live click or 30 Hz tick
+    // can trigger expensive UI rebuilds unrelated to the performed gesture.
+    // Preserve full Studio refresh for explicit force loads/transitions.
+    if(!force && standaloneLive && liveDocument &&
+       app.workspace()==mrs::desktop::Workspace::live) {
+        app.musical().refresh();
+        return;
+    }
     mrs::ai::Selection aiSelection;if(selectedTrack)aiSelection.entities.push_back({mrs::ai::EntityKind::track,*selectedTrack});if(selectedClip)aiSelection.entities.push_back({mrs::ai::EntityKind::clip,*selectedClip});app.set_ai_selection(std::move(aiSelection));
     if(insertPowerProject!=app.services().projects){insertPowerRecall.clear();insertPowerProject=app.services().projects;}
     if(insertDrag&&insertDrag->store!=app.services().projects)insertDrag.reset();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}std::erase_if(selectedClips,[&](const auto& value){const auto p=project();return std::none_of(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id.value==value;});});const auto p=project();const auto state=app.services().projects->state();
@@ -690,7 +699,13 @@ void Desktop::timerCallback(){try{const bool wasRecording=app.recording();app.po
     if(scanner.valid()&&scanner.wait_for(std::chrono::seconds(0))==std::future_status::ready){catalog=scanner.get();browser->rebuild();}
     const auto meter=app.engine()->take_meters();for(std::size_t i=0;i<peaks.size();++i){peaks[i].left=juce::jmax(meter.tracks[i].left,peaks[i].left*.86f);peaks[i].right=juce::jmax(meter.tracks[i].right,peaks[i].right*.86f);}
     masterPeak={juce::jmax(meter.master.left,masterPeak.left*.86f),juce::jmax(meter.master.right,masterPeak.right*.86f)};
-    for(auto& s:mixer)s->repaint();for(auto& s:arrangement->rows){s->refreshMidiStatus();s->repaint();}if(master)master->repaint();
+    const bool nativeLive=standaloneLive && liveDocument &&
+        app.workspace()==mrs::desktop::Workspace::live;
+    if(!nativeLive) {
+        for(auto& s:mixer)s->repaint();
+        for(auto& s:arrangement->rows){s->refreshMidiStatus();s->repaint();}
+        if(master)master->repaint();
+    }
     refresh();if(homeVisible&&home)home->repaint();
 }catch(const std::exception& e){message=label(e.what());repaint();}}
 
