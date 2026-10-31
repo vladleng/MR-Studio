@@ -155,6 +155,7 @@ public:
     void editLiveInterface(const juce::String&,std::function<void(juce::var&)>,bool coalesceTyping=false,bool captureInputs=false);
     void editLiveItemView(const juce::String& itemId, const juce::Identifier& key, double value);
     void setLiveItemNotes(const juce::String&,const juce::String&);
+    void setLiveItemTextProperty(const juce::String&,const juce::Identifier&,const juce::String&);
     juce::String liveTypingLabel;
     juce::uint32 liveTypingAt{};
     void applyLiveInterface(const juce::var&);
