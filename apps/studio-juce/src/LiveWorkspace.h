@@ -423,7 +423,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         for(std::size_t i=0;i<uiTotalMs.size();++i) {
             const auto ms=juce::Time::highResolutionTicksToSeconds(marks[i+1]-marks[i])*1000.;
             uiTotalMs[i]+=ms;
-            uiMaxMs[i]=std::max(uiMaxMs[i],ms);
+            uiMaxMs[i]=juce::jmax(uiMaxMs[i],ms);
         }
         if(++uiSamples<225)return; // 15 seconds at 15 Hz, no per-frame disk I/O.
         const char* stages[]={"setlist","timeline","playback","mixer"};
