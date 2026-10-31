@@ -508,6 +508,9 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
     void updateNotesHeight() {
         if (notes.getWidth() <= 0) return;
         const auto text = notes.getText();
+        if(notesLayoutWidth==notes.getWidth()&&notesLayoutText==text)return;
+        notesLayoutWidth=notes.getWidth();
+        notesLayoutText=text;
         int explicitLines = 1;
         for (int i = 0; i < text.length(); ++i)
             if (text[i] == '\n') ++explicitLines;
@@ -607,6 +610,8 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
     std::function<void(int)> action;
     juce::String observedNotes, observedName, observedTempo, observedKey, observedDuration, observedRootProgress;
     int notesBlockHeight{72};
+    int notesLayoutWidth{-1};
+    juce::String notesLayoutText;
     Theme theme;
     LiveOrganizer organizer;
     std::array<juce::Label, 9> labels;
