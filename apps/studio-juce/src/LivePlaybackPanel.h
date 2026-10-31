@@ -25,8 +25,16 @@ class LivePlaybackPanel final : public juce::Component {
         groupGain.setSliderStyle(juce::Slider::LinearHorizontal);
         groupGain.setTextBoxStyle(juce::Slider::TextBoxRight, false, 64, 20);
         groupGain.setTextValueSuffix(" dB");
+        groupGain.onDragStart = [this] {
+            groupGestureItem=owner.liveDocument?
+                owner.liveDocument->interfaceState["currentItem"].toString():juce::String();
+            groupGestureGeneration=owner.liveDocumentGeneration;
+        };
         groupGain.onDragEnd = [this] { commitGroup(); };
-        groupGain.onValueChange = [this] { if (!groupGain.isMouseButtonDown()) commitGroup(); };
+        groupGain.onValueChange = [this] {
+            if(groupGain.isMouseButtonDown()) previewGroup();
+            else commitGroup();
+        };
         detailsClose.setTitle("Close stem settings");
         detailsClose.onClick = [this] { detailsVisible = false; requestLayout(); };
         chooseFile.setButtonText("Choose WAV...");
@@ -78,7 +86,10 @@ class LivePlaybackPanel final : public juce::Component {
         cue.setTooltip("Cue WAV: independent of the global Playback level; choose its output separately");
         cue.onClick = [this] { owner.run([&] { owner.setLiveCue(cue.getToggleState()); }); };
     }
-    ~LivePlaybackPanel() override { stemsViewport.setViewedComponent(nullptr, false); }
+    ~LivePlaybackPanel() override {
+        if(groupGain.isMouseButtonDown())owner.app.cancel_mix_preview();
+        stemsViewport.setViewedComponent(nullptr, false);
+    }
     std::function<void()> layoutChanged;
     int preferredHeight() const { return detailsVisible ? 370 : 270; }
     int stemCount() const { return static_cast<int>(stemRows.size()); }
@@ -264,8 +275,12 @@ class LivePlaybackPanel final : public juce::Component {
             level.setTitle("Stem level"); level.setRange(-60, 12, .1);
             level.setSliderStyle(juce::Slider::LinearHorizontal);
             level.setTextBoxStyle(juce::Slider::TextBoxRight, false, 58, 18); level.setTextValueSuffix(" dB");
+            level.onDragStart = [this] { dragGeneration=host.owner.liveDocumentGeneration; };
             level.onDragEnd = [this] { commit(); };
-            level.onValueChange = [this] { if (!level.isMouseButtonDown()) commit(); };
+            level.onValueChange = [this] {
+                if(level.isMouseButtonDown())preview();
+                else commit();
+            };
             for (auto *button : {&mute, &solo}) { button->setClickingTogglesState(true); button->onClick = [this] { commit(); }; }
             listen.setButtonText("Play");
             listen.setComponentID("live-stem-audition-" + key);
@@ -273,6 +288,9 @@ class LivePlaybackPanel final : public juce::Component {
             listen.onClick = [this] { host.owner.run([&] { host.auditionStem(stemId); }); };
             details.setTitle("Stem file, trim and output settings");
             details.onClick = [this] { host.showStemDetails(stemId); };
+        }
+        ~StemRow() override {
+            if(level.isMouseButtonDown())host.owner.app.cancel_mix_preview();
         }
         void resized() override {
             auto header = getLocalBounds().removeFromTop(20);
@@ -322,7 +340,24 @@ class LivePlaybackPanel final : public juce::Component {
             }
         }
       private:
-        void commit() { host.owner.run([&] { host.owner.setLivePlaybackStemMix(itemId, stemId, level.getValue(), mute.getToggleState(), solo.getToggleState()); }); }
+        void preview() {
+            if(host.owner.liveDocument && dragGeneration==host.owner.liveDocumentGeneration)
+                host.owner.previewLivePlaybackStemMix(itemId,stemId,level.getValue(),
+                                                       mute.getToggleState(),solo.getToggleState());
+        }
+        void commit() {
+            host.owner.run([&] {
+                if(!host.owner.liveDocument ||
+                   (dragGeneration!=0 && dragGeneration!=host.owner.liveDocumentGeneration) ||
+                   host.owner.liveDocument->interfaceState["currentItem"].toString()!=itemId) {
+                    host.owner.app.cancel_mix_preview();return;
+                }
+                dragGeneration=0;
+                host.owner.setLivePlaybackStemMix(itemId,stemId,level.getValue(),
+                                                  mute.getToggleState(),solo.getToggleState());
+            });
+        }
+        std::uint64_t dragGeneration{};
         LivePlaybackPanel &host;
         juce::String itemId, stemId;
         juce::Slider level;
@@ -352,7 +387,22 @@ class LivePlaybackPanel final : public juce::Component {
         previewFile = path;
     }
     void requestLayout() { if (layoutChanged) layoutChanged(); else resized(); }
-    void commitGroup() { owner.run([&] { owner.setLiveItemPlaybackGain(groupGain.getValue()); }); }
+    void previewGroup() {
+        if(!owner.liveDocument||groupGestureGeneration!=owner.liveDocumentGeneration)return;
+        owner.previewLiveItemPlaybackGain(groupGestureItem,groupGain.getValue());
+    }
+    void commitGroup() {
+        owner.run([&] {
+            if(!owner.liveDocument)return;
+            const auto active=owner.liveDocument->interfaceState["currentItem"].toString();
+            const auto id=groupGestureItem.isNotEmpty()?groupGestureItem:active;
+            const bool stale=(groupGestureItem.isNotEmpty() &&
+                (active!=groupGestureItem||groupGestureGeneration!=owner.liveDocumentGeneration));
+            groupGestureItem.clear();
+            if(stale) {owner.app.cancel_mix_preview();return;}
+            owner.setLiveItemPlaybackGainFor(id,groupGain.getValue());
+        });
+    }
     void commitTrim() {
         owner.run([&] {
             // JSON::parse accepts objects/arrays, not scalar JSON numbers.
@@ -366,6 +416,8 @@ class LivePlaybackPanel final : public juce::Component {
     juce::TextButton chooseFile, cue{"Cue"}, detailsClose{"x"}, audition{"Listen"};
     juce::Label fileName;
     juce::Slider groupGain;
+    juce::String groupGestureItem;
+    std::uint64_t groupGestureGeneration{};
     juce::Label groupLabel;
     bool detailsVisible{}, previousInspecting{};
     juce::String currentItem, previewFile, browserStem;
