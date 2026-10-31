@@ -846,6 +846,14 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(live::find(multiLoaded.interfaceState,"channels",showChannel)["liveInput"].isObject() &&
                   live::find(multiLoaded.interfaceState,"channels",secondChannel)["liveInput"].isObject() && multiLoaded.projects.empty(),
                   "Ordinary Save persists every channel without separate channel Save actions");
+        liveCheck(!inputPilot.liveDirty,"Saved show is clean before fast M/S toggles");
+        const auto savedMixStructure=inputPilot.liveUiRevision;
+        inputPilot.setLiveChannelMix(secondChannel,-6.,.25,true,false);
+        liveCheck(inputPilot.liveDirty && inputPilot.liveUiRevision==savedMixStructure,
+                  "#31 P3 M/S immediately marks show dirty without a structural rebuild");
+        inputPilot.setLiveChannelMix(secondChannel,-6.,.25,false,false);
+        liveCheck(!inputPilot.liveDirty && inputPilot.liveUiRevision==savedMixStructure,
+                  "#31 P3 returning M/S to saved values restores clean status without full show scan");
         inputPilot.releaseLiveInput(secondChannel);inputPilot.releaseLiveInput(showChannel);
         inputPilot.openFile(multiSaved);
         liveCheck(inputPilot.liveChannelTracks.empty() && inputPilot.project()->tracks.empty(),
