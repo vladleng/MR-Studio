@@ -146,6 +146,16 @@ void liveItemEditorCommitSmoke(const juce::File& fixture) {
     key->onReturnKey();
     liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["key"].toString()=="F#m",
               "#31 Key commits through scalar Undo");
+    key->setText("Bb",true);
+    key->onFocusLost();
+    liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["key"].toString()=="Bb",
+              "#31 Key focus loss commits exactly once");
+    bool oversizedKeyRejected=false;
+    try { host.setLiveItemTextProperty(id,"key",juce::String::repeatedString("Z",25)); }
+    catch (const std::exception&) { oversizedKeyRejected=true; }
+    liveCheck(oversizedKeyRejected &&
+              live::find(host.liveDocument->interfaceState,"items",id)["key"].toString()=="Bb",
+              "#31 Key length guard rejects invalid metadata without mutating show");
     const auto originalTempo = static_cast<double>(live::find(host.liveDocument->interfaceState,"items",id)["tempo"]);
     tempo->setText("401",true);
     tempo->onReturnKey();
@@ -167,6 +177,15 @@ void liveItemEditorCommitSmoke(const juce::File& fixture) {
     meter->setText("3/4",juce::sendNotificationSync);
     liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["meter"].toString()=="3/4",
               "#31 Meter uses validated selection commit");
+    const auto savePath=fixture.getSiblingFile("item-editor-commit.mrlive");
+    host.saveFile(savePath);
+    const auto loaded=LiveDocument::read(savePath);
+    const auto saved=live::find(loaded.interfaceState,"items",id);
+    liveCheck(saved["name"].toString()=="Final item title" && saved["key"].toString()=="Bb" &&
+              static_cast<double>(saved["duration"])==75. &&
+              saved["meter"].toString()=="3/4",
+              "#31 Name/Key/Duration/Meter survive Save/Reopen");
+    savePath.deleteFile();
 }
 void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave){
     Desktop navigation(true,false,true);navigation.importLiveShow(fixture);navigation.setSize(1200,800);
