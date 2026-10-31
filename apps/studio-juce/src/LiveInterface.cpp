@@ -330,6 +330,91 @@ class LiveNotesEdit final : public juce::UndoableAction {
     juce::Component::SafePointer<Desktop> owner;
     juce::String id, before, after;
 };
+// #31 fix6: task hierarchy edits are limited to one item's <=200 task rows.
+// Keep structural Undo as small immutable lists, not full-show/VST3 snapshots.
+class LiveOrganizerTasksEdit final : public juce::UndoableAction {
+ public:
+    LiveOrganizerTasksEdit(Desktop& desktop,juce::String item,juce::var oldRows,juce::var newRows,
+                           bool hadMap)
+        : owner(&desktop),itemId(std::move(item)),before(std::move(oldRows)),
+          after(std::move(newRows)),hadTasksMap(hadMap),
+          generation(desktop.liveDocumentGeneration) {}
+    bool perform() override {return apply(after);}
+    bool undo() override {return apply(before);}
+    int getSizeInUnits() override {return 512;}
+ private:
+    bool apply(const juce::var& rows) {
+        if(!owner||!owner->liveDocument||owner->liveDocumentGeneration!=generation)return false;
+        auto& state=owner->liveDocument->interfaceState;
+        if(!live::find(state,"items",itemId).isObject())return false;
+        auto& perf=live::performance(state);
+        if(rows.isArray()) {
+            live::put(live::map(perf,"itemTasks"),itemId,rows.clone());
+        } else {
+            auto map=perf["itemTasks"];
+            if(map.isObject()) {
+                map.getDynamicObject()->removeProperty(juce::Identifier(itemId));
+                if(!hadTasksMap&&map.getDynamicObject()->getProperties().size()==0)
+                    perf.getDynamicObject()->removeProperty(juce::Identifier("itemTasks"));
+            }
+        }
+        owner->liveDirty=true;
+        if(owner->liveSavedSnapshot) {
+            const auto saved=owner->liveSavedSnapshot->interfaceState["performance"]["itemTasks"][juce::Identifier(itemId)];
+            const auto current=state["performance"]["itemTasks"][juce::Identifier(itemId)];
+            if(live::sameShowValue(saved,current))owner->updateLiveDirty();
+        }
+        ++owner->liveUiRevision;
+        return true;
+    }
+    juce::Component::SafePointer<Desktop> owner;
+    juce::String itemId;
+    juce::var before,after;
+    bool hadTasksMap{};
+    std::uint64_t generation{};
+};
+// Saving a Browser item version is a single library-string replacement.
+// A full-show clone is unnecessary, and would repeatedly copy hosted VST3 data.
+class LiveSavedItemEdit final : public juce::UndoableAction {
+ public:
+    LiveSavedItemEdit(Desktop& desktop,juce::String item,juce::var oldSnapshot,
+                       juce::String newSnapshot,bool hadMap)
+        : owner(&desktop),itemId(std::move(item)),before(std::move(oldSnapshot)),
+          after(std::move(newSnapshot)),hadLibraryMap(hadMap),
+          generation(desktop.liveDocumentGeneration) {}
+    bool perform() override {return apply(after);}
+    bool undo() override {return apply(before);}
+    int getSizeInUnits() override {return 512;}
+ private:
+    bool apply(const juce::var& value) {
+        if(!owner||!owner->liveDocument||owner->liveDocumentGeneration!=generation)return false;
+        auto& state=owner->liveDocument->interfaceState;
+        if(!live::find(state,"items",itemId).isObject())return false;
+        if(value.isString()) {
+            live::put(live::map(state,"library"),itemId,value);
+        } else {
+            auto library=state["library"];
+            if(library.isObject()) {
+                library.getDynamicObject()->removeProperty(juce::Identifier(itemId));
+                if(!hadLibraryMap&&library.getDynamicObject()->getProperties().size()==0)
+                    state.getDynamicObject()->removeProperty(juce::Identifier("library"));
+            }
+        }
+        owner->liveDirty=true;
+        if(owner->liveSavedSnapshot) {
+            const auto saved=owner->liveSavedSnapshot->interfaceState["library"][juce::Identifier(itemId)];
+            if(saved==state["library"][juce::Identifier(itemId)])
+                owner->updateLiveDirty();
+        }
+        ++owner->liveUiRevision;
+        return true;
+    }
+    juce::Component::SafePointer<Desktop> owner;
+    juce::String itemId;
+    juce::var before,after;
+    bool hadLibraryMap{};
+    std::uint64_t generation{};
+};
 // #31 Organizer: a status, priority, title or progress change is metadata.
 // Preserve scalar/root-row Undo without cloning the show or touching VST3 /
 // AudioEngine state. Structural add/remove/template retains full validation.
@@ -476,6 +561,93 @@ class LiveItemViewEdit final : public juce::UndoableAction {
     bool hadArrangement{};
 };
 } // namespace
+void Desktop::editLiveOrganizerTasks(const juce::String& itemId,const juce::String& operation,
+                                     const juce::String& taskId) {
+    if(!liveDocument||!live::find(liveDocument->interfaceState,"items",itemId).isObject())
+        throw std::runtime_error("Organizer item no longer exists");
+    const auto& state=liveDocument->interfaceState;
+    const auto map=state["performance"]["itemTasks"];
+    const bool hadMap=map.isObject();
+    const auto rows=map[juce::Identifier(itemId)];
+    if(!rows.isVoid()&&!rows.isArray())throw std::runtime_error("Invalid organizer task list");
+    const juce::var before=rows.isArray()?rows.clone():juce::var();
+    // Run established add/remove helpers on a miniature isolated task map.
+    // Never duplicate media, project state, VST3 snapshots or channel state.
+    auto scratch=live::object(),perf=live::object(),taskMap=live::object();
+    live::put(taskMap,itemId,rows.isArray()?rows.clone():juce::var(juce::Array<juce::var>()));
+    live::put(perf,"itemTasks",taskMap);
+    live::put(scratch,"performance",perf);
+    auto& entries=live::array(live::map(live::performance(scratch),"itemTasks"),itemId);
+    const auto taskExists=[&](const juce::String& target) {
+        for(const auto& row:entries)
+            if(row["id"].toString()==target)return true;
+        return false;
+    };
+    if(operation=="add") {
+        if(entries.size()>=200)throw std::runtime_error("Organizer allows at most 200 tasks");
+        if(taskId.isNotEmpty()) {
+            if(!taskExists(taskId))throw std::runtime_error("Parent task no longer exists");
+            int depth=1;
+            auto parent=taskId;
+            while(parent.isNotEmpty()) {
+                if(++depth>8)throw std::runtime_error("Organizer hierarchy is too deep");
+                juce::String next;
+                for(const auto& row:entries)
+                    if(row["id"].toString()==parent) {next=row["parent"].toString();break;}
+                parent=next;
+            }
+        }
+        live::addTask(scratch,itemId,taskId.isNotEmpty()?juce::var(taskId):juce::var(),"New sub-item");
+    } else if(operation=="remove") {
+        if(!taskExists(taskId))throw std::runtime_error("Task no longer exists");
+        live::removeTask(scratch,itemId,taskId);
+    } else if(operation=="template") {
+        if(entries.size()>194)throw std::runtime_error("Organizer allows at most 200 tasks");
+        for(const auto& name:juce::StringArray::fromTokens(
+                juce::String::fromUTF8("Композиция|Гармония|Инструментовка|Рыба"),"|","")) {
+            const auto parent=live::addTask(scratch,itemId,{},name);
+            if(name==juce::String::fromUTF8("Рыба")) {
+                live::addTask(scratch,itemId,parent,"Drums");
+                live::addTask(scratch,itemId,parent,"Bass");
+            }
+        }
+    } else throw std::runtime_error("Unsupported Organizer operation");
+    const auto after=live::tasks(scratch,itemId).clone();
+    if(live::sameShowValue(before,after))return;
+    // Keep the established 64 MiB show limit: only growing edits need an
+    // expensive serialization of the current show, never every keystroke.
+    const auto oldBytes=juce::JSON::toString(before).getNumBytesAsUTF8();
+    const auto newBytes=juce::JSON::toString(after).getNumBytesAsUTF8();
+    if(newBytes>oldBytes &&
+       juce::JSON::toString(state).getNumBytesAsUTF8()+
+           (newBytes-oldBytes)>live::maximumShowBytes)
+        throw std::runtime_error("Show interface exceeds 64 MiB");
+    liveShowEditing=true;
+    liveTypingLabel.clear();
+    liveUndo.beginNewTransaction("Organizer "+operation);
+    liveUndo.perform(new LiveOrganizerTasksEdit(*this,itemId,before,after,hadMap));
+    liveUndo.beginNewTransaction();
+}
+void Desktop::saveLiveItemForAll(const juce::String& itemId) {
+    if(!liveDocument||!live::find(liveDocument->interfaceState,"items",itemId).isObject())
+        throw std::runtime_error("Show item no longer exists");
+    const auto& state=liveDocument->interfaceState;
+    const auto existing=state["library"];
+    const auto before=existing[juce::Identifier(itemId)];
+    const auto value=juce::JSON::toString(live::itemVersion(state,itemId),true,17);
+    if(before.isString()&&before.toString()==value)return;
+    const auto oldBytes=juce::JSON::toString(before).getNumBytesAsUTF8();
+    const auto newBytes=juce::JSON::toString(juce::var(value)).getNumBytesAsUTF8();
+    if(newBytes>oldBytes &&
+       juce::JSON::toString(state).getNumBytesAsUTF8()+
+           (newBytes-oldBytes)>live::maximumShowBytes)
+        throw std::runtime_error("Show interface exceeds 64 MiB");
+    liveShowEditing=true;
+    liveTypingLabel.clear();
+    liveUndo.beginNewTransaction("Save for All");
+    liveUndo.perform(new LiveSavedItemEdit(*this,itemId,before,value,existing.isObject()));
+    liveUndo.beginNewTransaction();
+}
 void Desktop::setLiveOrganizerField(const juce::String& itemId,const juce::String& taskId,
                                      const juce::Identifier& key,const juce::var& input) {
     if(!liveDocument)throw std::runtime_error("Open a MR Live show first");
