@@ -335,6 +335,9 @@ void liveOrganizerStructuralAndSavedItemSmoke(const juce::File& fixture) {
               "#31 Fast add-root applies one small Undo and keeps show/VST3 root");
     const auto rootTask=rows[rows.size()-1]["id"].toString();
     LiveItemEditor editor(host,id);
+    // JUCE TreeView creates TaskRow controls only once the host is visible.
+    // Match liveOrganizerCommitSmoke: do not inspect a hidden test tree.
+    editor.setVisible(true);
     auto* childButton=dynamic_cast<juce::TextButton*>(
         liveComponent(editor,"live-organizer-add-"+rootTask));
     liveCheck(childButton&&static_cast<bool>(childButton->onClick),
