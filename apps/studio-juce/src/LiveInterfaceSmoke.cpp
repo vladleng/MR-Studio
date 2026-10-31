@@ -195,6 +195,7 @@ void liveOrganizerCommitSmoke(const juce::File& fixture) {
     const auto id=host.liveDocument->interfaceState["currentItem"].toString();
     juce::String taskId;
     host.editLiveInterface("Organizer test setup",[&](auto& state) {
+        live::array(live::map(live::performance(state),"itemTasks"),id).clear();
         taskId=live::addTask(state,id,{},"Original organizer title");
     });
     const auto task=[&]() {
@@ -276,36 +277,45 @@ void liveOrganizerCommitSmoke(const juce::File& fixture) {
     auto* rootStatus=dynamic_cast<LiveStatusBox*>(liveComponent(rootCard,"live-item-status"));
     liveCheck(rootProgress&&rootPriority&&rootStatus&&rootProgress->isEnabled(),
               "#31 Root workflow controls available without child tasks");
+    const auto initialWorkflow=live::workflow(rootHost.liveDocument->interfaceState,rootId);
+    const auto previousStatus=initialWorkflow["status"].toString();
+    const auto originalProgress=live::progress(rootHost.liveDocument->interfaceState,rootId);
+    const int nextProgress=originalProgress==63?64:63;
+    const int nextPriority=initialWorkflow["priority"].toString()=="P1"?2:1;
+    const int nextStatus=previousStatus=="Wait"?4:2;
+    const auto changedStatus=nextStatus==4?juce::String("Wip"):juce::String("Wait");
+    const auto changedPriority=nextPriority==2?juce::String("P2"):juce::String("P1");
     const auto rootBefore=rootHost.liveUiRevision;
-    rootProgress->setText("63",true);
-    liveCheck(live::progress(rootHost.liveDocument->interfaceState,rootId)==0&&
+    rootProgress->setText(juce::String(nextProgress),true);
+    liveCheck(live::progress(rootHost.liveDocument->interfaceState,rootId)==originalProgress&&
               rootHost.liveUiRevision==rootBefore,
               "#31 Root workflow progress draft stays local");
     rootProgress->onFocusLost();
-    liveCheck(live::progress(rootHost.liveDocument->interfaceState,rootId)==63,
+    liveCheck(live::progress(rootHost.liveDocument->interfaceState,rootId)==nextProgress,
               "#31 Root workflow progress commits once");
-    rootPriority->setSelectedId(1,juce::sendNotificationSync);
-    rootStatus->setSelectedId(2,juce::sendNotificationSync);
+    rootPriority->setSelectedId(nextPriority,juce::sendNotificationSync);
+    rootStatus->setSelectedId(nextStatus,juce::sendNotificationSync);
     const auto workflow=live::workflow(rootHost.liveDocument->interfaceState,rootId);
-    liveCheck(workflow["priority"].toString()=="P1"&&workflow["status"].toString()=="Wait"&&
-              static_cast<double>(workflow["progress"])==63.,
+    liveCheck(workflow["priority"].toString()==changedPriority&&
+              workflow["status"].toString()==changedStatus&&
+              static_cast<double>(workflow["progress"])==nextProgress,
               "#31 Root status/priority commits do not overwrite progress");
     rootHost.undoLiveInterface();
-    liveCheck(live::workflow(rootHost.liveDocument->interfaceState,rootId)["status"].toString()=="Todo",
+    liveCheck(live::workflow(rootHost.liveDocument->interfaceState,rootId)["status"].toString()==previousStatus,
               "#31 Root workflow Undo restores status");
     rootHost.undoLiveInterface(true);
-    liveCheck(live::workflow(rootHost.liveDocument->interfaceState,rootId)["status"].toString()=="Wait",
+    liveCheck(live::workflow(rootHost.liveDocument->interfaceState,rootId)["status"].toString()==changedStatus,
               "#31 Root workflow Redo restores status");
     bool invalidRoot=false;
     try {rootHost.setLiveOrganizerField(rootId,{},"progress",-3.);}
     catch(const std::exception&){invalidRoot=true;}
-    liveCheck(invalidRoot&&live::progress(rootHost.liveDocument->interfaceState,rootId)==63,
+    liveCheck(invalidRoot&&live::progress(rootHost.liveDocument->interfaceState,rootId)==nextProgress,
               "#31 Invalid root progress leaves workflow intact");
     const auto rootSave=fixture.getSiblingFile("organizer-root-commit.mrlive");
     rootHost.saveFile(rootSave);
     const auto rootLoad=LiveDocument::read(rootSave);
-    liveCheck(live::workflow(rootLoad.interfaceState,rootId)["status"].toString()=="Wait"&&
-              live::progress(rootLoad.interfaceState,rootId)==63,
+    liveCheck(live::workflow(rootLoad.interfaceState,rootId)["status"].toString()==changedStatus&&
+              live::progress(rootLoad.interfaceState,rootId)==nextProgress,
               "#31 Workflow root Save/Reopen preserves committed values");
     rootSave.deleteFile();
 }
