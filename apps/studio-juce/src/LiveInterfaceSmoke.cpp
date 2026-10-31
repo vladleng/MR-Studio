@@ -827,10 +827,18 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         const auto firstCore=*inputPilot.liveInputTrack(showChannel),secondCore=*inputPilot.liveInputTrack(secondChannel);
         liveCheck(firstCore!=secondCore && inputPilot.project()->tracks.size()==2 && inputPilot.app.engine()==engine,
                   "#302 A2 maps two show channels to independent stable tracks on the original Core");
+        const auto structuralRevision=inputPilot.liveUiRevision;
+        const auto scalarRevision=inputPilot.liveChannelMixRevision;
         inputPilot.setLiveChannelMix(secondChannel,-6.,.25,false,false);
+        liveCheck(inputPilot.liveUiRevision==structuralRevision &&
+                  inputPilot.liveChannelMixRevision==scalarRevision+1,
+                  "#31 P3 M/S uses scalar Undo without rebuilding structural show layout");
         inputPilot.undoLiveInterface();
         auto secondMix=[&]{for(const auto& track:inputPilot.project()->tracks)if(track.id==secondCore)return track.mix;return mrs::Track::Mix{};};
-        liveCheck(std::abs(secondMix().gain-1.f)<.0001f,"Channel mixer Undo reaches the real Core mix");
+        liveCheck(std::abs(secondMix().gain-1.f)<.0001f &&
+                  inputPilot.liveUiRevision==structuralRevision &&
+                  inputPilot.liveChannelMixRevision==scalarRevision+2,
+                  "#31 P3 scalar mix Undo restores Core without Setlist/Timeline rebuild");
         inputPilot.undoLiveInterface(true);
         liveCheck(std::abs(secondMix().gain-static_cast<float>(std::pow(10.,-.3)))<.0001f,"Channel mixer Redo reaches the real Core mix");
         const auto multiSaved=folder.getChildFile("multi-input-show.mrlive");inputPilot.saveFile(multiSaved);
