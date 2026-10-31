@@ -180,7 +180,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         int lineY{-1},depth{};
         juce::Rectangle<int> folderBounds;
     };
-    BrowserDrop resolveBrowserDrop(const SourceDetails& source) const {
+    BrowserDrop resolveBrowserDrop(const SourceDetails& source) {
         BrowserDrop result;
         if(!browser || !isInterestedInDragSource(source) || search.getText().trim().isNotEmpty())
             return result; // Filtered results do not represent unambiguous sibling slots.
