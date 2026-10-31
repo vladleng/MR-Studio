@@ -146,6 +146,13 @@ class LiveTimeline final : public juce::Component {
         const bool focused = focusRevision != owner.liveTimelineFocusRevision;
         focusRevision = owner.liveTimelineFocusRevision;
         if (key == signature) {
+            // Scalar M/S/gain/pan changes do not rebuild the entire Timeline.
+            if(observedMixRevision!=owner.liveChannelMixRevision) {
+                observedMixRevision=owner.liveChannelMixRevision;
+                state=next;
+                syncChannel();
+                body.repaint();
+            }
             if (focused)
                 revealSelection();
             else if (started)
@@ -157,6 +164,7 @@ class LiveTimeline final : public juce::Component {
         const bool selectionChanged = selectedItem != revealedItem;
         revealedItem = selectedItem;
         signature = key;
+        observedMixRevision=owner.liveChannelMixRevision;
         state = next;
         layout();
         syncChannel();
@@ -1318,6 +1326,7 @@ class LiveTimeline final : public juce::Component {
     juce::String stemControlsKey;
     juce::var state;
     juce::String signature, revealedItem;
+    std::uint64_t observedMixRevision{~std::uint64_t{0}};
     std::vector<Item> items;
     std::string activeSection, activeChord;
     std::uint64_t focusRevision{};

@@ -162,7 +162,7 @@ class LiveChannelMixEdit final : public juce::UndoableAction {
                 owner->updateLiveDirty();
             else owner->liveDirty=true;
         } else owner->liveDirty=true;
-        ++owner->liveUiRevision;
+        ++owner->liveChannelMixRevision;
         if(!target)owner->syncLivePlayback(); // Playback group/stems need Core mix projection.
         return true;
     }

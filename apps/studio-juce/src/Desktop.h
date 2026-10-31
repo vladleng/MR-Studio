@@ -158,6 +158,8 @@ public:
     juce::UndoManager liveUndo{32*1024*1024,1};
     std::optional<LiveDocument> liveSavedSnapshot;
     std::uint64_t liveUiRevision{}, liveTimelineFocusRevision{}, liveDocumentGeneration{};
+    // Scalar channel mix never changes structural lanes or item geometry.
+    std::uint64_t liveChannelMixRevision{};
     bool liveShowEditing{};
     juce::File documentFile() const;
     bool songDirty() const;
