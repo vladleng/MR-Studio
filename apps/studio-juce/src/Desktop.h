@@ -156,6 +156,8 @@ public:
     void editLiveItemView(const juce::String& itemId, const juce::Identifier& key, double value);
     void setLiveItemNotes(const juce::String&,const juce::String&);
     void setLiveItemTextProperty(const juce::String&,const juce::Identifier&,const juce::String&);
+    void setLiveMusicalName(const juce::String& itemId,const juce::String& eventId,
+                            bool section,const juce::String& name);
     void setLiveOrganizerField(const juce::String& itemId,const juce::String& taskId,
                                const juce::Identifier& field,const juce::var& value);
     void editLiveOrganizerTasks(const juce::String& itemId,const juce::String& operation,
@@ -168,6 +170,11 @@ public:
     juce::UndoManager liveUndo{32*1024*1024,1};
     std::optional<LiveDocument> liveSavedSnapshot;
     std::uint64_t liveUiRevision{}, liveTimelineFocusRevision{}, liveDocumentGeneration{};
+    // Exact JSON-byte count cached during consecutive Notes-only edits.
+    // Other show revisions invalidate this cache; never bypass the 64 MiB limit.
+    std::uint64_t liveNotesBytesRevision{(std::numeric_limits<std::uint64_t>::max)()};
+    std::uint64_t liveNotesBytesGeneration{(std::numeric_limits<std::uint64_t>::max)()};
+    std::int64_t liveNotesBytes{};
     // Scalar channel mix never changes structural lanes or item geometry.
     std::uint64_t liveChannelMixRevision{};
     // Scalar Playback item/stem edits must not reset clean mix/fold baselines.
