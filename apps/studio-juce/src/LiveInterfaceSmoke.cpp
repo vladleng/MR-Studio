@@ -417,8 +417,22 @@ void liveOrganizerStructuralAndSavedItemSmoke(const juce::File& fixture) {
 }
 // #31 fix7 — Notes sizing/latency and name-only Section/Chord fast Undo.
 void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
+    const auto settleStartup=[](Desktop& host) {
+        // Desktop's first timer tick binds the current Setlist entry and may
+        // activate its prepared Playback. Both legitimately advance the UI
+        // revision. Capture Notes/card baselines only after that startup work.
+        host.syncLivePlayback();
+        const auto deadline=juce::Time::getMillisecondCounter()+5000;
+        while(host.livePlaybackLoading&&juce::Time::getMillisecondCounter()<deadline) {
+            livePump();
+            host.syncLivePlayback();
+        }
+        liveCheck(!host.livePlaybackLoading,"#31 Notes/musical fixture completes Playback startup");
+        livePump(); // Let the real workspace refresh its initial cards.
+    };
     Desktop notesHost(true,false,true);
     notesHost.importLiveShow(fixture);
+    settleStartup(notesHost);
     const auto itemId=notesHost.liveDocument->interfaceState["currentItem"].toString();
     const auto* root=notesHost.liveDocument->interfaceState.getDynamicObject();
     const auto structure=notesHost.liveUiRevision;
@@ -463,9 +477,12 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
               notesHost.liveDocument->interfaceState.getDynamicObject()==root,
               "#31 Consecutive Notes updates retain exact byte limit without full-show clone");
     list->refresh();
-    liveCheck(notesHost.liveUiRevision==structure && card &&
-              liveComponent(*list,"live-entry-"+entryId)==card.getComponent(),
-              "#31 Notes typing preserves Setlist components and structural UI revision");
+    if(notesHost.liveUiRevision!=structure)
+        throw std::runtime_error(("#31 Notes typing changed structural UI revision: before="+
+            juce::String(static_cast<juce::int64>(structure))+", after="+
+            juce::String(static_cast<juce::int64>(notesHost.liveUiRevision))).toStdString());
+    liveCheck(card&&liveComponent(*list,"live-entry-"+entryId)==card.getComponent(),
+              "#31 Notes typing preserves the original Setlist card");
     const auto prevRevision=notesHost.liveNotesRevision;
     notesHost.undoLiveInterface();
     liveCheck(notesHost.liveNotesRevision>prevRevision &&
@@ -509,6 +526,7 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
         live::setMusicalRows(state,musicalId,live::MusicalLane::chords,
             live::newMusicalSpan(state,musicalId,live::MusicalLane::chords,0.,4.));
     });
+    settleStartup(musicalHost);
     const auto sec=live::musicalRows(musicalHost.liveDocument->interfaceState,musicalId,
         live::MusicalLane::sections)[0]["id"].toString();
     const auto chord=live::musicalRows(musicalHost.liveDocument->interfaceState,musicalId,
