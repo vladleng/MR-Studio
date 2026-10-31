@@ -14,6 +14,7 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
         tree.setDefaultOpenness(true);
         tree.setIndentSize(12);
         addRoot.setArt(art->addTask.get());
+        addRoot.setComponentID("live-organizer-add-root");
         useTemplate.setArt(art->checklist.get());
         addRoot.setButtonText("   + New sub-item");
         useTemplate.setButtonText("   Create optional template");
@@ -280,6 +281,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
             fields[static_cast<std::size_t>(i)]->setTitle(captions[i]);
         }
         addAndMakeVisible(saveAll);
+        saveAll.setComponentID("live-item-save-for-all");
         // Compact context: actions duplicated by direct fields or toolbar are omitted.
         const juce::StringArray actionNames{juce::String::fromUTF8("Расположение элементов..."),
                                             juce::String::fromUTF8("Убрать из setlist"),
