@@ -115,22 +115,46 @@ inline double itemPlaybackGain(const juce::var &state, const juce::String &id) {
 inline double channelPan(const juce::var &channel) {
     return static_cast<double>(channel["pan"]) / 100.;
 }
-inline mrs::Track::Mix playbackMix(const juce::var &state, const juce::String &id, const juce::var &row) {
+// A fader preview must not clone a show that can contain many megabytes of
+// opaque VST3 state. Only one show-channel's four scalar values are overridden
+// for this transient Core mix computation; nothing is persisted or Undo-ed.
+struct PlaybackMixOverride {
+    juce::String channel;
+    double gain{}, pan{};
+    bool mute{}, solo{};
+};
+inline mrs::Track::Mix playbackMix(const juce::var &state, const juce::String &id,
+                                   const juce::var &row, const PlaybackMixOverride* preview=nullptr) {
     auto channel = find(state, "channels", playbackChannelId(state, row));
     const auto primary = find(state, "channels", playbackChannelId(state, juce::var()));
     const bool cue = static_cast<bool>(row["cue"]);
     const bool groupChild = !cue && channel["id"] != primary["id"];
-    // The primary strip is now the musical group. A Cue promoted to the
-    // primary source still has its own source level, not the group fader.
+    // A Cue promoted to the primary source is independent of the group.
     if (cue && channel["id"] == primary["id"]) channel = juce::var();
-    const double parentGain = groupChild ? static_cast<double>(primary["gain"]) : 0.;
+    const auto gainFor=[&](const juce::var& value)->double {
+        return preview && value["id"].toString()==preview->channel ?
+            preview->gain : static_cast<double>(value["gain"]);
+    };
+    const auto panFor=[&](const juce::var& value)->double {
+        return preview && value["id"].toString()==preview->channel ?
+            preview->pan : channelPan(value);
+    };
+    const auto muteFor=[&](const juce::var& value)->bool {
+        return preview && value["id"].toString()==preview->channel ?
+            preview->mute : static_cast<bool>(value["mute"]);
+    };
+    const auto soloFor=[&](const juce::var& value)->bool {
+        return preview && value["id"].toString()==preview->channel ?
+            preview->solo : static_cast<bool>(value["solo"]);
+    };
+    const double parentGain=groupChild?gainFor(primary):0.;
     mrs::Track::Mix mix;
-    const double group = cue ? 0. : playbackGain(state) + itemPlaybackGain(state, id);
-    mix.gain = static_cast<float>(std::pow(10., (static_cast<double>(row["gain"]) + group +
-                                                static_cast<double>(channel["gain"]) + parentGain) / 20.));
-    mix.pan = static_cast<float>(juce::jlimit(-1., 1., channelPan(channel) + (groupChild ? channelPan(primary) : 0.)));
-    mix.mute = static_cast<bool>(row["mute"]) || static_cast<bool>(channel["mute"]) || (groupChild && static_cast<bool>(primary["mute"]));
-    mix.solo = static_cast<bool>(row["solo"]) || static_cast<bool>(channel["solo"]) || (groupChild && static_cast<bool>(primary["solo"]));
+    const double group=cue?0.:playbackGain(state)+itemPlaybackGain(state,id);
+    mix.gain=static_cast<float>(std::pow(10.,(static_cast<double>(row["gain"])+group+
+                                              gainFor(channel)+parentGain)/20.));
+    mix.pan=static_cast<float>(juce::jlimit(-1.,1.,panFor(channel)+(groupChild?panFor(primary):0.)));
+    mix.mute=static_cast<bool>(row["mute"])||muteFor(channel)||(groupChild&&muteFor(primary));
+    mix.solo=static_cast<bool>(row["solo"])||soloFor(channel)||(groupChild&&soloFor(primary));
     return mix;
 }
 // The show channel may contain multi-megabyte Base64 VST3 component/controller

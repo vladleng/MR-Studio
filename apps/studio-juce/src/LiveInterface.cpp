@@ -1159,18 +1159,21 @@ void Desktop::previewLiveChannelMix(const juce::String &id, double gain, double 
         return;
     }
     if (!liveDocument || !livePlaybackReady()) return;
-    auto state = liveDocument->interfaceState.clone();
-    auto &channel = live::require(state, "channels", id);
-    live::put(channel, "gain", gain); live::put(channel, "pan", pan * 100.);
-    live::put(channel, "mute", mute); live::put(channel, "solo", solo);
-    const auto item = state["currentItem"].toString();
-    const auto rows = live::playbackRows(state, item);
-    std::vector<std::pair<mrs::Id, mrs::Track::Mix>> mixes;
-    for (std::size_t i = 0; i < rows.size(); ++i) {
-        const auto mix = live::playbackMix(state, item, rows[i]); mix.validate();
-        mixes.emplace_back(project()->tracks[i].id, mix);
+    if(!std::isfinite(gain)||!std::isfinite(pan)||gain < -60.||gain > 12.||pan < -1.||pan > 1.)
+        return;
+    const auto& state=liveDocument->interfaceState;
+    if(!live::find(state,"channels",id).isObject())return;
+    const live::PlaybackMixOverride preview{id,gain,pan,mute,solo};
+    const auto item=state["currentItem"].toString();
+    const auto rows=live::playbackRows(state,item);
+    std::vector<std::pair<mrs::Id,mrs::Track::Mix>> mixes;
+    const auto current=project();
+    for(std::size_t i=0;i<rows.size() && i<current->tracks.size();++i) {
+        const auto mix=live::playbackMix(state,item,rows[i],&preview);
+        mix.validate();
+        mixes.emplace_back(current->tracks[i].id,mix);
     }
-    app.preview_mixes(mixes, project()->master_gain);
+    app.preview_mixes(mixes,current->master_gain);
 }
 void Desktop::setLivePlaybackTrim(double start, double end) {
     if (!livePlaybackReady())
