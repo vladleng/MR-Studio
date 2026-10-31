@@ -2054,6 +2054,49 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         renderMulti();
         liveCheck(audio[400] > .03f && audio[401] > .03f && audio[402] < -.03f && audio[403] < -.03f,
                   "Physical output pairs carry separate stems without leaking to Master");
+        // #31 P5 / 0.8.12-fix3: Live fader gestures must affect actual PCM
+        // while the transport runs, but never alter the saved show or project
+        // until the single release/commit action.
+        const auto beforeFaderShow=multi.liveDocument->signature();
+        const float beforeMusic=audio[400],beforeStem=audio[402];
+        const auto beforeCoreMusic=multi.project()->tracks[0].mix.gain;
+        multi.previewLiveItemPlaybackGain(id,-18.);
+        renderMulti();
+        liveCheck(std::abs(audio[400])<std::abs(beforeMusic)*.2f &&
+                  std::abs(audio[402])<std::abs(beforeStem)*.2f &&
+                  multi.liveDocument->signature()==beforeFaderShow &&
+                  multi.project()->tracks[0].mix.gain==beforeCoreMusic,
+                  "#31 P5 Item Playback fader applies audible PCM preview during Play without persistent changes");
+        multi.app.cancel_mix_preview();renderMulti();
+        liveCheck(std::abs(audio[400]-beforeMusic)<.001f &&
+                  std::abs(audio[402]-beforeStem)<.001f,
+                  "#31 P5 Cancelling Item Playback preview restores the original live levels");
+        multi.previewLivePlaybackStemMix(id,stemKey,-18.,false,false);
+        renderMulti();
+        liveCheck(std::abs(audio[400]-beforeMusic)<.001f &&
+                  std::abs(audio[402])<std::abs(beforeStem)*.2f &&
+                  multi.liveDocument->signature()==beforeFaderShow,
+                  "#31 P5 Stem fader changes only its own routed audio during Play");
+        multi.app.cancel_mix_preview();renderMulti();
+        liveCheck(std::abs(audio[402]-beforeStem)<.001f,
+                  "#31 P5 Cancelling stem preview restores unchanged PCM");
+        multi.setLivePlaybackStemMix(id,stemKey,-6.,false,false);
+        renderMulti();
+        liveCheck(std::abs(audio[402])<std::abs(beforeStem)*.55f &&
+                  multi.liveDocument->signature()!=beforeFaderShow,
+                  "#31 P5 Stem mouse-release commit updates Core and persistent show once");
+        multi.undoLiveInterface();multi.syncLivePlayback();renderMulti();
+        liveCheck(std::abs(audio[402]-beforeStem)<.001f &&
+                  multi.liveDocument->signature()==beforeFaderShow,
+                  "#31 P5 Stem Undo restores saved level and Core PCM during Play");
+        multi.setLiveItemPlaybackGainFor(id,-6.);
+        renderMulti();
+        liveCheck(std::abs(audio[400])<std::abs(beforeMusic)*.55f,
+                  "#31 P5 Item Playback gain commit updates actual audio while running");
+        multi.undoLiveInterface();multi.syncLivePlayback();renderMulti();
+        liveCheck(std::abs(audio[400]-beforeMusic)<.001f &&
+                  multi.liveDocument->signature()==beforeFaderShow,
+                  "#31 P5 Item Playback Undo restores running audio and show state");
         const auto beforeRoute = multi.liveDocument->signature();
         bool routeBlocked = false;
         try {
