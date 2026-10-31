@@ -101,6 +101,7 @@ public:
     void setLivePlaybackMix(double,bool,bool);
     void setLivePlaybackStemMix(const juce::String&, const juce::String&, double, bool, bool);
     void setLiveItemPlaybackGain(double);
+    void setLivePlaybackStemsExpanded(bool);
     void setLiveChannelMix(const juce::String&, double, double, bool, bool);
     void previewLiveChannelMix(const juce::String&, double, double, bool, bool);
     // #302 A2: show-owned channels project to stable tracks in one shared Core.
@@ -160,6 +161,9 @@ public:
     std::uint64_t liveUiRevision{}, liveTimelineFocusRevision{}, liveDocumentGeneration{};
     // Scalar channel mix never changes structural lanes or item geometry.
     std::uint64_t liveChannelMixRevision{};
+    // Fold is presentation-only, without structural show revision.
+    std::uint64_t livePlaybackFoldRevision{};
+    std::optional<std::uint64_t> liveFoldCleanUiRevision, liveFoldCleanMixRevision;
     // When a clean show is modified only by scalar mix, Undo can restore
     // the clean state without rescanning large vendor VST3 preset blobs.
     std::optional<std::uint64_t> liveMixCleanBaseRevision;

@@ -213,6 +213,40 @@ class LiveInterfaceEdit final : public juce::UndoableAction {
     juce::Component::SafePointer<Desktop> owner;
     juce::var before, after;
 };
+// #31 extra latency: scalar persisted Playback disclosure is not a full show edit.
+class LivePlaybackFoldEdit final : public juce::UndoableAction {
+ public:
+    LivePlaybackFoldEdit(Desktop& desktop,bool oldValue,bool newValue)
+        : owner(&desktop),before(oldValue),after(newValue),
+          generation(desktop.liveDocumentGeneration) {}
+    bool perform() override {return apply(after);}
+    bool undo() override {return apply(before);}
+    int getSizeInUnits() override {return 64;}
+ private:
+    bool apply(bool expanded) {
+        if(!owner||!owner->liveDocument||owner->liveDocumentGeneration!=generation)return false;
+        auto& performance=live::performance(owner->liveDocument->interfaceState);
+        live::put(performance,"stemsExpanded",expanded);
+        if(!owner->liveDirty && owner->liveSavedSnapshot) {
+            owner->liveFoldCleanUiRevision=owner->liveUiRevision;
+            owner->liveFoldCleanMixRevision=owner->liveChannelMixRevision;
+        }
+        if(owner->liveSavedSnapshot) {
+            const auto saved=live::playbackExpanded(owner->liveSavedSnapshot->interfaceState);
+            if(owner->liveFoldCleanUiRevision && owner->liveFoldCleanMixRevision &&
+               *owner->liveFoldCleanUiRevision==owner->liveUiRevision &&
+               *owner->liveFoldCleanMixRevision==owner->liveChannelMixRevision)
+                owner->liveDirty=expanded!=saved;
+            else if(expanded!=saved)owner->liveDirty=true;
+            else owner->updateLiveDirty(); // Other changes may still be dirty.
+        } else owner->liveDirty=true;
+        ++owner->livePlaybackFoldRevision;
+        return true;
+    }
+    juce::Component::SafePointer<Desktop> owner;
+    bool before{},after{};
+    std::uint64_t generation{};
+};
 // Notes are plain text. Typing must not clone/validate every media, patch and
 // musical binding, or retain full show snapshots for each keystroke.
 class LiveNotesEdit final : public juce::UndoableAction {
@@ -767,6 +801,16 @@ void Desktop::setLivePlaybackStemMix(const juce::String &id, const juce::String 
         live::put(row, "gain", gain); live::put(row, "mute", mute); live::put(row, "solo", solo);
     });
     syncLivePlayback();
+}
+void Desktop::setLivePlaybackStemsExpanded(bool expanded) {
+    if(!liveDocument)throw std::runtime_error("Open a MR Live show first");
+    const auto prior=live::playbackExpanded(liveDocument->interfaceState);
+    if(prior==expanded)return;
+    liveShowEditing=true;
+    liveTypingLabel.clear();
+    liveUndo.beginNewTransaction("Fold Playback stems");
+    liveUndo.perform(new LivePlaybackFoldEdit(*this,prior,expanded));
+    liveUndo.beginNewTransaction();
 }
 void Desktop::setLiveItemPlaybackGain(double gain) {
     if (!liveDocument) return;

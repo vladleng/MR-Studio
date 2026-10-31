@@ -26,9 +26,13 @@ class LiveTimeline final : public juce::Component {
         addAndMakeVisible(stemsFold);
         stemsFold.setComponentID("live-stems-fold");
         stemsFold.setTitle("Expand or collapse Playback stems");
-        stemsFold.onClick = [this] { owner.run([&] { owner.editLiveInterface("Fold Playback stems", [&](auto &state) {
-            live::put(live::performance(state), "stemsExpanded", !live::playbackExpanded(state));
-        }); }); };
+        stemsFold.onClick = [this] {
+            owner.run([&] {
+                if(!owner.liveDocument)return;
+                owner.setLivePlaybackStemsExpanded(!live::playbackExpanded(owner.liveDocument->interfaceState));
+                refresh(); // Recompute only Timeline lanes; keep Setlist unchanged.
+            });
+        };
         addAndMakeVisible(addTrack);
         addTrack.setComponentID("live-add-track");
         addTrack.onClick = [this] { channelMenu({}); };
@@ -122,6 +126,7 @@ class LiveTimeline final : public juce::Component {
         // advance these revisions, while transport/focus have separate keys.
         auto key=juce::String(static_cast<juce::int64>(owner.liveDocumentGeneration))+"|"+
                  juce::String(static_cast<juce::int64>(owner.liveUiRevision))+"|"+
+                 juce::String(static_cast<juce::int64>(owner.livePlaybackFoldRevision))+"|"+
                  next["currentItem"].toString()+"|"+next["activeSetlist"].toString();
         if (owner.livePlaybackReady()) {
             const auto clip = owner.app.playback_sources().front();
