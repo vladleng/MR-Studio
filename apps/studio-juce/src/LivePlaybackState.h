@@ -123,8 +123,16 @@ struct PlaybackMixOverride {
     double gain{}, pan{};
     bool mute{}, solo{};
 };
+// Playback / Stems gestures override only the audible scalar mix, never
+// show-owned bindings or the saved group/stem levels before mouse release.
+struct PlaybackLevelOverride {
+    bool group{};
+    double gain{};
+    bool mute{}, solo{};
+};
 inline mrs::Track::Mix playbackMix(const juce::var &state, const juce::String &id,
-                                   const juce::var &row, const PlaybackMixOverride* preview=nullptr) {
+                                   const juce::var &row, const PlaybackMixOverride* preview=nullptr,
+                                   const PlaybackLevelOverride* levelOverride=nullptr) {
     auto channel = find(state, "channels", playbackChannelId(state, row));
     const auto primary = find(state, "channels", playbackChannelId(state, juce::var()));
     const bool cue = static_cast<bool>(row["cue"]);
@@ -149,12 +157,20 @@ inline mrs::Track::Mix playbackMix(const juce::var &state, const juce::String &i
     };
     const double parentGain=groupChild?gainFor(primary):0.;
     mrs::Track::Mix mix;
-    const double group=cue?0.:playbackGain(state)+itemPlaybackGain(state,id);
-    mix.gain=static_cast<float>(std::pow(10.,(static_cast<double>(row["gain"])+group+
+    const double itemLevel=levelOverride&&levelOverride->group?
+        levelOverride->gain:itemPlaybackGain(state,id);
+    const double stemLevel=levelOverride&&!levelOverride->group?
+        levelOverride->gain:static_cast<double>(row["gain"]);
+    const bool stemMute=levelOverride&&!levelOverride->group?
+        levelOverride->mute:static_cast<bool>(row["mute"]);
+    const bool stemSolo=levelOverride&&!levelOverride->group?
+        levelOverride->solo:static_cast<bool>(row["solo"]);
+    const double group=cue?0.:playbackGain(state)+itemLevel;
+    mix.gain=static_cast<float>(std::pow(10.,(stemLevel+group+
                                               gainFor(channel)+parentGain)/20.));
     mix.pan=static_cast<float>(juce::jlimit(-1.,1.,panFor(channel)+(groupChild?panFor(primary):0.)));
-    mix.mute=static_cast<bool>(row["mute"])||muteFor(channel)||(groupChild&&muteFor(primary));
-    mix.solo=static_cast<bool>(row["solo"])||soloFor(channel)||(groupChild&&soloFor(primary));
+    mix.mute=stemMute||muteFor(channel)||(groupChild&&muteFor(primary));
+    mix.solo=stemSolo||soloFor(channel)||(groupChild&&soloFor(primary));
     return mix;
 }
 // The show channel may contain multi-megabyte Base64 VST3 component/controller

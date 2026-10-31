@@ -100,7 +100,10 @@ public:
     juce::String livePlaybackStem, livePlaybackMediaKey, livePlaybackDeviceKey;
     void setLivePlaybackMix(double,bool,bool);
     void setLivePlaybackStemMix(const juce::String&, const juce::String&, double, bool, bool);
+    void previewLivePlaybackStemMix(const juce::String&, const juce::String&, double, bool, bool);
     void setLiveItemPlaybackGain(double);
+    void setLiveItemPlaybackGainFor(const juce::String&, double);
+    void previewLiveItemPlaybackGain(const juce::String&, double);
     void setLivePlaybackStemsExpanded(bool);
     void setLiveChannelMix(const juce::String&, double, double, bool, bool);
     void previewLiveChannelMix(const juce::String&, double, double, bool, bool);
@@ -161,6 +164,8 @@ public:
     std::uint64_t liveUiRevision{}, liveTimelineFocusRevision{}, liveDocumentGeneration{};
     // Scalar channel mix never changes structural lanes or item geometry.
     std::uint64_t liveChannelMixRevision{};
+    // Scalar Playback item/stem edits must not reset clean mix/fold baselines.
+    std::uint64_t livePlaybackScalarRevision{};
     // Fold is presentation-only, without structural show revision.
     std::uint64_t livePlaybackFoldRevision{};
     std::optional<std::uint64_t> liveFoldCleanUiRevision, liveFoldCleanMixRevision;

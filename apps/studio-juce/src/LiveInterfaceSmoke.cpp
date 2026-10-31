@@ -2054,6 +2054,63 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         renderMulti();
         liveCheck(audio[400] > .03f && audio[401] > .03f && audio[402] < -.03f && audio[403] < -.03f,
                   "Physical output pairs carry separate stems without leaking to Master");
+        // #31 P5 / 0.8.12-fix3: Live fader gestures must affect actual PCM
+        // while the transport runs, but never alter the saved show or project
+        // until the single release/commit action.
+        // The fixture WAV has a position-dependent ramp/saw envelope. Compare
+        // stable 128-frame RMS, not one PCM sample from different transport times.
+        // A full 128-frame window covers >4 saw periods (bounded drift <5%).
+        const auto outputRms=[&](std::size_t output) {
+            double square=0.;
+            for(std::size_t frame=0;frame<128;++frame) {
+                const double sample=audio[frame*4+output];
+                square+=sample*sample;
+            }
+            return std::sqrt(square/128.);
+        };
+        const auto beforeFaderShow=multi.liveDocument->signature();
+        const double beforeMusic=outputRms(0),beforeStem=outputRms(2);
+        const auto nearBaseline=[&](double value,double baseline) {
+            return baseline>.03 && std::abs(value-baseline)<baseline*.08;
+        };
+        const auto beforeCoreMusic=multi.project()->tracks[0].mix.gain;
+        multi.previewLiveItemPlaybackGain(id,-18.);
+        renderMulti();
+        liveCheck(outputRms(0)<beforeMusic*.2 &&
+                  outputRms(2)<beforeStem*.2 &&
+                  multi.liveDocument->signature()==beforeFaderShow &&
+                  multi.project()->tracks[0].mix.gain==beforeCoreMusic,
+                  "#31 P5 Item Playback fader applies audible PCM preview during Play without persistent changes");
+        multi.app.cancel_mix_preview();renderMulti();
+        liveCheck(nearBaseline(outputRms(0),beforeMusic) &&
+                  nearBaseline(outputRms(2),beforeStem),
+                  "#31 P5 Cancelling Item Playback preview restores the original live levels");
+        multi.previewLivePlaybackStemMix(id,stemKey,-18.,false,false);
+        renderMulti();
+        liveCheck(nearBaseline(outputRms(0),beforeMusic) &&
+                  outputRms(2)<beforeStem*.2 &&
+                  multi.liveDocument->signature()==beforeFaderShow,
+                  "#31 P5 Stem fader changes only its own routed audio during Play");
+        multi.app.cancel_mix_preview();renderMulti();
+        liveCheck(nearBaseline(outputRms(2),beforeStem),
+                  "#31 P5 Cancelling stem preview restores unchanged PCM");
+        multi.setLivePlaybackStemMix(id,stemKey,-6.,false,false);
+        renderMulti();
+        liveCheck(outputRms(2)<beforeStem*.55 &&
+                  multi.liveDocument->signature()!=beforeFaderShow,
+                  "#31 P5 Stem mouse-release commit updates Core and persistent show once");
+        multi.undoLiveInterface();multi.syncLivePlayback();renderMulti();
+        liveCheck(nearBaseline(outputRms(2),beforeStem) &&
+                  multi.liveDocument->signature()==beforeFaderShow,
+                  "#31 P5 Stem Undo restores saved level and Core PCM during Play");
+        multi.setLiveItemPlaybackGainFor(id,-6.);
+        renderMulti();
+        liveCheck(outputRms(0)<beforeMusic*.55,
+                  "#31 P5 Item Playback gain commit updates actual audio while running");
+        multi.undoLiveInterface();multi.syncLivePlayback();renderMulti();
+        liveCheck(nearBaseline(outputRms(0),beforeMusic) &&
+                  multi.liveDocument->signature()==beforeFaderShow,
+                  "#31 P5 Item Playback Undo restores running audio and show state");
         const auto beforeRoute = multi.liveDocument->signature();
         bool routeBlocked = false;
         try {
@@ -2080,6 +2137,15 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         renderMulti();
         liveCheck(std::abs(audio[400] + audio[402] * .5f) < .0001f && audio[400] > .01f,
                   "Global Playback gain affects direct music outputs but leaves Cue at its own level");
+        const double cueDuringPlay=outputRms(2),musicDuringPlay=outputRms(0);
+        const auto cuePreviewSignature=multi.liveDocument->signature();
+        multi.previewLiveItemPlaybackGain(id,-18.);
+        renderMulti();
+        liveCheck(outputRms(0)<musicDuringPlay*.2 &&
+                  nearBaseline(outputRms(2),cueDuringPlay) &&
+                  multi.liveDocument->signature()==cuePreviewSignature,
+                  "#31 P5 Group preview while playing attenuates music but not independent Cue");
+        multi.app.cancel_mix_preview();renderMulti();
         multi.undoLiveInterface();
         multi.syncLivePlayback();
         renderMulti();

@@ -247,6 +247,64 @@ class LivePlaybackFoldEdit final : public juce::UndoableAction {
     bool before{},after{};
     std::uint64_t generation{};
 };
+// #31 P5: Playback / Stems levels are scalar audio controls. Do not clone,
+// JSON-validate or snapshot the entire show (including vendor VST3 states)
+// for an individual M/S click or a fader commit. Preview never calls this.
+struct LivePlaybackScalarValues {
+    juce::var gain;
+    bool mute{},solo{};
+};
+bool sameLivePlaybackScalar(const LivePlaybackScalarValues& a,const LivePlaybackScalarValues& b,bool group) {
+    return a.gain==b.gain&&(group||(a.mute==b.mute&&a.solo==b.solo));
+}
+LivePlaybackScalarValues livePlaybackValues(const juce::var& row,bool group) {
+    return {row[group?"playbackGroupGain":"gain"],
+            group?false:static_cast<bool>(row["mute"]),
+            group?false:static_cast<bool>(row["solo"])};
+}
+class LivePlaybackScalarEdit final : public juce::UndoableAction {
+ public:
+    LivePlaybackScalarEdit(Desktop& desktop,juce::String item,juce::String stem,bool isGroup,
+                           LivePlaybackScalarValues previous,LivePlaybackScalarValues next)
+      : owner(&desktop),itemId(std::move(item)),stemId(std::move(stem)),group(isGroup),
+        before(std::move(previous)),after(std::move(next)),generation(desktop.liveDocumentGeneration) {}
+    bool perform() override {return apply(after);}
+    bool undo() override {return apply(before);}
+    int getSizeInUnits() override {return 128;}
+ private:
+    bool apply(const LivePlaybackScalarValues& value) {
+        if(!owner||!owner->liveDocument||owner->liveDocumentGeneration!=generation)return false;
+        auto& state=owner->liveDocument->interfaceState;
+        auto row=group?live::find(state,"items",itemId):live::playbackStem(state,itemId,stemId);
+        if(!row.isObject())return false;
+        if(group && value.gain.isVoid())
+            row.getDynamicObject()->removeProperty(juce::Identifier("playbackGroupGain"));
+        else live::put(row,group?"playbackGroupGain":"gain",value.gain);
+        if(!group) {
+            live::put(row,"mute",value.mute);
+            live::put(row,"solo",value.solo);
+        }
+        owner->liveDirty=true;
+        if(owner->liveSavedSnapshot) {
+            const auto& saved=owner->liveSavedSnapshot->interfaceState;
+            const auto savedRow=group?live::find(saved,"items",itemId):
+                live::playbackStem(saved,itemId,stemId);
+            // Only the rare Undo-to-saved path needs a full dirty comparison.
+            // Ordinary fader commits never serialize a VST3-heavy show.
+            if(savedRow.isObject()&&sameLivePlaybackScalar(livePlaybackValues(savedRow,group),value,group))
+                owner->updateLiveDirty();
+        }
+        ++owner->livePlaybackScalarRevision;
+        ++owner->liveUiRevision; // Refresh saved-state indicators after commit, not while dragging.
+        owner->syncLivePlayback();
+        return true;
+    }
+    juce::Component::SafePointer<Desktop> owner;
+    juce::String itemId,stemId;
+    bool group{};
+    LivePlaybackScalarValues before,after;
+    std::uint64_t generation{};
+};
 // Notes are plain text. Typing must not clone/validate every media, patch and
 // musical binding, or retain full show snapshots for each keystroke.
 class LiveNotesEdit final : public juce::UndoableAction {
@@ -794,13 +852,37 @@ void Desktop::setLivePlaybackMix(double gain, bool mute, bool solo) {
     setLivePlaybackStemMix(liveDocument->interfaceState["currentItem"].toString(), livePlaybackStem, gain, mute, solo);
 }
 void Desktop::setLivePlaybackStemMix(const juce::String &id, const juce::String &stem, double gain, bool mute, bool solo) {
-    if (!liveDocument || !live::playbackStem(liveDocument->interfaceState, id, stem).isObject())
-        throw std::runtime_error("Playback stem was removed");
-    editLiveInterface("Playback stem mix", [&](auto &state) {
-        auto row = live::playbackStem(state, id, stem);
-        live::put(row, "gain", gain); live::put(row, "mute", mute); live::put(row, "solo", solo);
-    });
-    syncLivePlayback();
+    if(!liveDocument)throw std::runtime_error("Open a MR Live show first");
+    const auto row=live::playbackStem(liveDocument->interfaceState,id,stem);
+    if(!row.isObject())throw std::runtime_error("Playback stem was removed");
+    if(!std::isfinite(gain)||gain < -60.||gain > 12.)
+        throw std::runtime_error("Invalid Playback stem level");
+    const auto before=livePlaybackValues(row,false);
+    const LivePlaybackScalarValues after{gain,mute,solo};
+    if(sameLivePlaybackScalar(before,after,false)) {
+        app.cancel_mix_preview();return;
+    }
+    liveShowEditing=true;liveTypingLabel.clear();
+    liveUndo.beginNewTransaction("Playback stem mix");
+    liveUndo.perform(new LivePlaybackScalarEdit(*this,id,stem,false,before,after));
+    liveUndo.beginNewTransaction();
+}
+void Desktop::previewLivePlaybackStemMix(const juce::String &id,const juce::String &stem,
+                                         double gain,bool mute,bool solo) {
+    if(!liveDocument||!livePlaybackReady()||livePlaybackLoading||
+       livePlaybackItem!=id||liveDocument->interfaceState["currentItem"].toString()!=id||
+       !std::isfinite(gain)||gain < -60.||gain > 12.)return;
+    const auto& state=liveDocument->interfaceState;
+    const auto rows=live::playbackRows(state,id);
+    const auto current=project();
+    for(std::size_t i=0;i<rows.size()&&i<current->tracks.size();++i) {
+        if((stem.isEmpty()&&i==0)||(i>0&&rows[i]["id"].toString()==stem)) {
+            const live::PlaybackLevelOverride levelOverride{false,gain,mute,solo};
+            const auto mix=live::playbackMix(state,id,rows[i],nullptr,&levelOverride);
+            app.preview_mix(current->tracks[i].id,mix,current->master_gain);
+            return;
+        }
+    }
 }
 void Desktop::setLivePlaybackStemsExpanded(bool expanded) {
     if(!liveDocument)throw std::runtime_error("Open a MR Live show first");
@@ -813,12 +895,36 @@ void Desktop::setLivePlaybackStemsExpanded(bool expanded) {
     liveUndo.beginNewTransaction();
 }
 void Desktop::setLiveItemPlaybackGain(double gain) {
-    if (!liveDocument) return;
-    const auto id = liveDocument->interfaceState["currentItem"].toString();
-    editLiveInterface("Item Playback level", [&](auto &state) {
-        live::put(live::require(state, "items", id), "playbackGroupGain", gain);
-    });
-    syncLivePlayback();
+    if(liveDocument)setLiveItemPlaybackGainFor(liveDocument->interfaceState["currentItem"].toString(),gain);
+}
+void Desktop::setLiveItemPlaybackGainFor(const juce::String &id,double gain) {
+    if(!liveDocument)return;
+    const auto row=live::find(liveDocument->interfaceState,"items",id);
+    if(!row.isObject())throw std::runtime_error("Playback item was removed");
+    if(!std::isfinite(gain)||gain < -60.||gain > 12.)
+        throw std::runtime_error("Invalid Item Playback level");
+    const auto before=livePlaybackValues(row,true);
+    const LivePlaybackScalarValues after{gain,false,false};
+    if(live::itemPlaybackGain(liveDocument->interfaceState,id)==gain) {
+        app.cancel_mix_preview();return;
+    }
+    liveShowEditing=true;liveTypingLabel.clear();
+    liveUndo.beginNewTransaction("Item Playback level");
+    liveUndo.perform(new LivePlaybackScalarEdit(*this,id,{},true,before,after));
+    liveUndo.beginNewTransaction();
+}
+void Desktop::previewLiveItemPlaybackGain(const juce::String& id,double gain) {
+    if(!liveDocument||!livePlaybackReady()||livePlaybackLoading||
+       livePlaybackItem!=id||liveDocument->interfaceState["currentItem"].toString()!=id||
+       !std::isfinite(gain)||gain < -60.||gain > 12.)return;
+    const auto& state=liveDocument->interfaceState;
+    const auto rows=live::playbackRows(state,id);
+    const auto current=project();
+    const live::PlaybackLevelOverride levelOverride{true,gain,false,false};
+    std::vector<std::pair<mrs::Id,mrs::Track::Mix>> mixes;
+    for(std::size_t i=0;i<rows.size()&&i<current->tracks.size();++i)
+        mixes.emplace_back(current->tracks[i].id,live::playbackMix(state,id,rows[i],nullptr,&levelOverride));
+    if(!mixes.empty())app.preview_mixes(mixes,current->master_gain);
 }
 std::optional<mrs::Id> Desktop::liveInputTrack(const juce::String& channel) const {
     if(channel.isEmpty()) return liveChannelTracks.empty()?std::nullopt:std::optional<mrs::Id>{liveChannelTracks.begin()->second};
