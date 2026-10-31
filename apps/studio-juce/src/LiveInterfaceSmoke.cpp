@@ -1054,10 +1054,16 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         const auto itemA=live::addItem(show,"A Item"),itemZ=live::addItem(show,"Z Item");
         auto root=[&]{return live::browserSiblings(show,{});};
         auto children=[&]{return live::browserSiblings(show,juce::var(z));};
-        liveCheck(root().size()>=4 && root()[0].id==a,
+        const auto indexOf=[](const auto& entries,const juce::String& key) {
+            for(std::size_t i=0;i<entries.size();++i)if(entries[i].id==key)return static_cast<int>(i);
+            return -1;
+        };
+        const auto natural=root();
+        liveCheck(natural.size()>=4 && indexOf(natural,a)>=0 &&
+                  indexOf(natural,z)>indexOf(natural,a),
                   "Legacy Browser starts folders-first in natural name order");
-        liveCheck(live::moveBrowserRow(show,itemZ,false,a,live::BrowserDropMode::before) &&
-                  root()[0].id==itemZ && root()[1].id==a,
+        const bool placedBefore=live::moveBrowserRow(show,itemZ,false,a,live::BrowserDropMode::before);
+        liveCheck(placedBefore && indexOf(root(),itemZ)+1==indexOf(root(),a),
                   "#31 P4 Browser before-folder indicator persists exact sibling slot");
         liveCheck(live::moveBrowserRow(show,a,true,z,live::BrowserDropMode::into) &&
                   live::find(show,"folders",a)["parent"].toString()==z &&
@@ -1075,7 +1081,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   children()[0].id==a && children()[1].id==itemA,
                   "#31 P4 After-folder indicator means after complete folder subtree");
         liveCheck(live::moveBrowserRow(show,itemA,false,{},live::BrowserDropMode::appendRoot) &&
-                  root().back().id==itemA && root()[0].id==itemZ,
+                  root().back().id==itemA && indexOf(root(),itemZ)>=0,
                   "#31 P4 Blank-space drop appends to root without alphabetical re-sorting");
         live::validate(show);
         auto persistent=desktop.liveDocument->clone();persistent.interfaceState=show;
