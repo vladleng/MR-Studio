@@ -156,6 +156,8 @@ public:
     void editLiveItemView(const juce::String& itemId, const juce::Identifier& key, double value);
     void setLiveItemNotes(const juce::String&,const juce::String&);
     void setLiveItemTextProperty(const juce::String&,const juce::Identifier&,const juce::String&);
+    void setLiveOrganizerField(const juce::String& itemId,const juce::String& taskId,
+                               const juce::Identifier& field,const juce::var& value);
     juce::String liveTypingLabel;
     juce::uint32 liveTypingAt{};
     void applyLiveInterface(const juce::var&);
