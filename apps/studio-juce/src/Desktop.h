@@ -12,6 +12,7 @@
 #include <mrs/offline_device.hpp>
 #include <mrs/vst3.hpp>
 #include <future>
+#include <limits>
 #include <set>
 #include <condition_variable>
 #include <mutex>
