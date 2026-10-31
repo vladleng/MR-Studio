@@ -187,6 +187,38 @@ void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave)
     liveCheck(live::entryIndex(navigation.liveDocument->interfaceState,preview)<0,"Preview item is outside the active setlist");
     auto* browser=dynamic_cast<LiveSetlist*>(liveComponent(navigation,"live-items-browser"));
     liveCheck(browser!=nullptr,"Items browser exists");
+    // #31 P4: invoke the actual Browser DragAndDropTarget, not just the
+    // model helper. Indicator and commit must resolve the same row/slot.
+    browser->setSize(420,500);
+    browser->refresh();
+    auto* destination=liveComponent(*browser,"live-browser-"+first);
+    liveCheck(destination!=nullptr,"Browser drag target card is available");
+    const auto hit=browser->getLocalPoint(destination,juce::Point<int>(destination->getWidth()/2,2));
+    auto payload=live::object();
+    live::put(payload,"mrLiveRow",preview);
+    live::put(payload,"kind","item");
+    live::put(payload,"itemId",preview);
+    juce::DragAndDropTarget::SourceDetails gesture(payload,browser,hit);
+    const auto expected=browser->resolveBrowserDrop(gesture);
+    liveCheck(expected.valid && expected.target==first &&
+              expected.mode==live::BrowserDropMode::before,
+              "#31 P4 Browser indicator resolves before target row");
+    const auto unchanged=navigation.liveDocument->interfaceState.clone();
+    browser->itemDragMove(gesture);
+    browser->itemDropped(gesture);
+    const auto targetParent=live::find(navigation.liveDocument->interfaceState,"items",first)["folder"];
+    const auto placed=live::browserSiblings(navigation.liveDocument->interfaceState,targetParent);
+    int previewIndex=-1,firstIndex=-1;
+    for(std::size_t i=0;i<placed.size();++i) {
+        if(placed[i].id==preview)previewIndex=static_cast<int>(i);
+        if(placed[i].id==first)firstIndex=static_cast<int>(i);
+    }
+    liveCheck(previewIndex>=0 && previewIndex+1==firstIndex,
+              "#31 P4 Mouse drop inserts at the exact highlighted Browser slot");
+    navigation.undoLiveInterface();
+    liveCheck(live::sameShowValue(navigation.liveDocument->interfaceState,unchanged),
+              "#31 P4 Browser drop Undo restores original folder and sibling order");
+    browser->refresh();
     const auto beforeBrowser=navigation.liveDocument->interfaceState["currentItem"].toString();
     const auto beforeFocus=navigation.liveTimelineFocusRevision;
     const auto beforeSample=navigation.app.engine()->state().sample;
