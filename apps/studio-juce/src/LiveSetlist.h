@@ -115,10 +115,22 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         }
     }
     void paintOverChildren(juce::Graphics &g) override {
-        if (dropY >= 0) {
-            g.setColour(liveReferenceTokens().colour(ColourRole::focus));
-            g.fillRect(viewport.getX(), viewport.getY() + dropY - viewport.getViewPositionY(), viewport.getWidth(), 2);
+        g.setColour(liveReferenceTokens().colour(ColourRole::focus));
+        if(browser) {
+            if(!browserDrop.valid)return;
+            const int top=viewport.getY()-viewport.getViewPositionY();
+            if(browserDrop.mode==live::BrowserDropMode::into) {
+                const auto r=browserDrop.folderBounds.translated(viewport.getX(),top);
+                g.drawRoundedRectangle(r.toFloat().reduced(2.f),4.f,2.f);
+            } else {
+                const int left=viewport.getX()+8+12*browserDrop.depth;
+                const int y=top+browserDrop.lineY;
+                g.fillRect(left,y,juce::jmax(0,viewport.getRight()-left-6),2);
+            }
+            return;
         }
+        if (dropY >= 0)
+            g.fillRect(viewport.getX(), viewport.getY() + dropY - viewport.getViewPositionY(), viewport.getWidth(), 2);
     }
     void mouseDown(const juce::MouseEvent &event) override {
         if (event.originalComponent != this && event.originalComponent != &body && event.originalComponent != &viewport)
@@ -155,58 +167,117 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         return false;
     }
     bool isInterestedInDragSource(const SourceDetails &source) override {
-        return source.description.isObject() && source.description["mrLiveRow"].isString() &&
-               owner.liveDocument.has_value();
+        if(!owner.liveDocument || !source.description.isObject() ||
+           !source.description["mrLiveRow"].isString())return false;
+        if(!browser)return true; // Preserve existing Setlist entry/reference semantics.
+        const auto kind=source.description["kind"].toString();
+        return kind=="folder" || (kind=="item" && source.description["itemId"].isString());
+    }
+    struct BrowserDrop {
+        bool valid{};
+        juce::String target;
+        live::BrowserDropMode mode{live::BrowserDropMode::appendRoot};
+        int lineY{-1},depth{};
+        juce::Rectangle<int> folderBounds;
+    };
+    BrowserDrop resolveBrowserDrop(const SourceDetails& source) {
+        BrowserDrop result;
+        if(!browser || !isInterestedInDragSource(source) || search.getText().trim().isNotEmpty())
+            return result; // Filtered results do not represent unambiguous sibling slots.
+        const auto pos=source.localPosition;
+        if(pos.x<viewport.getX()||pos.x>=viewport.getRight()||
+           pos.y<viewport.getY()||pos.y>=viewport.getBottom())return result;
+        const auto state=data();
+        const auto id=source.description["mrLiveRow"].toString();
+        const bool folder=source.description["kind"].toString()=="folder";
+        const int y=pos.y-viewport.getY()+viewport.getViewPositionY();
+        if(cards.empty()||y>=cards.back()->getBottom()) {
+            result.mode=live::BrowserDropMode::appendRoot;
+            result.lineY=cards.empty()?0:cards.back()->getBottom()+4;
+        } else {
+            std::size_t i=0;
+            while(i+1<cards.size() && y>=cards[i]->getBottom())++i;
+            const auto bounds=cards[i]->getBounds();
+            result.target=rows[i].id;
+            result.depth=rows[i].depth;
+            const int dy=y-bounds.getY();
+            if(dy<0)result.mode=live::BrowserDropMode::before;
+            else if(rows[i].folder) {
+                if(dy<bounds.getHeight()/4)result.mode=live::BrowserDropMode::before;
+                else if(dy>=bounds.getHeight()*3/4)result.mode=live::BrowserDropMode::after;
+                else result.mode=live::BrowserDropMode::into;
+            } else result.mode=dy<bounds.getHeight()/2 ?
+                live::BrowserDropMode::before:live::BrowserDropMode::after;
+            result.lineY=result.mode==live::BrowserDropMode::before?bounds.getY():bounds.getBottom();
+            if(result.mode==live::BrowserDropMode::into)result.folderBounds=bounds;
+            // After a folder means after its full visible subtree, not after
+            // its heading with children still below the indicator.
+            if(result.mode==live::BrowserDropMode::after && rows[i].folder) {
+                std::size_t j=i;
+                while(j+1<rows.size() && rows[j+1].depth>rows[i].depth)++j;
+                result.lineY=cards[j]->getBottom();
+            }
+        }
+        result.valid=live::browserDropAllowed(state,id,folder,result.target,result.mode);
+        return result;
     }
     void itemDragMove(const SourceDetails &source) override {
-        viewport.autoScroll(source.localPosition.x - viewport.getX(), source.localPosition.y - viewport.getY(), 24, 12);
+        viewport.autoScroll(source.localPosition.x - viewport.getX(),
+                            source.localPosition.y - viewport.getY(),24,12);
+        if(browser) {
+            browserDrop=resolveBrowserDrop(source);
+            repaint();
+            return;
+        }
         dropY = body.getHeight();
-        const int y = source.localPosition.y - viewport.getY() + viewport.getViewPositionY();
-        for (const auto &row : cards)
-            if (y < row->getBottom()) {
-                dropY = y < row->getBounds().getCentreY() ? row->getY() : row->getBottom();
-                break;
-            }
+        const int y=source.localPosition.y-viewport.getY()+viewport.getViewPositionY();
+        for(const auto &row:cards)if(y<row->getBottom()) {
+            dropY=y<row->getBounds().getCentreY()?row->getY():row->getBottom();
+            break;
+        }
         repaint();
     }
     void itemDragExit(const SourceDetails &) override {
-        dropY = -1;
-        repaint();
+        dropY=-1;browserDrop={};repaint();
     }
     void itemDropped(const SourceDetails &source) override {
-        if (dragGuard)
-            dragGuard();
-        const int y = source.localPosition.y - viewport.getY() + viewport.getViewPositionY();
-        juce::String target;
-        bool after = false;
-        RowData targetRow;
-        for (std::size_t i = 0; i < cards.size(); ++i)
-            if (y < cards[i]->getBottom()) {
-                target = rows[i].id;
-                after = y >= cards[i]->getBounds().getCentreY();
-                targetRow = rows[i];
+        if(dragGuard)dragGuard();
+        if(browser) {
+            // Resolve again after auto-scroll: the commit uses the exact same
+            // validity, parent, insertion index and row as the indicator.
+            const auto drop=resolveBrowserDrop(source);
+            browserDrop={};repaint();
+            if(!drop.valid)return;
+            const auto sourceId=source.description["mrLiveRow"].toString();
+            const bool folder=source.description["kind"].toString()=="folder";
+            owner.run([&] {
+                owner.editLiveInterface("Move Browser item",[&](auto &state) {
+                    if(!live::moveBrowserRow(state,sourceId,folder,drop.target,drop.mode))
+                        throw std::runtime_error("Browser drop target is no longer valid");
+                });
+            });
+            return;
+        }
+        // Setlist insertion/reorder is a separate, previously accepted behavior.
+        const int y=source.localPosition.y-viewport.getY()+viewport.getViewPositionY();
+        juce::String target;bool after=false;
+        for(std::size_t i=0;i<cards.size();++i)
+            if(y<cards[i]->getBottom()) {
+                target=rows[i].id;
+                after=y>=cards[i]->getBounds().getCentreY();
                 break;
             }
-        const auto payload = source.description;
-        const auto id = payload["mrLiveRow"].toString();
-        const auto kind = payload["kind"].toString();
-        const auto itemId = payload["itemId"].toString();
+        const auto payload=source.description;
+        const auto id=payload["mrLiveRow"].toString();
+        const auto kind=payload["kind"].toString();
+        const auto itemId=payload["itemId"].toString();
         owner.run([&] {
-            owner.editLiveInterface(browser ? "Move Browser item" : "Setlist order", [&](auto &state) {
-                if (browser) {
-                    const juce::var parent = targetRow.folder ? juce::var(targetRow.id) : juce::var();
-                    if (kind == "folder")
-                        live::put(live::require(state, "folders", id), "parent", parent);
-                    else if (itemId.isNotEmpty())
-                        live::put(live::require(state, "items", itemId), "folder", parent);
-                } else if (kind == "entry")
-                    live::reorderEntry(state, id, target, after);
-                else if (kind == "item")
-                    live::insertEntry(state, itemId, target, after);
+            owner.editLiveInterface("Setlist order",[&](auto &state) {
+                if(kind=="entry")live::reorderEntry(state,id,target,after);
+                else if(kind=="item")live::insertEntry(state,itemId,target,after);
             });
         });
-        dropY = -1;
-        repaint();
+        dropY=-1;repaint();
     }
     void activate(const RowData &row) {
         if (browser && !row.folder && !row.divider) {
@@ -590,34 +661,20 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         row.grabKeyboardFocus();
         row.repaint();
     }
-    void libraryRows(const juce::var &state, const juce::var &parent, int depth) {
-        if (depth > 32)
-            return;
-        std::vector<juce::var> folders, items;
-        for (const auto &value : *state["folders"].getArray())
-            if (value["parent"] == parent)
-                folders.push_back(value);
-        for (const auto &value : *state["items"].getArray())
-            if (value["folder"] == parent)
-                items.push_back(live::libraryItem(state, value["id"].toString()));
-        const auto order = [](const auto &a, const auto &b) {
-            return a["name"].toString().compareNatural(b["name"].toString()) < 0;
-        };
-        std::stable_sort(folders.begin(), folders.end(), order);
-        std::stable_sort(items.begin(), items.end(), order);
-        const auto query = search.getText().trim();
-        for (const auto &folder : folders) {
-            const auto start = rows.size();
-            rows.push_back({folder["id"].toString(), {}, folder["name"].toString(), depth, true, false});
-            if (query.isNotEmpty() || !collapsed.contains(folder["id"].toString()))
-                libraryRows(state, folder["id"], depth + 1);
-            if (query.isNotEmpty() && rows.size() == start + 1 && !folder["name"].toString().containsIgnoreCase(query))
-                rows.pop_back();
+    void libraryRows(const juce::var &state,const juce::var &parent,int depth) {
+        if(depth>32)return;
+        const auto query=search.getText().trim();
+        for(const auto& sibling:live::browserSiblings(state,parent)) {
+            if(sibling.folder) {
+                const auto start=rows.size();
+                rows.push_back({sibling.id,{},sibling.name,depth,true,false});
+                if(query.isNotEmpty()||!collapsed.contains(sibling.id))
+                    libraryRows(state,sibling.id,depth+1);
+                if(query.isNotEmpty()&&rows.size()==start+1&&!sibling.name.containsIgnoreCase(query))
+                    rows.pop_back();
+            } else if(query.isEmpty()||sibling.name.containsIgnoreCase(query))
+                rows.push_back({sibling.id,sibling.id,sibling.name,depth,false,false});
         }
-        for (const auto &item : items)
-            if (query.isEmpty() || item["name"].toString().containsIgnoreCase(query))
-                rows.push_back(
-                    {item["id"].toString(), item["id"].toString(), item["name"].toString(), depth, false, false});
     }
     void rebuild() {
         const auto state = data();
@@ -815,6 +872,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
     std::set<juce::String> collapsed;
     std::uint64_t revision{~0ULL};
     int focusIndex{-1}, dropY{-1};
+    BrowserDrop browserDrop;
     bool syncing{};
     std::uint64_t pendingSelectionRevision{};
     std::optional<RowData> pendingActivation;

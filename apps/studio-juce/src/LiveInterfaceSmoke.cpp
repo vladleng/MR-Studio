@@ -187,6 +187,38 @@ void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave)
     liveCheck(live::entryIndex(navigation.liveDocument->interfaceState,preview)<0,"Preview item is outside the active setlist");
     auto* browser=dynamic_cast<LiveSetlist*>(liveComponent(navigation,"live-items-browser"));
     liveCheck(browser!=nullptr,"Items browser exists");
+    // #31 P4: invoke the actual Browser DragAndDropTarget, not just the
+    // model helper. Indicator and commit must resolve the same row/slot.
+    browser->setSize(420,500);
+    browser->refresh();
+    auto* destination=liveComponent(*browser,"live-browser-"+first);
+    liveCheck(destination!=nullptr,"Browser drag target card is available");
+    const auto hit=browser->getLocalPoint(destination,juce::Point<int>(destination->getWidth()/2,2));
+    auto payload=live::object();
+    live::put(payload,"mrLiveRow",preview);
+    live::put(payload,"kind","item");
+    live::put(payload,"itemId",preview);
+    juce::DragAndDropTarget::SourceDetails gesture(payload,browser,hit);
+    const auto expected=browser->resolveBrowserDrop(gesture);
+    liveCheck(expected.valid && expected.target==first &&
+              expected.mode==live::BrowserDropMode::before,
+              "#31 P4 Browser indicator resolves before target row");
+    const auto unchanged=navigation.liveDocument->interfaceState.clone();
+    browser->itemDragMove(gesture);
+    browser->itemDropped(gesture);
+    const auto targetParent=live::find(navigation.liveDocument->interfaceState,"items",first)["folder"];
+    const auto placed=live::browserSiblings(navigation.liveDocument->interfaceState,targetParent);
+    int dropPreviewIndex=-1,firstIndex=-1;
+    for(std::size_t i=0;i<placed.size();++i) {
+        if(placed[i].id==preview)dropPreviewIndex=static_cast<int>(i);
+        if(placed[i].id==first)firstIndex=static_cast<int>(i);
+    }
+    liveCheck(dropPreviewIndex>=0 && dropPreviewIndex+1==firstIndex,
+              "#31 P4 Mouse drop inserts at the exact highlighted Browser slot");
+    navigation.undoLiveInterface();
+    liveCheck(live::sameShowValue(navigation.liveDocument->interfaceState,unchanged),
+              "#31 P4 Browser drop Undo restores original folder and sibling order");
+    browser->refresh();
     const auto beforeBrowser=navigation.liveDocument->interfaceState["currentItem"].toString();
     const auto beforeFocus=navigation.liveTimelineFocusRevision;
     const auto beforeSample=navigation.app.engine()->state().sample;
@@ -1040,6 +1072,64 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     }
     liveCheck(rejected && live::canonical(desktop.liveDocument->interfaceState) == before,
               "Folder cycles fail atomically");
+    // #31 P4: Browser highlight, actual insertion and saved sibling order must
+    // follow one shared before/after/into operation, not name-only sorting.
+    {
+        auto show=desktop.liveDocument->interfaceState.clone();
+        const auto addFolder=[&](juce::String name,juce::var parent=juce::var()) {
+            auto folderRow=live::object();const auto uid=live::freshId();
+            live::put(folderRow,"id",uid);live::put(folderRow,"name",name);
+            live::put(folderRow,"parent",parent);live::array(show,"folders").add(folderRow);
+            return uid;
+        };
+        const auto a=addFolder("A Folder"),z=addFolder("Z Folder");
+        const auto itemA=live::addItem(show,"A Item"),itemZ=live::addItem(show,"Z Item");
+        live::saveItem(show,itemA);
+        liveCheck(!live::itemDirty(show,itemA),"Saved Browser item is clean before repositioning");
+        auto root=[&]{return live::browserSiblings(show,{});};
+        auto children=[&]{return live::browserSiblings(show,juce::var(z));};
+        const auto indexOf=[](const auto& entries,const juce::String& key) {
+            for(std::size_t i=0;i<entries.size();++i)if(entries[i].id==key)return static_cast<int>(i);
+            return -1;
+        };
+        const auto natural=root();
+        liveCheck(natural.size()>=4 && indexOf(natural,a)>=0 &&
+                  indexOf(natural,z)>indexOf(natural,a),
+                  "Legacy Browser starts folders-first in natural name order");
+        const bool placedBefore=live::moveBrowserRow(show,itemZ,false,a,live::BrowserDropMode::before);
+        liveCheck(placedBefore && indexOf(root(),itemZ)+1==indexOf(root(),a),
+                  "#31 P4 Browser before-folder indicator persists exact sibling slot");
+        liveCheck(live::moveBrowserRow(show,a,true,z,live::BrowserDropMode::into) &&
+                  live::find(show,"folders",a)["parent"].toString()==z &&
+                  children().front().id==a,
+                  "#31 P4 Drop into folder changes parent and preserves folder identity");
+        const auto cycleSnapshot=live::canonical(show);
+        liveCheck(!live::browserDropAllowed(show,z,true,a,live::BrowserDropMode::into) &&
+                  !live::moveBrowserRow(show,z,true,a,live::BrowserDropMode::into) &&
+                  live::canonical(show)==cycleSnapshot,
+                  "#31 P4 Nested folder cycles have no valid indicator and do not mutate show");
+        liveCheck(live::moveBrowserRow(show,itemA,false,a,live::BrowserDropMode::before) &&
+                  children().size()==2 && children()[0].id==itemA && children()[1].id==a,
+                  "#31 P4 Before nested folder inserts into its parent's sibling order");
+        liveCheck(live::moveBrowserRow(show,itemA,false,a,live::BrowserDropMode::after) &&
+                  children()[0].id==a && children()[1].id==itemA,
+                  "#31 P4 After-folder indicator means after complete folder subtree");
+        liveCheck(live::moveBrowserRow(show,itemA,false,{},live::BrowserDropMode::appendRoot) &&
+                  root().back().id==itemA && indexOf(root(),itemZ)>=0,
+                  "#31 P4 Blank-space drop appends to root without alphabetical re-sorting");
+        liveCheck(!live::itemDirty(show,itemA),
+                  "#31 P4 Browser order and folder moves do not dirty saved musical item content");
+        live::validate(show);
+        auto persistent=desktop.liveDocument->clone();persistent.interfaceState=show;
+        persistent.validate();
+        const auto browserSaved=folder.getChildFile("browser-drop-order.mrlive");
+        persistent.write(browserSaved);
+        const auto restored=LiveDocument::read(browserSaved);
+        const auto restoredRoot=live::browserSiblings(restored.interfaceState,{});
+        liveCheck(restoredRoot.size()==root().size() && restoredRoot[0].id==itemZ &&
+                  restoredRoot.back().id==itemA,
+                  "#31 P4 Browser reorder survives Save/Reopen and retains original IDs");
+    }
     desktop.editLiveInterface("Task status", [&](auto &state) {
         auto &task = live::require(live::map(live::performance(state), "itemTasks"), id, "task-b");
         live::put(task, "status", "Done");

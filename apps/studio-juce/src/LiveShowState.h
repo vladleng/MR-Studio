@@ -444,6 +444,8 @@ inline juce::var content(const juce::var &snapshot) {
     if (!item.isObject())
         return {};
     item.getDynamicObject()->removeProperty("folder");
+    // Browser placement is show organization, not the saved musical item version.
+    item.getDynamicObject()->removeProperty("browserOrder");
     juce::Array<juce::var> channels;
     if (const auto *entries = snapshot["channels"].getArray())
         for (const auto &channel : *entries) {
@@ -496,6 +498,89 @@ inline juce::var libraryItem(const juce::var &state, const juce::String &id) {
             return snapshot["items"][0];
     }
     return find(state, "items", id);
+}
+// Browser uses its own authored sibling ordering, independently from the
+// Setlist. Legacy shows without browserOrder retain folders-first/name order.
+struct BrowserSibling {
+    juce::String id, name;
+    bool folder{}, ordered{};
+    double order{};
+};
+inline std::vector<BrowserSibling> browserSiblings(const juce::var &state, const juce::var &parent) {
+    std::vector<BrowserSibling> siblings;
+    const auto append=[&](const juce::var& row, bool folder) {
+        const auto rank=row["browserOrder"];
+        const auto id=row["id"].toString();
+        const auto display=folder?row:libraryItem(state,id);
+        siblings.push_back({id,display["name"].toString(),folder,number(rank),number(rank)?static_cast<double>(rank):0.});
+    };
+    if(const auto* folders=state["folders"].getArray())
+        for(const auto& row:*folders)if(row["parent"]==parent)append(row,true);
+    if(const auto* items=state["items"].getArray())
+        for(const auto& row:*items)if(row["folder"]==parent)append(row,false);
+    std::stable_sort(siblings.begin(),siblings.end(),[](const auto& a,const auto& b){
+        if(a.ordered!=b.ordered)return a.ordered;
+        if(a.ordered&&a.order!=b.order)return a.order<b.order;
+        if(!a.ordered&&a.folder!=b.folder)return a.folder;
+        return a.name.compareNatural(b.name)<0;
+    });
+    return siblings;
+}
+enum class BrowserDropMode { before, after, into, appendRoot };
+// The same validation is used by the visible drop indicator and by the commit.
+inline bool browserDropAllowed(const juce::var& state,const juce::String& source,
+                               bool sourceFolder,const juce::String& target,BrowserDropMode mode) {
+    if(!find(state,sourceFolder?"folders":"items",source).isObject())return false;
+    if(mode!=BrowserDropMode::appendRoot) {
+        if(source==target)return false;
+        if(!find(state,"folders",target).isObject() && !find(state,"items",target).isObject())return false;
+        if(mode==BrowserDropMode::into && !find(state,"folders",target).isObject())return false;
+    }
+    const auto destination=mode==BrowserDropMode::appendRoot?juce::var():
+        mode==BrowserDropMode::into?juce::var(target):
+        find(state,"folders",target).isObject()?find(state,"folders",target)["parent"]:
+                                                find(state,"items",target)["folder"];
+    if(!destination.isVoid() && !find(state,"folders",destination.toString()).isObject())return false;
+    if(!sourceFolder)return true;
+    // A folder cannot be moved inside itself or any of its descendants.
+    auto cursor=destination;
+    std::set<juce::String> seen;
+    while(!cursor.isVoid()) {
+        const auto id=cursor.toString();
+        if(id==source||!seen.insert(id).second)return false;
+        const auto row=find(state,"folders",id);
+        if(!row.isObject())return false;
+        cursor=row["parent"];
+    }
+    return true;
+}
+inline bool moveBrowserRow(juce::var& state,const juce::String& source,bool sourceFolder,
+                           const juce::String& target,BrowserDropMode mode) {
+    if(!browserDropAllowed(state,source,sourceFolder,target,mode))return false;
+    const auto targetFolder=find(state,"folders",target);
+    const auto parent=mode==BrowserDropMode::appendRoot?juce::var():
+        mode==BrowserDropMode::into?juce::var(target):
+        targetFolder.isObject()?targetFolder["parent"]:find(state,"items",target)["folder"];
+    auto siblings=browserSiblings(state,parent);
+    siblings.erase(std::remove_if(siblings.begin(),siblings.end(),
+                                 [&](const auto& row){return row.id==source;}),siblings.end());
+    std::size_t position=siblings.size();
+    if(mode!=BrowserDropMode::appendRoot && mode!=BrowserDropMode::into) {
+        const auto found=std::find_if(siblings.begin(),siblings.end(),
+                                      [&](const auto& row){return row.id==target;});
+        if(found==siblings.end())return false;
+        position=static_cast<std::size_t>(std::distance(siblings.begin(),found));
+        if(mode==BrowserDropMode::after)++position;
+    }
+    siblings.insert(siblings.begin()+static_cast<std::ptrdiff_t>(position),
+                    {source,{},sourceFolder,false,0.});
+    auto& moving=require(state,sourceFolder?"folders":"items",source);
+    put(moving,sourceFolder?"parent":"folder",parent);
+    for(std::size_t i=0;i<siblings.size();++i) {
+        auto& entry=require(state,siblings[i].folder?"folders":"items",siblings[i].id);
+        put(entry,"browserOrder",static_cast<int>(i));
+    }
+    return true;
 }
 inline juce::var activeSetlist(const juce::var &state) {
     return find(state, "setlists", state["activeSetlist"].toString());
