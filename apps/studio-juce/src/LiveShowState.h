@@ -444,6 +444,8 @@ inline juce::var content(const juce::var &snapshot) {
     if (!item.isObject())
         return {};
     item.getDynamicObject()->removeProperty("folder");
+    // Browser placement is show organization, not the saved musical item version.
+    item.getDynamicObject()->removeProperty("browserOrder");
     juce::Array<juce::var> channels;
     if (const auto *entries = snapshot["channels"].getArray())
         for (const auto &channel : *entries) {
