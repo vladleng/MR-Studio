@@ -591,10 +591,10 @@ void Desktop::editLiveOrganizerTasks(const juce::String& itemId,const juce::Stri
             auto parent=taskId;
             while(parent.isNotEmpty()) {
                 if(++depth>8)throw std::runtime_error("Organizer hierarchy is too deep");
-                juce::String next;
+                juce::String nextParentId;
                 for(const auto& row:entries)
-                    if(row["id"].toString()==parent) {next=row["parent"].toString();break;}
-                parent=next;
+                    if(row["id"].toString()==parent) {nextParentId=row["parent"].toString();break;}
+                parent=nextParentId;
             }
         }
         live::addTask(scratch,itemId,taskId.isNotEmpty()?juce::var(taskId):juce::var(),"New sub-item");
