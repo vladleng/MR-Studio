@@ -117,7 +117,10 @@ public:
     void convertLegacyLiveInstrument(const juce::String&);
     void configureLiveInput(const juce::String&, int input, bool stereo, const std::vector<int>& outputs);
     void configureLiveMidi(const juce::String&, const juce::String& port, int channel, const std::vector<int>& outputs);
-    void setLiveInputMonitor(const juce::String&, bool);
+    // #31 P2: restore configured Audio/MIDI channels automatically when the
+    // device is valid. Runtime monitor state is never serialized to .mrlive.
+    void syncAutomaticLiveMonitoring();
+    juce::String liveAutoMonitorError;
     void setLiveInputEffects(const juce::String&, std::vector<mrs::NativeInsert>);
     void setLivePlaybackTrim(double startSeconds, double endSeconds);
     void syncLivePlayback();

@@ -117,6 +117,12 @@ struct LiveInputLoaded {
     mrs::Track::Mix mix;
     std::vector<mrs::NativeInsert> inserts;
 };
+// A saved Audio/MIDI assignment implies monitoring at runtime; MIDI Off is silent.
+// Audio channels retain their existing Core MIDI flag for compatibility.
+struct LiveAutomaticMonitor { bool audio{}, midi{}; };
+inline LiveAutomaticMonitor liveAutomaticMonitor(const LiveInputLoaded& profile) noexcept {
+    return {!profile.instrument, !profile.instrument || profile.midiInput.isNotEmpty()};
+}
 inline int liveCoreTrackInput(const LiveInputLoaded& profile) noexcept {
     // Instrument consumes MIDI, never a physical audio device input. Core
     // Project::validate accepts -2 for every non-audio track, not -1.
