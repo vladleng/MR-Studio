@@ -415,6 +415,120 @@ void liveOrganizerStructuralAndSavedItemSmoke(const juce::File& fixture) {
     liveCheck(live::tasks(templateHost.liveDocument->interfaceState,templateItem).size()==templateBefore+6,
               "#31 Organizer template Redo restores original hierarchy");
 }
+// #31 fix7 — Notes sizing/latency and name-only Section/Chord fast Undo.
+void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
+    Desktop notesHost(true,false,true);
+    notesHost.importLiveShow(fixture);
+    const auto itemId=notesHost.liveDocument->interfaceState["currentItem"].toString();
+    const auto* root=notesHost.liveDocument->interfaceState.getDynamicObject();
+    LiveItemEditor editor(notesHost,itemId);
+    editor.setVisible(true);
+    auto* notes=dynamic_cast<juce::TextEditor*>(liveComponent(editor,"live-item-notes"));
+    liveCheck(notes!=nullptr&&notes->getWidth()>100,"#31 Notes editor has a measurable width");
+    notes->setText("short",true);
+    livePump();
+    const int shortHeight=notes->getHeight();
+    liveCheck(shortHeight>=30&&shortHeight<=90,
+              "#31 One-line Notes remains compact without unnecessary blank space");
+    notes->setText("line one\nline two\nline three",true);
+    livePump();
+    const int threeLines=notes->getHeight();
+    liveCheck(threeLines>=shortHeight&&threeLines<=180,
+              "#31 Notes height follows three real lines, not a huge stale layout");
+    juce::String longer;
+    for(int i=0;i<18;++i)longer+="One line of the longer note "+juce::String(i)+"\n";
+    notes->setText(longer,true);
+    livePump();
+    liveCheck(notes->getHeight()>threeLines&&editor.getHeight()>524,
+              "#31 Notes grows to longer wrapped paragraphs");
+    notes->setText("short",true);
+    livePump();
+    liveCheck(notes->getHeight()==shortHeight,
+              "#31 Notes contracts to one line after removing longer text");
+    notesHost.setLiveItemNotes(itemId,"cached notes #1");
+    notesHost.setLiveItemNotes(itemId,"cached notes #2");
+    liveCheck(notesHost.liveNotesBytesRevision==notesHost.liveUiRevision&&
+              notesHost.liveNotesBytesGeneration==notesHost.liveDocumentGeneration&&
+              notesHost.liveNotesBytes==juce::JSON::toString(
+                  notesHost.liveDocument->interfaceState).getNumBytesAsUTF8()&&
+              notesHost.liveDocument->interfaceState.getDynamicObject()==root,
+              "#31 Consecutive Notes updates retain exact byte limit without full-show clone");
+    const auto prevRevision=notesHost.liveUiRevision;
+    notesHost.undoLiveInterface();
+    liveCheck(notesHost.liveUiRevision>prevRevision &&
+              notesHost.liveNotesBytesRevision!=notesHost.liveUiRevision,
+              "#31 Undo invalidates Notes byte cache");
+    const auto savePath=fixture.getSiblingFile("notes-musical-names-fix7.mrlive");
+    notesHost.saveFile(savePath);
+    auto reopened=LiveDocument::read(savePath);
+    liveCheck(live::find(reopened.interfaceState,"items",itemId)["notes"].toString()==
+                  live::find(notesHost.liveDocument->interfaceState,"items",itemId)["notes"].toString(),
+              "#31 Notes text persists after Save/Open");
+    savePath.deleteFile();
+
+    Desktop musicalHost(true,false,true);
+    musicalHost.importLiveShow(fixture);
+    const auto musicalId=musicalHost.liveDocument->interfaceState["currentItem"].toString();
+    musicalHost.editLiveInterface("Name-only smoke fixture",[&](auto& state) {
+        live::put(live::require(state,"items",musicalId),"sections",juce::Array<juce::var>());
+        live::put(live::map(live::performance(state),"chords"),musicalId,
+                  juce::Array<juce::var>());
+        live::setMusicalRows(state,musicalId,live::MusicalLane::sections,
+            live::newMusicalSpan(state,musicalId,live::MusicalLane::sections,0.,16.,"Verse"));
+        live::setMusicalRows(state,musicalId,live::MusicalLane::chords,
+            live::newMusicalSpan(state,musicalId,live::MusicalLane::chords,0.,4.));
+    });
+    const auto sec=live::musicalRows(musicalHost.liveDocument->interfaceState,musicalId,
+        live::MusicalLane::sections)[0]["id"].toString();
+    const auto chord=live::musicalRows(musicalHost.liveDocument->interfaceState,musicalId,
+        live::MusicalLane::chords)[0]["id"].toString();
+    const auto* musicalRoot=musicalHost.liveDocument->interfaceState.getDynamicObject();
+    const auto revision=musicalHost.liveUiRevision;
+    LiveMusicalEditor sectionEditor(musicalHost,musicalId,live::MusicalLane::sections,sec);
+    auto* secName=dynamic_cast<juce::TextEditor*>(liveComponent(sectionEditor,"live-musical-name"));
+    auto* secApply=dynamic_cast<juce::TextButton*>(liveComponent(sectionEditor,"live-musical-apply"));
+    liveCheck(secName&&secApply,"#31 Section name and Apply are accessible");
+    secName->setText("New Intro",true);
+    secApply->onClick();
+    const auto sectionRow=[&] {return live::spanById(live::musicalRows(
+        musicalHost.liveDocument->interfaceState,musicalId,live::MusicalLane::sections),sec);};
+    liveCheck(sectionRow()["name"].toString()=="New Intro" &&
+              musicalHost.liveUiRevision==revision+1&&
+              musicalHost.liveDocument->interfaceState.getDynamicObject()==musicalRoot,
+              "#31 Section Apply changes name through one scalar Undo");
+    musicalHost.undoLiveInterface();
+    liveCheck(sectionRow()["name"].toString()=="Verse","#31 Section rename Undo");
+    musicalHost.undoLiveInterface(true);
+    liveCheck(sectionRow()["name"].toString()=="New Intro","#31 Section rename Redo");
+    LiveMusicalEditor chordEditor(musicalHost,musicalId,live::MusicalLane::chords,chord);
+    auto* chordName=dynamic_cast<juce::TextEditor*>(liveComponent(chordEditor,"live-musical-name"));
+    auto* chordApply=dynamic_cast<juce::TextButton*>(liveComponent(chordEditor,"live-musical-apply"));
+    liveCheck(chordName&&chordApply,"#31 Chord symbol and Apply are accessible");
+    chordName->setText("Dm9",true);
+    chordApply->onClick();
+    const auto chordRow=[&] {return live::spanById(live::musicalRows(
+        musicalHost.liveDocument->interfaceState,musicalId,live::MusicalLane::chords),chord);};
+    liveCheck(chordRow()["symbol"].toString()=="Dm9"&&
+              musicalHost.liveDocument->interfaceState.getDynamicObject()==musicalRoot,
+              "#31 Chord Apply changes symbol without cloning show");
+    musicalHost.undoLiveInterface();
+    liveCheck(chordRow()["symbol"].toString()=="Am","#31 Chord rename Undo");
+    musicalHost.undoLiveInterface(true);
+    liveCheck(chordRow()["symbol"].toString()=="Dm9","#31 Chord rename Redo");
+    bool invalidRejected=false;
+    try {musicalHost.setLiveMusicalName(musicalId,sec,true,"");}
+    catch(const std::exception&) {invalidRejected=true;}
+    liveCheck(invalidRejected&&sectionRow()["name"].toString()=="New Intro",
+              "#31 Blank Section names are rejected without mutation");
+    musicalHost.saveFile(savePath);
+    reopened=LiveDocument::read(savePath);
+    liveCheck(live::spanById(live::musicalRows(reopened.interfaceState,musicalId,
+                  live::MusicalLane::sections),sec)["name"].toString()=="New Intro"&&
+              live::spanById(live::musicalRows(reopened.interfaceState,musicalId,
+                  live::MusicalLane::chords),chord)["symbol"].toString()=="Dm9",
+              "#31 Section and Chord names persist after Save/Open");
+    savePath.deleteFile();
+}
 void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave){
     Desktop navigation(true,false,true);navigation.importLiveShow(fixture);navigation.setSize(1200,800);
     navigation.app.connect(std::make_unique<LivePlaybackTestDevice>(),{0,48000,128,{}, {0,1},1});
@@ -1800,6 +1914,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveItemEditorCommitSmoke(fixture);
     liveOrganizerCommitSmoke(fixture);
     liveOrganizerStructuralAndSavedItemSmoke(fixture);
+    liveNotesAndMusicalNameSmoke(fixture);
         liveSelectionRefreshSmoke(fixture,waveFile);
         // #300: one Core graph contains a physical Live Input + WAV simultaneously.
         // Manual switches are stopped/quiescent; #301 owns real-time seamless handoff.
