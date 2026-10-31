@@ -187,6 +187,128 @@ void liveItemEditorCommitSmoke(const juce::File& fixture) {
               "#31 Name/Key/Duration/Meter survive Save/Reopen");
     savePath.deleteFile();
 }
+// #31 Organizer: prove no per-keystroke model/Undo edit, scalar commits,
+// Undo/Redo, validation and persisted task/root workflow metadata.
+void liveOrganizerCommitSmoke(const juce::File& fixture) {
+    Desktop host(true,false,true);
+    host.importLiveShow(fixture);
+    const auto id=host.liveDocument->interfaceState["currentItem"].toString();
+    juce::String taskId;
+    host.editLiveInterface("Organizer test setup",[&](auto& state) {
+        taskId=live::addTask(state,id,{},"Original organizer title");
+    });
+    const auto task=[&]() {
+        const auto values=live::tasks(host.liveDocument->interfaceState,id);
+        if(const auto* rows=values.getArray())
+            for(const auto& row:*rows)
+                if(row["id"].toString()==taskId)return row;
+        return juce::var();
+    };
+    LiveItemEditor editor(host,id);
+    editor.setVisible(true);
+    auto* title=dynamic_cast<juce::TextEditor*>(liveComponent(editor,"live-organizer-title-"+taskId));
+    auto* percent=dynamic_cast<juce::TextEditor*>(liveComponent(editor,"live-organizer-progress-"+taskId));
+    auto* status=dynamic_cast<LiveStatusBox*>(liveComponent(editor,"live-organizer-status-"+taskId));
+    liveCheck(title&&percent&&status,"#31 Organizer task controls are native and discoverable");
+    const auto before=host.liveUiRevision;
+    title->setText("Typing draft",true);
+    title->setText("Confirmed task title",true);
+    liveCheck(task()["title"].toString()=="Original organizer title"&&host.liveUiRevision==before,
+              "#31 Task title draft must not change show or Undo per keystroke");
+    title->onReturnKey();
+    liveCheck(task()["title"].toString()=="Confirmed task title"&&host.liveUiRevision==before+1,
+              "#31 Task title commit uses scalar Undo exactly once");
+    host.undoLiveInterface();
+    title->onFocusLost();
+    liveCheck(task()["title"].toString()=="Original organizer title",
+              "#31 Task focus loss cannot overwrite Undo");
+    host.undoLiveInterface(true);
+    liveCheck(task()["title"].toString()=="Confirmed task title",
+              "#31 Task title Redo restores value");
+    const auto beforeProgress=host.liveUiRevision;
+    percent->setText("42",true);
+    liveCheck(static_cast<double>(task()["progress"])==0.&&host.liveUiRevision==beforeProgress,
+              "#31 Task progress remains local while editing");
+    percent->onReturnKey();
+    liveCheck(static_cast<double>(task()["progress"])==42.,
+              "#31 Task progress commits on Return");
+    host.undoLiveInterface();
+    percent->onFocusLost();
+    liveCheck(static_cast<double>(task()["progress"])==0.,
+              "#31 Task percent stale focus loss cannot overwrite Undo");
+    host.undoLiveInterface(true);
+    liveCheck(static_cast<double>(task()["progress"])==42.,
+              "#31 Task percent Redo restores value");
+    status->setSelectedId(4,juce::sendNotificationSync); // Wip
+    liveCheck(task()["status"].toString()=="Wip",
+              "#31 Task status updates via scalar commit");
+    bool invalidTitle=false,invalidProgress=false;
+    try {host.setLiveOrganizerField(id,taskId,"title",juce::String::repeatedString("X",121));}
+    catch(const std::exception&){invalidTitle=true;}
+    try {host.setLiveOrganizerField(id,taskId,"progress",101.);}
+    catch(const std::exception&){invalidProgress=true;}
+    liveCheck(invalidTitle&&invalidProgress&&task()["title"].toString()=="Confirmed task title"&&
+              static_cast<double>(task()["progress"])==42.,
+              "#31 Organizer rejects invalid metadata without mutation");
+    const auto savedPath=fixture.getSiblingFile("organizer-commit.mrlive");
+    host.saveFile(savedPath);
+    const auto loaded=LiveDocument::read(savedPath);
+    const auto entries=live::tasks(loaded.interfaceState,id);
+    bool persisted=false;
+    if(const auto* rows=entries.getArray())
+        for(const auto& row:*rows)
+            if(row["id"].toString()==taskId)
+                persisted=row["title"].toString()=="Confirmed task title"&&
+                    static_cast<double>(row["progress"])==42.&&row["status"].toString()=="Wip";
+    liveCheck(persisted,"#31 Organizer task values survive Save/Reopen");
+    savedPath.deleteFile();
+    // Workflow root fields have independent scalar commits as well.
+    Desktop rootHost(true,false,true);
+    rootHost.importLiveShow(fixture);
+    const auto rootId=rootHost.liveDocument->interfaceState["currentItem"].toString();
+    rootHost.editLiveInterface("Clear test workflow tasks",[&](auto& state) {
+        auto map=state["performance"]["itemTasks"];
+        if(map.isObject())map.getDynamicObject()->removeProperty(juce::Identifier(rootId));
+    });
+    LiveItemEditor rootCard(rootHost,rootId);
+    auto* rootProgress=dynamic_cast<juce::TextEditor*>(liveComponent(rootCard,"live-item-progress"));
+    auto* rootPriority=dynamic_cast<juce::ComboBox*>(liveComponent(rootCard,"live-item-priority"));
+    auto* rootStatus=dynamic_cast<LiveStatusBox*>(liveComponent(rootCard,"live-item-status"));
+    liveCheck(rootProgress&&rootPriority&&rootStatus&&rootProgress->isEnabled(),
+              "#31 Root workflow controls available without child tasks");
+    const auto rootBefore=rootHost.liveUiRevision;
+    rootProgress->setText("63",true);
+    liveCheck(live::progress(rootHost.liveDocument->interfaceState,rootId)==0&&
+              rootHost.liveUiRevision==rootBefore,
+              "#31 Root workflow progress draft stays local");
+    rootProgress->onFocusLost();
+    liveCheck(live::progress(rootHost.liveDocument->interfaceState,rootId)==63,
+              "#31 Root workflow progress commits once");
+    rootPriority->setSelectedId(1,juce::sendNotificationSync);
+    rootStatus->setSelectedId(2,juce::sendNotificationSync);
+    const auto workflow=live::workflow(rootHost.liveDocument->interfaceState,rootId);
+    liveCheck(workflow["priority"].toString()=="P1"&&workflow["status"].toString()=="Wait"&&
+              static_cast<double>(workflow["progress"])==63.,
+              "#31 Root status/priority commits do not overwrite progress");
+    rootHost.undoLiveInterface();
+    liveCheck(live::workflow(rootHost.liveDocument->interfaceState,rootId)["status"].toString()=="Todo",
+              "#31 Root workflow Undo restores status");
+    rootHost.undoLiveInterface(true);
+    liveCheck(live::workflow(rootHost.liveDocument->interfaceState,rootId)["status"].toString()=="Wait",
+              "#31 Root workflow Redo restores status");
+    bool invalidRoot=false;
+    try {rootHost.setLiveOrganizerField(rootId,{},"progress",-3.);}
+    catch(const std::exception&){invalidRoot=true;}
+    liveCheck(invalidRoot&&live::progress(rootHost.liveDocument->interfaceState,rootId)==63,
+              "#31 Invalid root progress leaves workflow intact");
+    const auto rootSave=fixture.getSiblingFile("organizer-root-commit.mrlive");
+    rootHost.saveFile(rootSave);
+    const auto rootLoad=LiveDocument::read(rootSave);
+    liveCheck(live::workflow(rootLoad.interfaceState,rootId)["status"].toString()=="Wait"&&
+              live::progress(rootLoad.interfaceState,rootId)==63,
+              "#31 Workflow root Save/Reopen preserves committed values");
+    rootSave.deleteFile();
+}
 void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave){
     Desktop navigation(true,false,true);navigation.importLiveShow(fixture);navigation.setSize(1200,800);
     navigation.app.connect(std::make_unique<LivePlaybackTestDevice>(),{0,48000,128,{}, {0,1},1});
@@ -1570,6 +1692,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         }
         liveDisplayPollingSmoke(fixture,waveFile);
         liveItemEditorCommitSmoke(fixture);
+    liveOrganizerCommitSmoke(fixture);
         liveSelectionRefreshSmoke(fixture,waveFile);
         // #300: one Core graph contains a physical Live Input + WAV simultaneously.
         // Manual switches are stopped/quiescent; #301 owns real-time seamless handoff.
