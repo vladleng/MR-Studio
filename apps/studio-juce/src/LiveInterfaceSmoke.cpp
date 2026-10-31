@@ -421,6 +421,15 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
     notesHost.importLiveShow(fixture);
     const auto itemId=notesHost.liveDocument->interfaceState["currentItem"].toString();
     const auto* root=notesHost.liveDocument->interfaceState.getDynamicObject();
+    const auto structure=notesHost.liveUiRevision;
+    auto* list=dynamic_cast<LiveSetlist*>(liveComponent(notesHost,"live-setlist"));
+    liveCheck(list!=nullptr,"#31 Notes fixture has real Setlist cards");
+    list->refresh();
+    juce::String entryId;
+    for(const auto &entry:*live::activeSetlist(notesHost.liveDocument->interfaceState)["entries"].getArray())
+        if(entry["itemId"].toString()==itemId){entryId=entry["id"].toString();break;}
+    juce::Component::SafePointer<juce::Component> card(liveComponent(*list,"live-entry-"+entryId));
+    liveCheck(card!=nullptr,"#31 Notes fixture captures a Setlist card");
     LiveItemEditor editor(notesHost,itemId);
     editor.setVisible(true);
     auto* notes=dynamic_cast<juce::TextEditor*>(liveComponent(editor,"live-item-notes"));
@@ -453,17 +462,39 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
                   juce::JSON::toString(notesHost.liveDocument->interfaceState).getNumBytesAsUTF8())&&
               notesHost.liveDocument->interfaceState.getDynamicObject()==root,
               "#31 Consecutive Notes updates retain exact byte limit without full-show clone");
-    const auto prevRevision=notesHost.liveUiRevision;
+    list->refresh();
+    liveCheck(notesHost.liveUiRevision==structure && card &&
+              liveComponent(*list,"live-entry-"+entryId)==card.getComponent(),
+              "#31 Notes typing preserves Setlist components and structural UI revision");
+    const auto prevRevision=notesHost.liveNotesRevision;
     notesHost.undoLiveInterface();
-    liveCheck(notesHost.liveUiRevision>prevRevision &&
-              notesHost.liveNotesBytesRevision!=notesHost.liveUiRevision,
-              "#31 Undo invalidates Notes byte cache");
+    liveCheck(notesHost.liveNotesRevision>prevRevision &&
+              notesHost.liveNotesBytesTextRevision!=notesHost.liveNotesRevision,
+              "#31 Notes Undo invalidates text byte cache without a structural refresh");
+    const auto undone=live::find(notesHost.liveDocument->interfaceState,"items",itemId)["notes"].toString();
+    notes->onFocusLost();
+    liveCheck(live::find(notesHost.liveDocument->interfaceState,"items",itemId)["notes"].toString()==undone,
+              "#31 Late Notes focus loss cannot reapply text after Undo");
+    notesHost.undoLiveInterface(true);
+    livePump();
+    liveCheck(notes->getText()==live::find(notesHost.liveDocument->interfaceState,"items",itemId)["notes"].toString(),
+              "#31 Separate Notes revision mirrors Redo into the editor");
     const auto savePath=fixture.getSiblingFile("notes-musical-names-fix7.mrlive");
     notesHost.saveFile(savePath);
     auto reopened=LiveDocument::read(savePath);
     liveCheck(live::find(reopened.interfaceState,"items",itemId)["notes"].toString()==
                   live::find(notesHost.liveDocument->interfaceState,"items",itemId)["notes"].toString(),
               "#31 Notes text persists after Save/Open");
+    const auto folded=live::playbackExpanded(notesHost.liveDocument->interfaceState);
+    notesHost.setLivePlaybackStemsExpanded(!folded);
+    notesHost.setLiveItemNotes(itemId,"Notes remain dirty after fold round trip");
+    notesHost.setLivePlaybackStemsExpanded(folded);
+    liveCheck(notesHost.liveDirty,
+              "#31 Fold clean baseline cannot erase a newer Notes dirty state");
+    notesHost.setLiveItemNotes(itemId,"Exact cache after fold");
+    liveCheck(notesHost.liveNotesBytes==static_cast<std::int64_t>(
+                  juce::JSON::toString(notesHost.liveDocument->interfaceState).getNumBytesAsUTF8()),
+              "#31 Fold changes invalidate Notes JSON size cache");
     savePath.deleteFile();
 
     Desktop musicalHost(true,false,true);
@@ -486,35 +517,78 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
     const auto revision=musicalHost.liveUiRevision;
     LiveMusicalEditor sectionEditor(musicalHost,musicalId,live::MusicalLane::sections,sec);
     auto* secName=dynamic_cast<juce::TextEditor*>(liveComponent(sectionEditor,"live-musical-name"));
-    auto* secApply=dynamic_cast<juce::TextButton*>(liveComponent(sectionEditor,"live-musical-apply"));
-    liveCheck(secName&&secApply,"#31 Section name and Apply are accessible");
+    liveCheck(secName&&!liveComponent(sectionEditor,"live-musical-apply"),
+              "#31 Unified Section editor exposes name without Apply");
     secName->setText("New Intro",true);
-    secApply->onClick();
+    livePump();
     const auto sectionRow=[&] {return live::spanById(live::musicalRows(
         musicalHost.liveDocument->interfaceState,musicalId,live::MusicalLane::sections),sec);};
     liveCheck(sectionRow()["name"].toString()=="New Intro" &&
               musicalHost.liveUiRevision==revision+1&&
               musicalHost.liveDocument->interfaceState.getDynamicObject()==musicalRoot,
-              "#31 Section Apply changes name through one scalar Undo");
+              "#31 Section typing immediately changes name through one scalar Undo");
     musicalHost.undoLiveInterface();
     liveCheck(sectionRow()["name"].toString()=="Verse","#31 Section rename Undo");
     musicalHost.undoLiveInterface(true);
     liveCheck(sectionRow()["name"].toString()=="New Intro","#31 Section rename Redo");
     LiveMusicalEditor chordEditor(musicalHost,musicalId,live::MusicalLane::chords,chord);
     auto* chordName=dynamic_cast<juce::TextEditor*>(liveComponent(chordEditor,"live-musical-name"));
-    auto* chordApply=dynamic_cast<juce::TextButton*>(liveComponent(chordEditor,"live-musical-apply"));
-    liveCheck(chordName&&chordApply,"#31 Chord symbol and Apply are accessible");
+    liveCheck(chordName&&!liveComponent(chordEditor,"live-musical-apply"),
+              "#31 Unified Chord editor exposes symbol without Apply");
     chordName->setText("Dm9",true);
-    chordApply->onClick();
+    livePump();
     const auto chordRow=[&] {return live::spanById(live::musicalRows(
         musicalHost.liveDocument->interfaceState,musicalId,live::MusicalLane::chords),chord);};
     liveCheck(chordRow()["symbol"].toString()=="Dm9"&&
               musicalHost.liveDocument->interfaceState.getDynamicObject()==musicalRoot,
-              "#31 Chord Apply changes symbol without cloning show");
+              "#31 Chord typing immediately changes symbol without cloning show");
     musicalHost.undoLiveInterface();
     liveCheck(chordRow()["symbol"].toString()=="Am","#31 Chord rename Undo");
     musicalHost.undoLiveInterface(true);
     liveCheck(chordRow()["symbol"].toString()=="Dm9","#31 Chord rename Redo");
+    const auto colorBefore=sectionRow()["color"].toString();
+    const auto startBefore=sectionRow()["start"],lengthBefore=sectionRow()["length"];
+    auto* swatch=dynamic_cast<juce::TextButton*>(liveComponent(sectionEditor,"live-musical-color-green"));
+    liveCheck(swatch!=nullptr,"#31 Section has visible named color swatches");
+    swatch->onClick();
+    liveCheck(sectionRow()["color"].toString()=="green" &&
+              live::sameShowValue(startBefore,sectionRow()["start"])&&
+              live::sameShowValue(lengthBefore,sectionRow()["length"])&&
+              musicalHost.liveDocument->interfaceState.getDynamicObject()==musicalRoot &&
+              musicalHost.liveNotesBytes==static_cast<std::int64_t>(
+                  juce::JSON::toString(musicalHost.liveDocument->interfaceState).getNumBytesAsUTF8()),
+              "#31 Color click applies a scalar edit, preserves bounds and exact size cache");
+    musicalHost.undoLiveInterface();
+    liveCheck(sectionRow()["color"].toString()==colorBefore,"#31 Section color Undo");
+    musicalHost.undoLiveInterface(true);
+    liveCheck(sectionRow()["color"].toString()=="green","#31 Section color Redo");
+    auto* chordSwatch=dynamic_cast<juce::TextButton*>(liveComponent(chordEditor,"live-musical-color-red"));
+    liveCheck(chordSwatch!=nullptr,"#31 Chord has the same color swatches");
+    chordSwatch->onClick();
+    liveCheck(chordRow()["color"].toString()=="red","#31 Chord color applies immediately");
+    musicalHost.undoLiveInterface();
+    liveCheck(chordRow()["color"].toString()=="blue","#31 Chord color Undo");
+    musicalHost.undoLiveInterface(true);
+    liveCheck(chordRow()["color"].toString()=="red","#31 Chord color Redo");
+    auto* bounds=dynamic_cast<juce::TextEditor*>(liveComponent(chordEditor,"live-musical-end"));
+    liveCheck(bounds!=nullptr,"#31 Unified Chord editor retains bounds");
+    const auto chordLength=chordRow()["length"];
+    bounds->setText("0",false);bounds->onReturnKey();
+    liveCheck(live::sameShowValue(lengthBefore,sectionRow()["length"])&&
+              live::sameShowValue(chordLength,chordRow()["length"]),
+              "#31 Invalid bounds are rejected without changing musical spans");
+    bool invalidColorRejected=false;
+    try{musicalHost.setLiveMusicalColor(musicalId,sec,true,"invalid");}
+    catch(const std::exception&){invalidColorRejected=true;}
+    liveCheck(invalidColorRejected&&sectionRow()["color"].toString()=="green",
+              "#31 Invalid palette token leaves show unchanged");
+    musicalHost.setLiveMusicalName(musicalId,sec,true,"External edit");
+    auto* staleSwatch=dynamic_cast<juce::TextButton*>(liveComponent(sectionEditor,"live-musical-color-blue"));
+    liveCheck(staleSwatch!=nullptr,"#31 Stale editor has a palette target");
+    staleSwatch->onClick();
+    liveCheck(sectionRow()["name"].toString()=="External edit"&&sectionRow()["color"].toString()=="green",
+              "#31 Stale unified editor cannot overwrite a concurrent event edit");
+    musicalHost.setLiveMusicalName(musicalId,sec,true,"New Intro");
     bool invalidRejected=false;
     try {musicalHost.setLiveMusicalName(musicalId,sec,true,"");}
     catch(const std::exception&) {invalidRejected=true;}
@@ -525,8 +599,12 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
     liveCheck(live::spanById(live::musicalRows(reopened.interfaceState,musicalId,
                   live::MusicalLane::sections),sec)["name"].toString()=="New Intro"&&
               live::spanById(live::musicalRows(reopened.interfaceState,musicalId,
-                  live::MusicalLane::chords),chord)["symbol"].toString()=="Dm9",
-              "#31 Section and Chord names persist after Save/Open");
+                  live::MusicalLane::chords),chord)["symbol"].toString()=="Dm9"&&
+              live::spanById(live::musicalRows(reopened.interfaceState,musicalId,
+                  live::MusicalLane::sections),sec)["color"].toString()=="green"&&
+              live::spanById(live::musicalRows(reopened.interfaceState,musicalId,
+                  live::MusicalLane::chords),chord)["color"].toString()=="red",
+              "#31 Section/Chord names and colors persist after Save/Open");
     savePath.deleteFile();
 }
 void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave){
@@ -716,6 +794,16 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     liveCheck(rows.size()==1 && rows[0]["name"].toString()=="Verse" && static_cast<double>(rows[0]["start"])==2.,
               "Double-click empty Sections creates native Verse at common origin");
     const auto section=rows[0]["id"].toString();
+    body->mouseDoubleClick(event(origin+80.f,96.f,2));
+    liveCheck(!liveComponent(editing,"live-musical-editor"),
+              "#31 Double-click existing section no longer opens a second properties window");
+    body->mouseDown(event(origin+80.f,96.f,1,juce::ModifierKeys::rightButtonModifier));
+    auto* unified=dynamic_cast<LiveMusicalEditor*>(liveComponent(editing,"live-musical-editor"));
+    liveCheck(unified&&liveComponent(*unified,"live-musical-name")&&
+              liveComponent(*unified,"live-musical-color-green")&&
+              liveComponent(*unified,"live-setlist-context")&&!liveComponent(*unified,"live-musical-apply"),
+              "#31 RMB opens one Section surface with fields, swatches and original menu actions");
+    if(unified->close)unified->close();livePump();
     const auto before=editing.liveDocument->signature();
     body->mouseDown(event(origin+80.f,96.f));body->mouseDrag(event(origin+144.f,96.f));
     liveCheck(editing.liveDocument->signature()==before,"Musical drag is preview only until release");
@@ -822,6 +910,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::clipEditing();
     live::test::performancePolicies();
     live::test::showValueEquality();
+    live::test::notesDirtyRoundTrip();
     live::test::showContextSelection();
     live::test::studioOneShowReader();
     live::test::studioOneImportPlan();
