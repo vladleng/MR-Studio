@@ -43,7 +43,7 @@ class LiveMixer final : public juce::Component {
         // Structural show lanes change only on show edits/open, never on meter
         // ticks. Keep the card controls stable when transport is running.
         if (observedGeneration != owner.liveDocumentGeneration ||
-            observedRevision != owner.liveUiRevision || signature.isEmpty()) {
+            observedRevision != owner.liveUiRevision || !lanesInitialized) {
             std::vector<juce::String> channels;
             for (const auto &lane : live::playbackLanes(state))
                 if (!lane.child) channels.push_back(lane.channel);
@@ -58,7 +58,7 @@ class LiveMixer final : public juce::Component {
                 resized();
             }
             observedGeneration=owner.liveDocumentGeneration;
-            observedRevision=owner.liveUiRevision;
+            observedRevision=owner.liveUiRevision;lanesInitialized=true;
         }
         // Previously each strip rebuilt playbackRows and searched the full
         // Core track list on *every* 15 Hz UI tick (N strips * N stems).
@@ -199,6 +199,7 @@ class LiveMixer final : public juce::Component {
     juce::Component body;
     juce::String signature;
     std::uint64_t observedGeneration{~std::uint64_t{0}},observedRevision{~std::uint64_t{0}};
+    bool lanesInitialized{};
     std::vector<std::unique_ptr<Strip>> strips;
 };
 } // namespace ui

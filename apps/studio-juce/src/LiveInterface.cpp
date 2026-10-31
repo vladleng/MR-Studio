@@ -388,17 +388,20 @@ void Desktop::applyLiveInterface(const juce::var &value) {
     ++liveUiRevision;
 }
 void Desktop::editLiveInterface(const juce::String &label, std::function<void(juce::var &)> edit, bool coalesceTyping, bool captureInputs) {
+    const auto started=juce::Time::getHighResolutionTicks();
     if (!liveDocument)
         throw std::runtime_error("Create or open a MR Live show first");
     auto before = captureInputs ? liveDocument->interfaceState.clone() : liveDocument->interfaceState;
     if(captureInputs)captureLiveInputs(before);
     auto draft = before.clone();
     edit(draft);
+    const auto prepared=juce::Time::getHighResolutionTicks();
     // Avoid redundant full-show JSON validation for no-op UI actions.
     if(live::sameShowValue(draft,liveDocument->interfaceState))return;
     live::validate(draft);
     validateMusicalEdit(*this,draft);
     validatePlaybackEdit(*this,draft);
+    const auto validated=juce::Time::getHighResolutionTicks();
     liveShowEditing = true;
     const auto now = juce::Time::getMillisecondCounter();
     if (!coalesceTyping || liveTypingLabel != label || now - liveTypingAt > 800) liveUndo.beginNewTransaction(label);
@@ -406,6 +409,21 @@ void Desktop::editLiveInterface(const juce::String &label, std::function<void(ju
     liveTypingLabel = coalesceTyping ? label : juce::String();
     liveTypingAt = now;
     if (!coalesceTyping) liveUndo.beginNewTransaction();
+    const auto completed=juce::Time::getHighResolutionTicks();
+    const auto elapsedMs=juce::Time::highResolutionTicksToSeconds(completed-started)*1000.;
+    // Scoped diagnostics only on unusually slow UI edits, at most once per
+    // second; never add work or locks in the AudioEngine callback.
+    static juce::uint32 lastSlowEditReport{};
+    const auto nowMs=juce::Time::getMillisecondCounter();
+    if(elapsedMs>=16. && nowMs-lastSlowEditReport>=1000u) {
+        lastSlowEditReport=nowMs;
+        const auto ms=[](juce::int64 ticks){return std::to_string(juce::Time::highResolutionTicksToSeconds(ticks)*1000.);};
+        mrs::diagnostics::event("live_ui_slow_edit label="+label.toStdString()+
+            " total_ms="+std::to_string(elapsedMs)+
+            " prepare_ms="+ms(prepared-started)+
+            " validate_ms="+ms(validated-prepared)+
+            " undo_ms="+ms(completed-validated));
+    }
 }
 void Desktop::undoLiveInterface(bool redoAction) {
     liveTypingLabel.clear();
