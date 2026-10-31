@@ -449,8 +449,8 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
     notesHost.setLiveItemNotes(itemId,"cached notes #2");
     liveCheck(notesHost.liveNotesBytesRevision==notesHost.liveUiRevision&&
               notesHost.liveNotesBytesGeneration==notesHost.liveDocumentGeneration&&
-              notesHost.liveNotesBytes==juce::JSON::toString(
-                  notesHost.liveDocument->interfaceState).getNumBytesAsUTF8()&&
+              notesHost.liveNotesBytes==static_cast<std::int64_t>(
+                  juce::JSON::toString(notesHost.liveDocument->interfaceState).getNumBytesAsUTF8())&&
               notesHost.liveDocument->interfaceState.getDynamicObject()==root,
               "#31 Consecutive Notes updates retain exact byte limit without full-show clone");
     const auto prevRevision=notesHost.liveUiRevision;
