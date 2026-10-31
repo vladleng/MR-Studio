@@ -214,6 +214,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         const auto item = live::find(state, "items", id);
 
         name.setText(item["name"].toString(), false);
+        observedName = name.getText();
         name.getProperties().set("liveTableCell", true);
         name.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
         name.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
@@ -223,6 +224,9 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         meter.setText(item["meter"].toString(), juce::dontSendNotification);
         key.setText(item["key"].toString(), false);
         duration.setText(item["duration"].toString(), false);
+        observedTempo = tempo.getText();
+        observedKey = key.getText();
+        observedDuration = duration.getText();
         notes.setMultiLine(true);
         notes.setReturnKeyStartsNewLine(true);
         notes.setText(item["notes"].toString(), false);
@@ -283,19 +287,25 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         name.setComponentID("live-item-name");
         notes.setComponentID("live-item-notes");
         tempo.setComponentID("live-item-tempo");
+        key.setComponentID("live-item-key");
+        duration.setComponentID("live-item-duration");
+        meter.setComponentID("live-item-meter");
         notes.setInputRestrictions(4000);
-        name.onTextChange = [this] { if (name.getText().trim().isNotEmpty()) commitRootName(); };
+        // Keep ordinary text local until Return/focus loss, not per keystroke.
+        name.onReturnKey = [this] { commitRootName(); };
+        name.onFocusLost = name.onReturnKey;
         for (auto *field : {&tempo, &key, &duration, &notes}) {
-            field->onTextChange = [this, field] {
-                if (field == &notes) updateNotesHeight();
-                commitProperty(*field);
-            };
+            if (field == &notes) {
+                // Notes retain the existing live editing until their own #31 stage.
+                field->onTextChange = [this, field] {
+                    updateNotesHeight();
+                    commitProperty(*field);
+                };
+            } else field->onReturnKey = [this, field] { commitProperty(*field); };
             field->onFocusLost = [this, field] { commitProperty(*field); };
         }
         meter.onChange = [this] { commitMeter(); };
         priority.onChange = [this] { commitRootWorkflow(); };
-        name.onReturnKey = [this] { commitRootName(); };
-        name.onFocusLost = name.onReturnKey;
         status.onChange = [this] { commitRootWorkflow(); };
         progress.onTextChange = [this] { if (progress.getText().trim().isNotEmpty()) commitRootWorkflow(); };
         progress.onReturnKey = [this] { commitRootWorkflow(); };
@@ -308,7 +318,10 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         stopTimer();
         name.onFocusLost = {};
         progress.onFocusLost = {};
-        for (auto *field : {&tempo, &key, &duration, &notes}) field->onFocusLost = {};
+        for (auto *field : {&tempo, &key, &duration, &notes}) {
+            field->onFocusLost = {};
+            field->onReturnKey = {};
+        }
         setLookAndFeel(nullptr);
     }
     std::function<void()> close;
@@ -362,17 +375,29 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
 
   private:
     void commitRootName() {
-        if (!owner || !owner->liveDocument)
-            return;
-        if (name.getText().trim().isEmpty()) {
-            name.setText(live::find(owner->liveDocument->interfaceState, "items", itemId)["name"].toString(), false);
+        if (!owner || !owner->liveDocument || name.getText() == observedName) return;
+        const auto current = live::find(owner->liveDocument->interfaceState, "items", itemId)["name"].toString();
+        if (current != observedName) {
+            name.setText(current, false);
+            observedName = current;
+            error.setText("Item changed; retry title edit", juce::dontSendNotification);
             return;
         }
-        owner->run([&] {
-            owner->editLiveInterface("Item title " + itemId, [&](auto &state) {
-                live::put(live::require(state, "items", itemId), "name", name.getText().trim());
-            }, true);
-        });
+        const auto value = name.getText().trim();
+        if (value.isEmpty()) {
+            name.setText(current, false);
+            observedName = current;
+            error.setText("Item name cannot be empty", juce::dontSendNotification);
+            return;
+        }
+        try {
+            owner->setLiveItemTextProperty(itemId, "name", value);
+            name.setText(value, false);
+            observedName = value;
+            error.setText({}, juce::dontSendNotification);
+        } catch (const std::exception& e) {
+            error.setText(juce::String::fromUTF8(e.what()), juce::dontSendNotification);
+        }
     }
     void commitRootWorkflow() {
         if (!owner || !owner->liveDocument)
@@ -397,8 +422,15 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         }
         if (observedRevision != owner->liveUiRevision) {
             observedRevision = owner->liveUiRevision;
-            if (!name.hasKeyboardFocus(true))
-                name.setText(live::find(state, "items", itemId)["name"].toString(), false);
+            const auto mirror = [](juce::TextEditor& field, juce::String& observed,
+                                   const juce::String& model) {
+                // Preserve unfinished drafts, but update focused fields on Undo.
+                if (!field.hasKeyboardFocus(true) || field.getText() == observed) {
+                    field.setText(model, false);
+                    observed = model;
+                }
+            };
+            mirror(name, observedName, live::find(state, "items", itemId)["name"].toString());
             if (!status.hasKeyboardFocus(true))
                 status.setText(live::workflow(state, itemId)["status"].toString(), juce::dontSendNotification);
             if (!progress.hasKeyboardFocus(true) && !live::tasks(state, itemId).size())
@@ -414,7 +446,11 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
                     notes.setText(item[k].toString(), false);
                     observedNotes = notes.getText();
                     updateNotesHeight();
-                } else if (!field->hasKeyboardFocus(true)) field->setText(item[k].toString(), false);
+                } else {
+                    auto& observed = field == &tempo ? observedTempo :
+                                     field == &key ? observedKey : observedDuration;
+                    mirror(*field, observed, item[k].toString());
+                }
             }
             if (!meter.hasKeyboardFocus(true)) meter.setText(item["meter"].toString(), juce::dontSendNotification);
             if (!priority.hasKeyboardFocus(true)) priority.setText(live::workflow(state, itemId)["priority"].toString(), juce::dontSendNotification);
@@ -462,45 +498,67 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
     }
     void commitProperty(juce::TextEditor &field) {
         if (!owner || !owner->liveDocument) return;
-        // Focus changes and queued TextEditor notifications can arrive after
-        // show Undo, before the timer has mirrored the restored model. Only
-        // newly typed text may commit; an unchanged view must not redo Undo.
-        if (&field == &notes && field.getText() == observedNotes) return;
+        const bool notesField = &field == &notes;
+        if (notesField && field.getText() == observedNotes) return;
+        auto& observed = &field == &tempo ? observedTempo :
+                         &field == &key ? observedKey : observedDuration;
+        if (!notesField && field.getText() == observed) return;
+        const char *keyName = &field == &tempo ? "tempo" : &field == &duration ? "duration" :
+                              &field == &key ? "key" : "notes";
+        const auto previous = live::find(owner->liveDocument->interfaceState, "items", itemId)[keyName];
+        if (!notesField && previous.toString() != observed) {
+            field.setText(previous.toString(), false);
+            observed = field.getText();
+            error.setText("Item changed; retry property edit", juce::dontSendNotification);
+            return;
+        }
         try {
-            const char *keyName = &field == &tempo ? "tempo" : &field == &duration ? "duration" :
-                                  &field == &key ? "key" : "notes";
             const auto value = (&field == &tempo || &field == &duration)
                                    ? juce::var(numeric(field.getText())) : juce::var(field.getText());
-            // JSON distinguishes 100 from 100.0. Merely leaving a numeric
-            // editor must not convert its stored type and insert an Undo step.
             if (&field == &tempo || &field == &duration) {
-                const auto previous = live::find(owner->liveDocument->interfaceState, "items", itemId)[keyName];
                 if (live::number(previous) && static_cast<double>(previous) == static_cast<double>(value)) {
+                    field.setText(previous.toString(), false);
+                    observed = field.getText();
                     error.setText({}, juce::dontSendNotification);
                     return;
                 }
             }
-            if (&field == &notes) {
+            if (notesField) {
                 owner->setLiveItemNotes(itemId, field.getText());
                 observedNotes = field.getText();
+            } else if (&field == &key) {
+                owner->setLiveItemTextProperty(itemId, "key", field.getText());
+            } else {
+                // Tempo/Duration still require full musical/Playback preflight,
+                // but once per finished edit instead of once per keystroke.
+                owner->editLiveInterface("Item " + itemId + " " + juce::String(keyName), [&](auto &state) {
+                    live::put(live::require(state, "items", itemId), keyName, value);
+                });
             }
-            else owner->editLiveInterface("Item " + itemId + " " + juce::String(keyName), [&](auto &state) {
-                live::put(live::require(state, "items", itemId), keyName, value);
-            }, true);
+            if (!notesField) observed = field.getText();
             error.setText({}, juce::dontSendNotification);
         } catch (const std::exception &e) {
             error.setText(juce::String::fromUTF8(e.what()), juce::dontSendNotification);
         }
     }
     void commitMeter() {
-        if (owner) owner->run([&] { owner->editLiveInterface("Item meter", [&](auto &state) {
-            live::put(live::require(state, "items", itemId), "meter", meter.getText());
-        }); });
+        if (!owner || !owner->liveDocument) return;
+        const auto current = live::find(owner->liveDocument->interfaceState, "items", itemId)["meter"].toString();
+        if (meter.getText() == current) return;
+        try {
+            owner->editLiveInterface("Item meter", [&](auto &state) {
+                live::put(live::require(state, "items", itemId), "meter", meter.getText());
+            });
+            error.setText({}, juce::dontSendNotification);
+        } catch (const std::exception& e) {
+            meter.setText(current, juce::dontSendNotification);
+            error.setText(juce::String::fromUTF8(e.what()), juce::dontSendNotification);
+        }
     }
     juce::Component::SafePointer<Desktop> owner;
     juce::String itemId;
     std::function<void(int)> action;
-    juce::String observedNotes;
+    juce::String observedNotes, observedName, observedTempo, observedKey, observedDuration;
     int notesBlockHeight{72};
     Theme theme;
     LiveOrganizer organizer;
