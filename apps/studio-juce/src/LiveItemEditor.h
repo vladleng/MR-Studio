@@ -269,6 +269,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
             juce::StringArray{"P1", "P2", "P3", "P4"}.indexOf(workflow["priority"].toString()),
             juce::dontSendNotification);
         progress.setText(juce::String(live::progress(state, id)), false);
+        observedRootProgress=progress.getText();
         configureLiveProgress(progress);
         progress.setEnabled(live::tasks(state, id).size() == 0);
         const std::array<juce::Component *, 10> fields{&name,  &status, &priority, &progress, &tempo,
@@ -313,6 +314,9 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
                 });
         };
         name.setComponentID("live-item-name");
+        status.setComponentID("live-item-status");
+        priority.setComponentID("live-item-priority");
+        progress.setComponentID("live-item-progress");
         notes.setComponentID("live-item-notes");
         tempo.setComponentID("live-item-tempo");
         key.setComponentID("live-item-key");
@@ -333,10 +337,9 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
             field->onFocusLost = [this, field] { commitProperty(*field); };
         }
         meter.onChange = [this] { commitMeter(); };
-        priority.onChange = [this] { commitRootWorkflow(); };
-        status.onChange = [this] { commitRootWorkflow(); };
-        progress.onTextChange = [this] { if (progress.getText().trim().isNotEmpty()) commitRootWorkflow(); };
-        progress.onReturnKey = [this] { commitRootWorkflow(); };
+        priority.onChange = [this] { commitRootWorkflow("priority"); };
+        status.onChange = [this] { commitRootWorkflow("status"); };
+        progress.onReturnKey = [this] { commitRootWorkflow("progress"); };
         progress.onFocusLost = progress.onReturnKey;
         startTimerHz(10);
         setActions({}, false);
@@ -427,17 +430,29 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
             error.setText(juce::String::fromUTF8(e.what()), juce::dontSendNotification);
         }
     }
-    void commitRootWorkflow() {
-        if (!owner || !owner->liveDocument)
-            return;
+    void commitRootWorkflow(const juce::Identifier& field) {
+        if (!owner || !owner->liveDocument) return;
+        if(field==juce::Identifier("progress")) {
+            if(live::tasks(owner->liveDocument->interfaceState,itemId).size())return;
+            const auto current=juce::String(live::progress(owner->liveDocument->interfaceState,itemId));
+            if(current!=observedRootProgress) {
+                progress.setText(current,false);
+                observedRootProgress=current;
+                error.setText("Progress changed; retry edit",juce::dontSendNotification);
+                return;
+            }
+            if(progress.getText()==observedRootProgress)return;
+        }
         owner->run([&] {
-            owner->editLiveInterface("Item status / progress", [&](auto &state) {
-                const auto flow = live::workflow(state, itemId);
-                const int percent = live::tasks(state, itemId).size() ? static_cast<int>(flow["progress"])
-                                                                      : juce::roundToInt(numeric(progress.getText()));
-                live::setWorkflow(state, itemId, status.getText(), priority.getText(), percent);
-            });
+            const juce::var value=field==juce::Identifier("progress")?juce::var(numeric(progress.getText())):
+                                  field==juce::Identifier("status")?juce::var(status.getText()):
+                                                                     juce::var(priority.getText());
+            owner->setLiveOrganizerField(itemId,{},field,value);
         });
+        if(field==juce::Identifier("progress")) {
+            observedRootProgress=juce::String(live::progress(owner->liveDocument->interfaceState,itemId));
+            progress.setText(observedRootProgress,false);
+        }
     }
     void timerCallback() override {
         if (!owner || !owner->liveDocument)
@@ -461,8 +476,10 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
             mirror(name, observedName, live::find(state, "items", itemId)["name"].toString());
             if (!status.hasKeyboardFocus(true))
                 status.setText(live::workflow(state, itemId)["status"].toString(), juce::dontSendNotification);
-            if (!progress.hasKeyboardFocus(true) && !live::tasks(state, itemId).size())
+            if (!progress.hasKeyboardFocus(true) && !live::tasks(state, itemId).size()) {
                 progress.setText(juce::String(live::progress(state, itemId)), false);
+                observedRootProgress=progress.getText();
+            }
             const auto item = live::find(state, "items", itemId);
             for (auto *field : {&tempo, &key, &duration, &notes}) {
                 const char *k = field == &tempo ? "tempo" : field == &key ? "key" : field == &duration ? "duration" : "notes";
@@ -485,6 +502,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         }
         if (live::tasks(state, itemId).size()) {
             progress.setText(juce::String(live::progress(state, itemId)), false);
+            observedRootProgress=progress.getText();
             progress.setEnabled(false);
         } else
             progress.setEnabled(true);
@@ -586,7 +604,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
     juce::Component::SafePointer<Desktop> owner;
     juce::String itemId;
     std::function<void(int)> action;
-    juce::String observedNotes, observedName, observedTempo, observedKey, observedDuration;
+    juce::String observedNotes, observedName, observedTempo, observedKey, observedDuration, observedRootProgress;
     int notesBlockHeight{72};
     Theme theme;
     LiveOrganizer organizer;
