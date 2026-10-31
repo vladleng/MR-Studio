@@ -2137,12 +2137,12 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         renderMulti();
         liveCheck(std::abs(audio[400] + audio[402] * .5f) < .0001f && audio[400] > .01f,
                   "Global Playback gain affects direct music outputs but leaves Cue at its own level");
-        const float cueDuringPlay=audio[402],musicDuringPlay=audio[400];
+        const double cueDuringPlay=outputRms(2),musicDuringPlay=outputRms(0);
         const auto cuePreviewSignature=multi.liveDocument->signature();
         multi.previewLiveItemPlaybackGain(id,-18.);
         renderMulti();
-        liveCheck(std::abs(audio[400])<std::abs(musicDuringPlay)*.2f &&
-                  std::abs(audio[402]-cueDuringPlay)<.001f &&
+        liveCheck(outputRms(0)<musicDuringPlay*.2 &&
+                  nearBaseline(outputRms(2),cueDuringPlay) &&
                   multi.liveDocument->signature()==cuePreviewSignature,
                   "#31 P5 Group preview while playing attenuates music but not independent Cue");
         multi.app.cancel_mix_preview();renderMulti();
