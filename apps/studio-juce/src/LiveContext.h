@@ -166,17 +166,19 @@ class LiveContextPrompt final : public juce::Component {
 };
 template <typename Owner, typename Commit>
 void promptLiveContext(Owner &owner, const juce::String &title, const juce::String &initial, Commit commit) {
+    const auto generation=owner.liveDocumentGeneration;
     auto content = std::make_unique<LiveContextPrompt>(title, initial);
     auto *prompt = content.get();
     auto &box = showLiveContext(std::move(content), owner, liveContextTarget(juce::Desktop::getMousePosition()));
     juce::Component::SafePointer<juce::CallOutBox> popup(&box);
     juce::Component::SafePointer<Owner> safe(&owner);
     juce::Component::SafePointer<LiveContextPrompt> promptPanel(prompt);
-    prompt->commit = [safe, popup, promptPanel, commit](const juce::String &text) {
+    prompt->commit = [safe, popup, promptPanel, commit, generation](const juce::String &text) {
         if (!safe)
             return;
         bool success = false;
         safe->run([&] {
+            if(safe->liveDocumentGeneration!=generation)throw std::runtime_error("Show changed; reopen the editor");
             commit(text);
             success = true;
         });

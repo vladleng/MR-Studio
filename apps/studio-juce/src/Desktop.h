@@ -6,6 +6,7 @@
 #include "Settings.h"
 #include "Playhead.h"
 #include "LiveDocument.h"
+#include "LiveEditProtocol.h"
 #include <mrs/desktop.hpp>
 #include <mrs/midi_import.hpp>
 #include <mrs/diagnostics.hpp>
@@ -155,6 +156,18 @@ public:
     void updateLiveDirty();
     void editLiveInterface(const juce::String&,std::function<void(juce::var&)>,bool coalesceTyping=false,bool captureInputs=false);
     void editLiveItemView(const juce::String& itemId, const juce::Identifier& key, double value);
+    void performLiveValuePatch(const juce::String&,live::EditPath,const juce::var&,live::EditImpact,bool coalesce=false);
+    bool applyLiveValuePatch(const live::ValuePatch&,live::EditImpact,bool forward,std::uint64_t generation);
+    void renameLiveObject(const juce::String&,const juce::String&,const juce::String&,const juce::String& list={});
+    void setLivePresentation(const juce::Identifier&,const juce::var&,const juce::String& entry={});
+    live::EditRevisions liveEdits;
+    live::EditByteBudget liveEditBudget;
+    live::EditStamp liveEditStamp()const {
+        return {liveDocumentGeneration,liveUiRevision,liveChannelMixRevision,livePlaybackFoldRevision,
+                livePlaybackScalarRevision,liveEdits.mutation};
+    }
+    std::optional<std::int64_t> liveCachedEditBytes()const{return liveEditBudget.get(liveEditStamp());}
+    std::uint64_t liveFullSizeMeasures{},liveLocalPatchApplications{};
     void setLiveItemNotes(const juce::String&,const juce::String&);
     void setLiveItemTextProperty(const juce::String&,const juce::Identifier&,const juce::String&);
     void setLiveMusicalName(const juce::String& itemId,const juce::String& eventId,
@@ -175,19 +188,12 @@ public:
     std::uint64_t liveUiRevision{}, liveTimelineFocusRevision{}, liveDocumentGeneration{};
     // Notes do not change Timeline geometry or Browser/Setlist structure.
     std::uint64_t liveNotesRevision{};
-    // Exact JSON-byte count shared by scalar Notes/name/color edits.
-    // Other show revisions invalidate this cache; never bypass the 64 MiB limit.
-    std::uint64_t liveNotesBytesRevision{(std::numeric_limits<std::uint64_t>::max)()};
-    std::uint64_t liveNotesBytesGeneration{(std::numeric_limits<std::uint64_t>::max)()};
-    std::uint64_t liveNotesBytesTextRevision{(std::numeric_limits<std::uint64_t>::max)()};
-    std::int64_t liveNotesBytes{};
     // Scalar channel mix never changes structural lanes or item geometry.
     std::uint64_t liveChannelMixRevision{};
     // Scalar Playback item/stem edits must not reset clean mix/fold baselines.
     std::uint64_t livePlaybackScalarRevision{};
     // Fold is presentation-only, without structural show revision.
     std::uint64_t livePlaybackFoldRevision{};
-    std::optional<std::uint64_t> liveFoldCleanUiRevision, liveFoldCleanMixRevision;
     // When a clean show is modified only by scalar mix, Undo can restore
     // the clean state without rescanning large vendor VST3 preset blobs.
     std::optional<std::uint64_t> liveMixCleanBaseRevision;

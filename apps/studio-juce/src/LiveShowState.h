@@ -487,28 +487,45 @@ inline bool itemDirty(const juce::var &state, const juce::String &id) {
     const auto parsed = juce::JSON::parse(saved.toString());
     return canonical(content(itemVersion(state, id))) != canonical(content(parsed));
 }
-// Construct once per structural UI revision. Rechecking a Notes-only edit
-// then touches only a short string, never a saved VST3 snapshot.
-struct ItemNotesDirtyState {
+// Cache opaque/non-metadata content once when cards are created. Notes,
+// names, musical labels/colors and progress then compare only bounded data.
+inline juce::var itemMetadata(const juce::var& item,const juce::var& perf,const juce::String& id) {
+    auto result=object();
+    for(const auto* key:{"name","key","notes","sections"})put(result,key,item[key]);
+    put(result,"chords",perf["chords"][juce::Identifier(id)]);
+    put(result,"progress",static_cast<double>(perf["itemWorkflow"][juce::Identifier(id)]["progress"]));
+    return result;
+}
+struct ItemMetadataDirtyState {
     bool otherChanges{true};
-    juce::var savedNotes;
-    bool dirty(const juce::var& state,const juce::String& id) const {
-        return otherChanges||!sameShowValue(savedNotes,find(state,"items",id)["notes"]);
+    juce::var savedMetadata;
+    bool dirty(const juce::var& state,const juce::String& id)const {
+        return otherChanges||!sameShowValue(savedMetadata,itemMetadata(find(state,"items",id),state["performance"],id));
     }
 };
-inline ItemNotesDirtyState itemNotesDirtyState(const juce::var& state,const juce::String& id) {
-    ItemNotesDirtyState result;
+inline ItemMetadataDirtyState itemMetadataDirtyState(const juce::var& state,const juce::String& id) {
+    ItemMetadataDirtyState result;
     const auto saved=state["library"][juce::Identifier(id)];
     if(!saved.isString())return result;
     auto stored=content(juce::JSON::parse(saved.toString()));
     auto current=content(itemVersion(state,id));
-    result.savedNotes=stored["item"]["notes"];
+    result.savedMetadata=itemMetadata(stored["item"],stored["performance"],id);
     if(stored["item"].isObject()&&current["item"].isObject()) {
-        stored["item"].getDynamicObject()->removeProperty("notes");
-        current["item"].getDynamicObject()->removeProperty("notes");
-        result.otherChanges=canonical(current)!=canonical(stored);
+        for(auto* value:{&stored,&current}) {
+            for(const auto* key:{"name","key","notes","sections"})
+                (*value)["item"].getDynamicObject()->removeProperty(key);
+            for(const auto* key:{"chords","itemWorkflow"})
+                (*value)["performance"].getDynamicObject()->removeProperty(key);
+        }
+        result.otherChanges=!sameShowValue(current,stored);
     }
     return result;
+}
+// Kept for the existing Notes regression entry point; the same cache now
+// supports every metadata field that uses the local edit protocol.
+using ItemNotesDirtyState=ItemMetadataDirtyState;
+inline ItemMetadataDirtyState itemNotesDirtyState(const juce::var& state,const juce::String& id) {
+    return itemMetadataDirtyState(state,id);
 }
 inline void saveItem(juce::var &state, const juce::String &id) {
     put(map(state, "library"), id, juce::JSON::toString(itemVersion(state, id), true, 17));
