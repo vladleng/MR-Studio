@@ -208,12 +208,12 @@ void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave)
     browser->itemDropped(gesture);
     const auto targetParent=live::find(navigation.liveDocument->interfaceState,"items",first)["folder"];
     const auto placed=live::browserSiblings(navigation.liveDocument->interfaceState,targetParent);
-    int previewIndex=-1,firstIndex=-1;
+    int dropPreviewIndex=-1,firstIndex=-1;
     for(std::size_t i=0;i<placed.size();++i) {
-        if(placed[i].id==preview)previewIndex=static_cast<int>(i);
+        if(placed[i].id==preview)dropPreviewIndex=static_cast<int>(i);
         if(placed[i].id==first)firstIndex=static_cast<int>(i);
     }
-    liveCheck(previewIndex>=0 && previewIndex+1==firstIndex,
+    liveCheck(dropPreviewIndex>=0 && dropPreviewIndex+1==firstIndex,
               "#31 P4 Mouse drop inserts at the exact highlighted Browser slot");
     navigation.undoLiveInterface();
     liveCheck(live::sameShowValue(navigation.liveDocument->interfaceState,unchanged),
