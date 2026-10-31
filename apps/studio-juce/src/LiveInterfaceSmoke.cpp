@@ -319,6 +319,102 @@ void liveOrganizerCommitSmoke(const juce::File& fixture) {
               "#31 Workflow root Save/Reopen preserves committed values");
     rootSave.deleteFile();
 }
+// #31 fix6: fast Organizer structural Undo and Save for All must not
+// replace the whole show (and its VST3 snapshots) on routine UI actions.
+void liveOrganizerStructuralAndSavedItemSmoke(const juce::File& fixture) {
+    Desktop host(true,false,true);
+    host.importLiveShow(fixture);
+    const auto id=host.liveDocument->interfaceState["currentItem"].toString();
+    // Keep this tree-view interaction deterministic: a newly appended row in
+    // the large imported fixture can be outside the TreeView's visible range.
+    host.editLiveInterface("Organizer structural smoke setup",[&](auto& state) {
+        auto taskMap=state["performance"]["itemTasks"];
+        if(taskMap.isObject())
+            taskMap.getDynamicObject()->removeProperty(juce::Identifier(id));
+    });
+    const auto* showRoot=host.liveDocument->interfaceState.getDynamicObject();
+    const int initial=live::tasks(host.liveDocument->interfaceState,id).size();
+    const auto revision=host.liveUiRevision;
+    host.editLiveOrganizerTasks(id,"add");
+    auto rows=live::tasks(host.liveDocument->interfaceState,id);
+    liveCheck(rows.size()==initial+1&&host.liveUiRevision==revision+1&&
+              host.liveDocument->interfaceState.getDynamicObject()==showRoot,
+              "#31 Fast add-root applies one small Undo and keeps show/VST3 root");
+    const auto rootTask=rows[rows.size()-1]["id"].toString();
+    LiveItemEditor editor(host,id);
+    // JUCE TreeView creates TaskRow controls only once the host is visible.
+    // Match liveOrganizerCommitSmoke: do not inspect a hidden test tree.
+    editor.setVisible(true);
+    auto* childButton=dynamic_cast<juce::TextButton*>(
+        liveComponent(editor,"live-organizer-add-"+rootTask));
+    liveCheck(childButton&&static_cast<bool>(childButton->onClick),
+              "#31 Organizer exposes clickable add-child row action");
+    childButton->onClick();
+    rows=live::tasks(host.liveDocument->interfaceState,id);
+    const auto childTask=rows[rows.size()-1]["id"].toString();
+    liveCheck(rows.size()==initial+2&&rows[rows.size()-1]["parent"].toString()==rootTask,
+              "#31 Fast add-child retains correct parent ID");
+    host.undoLiveInterface();
+    liveCheck(live::tasks(host.liveDocument->interfaceState,id).size()==initial+1,
+              "#31 Add-child Undo restores task list");
+    host.undoLiveInterface(true);
+    liveCheck(live::tasks(host.liveDocument->interfaceState,id).size()==initial+2,
+              "#31 Add-child Redo restores task list");
+    host.editLiveOrganizerTasks(id,"remove",rootTask);
+    liveCheck(live::tasks(host.liveDocument->interfaceState,id).size()==initial,
+              "#31 Removing parent removes descendants without touching other tasks");
+    host.undoLiveInterface();
+    liveCheck(live::tasks(host.liveDocument->interfaceState,id).size()==initial+2,
+              "#31 Parent removal Undo restores entire branch");
+    host.undoLiveInterface(true);
+    liveCheck(live::tasks(host.liveDocument->interfaceState,id).size()==initial,
+              "#31 Parent removal Redo removes branch");
+    const auto* rootAfter=host.liveDocument->interfaceState.getDynamicObject();
+    liveCheck(rootAfter==showRoot,"#31 Task add/remove never clones full show");
+    // Save for All writes one Browser snapshot; show fields are untouched.
+    const auto oldTitle=live::find(host.liveDocument->interfaceState,"items",id)["name"].toString();
+    const auto nextTitle=oldTitle+" (fast saved)";
+    host.setLiveItemTextProperty(id,"name",nextTitle);
+    liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["name"].toString()==nextTitle,
+              "#31 Browser Rename uses scalar Item text transaction");
+    auto* saveButton=dynamic_cast<juce::TextButton*>(
+        liveComponent(editor,"live-item-save-for-all"));
+    liveCheck(saveButton&&static_cast<bool>(saveButton->onClick),
+              "#31 Item Editor Save for All uses the fast library edit");
+    saveButton->onClick();
+    liveCheck(live::libraryItem(host.liveDocument->interfaceState,id)["name"].toString()==nextTitle&&
+              !live::itemDirty(host.liveDocument->interfaceState,id)&&
+              host.liveDocument->interfaceState.getDynamicObject()==showRoot,
+              "#31 Save for All updates Browser version without cloning show");
+    host.undoLiveInterface();
+    liveCheck(live::itemDirty(host.liveDocument->interfaceState,id),
+              "#31 Save for All Undo restores prior Browser version");
+    host.undoLiveInterface(true);
+    liveCheck(!live::itemDirty(host.liveDocument->interfaceState,id),
+              "#31 Save for All Redo restores saved version");
+    const auto path=fixture.getSiblingFile("organizer-structure-save.mrlive");
+    host.saveFile(path);
+    const auto reloaded=LiveDocument::read(path);
+    liveCheck(live::tasks(reloaded.interfaceState,id).size()==initial&&
+              live::find(reloaded.interfaceState,"items",id)["name"].toString()==nextTitle&&
+              !live::itemDirty(reloaded.interfaceState,id),
+              "#31 Fast Organizer, Rename and Browser Save survive Save/Reopen");
+    path.deleteFile();
+    // Template remains six logical tasks and one Undo despite a nested pair.
+    Desktop templateHost(true,false,true);
+    templateHost.importLiveShow(fixture);
+    const auto templateItem=templateHost.liveDocument->interfaceState["currentItem"].toString();
+    const auto templateBefore=live::tasks(templateHost.liveDocument->interfaceState,templateItem).size();
+    templateHost.editLiveOrganizerTasks(templateItem,"template");
+    liveCheck(live::tasks(templateHost.liveDocument->interfaceState,templateItem).size()==templateBefore+6,
+              "#31 Organizer template creates all six tasks in one operation");
+    templateHost.undoLiveInterface();
+    liveCheck(live::tasks(templateHost.liveDocument->interfaceState,templateItem).size()==templateBefore,
+              "#31 Organizer template Undo restores original tasks");
+    templateHost.undoLiveInterface(true);
+    liveCheck(live::tasks(templateHost.liveDocument->interfaceState,templateItem).size()==templateBefore+6,
+              "#31 Organizer template Redo restores original hierarchy");
+}
 void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave){
     Desktop navigation(true,false,true);navigation.importLiveShow(fixture);navigation.setSize(1200,800);
     navigation.app.connect(std::make_unique<LivePlaybackTestDevice>(),{0,48000,128,{}, {0,1},1});
@@ -1703,6 +1799,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveDisplayPollingSmoke(fixture,waveFile);
         liveItemEditorCommitSmoke(fixture);
     liveOrganizerCommitSmoke(fixture);
+    liveOrganizerStructuralAndSavedItemSmoke(fixture);
         liveSelectionRefreshSmoke(fixture,waveFile);
         // #300: one Core graph contains a physical Live Input + WAV simultaneously.
         // Manual switches are stopped/quiescent; #301 owns real-time seamless handoff.

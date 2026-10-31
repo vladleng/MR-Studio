@@ -333,10 +333,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             const auto item = live::find(data(), "items", row.itemId);
             juce::Component::SafePointer<Desktop> safe(&owner);
             promptLiveContext(owner, "Item name", item["name"].toString(), [safe, id = row.itemId](const auto &text) {
-                if (safe)
-                    safe->editLiveInterface("Item name", [&](auto &state) {
-                        live::put(live::require(state, "items", id), "name", text.trim());
-                    });
+                if(safe)safe->run([&] {safe->setLiveItemTextProperty(id,"name",text.trim());});
             });
         }
     }
@@ -781,7 +778,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         if (choice == 1)
             showItemContext(row, *this);
         else if (choice == 2)
-            owner.editLiveInterface("Save for All", [&](auto &state) { live::saveItem(state, row.itemId); });
+            owner.saveLiveItemForAll(row.itemId);
         else if (choice == 3) {
             juce::Component::SafePointer<Desktop> safe(&owner);
             const auto id = row.itemId;
