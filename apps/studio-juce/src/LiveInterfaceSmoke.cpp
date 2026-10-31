@@ -2184,7 +2184,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         multi.setLivePlaybackStemsExpanded(true);
         // Preview uses existing Core publication without modifying show/history.
         const auto beforePreview = multi.liveDocument->signature();
-        const live::PlaybackMixOverride override{musicChannel,-9.,-.5,false,false};
+        const live::PlaybackMixOverride previewMix{musicChannel,-9.,-.5,false,false};
         auto legacyState=multi.liveDocument->interfaceState.clone();
         auto& legacyChannel=live::require(legacyState,"channels",musicChannel);
         live::put(legacyChannel,"gain",-9.);
@@ -2193,7 +2193,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         live::put(legacyChannel,"solo",false);
         for(const auto& playbackRow:live::playbackRows(multi.liveDocument->interfaceState,id)) {
             const auto previous=live::playbackMix(legacyState,id,playbackRow);
-            const auto optimized=live::playbackMix(multi.liveDocument->interfaceState,id,playbackRow,&override);
+            const auto optimized=live::playbackMix(multi.liveDocument->interfaceState,id,playbackRow,&previewMix);
             liveCheck(std::abs(previous.gain-optimized.gain)<.000001f &&
                       std::abs(previous.pan-optimized.pan)<.000001f &&
                       previous.mute==optimized.mute && previous.solo==optimized.solo,
