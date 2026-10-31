@@ -2060,7 +2060,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         // The fixture WAV has a position-dependent ramp/saw envelope. Compare
         // stable 128-frame RMS, not one PCM sample from different transport times.
         // A full 128-frame window covers >4 saw periods (bounded drift <5%).
-        const outputRms=[&](std::size_t output) {
+        const auto outputRms=[&](std::size_t output) {
             double square=0.;
             for(std::size_t frame=0;frame<128;++frame) {
                 const double sample=audio[frame*4+output];
