@@ -322,7 +322,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         name.onFocusLost = name.onReturnKey;
         for (auto *field : {&tempo, &key, &duration, &notes}) {
             if (field == &notes) {
-                // Notes retain the existing live editing until their own #31 stage.
+                // Notes stay live/coalesced; Desktop maintains an exact byte-size cache.
                 field->onTextChange = [this, field] {
                     updateNotesHeight();
                     commitProperty(*field);
