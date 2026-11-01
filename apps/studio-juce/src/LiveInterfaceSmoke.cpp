@@ -108,6 +108,85 @@ void liveDisplayPollingSmoke(const juce::File& fixture,const juce::File& wave){
     liveCheck(engine->try_state(head)&&head.playback==mrs::PlaybackState::stopped,
               "Concurrent display refresh leaves stopped playback intact without an escaping busy-state exception");
 }
+// #31 Item Editor: native control notifications, scalar Undo and validated commits.
+void liveItemEditorCommitSmoke(const juce::File& fixture) {
+    Desktop host(true,false,true);
+    host.importLiveShow(fixture);
+    const auto id = host.liveDocument->interfaceState["currentItem"].toString();
+    const auto initial = live::find(host.liveDocument->interfaceState, "items", id);
+    liveCheck(initial.isObject(), "#31 Item Editor fixture has a selected item");
+    LiveItemEditor editor(host,id);
+    auto* name = dynamic_cast<juce::TextEditor*>(liveComponent(editor,"live-item-name"));
+    auto* key = dynamic_cast<juce::TextEditor*>(liveComponent(editor,"live-item-key"));
+    auto* tempo = dynamic_cast<juce::TextEditor*>(liveComponent(editor,"live-item-tempo"));
+    auto* duration = dynamic_cast<juce::TextEditor*>(liveComponent(editor,"live-item-duration"));
+    auto* meter = dynamic_cast<juce::ComboBox*>(liveComponent(editor,"live-item-meter"));
+    liveCheck(name&&key&&tempo&&duration&&meter,"#31 Item Editor exposes native controls");
+    const auto originalName = initial["name"].toString();
+    const auto beforeRevision = host.liveUiRevision;
+    name->setText("Draft title",true);
+    name->setText("Final item title",true);
+    liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["name"].toString()==originalName &&
+              host.liveUiRevision==beforeRevision,
+              "#31 Typing must not edit show or clone VST3 state");
+    name->onReturnKey();
+    liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["name"].toString()=="Final item title" &&
+              host.liveUiRevision==beforeRevision+1,
+              "#31 Item name commits once via scalar Undo");
+    host.undoLiveInterface();
+    name->onFocusLost();
+    liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["name"].toString()==originalName,
+              "#31 Late focus loss cannot redo an undone edit");
+    host.undoLiveInterface(true);
+    liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["name"].toString()=="Final item title",
+              "#31 Scalar name Redo works");
+    key->setText("F#m",true);
+    liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["key"].toString()!="F#m",
+              "#31 Key draft stays local");
+    key->onReturnKey();
+    liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["key"].toString()=="F#m",
+              "#31 Key commits through scalar Undo");
+    key->setText("Bb",true);
+    key->onFocusLost();
+    liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["key"].toString()=="Bb",
+              "#31 Key focus loss commits exactly once");
+    bool oversizedKeyRejected=false;
+    try { host.setLiveItemTextProperty(id,"key",juce::String::repeatedString("Z",25)); }
+    catch (const std::exception&) { oversizedKeyRejected=true; }
+    liveCheck(oversizedKeyRejected &&
+              live::find(host.liveDocument->interfaceState,"items",id)["key"].toString()=="Bb",
+              "#31 Key length guard rejects invalid metadata without mutating show");
+    const auto originalTempo = static_cast<double>(live::find(host.liveDocument->interfaceState,"items",id)["tempo"]);
+    tempo->setText("401",true);
+    tempo->onReturnKey();
+    liveCheck(static_cast<double>(live::find(host.liveDocument->interfaceState,"items",id)["tempo"])==originalTempo,
+              "#31 Invalid BPM does not mutate the show");
+    tempo->setText("146",true);
+    liveCheck(static_cast<double>(live::find(host.liveDocument->interfaceState,"items",id)["tempo"])==originalTempo,
+              "#31 Tempo draft stays local until confirmed");
+    tempo->onReturnKey();
+    liveCheck(static_cast<double>(live::find(host.liveDocument->interfaceState,"items",id)["tempo"])==146.,
+              "#31 Tempo commit validates musical state");
+    host.undoLiveInterface();
+    liveCheck(static_cast<double>(live::find(host.liveDocument->interfaceState,"items",id)["tempo"])==originalTempo,
+              "#31 Tempo Undo restores BPM");
+    duration->setText("75",true);
+    duration->onReturnKey();
+    liveCheck(static_cast<double>(live::find(host.liveDocument->interfaceState,"items",id)["duration"])==75.,
+              "#31 Duration commits only on finish");
+    meter->setText("3/4",juce::sendNotificationSync);
+    liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["meter"].toString()=="3/4",
+              "#31 Meter uses validated selection commit");
+    const auto savePath=fixture.getSiblingFile("item-editor-commit.mrlive");
+    host.saveFile(savePath);
+    const auto loaded=LiveDocument::read(savePath);
+    const auto saved=live::find(loaded.interfaceState,"items",id);
+    liveCheck(saved["name"].toString()=="Final item title" && saved["key"].toString()=="Bb" &&
+              static_cast<double>(saved["duration"])==75. &&
+              saved["meter"].toString()=="3/4",
+              "#31 Name/Key/Duration/Meter survive Save/Reopen");
+    savePath.deleteFile();
+}
 void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave){
     Desktop navigation(true,false,true);navigation.importLiveShow(fixture);navigation.setSize(1200,800);
     navigation.app.connect(std::make_unique<LivePlaybackTestDevice>(),{0,48000,128,{}, {0,1},1});
@@ -1359,10 +1438,17 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     desktop.setLiveItemNotes(id,oldNotes); livePump();
     tempoField->grabKeyboardFocus(); livePump();
     const auto oldName = live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString();
+    nameField->grabKeyboardFocus(); livePump();
     nameField->setText("Immediate title", true); livePump();
-    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == "Immediate title", "Item title commits on text change");
+    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == oldName &&
+              nameField->getText() == "Immediate title",
+              "#31 Item title draft remains in the focused editor, without show-wide edit on typing");
+    nameField->onReturnKey(); livePump();
+    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == "Immediate title",
+              "#31 Item title commits once on Return");
     desktop.undoLiveInterface(); livePump();
-    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == oldName, "Title Undo restores prior value");
+    liveCheck(live::find(desktop.liveDocument->interfaceState, "items", id)["name"].toString() == oldName,
+              "#31 Title Undo restores prior value after confirmed edit");
     card.removeFromDesktop();
     const int shortNotesHeight = notesField->getHeight();
     const int shortPanelHeight = card.getHeight();
@@ -1483,6 +1569,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                 u16(8192);
         }
         liveDisplayPollingSmoke(fixture,waveFile);
+        liveItemEditorCommitSmoke(fixture);
         liveSelectionRefreshSmoke(fixture,waveFile);
         // #300: one Core graph contains a physical Live Input + WAV simultaneously.
         // Manual switches are stopped/quiescent; #301 owns real-time seamless handoff.

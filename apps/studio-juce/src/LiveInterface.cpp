@@ -330,6 +330,44 @@ class LiveNotesEdit final : public juce::UndoableAction {
     juce::Component::SafePointer<Desktop> owner;
     juce::String id, before, after;
 };
+// #31 Item Editor: Name/Key are small text values, unrelated to the Core
+// musical projection, input profiles and hosted VST3 state. Undo stores only
+// the original and new field, never a cloned show or an audio graph.
+class LiveItemTextEdit final : public juce::UndoableAction {
+  public:
+    LiveItemTextEdit(Desktop& desktop, juce::String item, juce::Identifier property,
+                     juce::String oldValue, juce::String newValue)
+        : owner(&desktop), id(std::move(item)), key(std::move(property)),
+          before(std::move(oldValue)), after(std::move(newValue)),
+          generation(desktop.liveDocumentGeneration) {}
+    bool perform() override { return apply(after); }
+    bool undo() override { return apply(before); }
+    int getSizeInUnits() override {
+        return static_cast<int>(before.getNumBytesAsUTF8()+after.getNumBytesAsUTF8()+128);
+    }
+  private:
+    bool apply(const juce::String& value) {
+        if (!owner || !owner->liveDocument || owner->liveDocumentGeneration != generation)
+            return false;
+        auto row = live::find(owner->liveDocument->interfaceState, "items", id);
+        if (!row.isObject()) return false;
+        live::put(row, key, value);
+        owner->liveDirty = true;
+        if (owner->liveSavedSnapshot) {
+            const auto saved = live::find(owner->liveSavedSnapshot->interfaceState, "items", id);
+            // Full dirty comparison only on return to a saved value.
+            if (saved.isObject() && saved[key].toString() == value)
+                owner->updateLiveDirty();
+        }
+        ++owner->liveUiRevision;
+        return true;
+    }
+    juce::Component::SafePointer<Desktop> owner;
+    juce::String id;
+    juce::Identifier key;
+    juce::String before, after;
+    std::uint64_t generation{};
+};
 // Timeline scale and lead-in are view-only: keep just the changed item's
 // small arrangement object in Undo, not the complete show / plugin state.
 class LiveItemViewEdit final : public juce::UndoableAction {
@@ -367,6 +405,34 @@ class LiveItemViewEdit final : public juce::UndoableAction {
     bool hadArrangement{};
 };
 } // namespace
+void Desktop::setLiveItemTextProperty(const juce::String& id, const juce::Identifier& key,
+                                      const juce::String& text) {
+    if (!liveDocument) throw std::runtime_error("Open a MR Live show first");
+    const bool isName = key == juce::Identifier("name");
+    if (!isName && key != juce::Identifier("key"))
+        throw std::runtime_error("Unsupported quick item property");
+    const auto value = isName ? text.trim() : text;
+    if ((isName && !live::named(juce::var(value))) || (!isName && value.length() > 24))
+        throw std::runtime_error(isName ? "Item name must contain 1..120 characters" :
+                                         "Item key must be at most 24 characters");
+    const auto item = live::find(liveDocument->interfaceState, "items", id);
+    if (!item.isObject()) throw std::runtime_error("Show item no longer exists");
+    const auto before = item[key].toString();
+    if (before == value) return;
+    // Only a growing JSON string can exceed the previous validated size.
+    // Avoid serializing the entire show on edits that shrink the field.
+    const auto oldBytes = juce::JSON::toString(juce::var(before)).getNumBytesAsUTF8();
+    const auto newBytes = juce::JSON::toString(juce::var(value)).getNumBytesAsUTF8();
+    if (newBytes > oldBytes &&
+        juce::JSON::toString(liveDocument->interfaceState).getNumBytesAsUTF8() +
+            (newBytes-oldBytes) > live::maximumShowBytes)
+        throw std::runtime_error("Show interface exceeds 64 MiB");
+    liveShowEditing = true;
+    liveTypingLabel.clear();
+    liveUndo.beginNewTransaction("Item " + key.toString());
+    liveUndo.perform(new LiveItemTextEdit(*this, id, key, before, value));
+    liveUndo.beginNewTransaction();
+}
 void Desktop::setLiveItemNotes(const juce::String &id, const juce::String &text) {
     if (!liveDocument || text.length() > 4000) throw std::runtime_error("Notes must be at most 4000 characters");
     auto &item = live::require(liveDocument->interfaceState, "items", id);
