@@ -58,19 +58,26 @@ inline void setPerformanceMode(juce::var& state,const juce::String& item,const j
     if(mode==mrs::PerformanceMode::normal)modes.getDynamicObject()->removeProperty(juce::Identifier(target));
     else put(modes,target,performanceModeName(mode));
 }
+inline double authoredMusicalEndBars(const juce::var& state,const juce::String& item){
+    double end=0.;
+    for(const auto& rows:{find(state,"items",item)["sections"],state["performance"]["chords"][juce::Identifier(item)]})
+        if(const auto* entries=rows.getArray())for(const auto& row:*entries)
+            end=(std::max)(end,static_cast<double>(row["start"])+static_cast<double>(row["length"]));
+    return end;
+}
 inline juce::String performanceKey(const juce::var& state,const juce::String& item){
     auto result=juce::String();const auto perf=state["performance"];
     result<<performanceModeName(itemPerformanceMode(state,item))<<":"<<perf["backToStart"].toString()<<":"<<perf["stopRecord"].toString();
     const auto source=find(state,"items",item);
     if(const auto* rows=source["sections"].getArray())for(const auto& row:*rows)result<<":"<<row["id"].toString()<<"="<<performanceModeName(itemPerformanceMode(state,row["id"].toString()));
-    result<<":"<<source["bars"].toString()<<":"<<perf["arrangement"][juce::Identifier(item)]["length"].toString()<<":"<<perf["arrangement"][juce::Identifier(item)]["start"].toString();return result;
+    result<<":"<<source["bars"].toString()<<":"<<perf["arrangement"][juce::Identifier(item)]["length"].toString()<<":"<<perf["arrangement"][juce::Identifier(item)]["start"].toString()<<":"<<juce::String(authoredMusicalEndBars(state,item),17);return result;
 }
 inline double performanceEndBars(const juce::var& state,const juce::String& item,double renderedBars){
     const auto source=find(state,"items",item);if(!source.isObject())throw std::runtime_error("Performance item was removed");
     if(!std::isfinite(renderedBars)||renderedBars<0.)throw std::runtime_error("Invalid rendered performance extent");
     const auto explicitEnd=state["performance"]["arrangement"][juce::Identifier(item)]["length"];
     const double fallback=source["bars"].isVoid()?16.:static_cast<double>(source["bars"]);
-    const double bars=explicitEnd.isVoid()?(std::min)(4096.,renderedBars>0.?renderedBars:(std::max)(1.,fallback)):static_cast<double>(explicitEnd);
+    const double bars=explicitEnd.isVoid()?(std::min)(4096.,(std::max)(authoredMusicalEndBars(state,item),renderedBars>0.?renderedBars:(std::max)(1.,fallback))):static_cast<double>(explicitEnd);
     if(!std::isfinite(bars)||bars<=0.||bars>4096.)throw std::runtime_error("Invalid performance item end");
     return bars;
 }

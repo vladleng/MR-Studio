@@ -29,9 +29,36 @@ inline void clipEditing(){
           "Browser track regions retain performance.clips mapping");
     put(require(state,"items",item),"tempo",93.);
     const auto fractional=playbackStemLayout(state,item,playback(state,item),48000);
+    for(std::size_t i=0;i<layout.regions->size();++i){
+        const auto& a=layout.regions->at(i);const auto& b=fractional.regions->at(i);
+        check(a.start==b.start&&a.offset==b.offset&&a.length==b.length,
+              "Changing tempo preserves absolute audio start, source offset and length sample-for-sample");
+    }
     check(fractional.regions->at(0).offset+fractional.regions->at(0).length==fractional.regions->at(1).offset &&
           fractional.regions->at(1).offset+fractional.regions->at(1).length==fractional.regions->at(2).offset,
           "Repeated cuts at fractional sample/bar preserve contiguous source samples without rounding gaps");
+    const auto projected=playbackRegions(state,item,playback(state,item));
+    check(std::abs(static_cast<double>(projected[1]["start"])-8.*93./120.)<1.e-9,
+          "Waveform and clip hit areas use bars projected from the preserved source clock");
+    auto changedMeter=state.clone();put(require(changedMeter,"items",item),"meter","7/8");
+    const auto meterLayout=playbackStemLayout(changedMeter,item,playback(changedMeter,item),48000);
+    check(meterLayout.regions->at(1).offset==layout.regions->at(1).offset&&meterLayout.regions->at(1).length==layout.regions->at(1).length,
+          "Changing musical meter preserves the audio source clock");
+    auto persisted=juce::JSON::parse(juce::JSON::toString(changedMeter,false,17));
+    check(playbackStemLayout(persisted,item,playback(persisted,item),44100).regions->at(1).offset==352800,
+          "Saved audio clock survives JSON round-trip and a sample-rate change");
+    // Imported old shows lack the field. A detached tempo edit pins the prior
+    // basis, leaving both the source document and original legacy rows intact.
+    auto legacy=state.clone();
+    const auto legacyRegions=storedPlaybackRegions(legacy,item,playback(legacy,item));
+    for(auto& region:*legacyRegions.getArray())
+        region.getDynamicObject()->removeProperty("audioSecondsPerBar");
+    const auto legacyBefore=canonical(legacy);auto legacyEdit=legacy.clone();
+    const auto oldLayout=playbackStemLayout(legacy,item,playback(legacy,item),48000);
+    put(require(legacyEdit,"items",item),"tempo",20.);preservePlaybackTimebases(legacy,legacyEdit);
+    const auto pinned=playbackStemLayout(legacyEdit,item,playback(legacyEdit,item),48000);
+    check(pinned.regions->at(1).length==oldLayout.regions->at(1).length&&pinned.regions->at(1).legacy_silent_tail&&canonical(legacy)==legacyBefore,
+          "Legacy tempo edit pins old source seconds without mutating the input or guessing old trims");
     put(require(state,"items",item),"tempo",120.);
     auto reopened=juce::JSON::parse(juce::JSON::toString(state));
     check(canonical(playbackRegions(reopened,item,playback(reopened,item)))==canonical(rows),"Native-only regions survive show JSON round-trip");

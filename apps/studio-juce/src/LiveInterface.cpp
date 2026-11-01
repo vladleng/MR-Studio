@@ -13,6 +13,9 @@ mrs::desktop::Application::PlaybackLayout performanceLayout(const juce::var& sta
     layout.time=projection.time;layout.chords=projection.chords;layout.sections=projection.sections;
     layout.stems=live::playbackStemLayouts(state,id,rate);layout.click=live::liveClick(state);
     layout.extend_to_audio=state["performance"]["arrangement"][juce::Identifier(id)]["length"].isVoid();
+    const auto& musicalMeter=projection.time.meters.front();
+    layout.musical_end=mrs::Timeline(projection.time,rate).to_samples(static_cast<mrs::Tick>(std::llround(
+        live::authoredMusicalEndBars(state,id)*4.*mrs::ppq*musicalMeter.numerator/musicalMeter.denominator)));
     // Preserve all authored sections until Core knows the actual audio extent.
     double preparingAudio=0.;
     if(layout.extend_to_audio&&!live::playbackRows(state,id).empty()){
@@ -107,7 +110,7 @@ void validatePlaybackEdit(Desktop &owner, const juce::var &copy) {
             throw std::runtime_error("Trim must stay inside the original WAV source");
         const auto settings=live::playbackStemLayout(copy,id,after[i],project->sample_rate);
         if(settings.regions)for(const auto& region:*settings.regions)
-            if(region.offset<0 || region.length<=0 || region.offset>frames || region.length>frames-region.offset)
+            if(!mrs::audio::playback_region_length(region.offset,region.length,frames,region.legacy_silent_tail))
                 throw std::runtime_error("Region must stay inside the original WAV source");
         for (const auto channel : live::playbackOutputs(after[i]))
             if (std::find(active.begin(), active.end(), channel) == active.end())
@@ -804,6 +807,7 @@ void Desktop::editLiveInterface(const juce::String &label, std::function<void(ju
     if(captureInputs)captureLiveInputs(before);
     auto draft = before.clone();
     edit(draft);
+    live::preservePlaybackTimebases(before,draft);
     const auto prepared=juce::Time::getHighResolutionTicks();
     // Avoid redundant full-show JSON validation for no-op UI actions.
     if(live::sameShowValue(draft,liveDocument->interfaceState))return;
@@ -2056,7 +2060,9 @@ void Desktop::syncLivePlayback() {
         const auto renderedBars=static_cast<double>(clock.to_ticks(end))/(4.*mrs::ppq*meter.numerator/meter.denominator);
         auto policy=live::preparePerformancePlan(liveDocument->interfaceState,id,projection.time,projection.sections,snapshot->sample_rate,renderedBars);
         if(end>0&&liveDocument->interfaceState["performance"]["arrangement"][juce::Identifier(id)]["length"].isVoid()){
-            policy.end=(std::min)(end,clock.to_samples(static_cast<mrs::Tick>(4096.*4.*mrs::ppq*meter.numerator/meter.denominator)));
+            const auto musicalEnd=clock.to_samples(static_cast<mrs::Tick>(std::llround(
+                live::authoredMusicalEndBars(liveDocument->interfaceState,id)*4.*mrs::ppq*meter.numerator/meter.denominator)));
+            policy.end=(std::min)((std::max)(end,musicalEnd),clock.to_samples(static_cast<mrs::Tick>(4096.*4.*mrs::ppq*meter.numerator/meter.denominator)));
             std::erase_if(policy.sections,[&](const auto& section){return section.start>=policy.end;});
             for(auto& section:policy.sections)if(section.end>policy.end){
                 section.end=policy.end;

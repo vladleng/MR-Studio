@@ -1,5 +1,6 @@
 #include <mrs/desktop.hpp>
 #include <mrs/wav_resample.hpp>
+#include <mrs/playback_preflight.hpp>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -179,8 +180,10 @@ void Application::activate_playback_impl(const std::shared_ptr<PlaybackPreparati
         if(!layout.stems[i].regions){candidate.clips.push_back(sources[i]);continue;}
         for(const auto& region:*layout.stems[i].regions){
             auto clip=sources[i];clip.id=region.id;clip.start=region.start;clip.length=region.length;clip.source_offset=region.offset;
-            require_import(clip.source_offset>=0&&clip.length>0&&clip.source_offset<=job->media->entries[i].data->frames()&&
-                clip.length<=job->media->entries[i].data->frames()-clip.source_offset,"Playback region exceeds source WAV");
+            const auto length=audio::playback_region_length(clip.source_offset,clip.length,job->media->entries[i].data->frames(),region.legacy_silent_tail);
+            require_import(length.has_value(),"Playback region exceeds source WAV");
+            if(!*length)continue;
+            clip.length=*length;
             candidate.clips.push_back(std::move(clip));
         }
     }
@@ -194,7 +197,8 @@ void Application::activate_playback_impl(const std::shared_ptr<PlaybackPreparati
         const double ticksPerBar=4.*ppq*meter.numerator/meter.denominator;Sample end{};
         for(const auto& clip:candidate.clips)end=std::max(end,clip.start+clip.length);
         if(end>0){
-            policy->end=std::min(end,clock.to_samples(static_cast<Tick>(std::llround(4096.*ticksPerBar))));
+            require_import(layout.musical_end>=0&&layout.musical_end<=max_sample,"Invalid musical extent");
+            policy->end=std::min(std::max(end,layout.musical_end),clock.to_samples(static_cast<Tick>(std::llround(4096.*ticksPerBar))));
             std::erase_if(policy->sections,[&](const auto& section){return section.start>=policy->end;});
             for(auto& section:policy->sections)if(section.end>policy->end){
                 section.end=policy->end;

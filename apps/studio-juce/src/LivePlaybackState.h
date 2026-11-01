@@ -201,9 +201,31 @@ inline juce::String playbackTrackId(const juce::var &state,const juce::String &i
         if(track["channelId"].toString()==playbackChannelId(state,row))return track["id"].toString();
     return {};
 }
-inline juce::var playbackRegions(const juce::var &state,const juce::String &item,const juce::var &row) {
+inline double playbackSecondsPerBar(const juce::var &state,const juce::String &item) {
+    const auto source=find(state,"items",item);const auto meter=source["meter"].toString();
+    return 60./static_cast<double>(source["tempo"])*4.*meter.upToFirstOccurrenceOf("/",false,false).getDoubleValue()/
+        meter.fromFirstOccurrenceOf("/",false,false).getDoubleValue();
+}
+inline juce::var storedPlaybackRegions(const juce::var &state,const juce::String &item,const juce::var &row) {
     const auto track=playbackTrackId(state,item,row);
     return track.isEmpty()?row["regions"]:state["performance"]["clips"][juce::Identifier(track)];
+}
+// Audio extents keep their own clock. Bars returned to the editor are a view
+// of the same source seconds at the current musical tempo, not time stretching.
+inline juce::var playbackRegions(const juce::var &state,const juce::String &item,const juce::var &row) {
+    const auto stored=storedPlaybackRegions(state,item,row);
+    if(!stored.isArray())return stored;
+    const double seconds=playbackSecondsPerBar(state,item);
+    bool changed=false;
+    for(const auto& region:*stored.getArray())if(!region["audioSecondsPerBar"].isVoid()&&static_cast<double>(region["audioSecondsPerBar"])!=seconds)changed=true;
+    if(!changed)return stored;
+    auto result=stored.clone();
+    for(auto& region:*result.getArray())if(!region["audioSecondsPerBar"].isVoid()){
+        const double scale=static_cast<double>(region["audioSecondsPerBar"])/seconds;
+        for(const auto* field:{"start","offset","length"})put(region,field,static_cast<double>(region[field])*scale);
+        put(region,"audioSecondsPerBar",seconds);
+    }
+    return result;
 }
 inline void validatePlaybackRegions(const juce::var &rows) {
     if(rows.isVoid())return;
@@ -211,9 +233,12 @@ inline void validatePlaybackRegions(const juce::var &rows) {
     std::set<juce::String> ids;
     for(const auto& row:*rows.getArray()){
         if(!named(row["id"])||!ids.insert(row["id"].toString()).second||!number(row["start"])||!number(row["length"])||!number(row["offset"])||
-            static_cast<double>(row["start"])<0.||static_cast<double>(row["length"])<.25||
+            static_cast<double>(row["start"])<0.||static_cast<double>(row["length"])<=0.||
             static_cast<double>(row["start"])+static_cast<double>(row["length"])>4096.+1.e-7||static_cast<double>(row["offset"])<0. || static_cast<double>(row["offset"])+static_cast<double>(row["length"])>1.e9)
             throw std::runtime_error("Invalid Playback region");
+        const auto clock=row["audioSecondsPerBar"],legacy=row["legacySourceBounds"];
+        if((!clock.isVoid()&&(!number(clock)||static_cast<double>(clock)<=0.||static_cast<double>(clock)>1.e6))||
+           (!legacy.isVoid()&&!legacy.isBool()))throw std::runtime_error("Invalid Playback audio timebase");
     }
 }
 inline void setPlaybackRegions(juce::var &state,const juce::String &item,const juce::String &stem,const juce::var &rows) {
@@ -221,23 +246,38 @@ inline void setPlaybackRegions(juce::var &state,const juce::String &item,const j
     auto row=playbackStem(state,item,stem);
     if(!row.isObject())throw std::runtime_error("Playback source was removed");
     const auto track=playbackTrackId(state,item,row);
-    if(track.isEmpty())put(row,"regions",rows.clone());
-    else put(map(performance(state),"clips"),track,rows.clone());
+    auto saved=rows.clone();
+    for(auto& region:*saved.getArray())put(region,"audioSecondsPerBar",playbackSecondsPerBar(state,item));
+    if(track.isEmpty())put(row,"regions",saved);
+    else put(map(performance(state),"clips"),track,saved);
+}
+inline void pinLegacyPlaybackTimebase(juce::var& state,const juce::String& item,double seconds) {
+    for(const auto& row:playbackRows(state,item)){
+        const auto stored=storedPlaybackRegions(state,item,row);
+        if(!stored.isArray())continue;
+        // state is a detached edit/import candidate; never mutate its input.
+        for(auto& region:*stored.getArray())if(region["audioSecondsPerBar"].isVoid()){
+            put(region,"audioSecondsPerBar",seconds);put(region,"legacySourceBounds",true);
+        }
+    }
+}
+inline void preservePlaybackTimebases(const juce::var& before,juce::var& after) {
+    for(const auto& item:*after["items"].getArray()){
+        const auto id=item["id"].toString();if(!find(before,"items",id).isObject())continue;
+        const auto seconds=playbackSecondsPerBar(before,id);
+        if(seconds!=playbackSecondsPerBar(after,id))pinLegacyPlaybackTimebase(after,id,seconds);
+    }
 }
 inline void resetPlaybackRegions(juce::var &state,const juce::String &item,juce::var row) {
     const auto track=playbackTrackId(state,item,row);
     if(track.isNotEmpty())map(performance(state),"clips").getDynamicObject()->removeProperty(juce::Identifier(track));
     row.getDynamicObject()->removeProperty("regions");
 }
-inline double playbackSecondsPerBar(const juce::var &state,const juce::String &item) {
-    const auto source=find(state,"items",item);const auto meter=source["meter"].toString();
-    return 60./static_cast<double>(source["tempo"])*4.*meter.upToFirstOccurrenceOf("/",false,false).getDoubleValue()/
-        meter.fromFirstOccurrenceOf("/",false,false).getDoubleValue();
-}
 inline juce::var defaultPlaybackRegions(const juce::var &row,double sourceBars,double secondsPerBar) {
     const double start=static_cast<double>(row["trimStart"])/secondsPerBar;
     const double end=row["trimEnd"].isVoid()?sourceBars:static_cast<double>(row["trimEnd"])/secondsPerBar;
     auto region=object();put(region,"id","source");put(region,"start",start);put(region,"length",end-start);put(region,"offset",start);
+    put(region,"audioSecondsPerBar",secondsPerBar);
     return juce::Array<juce::var>{region};
 }
 inline double clipSnap(double value){return std::round(value*4.)/4.;}
@@ -246,9 +286,12 @@ inline juce::var editPlaybackRegion(const juce::var &rows,const juce::String &id
     for(auto& row:*result.getArray())if(row["id"].toString()==id){
         found=true;const double start=row["start"],length=row["length"],offset=row["offset"];
         if(!edge)put(row,"start",juce::jlimit(0.,4096.-length,clipSnap(start+delta)));
-        if(edge<0){const double change=juce::jlimit((std::max)(-start,-offset),length-.25,clipSnap(start+delta)-start);
+        const double minimum=(std::min)(.25,length);
+        if(edge<0){const double change=juce::jlimit((std::max)(-start,-offset),length-minimum,clipSnap(start+delta)-start);
             put(row,"start",start+change);put(row,"offset",offset+change);put(row,"length",length-change);}
-        if(edge>0)put(row,"length",juce::jlimit(.25,(std::min)(sourceBars-offset,4096.-start),clipSnap(start+length+delta)-start));
+        if(edge>0){const double maximum=(std::min)(sourceBars-offset,4096.-start);
+            if(maximum<minimum)throw std::runtime_error("Region source is unavailable; restore the full source or edit its offset");
+            put(row,"length",juce::jlimit(minimum,maximum,clipSnap(start+length+delta)-start));}
     }
     if(!found)throw std::runtime_error("Playback region was removed");
     validatePlaybackRegions(result);return result;

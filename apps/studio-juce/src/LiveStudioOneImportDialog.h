@@ -2,7 +2,6 @@
 #include "Desktop.h"
 #include "LiveContext.h"
 #include "LiveStudioOneImportPlan.h"
-#include "LivePreflightPanel.h"
 #include <algorithm>
 #include <array>
 #include <memory>
@@ -131,7 +130,6 @@ public:
         rebuildSourceList();
     }
     ~LiveStudioOneImportDialog() override {
-        cancelInspection();
         sources.setViewedComponent(nullptr, false);
         rows.clear();
         setLookAndFeel(nullptr);
@@ -205,9 +203,6 @@ private:
     int focused{-1};
     bool syncing{}, previewValid{};
     std::vector<live::StudioOneImportItem> previewPlan;
-    std::shared_ptr<LivePreflightJob> inspection;
-    std::uint64_t previewSerial{};
-    std::vector<std::pair<std::filesystem::path,mrs::audio::PlaybackFileStamp>> previewStamps;
     juce::Label title, sourceName, configureTitle, previewTitle, status;
     juce::TextButton chooseShow;
     std::unique_ptr<juce::FileChooser> showChooser;
@@ -290,13 +285,7 @@ private:
                            " source items  |  " + juce::String(selected) + " selected",
                            juce::dontSendNotification);
     }
-    void cancelInspection() {
-        ++previewSerial;
-        if(inspection){inspection->stop.request_stop();inspection->completion={};}
-        inspection.reset();previewStamps.clear();
-    }
     void invalidatePreview() {
-        cancelInspection();
         updateSelectionCount();
         previewValid = false;
         previewPlan.clear();
@@ -433,7 +422,6 @@ private:
         return result;
     }
     void validatePreview() {
-        cancelInspection();
         previewValid = false;
         importButton.setEnabled(false);
         previewPlan.clear();
@@ -460,29 +448,7 @@ private:
                     explanation += "  Other source warnings: " + source.warnings.joinIntoString("; ") + "\n";
                 explanation += "\n";
             }
-            std::vector<juce::String> targets;
-            for(const auto& request:plan)if(!request.createNewItem)targets.push_back(request.targetItemId);
-            auto checks=live::contextImportPlaybackChecks(originalState,candidate,targets,static_cast<int>(owner->project()->sample_rate));
-            if(checks.empty()){acceptPreview(plan,explanation);return;}
-            previewText.setText(explanation+"\nChecking existing audio regions before import...",false);
-            status.setText("Checking Playback compatibility...",juce::dontSendNotification);
-            const auto serial=previewSerial;
-            inspection=launchLiveInspection(*owner,checks);
-            juce::Component::SafePointer<LiveStudioOneImportDialog> safe(this);
-            inspection->completion=[safe,serial,plan,explanation,checks](auto results){
-                if(!safe||serial!=safe->previewSerial)return;
-                safe->inspection.reset();
-                try{
-                    if(results.size()!=checks.size())throw std::runtime_error("Audio check cancelled; Preview again");
-                    for(std::size_t i=0;i<results.size();++i){
-                        const auto& result=results[i];
-                        if(result.code!=mrs::audio::PlaybackCheckCode::ok||!result.inspected_stamp)
-                            throw std::runtime_error("Imported tempo conflicts with existing Playback: "+result.detail);
-                        safe->previewStamps.push_back({checks[i].file,*result.inspected_stamp});
-                    }
-                    safe->acceptPreview(plan,explanation);
-                }catch(const std::exception& error){safe->blockPreview(juce::String::fromUTF8(error.what()));}
-            };
+            acceptPreview(plan,explanation);
         } catch (const std::exception& error) {
             previewText.setText("PREVIEW BLOCKED\n" + juce::String::fromUTF8(error.what()), false);
             status.setText("Nothing changed. Correct the selection, then Preview again.",
@@ -495,11 +461,6 @@ private:
         importButton.setEnabled(true);
         status.setText("Preview valid. Import applies all selected mappings in one Undo step.",juce::dontSendNotification);
     }
-    void blockPreview(const juce::String& reason) {
-        previewValid=false;previewPlan.clear();previewStamps.clear();importButton.setEnabled(false);
-        previewText.setText("PREVIEW BLOCKED\n"+reason,false);
-        status.setText("Nothing changed. Correct the selection, then Preview again.",juce::dontSendNotification);
-    }
     void commitImport() {
         if (!previewValid || !owner) return;
         bool success = false;
@@ -507,9 +468,6 @@ private:
         owner->run([&] {
             if (!documentCurrent()) throw std::runtime_error("MR Live show changed since preview");
             if (owner->app.recording()) throw std::runtime_error("Stop recording before importing");
-            for(const auto& [file,stamp]:previewStamps)
-                if(mrs::audio::PlaybackFileStamp{std::filesystem::file_size(file),std::filesystem::last_write_time(file)}!=stamp)
-                    throw std::runtime_error("WAV changed after Preview; check the source and Preview again");
             owner->editLiveInterface("Import Studio One Show", [this, &plan](juce::var& state) {
                 if (!live::sameShowValue(state, originalState))
                     throw std::runtime_error("Show changed during Studio One import");

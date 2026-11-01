@@ -215,7 +215,14 @@ void run() {
         source.outputs={9};check(inspect().code==PlaybackCheckCode::outputs,"Preflight explains unavailable physical outputs");
         source.outputs.clear();source.end=10.;check(inspect().code==PlaybackCheckCode::trim,"Preflight rejects out-of-source trim");
         source.end=-1;source.regions=std::vector<PlaybackSourceCheck::Region>{{4790,20}};
-        check(inspect().code==PlaybackCheckCode::regions,"Preflight checks source bounds of audio regions");source.regions.reset();
+        check(inspect().code==PlaybackCheckCode::regions,"Preflight checks source bounds of audio regions");
+        source.regions->front().legacy_silent_tail=true;
+        check(inspect().code==PlaybackCheckCode::ok&&inspect().detail.find("silent")!=std::string::npos,
+              "Legacy missing tail reports silence without rejecting the Item");
+        source.regions->front().offset=9600;
+        check(inspect().code==PlaybackCheckCode::ok,"Legacy wholly unavailable source region is silent");
+        source.regions->front().offset=-1;
+        check(inspect().code==PlaybackCheckCode::regions,"Legacy compatibility never accepts negative source offsets");source.regions.reset();
         source.expected=PlaybackFileStamp{0,std::filesystem::last_write_time(a)};
         check(inspect().code==PlaybackCheckCode::changed,"Preflight detects stale prepared media");source.expected.reset();
         source.file=r;check(inspect().resample&&inspect().frames==4800,"Preflight uses the shared resampler extent");
@@ -307,7 +314,6 @@ void run() {
     arranged.stems[0].regions=std::vector<Application::PlaybackRegion>{
         {{"region-left"},0,1200,0},{{"region-right"},1200,1200,1200}};
     app.activate_playback(first,arranged);
-    const auto originalSource=app.playback_sources().front();
     check(app.services().projects->state().project->clips.size()==2 &&
           app.services().projects->state().project->clips[1].source_offset==1200,
           "Prepared handoff materializes multiple regions and their source offsets");
@@ -321,8 +327,23 @@ void run() {
     const auto priorRegions=app.services().projects->state().project;
     rejects([&]{app.validate_playback_regions(invalidRegions);});
     check(app.services().projects->state().project==priorRegions,"Invalid source offset leaves model/audio unchanged");
+    auto legacy=one;
+    legacy.stems[0].regions=std::vector<Application::PlaybackRegion>{
+        {{"legacy-tail"},0,9600,0,true},{{"legacy-unavailable"},9600,1200,9600,true}};
+    app.activate_playback(first,legacy);
+    check(app.services().projects->state().project->clips.size()==1&&
+          app.services().projects->state().project->clips.front().length==4800,
+          "Legacy activation bounds only audible source data; absent tail remains silent");
+    app.play();render();check(std::abs(out[400]-singleRegion)<.00001f,"Legacy region uses original PCM without stretching");
+    app.seek(5000);render();check(std::abs(out[400])<.00001f,"Legacy out-of-source tail renders silence");app.pause();render();
+    app.set_playback_regions(legacy.stems);
+    check(app.services().projects->state().project->clips.front().length==4800,"Active legacy edit uses the same source-bounded adapter");
+    legacy.stems[0].regions->front().legacy_silent_tail=false;
+    rejects([&]{app.activate_playback(first,legacy);});
+    rejects([&]{app.validate_playback_regions(legacy.stems);});
+    app.activate_playback(first,arranged);
     arranged.stems[0].regions->clear();app.set_playback_regions(arranged.stems);
-    check(app.services().projects->state().project->clips.empty() && app.source_frames(originalSource.id)==4800,
+    check(app.services().projects->state().project->clips.empty() && app.source_frames(app.playback_sources().front().id)==4800,
           "Deleting all regions retains source extent for restore");
     app.set_playback_regions(one.stems);
     check(app.services().projects->state().project->clips.size()==1 &&
@@ -345,12 +366,23 @@ void run() {
           "Automatic transition uses the same running device and engine without stop/start");
     render();check(engine->state().sample==127&&engine->state().playback==PlaybackState::stopped,"Next stop mode executes in the adopted graph");
     auto extended=autoOne;extended.token=102;extended.extend_to_audio=true;extended.performance->end=16*96000;
+    auto importedLength=extended;importedLength.extend_to_audio=false;importedLength.performance->mode=PerformanceMode::stop;
+    app.activate_playback(first,importedLength);app.seek(5000);app.play();render();
+    check(engine->state().sample>5000&&engine->state().playback==PlaybackState::playing&&std::abs(out[400])<.00001f,
+          "Explicit long Item continues in silence after its WAV without stretching or premature stop");
     extended.performance->sections={{0,16*96000,PerformanceMode::loop}};
     extended.performance->mode=PerformanceMode::stop;app.activate_playback(first,extended);
     const auto audioEnd=app.playback_sources().front().length;
     app.seek(audioEnd-10);app.play();render();
     check(engine->state().sample==audioEnd&&engine->state().playback==PlaybackState::stopped,
           "Short audio replaces the sixteen-bar empty default and stops at its exact sample end");
+    auto musicalTail=extended;musicalTail.musical_end=9600;
+    musicalTail.performance->sections={{0,9600,PerformanceMode::normal}};
+    app.activate_playback(first,musicalTail);app.seek(5000);app.play();render();
+    check(engine->state().sample>5000&&engine->state().playback==PlaybackState::playing&&std::abs(out[400])<.00001f,
+          "Implicit Item honors imported musical spans after the shorter WAV ends");
+    app.seek(9590);render();check(engine->state().sample==9600&&engine->state().playback==PlaybackState::stopped,
+          "Implicit Item stops at the authored musical extent after its silent tail");
     auto multiExtent=extended;multiExtent.token=103;multiExtent.stems.resize(2);
     multiExtent.stems[0].end=.05;
     app.activate_playback(second,multiExtent);
