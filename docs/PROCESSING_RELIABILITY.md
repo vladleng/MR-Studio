@@ -392,3 +392,24 @@ live test; the user mentions a small pause in the multitrack material, which doe
 not establish the cause of queue events. The remaining P4 tests are not a gate
 for starting MIDI. #16 and 3e2/3e3 remain separate. No code/build/package change;
 previous immutable package hashes remain. [Handoff](PROJECT_CONTEXT.md).
+
+## Live worker fault recovery after plugin patch loading — fix12 / #31
+
+A plugin patch can temporarily block a channel worker long enough to trigger the
+existing bounded timeout. The callback still latches the processing fault, mutes
+output and leaves the outstanding job's buffers/plugin untouched. It never retries,
+resets a plugin or waits for loading on the audio thread.
+
+Control polling first checks an acquire-loaded worker completion count. While a
+job still owns DSP, polling does not query plugin/controller state. After completion,
+control stops the device, joins every producer, then inspects pending editor edits.
+A standalone Live runtime may reprepare the existing graph with the same device
+handle, insert instances, source/routing/mix and monitoring state. Playback remains
+Stopped/Paused; recovery does not enqueue Play or reload the show.
+
+Only one recovery is allowed per project/plugin-edit revision. A recurring faulty
+processor cannot create an automatic restart loop; a new editor revision or explicit
+reconnect establishes another boundary. Recording and non-worker failures do not
+use this automatic path; Studio does not acquire automatic Live recovery. Existing
+preset latency/IO guards remain. This addresses the synthetic completed-worker fault
+case; physical Omnisphere patch loading and hardware dropouts require user validation.

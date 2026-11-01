@@ -80,10 +80,10 @@ void equivalence() {
     check(rejected,"routing cycle accepted");
 }
 struct TimeoutContext {
-    std::atomic<bool> started{};std::atomic<unsigned> calls{},active{};
+    std::atomic<bool> started{},held{};std::atomic<unsigned> calls{},active{};
     static void job(void* data,std::uint32_t index) noexcept {
         auto& c=*static_cast<TimeoutContext*>(data);++c.calls;
-        if(index==1){++c.active;c.started=true;std::this_thread::sleep_for(std::chrono::milliseconds(80));--c.active;}
+        if(index==1){++c.active;c.started=true;while(c.held.load())std::this_thread::yield();std::this_thread::sleep_for(std::chrono::milliseconds(80));--c.active;}
         else {const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(2);
             while(!c.started.load()&&std::chrono::steady_clock::now()<until)std::this_thread::yield();}
     }
@@ -149,12 +149,15 @@ void ownership() {
     };
     RenderGraph g;g.mixer.resize(2);g.inserts={slow_chain(0),slow_chain(1)};
     AudioEngine engine;RenderConfig cfg{48000,0,2,128,128,2};cfg.worker_wait_ms=1;cfg.adaptive_parallel=false;engine.prepare(cfg,g);
+    slow.held=true;
+    struct Release {TimeoutContext& context;~Release(){context.held=false;}} release{slow};
     std::array<float,256> output{};engine.process(nullptr,output.data(),128);
     check(engine.metrics().processing_fault&&engine.metrics().worker_timeouts==1,"engine fault not latched");
     check(std::all_of(output.begin(),output.end(),[](float x){return x==0;}),"timeout output not silent");
     check(engine.enqueue({ControlKind::stop}),"queued stop");engine.process(nullptr,output.data(),128);
     check(slow.calls==2,"engine retried incomplete plugin batch");
-    engine.quiesce();check(slow.active==0,"engine state access before worker quiescence");
+    check(!engine.processing_workers_idle(),"Incomplete DSP remains visible to nonblocking recovery readiness");
+    slow.held=false;engine.quiesce();check(slow.active==0&&engine.processing_workers_idle(),"engine state access before worker quiescence");
     engine.prepare({48000,0,2,128},{});check(!engine.metrics().processing_fault,"reprepare did not clear fault");
     // Raw recording tap remains before parallel inserts and PDC.
     const auto path=std::filesystem::temp_directory_path()/std::filesystem::path("mrs-parallel-raw-"+new_id().value+".wav");

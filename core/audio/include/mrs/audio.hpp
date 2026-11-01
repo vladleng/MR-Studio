@@ -300,6 +300,7 @@ public:
     };
     TimingPlan prepare_timing(const Project&,std::span<const Id>,bool capture_voices=false) const; // control thread; no mutation
     void swap_timing(TimingPlan&,bool midi_only=false); // stopped/joined; MIDI-only retains timing/loop
+    bool processing_workers_idle() const noexcept; // control-thread only, no DSP access
     void quiesce() noexcept; // device stopped, before plugin state/editor access
     bool enqueue(Control) noexcept;
     bool enqueue_mix(const MixerUpdate&) noexcept;

@@ -21,6 +21,7 @@ struct PlaybackCheckResult {
     std::uint32_t source_rate{};
     Sample frames{};
     bool resample{};
+    std::optional<PlaybackFileStamp> inspected_stamp;
 };
 std::vector<PlaybackCheckResult> check_playback_sources(std::span<const PlaybackSourceCheck>,
     std::uint32_t target_rate,std::span<const int> active_outputs,std::stop_token={});

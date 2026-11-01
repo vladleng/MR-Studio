@@ -3,6 +3,10 @@
 namespace mrs::audio {
 // Tests only: device MUST be stopped/manually driven. No production injection API.
 struct AudioEngineTestAccess {
+    static void worker_timeout(AudioEngine& engine) {
+        engine.worker_timeouts_.fetch_add(1);
+        engine.processing_fault_.store(true);
+    }
     struct Busy {
         AudioEngine& engine;
         explicit Busy(AudioEngine& e):engine(e){engine.sequence_.fetch_add(1);}
