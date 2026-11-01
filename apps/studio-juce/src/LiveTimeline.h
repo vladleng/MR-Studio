@@ -127,6 +127,7 @@ class LiveTimeline final : public juce::Component {
         auto key=juce::String(static_cast<juce::int64>(owner.liveDocumentGeneration))+"|"+
                  juce::String(static_cast<juce::int64>(owner.liveUiRevision))+"|"+
                  juce::String(static_cast<juce::int64>(owner.livePlaybackFoldRevision))+"|"+
+                 juce::String(static_cast<juce::int64>(owner.liveEdits.timeline))+"|"+
                  next["currentItem"].toString()+"|"+next["activeSetlist"].toString();
         if (owner.livePlaybackReady()) {
             const auto clip = owner.app.playback_sources().front();
@@ -158,6 +159,11 @@ class LiveTimeline final : public juce::Component {
                 syncChannel();
                 body.repaint();
             }
+            if(observedPaintRevision!=owner.liveEdits.paint) {
+                observedPaintRevision=owner.liveEdits.paint;state=next;
+                for(auto& item:items)item.value=live::find(next,"items",item.value["id"].toString());
+                body.repaint();
+            }
             if (focused)
                 revealSelection();
             else if (started)
@@ -171,6 +177,7 @@ class LiveTimeline final : public juce::Component {
         signature = key;
         observedMixRevision=owner.liveChannelMixRevision;
         state = next;
+        observedPaintRevision=owner.liveEdits.paint;
         layout();
         syncChannel();
         if (selectionChanged || focused)
@@ -275,9 +282,7 @@ class LiveTimeline final : public juce::Component {
             if (result == 10) {
                 const auto channel = live::find(safe->liveDocument->interfaceState, "channels", id);
                 safe->textDialog("Channel name", channel["name"].toString(), [safe, id](auto name) {
-                    if (safe && name.trim().isNotEmpty()) safe->run([&] { safe->editLiveInterface("Rename channel", [&](auto &state) {
-                        live::put(live::require(state, "channels", id), "name", name.trim());
-                    }); });
+                    if (safe && name.trim().isNotEmpty()) safe->run([&] { safe->renameLiveObject("channels",id,name); });
                 }); return;
             }
             safe->run([&] { safe->editLiveInterface(result == 11 ? "Remove channel" : "Add channel", [&](auto &state) {
@@ -465,9 +470,7 @@ class LiveTimeline final : public juce::Component {
                 return;
             for (const auto &item : parent.items) {
                 if (event.y < headerHeight && event.x >= item.bounds.getRight() - 24 && item.bounds.contains(event.getPosition()) && item.entry.isNotEmpty()) {
-                    parent.owner.run([&] { parent.owner.editLiveInterface("Fold item", [&](auto &state) {
-                        live::put(live::map(live::performance(state), "collapsedItems"), item.entry, !item.collapsed);
-                    }); });
+                    parent.owner.run([&] { parent.owner.setLivePresentation("collapsedItems",!item.collapsed,item.entry); });
                     return;
                 }
             }
@@ -609,7 +612,7 @@ class LiveTimeline final : public juce::Component {
                 // show (which can contain multi-megabyte VST3 state).
                 originalState=parent.state;
                 editGeneration=parent.owner.liveDocumentGeneration;
-                editRevision=parent.owner.liveUiRevision;
+                editRevision=parent.owner.liveUiRevision;editMutation=parent.owner.liveEdits.mutation;
                 editingItem=item;dragStart=event.position.x;dragPosition=dragStart;dragScreenX=static_cast<float>(event.getScreenPosition().x);
                 const auto screenPoint=event.getScreenPosition().toFloat();
                 screenUnits=getLocalPoint(nullptr,screenPoint.translated(1.f,0.f)).x-getLocalPoint(nullptr,screenPoint).x;
@@ -685,14 +688,14 @@ class LiveTimeline final : public juce::Component {
                     // No complete show clone/JSON serialization on mouse-down.
                     previewViewValue=viewKey=="lead"?item.lead:item.bars;
                     editGeneration=parent.owner.liveDocumentGeneration;
-                    editRevision=parent.owner.liveUiRevision;
+                    editRevision=parent.owner.liveUiRevision;editMutation=parent.owner.liveEdits.mutation;
                     invalid=false;editing=true;return true;
                 }
                 // Defer full show copy to a *real drag*. A simple mouse-down
                 // on section/chord must stay O(1) with respect to VST3 state.
                 originalState=parent.state;
                 editGeneration=parent.owner.liveDocumentGeneration;
-                editRevision=parent.owner.liveUiRevision;
+                editRevision=parent.owner.liveUiRevision;editMutation=parent.owner.liveEdits.mutation;
                 clipSelection.clear();
                 selectedItem=id;selectedLane=event.y<lanesTop-chordHeight?live::MusicalLane::sections:live::MusicalLane::chords;
                 const auto target=live::musicalHit(live::musicalRows(parent.state,id,selectedLane),barAt(item,event.position.x),5./item.scale);
@@ -731,16 +734,31 @@ class LiveTimeline final : public juce::Component {
                 parent.layout();parent.playhead.update();repaint();
                 return;
             }
-            auto preview=originalState.clone();
             try {
+                live::EditPath path;
+                juce::var changedRows;
                 if(clipEditing) {
                     const auto next=live::editPlaybackRegion(editRows,clipSelection,delta,clipEdge,clipSourceBars);
-                    live::setPlaybackRegions(preview,clipItem,clipStem,next);
+                    live::validatePlaybackRegions(next);
+                    const auto stem=live::playbackStem(originalState,clipItem,clipStem);
+                    const auto track=live::playbackTrackId(originalState,clipItem,stem);
+                    if(track.isNotEmpty())path={"performance","clips",track};
+                    else {
+                        path={"performance","nativePlayback",clipItem};
+                        if(clipStem.isNotEmpty()){path.emplace_back("stems");path.push_back(live::EditStep::id(clipStem));}
+                        path.emplace_back("regions");
+                    }
+                    changedRows=next;
                 } else {
                     const auto next=live::editMusicalSpan(editRows,selection,delta,mode,selectedLane,copy);
-                    live::setMusicalRows(preview,selectedItem,selectedLane,next);
+                    live::validateMusicalRows(next,selectedLane);
+                    path=selectedLane==live::MusicalLane::sections?
+                        live::EditPath{"items",live::EditStep::id(selectedItem),"sections"}:
+                        live::EditPath{"performance","chords",selectedItem};
+                    changedRows=next;
                 }
-                invalid=false; parent.state=preview; parent.layout(); parent.playhead.update(); repaint();
+                const auto patch=live::valuePatch(originalState,std::move(path),changedRows);
+                invalid=false; parent.state=patch.apply(originalState,true); parent.layout(); parent.playhead.update(); repaint();
             }catch(const std::exception &e){invalid=true;setTooltip(juce::String::fromUTF8(e.what()));repaint();}
         }
         void finishEdit() {
@@ -753,7 +771,7 @@ class LiveTimeline final : public juce::Component {
                 editing=false;parent.layout();parent.playhead.update();repaint();
                 if(!changed || result==initial || !parent.owner.liveDocument ||
                    parent.owner.liveDocumentGeneration!=editGeneration ||
-                   parent.owner.liveUiRevision!=editRevision)return;
+                   parent.owner.liveUiRevision!=editRevision||parent.owner.liveEdits.mutation!=editMutation)return;
                 if(key=="lead")
                     parent.owner.run([&]{parent.owner.editLiveItemView(id,"lead",result);});
                 else // The explicit length can affect Playback's authored extent.
@@ -775,7 +793,7 @@ class LiveTimeline final : public juce::Component {
             parent.state=parent.owner.liveDocument->interfaceState;parent.layout();parent.playhead.update();repaint();
             if(!parent.owner.liveDocument ||
                parent.owner.liveDocumentGeneration!=editGeneration ||
-               parent.owner.liveUiRevision!=editRevision)return;
+               parent.owner.liveUiRevision!=editRevision||parent.owner.liveEdits.mutation!=editMutation)return;
             parent.owner.run([&]{parent.owner.editLiveInterface(clipEditing?"Edit Playback region":viewKey.isNotEmpty()?"Item "+viewKey:"Edit musical span",[&](auto &state){
                 if(clipEditing) live::setPlaybackRegions(state,clipItem,clipStem,live::playbackRegions(next,clipItem,live::playbackStem(next,clipItem,clipStem)));
                 else if(viewKey.isNotEmpty()) {
@@ -877,7 +895,7 @@ class LiveTimeline final : public juce::Component {
         live::SpanGesture mode{live::SpanGesture::move};
         juce::String selectedItem,selection,viewKey;
         double previewViewValue{};
-        std::uint64_t editGeneration{},editRevision{};
+        std::uint64_t editGeneration{},editRevision{},editMutation{};
         juce::var originalState,editRows;
 
       private:
@@ -1347,7 +1365,7 @@ class LiveTimeline final : public juce::Component {
     juce::String stemControlsKey;
     juce::var state;
     juce::String signature, revealedItem;
-    std::uint64_t observedMixRevision{~std::uint64_t{0}};
+    std::uint64_t observedMixRevision{~std::uint64_t{0}},observedPaintRevision{~std::uint64_t{0}};
     std::vector<Item> items;
     std::string activeSection, activeChord;
     std::uint64_t focusRevision{};

@@ -329,8 +329,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
                 return;
             if (action == 2)
                 openLiveCardEditor(safe->owner, safe->reference.defaults["itemCardLayout"]);
-            else if(action==104){safe->owner.run([&]{safe->owner.editLiveInterface("Back to start",[&](auto& state){
-                live::put(live::performance(state),"backToStart",!static_cast<bool>(state["performance"]["backToStart"]));});});}
+            else if(action==104){safe->owner.run([&]{safe->owner.setLivePresentation("backToStart",!static_cast<bool>(
+                safe->owner.liveDocument->interfaceState["performance"]["backToStart"]));});}
             else if (action == 103) {
                 safe->owner.view.liveRestoreLastShow = !safe->owner.view.liveRestoreLastShow;
                 safe->owner.run([&] { safe->owner.saveSettings(); });

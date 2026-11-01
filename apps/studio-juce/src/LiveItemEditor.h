@@ -6,7 +6,7 @@
 namespace ui {
 class LiveOrganizer final : public juce::Component, private juce::Timer {
   public:
-    LiveOrganizer(Desktop &desktop, juce::String item) : owner(&desktop), itemId(std::move(item)) {
+    LiveOrganizer(Desktop &desktop, juce::String item) : owner(&desktop), itemId(std::move(item)), documentGeneration(desktop.liveDocumentGeneration) {
         addAndMakeVisible(tree);
         addAndMakeVisible(addRoot);
         addAndMakeVisible(useTemplate);
@@ -19,10 +19,10 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
         addRoot.setButtonText("   + New sub-item");
         useTemplate.setButtonText("   Create optional template");
         addRoot.onClick = [this] {
-            if(owner)owner->run([&] {owner->editLiveOrganizerTasks(itemId,"add");});
+            if(owner&&documentGeneration==owner->liveDocumentGeneration)owner->run([&] {owner->editLiveOrganizerTasks(itemId,"add");});
         };
         useTemplate.onClick = [this] {
-            if(owner)owner->run([&] {owner->editLiveOrganizerTasks(itemId,"template");});
+            if(owner&&documentGeneration==owner->liveDocumentGeneration)owner->run([&] {owner->editLiveOrganizerTasks(itemId,"template");});
         };
         startTimerHz(10);
         rebuild();
@@ -100,12 +100,12 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
             add.setComponentID("live-organizer-add-" + taskId);
             remove.setComponentID("live-organizer-remove-" + taskId);
             add.onClick = [this] {
-                if(host.owner)host.owner->run([&] {
+                if(host.owner&&host.documentGeneration==host.owner->liveDocumentGeneration)host.owner->run([&] {
                     host.owner->editLiveOrganizerTasks(host.itemId,"add",taskId);
                 });
             };
             remove.onClick = [this] {
-                if(host.owner)host.owner->run([&] {
+                if(host.owner&&host.documentGeneration==host.owner->liveDocumentGeneration)host.owner->run([&] {
                     host.owner->editLiveOrganizerTasks(host.itemId,"remove",taskId);
                 });
             };
@@ -152,7 +152,7 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
                 return; // Late focus-loss must not overwrite an Undo.
             }
             if(percent.getText()==observedProgress)return;
-            if(host.owner)host.owner->run([&] {
+            if(host.owner&&host.documentGeneration==host.owner->liveDocumentGeneration)host.owner->run([&] {
                 const auto text=percent.getText().trim().toStdString();
                 std::size_t used=0;
                 const auto value=std::stod(text,&used);
@@ -180,10 +180,10 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
         return {};
     }
     void changeTask(const juce::String& id,const juce::Identifier& key,const juce::var& value) {
-        if(owner)owner->run([&] {owner->setLiveOrganizerField(itemId,id,key,value);});
+        if(owner&&documentGeneration==owner->liveDocumentGeneration)owner->run([&] {owner->setLiveOrganizerField(itemId,id,key,value);});
     }
     void edit(const juce::String &label, std::function<void(juce::var &)> action, bool typing = false) {
-        if (owner) owner->run([&] { owner->editLiveInterface(label, std::move(action), typing); });
+        if (owner&&documentGeneration==owner->liveDocumentGeneration) owner->run([&] { owner->editLiveInterface(label, std::move(action), typing); });
     }
     void append(Node &parent, const juce::var &entries, const juce::var &parentId, int depth) {
         if (depth > 8)
@@ -213,23 +213,24 @@ class LiveOrganizer final : public juce::Component, private juce::Timer {
     void timerCallback() override {
         const auto *focused = juce::Component::getCurrentlyFocusedComponent();
         const bool typing = dynamic_cast<const juce::TextEditor *>(focused) && tree.isParentOf(focused);
-        if (owner && isShowing() && !typing && observed != owner->liveUiRevision) {
-            observed = owner->liveUiRevision;
+        if (owner && documentGeneration==owner->liveDocumentGeneration && isShowing() && !typing && (observed != owner->liveUiRevision || observedEdit != owner->liveEdits.editor)) {
+            observed = owner->liveUiRevision;observedEdit=owner->liveEdits.editor;
             if (taskSignature != live::canonical(live::tasks(data(), itemId))) rebuild();
         }
     }
     juce::Component::SafePointer<Desktop> owner;
     juce::String itemId;
+    std::uint64_t documentGeneration{};
     juce::TreeView tree;
     std::unique_ptr<Node> root;
     juce::SharedResourcePointer<LiveContextArt> art;
     LiveContextAction addRoot, useTemplate;
-    std::uint64_t observed{};
+    std::uint64_t observed{},observedEdit{};
     juce::String taskSignature;
 };
 class LiveItemEditor final : public juce::Component, private juce::Timer {
   public:
-    LiveItemEditor(Desktop &desktop, const juce::String &id) : owner(&desktop), itemId(id), organizer(desktop, id) {
+    LiveItemEditor(Desktop &desktop, const juce::String &id) : owner(&desktop), itemId(id), documentGeneration(desktop.liveDocumentGeneration), organizer(desktop, id) {
         setName("Item context panel");
         setComponentID("live-item-context");
         getProperties().set("mrLiveShowEditor", true);
@@ -292,7 +293,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
             button->setArt(i == 0 ? art->expand.get() : nullptr);
             button->onClick = [this, i] {
                 const std::array<int, 3> commands{13, 6, 12};
-                if (action) action(commands[static_cast<std::size_t>(i)]);
+                if (action&&owner&&documentGeneration==owner->liveDocumentGeneration) action(commands[static_cast<std::size_t>(i)]);
             };
             addAndMakeVisible(*button);
             actions.push_back(std::move(button));
@@ -305,7 +306,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
                 close();
         };
         saveAll.onClick = [this] {
-            if(owner)owner->run([&] {owner->saveLiveItemForAll(itemId);});
+            if(owner&&documentGeneration==owner->liveDocumentGeneration)owner->run([&] {owner->saveLiveItemForAll(itemId);});
         };
         name.setComponentID("live-item-name");
         status.setComponentID("live-item-status");
@@ -401,7 +402,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
 
   private:
     void commitRootName() {
-        if (!owner || !owner->liveDocument || name.getText() == observedName) return;
+        if (!owner || !owner->liveDocument || documentGeneration!=owner->liveDocumentGeneration || name.getText() == observedName) return;
         const auto current = live::find(owner->liveDocument->interfaceState, "items", itemId)["name"].toString();
         if (current != observedName) {
             name.setText(current, false);
@@ -426,7 +427,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         }
     }
     void commitRootWorkflow(const juce::Identifier& field) {
-        if (!owner || !owner->liveDocument) return;
+        if (!owner || !owner->liveDocument || documentGeneration!=owner->liveDocumentGeneration) return;
         if(field==juce::Identifier("progress")) {
             if(live::tasks(owner->liveDocument->interfaceState,itemId).size())return;
             const auto current=juce::String(live::progress(owner->liveDocument->interfaceState,itemId));
@@ -450,16 +451,17 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         }
     }
     void timerCallback() override {
-        if (!owner || !owner->liveDocument)
-            return;
+        if(!owner)return;
+        if(!owner->liveDocument||documentGeneration!=owner->liveDocumentGeneration){if(close)close();return;}
         const auto state = owner->liveDocument->interfaceState;
         if (!live::find(state, "items", itemId).isObject()) {
             if (close)
                 close();
             return;
         }
-        if (observedRevision != owner->liveUiRevision) {
+        if (observedRevision != owner->liveUiRevision || observedEditRevision != owner->liveEdits.editor) {
             observedRevision = owner->liveUiRevision;
+            observedEditRevision = owner->liveEdits.editor;
             const auto mirror = [](juce::TextEditor& field, juce::String& observed,
                                    const juce::String& model) {
                 // Preserve unfinished drafts, but update focused fields on Undo.
@@ -555,7 +557,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         return value;
     }
     void commitProperty(juce::TextEditor &field) {
-        if (!owner || !owner->liveDocument) return;
+        if (!owner || !owner->liveDocument || documentGeneration!=owner->liveDocumentGeneration) return;
         const bool notesField = &field == &notes;
         if (notesField && field.getText() == observedNotes) return;
         auto& observed = &field == &tempo ? observedTempo :
@@ -607,7 +609,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
         }
     }
     void commitMeter() {
-        if (!owner || !owner->liveDocument) return;
+        if (!owner || !owner->liveDocument || documentGeneration!=owner->liveDocumentGeneration) return;
         const auto current = live::find(owner->liveDocument->interfaceState, "items", itemId)["meter"].toString();
         if (meter.getText() == current) return;
         try {
@@ -622,6 +624,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
     }
     juce::Component::SafePointer<Desktop> owner;
     juce::String itemId;
+    std::uint64_t documentGeneration{};
     std::function<void(int)> action;
     juce::String observedNotes, observedName, observedTempo, observedKey, observedDuration, observedRootProgress;
     std::uint64_t observedNotesRevision{~std::uint64_t{0}};
@@ -636,7 +639,7 @@ class LiveItemEditor final : public juce::Component, private juce::Timer {
     juce::ComboBox priority, meter;
     juce::Label error;
     juce::SharedResourcePointer<LiveContextArt> art;
-    std::uint64_t observedRevision{~std::uint64_t{0}};
+    std::uint64_t observedRevision{~std::uint64_t{0}},observedEditRevision{~std::uint64_t{0}};
     std::vector<std::unique_ptr<LiveContextAction>> actions;
     juce::TextButton cancel{"Cancel"}, saveAll{"Save for All"};
 };

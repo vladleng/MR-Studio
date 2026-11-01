@@ -5,6 +5,7 @@
 #include "../../../tests/live_clip_edit_checks.hpp"
 #include "../../../tests/live_performance_checks.hpp"
 #include "../../../tests/live_show_value_checks.hpp"
+#include "../../../tests/live_edit_protocol_checks.hpp"
 #include "../../../tests/live_show_context_import_checks.hpp"
 #include "../../../tests/live_studio_one_reader_checks.hpp"
 #include "../../../tests/live_studio_one_import_plan_checks.hpp"
@@ -124,6 +125,7 @@ void liveItemEditorCommitSmoke(const juce::File& fixture) {
     liveCheck(name&&key&&tempo&&duration&&meter,"#31 Item Editor exposes native controls");
     const auto originalName = initial["name"].toString();
     const auto beforeRevision = host.liveUiRevision;
+    const auto beforeEditRevision = host.liveEdits.mutation;
     name->setText("Draft title",true);
     name->setText("Final item title",true);
     liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["name"].toString()==originalName &&
@@ -131,7 +133,7 @@ void liveItemEditorCommitSmoke(const juce::File& fixture) {
               "#31 Typing must not edit show or clone VST3 state");
     name->onReturnKey();
     liveCheck(live::find(host.liveDocument->interfaceState,"items",id)["name"].toString()=="Final item title" &&
-              host.liveUiRevision==beforeRevision+1,
+              host.liveUiRevision==beforeRevision&&host.liveEdits.mutation==beforeEditRevision+1,
               "#31 Item name commits once via scalar Undo");
     host.undoLiveInterface();
     name->onFocusLost();
@@ -212,12 +214,13 @@ void liveOrganizerCommitSmoke(const juce::File& fixture) {
     auto* status=dynamic_cast<LiveStatusBox*>(liveComponent(editor,"live-organizer-status-"+taskId));
     liveCheck(title&&percent&&status,"#31 Organizer task controls are native and discoverable");
     const auto before=host.liveUiRevision;
+    const auto beforeEdit=host.liveEdits.mutation;
     title->setText("Typing draft",true);
     title->setText("Confirmed task title",true);
     liveCheck(task()["title"].toString()=="Original organizer title"&&host.liveUiRevision==before,
               "#31 Task title draft must not change show or Undo per keystroke");
     title->onReturnKey();
-    liveCheck(task()["title"].toString()=="Confirmed task title"&&host.liveUiRevision==before+1,
+    liveCheck(task()["title"].toString()=="Confirmed task title"&&host.liveUiRevision==before&&host.liveEdits.mutation==beforeEdit+1,
               "#31 Task title commit uses scalar Undo exactly once");
     host.undoLiveInterface();
     title->onFocusLost();
@@ -332,14 +335,15 @@ void liveOrganizerStructuralAndSavedItemSmoke(const juce::File& fixture) {
         if(taskMap.isObject())
             taskMap.getDynamicObject()->removeProperty(juce::Identifier(id));
     });
-    const auto* showRoot=host.liveDocument->interfaceState.getDynamicObject();
+    const auto showChannels=host.liveDocument->interfaceState["channels"];
     const int initial=live::tasks(host.liveDocument->interfaceState,id).size();
     const auto revision=host.liveUiRevision;
+    const auto editRevision=host.liveEdits.mutation;
     host.editLiveOrganizerTasks(id,"add");
     auto rows=live::tasks(host.liveDocument->interfaceState,id);
-    liveCheck(rows.size()==initial+1&&host.liveUiRevision==revision+1&&
-              host.liveDocument->interfaceState.getDynamicObject()==showRoot,
-              "#31 Fast add-root applies one small Undo and keeps show/VST3 root");
+    liveCheck(rows.size()==initial+1&&host.liveUiRevision==revision&&host.liveEdits.mutation==editRevision+1&&
+              host.liveDocument->interfaceState["channels"].getArray()==showChannels.getArray(),
+              "#31 Fast add-root applies one small Undo and retains untouched VST3/channel state");
     const auto rootTask=rows[rows.size()-1]["id"].toString();
     LiveItemEditor editor(host,id);
     // JUCE TreeView creates TaskRow controls only once the host is visible.
@@ -369,8 +373,8 @@ void liveOrganizerStructuralAndSavedItemSmoke(const juce::File& fixture) {
     host.undoLiveInterface(true);
     liveCheck(live::tasks(host.liveDocument->interfaceState,id).size()==initial,
               "#31 Parent removal Redo removes branch");
-    const auto* rootAfter=host.liveDocument->interfaceState.getDynamicObject();
-    liveCheck(rootAfter==showRoot,"#31 Task add/remove never clones full show");
+    const auto* rootAfter=host.liveDocument->interfaceState["channels"].getArray();
+    liveCheck(rootAfter==showChannels.getArray(),"#31 Task add/remove never clones full show");
     // Save for All writes one Browser snapshot; show fields are untouched.
     const auto oldTitle=live::find(host.liveDocument->interfaceState,"items",id)["name"].toString();
     const auto nextTitle=oldTitle+" (fast saved)";
@@ -384,7 +388,7 @@ void liveOrganizerStructuralAndSavedItemSmoke(const juce::File& fixture) {
     saveButton->onClick();
     liveCheck(live::libraryItem(host.liveDocument->interfaceState,id)["name"].toString()==nextTitle&&
               !live::itemDirty(host.liveDocument->interfaceState,id)&&
-              host.liveDocument->interfaceState.getDynamicObject()==showRoot,
+              host.liveDocument->interfaceState["channels"].getArray()==showChannels.getArray(),
               "#31 Save for All updates Browser version without cloning show");
     host.undoLiveInterface();
     liveCheck(live::itemDirty(host.liveDocument->interfaceState,id),
@@ -434,7 +438,7 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
     notesHost.importLiveShow(fixture);
     settleStartup(notesHost);
     const auto itemId=notesHost.liveDocument->interfaceState["currentItem"].toString();
-    const auto* root=notesHost.liveDocument->interfaceState.getDynamicObject();
+    const auto notesChannels=notesHost.liveDocument->interfaceState["channels"];
     const auto structure=notesHost.liveUiRevision;
     auto* list=dynamic_cast<LiveSetlist*>(liveComponent(notesHost,"live-setlist"));
     liveCheck(list!=nullptr,"#31 Notes fixture has real Setlist cards");
@@ -470,12 +474,9 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
               "#31 Notes contracts to one line after removing longer text");
     notesHost.setLiveItemNotes(itemId,"cached notes #1");
     notesHost.setLiveItemNotes(itemId,"cached notes #2");
-    liveCheck(notesHost.liveNotesBytesRevision==notesHost.liveUiRevision&&
-              notesHost.liveNotesBytesGeneration==notesHost.liveDocumentGeneration&&
-              notesHost.liveNotesBytes==static_cast<std::int64_t>(
-                  juce::JSON::toString(notesHost.liveDocument->interfaceState).getNumBytesAsUTF8())&&
-              notesHost.liveDocument->interfaceState.getDynamicObject()==root,
-              "#31 Consecutive Notes updates retain exact byte limit without full-show clone");
+    liveCheck(notesHost.liveCachedEditBytes()==live::editJsonBytes(notesHost.liveDocument->interfaceState)&&
+              notesHost.liveDocument->interfaceState["channels"].getArray()==notesChannels.getArray(),
+              "#31 Consecutive Notes updates retain exact budget and share untouched VST3/channel state");
     list->refresh();
     if(notesHost.liveUiRevision!=structure)
         throw std::runtime_error(("#31 Notes typing changed structural UI revision: before="+
@@ -485,9 +486,9 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
               "#31 Notes typing preserves the original Setlist card");
     const auto prevRevision=notesHost.liveNotesRevision;
     notesHost.undoLiveInterface();
-    liveCheck(notesHost.liveNotesRevision>prevRevision &&
-              notesHost.liveNotesBytesTextRevision!=notesHost.liveNotesRevision,
-              "#31 Notes Undo invalidates text byte cache without a structural refresh");
+    liveCheck(notesHost.liveNotesRevision>prevRevision&&
+              notesHost.liveCachedEditBytes()==live::editJsonBytes(notesHost.liveDocument->interfaceState),
+              "#31 Notes Undo updates the shared byte budget without a structural refresh");
     const auto undone=live::find(notesHost.liveDocument->interfaceState,"items",itemId)["notes"].toString();
     notes->onFocusLost();
     liveCheck(live::find(notesHost.liveDocument->interfaceState,"items",itemId)["notes"].toString()==undone,
@@ -496,7 +497,7 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
     livePump();
     liveCheck(notes->getText()==live::find(notesHost.liveDocument->interfaceState,"items",itemId)["notes"].toString(),
               "#31 Separate Notes revision mirrors Redo into the editor");
-    const auto savePath=fixture.getSiblingFile("notes-musical-names-fix8.mrlive");
+    const auto savePath=fixture.getSiblingFile("notes-musical-names-fix9.mrlive");
     notesHost.saveFile(savePath);
     auto reopened=LiveDocument::read(savePath);
     liveCheck(live::find(reopened.interfaceState,"items",itemId)["notes"].toString()==
@@ -508,18 +509,14 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
     notesHost.setLivePlaybackStemsExpanded(folded);
     liveCheck(notesHost.liveDirty,
               "#31 Fold clean baseline cannot erase a newer Notes dirty state");
-    liveCheck(notesHost.liveNotesBytesRevision!=notesHost.liveUiRevision,
-              "#31 Fold invalidates the Notes JSON size cache");
+    liveCheck(notesHost.liveCachedEditBytes()==live::editJsonBytes(notesHost.liveDocument->interfaceState),
+              "#31 Fold updates the same exact document byte budget as Notes");
     notesHost.setLiveItemNotes(itemId,"Short");
-    liveCheck(notesHost.liveNotesBytesRevision!=notesHost.liveUiRevision,
-              "#31 Shrinking Notes does not require rebuilding an invalid JSON size cache");
+    liveCheck(notesHost.liveCachedEditBytes()==live::editJsonBytes(notesHost.liveDocument->interfaceState),
+              "#31 Shrinking Notes updates the shared budget with a local delta");
     notesHost.setLiveItemNotes(itemId,"Short plus a growing note rebuilds the exact cache after fold");
-    liveCheck(notesHost.liveNotesBytesRevision==notesHost.liveUiRevision&&
-              notesHost.liveNotesBytesTextRevision==notesHost.liveNotesRevision&&
-              notesHost.liveNotesBytesGeneration==notesHost.liveDocumentGeneration&&
-              notesHost.liveNotesBytes==static_cast<std::int64_t>(
-                  juce::JSON::toString(notesHost.liveDocument->interfaceState).getNumBytesAsUTF8()),
-              "#31 Growing Notes rebuilds the exact JSON size cache after fold");
+    liveCheck(notesHost.liveCachedEditBytes()==live::editJsonBytes(notesHost.liveDocument->interfaceState),
+              "#31 Growing Notes retains the exact JSON size budget after fold");
     savePath.deleteFile();
 
     Desktop musicalHost(true,false,true);
@@ -539,8 +536,9 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
         live::MusicalLane::sections)[0]["id"].toString();
     const auto chord=live::musicalRows(musicalHost.liveDocument->interfaceState,musicalId,
         live::MusicalLane::chords)[0]["id"].toString();
-    const auto* musicalRoot=musicalHost.liveDocument->interfaceState.getDynamicObject();
+    const auto musicalChannels=musicalHost.liveDocument->interfaceState["channels"];
     const auto revision=musicalHost.liveUiRevision;
+    const auto musicalEdits=musicalHost.liveEdits.mutation;
     LiveMusicalEditor sectionEditor(musicalHost,musicalId,live::MusicalLane::sections,sec);
     auto* secName=dynamic_cast<juce::TextEditor*>(liveComponent(sectionEditor,"live-musical-name"));
     liveCheck(secName&&!liveComponent(sectionEditor,"live-musical-apply"),
@@ -550,8 +548,8 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
     const auto sectionRow=[&] {return live::spanById(live::musicalRows(
         musicalHost.liveDocument->interfaceState,musicalId,live::MusicalLane::sections),sec);};
     liveCheck(sectionRow()["name"].toString()=="New Intro" &&
-              musicalHost.liveUiRevision==revision+1&&
-              musicalHost.liveDocument->interfaceState.getDynamicObject()==musicalRoot,
+              musicalHost.liveUiRevision==revision&&musicalHost.liveEdits.mutation==musicalEdits+1&&
+              musicalHost.liveDocument->interfaceState["channels"].getArray()==musicalChannels.getArray(),
               "#31 Section typing immediately changes name through one scalar Undo");
     musicalHost.undoLiveInterface();
     liveCheck(sectionRow()["name"].toString()=="Verse","#31 Section rename Undo");
@@ -566,7 +564,7 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
     const auto chordRow=[&] {return live::spanById(live::musicalRows(
         musicalHost.liveDocument->interfaceState,musicalId,live::MusicalLane::chords),chord);};
     liveCheck(chordRow()["symbol"].toString()=="Dm9"&&
-              musicalHost.liveDocument->interfaceState.getDynamicObject()==musicalRoot,
+              musicalHost.liveDocument->interfaceState["channels"].getArray()==musicalChannels.getArray(),
               "#31 Chord typing immediately changes symbol without cloning show");
     musicalHost.undoLiveInterface();
     liveCheck(chordRow()["symbol"].toString()=="Am","#31 Chord rename Undo");
@@ -580,9 +578,8 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
     liveCheck(sectionRow()["color"].toString()=="green" &&
               live::sameShowValue(startBefore,sectionRow()["start"])&&
               live::sameShowValue(lengthBefore,sectionRow()["length"])&&
-              musicalHost.liveDocument->interfaceState.getDynamicObject()==musicalRoot &&
-              musicalHost.liveNotesBytes==static_cast<std::int64_t>(
-                  juce::JSON::toString(musicalHost.liveDocument->interfaceState).getNumBytesAsUTF8()),
+              musicalHost.liveDocument->interfaceState["channels"].getArray()==musicalChannels.getArray() &&
+              musicalHost.liveCachedEditBytes()==live::editJsonBytes(musicalHost.liveDocument->interfaceState),
               "#31 Color click applies a scalar edit, preserves bounds and exact size cache");
     musicalHost.undoLiveInterface();
     liveCheck(sectionRow()["color"].toString()==colorBefore,"#31 Section color Undo");
@@ -632,6 +629,62 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
                   live::MusicalLane::chords),chord)["color"].toString()=="red",
               "#31 Section/Chord names and colors persist after Save/Open");
     savePath.deleteFile();
+}
+// #31 edit protocol integration: mixed scalar paths share one budget and keep
+// unrelated view objects stable. Runtime/Core operations retain their own path.
+void liveEditArchitectureSmoke(const juce::File& fixture) {
+    Desktop host(true,false,true);host.importLiveShow(fixture);
+    const auto id=host.liveDocument->interfaceState["currentItem"].toString();
+    host.editLiveInterface("Edit architecture fixture",[&](auto& state){
+        live::put(live::require(state,"items",id),"notes","");
+        auto opaque=live::object();live::put(opaque,"preset",juce::String::repeatedString("P",1024*1024));
+        live::put(state,"auditOpaque",opaque);
+    });
+    host.syncLivePlayback();livePump();
+    liveCheck(!host.livePlaybackLoading,"#31 Architecture fixture completes startup before edit counters");
+    auto* list=dynamic_cast<LiveSetlist*>(liveComponent(host,"live-setlist"));
+    liveCheck(list!=nullptr,"#31 Architecture fixture has Setlist");list->refresh();
+    juce::String entry;
+    for(const auto& row:*live::activeSetlist(host.liveDocument->interfaceState)["entries"].getArray())
+        if(row["itemId"].toString()==id){entry=row["id"].toString();break;}
+    juce::Component::SafePointer<juce::Component> card(liveComponent(*list,"live-entry-"+entry));
+    liveCheck(card!=nullptr,"#31 Architecture fixture captures a real card");
+    const auto channels=host.liveDocument->interfaceState["channels"];
+    const auto opaque=host.liveDocument->interfaceState["auditOpaque"];
+    host.setLiveItemNotes(id,"Warm budget");
+    const auto fullMeasures=host.liveFullSizeMeasures;
+    const auto structure=host.liveUiRevision;
+    const auto timeline=host.liveEdits.timeline;
+    for(int i=0;i<50;++i)host.setLiveItemNotes(id,"Audit Notes "+juce::String(i));
+    host.setLiveItemTextProperty(id,"name","Architecture test item");
+    host.setLiveOrganizerField(id,{},"status","Done");
+    list->refresh();
+    liveCheck(host.liveFullSizeMeasures==fullMeasures&&host.liveUiRevision==structure&&host.liveEdits.timeline==timeline,
+              "#31 Warm Notes/name/workflow edits do not remeasure the show or rebuild Timeline");
+    liveCheck(card&&liveComponent(*list,"live-entry-"+entry)==card.getComponent()&&
+              host.liveDocument->interfaceState["channels"].getArray()==channels.getArray()&&
+              host.liveDocument->interfaceState["auditOpaque"].getDynamicObject()==opaque.getDynamicObject(),
+              "#31 Metadata edits retain Setlist controls, channel and opaque object identity");
+    host.setLivePresentation("backToStart",true);
+    host.setLivePlaybackStemsExpanded(!live::playbackExpanded(host.liveDocument->interfaceState));
+    liveCheck(host.liveCachedEditBytes()==live::editJsonBytes(host.liveDocument->interfaceState),
+              "#31 Mixed Notes/workflow/presentation share an exact JSON byte budget");
+    host.undoLiveInterface();host.undoLiveInterface(true);
+    liveCheck(host.liveCachedEditBytes()==live::editJsonBytes(host.liveDocument->interfaceState),
+              "#31 Presentation Undo/Redo retains the exact mixed-edit budget");
+    const auto count=host.liveLocalPatchApplications;
+    host.setLiveItemNotes(id,live::find(host.liveDocument->interfaceState,"items",id)["notes"].toString());
+    liveCheck(host.liveLocalPatchApplications==count,"#31 No-op edit creates no transaction or notification");
+    const auto stale=live::valuePatch(host.liveDocument->interfaceState,{"items",live::EditStep::id(id),"notes"},"Wrong document");
+    liveCheck(!host.applyLiveValuePatch(stale,live::EditImpact::notes,true,host.liveDocumentGeneration+1)&&
+              host.liveLocalPatchApplications==count,"#31 Wrong document generation cannot apply a local action");
+    const auto saved=fixture.getSiblingFile("edit-architecture-fix9.mrlive");host.saveFile(saved);
+    const auto loaded=LiveDocument::read(saved);
+    liveCheck(live::find(loaded.interfaceState,"items",id)["notes"].toString()=="Audit Notes 49"&&
+              live::find(loaded.interfaceState,"items",id)["name"].toString()=="Architecture test item"&&
+              static_cast<bool>(loaded.interfaceState["performance"]["backToStart"]),
+              "#31 Mixed local edits survive Save/Open");
+    saved.deleteFile();
 }
 void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave){
     Desktop navigation(true,false,true);navigation.importLiveShow(fixture);navigation.setSize(1200,800);
@@ -936,6 +989,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::clipEditing();
     live::test::performancePolicies();
     live::test::showValueEquality();
+    live::test::editProtocol();
     live::test::notesDirtyRoundTrip();
     live::test::showContextSelection();
     live::test::studioOneShowReader();
@@ -2030,6 +2084,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     liveOrganizerCommitSmoke(fixture);
     liveOrganizerStructuralAndSavedItemSmoke(fixture);
     liveNotesAndMusicalNameSmoke(fixture);
+    liveEditArchitectureSmoke(fixture);
         liveSelectionRefreshSmoke(fixture,waveFile);
         // #300: one Core graph contains a physical Live Input + WAV simultaneously.
         // Manual switches are stopped/quiescent; #301 owns real-time seamless handoff.
