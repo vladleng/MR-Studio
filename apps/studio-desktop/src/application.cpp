@@ -2272,7 +2272,9 @@ void Application::poll() {
     const bool timedOut=processing.processing_fault&&processing.worker_timeouts>0;
     // A quarantined job still owns its plugin and buffers. Never ask that
     // plugin for editor/parameter/state data until every DSP job has returned.
-    if(timedOut) {
+    if(processing.processing_fault) {
+        // The fault flag and diagnostic counter are separate atomics. The
+        // counter may lag this read; it must never gate DSP ownership safety.
         if(!engine_->processing_workers_idle()) {transport_->poll();return;}
         // Stop/join every owner (including anticipation), then inspect edits.
         if(device_)device_->stop();

@@ -149,6 +149,9 @@ void live_channels(const std::filesystem::path& file) {
     check(app.processing_recovery_count()==1&&!app.audio_running(),"Repeated fault without a new plugin edit does not create a restart loop");
     // Explicit reconnect is a new recovery boundary; retain the same routes.
     app.connect(std::make_unique<Device>(calls),{0,48000,128,{0,1},{0,1,2,3}});render();render();
+    audio::AudioEngineTestAccess::processing_fault(*engine);app.poll();
+    check(app.processing_recovery_count()==1&&!app.audio_running(),"Non-worker faults stop safely without automatic recovery");
+    app.connect(std::make_unique<Device>(calls),{0,48000,128,{0,1},{0,1,2,3}});render();render();
     const auto routeOpens=calls->opens,routeCloses=calls->closes;
     const auto inserts=engine->stopped_graph().inserts;
     app.set_live_hardware_output(left.id,{1});render();render();
