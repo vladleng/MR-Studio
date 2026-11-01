@@ -496,7 +496,7 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
     livePump();
     liveCheck(notes->getText()==live::find(notesHost.liveDocument->interfaceState,"items",itemId)["notes"].toString(),
               "#31 Separate Notes revision mirrors Redo into the editor");
-    const auto savePath=fixture.getSiblingFile("notes-musical-names-fix7.mrlive");
+    const auto savePath=fixture.getSiblingFile("notes-musical-names-fix8.mrlive");
     notesHost.saveFile(savePath);
     auto reopened=LiveDocument::read(savePath);
     liveCheck(live::find(reopened.interfaceState,"items",itemId)["notes"].toString()==
@@ -508,10 +508,18 @@ void liveNotesAndMusicalNameSmoke(const juce::File& fixture) {
     notesHost.setLivePlaybackStemsExpanded(folded);
     liveCheck(notesHost.liveDirty,
               "#31 Fold clean baseline cannot erase a newer Notes dirty state");
-    notesHost.setLiveItemNotes(itemId,"Exact cache after fold");
-    liveCheck(notesHost.liveNotesBytes==static_cast<std::int64_t>(
+    liveCheck(notesHost.liveNotesBytesRevision!=notesHost.liveUiRevision,
+              "#31 Fold invalidates the Notes JSON size cache");
+    notesHost.setLiveItemNotes(itemId,"Short");
+    liveCheck(notesHost.liveNotesBytesRevision!=notesHost.liveUiRevision,
+              "#31 Shrinking Notes does not require rebuilding an invalid JSON size cache");
+    notesHost.setLiveItemNotes(itemId,"Short plus a growing note rebuilds the exact cache after fold");
+    liveCheck(notesHost.liveNotesBytesRevision==notesHost.liveUiRevision&&
+              notesHost.liveNotesBytesTextRevision==notesHost.liveNotesRevision&&
+              notesHost.liveNotesBytesGeneration==notesHost.liveDocumentGeneration&&
+              notesHost.liveNotesBytes==static_cast<std::int64_t>(
                   juce::JSON::toString(notesHost.liveDocument->interfaceState).getNumBytesAsUTF8()),
-              "#31 Fold changes invalidate Notes JSON size cache");
+              "#31 Growing Notes rebuilds the exact JSON size cache after fold");
     savePath.deleteFile();
 
     Desktop musicalHost(true,false,true);

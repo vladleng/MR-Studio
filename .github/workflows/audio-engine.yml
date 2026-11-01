@@ -1,6 +1,6 @@
 name: Windows Studio Release
 # Single source: the Actions run title is also aliased into the release environment.
-run-name: &release_banner 'MR Studio 0.8.10 / MR Live 0.8.12-fix7 — Windows Release'
+run-name: &release_banner 'MR Studio 0.8.10 / MR Live 0.8.12-fix8 — Windows Release'
 on:
   push:
     branches: [main, 'codex/cloud-cicd-migration']
@@ -76,6 +76,17 @@ jobs:
           if(!$studioMatch.Success -or !$liveMatch.Success){throw "Invalid release banner: $env:RELEASE_BANNER"}
           $studioVersion=$studioMatch.Groups[1].Value
           $liveVersion=$liveMatch.Groups[1].Value
+          # Application/diagnostic versions must carry the same full suffix as
+          # the run, manifest and every artifact. Numeric PE FILEVERSION is separate.
+          $versionHeader=Get-Content -LiteralPath 'apps/studio-desktop/include/mrs/version.hpp' -Raw
+          $sourceStudio=[regex]::Match($versionHeader,'(?m)^inline constexpr std::string_view application_version\s*=\s*"([^"]+)";')
+          $sourceLive=[regex]::Match($versionHeader,'(?m)^inline constexpr std::string_view live_application_version\s*=\s*"([^"]+)";')
+          if(!$sourceStudio.Success -or $sourceStudio.Groups[1].Value -cne $studioVersion){
+            throw "Studio application version differs from release banner $studioVersion"
+          }
+          if(!$sourceLive.Success -or $sourceLive.Groups[1].Value -cne $liveVersion){
+            throw "Live application version differs from release banner $liveVersion"
+          }
           $artifactVersion=if($scope -eq 'live'){"MR-Live-$liveVersion"}else{"MR-Studio-$studioVersion-MR-Live-$liveVersion"}
           "MR_STUDIO_VERSION=$studioVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "MR_LIVE_VERSION=$liveVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
