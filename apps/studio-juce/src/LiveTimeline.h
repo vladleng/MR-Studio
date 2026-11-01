@@ -1016,7 +1016,8 @@ class LiveTimeline final : public juce::Component {
                     audioBars = juce::jmax(audioBars, static_cast<double>(clock.to_ticks(static_cast<mrs::Sample>(
                         std::llround(seconds * cached->rate)))) / (4. * mrs::ppq * meter.numerator / meter.denominator));
                 }
-                if (!view.hasProperty("length") && audioBars > 0.) bars = juce::jmin(4096.,juce::jmax(audioBars,live::authoredMusicalEndBars(state,item["id"].toString())));
+                if (!view.hasProperty("length") && !previewThisItem)
+                    bars=juce::jmin(4096.,juce::jmax(audioBars>0.?audioBars:bars,live::authoredMusicalEndBars(state,item["id"].toString())));
                 // The model permits 1000 entries, 4096 bars/lead and 128 px/bar.
                 // Keep their complete geometry within a signed-int scroll surface.
                 const bool collapsed = static_cast<bool>(state["performance"]["collapsedItems"][juce::Identifier(entry["id"].toString())]);
