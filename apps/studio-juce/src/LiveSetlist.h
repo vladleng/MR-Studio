@@ -85,6 +85,11 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
     void refresh() {
         if (revision != owner.liveUiRevision)
             rebuild();
+        else if (notesRevision != owner.liveNotesRevision) {
+            // Notes affect only the saved dot, never card contents/layout/assets.
+            for (auto &card : cards) card->refreshNotes();
+            notesRevision = owner.liveNotesRevision;
+        }
     }
     void resized() override {
         auto area = getLocalBounds().reduced(6);
@@ -414,7 +419,8 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
                 status = flow["status"].toString();
                 priority = flow["priority"].toString();
                 percent = live::progress(state, row.itemId);
-                dirty = live::itemDirty(state, row.itemId);
+                notesDirty=live::itemNotesDirtyState(state,row.itemId);
+                refreshNotes();
                 tint = state["performance"]["itemColors"][juce::Identifier(row.itemId)].toString();
                 itemBase = LiveLayout::drawable("item_default_base.svg");
                 selectedBase = LiveLayout::drawable("item_selected_base.svg");
@@ -595,6 +601,11 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
             live::put(payload, "itemId", row.itemId);
             host.owner.startDragging(payload, this);
         }
+        void refreshNotes() {
+            if (row.itemId.isEmpty()) return;
+            const bool changed = notesDirty.dirty(host.data(),row.itemId);
+            if (dirty != changed) { dirty = changed; repaint(); }
+        }
         void mouseUp(const juce::MouseEvent &event) override {
             const bool click = primaryPressed && !dragged && event.getNumberOfClicks() == 1;
             primaryPressed = false;
@@ -625,6 +636,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         juce::String status, priority, tint;
         int percent{};
         bool dirty{}, showOrganizer{}, dragged{}, primaryPressed{};
+        live::ItemNotesDirtyState notesDirty;
         std::unique_ptr<juce::Drawable> folderIcon, itemBase, selectedBase, sectionBase, statusBase, priorityBase,
             progressBase;
     };
@@ -719,6 +731,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         }
         syncing = false;
         revision = owner.liveUiRevision;
+        notesRevision = owner.liveNotesRevision;
         focusIndex = indexOf(selected);
         layoutRows();
         viewport.setViewPosition(0, oldScroll);
@@ -868,6 +881,7 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
     std::vector<std::unique_ptr<Card>> cards;
     std::set<juce::String> collapsed;
     std::uint64_t revision{~0ULL};
+    std::uint64_t notesRevision{~0ULL};
     int focusIndex{-1}, dropY{-1};
     BrowserDrop browserDrop;
     bool syncing{};

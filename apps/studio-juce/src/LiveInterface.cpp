@@ -2,6 +2,7 @@
 #include "LivePluginCatalog.h"
 #include "LiveLayout.h"
 #include "LiveMusicalState.h"
+#include "LiveTimelineEditState.h"
 #include "LiveClipProjection.h"
 
 namespace ui {
@@ -177,6 +178,7 @@ class LiveChannelMixEdit final : public juce::UndoableAction {
             else owner->liveDirty=true;
         } else owner->liveDirty=true;
         ++owner->liveChannelMixRevision;
+        owner->liveNotesBytesRevision=(std::numeric_limits<std::uint64_t>::max)();
         if(!target)owner->syncLivePlayback(); // Playback group/stems need Core mix projection.
         return true;
     }
@@ -241,6 +243,7 @@ class LivePlaybackFoldEdit final : public juce::UndoableAction {
             else owner->updateLiveDirty(); // Other changes may still be dirty.
         } else owner->liveDirty=true;
         ++owner->livePlaybackFoldRevision;
+        owner->liveNotesBytesRevision=(std::numeric_limits<std::uint64_t>::max)();
         return true;
     }
     juce::Component::SafePointer<Desktop> owner;
@@ -310,7 +313,8 @@ class LivePlaybackScalarEdit final : public juce::UndoableAction {
 class LiveNotesEdit final : public juce::UndoableAction {
   public:
     LiveNotesEdit(Desktop &desktop, juce::String item, juce::String oldText, juce::String newText)
-        : owner(&desktop), id(std::move(item)), before(std::move(oldText)), after(std::move(newText)) {}
+        : owner(&desktop), id(std::move(item)), before(std::move(oldText)), after(std::move(newText)),
+          generation(desktop.liveDocumentGeneration) {}
     bool perform() override { return apply(after); }
     bool undo() override { return apply(before); }
     juce::UndoableAction *createCoalescedAction(juce::UndoableAction *next) override {
@@ -321,14 +325,80 @@ class LiveNotesEdit final : public juce::UndoableAction {
     int getSizeInUnits() override { return static_cast<int>(before.getNumBytesAsUTF8() + after.getNumBytesAsUTF8()); }
   private:
     bool apply(const juce::String &text) {
-        if (!owner || !owner->liveDocument) return false;
-        live::put(live::require(owner->liveDocument->interfaceState, "items", id), "notes", text);
-        owner->updateLiveDirty();
-        ++owner->liveUiRevision;
+        if (!owner || !owner->liveDocument || owner->liveDocumentGeneration != generation) return false;
+        auto item=live::find(owner->liveDocument->interfaceState,"items",id);
+        if(!item.isObject())return false;
+        live::put(item,"notes",text);
+        // These fast clean-state baselines previously relied on every Notes
+        // edit bumping liveUiRevision. Invalidate them explicitly now.
+        owner->liveMixCleanBaseRevision.reset();
+        owner->liveFoldCleanUiRevision.reset();
+        owner->liveFoldCleanMixRevision.reset();
+        owner->liveDirty=true;
+        if(owner->liveSavedSnapshot) {
+            const auto saved=live::find(owner->liveSavedSnapshot->interfaceState,"items",id);
+            if(saved.isObject() && saved["notes"].toString()==text)
+                owner->updateLiveDirty(); // Only a potential return to clean needs a full comparison.
+        }
+        ++owner->liveNotesRevision;
         return true;
     }
     juce::Component::SafePointer<Desktop> owner;
     juce::String id, before, after;
+    std::uint64_t generation{};
+};
+// #31 fix7: names and colors are scalar musical metadata.
+// Keep historical musical row validation and document guards without copying
+// full show/plugin snapshots for a name-only change.
+class LiveMusicalMetadataEdit final : public juce::UndoableAction {
+public:
+    LiveMusicalMetadataEdit(Desktop& desktop,juce::String item,juce::String event,
+                        bool isSection,juce::Identifier field,juce::var oldValue,juce::var newValue)
+        : owner(&desktop),itemId(std::move(item)),eventId(std::move(event)),
+          section(isSection),key(std::move(field)),before(std::move(oldValue)),after(std::move(newValue)),
+          generation(desktop.liveDocumentGeneration) {}
+    bool perform() override {return apply(after);}
+    bool undo() override {return apply(before);}
+    juce::UndoableAction* createCoalescedAction(juce::UndoableAction* next) override {
+        const auto* edit=dynamic_cast<LiveMusicalMetadataEdit*>(next);
+        return edit && key!=juce::Identifier("color") && owner && owner==edit->owner &&
+            generation==edit->generation && itemId==edit->itemId && eventId==edit->eventId &&
+            section==edit->section && key==edit->key && live::sameShowValue(after,edit->before)
+            ? new LiveMusicalMetadataEdit(*owner,itemId,eventId,section,key,before,edit->after):nullptr;
+    }
+    int getSizeInUnits() override {return static_cast<int>(
+        before.toString().getNumBytesAsUTF8()+after.toString().getNumBytesAsUTF8()+128);}
+private:
+    bool apply(const juce::var& value) {
+        if(!owner||!owner->liveDocument||owner->liveDocumentGeneration!=generation)return false;
+        auto& state=owner->liveDocument->interfaceState;
+        const auto lane=section?live::MusicalLane::sections:live::MusicalLane::chords;
+        const auto rows=live::musicalRows(state,itemId,lane);
+        if(auto* entries=rows.getArray())
+            for(auto& row:*entries)
+                if(row["id"].toString()==eventId) {
+                    if(value.isVoid()) row.getDynamicObject()->removeProperty(key);
+                    else live::put(row,key,value);
+                    owner->liveDirty=true;
+                    if(owner->liveSavedSnapshot) {
+                        const auto savedRows=live::musicalRows(owner->liveSavedSnapshot->interfaceState,
+                                                              itemId,lane);
+                        const auto old=live::spanById(savedRows,eventId);
+                        if(old.isObject()&&live::sameShowValue(old[key],value))owner->updateLiveDirty();
+                    }
+                    // Musical projections and Timeline watch the show/UI revision,
+                    // as with regular musical span edits. No transport call in Undo.
+                    ++owner->liveUiRevision;
+                    return true;
+                }
+        return false;
+    }
+    juce::Component::SafePointer<Desktop> owner;
+    juce::String itemId,eventId;
+    bool section{};
+    juce::Identifier key;
+    juce::var before,after;
+    std::uint64_t generation{};
 };
 // #31 fix6: task hierarchy edits are limited to one item's <=200 task rows.
 // Keep structural Undo as small immutable lists, not full-show/VST3 snapshots.
@@ -741,20 +811,136 @@ void Desktop::setLiveItemTextProperty(const juce::String& id, const juce::Identi
 }
 void Desktop::setLiveItemNotes(const juce::String &id, const juce::String &text) {
     if (!liveDocument || text.length() > 4000) throw std::runtime_error("Notes must be at most 4000 characters");
-    auto &item = live::require(liveDocument->interfaceState, "items", id);
-    const auto before = item["notes"].toString();
-    if (before == text) return;
-    // Retain the document size bound without running unrelated runtime preflight.
-    const auto bytes = juce::JSON::toString(liveDocument->interfaceState).getNumBytesAsUTF8() +
-        juce::JSON::toString(juce::var(text)).getNumBytesAsUTF8() - juce::JSON::toString(juce::var(before)).getNumBytesAsUTF8();
-    if (bytes > live::maximumShowBytes)
+    const auto item=live::find(liveDocument->interfaceState,"items",id);
+    if(!item.isObject())throw std::runtime_error("Show item no longer exists");
+    const auto before=item["notes"].toString();
+    if(before==text)return;
+    const auto oldBytes=juce::JSON::toString(juce::var(before)).getNumBytesAsUTF8();
+    const auto newBytes=juce::JSON::toString(juce::var(text)).getNumBytesAsUTF8();
+    // The 64 MiB guard remains exact. During consecutive Notes edits the
+    // previous JSON byte count is exact and only the changed text is measured.
+    // Any unrelated show edit/Undo invalidates the cached revision.
+    std::int64_t totalBytes=liveNotesBytes;
+    const bool current=liveNotesBytesRevision==liveUiRevision &&
+                       liveNotesBytesTextRevision==liveNotesRevision &&
+                       liveNotesBytesGeneration==liveDocumentGeneration;
+    if(newBytes>oldBytes && !current)
+        totalBytes=juce::JSON::toString(liveDocument->interfaceState).getNumBytesAsUTF8();
+    if(newBytes>oldBytes && totalBytes+newBytes-oldBytes>live::maximumShowBytes)
         throw std::runtime_error("Show interface exceeds 64 MiB");
-    const auto now = juce::Time::getMillisecondCounter();
-    const auto label = "Item notes " + id;
-    if (liveTypingLabel != label || now - liveTypingAt > 800) liveUndo.beginNewTransaction(label);
-    liveShowEditing = true;
-    liveUndo.perform(new LiveNotesEdit(*this, id, before, text));
-    liveTypingLabel = label; liveTypingAt = now;
+    const auto now=juce::Time::getMillisecondCounter();
+    const auto label="Item notes "+id;
+    if(liveTypingLabel!=label||now-liveTypingAt>800)liveUndo.beginNewTransaction(label);
+    liveShowEditing=true;
+    if(!liveUndo.perform(new LiveNotesEdit(*this,id,before,text)))
+        throw std::runtime_error("Could not apply Notes edit");
+    if(current||newBytes>oldBytes) {
+        liveNotesBytes=totalBytes+newBytes-oldBytes;
+        liveNotesBytesRevision=liveUiRevision;
+        liveNotesBytesTextRevision=liveNotesRevision;
+        liveNotesBytesGeneration=liveDocumentGeneration;
+    } // On a cache miss, a shrinking edit needs no costly full-show serialization.
+    liveTypingLabel=label;liveTypingAt=now;
+}
+void Desktop::setLiveMusicalName(const juce::String& itemId,const juce::String& eventId,
+                                 bool section,const juce::String& proposedName) {
+    if(!liveDocument||!live::find(liveDocument->interfaceState,"items",itemId).isObject())
+        throw std::runtime_error("Show item no longer exists");
+    const auto name=proposedName.trim();
+    if(!live::named(juce::var(name),120))
+        throw std::runtime_error("Musical event name must contain 1..120 characters");
+    auto& state=liveDocument->interfaceState;
+    const auto lane=section?live::MusicalLane::sections:live::MusicalLane::chords;
+    const auto rows=live::musicalRows(state,itemId,lane);
+    const auto existing=live::spanById(rows,eventId);
+    if(!existing.isObject())throw std::runtime_error("Musical event no longer exists");
+    const juce::Identifier key(section?"name":"symbol");
+    const auto before=existing[key].toString();
+    if(before==name)return;
+    // Keep the existing musical lane constraints without a global show clone.
+    auto changedRows=rows.clone();
+    if(auto* entries=changedRows.getArray())
+        for(auto& row:*entries)
+            if(row["id"].toString()==eventId) {live::put(row,key,name);break;}
+    live::validateMusicalRows(changedRows,lane);
+    if(itemId==state["currentItem"].toString() &&
+       (app.recording()||app.engine()->state().playback!=mrs::PlaybackState::stopped||
+        app.engine()->state().loop))
+        throw std::runtime_error("Stop Playback and turn off section loop before changing musical data");
+    const auto oldBytes=static_cast<std::int64_t>(juce::JSON::toString(juce::var(before)).getNumBytesAsUTF8());
+    const auto newBytes=static_cast<std::int64_t>(juce::JSON::toString(juce::var(name)).getNumBytesAsUTF8());
+    const bool cached=liveNotesBytesRevision==liveUiRevision &&
+        liveNotesBytesGeneration==liveDocumentGeneration &&
+        liveNotesBytesTextRevision==liveNotesRevision;
+    const auto bytes=cached?liveNotesBytes:static_cast<std::int64_t>(
+        juce::JSON::toString(state).getNumBytesAsUTF8());
+    if(bytes+newBytes-oldBytes>live::maximumShowBytes)
+        throw std::runtime_error("Show interface exceeds 64 MiB");
+    const auto label=(section?juce::String("Rename Section "):juce::String("Rename Chord "))+itemId+"/"+eventId;
+    const auto now=juce::Time::getMillisecondCounter();
+    if(liveTypingLabel!=label||now-liveTypingAt>800)liveUndo.beginNewTransaction(label);
+    liveShowEditing=true;
+    if(!liveUndo.perform(new LiveMusicalMetadataEdit(*this,itemId,eventId,section,key,before,name)))
+        throw std::runtime_error("Could not rename musical event");
+    liveTypingLabel=label;liveTypingAt=now;
+    liveNotesBytes=bytes+newBytes-oldBytes;
+    liveNotesBytesRevision=liveUiRevision;
+    liveNotesBytesGeneration=liveDocumentGeneration;
+    liveNotesBytesTextRevision=liveNotesRevision;
+}
+void Desktop::setLiveMusicalColor(const juce::String& itemId,const juce::String& eventId,
+                                  bool section,const juce::String& color) {
+    if(!liveDocument||!live::find(liveDocument->interfaceState,"items",itemId).isObject())
+        throw std::runtime_error("Show item no longer exists");
+    if(!juce::StringArray{"graphite","blue","teal","green","amber","red","violet"}.contains(color))
+        throw std::runtime_error("Invalid musical color");
+    auto& state=liveDocument->interfaceState;
+    const auto lane=section?live::MusicalLane::sections:live::MusicalLane::chords;
+    const auto rows=live::musicalRows(state,itemId,lane);
+    const auto existing=live::spanById(rows,eventId);
+    if(!existing.isObject())throw std::runtime_error("Musical event no longer exists");
+    const auto before=existing["color"];
+    if(before.toString()==color)return;
+    auto changedRows=rows.clone();
+    for(auto& row:*changedRows.getArray())
+        if(row["id"].toString()==eventId){live::put(row,"color",color);break;}
+    live::validateMusicalRows(changedRows,lane);
+    if(itemId==state["currentItem"].toString() &&
+       (app.recording()||app.engine()->state().playback!=mrs::PlaybackState::stopped||
+        app.engine()->state().loop))
+        throw std::runtime_error("Stop Playback and turn off section loop before changing musical data");
+    // Legacy rows can omit color. Adding a property changes JSON indentation;
+    // keep that uncommon case on the exact full validation/size path.
+    if(before.isVoid()) {
+        editLiveInterface("Musical color",[&](auto& copy){
+            auto updated=live::musicalRows(copy,itemId,lane).clone();
+            for(auto& row:*updated.getArray())
+                if(row["id"].toString()==eventId)live::put(row,"color",color);
+            live::setMusicalRows(copy,itemId,lane,updated);
+        });
+        return;
+    }
+    const auto oldBytes=static_cast<std::int64_t>(
+        juce::JSON::toString(before).getNumBytesAsUTF8());
+    const auto newBytes=static_cast<std::int64_t>(
+        juce::JSON::toString(juce::var(color)).getNumBytesAsUTF8());
+    const bool cached=liveNotesBytesRevision==liveUiRevision &&
+        liveNotesBytesGeneration==liveDocumentGeneration &&
+        liveNotesBytesTextRevision==liveNotesRevision;
+    auto bytes=cached?liveNotesBytes:static_cast<std::int64_t>(
+        juce::JSON::toString(state).getNumBytesAsUTF8());
+    if(bytes+newBytes-oldBytes>live::maximumShowBytes)
+        throw std::runtime_error("Show interface exceeds 64 MiB");
+    liveShowEditing=true;
+    liveTypingLabel.clear();
+    liveUndo.beginNewTransaction(section?"Section color":"Chord color");
+    if(!liveUndo.perform(new LiveMusicalMetadataEdit(*this,itemId,eventId,section,"color",before,color)))
+        throw std::runtime_error("Could not change musical color");
+    liveUndo.beginNewTransaction();
+    liveNotesBytes=bytes+newBytes-oldBytes;
+    liveNotesBytesRevision=liveUiRevision;
+    liveNotesBytesGeneration=liveDocumentGeneration;
+    liveNotesBytesTextRevision=liveNotesRevision;
 }
 void Desktop::editLiveItemView(const juce::String &id, const juce::Identifier &key, double value) {
     if (!liveDocument || !live::find(liveDocument->interfaceState, "items", id).isObject())
