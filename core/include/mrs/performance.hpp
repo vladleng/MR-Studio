@@ -11,6 +11,7 @@ enum class PerformanceMode { normal, skip, stop, loop };
 struct PerformanceSection {
     Sample start{}, end{};
     PerformanceMode mode{PerformanceMode::normal};
+    bool operator==(const PerformanceSection&)const=default;
 };
 struct PerformancePlan {
     Sample end{};
@@ -18,6 +19,7 @@ struct PerformancePlan {
     bool back_to_start{}, stop_record{true};
     std::vector<PerformanceSection> sections;
     Sample start{}; // Non-destructive Item trim; authored media keeps absolute coordinates.
+    bool operator==(const PerformancePlan&)const=default;
     void validate() const {
         if(start<0 || end<=start || end>max_sample || sections.size()>128)throw std::invalid_argument("Invalid performance extent");
         const auto valid=[](PerformanceMode value){return value>=PerformanceMode::normal && value<=PerformanceMode::loop;};

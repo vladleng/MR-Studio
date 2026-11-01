@@ -217,12 +217,15 @@ inline juce::var playbackRegions(const juce::var &state,const juce::String &item
     if(!stored.isArray())return stored;
     const double seconds=playbackSecondsPerBar(state,item);
     bool changed=false;
-    for(const auto& region:*stored.getArray())if(!region["audioSecondsPerBar"].isVoid()&&static_cast<double>(region["audioSecondsPerBar"])!=seconds)changed=true;
+    for(const auto& region:*stored.getArray())if(region["audioSecondsPerBar"].isVoid()||static_cast<double>(region["audioSecondsPerBar"])!=seconds)changed=true;
     if(!changed)return stored;
     auto result=stored.clone();
-    for(auto& region:*result.getArray())if(!region["audioSecondsPerBar"].isVoid()){
-        const double scale=static_cast<double>(region["audioSecondsPerBar"])/seconds;
-        for(const auto* field:{"start","offset","length"})put(region,field,static_cast<double>(region[field])*scale);
+    for(auto& region:*result.getArray()){
+        if(region["audioSecondsPerBar"].isVoid())put(region,"legacySourceBounds",true);
+        else {
+            const double scale=static_cast<double>(region["audioSecondsPerBar"])/seconds;
+            for(const auto* field:{"start","offset","length"})put(region,field,static_cast<double>(region[field])*scale);
+        }
         put(region,"audioSecondsPerBar",seconds);
     }
     return result;

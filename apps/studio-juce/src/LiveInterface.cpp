@@ -5,6 +5,7 @@
 #include "LiveTimelineEditState.h"
 #include "LiveClipProjection.h"
 #include "LivePerformanceEdit.h"
+#include "LiveClipEdit.h"
 
 namespace ui {
 namespace {
@@ -588,6 +589,14 @@ void Desktop::setLivePerformanceMode(const juce::String& item,const juce::String
     performLiveValuePatches(item==target?"Item performance mode":"Section performance mode",{*patch},
         live::EditImpact::metadata|live::EditImpact::paint|live::EditImpact::performance);
 }
+void Desktop::setLivePlaybackRegions(const juce::String& item,const juce::String& stem,const juce::var& rows,const juce::String& label) {
+    if(!liveDocument)throw std::runtime_error("Open a MR Live show first");
+    const auto patch=live::playbackRegionPatch(liveDocument->interfaceState,item,stem,rows);
+    if(!patch.changed())return;
+    performLiveValuePatches(label,{patch},
+        live::EditImpact::metadata|live::EditImpact::timeline|live::EditImpact::regions);
+    syncLivePlayback();
+}
 void Desktop::setLiveMusicalName(const juce::String& itemId,const juce::String& eventId,
                                  bool section,const juce::String& proposedName) {
     if(!liveDocument||!live::find(liveDocument->interfaceState,"items",itemId).isObject())
@@ -1087,6 +1096,7 @@ void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file,
     invalidateLivePlayback(id);syncLivePlayback();
 }
 void Desktop::invalidateLivePlayback(const juce::String& id){
+    ++liveSourceCheckEpoch; // Same-path source reload also invalidates open source editors/checks.
     // Choosing a WAV explicitly refreshes even a same-path preparation after an external edit.
     for (auto it = livePreparedItems.begin(); it != livePreparedItems.end();) {
         if (it->id == id) {
@@ -1382,6 +1392,7 @@ void Desktop::setLiveChannelOutputs(const juce::String& requested,const std::vec
 }
 namespace {
 void applyLocalRuntime(Desktop& owner,const juce::var& next,live::EditImpact impact) {
+    if(live::affects(impact,live::EditImpact::regions))validatePlaybackEdit(owner,next);
     if(live::affects(impact,live::EditImpact::performance)){
         const auto& before=owner.liveDocument->interfaceState;
         const auto change=live::validatePerformanceModeChange(before,next);

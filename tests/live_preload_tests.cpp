@@ -200,6 +200,78 @@ void live_channels(const std::filesystem::path& file) {
     app.update_live_channels(ids,{});
     check(app.services().projects->state().project->tracks.empty(),"Removing Live channels retires their runtime off callback");
 }
+void live_region_channels(const std::filesystem::path& file) {
+    Application app;app.new_project(48000);app.workspace(Workspace::live);
+    const auto calls=std::make_shared<Calls>();app.connect(std::make_unique<Device>(calls),{0,48000,128,{0,1},{0,1,2,3}});
+    Track left{Id{"region-guitar"},"Guitar",TrackKind::audio,{}};left.input=0;left.input_monitor=true;left.hardware_outputs={0};
+    Track right{Id{"region-input"},"Second input",TrackKind::audio,{}};right.input=1;right.input_monitor=true;right.hardware_outputs={2};
+    Track instrument{Id{"region-instrument"},"Instrument",TrackKind::instrument,{}};
+    NativeInsert gain;gain.id=Id{"region-gain-a"};gain.kind=InsertKind::gain;gain.gain=.5f;left.inserts={gain};
+    gain.id=Id{"region-gain-b"};gain.gain=.25f;right.inserts={gain};
+    app.update_live_channels({}, {left,right,instrument});
+    auto media=app.prepare_playback({file,file});ready(app,media);
+    Application::PlaybackLayout layout;layout.stems.resize(2);layout.stems[0].outputs={1};layout.stems[1].outputs={3};
+    layout.live_tracks={left.id,right.id,instrument.id};layout.token=501;layout.performance=PerformancePlan{};layout.performance->end=4800;
+    app.activate_playback(media,layout);
+    const auto engine=app.engine();const auto tracks=app.services().projects->state().project->tracks;
+    const auto inserts=engine->stopped_graph().inserts;const auto opens=calls->opens,closes=calls->closes;
+    const auto stops=calls->stops,starts=calls->starts;
+    app.set_performance_plan(*layout.performance);
+    check(calls->stops==stops&&calls->starts==starts,"Unchanged performance policy does not reprepare an already updated region graph");
+    layout.stems[0].regions=std::vector<Application::PlaybackRegion>{{{"region-a"},0,2400,0},{{"region-b"},2400,2400,2400}};
+    const auto before=app.services().projects->state().project;
+    app.validate_playback_regions(layout.stems);
+    check(app.services().projects->state().project==before&&calls->stops==stops,"Multichannel region preflight never publishes or restarts audio");
+    app.set_playback_regions(layout.stems);
+    auto current=app.services().projects->state().project;
+    check(current->clips.size()==3&&current->clips[1].source_offset==2400&&current->tracks==tracks,
+          "Split with two stems plus two live inputs and an Instrument preserves every channel");
+    check(engine->stopped_graph().inserts==inserts&&calls->opens==opens&&calls->closes==closes&&calls->stops==stops+1,
+          "Region edits retain the exact insert instances/device handle without a second unchanged-policy rebuild");
+    layout.stems[0].regions->at(1).length=1200;app.set_playback_regions(layout.stems);
+    check(app.services().projects->state().project->clips[1].length==1200,"Trim with persistent Live channels is committed instead of rejected");
+    std::array<float,256> input{};std::array<float,512> output{};
+    for(std::size_t i=0;i<128;++i){input[2*i]=.4f;input[2*i+1]=.8f;}
+    const auto render=[&]{
+        for(std::size_t frame=0;frame<128;++frame)for(std::size_t stream=0;stream<calls->inputs.size();++stream)
+            input[frame*calls->inputs.size()+stream]=calls->inputs[stream]==0?.4f:.8f;
+        engine->process(calls->inputs.empty()?nullptr:input.data(),output.data(),128);
+    };
+    app.play();render();render();
+    check(output[400]>.15f&&output[402]>.15f&&std::abs(output[401])>.03f&&std::abs(output[403])>.03f,
+          "Live monitor routes and both WAV stems still render real PCM after split/trim");
+    const auto playing=app.services().projects->state().project;
+    rejects([&]{app.set_playback_regions(layout.stems);});rejects([&]{app.set_performance_plan(*layout.performance);});
+    check(app.services().projects->state().project==playing,"Playing guards leave region state unchanged even for a no-op policy");
+    app.pause();render();
+    auto invalid=layout.stems;invalid[0].regions->at(1).offset=4800;
+    rejects([&]{app.validate_playback_regions(invalid);});
+    check(app.services().projects->state().project==playing,"Invalid WAV extents remain rejected with multichannel Live audio");
+    left.input_monitor=false;app.update_live_channels(layout.live_tracks,{left,right,instrument});
+    app.set_playback_regions(layout.stems);app.play();render();render();
+    check(std::abs(output[400])<.00001f&&output[402]>.15f,"Region editing also accepts a configured Live channel with monitoring off");
+    app.pause();render();left.input_monitor=true;app.update_live_channels(layout.live_tracks,{left,right,instrument});
+    // Stand in for a captured clip on an input track: region editing must not
+    // replace the whole project's clips collection with only its WAV rows.
+    auto capture=app.playback_sources()[1];capture.id=Id{"kept-live-capture"};capture.track=left.id;
+    struct Capture final:ICommand {Clip clip;std::string_view name()const override{return "Region capture fixture";}
+        void apply(Project& p)const override{p.clips.push_back(clip);}} add;
+    add.clip=capture;app.services().projects->execute(add);app.set_playback_regions(layout.stems);
+    current=app.services().projects->state().project;
+    check(std::find(current->clips.begin(),current->clips.end(),capture)!=current->clips.end()&&current->clips.size()==4,
+          "Region changes preserve non-Playback captures and their exact source/track metadata");
+    layout.stems[0].regions->clear();app.set_playback_regions(layout.stems);
+    check(app.services().projects->state().project->clips.size()==2,"Deleting all regions of one stem retains the other stem and captured clip");
+    layout.stems[0].regions.reset();app.set_playback_regions(layout.stems);
+    check(app.services().projects->state().project->clips.size()==3,"Restore full source works alongside multichannel monitoring");
+    const auto good=app.services().projects->state().project;
+    struct SwapSources final:ICommand {std::string_view name()const override{return "Invalid source-order fixture";}
+        void apply(Project& p)const override{std::swap(p.tracks[0],p.tracks[1]);}} swap;
+    app.services().projects->execute(swap);rejects([&]{app.validate_playback_regions(layout.stems);});
+    struct Restore final:ICommand {Project value;std::string_view name()const override{return "Restore source-order fixture";}
+        void apply(Project& p)const override{p=value;}} restore;
+    restore.value=*good;app.services().projects->execute(restore);
+}
 void run() {
     Folder folder;
     const auto a = folder.path / "a.wav", b = folder.path / "b.wav", r = folder.path / "resample.wav";
@@ -207,6 +279,7 @@ void run() {
     wav(b, -1);
     wav(r, 1, 44100);
     live_channels(a);
+    live_region_channels(a);
     {using namespace mrs::audio;
         PlaybackSourceCheck source;source.key="source";source.file=a;
         const std::array<int,2> outputs{0,1};

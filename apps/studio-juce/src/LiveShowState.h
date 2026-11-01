@@ -490,10 +490,17 @@ inline bool itemDirty(const juce::var &state, const juce::String &id) {
 }
 // Cache opaque/non-metadata content once when cards are created. Notes,
 // names, musical labels/colors and progress then compare only bounded data.
-inline juce::var itemMetadata(const juce::var& item,const juce::var& perf,const juce::String& id,const juce::var* modeMetadata=nullptr) {
+inline juce::var itemMetadata(const juce::var& item,const juce::var& perf,const juce::String& id,const juce::var* modeMetadata=nullptr,const juce::var* clipMetadata=nullptr) {
     auto result=object();
     for(const auto* key:{"name","key","notes","sections"})put(result,key,item[key]);
     put(result,"chords",perf["chords"][juce::Identifier(id)]);
+    put(result,"nativePlayback",perf["nativePlayback"][juce::Identifier(id)]);
+    if(clipMetadata)put(result,"clips",*clipMetadata);
+    else {
+        std::set<juce::String> tracks;
+        if(const auto* rows=item["tracks"].getArray())for(const auto& track:*rows)tracks.insert(track["id"].toString());
+        put(result,"clips",pick(perf["clips"],tracks));
+    }
     if(modeMetadata)put(result,"modes",*modeMetadata);
     else {
         std::set<juce::String> targets{id};
@@ -514,15 +521,34 @@ struct ItemMetadataDirtyState {
     // the bounded mode subset so typing never rescans the show's modes map.
     mutable juce::var modeSource,modeSections,cachedModeMetadata;
     mutable bool modesCached{};
+    mutable juce::var clipSource,clipTracks,cachedClipMetadata;
+    mutable bool clipsCached{},cachedClipsDirty{};
+    mutable juce::var nativeSource;
+    mutable bool nativeCached{},cachedNativeDirty{};
     bool dirty(const juce::var& state,const juce::String& id)const {
         if(otherChanges)return true;
         const auto item=find(state,"items",id),perf=state["performance"];
         const auto modes=perf["modes"],sections=item["sections"];
-        if(!modesCached||modes.getDynamicObject()!=modeSource.getDynamicObject()||sections.getArray()!=modeSections.getArray()){
-            cachedModeMetadata=itemMetadata(item,perf,id)["modes"];
-            modeSource=modes;modeSections=sections;modesCached=true;
+        const auto clips=perf["clips"],tracks=item["tracks"];
+        const bool modeChanged=!modesCached||modes.getDynamicObject()!=modeSource.getDynamicObject()||sections.getArray()!=modeSections.getArray();
+        const bool clipsChanged=!clipsCached||clips.getDynamicObject()!=clipSource.getDynamicObject()||tracks.getArray()!=clipTracks.getArray();
+        if(modeChanged||clipsChanged){
+            const auto metadata=itemMetadata(item,perf,id,modeChanged?nullptr:&cachedModeMetadata,clipsChanged?nullptr:&cachedClipMetadata);
+            if(modeChanged){cachedModeMetadata=metadata["modes"];modeSource=modes;modeSections=sections;modesCached=true;}
+            if(clipsChanged){cachedClipMetadata=metadata["clips"];clipSource=clips;clipTracks=tracks;clipsCached=true;
+                cachedClipsDirty=!sameShowValue(savedMetadata["clips"],cachedClipMetadata);}
         }
-        return !sameShowValue(savedMetadata,itemMetadata(item,perf,id,&cachedModeMetadata));
+        const auto native=perf["nativePlayback"][juce::Identifier(id)];
+        if(!nativeCached||native.getDynamicObject()!=nativeSource.getDynamicObject()){
+            nativeSource=native;nativeCached=true;cachedNativeDirty=!sameShowValue(savedMetadata["nativePlayback"],native);
+        }
+        if(cachedClipsDirty||cachedNativeDirty)return true;
+        // Already compared unchanged audio domains once. Alias their saved
+        // values so Notes do not walk hundreds of unchanged regions per card.
+        const auto savedClips=savedMetadata["clips"];
+        auto metadata=itemMetadata(item,perf,id,&cachedModeMetadata,&savedClips);
+        put(metadata,"nativePlayback",savedMetadata["nativePlayback"]);
+        return !sameShowValue(savedMetadata,metadata);
     }
 };
 inline ItemMetadataDirtyState itemMetadataDirtyState(const juce::var& state,const juce::String& id) {
@@ -532,12 +558,14 @@ inline ItemMetadataDirtyState itemMetadataDirtyState(const juce::var& state,cons
     auto stored=content(juce::JSON::parse(saved.toString()));
     auto current=content(itemVersion(state,id));
     const auto currentModes=current["performance"]["modes"];
+    const auto currentClips=current["performance"]["clips"];
+    const auto currentNative=current["performance"]["nativePlayback"][juce::Identifier(id)];
     result.savedMetadata=itemMetadata(stored["item"],stored["performance"],id);
     if(stored["item"].isObject()&&current["item"].isObject()) {
         for(auto* value:{&stored,&current}) {
             for(const auto* key:{"name","key","notes","sections"})
                 (*value)["item"].getDynamicObject()->removeProperty(key);
-            for(const auto* key:{"chords","itemWorkflow","arrangement","modes"})
+            for(const auto* key:{"chords","itemWorkflow","arrangement","modes","clips","nativePlayback"})
                 (*value)["performance"].getDynamicObject()->removeProperty(key);
         }
         result.otherChanges=!sameShowValue(current,stored);
@@ -545,6 +573,12 @@ inline ItemMetadataDirtyState itemMetadataDirtyState(const juce::var& state,cons
             result.modeSource=state["performance"]["modes"];
             result.modeSections=find(state,"items",id)["sections"];
             result.cachedModeMetadata=currentModes;result.modesCached=true;
+            result.clipSource=state["performance"]["clips"];
+            result.clipTracks=find(state,"items",id)["tracks"];
+            result.cachedClipMetadata=currentClips;result.clipsCached=true;
+            result.cachedClipsDirty=!sameShowValue(result.savedMetadata["clips"],currentClips);
+            result.nativeSource=state["performance"]["nativePlayback"][juce::Identifier(id)];result.nativeCached=true;
+            result.cachedNativeDirty=!sameShowValue(result.savedMetadata["nativePlayback"],currentNative);
         }
     }
     return result;

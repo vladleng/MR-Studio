@@ -158,6 +158,7 @@ public:
     void editLiveItemView(const juce::String& itemId, const juce::Identifier& key, double value);
     void setLiveMusicalRows(const juce::String&,bool section,const juce::var&);
     void setLivePerformanceMode(const juce::String& item,const juce::String& target,mrs::PerformanceMode);
+    void setLivePlaybackRegions(const juce::String& item,const juce::String& stem,const juce::var&,const juce::String& label);
     void setLiveItemExtent(const juce::String&,double start,double end);
     void setLiveChannelOutputs(const juce::String&,const std::vector<int>&);
     void performLiveValuePatches(const juce::String&,std::vector<live::ValuePatch>,live::EditImpact);
