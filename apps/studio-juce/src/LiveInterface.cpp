@@ -571,10 +571,10 @@ void Desktop::setLiveItemExtent(const juce::String& item,double start,double end
        !std::isfinite(start)||!std::isfinite(end)||start<0.||end-start<.25||end>4096.)
         throw std::runtime_error("Item range must stay within 0..4096 bars (minimum 1/4 bar)");
     auto path=live::EditPath{"performance","arrangement",item};
-    auto view=live::editValue(liveDocument->interfaceState,path).value.clone();
-    if(!view.isObject())view=live::object();
-    live::put(view,"start",start);live::put(view,"length",end);
-    performLiveValuePatch("Item range",std::move(path),view,
+    auto extentDraft=live::editValue(liveDocument->interfaceState,path).value.clone();
+    if(!extentDraft.isObject())extentDraft=live::object();
+    live::put(extentDraft,"start",start);live::put(extentDraft,"length",end);
+    performLiveValuePatch("Item range",std::move(path),extentDraft,
         live::EditImpact::metadata|live::EditImpact::timeline|live::EditImpact::extent);
 }
 void Desktop::setLiveMusicalName(const juce::String& itemId,const juce::String& eventId,

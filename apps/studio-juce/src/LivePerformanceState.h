@@ -81,9 +81,9 @@ inline mrs::PerformancePlan preparePerformancePlan(const juce::var& state,const 
     const auto& meter=time.meters.front();const double ticksPerBar=4.*mrs::ppq*meter.numerator/meter.denominator;
     const mrs::Timeline clock(time,rate);mrs::PerformancePlan result;
     result.end=clock.to_samples(static_cast<mrs::Tick>(std::llround(performanceEndBars(state,item,renderedBars)*ticksPerBar)));
-    const auto start=state["performance"]["arrangement"][juce::Identifier(item)]["start"];
-    const double startBars=start.isVoid()?0.:static_cast<double>(start);
-    if((!start.isVoid()&&!number(start))||!std::isfinite(startBars)||startBars<0.||startBars>=performanceEndBars(state,item,renderedBars))
+    const auto trimOrigin=state["performance"]["arrangement"][juce::Identifier(item)]["start"];
+    const double startBars=trimOrigin.isVoid()?0.:static_cast<double>(trimOrigin);
+    if((!trimOrigin.isVoid()&&!number(trimOrigin))||!std::isfinite(startBars)||startBars<0.||startBars>=performanceEndBars(state,item,renderedBars))
         throw std::runtime_error("Invalid performance item start");
     result.start=clock.to_samples(static_cast<mrs::Tick>(std::llround(startBars*ticksPerBar)));
     result.mode=itemPerformanceMode(state,item);
