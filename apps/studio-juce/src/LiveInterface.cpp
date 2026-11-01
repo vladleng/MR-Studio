@@ -564,7 +564,7 @@ void Desktop::setLiveMusicalRows(const juce::String& item,bool section,const juc
     live::validateMusicalRows(rows,section?live::MusicalLane::sections:live::MusicalLane::chords);
     auto path=section?live::EditPath{"items",live::EditStep::id(item),"sections"}:live::EditPath{"performance","chords",item};
     performLiveValuePatch("Edit musical span",std::move(path),rows,
-        live::EditImpact::metadata|live::EditImpact::timeline|live::EditImpact::musical);
+        live::EditImpact::metadata|live::EditImpact::paint|live::EditImpact::musical);
 }
 void Desktop::setLiveItemExtent(const juce::String& item,double start,double end) {
     if(!liveDocument||!live::find(liveDocument->interfaceState,"items",item).isObject()||

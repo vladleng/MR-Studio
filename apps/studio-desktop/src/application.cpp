@@ -683,6 +683,11 @@ void Application::set_live_hardware_output(const Id& track,std::vector<int> outp
     auto oldRuntime=insert_runtime_;auto oldMixer=mixer_tracks_;auto oldPrepared=prepared_;const auto oldApplied=applied_mix_revision_;
     try {
         preparing_project_=&candidate;auto graph=render(config,true);preparing_project_=nullptr;
+        // Reprepare resets MIDI ingress bookkeeping. Release held notes in
+        // every retained instrument before that reset, as rebuild_audio does.
+        for(const auto& row:candidate.tracks)if(row.kind==TrackKind::instrument){
+            const auto& runtime=insert_runtime_.at(row.id.value);if(runtime.graph)runtime.graph->panic();
+        }
         engine_->prepare({config.sample_rate,static_cast<std::uint32_t>(config.inputs.size()),static_cast<std::uint32_t>(config.outputs.size()),8192,config.buffer_frames,config.processing_workers},std::move(graph),head);
         transaction->commit();device_->start();transaction->finish();
     }catch(...){

@@ -771,7 +771,11 @@ class LiveTimeline final : public juce::Component {
                     changedRows=next;
                 }
                 const auto patch=live::valuePatch(originalState,std::move(path),changedRows);
-                invalid=false; parent.state=patch.apply(originalState,true); parent.layout(); parent.playhead.update(); repaint();
+                invalid=false;parent.state=patch.apply(originalState,true);
+                if(clipEditing)parent.layout();
+                else for(auto& item:parent.items)if(item.value["id"].toString()==selectedItem)
+                    item.value=live::find(parent.state,"items",selectedItem);
+                parent.playhead.update();repaint();
             }catch(const std::exception &e){invalid=true;setTooltip(juce::String::fromUTF8(e.what()));repaint();}
         }
         void finishEdit() {
@@ -796,12 +800,11 @@ class LiveTimeline final : public juce::Component {
             // against stale edits while the user interacted.
             editing=false;
             if(!changed) {
-                parent.state=parent.owner.liveDocument->interfaceState;
-                repaint();
+                restoreModelState();
                 return;
             }
             const auto next=parent.state;
-            parent.state=parent.owner.liveDocument->interfaceState;parent.layout();parent.playhead.update();repaint();
+            restoreModelState();
             if(!parent.owner.liveDocument ||
                parent.owner.liveDocumentGeneration!=editGeneration ||
                parent.owner.liveUiRevision!=editRevision||parent.owner.liveEdits.mutation!=editMutation)return;
@@ -823,8 +826,14 @@ class LiveTimeline final : public juce::Component {
         void cancelEdit() {
             if(!editing)return;
             editing=false;invalid=false;
+            restoreModelState();
+        }
+        void restoreModelState() {
             if(parent.owner.liveDocument)parent.state=parent.owner.liveDocument->interfaceState;
-            parent.layout();parent.playhead.update();repaint();
+            if(clipEditing||viewKey.isNotEmpty())parent.layout();
+            else for(auto& item:parent.items)
+                item.value=live::find(parent.state,"items",item.value["id"].toString());
+            parent.playhead.update();repaint();
         }
         void properties(juce::Point<int> screen=juce::Desktop::getMousePosition()) {
             if(selection.isNotEmpty())for(const auto &item:parent.items)

@@ -158,7 +158,8 @@ JUCE's actual serializer to keep this optimization subordinate to data integrity
 Section/Chord drag release and property bounds use `setLiveMusicalRows`: validate
 only the bounded lane, preflight the active Core musical projection and any
 staged successor, then publish one local Undo patch. Stable channel/FX subtrees
-remain shared. Core musical edits with an unchanged time map execute metadata
+remain shared. Musical previews and commits repaint the existing lanes without
+rebuilding Item geometry or revisiting WAV extents. Core musical edits with an unchanged time map execute metadata
 commands without capturing plugin state or rebuilding DSP. Runtime performance
 policy still updates through the existing prepared Core graph path.
 
