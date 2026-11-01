@@ -330,6 +330,77 @@ class LiveNotesEdit final : public juce::UndoableAction {
     juce::Component::SafePointer<Desktop> owner;
     juce::String id, before, after;
 };
+// #31 Organizer: a status, priority, title or progress change is metadata.
+// Preserve scalar/root-row Undo without cloning the show or touching VST3 /
+// AudioEngine state. Structural add/remove/template retains full validation.
+class LiveOrganizerFieldEdit final : public juce::UndoableAction {
+ public:
+    LiveOrganizerFieldEdit(Desktop& desktop,juce::String item,juce::String task,
+                           juce::Identifier property,juce::var oldValue,juce::var newValue,
+                           bool previousMap)
+       : owner(&desktop),itemId(std::move(item)),taskId(std::move(task)),
+         key(std::move(property)),before(std::move(oldValue)),after(std::move(newValue)),
+         hadWorkflowMap(previousMap),generation(desktop.liveDocumentGeneration) {}
+    bool perform() override {return apply(after);}
+    bool undo() override {return apply(before);}
+    int getSizeInUnits() override {return 256;}
+ private:
+    bool apply(const juce::var& value) {
+        if(!owner||!owner->liveDocument||owner->liveDocumentGeneration!=generation)return false;
+        auto& state=owner->liveDocument->interfaceState;
+        if(!live::find(state,"items",itemId).isObject())return false;
+        if(taskId.isEmpty()) {
+            auto& perf=live::performance(state);
+            if(value.isVoid()) {
+                auto map=perf["itemWorkflow"];
+                if(map.isObject()) {
+                    map.getDynamicObject()->removeProperty(juce::Identifier(itemId));
+                    if(!hadWorkflowMap && map.getDynamicObject()->getProperties().size()==0)
+                        perf.getDynamicObject()->removeProperty(juce::Identifier("itemWorkflow"));
+                }
+            } else {
+                live::put(live::map(perf,"itemWorkflow"),itemId,value.clone());
+            }
+        } else {
+            auto rows=live::tasks(state,itemId);
+            bool found=false;
+            if(auto* entries=rows.getArray())
+                for(auto& row:*entries)
+                    if(row["id"].toString()==taskId) {
+                        live::put(row,key,value);
+                        found=true;break;
+                    }
+            if(!found)return false;
+        }
+        owner->liveDirty=true;
+        if(owner->liveSavedSnapshot) {
+            const auto& saved=owner->liveSavedSnapshot->interfaceState;
+            bool atSaved=false;
+            if(taskId.isEmpty()) {
+                const auto savedRow=saved["performance"]["itemWorkflow"][juce::Identifier(itemId)];
+                const auto currentRow=state["performance"]["itemWorkflow"][juce::Identifier(itemId)];
+                atSaved=live::sameShowValue(savedRow,currentRow);
+            } else {
+                const auto savedRows=live::tasks(saved,itemId);
+                if(const auto* entries=savedRows.getArray())
+                    for(const auto& row:*entries)
+                        if(row["id"].toString()==taskId) {
+                            atSaved=row[key]==value;break;
+                        }
+            }
+            // Full dirty check only for a possible return to saved state.
+            if(atSaved)owner->updateLiveDirty();
+        }
+        ++owner->liveUiRevision;
+        return true;
+    }
+    juce::Component::SafePointer<Desktop> owner;
+    juce::String itemId,taskId;
+    juce::Identifier key;
+    juce::var before,after;
+    bool hadWorkflowMap{};
+    std::uint64_t generation{};
+};
 // #31 Item Editor: Name/Key are small text values, unrelated to the Core
 // musical projection, input profiles and hosted VST3 state. Undo stores only
 // the original and new field, never a cloned show or an audio graph.
@@ -405,6 +476,69 @@ class LiveItemViewEdit final : public juce::UndoableAction {
     bool hadArrangement{};
 };
 } // namespace
+void Desktop::setLiveOrganizerField(const juce::String& itemId,const juce::String& taskId,
+                                     const juce::Identifier& key,const juce::var& input) {
+    if(!liveDocument)throw std::runtime_error("Open a MR Live show first");
+    const auto& state=liveDocument->interfaceState;
+    if(!live::find(state,"items",itemId).isObject())
+        throw std::runtime_error("Organizer item no longer exists");
+    const bool root=taskId.isEmpty();
+    const bool title=key==juce::Identifier("title");
+    const bool status=key==juce::Identifier("status");
+    const bool priority=key==juce::Identifier("priority");
+    const bool progress=key==juce::Identifier("progress");
+    if(!((root&&(status||priority||progress))||(!root&&(title||status||progress))))
+        throw std::runtime_error("Unsupported Organizer property");
+    juce::var value=input;
+    if(title) {
+        value=input.toString().trim();
+        if(!live::named(value))
+            throw std::runtime_error("Task title must contain 1..120 characters");
+    } else if(status && !live::status(input.toString()))
+        throw std::runtime_error("Invalid task status");
+    else if(priority && !(input.toString()=="P1"||input.toString()=="P2"||
+                          input.toString()=="P3"||input.toString()=="P4"))
+        throw std::runtime_error("Invalid item priority");
+    else if(progress) {
+        if(!live::number(input)||static_cast<double>(input)<0.||
+           static_cast<double>(input)>100.)
+            throw std::runtime_error("Progress must be 0..100");
+        value=static_cast<double>(input);
+    }
+    const bool hadWorkflowMap=state["performance"]["itemWorkflow"].isObject();
+    juce::var before,after;
+    if(root) {
+        before=state["performance"]["itemWorkflow"][juce::Identifier(itemId)];
+        after=live::workflow(state,itemId);
+        if(before.isObject())before=before.clone();
+        live::put(after,key,value);
+        if(before.isObject()&&live::sameShowValue(before,after))return;
+    } else {
+        const auto rows=live::tasks(state,itemId);
+        if(const auto* entries=rows.getArray())
+            for(const auto& row:*entries)
+                if(row["id"].toString()==taskId) {
+                    before=row[key];break;
+                }
+        if(before.isVoid())
+            throw std::runtime_error("Organizer task no longer exists");
+        if(before==value)return;
+        after=value;
+    }
+    if(title) {
+        const auto priorBytes=juce::JSON::toString(before).getNumBytesAsUTF8();
+        const auto nextBytes=juce::JSON::toString(after).getNumBytesAsUTF8();
+        if(nextBytes>priorBytes &&
+           juce::JSON::toString(state).getNumBytesAsUTF8()+
+             (nextBytes-priorBytes)>live::maximumShowBytes)
+            throw std::runtime_error("Show interface exceeds 64 MiB");
+    }
+    liveShowEditing=true;
+    liveTypingLabel.clear();
+    liveUndo.beginNewTransaction("Organizer "+key.toString());
+    liveUndo.perform(new LiveOrganizerFieldEdit(*this,itemId,taskId,key,before,after,hadWorkflowMap));
+    liveUndo.beginNewTransaction();
+}
 void Desktop::setLiveItemTextProperty(const juce::String& id, const juce::Identifier& key,
                                       const juce::String& text) {
     if (!liveDocument) throw std::runtime_error("Open a MR Live show first");
