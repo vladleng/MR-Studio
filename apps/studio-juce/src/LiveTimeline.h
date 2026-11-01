@@ -650,9 +650,7 @@ class LiveTimeline final : public juce::Component {
             }return false;
         }
         void commitClips(const juce::var& next,const juce::String& label){
-            parent.owner.run([&]{parent.owner.editLiveInterface(label,[&](auto& state){
-                live::setPlaybackRegions(state,clipItem,clipStem,next);
-            });parent.owner.syncLivePlayback();});
+            parent.owner.run([&]{parent.owner.setLivePlaybackRegions(clipItem,clipStem,next,label);});
         }
         juce::var selectedClipRows() const {
             const auto row=live::playbackStem(parent.state,clipItem,clipStem);
@@ -668,8 +666,13 @@ class LiveTimeline final : public juce::Component {
             juce::PopupMenu menu;menu.addItem(1,"Pointer",true,!scissors);menu.addItem(2,"Scissors",true,scissors);menu.addSeparator();
             menu.addItem(3,"Region properties...",clipSelection.isNotEmpty());menu.addItem(4,"Delete region",clipSelection.isNotEmpty());menu.addItem(5,"Restore original region");
             juce::Component::SafePointer<Body> safe(this);const auto selected=clipSelection,sourceItem=clipItem,sourceStem=clipStem;
-            showLiveActionMenu(menu,parent.owner,liveContextTarget(screen),[safe,item,index,screen,selected,sourceItem,sourceStem](int action){
-                if(!safe)return;
+            const auto generation=parent.owner.liveDocumentGeneration,sourceEpoch=parent.owner.liveSourceCheckEpoch;
+            const auto mediaKey=live::playbackMediaKey(parent.state,sourceItem),regionsKey=live::playbackRegionsKey(parent.state,sourceItem);
+            showLiveActionMenu(menu,parent.owner,liveContextTarget(screen),[safe,item,index,screen,selected,sourceItem,sourceStem,generation,sourceEpoch,mediaKey,regionsKey](int action){
+                if(!safe||!safe->parent.owner.liveDocument||safe->parent.owner.liveDocumentGeneration!=generation||
+                   safe->parent.owner.liveSourceCheckEpoch!=sourceEpoch)return;
+                const auto& current=safe->parent.owner.liveDocument->interfaceState;
+                if(mediaKey!=live::playbackMediaKey(current,sourceItem)||regionsKey!=live::playbackRegionsKey(current,sourceItem))return;
                 safe->clipItem=sourceItem;safe->clipStem=sourceStem;safe->clipSelection=selected;safe->clipSourceBars=safe->sourceBars(item,index);
                 if(action==1||action==2){safe->scissors=action==2;return;}
                 if(action==3)safe->clipProperties(screen);
@@ -810,9 +813,8 @@ class LiveTimeline final : public juce::Component {
                parent.owner.liveUiRevision!=editRevision||parent.owner.liveEdits.mutation!=editMutation)return;
             parent.owner.run([&]{
                 if(clipEditing){
-                    parent.owner.editLiveInterface("Edit Playback region",[&](auto& state){
-                        live::setPlaybackRegions(state,clipItem,clipStem,live::playbackRegions(next,clipItem,live::playbackStem(next,clipItem,clipStem)));
-                    });parent.owner.syncLivePlayback();
+                    parent.owner.setLivePlaybackRegions(clipItem,clipStem,
+                        live::playbackRegions(next,clipItem,live::playbackStem(next,clipItem,clipStem)),"Edit Playback region");
                 }else parent.owner.setLiveMusicalRows(selectedItem,selectedLane==live::MusicalLane::sections,
                                                       live::musicalRows(next,selectedItem,selectedLane));
             });

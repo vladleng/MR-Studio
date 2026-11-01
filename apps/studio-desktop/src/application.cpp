@@ -1180,7 +1180,9 @@ void Application::poll_staged_playback(){
     transport_->poll();musical_->refresh();
 }
 void Application::set_performance_plan(PerformancePlan plan){
-    plan.validate();require_not_playing();require_not_recording();const auto expected=performance_token_;
+    plan.validate();require_not_playing();require_not_recording();
+    if(performance_plan_&&*performance_plan_==plan)return;
+    const auto expected=performance_token_;
     require(cancel_staged_playback()&&expected==performance_token_,"Playback transition in progress; retry policy edit");
     auto previous=performance_plan_;performance_plan_=std::move(plan);
     try{rebuild_audio(true);}catch(...){performance_plan_=std::move(previous);throw;}
@@ -1782,10 +1784,13 @@ void Application::configure_playback_regions(const std::vector<PlaybackStem>& st
     require_not_playing();require_not_recording();
     const auto current=services_.projects->state().project;
     require(workspace_==Workspace::live && path_.empty() && current->id==playback_source_project_,"Region editing requires prepared Live Playback");
-    const bool liveTail=current->tracks.size()==playback_sources_.size()+1 &&
-        current->tracks.back().kind==TrackKind::audio && current->tracks.back().input_monitor;
-    require(current->tracks.size()==playback_sources_.size() || liveTail,
+    require(current->tracks.size()>=playback_sources_.size()&&current->tracks.size()-playback_sources_.size()<=64,
             "Playback tracks changed; reload the item");
+    for(std::size_t i=playback_sources_.size();i<current->tracks.size();++i){
+        const auto& track=current->tracks[i];
+        require((track.kind==TrackKind::audio&&track.input>=0)||track.kind==TrackKind::instrument,
+                "Playback contains an unrelated track; reload the item");
+    }
     for(std::size_t i=0;i<playback_sources_.size();++i)require(current->tracks[i].id==playback_sources_[i].track,"Playback source mapping changed");
     const auto& sources=playback_sources();require(stems.size()==sources.size(),"Playback source mapping changed");
     auto nextSources=sources;
@@ -1794,6 +1799,11 @@ void Application::configure_playback_regions(const std::vector<PlaybackStem>& st
         std::string_view name()const override{return "Set Playback regions";}
         void apply(Project& p)const override{p.clips=clips;}
     } command;
+    // Region editing owns only the prepared WAV tracks. Preserve any captures
+    // on the persistent input/instrument tracks and every channel descriptor.
+    for(const auto& clip:current->clips)
+        if(std::none_of(sources.begin(),sources.end(),[&](const auto& source){return source.track==clip.track;}))
+            command.clips.push_back(clip);
     const auto rate=services_.projects->state().project->sample_rate;
     for(std::size_t i=0;i<stems.size();++i){
         const auto& settings=stems[i];auto& source=nextSources[i];const auto frames=source_frames(source.id);
@@ -1815,10 +1825,12 @@ void Application::configure_playback_regions(const std::vector<PlaybackStem>& st
     auto candidate=*services_.projects->state().project;candidate.clips=command.clips;candidate.validate();
     require(candidate.clips.size()<=audio::max_voices,"Too many Playback regions");
     std::size_t streamed{},bytes{};
-    for(const auto& clip:candidate.clips){const auto data=asset(clip.source);if(data->file){++streamed;bytes+=8*8192*static_cast<std::size_t>(data->channels)*sizeof(float);}}
+    for(const auto& clip:candidate.clips){if(clip.midi)continue;const auto data=asset(clip.source);if(data->file||(clip.stretch&&!stretch::neutral(clip.stretch->parameters))){++streamed;bytes+=8*8192*static_cast<std::size_t>(data->channels)*sizeof(float);}}
     require(streamed<=32 && bytes<=256*1024*1024,"Disk voice budget exceeded (32 voices / 256 MiB)");
     if(!publish)return;
-    if(command.clips!=services_.projects->state().project->clips)edit(command);
+    // Unchanged track/input/insert identities: keep the processors and avoid
+    // capturing/reloading large vendor states for a WAV-only geometry edit.
+    if(command.clips!=services_.projects->state().project->clips)edit(command,{},true);
     playback_sources_=std::move(nextSources);
 }
 void Application::move_clip(const Id& id, const Id& track, Sample start) {

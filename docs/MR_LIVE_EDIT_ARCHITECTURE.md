@@ -227,3 +227,50 @@ Core/DSP preparation, real vendor states and ASIO; Windows perceived latency sti
 requires user acceptance. Source audit also confirms structural Browser/Setlist,
 input/FX and WAV/region operations retain their separate full paths; this stage
 does not implement those remaining optimizations.
+
+
+## Audio region editing with persistent Live channels — fix15 / #31
+
+Core region editing previously allowed only the prepared WAV tracks and a single
+monitored Audio tail. Two configured inputs, a lone Instrument or Monitor OFF
+could make split/trim fail with `Playback tracks changed; reload the item`, so a
+trim preview reverted on release. Source-only native smoke did not exercise this
+combination.
+
+`configure_playback_regions` now validates the unchanged prepared-source prefix
+and up to 64 configured Audio/Instrument tails. Only clips on the WAV source tracks
+are replaced; captures on other tracks survive. WAV/voice/disk budgets and stopped,
+recording, project/source identity checks remain. A pure region command retains
+insert instances instead of capturing/reloading vendor state. Reapplying an equal
+performance policy is a guarded no-op, avoiding a second graph prepare when a cut
+leaves the Item policy unchanged. Changed extents/policies still prepare normally.
+No callback/DSP code or `.mrlive` schema changes.
+
+All clip actions (Scissors, Pointer release, trim, delete, restore and properties)
+use a typed local region-list patch with shared Undo/size preflight. Musical/audio
+preflight remains, while full show/VST3 snapshots and whole-UI revision bumps are
+removed from that path. The Timeline still updates necessary clip/Item geometry.
+Saved indicators compare bounded per-Item clips/native Playback metadata, cache
+unchanged region domains and reuse those caches on Notes edits.
+
+Unedited regions retain their original stored audio clock, including after a
+musical tempo import; an unchanged view creates no edit. Legacy regions acquire
+source-bounded markers only in detached views, and cuts carry that compatibility
+onto both halves. Undo preserves original optional-field/parent absence. Source
+properties and context menus reject stale generations/geometry; explicit source
+reload, including the same path, invalidates source editors and checks.
+
+Regression coverage includes split/trim with two WAV stems + two physical-input
+simulations + an Instrument container, real PCM after editing, Monitor OFF,
+retained FX/device identity, non-Playback capture preservation, invalid source
+ranges and source mapping. Native smoke exercises mouse-down/up Scissors, drag
+and edge trim with Timeline refresh during the gesture, property commits, Undo/
+Redo, source reload rejection and Save/Open with two active input channels. Pure
+JUCE model checks cover Browser/native-only region storage, retimed/legacy clocks,
+metadata dirty caches and exact byte deltas.
+
+`live_clip_model_profile` compares a single full clone/validation with the local
+region patch on a small and a 128-Item/8-MiB synthetic opaque model. It reports
+median/p95 and separate cold byte accounting without a timing pass threshold.
+This excludes Core graph/source preparation, actual vendor plugins, screen input
+latency and physical ASIO. Hardware/perceived latency requires user acceptance.

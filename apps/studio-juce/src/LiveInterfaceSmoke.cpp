@@ -3,6 +3,7 @@
 #include "../../../tests/live_playback_view_checks.hpp"
 #include "../../../tests/live_timeline_edit_checks.hpp"
 #include "../../../tests/live_clip_edit_checks.hpp"
+#include "../../../tests/live_clip_patch_checks.hpp"
 #include "../../../tests/live_performance_checks.hpp"
 #include "../../../tests/live_performance_edit_checks.hpp"
 #include "../../../tests/live_show_value_checks.hpp"
@@ -1194,6 +1195,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::playbackViews();
     live::test::timelineEditing();
     live::test::clipEditing();
+    live::test::clipRegionPatches();
+    live::test::clipRegionEditTimings();
     live::test::performancePolicies();
     live::test::performanceModeEdits();
     live::test::performanceModeEditTimings();
@@ -3349,11 +3352,18 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(liveComponent(audioSettings, "live-audio-output") != nullptr,
                   "Live context exposes Click route settings through the native controls");
         {
-            Desktop clipHost(true,false,true);clipHost.importLiveShow(fixture);clipHost.app.disconnect();clipHost.selectLiveItem(id);
+            Desktop clipHost(true,false,true);clipHost.importLiveShow(fixture);
+            clipHost.app.connect(std::make_unique<LivePlaybackTestDevice>(),{0,48000,128,{0,1},{0,1},1});clipHost.selectLiveItem(id);
             clipHost.editLiveInterface("Clip edit fixture",[&](auto& state){
                 live::put(live::require(state,"items",id),"tempo",240.);
                 live::setItemView(state,id,"scale",128.);live::setItemView(state,id,"lead",2.);live::setItemView(state,id,"length",8.);
+                auto opaque=live::object();live::put(opaque,"state",juce::String::repeatedString("R",2*1024*1024));live::put(state,"auditOpaque",opaque);
             });
+            std::vector<juce::String> inputChannels;
+            for(const auto& row:*clipHost.liveDocument->interfaceState["channels"].getArray())
+                if(row["type"].toString()=="Player"||row["type"].toString()=="Audio")inputChannels.push_back(row["id"].toString());
+            liveCheck(inputChannels.size()>=2,"Clip editing fixture has two distinct live input channels");
+            clipHost.configureLiveInput(inputChannels[0],0,false,{});clipHost.configureLiveInput(inputChannels[1],1,false,{});
             clipHost.attachLivePlayback(id,folder.getChildFile("live-tone.wav"));
             const auto readyUntil=juce::Time::getMillisecondCounter()+5000;
             while(juce::Time::getMillisecondCounter()<readyUntil){
@@ -3362,6 +3372,11 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                 juce::Thread::sleep(1);
             }
             liveCheck(clipHost.livePlaybackReady(),"Clip authoring has the prepared shared source");
+            liveCheck(clipHost.liveChannelTracks.size()==2&&clipHost.project()->tracks.size()==3,
+                      "Native region editing uses WAV plus two persistent Live inputs");
+            clipHost.setLiveItemNotes(id,live::find(clipHost.liveDocument->interfaceState,"items",id)["notes"].toString()+" Clip edit budget");
+            const auto structure=clipHost.liveUiRevision,fullMeasures=clipHost.liveFullSizeMeasures;
+            const auto opaque=clipHost.liveDocument->interfaceState["auditOpaque"],channels=clipHost.liveDocument->interfaceState["channels"];
             auto* clipTimeline=dynamic_cast<LiveTimeline*>(liveComponent(clipHost,"live-show-timeline"));
             liveCheck(clipTimeline!=nullptr,"Clip authoring timeline exists");clipTimeline->refresh();
             auto* clipBody=liveComponent(*clipTimeline,"live-timeline-items");
@@ -3370,21 +3385,45 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             const float clipOrigin=static_cast<float>(clipBounds.getX()+1+256);
             const float clipY=static_cast<float>(clipTimeline->playbackStemLaneBounds(channel).getY()+20);
             const auto mouse=[&](float x){const auto now=juce::Time::getCurrentTime();const juce::Point<float> point{x,clipY};return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys::leftButtonModifier,1,0,0,0,0,clipBody,clipBody,now,point,now,1,false);};
-            clipTimeline->setClipScissors(true);clipBody->mouseDown(mouse(clipOrigin+64.f));clipTimeline->refresh();
+            clipTimeline->setClipScissors(true);clipBody->mouseDown(mouse(clipOrigin+64.f));clipBody->mouseUp(mouse(clipOrigin+64.f));clipTimeline->refresh();
             liveCheck(clipHost.project()->clips.size()==2 && clipHost.project()->clips[1].source_offset==24000 && clipTimeline->clipScissors(),
                       "Native Scissors splits actual Core regions and stays selected");
+            liveCheck(clipHost.liveUiRevision==structure&&clipHost.liveFullSizeMeasures==fullMeasures&&
+                      clipHost.liveDocument->interfaceState["auditOpaque"].getDynamicObject()==opaque.getDynamicObject()&&
+                      clipHost.liveDocument->interfaceState["channels"].getArray()==channels.getArray(),
+                      "Native split retains opaque/channel state and warm byte budget without a full UI refresh");
             clipTimeline->setClipScissors(false);
             clipBody->mouseDown(mouse(clipOrigin+96.f));clipBody->mouseDrag(mouse(clipOrigin+160.f));
+            clipTimeline->refresh();
             liveCheck(clipHost.project()->clips[1].start==24000,"Clip drag remains UI preview until release");
             clipBody->mouseUp(mouse(clipOrigin+160.f));clipTimeline->refresh();
             liveCheck(clipHost.project()->clips[1].start==48000 && clipHost.project()->clips[1].source_offset==24000,
                       "Native Pointer moves cut region without source slip");
             clipHost.undoLiveInterface();clipHost.syncLivePlayback();clipTimeline->refresh();
             liveCheck(clipHost.project()->clips[1].start==24000,"One show Undo reverses the whole region drag");
+            clipBody->mouseDown(mouse(clipOrigin+128.f));clipBody->mouseDrag(mouse(clipOrigin+96.f));clipTimeline->refresh();
+            clipBody->mouseUp(mouse(clipOrigin+96.f));clipTimeline->refresh();
+            liveCheck(clipHost.project()->clips[1].length==12000&&clipHost.project()->clips[1].source_offset==24000,
+                      "Native right-edge trim persists after refresh instead of restoring its old duration");
+            clipHost.undoLiveInterface();clipHost.syncLivePlayback();clipTimeline->refresh();
+            liveCheck(clipHost.project()->clips[1].length==24000,"Trim Undo restores the exact source range");
+            clipHost.undoLiveInterface(true);clipHost.syncLivePlayback();clipTimeline->refresh();
+            const auto regionRows=live::playbackRegions(clipHost.liveDocument->interfaceState,id,live::playback(clipHost.liveDocument->interfaceState,id));
+            LiveClipEditor properties(clipHost,id,{},regionRows[1]["id"].toString(),regionRows,1.);
+            auto* lengthField=dynamic_cast<juce::TextEditor*>(liveComponent(properties,"live-clip-length"));
+            liveCheck(lengthField!=nullptr,"Native region properties expose the actual Length field");
+            lengthField->setText("0.375",false);lengthField->onReturnKey();
+            liveCheck(clipHost.project()->clips[1].length==18000,"Properties commit changes the real Core region with Live inputs active");
             const auto clipShow=folder.getChildFile("clip-edits.mrlive");clipHost.saveFile(clipShow);
             const auto savedClips=LiveDocument::read(clipShow);
             liveCheck(live::playbackRegions(savedClips.interfaceState,id,live::playback(savedClips.interfaceState,id)).size()==2,
                       "Native split arrangement survives mrlive Save/Open");
+            liveCheck(static_cast<double>(live::playbackRegions(savedClips.interfaceState,id,live::playback(savedClips.interfaceState,id))[1]["length"])==.375,
+                      "The trimmed region duration survives Save/Open");
+            clipHost.invalidateLivePlayback(id);lengthField->setText("0.25",false);lengthField->onReturnKey();
+            const auto* propertyError=dynamic_cast<juce::Label*>(liveComponent(properties,"live-clip-error"));
+            liveCheck(propertyError&&propertyError->getText().contains("source changed")&&clipHost.project()->clips[1].length==18000,
+                      "Same-path source reload invalidates old properties without applying stale geometry");
         }
         LiveWaveformCache displayCache;
         const auto source = folder.getChildFile("live-tone.wav").getFullPathName();
