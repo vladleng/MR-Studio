@@ -200,6 +200,8 @@ on the existing ValuePatch/Undo/byte-budget protocol. Normal removes an override
 Undo restores exact presence and newly created parent containers. Same-mode picks
 are no-ops. Metadata/paint revisions refresh saved dots, mode glyphs and menu ticks
 without rebuilding cards, waveform geometry or cloning opaque VST3/show data.
+Each card caches its mode subset against the persistent modes/Sections subtrees;
+Notes/name changes reuse that subset rather than scanning all show modes again.
 
 Perform and Undo/Redo validate the changed mode, one existing Item/Section target,
 the bounded modes map and resulting musical performance plan. Effective edits to

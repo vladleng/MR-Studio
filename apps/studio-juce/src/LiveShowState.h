@@ -490,14 +490,17 @@ inline bool itemDirty(const juce::var &state, const juce::String &id) {
 }
 // Cache opaque/non-metadata content once when cards are created. Notes,
 // names, musical labels/colors and progress then compare only bounded data.
-inline juce::var itemMetadata(const juce::var& item,const juce::var& perf,const juce::String& id) {
+inline juce::var itemMetadata(const juce::var& item,const juce::var& perf,const juce::String& id,const juce::var* modeMetadata=nullptr) {
     auto result=object();
     for(const auto* key:{"name","key","notes","sections"})put(result,key,item[key]);
     put(result,"chords",perf["chords"][juce::Identifier(id)]);
-    std::set<juce::String> targets{id};
-    if(const auto* sections=item["sections"].getArray())for(const auto& section:*sections)
-        targets.insert(section["id"].toString());
-    put(result,"modes",pick(perf["modes"],targets));
+    if(modeMetadata)put(result,"modes",*modeMetadata);
+    else {
+        std::set<juce::String> targets{id};
+        if(const auto* sections=item["sections"].getArray())for(const auto& section:*sections)
+            targets.insert(section["id"].toString());
+        put(result,"modes",pick(perf["modes"],targets));
+    }
     auto range=object();
     for(const auto* key:{"start","length"})if(perf["arrangement"][juce::Identifier(id)].hasProperty(key))put(range,key,perf["arrangement"][juce::Identifier(id)][key]);
     put(result,"range",range);
@@ -507,8 +510,19 @@ inline juce::var itemMetadata(const juce::var& item,const juce::var& perf,const 
 struct ItemMetadataDirtyState {
     bool otherChanges{true};
     juce::var savedMetadata;
+    // Persistent UI patches retain these subtrees on Notes/name edits. Cache
+    // the bounded mode subset so typing never rescans the show's modes map.
+    mutable juce::var modeSource,modeSections,cachedModeMetadata;
+    mutable bool modesCached{};
     bool dirty(const juce::var& state,const juce::String& id)const {
-        return otherChanges||!sameShowValue(savedMetadata,itemMetadata(find(state,"items",id),state["performance"],id));
+        if(otherChanges)return true;
+        const auto item=find(state,"items",id),perf=state["performance"];
+        const auto modes=perf["modes"],sections=item["sections"];
+        if(!modesCached||modes.getDynamicObject()!=modeSource.getDynamicObject()||sections.getArray()!=modeSections.getArray()){
+            cachedModeMetadata=itemMetadata(item,perf,id)["modes"];
+            modeSource=modes;modeSections=sections;modesCached=true;
+        }
+        return !sameShowValue(savedMetadata,itemMetadata(item,perf,id,&cachedModeMetadata));
     }
 };
 inline ItemMetadataDirtyState itemMetadataDirtyState(const juce::var& state,const juce::String& id) {
@@ -517,6 +531,7 @@ inline ItemMetadataDirtyState itemMetadataDirtyState(const juce::var& state,cons
     if(!saved.isString())return result;
     auto stored=content(juce::JSON::parse(saved.toString()));
     auto current=content(itemVersion(state,id));
+    const auto currentModes=current["performance"]["modes"];
     result.savedMetadata=itemMetadata(stored["item"],stored["performance"],id);
     if(stored["item"].isObject()&&current["item"].isObject()) {
         for(auto* value:{&stored,&current}) {
@@ -526,6 +541,11 @@ inline ItemMetadataDirtyState itemMetadataDirtyState(const juce::var& state,cons
                 (*value)["performance"].getDynamicObject()->removeProperty(key);
         }
         result.otherChanges=!sameShowValue(current,stored);
+        if(!result.otherChanges){
+            result.modeSource=state["performance"]["modes"];
+            result.modeSections=find(state,"items",id)["sections"];
+            result.cachedModeMetadata=currentModes;result.modesCached=true;
+        }
     }
     return result;
 }

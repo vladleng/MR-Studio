@@ -23,6 +23,11 @@ inline void performanceModeEdits() {
               "All Section modes have the same typed, owner-validated edit path");
         check(savedModes.dirty(next,item)==itemDirty(next,item)&&savedModes.dirty(next,item),
               "Existing cards detect local mode changes without rebuilding their opaque dirty baseline");
+        const auto cachedModes=savedModes.cachedModeMetadata;
+        const auto note=valuePatch(next,{"items",EditStep::id(item),"notes"},"Typing after a mode edit").apply(next,true);
+        (void)savedModes.dirty(note,item);
+        check(savedModes.cachedModeMetadata.getDynamicObject()==cachedModes.getDynamicObject(),
+              "Notes patches retain the cached Item-mode subset instead of rescanning all show modes");
         check(canonical(patch->apply(next,false))==original&&canonical(state)==original,
               "Mode Undo removes a newly created container and never mutates the source show");
         const auto reset=performanceModePatch(next,item,"mode-section",mrs::PerformanceMode::normal);
