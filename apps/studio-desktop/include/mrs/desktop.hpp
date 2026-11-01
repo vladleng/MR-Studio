@@ -120,6 +120,7 @@ public:
     std::vector<std::string> output_names() const;
     std::vector<int> active_outputs() const;
     void set_hardware_output(std::optional<Id>, std::vector<int>);
+    void set_live_hardware_output(const Id&, std::vector<int>);
     void remove_track(const Id&);
     void reorder_track(const Id&, std::size_t index);
     void import_wavs(const std::vector<std::filesystem::path>&,std::optional<Id> target={},Sample start=0);

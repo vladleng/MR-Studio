@@ -60,8 +60,8 @@ RT-safe preview/commit side effects.
 - Continuous typing can coalesce only for the same owner, generation, target,
   impact and contiguous before/after values. No-op edits publish no action.
 - Preview uses the same detached path-copy adapter but publishes neither the
-  model, size cache nor Undo. Release retains the existing full musical/WAV
-  commit validation. Any intervening document mutation invalidates the gesture.
+  model, size cache nor Undo. Release uses the bounded musical-lane command with Core preflight; WAV region
+  commits retain their full validation. Any intervening document mutation invalidates the gesture.
 
 This retains a boundary between transient drafts/previews, persisted show edits
 and Core runtime publication. The format on disk is unchanged.
@@ -152,3 +152,42 @@ latency, a Windows performance claim, or evidence of physical ASIO stability.
 The cold budget is still size-dependent; it is counted only on a missing stamp
 when an edit can grow the document. The tests also compare final byte totals with
 JUCE's actual serializer to keep this optimization subordinate to data integrity.
+
+## Item ranges, musical bounds and channel outputs (fix11)
+
+Section/Chord drag release and property bounds use `setLiveMusicalRows`: validate
+only the bounded lane, preflight the active Core musical projection and any
+staged successor, then publish one local Undo patch. Stable channel/FX subtrees
+remain shared. Musical previews and commits repaint the existing lanes without
+rebuilding Item geometry or revisiting WAV extents. Core musical edits with an unchanged time map execute metadata
+commands without capturing plugin state or rebuilding DSP. Runtime performance
+policy still updates through the existing prepared Core graph path.
+
+Player/Instrument hardware output selection patches only `outputs` and
+`outputNames` as one Undo action. Both patches are checked and budgeted together
+before publication. Device identity, enabled physical ports and saved port names
+are checked again on Undo/Redo. Legacy descriptors without optional output names
+retain that absence on Undo and use their existing device/port validation. Core prepares the route with the existing insert
+instances and open device handle; a failed restart rolls back the ProjectStore,
+graph, mix and runtime. Input/MIDI/effect configuration keeps its existing full
+transaction. Output selection neither captures plugin state nor reconfigures input.
+
+`performance.arrangement[item].start` is an optional absolute bar position,
+defaulting to zero for existing shows. `length` remains the absolute end, not the
+duration. The minimum selected range is 1/4 bar. Header edge drags preview without
+model writes, then commit start/end together with one Undo. Notes, sections,
+chords and media keep their original coordinates; hidden content reappears when
+the range is extended. Save/Open and Save for All retain the range. Timeline
+projection subtracts the start; Core PerformancePlan owns its sample bounds.
+Prepared successor streams warm the trimmed origin outside the callback.
+
+Section navigation uses double left click; single click selects for editing.
+Setlist selection/reselection seeks the selected Item's effective start. Play
+anchors at its actual start position. With Back to start on stop enabled, Stop
+returns to that most recent Play anchor. With it disabled, Stop holds the current
+position. A further Stop while already stopped returns to the effective Item
+start in both modes. Item loops and automatic handoffs also use the trimmed start.
+The Studio transport without a performance plan keeps its existing behavior.
+
+Zoom minus/plus are glyph buttons in the track-header area; the toolbar pair and
+per-Item painted hit targets are removed. Fit remains available in the toolbar.

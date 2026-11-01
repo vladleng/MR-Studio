@@ -658,6 +658,49 @@ void Application::validate_hardware(const Project& p, const audio::DeviceConfig&
     route(p.master_outputs,"Master"); for (const auto& track : p.tracks) route(track.hardware_outputs,track.name);
 }
 void Application::set_hardware_output(std::optional<Id> track, std::vector<int> outputs) { edit(SetHardwareOutput{std::move(track),std::move(outputs)}); }
+void Application::set_live_hardware_output(const Id& track,std::vector<int> outputs) {
+    require_not_playing();require_not_recording();
+    require(workspace_==Workspace::live&&device_&&device_config_,"Connect the intended Live audio device first");
+    require(cancel_staged_playback(),"Finish the pending Playback transition first");
+    const auto before=services_.projects->state().project;
+    const auto at=std::find_if(before->tracks.begin(),before->tracks.end(),[&](const auto& row){return row.id==track;});
+    require(at!=before->tracks.end(),"Live channel Core track is missing");
+    if(at->hardware_outputs==outputs)return;
+    SetHardwareOutput command{track,std::move(outputs)};
+    auto candidate=*before;command.apply(candidate);candidate.validate();validate_hardware(candidate,*device_config_);
+    auto transaction=services_.projects->prepare_transaction(&command);
+    require(static_cast<bool>(transaction),"Live route transaction is empty");
+    const auto config=*device_config_;
+    device_->stop();engine_->quiesce();
+    const auto head=engine_->state();auto rollback=engine_->stopped_graph();
+    rollback.master_gain=before->master_gain;
+    std::size_t index=0;
+    for(const auto& row:before->tracks)if(row.kind!=TrackKind::midi){
+        rollback.mixer[index]=row.mix;rollback.input_monitoring[index]=row.input_monitor;rollback.midi_monitor[index]=row.midi_monitor;
+        for(std::size_t j=0;j<row.sends.size();++j)rollback.sends[index][j].gain=row.sends[j].bypass?0.f:row.sends[j].gain;
+        ++index;
+    }
+    auto oldRuntime=insert_runtime_;auto oldMixer=mixer_tracks_;auto oldPrepared=prepared_;const auto oldApplied=applied_mix_revision_;
+    try {
+        preparing_project_=&candidate;auto graph=render(config,true);preparing_project_=nullptr;
+        // Reprepare resets MIDI ingress bookkeeping. Release held notes in
+        // every retained instrument before that reset, as rebuild_audio does.
+        for(const auto& row:candidate.tracks)if(row.kind==TrackKind::instrument){
+            const auto& runtime=insert_runtime_.at(row.id.value);if(runtime.graph)runtime.graph->panic();
+        }
+        engine_->prepare({config.sample_rate,static_cast<std::uint32_t>(config.inputs.size()),static_cast<std::uint32_t>(config.outputs.size()),8192,config.buffer_frames,config.processing_workers},std::move(graph),head);
+        transaction->commit();device_->start();transaction->finish();
+    }catch(...){
+        const auto error=std::current_exception();preparing_project_=nullptr;transaction->rollback();
+        try{
+            device_->stop();engine_->quiesce();insert_runtime_=std::move(oldRuntime);mixer_tracks_=std::move(oldMixer);prepared_=std::move(oldPrepared);applied_mix_revision_=oldApplied;
+            engine_->prepare({config.sample_rate,static_cast<std::uint32_t>(config.inputs.size()),static_cast<std::uint32_t>(config.outputs.size()),8192,config.buffer_frames,config.processing_workers},std::move(rollback),head);
+            device_->start();
+        }catch(...){disconnect();throw std::runtime_error("Route rolled back; audio could not restart");}
+        std::rethrow_exception(error);
+    }
+    applied_mix_revision_=services_.projects->state().revision;poll();
+}
 namespace {
 bool insert_order_only(Project before,const Project& after){
     const auto permutation=[](const auto& a,const auto& b){return a.size()==b.size()&&std::all_of(a.begin(),a.end(),[&](const auto& fx){return std::find(b.begin(),b.end(),fx)!=b.end();});};
@@ -1853,6 +1896,11 @@ void Application::set_musical_data(TimeMap time,std::vector<Chord> chords,std::v
     require_not_playing();require_not_recording();require(!engine_->state().loop,"Turn off section loop before replacing musical data");
     const auto p=services_.projects->state().project;
     if(p->time==time&&p->chords==chords&&p->sections==sections&&p->markers==markers)return;
+    if(p->time==time) {
+        SetMusicalData command{std::move(time),std::move(chords),std::move(sections),std::move(markers)};
+        auto candidate=*p;command.apply(candidate);candidate.validate();
+        services_.projects->execute(command);return;
+    }
     edit(SetMusicalData{std::move(time),std::move(chords),std::move(sections),std::move(markers)});
 }
 void Application::set_time_map(TimeMap time){

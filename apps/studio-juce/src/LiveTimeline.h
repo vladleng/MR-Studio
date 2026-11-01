@@ -33,6 +33,10 @@ class LiveTimeline final : public juce::Component {
                 refresh(); // Recompute only Timeline lanes; keep Setlist unchanged.
             });
         };
+        for(auto* button:{&zoomOut,&zoomIn})addAndMakeVisible(button);
+        zoomOut.setComponentID("live-zoom-out");zoomIn.setComponentID("live-zoom-in");
+        zoomOut.setTooltip("Zoom out");zoomIn.setTooltip("Zoom in");
+        zoomOut.onClick=[this]{zoom(.8);};zoomIn.onClick=[this]{zoom(1.25);};
         addAndMakeVisible(addTrack);
         addTrack.setComponentID("live-add-track");
         addTrack.onClick = [this] { channelMenu({}); };
@@ -66,6 +70,9 @@ class LiveTimeline final : public juce::Component {
     }
     void resized() override {
         addTrack.setBounds(6, 8, juce::jmax(0, channelWidth - 12), 26);
+        zoomOut.setVisible(channelWidth>=56);zoomIn.setVisible(channelWidth>=56);
+        zoomOut.setBounds(juce::jmax(0,channelWidth-54),36,24,24);
+        zoomIn.setBounds(juce::jmax(0,channelWidth-28),36,24,24);
         viewport.setBounds(getLocalBounds().withTrimmedLeft(channelWidth));
         layout();
         syncChannel();
@@ -91,10 +98,11 @@ class LiveTimeline final : public juce::Component {
             const auto item=live::find(show,"items",itemId);
             if (!item.isObject()) return;
             const auto view=show["performance"]["arrangement"][juce::Identifier(itemId)];
-            const double bars=numeric(view["length"],numeric(item["bars"],16.,1.,4096.),1.,4096.);
+            const double bars=numeric(view["length"],numeric(item["bars"],16.,1.,4096.),.25,4096.);
+            const double start=numeric(view["start"],0.,0.,4095.75);
             const double lead=numeric(view["lead"],0.,0.,4096.);
             const double width=static_cast<double>(juce::jmax(60,viewport.getMaximumVisibleWidth()-12));
-            const double scale=juce::jlimit(4.,128.,width/(bars+lead));
+            const double scale=juce::jlimit(4.,128.,width/(bars-start+lead));
             owner.editLiveItemView(itemId,"scale",scale);
         });
     }
@@ -216,7 +224,7 @@ class LiveTimeline final : public juce::Component {
             const mrs::Timeline clock(project->time, project->sample_rate);
             const double bar = static_cast<double>(clock.to_ticks(static_cast<mrs::Sample>(owner.visualSample()))) /
                                static_cast<double>(ticksPerBar);
-            const double x = static_cast<double>(item.bounds.getX()) + 1. + (item.lead + bar) * item.scale;
+            const double x = static_cast<double>(item.bounds.getX()) + 1. + (item.lead - item.start + bar) * item.scale;
             if (!std::isfinite(x) || x >= item.bounds.getRight())
                 return {};
             return {static_cast<float>(x), static_cast<float>(headerHeight), 1.f,
@@ -295,10 +303,23 @@ class LiveTimeline final : public juce::Component {
             }); });
         });
     }
+    class ZoomGlyph final:public juce::Button {
+      public:
+        explicit ZoomGlyph(bool positive):juce::Button(positive?"Zoom in":"Zoom out"),plus(positive){}
+        void paintButton(juce::Graphics& g,bool hover,bool down)override{
+            g.setColour(liveReferenceTokens().colour(hover||down||hasKeyboardFocus(true)?ColourRole::focus:ColourRole::text).withMultipliedAlpha(isEnabled()?1.f:.35f));
+            const auto c=getLocalBounds().toFloat().getCentre();
+            g.drawLine(c.x-4.f,c.y,c.x+4.f,c.y,1.4f);
+            if(plus)g.drawLine(c.x,c.y-4.f,c.x,c.y+4.f,1.4f);
+            if(hasKeyboardFocus(true))g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.f),2.f,1.f);
+        }
+      private:bool plus;
+    };
+    ZoomGlyph zoomOut{false},zoomIn{true};
     struct Item {
         juce::var value;
         juce::Rectangle<int> bounds;
-        double scale{}, lead{}, bars{};
+        double scale{}, lead{}, bars{}, start{};
         juce::String entry;
         bool collapsed{};
     };
@@ -433,12 +454,14 @@ class LiveTimeline final : public juce::Component {
             repaint();
             setTooltip("Double-click Sections or Chord Track to add; right-click for properties");
             for (const auto &item : parent.items) if ((!item.collapsed || event.y<headerHeight) && item.bounds.contains(event.getPosition())) {
+                if(event.y<headerHeight && !item.collapsed &&
+                   (event.x<item.bounds.getX()+6||event.x>=item.bounds.getRight()-5)) {
+                    const bool right=!item.collapsed && event.x>=item.bounds.getRight()-5;
+                    setMouseCursor(noteTrimCursor(right));setTooltip(right?"Trim Item end":"Trim Item start");return;
+                }
                 if(event.y<30 && event.x>=item.bounds.getRight()-48 && event.x<item.bounds.getRight()-26){
                     setMouseCursor(juce::MouseCursor::PointingHandCursor);
                     setTooltip(live::performanceModeLabel(live::itemPerformanceMode(parent.state,item.value["id"].toString())));return;
-                }
-                if(event.y>=32 && event.y<56 && event.x>=item.bounds.getX()+6 && event.x<item.bounds.getX()+54) {
-                    setMouseCursor(juce::MouseCursor::PointingHandCursor);setTooltip("− / + : timeline zoom");return;
                 }
                 if (event.y >= headerHeight+rulerHeight && event.y < lanesTop) {
                     const auto lane = event.y < lanesTop-chordHeight ? live::MusicalLane::sections : live::MusicalLane::chords;
@@ -474,14 +497,14 @@ class LiveTimeline final : public juce::Component {
                     return;
                 }
             }
-            if (event.y >= headerHeight && event.y < headerHeight + rulerHeight + sectionHeight) {
+            if (event.y >= headerHeight && event.y < headerHeight + rulerHeight) {
                 for (const auto &item : parent.items) {
                     if (!item.bounds.contains(event.getPosition()) || item.value["id"] != parent.state["currentItem"] ||
                         !parent.owner.livePlaybackReady())
                         continue;
                     const auto project = parent.owner.project();
                     const auto &meter = project->time.meters.front();
-                    const double bar = (event.x - item.bounds.getX() - 1.) / item.scale - item.lead;
+                    const double bar = (event.x - item.bounds.getX() - 1.) / item.scale - item.lead + item.start;
                     if (bar < 0 && event.y >= headerHeight + rulerHeight)
                         return;
                     const auto tick = static_cast<mrs::Tick>(std::llround(
@@ -540,6 +563,13 @@ class LiveTimeline final : public juce::Component {
                 const double at = barAt(item,event.position.x);
                 selection = hit(item,selectedLane,at);
                 if(selection.isEmpty()) create(item,selectedLane,at,"Verse");
+                else if(selectedLane==live::MusicalLane::sections && parent.currentEntry(item) && parent.owner.liveTransportReady()) {
+                    const auto project=parent.owner.project();const auto& meter=project->time.meters.front();
+                    const auto tick=static_cast<mrs::Tick>(std::llround(at*static_cast<double>(4*mrs::ppq*meter.numerator/meter.denominator)));
+                    for(const auto& section:project->sections)if(section.start<=tick&&tick<section.end){
+                        parent.owner.run([&]{parent.owner.app.musical().seek_section(section.id);});break;
+                    }
+                }
                 return;
             }
         }
@@ -564,7 +594,7 @@ class LiveTimeline final : public juce::Component {
             const auto regions=regionRows(item,index);
             // Last-painted overlapping region wins consistently.
             for(const auto& row:*regions.getArray()){
-                const double left=item.bounds.getX()+1+(item.lead+static_cast<double>(row["start"]))*item.scale;
+                const double left=item.bounds.getX()+1+(item.lead-item.start+static_cast<double>(row["start"]))*item.scale;
                 const double right=left+static_cast<double>(row["length"])*item.scale;
                 if(x>=left-5 && x<=right+5){
                     const double d=(std::min)(std::abs(x-left),std::abs(x-right));
@@ -581,7 +611,7 @@ class LiveTimeline final : public juce::Component {
                 int edge=0;const auto id=clipAt(item,index,event.position.x,&edge);
                 if(id.isNotEmpty()){
                     if(edge)setMouseCursor(noteTrimCursor(edge>0));
-                    else if(scissors){setMouseCursor(juce::MouseCursor::CrosshairCursor);guideX=static_cast<float>(item.bounds.getX()+1+(item.lead+live::clipSnap(barAt(item,event.position.x)))*item.scale);guideY=lanesTop+((event.y-lanesTop)/rowHeight)*rowHeight;}
+                    else if(scissors){setMouseCursor(juce::MouseCursor::CrosshairCursor);guideX=static_cast<float>(item.bounds.getX()+1+(item.lead-item.start+live::clipSnap(barAt(item,event.position.x)))*item.scale);guideY=lanesTop+((event.y-lanesTop)/rowHeight)*rowHeight;}
                     setTooltip(edge?"Trim Playback region":scissors?"Cut at quarter-bar grid":"Drag Playback region; right-click for properties");
                 }
                 return true;
@@ -659,17 +689,11 @@ class LiveTimeline final : public juce::Component {
                     if(event.mods.isPopupMenu() || event.mods.isLeftButtonDown())showLivePerformanceModes(parent.owner,id,id,event.getScreenPosition());
                     return true;
                 }
-                if(event.y>=32 && event.y<56 && event.x>=item.bounds.getX()+6 && event.x<item.bounds.getX()+54) {
-                    if(event.mods.isLeftButtonDown()) {
-                        const double scale=juce::jlimit(4.,128.,item.scale*(event.x<item.bounds.getX()+30?.8:1.25));
-                        parent.owner.run([&]{parent.owner.editLiveItemView(id,"scale",scale);});
-                    }
-                    return true;
-                }
                 const bool musical=event.y>=headerHeight+rulerHeight && event.y<lanesTop;
+                const bool trimStart=!item.collapsed && event.y<headerHeight && event.x<item.bounds.getX()+6;
                 const bool origin=event.y>=headerHeight && std::abs(event.position.x-(item.bounds.getX()+1+item.lead*item.scale))<=5;
-                const bool right=event.y>=headerHeight && event.x>=item.bounds.getRight()-5;
-                if(!musical && !origin && !right)return false;
+                const bool right=!item.collapsed && event.x>=item.bounds.getRight()-5;
+                if(!musical && !origin && !right && !trimStart)return false;
                 if(event.mods.isPopupMenu() && musical) {
                     selectedItem=id;selectedLane=event.y<lanesTop-chordHeight?live::MusicalLane::sections:live::MusicalLane::chords;
                     selection=hit(item,selectedLane,barAt(item,event.position.x));
@@ -682,11 +706,11 @@ class LiveTimeline final : public juce::Component {
                 dragScreenX=static_cast<float>(event.getScreenPosition().x);
                 const auto screenPoint=event.getScreenPosition().toFloat();
                 screenUnits=getLocalPoint(nullptr,screenPoint.translated(1.f,0.f)).x-getLocalPoint(nullptr,screenPoint).x;
-                viewKey=!musical?(right?"length":origin?"lead":""):"";
+                viewKey=!musical?(trimStart?"start":right?"length":origin?"lead":""):"";
                 if(viewKey.isNotEmpty()) {
                     // Item edges only change displayed geometry during drag.
                     // No complete show clone/JSON serialization on mouse-down.
-                    previewViewValue=viewKey=="lead"?item.lead:item.bars;
+                    previewViewValue=viewKey=="lead"?item.lead:viewKey=="start"?item.start:item.bars;
                     editGeneration=parent.owner.liveDocumentGeneration;
                     editRevision=parent.owner.liveUiRevision;editMutation=parent.owner.liveEdits.mutation;
                     invalid=false;editing=true;return true;
@@ -705,17 +729,6 @@ class LiveTimeline final : public juce::Component {
                 editRows=live::musicalRows(originalState,id,selectedLane).clone();
                 copy=event.mods.isAltDown() && selectedLane==live::MusicalLane::chords && mode==live::SpanGesture::move;
                 editing=true;parent.body.repaint();
-                if(selectedLane==live::MusicalLane::sections && parent.currentEntry(item) && parent.owner.liveTransportReady()) {
-                    // Edge selection is for editing authored geometry. Navigation
-                    // resolves against Core's single-valued lane, including old
-                    // shows where a later section truncates an overlapping one.
-                    const auto project=parent.owner.project();const auto& meter=project->time.meters.front();
-                    const double at=barAt(item,event.position.x);
-                    const auto tick=static_cast<mrs::Tick>(std::llround(at*static_cast<double>(4*mrs::ppq*meter.numerator/meter.denominator)));
-                    for(const auto& section:project->sections)if(section.start<=tick && tick<section.end){
-                        parent.owner.run([&]{parent.owner.app.musical().seek_section(section.id);});break;
-                    }
-                }
                 return true;
             }
             return false;
@@ -726,8 +739,8 @@ class LiveTimeline final : public juce::Component {
             dragPosition=dragStart+(static_cast<float>(event.getScreenPosition().x)-dragScreenX)*screenUnits;
             const double delta=(dragPosition-dragStart)/editingItem.scale;
             if(viewKey.isNotEmpty()) {
-                const double initial=viewKey=="lead"?editingItem.lead:editingItem.bars;
-                const double value=juce::jlimit(viewKey=="lead"?0.:1.,4096.,live::barSnap(initial+delta));
+                const double initial=viewKey=="lead"?editingItem.lead:viewKey=="start"?editingItem.start:editingItem.bars;
+                const double value=juce::jlimit(viewKey=="lead"||viewKey=="start"?0.:editingItem.start+.25,viewKey=="start"?editingItem.bars-.25:4096.,live::barSnap(initial+delta));
                 if(value==previewViewValue)return;
                 previewViewValue=value;
                 invalid=false;
@@ -758,14 +771,18 @@ class LiveTimeline final : public juce::Component {
                     changedRows=next;
                 }
                 const auto patch=live::valuePatch(originalState,std::move(path),changedRows);
-                invalid=false; parent.state=patch.apply(originalState,true); parent.layout(); parent.playhead.update(); repaint();
+                invalid=false;parent.state=patch.apply(originalState,true);
+                if(clipEditing)parent.layout();
+                else for(auto& item:parent.items)if(item.value["id"].toString()==selectedItem)
+                    item.value=live::find(parent.state,"items",selectedItem);
+                parent.playhead.update();repaint();
             }catch(const std::exception &e){invalid=true;setTooltip(juce::String::fromUTF8(e.what()));repaint();}
         }
         void finishEdit() {
             const bool changed=std::abs(dragPosition-dragStart)>=1.f && !invalid;
             if(viewKey.isNotEmpty()) {
                 const double result=previewViewValue;
-                const double initial=viewKey=="lead"?editingItem.lead:editingItem.bars;
+                const double initial=viewKey=="lead"?editingItem.lead:viewKey=="start"?editingItem.start:editingItem.bars;
                 const auto id=editingItem.value["id"].toString();
                 const auto key=viewKey;
                 editing=false;parent.layout();parent.playhead.update();repaint();
@@ -774,10 +791,8 @@ class LiveTimeline final : public juce::Component {
                    parent.owner.liveUiRevision!=editRevision||parent.owner.liveEdits.mutation!=editMutation)return;
                 if(key=="lead")
                     parent.owner.run([&]{parent.owner.editLiveItemView(id,"lead",result);});
-                else // The explicit length can affect Playback's authored extent.
-                    parent.owner.run([&]{parent.owner.editLiveInterface("Item length",[&](auto &state){
-                        live::setItemView(state,id,"length",result);
-                    });});
+                else parent.owner.run([&]{parent.owner.setLiveItemExtent(id,key=="start"?result:editingItem.start,
+                                                                        key=="length"?result:editingItem.bars);});
                 return;
             }
             // No drag: keep selection/seek, with no show clone or JSON
@@ -785,22 +800,22 @@ class LiveTimeline final : public juce::Component {
             // against stale edits while the user interacted.
             editing=false;
             if(!changed) {
-                parent.state=parent.owner.liveDocument->interfaceState;
-                repaint();
+                restoreModelState();
                 return;
             }
             const auto next=parent.state;
-            parent.state=parent.owner.liveDocument->interfaceState;parent.layout();parent.playhead.update();repaint();
+            restoreModelState();
             if(!parent.owner.liveDocument ||
                parent.owner.liveDocumentGeneration!=editGeneration ||
                parent.owner.liveUiRevision!=editRevision||parent.owner.liveEdits.mutation!=editMutation)return;
-            parent.owner.run([&]{parent.owner.editLiveInterface(clipEditing?"Edit Playback region":viewKey.isNotEmpty()?"Item "+viewKey:"Edit musical span",[&](auto &state){
-                if(clipEditing) live::setPlaybackRegions(state,clipItem,clipStem,live::playbackRegions(next,clipItem,live::playbackStem(next,clipItem,clipStem)));
-                else if(viewKey.isNotEmpty()) {
-                    const auto id=editingItem.value["id"].toString();
-                    live::setItemView(state,id,juce::Identifier(viewKey),static_cast<double>(next["performance"]["arrangement"][juce::Identifier(id)][juce::Identifier(viewKey)]));
-                } else live::setMusicalRows(state,selectedItem,selectedLane,live::musicalRows(next,selectedItem,selectedLane));
-            });if(clipEditing)parent.owner.syncLivePlayback();});
+            parent.owner.run([&]{
+                if(clipEditing){
+                    parent.owner.editLiveInterface("Edit Playback region",[&](auto& state){
+                        live::setPlaybackRegions(state,clipItem,clipStem,live::playbackRegions(next,clipItem,live::playbackStem(next,clipItem,clipStem)));
+                    });parent.owner.syncLivePlayback();
+                }else parent.owner.setLiveMusicalRows(selectedItem,selectedLane==live::MusicalLane::sections,
+                                                      live::musicalRows(next,selectedItem,selectedLane));
+            });
             if (!clipEditing && viewKey.isEmpty() && copy) {
                 const auto committed=live::musicalRows(parent.owner.liveDocument->interfaceState,selectedItem,selectedLane);
                 if (const auto *values=committed.getArray()) for(const auto &row:*values)
@@ -811,8 +826,14 @@ class LiveTimeline final : public juce::Component {
         void cancelEdit() {
             if(!editing)return;
             editing=false;invalid=false;
+            restoreModelState();
+        }
+        void restoreModelState() {
             if(parent.owner.liveDocument)parent.state=parent.owner.liveDocument->interfaceState;
-            parent.layout();parent.playhead.update();repaint();
+            if(clipEditing||viewKey.isNotEmpty())parent.layout();
+            else for(auto& item:parent.items)
+                item.value=live::find(parent.state,"items",item.value["id"].toString());
+            parent.playhead.update();repaint();
         }
         void properties(juce::Point<int> screen=juce::Desktop::getMousePosition()) {
             if(selection.isNotEmpty())for(const auto &item:parent.items)
@@ -880,7 +901,7 @@ class LiveTimeline final : public juce::Component {
                 openLiveMusicalEditor(parent.owner,selectedItem,selectedLane,selection,screen,menu,std::move(invoke));
             else showLiveActionMenu(menu,parent.owner,liveContextTarget(screen),std::move(invoke));
         }
-        static double barAt(const Item &item,float x) {return (x-item.bounds.getX()-1.)/item.scale-item.lead;}
+        static double barAt(const Item &item,float x) {return (x-item.bounds.getX()-1.)/item.scale-item.lead+item.start;}
         juce::String hit(const Item &item,live::MusicalLane lane,double at) const {
             juce::String result;
             const auto values=live::musicalRows(parent.state,item.value["id"].toString(),lane);
@@ -956,10 +977,12 @@ class LiveTimeline final : public juce::Component {
                 const auto view = state["performance"]["arrangement"][juce::Identifier(item["id"].toString())];
                 const double scale = numeric(view["scale"], 16, 4, 128);
                 double lead = numeric(view["lead"], 0, 0, 4096);
-                double bars = numeric(view["length"], numeric(item["bars"], 16, 1, 4096), 1, 4096);
+                double start=numeric(view["start"],0,0,4095.75);
+                double bars = numeric(view["length"], numeric(item["bars"], 16, 1, 4096), .25, 4096);
                 const bool previewThisItem = body.editing && body.viewKey.isNotEmpty() &&
                     item["id"] == body.editingItem.value["id"];
                 const bool previewLength = previewThisItem && body.viewKey == "length";
+                if(previewThisItem&&body.viewKey=="start")start=body.previewViewValue;
                 if (previewThisItem && body.viewKey == "lead") lead = body.previewViewValue;
                 // During the gesture, retain the original authored/audio-derived
                 // width instead of walking Playback sources on every mouse move.
@@ -997,12 +1020,12 @@ class LiveTimeline final : public juce::Component {
                 // The model permits 1000 entries, 4096 bars/lead and 128 px/bar.
                 // Keep their complete geometry within a signed-int scroll surface.
                 const bool collapsed = static_cast<bool>(state["performance"]["collapsedItems"][juce::Identifier(entry["id"].toString())]);
-                const int width = collapsed ? 160 : juce::jlimit(6, 1048578, juce::roundToInt((bars + lead) * scale) + 2);
+                const int width = collapsed ? 160 : juce::jlimit(6, 1048578, juce::roundToInt((bars - start + lead) * scale) + 2);
                 items.push_back({item,
                                  {x, 0, width, height},
                                  scale,
                                  lead,
-                                 bars,
+                                 bars, start,
                                  entry["id"].toString(), collapsed});
                 x += width;
             }
@@ -1020,7 +1043,7 @@ class LiveTimeline final : public juce::Component {
     juce::Rectangle<int> extent(const Item &item, const juce::var &span, int y, int height, double offset = 0) const {
         const double start = numeric(span["start"], 0, 0, 4096) + offset;
         const double length = numeric(span["length"], .25, 0, 4096);
-        return {item.bounds.getX() + 1 + juce::roundToInt((item.lead + start) * item.scale), y,
+        return {item.bounds.getX() + 1 + juce::roundToInt((item.lead - item.start + start) * item.scale), y,
                 juce::jmax(1, juce::roundToInt(length * item.scale)), height};
     }
     void block(juce::Graphics &g, juce::Rectangle<int> area, const juce::String &label, const juce::var &color) const {
@@ -1054,9 +1077,8 @@ class LiveTimeline final : public juce::Component {
                  {x + 10, 4, juce::jmax(0, width - 64), 26});
             text(g,
                  item.value["tempo"].toString() + " BPM · " + item.value["meter"].toString() + " · " +
-                     juce::String(item.bars) + " bars",
-                 {x + 58, 30, juce::jmax(0, width - 68), 22}, true);
-            text(g, "-   +", {x + 8, 32, 48, 22});
+                     juce::String(item.bars-item.start) + " bars",
+                 {x + 10, 30, juce::jmax(0, width - 20), 22}, true);
             performanceArt->draw(g,live::itemPerformanceMode(state,id),{x+width-48,8,18,18});
             text(g, item.collapsed ? ">" : "v", {x + width - 24, 4, 20, 26});
             if (item.collapsed) { line(g, item.bounds); continue; }
@@ -1064,8 +1086,8 @@ class LiveTimeline final : public juce::Component {
             g.drawVerticalLine(x + 1 + juce::roundToInt(item.lead * item.scale), static_cast<float>(headerHeight), static_cast<float>(item.bounds.getHeight()));
             g.fillRect(x + width - 4, headerHeight, 4, item.bounds.getHeight() - headerHeight);
             const int step = juce::jmax(1, static_cast<int>(std::ceil(item.bars / 16)));
-            for (int bar = -static_cast<int>(std::ceil(item.lead)); bar < static_cast<int>(std::ceil(item.bars)); ++bar) {
-                const int bx = x + 1 + juce::roundToInt((item.lead + bar) * item.scale);
+            for (int bar = static_cast<int>(std::floor(item.start-item.lead)); bar < static_cast<int>(std::ceil(item.bars)); ++bar) {
+                const int bx = x + 1 + juce::roundToInt((item.lead - item.start + bar) * item.scale);
                 g.setColour(tokens.colour(ColourRole::border).withAlpha(.3f));
                 g.drawVerticalLine(bx, static_cast<float>(headerHeight + rulerHeight),
                                    static_cast<float>(item.bounds.getHeight()));
@@ -1139,7 +1161,7 @@ class LiveTimeline final : public juce::Component {
     mrs::Sample sampleAt(const Item &item, double x) const {
         const auto project = owner.project();
         const auto &meter = project->time.meters.front();
-        const double bar = juce::jmax(0., (x - item.bounds.getX() - 1.) / item.scale - item.lead);
+        const double bar = juce::jmax(0., (x - item.bounds.getX() - 1.) / item.scale - item.lead + item.start);
         const auto tick = static_cast<mrs::Tick>(
             std::llround(bar * static_cast<double>(4 * mrs::ppq * meter.numerator / meter.denominator)));
         return mrs::Timeline(project->time, project->sample_rate).to_samples(tick);
@@ -1169,7 +1191,7 @@ class LiveTimeline final : public juce::Component {
         const mrs::Timeline clock(projection.time, 48000);
         const auto &meter = projection.time.meters.front();
         const double ticksPerBar = 4. * mrs::ppq * meter.numerator / meter.denominator;
-        const float x = static_cast<float>(item.bounds.getX() + 1. + item.lead * item.scale);
+        const float x = static_cast<float>(item.bounds.getX() + 1. + (item.lead-item.start) * item.scale);
         const float right = static_cast<float>(x + static_cast<double>(clock.to_ticks(static_cast<mrs::Sample>(std::llround(end * 48000)))) / ticksPerBar * item.scale);
         const juce::Rectangle<float> area{x, static_cast<float>(y + 8), (std::max)(1.f, right - x), static_cast<float>(rowHeight - 16)};
         if (ready) block(g, area.getSmallestIntegerContainer(), {}, "blue");
@@ -1197,7 +1219,7 @@ class LiveTimeline final : public juce::Component {
         if(regions.size()==0){text(g,"No regions · right-click to restore",{item.bounds.getX()+8,y+42,item.bounds.getWidth()-16,28},true);return;}
         for(const auto& region:*regions.getArray()){
             const double start=region["start"],length=region["length"],offset=region["offset"];
-            const juce::Rectangle<float> area{static_cast<float>(item.bounds.getX()+1+(item.lead+start)*item.scale),static_cast<float>(y+10),
+            const juce::Rectangle<float> area{static_cast<float>(item.bounds.getX()+1+(item.lead-item.start+start)*item.scale),static_cast<float>(y+10),
                 static_cast<float>((std::max)(1.,length*item.scale)),static_cast<float>(rowHeight-20)};
             block(g,area.getSmallestIntegerContainer(),{},"blue");
             text(g,juce::File(row["file"].toString()).getFileName(),area.getSmallestIntegerContainer().reduced(6).withHeight(24));

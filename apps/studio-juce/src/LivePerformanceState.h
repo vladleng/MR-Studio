@@ -32,6 +32,21 @@ inline void validatePerformance(const juce::var& state){
             (void)performanceMode(pair.value.toString());
         }
     }
+    const auto arrangement=perf["arrangement"];
+    if(!arrangement.isVoid()){
+        if(!arrangement.isObject())throw std::runtime_error("Invalid Item ranges");
+        for(const auto& pair:arrangement.getDynamicObject()->getProperties()){
+            const auto row=pair.value;
+            if(!row.isObject())throw std::runtime_error("Invalid Item view");
+            for(const auto* key:{"start","length"})if(!row[key].isVoid()){
+                const auto value=row[key];const double n=value;
+                if(!number(value)||!std::isfinite(n)||n<0.||n>4096.||(juce::String(key)=="length"&&n<.25))
+                    throw std::runtime_error("Invalid Item range");
+            }
+            if(!row["length"].isVoid()&&static_cast<double>(row["length"])-(row["start"].isVoid()?0.:static_cast<double>(row["start"]))<.25)
+                throw std::runtime_error("Item range must contain at least 1/4 bar");
+        }
+    }
     for(const auto* key:{"backToStart","stopRecord"})if(!perf[key].isVoid()&&!perf[key].isBool())throw std::runtime_error("Invalid performance option");
 }
 inline void setPerformanceMode(juce::var& state,const juce::String& item,const juce::String& target,mrs::PerformanceMode mode){
@@ -48,7 +63,7 @@ inline juce::String performanceKey(const juce::var& state,const juce::String& it
     result<<performanceModeName(itemPerformanceMode(state,item))<<":"<<perf["backToStart"].toString()<<":"<<perf["stopRecord"].toString();
     const auto source=find(state,"items",item);
     if(const auto* rows=source["sections"].getArray())for(const auto& row:*rows)result<<":"<<row["id"].toString()<<"="<<performanceModeName(itemPerformanceMode(state,row["id"].toString()));
-    result<<":"<<source["bars"].toString()<<":"<<perf["arrangement"][juce::Identifier(item)]["length"].toString();return result;
+    result<<":"<<source["bars"].toString()<<":"<<perf["arrangement"][juce::Identifier(item)]["length"].toString()<<":"<<perf["arrangement"][juce::Identifier(item)]["start"].toString();return result;
 }
 inline double performanceEndBars(const juce::var& state,const juce::String& item,double renderedBars){
     const auto source=find(state,"items",item);if(!source.isObject())throw std::runtime_error("Performance item was removed");
@@ -66,16 +81,21 @@ inline mrs::PerformancePlan preparePerformancePlan(const juce::var& state,const 
     const auto& meter=time.meters.front();const double ticksPerBar=4.*mrs::ppq*meter.numerator/meter.denominator;
     const mrs::Timeline clock(time,rate);mrs::PerformancePlan result;
     result.end=clock.to_samples(static_cast<mrs::Tick>(std::llround(performanceEndBars(state,item,renderedBars)*ticksPerBar)));
+    const auto trimOrigin=state["performance"]["arrangement"][juce::Identifier(item)]["start"];
+    const double startBars=trimOrigin.isVoid()?0.:static_cast<double>(trimOrigin);
+    if((!trimOrigin.isVoid()&&!number(trimOrigin))||!std::isfinite(startBars)||startBars<0.||startBars>=performanceEndBars(state,item,renderedBars))
+        throw std::runtime_error("Invalid performance item start");
+    result.start=clock.to_samples(static_cast<mrs::Tick>(std::llround(startBars*ticksPerBar)));
     result.mode=itemPerformanceMode(state,item);
     result.back_to_start=static_cast<bool>(state["performance"]["backToStart"]);
     result.stop_record=state["performance"]["stopRecord"].isVoid()||static_cast<bool>(state["performance"]["stopRecord"]);
     for(const auto& section:sections){
         const auto start=clock.to_samples(section.start),end=clock.to_samples(section.end);
-        if(start>=result.end)continue;
+        if(start>=result.end||end<=result.start)continue;
         auto mode=itemPerformanceMode(state,juce::String::fromUTF8(section.id.value.c_str()));
         // A shortened item wins over an unfinished section's stop/loop.
         if(end>result.end && mode!=mrs::PerformanceMode::skip)mode=mrs::PerformanceMode::normal;
-        result.sections.push_back({start,(std::min)(end,result.end),mode});
+        result.sections.push_back({(std::max)(start,result.start),(std::min)(end,result.end),mode});
     }
     result.validate();return result;
 }

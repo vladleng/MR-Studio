@@ -70,5 +70,20 @@ inline void performancePolicies(){
           "Natural loop completion wins at a touching seam, while explicit seek enters the skipped section");
     boundaries.mode=mrs::PerformanceMode::skip;
     check(mrs::performanceDecision(boundaries,0).action==mrs::PerformanceAction::next,"Skipped item requests sequential advance");
+    auto trimmed=state.clone();auto& range=map(map(performance(trimmed),"arrangement"),item);
+    put(range,"start",1.);put(range,"length",2.);
+    auto cut=preparePerformancePlan(trimmed,item,time,parts,48000,12.);
+    check(cut.start==96000&&cut.end==192000&&cut.sections.front().start==96000,
+          "Item start clips the runtime policy without changing authored section/media positions");
+    check(mrs::performanceDecision(cut,cut.end).target==cut.start,"Trimmed Item loop returns to its actual start");
+    saveItem(trimmed,item);const auto dirty=itemMetadataDirtyState(trimmed,item);
+    put(range,"start",.5);
+    check(dirty.dirty(trimmed,item)&&itemDirty(trimmed,item),"Trim start participates in cached and canonical saved Item comparison");
+    const auto roundtrip=juce::JSON::parse(juce::JSON::toString(trimmed));validatePerformance(roundtrip);
+    check(static_cast<double>(roundtrip["performance"]["arrangement"][juce::Identifier(item)]["start"])==.5,
+          "Item start persists in show JSON");
+    put(range,"start",2.);rejected=false;try{validatePerformance(trimmed);}catch(...){rejected=true;}
+    check(rejected,"Empty or inverted persisted Item range rejects before runtime publication");
+
 }
 }

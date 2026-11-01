@@ -133,6 +133,20 @@ void live_channels(const std::filesystem::path& file) {
     check(out[400]>.15f&&out[400]<.25f&&out[402]>.15f&&out[402]<.25f&&out[401]==0&&out[403]==0,
           "Two physical channels run independent inputs, chains and direct outputs on one Core");
     check(app.engine()==engine&&app.services().projects->state().project->tracks.size()==2,"Multi-input uses the original Engine");
+    const auto routeOpens=calls->opens,routeCloses=calls->closes;
+    const auto inserts=engine->stopped_graph().inserts;
+    app.set_live_hardware_output(left.id,{1});render();render();
+    check(out[400]==0&&out[401]>.15f&&out[402]>.15f,
+          "Dedicated route changes only the selected live output PCM");
+    check(calls->opens==routeOpens&&calls->closes==routeCloses&&engine->stopped_graph().inserts==inserts,
+          "Output routing retains the open device and prepared insert instances");
+    const auto routed=app.services().projects->state().project;
+    rejects([&]{app.set_live_hardware_output(left.id,{9});});
+    check(app.services().projects->state().project==routed,"Invalid output leaves model and runtime unchanged");
+    calls->failStart=true;rejects([&]{app.set_live_hardware_output(left.id,{0});});render();render();
+    check(app.services().projects->state().project==routed&&app.audio_running()&&out[400]==0&&out[401]>.15f,
+          "Failed output restart rolls back route and resumes the original PCM");
+    app.set_live_hardware_output(left.id,{0});render();render();
     auto media=app.prepare_playback({file});ready(app,media);
     Application::PlaybackLayout layout;layout.stems.resize(1);layout.stems[0].outputs={1,3};layout.live_tracks=ids;
     app.activate_playback(media,layout);app.play();render();render();

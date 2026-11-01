@@ -274,6 +274,24 @@ class LivePlaybackScalarEdit final : public juce::UndoableAction {
     LivePlaybackScalarValues before,after;
     std::uint64_t generation{};
 };
+class LiveValuePatchBatchEdit final:public juce::UndoableAction {
+ public:
+    LiveValuePatchBatchEdit(Desktop& desktop,std::vector<live::ValuePatch> values,live::EditImpact effects)
+        :owner(&desktop),patches(std::move(values)),impact(effects),generation(desktop.liveDocumentGeneration){}
+    bool perform()override{return owner&&owner->applyLiveValuePatches(patches,impact,true,generation);}
+    bool undo()override{return owner&&owner->applyLiveValuePatches(patches,impact,false,generation);}
+    int getSizeInUnits()override {
+        std::size_t bytes=128;
+        for(const auto& patch:patches)bytes+=live::editUndoUnits(patch.before.value)+live::editUndoUnits(patch.after.value);
+        return static_cast<int>((std::min)(bytes,static_cast<std::size_t>((std::numeric_limits<int>::max)())));
+    }
+ private:
+    juce::Component::SafePointer<Desktop> owner;
+    std::vector<live::ValuePatch> patches;
+    live::EditImpact impact;
+    std::uint64_t generation{};
+};
+void applyLocalRuntime(Desktop&,const juce::var&,live::EditImpact);
 // All local document changes share one bounded, generation-guarded Undo action.
 class LiveValuePatchEdit final:public juce::UndoableAction {
  public:
@@ -302,21 +320,32 @@ class LiveValuePatchEdit final:public juce::UndoableAction {
 } // namespace
 bool Desktop::applyLiveValuePatch(const live::ValuePatch& patch,live::EditImpact impact,
                                   bool forward,std::uint64_t generation) {
+    return applyLiveValuePatches({patch},impact,forward,generation);
+}
+bool Desktop::applyLiveValuePatches(const std::vector<live::ValuePatch>& patches,live::EditImpact impact,
+                                    bool forward,std::uint64_t generation) {
     if(!liveDocument||generation!=liveDocumentGeneration)return false;
     const auto& state=liveDocument->interfaceState;
-    auto updated=patch.apply(state,forward); // Copies only containers on the ID path.
-    const auto delta=live::patchByteDelta(state,patch,forward);
+    auto updated=state;
+    std::int64_t delta=0;
+    const auto apply=[&](const live::ValuePatch& patch){
+        delta+=live::patchByteDelta(updated,patch,forward);
+        updated=patch.apply(updated,forward);
+    };
+    if(forward)for(const auto& patch:patches)apply(patch);
+    else for(auto it=patches.rbegin();it!=patches.rend();++it)apply(*it);
     const auto cached=liveCachedEditBytes();
     auto bytes=cached.value_or(0);
     if(!cached&&delta>0){bytes=live::editJsonBytes(state);++liveFullSizeMeasures;}
     if(cached||delta>0)live::checkedEditBytes(bytes,delta);
+    applyLocalRuntime(*this,updated,impact); // Validate/publish before committing show or history.
     liveDocument->interfaceState=std::move(updated);
     // Central invalidation: a local edit cannot leave a mix/fold clean baseline valid.
     liveMixCleanBaseRevision.reset();
     liveDirty=true;
     if(liveSavedSnapshot) {
         try {
-            if(live::sameEditValue(live::editValue(liveSavedSnapshot->interfaceState,patch.path),forward?patch.after:patch.before))
+            if(std::all_of(patches.begin(),patches.end(),[&](const auto& patch){return live::sameEditValue(live::editValue(liveSavedSnapshot->interfaceState,patch.path),forward?patch.after:patch.before);}))
                 updateLiveDirty();
         }catch(const std::exception&){/* Missing saved row is necessarily dirty. */}
     }
@@ -326,6 +355,14 @@ bool Desktop::applyLiveValuePatch(const live::ValuePatch& patch,live::EditImpact
     if(cached||delta>0)liveEditBudget.remember(liveEditStamp(),bytes+delta);
     ++liveLocalPatchApplications;
     return true;
+}
+void Desktop::performLiveValuePatches(const juce::String& label,std::vector<live::ValuePatch> patches,live::EditImpact impact) {
+    std::erase_if(patches,[](const auto& patch){return !patch.changed();});
+    if(patches.empty())return;
+    liveUndo.beginNewTransaction(label);liveShowEditing=true;
+    if(!liveUndo.perform(new LiveValuePatchBatchEdit(*this,std::move(patches),impact)))
+        throw std::runtime_error("Could not apply document edit");
+    liveTypingLabel.clear();liveUndo.beginNewTransaction();
 }
 void Desktop::performLiveValuePatch(const juce::String& label,live::EditPath path,const juce::var& value,
                                     live::EditImpact impact,bool coalesce) {
@@ -520,6 +557,25 @@ void Desktop::setLiveItemNotes(const juce::String &id, const juce::String &text)
     if(before==text)return;
     performLiveValuePatch("Item notes "+id,{"items",live::EditStep::id(id),"notes"},text,
                           live::EditImpact::notes,true);
+}
+void Desktop::setLiveMusicalRows(const juce::String& item,bool section,const juce::var& rows) {
+    if(!liveDocument||!live::find(liveDocument->interfaceState,"items",item).isObject())
+        throw std::runtime_error("Show item no longer exists");
+    live::validateMusicalRows(rows,section?live::MusicalLane::sections:live::MusicalLane::chords);
+    auto path=section?live::EditPath{"items",live::EditStep::id(item),"sections"}:live::EditPath{"performance","chords",item};
+    performLiveValuePatch("Edit musical span",std::move(path),rows,
+        live::EditImpact::metadata|live::EditImpact::paint|live::EditImpact::musical);
+}
+void Desktop::setLiveItemExtent(const juce::String& item,double start,double end) {
+    if(!liveDocument||!live::find(liveDocument->interfaceState,"items",item).isObject()||
+       !std::isfinite(start)||!std::isfinite(end)||start<0.||end-start<.25||end>4096.)
+        throw std::runtime_error("Item range must stay within 0..4096 bars (minimum 1/4 bar)");
+    auto path=live::EditPath{"performance","arrangement",item};
+    auto extentDraft=live::editValue(liveDocument->interfaceState,path).value.clone();
+    if(!extentDraft.isObject())extentDraft=live::object();
+    live::put(extentDraft,"start",start);live::put(extentDraft,"length",end);
+    performLiveValuePatch("Item range",std::move(path),extentDraft,
+        live::EditImpact::metadata|live::EditImpact::timeline|live::EditImpact::extent);
 }
 void Desktop::setLiveMusicalName(const juce::String& itemId,const juce::String& eventId,
                                  bool section,const juce::String& proposedName) {
@@ -841,8 +897,13 @@ void Desktop::selectLiveItem(const juce::String &id, const juce::String &entry) 
             livePendingEntry.clear();
             livePlaybackLoading = false;
         }
-        if (livePendingItem.isEmpty())
-            ++liveTimelineFocusRevision; // Reselect an already active entry immediately.
+        if (livePendingItem.isEmpty()) {
+            ++liveTimelineFocusRevision;
+            const auto projection=live::musicalProjection(live::musicalVersion(liveDocument->interfaceState,id));
+            const auto plan=live::preparePerformancePlan(liveDocument->interfaceState,id,projection.time,projection.sections,
+                project()->sample_rate,live::performanceEndBars(liveDocument->interfaceState,id,0.));
+            app.seek(plan.start);
+        }
         syncLivePlayback();
         refresh();
         return;
@@ -1286,6 +1347,73 @@ void Desktop::convertLegacyLiveInstrument(const juce::String& requested) {
     editLiveInterface("Convert legacy Instrument audio to Player",[&](auto& state) {
         live::put(live::require(state,"channels",channel),"type","Player");
     },false,true);
+}
+void Desktop::setLiveChannelOutputs(const juce::String& requested,const std::vector<int>& outputs) {
+    const auto channel=inputChannel(*this,requested);
+    const auto profile=live::find(liveDocument->interfaceState,"channels",channel)["liveInput"];
+    if(!profile.isObject())throw std::runtime_error("Choose a channel input first");
+    juce::Array<juce::var> ports,names;
+    const auto active=app.active_outputs();const auto labels=app.output_names();
+    if(outputs.size()>2)throw std::runtime_error("Choose a mono or stereo output");
+    std::set<int> unique;
+    for(int port:outputs){
+        if(!unique.insert(port).second||port<0||static_cast<std::size_t>(port)>=labels.size()||
+           std::find(active.begin(),active.end(),port)==active.end())
+            throw std::runtime_error("Enable the intended physical output in Audio settings first");
+        ports.add(port);names.add(juce::String::fromUTF8(labels[static_cast<std::size_t>(port)].c_str()));
+    }
+    const auto& state=liveDocument->interfaceState;
+    performLiveValuePatches("Channel output",{
+        live::valuePatch(state,{"channels",live::EditStep::id(channel),"liveInput","outputs"},ports),
+        live::valuePatch(state,{"channels",live::EditStep::id(channel),"liveInput","outputNames"},names)},
+        live::EditImpact::routes|live::EditImpact::paint);
+}
+namespace {
+void applyLocalRuntime(Desktop& owner,const juce::var& next,live::EditImpact impact) {
+    if(live::affects(impact,live::EditImpact::musical)) {
+        validateMusicalEdit(owner,next);
+        validatePlaybackEdit(owner,next);
+    }
+    if(live::affects(impact,live::EditImpact::extent)) {
+        const auto current=next["currentItem"].toString();
+        const auto projection=live::musicalProjection(live::musicalVersion(next,current));
+        (void)live::preparePerformancePlan(next,current,projection.time,projection.sections,owner.project()->sample_rate,
+                                         live::performanceEndBars(next,current,0.));
+        validatePlaybackEdit(owner,next);
+    }
+    if(!live::affects(impact,live::EditImpact::routes))return;
+    if(owner.app.recording()||owner.app.engine()->state().playback==mrs::PlaybackState::playing||
+       owner.livePendingItem.isNotEmpty()||owner.livePlaybackLoading)
+        throw std::runtime_error("Pause or stop and finish the item transition before routing audio");
+    const auto& before=owner.liveDocument->interfaceState;
+    const auto active=owner.app.active_outputs();const auto names=owner.app.output_names();
+    // A route command changes exactly one channel. Preflight all descriptors
+    // before publishing Core state; Undo uses the same device/name checks.
+    juce::String changed;std::vector<int> ports;
+    for(const auto& row:*next["channels"].getArray()) {
+        const auto id=row["id"].toString();const auto profile=row["liveInput"];
+        const auto old=live::find(before,"channels",id)["liveInput"];
+        if(live::sameShowValue(old["outputs"],profile["outputs"])&&
+           live::sameShowValue(old["outputNames"],profile["outputNames"]))continue;
+        if(changed.isNotEmpty())throw std::runtime_error("Only one channel route can change at once");
+        changed=id;
+        if(!profile.isObject()||profile["deviceName"].toString()!=juce::String::fromUTF8(owner.app.audio_name().c_str()))
+            throw std::runtime_error("Saved audio device unavailable; reconnect it before routing");
+        if(!profile["outputs"].isArray()||profile["outputs"].size()>2||
+           (!profile["outputNames"].isVoid()&&(!profile["outputNames"].isArray()||profile["outputNames"].size()!=profile["outputs"].size())))
+            throw std::runtime_error("Invalid saved output route");
+        for(int i=0;i<profile["outputs"].size();++i){
+            const int port=static_cast<int>(profile["outputs"][i]);
+            if(port<0||static_cast<std::size_t>(port)>=names.size()||std::find(active.begin(),active.end(),port)==active.end()||
+               (!profile["outputNames"].isVoid()&&profile["outputNames"][i].toString()!=juce::String::fromUTF8(names[static_cast<std::size_t>(port)].c_str())))
+                throw std::runtime_error("Saved output unavailable or renamed; reconnect the intended device");
+            ports.push_back(port);
+        }
+    }
+    if(changed.isEmpty())return;
+    if(const auto at=owner.liveChannelTracks.find(changed);at!=owner.liveChannelTracks.end())
+        owner.app.set_live_hardware_output(at->second,ports);
+}
 }
 void Desktop::configureLiveInput(const juce::String& requested,int input,bool stereo,const std::vector<int>& outputs) {
     const auto channel=inputChannel(*this,requested);

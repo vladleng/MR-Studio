@@ -191,7 +191,7 @@ inline std::size_t editUndoUnits(const juce::var& value) {
         for(const auto& property:object->getProperties())result+=32+editUndoUnits(property.value);
     return result;
 }
-enum class EditImpact:unsigned { none=0, notes=1, metadata=2, timeline=4, paint=8, cards=16, editor=32, fold=64, browser=128 };
+enum class EditImpact:unsigned { none=0, notes=1, metadata=2, timeline=4, paint=8, cards=16, editor=32, fold=64, browser=128, musical=256, routes=512, extent=1024 };
 inline EditImpact operator|(EditImpact a,EditImpact b){return static_cast<EditImpact>(static_cast<unsigned>(a)|static_cast<unsigned>(b));}
 inline bool affects(EditImpact value,EditImpact bit){return (static_cast<unsigned>(value)&static_cast<unsigned>(bit))!=0;}
 struct EditRevisions {

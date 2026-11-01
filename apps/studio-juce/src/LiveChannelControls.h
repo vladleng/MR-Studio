@@ -99,9 +99,7 @@ private:
     bool instrument()const {const auto p=profile();return p.isObject()&&static_cast<int>(p["version"])==2;}
     void audio(int port,bool stereo,const std::vector<int>& route) {owner.configureLiveInput(id,port,stereo,route);}
     void route(const std::vector<int>& outputs) {
-        const auto p=live::decodeLiveInputProfile(profile());
-        if(p.instrument)owner.configureLiveMidi(id,p.midiInput,p.midiChannel,outputs);
-        else audio(p.input,p.stereo,outputs);
+        owner.setLiveChannelOutputs(id,outputs);
     }
     void inputMenu() {
         juce::PopupMenu menu;menu.setLookAndFeel(&owner.theme);

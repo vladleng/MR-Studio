@@ -286,6 +286,11 @@ std::unique_ptr<AudioEngine::PreparedState> AudioEngine::prepare_state(RenderCon
         (initial.loop && (initial.loop->start < 0 || initial.loop->start >= initial.loop->end || initial.loop->end > max_sample)))
         throw std::invalid_argument("invalid quiescent transport state");
 
+    if(graph.performance){
+        initial.sample=std::clamp(initial.sample,graph.performance->start,graph.performance->end);
+        initial.play_start=std::clamp(initial.play_start,graph.performance->start,graph.performance->end);
+        if(initial.loop&&!performanceManualLoop(*graph.performance,initial.loop))initial.loop.reset();
+    }
     if (config.sample_rate < 8000 || config.sample_rate > 768000 ||
         config.input_channels > max_channels || config.output_channels == 0 ||
         config.output_channels > max_channels || config.max_block == 0 || config.max_block > 65536 || config.processing_block>config.max_block ||
@@ -468,7 +473,7 @@ std::unique_ptr<AudioEngine::PreparedState> AudioEngine::prepare_state(RenderCon
     }
     for (auto& voice : graph.voices) if (voice.asset->file&&!voice.renderer) {
         voice.stream = std::make_shared<ReadAhead>(voice.asset->file);
-        if(graph.performance){std::vector<Sample> targets{voice.source_offset};
+        if(graph.performance){std::vector<Sample> targets{voice.source_offset+std::clamp(graph.performance->start-voice.start,Sample{0},voice.length-1)};
             for(const auto& section:graph.performance->sections)if(section.mode==PerformanceMode::skip||section.mode==PerformanceMode::loop){
                 const auto at=section.mode==PerformanceMode::skip?section.end:section.start;
                 targets.push_back(voice.source_offset+std::clamp(at-voice.start,Sample{0},voice.length-1));}
@@ -774,7 +779,7 @@ void AudioEngine::apply_control(const Control& control) noexcept {
             if(click_.output_left>=static_cast<int>(config_.output_channels)||click_.output_right>=static_cast<int>(config_.output_channels)){click_.playback=click_.recording=false;click_.output_left=click_.output_right=-1;}
             metronome_.reset();break;
         case ControlKind::monitor: monitor_enabled_ = control.a != 0; break;
-        case ControlKind::play: if(graph_.performance && rt_.sample>=graph_.performance->end){rt_.sample=0;metronome_.reset();} if (rt_.playback != PlaybackState::playing) { rt_.play_start=rt_.sample; pending_play_anchor_=pending_seek_.has_value(); } if(rt_.count_remaining){count_started_=true;rt_.playback=PlaybackState::paused;}else rt_.playback = PlaybackState::playing; break;
+        case ControlKind::play: if(graph_.performance && (rt_.sample<graph_.performance->start||rt_.sample>=graph_.performance->end)){rt_.sample=graph_.performance->start;metronome_.reset();} if (rt_.playback != PlaybackState::playing) { rt_.play_start=rt_.sample; pending_play_anchor_=pending_seek_.has_value(); } if(rt_.count_remaining){count_started_=true;rt_.playback=PlaybackState::paused;}else rt_.playback = PlaybackState::playing; break;
         case ControlKind::pause:
             if(graph_.external_midi)graph_.external_midi->panic();
             rt_.count_remaining=0;count_started_=false;metronome_.reset();
@@ -785,7 +790,11 @@ void AudioEngine::apply_control(const Control& control) noexcept {
             rt_.count_remaining=0;count_started_=false;metronome_.reset();
             audition_tails_={};audition_live_busy_={};audition_live_notes_={};audition_live_sustain_={};
             reset_compensation();
-            pending_seek_.reset(); pending_play_anchor_=false; rt_.playback = PlaybackState::stopped; if(!graph_.performance)rt_.sample=rt_.play_start;else if(graph_.performance->back_to_start)rt_.sample=0;
+            pending_seek_.reset(); pending_play_anchor_=false;
+            if(!graph_.performance)rt_.sample=rt_.play_start;
+            else if(rt_.playback==PlaybackState::stopped)rt_.sample=graph_.performance->start;
+            else if(graph_.performance->back_to_start)rt_.sample=std::clamp(rt_.play_start,graph_.performance->start,graph_.performance->end);
+            rt_.playback = PlaybackState::stopped;
             if (graph_.processors) graph_.processors->panic();
             for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.inserts[t])graph_.inserts[t]->panic();
             if (graph_.master_inserts) graph_.master_inserts->panic();
@@ -793,7 +802,7 @@ void AudioEngine::apply_control(const Control& control) noexcept {
         case ControlKind::prepared_seek:
             if(graph_.external_midi)graph_.external_midi->panic();
             if (!graph_.recordings.empty()) { for (const auto& recorder : graph_.recordings) recorder->discontinuity(); break; }
-            if (control.a >= 0 && control.a <= max_sample) pending_seek_ = graph_.performance?(std::min)(control.a,graph_.performance->end):control.a;
+            if (control.a >= 0 && control.a <= max_sample) pending_seek_ = graph_.performance?std::clamp(control.a,graph_.performance->start,graph_.performance->end):control.a;
             break;
         case ControlKind::seek:
             if(graph_.external_midi)graph_.external_midi->panic();
@@ -801,7 +810,7 @@ void AudioEngine::apply_control(const Control& control) noexcept {
             pending_seek_.reset();
             if (!graph_.recordings.empty()) { for (const auto& recorder : graph_.recordings) recorder->discontinuity(); break; }
             if (control.a >= 0 && control.a <= max_sample) {
-                rt_.sample = graph_.performance?(std::min)(control.a,graph_.performance->end):control.a;
+                rt_.sample = graph_.performance?std::clamp(control.a,graph_.performance->start,graph_.performance->end):control.a;
                 if (graph_.processors) graph_.processors->panic();
                 for(std::size_t t=0;t<graph_.inserts.size();++t)if(domain_owned_[t]&&graph_.inserts[t])graph_.inserts[t]->panic();
                 if (graph_.master_inserts) graph_.master_inserts->panic();
@@ -809,7 +818,7 @@ void AudioEngine::apply_control(const Control& control) noexcept {
             break;
         case ControlKind::loop:
             if (!graph_.recordings.empty()) { for (const auto& recorder : graph_.recordings) recorder->discontinuity(); break; }
-            if (control.a >= 0 && control.a < control.b && control.b <= max_sample && (!graph_.performance || control.b<=graph_.performance->end))
+            if (control.a >= 0 && control.a < control.b && control.b <= max_sample && (!graph_.performance || (control.a>=graph_.performance->start && control.b<=graph_.performance->end)))
                 rt_.loop = LoopRange{control.a, control.b};
             else if (control.a == 0 && control.b == 0) rt_.loop.reset();
             break;
@@ -859,7 +868,7 @@ bool AudioEngine::adopt_transition(bool play) noexcept {
     next->phase.store(TransitionPhase::acquired,std::memory_order_release);
     for(auto& voice:graph_.voices)if(voice.stream){if(voice.stream->end())++disk_underruns_;}
     if(graph_.external_midi)graph_.external_midi->panic();
-    swap_state(*next->next,true);rt_={};rt_.playback=play?PlaybackState::playing:PlaybackState::stopped;
+    swap_state(*next->next,true);rt_={};rt_.sample=graph_.performance?graph_.performance->start:0;rt_.play_start=rt_.sample;rt_.playback=play?PlaybackState::playing:PlaybackState::stopped;
     performance_arrived_=false;performance_action_=PerformanceAction::none;performance_stalled_=false;
     pending_seek_.reset();pending_play_anchor_=false;count_started_=false;record_start_ns_=0;
     audition_tails_={};audition_live_busy_={};audition_live_notes_={};audition_live_sustain_={};external_gate_.fill(true);midi_monitor_release_={};++midi_generation_;
@@ -871,7 +880,7 @@ bool AudioEngine::adopt_transition(bool play) noexcept {
     for(std::size_t i=0;i<graph_.sends.size();++i)for(std::size_t j=0;j<graph_.sends[i].size();++j)mix.send_gains[i][j]=graph_.sends[i][j].gain;
     set_mix(mix,false);monitor_enabled_=graph_.monitoring;
     for(auto& row:meter_peaks_)for(auto& peak:row)peak.store(0,std::memory_order_relaxed);
-    for(auto& voice:graph_.voices)if(voice.stream)voice.stream->begin(voice.source_offset);
+    for(auto& voice:graph_.voices)if(voice.stream)voice.stream->begin(voice.source_offset+std::clamp(rt_.sample-voice.start,Sample{0},voice.length-1));
     // Last access to next: control thread may now adopt metadata/retire old state.
     next->phase.store(TransitionPhase::adopted,std::memory_order_release);return true;
 }
