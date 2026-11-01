@@ -34,6 +34,7 @@ std::vector<PlaybackCheckResult> check_playback_sources(std::span<const Playback
                     fail(PlaybackCheckCode::changed,"WAV changed since preparation. Choose it again to reload.");
                 const PlaybackFileStamp after{std::filesystem::file_size(request.file),std::filesystem::last_write_time(request.file)};
                 if(before!=after)fail(PlaybackCheckCode::changed,"WAV changed during inspection. Check again.");
+                else result.inspected_stamp=after;
             }
         }catch(const std::exception& error){result.code=PlaybackCheckCode::unreadable;result.detail=std::string("Cannot inspect WAV: ")+error.what();}
         if(result.code==PlaybackCheckCode::ok){

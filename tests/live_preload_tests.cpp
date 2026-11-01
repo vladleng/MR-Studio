@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <mrs/desktop.hpp>
+#include "audio_state_test_access.hpp"
 #include <mrs/playback_preflight.hpp>
 #include <thread>
 
@@ -133,6 +134,24 @@ void live_channels(const std::filesystem::path& file) {
     check(out[400]>.15f&&out[400]<.25f&&out[402]>.15f&&out[402]<.25f&&out[401]==0&&out[403]==0,
           "Two physical channels run independent inputs, chains and direct outputs on one Core");
     check(app.engine()==engine&&app.services().projects->state().project->tracks.size()==2,"Multi-input uses the original Engine");
+    const auto recoveryOpens=calls->opens,recoveryCloses=calls->closes;
+    const auto recoveryProject=app.services().projects->state().project;
+    const auto recoveryInserts=engine->stopped_graph().inserts;
+    audio::AudioEngineTestAccess::worker_timeout(*engine);render();
+    check(std::all_of(out.begin(),out.end(),[](float value){return value==0.f;}),"Worker fault silences the entire shared output");
+    app.poll();render();render();
+    check(app.processing_recovery_count()==1&&app.audio_running()&&!engine->metrics().processing_fault&&out[400]>.15f&&out[402]>.15f,
+          "Live recovery resumes both monitored PCM routes after a completed worker timeout");
+    check(calls->opens==recoveryOpens&&calls->closes==recoveryCloses&&app.services().projects->state().project==recoveryProject&&
+          engine->stopped_graph().inserts==recoveryInserts&&engine->state().playback==PlaybackState::stopped,
+          "Recovery retains device/FX/model/mix and does not start Playback");
+    audio::AudioEngineTestAccess::worker_timeout(*engine);app.poll();
+    check(app.processing_recovery_count()==1&&!app.audio_running(),"Repeated fault without a new plugin edit does not create a restart loop");
+    // Explicit reconnect is a new recovery boundary; retain the same routes.
+    app.connect(std::make_unique<Device>(calls),{0,48000,128,{0,1},{0,1,2,3}});render();render();
+    audio::AudioEngineTestAccess::processing_fault(*engine);app.poll();
+    check(app.processing_recovery_count()==1&&!app.audio_running(),"Non-worker faults stop safely without automatic recovery");
+    app.connect(std::make_unique<Device>(calls),{0,48000,128,{0,1},{0,1,2,3}});render();render();
     const auto routeOpens=calls->opens,routeCloses=calls->closes;
     const auto inserts=engine->stopped_graph().inserts;
     app.set_live_hardware_output(left.id,{1});render();render();

@@ -71,6 +71,7 @@ void AudioEngine::mix_library_preview(float* output,std::uint32_t frames,const f
             graph_.recordings.empty()&&graph_.midi_recordings.empty(),
             graph_.master_outputs,envelope,level);
 }
+bool AudioEngine::processing_workers_idle() const noexcept {return !workers_||workers_->idle();}
 void AudioEngine::quiesce() noexcept {
     stop_library_preview();
     if(workers_)workers_->quiesce();

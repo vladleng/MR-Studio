@@ -1,6 +1,7 @@
 #pragma once
 #include "LivePlaybackState.h"
 #include <mrs/desktop.hpp>
+#include <mrs/playback_preflight.hpp>
 namespace ui::live {
 inline mrs::desktop::Application::PlaybackStem playbackStemLayout(const juce::var &state,const juce::String &item,
                                                                   const juce::var &row,int rate,std::size_t sourceIndex=0) {
@@ -24,4 +25,28 @@ inline std::vector<mrs::desktop::Application::PlaybackStem> playbackStemLayouts(
     for(const auto& row:playbackRows(state,item))result.push_back(playbackStemLayout(state,item,row,rate,result.size()));
     return result;
 }
+// Attribute import must not commit an inactive Item whose existing region
+// sample extents become invalid at the imported tempo. Physical routes are
+// unchanged and deliberately excluded from this musical-source check.
+inline std::vector<mrs::audio::PlaybackSourceCheck> contextImportPlaybackChecks(
+    const juce::var& before,const juce::var& after,const std::vector<juce::String>& targets,int rate) {
+    std::vector<mrs::audio::PlaybackSourceCheck> result;
+    for(const auto& item:targets) {
+        if(playbackSecondsPerBar(before,item)==playbackSecondsPerBar(after,item))continue;
+        const auto sources=playbackRows(after,item);
+        for(std::size_t i=0;i<sources.size();++i) {
+            if(!playbackRegions(after,item,sources[i]).isArray())continue;
+            const auto layout=playbackStemLayout(after,item,sources[i],rate,i);
+            mrs::audio::PlaybackSourceCheck request;
+            request.key=item.toStdString()+":"+std::to_string(i);
+            request.file=std::filesystem::path(sources[i]["file"].toString().toWideCharPointer());
+            request.begin=layout.begin;request.end=layout.end;
+            request.regions.emplace();
+            for(const auto& region:*layout.regions)request.regions->push_back({region.offset,region.length});
+            result.push_back(std::move(request));
+        }
+    }
+    return result;
+}
+
 }

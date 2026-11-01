@@ -12,6 +12,7 @@ public:
     ChannelWorkers(const ChannelWorkers&) = delete;
     ChannelWorkers& operator=(const ChannelWorkers&) = delete;
     bool run(void*, Job, std::uint32_t jobs, std::uint32_t timeout_ms) noexcept;
+    bool idle() const noexcept; // control-thread readiness; never waits for DSP
     void quiesce() noexcept; // control thread, after device callback stops
     std::uint32_t count() const noexcept;
     std::uint32_t audio_scheduled() const noexcept;

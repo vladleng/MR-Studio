@@ -2213,6 +2213,7 @@ void Application::prepare_inserts(audio::RenderGraph& result,const audio::Device
             reverb_runtime_.push_back({std::move(loader),target,fx.id,0,std::nullopt});}}
 }
 void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::DeviceConfig c) {
+    live_processing_recovery_attempt_.reset();
     require_not_recording();
     require(static_cast<bool>(device),"missing audio backend");
     const auto defaults=c.inputs;
@@ -2267,11 +2268,33 @@ void Application::disconnect() {
     staged_playback_.reset();
 }
 void Application::poll() {
+    const auto processing=engine_->metrics();
+    const bool timedOut=processing.processing_fault&&processing.worker_timeouts>0;
+    // A quarantined job still owns its plugin and buffers. Never ask that
+    // plugin for editor/parameter/state data until every DSP job has returned.
+    if(processing.processing_fault) {
+        // The fault flag and diagnostic counter are separate atomics. The
+        // counter may lag this read; it must never gate DSP ownership safety.
+        if(!engine_->processing_workers_idle()) {transport_->poll();return;}
+        // Stop/join every owner (including anticipation), then inspect edits.
+        if(device_)device_->stop();
+        engine_->quiesce();
+    }
     poll_staged_playback();
     poll_reverbs();
     publish_midi_routes();
     publish_inserts();
     for(auto& [key,r]:insert_runtime_){(void)key;if(r.graph && r.graph->consume_edits()){unsaved_=true;++plugin_edit_revision_;}}
+    if(timedOut&&workspace_==Workspace::live&&path_.empty()&&!recording()&&device_&&device_config_) {
+        const auto attempt=std::pair{services_.projects->state().project->id,plugin_edit_revision_};
+        // At most one recovery for a given project/editor revision. A bad
+        // processor cannot drive an automatic stop/rebuild/retry loop.
+        if(live_processing_recovery_attempt_!=attempt) {
+            live_processing_recovery_attempt_=attempt;
+            rebuild_audio(true); // stopped + joined, same device/FX, no autoplay
+            ++processing_recovery_count_;
+        }
+    }
     publish_mix();
     // Hidden pre-record capture runs while pre-count deliberately holds playback.
     // Read the coherent transport snapshot once; only a real stop ends the take.

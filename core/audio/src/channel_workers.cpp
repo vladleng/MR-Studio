@@ -84,6 +84,7 @@ ChannelWorkers::ChannelWorkers(std::uint32_t helpers,bool mmcss):impl_(std::make
     }
 }
 ChannelWorkers::~ChannelWorkers()=default;
+bool ChannelWorkers::idle() const noexcept {return impl_->remaining.load(std::memory_order_acquire)==0;}
 void ChannelWorkers::quiesce() noexcept {
     if(impl_->quarantined){impl_->done.wait();(void)impl_->remaining.load(std::memory_order_acquire);impl_->quarantined=false;}
 }

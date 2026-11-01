@@ -282,6 +282,7 @@ public:
     void cancel_insert_preview();
     std::uint64_t insert_generation() const {return insert_generation_;}
     std::uint64_t plugin_edit_revision() const {return plugin_edit_revision_;}
+    std::uint64_t processing_recovery_count() const {return processing_recovery_count_;}
     void transfer_insert(std::optional<Id> source,const Id& slot,std::optional<Id> destination,std::size_t boundary,bool move);
     bool open_plugin_editor(std::optional<Id>,const Id&,void*,int&,int&);
     void close_plugin_editors();
@@ -383,6 +384,8 @@ private:
     const Project* preparing_project_{}; // Control-thread candidate, never published to project observers.
     std::uint64_t insert_generation_{};
     std::uint64_t plugin_edit_revision_{};
+    std::optional<std::pair<Id,std::uint64_t>> live_processing_recovery_attempt_;
+    std::uint64_t processing_recovery_count_{};
     std::map<std::string,std::shared_ptr<processing::PreparedGraph>> staged_insert_graphs_;
     void publish_inserts();
     void capture_insert_state(Project&,std::optional<Id> authoritative={},bool callbacks_stopped=false);
