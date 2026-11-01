@@ -4,6 +4,7 @@
 #include "LiveMusicalState.h"
 #include "LiveTimelineEditState.h"
 #include "LiveClipProjection.h"
+#include "LivePerformanceEdit.h"
 
 namespace ui {
 namespace {
@@ -579,6 +580,13 @@ void Desktop::setLiveItemExtent(const juce::String& item,double start,double end
     live::put(extentDraft,"start",start);live::put(extentDraft,"length",end);
     performLiveValuePatch("Item range",std::move(path),extentDraft,
         live::EditImpact::metadata|live::EditImpact::timeline|live::EditImpact::extent);
+}
+void Desktop::setLivePerformanceMode(const juce::String& item,const juce::String& target,mrs::PerformanceMode mode) {
+    if(!liveDocument)throw std::runtime_error("Open a MR Live show first");
+    const auto patch=live::performanceModePatch(liveDocument->interfaceState,item,target,mode);
+    if(!patch)return;
+    performLiveValuePatches(item==target?"Item performance mode":"Section performance mode",{*patch},
+        live::EditImpact::metadata|live::EditImpact::paint|live::EditImpact::performance);
 }
 void Desktop::setLiveMusicalName(const juce::String& itemId,const juce::String& eventId,
                                  bool section,const juce::String& proposedName) {
@@ -1374,6 +1382,21 @@ void Desktop::setLiveChannelOutputs(const juce::String& requested,const std::vec
 }
 namespace {
 void applyLocalRuntime(Desktop& owner,const juce::var& next,live::EditImpact impact) {
+    if(live::affects(impact,live::EditImpact::performance)){
+        const auto& before=owner.liveDocument->interfaceState;
+        const auto change=live::validatePerformanceModeChange(before,next);
+        if(change.effective&&change.item==before["currentItem"].toString()&&
+           (owner.app.recording()||owner.app.engine()->state().playback==mrs::PlaybackState::playing))
+            throw std::runtime_error("Pause or stop before changing active performance modes");
+        const auto projection=live::musicalProjection(live::musicalVersion(next,change.item));
+        (void)live::preparePerformancePlan(next,change.item,projection.time,projection.sections,owner.project()->sample_rate,0.);
+        if(owner.liveAutoToken&&((change.effective&&change.item==owner.liveAutoItem)||
+           live::nextPerformanceEntry(next,owner.liveCurrentEntry)["id"].toString()!=owner.liveAutoEntry)){
+            if(!owner.app.cancel_staged_playback()||owner.app.playback_token()==owner.liveAutoToken)
+                throw std::runtime_error("Item transition in progress; retry the edit after it completes");
+            owner.liveAutoKey.clear();owner.liveAutoToken=0;
+        }
+    }
     if(live::affects(impact,live::EditImpact::musical)) {
         validateMusicalEdit(owner,next);
         validatePlaybackEdit(owner,next);

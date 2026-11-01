@@ -883,9 +883,7 @@ class LiveTimeline final : public juce::Component {
                             if(rows[i]["id"].toString()==targetEvent)rows.getArray()->remove(i);
                         live::setMusicalRows(state,targetItem,targetLane,rows);
                     });
-                    if(result>=50&&result<54)safe->parent.owner.editLiveInterface("Section performance mode",[&](auto &state){
-                        live::setPerformanceMode(state,targetItem,targetEvent,static_cast<mrs::PerformanceMode>(result-50));
-                    });
+                    if(result>=50&&result<54)safe->parent.owner.setLivePerformanceMode(targetItem,targetEvent,static_cast<mrs::PerformanceMode>(result-50));
                     if(result>=10&&result<16)safe->create(item,targetLane,at,names[result-10]);
                     if(result==2)safe->parent.owner.editLiveInterface("Duplicate musical event",[&](auto &state){
                         const auto rows=live::musicalRows(state,targetItem,targetLane);

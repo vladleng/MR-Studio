@@ -494,6 +494,10 @@ inline juce::var itemMetadata(const juce::var& item,const juce::var& perf,const 
     auto result=object();
     for(const auto* key:{"name","key","notes","sections"})put(result,key,item[key]);
     put(result,"chords",perf["chords"][juce::Identifier(id)]);
+    std::set<juce::String> targets{id};
+    if(const auto* sections=item["sections"].getArray())for(const auto& section:*sections)
+        targets.insert(section["id"].toString());
+    put(result,"modes",pick(perf["modes"],targets));
     auto range=object();
     for(const auto* key:{"start","length"})if(perf["arrangement"][juce::Identifier(id)].hasProperty(key))put(range,key,perf["arrangement"][juce::Identifier(id)][key]);
     put(result,"range",range);
@@ -518,7 +522,7 @@ inline ItemMetadataDirtyState itemMetadataDirtyState(const juce::var& state,cons
         for(auto* value:{&stored,&current}) {
             for(const auto* key:{"name","key","notes","sections"})
                 (*value)["item"].getDynamicObject()->removeProperty(key);
-            for(const auto* key:{"chords","itemWorkflow","arrangement"})
+            for(const auto* key:{"chords","itemWorkflow","arrangement","modes"})
                 (*value)["performance"].getDynamicObject()->removeProperty(key);
         }
         result.otherChanges=!sameShowValue(current,stored);

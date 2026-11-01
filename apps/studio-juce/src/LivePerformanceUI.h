@@ -11,10 +11,11 @@ inline void showLivePerformanceModes(Desktop& owner,const juce::String& item,con
     if(!owner.liveDocument)return;
     juce::PopupMenu menu;addLivePerformanceModes(menu,owner.liveDocument->interfaceState,target,1);
     juce::Component::SafePointer<Desktop> safe(&owner);
-    showLiveActionMenu(menu,owner,liveContextTarget(screen),[safe,item,target](int choice){
-        if(safe && choice>=1 && choice<=4)safe->run([&]{safe->editLiveInterface("Performance mode",[&](auto& state){
-            live::setPerformanceMode(state,item,target,static_cast<mrs::PerformanceMode>(choice-1));
-        });});
+    const auto generation=owner.liveDocumentGeneration;
+    showLiveActionMenu(menu,owner,liveContextTarget(screen),[safe,item,target,generation](int choice){
+        if(safe&&safe->liveDocumentGeneration==generation&&choice>=1&&choice<=4)safe->run([&]{
+            safe->setLivePerformanceMode(item,target,static_cast<mrs::PerformanceMode>(choice-1));
+        });
     });
 }
 class LivePerformanceArt {
