@@ -725,10 +725,18 @@ void livePerformanceModeSmoke(const juce::File& fixture) {
     liveCheck(live::itemPerformanceMode(loaded.interfaceState,id)==mrs::PerformanceMode::stop&&
               live::itemPerformanceMode(loaded.interfaceState,section)==mrs::PerformanceMode::loop,
               "#31 Item and Section modes survive Save/Open");
+    const auto afterSaveMeasures=host.liveFullSizeMeasures;
     host.setLivePerformanceMode(id,section,mrs::PerformanceMode::normal);
     liveCheck(!host.liveDocument->interfaceState["performance"]["modes"].hasProperty(juce::Identifier(section))&&
-              host.liveCachedEditBytes()==live::editJsonBytes(host.liveDocument->interfaceState),
-              "#31 Normal removes the override and keeps the shared byte budget exact");
+              !host.liveCachedEditBytes()&&host.liveFullSizeMeasures==afterSaveMeasures,
+              "#31 Normal removes the override after Save without rescanning a shrinking document");
+    host.setLivePerformanceMode(id,section,mrs::PerformanceMode::loop);
+    liveCheck(host.liveCachedEditBytes()==live::editJsonBytes(host.liveDocument->interfaceState)&&
+              host.liveFullSizeMeasures==afterSaveMeasures+1,
+              "#31 The next growing mode edit rebuilds the exact cold byte budget once");
+    host.setLivePerformanceMode(id,section,mrs::PerformanceMode::normal);
+    liveCheck(host.liveCachedEditBytes()==live::editJsonBytes(host.liveDocument->interfaceState),
+              "#31 Warm Normal removal keeps the shared byte budget exact");
     const auto noOp=host.liveLocalPatchApplications;
     host.setLivePerformanceMode(id,section,mrs::PerformanceMode::normal);
     liveCheck(host.liveLocalPatchApplications==noOp,"#31 Re-selecting Normal creates no Undo or UI notification");
