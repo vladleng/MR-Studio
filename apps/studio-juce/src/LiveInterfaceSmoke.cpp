@@ -1523,6 +1523,12 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   std::all_of(inputPilot.project()->tracks.begin(),inputPilot.project()->tracks.end(),
                               [](const auto& track){return track.input_monitor;}),
                   "Reconnecting the correct device auto-monitors two saved audio channels independently");
+        // Legacy descriptors may omit optional outputNames. Undo must restore
+        // that absence while still checking device identity and enabled ports.
+        inputPilot.editLiveInterface("Legacy output descriptor fixture",[&](auto& state){
+            auto profile=live::find(state,"channels",showChannel)["liveInput"];
+            profile.getDynamicObject()->removeProperty("outputNames");
+        });
         const auto routeBefore=inputPilot.liveDocument->interfaceState;
         const auto routeStructure=inputPilot.liveUiRevision;
         const auto localRoute=inputPilot.liveLocalPatchApplications;

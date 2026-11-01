@@ -1399,12 +1399,13 @@ void applyLocalRuntime(Desktop& owner,const juce::var& next,live::EditImpact imp
         changed=id;
         if(!profile.isObject()||profile["deviceName"].toString()!=juce::String::fromUTF8(owner.app.audio_name().c_str()))
             throw std::runtime_error("Saved audio device unavailable; reconnect it before routing");
-        if(!profile["outputs"].isArray()||profile["outputs"].size()>2||profile["outputNames"].size()!=profile["outputs"].size())
+        if(!profile["outputs"].isArray()||profile["outputs"].size()>2||
+           (!profile["outputNames"].isVoid()&&(!profile["outputNames"].isArray()||profile["outputNames"].size()!=profile["outputs"].size())))
             throw std::runtime_error("Invalid saved output route");
         for(int i=0;i<profile["outputs"].size();++i){
             const int port=static_cast<int>(profile["outputs"][i]);
             if(port<0||static_cast<std::size_t>(port)>=names.size()||std::find(active.begin(),active.end(),port)==active.end()||
-               profile["outputNames"][i].toString()!=juce::String::fromUTF8(names[static_cast<std::size_t>(port)].c_str()))
+               (!profile["outputNames"].isVoid()&&profile["outputNames"][i].toString()!=juce::String::fromUTF8(names[static_cast<std::size_t>(port)].c_str())))
                 throw std::runtime_error("Saved output unavailable or renamed; reconnect the intended device");
             ports.push_back(port);
         }

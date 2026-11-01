@@ -166,7 +166,8 @@ policy still updates through the existing prepared Core graph path.
 Player/Instrument hardware output selection patches only `outputs` and
 `outputNames` as one Undo action. Both patches are checked and budgeted together
 before publication. Device identity, enabled physical ports and saved port names
-are checked again on Undo/Redo. Core prepares the route with the existing insert
+are checked again on Undo/Redo. Legacy descriptors without optional output names
+retain that absence on Undo and use their existing device/port validation. Core prepares the route with the existing insert
 instances and open device handle; a failed restart rolls back the ProjectStore,
 graph, mix and runtime. Input/MIDI/effect configuration keeps its existing full
 transaction. Output selection neither captures plugin state nor reconfigures input.
