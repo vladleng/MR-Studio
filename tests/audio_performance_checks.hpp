@@ -99,4 +99,30 @@ void performance(){
     CHECK(engine.enqueue({ControlKind::seek,0}));process(16);
     CHECK(std::any_of(out.begin(),out.begin()+16,[](float value){return std::abs(value)>.001f;}));
 
+    // Back to start means the most recent Play anchor; a second Stop rewinds Item.
+    PerformancePlan trimmed;trimmed.start=4;trimmed.end=24;trimmed.back_to_start=true;
+    engine.prepare({48000,0,1,32},graph(12,trimmed));
+    CHECK(engine.state().sample==4);
+    CHECK(engine.enqueue({ControlKind::seek,9}));CHECK(engine.enqueue({ControlKind::play}));process(3);
+    CHECK(engine.state().sample==12&&engine.state().play_start==9);
+    CHECK(engine.enqueue({ControlKind::stop}));process(1);CHECK(engine.state().sample==9);
+    CHECK(engine.enqueue({ControlKind::stop}));process(1);CHECK(engine.state().sample==4);
+    CHECK(engine.enqueue({ControlKind::seek,0}));process(1);CHECK(engine.state().sample==4);
+    CHECK(engine.enqueue({ControlKind::seek,15}));CHECK(engine.enqueue({ControlKind::play}));process(2);
+    CHECK(engine.enqueue({ControlKind::pause}));process(1);
+    CHECK(engine.enqueue({ControlKind::stop}));process(1);CHECK(engine.state().sample==15);
+    trimmed.back_to_start=false;engine.prepare({48000,0,1,32},graph(13,trimmed));
+    CHECK(engine.enqueue({ControlKind::play}));process(3);
+    CHECK(engine.enqueue({ControlKind::stop}));process(1);CHECK(engine.state().sample==7);
+    CHECK(engine.enqueue({ControlKind::stop}));process(1);CHECK(engine.state().sample==4);
+    trimmed.mode=PerformanceMode::loop;engine.prepare({48000,0,1,32},graph(14,trimmed));
+    CHECK(engine.enqueue({ControlKind::seek,22}));CHECK(engine.enqueue({ControlKind::play}));process(4);
+    CHECK(engine.state().sample==6);
+    // Automatic handoff starts the successor at its trimmed origin within the same callback.
+    PerformancePlan first;first.end=3;engine.prepare({48000,0,1,32},graph(15,first));
+    trimmed.mode=PerformanceMode::normal;prepared=engine.prepare_transition(graph(16,trimmed),15);
+    CHECK(engine.stage_transition(prepared));CHECK(engine.enqueue({ControlKind::play}));process(5);
+    CHECK(engine.state().sample==6&&engine.performance_status().token==16);
+    CHECK(engine.acknowledge_transition(prepared));prepared.reset();
+
 }

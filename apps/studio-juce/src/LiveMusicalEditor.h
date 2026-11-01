@@ -120,16 +120,14 @@ class LiveMusicalEditor final : public juce::Component, private juce::Timer {
         change([&]{
             const double a=numeric(start.getText()),b=numeric(end.getText());
             if(a==static_cast<double>(original["start"])&&b-a==static_cast<double>(original["length"]))return;
-            owner->editLiveInterface("Musical event bounds",[&](auto &state){
-                auto rows=live::musicalRows(state,itemId,lane).clone(); bool found=false;
-                if(!rows.isArray())throw std::runtime_error("Musical event no longer exists");
-                for(auto &row:*rows.getArray())if(row["id"].toString()==eventId){
-                    if(!live::sameShowValue(row,original))throw std::runtime_error("Event changed; reopen its properties");
-                    live::put(row,"start",a);live::put(row,"length",b-a);found=true;
-                }
-                if(!found)throw std::runtime_error("Musical event no longer exists");
-                live::setMusicalRows(state,itemId,lane,rows);
-            });
+            auto rows=live::musicalRows(owner->liveDocument->interfaceState,itemId,lane).clone(); bool found=false;
+            if(!rows.isArray())throw std::runtime_error("Musical event no longer exists");
+            for(auto &row:*rows.getArray())if(row["id"].toString()==eventId){
+                if(!live::sameShowValue(row,original))throw std::runtime_error("Event changed; reopen its properties");
+                live::put(row,"start",a);live::put(row,"length",b-a);found=true;
+            }
+            if(!found)throw std::runtime_error("Musical event no longer exists");
+            owner->setLiveMusicalRows(itemId,lane==live::MusicalLane::sections,rows);
         });
     }
     juce::Component::SafePointer<Desktop> owner;

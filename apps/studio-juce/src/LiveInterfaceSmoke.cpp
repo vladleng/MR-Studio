@@ -884,11 +884,16 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
               "#31 RMB opens one Section surface with fields, swatches and original menu actions");
     if(unified->close)unified->close();livePump();
     const auto before=editing.liveDocument->signature();
+    const auto musicChannels=editing.liveDocument->interfaceState["channels"];
+    const auto localApplications=editing.liveLocalPatchApplications;
     body->mouseDown(event(origin+80.f,96.f));body->mouseDrag(event(origin+144.f,96.f));
     liveCheck(editing.liveDocument->signature()==before,"Musical drag is preview only until release");
     body->mouseUp(event(origin+144.f,96.f));timeline->refresh();
     rows=live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::sections);
     liveCheck(static_cast<double>(live::spanById(rows,section)["start"])==4.,"Section gesture commits snapped range");
+    liveCheck(editing.liveLocalPatchApplications==localApplications+1 &&
+              editing.liveDocument->interfaceState["channels"].getArray()==musicChannels.getArray(),
+              "Musical drag commits one local patch without copying channel/FX state");
     editing.undoLiveInterface();timeline->refresh();
     liveCheck(editing.liveDocument->signature()==before,"One Undo restores complete section gesture");
     body->mouseDown(event(origin+80.f,96.f));body->mouseDrag(event(origin+112.f,96.f));
@@ -943,6 +948,21 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     editing.undoLiveInterface();timeline->refresh();
     liveCheck(live::sameShowValue(editing.liveDocument->interfaceState,beforeLead),
               "Left item edge Undo restores exact arrangement metadata");
+    bounds=timeline->itemBounds(id);
+    const auto beforeStart=editing.liveDocument->interfaceState.clone();
+    const float headerLeft=static_cast<float>(bounds.getX()+1);
+    body->mouseMove(event(headerLeft,18.f));
+    liveCheck(body->getMouseCursor()==noteTrimCursor(false),"Item header left edge has trim bracket");
+    body->mouseMove(event(static_cast<float>(bounds.getRight()-2),18.f));
+    liveCheck(body->getMouseCursor()==noteTrimCursor(true),"Item header right edge has trim bracket");
+    body->mouseDown(event(headerLeft,18.f));body->mouseDrag(event(headerLeft+32.f,18.f));
+    liveCheck(live::sameShowValue(beforeStart,editing.liveDocument->interfaceState),"Item start gesture is preview only");
+    body->mouseUp(event(headerLeft+32.f,18.f));timeline->refresh();
+    liveCheck(static_cast<double>(editing.liveDocument->interfaceState["performance"]["arrangement"][juce::Identifier(id)]["start"])==1.,
+              "Header left edge trims real Item start");
+    editing.undoLiveInterface();timeline->refresh();
+    liveCheck(live::sameShowValue(beforeStart,editing.liveDocument->interfaceState),"One Undo restores absent Item start exactly");
+    editing.undoLiveInterface(true);timeline->refresh();
     const auto file=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("live-timeline-edit",".mrlive",false);
     editing.saveFile(file);const auto reopened=LiveDocument::read(file);file.deleteFile();
     liveCheck(live::canonical(reopened.interfaceState)==live::canonical(editing.liveDocument->interfaceState),
@@ -1503,6 +1523,25 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   std::all_of(inputPilot.project()->tracks.begin(),inputPilot.project()->tracks.end(),
                               [](const auto& track){return track.input_monitor;}),
                   "Reconnecting the correct device auto-monitors two saved audio channels independently");
+        const auto routeBefore=inputPilot.liveDocument->interfaceState;
+        const auto routeStructure=inputPilot.liveUiRevision;
+        const auto localRoute=inputPilot.liveLocalPatchApplications;
+        const auto routeProfile=live::find(routeBefore,"channels",showChannel)["liveInput"];
+        const auto routeInserts=routeProfile["inserts"];
+        inputPilot.setLiveChannelOutputs(showChannel,{1});
+        const auto changedProfile=live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"];
+        liveCheck(static_cast<int>(changedProfile["outputs"][0])==1 && changedProfile["inserts"].getArray()==routeInserts.getArray() &&
+                  inputPilot.liveLocalPatchApplications==localRoute+1 && inputPilot.liveUiRevision==routeStructure,
+                  "Player Out commits one bounded route batch, retaining FX data and structural UI revision");
+        const auto routeTrack=inputPilot.liveInputTrack(showChannel);
+        liveCheck(routeTrack.has_value(),"Routed Player retains its Core track");
+        const auto coreRoute=[&]{const auto project=inputPilot.project();return std::find_if(project->tracks.begin(),project->tracks.end(),[&](const auto& track){return track.id==*routeTrack;})->hardware_outputs;};
+        liveCheck(coreRoute()==std::vector<int>{1},"Player route reaches Core");
+        inputPilot.undoLiveInterface();
+        liveCheck(live::sameShowValue(inputPilot.liveDocument->interfaceState,routeBefore)&&coreRoute()==live::decodeLiveInputProfile(routeProfile).outputs,
+                  "One Undo restores both output ports/names and Core routing");
+        inputPilot.undoLiveInterface(true);liveCheck(coreRoute()==std::vector<int>{1},"Player output Redo reaches Core");
+        inputPilot.undoLiveInterface();
         inputPilot.releaseLiveInput(secondChannel);inputPilot.releaseLiveInput(showChannel);
         // #302/#281: preserve legacy Instrument audio profiles and use explicit Undoable conversion.
         juce::String legacyChannel;
@@ -2476,11 +2515,16 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(std::abs(playbackDesktop.app.engine()->state().sample - 24000) < 50,
                   "Clicking the real Playback lane seeks shared audio to that time");
         const float verseX = static_cast<float>(1. + (viewLead + 21.75) * viewScale);
+        const auto beforeSectionClick=playbackDesktop.app.engine()->state().sample;
         timelineBody->mouseDown(seekClick({verseX, 100.f}));
+        timelineBody->mouseUp(seekClick({verseX, 100.f}));render();
+        liveCheck(playbackDesktop.app.engine()->state().sample==beforeSectionClick,
+                  "Single Section click selects without moving transport");
+        timelineBody->mouseDoubleClick(seekClick({verseX, 100.f}));
         render();
         playbackDesktop.app.poll();
         liveCheck(playbackDesktop.app.engine()->state().sample == musicClock.to_samples(verse.start),
-                  "Section click within authored overlap selects the same section as Core");
+                  "Section double-click within authored overlap seeks the same section as Core");
         playbackDesktop.action(32);
         render();
         playbackDesktop.app.poll();

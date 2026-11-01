@@ -424,11 +424,12 @@ inline juce::var itemVersion(const juce::var &state, const juce::String &id) {
     put(perf, "clips", pick(source["clips"], trackIds));
     for (const auto *key : {"chords", "itemColors", "itemWorkflow"})
         put(perf, key, pick(source[key], {id}));
-    if (source["arrangement"][juce::Identifier(id)].hasProperty("length")) {
+    if (source["arrangement"][juce::Identifier(id)].hasProperty("length") || source["arrangement"][juce::Identifier(id)].hasProperty("start")) {
         auto row = object();
         put(row, "scale", 16);
         put(row, "lead", 0);
-        put(row, "length", source["arrangement"][juce::Identifier(id)]["length"]);
+        for(const auto* key:{"start","length"})
+            if(source["arrangement"][juce::Identifier(id)].hasProperty(key))put(row,key,source["arrangement"][juce::Identifier(id)][key]);
         auto arrangement = object();
         put(arrangement, id, row);
         put(perf, "arrangement", arrangement);
@@ -493,6 +494,9 @@ inline juce::var itemMetadata(const juce::var& item,const juce::var& perf,const 
     auto result=object();
     for(const auto* key:{"name","key","notes","sections"})put(result,key,item[key]);
     put(result,"chords",perf["chords"][juce::Identifier(id)]);
+    auto range=object();
+    for(const auto* key:{"start","length"})if(perf["arrangement"][juce::Identifier(id)].hasProperty(key))put(range,key,perf["arrangement"][juce::Identifier(id)][key]);
+    put(result,"range",range);
     put(result,"progress",static_cast<double>(perf["itemWorkflow"][juce::Identifier(id)]["progress"]));
     return result;
 }
@@ -514,7 +518,7 @@ inline ItemMetadataDirtyState itemMetadataDirtyState(const juce::var& state,cons
         for(auto* value:{&stored,&current}) {
             for(const auto* key:{"name","key","notes","sections"})
                 (*value)["item"].getDynamicObject()->removeProperty(key);
-            for(const auto* key:{"chords","itemWorkflow"})
+            for(const auto* key:{"chords","itemWorkflow","arrangement"})
                 (*value)["performance"].getDynamicObject()->removeProperty(key);
         }
         result.otherChanges=!sameShowValue(current,stored);

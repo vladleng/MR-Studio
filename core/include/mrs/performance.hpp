@@ -17,11 +17,12 @@ struct PerformancePlan {
     PerformanceMode mode{PerformanceMode::normal};
     bool back_to_start{}, stop_record{true};
     std::vector<PerformanceSection> sections;
+    Sample start{}; // Non-destructive Item trim; authored media keeps absolute coordinates.
     void validate() const {
-        if(end<=0 || end>max_sample || sections.size()>128)throw std::invalid_argument("Invalid performance extent");
+        if(start<0 || end<=start || end>max_sample || sections.size()>128)throw std::invalid_argument("Invalid performance extent");
         const auto valid=[](PerformanceMode value){return value>=PerformanceMode::normal && value<=PerformanceMode::loop;};
         if(!valid(mode))throw std::invalid_argument("Invalid item performance mode");
-        Sample previous{};
+        Sample previous=start;
         for(const auto& row:sections){
             if(!valid(row.mode)||row.start<previous||row.end<=row.start||row.end>end)throw std::invalid_argument("Invalid performance section");
             previous=row.end;
@@ -31,7 +32,7 @@ struct PerformancePlan {
 enum class PerformanceAction { none, skip, stop, loop, next, next_stopped };
 struct PerformanceDecision { PerformanceAction action{PerformanceAction::none}; Sample target{}; };
 inline bool performanceManualLoop(const PerformancePlan& plan,const std::optional<LoopRange>& loop) noexcept {
-    return loop && loop->start>=0 && loop->start<loop->end && loop->end<=plan.end;
+    return loop && loop->start>=plan.start && loop->start<loop->end && loop->end<=plan.end;
 }
 // Bounded, allocation-free queries over a validated, immutable plan. They do
 // not seek or publish state, and are not a UI-timer transport implementation.
@@ -39,10 +40,11 @@ inline PerformanceDecision performanceDecision(const PerformancePlan& plan,Sampl
                                                 std::optional<LoopRange> manualLoop={},bool arrivedThroughPlayback=true) noexcept {
     if(at<0)return {};
     if(plan.mode==PerformanceMode::skip)return {PerformanceAction::next,0};
+    if(at<plan.start)return {PerformanceAction::skip,plan.start};
     if(performanceManualLoop(plan,manualLoop))
         return at>=manualLoop->end?PerformanceDecision{PerformanceAction::loop,manualLoop->start}:PerformanceDecision{};
     if(at>=plan.end){
-        if(plan.mode==PerformanceMode::loop)return {PerformanceAction::loop,0};
+        if(plan.mode==PerformanceMode::loop)return {PerformanceAction::loop,plan.start};
         return {plan.mode==PerformanceMode::stop?PerformanceAction::next_stopped:PerformanceAction::next,plan.end};
     }
     // A naturally completed loop/stop wins over the next section's entry,

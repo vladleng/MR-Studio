@@ -77,15 +77,9 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         mixerDivider.commitHeight=[this]{owner.saveSettings();};
         addAndMakeVisible(mixerButton);
         mixerButton.setComponentID("live-mixer-toggle");
-        for(auto* button:{&pointerTool,&scissorsTool,&zoomOutButton,&zoomInButton,&zoomFitButton})addAndMakeVisible(button);
-        zoomOutButton.setComponentID("live-zoom-out");
-        zoomInButton.setComponentID("live-zoom-in");
+        for(auto* button:{&pointerTool,&scissorsTool,&zoomFitButton})addAndMakeVisible(button);
         zoomFitButton.setComponentID("live-zoom-fit");
-        zoomOutButton.setTooltip("Horizontal zoom out, 0.8x (MR Studio)");
-        zoomInButton.setTooltip("Horizontal zoom in, 1.25x (MR Studio)");
         zoomFitButton.setTooltip("Fit current item to Timeline");
-        zoomOutButton.onClick=[this]{timeline.zoom(.8);};
-        zoomInButton.onClick=[this]{timeline.zoom(1.25);};
         zoomFitButton.onClick=[this]{timeline.zoomFit();};
         pointerTool.setComponentID("live-pointer-tool");scissorsTool.setComponentID("live-scissors-tool");
         pointerTool.getProperties().set("mrHostIcon","tool_pointer");scissorsTool.getProperties().set("mrHostIcon","tool_split");
@@ -156,8 +150,6 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         redoButton.setBounds(controls.removeFromLeft(26));
         mixerButton.setBounds(controls.removeFromLeft(58));
         pointerTool.setBounds(controls.removeFromLeft(28));scissorsTool.setBounds(controls.removeFromLeft(28));
-        zoomOutButton.setBounds(controls.removeFromLeft(64).reduced(1));
-        zoomInButton.setBounds(controls.removeFromLeft(64).reduced(1));
         zoomFitButton.setBounds(controls.removeFromLeft(52).reduced(1));
         auto setlistBounds = reference.bounds("show.setlist", getWidth(), getHeight());
         setlistBounds.setBottom(playbackPanel.getY());
@@ -447,7 +439,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     LiveMixer mixer;
     MixerDivider mixerDivider;
     juce::TextButton mixerButton{"Mixer"},pointerTool{"Pointer"},scissorsTool{"Scissors"};
-    juce::TextButton zoomOutButton{"Zoom -"},zoomInButton{"Zoom +"},zoomFitButton{"Fit"};
+    juce::TextButton zoomFitButton{"Fit"};
     bool mixerVisible{};
     bool showLegacyChannels{};
     std::unique_ptr<juce::Drawable> tunerPlaceholder;
