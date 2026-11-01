@@ -315,19 +315,34 @@ Save/Open and user acceptance are **NOT TESTED**. Avoid changes to `main`, new r
 unrequested Windows Actions or merge until user approval. No proprietary
 Show, Song, media or vendor plugin assets in the repository.
 
-## Existing audio compatibility — fix12 / #31
+## Existing audio and musical context — fix13 / #31
 
-Attribute import into an existing Item now checks source compatibility before
-publishing the show if the imported tempo changes the sample projection of authored
-Playback regions. This covers inactive Items too: previously the metadata could
-commit while later activation rejected an out-of-source region, leaving the Item
-apparently impossible to select/focus. Existing regions, WAV references, routes,
-FX and source files are not rewritten to fit the new tempo.
+Item length, Sections and Chords are independent of source WAV duration. An imported
+Item may extend beyond its audio; that remainder is silent. Importing another tempo
+must not stretch, slip, lengthen or truncate the original source samples.
 
-Preview runs the shared Core source/region checker in a bounded cancellable worker.
-Import stays disabled until it succeeds; changing selection, closing the dialog or
-editing the show invalidates that result. The actual commit verifies the inspected
-source stamps again. A rejected/incompatible import leaves show and Undo unchanged;
-compatible mappings still commit as one Show Undo. Pure musical imports without
-changed authored audio-region projection keep their previous path. This check
-verifies media extents, not device/DSP readiness or hardware performance.
+Authored native audio regions retain an optional `audioSecondsPerBar` clock. Their
+stored start/offset/length use that clock; the timeline projects those extents into
+the current Item's bars. New edits/default regions save the clock. Before changing
+tempo/meter, existing unanchored regions are pinned to the previous Item clock on
+the detached transaction candidate. Import/Undo/Redo and `.mrlive` Save/Open retain
+that basis. This is additive optional interface metadata; no Core project schema
+or WAV changes. Old builds do not understand the new audio clock; do not edit a
+fix13-authored project in an older build when testing source-time preservation.
+
+Existing old documents may already contain invalid source ranges after an import.
+They lack the original audio clock, so exact historic edits cannot be inferred.
+Only the legacy adapter allows a missing source tail to be silent: prepared Core
+voices are bounded to available WAV samples; a fully unavailable region creates
+no voice. The stored attributes and regions remain intact, with a source-check
+message explaining the legacy range. `legacySourceBounds` retains this behavior
+when an old region is pinned. Negative/malformed extents still fail validation;
+newly authored regions remain strictly checked. An incorrect historic trim needs
+manual review or Restore full source; no automatic reconstruction is claimed.
+
+Musical attribute Preview/Import does not inspect or require the unchanged WAV.
+It validates the selected musical fields and detached show transaction only;
+stale/cancelled dialogs cannot commit. Source existence, stamp, trim and region
+checks remain at Playback preparation/activation and Show/source check. This
+removes the fix12 file-inspection gate and allows metadata editing while media
+is offline. One import remains one Show Undo transaction.

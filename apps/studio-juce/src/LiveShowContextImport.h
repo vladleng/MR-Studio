@@ -1,6 +1,7 @@
 #pragma once
 
 #include "LiveTimelineEditState.h"
+#include "LivePlaybackState.h"
 #include <optional>
 
 // Schema-independent destination half of #305. A future, *verified* Studio
@@ -47,6 +48,8 @@ inline void applyShowContext(juce::var& show, const ShowContextSong& source,
     // All validations happen on a detached clone, not on a show with live
     // channels and VST3 binary states. Failure is a zero-mutation operation.
     auto candidate = show.clone();
+    // Pin old authored audio before changing its musical bar/beat grid.
+    pinLegacyPlaybackTimebase(candidate,source.targetItemId,playbackSecondsPerBar(show,source.targetItemId));
 
     if (selection.tempo) {
         if (!source.bpm || !std::isfinite(*source.bpm) || *source.bpm < 20. || *source.bpm > 400.)

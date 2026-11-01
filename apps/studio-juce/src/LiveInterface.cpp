@@ -107,7 +107,7 @@ void validatePlaybackEdit(Desktop &owner, const juce::var &copy) {
             throw std::runtime_error("Trim must stay inside the original WAV source");
         const auto settings=live::playbackStemLayout(copy,id,after[i],project->sample_rate);
         if(settings.regions)for(const auto& region:*settings.regions)
-            if(region.offset<0 || region.length<=0 || region.offset>frames || region.length>frames-region.offset)
+            if(!mrs::audio::playback_region_length(region.offset,region.length,frames,region.legacy_silent_tail))
                 throw std::runtime_error("Region must stay inside the original WAV source");
         for (const auto channel : live::playbackOutputs(after[i]))
             if (std::find(active.begin(), active.end(), channel) == active.end())
@@ -804,6 +804,7 @@ void Desktop::editLiveInterface(const juce::String &label, std::function<void(ju
     if(captureInputs)captureLiveInputs(before);
     auto draft = before.clone();
     edit(draft);
+    live::preservePlaybackTimebases(before,draft);
     const auto prepared=juce::Time::getHighResolutionTicks();
     // Avoid redundant full-show JSON validation for no-op UI actions.
     if(live::sameShowValue(draft,liveDocument->interfaceState))return;

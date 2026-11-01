@@ -131,7 +131,7 @@ public:
     WavImportStatus wav_import_status() const;
     // Non-RT, bounded performance media preparation; independent of active project revision.
     struct PlaybackPreparation;
-    struct PlaybackRegion { Id id; Sample start{}, length{1}, offset{}; };
+    struct PlaybackRegion { Id id; Sample start{}, length{1}, offset{}; bool legacy_silent_tail{}; };
     struct PlaybackStem { Track::Mix mix; std::vector<int> outputs; double begin{}, end{-1}; std::optional<std::vector<PlaybackRegion>> regions{}; };
     struct PlaybackLayout { TimeMap time; std::vector<Chord> chords; std::vector<ArrangerSection> sections;
         std::vector<PlaybackStem> stems; audio::ClickSettings click;

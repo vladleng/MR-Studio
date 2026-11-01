@@ -1,4 +1,5 @@
 #include <mrs/desktop.hpp>
+#include <mrs/playback_preflight.hpp>
 #include <mrs/midi_import.hpp>
 #ifdef MRS_HAS_VST3
 #include <mrs/vst3.hpp>
@@ -1804,7 +1805,10 @@ void Application::configure_playback_regions(const std::vector<PlaybackStem>& st
         if(!settings.regions){command.clips.push_back(source);continue;}
         for(const auto& region:*settings.regions){
             auto clip=source;clip.id=region.id;clip.start=region.start;clip.length=region.length;clip.source_offset=region.offset;
-            require(clip.source_offset>=0&&clip.length>0&&clip.source_offset<=frames&&clip.length<=frames-clip.source_offset,"Playback region exceeds source WAV");
+            const auto length=audio::playback_region_length(clip.source_offset,clip.length,frames,region.legacy_silent_tail);
+            require(length.has_value(),"Playback region exceeds source WAV");
+            if(!*length)continue;
+            clip.length=*length;
             command.clips.push_back(std::move(clip));
         }
     }

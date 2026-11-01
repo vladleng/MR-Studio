@@ -46,7 +46,7 @@ inline void queueLiveRelink(Desktop& owner,const juce::String& item,const juce::
     if(!source.isObject())throw std::runtime_error("Playback source was removed");
     const auto layout=live::playbackStemLayout(owner.liveDocument->interfaceState,item,source,owner.project()->sample_rate);
     request.begin=layout.begin;request.end=layout.end;
-    if(layout.regions){request.regions.emplace();for(const auto& region:*layout.regions)request.regions->push_back({region.offset,region.length});}
+    if(layout.regions){request.regions.emplace();for(const auto& region:*layout.regions)request.regions->push_back({region.offset,region.length,region.legacy_silent_tail});}
     auto task=launchLiveInspection(owner,{request});juce::Component::SafePointer<Desktop> safe(&owner);
     task->completion=[safe,key,item,stem,file,finished=std::move(finished)](auto results){
         if(!safe||!safe->liveDocument)return;
@@ -114,7 +114,7 @@ class LivePreflightPanel final : public juce::Component,private juce::Timer {
                     request.begin=static_cast<double>(source["trimStart"]);request.end=source["trimEnd"].isVoid()?-1.:static_cast<double>(source["trimEnd"]);
                     request.outputs=live::playbackOutputs(source);if(i<stamps.size())request.expected=stamps[i];
                     const auto layout=live::playbackStemLayout(state,id,source,owner->project()->sample_rate);
-                    if(layout.regions){request.regions.emplace();for(const auto& region:*layout.regions)request.regions->push_back({region.offset,region.length});}
+                    if(layout.regions){request.regions.emplace();for(const auto& region:*layout.regions)request.regions->push_back({region.offset,region.length,region.legacy_silent_tail});}
                     targets.push_back(std::move(target));requests.push_back(std::move(request));
                 }
             }

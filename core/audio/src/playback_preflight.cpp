@@ -27,8 +27,11 @@ std::vector<PlaybackCheckResult> check_playback_sources(std::span<const Playback
                     fail(PlaybackCheckCode::trim,"Trim exceeds this WAV. Relink a compatible source or edit its range.");
                 if(result.code==PlaybackCheckCode::ok&&request.regions){
                     if(request.regions->size()>max_voices)fail(PlaybackCheckCode::regions,"Too many audio regions.");
-                    for(const auto& region:*request.regions)if(region.offset<0||region.length<=0||region.offset>result.frames||region.length>result.frames-region.offset)
-                        fail(PlaybackCheckCode::regions,"An audio region exceeds its WAV. Relink the source or edit its range.");
+                    for(const auto& region:*request.regions){
+                        const auto length=playback_region_length(region.offset,region.length,result.frames,region.legacy_silent_tail);
+                        if(!length){fail(PlaybackCheckCode::regions,"An audio region exceeds its WAV. Relink the source or edit its range.");break;}
+                        if(result.code==PlaybackCheckCode::ok&&*length!=region.length)result.detail="Legacy audio region exceeds its WAV; unavailable audio is silent. Review its source range.";
+                    }
                 }
                 if(result.code==PlaybackCheckCode::ok&&request.expected&&before!=*request.expected)
                     fail(PlaybackCheckCode::changed,"WAV changed since preparation. Choose it again to reload.");
@@ -41,7 +44,7 @@ std::vector<PlaybackCheckResult> check_playback_sources(std::span<const Playback
             if(request.outputs.size()>2||std::any_of(request.outputs.begin(),request.outputs.end(),[&](int output){return std::find(outputs.begin(),outputs.end(),output)==outputs.end();}))
                 fail(PlaybackCheckCode::outputs,"A physical output is unavailable. Choose Master or enable that output.");
         }
-        if(result.code==PlaybackCheckCode::ok)result.detail=result.resample?"Source checked; resampling is required during preparation.":"Source checked; audio preparation is validated on activation.";
+        if(result.code==PlaybackCheckCode::ok&&result.detail.empty())result.detail=result.resample?"Source checked; resampling is required during preparation.":"Source checked; audio preparation is validated on activation.";
         results.push_back(std::move(result));
     }
     return results;

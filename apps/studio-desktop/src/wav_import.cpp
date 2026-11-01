@@ -1,5 +1,6 @@
 #include <mrs/desktop.hpp>
 #include <mrs/wav_resample.hpp>
+#include <mrs/playback_preflight.hpp>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -179,8 +180,10 @@ void Application::activate_playback_impl(const std::shared_ptr<PlaybackPreparati
         if(!layout.stems[i].regions){candidate.clips.push_back(sources[i]);continue;}
         for(const auto& region:*layout.stems[i].regions){
             auto clip=sources[i];clip.id=region.id;clip.start=region.start;clip.length=region.length;clip.source_offset=region.offset;
-            require_import(clip.source_offset>=0&&clip.length>0&&clip.source_offset<=job->media->entries[i].data->frames()&&
-                clip.length<=job->media->entries[i].data->frames()-clip.source_offset,"Playback region exceeds source WAV");
+            const auto length=audio::playback_region_length(clip.source_offset,clip.length,job->media->entries[i].data->frames(),region.legacy_silent_tail);
+            require_import(length.has_value(),"Playback region exceeds source WAV");
+            if(!*length)continue;
+            clip.length=*length;
             candidate.clips.push_back(std::move(clip));
         }
     }

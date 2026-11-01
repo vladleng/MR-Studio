@@ -709,7 +709,7 @@ void liveImportedAudioSelectionSmoke(const juce::File& fixture,const juce::File&
     });
     const auto scanFor=[&](double bpm){
         live::StudioOneShowScan scan;live::ShowContextSong song;song.sourceItemOrdinal=0;
-        song.sourceItemTitle="Imported attributes";song.sourceMeter="1/4";song.bpm=bpm;scan.items.push_back(song);return scan;
+        song.sourceItemTitle="Imported attributes";song.sourceMeter="1/4";song.bpm=bpm;song.lengthBars=128.;scan.items.push_back(song);return scan;
     };
     const auto configure=[&](LiveStudioOneImportDialog& dialog){
         auto* selected=dynamic_cast<juce::ToggleButton*>(liveComponent(dialog,"live-show-import-item-0"));
@@ -719,28 +719,31 @@ void liveImportedAudioSelectionSmoke(const juce::File& fixture,const juce::File&
         liveCheck(selected&&destination&&tempoControl,"Import test controls exist");selected->onClick();
         destination->setSelectedId(3,juce::dontSendNotification);destination->onChange();
         tempoControl->setToggleState(true,juce::dontSendNotification);tempoControl->onClick();
+        for(auto* child:dialog.getChildren())if(auto* toggle=dynamic_cast<juce::ToggleButton*>(child);toggle&&toggle->getButtonText()=="Length (bars)"){
+            toggle->setToggleState(true,juce::dontSendNotification);toggle->onClick();
+        }
     };
     const auto waitPreview=[&](LiveStudioOneImportDialog& dialog){
         auto* preview=dynamic_cast<juce::TextEditor*>(liveComponent(dialog,"live-show-import-preview-text"));
-        const auto until=juce::Time::getMillisecondCounter()+5000;
-        while(preview->getText().contains("Checking existing audio")&&juce::Time::getMillisecondCounter()<until){importing.pollLivePreflightJobs();juce::Thread::sleep(1);}
         return preview->getText();
     };
     const auto before=importing.liveDocument->interfaceState.clone();
     {
-        LiveStudioOneImportDialog blocked(importing,scanFor(20.),"synthetic.show");configure(blocked);
-        const auto result=waitPreview(blocked);
-        auto* apply=dynamic_cast<juce::Button*>(liveComponent(blocked,"live-show-import-apply"));
-        liveCheck(result.contains("Imported tempo conflicts")&&!apply->isEnabled()&&
-                  live::sameShowValue(before,importing.liveDocument->interfaceState),
-                  ("Inactive WAV region incompatibility blocks import before model/history change: "+result).toRawUTF8());
+        const auto offline=importedWave.getSiblingFile(importedWave.getFileName()+".offline");
+        liveCheck(importedWave.moveFileTo(offline),"Import fixture media taken offline");
+        LiveStudioOneImportDialog preview(importing,scanFor(20.),"synthetic.show");configure(preview);
+        const auto result=waitPreview(preview);
+        auto* apply=dynamic_cast<juce::Button*>(liveComponent(preview,"live-show-import-apply"));
+        const bool restored=offline.moveFileTo(importedWave);
+        liveCheck(result.contains("VALIDATED")&&apply->isEnabled()&&
+                  restored&&live::sameShowValue(before,importing.liveDocument->interfaceState),
+                  ("Slower tempo and longer Item preview remains available with offline unchanged WAV: "+result).toRawUTF8());
     }
     {
         LiveStudioOneImportDialog stale(importing,scanFor(300.),"synthetic.show");configure(stale);
         importing.setLiveItemNotes(otherId,"External edit during import preview");
-        const auto result=waitPreview(stale);
-        auto* apply=dynamic_cast<juce::Button*>(liveComponent(stale,"live-show-import-apply"));
-        liveCheck(!apply->isEnabled()&&result.contains("show changed"),"Stale import inspection cannot enable commit after another edit");
+        auto* apply=dynamic_cast<juce::Button*>(liveComponent(stale,"live-show-import-apply"));apply->onClick();
+        liveCheck(!apply->isEnabled()&&waitPreview(stale).contains("show changed"),"Stale import cannot commit after another edit");
     }
     importing.undoLiveInterface();
     liveCheck(live::sameShowValue(before,importing.liveDocument->interfaceState),"Cancelled/stale preview preserves original show and Undo");
@@ -749,36 +752,44 @@ void liveImportedAudioSelectionSmoke(const juce::File& fixture,const juce::File&
     }
     importing.pollLivePreflightJobs();
     settle(targetId); // Failed preview must not make the existing Item unselectable.
-    {
-        LiveStudioOneImportDialog changedSource(importing,scanFor(300.),"synthetic.show");configure(changedSource);waitPreview(changedSource);
-        auto* apply=dynamic_cast<juce::Button*>(liveComponent(changedSource,"live-show-import-apply"));
-        liveCheck(apply->isEnabled(),"Source-change fixture has a valid audio preview");
-        const std::filesystem::path sourcePath(importedWave.getFullPathName().toWideCharPointer());
-        const auto originalStamp=std::filesystem::last_write_time(sourcePath);
-        std::filesystem::last_write_time(sourcePath,originalStamp+std::chrono::seconds(1));
-        apply->onClick();std::filesystem::last_write_time(sourcePath,originalStamp);
-        liveCheck(static_cast<double>(live::find(importing.liveDocument->interfaceState,"items",targetId)["tempo"])==400.&&!apply->isEnabled(),
-                  "WAV mutation after Preview rejects Import before changing the Item");
-    }
     const auto beforeGood=importing.liveDocument->interfaceState.clone();
-    const auto beforeRegions=live::playbackRegions(beforeGood,targetId,live::playback(beforeGood,targetId));
+    const auto beforeRegions=live::playbackStemLayouts(beforeGood,targetId,48000).front().regions;
     {
-        LiveStudioOneImportDialog accepted(importing,scanFor(300.),"synthetic.show");configure(accepted);waitPreview(accepted);
+        LiveStudioOneImportDialog accepted(importing,scanFor(20.),"synthetic.show");configure(accepted);waitPreview(accepted);
         auto* apply=dynamic_cast<juce::Button*>(liveComponent(accepted,"live-show-import-apply"));
         liveCheck(apply->isEnabled(),"Compatible existing-WAV attribute import is enabled");apply->onClick();
     }
     importing.syncLivePlayback();
-    liveCheck(static_cast<double>(live::find(importing.liveDocument->interfaceState,"items",targetId)["tempo"])==300.&&
-              live::sameShowValue(beforeRegions,live::playbackRegions(importing.liveDocument->interfaceState,targetId,live::playback(importing.liveDocument->interfaceState,targetId))),
-              "Import applies only requested attributes and preserves authored audio regions");
+    const auto importedRegions=live::playbackStemLayouts(importing.liveDocument->interfaceState,targetId,48000).front().regions;
+    liveCheck(static_cast<double>(live::find(importing.liveDocument->interfaceState,"items",targetId)["tempo"])==20.&&
+              importedRegions&&beforeRegions&&importedRegions->size()==beforeRegions->size()&&
+              importedRegions->front().length==beforeRegions->front().length&&importedRegions->front().offset==beforeRegions->front().offset&&
+              importedRegions->front().start==beforeRegions->front().start,
+              "Import applies slower musical tempo and preserves exact source samples without stretching");
     settle(otherId);const auto focus=importing.liveTimelineFocusRevision;settle(targetId);
-    liveCheck(importing.liveTimelineFocusRevision>focus&&importing.project()->time.tempos.front().bpm==300.,
+    liveCheck(importing.liveTimelineFocusRevision>focus&&importing.project()->time.tempos.front().bpm==20.&&
+              importing.project()->clips.front().length==beforeRegions->front().length,
               "Valid imported audio Item activates with its new tempo and publishes focus");
+    liveCheck(live::performanceEndBars(importing.liveDocument->interfaceState,targetId,0.)==128.&&
+              128.*live::playbackSecondsPerBar(importing.liveDocument->interfaceState,targetId)>1.,
+              "Long imported Item keeps its musical end beyond the WAV");
     importing.undoLiveInterface();liveCheck(live::sameShowValue(beforeGood,importing.liveDocument->interfaceState),"One Undo restores all imported attributes");
     importing.undoLiveInterface(true);importing.syncLivePlayback();
     const auto saved=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("imported-audio-check",".mrlive",false);
     importing.saveFile(saved);const auto reopened=LiveDocument::read(saved);saved.deleteFile();
     liveCheck(live::sameShowValue(reopened.interfaceState,importing.liveDocument->interfaceState),"Imported audio Item round-trips Save/Open");
+    // Old already-imported documents have no stored clock. Do not guess their
+    // old tempo or rewrite their attributes/trim; unavailable source is silence.
+    importing.editLiveInterface("Legacy imported audio fixture",[&](auto& state){
+        auto regions=live::storedPlaybackRegions(state,targetId,live::playback(state,targetId));
+        for(auto& region:*regions.getArray()){
+            region.getDynamicObject()->removeProperty("audioSecondsPerBar");live::put(region,"length",2.);
+        }
+    });
+    importing.syncLivePlayback();settle(otherId);settle(targetId);
+    liveCheck(importing.project()->clips.size()==1&&importing.project()->clips.front().length==48000&&
+              importing.project()->time.tempos.front().bpm==20.,
+              "Already imported legacy Item remains selectable with source-bounded audio and unchanged attributes");
     importedWave.deleteFile();
 }
 void liveSelectionRefreshSmoke(const juce::File& fixture,const juce::File& wave){
