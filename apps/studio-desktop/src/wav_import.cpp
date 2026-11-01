@@ -197,7 +197,8 @@ void Application::activate_playback_impl(const std::shared_ptr<PlaybackPreparati
         const double ticksPerBar=4.*ppq*meter.numerator/meter.denominator;Sample end{};
         for(const auto& clip:candidate.clips)end=std::max(end,clip.start+clip.length);
         if(end>0){
-            policy->end=std::min(end,clock.to_samples(static_cast<Tick>(std::llround(4096.*ticksPerBar))));
+            require_import(layout.musical_end>=0&&layout.musical_end<=max_sample,"Invalid musical extent");
+            policy->end=std::min(std::max(end,layout.musical_end),clock.to_samples(static_cast<Tick>(std::llround(4096.*ticksPerBar))));
             std::erase_if(policy->sections,[&](const auto& section){return section.start>=policy->end;});
             for(auto& section:policy->sections)if(section.end>policy->end){
                 section.end=policy->end;

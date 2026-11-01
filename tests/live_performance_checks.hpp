@@ -44,8 +44,11 @@ inline void performancePolicies(){
     std::vector<mrs::ArrangerSection> parts{{{"part"},"Intro",0,16*mrs::ppq,{}}};
     auto plan=preparePerformancePlan(state,item,time,parts,48000,12.);
     check(plan.end==1152000 && plan.sections[0].end==384000,"Implicit item end follows longer real rendered extent through Core Timeline");
-    check(preparePerformancePlan(state,item,time,parts,48000,.5).end==48000,
-          "Short audio replaces authored empty duration rather than retaining a silent tail");
+    check(preparePerformancePlan(state,item,time,parts,48000,.5).end==384000,
+          "Authored musical content survives beyond short audio without requiring an explicit Item end");
+    auto noMusic=state.clone();put(require(noMusic,"items",item),"sections",juce::Array<juce::var>());
+    check(preparePerformancePlan(noMusic,item,time,{},48000,.5).end==48000,
+          "Short audio still replaces the empty default when no musical content defines an end");
     put(map(map(performance(state),"arrangement"),item),"length",2.);
     plan=preparePerformancePlan(state,item,time,parts,48000,12.);
     check(plan.end==192000 && plan.sections[0].mode==mrs::PerformanceMode::normal,

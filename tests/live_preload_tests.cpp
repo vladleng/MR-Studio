@@ -376,6 +376,13 @@ void run() {
     app.seek(audioEnd-10);app.play();render();
     check(engine->state().sample==audioEnd&&engine->state().playback==PlaybackState::stopped,
           "Short audio replaces the sixteen-bar empty default and stops at its exact sample end");
+    auto musicalTail=extended;musicalTail.musical_end=9600;
+    musicalTail.performance->sections={{0,9600,PerformanceMode::normal}};
+    app.activate_playback(first,musicalTail);app.seek(5000);app.play();render();
+    check(engine->state().sample>5000&&engine->state().playback==PlaybackState::playing&&std::abs(out[400])<.00001f,
+          "Implicit Item honors imported musical spans after the shorter WAV ends");
+    app.seek(9590);render();check(engine->state().sample==9600&&engine->state().playback==PlaybackState::stopped,
+          "Implicit Item stops at the authored musical extent after its silent tail");
     auto multiExtent=extended;multiExtent.token=103;multiExtent.stems.resize(2);
     multiExtent.stems[0].end=.05;
     app.activate_playback(second,multiExtent);

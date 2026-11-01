@@ -13,6 +13,9 @@ mrs::desktop::Application::PlaybackLayout performanceLayout(const juce::var& sta
     layout.time=projection.time;layout.chords=projection.chords;layout.sections=projection.sections;
     layout.stems=live::playbackStemLayouts(state,id,rate);layout.click=live::liveClick(state);
     layout.extend_to_audio=state["performance"]["arrangement"][juce::Identifier(id)]["length"].isVoid();
+    const auto& musicalMeter=projection.time.meters.front();
+    layout.musical_end=mrs::Timeline(projection.time,rate).to_samples(static_cast<mrs::Tick>(std::llround(
+        live::authoredMusicalEndBars(state,id)*4.*mrs::ppq*musicalMeter.numerator/musicalMeter.denominator)));
     // Preserve all authored sections until Core knows the actual audio extent.
     double preparingAudio=0.;
     if(layout.extend_to_audio&&!live::playbackRows(state,id).empty()){
@@ -2057,7 +2060,9 @@ void Desktop::syncLivePlayback() {
         const auto renderedBars=static_cast<double>(clock.to_ticks(end))/(4.*mrs::ppq*meter.numerator/meter.denominator);
         auto policy=live::preparePerformancePlan(liveDocument->interfaceState,id,projection.time,projection.sections,snapshot->sample_rate,renderedBars);
         if(end>0&&liveDocument->interfaceState["performance"]["arrangement"][juce::Identifier(id)]["length"].isVoid()){
-            policy.end=(std::min)(end,clock.to_samples(static_cast<mrs::Tick>(4096.*4.*mrs::ppq*meter.numerator/meter.denominator)));
+            const auto musicalEnd=clock.to_samples(static_cast<mrs::Tick>(std::llround(
+                live::authoredMusicalEndBars(liveDocument->interfaceState,id)*4.*mrs::ppq*meter.numerator/meter.denominator)));
+            policy.end=(std::min)((std::max)(end,musicalEnd),clock.to_samples(static_cast<mrs::Tick>(4096.*4.*mrs::ppq*meter.numerator/meter.denominator)));
             std::erase_if(policy.sections,[&](const auto& section){return section.start>=policy.end;});
             for(auto& section:policy.sections)if(section.end>policy.end){
                 section.end=policy.end;

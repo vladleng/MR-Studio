@@ -318,7 +318,9 @@ Show, Song, media or vendor plugin assets in the repository.
 ## Existing audio and musical context — fix13 / #31
 
 Item length, Sections and Chords are independent of source WAV duration. An imported
-Item may extend beyond its audio; that remainder is silent. Importing another tempo
+Item may extend beyond its audio; that remainder is silent. Without an explicit
+Item end, authored Sections/Chords set a minimum extent in both the timeline and
+prepared Playback plan. A new empty Item still derives its end from actual audio. Importing another tempo
 must not stretch, slip, lengthen or truncate the original source samples.
 
 Authored native audio regions retain an optional `audioSecondsPerBar` clock. Their
