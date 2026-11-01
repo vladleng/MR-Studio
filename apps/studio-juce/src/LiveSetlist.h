@@ -388,14 +388,13 @@ class LiveSetlist final : public juce::Component, public juce::DragAndDropTarget
         popup.addItem(20, "Undo show", owner.liveUndo.canUndo());
         popup.addItem(21, "Redo show", owner.liveUndo.canRedo());
         juce::Component::SafePointer<LiveSetlist> safe(this);
-        showLiveActionMenu(popup, owner, target, [safe, row](int choice) {
-            if (!safe)
+        const auto generation=owner.liveDocumentGeneration;
+        showLiveActionMenu(popup, owner, target, [safe, row,generation](int choice) {
+            if (!safe||safe->owner.liveDocumentGeneration!=generation)
                 return;
             safe->owner.liveShowEditing = true;
             safe->owner.run([&] {
-                if(choice>=60 && choice<64)safe->owner.editLiveInterface("Item performance mode",[&](auto& state){
-                    live::setPerformanceMode(state,row.itemId,row.itemId,static_cast<mrs::PerformanceMode>(choice-60));
-                });
+                if(choice>=60 && choice<64)safe->owner.setLivePerformanceMode(row.itemId,row.itemId,static_cast<mrs::PerformanceMode>(choice-60));
                 else safe->handle(choice, row);
             });
         });

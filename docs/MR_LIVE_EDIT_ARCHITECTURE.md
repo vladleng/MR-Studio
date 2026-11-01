@@ -191,3 +191,39 @@ The Studio transport without a performance plan keeps its existing behavior.
 
 Zoom minus/plus are glyph buttons in the track-header area; the toolbar pair and
 per-Item painted hit targets are removed. Fit remains available in the toolbar.
+
+
+## Performance Mode — fix14 / #31
+
+All Item/Section mode menus use `setLivePerformanceMode`, a typed scalar command
+on the existing ValuePatch/Undo/byte-budget protocol. Normal removes an override;
+Undo restores exact presence and newly created parent containers. Same-mode picks
+are no-ops. Metadata/paint revisions refresh saved dots, mode glyphs and menu ticks
+without rebuilding cards, waveform geometry or cloning opaque VST3/show data.
+Each card caches its mode subset against the persistent modes/Sections subtrees;
+Notes/name changes reuse that subset rather than scanning all show modes again.
+
+Perform and Undo/Redo validate the changed mode, one existing Item/Section target,
+the bounded modes map and resulting musical performance plan. Effective edits to
+the active Item remain forbidden while Playing or recording; Paused/Stopped remain
+allowed. Unrelated inactive targets can be edited while current audio plays.
+If a future target's policy or next-entry choice changes, withdraw its staged graph
+before publishing the model. An already adopted transition rejects the edit until
+UI acknowledgement. A failed active edit does not withdraw a valid future graph.
+
+Shared Core policy preparation is intentionally retained: Skip/Loop can require
+new file-backed source jump reservations. `Application::set_performance_plan`
+prepares the immutable policy/graph outside the callback, retains insert instances
+and the device handle, and keeps existing ownership/stopped/recording guards.
+This change does not remove that preparation, alter DSP/callback code, relax WAV
+checks or change the show format. Native regression covers transport guards,
+staged cancellation/adoption, Undo/Redo, persistence and shared state identities.
+
+`live_mode_model_profile` measures a data kernel: legacy single clone/full validate
+versus local patch/target validation/warm byte-delta. It reports small and synthetic
+128-Item/8-MiB opaque shows, median/p95 and a separate cold byte count. It asserts
+model equivalence but has no timing pass threshold. It excludes Desktop rendering,
+Core/DSP preparation, real vendor states and ASIO; Windows perceived latency still
+requires user acceptance. Source audit also confirms structural Browser/Setlist,
+input/FX and WAV/region operations retain their separate full paths; this stage
+does not implement those remaining optimizations.

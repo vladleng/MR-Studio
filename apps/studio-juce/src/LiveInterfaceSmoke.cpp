@@ -4,6 +4,7 @@
 #include "../../../tests/live_timeline_edit_checks.hpp"
 #include "../../../tests/live_clip_edit_checks.hpp"
 #include "../../../tests/live_performance_checks.hpp"
+#include "../../../tests/live_performance_edit_checks.hpp"
 #include "../../../tests/live_show_value_checks.hpp"
 #include "../../../tests/live_edit_protocol_checks.hpp"
 #include "../../../tests/live_show_context_import_checks.hpp"
@@ -686,6 +687,73 @@ void liveEditArchitectureSmoke(const juce::File& fixture) {
               "#31 Mixed local edits survive Save/Open");
     saved.deleteFile();
 }
+void livePerformanceModeSmoke(const juce::File& fixture) {
+    Desktop host(true,false,true);host.importLiveShow(fixture);
+    host.app.connect(std::make_unique<LivePlaybackTestDevice>(),{0,48000,128,{}, {0,1},1});
+    host.editLiveInterface("Performance mode payload fixture",[&](auto& state){
+        auto opaque=live::object();live::put(opaque,"state",juce::String::repeatedString("M",2*1024*1024));
+        live::put(state,"auditOpaque",opaque);
+        live::performance(state).getDynamicObject()->removeProperty("modes");
+    });
+    host.syncLivePlayback();
+    const auto deadline=juce::Time::getMillisecondCounter()+5000;
+    while(host.livePlaybackLoading&&juce::Time::getMillisecondCounter()<deadline){host.syncLivePlayback();juce::Thread::sleep(1);}
+    const auto id=host.liveDocument->interfaceState["currentItem"].toString();
+    const auto section=live::find(host.liveDocument->interfaceState,"items",id)["sections"][0]["id"].toString();
+    const auto before=host.liveDocument->interfaceState;
+    const auto channels=before["channels"],opaque=before["auditOpaque"];
+    host.setLiveItemNotes(id,"Warm performance edit byte budget");
+    const auto original=host.liveDocument->interfaceState;
+    const auto measures=host.liveFullSizeMeasures,structure=host.liveUiRevision,layout=host.liveEdits.timeline;
+    const auto applications=host.liveLocalPatchApplications;
+    host.setLivePerformanceMode(id,id,mrs::PerformanceMode::stop);
+    host.setLivePerformanceMode(id,section,mrs::PerformanceMode::loop);
+    liveCheck(live::itemPerformanceMode(host.liveDocument->interfaceState,id)==mrs::PerformanceMode::stop&&
+              live::itemPerformanceMode(host.liveDocument->interfaceState,section)==mrs::PerformanceMode::loop&&
+              host.liveLocalPatchApplications==applications+2,
+              "#31 Item and Section modes use typed local Undo transactions");
+    liveCheck(host.liveFullSizeMeasures==measures&&host.liveUiRevision==structure&&host.liveEdits.timeline==layout&&
+              host.liveDocument->interfaceState["channels"].getArray()==channels.getArray()&&
+              host.liveDocument->interfaceState["auditOpaque"].getDynamicObject()==opaque.getDynamicObject(),
+              "#31 Mode changes do not clone opaque/channel state, rescan the show or rebuild Timeline");
+    host.undoLiveInterface();host.undoLiveInterface();
+    liveCheck(live::sameShowValue(original,host.liveDocument->interfaceState),
+              "#31 Mode Undo restores exact legacy absence of the modes container");
+    host.undoLiveInterface(true);host.undoLiveInterface(true);
+    const auto saved=fixture.getSiblingFile("performance-mode-fix14.mrlive");host.saveFile(saved);
+    const auto loaded=LiveDocument::read(saved);saved.deleteFile();
+    liveCheck(live::itemPerformanceMode(loaded.interfaceState,id)==mrs::PerformanceMode::stop&&
+              live::itemPerformanceMode(loaded.interfaceState,section)==mrs::PerformanceMode::loop,
+              "#31 Item and Section modes survive Save/Open");
+    const auto afterSaveMeasures=host.liveFullSizeMeasures;
+    host.setLivePerformanceMode(id,section,mrs::PerformanceMode::normal);
+    liveCheck(!host.liveDocument->interfaceState["performance"]["modes"].hasProperty(juce::Identifier(section))&&
+              !host.liveCachedEditBytes()&&host.liveFullSizeMeasures==afterSaveMeasures,
+              "#31 Normal removes the override after Save without rescanning a shrinking document");
+    host.setLivePerformanceMode(id,section,mrs::PerformanceMode::loop);
+    liveCheck(host.liveCachedEditBytes()==live::editJsonBytes(host.liveDocument->interfaceState)&&
+              host.liveFullSizeMeasures==afterSaveMeasures+1,
+              "#31 The next growing mode edit rebuilds the exact cold byte budget once");
+    host.setLivePerformanceMode(id,section,mrs::PerformanceMode::normal);
+    liveCheck(host.liveCachedEditBytes()==live::editJsonBytes(host.liveDocument->interfaceState),
+              "#31 Warm Normal removal keeps the shared byte budget exact");
+    const auto noOp=host.liveLocalPatchApplications;
+    host.setLivePerformanceMode(id,section,mrs::PerformanceMode::normal);
+    liveCheck(host.liveLocalPatchApplications==noOp,"#31 Re-selecting Normal creates no Undo or UI notification");
+    host.setLivePerformanceMode(id,id,mrs::PerformanceMode::normal);host.syncLivePlayback();
+    std::array<float,256> output{};
+    const auto render=[&]{host.app.engine()->process(nullptr,output.data(),128);};
+    host.app.play();render();const auto playing=host.liveDocument->interfaceState;
+    bool rejected=false;try{host.setLivePerformanceMode(id,id,mrs::PerformanceMode::loop);}catch(const std::exception&){rejected=true;}
+    liveCheck(rejected&&live::sameShowValue(playing,host.liveDocument->interfaceState),
+              "#31 Active mode edit during Play is rejected before model/history publication");
+    host.app.pause();render();host.setLivePerformanceMode(id,id,mrs::PerformanceMode::stop);
+    host.app.play();render();rejected=false;
+    try{host.undoLiveInterface();}catch(const std::exception&){rejected=true;}
+    liveCheck(rejected&&live::itemPerformanceMode(host.liveDocument->interfaceState,id)==mrs::PerformanceMode::stop,
+              "#31 Mode Undo during Play retains the same transport guard");
+    host.app.stop();render();
+}
 void liveImportedAudioSelectionSmoke(const juce::File& fixture,const juce::File& wave) {
     const auto importedWave=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("import-audio-source",".wav",false);
     liveCheck(wave.copyFileTo(importedWave),"Import test WAV copy created");
@@ -1127,6 +1195,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::timelineEditing();
     live::test::clipEditing();
     live::test::performancePolicies();
+    live::test::performanceModeEdits();
+    live::test::performanceModeEditTimings();
     live::test::showValueEquality();
     live::test::editProtocol();
     live::test::notesDirtyRoundTrip();
@@ -2249,6 +2319,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     liveOrganizerStructuralAndSavedItemSmoke(fixture);
     liveNotesAndMusicalNameSmoke(fixture);
     liveEditArchitectureSmoke(fixture);
+    livePerformanceModeSmoke(fixture);
         liveImportedAudioSelectionSmoke(fixture,waveFile);
         liveSelectionRefreshSmoke(fixture,waveFile);
         // #300: one Core graph contains a physical Live Input + WAV simultaneously.
@@ -3139,10 +3210,22 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             live::setPerformanceMode(state,id,id,mrs::PerformanceMode::normal);
             live::setPerformanceMode(state,second,second,mrs::PerformanceMode::stop);
         });multi.syncLivePlayback();multi.app.play();renderMulti();multi.app.poll();multi.syncLivePlayback();
+        const auto superseded=multi.liveAutoToken;
+        const auto unchangedCurrent=multi.project();const auto playingState=multi.liveDocument->interfaceState;
+        bool blockedMode=false;try{multi.setLivePerformanceMode(id,id,mrs::PerformanceMode::loop);}catch(const std::exception&){blockedMode=true;}
+        liveCheck(blockedMode&&multi.liveAutoToken==superseded&&live::sameShowValue(playingState,multi.liveDocument->interfaceState),
+                  "Active mode rejection preserves the prepared next graph during Play");
+        multi.setLivePerformanceMode(second,second,mrs::PerformanceMode::loop);
+        liveCheck(!multi.liveAutoToken&&multi.project()==unchangedCurrent&&multi.app.engine()->state().playback==mrs::PlaybackState::playing,
+                  "Future Item mode edit cancels only its stale staged graph while current Playback continues");
+        multi.setLivePerformanceMode(second,second,mrs::PerformanceMode::stop);multi.syncLivePreload();
         const auto automaticToken=multi.liveAutoToken;const auto automaticEntry=multi.liveAutoEntry;
         liveCheck(automaticToken!=0,"Next native graph is staged before the current item end");
         for(int block=0;block<2000&&multi.app.engine()->performance_status().token!=automaticToken;++block)
             multi.app.engine()->process(nullptr,audio.data(),128);
+        blockedMode=false;try{multi.setLivePerformanceMode(second,second,mrs::PerformanceMode::loop);}catch(const std::exception&){blockedMode=true;}
+        liveCheck(blockedMode&&live::itemPerformanceMode(multi.liveDocument->interfaceState,second)==mrs::PerformanceMode::stop,
+                  "Mode edit cannot rewrite an already adopted transition before UI acknowledgement");
         multi.app.poll();multi.syncLivePlayback();
         liveCheck(multi.liveDocument->interfaceState["currentItem"].toString()==second&&multi.liveCurrentEntry==automaticEntry&&
                   multi.livePlaybackItem==second&&multi.livePlaybackReady()&&multi.app.engine()==sharedEngine&&
