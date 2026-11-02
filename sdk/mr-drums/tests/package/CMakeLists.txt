@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.20)
+project(MRDrumsConsumer LANGUAGES CXX)
+find_package(MRDrums CONFIG REQUIRED)
+add_executable(consumer ../../examples/render_clip.cpp)
+target_link_libraries(consumer PRIVATE MRDrums::SDK)
+include(CTest)
+add_test(NAME installed_sdk_example COMMAND consumer)

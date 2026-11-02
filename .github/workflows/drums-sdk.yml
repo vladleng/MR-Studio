@@ -1,0 +1,52 @@
+name: MR Drums SDK
+run-name: MR Drums SDK 0.1.0-experimental — focused validation
+on:
+  push:
+    branches: [codex/drums-stretch-sdk]
+    paths: ['sdk/mr-drums/**', '.github/workflows/drums-sdk.yml']
+  pull_request:
+    paths: ['sdk/mr-drums/**', '.github/workflows/drums-sdk.yml']
+permissions:
+  contents: read
+jobs:
+  sdk:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Configure standalone SDK
+        run: cmake -S sdk/mr-drums -B build/drums -DCMAKE_BUILD_TYPE=Release
+      - name: Build SDK and focused tests
+        run: cmake --build build/drums --config Release --parallel 2
+      - name: Synthetic contract and example
+        run: ctest --test-dir build/drums -C Release --output-on-failure --no-tests=error
+      - name: Install SDK
+        run: cmake --install build/drums --config Release --prefix "${{ github.workspace }}/build/drums-install"
+      - name: Configure independent consumer
+        run: cmake -S sdk/mr-drums/tests/package -B build/consumer -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="${{ github.workspace }}/build/drums-install"
+      - name: Build independent consumer
+        run: cmake --build build/consumer --config Release --parallel 2
+      - name: Test installed SDK
+        run: ctest --test-dir build/consumer -C Release --output-on-failure --no-tests=error
+      - name: SDK package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MR-Drums-SDK-0.1.0-experimental-${{ matrix.os }}-${{ github.sha }}
+          path: build/drums-install/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Linux sanitizer configure
+        if: runner.os == 'Linux'
+        run: cmake -S sdk/mr-drums -B build/drums-sanitize -DCMAKE_BUILD_TYPE=Debug "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer" "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined"
+      - name: Linux sanitizer build
+        if: runner.os == 'Linux'
+        run: cmake --build build/drums-sanitize --parallel 2
+      - name: Linux sanitizer tests
+        if: runner.os == 'Linux'
+        run: ctest --test-dir build/drums-sanitize --output-on-failure --no-tests=error
