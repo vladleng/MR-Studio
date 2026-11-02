@@ -41,12 +41,14 @@ public:
     bool start(Request); // one outstanding result/job; no Python at construction
     void cancel() noexcept;
     Status status() const; // bounded coalesced state, no backend callbacks
+    juce::String diagnostics() const; // opt-in local log tail, <=256 KiB, may contain local paths
     std::optional<Result> take();
 private:
     void run(Request, juce::String jobId) noexcept;
     Configuration config_;
     mutable std::mutex mutex_;
     Status status_;
+    juce::String diagnostics_;
     std::optional<Result> result_;
     std::atomic<bool> cancelled_{};
     std::thread thread_;

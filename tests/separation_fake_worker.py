@@ -17,6 +17,9 @@ send("hello", 1)
 size = struct.unpack("<I", sys.stdin.buffer.read(4))[0]
 req = json.loads(sys.stdin.buffer.read(size))
 mode = req["source_revision"]
+if mode == "stderr_flood":
+    sys.stderr.buffer.write(b"x" * (1024 * 1024))
+    sys.stderr.buffer.flush()
 if mode == "crash":
     sys.exit(3)
 if mode in ("hang", "cancel"):

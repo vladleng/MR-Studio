@@ -6,6 +6,7 @@ stdout carry bounded uint32-LE framed JSON; all library output goes to stderr.
 import contextlib
 import hashlib
 import importlib.metadata
+import io
 import json
 import math
 import os
@@ -15,6 +16,17 @@ import struct
 import sys
 import threading
 import time
+
+if os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+    _peek_pipe = ctypes.WinDLL("kernel32", use_last_error=True).PeekNamedPipe
+    _peek_pipe.argtypes = (wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
+                          ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD))
+    _peek_pipe.restype = wintypes.BOOL
+else:
+    import select
 
 VERSION = 1
 BACKEND_VERSION = "0.48.0"
@@ -65,6 +77,40 @@ def write_frame(stream, value):
         raise Failure("protocol_error")
     stream.write(struct.pack("<I", len(payload)) + payload)
     stream.flush()
+
+
+def poll_frame(stream, finished):
+    """Interruptible pipe reader; never hold a Windows CRT fd lock waiting for input.
+
+    NumPy's native startup can query CRT stdio state. A simultaneous blocking
+    stdin read on Windows holds that descriptor lock across ReadFile.
+    """
+    buffer = bytearray()
+    while not finished.wait(0.02):
+        if os.name == "nt":
+            available = wintypes.DWORD()
+            if not _peek_pipe(msvcrt.get_osfhandle(stream.fileno()), None, 0, None, ctypes.byref(available), None):
+                raise Failure("protocol_error")
+            count = min(available.value, 4096)
+            if not count:
+                continue
+        else:
+            if not select.select([stream.fileno()], [], [], 0)[0]:
+                continue
+            count = 4096
+        chunk = os.read(stream.fileno(), count)
+        if not chunk:
+            raise Failure("protocol_error")
+        buffer.extend(chunk)
+        if len(buffer) > MAX_FRAME + 4:
+            raise Failure("protocol_error")
+        if len(buffer) >= 4:
+            size = struct.unpack("<I", buffer[:4])[0]
+            if not 0 < size <= MAX_FRAME:
+                raise Failure("protocol_error")
+            if len(buffer) >= 4 + size:
+                return read_frame(io.BytesIO(buffer[:4 + size]))
+    return None
 
 
 def counter(value, minimum=0, maximum=2**53):
@@ -185,13 +231,17 @@ def infer_htdemucs(snapshot, output_dir, model_dir, requested_device, threads, e
 
 
 def execute(req, work, emit, check, engine=infer_htdemucs):
+    emit("validating")
     source, start, frames, origin, target_rate, threads = validate_request(req)
     check()
     for key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
         os.environ[key] = str(threads)
     # Imports are deliberately lazy: normal DAW/runner construction needs none.
+    emit("import_numpy")
     import numpy as np
+    emit("import_soundfile")
     import soundfile as sf
+    emit("import_scipy")
     from scipy.signal import resample_poly
     emit("preparing")
     info = sf.info(str(source))
@@ -270,6 +320,11 @@ def main():
     # Preserve a private protocol fd, redirect even native-library stdout writes.
     wire = os.fdopen(os.dup(sys.stdout.fileno()), "wb", buffering=0)
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+    # A bounded host log tail makes a blocked native import diagnosable without
+    # extending its deadline. No traceback or local paths enter protocol errors.
+    import faulthandler
+    if os.environ.get("MR_SEPARATION_DIAGNOSTICS") == "1":
+        faulthandler.dump_traceback_later(60, repeat=False)
     block_network()
     lock = threading.Lock()
     cancelled = threading.Event()
@@ -284,7 +339,10 @@ def main():
                                "job_id": req.get("job_id", ""), **fields})
     send("hello")
     try:
-        req = read_frame(sys.stdin.buffer)
+        # Unbuffered request avoids prefetching a queued cancel into a separate
+        # BufferedReader while the poller observes the underlying pipe handle.
+        input_stream = sys.stdin.buffer.raw
+        req = read_frame(input_stream)
         deadline = time.monotonic() + counter(req.get("timeout_ms"), 100, 24 * 3600000) / 1000
         def check():
             if cancelled.is_set():
@@ -293,7 +351,9 @@ def main():
                 raise Failure("timeout")
         def read_cancel():
             try:
-                command = read_frame(sys.stdin.buffer)
+                command = poll_frame(input_stream, finished)
+                if command is None:
+                    return
                 if command.get("type") == "cancel" and command.get("job_id") == req.get("job_id"):
                     cancelled.set()
                 else:
@@ -327,6 +387,7 @@ def main():
         send("error", code=code)
     finally:
         finished.set()
+        faulthandler.cancel_dump_traceback_later()
 
 
 if __name__ == "__main__":

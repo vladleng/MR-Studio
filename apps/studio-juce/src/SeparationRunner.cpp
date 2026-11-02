@@ -36,21 +36,22 @@ struct Handle {
     void close() { if (value && value != INVALID_HANDLE_VALUE) CloseHandle(value); value = nullptr; }
 };
 struct Child {
-    Handle job, process, input, output;
+    Handle job, process, input, output, errorOutput;
+    std::string diagnostics;
+    std::uint64_t logRevision{};
     ~Child() {
         if (job.value) TerminateJobObject(job.value, 1);
         if (process.value) WaitForSingleObject(process.value, 5000); // release file handles before cleanup
     }
     void launch(const Configuration& config, const juce::File& work, juce::uint64 memory) {
         SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
-        Handle childIn, childOut, nullLog;
+        Handle childIn, childOut, childError;
         require(CreatePipe(&childIn.value, &input.value, &security, 65536) != FALSE, "worker_start_failed");
         require(CreatePipe(&output.value, &childOut.value, &security, 65536) != FALSE, "worker_start_failed");
+        require(CreatePipe(&errorOutput.value, &childError.value, &security, 65536) != FALSE, "worker_start_failed");
         require(SetHandleInformation(input.value, HANDLE_FLAG_INHERIT, 0) != FALSE &&
-                SetHandleInformation(output.value, HANDLE_FLAG_INHERIT, 0) != FALSE, "worker_start_failed");
-        nullLog.value = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                   &security, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-        require(nullLog.value != INVALID_HANDLE_VALUE, "worker_start_failed");
+                SetHandleInformation(output.value, HANDLE_FLAG_INHERIT, 0) != FALSE &&
+                SetHandleInformation(errorOutput.value, HANDLE_FLAG_INHERIT, 0) != FALSE, "worker_start_failed");
         job.value = CreateJobObjectW(nullptr, nullptr);
         require(job.value != nullptr, "worker_start_failed");
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
@@ -66,7 +67,7 @@ struct Child {
         auto* attributes = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(storage.data());
         require(InitializeProcThreadAttributeList(attributes, 1, 0, &bytes) != FALSE, "worker_start_failed");
         struct Cleanup { LPPROC_THREAD_ATTRIBUTE_LIST p; ~Cleanup() { DeleteProcThreadAttributeList(p); } } cleanup{attributes};
-        HANDLE inherited[]{childIn.value, childOut.value, nullLog.value};
+        HANDLE inherited[]{childIn.value, childOut.value, childError.value};
         require(UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
                                          inherited, sizeof(inherited), nullptr, nullptr) != FALSE, "worker_start_failed");
         STARTUPINFOEXW startup{};
@@ -74,7 +75,7 @@ struct Child {
         startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
         startup.StartupInfo.hStdInput = childIn.value;
         startup.StartupInfo.hStdOutput = childOut.value;
-        startup.StartupInfo.hStdError = nullLog.value;
+        startup.StartupInfo.hStdError = childError.value;
         startup.lpAttributeList = attributes;
         // File paths cannot contain quotes on Windows. No shell / command interpolation.
         const auto command = config.python.getFullPathName().quoted() + " -I -u " + config.workerScript.getFullPathName().quoted();
@@ -103,6 +104,16 @@ struct Child {
                 written == buffer.size(), "protocol_error");
     }
     bool read(std::vector<unsigned char>& buffer) {
+        DWORD errorBytes{};
+        if (PeekNamedPipe(errorOutput.value, nullptr, 0, nullptr, &errorBytes, nullptr) && errorBytes) {
+            std::array<char, 65536> chunk{};
+            DWORD count{};
+            if (ReadFile(errorOutput.value, chunk.data(), std::min<DWORD>(errorBytes, static_cast<DWORD>(chunk.size())), &count, nullptr)) {
+                diagnostics.append(chunk.data(), count);
+                if (diagnostics.size() > 256 * 1024) diagnostics.erase(0, diagnostics.size() - 256 * 1024);
+                ++logRevision;
+            }
+        }
         DWORD available{};
         if (!PeekNamedPipe(output.value, nullptr, 0, nullptr, &available, nullptr)) return false;
         if (available) {
@@ -177,7 +188,7 @@ bool Runner::start(Request request) {
     if (thread_.joinable()) thread_.join();
     cancelled_.store(false);
     const auto id = juce::Uuid().toString();
-    { std::lock_guard lock(mutex_); status_ = {State::running, id, "queued", {}, {}}; }
+    { std::lock_guard lock(mutex_); status_ = {State::running, id, "queued", {}, {}}; diagnostics_.clear(); }
     try {
         thread_ = std::thread([this, request = std::move(request), id]() mutable { run(std::move(request), id); });
     } catch (...) {
@@ -188,6 +199,7 @@ bool Runner::start(Request request) {
 }
 void Runner::cancel() noexcept { cancelled_.store(true); }
 Status Runner::status() const { std::lock_guard lock(mutex_); return status_; }
+juce::String Runner::diagnostics() const { std::lock_guard lock(mutex_); return diagnostics_; }
 std::optional<Result> Runner::take() { std::lock_guard lock(mutex_); auto result = std::move(result_); result_.reset(); return result; }
 void Runner::run(Request request, juce::String jobId) noexcept {
     const auto work = config_.temporaryRoot.getChildFile("mrs-separation-" + jobId);
@@ -229,6 +241,7 @@ void Runner::run(Request request, juce::String jobId) noexcept {
         auto cancelAt = Clock::now();
         auto lastEvent = Clock::now();
         juce::int64 sequence{};
+        std::uint64_t logRevision{};
         while (true) {
             const auto now = Clock::now();
             if (now - began > request.timeout) throw Failure{"timeout"};
@@ -239,6 +252,11 @@ void Runner::run(Request request, juce::String jobId) noexcept {
             if (cancelSent && now - cancelAt > std::chrono::seconds(5)) throw Failure{"cancelled"};
             require(now - lastEvent < std::chrono::seconds(30), "worker_unresponsive");
             const bool alive = child.read(bytes);
+            if (logRevision != child.logRevision) {
+                std::lock_guard lock(mutex_);
+                diagnostics_ = juce::String::fromUTF8(child.diagnostics.data(), static_cast<int>(child.diagnostics.size()));
+                logRevision = child.logRevision;
+            }
             while (bytes.size() >= 4) {
                 std::uint32_t size{};
                 for (unsigned i = 0; i < 4; ++i) size |= static_cast<std::uint32_t>(bytes[i]) << (8 * i);
@@ -274,7 +292,8 @@ void Runner::run(Request request, juce::String jobId) noexcept {
                 require(type == "progress" || type == "heartbeat", "protocol_error");
                 if (type == "progress") {
                     const auto phase = event["phase"].toString();
-                    require(phase == "preparing" || phase == "loading" || phase == "inference" || phase == "verifying", "protocol_error");
+                    require(phase == "validating" || phase == "import_numpy" || phase == "import_soundfile" || phase == "import_scipy" ||
+                            phase == "preparing" || phase == "loading" || phase == "inference" || phase == "verifying", "protocol_error");
                     std::lock_guard lock(mutex_); status_.phase = phase;
                     status_.effectiveDevice = event["device"].toString();
                 }

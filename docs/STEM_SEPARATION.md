@@ -230,8 +230,17 @@ Job Object (memory limit/один процесс/kill-on-close). Фоновый 
 проверкой WAV/hash; audio engine/model pointers в нём отсутствуют. Destructor
 cancel/kill/join вызывается вне UI/audio callback. Cancel даёт worker до 5 s, затем
 весь процесс завершается; общий deadline и 30-s silence watchdog независимы от ML.
-Raw backend logs уходят в NUL, сохраняются только ограниченные protocol events;
-не реализован обещанный выше диагностический log ring. UI-интеграция — #336.
+Raw backend stderr дренируется отдельно от protocol pipe; в памяти сохраняется
+только хвост до 256 KiB. `diagnostics()` — явное локальное чтение, лог может содержать
+пути и не попадает в manifest/project/provider. Stack trace включается только явным
+`MR_SEPARATION_DIAGNOSTICS=1` в developer smoke. UI-интеграция — #336.
+
+Cancel reader опрашивает pipe (Windows PeekNamedPipe / POSIX select) и читает только
+доступные bytes, с ограниченным frame buffer. Начальный request читается unbuffered,
+чтобы не спрятать ранний cancel во внутреннем BufferedReader. Во время native imports
+нет фонового блокирующего `_read(stdin)`: на Windows он может удерживать CRT fd lock
+и блокировать native NumPy startup. Heartbeat/watchdog и принудительное завершение
+через 5 s сохраняются. Дополнительные import-фазы позволяют различить startup и ML.
 
 `tools/separation/worker.py`: isolated Python, framed stdin/stdout; job/sequence IDs,
 phase/heartbeat/result/error, CPU/CUDA/Auto-local. До импорта ML устанавливается

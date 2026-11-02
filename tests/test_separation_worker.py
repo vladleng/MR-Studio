@@ -1,12 +1,15 @@
 """Offline contract tests; synthetic engine is injected only in this test module."""
 import importlib.util
 import io
+import os
 import json
 from pathlib import Path
 import struct
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 
 import numpy as np
@@ -118,6 +121,41 @@ class WorkerTests(unittest.TestCase):
         out = io.BytesIO()
         worker.write_frame(out, {"version": 1, "job_id": "тест"})
         self.assertEqual(worker.read_frame(io.BytesIO(out.getvalue()))["job_id"], "тест")
+
+    def test_cancel_poller_handles_partial_frames(self):
+        read_fd, write_fd = os.pipe()
+        self.addCleanup(os.close, write_fd)
+        stream = os.fdopen(read_fd, "rb", buffering=0)
+        self.addCleanup(stream.close)
+        finished = threading.Event()
+        result = []
+        thread = threading.Thread(target=lambda: result.append(worker.poll_frame(stream, finished)))
+        thread.start()
+        frame = io.BytesIO()
+        worker.write_frame(frame, {"type": "cancel", "job_id": "job"})
+        data = frame.getvalue()
+        os.write(write_fd, data[:2])
+        time.sleep(0.05)
+        os.write(write_fd, data[2:7])
+        time.sleep(0.05)
+        os.write(write_fd, data[7:])
+        thread.join(timeout=2)
+        finished.set()
+        thread.join(timeout=2)
+        self.assertEqual(result, [{"type": "cancel", "job_id": "job"}])
+
+    def test_cancel_poller_stops_without_input(self):
+        read_fd, write_fd = os.pipe()
+        self.addCleanup(os.close, write_fd)
+        stream = os.fdopen(read_fd, "rb", buffering=0)
+        self.addCleanup(stream.close)
+        finished = threading.Event()
+        result = []
+        thread = threading.Thread(target=lambda: result.append(worker.poll_frame(stream, finished)))
+        thread.start()
+        finished.set()
+        thread.join(timeout=2)
+        self.assertEqual(result, [None])
 
     def test_counter_rejects_noncanonical_values(self):
         for value in (1, "-1", "01", "1.0", "١", "9" * 21):
