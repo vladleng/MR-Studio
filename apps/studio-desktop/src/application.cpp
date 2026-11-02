@@ -1250,6 +1250,9 @@ void Application::rebuild_audio(bool retain_inserts) {
             for(const auto& t:project->tracks)if(t.kind==TrackKind::instrument){const auto& runtime=insert_runtime_.at(t.id.value);if(runtime.graph)runtime.graph->panic();}
         }
         engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192,c.buffer_frames,c.processing_workers},std::move(graph),position);
+        // Full preparation supersedes every earlier voice publication. Callback
+        // ownership is joined and pending pointers withdrawn by prepare().
+        clip_updates_.clear();
         if (reopen) device_->open(c,engine_);
         device_config_ = c; device_->start(); poll();
     } catch (...) { disconnect(); throw; }

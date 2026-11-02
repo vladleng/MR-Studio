@@ -96,6 +96,11 @@ void voice_publication(){
     check(engine.acknowledge_transition(plan),"ack clip publication");plan.reset();check(old.expired(),"outgoing storage not retired on control");
     check(engine.enqueue({audio::ControlKind::pause}),"pause");callback(engine,out);
     for(int i=0;i<100;++i){auto cancelled=engine.prepare_voice_transition({next});check(engine.stage_transition(cancelled),"stage cancelled plan");check(engine.cancel_transition(cancelled),"cancel pending voices");cancelled.reset();callback(engine,out);}
+    auto stale=engine.prepare_voice_transition({next});check(engine.stage_transition(stale),"stage superseded plan");callback(engine,out);
+    audio::RenderGraph replacement;replacement.mixer.resize(2);replacement.outputs={audio::no_mixer_track,audio::no_mixer_track};
+    engine.prepare({48000,0,1,128},std::move(replacement));
+    check(!engine.acknowledge_transition(stale)&&engine.stopped_graph().mixer.size()==2,"late ack overwrote newer engine prepare");
+
 }
 void publication_race(){
     audio::AudioEngine engine;audio::RenderGraph graph;graph.mixer.resize(1);graph.outputs={audio::no_mixer_track};engine.prepare({48000,0,1,128},std::move(graph));
@@ -146,6 +151,17 @@ void application_edits(const std::filesystem::path& file,bool buffered){
         check(app.engine()->stopped_graph().voices.size()==1&&app.engine()->stopped_graph().inserts.front()==original,"failed restart did not restore PCM/DSP");
     }
     app.play();callback(*app.engine(),out);check(std::abs(out[128])>.01,"edited playback silent");app.pause();callback(*app.engine(),out);app.poll();
+    app.remove_clip(id); // intentionally no callback before timing preparation
+    auto time=app.services().projects->state().project->time;time.tempos.front().bpm+=5;
+    app.set_time_map(time);app.poll();
+    check(app.engine()->stopped_graph().voices.empty()&&app.engine()->stopped_graph().click_time==time,"pending clip publication corrupted timing edit");
+    check(app.undo()&&app.undo(),"Undo timing then pending clip edit");callback(*app.engine(),out);app.poll();
+    app.remove_clip(id);callback(*app.engine(),out); // intentionally no poll/ack
+    const auto channels=app.engine()->stopped_graph().mixer.size();
+    (void)app.add_audio_track("Supersedes unacknowledged clip edit");app.poll();
+    check(app.engine()->stopped_graph().mixer.size()==channels+1,"late voice acknowledgement restored stale routing");
+    check(app.undo()&&app.undo(),"Undo channel then unacknowledged clip edit");callback(*app.engine(),out);app.poll();
+    check(app.engine()->stopped_graph().voices.size()==1,"superseded edit history lost PCM");
     (void)app.add_audio_track("Unrelated empty channel");check(app.engine()->stopped_graph().inserts.front()==original,"adding empty channel recreated unrelated plugin");check(app.undo(),"Undo add channel");check(app.engine()->stopped_graph().inserts.front()==original,"channel history recreated unrelated plugin");
 }
 }

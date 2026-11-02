@@ -218,6 +218,8 @@ struct AudioEngine::PreparedState {
     RealtimeState initial;
 };
 struct AudioEngine::ControlInfo {
+    // Voice-only copies share this identity; a full/timing prepare replaces it.
+    std::shared_ptr<const unsigned char> generation=std::make_shared<const unsigned char>(0);
     RenderGraph graph;
     CompensationReport compensation;
     ProcessingDomains domains;
@@ -320,7 +322,7 @@ void AudioEngine::adopt_voice_transition() noexcept {
 }
 bool AudioEngine::stage_transition(const std::shared_ptr<PreparedTransition>& next){
     if(!next || next->expected!=control_graph().performance_token || next->phase.load()!=TransitionPhase::prepared)return false;
-    if(next->voices_only&&!async_voice_transition_available())return false;
+    if(next->voices_only&&(!async_voice_transition_available()||!control_info_||next->previous_info->generation!=control_info_->generation))return false;
     auto phase=TransitionPhase::prepared;if(!next->phase.compare_exchange_strong(phase,TransitionPhase::pending))return false;
     PreparedTransition* empty{};
     if(!pending_transition_.compare_exchange_strong(empty,next.get(),std::memory_order_release)){next->phase=TransitionPhase::prepared;return false;}return true;
@@ -336,6 +338,7 @@ bool AudioEngine::cancel_transition(const std::shared_ptr<PreparedTransition>& n
 AudioEngine::TransitionPhase AudioEngine::transition_phase(const std::shared_ptr<PreparedTransition>& next) const noexcept{return next?next->phase.load(std::memory_order_acquire):TransitionPhase::cancelled;}
 bool AudioEngine::acknowledge_transition(const std::shared_ptr<PreparedTransition>& next){
     if(!next || transition_phase(next)!=TransitionPhase::adopted)return false;
+    if(next->voices_only&&(!control_info_||next->previous_info->generation!=control_info_->generation)){next->phase.store(TransitionPhase::cancelled,std::memory_order_release);return false;}
     control_info_=next->info;set_profiling(profile_->enabled.load());next->phase.store(TransitionPhase::acknowledged,std::memory_order_release);return true;
 }
 AudioEngine::PerformanceStatus AudioEngine::performance_status() const noexcept {
@@ -666,6 +669,9 @@ AudioEngine::TimingPlan AudioEngine::prepare_timing(const Project& p,std::span<c
 }
 void AudioEngine::swap_timing(TimingPlan& plan,bool midi_only){
     if(speculative_||mixed_owner_||rt_.playback==PlaybackState::playing||(!midi_only&&rt_.loop)||rt_.count_remaining||plan.rate!=config_.sample_rate||plan.playback.size()!=graph_.mixer.size()||(midi_only&&plan.time!=graph_.click_time))throw std::logic_error("stop/join playback and count-in; MIDI-only swaps require unchanged timing");
+    // Joined producers: preserve a preceding accepted clip edit before timing
+    // refresh replaces the control snapshot identity.
+    if(!graph_.performance)adopt_voice_transition();
     if(plan.voices){
         if(midi_only||plan.voices->size()!=graph_.voices.size())throw std::logic_error("timing PCM voice mapping mismatch");
         for(std::size_t i=0;i<plan.voices->size();++i){const auto& next=(*plan.voices)[i];const auto& previous=graph_.voices[i];
