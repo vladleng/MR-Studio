@@ -9,6 +9,11 @@
 // NON-RT only. Owner/control thread starts/drains; a private thread owns all
 // filesystem, Python and IPC work. No audio engine/model/GUI pointers captured.
 namespace mr::separation {
+struct ProcessResult { bool success{}; juce::int64 exitCode{-1}; juce::String error, log; };
+// Installer/probe utility: fixed argv, bounded logs and process tree; NON-RT.
+ProcessResult runLocalProcess(const juce::File& executable, const juce::StringArray& arguments,
+                             const juce::File& workingDirectory, const std::atomic<bool>& cancel,
+                             std::chrono::milliseconds timeout, unsigned processLimit = 1);
 enum class State { idle, running, ready, failed, cancelled };
 enum class Device { cpu, cuda, automatic };
 struct Request {

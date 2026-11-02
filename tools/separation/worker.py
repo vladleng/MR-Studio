@@ -239,6 +239,8 @@ def execute(req, work, emit, check, engine=infer_htdemucs):
     check()
     for key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
         os.environ[key] = str(threads)
+    # Managed runtimes are immutable; JIT caches belong to this disposable job.
+    os.environ["NUMBA_CACHE_DIR"] = str(work / "numba-cache")
     # Imports are deliberately lazy: normal DAW/runner construction needs none.
     emit("import_numpy")
     import numpy as np

@@ -1,4 +1,6 @@
 #include "SeparationRunner.h"
+#include "SeparationModels.h"
+#include <juce_cryptography/juce_cryptography.h>
 #include <mrs/audio.hpp>
 #include <mrs/recording.hpp>
 #include <algorithm>
@@ -144,12 +146,68 @@ void real(const juce::File& python, const juce::File& worker, const juce::File& 
     std::cout << juce::JSON::toString(result->manifest).toStdString() << '\n';
     std::cout << "PASS real separation: 2 FLOAT stereo WAV, 48000 exact frames, original offset/start, host-verified hashes and finite samples\n";
 }
+ManagerStatus waitManager(ModelManager& manager) {
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::minutes(30);juce::String phase;
+    while(manager.status().busy && std::chrono::steady_clock::now()<deadline){
+        const auto s=manager.status();if(s.phase!=phase){phase=s.phase;std::cout<<"manager phase: "<<phase.toStdString()<<std::endl;}
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    const auto state=manager.status();check(!state.busy,"manager deadline");return state;
+}
+void managerTests(const juce::File& requirements) {
+    const auto root=juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("mr-models-test-"+juce::Uuid().toString());
+    check(root.createDirectory().wasOk(),"manager fixture root");
+    struct Cleanup{juce::File root;~Cleanup(){root.deleteRecursively();}} cleanup{root};
+    const juce::String content="owned model fixture";
+    const auto bytes=content.toUTF8();const auto hash=juce::SHA256(bytes.getAddress(),content.getNumBytesAsUTF8()).toHexString();
+    ModelRecord record{"fixture-model","v1","Fixture","fixture","Vocals / Instrumental","Vocals / Other","CPU","fixture","fixture","fixture",{},{{"weights.bin","https://github.com/fixture",hash,static_cast<juce::int64>(content.getNumBytesAsUTF8())}}};
+    bool corrupt{},cancel{};ModelManager* active{};
+    auto fetch=[&](const DownloadArtifact& artifact,const juce::File& target,const std::atomic<bool>&,ModelManager::Progress progress){
+        check(target.replaceWithText(corrupt?"bad":content),"fixture write");progress(artifact.bytes,artifact.bytes);if(cancel)active->cancel();
+    };
+    ModelManager manager(root,{},requirements,fetch,{record});active=&manager;
+    check(manager.refresh(),"offline refresh");check(waitManager(manager).models.front().state==InstallationState::downloadable,"missing cache state");
+    corrupt=true;check(manager.installModel(record.id),"corrupt download");check(waitManager(manager).error=="integrity_failure","download integrity rejection");
+    check(!root.getChildFile("models/fixture-model").exists(),"partial install never published");
+    corrupt=false;cancel=true;check(manager.installModel(record.id),"cancel install");check(waitManager(manager).error=="cancelled","cancel state");
+    check(root.getChildFile("models").findChildFiles(juce::File::findDirectories,false,".part-*").isEmpty(),"cancel staging cleanup");
+    cancel=false;check(manager.installModel(record.id),"retry install");check(waitManager(manager).models.front().state==InstallationState::installed,"installed state");
+    const auto directory=root.getChildFile("models/fixture-model");const auto foreign=directory.getChildFile("user-file.txt");check(foreign.replaceWithText("do not delete"),"foreign fixture");
+    check(manager.removeModel(record.id),"remove guarded cache");check(waitManager(manager).error=="unmanaged_files"&&foreign.existsAsFile(),"unmanaged files preserved");check(foreign.deleteFile(),"fixture remove own file");
+    check(directory.getChildFile("weights.bin").replaceWithText("broken"),"corrupt local cache");
+    check(manager.refresh(),"verify corrupt cache");check(waitManager(manager).models.front().state==InstallationState::corrupt,"corrupt cache state");
+    check(manager.removeModel(record.id),"remove managed corruption");check(waitManager(manager).error.isEmpty()&&!directory.exists(),"remove only managed files");
+    check(manager.installModel(record.id),"reinstall");check(waitManager(manager).error.isEmpty(),"reinstall after safe removal");
+    check(directory.getChildFile("weights.bin").deleteFile(),"fixture missing file");check(manager.refresh(),"missing local file");check(waitManager(manager).models.front().state==InstallationState::corrupt,"missing file marks corrupt");
+    check(manager.removeModel(record.id),"remove incomplete cache");check(waitManager(manager).error.isEmpty(),"incomplete cache recoverable");
+    auto oversized=record;oversized.id="too-large";oversized.files.front().bytes=root.getBytesFreeOnVolume()+64*1024*1024;
+    ModelManager large(root,{},requirements,fetch,{oversized});check(large.installModel(oversized.id),"large install");check(waitManager(large).error=="disk_space","disk preflight");
+    const auto before=modelCatalogue().size();check(before>=2&&modelCatalogue()[1].unsupportedReason.isNotEmpty(),"unsupported capabilities explicit");
+    std::cout<<"PASS model manager: integrity, atomic install, cancel/retry, corruption/missing file, safe removal, disk quota, unsupported catalogue\n";
+}
+void managed(const juce::File& cache,const juce::File& worker,const juce::File& requirements,const juce::File& evidence) {
+    ModelManager manager(cache,worker,requirements);
+    auto requireManager=[&]{const auto state=waitManager(manager);if(state.error.isNotEmpty()){std::cerr<<manager.diagnostics().toStdString()<<'\n';throw std::runtime_error("manager failed: "+state.error.toStdString());}};
+    check(manager.installRuntime(),"explicit managed runtime install");requireManager();check(manager.status().runtime==InstallationState::installed,"runtime installed");
+    check(manager.installModel(modelCatalogue().front().id),"explicit managed model install");requireManager();
+    check(manager.verifyRuntime(),"offline full runtime verification");requireManager();
+    ModelManager reopened(cache,worker,requirements,[](const auto&,const auto&,const auto&,auto){throw std::runtime_error("offline refresh must not fetch");});
+    check(reopened.refresh(),"reopen cache");check(waitManager(reopened).runtime==InstallationState::installed,"offline reopened runtime");
+    auto setup=reopened.acquire(modelCatalogue().front().id,Device::automatic);
+    check(manager.removeModel(modelCatalogue().front().id),"remove leased model");check(waitManager(manager).error=="in_use","model lease protects running jobs");
+    check(manager.removeRuntime(),"remove leased runtime");check(waitManager(manager).error=="in_use","runtime lease protects running jobs");
+    real(setup.runner.python,setup.runner.workerScript,setup.modelDirectory,evidence);
+    check(manager.verifyRuntime(),"runtime remains immutable after inference");requireManager();
+    std::cout<<"PASS managed runtime/model: embedded Python bootstrap, offline reopen, full verification, process leases, real inference\n";
+}
 }
 int main(int argc, char** argv) {
     try {
         if (argc == 4 && std::string(argv[1]) == "--self-test") selfTest(juce::File(juce::String::fromUTF8(argv[2])), juce::File(juce::String::fromUTF8(argv[3])));
         else if (argc == 6 && std::string(argv[1]) == "--real") real(juce::File(juce::String::fromUTF8(argv[2])), juce::File(juce::String::fromUTF8(argv[3])), juce::File(juce::String::fromUTF8(argv[4])), juce::File(juce::String::fromUTF8(argv[5])));
-        else throw std::runtime_error("Usage: --self-test PYTHON FAKE_WORKER | --real PYTHON WORKER MODELS NEW_EVIDENCE_DIRECTORY");
+        else if(argc==3&&std::string(argv[1])=="--manager-self-test")managerTests(juce::File(juce::String::fromUTF8(argv[2])));
+        else if(argc==6&&std::string(argv[1])=="--managed")managed(juce::File(juce::String::fromUTF8(argv[2])),juce::File(juce::String::fromUTF8(argv[3])),juce::File(juce::String::fromUTF8(argv[4])),juce::File(juce::String::fromUTF8(argv[5])));
+        else throw std::runtime_error("Usage: --self-test PYTHON FAKE_WORKER | --real PYTHON WORKER MODELS EVIDENCE | --manager-self-test REQUIREMENTS | --managed CACHE WORKER REQUIREMENTS EVIDENCE");
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

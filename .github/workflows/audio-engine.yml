@@ -1,6 +1,6 @@
 name: Windows Studio Release
 # Single source: the Actions run title is also aliased into the release environment.
-run-name: &release_banner 'MR Studio 0.9.2 / MR Live 0.8.13 — Windows Release'
+run-name: &release_banner 'MR Studio 0.9.3 / MR Live 0.8.13 — Windows Release'
 on:
   push:
     branches: [main, 'codex/cloud-cicd-migration']
@@ -131,7 +131,7 @@ jobs:
         shell: pwsh
         run: |
           $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
-          if($env:CHECK_SCOPE -eq 'separation'){$args+=@('-R','^separation_host$')}
+          if($env:CHECK_SCOPE -eq 'separation'){$args+=@('-R','^separation_(host|models)$')}
           elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('-R','^(juce_live_(entry_smoke|application)|audio_(metronome|performance|parallel_(equivalence|ownership|profiling))|desktop_live_preload)$')}
           elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(stretch_contract|model|transport|commands|serialization|track_folders)|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|ara_.*|juce_(live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(wav_import|track_folders|clip_response))$')}
           & ctest @args
@@ -142,7 +142,7 @@ jobs:
             throw "CTest failed ($env:CHECK_SCOPE)"
           }
           if($env:CHECK_SCOPE -notin @('live','separation')){
-            & ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^separation_host$'
+            & ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^separation_(host|models)$'
             if($LASTEXITCODE){throw 'Separation host contract failed'}
           }
       - name: Stretch foundation evidence (synthetic, not ASIO)

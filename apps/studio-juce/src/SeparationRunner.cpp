@@ -44,6 +44,10 @@ struct Child {
         if (process.value) WaitForSingleObject(process.value, 5000); // release file handles before cleanup
     }
     void launch(const Configuration& config, const juce::File& work, juce::uint64 memory) {
+        launch(config.python, {"-I", "-B", "-u", config.workerScript.getFullPathName()}, work, memory, 1);
+    }
+    void launch(const juce::File& executable, const juce::StringArray& arguments,
+                const juce::File& work, juce::uint64 memory, unsigned processLimit) {
         SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
         Handle childIn, childOut, childError;
         require(CreatePipe(&childIn.value, &input.value, &security, 65536) != FALSE, "worker_start_failed");
@@ -56,9 +60,10 @@ struct Child {
         require(job.value != nullptr, "worker_start_failed");
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
-            JOB_OBJECT_LIMIT_ACTIVE_PROCESS | JOB_OBJECT_LIMIT_PROCESS_MEMORY;
-        limits.BasicLimitInformation.ActiveProcessLimit = 1;
+            JOB_OBJECT_LIMIT_ACTIVE_PROCESS | JOB_OBJECT_LIMIT_PROCESS_MEMORY | JOB_OBJECT_LIMIT_JOB_MEMORY;
+        limits.BasicLimitInformation.ActiveProcessLimit = processLimit;
         limits.ProcessMemoryLimit = static_cast<SIZE_T>(memory);
+        limits.JobMemoryLimit = static_cast<SIZE_T>(memory);
         require(SetInformationJobObject(job.value, JobObjectExtendedLimitInformation, &limits, sizeof(limits)) != FALSE,
                 "worker_start_failed");
         SIZE_T bytes{};
@@ -78,10 +83,14 @@ struct Child {
         startup.StartupInfo.hStdError = childError.value;
         startup.lpAttributeList = attributes;
         // File paths cannot contain quotes on Windows. No shell / command interpolation.
-        const auto command = config.python.getFullPathName().quoted() + " -I -u " + config.workerScript.getFullPathName().quoted();
+        auto command = executable.getFullPathName().quoted();
+        for (const auto& argument : arguments) {
+            require(!argument.containsChar('"'), "invalid_input");
+            command += " " + argument.quoted();
+        }
         std::wstring mutableCommand(command.toWideCharPointer());
         PROCESS_INFORMATION info{};
-        require(CreateProcessW(config.python.getFullPathName().toWideCharPointer(), mutableCommand.data(), nullptr, nullptr,
+        require(CreateProcessW(executable.getFullPathName().toWideCharPointer(), mutableCommand.data(), nullptr, nullptr,
                                TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,
                                nullptr, work.getFullPathName().toWideCharPointer(), &startup.StartupInfo, &info) != FALSE,
                 "python_missing");
@@ -180,6 +189,43 @@ void verify(const juce::var& manifest, const Request& request, const juce::Strin
     }
 }
 } // namespace
+
+ProcessResult runLocalProcess(const juce::File& executable, const juce::StringArray& arguments,
+                             const juce::File& workingDirectory, const std::atomic<bool>& cancel,
+                             std::chrono::milliseconds timeout, unsigned processLimit) {
+    ProcessResult result;
+    try {
+        require(processLimit > 0 && processLimit <= 8, "invalid_input");
+        Child child;
+        child.launch(executable, arguments, workingDirectory, 8ULL * 1024 * 1024 * 1024, processLimit);
+        child.input.close(); // pip/probes must never prompt or wait for stdin
+        const auto deadline = Clock::now() + timeout;
+        std::vector<unsigned char> bytes;
+        std::string output;
+        for (;;) {
+            require(!cancel.load(), "cancelled");
+            require(Clock::now() < deadline, "timeout");
+            child.read(bytes);
+            if (!bytes.empty()) output.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+            bytes.clear();
+            if (output.size() > 256 * 1024) output.erase(0, output.size() - 256 * 1024);
+            result.log = juce::String::fromUTF8(output.data(), static_cast<int>(output.size())) +
+                         juce::String::fromUTF8(child.diagnostics.data(), static_cast<int>(child.diagnostics.size()));
+            result.log = result.log.substring(std::max(0, result.log.length() - 256 * 1024));
+            DWORD code{};
+            require(GetExitCodeProcess(child.process.value, &code) != FALSE, "worker_crash");
+            if (code != STILL_ACTIVE) {
+                result.exitCode = static_cast<juce::int64>(code);
+                result.success = code == 0;
+                if (!result.success) result.error = "process_failed";
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    } catch (const Failure& error) { result.error = error.code; }
+      catch (...) { result.error = "process_failed"; }
+    return result;
+}
 
 Runner::Runner(Configuration config) : config_(std::move(config)) {}
 Runner::~Runner() { cancel(); if (thread_.joinable()) thread_.join(); }
@@ -311,6 +357,7 @@ void Runner::run(Request request, juce::String jobId) noexcept {
     }
     // Child has exited and released its cwd/files before exposing cache ownership.
     if (preserve) {
+        work.getChildFile("numba-cache").deleteRecursively();
         std::lock_guard lock(mutex_);
         if (cancelled_.load()) {
             preserve = false; status_.state = State::cancelled; status_.error = "cancelled";
