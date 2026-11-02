@@ -277,7 +277,8 @@ def main():
     # A bounded host log tail makes a blocked native import diagnosable without
     # extending its deadline. No traceback or local paths enter protocol errors.
     import faulthandler
-    faulthandler.dump_traceback_later(60, repeat=False)
+    if os.environ.get("MR_SEPARATION_DIAGNOSTICS") == "1":
+        faulthandler.dump_traceback_later(60, repeat=False)
     block_network()
     lock = threading.Lock()
     cancelled = threading.Event()

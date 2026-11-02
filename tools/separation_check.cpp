@@ -86,7 +86,7 @@ void selfTest(const juce::File& python, const juce::File& worker) {
     Request req;
     req.source = source; req.modelDirectory = root; req.sourceFrames = 150;
     req.sourceStart = 25; req.timelineStart = 12345; req.sessionId = "session";
-    for (const auto* mode : {"ok", "crash", "flood", "wrong_job", "missing_model", "bad_hash", "nan", "traversal", "duplicate", "stale", "hang", "cancel"}) {
+    for (const auto* mode : {"ok", "stderr_flood", "crash", "flood", "wrong_job", "missing_model", "bad_hash", "nan", "traversal", "duplicate", "stale", "hang", "cancel"}) {
         {
             Runner runner({python, worker, root});
             req.sourceRevision = mode;
@@ -98,9 +98,11 @@ void selfTest(const juce::File& python, const juce::File& worker) {
             }
             const auto status = wait(runner);
             auto result = runner.take();
-            if (std::string(mode) == "ok") {
+            if (std::string(mode) == "ok" || std::string(mode) == "stderr_flood") {
                 check(status.state == State::ready && result.has_value(), "valid IPC/geometry/float result");
                 check(result->manifest["timeline_start"].toString() == "12345", "original placement");
+                if (std::string(mode) == "stderr_flood")
+                    check(runner.diagnostics().getNumBytesAsUTF8() <= 256 * 1024 && runner.diagnostics().isNotEmpty(), "bounded stderr tail");
                 result->directory.getParentDirectory().deleteRecursively();
             } else {
                 check(!result && status.state != State::ready, "fault must not publish");

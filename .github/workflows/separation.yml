@@ -64,6 +64,8 @@ jobs:
           if($LASTEXITCODE){throw 'Smoke model integrity failed'}
       - name: Real CPU inference through Windows host (worker network disabled)
         shell: pwsh
+        env:
+          MR_SEPARATION_DIAGNOSTICS: '1'
         run: |
           & build/separation/Release/mrs_separation_check.exe --real (Get-Command python).Source "$((Resolve-Path tools/separation/worker.py).Path)" "$((Resolve-Path build/separation-models).Path)" "$((Resolve-Path build/separation-evidence).Path)/audio"
           if($LASTEXITCODE){throw 'Real Windows CPU separation failed'}
