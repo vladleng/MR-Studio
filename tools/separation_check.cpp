@@ -128,7 +128,7 @@ void real(const juce::File& python, const juce::File& worker, const juce::File& 
     Request req;
     req.source = source; req.modelDirectory = models; req.sessionId = "windows-cpu-smoke";
     req.sourceRevision = "synthetic-v1"; req.sourceStart = 11025; req.sourceFrames = 44100;
-    req.timelineStart = 123456; req.projectRate = 48000; req.timeout = std::chrono::minutes(15);
+    req.timelineStart = 123456; req.projectRate = 48000; req.timeout = std::chrono::minutes(3);
     check(runner.start(req), "real submit");
     PlaybackProbe playback(root.getChildFile("synthetic-raw-recording.wav"));
     const auto status = wait(runner);
