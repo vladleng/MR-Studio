@@ -80,7 +80,7 @@ void cache(){
     // Cancellation is tested during output as well as before any file exists.
     std::stop_source stop;stop.request_stop();rejects([&]{(void)audio::prepare_stretch_cache(source,p.clips[0],stop.get_token());});
     std::stop_source mid;rejects([&]{(void)audio::prepare_stretch_cache(source,p.clips[0],mid.get_token(),[&](float){mid.request_stop();});});
-    auto held=prepared->data;prepared.reset();CHECK(fs::exists(file));held.reset();CHECK(!fs::exists(file.parent_path()));
+    auto held=prepared->data;prepared.reset();CHECK(fs::exists(file));held.reset();const auto retiredBy=std::chrono::steady_clock::now()+std::chrono::seconds(5);while(fs::exists(file.parent_path())&&std::chrono::steady_clock::now()<retiredBy)std::this_thread::sleep_for(std::chrono::milliseconds(1));CHECK(!fs::exists(file.parent_path()));
     Directory dir;const auto original=dir.path/"source.wav";fs::copy_file(again->data->file->path,original);
     auto streamed=std::make_shared<audio::AudioData>();streamed->channels=2;streamed->file=std::make_shared<audio::WavFile>(audio::inspect_wav(original));
     auto fromFile=audio::prepare_stretch_cache(streamed,p.clips[0]);CHECK(fromFile->source_current());
@@ -128,7 +128,7 @@ void desktop_test(){
     auto bypass=params;bypass.enabled=false;app.set_clip_stretch(id,bypass);CHECK(app.services().projects->state().project->clips[0].length==60001);
     CHECK(app.undo());finish(app);CHECK(app.services().projects->state().project->clips[0].length==75001);
     CHECK(app.redo());finish(app);CHECK(app.services().projects->state().project->clips[0].length==60001);
-    app.set_clip_stretch(id,params);app.cancel_stretch();CHECK(!app.stretch_status().busy);rejects([&]{app.play();});app.retry_stretch();finish(app);
+    auto cold=params;cold.duration_ratio=1.37;app.set_clip_stretch(id,cold);app.cancel_stretch();CHECK(!app.stretch_status().busy);rejects([&]{app.play();});app.retry_stretch();finish(app);
     // A stale worker must not install its PCM in a replacement document.
     params.semitones=7;app.set_clip_stretch(id,params);app.new_project();finish(app);CHECK(app.services().projects->state().project->clips.empty());
     app.import_wav(wav);const auto savedId=app.services().projects->state().project->clips[0].id;

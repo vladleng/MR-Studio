@@ -16,10 +16,39 @@
 #include <limits>
 #include <set>
 #include <sstream>
+#include <tuple>
 #include <stdexcept>
 namespace mrs::desktop {
 namespace {
 void require(bool ok, const char* message) { if (!ok) throw std::invalid_argument(message); }
+bool same_except_clips(const Project& a,const Project& b){
+    const auto fields=[](const Project& p){return std::tie(p.version,p.id,p.title,p.artist,p.sample_rate,p.time,p.folders,p.tracks,p.markers,p.chords,p.sections,p.master_gain,p.master_outputs,p.master_inserts,p.ara_bindings);};
+    return fields(a)==fields(b);
+}
+bool same_midi_clips(const Project& a,const Project& b){
+    auto x=a.clips.begin(),y=b.clips.begin();
+    for(;;){while(x!=a.clips.end()&&!x->midi)++x;while(y!=b.clips.end()&&!y->midi)++y;
+        if(x==a.clips.end()||y==b.clips.end())return x==a.clips.end()&&y==b.clips.end();
+        if(*x!=*y)return false;
+        ++x;++y;
+    }
+}
+bool same_metadata(const Project& a,const Project& b){
+    const auto base=[](const Project& p){return std::tie(p.version,p.id,p.title,p.artist,p.sample_rate,p.time,p.master_gain,p.master_outputs,p.master_inserts,p.ara_bindings);};
+    if(base(a)!=base(b)||a.tracks.size()!=b.tracks.size()||a.clips.size()!=b.clips.size())return false;
+    const auto track=[](const Track& t){return std::tie(t.id,t.kind,t.mix,t.output,t.sends,t.input,t.input_stereo,t.input_monitor,t.hardware_outputs,t.inserts,t.midi_input,t.midi_channel,t.midi_monitor,t.midi_output,t.midi_output_channel,t.stretch_backend,t.fx_channel);};
+    for(std::size_t i=0;i<a.tracks.size();++i)if(track(a.tracks[i])!=track(b.tracks[i]))return false;
+    const auto clip=[](const Clip& c){return std::tie(c.id,c.track,c.start,c.length,c.source_offset,c.source,c.midi,c.fade_in,c.fade_out,c.stretch);};
+    for(std::size_t i=0;i<a.clips.size();++i)if(clip(a.clips[i])!=clip(b.clips[i]))return false;
+    return true;
+}
+bool same_mix_only(const Project& a,const Project& b){
+    const auto base=[](const Project& p){return std::tie(p.version,p.id,p.title,p.artist,p.sample_rate,p.time,p.folders,p.clips,p.markers,p.chords,p.sections,p.master_outputs,p.master_inserts,p.ara_bindings);};
+    if(base(a)!=base(b)||a.tracks.size()!=b.tracks.size())return false;
+    const auto track=[](const Track& t){return std::tie(t.id,t.name,t.kind,t.folder,t.output,t.sends,t.input,t.input_stereo,t.input_monitor,t.hardware_outputs,t.inserts,t.midi_input,t.midi_channel,t.midi_monitor,t.midi_output,t.midi_output_channel,t.stretch_backend,t.fx_channel,t.color);};
+    for(std::size_t i=0;i<a.tracks.size();++i)if(track(a.tracks[i])!=track(b.tracks[i]))return false;
+    return true;
+}
 bool channel_order_only(Project a,Project b){
     const auto byId=[](const Track& x,const Track& y){return x.id.value<y.id.value;};
     std::sort(a.tracks.begin(),a.tracks.end(),byId);std::sort(b.tracks.begin(),b.tracks.end(),byId);
@@ -965,7 +994,7 @@ void Application::capture_insert_state(Project& project,std::optional<Id> author
     bool has_vst=false;for(const auto& [key,r]:insert_runtime_){(void)key;if(r.graph)for(const auto& n:r.graph->snapshot().graph->nodes)has_vst=has_vst||n.format==processing::ProcessorFormat::vst3;}if(!has_vst || !device_)return;
     if(!callbacks_stopped){require_not_playing();device_->stop();}
     try{const auto original=services_.projects->state().project;
-        for(const auto& [key,r]:insert_runtime_)if(r.graph&&(!staged_insert_target_||key==*staged_insert_target_)){auto* chain=&project.master_inserts;if(!key.empty()){chain=nullptr;for(auto& t:project.tracks)if(t.id.value==key)chain=&t.inserts;}if(!chain)continue;
+        for(const auto& [key,r]:insert_runtime_)if(r.graph&&!retained_insert_keys_.contains(key)&&(!staged_insert_target_||key==*staged_insert_target_)){auto* chain=&project.master_inserts;if(!key.empty()){chain=nullptr;for(auto& t:project.tracks)if(t.id.value==key)chain=&t.inserts;}if(!chain)continue;
             const auto original_track=key.empty()?std::optional<Id>{}:std::optional<Id>{Id{key}};
             const auto& old_chain=insert_chain(*original,original_track);
             // No state serialization is needed for a removed/replaced plugin.
@@ -1217,7 +1246,7 @@ void Application::rebuild_audio(bool retain_inserts) {
         // Reprepare clears live MIDI tracking/generation. With every processing
         // owner stopped and joined, release retained instruments before that
         // reset; new-generation ingress must not be swallowed by a later panic.
-        if(retain_inserts||staged_insert_target_||staged){
+        if(retain_inserts||!retained_insert_keys_.empty()||staged_insert_target_||staged){
             for(const auto& t:project->tracks)if(t.kind==TrackKind::instrument){const auto& runtime=insert_runtime_.at(t.id.value);if(runtime.graph)runtime.graph->panic();}
         }
         engine_->prepare({c.sample_rate,static_cast<std::uint32_t>(c.inputs.size()),static_cast<std::uint32_t>(c.outputs.size()),8192,c.buffer_frames,c.processing_workers},std::move(graph),position);
@@ -1229,7 +1258,20 @@ void Application::edit(const ICommand& command,std::optional<Id> authoritative,b
     require_not_playing();
     auto candidate = *services_.projects->state().project;
     command.apply(candidate); candidate.validate();
+    if(same_except_clips(*services_.projects->state().project,candidate)&&same_midi_clips(*services_.projects->state().project,candidate)&&
+       edit_clip_state(candidate,&command))return;
     {std::vector<Id> tracks;for(const auto& t:candidate.tracks)if(t.kind!=TrackKind::midi)tracks.push_back(t.id);(void)audio::compile_midi_clips(candidate,tracks);(void)audio::compile_midi_events(candidate,tracks);}
+    const auto original=services_.projects->state().project;
+    struct ClearRetained {std::set<std::string>& keys;~ClearRetained(){keys.clear();}} clearRetained{retained_insert_keys_};
+    retained_insert_keys_.clear();
+    const auto retain=[&](const std::string& key,const auto& old,const auto& next){
+        if(old==next&&(!authoritative||std::none_of(next.begin(),next.end(),[&](const auto& fx){return fx.id==*authoritative;})))retained_insert_keys_.insert(key);
+    };
+    if(original->sample_rate==candidate.sample_rate&&!staged_insert_target_&&staged_insert_graphs_.empty()){
+        retain({},original->master_inserts,candidate.master_inserts);
+        for(const auto& t:candidate.tracks){const auto old=std::find_if(original->tracks.begin(),original->tracks.end(),[&](const auto& v){return v.id==t.id&&v.kind==t.kind;});
+            if(old!=original->tracks.end())retain(t.id.value,old->inserts,t.inserts);}
+    }
     if(!retain_inserts&&!staged_insert_target_&&staged_insert_graphs_.empty())capture_insert_state(candidate,authoritative);
     candidate.validate();
     if (device_config_ && audio_name_ != "Offline clock (no sound)") validate_hardware(candidate,*device_config_);
@@ -1597,8 +1639,11 @@ void Application::set_track_color(const Id& id,std::optional<std::uint32_t> colo
     if(candidate!=*services_.projects->state().project)services_.projects->execute(command);
 }
 bool Application::history_preserves_plugins(bool redo) const {
-    if(history_changes_only_inputs(redo))return true;
     const auto target=services_.projects->history_target(redo);if(!target)return true;
+    const auto& current=*services_.projects->state().project;
+    if(same_except_clips(current,*target)||same_metadata(current,*target)||same_mix_only(current,*target))return true;
+    if(history_changes_only_inputs(redo))return true;
+    if(same_except_clips(*services_.projects->state().project,*target))return true;
     if(channel_order_only(*services_.projects->state().project,*target))return true;
     if(channel_color_only(*services_.projects->state().project,*target))return true;
     if(insert_order_only(*services_.projects->state().project,*target))return true;
@@ -1627,6 +1672,17 @@ bool Application::history(bool redo) {
     require_not_recording();
     const auto target = services_.projects->history_target(redo);
     if (!target) return false;
+    if(same_except_clips(*services_.projects->state().project,*target)&&same_midi_clips(*services_.projects->state().project,*target)&&
+       edit_clip_state(*target,nullptr,redo))return true;
+    const auto& currentSnapshot=*services_.projects->state().project;
+    if(same_mix_only(currentSnapshot,*target)){
+        const bool changed=redo?services_.projects->redo():services_.projects->undo();if(changed){publish_mix();cancel_insert_preview();}return changed;
+    }
+    if(same_metadata(currentSnapshot,*target)){
+        if(section_ranges_changed(currentSnapshot,*target)){require_not_playing();require(!engine_->state().count_remaining,"End count-in before section history");require(!engine_->state().loop,"Turn off loop before section history");
+            auto document=snapshot();document.project=*target;document.validate();}
+        return redo?services_.projects->redo():services_.projects->undo();
+    }
     auto before = *services_.projects->state().project, after = *target;
 #ifdef MRS_HAS_ARA
     if(before.ara_bindings!=after.ara_bindings){
@@ -1697,6 +1753,12 @@ bool Application::history(bool redo) {
             require(device_info_.has_value(),"audio device unavailable"); audio::validate_device_config(*device_info_,c);
         }
     }
+    struct ClearHistoryRetained {std::set<std::string>& keys;~ClearHistoryRetained(){keys.clear();}} clearHistoryRetained{retained_insert_keys_};
+    retained_insert_keys_.clear();
+    const auto& current=*services_.projects->state().project;
+    if(current.master_inserts==target->master_inserts)retained_insert_keys_.insert(std::string{});
+    for(const auto& t:target->tracks){const auto old=std::find_if(current.tracks.begin(),current.tracks.end(),[&](const auto& row){return row.id==t.id&&row.kind==t.kind;});
+        if(old!=current.tracks.end()&&old->inserts==t.inserts)retained_insert_keys_.insert(t.id.value);}
     const bool changed = redo ? services_.projects->redo() : services_.projects->undo();
     if (changed) { sync_arm(); if (mix_only) {publish_mix();cancel_insert_preview();publish_midi_routes();} else rebuild_audio(clips_only||input_only); }
     return changed;
@@ -2125,7 +2187,9 @@ audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_
     for(const auto& capture:midi_captures_){const auto at=std::find(mixer_tracks_.begin(),mixer_tracks_.end(),capture.track);require(at!=mixer_tracks_.end(),"missing MIDI record track");result.midi_recordings.push_back({static_cast<std::size_t>(at-mixer_tracks_.begin()),capture.recorder});}
     result.monitoring = monitoring_;
     const auto config = processing::ProcessConfig{c.sample_rate,static_cast<std::uint32_t>(c.outputs.size()),8192,c.buffer_frames};
-    prepared_ = std::make_shared<processing::PreparedGraph>(graphs_->state(),config);
+    const auto graphState=graphs_->state();
+    if(!prepared_||prepared_->snapshot().graph!=graphState.graph||prepared_->config()!=config)
+        prepared_ = std::make_shared<processing::PreparedGraph>(graphState,config);
     result.processors = prepared_;
     prepare_mixer(result);
     prepare_midi_clips(result);
@@ -2205,6 +2269,11 @@ void Application::prepare_inserts(audio::RenderGraph& result,const audio::Device
         }
         for(const auto& [key,graph]:staged_insert_graphs_){insert_runtime_[key]={graph,{}};instrument_errors_.erase(key);changed.push_back(key);}
         staged_insert_graphs_.clear();
+    }else if(!retained_insert_keys_.empty()){
+        for(auto it=reverb_runtime_.begin();it!=reverb_runtime_.end();){const auto key=it->track?it->track->value:std::string{};
+            if(!retained_insert_keys_.contains(key)){it->loader->shutdown();it=reverb_runtime_.erase(it);}else ++it;}
+        std::erase_if(insert_runtime_,[&](const auto& row){return !retained_insert_keys_.contains(row.first);});
+        std::erase_if(instrument_errors_,[&](const auto& row){return !retained_insert_keys_.contains(row.first);});
     }else{stop_reverb_loaders();insert_runtime_.clear();instrument_errors_.clear();}
     ++insert_generation_;
     const auto chain=[&](const std::vector<NativeInsert>& effects,std::uint32_t block,bool instrument=false) -> std::shared_ptr<processing::PreparedGraph> {
@@ -2281,9 +2350,11 @@ void Application::disconnect() {
     external_midi_->panic();if(midi_outputs_)midi_outputs_->routes({});
     stop_reverb_loaders();++insert_generation_;insert_runtime_.clear(); prepared_.reset(); device_config_.reset(); device_info_.reset(); audio_name_ = "Disconnected";
     if (transport_) { engine_->prepare({engine_->config().sample_rate,0,2,8192},{}); transport_->poll(); }
+    clip_updates_.clear();
     staged_playback_.reset();
 }
 void Application::poll() {
+    poll_clip_updates();
     const auto processing=engine_->metrics();
     const bool timedOut=processing.processing_fault&&processing.worker_timeouts>0;
     // A quarantined job still owns its plugin and buffers. Never ask that

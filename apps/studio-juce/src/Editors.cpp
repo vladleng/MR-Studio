@@ -27,7 +27,7 @@ public:
         if(owner.assetSkin()){auto theme=std::make_shared<Theme>();theme->applyPreview(DesignTokens::target());menuTheme=std::move(theme);}
         setTitle("Current MR Studio preset / preset library");setComponentID("preset-library");setTextWhenNothingSelected("Preset: none");refresh();
     }
-    void refresh(){for(const auto& effect:owner.chain(target))if(effect.id==slot){selected=juce::String::fromUTF8(effect.preset_name.c_str());setText(selected.isEmpty()?"Preset: none":selected,juce::dontSendNotification);setTooltip(selected.isEmpty()?"No MR Studio preset selected":"Last MR Studio preset: "+selected+" (plugin edits may change its sound)");}}
+    void refresh(){const auto snapshot=owner.project();const std::vector<mrs::NativeInsert>* chain=&snapshot->master_inserts;if(target){const auto t=std::find_if(snapshot->tracks.begin(),snapshot->tracks.end(),[&](const auto& track){return track.id==target;});if(t==snapshot->tracks.end())return;chain=&t->inserts;}for(const auto& effect:*chain)if(effect.id==slot){selected=juce::String::fromUTF8(effect.preset_name.c_str());setText(selected.isEmpty()?"Preset: none":selected,juce::dontSendNotification);setTooltip(selected.isEmpty()?"No MR Studio preset selected":"Last MR Studio preset: "+selected+" (plugin edits may change its sound)");}}
     void showPopup() override {
         if(!isEnabled()){hidePopup();return;}if(scanning)return;const bool mouseRequest=isPopupActive();
         owner.run([&]{refresh();for(const auto& effect:owner.chain(target))if(effect.id==slot){folder=overrideFolder==juce::File()?presetFolder(effect):overrideFolder;break;}

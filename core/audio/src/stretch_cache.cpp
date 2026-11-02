@@ -6,13 +6,34 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
 
 namespace mrs::audio {
 namespace {
+// Private cache files are retired by one control-owned worker, never by paint,
+// Undo or the audio callback. The queue owns paths only, not PCM or DSP objects.
+class DirectoryRetirement {
+    std::mutex mutex_;std::condition_variable wake_;
+    std::deque<std::filesystem::path> paths_;bool closing_{};
+    std::thread worker_{[this]{
+        for(;;){std::filesystem::path path;
+            {std::unique_lock lock(mutex_);wake_.wait(lock,[&]{return closing_||!paths_.empty();});
+             if(paths_.empty()){if(closing_)return;continue;}path=std::move(paths_.front());paths_.pop_front();}
+            std::error_code error;std::filesystem::remove_all(path,error);
+        }
+    }};
+public:
+    ~DirectoryRetirement(){{std::lock_guard lock(mutex_);closing_=true;}wake_.notify_one();worker_.join();}
+    void retire(std::filesystem::path path){{std::lock_guard lock(mutex_);paths_.push_back(std::move(path));}wake_.notify_one();}
+};
+DirectoryRetirement& directory_retirement(){static DirectoryRetirement worker;return worker;}
 struct Directory {
     std::filesystem::path path;
     bool owned{};
-    ~Directory(){if(owned){std::error_code ec;std::filesystem::remove_all(path,ec);}}
+    ~Directory(){if(owned){try{directory_retirement().retire(path);}catch(...){std::error_code error;std::filesystem::remove_all(path,error);}}}
 };
 auto stamp(const AudioData& source){
     if(!source.file)return std::pair{std::filesystem::file_time_type{},std::uintmax_t{}};
@@ -47,6 +68,7 @@ std::shared_ptr<const StretchCache> prepare_stretch_cache(std::shared_ptr<const 
         throw std::invalid_argument("Unsupported stretch source / selection");
     if(bytes>512*1024*1024)throw std::invalid_argument("Time / pitch cache exceeds 512 MiB; split the source region first");
     const auto before=stamp(*source);
+    (void)directory_retirement(); // construct on the preparation worker
     auto owned=std::make_shared<Directory>();
     owned->path=std::filesystem::temp_directory_path()/("mrs-stretch-"+new_id().value);
     if(!std::filesystem::create_directory(owned->path))throw std::runtime_error("Cannot create private stretch cache");

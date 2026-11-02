@@ -95,7 +95,7 @@ void Application::poll_stretch(){
             stretch_status_.message="Time / pitch ready";stretch_status_.progress=1;
             // Existing device quiescence/read-ahead/PDC lifecycle is reused.
             // Cached PCM has already had algorithmic pre-roll removed.
-            rebuild_audio(true);
+            if(!refresh_clip_audio(*state.project))rebuild_audio(true);
         }catch(const std::exception& e){stretch_status_.message=std::string("Time / pitch failed: ")+e.what();}
     }
     if(!retired_stretch_.empty()&&stretch_checked_revision_!=state.revision&&!recording()&&head.playback!=PlaybackState::playing){
@@ -115,8 +115,20 @@ void Application::poll_stretch(){
             if(bytes>512*1024*1024)throw std::invalid_argument("Time / pitch cache exceeds 512 MiB; shorten/split the selected source region");
             if(!stretch_cache_.contains(key))requests.push_back({key,source,c,clip_stretch_backend(c)});
         }
-        // Undo/redo regenerates evicted entries. Split views share one full region.
-        std::erase_if(stretch_cache_,[&](const auto& e){return !needed.contains(e.first);});
+        // Warm Undo entries share the same 512 MiB budget, not a second cache.
+        // Bound tiny entries too; evict only keys unused by the current project.
+        const auto tick=++stretch_cache_clock_;
+        std::erase_if(stretch_cache_used_,[&](const auto& item){return !needed.contains(item.first)&&!stretch_cache_.contains(item.first);});
+        for(const auto& key:needed)stretch_cache_used_[key]=tick;
+        std::uintmax_t occupied=bytes;
+        for(const auto& [key,entry]:stretch_cache_)if(!needed.contains(key))occupied+=entry->bytes;
+        while(occupied>512*1024*1024||stretch_cache_.size()+requests.size()>64){
+            auto victim=stretch_cache_.end();
+            for(auto it=stretch_cache_.begin();it!=stretch_cache_.end();++it)if(!needed.contains(it->first)&&
+               (victim==stretch_cache_.end()||stretch_cache_used_[it->first]<stretch_cache_used_[victim->first]))victim=it;
+            if(victim==stretch_cache_.end())throw std::invalid_argument("Time / pitch cache entry budget exceeded");
+            occupied-=victim->second->bytes;stretch_cache_used_.erase(victim->first);stretch_cache_.erase(victim);
+        }
         if(requests.empty()){
             const auto message=needed.empty()?(stretch_status_.message.empty()?std::string{}:std::string{"Time / pitch inactive"}):std::string{"Time / pitch ready"};
             if(stretch_status_.busy||stretch_status_.message!=message){stretch_status_.message=message;++stretch_status_.revision;}
@@ -143,7 +155,7 @@ void Application::stop_stretch(){
     for(auto& job:retired_stretch_)job->stop.request_stop();
     if(stretch_job_&&stretch_job_->result.valid())stretch_job_->result.wait();
     for(auto& job:retired_stretch_)if(job->result.valid())job->result.wait();
-    stretch_job_.reset();retired_stretch_.clear();stretch_cache_.clear();
+    stretch_job_.reset();retired_stretch_.clear();stretch_cache_.clear();stretch_cache_used_.clear();
     stretch_checked_revision_=~std::uint64_t{};stretch_status_={};
 }
 } // namespace mrs::desktop

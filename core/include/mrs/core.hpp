@@ -1,5 +1,6 @@
 #pragma once
 #include <mrs/stretch.hpp>
+#include <mrs/shared_bytes.hpp>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -158,7 +159,7 @@ struct NativeInsert {
     // HP, three bell bands, LP. Filters initially off, bell bands flat.
     std::array<EqBand,5> bands{{{40,0,0.70710678f,false},{150,0,0.70710678f,true},{1000,0,0.70710678f,true},{6000,0,0.70710678f,true},{16000,0,0.70710678f,false}}};
     std::string plugin_path, class_id, plugin_name;
-    std::vector<std::byte> component_state, controller_state;
+    SharedBytes component_state, controller_state;
     std::vector<InsertParameter> parameters;
     CabIr ir;
     ReverbState reverb; // External identity only; global library root belongs to preferences.
