@@ -1,7 +1,12 @@
 #pragma once
 #include <string>
 #include <sstream>
+inline std::string without_stretch_modes(std::string bytes){
+    for(auto at=bytes.find("STRETCH_MODE ");at!=std::string::npos;at=bytes.find("STRETCH_MODE "))bytes.erase(at,bytes.find('\n',at)-at+1);
+    return bytes;
+}
 inline std::string without_marker_colors(std::string bytes){
+    bytes=without_stretch_modes(std::move(bytes));
     for(auto pos=bytes.find("TRACKCOLOR ");pos!=std::string::npos;pos=bytes.find("TRACKCOLOR "))bytes.erase(pos,bytes.find('\n',pos)-pos+1);
     for(auto pos=bytes.find("AUDIOFADE ");pos!=std::string::npos;pos=bytes.find("AUDIOFADE "))bytes.erase(pos,bytes.find('\n',pos)-pos+1);
     for(auto pos=bytes.find("CLIPCOLOR ");pos!=std::string::npos;pos=bytes.find("CLIPCOLOR "))bytes.erase(pos,bytes.find('\n',pos)-pos+1);

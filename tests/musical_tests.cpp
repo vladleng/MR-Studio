@@ -22,7 +22,7 @@ mrs::Services services(mrs::Project p = mrs::musical_demo_project()) {
 void chord_color_migration(){
     auto p=mrs::musical_demo_project();p.chords[0].color=0x287B89;CHECK(mrs::deserialize(mrs::serialize(p))==p);
     auto plain=p;plain.chords[0].color.reset();const auto bytes=mrs::serialize(plain);std::istringstream in(bytes);std::ostringstream out;std::string line;bool chordRows=false;std::size_t remaining=0;
-    while(std::getline(in,line)){if(line.starts_with("TRACKCOLOR ")||line.starts_with("CLIPCOLOR ")||line.starts_with("AUDIOFADE "))continue;if(line.starts_with("MRS_CORE_SNAPSHOT "))line="MRS_CORE_SNAPSHOT 20";if(line.starts_with("CHORDS ")){remaining=std::stoul(line.substr(7));chordRows=remaining>0;}else if(chordRows){CHECK(line.ends_with(" 0 0"));line.resize(line.size()-4);if(!--remaining)chordRows=false;}out<<line<<'\n';}
+    while(std::getline(in,line)){if(line.starts_with("STRETCH_MODE ")||line.starts_with("TRACKCOLOR ")||line.starts_with("CLIPCOLOR ")||line.starts_with("AUDIOFADE "))continue;if(line.starts_with("MRS_CORE_SNAPSHOT "))line="MRS_CORE_SNAPSHOT 20";if(line.starts_with("CHORDS ")){remaining=std::stoul(line.substr(7));chordRows=remaining>0;}else if(chordRows){CHECK(line.ends_with(" 0 0"));line.resize(line.size()-4);if(!--remaining)chordRows=false;}out<<line<<'\n';}
     CHECK(mrs::deserialize(out.str())==plain);
 }
 void model() {
