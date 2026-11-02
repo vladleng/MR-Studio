@@ -6,12 +6,13 @@
 #include <vector>
 
 namespace mr::timestretch::drums {
-inline constexpr const char* version = "0.1.0-experimental";
+inline constexpr const char* version = "0.1.1-experimental";
 enum class Status { ok, invalid_argument, resource_limit, cancelled };
 struct Config {
     std::uint32_t sample_rate{48000}, channels{2};
     double duration_ratio{1.0}; // output/input; BPM conversion = source BPM / target BPM
-    double grain_ms{24}, search_ms{4}, attack_ms{5};
+    // Low-frequency cycles need enough phase-search range (55 Hz: 18.2 ms).
+    double grain_ms{24}, search_ms{12}, attack_ms{5};
     bool detect_transients{true};
     // Includes result PCM and internal anchors, excludes caller-owned source PCM.
     std::size_t memory_budget_bytes{256u * 1024u * 1024u};

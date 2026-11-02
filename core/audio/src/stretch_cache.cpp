@@ -27,7 +27,10 @@ std::string stretch_cache_key(const AudioData& source,const Clip& clip,stretch::
     if(!clip.stretch)throw std::invalid_argument("Missing stretch state");
     // Full semantic key, no lossy hash. Windows/split windows share the same PCM.
     std::ostringstream key;key.imbue(std::locale::classic());
-    key<<"cache-3 "<<static_cast<int>(backend)<<' '<<(backend==stretch::Backend::drums?"mr-timestretch-drums/0.1.0;grain24;search4;attack5;detect1":stretch::backend_revision())<<' '<<static_cast<const void*>(&source)<<' '
+    key<<"cache-3 "<<static_cast<int>(backend)<<' ';
+    if(backend==stretch::Backend::drums)key<<"mr-timestretch-drums/"<<mr::timestretch::drums::version<<";grain24;search12;attack5;detect1";
+    else key<<stretch::backend_revision();
+    key<<' '<<static_cast<const void*>(&source)<<' '
        <<source.sample_rate<<' '<<source.channels<<' '<<source.frames()<<' '
        <<clip.source_offset<<' '<<clip.stretch->source_frames<<' '<<stretch::serialize(clip.stretch->parameters);
     return key.str();

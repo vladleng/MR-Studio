@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MRTimestretchDrumsSDK VERSION 0.1.0 LANGUAGES CXX)
+project(MRTimestretchDrumsSDK VERSION 0.1.1 LANGUAGES CXX)
 include(CTest)
 add_library(mr_timestretch_drums STATIC src/stretch.cpp)
 add_library(MRTimestretchDrums::SDK ALIAS mr_timestretch_drums)

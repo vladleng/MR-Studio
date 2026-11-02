@@ -1,4 +1,9 @@
-# MR Timestretch Drums SDK 0.1.0-experimental
+# MR Timestretch Drums SDK 0.1.1-experimental
+
+Default WSOLA search is now ±12 ms (24 ms grain, 5 ms attack guard). The former
+±4 ms search could change the dominant pitch of low drum bodies during speed
+changes. Low-frequency and mixed kick/snare/hat regressions cover this correction;
+these are synthetic checks, not listening acceptance on every drum recording.
 
 Independent C++20 offline time-stretch library for MR Studio research (#331).
 No external DSP dependencies, JUCE, device, transport or proprietary zplane code.
