@@ -214,12 +214,74 @@ separation metadata открывается как прежде; формат р�
 
 Owned/synthetic fixtures отдельно от пользовательских файлов. Слух/ASIO/xruns,
 hardware GPU/VRAM, качество на авторизованных музыкальных примерах и сравнение
-Moises/RX — **NOT TESTED**. Этот этап не запускает #334–#340, CI или полный CTest.
+Moises/RX — **NOT TESTED**. Полный CTest и #335–#340 автоматически не запускаются.
 
 Отложенный аудит: checkpoint-specific разрешение official Demucs. По указанию
 пользователя оно не блокирует #334 и сборки. Windows runtime lock, loader policy,
 write hook без per-stem gain и offline dependency closure проверяются в #334/#335.
 Юридическая приёмка весов не заявляется; merge в main требует отдельного подтверждения.
+
+## Реализованный local runner #334
+
+`apps/studio-juce/src/SeparationRunner.h/.cpp`: service-thread API `start`, `status`,
+`cancel`, `take`; один outstanding job/result, без очереди. Construction не запускает
+Python. Windows CreateProcess без shell, ограниченный handle inheritance, отдельный
+Job Object (memory limit/один процесс/kill-on-close). Фоновый thread владеет IPC и
+проверкой WAV/hash; audio engine/model pointers в нём отсутствуют. Destructor
+cancel/kill/join вызывается вне UI/audio callback. Cancel даёт worker до 5 s, затем
+весь процесс завершается; общий deadline и 30-s silence watchdog независимы от ML.
+Raw backend logs уходят в NUL, сохраняются только ограниченные protocol events;
+не реализован обещанный выше диагностический log ring. UI-интеграция — #336.
+
+`tools/separation/worker.py`: isolated Python, framed stdin/stdout; job/sequence IDs,
+phase/heartbeat/result/error, CPU/CUDA/Auto-local. До импорта ML устанавливается
+process-local запрет Python socket connect/DNS; native malicious code этим не
+изолируется. Штатный fixed HTDemucs adapter не вызывает upstream discovery/download
+и не использует FFmpeg. SHA256 обоих файлов проверяются до loader; произвольные
+модели не принимаются. Python runtime — явный абсолютный путь, а не PATH lookup.
+
+Вход: существующий stereo WAV, source start/count, session/source revision,
+timeline start и project rate. В #334 host передаёт path+полный hash, worker сам
+читает диапазон и делает неизменяемый snapshot (концептуальный host snapshot из
+контракта отложен до интеграции клипа). Source 44.1/48/88.2/96 kHz, не более 10 min
+и 512 MiB; целевой rate из фиксированного списка 8…96 kHz. Snapshot → 44.1 kHz;
+после inference все native stems имеют точную длину snapshot, без скрытого trim/pad.
+Детерминированный polyphase SRC обратно использует округление к ближайшему frame,
+излишек ceil длины от SRC обрезается по общему mapping. ML outputs не нормализуются:
+write hook пишет FLOAT, Instrumental=sum(Bass,Drums,Other). Затем два float32 WAV
+публикуются с manifest через `result.part → result`. Seed=0, shifts=0, overlap=0.25.
+Bit-identical результаты между разными hardware/runtime не обещаются.
+
+Host повторно проверяет source hash, session/revision echo, placement, выходные
+имена, reparse points, SHA256, bytes/headers/rate/frames и finite PCM. Только verified
+result передаётся caller; ошибки/cancel убирают весь job staging. Caller владеет
+успешной cache directory и должен удалить её после использования. Автоматический
+orphan GC после аварийного завершения самой DAW пока не реализован; неполный каталог
+не принимается как результат. Глобальное ограничение нескольких Runner instances
+должен обеспечивать единственный будущий Studio service (#336).
+
+Прямой development smoke (PowerShell, только подготовленный отдельный runtime):
+
+```powershell
+python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+python -m pip install -r tools/separation/requirements-cpu.txt
+python tools/separation/install_smoke_model.py <new-model-directory>
+mrs_separation_check.exe --real <absolute-python.exe> <absolute-worker.py> <model-directory> <new-evidence-directory>
+```
+
+Установка модели — отдельная осознанная операция development helper, не запуск
+worker и не готовый Model Manager #335. Она проверяет full SHA256 и размер;
+каталог не должен содержать прежние файлы. Runtime candidate закрепляет верхние
+версии; полный resolved freeze сохраняется CI как evidence, не объявлен готовым
+hash-locked distributable. Модели/Python не пакуются; Studio runtime содержит
+только `mr_separation_worker.py`. В UI действия Separate пока нет (#336).
+
+CI `Separation CPU contracts`: Windows x64/CPython 3.11; Python synthetic contract
+tests, C++ fake-sidecar faults, затем real official HTDemucs CPU smoke с отключённой
+сетью worker. Результаты — отдельный synthetic evidence artifact без weights/runtime.
+`PlaybackProbe` одновременно проводит существующий engine process + raw recorder
+через fake device; это изоляция сервиса, не ASIO benchmark. Обычная Windows Studio
+сборка остаётся JUCE/VST3/ASIO/ARA2 ON и проверяет host fault suite.
 
 ## Источники аудита
 

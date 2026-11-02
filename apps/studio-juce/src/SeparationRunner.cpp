@@ -37,7 +37,10 @@ struct Handle {
 };
 struct Child {
     Handle job, process, input, output;
-    ~Child() { if (job.value) TerminateJobObject(job.value, 1); }
+    ~Child() {
+        if (job.value) TerminateJobObject(job.value, 1);
+        if (process.value) WaitForSingleObject(process.value, 5000); // release file handles before cleanup
+    }
     void launch(const Configuration& config, const juce::File& work, juce::uint64 memory) {
         SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
         Handle childIn, childOut, nullLog;
@@ -175,7 +178,12 @@ bool Runner::start(Request request) {
     cancelled_.store(false);
     const auto id = juce::Uuid().toString();
     { std::lock_guard lock(mutex_); status_ = {State::running, id, "queued", {}, {}}; }
-    thread_ = std::thread([this, request = std::move(request), id]() mutable { run(std::move(request), id); });
+    try {
+        thread_ = std::thread([this, request = std::move(request), id]() mutable { run(std::move(request), id); });
+    } catch (...) {
+        std::lock_guard lock(mutex_); status_.state = State::failed; status_.error = "resource_limit";
+        return false;
+    }
     return true;
 }
 void Runner::cancel() noexcept { cancelled_.store(true); }
@@ -184,6 +192,8 @@ std::optional<Result> Runner::take() { std::lock_guard lock(mutex_); auto result
 void Runner::run(Request request, juce::String jobId) noexcept {
     const auto work = config_.temporaryRoot.getChildFile("mrs-separation-" + jobId);
     bool preserve{};
+    bool ownsWork{};
+    std::optional<Result> completed;
     const auto began = Clock::now();
     try {
         require(config_.python.existsAsFile(), "python_missing");
@@ -195,7 +205,10 @@ void Runner::run(Request request, juce::String jobId) noexcept {
                 request.timeout.count() >= 100 && request.timeout <= std::chrono::hours(24) &&
                 request.sessionId.isNotEmpty() && request.sessionId.length() <= 128 &&
                 request.sourceRevision.isNotEmpty() && request.sourceRevision.length() <= 128, "invalid_input");
-        require(!work.exists() && work.createDirectory().wasOk() && plainFile(work), "io_error");
+        require(config_.temporaryRoot.isDirectory() &&
+                CreateDirectoryW(work.getFullPathName().toWideCharPointer(), nullptr) != FALSE, "io_error");
+        ownsWork = true;
+        require(plainFile(work), "io_error");
         const auto sourceHash = hash(request.source);
         require(!cancelled_.load(), "cancelled");
         Child child;
@@ -253,11 +266,8 @@ void Runner::run(Request request, juce::String jobId) noexcept {
                     // Only verified outputs survive. All transient input/native files are discarded.
                     work.getChildFile("snapshot.wav").deleteFile();
                     work.getChildFile("native").deleteRecursively();
-                    std::lock_guard lock(mutex_);
                     require(!cancelled_.load(), "cancelled");
-                    result_ = Result{jobId, request.sessionId, request.sourceRevision, resultDirectory, manifest};
-                    status_.state = State::ready; status_.phase = "ready";
-                    status_.effectiveDevice = manifest["effective_device"].toString();
+                    completed = Result{jobId, request.sessionId, request.sourceRevision, resultDirectory, manifest};
                     preserve = true;
                     break;
                 }
@@ -280,6 +290,17 @@ void Runner::run(Request request, juce::String jobId) noexcept {
     } catch (...) {
         std::lock_guard lock(mutex_); status_.error = "backend_failure"; status_.state = State::failed;
     }
-    if (!preserve) work.deleteRecursively();
+    // Child has exited and released its cwd/files before exposing cache ownership.
+    if (preserve) {
+        std::lock_guard lock(mutex_);
+        if (cancelled_.load()) {
+            preserve = false; status_.state = State::cancelled; status_.error = "cancelled";
+        } else {
+            result_ = std::move(completed);
+            status_.state = State::ready; status_.phase = "ready";
+            status_.effectiveDevice = result_->manifest["effective_device"].toString();
+        }
+    }
+    if (ownsWork && !preserve) work.deleteRecursively();
 }
 } // namespace mr::separation

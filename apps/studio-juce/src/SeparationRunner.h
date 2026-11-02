@@ -35,7 +35,7 @@ struct Result {
 class Runner {
 public:
     explicit Runner(Configuration);
-    ~Runner(); // cancel/kill/join; never call from audio callback
+    ~Runner(); // cancel/kill/join on service thread, never UI/audio callback
     Runner(const Runner&) = delete;
     Runner& operator=(const Runner&) = delete;
     bool start(Request); // one outstanding result/job; no Python at construction
