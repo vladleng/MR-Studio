@@ -274,6 +274,10 @@ def main():
     # Preserve a private protocol fd, redirect even native-library stdout writes.
     wire = os.fdopen(os.dup(sys.stdout.fileno()), "wb", buffering=0)
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+    # A bounded host log tail makes a blocked native import diagnosable without
+    # extending its deadline. No traceback or local paths enter protocol errors.
+    import faulthandler
+    faulthandler.dump_traceback_later(60, repeat=False)
     block_network()
     lock = threading.Lock()
     cancelled = threading.Event()
@@ -331,6 +335,7 @@ def main():
         send("error", code=code)
     finally:
         finished.set()
+        faulthandler.cancel_dump_traceback_later()
 
 
 if __name__ == "__main__":

@@ -134,7 +134,10 @@ void real(const juce::File& python, const juce::File& worker, const juce::File& 
     const auto status = wait(runner);
     playback.verify();
     auto result = runner.take();
-    if (!result) throw std::runtime_error("real separation failed: " + status.error.toStdString());
+    if (!result) {
+        std::cerr << runner.diagnostics().toStdString() << '\n';
+        throw std::runtime_error("real separation failed: " + status.error.toStdString());
+    }
     check(status.effectiveDevice == "cpu", "CPU smoke effective device");
     std::cout << juce::JSON::toString(result->manifest).toStdString() << '\n';
     std::cout << "PASS real separation: 2 FLOAT stereo WAV, 48000 exact frames, original offset/start, host-verified hashes and finite samples\n";
