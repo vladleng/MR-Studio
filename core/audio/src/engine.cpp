@@ -219,7 +219,7 @@ struct AudioEngine::PreparedState {
 };
 struct AudioEngine::ControlInfo {
     // Voice-only copies share this identity; a full/timing prepare replaces it.
-    std::shared_ptr<const unsigned char> generation=std::make_shared<const unsigned char>(0);
+    std::shared_ptr<const unsigned char> generation=std::make_shared<const unsigned char>();
     RenderGraph graph;
     CompensationReport compensation;
     ProcessingDomains domains;
