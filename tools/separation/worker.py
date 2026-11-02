@@ -190,6 +190,9 @@ def infer_htdemucs(snapshot, output_dir, model_dir, requested_device, threads, e
             raise Failure("unsupported_device")
     check()
     emit("loading", device=effective)
+    # Separator imports ORT even for Demucs; opt out of its native telemetry.
+    import onnxruntime as ort
+    ort.disable_telemetry_events()
     # No model catalogue/UVR metadata requests: this fixed adapter resolves the
     # complete official Demucs closure itself, avoiding upstream discovery fetches.
     from audio_separator.separator import Separator
