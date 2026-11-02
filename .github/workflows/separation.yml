@@ -3,7 +3,7 @@ run-name: MR Studio 0.9.3 — Windows separation CPU smoke
 on:
   push:
     branches: ['codex/74-separation-contract']
-    paths: ['tools/separation/**', 'tools/separation_check.cpp', 'tests/*separation*', 'apps/studio-juce/src/SeparationRunner*', 'cmake/Separation.cmake', '.github/workflows/separation.yml']
+    paths: ['tools/separation/**', 'tools/separation_check.cpp', 'tests/*separation*', 'apps/studio-juce/src/SeparationRunner*', 'apps/studio-juce/src/SeparationModels.cpp', 'apps/studio-juce/src/SeparationModels.h', 'cmake/Separation.cmake', '.github/workflows/separation.yml']
   workflow_dispatch:
 permissions:
   contents: read

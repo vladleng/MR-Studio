@@ -208,7 +208,7 @@ separation metadata открывается как прежде; формат р�
 | --- | --- |
 | #333 (этот) | Сверка pinned API/package/license/config источников, ссылок, source integration points; diff/whitespace. Без inference/build/CTest. |
 | #334 | Чистый Windows x64 runtime lock/wheels; CPU 2-output fixture, Unicode/space paths; fake sidecar protocol/cancel/timeout/crash/flood/malformed/late result; source revision/session rejection; network disabled + missing subweight/config; gain >1, exact geometry 44.1/48/96 kHz and nonzero source offset, NaN/Inf/partial output. RT/UI isolation review. GPU probe/fallback на реальном устройстве отдельно. |
-| #335 | Download consent/license unknown reject, checksum mismatch, interrupted/oversize download, cache corruption/quota/concurrent install, offline full closure, hostile checkpoint/config reject; dependencies/weights notices и SBOM. |
+| #335 | Explicit download; checksum/size mismatch, interruption/cancel/safe retry, cache corruption, disk-space preflight, concurrent install/in-use leases, offline full closure. Метаданные/лицензии доступны; лицензионная приёмка отложена по указанию пользователя. |
 | #336 | Hidden assets default; optional tracks одной Undo transaction, Redo без inference, cancel/close during completion; Save/Open/Save As/moved project/missing media, старый project без metadata, trimmed source alignment. |
 | #337 | Реальные stem labels/count/rates каждой admitted модели, sample/time/phase consistency, CPU/CUDA/DML matrix только по фактическим тестам. |
 
@@ -280,10 +280,11 @@ mrs_separation_check.exe --real <absolute-python.exe> <absolute-worker.py> <mode
 
 Установка модели — отдельная осознанная операция development helper, не запуск
 worker и не готовый Model Manager #335. Она проверяет full SHA256 и размер;
-каталог не должен содержать прежние файлы. Runtime candidate закрепляет верхние
-версии; полный resolved freeze сохраняется CI как evidence, не объявлен готовым
-hash-locked distributable. Модели/Python не пакуются; Studio runtime содержит
-только `mr_separation_worker.py`. В UI действия Separate пока нет (#336).
+каталог не должен содержать прежние файлы. В #335 полный resolved набор версий закреплён в `requirements-cpu.txt`; SHA256
+канонического списка проверяется до установки. Wheel hashes не закреплены:
+это version-pinned installation, не hash-locked distributable. Модели/Python
+не пакуются; Studio содержит `mr_separation_worker.py` и
+`mr_separation_requirements.txt`. В UI действия Separate пока нет (#336).
 
 CI `Separation CPU contracts`: Windows x64/CPython 3.11; Python synthetic contract
 tests, C++ fake-sidecar faults, затем real official HTDemucs CPU smoke с отключённой
@@ -291,6 +292,54 @@ tests, C++ fake-sidecar faults, затем real official HTDemucs CPU smoke с �
 `PlaybackProbe` одновременно проводит существующий engine process + raw recorder
 через fake device; это изоляция сервиса, не ASIO benchmark. Обычная Windows Studio
 сборка остаётся JUCE/VST3/ASIO/ARA2 ON и проверяет host fault suite.
+
+## Реализованный Model Manager #335 (0.9.3)
+
+Options → Separation models открывает отдельное окно Studio: установка, проверка
+и удаление CPU runtime; выбор модели, размер, загрузка/удаление, Details с ID,
+версией, native/derived outputs, источниками, SHA256 и лицензионными сведениями.
+Прогресс, отмена и ошибки отражают состояние сервиса; неизвестная лицензия не
+блокирует разработку по указанию пользователя, разрешение bundling не заявляется.
+MR Live меню и ресурсы менеджера не получает. Проект/Undo менеджер не изменяет.
+
+`SeparationModels.h/.cpp` управляет `%LOCALAPPDATA%/MoonRiverStudio/Separation`:
+`models/<catalogue-id>`, `runtimes/cpu-py3119-audiosep048-v1`, `locks`, `jobs`.
+Один разрешённый checkpoint HTDemucs: native four sources, в MVP только derived
+Vocals/Instrumental. HTDemucs 6s показан как unsupported с причиной; CUDA профиль
+не установлен и явный запрос CUDA отклоняется. Нет импорта произвольных YAML/весов.
+
+Runtime устанавливается отдельной явной кнопкой: embedded CPython 3.11.9 x64,
+не меняющий системный Python/PATH/registry; bootstrap Python/get-pip проверены по
+размеру и SHA256. pip использует явные официальные индексы, binary wheels,
+закреплённые версии, без prompt/compile/cache. Torch/torchvision — CPU wheels.
+`pip check`, импорт/CPU tensor probe, полный file inventory и resolved freeze
+предшествуют публикации. `managed.json` содержит provenance и хэши файлов;
+локальные package dist-info содержат собственные notices. SBOM/юридический аудит
+всех зависимостей не объявляются завершёнными.
+
+Все операции выполняются на service thread: lock между процессами, уникальный
+`.part-*` staging, bounded HTTPS/byte limits, проверка hash, atomic directory
+publish. Ошибка/отмена убирает staging текущей операции; повтор начинается заново.
+Никакого скрытого обновления установленного профиля: явное remove/reinstall.
+Удаление проверяет managed inventory, не удаляет лишние пользовательские файлы,
+отклоняет reparse paths. Shared leases удерживают runtime/веса при inference;
+удаление занятой установки возвращает `in_use`. Офлайн refresh не запускает Python
+и сеть; Verify проверяет все hashes и offline probe. Открытие окна не скачивает.
+
+Worker запущен с `-I -B`; Numba cache находится только в private job staging и
+удаляется после завершения процесса. Полная проверка runtime после реального
+inference подтверждает отсутствие изменений. Installer/probe — private pipes,
+ограниченные память/process tree/deadline/log; закрытие окна отменяет операцию,
+service переживает окно без callback в разрушенный GUI. Это не OS sandbox для
+враждебного native кода, поддерживается только pinned catalogue.
+
+Проверки: native manager faults и host contracts; Windows embedded bootstrap,
+offline reopen, leased removal, реальный CPU inference и повторная полная проверка
+runtime; Python worker contracts. GUI smoke использует только synthetic tiny
+model, проверяет реальные download/remove bindings, Details, close/reopen и
+неизменность project pointer, сохраняет software snapshots min/nominal/max при
+100/125/150/200%. Физические DPI/ASIO/GPU и пользовательская приёмка — NOT TESTED.
+Clip action/hidden assets/Undo/persistence остаются исключительно в #336.
 
 ## Источники аудита
 

@@ -352,6 +352,7 @@ public:
     void finishPreview();
     mrs::desktop::Application app;
     Theme theme;
+    std::unique_ptr<juce::DocumentWindow> separationModelsWindow; // Studio-only utility, no project state
     std::optional<TrackHeaderLayout> trackHeaderLayout; // UI-only, never project state.
     juce::File trackHeaderLayoutSource;
     juce::Time trackHeaderObservedStamp, trackHeaderPendingStamp;

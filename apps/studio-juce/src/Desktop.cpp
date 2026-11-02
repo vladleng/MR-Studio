@@ -1,6 +1,9 @@
 #include "MusicalGrid.h"
 #include "MeterTrack.h"
 #include "Desktop.h"
+#if defined(MRS_SEPARATION_UI)
+#include "SeparationModelsView.h"
+#endif
 #include "LibraryFoundationPanel.h"
 #include <MRTrackHeaderAssets.h>
 #include "MRControlBinding.h"
@@ -130,6 +133,7 @@ Desktop::Desktop(bool test,bool startAtHome,bool liveApplication):standaloneLive
     home=std::make_unique<ProjectHome>(*this);addChildComponent(*home);if(!standaloneLive&&(!testing||startAtHome)){showProjectHome(true);if(!testing)home->rescan();}if(standaloneLive){liveDocument.emplace();prepareLiveInterface(true);showProjectHome(false);liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};}startTimerHz(30);
 }
 Desktop::~Desktop(){
+    separationModelsWindow.reset();
     araDockResizeFrame={};pendingAraDockHeight.reset();resizingAraDock=nullptr;
 #ifdef MRS_HAS_ARA
     *araScanCancel=true;
@@ -294,6 +298,9 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
         m.addItem(711,"Hot Reload Track Header JSON",trackHeaderLayoutSource!=juce::File() && !app.recording(),
                   trackHeaderHotReload);
         m.addItem(712,"Restore Default Track Header",trackHeaderLayoutSource!=juce::File() && !app.recording());
+#if defined(MRS_SEPARATION_UI)
+        m.addSeparator();m.addItem(715,"Separation models...",!standaloneLive);
+#endif
         return m;
     }
     // Existing menus retain their action IDs after inserting Options next to File.
@@ -382,6 +389,9 @@ void Desktop::navigationMenu(bool sections){
 }
 void Desktop::menuItemSelected(int n,int){action(n);}
 void Desktop::action(int n){if(busyGesture()){if(n==3||n==4){reportSaveError("Finish the active edit before saving the show");return;}if(n==34||n==35||n==48||n==49||n==50||n==51){message="Finish editing before navigating";repaint();}return;}mrs::diagnostics::event("ui_action="+std::to_string(n));run([&]{if(standaloneLive&&n==1){action(701);return;}if(standaloneLive&&(n==6||n==8))return;if(standaloneLive&&n==2){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){openFile(file);},"*.mrlive");});return;}
+#if defined(MRS_SEPARATION_UI)
+    if(n==715){if(!standaloneLive)showSeparationModels(*this);return;}
+#endif
     if(n==710){
         if(app.recording())return;
         choose(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,

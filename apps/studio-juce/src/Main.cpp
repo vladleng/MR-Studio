@@ -10,6 +10,7 @@
 #include "ReverbBrowser.h"
 #include "ToneBrowser.h"
 #include "RigPanel.h"
+#include "SeparationModelsView.h"
 #include <mrs/version.hpp> // Shared application/package version (compact note editor update).
 #include <mrs/diagnostics.hpp>
 #include <stdexcept>
@@ -45,6 +46,7 @@ public:
     const juce::String getApplicationName() override {return "Moon River Studio JUCE";}
     const juce::String getApplicationVersion() override {return juce::String(mrs::desktop::application_version.data());}
     void initialise(const juce::String& args) override {
+        if(args.contains("--separation-models-smoke")){try{ui::separationModelsSmoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("separation-models-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--piano214-smoke")){try{ui::pianoRoll214Smoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("piano214-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--channel213-smoke")){try{ui::channel213Smoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("channel213-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--compact-fader215-smoke")){try{ui::compactFader215Smoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("compact215-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
@@ -72,7 +74,7 @@ public:
                 // Verify the new top-level Options menu and the toggle contract
                 // using a local/offline Desktop fixture; no ASIO device required.
                 ui::Desktop desktop(true);
-                if(desktop.getMenuBarNames()[1]!="Options" || desktop.getMenuForIndex(1,{}).getNumItems()!=3)
+                if(desktop.getMenuBarNames()[1]!="Options" || desktop.getMenuForIndex(1,{}).getNumItems()<4)
                     throw std::runtime_error("Options menu or Track Header actions missing");
                 if(desktop.isTrackHeaderReloadEnabled())
                     throw std::runtime_error("Hot Reload must default OFF in Release");

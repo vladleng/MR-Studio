@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <set>
+#include <stdexcept>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -15,7 +16,7 @@
 
 namespace mr::separation {
 namespace {
-struct Error { juce::String code; };
+struct Error : std::runtime_error { juce::String code; explicit Error(juce::String value):std::runtime_error(value.toStdString()),code(std::move(value)){} };
 void need(bool ok, const char* code) { if (!ok) throw Error{code}; }
 void check(const std::atomic<bool>& stop) { need(!stop.load(), "cancelled"); }
 juce::var object() { return juce::var(new juce::DynamicObject); }
@@ -108,7 +109,7 @@ void fetchHttps(const DownloadArtifact& artifact,const juce::File& target,const 
 const DownloadArtifact pythonZip{"python-embed.zip","https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip","009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b",11249023};
 const DownloadArtifact getPip{"get-pip.py","https://raw.githubusercontent.com/pypa/get-pip/37ae3c4daaf63a0c203176251fb99c0e238562b5/public/get-pip.py","f4448a01e3ab2914c65f4ca59d4cacba6b2dbde19a483fbac46587f8bbaff424",2234489};
 // Canonical LF text: controlled profile, never a user-supplied pip requirements list.
-constexpr auto requirementsHash="e291a7a6c14a5ebc38cc3d1534c67425a2983774bd159c26235293e0cd38576f";
+constexpr auto requirementsHash="0184624b3268c94f6e98fa0ccefa3fcdef614a719911f726740dcbf7f0fe414c";
 struct UseLease { HANDLE handle{INVALID_HANDLE_VALUE}; ~UseLease(){if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle);} };
 struct Staging { juce::File dir; bool owned{}; ~Staging(){if(owned&&dir!=juce::File())dir.deleteRecursively();} };
 }
@@ -119,7 +120,7 @@ const std::vector<ModelRecord>& modelCatalogue() {
          {{"htdemucs.yaml","https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/htdemucs.yaml","239c445d0b14454d541ad8bd9bb271c9e536d267e8a4625208744cbb2e7bb66c",21},
           {"955717e8-8726e21a.th","https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th","8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4",84141911}}},
         {"htdemucs-6s","5c90dfd2","HTDemucs 6 sources","python-audio-separator","Not available","Bass / Drums / Other / Vocals / Guitar / Piano","Not validated in this version","MIT","Review deferred","Official Meta Demucs","Extended outputs are not supported by this version.",{}},
-        {"roformer-mdx","unavailable","RoFormer / MDX","python-audio-separator","Model-dependent","Model-dependent","Not validated in this version","Model-dependent","Review deferred","Per-checkpoint provenance required","Additional model adapters are not available in this version.",{}}
+
     };return records;
 }
 juce::File ModelManager::defaultRoot() {
@@ -193,6 +194,7 @@ void ModelManager::install(const ModelRecord& r) {
         check(cancelled_);need(target.existsAsFile()&&plain(target)&&target.getSize()==f.bytes&&sha(target)==f.sha256,"integrity_failure");offset+=f.bytes;
     }
     phase("Verifying model",r.title);auto provenance=object();put(provenance,"model_version",r.version);put(provenance,"source",r.provenance);put(provenance,"code_license",r.codeLicense);put(provenance,"weights_license",r.weightsLicense);
+    juce::Array<juce::var> artifacts;for(const auto& file:r.files){auto item=object();put(item,"url",file.url);put(item,"sha256",file.sha256);put(item,"bytes",file.bytes);artifacts.add(item);}put(provenance,"artifacts",juce::var(artifacts));
     inventory(stage.dir,r.id,provenance,cancelled_);check(cancelled_);need(stage.dir.moveFileTo(destination),"io_error");stage.dir=juce::File();scan();
 }
 bool ModelManager::installModel(const juce::String& id){return start("install_model",[this,id]{install(record(id));});}
@@ -235,7 +237,7 @@ void ModelManager::setupRuntime() {
     run({"-I","-B","-u","-m","pip","--isolated","install","--no-input","--no-compile","--no-cache-dir","--disable-pip-version-check","--only-binary=:all:","--timeout","15","--retries","1","--index-url","https://pypi.org/simple","-r",requirements.getFullPathName()});
     run({"-I","-B","-u","-m","pip","check"});probeRuntime(stage.dir);
     auto freeze=runLocalProcess(python,{"-I","-B","-m","pip","freeze"},stage.dir,cancelled_,std::chrono::minutes(1));need(freeze.success&&stage.dir.getChildFile("resolved-packages.txt").replaceWithText(freeze.log),"runtime_probe_failed");
-    phase("Verifying processing runtime");auto provenance=object();put(provenance,"requirements_sha256",requirementsHash);put(provenance,"python_url",pythonZip.url);put(provenance,"python_sha256",pythonZip.sha256);put(provenance,"bootstrap_url",getPip.url);put(provenance,"bootstrap_sha256",getPip.sha256);put(provenance,"device","cpu");put(provenance,"python_license","PSF-2.0 (LICENSE.txt)");
+    phase("Verifying processing runtime");auto provenance=object();put(provenance,"requirements_sha256",requirementsHash);put(provenance,"python_url",pythonZip.url);put(provenance,"python_sha256",pythonZip.sha256);put(provenance,"bootstrap_url",getPip.url);put(provenance,"bootstrap_sha256",getPip.sha256);put(provenance,"resolved_packages_sha256",sha(stage.dir.getChildFile("resolved-packages.txt")));put(provenance,"device","cpu");put(provenance,"python_license","PSF-2.0 (LICENSE.txt)");
     inventory(stage.dir,runtimeProfile,provenance,cancelled_);check(cancelled_);need(stage.dir.moveFileTo(runtimePath()),"io_error");stage.dir=juce::File();scan();
 }
 bool ModelManager::installRuntime(){return start("install_runtime",[this]{setupRuntime();});}

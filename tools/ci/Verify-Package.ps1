@@ -23,6 +23,10 @@ foreach($file in (Get-ChildItem -LiteralPath $root -Recurse -File)){
  if($file.Extension -in @('.pdb','.vst3','.wav','.nam','.zip','.lib','.h','.cpp')){throw 'Non-runtime content in artifact'}
 }
 if($manifest.application -notin @('MR Live','MR Studio + MR Live')){throw 'Unknown package application'}
+foreach($resource in @('mr_separation_worker.py','mr_separation_requirements.txt')){
+ if($manifest.application -eq 'MR Studio + MR Live' -and !$names.Contains($resource)){throw "Separation setup resource missing: $resource"}
+ if($manifest.application -eq 'MR Live' -and $names.Contains($resource)){throw "Studio-only separation resource in Live package: $resource"}
+}
 if($manifest.application -eq 'MR Live' -and $manifest.ara){throw 'MR Live-only package must be ARA-free'}
 [string[]]$applications=if($manifest.application -eq 'MR Live'){@('MR Live.exe')}else{@('Moon River Studio JUCE.exe','MR Live.exe')}
 if($manifest.application -eq 'MR Live' -and $names.Contains('Moon River Studio JUCE.exe')){throw 'Studio executable is not part of a Live-only package'}
