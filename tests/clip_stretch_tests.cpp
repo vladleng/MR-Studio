@@ -47,7 +47,8 @@ void model(){
     for(int i=0;i<100;++i){auto other=params;other.duration_ratio=.333333333333;SetAudioStretch{id,other}.apply(p);SetAudioStretch{id,params}.apply(p);CHECK(p.clips[0].length==trimmed.length&&p.clips[0].stretch==trimmed.stretch);}
     CHECK(deserialize(serialize(p))==p);
     SetAudioStretch{id,params,true}.apply(p);p.validate();CHECK(!p.clips[0].stretch&&p.clips[0].source_offset>13);
-    auto legacy=serialize(original);legacy.replace(legacy.find("MRS_CORE_SNAPSHOT 31"),20,"MRS_CORE_SNAPSHOT 30");
+    auto legacy=serialize(original);legacy.replace(legacy.find("MRS_CORE_SNAPSHOT 32"),20,"MRS_CORE_SNAPSHOT 30");
+    for(std::size_t at;(at=legacy.find("STRETCH_MODE "))!=std::string::npos;)legacy.erase(at,legacy.find('\n',at)-at+1);
     CHECK(deserialize(legacy)==original);
     auto corrupt=stretched;corrupt.clips[0].stretch->window_end+=10;rejects([&]{corrupt.validate();});
     corrupt=stretched;corrupt.clips[0].stretch->window_begin=std::numeric_limits<double>::infinity();rejects([&]{corrupt.validate();});
@@ -79,7 +80,7 @@ void cache(){
     // Cancellation is tested during output as well as before any file exists.
     std::stop_source stop;stop.request_stop();rejects([&]{(void)audio::prepare_stretch_cache(source,p.clips[0],stop.get_token());});
     std::stop_source mid;rejects([&]{(void)audio::prepare_stretch_cache(source,p.clips[0],mid.get_token(),[&](float){mid.request_stop();});});
-    auto held=prepared->data;prepared.reset();CHECK(fs::exists(file));held.reset();CHECK(!fs::exists(file.parent_path()));
+    auto held=prepared->data;prepared.reset();CHECK(fs::exists(file));held.reset();const auto retiredBy=std::chrono::steady_clock::now()+std::chrono::seconds(5);while(fs::exists(file.parent_path())&&std::chrono::steady_clock::now()<retiredBy)std::this_thread::sleep_for(std::chrono::milliseconds(1));CHECK(!fs::exists(file.parent_path()));
     Directory dir;const auto original=dir.path/"source.wav";fs::copy_file(again->data->file->path,original);
     auto streamed=std::make_shared<audio::AudioData>();streamed->channels=2;streamed->file=std::make_shared<audio::WavFile>(audio::inspect_wav(original));
     auto fromFile=audio::prepare_stretch_cache(streamed,p.clips[0]);CHECK(fromFile->source_current());
@@ -127,7 +128,7 @@ void desktop_test(){
     auto bypass=params;bypass.enabled=false;app.set_clip_stretch(id,bypass);CHECK(app.services().projects->state().project->clips[0].length==60001);
     CHECK(app.undo());finish(app);CHECK(app.services().projects->state().project->clips[0].length==75001);
     CHECK(app.redo());finish(app);CHECK(app.services().projects->state().project->clips[0].length==60001);
-    app.set_clip_stretch(id,params);app.cancel_stretch();CHECK(!app.stretch_status().busy);rejects([&]{app.play();});app.retry_stretch();finish(app);
+    auto cold=params;cold.duration_ratio=1.37;app.set_clip_stretch(id,cold);app.cancel_stretch();CHECK(!app.stretch_status().busy);rejects([&]{app.play();});app.retry_stretch();finish(app);
     // A stale worker must not install its PCM in a replacement document.
     params.semitones=7;app.set_clip_stretch(id,params);app.new_project();finish(app);CHECK(app.services().projects->state().project->clips.empty());
     app.import_wav(wav);const auto savedId=app.services().projects->state().project->clips[0].id;

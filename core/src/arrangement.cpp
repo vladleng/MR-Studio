@@ -98,6 +98,14 @@ void MoveAudioClip::apply(Project& p) const {
         throw std::invalid_argument("invalid audio clip destination");
     it->track = track_; it->start = start_;
 }
+void SetTrackStretchBackend::apply(Project& p) const {
+    const auto it=std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t){return t.id==id_;});
+    if(it==p.tracks.end()||it->kind!=TrackKind::audio)throw std::invalid_argument("Select an audio channel");
+    if(backend_!=stretch::Backend::signalsmith&&backend_!=stretch::Backend::drums)throw std::invalid_argument("Invalid stretch mode");
+    for(const auto& c:p.clips)if(c.track==id_&&c.stretch&&!stretch::supports(backend_,c.stretch->parameters))
+        throw std::invalid_argument("MR Timestretch Drums supports time ratios 0.25–4 without pitch/formants; select Signalsmith");
+    it->stretch_backend=backend_;
+}
 void SetAudioStretch::apply(Project& p) const {
     auto it=audio_clip(p,id_);auto& c=*it;
     if(stretch::validate(parameters_)!=stretch::Status::ok)throw std::invalid_argument("Invalid stretch parameters");

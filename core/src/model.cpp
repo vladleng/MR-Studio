@@ -179,6 +179,10 @@ void Project::validate() const {
         for (const auto& effect : chain) { effect.validate(); add_id(effect.id); }
     };
     inserts(master_inserts);
+    for(const auto& t:tracks)require((t.stretch_backend==stretch::Backend::signalsmith||t.stretch_backend==stretch::Backend::drums)&&
+        (t.kind==TrackKind::audio||t.stretch_backend==stretch::Backend::signalsmith),"Invalid channel stretch mode");
+    for(const auto& c:clips)if(c.stretch)for(const auto& t:tracks)if(t.id==c.track)
+        require(stretch::supports(t.stretch_backend,c.stretch->parameters),"MR Timestretch Drums supports time ratios 0.25–4 without pitch/formants; select Signalsmith");
     add_id(id);
     std::unordered_map<std::string, const Folder*> folder_by_id;
     for (const auto& folder : folders) {

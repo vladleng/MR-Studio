@@ -31,7 +31,7 @@ template<class F> void invalid_project(F edit) {
 void marker_colors(){
     auto p=mrs::demo_project();p.markers.front().color=0xAD5677;CHECK(mrs::deserialize(mrs::serialize(p))==p);
     auto bad=p;bad.markers.front().color=0x1000000;rejects([&]{bad.validate();});
-    p.markers.front().color.reset();auto legacy=without_marker_colors(mrs::serialize(p));legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 20").size(),"MRS_CORE_SNAPSHOT 19");CHECK(mrs::deserialize(legacy)==p);
+    p.markers.front().color.reset();auto legacy=without_marker_colors(mrs::serialize(p));legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 20").size(),"MRS_CORE_SNAPSHOT 19");CHECK(mrs::deserialize(without_stretch_modes(legacy))==p);
 }
 void inserts() {
     marker_colors();
@@ -75,7 +75,7 @@ void inserts() {
     std::vector<NativeInsert> excess; for (int n=0;n<9;++n){NativeInsert insert{};insert.id=new_id();excess.push_back(insert);} rejects([&] { store.execute(SetInserts{track,excess}); });
     auto legacy=without_midi_outputs(serialize(demo_project())); const std::string clipMidi="MIDI 0\nMIDIEVENTS 0\n";for(auto pos=legacy.find(clipMidi);pos!=std::string::npos;pos=legacy.find(clipMidi))legacy.erase(pos,clipMidi.size()); const std::string midiLine="\"\" -1 1\n";for(auto pos=legacy.find(midiLine);pos!=std::string::npos;pos=legacy.find(midiLine))legacy.erase(pos,midiLine.size()); legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 14").size(),"MRS_CORE_SNAPSHOT 7");
     const std::string line="INSERTS 0\n"; for (auto pos=legacy.find(line);pos!=std::string::npos;pos=legacy.find(line)) legacy.erase(pos,line.size());
-    CHECK(deserialize(legacy) == demo_project());
+    CHECK(deserialize(without_stretch_modes(legacy)) == demo_project());
     auto v9project=demo_project();NativeInsert channel;channel.id=new_id();channel.kind=InsertKind::channel_eq;channel.bands[2].gain=4;v9project.tracks.front().inserts={channel};auto v9=without_midi_outputs(serialize(v9project));for(auto pos=v9.find(clipMidi);pos!=std::string::npos;pos=v9.find(clipMidi))v9.erase(pos,clipMidi.size());for(auto pos=v9.find(midiLine);pos!=std::string::npos;pos=v9.find(midiLine))v9.erase(pos,midiLine.size());v9.replace(0,std::string("MRS_CORE_SNAPSHOT 14").size(),"MRS_CORE_SNAPSHOT 9");const std::string irline="\"\" 48000 1 1 20 20000 0 0\n";for(auto pos=v9.find(irline);pos!=std::string::npos;pos=v9.find(irline))v9.erase(pos,irline.size());CHECK(deserialize(v9)==v9project);
 
 }
@@ -138,7 +138,7 @@ void sends() {
     auto legacy=without_marker_colors(serialize(saved));legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 19").size(),"MRS_CORE_SNAPSHOT 17");
     for(const auto& send:saved.tracks.front().sends){const auto prefix="\""+send.bus.value+"\" ";const auto at=legacy.find(prefix),end=legacy.find('\n',at);CHECK(at!=std::string::npos);legacy.erase(end-2,2);}
     for(auto at=legacy.find("FX_ROLE ");at!=std::string::npos;at=legacy.find("FX_ROLE "))legacy.erase(at,legacy.find('\n',at)-at+1);
-    CHECK(deserialize(legacy)==saved); // all old sends remain enabled
+    CHECK(deserialize(without_stretch_modes(legacy))==saved); // all old sends remain enabled
     store.execute(SetTrackOutput{Id{"r1"},Id{"r2"}});
     const auto before = store.state();
     rejects([&] { store.execute(SetTrackSends{Id{"r2"},{{{"r1"},0,false}}}); });
@@ -402,9 +402,9 @@ void track_folders(){
     const auto clips=store.state().project->clips;store.execute(RemoveTrackFolder{group.id});CHECK(store.state().project->clips==clips&&store.state().project->tracks.size()==p.tracks.size()+2);
     CHECK(store.state().project->folders.back().parent==std::nullopt&&store.state().project->tracks[0].output==bus.id);CHECK(store.undo());
     store.execute(LinkFolderBus{group.id,{}});CHECK(!store.state().project->folders[1].bus&&store.state().project->tracks[0].output==bus.id);
-    auto legacy=serialize(p);legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 30").size(),"MRS_CORE_SNAPSHOT 29");CHECK(deserialize(legacy)==p);
+    auto legacy=serialize(p);legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 30").size(),"MRS_CORE_SNAPSHOT 29");CHECK(deserialize(without_stretch_modes(legacy))==p);
     auto invalid=linked;invalid.folders.back().bus=drums;rejects([&]{invalid.validate();});
-    auto oldFolder=p;oldFolder.folders.front().name.clear();oldFolder.validate();auto oldBytes=serialize(oldFolder);oldBytes.replace(0,std::string("MRS_CORE_SNAPSHOT 30").size(),"MRS_CORE_SNAPSHOT 29");CHECK(deserialize(oldBytes)==oldFolder);UpdateTrackFolder{oldFolder.folders.front().id,"",true}.apply(oldFolder);CHECK(oldFolder.folders.front().collapsed);
+    auto oldFolder=p;oldFolder.folders.front().name.clear();oldFolder.validate();auto oldBytes=serialize(oldFolder);oldBytes.replace(0,std::string("MRS_CORE_SNAPSHOT 30").size(),"MRS_CORE_SNAPSHOT 29");CHECK(deserialize(without_stretch_modes(oldBytes))==oldFolder);UpdateTrackFolder{oldFolder.folders.front().id,"",true}.apply(oldFolder);CHECK(oldFolder.folders.front().collapsed);
     Folder unnamed;unnamed.id=new_id();rejects([&]{store.execute(CreateTrackFolder{unnamed,{drums}});});
 }
 void serialization() {
@@ -412,20 +412,20 @@ void serialization() {
         CHECK(mrs::deserialize(mrs::serialize(project))==project);mrs::ProjectStore store(mrs::demo_project());store.execute(mrs::SetAraBindings{project.ara_bindings});CHECK(store.state().project->ara_bindings==project.ara_bindings);CHECK(store.undo()&&store.state().project->ara_bindings.empty());CHECK(store.redo()&&store.state().project->ara_bindings==project.ara_bindings);
         auto duplicate=project;duplicate.ara_bindings.push_back(binding);rejects([&]{duplicate.validate();});auto oversized=project;oversized.ara_bindings.front().archive.resize(1024*1024+1);rejects([&]{oversized.validate();});
         auto bad=mrs::serialize(project);const auto at=bad.find("ARA_BINDINGS 1");bad.replace(at,std::string("ARA_BINDINGS 1").size(),"ARA_BINDINGS 99");rejects([&]{(void)mrs::deserialize(bad);});
-        auto legacy=mrs::serialize(project);legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 29").size(),"MRS_CORE_SNAPSHOT 28");const auto groupField=legacy.find("\"archive\" \"\" ");CHECK(groupField!=std::string::npos);legacy.erase(groupField+std::string("\"archive\" ").size(),3);CHECK(mrs::deserialize(legacy)==project);
+        auto legacy=mrs::serialize(project);legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 29").size(),"MRS_CORE_SNAPSHOT 28");const auto groupField=legacy.find("\"archive\" \"\" ");CHECK(groupField!=std::string::npos);legacy.erase(groupField+std::string("\"archive\" ").size(),3);CHECK(mrs::deserialize(without_stretch_modes(legacy))==project);
         project.ara_bindings.front().document_id="shared-document";auto second=project.ara_bindings.front();second.source="second-source";second.persistent_id="second-persistent";project.ara_bindings.push_back(second);CHECK(mrs::deserialize(mrs::serialize(project))==project);
         project.ara_bindings.back().class_id="different-plugin";rejects([&]{project.validate();});
     }
     {auto colored=mrs::demo_project();colored.tracks.front().color=0x36b9b7u;CHECK(mrs::deserialize(mrs::serialize(colored))==colored);
         auto bad=colored;bad.tracks.front().color=0x1000000u;rejects([&]{bad.validate();});
         auto legacy=mrs::serialize(mrs::demo_project());for(auto at=legacy.find("TRACKCOLOR ");at!=std::string::npos;at=legacy.find("TRACKCOLOR "))legacy.erase(at,legacy.find('\n',at)-at+1);
-        legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 27").size(),"MRS_CORE_SNAPSHOT 26");CHECK(mrs::deserialize(legacy)==mrs::demo_project());
+        legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 27").size(),"MRS_CORE_SNAPSHOT 26");CHECK(mrs::deserialize(without_stretch_modes(legacy))==mrs::demo_project());
         auto invalid=mrs::serialize(colored);auto at=invalid.find("TRACKCOLOR ");invalid.replace(at,invalid.find('\n',at)-at,"TRACKCOLOR 2 0");rejects([&]{(void)mrs::deserialize(invalid);});
     }
     {auto faded=mrs::demo_project();auto& audio=faded.clips.front();audio.fade_in=64;audio.fade_out=128;CHECK(mrs::deserialize(mrs::serialize(faded))==faded);
         auto bad=faded;bad.clips.front().fade_in=bad.clips.front().length+1;rejects([&]{bad.validate();});
         auto legacy=mrs::serialize(mrs::demo_project());for(auto at=legacy.find("TRACKCOLOR ");at!=std::string::npos;at=legacy.find("TRACKCOLOR "))legacy.erase(at,legacy.find('\n',at)-at+1);for(auto at=legacy.find("AUDIOFADE ");at!=std::string::npos;at=legacy.find("AUDIOFADE "))legacy.erase(at,legacy.find('\n',at)-at+1);
-        legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 26").size(),"MRS_CORE_SNAPSHOT 25");CHECK(mrs::deserialize(legacy)==mrs::demo_project());
+        legacy.replace(0,std::string("MRS_CORE_SNAPSHOT 26").size(),"MRS_CORE_SNAPSHOT 25");CHECK(mrs::deserialize(without_stretch_modes(legacy))==mrs::demo_project());
         const auto id=audio.id;const auto length=audio.length;mrs::TrimAudioClip{id,audio.start,audio.start+32,audio.source_offset+length}.apply(faded);CHECK(faded.clips.front().fade_in==32&&faded.clips.front().fade_out==32);faded.validate();
         faded=mrs::demo_project();faded.clips.front().fade_in=64;faded.clips.front().fade_out=128;const auto right=mrs::new_id();mrs::SplitAudioClip{id,faded.clips.front().start+faded.clips.front().length/2,right}.apply(faded);CHECK(faded.clips.front().fade_in==64&&faded.clips.front().fade_out==0&&faded.clips[1].fade_in==0&&faded.clips[1].fade_out==128);faded.validate();
     }

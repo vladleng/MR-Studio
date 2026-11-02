@@ -475,7 +475,8 @@ public:
     Handle gain,pan{false};
     std::optional<mrs::Id> target,folder;
 private:
-    mrs::Track track() const;
+    const mrs::Track& track() const;
+    mutable std::shared_ptr<const mrs::Project> trackSnapshot;
     mrs::Track::Mix adjusted(bool,double) const;
     void preview(bool,double);void commit(bool,double);
     void inputMenu();void insertList();void colorMenu();void openInstrument();

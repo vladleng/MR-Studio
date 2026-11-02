@@ -117,6 +117,7 @@ std::string serialize(const Project& p) {
         out << std::quoted(track.midi_input) << ' ' << track.midi_channel << ' ' << track.midi_monitor << '\n';
         out << "MIDIOUT " << std::quoted(track.midi_output) << ' ' << track.midi_output_channel << '\n';
         out << "FX_ROLE " << track.fx_channel << '\n';
+        out << "STRETCH_MODE " << static_cast<int>(track.stretch_backend) << '\n';
         out << "TRACKCOLOR " << (track.color?1:0) << ' ' << track.color.value_or(0) << '\n';
     }
     section(out, "CLIPS", p.clips);
@@ -253,6 +254,7 @@ Project deserialize(std::string_view bytes) {
         if(input_version>=11){track.midi_input=quoted(in);int monitor{};in>>track.midi_channel>>monitor;check_stream(in);if(monitor!=0&&monitor!=1)throw std::invalid_argument("invalid MIDI monitor flag");track.midi_monitor=monitor!=0;}
         if(input_version>=14){tag(in,"MIDIOUT");track.midi_output=quoted(in);in>>track.midi_output_channel;check_stream(in);}
         if(input_version>=19){tag(in,"FX_ROLE");int fx{};in>>fx;check_stream(in);if(fx!=0&&fx!=1)throw std::invalid_argument("invalid FX role");track.fx_channel=fx!=0;if(track.fx_channel&&track.kind!=TrackKind::bus)throw std::invalid_argument("FX role requires bus");}
+        if(input_version>=32){tag(in,"STRETCH_MODE");int mode{};in>>mode;check_stream(in);if(mode<0||mode>1)throw std::invalid_argument("Invalid stretch mode");track.stretch_backend=static_cast<stretch::Backend>(mode);}
         if(input_version>=27){tag(in,"TRACKCOLOR");int present{};std::uint32_t color{};in>>present>>color;check_stream(in);if((present!=0&&present!=1)||color>0xFFFFFF||(!present&&color))throw std::invalid_argument("invalid track color");if(present)track.color=color;}
         p.tracks.push_back(std::move(track));
     }

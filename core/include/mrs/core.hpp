@@ -1,5 +1,6 @@
 #pragma once
 #include <mrs/stretch.hpp>
+#include <mrs/shared_bytes.hpp>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -21,7 +22,7 @@ inline constexpr Tick ppq = 960;
 inline constexpr std::size_t max_project_midi_notes = 32768;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 31;
+inline constexpr std::uint32_t schema_version = 32;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -158,7 +159,7 @@ struct NativeInsert {
     // HP, three bell bands, LP. Filters initially off, bell bands flat.
     std::array<EqBand,5> bands{{{40,0,0.70710678f,false},{150,0,0.70710678f,true},{1000,0,0.70710678f,true},{6000,0,0.70710678f,true},{16000,0,0.70710678f,false}}};
     std::string plugin_path, class_id, plugin_name;
-    std::vector<std::byte> component_state, controller_state;
+    SharedBytes component_state, controller_state;
     std::vector<InsertParameter> parameters;
     CabIr ir;
     ReverbState reverb; // External identity only; global library root belongs to preferences.
@@ -203,6 +204,7 @@ struct Track {
     bool midi_monitor{true}; // instrument live ingress; no MIDI recording in 4a
     std::string midi_output{}; // external Windows port key; empty = off
     int midi_output_channel{-1}; // -1 preserve authored channel, otherwise 0..15
+    stretch::Backend stretch_backend{stretch::Backend::signalsmith};
     bool fx_channel{}; // FX return role; processing/routing remains TrackKind::bus.
     std::optional<std::uint32_t> color{}; // Channel RGB; independent of clip colors.
     bool operator==(const Track&) const = default;

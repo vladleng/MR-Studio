@@ -280,6 +280,12 @@ public:
     struct PreparedTransition;
     enum class TransitionPhase { prepared, pending, acquired, adopted, acknowledged, cancelled };
     std::shared_ptr<PreparedTransition> prepare_transition(RenderGraph,std::uint64_t expected_token);
+    // Clip-only publication: preserves DSP, PDC, mixer, MIDI and transport.
+    // All allocation/stream priming is done by the control owner beforehand.
+    std::shared_ptr<PreparedTransition> prepare_voice_transition(std::vector<Voice>);
+    bool async_voice_transition_available() const noexcept;
+    void swap_voice_transition_stopped(const std::shared_ptr<PreparedTransition>&); // device/producers joined
+    void rollback_voice_transition_stopped(const std::shared_ptr<PreparedTransition>&); // failed restart
     bool stage_transition(const std::shared_ptr<PreparedTransition>&);
     bool cancel_transition(const std::shared_ptr<PreparedTransition>&) noexcept;
     TransitionPhase transition_phase(const std::shared_ptr<PreparedTransition>&) const noexcept;
@@ -374,6 +380,7 @@ private:
     void refresh_control_info();
     const RenderGraph& control_graph() const noexcept;
     std::atomic<PreparedTransition*> pending_transition_{};
+    void adopt_voice_transition() noexcept;
     std::atomic<std::uint64_t> published_performance_token_{},published_manual_revision_{},published_end_serial_{};
     std::atomic<int> published_performance_action_{};
     std::atomic<bool> published_performance_stalled_{};

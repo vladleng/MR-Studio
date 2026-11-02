@@ -218,6 +218,8 @@ struct AudioEngine::PreparedState {
     RealtimeState initial;
 };
 struct AudioEngine::ControlInfo {
+    // Voice-only copies share this identity; a full/timing prepare replaces it.
+    std::shared_ptr<const unsigned char> generation=std::make_shared<const unsigned char>();
     RenderGraph graph;
     CompensationReport compensation;
     ProcessingDomains domains;
@@ -230,6 +232,9 @@ struct AudioEngine::ControlInfo {
 };
 struct AudioEngine::PreparedTransition {
     std::unique_ptr<PreparedState> next;
+    bool voices_only{};
+    std::vector<Voice> voices;
+    std::shared_ptr<const ControlInfo> previous_info;
     std::shared_ptr<const ControlInfo> info;
     std::uint64_t expected{},mix{};
     std::atomic<TransitionPhase> phase{TransitionPhase::prepared};
@@ -250,8 +255,74 @@ std::shared_ptr<AudioEngine::PreparedTransition> AudioEngine::prepare_transition
     auto result=std::make_shared<PreparedTransition>();result->expected=expected_token;result->mix=last_mix_sent_.load(std::memory_order_acquire);
     result->next=prepare_state(config_,std::move(graph),{});result->info=std::make_shared<ControlInfo>(*result->next);return result;
 }
+bool AudioEngine::async_voice_transition_available() const noexcept {
+    RealtimeState head;
+    return !process_buffer_frames_.load(std::memory_order_acquire)&&!processing_fault_.load()&&
+        try_state(head)&&head.playback!=PlaybackState::playing&&!head.count_remaining;
+}
+std::shared_ptr<AudioEngine::PreparedTransition> AudioEngine::prepare_voice_transition(std::vector<Voice> voices){
+    const auto& old=control_graph();RealtimeState head;
+    if(!try_state(head)||head.playback==PlaybackState::playing||head.count_remaining||old.performance||
+       old.recording||!old.recordings.empty()||!old.midi_recordings.empty()||!old.editor_renderers.empty()||
+       std::any_of(old.voices.begin(),old.voices.end(),[](const auto& v){return bool(v.renderer);}))
+        throw std::logic_error("Clip publication requires stopped, non-ARA playback without capture");
+    if(voices.size()>max_voices)throw std::invalid_argument("Too many audio voices");
+    std::vector<bool> used(old.voices.size());std::size_t disk_count{},disk_bytes{};
+    for(auto& voice:voices){
+        if(!voice.asset||voice.renderer||voice.asset->sample_rate!=config_.sample_rate||voice.mixer_track>=old.mixer.size()||
+           voice.start<0||voice.length<=0||voice.start>max_sample-voice.length||voice.source_offset<0||
+           voice.source_offset>voice.asset->frames()||voice.length>voice.asset->frames()-voice.source_offset||
+           voice.fade_in<0||voice.fade_out<0||voice.fade_in>voice.length||voice.fade_out>voice.length)
+            throw std::invalid_argument("Invalid edited audio voice");
+        if(std::none_of(old.voices.begin(),old.voices.end(),[&](const auto& v){return v.asset==voice.asset;}))voice.asset->validate();
+        for(const auto& route:voice.routes)if(route.source_channel>=voice.asset->channels||route.output_channel>=config_.output_channels||!std::isfinite(route.gain))
+            throw std::invalid_argument("Invalid edited voice route");
+        voice.stream.reset();
+        if(voice.asset->file){
+            disk_bytes+=ReadAhead::pages*static_cast<std::size_t>(ReadAhead::page_frames)*voice.asset->channels*sizeof(float);
+            if(++disk_count>32||disk_bytes>256*1024*1024)throw std::invalid_argument("Disk voice budget exceeded");
+            for(std::size_t i=0;i<old.voices.size();++i){const auto& v=old.voices[i];
+                if(!used[i]&&v.asset==voice.asset&&v.start==voice.start&&v.source_offset==voice.source_offset&&v.length==voice.length&&v.stream){voice.stream=v.stream;used[i]=true;break;}}
+            if(!voice.stream){voice.stream=std::make_shared<ReadAhead>(voice.asset->file);
+                voice.stream->prime(voice.source_offset+std::clamp(head.sample-voice.start,Sample{0},voice.length-1));
+                if(head.loop&&head.loop->start<voice.start+voice.length&&head.loop->end>voice.start){const auto source=voice.source_offset+std::max(Sample{0},head.loop->start-voice.start);voice.stream->loop(source);voice.stream->prime(source);}}
+        }
+    }
+    auto result=std::make_shared<PreparedTransition>();result->voices_only=true;result->voices=std::move(voices);result->expected=old.performance_token;
+    auto info=control_info_?std::make_shared<ControlInfo>(*control_info_):std::make_shared<ControlInfo>(*this);
+    result->previous_info=control_info_?control_info_:std::make_shared<ControlInfo>(*this);
+    info->graph.voices=result->voices;result->info=std::move(info);return result;
+}
+void AudioEngine::swap_voice_transition_stopped(const std::shared_ptr<PreparedTransition>& next){
+    if(!next||!next->voices_only||transition_phase(next)!=TransitionPhase::prepared||speculative_||mixed_owner_||
+       rt_.playback==PlaybackState::playing||rt_.count_remaining||next->expected!=graph_.performance_token)
+        throw std::logic_error("Join device/producers before clip swap");
+    graph_.voices.swap(next->voices);next->phase.store(TransitionPhase::adopted,std::memory_order_release);
+}
+void AudioEngine::rollback_voice_transition_stopped(const std::shared_ptr<PreparedTransition>& next){
+    if(!next||!next->voices_only||speculative_||mixed_owner_)throw std::logic_error("Join producers before clip rollback");
+    const auto phase=transition_phase(next);
+    if(phase==TransitionPhase::adopted||phase==TransitionPhase::acknowledged){graph_.voices.swap(next->voices);control_info_=next->previous_info;}
+    next->phase.store(TransitionPhase::cancelled,std::memory_order_release);
+}
+void AudioEngine::adopt_voice_transition() noexcept {
+    // Acquire the mailbox before dereferencing: cancellation may otherwise
+    // retire a merely loaded pointer on the control thread.
+    auto* next=pending_transition_.exchange(nullptr,std::memory_order_acq_rel);
+    if(!next)return;
+    next->phase.store(TransitionPhase::acquired,std::memory_order_release);
+    if(!next->voices_only){next->phase.store(TransitionPhase::cancelled,std::memory_order_release);return;}
+    // No allocation, ownership release, DSP reset or device lifecycle here.
+    // The edit was accepted while paused. A Play queued immediately afterwards
+    // must see these voices too; do not discard an accepted edit on that race.
+    if(next->expected!=graph_.performance_token){next->phase.store(TransitionPhase::cancelled,std::memory_order_release);return;}
+    next->phase.store(TransitionPhase::acquired,std::memory_order_release);
+    graph_.voices.swap(next->voices);
+    next->phase.store(TransitionPhase::adopted,std::memory_order_release);
+}
 bool AudioEngine::stage_transition(const std::shared_ptr<PreparedTransition>& next){
     if(!next || next->expected!=control_graph().performance_token || next->phase.load()!=TransitionPhase::prepared)return false;
+    if(next->voices_only&&(!async_voice_transition_available()||!control_info_||next->previous_info->generation!=control_info_->generation))return false;
     auto phase=TransitionPhase::prepared;if(!next->phase.compare_exchange_strong(phase,TransitionPhase::pending))return false;
     PreparedTransition* empty{};
     if(!pending_transition_.compare_exchange_strong(empty,next.get(),std::memory_order_release)){next->phase=TransitionPhase::prepared;return false;}return true;
@@ -267,6 +338,7 @@ bool AudioEngine::cancel_transition(const std::shared_ptr<PreparedTransition>& n
 AudioEngine::TransitionPhase AudioEngine::transition_phase(const std::shared_ptr<PreparedTransition>& next) const noexcept{return next?next->phase.load(std::memory_order_acquire):TransitionPhase::cancelled;}
 bool AudioEngine::acknowledge_transition(const std::shared_ptr<PreparedTransition>& next){
     if(!next || transition_phase(next)!=TransitionPhase::adopted)return false;
+    if(next->voices_only&&(!control_info_||next->previous_info->generation!=control_info_->generation)){next->phase.store(TransitionPhase::cancelled,std::memory_order_release);return false;}
     control_info_=next->info;set_profiling(profile_->enabled.load());next->phase.store(TransitionPhase::acknowledged,std::memory_order_release);return true;
 }
 AudioEngine::PerformanceStatus AudioEngine::performance_status() const noexcept {
@@ -597,6 +669,9 @@ AudioEngine::TimingPlan AudioEngine::prepare_timing(const Project& p,std::span<c
 }
 void AudioEngine::swap_timing(TimingPlan& plan,bool midi_only){
     if(speculative_||mixed_owner_||rt_.playback==PlaybackState::playing||(!midi_only&&rt_.loop)||rt_.count_remaining||plan.rate!=config_.sample_rate||plan.playback.size()!=graph_.mixer.size()||(midi_only&&plan.time!=graph_.click_time))throw std::logic_error("stop/join playback and count-in; MIDI-only swaps require unchanged timing");
+    // Joined producers: preserve a preceding accepted clip edit before timing
+    // refresh replaces the control snapshot identity.
+    if(!graph_.performance)adopt_voice_transition();
     if(plan.voices){
         if(midi_only||plan.voices->size()!=graph_.voices.size())throw std::logic_error("timing PCM voice mapping mismatch");
         for(std::size_t i=0;i<plan.voices->size();++i){const auto& next=(*plan.voices)[i];const auto& previous=graph_.voices[i];
@@ -831,6 +906,7 @@ void AudioEngine::consume_controls() noexcept {
 }
 void AudioEngine::process(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags) noexcept {
     const ScopedNoDenormals no_denormals;
+    if(!speculative_&&!mixed_owner_&&!graph_.performance)adopt_voice_transition();
     if(!speculative_)callbacks_.fetch_add(1,std::memory_order_relaxed);
     if(!output||!frames||frames>config_.max_block){process_block(input,output,frames,input_flags);return;}
     if(!speculative_){const auto minimum=min_frames_.load(std::memory_order_relaxed);if(!minimum||frames<minimum)min_frames_=frames;if(frames>max_frames_.load(std::memory_order_relaxed))max_frames_=frames;}

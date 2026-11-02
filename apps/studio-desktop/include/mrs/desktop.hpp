@@ -225,6 +225,8 @@ public:
     const audio::Waveform* waveform(std::string_view source) const;
     const audio::Waveform* clip_waveform(const Clip&) const;
     Sample clip_playback_offset(const Clip&) const;
+    void set_track_stretch_backend(const Id&,stretch::Backend);
+    stretch::Backend clip_stretch_backend(const Clip&) const;
     void set_clip_stretch(const Id&,stretch::Parameters,bool reset=false);
     struct StretchStatus {bool busy{};float progress{};std::string message;std::uint64_t revision{};};
     StretchStatus stretch_status() const;
@@ -384,6 +386,7 @@ private:
     void poll_reverbs();
     const Project* preparing_project_{}; // Control-thread candidate, never published to project observers.
     std::uint64_t insert_generation_{};
+    std::set<std::string> retained_insert_keys_;
     std::uint64_t plugin_edit_revision_{};
     std::optional<std::pair<Id,std::uint64_t>> live_processing_recovery_attempt_;
     std::uint64_t processing_recovery_count_{};
@@ -474,6 +477,8 @@ private:
     std::shared_ptr<StretchJob> stretch_job_;
     std::vector<std::shared_ptr<StretchJob>> retired_stretch_;
     std::map<std::string,std::shared_ptr<const audio::StretchCache>> stretch_cache_;
+    std::map<std::string,std::uint64_t> stretch_cache_used_;
+    std::uint64_t stretch_cache_clock_{};
     StretchStatus stretch_status_;
     std::uint64_t stretch_checked_revision_{~std::uint64_t{}};
     void poll_stretch();
@@ -491,6 +496,11 @@ private:
     std::shared_ptr<const audio::AudioData> asset(const std::string&);
     void cache_asset(std::string, std::shared_ptr<const audio::AudioData>);
     void edit(const ICommand&,std::optional<Id> authoritative={},bool retain_inserts=false);
+    bool edit_clip_state(const Project&,const ICommand*,std::optional<bool> history={});
+    bool refresh_clip_audio(const Project&);
+    std::vector<audio::Voice> prepare_clip_voices(const Project&);
+    void poll_clip_updates();
+    std::vector<std::shared_ptr<audio::AudioEngine::PreparedTransition>> clip_updates_;
     void require_not_playing() const;
     void rebuild_audio(bool retain_inserts=false);
     void replace(persistence::ProjectDocument);

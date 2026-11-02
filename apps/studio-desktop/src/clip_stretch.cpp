@@ -15,6 +15,13 @@ struct Application::StretchJob {
     using Entries=std::map<std::string,std::shared_ptr<const audio::StretchCache>>;
     std::future<Entries> result;
 };
+stretch::Backend Application::clip_stretch_backend(const Clip& c) const {
+    for(const auto& t:services_.projects->state().project->tracks)if(t.id==c.track)return t.stretch_backend;
+    throw std::invalid_argument("Missing clip channel");
+}
+void Application::set_track_stretch_backend(const Id& id,stretch::Backend backend){
+    require_not_playing();edit(SetTrackStretchBackend{id,backend},{},true);retry_stretch();
+}
 void Application::set_clip_stretch(const Id& id,stretch::Parameters parameters,bool reset){
     require_not_playing();
     const auto project=services_.projects->state().project;
@@ -34,12 +41,12 @@ Sample Application::clip_playback_offset(const Clip& c) const {
 const audio::Waveform* Application::clip_waveform(const Clip& c) const {
     if(!processed(c))return waveform(c.source);
     const auto source=assets_.find(c.source);if(source==assets_.end())return nullptr;
-    const auto entry=stretch_cache_.find(audio::stretch_cache_key(*source->second.data,c));
+    const auto entry=stretch_cache_.find(audio::stretch_cache_key(*source->second.data,c,clip_stretch_backend(c)));
     return entry==stretch_cache_.end()?nullptr:&entry->second->waveform;
 }
 std::shared_ptr<const audio::AudioData> Application::clip_audio(const Clip& c,std::shared_ptr<const audio::AudioData> source){
     if(!processed(c))return source;
-    const auto entry=stretch_cache_.find(audio::stretch_cache_key(*source,c));
+    const auto entry=stretch_cache_.find(audio::stretch_cache_key(*source,c,clip_stretch_backend(c)));
     return entry==stretch_cache_.end()?nullptr:entry->second->data;
 }
 Application::StretchStatus Application::stretch_status() const {
@@ -56,7 +63,7 @@ void Application::retry_stretch(){
 bool Application::stretch_ready(bool check_source){
     for(const auto& c:services_.projects->state().project->clips)if(!c.midi&&processed(c)){
         const auto source=asset(c.source);
-        const auto entry=stretch_cache_.find(audio::stretch_cache_key(*source,c));
+        const auto entry=stretch_cache_.find(audio::stretch_cache_key(*source,c,clip_stretch_backend(c)));
         if(entry==stretch_cache_.end())return false;
         if(check_source&&!entry->second->source_current()){
             // Reject external mutation; reopening/relinking creates a new immutable
@@ -88,7 +95,7 @@ void Application::poll_stretch(){
             stretch_status_.message="Time / pitch ready";stretch_status_.progress=1;
             // Existing device quiescence/read-ahead/PDC lifecycle is reused.
             // Cached PCM has already had algorithmic pre-roll removed.
-            rebuild_audio(true);
+            if(!refresh_clip_audio(*state.project))rebuild_audio(true);
         }catch(const std::exception& e){stretch_status_.message=std::string("Time / pitch failed: ")+e.what();}
     }
     if(!retired_stretch_.empty()&&stretch_checked_revision_!=state.revision&&!recording()&&head.playback!=PlaybackState::playing){
@@ -99,17 +106,29 @@ void Application::poll_stretch(){
        recording()||head.playback==PlaybackState::playing)return;
     stretch_checked_revision_=state.revision;
     try{
-        struct Request {std::string key;std::shared_ptr<const audio::AudioData> source;Clip clip;};
+        struct Request {std::string key;std::shared_ptr<const audio::AudioData> source;Clip clip;stretch::Backend backend;};
         std::vector<Request> requests;std::set<std::string> needed;std::uintmax_t bytes{};
         for(const auto& c:state.project->clips)if(!c.midi&&processed(c)){
-            const auto source=asset(c.source);const auto key=audio::stretch_cache_key(*source,c);
+            const auto source=asset(c.source);const auto key=audio::stretch_cache_key(*source,c,clip_stretch_backend(c));
             if(!needed.insert(key).second)continue;
             bytes+=static_cast<std::uintmax_t>(audio_output_extent(c))*source->channels*4;
             if(bytes>512*1024*1024)throw std::invalid_argument("Time / pitch cache exceeds 512 MiB; shorten/split the selected source region");
-            if(!stretch_cache_.contains(key))requests.push_back({key,source,c});
+            if(!stretch_cache_.contains(key))requests.push_back({key,source,c,clip_stretch_backend(c)});
         }
-        // Undo/redo regenerates evicted entries. Split views share one full region.
-        std::erase_if(stretch_cache_,[&](const auto& e){return !needed.contains(e.first);});
+        // Warm Undo entries share the same 512 MiB budget, not a second cache.
+        // Bound tiny entries too; evict only keys unused by the current project.
+        const auto tick=++stretch_cache_clock_;
+        std::erase_if(stretch_cache_used_,[&](const auto& item){return !needed.contains(item.first)&&!stretch_cache_.contains(item.first);});
+        for(const auto& key:needed)stretch_cache_used_[key]=tick;
+        std::uintmax_t occupied=bytes;
+        for(const auto& [key,entry]:stretch_cache_)if(!needed.contains(key))occupied+=entry->bytes;
+        while(occupied>512*1024*1024||stretch_cache_.size()+requests.size()>64){
+            auto victim=stretch_cache_.end();
+            for(auto it=stretch_cache_.begin();it!=stretch_cache_.end();++it)if(!needed.contains(it->first)&&
+               (victim==stretch_cache_.end()||stretch_cache_used_[it->first]<stretch_cache_used_[victim->first]))victim=it;
+            if(victim==stretch_cache_.end())throw std::invalid_argument("Time / pitch cache entry budget exceeded");
+            occupied-=victim->second->bytes;stretch_cache_used_.erase(victim->first);stretch_cache_.erase(victim);
+        }
         if(requests.empty()){
             const auto message=needed.empty()?(stretch_status_.message.empty()?std::string{}:std::string{"Time / pitch inactive"}):std::string{"Time / pitch ready"};
             if(stretch_status_.busy||stretch_status_.message!=message){stretch_status_.message=message;++stretch_status_.revision;}
@@ -123,7 +142,7 @@ void Application::poll_stretch(){
                 const auto& r=requests[i];
                 auto entry=audio::prepare_stretch_cache(r.source,r.clip,token,[&,i](float value){
                     progress->store((static_cast<float>(i)+value)/static_cast<float>(requests.size()));
-                });
+                },r.backend);
                 entries.emplace(r.key,std::move(entry));
             }
             return entries;
@@ -136,7 +155,7 @@ void Application::stop_stretch(){
     for(auto& job:retired_stretch_)job->stop.request_stop();
     if(stretch_job_&&stretch_job_->result.valid())stretch_job_->result.wait();
     for(auto& job:retired_stretch_)if(job->result.valid())job->result.wait();
-    stretch_job_.reset();retired_stretch_.clear();stretch_cache_.clear();
+    stretch_job_.reset();retired_stretch_.clear();stretch_cache_.clear();stretch_cache_used_.clear();
     stretch_checked_revision_=~std::uint64_t{};stretch_status_={};
 }
 } // namespace mrs::desktop

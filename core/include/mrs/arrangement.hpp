@@ -7,6 +7,13 @@ Sample audio_output_extent(const Clip&); // processed span length; legacy clip l
 Sample audio_source_span(const Clip&) noexcept;
 void validate_audio_stretch(const Clip&);
 void trim_audio_source(Clip&,Sample start,Sample end,Sample raw_source_frames);
+class SetTrackStretchBackend final : public ICommand {
+public:
+    SetTrackStretchBackend(Id id,stretch::Backend backend):id_(std::move(id)),backend_(backend) {}
+    std::string_view name() const override {return "Channel stretch mode";}
+    void apply(Project&) const override;
+private: Id id_; stretch::Backend backend_;
+};
 class SetAudioStretch final : public ICommand {
 public:
     SetAudioStretch(Id id,stretch::Parameters parameters,bool reset=false)

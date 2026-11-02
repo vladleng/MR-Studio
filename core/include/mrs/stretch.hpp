@@ -10,6 +10,8 @@
 namespace mrs::stretch {
 enum class Status { ok, need_input, output_full, drained, invalid_parameter, invalid_buffer,
                     unsupported, not_prepared, cancelled, io_error, backend_error };
+enum class Backend { signalsmith, drums };
+bool supports(Backend, const struct Parameters&) noexcept;
 enum class Quality { balanced, economical };
 enum class Formants { follow_pitch, preserve, shift };
 // Serializable user intent; no vendor settings or backend identity. Standalone

@@ -352,11 +352,18 @@ juce::PopupMenu Desktop::channelMenu(std::optional<mrs::Id> target){
     if(target){for(const auto& t:project()->tracks)if(t.id==*target){channelPopup.addSeparator();channelPopup.addItem(23,t.fx_channel?"Del FX channel":t.kind==mrs::TrackKind::bus?"Del Bus channel":"Del channel",enabled);break;}}
     channelPopup.addSeparator();channelPopup.addItem(70,"Group selected tracks in folder...",enabled&&!folderSelection(target?target:selectedTrack).empty());
     if(target){channelPopup.addItem(71,"Move selected tracks out of folder",enabled);juce::PopupMenu folders;int n=0;for(const auto& f:project()->folders)folders.addItem(2000+n++,label(f.name));channelPopup.addSubMenu("Move selected tracks into folder",folders,enabled&&n>0);}
+    if(target)for(const auto& t:project()->tracks)if(t.id==*target&&t.kind==mrs::TrackKind::audio){
+        juce::PopupMenu modes;
+        modes.addItem(72,"Signalsmith",true,t.stretch_backend==mrs::stretch::Backend::signalsmith);
+        modes.addItem(73,"MR Timestretch Drums",true,t.stretch_backend==mrs::stretch::Backend::drums);
+        channelPopup.addSubMenu("Time stretch mode",modes,enabled&&displayState().playback!=mrs::PlaybackState::playing);
+    }
     return channelPopup;
 }
 void Desktop::showChannelMenu(std::optional<mrs::Id> target,juce::Point<int> position){
     auto channelPopup=channelMenu(target);juce::Component::SafePointer<Desktop> safe(this);const auto store=app.services().projects;std::vector<mrs::Id> folderIds;for(const auto& f:project()->folders)folderIds.push_back(f.id);const auto members=folderSelection(target?target:selectedTrack);
     channelPopup.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({position.x,position.y,1,1}),[safe,target,store,folderIds,members](int choice){if(!safe||!choice||safe->app.services().projects!=store)return;
+        if(choice==72||choice==73){if(target)safe->run([&]{safe->app.set_track_stretch_backend(*target,choice==72?mrs::stretch::Backend::signalsmith:mrs::stretch::Backend::drums);});return;}
         if(choice==70){safe->textDialog("Group tracks in folder","Tracks",[safe,store,members](auto text){if(safe&&safe->app.services().projects==store&&text.trim().isNotEmpty())safe->app.create_track_folder(text.trim().toStdString(),members);});return;}
         if(choice==71){safe->run([&]{safe->app.move_tracks_to_folder(members,{});});return;}
         if(choice>=2000&&choice<2000+static_cast<int>(folderIds.size())){safe->run([&]{safe->app.move_tracks_to_folder(members,folderIds[static_cast<std::size_t>(choice-2000)]);});return;}
@@ -815,7 +822,7 @@ Strip::Strip(Desktop& d,std::optional<mrs::Id> id,bool small,std::optional<mrs::
     mute.onClick=[this]{owner.run([&]{auto m=track().mix;m.mute=!m.mute;owner.app.set_track_mix(*target,m);});};
     solo.onClick=[this]{owner.run([&]{auto m=track().mix;m.solo=!m.solo;owner.app.set_track_mix(*target,m);});};
     arm.onClick=[this]{owner.run([&]{owner.app.set_track_armed(*target,!owner.app.track_armed(*target));sync();});};
-    monitor.onClick=[this]{owner.run([&]{const auto t=track();if(t.kind==mrs::TrackKind::instrument)owner.app.set_midi_input(*target,t.midi_input,t.midi_channel,!t.midi_monitor);else owner.app.set_track_monitoring(*target,!t.input_monitor);});};
+    monitor.onClick=[this]{owner.run([&]{const auto& t=track();if(t.kind==mrs::TrackKind::instrument)owner.app.set_midi_input(*target,t.midi_input,t.midi_channel,!t.midi_monitor);else owner.app.set_track_monitoring(*target,!t.input_monitor);});};
     arm.setComponentID("track-arm");monitor.setComponentID("track-monitor");add.setComponentID("mixer-add-insert");
     mute.setColour(juce::TextButton::buttonOnColourId,juce::Colour(0xffd94747));solo.setColour(juce::TextButton::buttonOnColourId,juce::Colour(0xffd5b63e));solo.setColour(juce::TextButton::textColourOnId,juce::Colour(0xff212830));
     arm.setColour(juce::TextButton::buttonOnColourId,juce::Colour(0xffd94747));
@@ -842,7 +849,7 @@ Strip::Strip(Desktop& d,std::optional<mrs::Id> id,bool small,std::optional<mrs::
     addAndMakeVisible(insertViewport);insertViewport.setViewedComponent(&insertBody,false);insertViewport.addMouseListener(this,true);insertViewport.setScrollBarsShown(true,false);insertViewport.setVisible(!mini);
     gain.cancel=pan.cancel=[this]{owner.cancelPreview();sync();};sync();
 }
-mrs::Track Strip::track() const{if(target)for(const auto& t:owner.project()->tracks)if(t.id==target)return t;return {};}
+const mrs::Track& Strip::track() const{trackSnapshot=owner.project();if(target)for(const auto& t:trackSnapshot->tracks)if(t.id==target)return t;static const mrs::Track master;return master;}
 juce::Rectangle<int> Strip::nameBounds() const{
     if(folder)return {6,3,juce::jmax(0,getWidth()-12),21};
     if (mini && target) if (const auto* layout = owner.trackLayout())
@@ -882,7 +889,7 @@ void Strip::mouseUp(const juce::MouseEvent&){resizingSends=false;dragTitle=false
 mrs::Track::Mix Strip::adjusted(bool volume,double v) const{auto m=track().mix;if(volume)m.gain=static_cast<float>(std::pow(10.,(-60+72*v)/20));else m.pan=static_cast<float>(2*v-1);return m;}
 void Strip::preview(bool volume,double v){if(folder&&!target)return;owner.setPreview(target,adjusted(volume,v),target?owner.project()->master_gain:adjusted(volume,v).gain,[this]{return active();});}
 void Strip::commit(bool volume,double v){if(folder&&!target)return;owner.run([&]{owner.finishPreview();if(target)owner.app.set_track_mix(*target,adjusted(volume,v));else owner.app.set_master_gain(adjusted(volume,v).gain);owner.app.poll();owner.refresh(true);});}
-void Strip::refreshMidiStatus(){const auto t=track();if(t.kind==mrs::TrackKind::instrument){const auto status=label(owner.app.midi_status(t.id));input.setButtonText(status);input.setTooltip(status+" — click to select MIDI port / channel");}}
+void Strip::refreshMidiStatus(){const auto& t=track();if(t.kind==mrs::TrackKind::instrument){const auto status=label(owner.app.midi_status(t.id));input.setButtonText(status);input.setTooltip(status+" — click to select MIDI port / channel");}}
 void Strip::syncFolderPresentation(){
     const bool isFolder=folder.has_value();folderToggle.setVisible(isFolder);folderMenuButton.setVisible(isFolder);
     if(!isFolder)return;
@@ -898,13 +905,13 @@ void Strip::sync(){
     if(folder&&!target){applyAssetDesign();gain.value=60./72.;pan.value=.5;mute.setToggleState(false,juce::dontSendNotification);solo.setToggleState(false,juce::dontSendNotification);syncFolderPresentation();resized();repaint();return;}
     folderToggle.setVisible(false);folderMenuButton.setVisible(false);if(!folder)setComponentID("");
     gain.setEnabled(true);pan.setEnabled(true);mute.setEnabled(target.has_value());solo.setEnabled(target.has_value());insertViewport.setVisible(!mini);sendDivider.setVisible(!mini);
-    const auto t=track();gain.setTitle(label(t.name)+" gain");pan.setTitle(label(t.name)+" pan");const auto mix=t.mix;float v=target?mix.gain:owner.project()->master_gain;
+    const auto& t=track();gain.setTitle(label(t.name)+" gain");pan.setTitle(label(t.name)+" pan");const auto mix=t.mix;float v=target?mix.gain:owner.project()->master_gain;
     applyAssetDesign();
     if(editingName&&owner.app.recording())finishNameEdit(false);
     if(!gain.dragging())gain.value=juce::jlimit(0.,1.,(20*std::log10(juce::jmax(.001f,v))+60)/72.);if(!pan.dragging())pan.value=(mix.pan+1)/2.;
     gain.setTooltip(juce::String(-60+gain.value*72,1)+" dB — drag the fill endpoint; Ctrl fine; arrows; compact double-click resets 0 dB");
     mute.setVisible(target.has_value());solo.setVisible(target.has_value());pan.setVisible(target.has_value());
-    arm.setVisible(target&&(t.kind==mrs::TrackKind::audio||t.kind==mrs::TrackKind::instrument));monitor.setVisible(arm.isVisible());input.setVisible(monitor.isVisible()&&(mini||t.kind==mrs::TrackKind::instrument));instrument.setVisible(!mini&&target&&t.kind==mrs::TrackKind::instrument);piano.setVisible(target&&t.kind==mrs::TrackKind::instrument);colorField.setVisible(target.has_value());colorField.setEnabled(!owner.app.recording());colorField.rgb=t.color.value_or(ObjectPalette::defaultClip);colorField.repaint();const auto instrumentChain=owner.chain(target);instrument.setButtonText(instrumentChain.empty()?"Choose instrument":insertName(instrumentChain.front()));instrument.setTooltip(instrumentChain.empty()?"No instrument — choose from instrument browser":label(owner.app.midi_status(t.id))+" — "+instrument.getButtonText());
+    arm.setVisible(target&&(t.kind==mrs::TrackKind::audio||t.kind==mrs::TrackKind::instrument));monitor.setVisible(arm.isVisible());input.setVisible(monitor.isVisible()&&(mini||t.kind==mrs::TrackKind::instrument));instrument.setVisible(!mini&&target&&t.kind==mrs::TrackKind::instrument);piano.setVisible(target&&t.kind==mrs::TrackKind::instrument);colorField.setVisible(target.has_value());colorField.setEnabled(!owner.app.recording());colorField.rgb=t.color.value_or(ObjectPalette::defaultClip);colorField.repaint();const auto insertSnapshot=owner.project();const auto& instrumentChain=target?t.inserts:insertSnapshot->master_inserts;instrument.setButtonText(instrumentChain.empty()?"Choose instrument":insertName(instrumentChain.front()));instrument.setTooltip(instrumentChain.empty()?"No instrument — choose from instrument browser":label(owner.app.midi_status(t.id))+" — "+instrument.getButtonText());
     add.setVisible(!mini);output.setVisible(!mini);sends.setVisible(!mini&&target.has_value());
     mute.setToggleState(mix.mute,juce::dontSendNotification);solo.setToggleState(mix.solo,juce::dontSendNotification);
     arm.setToggleState(target&&owner.app.track_armed(*target),juce::dontSendNotification);monitor.setToggleState(t.kind==mrs::TrackKind::instrument?t.midi_monitor:t.input_monitor,juce::dontSendNotification);
@@ -922,7 +929,7 @@ void Strip::sync(){
     output.setTitle(output.getTooltip());
     sendViewport.setVisible(!mini&&target.has_value());insertList();sendList();syncFolderPresentation();resized();repaint();gain.repaint();pan.repaint();
 }
-void Strip::insertList(){const auto chain=owner.chain(target);
+void Strip::insertList(){const auto insertSnapshot=owner.project();const auto& chain=target?track().inserts:insertSnapshot->master_inserts;
     const auto start=target&&track().kind==mrs::TrackKind::instrument?std::min(std::size_t{1},chain.size()):0;
     const bool allOff=chain.size()>start&&std::all_of(chain.begin()+static_cast<std::ptrdiff_t>(start),chain.end(),[](const auto& fx){return fx.bypass;});
     allPower.setVisible(!mini);allPower.setEnabled(chain.size()>start&&!owner.app.recording());allPower.setToggleState(allOff,juce::dontSendNotification);
@@ -945,7 +952,7 @@ void Strip::insertList(){const auto chain=owner.chain(target);
         insertBody.addAndMakeVisible(*b);insertButtons.push_back(std::move(b));}
 }
 void Strip::sendList(){
-    if(mini||!target)return;const auto t=track();std::vector<mrs::Id> destinations;for(const auto& send:t.sends)destinations.push_back(send.bus);
+    if(mini||!target)return;const auto& t=track();std::vector<mrs::Id> destinations;for(const auto& send:t.sends)destinations.push_back(send.bus);
     if(destinations!=sendDestinations){
         for(auto& button:sendButtons)button->abort();sendButtons.clear();sendDestinations=destinations;
         const auto source=*target;const auto store=owner.app.services().projects;juce::Component::SafePointer<Strip> safe(this);
@@ -1034,7 +1041,7 @@ void Strip::paint(juce::Graphics& g){const bool selected=target&&(owner.selected
         if(!folder){const auto split=sendDivider.getBounds();g.setColour(base);g.fillRect(split);
         g.setColour(juce::Colour(separatorColour));g.fillRect(split.getX(),split.getCentreY(),split.getWidth(),1);}}
     if(trackHover){g.setColour(owner.selectionColour());if(mini)g.fillRect(0,dropBefore?0:getHeight()-3,getWidth(),3);else g.fillRect(dropBefore?0:getWidth()-3,0,3,getHeight());}
-    const auto t=track();g.setFont(ui::Theme::stripFont());g.setColour(target||folder?juce::Colours::whitesmoke:juce::Colours::gold);
+    const auto& t=track();g.setFont(ui::Theme::stripFont());g.setColour(target||folder?juce::Colours::whitesmoke:juce::Colours::gold);
     if (skin && trackDesign && t.kind != mrs::TrackKind::instrument) {
         if (const auto* item = trackDesign->find(getHeight(), "icon"); item && item->visible) {
             const auto id = item->assetId.fromLastOccurrenceOf("/", false, false);
