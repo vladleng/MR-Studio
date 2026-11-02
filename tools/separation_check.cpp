@@ -65,8 +65,15 @@ void fixture(const juce::File& file, int rate, int frames) {
 }
 Status wait(Runner& runner) {
     const auto until = std::chrono::steady_clock::now() + std::chrono::minutes(20);
-    while (runner.status().state == State::running && std::chrono::steady_clock::now() < until)
+    juce::String phase;
+    while (runner.status().state == State::running && std::chrono::steady_clock::now() < until) {
+        const auto current = runner.status();
+        if (current.phase != phase) {
+            phase = current.phase;
+            std::cout << "separation phase: " << phase.toStdString() << ' ' << current.effectiveDevice.toStdString() << std::endl;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     check(runner.status().state != State::running, "runner exceeded test deadline");
     return runner.status();
 }
