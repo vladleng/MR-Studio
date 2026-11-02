@@ -1,0 +1,7 @@
+# Candidate Windows x64 / CPython 3.11 profile; exact resolved freeze is CI evidence.
+# Model files and Python runtime are deliberately absent from the base installer.
+audio-separator[cpu]==0.48.0
+torch==2.8.0
+numpy==2.2.6
+scipy==1.15.3
+soundfile==0.13.1

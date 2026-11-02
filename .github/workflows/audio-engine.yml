@@ -1,6 +1,6 @@
 name: Windows Studio Release
 # Single source: the Actions run title is also aliased into the release environment.
-run-name: &release_banner 'MR Studio 0.8.10-fix2 / MR Live 0.8.13 — Windows Release'
+run-name: &release_banner 'MR Studio 0.9.2 / MR Live 0.8.13 — Windows Release'
 on:
   push:
     branches: [main, 'codex/cloud-cicd-migration']
@@ -119,6 +119,7 @@ jobs:
           if($env:CHECK_SCOPE -eq 'live'){$args+=@('--target','MRLiveJuce','mrs_audio_tests','mrs_live_preload_tests','mrs_parallel_tests')}
           elseif($env:INTEGRATION -ne 'true'){
             $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_track_stretch_mode_tests','mrs_clip_response_tests','mr_timestretch_drums_tests','mr_timestretch_drums_example','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
+            $args+=@('mrs_separation_check')
             if($env:BUILD_ARA -eq 'true'){$args+=@('mrs_ara_tests','mrs_ara_clip_tests','mrs_ai_ara_tests')}
           }
           & cmake @args
@@ -136,6 +137,10 @@ jobs:
             if(Test-Path 'build/windows/live-entry-failure.txt'){Get-Content 'build/windows/live-entry-failure.txt'}
             if(Test-Path 'build/windows/library261-failure.txt'){Get-Content 'build/windows/library261-failure.txt'}
             throw "CTest failed ($env:CHECK_SCOPE)"
+          }
+          if($env:CHECK_SCOPE -ne 'live'){
+            & ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^separation_host$'
+            if($LASTEXITCODE){throw 'Separation host contract failed'}
           }
       - name: Stretch foundation evidence (synthetic, not ASIO)
         if: success() && env.CHECK_SCOPE != 'live'

@@ -4,8 +4,13 @@
 Этап: [#333](https://github.com/vladleng/MR-Studio/issues/333), плановая версия
 **MR Studio 0.9.1**; линия родителя **0.9.0**, следующие этапы 0.9.2…0.9.8.
 Предыдущая линия Studio — 0.8.x (#331/#332); MR Live имеет независимую нумерацию.
-Это проект контракта для приёмки, **не реализованный backend и не выпущенный билд**.
-Версии приложения/CI в этом docs-only этапе не меняются.
+Контракт #333 дополнен реализацией локального runner #334 для **MR Studio 0.9.2**.
+
+**Уточнение пользователя 2026-11-02:** лицензия пока не блокирует разработку;
+необходимые сборки выполнять самостоятельно, подтверждение нужно для merge в main.
+Аудит лицензий сохраняется как незавершённый, разрешение на распространение весов
+не заявляется. Для development smoke допускается явная загрузка official HTDemucs;
+worker сам ничего не скачивает, Python/runtime/weights не входят в installer.
 
 ## Границы и точки интеграции
 
@@ -52,17 +57,16 @@ Capabilities принадлежат **точной комбинации backend 
 
 | Модель / идентичность | Реальные outputs; рабочий rate/формат | CPU/GPU | Код / веса / решение |
 | --- | --- | --- | --- |
-| Official Demucs `htdemucs.yaml` → `955717e8-8726e21a.th` | Native Drums/Bass/Other/Vocals; 44.1 kHz stereo; MR adapter → WAV float32. Vocals/Instrumental — **derived 2-output profile**, Instrumental=sum(Bass,Drums,Other), не native 2-stem inference [S5,S6]. | CPU или CUDA; DML нет. Требования RAM/VRAM уточняются измерением #334. | Demucs repo MIT, official manifest связывает этот checkpoint [S6,S7]. **Первый технический кандидат** благодаря официальному происхождению; отдельное явное разрешение именно на внешний файл весов в прочитанных источниках не найдено. Download/redistribution approval остаётся открытым до фиксации подтверждения; MIT wrapper не закрывает gate. |
+| Official Demucs `htdemucs.yaml` → `955717e8-8726e21a.th` | Native Drums/Bass/Other/Vocals; 44.1 kHz stereo; MR adapter → WAV float32. Vocals/Instrumental — **derived 2-output profile**, Instrumental=sum(Bass,Drums,Other), не native 2-stem inference [S5,S6]. | CPU или CUDA; DML нет. Требования RAM/VRAM уточняются измерением #334. | Demucs repo MIT, official manifest связывает этот checkpoint [S6,S7]. **Первый технический кандидат** благодаря официальному происхождению; отдельное явное разрешение именно на внешний файл весов в прочитанных источниках не найдено. Redistribution approval остаётся открытым до фиксации подтверждения; development download разрешён пользователем; MIT wrapper не закрывает gate. |
 | Official `htdemucs_6s.yaml` → `5c90dfd2-34c22ccb.th` | Native Bass/Drums/Other/Vocals/Guitar/Piano, 44.1 kHz; piano experimental [S1,S6]. | CPU/CUDA; DML нет. | То же незакрытое weights gate; #337, не включать в MVP/installer. |
 | BS-RoFormer Viperx `model_bs_roformer_ep_317_sdr_12.9755.ckpt` + одноимённый YAML | Target Vocals, complement Instrumental; config stereo 44100, `num_stems: 1` — это не 6 самостоятельных источников [S1,S9]. | PyTorch CPU/CUDA; DML CPU fallback upstream. | Wrapper/MSST MIT не подтверждают права конкретного Viperx checkpoint. **Blocked для каталога поставки**, до checkpoint-specific terms и config/hash audit. |
 | MelBand `vocals_mel_band_roformer.ckpt` + `vocals_mel_band_roformer.yaml` | Upstream list: Vocals/Other; точный rate/формат и трактовку complement нужно подтвердить config при admission [S1,S5]. | PyTorch CPU/CUDA; DML CPU fallback upstream. | Указание автора Kimberley Jensen и публичная ссылка не являются лицензией. **Blocked**, не рекомендовать как разрешённый preset. |
 | MDX `UVR_MDXNET_KARA_2.onnx` | Upstream 2-stem MDX family; точные label/rate должны пройти model-data admission, а не выводиться из имени файла [S1,S3,S5]. | ORT CPU/CUDA; DML кандидат #337. | Наличие checksum не даёт права распространять веса. **Blocked**, пока нет checkpoint-specific license и полного capability record. |
 
 Решение для #334: проектировать Vocals/Instrumental на official HTDemucs с
-**явным незакрытым gate разрешения весов**. Это не решение о первой уже разрешённой
-модели: соответствующий критерий #333 пока НЕ выполнен. Если отдельное разрешение
-не подтверждается, выбирать другую модель с проверяемыми условиями, не ослаблять
-политику. Не скачивать/включать веса до закрытия gate. CPU fallback обязателен:
+**отложенным аудитом разрешения весов**. Первой юридически проверенной модели пока нет: соответствующий критерий #333
+остаётся отложенным. По прямому указанию пользователя development smoke с этим
+checkpoint разрешён; распространение весов отложено до аудита. CPU fallback обязателен:
 при Auto-local probe failure до старта — CPU с отображением effective device;
 после CUDA OOM — failed и явный retry CPU, без незаметного повторного долгого job.
 
@@ -76,8 +80,9 @@ Model record перед admission: stable ID/version, backend/version, immutable
 URLs, filenames/full sha256 для **всех** configs/weights/metadata, code license,
 weights license+evidence+redistribution policy, notices, native/derived stem IDs,
 training/inference rate, channels/dtype, allowed device/precision, measured minimum
-resources (до измерений null), byte size/quota. License `unknown` запрещает download
-и запуск preset, а не только bundling. Пользовательский путь к файлу не обходит gate.
+resources (до измерений null), byte size/quota. License `unknown` сохраняется в audit record. По текущему поручению это не
+блокирует development download/run official HTDemucs; для остальных untrusted
+checkpoint paths проверка происхождения/целостности остаётся обязательной.
 
 ## Job contract v1 (проект интерфейса)
 
@@ -147,7 +152,7 @@ job сам; при следующем старте orphan staging не счит�
   `<project-stem>.assets/separation/<result-id>/`, рядом с project file.
   Для unsaved project — session staging до Save As; cache не является durable asset.
 
-Download — только отдельное действие Model Manager (#335), после license gate;
+Download — только отдельное действие Model Manager (#335), с сохранением license audit record;
 HTTPS allowlist без произвольных redirects, byte limits, .part + sha256,
 atomic publish directory, notices, quota/eviction без удаления referenced assets.
 Configs/checkpoints считаются исполняемыми данными: PyTorch pickle может исполнять
@@ -211,12 +216,10 @@ Owned/synthetic fixtures отдельно от пользовательских 
 hardware GPU/VRAM, качество на авторизованных музыкальных примерах и сравнение
 Moises/RX — **NOT TESTED**. Этот этап не запускает #334–#340, CI или полный CTest.
 
-Открытые gates: явное checkpoint-specific разрешение official Demucs (до этого
-**первой разрешённой модели нет**); воспроизводимый Windows lock и loader policy;
-проверенный write hook без per-stem gain; полный offline dependency closure.
-Первые два практических spike входят в #334/#335, но license acceptance #333
-нельзя объявить выполненной без источника. Архитектура готова к review; пользовательская
-приёмка и merge/close остаются отдельными действиями.
+Отложенный аудит: checkpoint-specific разрешение official Demucs. По указанию
+пользователя оно не блокирует #334 и сборки. Windows runtime lock, loader policy,
+write hook без per-stem gain и offline dependency closure проверяются в #334/#335.
+Юридическая приёмка весов не заявляется; merge в main требует отдельного подтверждения.
 
 ## Источники аудита
 
