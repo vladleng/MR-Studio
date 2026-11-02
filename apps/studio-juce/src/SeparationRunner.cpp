@@ -274,7 +274,8 @@ void Runner::run(Request request, juce::String jobId) noexcept {
                 require(type == "progress" || type == "heartbeat", "protocol_error");
                 if (type == "progress") {
                     const auto phase = event["phase"].toString();
-                    require(phase == "preparing" || phase == "loading" || phase == "inference" || phase == "verifying", "protocol_error");
+                    require(phase == "validating" || phase == "import_numpy" || phase == "import_soundfile" || phase == "import_scipy" ||
+                            phase == "preparing" || phase == "loading" || phase == "inference" || phase == "verifying", "protocol_error");
                     std::lock_guard lock(mutex_); status_.phase = phase;
                     status_.effectiveDevice = event["device"].toString();
                 }

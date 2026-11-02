@@ -185,13 +185,17 @@ def infer_htdemucs(snapshot, output_dir, model_dir, requested_device, threads, e
 
 
 def execute(req, work, emit, check, engine=infer_htdemucs):
+    emit("validating")
     source, start, frames, origin, target_rate, threads = validate_request(req)
     check()
     for key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
         os.environ[key] = str(threads)
     # Imports are deliberately lazy: normal DAW/runner construction needs none.
+    emit("import_numpy")
     import numpy as np
+    emit("import_soundfile")
     import soundfile as sf
+    emit("import_scipy")
     from scipy.signal import resample_poly
     emit("preparing")
     info = sf.info(str(source))
