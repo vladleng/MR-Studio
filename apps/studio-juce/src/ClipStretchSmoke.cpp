@@ -21,6 +21,12 @@ void clipStretchSmoke(){
     alert=dialog();alert->getComboBoxComponent("enabled")->setSelectedId(2);alert->exitModalState(1);pump();check(owner.project()->clips.front().length==48000,"Bypass restores duration");
     alert=dialog();alert->exitModalState(2);pump();check(!owner.project()->clips.front().stretch,"Reset removes state");
     const auto before=*owner.project();alert=dialog();alert->getTextEditor("ratio")->setText("nan");alert->exitModalState(1);pump();check(*owner.project()==before,"Invalid input preserves project");
+    const auto track=owner.project()->clips.front().track;
+    const auto modeChecked=[&](int id){const auto menu=owner.channelMenu(track);juce::PopupMenu::MenuItemIterator it(menu,true);while(it.next())if(it.getItem().itemID==id)return it.getItem().isTicked;return false;};
+    check(modeChecked(72),"Signalsmith default channel mode");
+    owner.app.set_track_stretch_backend(track,mrs::stretch::Backend::drums);
+    check(modeChecked(73),"Drums channel mode checkmark");
+    check(owner.app.undo(),"Channel mode undo");
     owner.removeFromDesktop();
 }
 } // namespace ui

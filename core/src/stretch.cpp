@@ -7,6 +7,10 @@
 #include <stdexcept>
 
 namespace mrs::stretch {
+bool supports(Backend b,const Parameters& p) noexcept {
+    return (b==Backend::signalsmith || (b==Backend::drums && p.duration_ratio>=0.25 && p.duration_ratio<=4 && p.semitones==0 && p.cents==0 && p.formants==Formants::follow_pitch));
+}
+
 Status validate(const Parameters& p) noexcept {
     const auto finite = [](double x) { return std::isfinite(x); };
     if (!finite(p.duration_ratio) || p.duration_ratio < 0.125 || p.duration_ratio > 8 ||

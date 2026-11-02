@@ -13,10 +13,10 @@ struct StretchCache {
     std::uintmax_t source_bytes{};
     bool source_current() const;
 };
-std::string stretch_cache_key(const AudioData&, const Clip&);
+std::string stretch_cache_key(const AudioData&, const Clip&, stretch::Backend = stretch::Backend::signalsmith);
 // Owns a private temporary directory; never writes beside/over the source.
 // 512 MiB is the maximum for one entry and the application's total live cache.
 std::shared_ptr<const StretchCache> prepare_stretch_cache(
     std::shared_ptr<const AudioData>, const Clip&, std::stop_token = {},
-    std::function<void(float)> progress = {});
+    std::function<void(float)> progress = {}, stretch::Backend = stretch::Backend::signalsmith);
 } // namespace mrs::audio

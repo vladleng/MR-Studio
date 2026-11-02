@@ -63,7 +63,13 @@ add_library(mrs_audio STATIC
 target_include_directories(mrs_audio PUBLIC core/audio/include)
 target_sources(mrs_audio PRIVATE core/audio/src/reverb_library.cpp core/audio/src/cab_collection.cpp core/audio/src/tone_library.cpp)
 target_sources(mrs_audio PRIVATE core/audio/src/stretch_cache.cpp)
-target_link_libraries(mrs_audio PUBLIC mrs_core Threads::Threads mrs_processing mrs_stretch)
+add_subdirectory(sdk/mr-timestretch-drums)
+if(BUILD_TESTING)
+  add_executable(mrs_track_stretch_mode_tests tests/track_stretch_mode_tests.cpp)
+  target_link_libraries(mrs_track_stretch_mode_tests PRIVATE mrs_audio)
+  add_test(NAME track_stretch_mode COMMAND mrs_track_stretch_mode_tests)
+endif()
+target_link_libraries(mrs_audio PUBLIC mrs_core Threads::Threads mrs_processing mrs_stretch PRIVATE MRTimestretchDrums::SDK)
 # #252 MR Library: an offline, non-realtime SQLite index. Windows uses the
 # operating system's WinSQLite3; non-Windows core tests use system SQLite3.
 add_library(mrs_sample_library STATIC core/library/src/sample_library.cpp core/library/src/sample_tag_rules.cpp core/library/src/sample_preview.cpp core/library/src/sample_analysis.cpp)

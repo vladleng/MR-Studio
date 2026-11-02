@@ -21,7 +21,7 @@ inline constexpr Tick ppq = 960;
 inline constexpr std::size_t max_project_midi_notes = 32768;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 31;
+inline constexpr std::uint32_t schema_version = 32;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -203,6 +203,7 @@ struct Track {
     bool midi_monitor{true}; // instrument live ingress; no MIDI recording in 4a
     std::string midi_output{}; // external Windows port key; empty = off
     int midi_output_channel{-1}; // -1 preserve authored channel, otherwise 0..15
+    stretch::Backend stretch_backend{stretch::Backend::signalsmith};
     bool fx_channel{}; // FX return role; processing/routing remains TrackKind::bus.
     std::optional<std::uint32_t> color{}; // Channel RGB; independent of clip colors.
     bool operator==(const Track&) const = default;

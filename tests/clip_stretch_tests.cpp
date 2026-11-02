@@ -47,7 +47,8 @@ void model(){
     for(int i=0;i<100;++i){auto other=params;other.duration_ratio=.333333333333;SetAudioStretch{id,other}.apply(p);SetAudioStretch{id,params}.apply(p);CHECK(p.clips[0].length==trimmed.length&&p.clips[0].stretch==trimmed.stretch);}
     CHECK(deserialize(serialize(p))==p);
     SetAudioStretch{id,params,true}.apply(p);p.validate();CHECK(!p.clips[0].stretch&&p.clips[0].source_offset>13);
-    auto legacy=serialize(original);legacy.replace(legacy.find("MRS_CORE_SNAPSHOT 31"),20,"MRS_CORE_SNAPSHOT 30");
+    auto legacy=serialize(original);legacy.replace(legacy.find("MRS_CORE_SNAPSHOT 32"),20,"MRS_CORE_SNAPSHOT 30");
+    for(std::size_t at;(at=legacy.find("STRETCH_MODE "))!=std::string::npos;)legacy.erase(at,legacy.find('\n',at)-at+1);
     CHECK(deserialize(legacy)==original);
     auto corrupt=stretched;corrupt.clips[0].stretch->window_end+=10;rejects([&]{corrupt.validate();});
     corrupt=stretched;corrupt.clips[0].stretch->window_begin=std::numeric_limits<double>::infinity();rejects([&]{corrupt.validate();});

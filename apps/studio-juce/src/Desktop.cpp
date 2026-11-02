@@ -352,11 +352,18 @@ juce::PopupMenu Desktop::channelMenu(std::optional<mrs::Id> target){
     if(target){for(const auto& t:project()->tracks)if(t.id==*target){channelPopup.addSeparator();channelPopup.addItem(23,t.fx_channel?"Del FX channel":t.kind==mrs::TrackKind::bus?"Del Bus channel":"Del channel",enabled);break;}}
     channelPopup.addSeparator();channelPopup.addItem(70,"Group selected tracks in folder...",enabled&&!folderSelection(target?target:selectedTrack).empty());
     if(target){channelPopup.addItem(71,"Move selected tracks out of folder",enabled);juce::PopupMenu folders;int n=0;for(const auto& f:project()->folders)folders.addItem(2000+n++,label(f.name));channelPopup.addSubMenu("Move selected tracks into folder",folders,enabled&&n>0);}
+    if(target)for(const auto& t:project()->tracks)if(t.id==*target&&t.kind==mrs::TrackKind::audio){
+        juce::PopupMenu modes;
+        modes.addItem(72,"Signalsmith",true,t.stretch_backend==mrs::stretch::Backend::signalsmith);
+        modes.addItem(73,"MR Timestretch Drums",true,t.stretch_backend==mrs::stretch::Backend::drums);
+        channelPopup.addSubMenu("Time stretch mode",modes,enabled&&displayState().playback!=mrs::PlaybackState::playing);
+    }
     return channelPopup;
 }
 void Desktop::showChannelMenu(std::optional<mrs::Id> target,juce::Point<int> position){
     auto channelPopup=channelMenu(target);juce::Component::SafePointer<Desktop> safe(this);const auto store=app.services().projects;std::vector<mrs::Id> folderIds;for(const auto& f:project()->folders)folderIds.push_back(f.id);const auto members=folderSelection(target?target:selectedTrack);
     channelPopup.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({position.x,position.y,1,1}),[safe,target,store,folderIds,members](int choice){if(!safe||!choice||safe->app.services().projects!=store)return;
+        if(choice==72||choice==73){if(target)safe->run([&]{safe->app.set_track_stretch_backend(*target,choice==72?mrs::stretch::Backend::signalsmith:mrs::stretch::Backend::drums);});return;}
         if(choice==70){safe->textDialog("Group tracks in folder","Tracks",[safe,store,members](auto text){if(safe&&safe->app.services().projects==store&&text.trim().isNotEmpty())safe->app.create_track_folder(text.trim().toStdString(),members);});return;}
         if(choice==71){safe->run([&]{safe->app.move_tracks_to_folder(members,{});});return;}
         if(choice>=2000&&choice<2000+static_cast<int>(folderIds.size())){safe->run([&]{safe->app.move_tracks_to_folder(members,folderIds[static_cast<std::size_t>(choice-2000)]);});return;}

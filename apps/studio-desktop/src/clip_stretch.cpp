@@ -15,6 +15,13 @@ struct Application::StretchJob {
     using Entries=std::map<std::string,std::shared_ptr<const audio::StretchCache>>;
     std::future<Entries> result;
 };
+stretch::Backend Application::clip_stretch_backend(const Clip& c) const {
+    for(const auto& t:services_.projects->state().project->tracks)if(t.id==c.track)return t.stretch_backend;
+    throw std::invalid_argument("Missing clip channel");
+}
+void Application::set_track_stretch_backend(const Id& id,stretch::Backend backend){
+    require_not_playing();edit(SetTrackStretchBackend{id,backend},{},true);retry_stretch();
+}
 void Application::set_clip_stretch(const Id& id,stretch::Parameters parameters,bool reset){
     require_not_playing();
     const auto project=services_.projects->state().project;
@@ -34,12 +41,12 @@ Sample Application::clip_playback_offset(const Clip& c) const {
 const audio::Waveform* Application::clip_waveform(const Clip& c) const {
     if(!processed(c))return waveform(c.source);
     const auto source=assets_.find(c.source);if(source==assets_.end())return nullptr;
-    const auto entry=stretch_cache_.find(audio::stretch_cache_key(*source->second.data,c));
+    const auto entry=stretch_cache_.find(audio::stretch_cache_key(*source->second.data,c,clip_stretch_backend(c)));
     return entry==stretch_cache_.end()?nullptr:&entry->second->waveform;
 }
 std::shared_ptr<const audio::AudioData> Application::clip_audio(const Clip& c,std::shared_ptr<const audio::AudioData> source){
     if(!processed(c))return source;
-    const auto entry=stretch_cache_.find(audio::stretch_cache_key(*source,c));
+    const auto entry=stretch_cache_.find(audio::stretch_cache_key(*source,c,clip_stretch_backend(c)));
     return entry==stretch_cache_.end()?nullptr:entry->second->data;
 }
 Application::StretchStatus Application::stretch_status() const {
@@ -56,7 +63,7 @@ void Application::retry_stretch(){
 bool Application::stretch_ready(bool check_source){
     for(const auto& c:services_.projects->state().project->clips)if(!c.midi&&processed(c)){
         const auto source=asset(c.source);
-        const auto entry=stretch_cache_.find(audio::stretch_cache_key(*source,c));
+        const auto entry=stretch_cache_.find(audio::stretch_cache_key(*source,c,clip_stretch_backend(c)));
         if(entry==stretch_cache_.end())return false;
         if(check_source&&!entry->second->source_current()){
             // Reject external mutation; reopening/relinking creates a new immutable
@@ -99,14 +106,14 @@ void Application::poll_stretch(){
        recording()||head.playback==PlaybackState::playing)return;
     stretch_checked_revision_=state.revision;
     try{
-        struct Request {std::string key;std::shared_ptr<const audio::AudioData> source;Clip clip;};
+        struct Request {std::string key;std::shared_ptr<const audio::AudioData> source;Clip clip;stretch::Backend backend;};
         std::vector<Request> requests;std::set<std::string> needed;std::uintmax_t bytes{};
         for(const auto& c:state.project->clips)if(!c.midi&&processed(c)){
-            const auto source=asset(c.source);const auto key=audio::stretch_cache_key(*source,c);
+            const auto source=asset(c.source);const auto key=audio::stretch_cache_key(*source,c,clip_stretch_backend(c));
             if(!needed.insert(key).second)continue;
             bytes+=static_cast<std::uintmax_t>(audio_output_extent(c))*source->channels*4;
             if(bytes>512*1024*1024)throw std::invalid_argument("Time / pitch cache exceeds 512 MiB; shorten/split the selected source region");
-            if(!stretch_cache_.contains(key))requests.push_back({key,source,c});
+            if(!stretch_cache_.contains(key))requests.push_back({key,source,c,clip_stretch_backend(c)});
         }
         // Undo/redo regenerates evicted entries. Split views share one full region.
         std::erase_if(stretch_cache_,[&](const auto& e){return !needed.contains(e.first);});
@@ -123,7 +130,7 @@ void Application::poll_stretch(){
                 const auto& r=requests[i];
                 auto entry=audio::prepare_stretch_cache(r.source,r.clip,token,[&,i](float value){
                     progress->store((static_cast<float>(i)+value)/static_cast<float>(requests.size()));
-                });
+                },r.backend);
                 entries.emplace(r.key,std::move(entry));
             }
             return entries;
