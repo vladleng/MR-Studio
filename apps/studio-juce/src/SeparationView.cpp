@@ -43,7 +43,7 @@ public:
         place_.onClick=[this]{invoke([&]{beginResult(true);});};verify_.onClick=[this]{invoke([&]{beginResult(false);});};
         remove_.onClick=[this]{invoke([&]{const auto result=selectedResult();ensure(result.has_value(),"Select a result");owner_.app.remove_separation(result->id);owner_.refresh();message_="Result removed. Placed clips and Undo media were preserved.";});};
         details_.setMultiLine(true);details_.setReadOnly(true);details_.setCaretVisible(false);details_.setScrollbarsShown(true);details_.setTitle("Result provenance and file references");addAndMakeVisible(details_);
-        addAndMakeVisible(progress_);progress_.setTitle("Separation progress (current processing phase)");
+        addAndMakeVisible(progress_);progress_.setTitle("Completed processing chunks");
         setSize(880,700);manager_->refresh();startTimerHz(8);tick();
     }
     ~SeparationPanel()override{stopTimer();job_->cancel();}
@@ -99,8 +99,9 @@ private:
         }catch(const std::exception& e){message_=juce::String::fromUTF8(e.what());activeStore_.reset();expected_.reset();}
         update();
     }
-    void update(){
-        const auto project=owner_.project();const auto state=job_->status();const bool busy=state.state==State::running||state.state==State::ready;
+    void update(){update(job_->status());}
+    void update(const Status& state){
+        const auto project=owner_.project();const bool busy=state.state==State::running||state.state==State::ready;
         const auto clip=sourceClip();sourceInfo_.setText(clip?"Source: "+js(clip->name)+"\nSelected range: "+juce::String(clip->length)+" frames; offset "+juce::String(clip->source_offset):"Select an audio clip in Arrange, then choose Separate into Stems.",juce::dontSendNotification);
         const auto installed=manager_->status();const int index=models_.getSelectedId()-1;
         const bool modelReady=index>=0&&static_cast<std::size_t>(index)<installed.models.size()&&installed.models[static_cast<std::size_t>(index)].state==InstallationState::installed;
@@ -118,7 +119,10 @@ private:
         else if(index>=0&&static_cast<std::size_t>(index)<installed.models.size()&&installed.models[static_cast<std::size_t>(index)].state==InstallationState::unsupported)instruction=installed.models[static_cast<std::size_t>(index)].reason;
         else if(!modelReady||installed.runtime!=InstallationState::installed)instruction="Install or repair the CPU runtime and selected model in Model Manager.";
         else instruction="Ready. CPU processing may take a long time. GPU runtime is not installed.";
-        status_.setText(busy?"Processing: "+state.phase:message_.isNotEmpty()?message_:instruction,juce::dontSendNotification);
+        progressValue_=busy&&state.total>0?(static_cast<double>(state.currentPass-1)+static_cast<double>(state.completed)/static_cast<double>(state.total))/static_cast<double>(state.passes):-1.0;
+        auto processing="Processing: "+state.phase;
+        if(state.total>0)processing+=" - pass "+juce::String(state.currentPass)+"/"+juce::String(state.passes)+", chunks "+juce::String(state.completed)+"/"+juce::String(state.total);
+        status_.setText(busy?processing:message_.isNotEmpty()?message_:instruction,juce::dontSendNotification);
         std::vector<mrs::Id> ids;for(const auto& r:project->separation_results)ids.push_back(r.id);
         if(ids!=resultIds_){const auto old=selectedResult();results_.clear(juce::dontSendNotification);resultIds_=ids;int selected=0;for(std::size_t i=0;i<ids.size();++i){const auto& r=project->separation_results[i];juce::String name="Source removed";for(const auto& c:project->clips)if(c.id==r.source_clip)name=js(c.name);results_.addItem(name+" - "+js(r.model)+" - "+js(r.id.value.substr(0,8)),static_cast<int>(i)+1);if((preferredResult_&&r.id==*preferredResult_)||(old&&r.id==old->id))selected=static_cast<int>(i)+1;}
             if(!selected&&!ids.empty())selected=static_cast<int>(ids.size());results_.setSelectedId(selected,juce::dontSendNotification);preferredResult_.reset();}
@@ -173,6 +177,11 @@ void separationProjectSmoke(){
     ensure(!panelView->start_.isEnabled(),"Missing runtime must disable production Start");panelView->start_.onClick();finish();
     ensure(owner.project()->separation_results.size()==1&&owner.project()->tracks.size()==1&&owner.project()->clips.front()==clip,"Hidden result/default source integrity");
     for(const auto size:{juce::Point<int>{800,640},juce::Point<int>{880,700},juce::Point<int>{1280,1000}}){panelView->setSize(size.x,size.y);for(auto* component:panelView->getChildren())if(component->isVisible())ensure(panelView->getLocalBounds().contains(component->getBounds()),"Separation control bounds");for(float scale:{1.f,1.25f,1.5f,2.f}){const auto image=panelView->createComponentSnapshot(panelView->getLocalBounds(),true,scale);const auto name="separation-project-"+juce::String(size.x)+"x"+juce::String(size.y)+"-"+juce::String(juce::roundToInt(scale*100))+".png";auto out=juce::File::getCurrentWorkingDirectory().getChildFile(name).createOutputStream();ensure(out&&juce::PNGImageFormat().writeImageToStream(image,*out),"Separation GUI snapshot");}}
+    Status counted{State::running,{},"inference",{},"cpu"};counted.completed=5;counted.total=10;counted.currentPass=1;counted.passes=1;panelView->update(counted);
+    ensure(panelView->progressValue_==0.5&&panelView->status_.getText().contains("chunks 5/10"),"Chunk progress GUI binding");
+    {const auto image=panelView->createComponentSnapshot(panelView->getLocalBounds());auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("separation-project-progress-50.png").createOutputStream();ensure(stream&&juce::PNGImageFormat().writeImageToStream(image,*stream),"Progress GUI snapshot");}
+    counted.completed=1;counted.total=4;counted.currentPass=2;counted.passes=2;panelView->update(counted);ensure(panelView->progressValue_==0.625&&panelView->status_.getText().contains("pass 2/2"),"MDX pass progress GUI binding");
+    counted.total=0;counted.phase="verifying";panelView->update(counted);ensure(panelView->progressValue_<0,"Verification must not claim completed inference is a ready result");panelView->update();
     panelView->place_.onClick();finish();ensure(owner.project()->tracks.size()==3&&owner.project()->clips.size()==3,"Place action binding");const auto placed=owner.project()->clips;ensure(owner.app.undo()&&owner.project()->clips.size()==1,"Place one Undo");ensure(owner.app.redo()&&owner.project()->clips==placed,"Place Redo IDs");
     panelView->remove_.onClick();ensure(owner.project()->separation_results.empty()&&owner.project()->clips==placed,"Remove hidden result preserves tracks");ensure(owner.app.undo()&&owner.project()->separation_results.size()==1,"Undo result cleanup");
     slow->store(true);const auto before=*owner.project();panelView->start_.onClick();panelView->cancel_.onClick();finish();ensure(*owner.project()==before,"Cancellation modified project");slow->store(false);

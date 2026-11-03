@@ -1,5 +1,6 @@
 #include "SeparationProject.h"
 #include <mrs/sha256.hpp>
+#include <algorithm>
 #include <condition_variable>
 #include <deque>
 #include <fstream>
@@ -109,9 +110,10 @@ Result ProjectJob::process(const ProjectInput& input,std::stop_token stop){
     need(input.clip.source_offset>=0&&input.clip.length>0&&input.clip.source_offset<=info.frame_count&&input.clip.length<=info.frame_count-input.clip.source_offset,"Source range is missing or changed");
     auto installation=manager_->acquire(input.model,Device::cpu);
     Runner runner(installation.runner);Request request;request.source=file(input.source);request.modelDirectory=installation.modelDirectory;
+    request.timeout=std::chrono::seconds(std::clamp<mrs::Sample>(input.clip.length/input.rate*30+600,1800,21600));
     request.modelId=input.model;request.chunk=input.chunk;request.sessionId=input.session;request.sourceRevision=input.revision;request.sourceStart=input.clip.source_offset;request.sourceFrames=input.clip.length;request.timelineStart=input.clip.start;request.projectRate=static_cast<int>(input.rate);
     need(runner.start(std::move(request)),"Separation service is busy");
-    for(;;){const auto s=runner.status();phase(s.phase);if(s.state!=State::running){if(s.state==State::ready){auto result=runner.take();need(result.has_value(),"Missing separation result");return std::move(*result);}throw std::runtime_error(s.error.toStdString());}
+    for(;;){const auto s=runner.status();{std::lock_guard lock(mutex_);status_.phase=s.phase;status_.completed=s.completed;status_.total=s.total;status_.currentPass=s.currentPass;status_.passes=s.passes;}if(s.state!=State::running){if(s.state==State::ready){auto result=runner.take();need(result.has_value(),"Missing separation result");return std::move(*result);}throw std::runtime_error(s.error.toStdString());}
         if(stop.stop_requested())runner.cancel();std::this_thread::sleep_for(std::chrono::milliseconds(20));}
 }
 bool ProjectJob::separate(ProjectInput input){return begin([this,input=std::move(input)](std::stop_token stop){auto raw=process(input,stop);phase("Verifying and keeping project assets");return ProjectOutcome{deliver(input,std::move(raw),stop),{}};});}

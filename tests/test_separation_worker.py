@@ -101,6 +101,33 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(error.exception.code, code)
             self.assertFalse((self.root / "absent").exists())
 
+    def test_progress_counts_after_iteration_and_separates_passes(self):
+        events = []
+        reporter = worker.ChunkProgress(lambda phase, **kw: events.append((phase, kw)), lambda: None, 2)
+        iterator = reporter.wrap(lambda values: values)([10, 20])
+        self.assertEqual(next(iterator), 10)
+        self.assertEqual(events[-1][1]["completed"], "0")
+        self.assertEqual(list(iterator), [20])
+        self.assertEqual(events[-1][1], {"completed": "2", "total": "2", "current_pass": "1", "passes": "2"})
+        self.assertEqual(list(reporter.wrap(lambda values: values)([30])), [30])
+        self.assertEqual(events[-1][1]["current_pass"], "2")
+        self.assertEqual(events[-1][1]["completed"], "1")
+
+    def test_progress_cancellation_never_counts_unfinished_chunk(self):
+        calls = 0
+        def check():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise worker.Failure("cancelled")
+        events = []
+        reporter = worker.ChunkProgress(lambda _phase, **kw: events.append(kw), check, 1)
+        iterator = reporter.wrap(lambda values: values)([10])
+        self.assertEqual(next(iterator), 10)
+        with self.assertRaises(worker.Failure):
+            next(iterator)
+        self.assertEqual(events[-1]["completed"], "0")
+
     def test_source_revision_hash_and_bounds(self):
         self.req["source_sha256"] = "0" * 64
         with self.assertRaisesRegex(worker.Failure, "") as error:

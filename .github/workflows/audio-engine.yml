@@ -1,6 +1,6 @@
 name: Windows Studio Release
 # Single source: the Actions run title is also aliased into the release environment.
-run-name: &release_banner 'MR Studio 0.9.5 / MR Live 0.8.13 — Windows Release'
+run-name: &release_banner 'MR Studio 0.9.5-Upd1 / MR Live 0.8.13 — Windows Release'
 on:
   push:
     branches: [main, 'codex/cloud-cicd-migration']
@@ -66,7 +66,7 @@ jobs:
             if($LASTEXITCODE){throw 'Cannot read PR head check scope'}
             if($subject -match '\[ci live\]'){$scope='live'}
             if($subject -match '\[ci separation\]'){$scope='separation'}
-            if($subject -match '\[ci separation-ui\]'){$scope='separation-ui'}
+            if($subject -match '\[ci separation-(ui|progress)\]'){$scope='separation-ui'}
           }
           if($env:INTEGRATION -eq 'true'){$scope='integration'}
           # 0.8.10 acceptance: verify exact saved snapshots and Save/Undo state.

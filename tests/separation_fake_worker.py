@@ -35,6 +35,10 @@ if mode == "missing_model":
     send("error", 2, job_id=req["job_id"], code="model_missing")
     sys.exit(0)
 
+if mode in ("progress", "bad_progress"):
+    send("progress", 2, job_id=req["job_id"], phase="inference", completed="1" if mode == "progress" else "3", total="2", current_pass="1", passes="1")
+    time.sleep(0.1)
+
 result = Path.cwd() / "result"
 result.mkdir()
 frames = int(req["source_frames"])
@@ -62,4 +66,4 @@ if mode == "duplicate":
 if mode == "stale":
     manifest["session_id"] = "old_session"
 (result / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-send("result", 2, job_id=req["job_id"], manifest=manifest)
+send("result", 3 if mode in ("progress", "bad_progress") else 2, job_id=req["job_id"], manifest=manifest)

@@ -437,6 +437,22 @@ Project records допускают проверенные наборы 2/4/6 rol
 Placement/Undo/Save As используют один существующий путь и копируют каждый stem
 по своему безопасному имени. Оригинал остаётся без изменений.
 
+## Chunk progress #337 (0.9.5-Upd1)
+
+Pinned backend iteration counters (Demucs/RoFormer/MDX) передаются через bounded
+IPC как decimal-string completed/total/current_pass/passes. Завершение chunk
+считается после inference, не при постановке в очередь; cancel проверяется между
+chunks, события ограничены 4 Hz, финальное событие прохода не теряется. Патч
+локального tqdm binding действует только на время одного sidecar inference;
+строки stderr не парсятся, fake progress отсутствует. MDX имеет два прохода,
+UI показывает pass и chunks, bar распределён по проходам (это доля работы,
+не обещание линейного времени). Loading/verification остаются indeterminate.
+
+Studio CPU deadline теперь max(30 min, 30×clip duration + 10 min), максимум 6 h;
+это верхний предел, а не ETA. Для 5 min source — 160 min вместо прежних 30 min.
+Manual cancel и отдельные host/worker deadlines сохраняются. Никаких изменений
+числа CPU потоков, DSP, качества модели, project schema или cache identity.
+
 ## Источники аудита
 
 - **S1** [audio-separator v0.48.0 release](https://github.com/nomadkaraoke/python-audio-separator/releases/tag/v0.48.0), [pinned README: CLI, devices, outputs](https://github.com/nomadkaraoke/python-audio-separator/blob/4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e/README.md).

@@ -348,8 +348,15 @@ void Runner::run(Request request, juce::String jobId) noexcept {
                     const auto phase = event["phase"].toString();
                     require(phase == "validating" || phase == "import_numpy" || phase == "import_soundfile" || phase == "import_scipy" ||
                             phase == "preparing" || phase == "loading" || phase == "inference" || phase == "verifying", "protocol_error");
-                    std::lock_guard lock(mutex_); status_.phase = phase;
-                    status_.effectiveDevice = event["device"].toString();
+                    juce::int64 completed{},total{},currentPass{},passes{};
+                    if(event.hasProperty("completed")){
+                        completed=number(event["completed"]);total=number(event["total"]);currentPass=number(event["current_pass"]);passes=number(event["passes"]);
+                        require(phase=="inference"&&total>0&&total<=1000000&&completed<=total&&currentPass>0&&currentPass<=passes&&passes<=8,"protocol_error");
+                    }
+                    std::lock_guard lock(mutex_);
+                    if(total&&status_.total&&status_.currentPass==currentPass)require(total==status_.total&&completed>=status_.completed,"protocol_error");
+                    status_.completed=completed;status_.total=total;status_.currentPass=currentPass;status_.passes=passes;status_.phase = phase;
+                    if(event.hasProperty("device"))status_.effectiveDevice = event["device"].toString();
                 }
             }
             if (preserve) break;

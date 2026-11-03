@@ -168,6 +168,35 @@ def profile_for(req):
     return PROFILES[model]
 
 
+class ChunkProgress:
+    """Counts completed backend iterations; emitting is bounded to 4 Hz."""
+    def __init__(self, emit, check, passes):
+        self.emit, self.check, self.passes = emit, check, passes
+        self.current_pass = 0
+
+    def wrap(self, original):
+        def tracked(iterable, *args, **kwargs):
+            total = kwargs.get("total") or len(iterable)
+            self.current_pass += 1
+            current = self.current_pass
+            if not 0 < total <= 1000000 or current > self.passes:
+                raise Failure("invalid_output")
+            def report(done):
+                self.emit("inference", completed=str(done), total=str(total),
+                          current_pass=str(current), passes=str(self.passes))
+            report(0)
+            last = time.monotonic()
+            for done, item in enumerate(original(iterable, *args, **kwargs), 1):
+                self.check()
+                yield item
+                self.check()
+                now = time.monotonic()
+                if now - last >= 0.25 or done == total:
+                    report(done)
+                    last = now
+        return tracked
+
+
 def infer_profile(snapshot, output_dir, model_dir, requested_device, threads, emit, check, profile, chunk):
     """Fixed, hash-verified closure; no backend catalogue or metadata downloads."""
     for artifact in profile["files"]:
@@ -245,7 +274,18 @@ def infer_profile(snapshot, output_dir, model_dir, requested_device, threads, em
     separator.load_model(profile["model_file"])
     check()
     emit("inference", device=effective)
-    separator.separate(str(snapshot), {stem: stem.lower() for stem in profile["native_stems"]})
+    import types
+    if profile["architecture"] == "Demucs":
+        module = importlib.import_module("audio_separator.separator.uvr_lib_v5.demucs.apply")
+    else:
+        module = importlib.import_module("audio_separator.separator.architectures." + ("mdx_separator" if profile["architecture"] == "MDX" else "mdxc_separator"))
+    original = module.tqdm
+    reporter = ChunkProgress(emit, check, 2 if profile["architecture"] == "MDX" else 1)
+    module.tqdm = types.SimpleNamespace(tqdm=reporter.wrap(original.tqdm)) if profile["architecture"] == "Demucs" else reporter.wrap(original)
+    try:
+        separator.separate(str(snapshot), {stem: stem.lower() for stem in profile["native_stems"]})
+    finally:
+        module.tqdm = original
     return effective
 
 

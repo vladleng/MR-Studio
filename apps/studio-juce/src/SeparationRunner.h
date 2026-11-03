@@ -32,6 +32,7 @@ struct Configuration {
 struct Status {
     State state{State::idle};
     juce::String jobId, phase, error, effectiveDevice;
+    juce::int64 completed{}, total{}, currentPass{}, passes{};
 };
 struct Result {
     juce::String jobId, sessionId, sourceRevision;

@@ -1,5 +1,5 @@
 name: Separation CPU contracts
-run-name: MR Studio 0.9.5 — Windows separation CPU smoke
+run-name: MR Studio 0.9.5-Upd1 — Windows separation CPU smoke
 on:
   push:
     branches: ['codex/74-separation-contract']
@@ -66,7 +66,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-0.9.5-Separation-CPU-${{ github.sha }}
+          name: MR-Studio-0.9.5-Upd1-Separation-CPU-${{ github.sha }}
           path: |
             build/separation-evidence/
             build/separation/Testing/Temporary/LastTest.log
