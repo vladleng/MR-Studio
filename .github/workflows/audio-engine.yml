@@ -134,7 +134,7 @@ jobs:
         run: |
           $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
           if($env:CHECK_SCOPE -eq 'separation'){$args+=@('-R','^separation_(host|models)$')}
-          elseif($env:CHECK_SCOPE -eq 'separation-ui'){$args+=@('-R','^juce_separation_(models|project)$')}
+          elseif($env:CHECK_SCOPE -eq 'separation-ui'){$args+=@('-R','^juce_(separation_(models|project)|live_(entry_smoke|application))$')}
           elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('-R','^(juce_live_(entry_smoke|application)|audio_(metronome|performance|parallel_(equivalence|ownership|profiling))|desktop_live_preload)$')}
           elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(stretch_contract|model|transport|commands|serialization|track_folders)|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|ara_.*|juce_(separation_(models|project)|live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(separation_assets|wav_import|track_folders|clip_response)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
           & ctest @args
