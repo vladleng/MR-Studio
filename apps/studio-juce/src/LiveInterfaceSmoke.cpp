@@ -2842,7 +2842,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             direct.editLiveInterface("Create independent Playback lanes",[&](auto &state) {
                 mainChannel=live::addChannel(state,"Playback","Backing");
                 secondChannel=live::addChannel(state,"Playback","Other Playback");
-                live::put(live::find(state,"channels",secondChannel),"playbackIndependent",true);
+                auto second=live::find(state,"channels",secondChannel);
+                live::put(second,"playbackIndependent",true);
             });
             direct.attachLivePlayback(id,positive,{},secondChannel);
             auto independent=live::playbackRows(direct.liveDocument->interfaceState,id);
