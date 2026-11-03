@@ -1041,7 +1041,8 @@ void Desktop::addLivePlaybackStems(const juce::String &id,const juce::Array<juce
                 }
             if(target.isEmpty()) {
                 target=addPlaybackChannel(state,file.getFileNameWithoutExtension());
-                live::put(live::find(state,"channels",target),"playbackParent",selected);
+                auto created=live::find(state,"channels",target);
+                live::put(created,"playbackParent",selected);
             }
             // A primary lane cannot become a child of a separate Playback group.
             if(target==primary && selected!=primary && used.contains(selected))
