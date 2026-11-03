@@ -68,8 +68,8 @@ std::shared_ptr<ProjectResult> deliver(const ProjectInput& input,Result raw,std:
     const auto key=[&](const fs::path& p){return utf8(persistent?p.lexically_relative(input.projectFile.parent_path()):p);};
     const auto manifestPath=fs::path(manifestSource.getFullPathName().toWideCharPointer());
     r.manifest={"manifest",key(destination/"manifest.json"),mrs::sha256_file(manifestPath,stop),static_cast<std::uint64_t>(manifestSource.getSize())};
-    const auto* outputs=manifest["outputs"].getArray();need(outputs&&outputs->size()==modelProfile(input.model).stems.size(),"Invalid separation outputs");
-    for(const auto& label:modelProfile(input.model).stems){
+    const auto* outputs=manifest["outputs"].getArray();need(outputs&&outputs->size()==selectedOutputs(modelProfile(input.model),input.selectedStems).size(),"Invalid separation outputs");
+    for(const auto& label:selectedOutputs(modelProfile(input.model),input.selectedStems)){
         const auto role=label.toLowerCase();
         bool found{};for(const auto& out:*outputs)if(out["stem"].toString()==role){
             need(!found&&out["path"].toString()==juce::String(role)+".wav"&&out["frames"].toString().getLargeIntValue()==r.frames,"Invalid separation stem");found=true;
@@ -111,7 +111,7 @@ Result ProjectJob::process(const ProjectInput& input,std::stop_token stop){
     auto installation=manager_->acquire(input.model,Device::cpu);
     Runner runner(installation.runner);Request request;request.source=file(input.source);request.modelDirectory=installation.modelDirectory;
     request.timeout=std::chrono::seconds(std::clamp<mrs::Sample>(input.clip.length/input.rate*30+600,1800,21600));
-    request.modelId=input.model;request.chunk=input.chunk;request.sessionId=input.session;request.sourceRevision=input.revision;request.sourceStart=input.clip.source_offset;request.sourceFrames=input.clip.length;request.timelineStart=input.clip.start;request.projectRate=static_cast<int>(input.rate);
+    request.selectedStems=input.selectedStems;request.modelId=input.model;request.chunk=input.chunk;request.sessionId=input.session;request.sourceRevision=input.revision;request.sourceStart=input.clip.source_offset;request.sourceFrames=input.clip.length;request.timelineStart=input.clip.start;request.projectRate=static_cast<int>(input.rate);
     need(runner.start(std::move(request)),"Separation service is busy");
     for(;;){const auto s=runner.status();{std::lock_guard lock(mutex_);status_.phase=s.phase;status_.completed=s.completed;status_.total=s.total;status_.currentPass=s.currentPass;status_.passes=s.passes;}if(s.state!=State::running){if(s.state==State::ready){auto result=runner.take();need(result.has_value(),"Missing separation result");return std::move(*result);}throw std::runtime_error(s.error.toStdString());}
         if(stop.stop_requested())runner.cancel();std::this_thread::sleep_for(std::chrono::milliseconds(20));}

@@ -1,8 +1,14 @@
 #include <mrs/core.hpp>
 #include <algorithm>
 #include <stdexcept>
+#include <set>
 
 namespace mrs {
+bool legacy_separation(const SeparationResult& r){
+    std::set<std::string> roles;for(const auto& stem:r.stems)roles.insert(stem.role);
+    if(roles.size()!=r.stems.size())return false;
+    return roles==std::set<std::string>{"Vocals","Instrumental"}||roles==std::set<std::string>{"Vocals","Drums","Bass","Other"}||roles==std::set<std::string>{"Vocals","Drums","Bass","Other","Guitar","Piano"};
+}
 void RegisterSeparation::apply(Project& p) const {
     const auto clip=std::find(p.clips.begin(),p.clips.end(),expected_);
     if(clip==p.clips.end()||clip->midi||clip->stretch||p.sample_rate!=result_.sample_rate||

@@ -80,7 +80,7 @@ void fetchHttps(const DownloadArtifact& artifact,const juce::File& target,const 
         need(WinHttpCrackUrl(url.toWideCharPointer(),0,0,&parts)!=FALSE,"download_url");
         const juce::String host(parts.lpszHostName,static_cast<int>(parts.dwHostNameLength));
         need(parts.nScheme==INTERNET_SCHEME_HTTPS && parts.nPort==443 && parts.dwUserNameLength==0 && parts.dwPasswordLength==0 &&
-             (host=="www.python.org"||host=="raw.githubusercontent.com"||host=="github.com"||host=="release-assets.githubusercontent.com"||host=="objects.githubusercontent.com"||host=="dl.fbaipublicfiles.com"),"download_url");
+             (host=="www.python.org"||host=="raw.githubusercontent.com"||host=="github.com"||host=="release-assets.githubusercontent.com"||host=="objects.githubusercontent.com"||host=="dl.fbaipublicfiles.com"||host=="huggingface.co"||host=="cdn-lfs.huggingface.co"||host=="cdn-lfs-us-1.hf.co"||host=="cas-bridge.xethub.hf.co"),"download_url");
         const auto path=juce::String(parts.lpszUrlPath,static_cast<int>(parts.dwUrlPathLength))+juce::String(parts.lpszExtraInfo,static_cast<int>(parts.dwExtraInfoLength));
         Internet session{WinHttpOpen(L"MR-Studio-Separation/0.9.3",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0)};
         need(session.h!=nullptr,"network_error");WinHttpSetTimeouts(session.h,10000,10000,10000,10000);
@@ -121,13 +121,15 @@ const std::vector<ModelRecord>& modelCatalogue() {
         need(json.isArray(),"invalid_catalogue");std::vector<ModelRecord> result;
         for(const auto& entry:*json.getArray()){
             ModelRecord r;r.id=entry["id"].toString();r.version=entry["version"].toString();r.title=entry["title"].toString();
-            r.backend="python-audio-separator 0.48.0";r.modelFile=entry["model_file"].toString();r.architecture=entry["architecture"].toString();
+            r.backend="python-audio-separator 0.48.0";r.unsupportedReason=entry["unsupported_reason"].toString();r.modelFile=entry["model_file"].toString();r.architecture=entry["architecture"].toString();
             for(const auto& stem:*entry["stems"].getArray())r.stems.add(stem.toString());
             for(const auto& stem:*entry["native_stems"].getArray())r.nativeStems.add(stem.toString());
             for(const auto& chunk:*entry["chunks"].getArray())r.chunks.add(chunk.toString());
-            r.outputs=r.stems.joinIntoString(" / ");r.nativeOutputs=r.nativeStems.joinIntoString(" / ");
+            if(entry["default_stems"].isArray())for(const auto& stem:*entry["default_stems"].getArray())r.defaultStems.add(stem.toString());
+            else r.defaultStems=r.stems;
+            r.outputs=r.stems.size()>6?juce::String(r.stems.size())+" overlapping categories (select outputs)":r.stems.joinIntoString(" / ");r.nativeOutputs=r.nativeStems.joinIntoString(" / ");
             r.hardware="Windows x64; local CPU. GPU runtime not installed. CPU processing can be slow.";
-            r.codeLicense="Demucs/audio-separator: MIT";r.weightsLicense="Checkpoint-specific review deferred; not bundled with Studio.";r.provenance=entry["provenance"].toString();
+            r.codeLicense=r.architecture=="SCNet"?"SCNet/MSST adapter: MIT; see SCNet-MIT-LICENSE.txt":"Demucs/audio-separator: MIT";r.weightsLicense="Checkpoint-specific review deferred; not bundled with Studio.";r.provenance=entry["provenance"].toString();
             for(const auto& f:*entry["files"].getArray())r.files.push_back({f["name"].toString(),f["url"].toString(),f["sha256"].toString(),static_cast<juce::int64>(f["bytes"])});
             result.push_back(std::move(r));
         }return result;
@@ -136,6 +138,11 @@ const std::vector<ModelRecord>& modelCatalogue() {
 const ModelRecord& modelProfile(const juce::String& id){
     for(const auto& r:modelCatalogue())if(r.id==id)return r;
     throw Error{"unsupported_model"};
+}
+juce::StringArray selectedOutputs(const ModelRecord& profile,const juce::StringArray& selection){
+    const auto& requested=selection.isEmpty()?profile.defaultStems:selection;need(!requested.isEmpty()&&requested.size()<=53,"invalid_stems");
+    juce::StringArray seen;for(const auto& stem:requested){need(profile.stems.contains(stem)&&!seen.contains(stem),"invalid_stems");seen.add(stem);}
+    juce::StringArray ordered;for(const auto& stem:profile.stems)if(seen.contains(stem))ordered.add(stem);return ordered;
 }
 juce::String profileCatalogueJson(){return juce::String::fromUTF8(separationProfilesJson).replace("\r\n","\n");}
 

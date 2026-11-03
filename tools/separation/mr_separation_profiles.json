@@ -230,5 +230,236 @@
     "chunks": [
       "default"
     ]
+  },
+  {
+    "id": "bs-roformer-sw-6-v1",
+    "version": "24e7d35e",
+    "title": "BS-RoFormer SW Fixed - 6 stems",
+    "architecture": "MDXC",
+    "model_file": "BS-Rofo-SW-Fixed.ckpt",
+    "stems": [
+      "Bass",
+      "Drums",
+      "Other",
+      "Vocals",
+      "Guitar",
+      "Piano"
+    ],
+    "native_stems": [
+      "Bass",
+      "Drums",
+      "Other",
+      "Vocals",
+      "Guitar",
+      "Piano"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 6442450944,
+    "independent_heads": true,
+    "additive": true,
+    "chunks": [
+      "default",
+      "small"
+    ],
+    "provenance": "FractalSurfer/BS-RoFormer-SW-6stem@2b98254b19bdab07ce225d884ec4aa9dd8aafce1; original weights license unknown/review deferred",
+    "files": [
+      {
+        "name": "BS-Rofo-SW-Fixed.ckpt",
+        "url": "https://huggingface.co/FractalSurfer/BS-RoFormer-SW-6stem/resolve/2b98254b19bdab07ce225d884ec4aa9dd8aafce1/BS-Rofo-SW-Fixed.ckpt",
+        "bytes": 699412152,
+        "sha256": "24e7d35ee9c64415673d3fd33e06a67cac2c103c5df6267ba1576459c775916e"
+      },
+      {
+        "name": "BS-Rofo-SW-Fixed.yaml",
+        "url": "https://huggingface.co/FractalSurfer/BS-RoFormer-SW-6stem/resolve/2b98254b19bdab07ce225d884ec4aa9dd8aafce1/BS-Rofo-SW-Fixed.yaml",
+        "bytes": 4613,
+        "sha256": "f9fada9f94e5ba2d2e4600196299459294bc5f532b314c209cc156ac63e4329b"
+      }
+    ]
+  },
+  {
+    "id": "scnet-xl-ihf-4-v1",
+    "version": "ac25975f",
+    "title": "SCNet XL IHF - 4 stems",
+    "architecture": "SCNet",
+    "model_file": "model_scnet_ep_36_sdr_10.0891.ckpt",
+    "stems": [
+      "Drums",
+      "Bass",
+      "Other",
+      "Vocals"
+    ],
+    "native_stems": [
+      "Drums",
+      "Bass",
+      "Other",
+      "Vocals"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 4294967296,
+    "additive": true,
+    "chunks": [
+      "default",
+      "small"
+    ],
+    "provenance": "MSST release v1.0.15 SCNet XL IHF; narrow MIT adapter@f0b527736e7da24eae5b561a2bb1efd0569ec757; checkpoint rights review deferred",
+    "adapter_sha256": "fc88774236c442430e05707346a8d61789d31aadc190789dd268a7914447d8ac",
+    "files": [
+      {
+        "name": "model_scnet_ep_36_sdr_10.0891.ckpt",
+        "url": "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.15/model_scnet_ep_36_sdr_10.0891.ckpt",
+        "bytes": 214063778,
+        "sha256": "ac25975f0f5704f3d1a3c3c251505b7a0f417a22eafe82773440ee4f7e14b74f"
+      },
+      {
+        "name": "config_musdb18_scnet_xl_more_wide_v5.yaml",
+        "url": "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.15/config_musdb18_scnet_xl_more_wide_v5.yaml",
+        "bytes": 5906,
+        "sha256": "54ddcb8aeeae85c8d0e148741e7d87b0fbd38bd21cffa5d59ba124fe1e672f40"
+      }
+    ]
+  },
+  {
+    "id": "mvsep-mega-53-v1",
+    "version": "c6282089",
+    "title": "MVSep Mega 53 - overlapping categories",
+    "architecture": "MDXC",
+    "model_file": "mvsep_mega_model_bs_roformer_53_stems_v1.ckpt",
+    "stems": [
+      "accordion",
+      "acoustic-guitar",
+      "back-vocal",
+      "banjo",
+      "bass",
+      "bassoon",
+      "bells",
+      "bowed_strings",
+      "brass",
+      "cello",
+      "clarinet",
+      "congas",
+      "digital-piano",
+      "dobro",
+      "double-bass",
+      "drums",
+      "electric-guitar",
+      "flute",
+      "french-horn",
+      "glockenspiel",
+      "guitar",
+      "harmonica",
+      "harp",
+      "harpsichord",
+      "hh",
+      "keys",
+      "kick",
+      "lead-vocal",
+      "mandolin",
+      "marimba",
+      "oboe",
+      "organ",
+      "percussion",
+      "piano",
+      "saxophone",
+      "sitar",
+      "snare",
+      "strings",
+      "synth",
+      "tambourine",
+      "timpani",
+      "toms",
+      "triangle",
+      "trombone",
+      "trumpet",
+      "tuba",
+      "ukulele",
+      "viola",
+      "violin",
+      "vocal",
+      "wind",
+      "wind-chimes",
+      "woodwind"
+    ],
+    "native_stems": [
+      "accordion",
+      "acoustic-guitar",
+      "back-vocal",
+      "banjo",
+      "bass",
+      "bassoon",
+      "bells",
+      "bowed_strings",
+      "brass",
+      "cello",
+      "clarinet",
+      "congas",
+      "digital-piano",
+      "dobro",
+      "double-bass",
+      "drums",
+      "electric-guitar",
+      "flute",
+      "french-horn",
+      "glockenspiel",
+      "guitar",
+      "harmonica",
+      "harp",
+      "harpsichord",
+      "hh",
+      "keys",
+      "kick",
+      "lead-vocal",
+      "mandolin",
+      "marimba",
+      "oboe",
+      "organ",
+      "percussion",
+      "piano",
+      "saxophone",
+      "sitar",
+      "snare",
+      "strings",
+      "synth",
+      "tambourine",
+      "timpani",
+      "toms",
+      "triangle",
+      "trombone",
+      "trumpet",
+      "tuba",
+      "ukulele",
+      "viola",
+      "violin",
+      "vocal",
+      "wind",
+      "wind-chimes",
+      "woodwind"
+    ],
+    "default_stems": [
+      "bass"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 8589934592,
+    "independent_heads": true,
+    "additive": false,
+    "chunks": [
+      "default",
+      "small"
+    ],
+    "provenance": "MSST release v1.0.21 MVSep Mega53; targeted independent heads, overlapping/non-additive categories; checkpoint rights review deferred",
+    "files": [
+      {
+        "name": "mvsep_mega_model_bs_roformer_53_stems_v1.ckpt",
+        "url": "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.21/mvsep_mega_model_bs_roformer_53_stems_v1.ckpt",
+        "bytes": 1368919887,
+        "sha256": "c62820893bbf86d4e734f966bd142d9157cfc8bb8e79e9d8f9ea553f3ff3519f"
+      },
+      {
+        "name": "mvsep_mega_model_bs_roformer_53_stems.yaml",
+        "url": "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.21/mvsep_mega_model_bs_roformer_53_stems.yaml",
+        "bytes": 4184,
+        "sha256": "7e198062a251587088adb91215a4f44ab59e67bd62fcc805cf54d6e7dfc51103"
+      }
+    ]
   }
 ]

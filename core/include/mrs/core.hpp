@@ -22,7 +22,7 @@ inline constexpr Tick ppq = 960;
 inline constexpr std::size_t max_project_midi_notes = 32768;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 33;
+inline constexpr std::uint32_t schema_version = 34;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -300,6 +300,7 @@ struct SeparationResult {
     std::vector<SeparationFile> stems;
     bool operator==(const SeparationResult&) const = default;
 };
+bool legacy_separation(const SeparationResult&);
 struct Project {
     static constexpr float minimum_master_gain=0,maximum_master_gain=16,initial_master_gain=1;
     std::uint32_t version{schema_version};

@@ -27,6 +27,8 @@ SeparationResult result(const fs::path& root,const Clip& clip,int stems=2){
     const auto f=[&](const char* role,const char* name){const auto path=root/name;return SeparationFile{role,text(path),sha256_file(path),fs::file_size(path)};};
     r.manifest=f("manifest","manifest.json");r.stems={f("Vocals","vocals.wav"),f("Instrumental","instrumental.wav")};
     if(stems>2){r.stems.clear();for(const auto* label:{"Vocals","Drums","Bass","Other","Guitar","Piano"}){if(stems==4&&(std::string(label)=="Guitar"||std::string(label)=="Piano"))continue;auto name=std::string(label);std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});name+=".wav";wav(root/name,4800);r.stems.push_back(f(label,name.c_str()));}}
+    if(stems==53){r.stems.clear();for(int i=0;i<53;++i){const auto role="instrument_"+std::to_string(i),name=role+".wav";wav(root/name,4800);r.stems.push_back(f(role.c_str(),name.c_str()));}}
+    else r.stems.resize(static_cast<std::size_t>(stems));
     return r;
 }
 std::vector<std::shared_ptr<const audio::AudioData>> prepare(desktop::Application& app,const SeparationResult& r){std::vector<std::shared_ptr<const audio::AudioData>> out;for(const auto& f:r.stems)out.push_back(std::make_shared<const audio::AudioData>(audio::open_wav(app.source_file(f.source),0)));return out;}
@@ -46,9 +48,10 @@ void lifecycle(int stems){
     check(app.undo()&&app.services().projects->state().project->separation_results.empty(),"Undo hidden registration");
     check(app.redo()&&app.services().projects->state().project->separation_results.front()==r,"Redo preserves manifest and IDs");
     check(serialize(initial).starts_with("MRS_CORE_SNAPSHOT 32\n"),"Plain projects retain previous wire version");
-    check(serialize(*app.services().projects->state().project).starts_with("MRS_CORE_SNAPSHOT 33\n"),"Separated projects use schema 33");
+    check(serialize(*app.services().projects->state().project).starts_with(stems==1||stems==3||stems==53?"MRS_CORE_SNAPSHOT 34\n":"MRS_CORE_SNAPSHOT 33\n"),"Selected outputs use schema34; legacy complete sets retain33");
     auto round=deserialize(serialize(*app.services().projects->state().project));check(round==*app.services().projects->state().project,"Core separation roundtrip");
     auto legacy=serialize(initial);const auto header=legacy.find('\n');legacy.replace(0,header,"MRS_CORE_SNAPSHOT 32");check(deserialize(legacy).separation_results.empty(),"Old schema migration");
+    if(stems==53){const auto before=*app.services().projects->state().project;rejects([&]{app.place_separation(r,prepare(app,r));});check(*app.services().projects->state().project==before,"Existing32voice limit must reject before project publication");app.save_project(temp.root/"saved"/"many.mrsproject");app.save_project(temp.root/"moved"/"many.mrsproject");fs::remove_all(temp.root/"saved");fs::remove_all(temp.root/"job");desktop::Application reopened;reopened.open_project(temp.root/"moved"/"many.mrsproject");const auto& saved=reopened.services().projects->state().project->separation_results.front();check(saved.stems.size()==53&&reopened.services().projects->state().project->clips.size()==1,"53hidden categories persist without53tracks");for(const auto& stem:saved.stems)check(sha256_file(reopened.source_file(stem.source))==stem.sha256,"53category assets verified after relocation");return;}
     app.place_separation(r,prepare(app,r));const auto placed=*app.services().projects->state().project;
     check(placed.tracks.size()==initial.tracks.size()+static_cast<std::size_t>(stems)&&placed.clips.size()==initial.clips.size()+static_cast<std::size_t>(stems),"Place requested stems");
     for(std::size_t i=1;i<placed.clips.size();++i)check(placed.clips[i].start==clip.start&&placed.clips[i].length==clip.length&&placed.clips[i].source_offset==0&&placed.clips[i].fade_in==48&&placed.clips[i].fade_out==96,"Stem alignment/fades");
@@ -88,4 +91,4 @@ void hidden_history_saveas(){
     rejects([&]{app.save_project(destination/"collision.mrsproject");});std::ifstream input(destination/"collision.assets"/"separation"/r.id.value/"vocals.wav");std::string s;input>>s;check(s=="foreign","Foreign file overwritten");
 }
 }
-int main(){try{hashes();lifecycle(2);lifecycle(4);lifecycle(6);source_guard();hidden_history_saveas();std::cout<<"PASS separation assets: SHA256 vectors, stale guard, hidden/placement Undo/Redo, schema migration, Save/Open/Save As/moved project, missing media, foreign-file preservation\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{hashes();lifecycle(1);lifecycle(2);lifecycle(3);lifecycle(4);lifecycle(6);lifecycle(53);source_guard();hidden_history_saveas();std::cout<<"PASS separation assets: SHA256 vectors, stale guard, hidden/placement Undo/Redo, schema migration, Save/Open/Save As/moved project, missing media, foreign-file preservation\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

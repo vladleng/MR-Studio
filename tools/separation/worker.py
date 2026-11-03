@@ -6,6 +6,7 @@ stdout carry bounded uint32-LE framed JSON; all library output goes to stderr.
 import contextlib
 import hashlib
 import importlib.metadata
+import importlib.util
 import io
 import json
 import math
@@ -168,6 +169,14 @@ def profile_for(req):
     return PROFILES[model]
 
 
+def selected_stems(req, profile):
+    values = req.get("stems", profile.get("default_stems", profile["stems"]))
+    if (not isinstance(values, list) or not 1 <= len(values) <= 53 or
+            any(not isinstance(s, str) or s not in profile["stems"] for s in values) or len(set(values)) != len(values)):
+        raise Failure("invalid_stems")
+    return [s for s in profile["stems"] if s in values]
+
+
 class ChunkProgress:
     """Counts completed backend iterations; emitting is bounded to 4 Hz."""
     def __init__(self, emit, check, passes):
@@ -197,7 +206,7 @@ class ChunkProgress:
         return tracked
 
 
-def infer_profile(snapshot, output_dir, model_dir, requested_device, threads, emit, check, profile, chunk):
+def infer_profile(snapshot, output_dir, model_dir, requested_device, threads, emit, check, profile, chunk, selection=None):
     """Fixed, hash-verified closure; no backend catalogue or metadata downloads."""
     for artifact in profile["files"]:
         path = model_dir / artifact["name"]
@@ -227,8 +236,23 @@ def infer_profile(snapshot, output_dir, model_dir, requested_device, threads, em
             effective = "cpu"
         if requested_device == "cuda" and effective != "cuda":
             raise Failure("unsupported_device")
+    selection = selection or profile.get("default_stems", profile["stems"])
     check()
     emit("loading", device=effective)
+    if profile["architecture"] == "SCNet":
+        adapter = Path(__file__).with_name("mr_separation_scnet.py")
+        canonical = adapter.read_bytes().replace(b"\r\n", b"\n")
+        if hashlib.sha256(canonical).hexdigest() != profile["adapter_sha256"]:
+            raise Failure("integrity_failure")
+        spec = importlib.util.spec_from_file_location("mr_separation_scnet", adapter)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        import yaml
+        config_file = next(model_dir / f["name"] for f in profile["files"] if f["name"].endswith(".yaml"))
+        config = yaml.load(config_file.read_text(encoding="utf-8"), Loader=yaml.FullLoader)
+        reporter = ChunkProgress(emit, check, 1)
+        module.infer(snapshot, output_dir, model_dir / profile["model_file"], config, selection, chunk, effective, reporter.wrap(lambda values: values), check)
+        return effective
     import onnxruntime as ort
     ort.disable_telemetry_events()
     from audio_separator.separator import Separator
@@ -283,7 +307,30 @@ def infer_profile(snapshot, output_dir, model_dir, requested_device, threads, em
     reporter = ChunkProgress(emit, check, 2 if profile["architecture"] == "MDX" else 1)
     module.tqdm = types.SimpleNamespace(tqdm=reporter.wrap(original.tqdm)) if profile["architecture"] == "Demucs" else reporter.wrap(original)
     try:
-        separator.separate(str(snapshot), {stem: stem.lower() for stem in profile["native_stems"]})
+        if profile.get("independent_heads"):
+            instance = separator.model_instance
+            indices = [profile["native_stems"].index(role) for role in selection]
+            model = instance.model_run
+            if len(model.mask_estimators) != len(profile["native_stems"]):
+                raise Failure("unsupported_model")
+            model.mask_estimators = torch.nn.ModuleList([model.mask_estimators[index] for index in indices])
+            model.num_stems = len(indices)
+            names = [role.lower() for role in selection]
+            instance.model_data_cfgdict.training.instruments = names
+            instance.model_data_cfgdict.training.target_instrument = names[0] if len(names) == 1 else None
+            instance.is_primary_stem_main_target = False
+            data, rate = sf.read(str(snapshot), dtype="float32", always_2d=True)
+            if rate != 44100:
+                raise Failure("invalid_input")
+            sources = instance.demix(data.T)
+            if not isinstance(sources, dict):
+                if len(names) != 1:
+                    raise Failure("invalid_output")
+                sources = {names[0]: sources}
+            for name in names:
+                write_float(instance, name + ".wav", sources[name].T)
+        else:
+            separator.separate(str(snapshot), {stem: stem.lower() for stem in profile["native_stems"]})
     finally:
         module.tqdm = original
     return effective
@@ -295,6 +342,7 @@ def infer_htdemucs(snapshot, output_dir, model_dir, requested_device, threads, e
 
 def execute(req, work, emit, check, engine=None):
     profile = profile_for(req)
+    selection = selected_stems(req, profile)
     emit("validating")
     source, start, frames, origin, target_rate, threads = validate_request(req)
     check()
@@ -344,13 +392,14 @@ def execute(req, work, emit, check, engine=None):
     native = work / "native"
     native.mkdir()
     if engine is None:
-        effective = infer_profile(snapshot, native, Path(req["model_dir"]).resolve(), req["device"], threads, emit, check, profile, req.get("chunk", "default"))
+        effective = infer_profile(snapshot, native, Path(req["model_dir"]).resolve(), req["device"], threads, emit, check, profile, req.get("chunk", "default"), selection)
     else:
         effective = engine(snapshot, native, Path(req["model_dir"]).resolve(), req["device"], threads, emit, check)
     check()
     emit("verifying", device=effective)
     stems = {}
-    for name in (stem.lower() for stem in profile["native_stems"]):
+    native_roles = selection if profile.get("independent_heads") or profile["architecture"] == "SCNet" else profile["native_stems"]
+    for name in (stem.lower() for stem in native_roles):
         path = native / (name + ".wav")
         if path.is_symlink():
             raise Failure("invalid_output")
@@ -365,7 +414,7 @@ def execute(req, work, emit, check, engine=None):
     outputs = []
     pending = work / "result.part"
     pending.mkdir()
-    for label in profile["stems"]:
+    for label in selection:
         name = label.lower()
         audio = stems[name]
         check()
@@ -382,11 +431,13 @@ def execute(req, work, emit, check, engine=None):
                 "source_start": str(start), "source_frames": str(frames), "source_rate": str(info.samplerate),
                 "timeline_start": str(origin), "project_rate": str(target_rate),
                 "snapshot_sha256": digest(snapshot), "model": profile["id"],
+                "available_stems": profile["stems"], "selected_stems": selection,
                 "weights": {f["name"]: f["sha256"] for f in profile["files"]}, "backend": "python-audio-separator", "backend_version": BACKEND_VERSION,
                 "requested_device": req["device"], "effective_device": effective, "precision": "fp32",
                 "gain_policy": "unnormalized_float", "derivation": "instrumental=bass+drums+other" if profile["id"] == DEFAULT_MODEL else "model-native/complement",
                 "chunk": req.get("chunk", "default"), "source_channels": info.channels, "mono_policy": "duplicate_to_stereo", "model_rate": 44100,
-                "shifts": 0, "seed": 0, "overlap": 0.25, "outputs": outputs}
+                "shifts": 0, "seed": 0, "overlap": 0.25 if profile["architecture"] in ("Demucs", "MDX") else 2,
+                "additive_outputs": profile.get("additive", True), "outputs": outputs}
     (pending / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=True, allow_nan=False), encoding="utf-8")
     check()
     pending.rename(work / "result")

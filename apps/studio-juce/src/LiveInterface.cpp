@@ -686,7 +686,7 @@ void Desktop::launchLive(const juce::File &file, bool create) {
     const auto executable =
         juce::File::getSpecialLocation(juce::File::currentExecutableFile).getSiblingFile("MR Live.exe");
     if (!executable.existsAsFile())
-        throw std::runtime_error("MR Live.exe is missing from the application package");
+        throw std::runtime_error("MR Live is installed separately; place its runtime beside Studio to use this launcher");
     const bool session = app.audio_name() != "Offline clock (no sound)" && app.audio_name() != "Disconnected";
     app.pause();
     app.disconnect();

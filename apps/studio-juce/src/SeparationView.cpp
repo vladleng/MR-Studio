@@ -35,6 +35,8 @@ public:
         for(auto* label:{&help_,&footer_})label->setColour(juce::Label::textColourId,owner_.theme.role(ColourRole::muted,secondaryText));
         for(const auto& model:manager_->status().models)models_.addItem(model.record.title,models_.getNumItems()+1);
         addAndMakeVisible(chunks_);chunks_.addItem("Default chunk",1);chunks_.addItem("Smaller chunk (less memory)",2);chunks_.setSelectedId(1,juce::dontSendNotification);chunks_.setTitle("Processing chunk size");
+        addAndMakeVisible(stemsTitle_);stemsTitle_.setText("Outputs to keep",juce::dontSendNotification);addAndMakeVisible(stemsViewport_);stemsViewport_.setViewedComponent(&stemsBody_,false);stemsViewport_.setScrollBarsShown(true,false);
+        addAndMakeVisible(selectAll_);selectAll_.setButtonText("All");selectAll_.onClick=[this]{setStemSelection(true);};addAndMakeVisible(selectNone_);selectNone_.setButtonText("None");selectNone_.onClick=[this]{setStemSelection(false);};
         addAndMakeVisible(models_);models_.setSelectedId(1,juce::dontSendNotification);models_.setTitle("Installed separation model");models_.onChange=[this]{message_.clear();update();};
         addAndMakeVisible(results_);results_.setTitle("Hidden separation result");results_.onChange=[this]{update();};
         struct Action{juce::TextButton* button;const char* name;};int focus=1;
@@ -43,8 +45,8 @@ public:
         place_.onClick=[this]{invoke([&]{beginResult(true);});};verify_.onClick=[this]{invoke([&]{beginResult(false);});};
         remove_.onClick=[this]{invoke([&]{const auto result=selectedResult();ensure(result.has_value(),"Select a result");owner_.app.remove_separation(result->id);owner_.refresh();message_="Result removed. Placed clips and Undo media were preserved.";});};
         details_.setMultiLine(true);details_.setReadOnly(true);details_.setCaretVisible(false);details_.setScrollbarsShown(true);details_.setTitle("Result provenance and file references");addAndMakeVisible(details_);
-        addAndMakeVisible(progress_);progress_.setTitle("Completed processing chunks");
-        setSize(880,700);manager_->refresh();startTimerHz(8);tick();
+        addAndMakeVisible(progress_);progress_.setColour(juce::ProgressBar::foregroundColourId,owner_.theme.role(ColourRole::focus,accent));progress_.setTitle("Completed processing chunks");
+        setSize(960,920);manager_->refresh();startTimerHz(8);tick();
     }
     ~SeparationPanel()override{stopTimer();job_->cancel();}
     void setSource(std::optional<mrs::Id> clip){if(job_->status().state!=State::running){source_=std::move(clip);message_.clear();update();}}
@@ -52,10 +54,11 @@ public:
     void resized()override{
         const auto w=getWidth();title_.setBounds(24,12,w-48,28);sourceInfo_.setBounds(24,48,w-48,40);mode_.setBounds(24,96,w-48,24);
         models_.setBounds(24,128,w-280,28);managerButton_.setBounds(w-240,128,216,28);help_.setBounds(24,160,w-328,40);chunks_.setBounds(w-288,164,264,28);
-        start_.setBounds(24,216,192,32);cancel_.setBounds(228,216,160,32);progress_.setBounds(408,220,w-432,24);status_.setBounds(24,256,w-48,40);
-        resultsTitle_.setBounds(24,304,w-48,24);results_.setBounds(24,336,w-48,28);resultInfo_.setBounds(24,372,w-48,40);
-        place_.setBounds(24,424,248,32);verify_.setBounds(284,424,136,32);remove_.setBounds(432,424,160,32);
-        details_.setBounds(24,472,w-48,juce::jmax(40,getHeight()-528));footer_.setBounds(24,getHeight()-44,w-48,28);
+        stemsTitle_.setBounds(24,208,w-240,24);selectAll_.setBounds(w-200,208,80,24);selectNone_.setBounds(w-112,208,88,24);stemsViewport_.setBounds(24,236,w-48,112);layoutStems();
+        start_.setBounds(24,368,192,32);cancel_.setBounds(228,368,160,32);progress_.setBounds(408,372,w-432,24);status_.setBounds(24,408,w-48,40);
+        resultsTitle_.setBounds(24,456,w-48,24);results_.setBounds(24,488,w-48,28);resultInfo_.setBounds(24,524,w-48,40);
+        place_.setBounds(24,576,248,32);verify_.setBounds(284,576,136,32);remove_.setBounds(432,576,160,32);
+        details_.setBounds(24,624,w-48,juce::jmax(40,getHeight()-680));footer_.setBounds(24,getHeight()-44,w-48,28);
     }
     bool keyPressed(const juce::KeyPress& key)override{if(key==juce::KeyPress::escapeKey){job_->cancel();return true;}return false;}
 private:
@@ -72,6 +75,7 @@ private:
         const auto models=manager_->status();const auto index=models_.getSelectedId()-1;ensure(index>=0&&static_cast<std::size_t>(index)<models.models.size(),"Select a supported model");
         ProjectInput input;input.clip=*clip;input.source=owner_.app.source_file(clip->source);input.projectFile=owner_.app.path();input.rate=owner_.project()->sample_rate;
         input.session=juce::Uuid().toString();input.revision=juce::String(owner_.app.services().projects->state().revision);input.model=models.models[static_cast<std::size_t>(index)].record.id;input.chunk=chunks_.getSelectedId()==2?"small":"default";if(models.models[static_cast<std::size_t>(index)].record.architecture=="MDX")input.chunk="default";input.sourceLifetime=owner_.app.source_lifetime(clip->source);input.sourceGuard=owner_.app.separation_media_guard();
+        input.selectedStems=stemSelection();ensure(!input.selectedStems.isEmpty(),"Select at least one output");
         context();expected_=*clip;placeWhenReady_=false;ensure(job_->separate(std::move(input)),"Separation service is busy");message_="Separating the selected clip...";
     }
     void beginResult(bool place){
@@ -99,6 +103,10 @@ private:
         }catch(const std::exception& e){message_=juce::String::fromUTF8(e.what());activeStore_.reset();expected_.reset();}
         update();
     }
+    juce::StringArray stemSelection()const{juce::StringArray selected;for(const auto& button:stemButtons_)if(button->getToggleState())selected.add(button->getButtonText());return selected;}
+    void setStemSelection(bool enabled){for(auto& button:stemButtons_)button->setToggleState(enabled,juce::dontSendNotification);update();}
+    void layoutStems(){const int width=juce::jmax(1,stemsViewport_.getWidth()-16),column=width/3;stemsBody_.setSize(width,static_cast<int>((stemButtons_.size()+2)/3)*28);for(std::size_t i=0;i<stemButtons_.size();++i)stemButtons_[i]->setBounds(static_cast<int>(i%3)*column,static_cast<int>(i/3)*28,column,26);}
+    void showStems(const ModelRecord& model){if(selectionModel_==model.id)return;selectionModel_=model.id;stemButtons_.clear();for(const auto& role:model.stems){auto button=std::make_unique<juce::ToggleButton>(role);button->setTitle("Keep "+role);button->setToggleState(model.defaultStems.contains(role),juce::dontSendNotification);button->onClick=[this]{update();};stemsBody_.addAndMakeVisible(*button);stemButtons_.push_back(std::move(button));}layoutStems();}
     void update(){update(job_->status());}
     void update(const Status& state){
         const auto project=owner_.project();const bool busy=state.state==State::running||state.state==State::ready;
@@ -108,15 +116,18 @@ private:
         const bool validModel=index>=0&&static_cast<std::size_t>(index)<installed.models.size();
         chunks_.setEnabled(!busy&&validModel&&installed.models[static_cast<std::size_t>(index)].record.chunks.contains("small"));
         if(validModel&&!installed.models[static_cast<std::size_t>(index)].record.chunks.contains("small"))chunks_.setSelectedId(1,juce::dontSendNotification);
-        mode_.setText(validModel?"Local CPU - "+installed.models[static_cast<std::size_t>(index)].record.outputs:"Local CPU",juce::dontSendNotification);
+        mode_.setText(validModel?"Local CPU - "+(installed.models[static_cast<std::size_t>(index)].record.stems.size()>6?juce::String(installed.models[static_cast<std::size_t>(index)].record.stems.size())+" instrument categories":installed.models[static_cast<std::size_t>(index)].record.outputs):"Local CPU",juce::dontSendNotification);
+        if(validModel)showStems(installed.models[static_cast<std::size_t>(index)].record);
+        const bool hasOutputs=!stemSelection().isEmpty();for(auto& button:stemButtons_)button->setEnabled(!busy);selectAll_.setEnabled(!busy);selectNone_.setEnabled(!busy);
         const bool inputReady=clip&&clip->source!="mrs:demo-tone"&&!clip->stretch&&std::none_of(project->ara_bindings.begin(),project->ara_bindings.end(),[&](const auto& b){return b.source==clip->source;});
-        start_.setEnabled(!busy&&!owner_.app.recording()&&!installed.busy&&inputReady&&modelReady&&installed.runtime==InstallationState::installed);cancel_.setEnabled(busy);models_.setEnabled(!busy);managerButton_.setEnabled(!busy);progress_.setVisible(busy);
+        start_.setEnabled(!busy&&!owner_.app.recording()&&!installed.busy&&inputReady&&hasOutputs&&modelReady&&installed.runtime==InstallationState::installed);cancel_.setEnabled(busy);models_.setEnabled(!busy);managerButton_.setEnabled(!busy);progress_.setVisible(busy);
         juce::String instruction;
         if(!clip)instruction="Select an audio clip in Arrange.";
         else if(clip->source=="mrs:demo-tone")instruction="Import a stereo WAV first; the demo tone is not a file-backed source.";
         else if(!inputReady)instruction="Reset Time / Pitch and detach ARA before separating this source.";
         else if(owner_.app.recording())instruction="Stop recording before starting or keeping a result.";
         else if(index>=0&&static_cast<std::size_t>(index)<installed.models.size()&&installed.models[static_cast<std::size_t>(index)].state==InstallationState::unsupported)instruction=installed.models[static_cast<std::size_t>(index)].reason;
+        else if(!hasOutputs)instruction="Select at least one output to keep.";
         else if(!modelReady||installed.runtime!=InstallationState::installed)instruction="Install or repair the CPU runtime and selected model in Model Manager.";
         else instruction="Ready. CPU processing may take a long time. GPU runtime is not installed.";
         progressValue_=busy&&state.total>0?(static_cast<double>(state.currentPass-1)+static_cast<double>(state.completed)/static_cast<double>(state.total))/static_cast<double>(state.passes):-1.0;
@@ -137,11 +148,12 @@ private:
     std::shared_ptr<mrs::IProjectStore> activeStore_;std::filesystem::path activePath_;std::optional<mrs::Clip> expected_;bool placeWhenReady_{};
     std::vector<mrs::Id> resultIds_;juce::String message_;
     juce::Label title_,sourceInfo_,mode_,help_,status_,resultsTitle_,resultInfo_,footer_;juce::ComboBox models_,results_,chunks_;
+    juce::Label stemsTitle_;juce::Viewport stemsViewport_;juce::Component stemsBody_;std::vector<std::unique_ptr<juce::ToggleButton>> stemButtons_;juce::String selectionModel_;juce::TextButton selectAll_,selectNone_;
     juce::TextButton managerButton_,start_,cancel_,place_,verify_,remove_;juce::TextEditor details_;double progressValue_{-1};juce::ProgressBar progress_;
 };
 class SeparationWindow final:public juce::DocumentWindow {
 public:
-    SeparationWindow(Desktop& owner,std::optional<mrs::Id> source,std::shared_ptr<ModelManager> manager,std::shared_ptr<ProjectJob> job):DocumentWindow("Separate into Stems",juce::Colour(panel),closeButton),owner_(owner){setUsingNativeTitleBar(true);setLookAndFeel(&owner.theme);setContentOwned(new SeparationPanel(owner,std::move(source),std::move(manager),std::move(job)),true);setResizable(true,false);setResizeLimits(800,640,1280,1000);centreAroundComponent(&owner,880,700);setVisible(true);applyGraphiteWindowCaption(*this);}
+    SeparationWindow(Desktop& owner,std::optional<mrs::Id> source,std::shared_ptr<ModelManager> manager,std::shared_ptr<ProjectJob> job):DocumentWindow("Separate into Stems",juce::Colour(panel),closeButton),owner_(owner){setUsingNativeTitleBar(true);setLookAndFeel(&owner.theme);setContentOwned(new SeparationPanel(owner,std::move(source),std::move(manager),std::move(job)),true);setResizable(true,false);setResizeLimits(800,820,1280,1200);centreAroundComponent(&owner,960,920);setVisible(true);applyGraphiteWindowCaption(*this);}
     ~SeparationWindow()override{setLookAndFeel(nullptr);}
     void closeButtonPressed()override{owner_.separationWindow.reset();}
 private:Desktop& owner_;
@@ -167,16 +179,16 @@ void separationProjectSmoke(){
     auto processor=[root,wav,slow,calls](const ProjectInput& in,std::stop_token stop){
         ++*calls;while(slow->load()&&!stop.stop_requested())std::this_thread::sleep_for(std::chrono::milliseconds(2));
         if(stop.stop_requested())throw std::runtime_error("Fixture cancelled");
-        const auto id=juce::Uuid().toString().removeCharacters("-");const auto dir=root.getChildFile("mrs-separation-"+id).getChildFile("result");ensure(dir.createDirectory().wasOk(),"Create fixture result");for(const auto& role:modelProfile(in.model).stems)wav(dir.getChildFile(role.toLowerCase()+".wav"),static_cast<int>(in.clip.length));
+        const auto id=juce::Uuid().toString().removeCharacters("-");const auto dir=root.getChildFile("mrs-separation-"+id).getChildFile("result");ensure(dir.createDirectory().wasOk(),"Create fixture result");for(const auto& role:selectedOutputs(modelProfile(in.model),in.selectedStems))wav(dir.getChildFile(role.toLowerCase()+".wav"),static_cast<int>(in.clip.length));
         auto json=juce::var(new juce::DynamicObject);const auto set=[&](const char* key,juce::var value){json.getDynamicObject()->setProperty(key,std::move(value));};
         set("model",in.model);set("source_start",juce::String(in.clip.source_offset));set("source_frames",juce::String(in.clip.length));set("project_rate",48000);set("source_rate",48000);set("source_sha256",js(mrs::sha256_file(in.source)));
-        juce::Array<juce::var> outputs;for(const auto& label:modelProfile(in.model).stems){const auto role=label.toLowerCase();const auto file=dir.getChildFile(role+".wav");auto item=juce::var(new juce::DynamicObject);item.getDynamicObject()->setProperty("stem",role);item.getDynamicObject()->setProperty("path",juce::String(role)+".wav");item.getDynamicObject()->setProperty("frames",juce::String(in.clip.length));item.getDynamicObject()->setProperty("bytes",juce::String(file.getSize()));item.getDynamicObject()->setProperty("sha256",js(mrs::sha256_file(std::filesystem::path(file.getFullPathName().toWideCharPointer()))));outputs.add(item);}set("outputs",juce::var(outputs));ensure(dir.getChildFile("manifest.json").replaceWithText(juce::JSON::toString(json)),"Write fixture manifest");return Result{id,in.session,in.revision,dir,json};
+        juce::Array<juce::var> outputs;for(const auto& label:selectedOutputs(modelProfile(in.model),in.selectedStems)){const auto role=label.toLowerCase();const auto file=dir.getChildFile(role+".wav");auto item=juce::var(new juce::DynamicObject);item.getDynamicObject()->setProperty("stem",role);item.getDynamicObject()->setProperty("path",juce::String(role)+".wav");item.getDynamicObject()->setProperty("frames",juce::String(in.clip.length));item.getDynamicObject()->setProperty("bytes",juce::String(file.getSize()));item.getDynamicObject()->setProperty("sha256",js(mrs::sha256_file(std::filesystem::path(file.getFullPathName().toWideCharPointer()))));outputs.add(item);}set("outputs",juce::var(outputs));ensure(dir.getChildFile("manifest.json").replaceWithText(juce::JSON::toString(json)),"Write fixture manifest");return Result{id,in.session,in.revision,dir,json};
     };
     auto job=std::make_shared<ProjectJob>(manager,processor);showSeparation(owner,clip.id,manager,job);auto* panelView=dynamic_cast<SeparationPanel*>(owner.separationWindow->getContentComponent());ensure(panelView!=nullptr,"Separation window");
     const auto finish=[&]{for(int i=0;i<4000;++i){panelView->tick();if(job->status().state!=State::running&&job->status().state!=State::ready)break;std::this_thread::sleep_for(std::chrono::milliseconds(2));}panelView->tick();ensure(job->status().state!=State::running,"GUI job deadline");};
     ensure(!panelView->start_.isEnabled(),"Missing runtime must disable production Start");panelView->start_.onClick();finish();
     ensure(owner.project()->separation_results.size()==1&&owner.project()->tracks.size()==1&&owner.project()->clips.front()==clip,"Hidden result/default source integrity");
-    for(const auto size:{juce::Point<int>{800,640},juce::Point<int>{880,700},juce::Point<int>{1280,1000}}){panelView->setSize(size.x,size.y);for(auto* component:panelView->getChildren())if(component->isVisible())ensure(panelView->getLocalBounds().contains(component->getBounds()),"Separation control bounds");for(float scale:{1.f,1.25f,1.5f,2.f}){const auto image=panelView->createComponentSnapshot(panelView->getLocalBounds(),true,scale);const auto name="separation-project-"+juce::String(size.x)+"x"+juce::String(size.y)+"-"+juce::String(juce::roundToInt(scale*100))+".png";auto out=juce::File::getCurrentWorkingDirectory().getChildFile(name).createOutputStream();ensure(out&&juce::PNGImageFormat().writeImageToStream(image,*out),"Separation GUI snapshot");}}
+    for(const auto size:{juce::Point<int>{800,820},juce::Point<int>{960,920},juce::Point<int>{1280,1200}}){panelView->setSize(size.x,size.y);for(auto* component:panelView->getChildren())if(component->isVisible())ensure(panelView->getLocalBounds().contains(component->getBounds()),"Separation control bounds");for(float scale:{1.f,1.25f,1.5f,2.f}){const auto image=panelView->createComponentSnapshot(panelView->getLocalBounds(),true,scale);const auto name="separation-project-"+juce::String(size.x)+"x"+juce::String(size.y)+"-"+juce::String(juce::roundToInt(scale*100))+".png";auto out=juce::File::getCurrentWorkingDirectory().getChildFile(name).createOutputStream();ensure(out&&juce::PNGImageFormat().writeImageToStream(image,*out),"Separation GUI snapshot");}}
     Status counted{State::running,{},"inference",{},"cpu"};counted.completed=5;counted.total=10;counted.currentPass=1;counted.passes=1;panelView->update(counted);
     ensure(panelView->progressValue_==0.5&&panelView->status_.getText().contains("chunks 5/10"),"Chunk progress GUI binding");
     {const auto image=panelView->createComponentSnapshot(panelView->getLocalBounds());auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("separation-project-progress-50.png").createOutputStream();ensure(stream&&juce::PNGImageFormat().writeImageToStream(image,*stream),"Progress GUI snapshot");}
@@ -199,10 +211,15 @@ void separationProjectSmoke(){
         const auto source=owner.project()->clips.front();showSeparation(owner,source.id,manager,job);panelView=dynamic_cast<SeparationPanel*>(owner.separationWindow->getContentComponent());
         int index=1;for(const auto& candidate:modelCatalogue()){if(candidate.id==model.id)break;++index;}
         panelView->models_.setSelectedId(index,juce::dontSendNotification);panelView->start_.onClick();finish();
-        ensure(owner.project()->separation_results.size()==1&&owner.project()->separation_results.front().stems.size()==static_cast<std::size_t>(model.stems.size())&&owner.project()->clips.size()==1,"Extended hidden outputs");
-        panelView->place_.onClick();finish();ensure(owner.project()->clips.size()==static_cast<std::size_t>(model.stems.size()+1),"Extended Place binding");
+        ensure(owner.project()->separation_results.size()==1&&owner.project()->separation_results.front().stems.size()==static_cast<std::size_t>(model.defaultStems.size())&&owner.project()->clips.size()==1,"Extended hidden outputs");
+        panelView->place_.onClick();finish();ensure(owner.project()->clips.size()==static_cast<std::size_t>(model.defaultStems.size()+1),"Extended Place binding");
         ensure(owner.app.undo()&&owner.project()->clips.size()==1,"Extended placement Undo");ensure(owner.app.redo(),"Extended placement Redo");
-        panelView->setSize(880,700);const auto image=panelView->createComponentSnapshot(panelView->getLocalBounds());auto out=juce::File::getCurrentWorkingDirectory().getChildFile("separation-project-"+juce::String(model.stems.size())+"-stems.png").createOutputStream();ensure(out&&juce::PNGImageFormat().writeImageToStream(image,*out),"Extended GUI snapshot");
+        const auto beforeSubset=owner.project()->clips.size();const auto beforeCalls=calls->load();panelView->selectNone_.onClick();panelView->start_.onClick();ensure(calls->load()==beforeCalls&&panelView->message_.contains("Select at least one"),"Empty stem selection must not start inference");
+        const auto targetRole=model.stems.contains("Bass")?juce::String("Bass"):juce::String("bass");
+        for(auto& button:panelView->stemButtons_)button->setToggleState(button->getButtonText()==targetRole,juce::dontSendNotification);
+        panelView->start_.onClick();finish();ensure(owner.project()->separation_results.size()==2&&owner.project()->separation_results.back().stems.size()==1&&owner.project()->separation_results.back().stems.front().role==targetRole.toStdString(),"Bass-only hidden result");
+        panelView->place_.onClick();finish();ensure(owner.project()->clips.size()==beforeSubset+1&&owner.project()->clips.back().name==targetRole.toStdString(),"Bass-only placement");ensure(owner.app.undo()&&owner.project()->clips.size()==beforeSubset,"Bass-only placement Undo");ensure(owner.app.redo(),"Bass-only placement Redo");
+        panelView->setSize(960,920);const auto image=panelView->createComponentSnapshot(panelView->getLocalBounds());auto out=juce::File::getCurrentWorkingDirectory().getChildFile("separation-project-"+model.id+".png").createOutputStream();ensure(out&&juce::PNGImageFormat().writeImageToStream(image,*out),"Extended GUI snapshot");
         owner.separationWindow.reset();
     }
 }

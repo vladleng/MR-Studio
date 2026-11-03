@@ -30,6 +30,8 @@ if(TARGET MoonRiverStudioJuce)
     set_source_files_properties(apps/studio-juce/src/SeparationView.cpp PROPERTIES COMPILE_OPTIONS "/WX")
   endif()
   add_custom_command(TARGET MoonRiverStudioJuce POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/tools/separation/mr_separation_scnet.py" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/mr_separation_scnet.py"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/tools/separation/SCNet-MIT-LICENSE.txt" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/SCNet-MIT-LICENSE.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/tools/separation/mr_separation_profiles.json" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/mr_separation_profiles.json"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/tools/separation/worker.py" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/mr_separation_worker.py"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/tools/separation/requirements-cpu.txt" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/mr_separation_requirements.txt")

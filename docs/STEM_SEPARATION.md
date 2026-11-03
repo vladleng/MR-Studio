@@ -453,6 +453,37 @@ Studio CPU deadline теперь max(30 min, 30×clip duration + 10 min), мак
 Manual cancel и отдельные host/worker deadlines сохраняются. Никаких изменений
 числа CPU потоков, DSP, качества модели, project schema или cache identity.
 
+## Выбранные outputs и модели #338 (0.9.6, в разработке)
+
+`stems` в local request — непустое уникальное подмножество точных capabilities
+модели; отсутствие поля означает default outputs профиля. Обычные модели по
+умолчанию сохраняют все источники; Mega53 — только bass. UI All/None не запускает
+задачу с пустым набором. Возвращаются/сохраняются только выбранные WAV, manifest
+содержит available_stems/selected_stems и additive_outputs. Общее inference может
+вычислять больше источников; ускорение не обещается. SW/Mega independent mask
+heads ограничиваются выбранными indices после загрузки точных pinned weights;
+это технический adapter к pinned MDXC, а не выдуманные residual instruments.
+
+Internal Core schema34 допускает1..53 безопасных уникальных role IDs. Plain
+проекты сохраняют wire32, полные legacy Vocals/Instrumental,4- и6-source sets —
+wire33; selected/new-category sets — wire34, который старые версии явно отклонят.
+Typed manifest/file refs, Undo/Redo и Save As используют существующий путь.
+Действующий32-streamed-voice budget engine не увеличивается:53hidden categories
+могут храниться, но превышение бюджета при Place отклоняется до публикации Core.
+Mega53 категории перекрываются и не обязаны суммироваться в исходник.
+
+SCNet XL IHF: exact v1.0.15 config/checkpoint и узкий MIT SCNet adapter из
+MSST@f0b527736e7da24eae5b561a2bb1efd0569ec757. Source notice хранится в
+SCNet-MIT-LICENSE.txt; adapter canonical-LF SHA256 закреплён в общем catalogue.
+Новых runtime dependencies для SCNet не требуется; checkpoint loading только
+после проверки полного closure SHA256. Реальная Windows admission проверяется
+отдельно, до объявления READY. GPU/объективное качество отдельно.
+
+Studio-only scope `[ci studio]`/`checks=studio` конфигурирует MRS_BUILD_LIVE=OFF,
+не создаёт Live executable/Live tests и не включает Live в package. Совместная
+integration и отдельные Live проверки остаются явными опциями. Studio ARA2 ON.
+Синяя полоса uses current Theme focus/accent, без глобального изменения Theme.
+
 ## Источники аудита
 
 - **S1** [audio-separator v0.48.0 release](https://github.com/nomadkaraoke/python-audio-separator/releases/tag/v0.48.0), [pinned README: CLI, devices, outputs](https://github.com/nomadkaraoke/python-audio-separator/blob/4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e/README.md).

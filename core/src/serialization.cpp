@@ -93,7 +93,7 @@ std::string serialize(const Project& p) {
     out << std::setprecision(std::numeric_limits<double>::max_digits10);
     // Unaffected Studio/Live projects retain the previous wire format. Schema 33
     // is required only when there are actual separation records to preserve.
-    out << "MRS_CORE_SNAPSHOT " << (p.separation_results.empty()?32:p.version) << '\n';
+    out << "MRS_CORE_SNAPSHOT " << (p.separation_results.empty()?32:std::all_of(p.separation_results.begin(),p.separation_results.end(),legacy_separation)?33:p.version) << '\n';
     out << "PROJECT " << std::quoted(p.id.value) << ' ' << std::quoted(p.title) << ' '
         << std::quoted(p.artist) << ' ' << p.sample_rate << '\n';
     section(out, "TEMPOS", p.time.tempos);
@@ -353,8 +353,8 @@ Project deserialize(std::string_view bytes) {
         const auto total=count(in);if(total>64)throw std::invalid_argument("Too many separation results");
         const auto file=[&]{SeparationFile f;f.role=quoted(in);f.source=quoted(in);f.sha256=quoted(in);in>>f.bytes;check_stream(in);return f;};
         for(std::size_t i=0;i<total;++i){SeparationResult r;r.id={quoted(in)};r.source_clip={quoted(in)};r.source=quoted(in);r.source_sha256=quoted(in);r.model=quoted(in);r.model_version=quoted(in);r.provenance=quoted(in);
-            in>>r.source_offset>>r.source_frames>>r.start>>r.frames>>r.fade_in>>r.fade_out>>r.source_rate>>r.sample_rate;const auto stems=count(in);if(stems!=2&&stems!=4&&stems!=6)throw std::invalid_argument("Unsupported separation stems");
-            r.manifest=file();for(std::size_t j=0;j<stems;++j)r.stems.push_back(file());p.separation_results.push_back(std::move(r));}
+            in>>r.source_offset>>r.source_frames>>r.start>>r.frames>>r.fade_in>>r.fade_out>>r.source_rate>>r.sample_rate;const auto stems=count(in);if(stems==0||stems>53||(input_version<=33&&stems!=2&&stems!=4&&stems!=6))throw std::invalid_argument("Unsupported separation stems");
+            r.manifest=file();for(std::size_t j=0;j<stems;++j)r.stems.push_back(file());if(input_version<=33&&!legacy_separation(r))throw std::invalid_argument("Unsupported legacy separation roles");p.separation_results.push_back(std::move(r));}
         in>>ending;check_stream(in);
     }
     if(ending!="END")throw std::invalid_argument("invalid snapshot ending");

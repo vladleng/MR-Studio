@@ -163,12 +163,12 @@ void verify(const juce::var& manifest, const Request& request, const juce::Strin
             "invalid_output");
     const auto expected = (request.sourceFrames * request.projectRate + sourceRate / 2) / sourceRate;
     const auto* outputs = manifest["outputs"].getArray();
-    require(outputs && outputs->size() == modelProfile(request.modelId).stems.size() && result.isDirectory() && plainFile(result), "invalid_output");
+    require(outputs && outputs->size() == selectedOutputs(modelProfile(request.modelId),request.selectedStems).size() && result.isDirectory() && plainFile(result), "invalid_output");
     juce::StringArray seen;
-    const auto& profile=modelProfile(request.modelId);
+    const auto roles=selectedOutputs(modelProfile(request.modelId),request.selectedStems);
     for (const auto& output : *outputs) {
         const auto stem = output["stem"].toString();
-        bool allowed{};for(const auto& role:profile.stems)if(role.toLowerCase()==stem)allowed=true;
+        bool allowed{};for(const auto& role:roles)if(role.toLowerCase()==stem)allowed=true;
         require(allowed&&!seen.contains(stem),"invalid_output");seen.add(stem);
         require(output["path"].toString() == stem + ".wav" && output["format"].toString() == "WAV_FLOAT32" &&
                 number(output["frames"]) == expected && number(output["rate"]) == request.projectRate &&
@@ -285,6 +285,7 @@ void Runner::run(Request request, juce::String jobId) noexcept {
         put(message, "source_start", juce::String(request.sourceStart)); put(message, "source_frames", juce::String(request.sourceFrames));
         put(message, "timeline_start", juce::String(request.timelineStart)); put(message, "project_rate", juce::String(request.projectRate));
         put(message, "model_dir", request.modelDirectory.getFullPathName());
+        juce::Array<juce::var> selected;for(const auto& stem:selectedOutputs(modelProfile(request.modelId),request.selectedStems))selected.add(stem);put(message,"stems",juce::var(selected));
         put(message,"model",request.modelId);put(message,"chunk",request.chunk);
         put(message, "device", request.device == Device::cpu ? "cpu" : request.device == Device::cuda ? "cuda" : "auto");
         put(message, "memory_bytes", juce::String(request.memoryBytes)); put(message, "timeout_ms", juce::String(request.timeout.count()));

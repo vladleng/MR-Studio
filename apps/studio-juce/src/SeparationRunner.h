@@ -22,6 +22,7 @@ struct Request {
     juce::int64 sourceStart{}, sourceFrames{}, timelineStart{};
     int projectRate{48000};
     Device device{Device::cpu};
+    juce::StringArray selectedStems;
     juce::String modelId{"official-htdemucs-derived-2-v1"}, chunk{"default"};
     std::chrono::milliseconds timeout{std::chrono::minutes(30)};
     juce::uint64 memoryBytes{8ULL * 1024 * 1024 * 1024};

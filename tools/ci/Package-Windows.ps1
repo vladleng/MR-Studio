@@ -1,14 +1,16 @@
-param([string]$Build='build/windows',[string]$Output='build/package',[switch]$Ara,[switch]$LiveOnly)
+param([string]$Build='build/windows',[string]$Output='build/package',[switch]$Ara,[switch]$LiveOnly,[switch]$StudioOnly)
 $ErrorActionPreference='Stop'
+if($LiveOnly -and $StudioOnly){throw 'Choose one application package scope'}
 # Live-only packages never include ARA even when a Studio build elsewhere uses it.
 if($LiveOnly -and $Ara){throw 'MR Live package must be built with ARA OFF (checks=live)'}
 $packageAra=[bool]($Ara -and !$LiveOnly)
 if(Test-Path -LiteralPath $Output){throw 'Package output already exists; use a new directory'}
 New-Item -ItemType Directory -Path $Output | Out-Null
-$application=if($LiveOnly){'MR Live'}else{'MR Studio + MR Live'}
+$application=if($LiveOnly){'MR Live'}elseif($StudioOnly){'MR Studio'}else{'MR Studio + MR Live'}
 $gui=if($LiveOnly){Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe'}else{Join-Path $Build 'MoonRiverStudioJuce_artefacts/Release/Moon River Studio JUCE.exe'}
 Copy-Item -LiteralPath $gui -Destination $Output
-if(!$LiveOnly){Copy-Item -LiteralPath (Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe') -Destination $Output}
+if(!$LiveOnly -and !$StudioOnly){Copy-Item -LiteralPath (Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe') -Destination $Output}
+if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/mr_separation_scnet.py' -Destination (Join-Path $Output 'mr_separation_scnet.py');Copy-Item -LiteralPath 'tools/separation/SCNet-MIT-LICENSE.txt' -Destination (Join-Path $Output 'SCNet-MIT-LICENSE.txt')}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/mr_separation_profiles.json' -Destination (Join-Path $Output 'mr_separation_profiles.json')}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/worker.py' -Destination (Join-Path $Output 'mr_separation_worker.py')}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/requirements-cpu.txt' -Destination (Join-Path $Output 'mr_separation_requirements.txt')}
@@ -29,7 +31,7 @@ $releaseLabel=if($LiveOnly){$env:MR_LIVE_VERSION}else{$env:MR_STUDIO_VERSION}
 $expectedVersion=($releaseLabel -split '-')[0]
 $version=(Get-Item -LiteralPath $gui).VersionInfo.FileVersion
 if($version -ne $expectedVersion){throw "Unexpected Windows version $version (expected $expectedVersion)"}
-if(!$LiveOnly){
+if(!$LiveOnly -and !$StudioOnly){
  $liveExe=Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe'
  $expectedLive=($env:MR_LIVE_VERSION -split '-')[0]
  if((Get-Item -LiteralPath $liveExe).VersionInfo.FileVersion -ne $expectedLive){
@@ -37,7 +39,7 @@ if(!$LiveOnly){
  }
 }
 $sha=& git rev-parse HEAD
-@("$application $releaseLabel; source $sha; Windows Release; ARA=$packageAra; MR Live ARA=OFF",'Launch MR Live.exe directly to work in MR Live; MR Studio does not need to be opened first. MR Live restores its last saved show by default (Options: Open last show on startup); --empty-show starts a blank show. To open a show, pass its quoted .mrlive path to MR Live.exe. Keep the runtime files together; SDKs and third-party plugins are not included.',"Checks: $env:CI_CHECK_SCOPE",'Development acceptance artifact. See the included license notices; commercial distribution is not certified by CI.','CI results do not certify physical ASIO/MIDI/DPI performance. See run test logs for integration status.') | Set-Content -LiteralPath "$Output/README.txt" -Encoding UTF8
+@("$application $releaseLabel; source $sha; Windows Release; ARA=$packageAra; MR Live ARA=OFF",$(if($StudioOnly){'Studio-only package. MR Live is a separate installation. Keep the runtime files together.'}else{'Launch MR Live.exe directly to work in MR Live; MR Studio does not need to be opened first. MR Live restores its last saved show by default (Options: Open last show on startup); --empty-show starts a blank show. To open a show, pass its quoted .mrlive path to MR Live.exe. Keep the runtime files together; SDKs and third-party plugins are not included.'}),"Checks: $env:CI_CHECK_SCOPE",'Development acceptance artifact. See the included license notices; commercial distribution is not certified by CI.','CI results do not certify physical ASIO/MIDI/DPI performance. See run test logs for integration status.') | Set-Content -LiteralPath "$Output/README.txt" -Encoding UTF8
 $env:CI_TEST_RESULT | Set-Content -LiteralPath "$Output/CI-TEST-RESULT.txt" -Encoding UTF8
 $files=@(Get-ChildItem -LiteralPath $Output -File | Sort-Object Name | ForEach-Object {@{name=$_.Name;bytes=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash}})
 @{application=$application;source=$sha;version=$releaseLabel;binary_version=$version;release_label=$releaseLabel;versions=@{studio=$env:MR_STUDIO_VERSION;live=$env:MR_LIVE_VERSION};ara=$packageAra;run=$env:GITHUB_RUN_ID;tests=$env:CI_TEST_RESULT;checks=$env:CI_CHECK_SCOPE;runner_image=$env:ImageVersion;sdk_lock_sha256=(Get-FileHash -LiteralPath "$PSScriptRoot/sdk-lock.json").Hash;files=$files} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$Output/SHA256.json" -Encoding UTF8

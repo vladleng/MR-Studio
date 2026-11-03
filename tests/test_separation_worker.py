@@ -85,7 +85,7 @@ class WorkerTests(unittest.TestCase):
                         return "cpu"
                     work = self.root / (model + str(rate)); work.mkdir()
                     result = worker.execute(req, work, lambda *_a, **_k: None, lambda: None, engine)
-                    self.assertEqual([o["stem"] for o in result["outputs"]], [s.lower() for s in profile["stems"]])
+                    self.assertEqual([o["stem"] for o in result["outputs"]], [s.lower() for s in profile.get("default_stems", profile["stems"])])
                     for output in result["outputs"]:
                         info = sf.info(str(work / "result" / output["path"]))
                         self.assertEqual((info.frames, info.samplerate, info.channels), (4800, 48000, 2))
@@ -127,6 +127,21 @@ class WorkerTests(unittest.TestCase):
         with self.assertRaises(worker.Failure):
             next(iterator)
         self.assertEqual(events[-1]["completed"], "0")
+
+    def test_selected_output_only_and_manifest(self):
+        self.req["stems"] = ["Vocals"]
+        result = self.run_job()
+        self.assertEqual([f["stem"] for f in result["outputs"]], ["vocals"])
+        self.assertEqual(result["selected_stems"], ["Vocals"])
+        self.assertEqual(result["available_stems"], ["Vocals", "Instrumental"])
+        self.assertFalse((self.root / "job/result/instrumental.wav").exists())
+
+    def test_empty_unknown_duplicate_or_unbounded_selection_rejected(self):
+        for selected in ([], ["Bass"], ["Vocals", "Vocals"], "Vocals", ["Vocals"] * 54):
+            with self.subTest(selection=selected), self.assertRaises(worker.Failure) as error:
+                worker.execute(dict(self.req, stems=selected), self.root / "absent", lambda *_a, **_k: None, lambda: None, self.fake)
+            self.assertEqual(error.exception.code, "invalid_stems")
+        self.assertFalse((self.root / "absent").exists())
 
     def test_source_revision_hash_and_bounds(self):
         self.req["source_sha256"] = "0" * 64

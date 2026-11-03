@@ -14,11 +14,12 @@ struct ModelRecord {
     juce::String codeLicense, weightsLicense, provenance, unsupportedReason;
     std::vector<DownloadArtifact> files;
     juce::String modelFile, architecture;
-    juce::StringArray stems, nativeStems, chunks;
+    juce::StringArray stems, nativeStems, chunks, defaultStems;
 };
 const std::vector<ModelRecord>& modelCatalogue();
 const ModelRecord& modelProfile(const juce::String& id);
 juce::String profileCatalogueJson();
+juce::StringArray selectedOutputs(const ModelRecord&,const juce::StringArray&);
 inline constexpr const char* runtimeProfile = "cpu-py3119-audiosep048-v1";
 enum class InstallationState { downloadable, installed, corrupt, unsupported };
 struct ModelState { ModelRecord record; InstallationState state{InstallationState::downloadable}; juce::String reason; };

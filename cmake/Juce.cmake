@@ -154,6 +154,7 @@ if(BUILD_TESTING)
   add_test(NAME juce_clip_stretch COMMAND MoonRiverStudioJuce --clip-stretch-smoke)
   set_tests_properties(juce_clip_stretch PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
   set_tests_properties(juce_track_folders PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
+  if(MRS_BUILD_LIVE)
   # A Live-only CI run must not launch Studio/Home; default profile keeps its original entry coverage.
   set(mrs_live_smoke_app MoonRiverStudioJuce)
   if("$ENV{CHECK_SCOPE}" STREQUAL "live")
@@ -161,6 +162,7 @@ if(BUILD_TESTING)
   endif()
   add_test(NAME juce_live_entry_smoke COMMAND ${mrs_live_smoke_app} --live-entry-smoke --show-fixture "${PROJECT_SOURCE_DIR}/tests/fixtures/mr-live-interface-demo-v3.json")
   set_tests_properties(juce_live_entry_smoke PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+  endif()
   add_test(NAME juce_j1_smoke COMMAND MoonRiverStudioJuce --j1-smoke)
   set_tests_properties(juce_j1_smoke PROPERTIES TIMEOUT 30)
   add_dependencies(MoonRiverStudioJuce mrs_vst3_fixture)
@@ -297,6 +299,7 @@ if(BUILD_TESTING)
   set_tests_properties(juce_uds_shell PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/validation/ui205-p1")
 endif()
 
+if(MRS_BUILD_LIVE)
 # MR Live is a dedicated application. It reuses the same host/Core sources and
 # libraries; Studio's Main.cpp and its application/window entry are excluded.
 get_target_property(mrs_live_host_sources MoonRiverStudioJuce SOURCES)
@@ -350,3 +353,5 @@ if(BUILD_TESTING)
   add_test(NAME juce_live_application COMMAND MRLiveJuce --live-application-smoke --show-fixture "${PROJECT_SOURCE_DIR}/tests/fixtures/mr-live-interface-demo-v3.json")
   set_tests_properties(juce_live_application PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
 endif()
+
+endif() # MRS_BUILD_LIVE
