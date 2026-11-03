@@ -24,6 +24,13 @@ jobs:
         with:
           python-version: '3.11'
           architecture: x64
+      - name: Offline worker contracts before model downloads
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check numpy==2.2.6 scipy==1.15.3 soundfile==0.13.1
+          if($LASTEXITCODE){throw 'Contract dependencies failed'}
+          python -I -B -m unittest discover -s tests -p test_separation_worker.py -v
+          if($LASTEXITCODE){throw 'Worker contracts failed'}
       - name: Prepare pinned JUCE core only
         shell: pwsh
         run: |

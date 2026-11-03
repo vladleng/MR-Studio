@@ -5,6 +5,7 @@
 #include <array>
 #include <set>
 #include <stdexcept>
+#include <cstdio>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -79,6 +80,9 @@ void fetchHttps(const DownloadArtifact& artifact,const juce::File& target,const 
         check(stop);URL_COMPONENTS parts{};parts.dwStructSize=sizeof(parts);parts.dwHostNameLength=parts.dwUrlPathLength=parts.dwExtraInfoLength=parts.dwUserNameLength=parts.dwPasswordLength=static_cast<DWORD>(-1);
         need(WinHttpCrackUrl(url.toWideCharPointer(),0,0,&parts)!=FALSE,"download_url");
         const juce::String host(parts.lpszHostName,static_cast<int>(parts.dwHostNameLength));
+        // Diagnostic output never includes signed queries, paths or credentials.
+        if(juce::SystemStats::getEnvironmentVariable("MR_SEPARATION_DIAGNOSTICS",{})=="1")
+            std::fprintf(stderr,"model download host: %s (redirect %d)\n",host.toRawUTF8(),redirects);
         need(parts.nScheme==INTERNET_SCHEME_HTTPS && parts.nPort==443 && parts.dwUserNameLength==0 && parts.dwPasswordLength==0 &&
              (host=="www.python.org"||host=="raw.githubusercontent.com"||host=="github.com"||host=="release-assets.githubusercontent.com"||host=="objects.githubusercontent.com"||host=="dl.fbaipublicfiles.com"||host=="huggingface.co"||host=="cdn-lfs.huggingface.co"||host=="cdn-lfs-us-1.hf.co"||host=="cas-bridge.xethub.hf.co"),"download_url");
         const auto path=juce::String(parts.lpszUrlPath,static_cast<int>(parts.dwUrlPathLength))+juce::String(parts.lpszExtraInfo,static_cast<int>(parts.dwExtraInfoLength));
@@ -93,7 +97,11 @@ void fetchHttps(const DownloadArtifact& artifact,const juce::File& target,const 
             DWORD bytes{};WinHttpQueryHeaders(request.h,WINHTTP_QUERY_LOCATION,WINHTTP_HEADER_NAME_BY_INDEX,nullptr,&bytes,WINHTTP_NO_HEADER_INDEX);
             need(bytes>0&&bytes<32768,"download_url");std::vector<wchar_t> location(bytes/sizeof(wchar_t)+1);
             need(WinHttpQueryHeaders(request.h,WINHTTP_QUERY_LOCATION,WINHTTP_HEADER_NAME_BY_INDEX,location.data(),&bytes,WINHTTP_NO_HEADER_INDEX)!=FALSE,"download_url");
-            url=juce::String(location.data());continue;
+            const auto next=juce::String(location.data());
+            // Hugging Face config redirects can be origin-relative. The next
+            // iteration validates HTTPS and the exact host again.
+            url=next.startsWithChar('/')&&!next.startsWith("//") ? "https://"+host+next : next;
+            continue;
         }
         need(status==200,"http_error");
         auto output=target.createOutputStream();need(output&&output->openedOk(),"io_error");
