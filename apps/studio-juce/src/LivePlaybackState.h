@@ -295,6 +295,20 @@ inline bool playbackChannelHasSource(const juce::var &state, const juce::String 
         if (playbackChannelId(state,row)==channel) return true;
     return false;
 }
+// Which mixer Playback group owns this WAV/stem. Old stems inherit the first
+// group; manually created Playback channels remain independent.
+inline juce::String playbackGroupForRow(const juce::var &state,const juce::String &item,
+                                        const juce::var &row) {
+    const auto id=playbackChannelId(state,row);
+    const auto primary=playbackChannelId(state,juce::var());
+    if(id==primary)return primary;
+    const auto channel=find(state,"channels",id);
+    if(static_cast<bool>(channel["playbackIndependent"]) ||
+       (row["id"].isString() && row["id"]==playback(state,item)["id"]))
+        return id;
+    const auto parent=channel["playbackParent"].toString();
+    return find(state,"channels",parent)["type"].toString()=="Playback"?parent:primary;
+}
 inline juce::String playbackStemForChannel(const juce::var &state,const juce::String &item,
                                           const juce::String &channel) {
     if (channel.isEmpty()) return {};
