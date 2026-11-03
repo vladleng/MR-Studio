@@ -10,9 +10,9 @@ void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
 template<class F>void rejects(F f){bool rejected{};try{f();}catch(const std::exception&){rejected=true;}check(rejected,"Expected rejection");}
 std::string text(const fs::path& p){const auto s=p.generic_u8string();return {s.begin(),s.end()};}
 void write(const fs::path& p,std::string_view s){std::ofstream f(p,std::ios::binary);f.write(s.data(),static_cast<std::streamsize>(s.size()));check(static_cast<bool>(f),"Write fixture");}
-void wav(const fs::path& path,std::uint32_t frames){
+void wav(const fs::path& path,std::uint32_t frames,std::uint32_t rate=48000){
     std::ofstream o(path,std::ios::binary);const auto put=[&](std::uint32_t v,int n){for(int i=0;i<n;++i)o.put(static_cast<char>((v>>(8*i))&255));};
-    o.write("RIFF",4);put(36+frames*8,4);o.write("WAVEfmt ",8);put(16,4);put(3,2);put(2,2);put(48000,4);put(48000*8,4);put(8,2);put(32,2);o.write("data",4);put(frames*8,4);
+    o.write("RIFF",4);put(36+frames*8,4);o.write("WAVEfmt ",8);put(16,4);put(3,2);put(2,2);put(rate,4);put(rate*8,4);put(8,2);put(32,2);o.write("data",4);put(frames*8,4);
     for(std::uint32_t i=0;i<frames*2;++i)put(std::bit_cast<std::uint32_t>(i%2?.25f:-.25f),4);
     check(static_cast<bool>(o),"Write FLOAT WAV");
 }
@@ -66,6 +66,15 @@ void lifecycle(){
     rejects([&]{(void)prepare(reopened,loaded);});rejects([&]{reopened.save_project(moved);});
     check(persistence::load_project(moved).project.separation_results.size()==1,"Failed save corrupted archive");
 }
+void source_guard(){
+    Temp t;const auto input=t.root/"external-44100.wav";wav(input,4410,44100);
+    desktop::Application app;app.new_project(48000);app.import_wavs({input});
+    const auto source=app.source_file(app.services().projects->state().project->clips.front().source);
+    check(source!=input&&fs::exists(source),"Converted import fixture");
+    auto guard=app.separation_media_guard();app.new_project(48000);
+    check(fs::exists(source),"Project switch retired a source still owned by the separation worker");
+    guard.reset();check(!fs::exists(source),"Converted source lease was not released");
+}
 void hidden_history_saveas(){
     Temp t;wav(t.root/"original.wav",9600);desktop::Application app;app.import_wav(t.root/"original.wav");auto c=app.services().projects->state().project->clips.front();c.length=4800;app.services().projects->execute(EditClip{c});auto r=result(t.root/"job",c);app.keep_separation(c,r,{});
     app.remove_separation(r.id);app.save_project(t.root/"one"/"one.mrsproject");app.save_project(t.root/"two"/"two.mrsproject");fs::remove_all(t.root/"one");fs::remove_all(t.root/"job");
@@ -75,4 +84,4 @@ void hidden_history_saveas(){
     rejects([&]{app.save_project(destination/"collision.mrsproject");});std::ifstream input(destination/"collision.assets"/"separation"/r.id.value/"vocals.wav");std::string s;input>>s;check(s=="foreign","Foreign file overwritten");
 }
 }
-int main(){try{hashes();lifecycle();hidden_history_saveas();std::cout<<"PASS separation assets: SHA256 vectors, stale guard, hidden/placement Undo/Redo, schema migration, Save/Open/Save As/moved project, missing media, foreign-file preservation\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{hashes();lifecycle();source_guard();hidden_history_saveas();std::cout<<"PASS separation assets: SHA256 vectors, stale guard, hidden/placement Undo/Redo, schema migration, Save/Open/Save As/moved project, missing media, foreign-file preservation\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

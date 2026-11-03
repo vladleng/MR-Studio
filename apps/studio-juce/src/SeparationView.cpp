@@ -70,7 +70,7 @@ private:
         ensure(std::none_of(owner_.project()->ara_bindings.begin(),owner_.project()->ara_bindings.end(),[&](const auto& b){return b.source==clip->source;}),"Detach ARA before separating this source");
         const auto models=manager_->status();const auto index=models_.getSelectedId()-1;ensure(index>=0&&static_cast<std::size_t>(index)<models.models.size(),"Select a supported model");
         ProjectInput input;input.clip=*clip;input.source=owner_.app.source_file(clip->source);input.projectFile=owner_.app.path();input.rate=owner_.project()->sample_rate;
-        input.session=juce::Uuid().toString();input.revision=juce::String(owner_.app.services().projects->state().revision);input.model=models.models[static_cast<std::size_t>(index)].record.id;input.sourceLifetime=owner_.app.source_lifetime(clip->source);
+        input.session=juce::Uuid().toString();input.revision=juce::String(owner_.app.services().projects->state().revision);input.model=models.models[static_cast<std::size_t>(index)].record.id;input.sourceLifetime=owner_.app.source_lifetime(clip->source);input.sourceGuard=owner_.app.separation_media_guard();
         context();expected_=*clip;placeWhenReady_=false;ensure(job_->separate(std::move(input)),"Separation service is busy");message_="Separating the selected clip...";
     }
     void beginResult(bool place){

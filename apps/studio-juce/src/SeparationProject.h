@@ -13,6 +13,7 @@ struct ProjectInput {
     std::uint32_t rate{};
     juce::String session,revision,model;
     std::shared_ptr<const mrs::audio::AudioData> sourceLifetime;
+    std::shared_ptr<void> sourceGuard;
 };
 struct ProjectMedia {
     juce::File directory;

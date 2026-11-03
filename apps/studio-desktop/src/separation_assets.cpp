@@ -7,7 +7,11 @@ std::shared_ptr<const audio::AudioData> Application::source_lifetime(const std::
     const auto at=assets_.find(source);return at==assets_.end()?nullptr:at->second.data;
 }
 std::shared_ptr<void> Application::separation_media_guard() const {
-    return std::make_shared<std::vector<std::shared_ptr<void>>>(separation_media_);
+    struct Guard {
+        std::vector<std::shared_ptr<void>> separation;
+        std::vector<std::shared_ptr<PreparedWavImport>> imports;
+    };
+    return std::make_shared<Guard>(Guard{separation_media_,import_staging_});
 }
 std::filesystem::path Application::source_file(const std::string& source) const {
     if(source.empty()||source=="mrs:demo-tone")throw std::invalid_argument("Choose a file-backed audio clip");
