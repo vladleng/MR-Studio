@@ -180,8 +180,9 @@ class LivePlaybackPanel final : public juce::Component {
         }
         const auto state=owner.liveDocument?owner.liveDocument->interfaceState:juce::var();
         const auto selected=live::find(state,"channels",owner.livePlaybackSelectedChannel);
-        const auto target=!preview && selected["type"].toString()=="Playback"
-            ? owner.livePlaybackSelectedChannel : live::playbackChannelId(state,juce::var());
+        const auto target=!owner.liveDocument?juce::String():
+            !preview && selected["type"].toString()=="Playback"
+                ? owner.livePlaybackSelectedChannel : live::playbackChannelId(state,juce::var());
         if(!preview && target!=currentPlaybackChannel) {
             currentPlaybackChannel=target;
             owner.livePlaybackStem=live::playbackStemForChannel(state,id,target);
