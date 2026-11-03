@@ -58,7 +58,7 @@ void inserts() {
     NativeInsert reverb;reverb.id=new_id();reverb.kind=InsertKind::reverb;
     CHECK(reverb.reverb.mix==.25f);store.execute(SetInserts{track,{reverb}});
     CHECK(deserialize(serialize(*store.state().project))==*store.state().project);
-    auto legacyReverb=without_fx_roles(serialize(*store.state().project));legacyReverb.replace(0,(std::string("MRS_CORE_SNAPSHOT ")+std::to_string(schema_version)).size(),"MRS_CORE_SNAPSHOT 16");
+    auto legacyReverb=without_fx_roles(serialize(*store.state().project));legacyReverb.replace(0,legacyReverb.find('\n'),"MRS_CORE_SNAPSHOT 16");
     const auto stateAt=legacyReverb.find("REVERB 2 "),lineEnd=legacyReverb.find('\n',stateAt);legacyReverb.erase(lineEnd-6,6); // default " 0 -90"
     legacyReverb.replace(stateAt,std::string("REVERB 2").size(),"REVERB 1");
     CHECK(deserialize(legacyReverb)==*store.state().project); // legacy gate disabled, default threshold
@@ -151,7 +151,7 @@ void sends() {
     store.execute(RemoveTrack{Id{"r1"}});
     CHECK(store.state().project->tracks.front().sends.size() == 1);
     CHECK(store.undo() && store.state().project->tracks.front().sends.size() == 2);
-    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT "+std::to_string(schema_version)); CHECK(head == 0);
+    auto bytes = serialize(saved); CHECK(bytes.starts_with("MRS_CORE_SNAPSHOT 32\n")); // no separation records: preserve existing wire compatibility
     const std::string old = "MRS_CORE_SNAPSHOT 4\nPROJECT \"old\" \"Old\" \"\" 48000\nTEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n\"a\" \"Audio\" 0 \"\"\n1 0 0 0\n\"\"\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nMASTER 1\nEND\n";
     const auto migrated = deserialize(old); CHECK(migrated.tracks.front().sends.empty() && migrated.tracks.front().input == -2);
 }

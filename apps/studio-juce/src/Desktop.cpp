@@ -626,7 +626,8 @@ void Desktop::refresh(bool force){
         for(const auto& t:p->tracks)for(const auto& fx:t.inserts)if(fx.kind==mrs::InsertKind::vst3)mrs::diagnostics::event("plugin track="+t.name+" name="+fx.plugin_name+" path="+fx.plugin_path+" class="+fx.class_id);
         for(const auto& fx:p->master_inserts)if(fx.kind==mrs::InsertKind::vst3)mrs::diagnostics::event("plugin master name="+fx.plugin_name+" path="+fx.plugin_path+" class="+fx.class_id);
         std::erase_if(selectedTracks,[&](const auto& id){return std::none_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id.value==id;});});arrangement->rebuildFolderLayout();arrangement->resized();rebuildMixerFolders();
-        app.prepare_waveforms();for(auto& s:mixer)s->sync();for(auto& s:mixerFolders)s->sync();for(auto& s:arrangement->rows)s->sync();if(master)master->sync();refreshPresetLists();revision=state.revision;resized();}
+        try{app.prepare_waveforms();}catch(const std::exception& e){message="Missing or unreadable media: "+juce::String::fromUTF8(e.what());}
+        for(auto& s:mixer)s->sync();for(auto& s:mixerFolders)s->sync();for(auto& s:arrangement->rows)s->sync();if(master)master->sync();refreshPresetLists();revision=state.revision;resized();}
     // Arm is transient host state and may change without a project revision.
     if(assetSkin()){for(auto& s:mixer)s->refreshArmState();for(auto& s:arrangement->rows)s->refreshArmState();}
     navigationMode.setEnabled(!app.recording());previous.setEnabled(!app.recording());next.setEnabled(!app.recording());

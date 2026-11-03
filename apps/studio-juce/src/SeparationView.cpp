@@ -39,7 +39,7 @@ public:
         struct Action{juce::TextButton* button;const char* name;};int focus=1;
         for(const auto& a:std::initializer_list<Action>{{&managerButton_,"Model Manager"},{&start_,"Separate"},{&cancel_,"Cancel operation"},{&place_,"Place on separate tracks"},{&verify_,"Verify result"},{&remove_,"Remove result"}}){addAndMakeVisible(*a.button);a.button->setButtonText(a.name);a.button->setTitle(a.name);a.button->setExplicitFocusOrder(focus++);}
         managerButton_.onClick=[this]{showSeparationModels(owner_,manager_);};start_.onClick=[this]{invoke([&]{beginSeparation();});};cancel_.onClick=[this]{const auto s=job_->status().state;if(s==State::running||s==State::ready){job_->cancel();message_="Cancelling...";}update();};
-        place_.onClick=[this]{invoke([&]{beginResult(true);});};verify_.onClick=[this]{invoke([&]{beginResult(false);});
+        place_.onClick=[this]{invoke([&]{beginResult(true);});};verify_.onClick=[this]{invoke([&]{beginResult(false);});};
         remove_.onClick=[this]{invoke([&]{const auto result=selectedResult();ensure(result.has_value(),"Select a result");owner_.app.remove_separation(result->id);owner_.refresh();message_="Result removed. Placed clips and Undo media were preserved.";});};
         details_.setMultiLine(true);details_.setReadOnly(true);details_.setCaretVisible(false);details_.setScrollbarsShown(true);details_.setTitle("Result provenance and file references");addAndMakeVisible(details_);
         addAndMakeVisible(progress_);progress_.setTitle("Separation progress (current processing phase)");
@@ -171,6 +171,13 @@ void separationProjectSmoke(){
     panelView->remove_.onClick();ensure(owner.project()->separation_results.empty()&&owner.project()->clips==placed,"Remove hidden result preserves tracks");ensure(owner.app.undo()&&owner.project()->separation_results.size()==1,"Undo result cleanup");
     slow->store(true);const auto before=*owner.project();panelView->start_.onClick();panelView->cancel_.onClick();finish();ensure(*owner.project()==before,"Cancellation modified project");slow->store(false);
     owner.separationWindow.reset();showSeparation(owner,clip.id,manager,job);panelView=dynamic_cast<SeparationPanel*>(owner.separationWindow->getContentComponent());ensure(panelView&&owner.project()->separation_results.size()==1,"Close/reopen changed results");
+    const auto savedFile=root.getChildFile("saved/song.mrsproject");owner.app.save_project(std::filesystem::path(savedFile.getFullPathName().toWideCharPointer()));
+    const auto backing=owner.project()->separation_results.front().stems.front().source;
+    for(int i=0;i<1000&&!owner.app.waveform(backing);++i){owner.app.poll();std::this_thread::sleep_for(std::chrono::milliseconds(1));}
+    owner.app.disconnect();
+    const auto saved=mrs::persistence::load_project(std::filesystem::path(savedFile.getFullPathName().toWideCharPointer()));const auto lost=savedFile.getParentDirectory().getChildFile(js(saved.project.separation_results.front().stems.front().source));ensure(lost.deleteFile(),"Remove GUI missing-media fixture");
+    owner.run([&]{owner.openFile(savedFile);});ensure(owner.project()->separation_results.size()==1&&owner.message.isNotEmpty(),"Missing media must leave project inspectable with an error");
+    panelView->tick();panelView->verify_.onClick();finish();ensure(job->status().state==State::failed&&owner.project()->separation_results.size()==1,"Missing stem verification must fail without removing result");
     slow->store(true);panelView->start_.onClick();owner.app.new_project(48000,"New project");panelView->tick();finish();slow->store(false);ensure(owner.project()->separation_results.empty()&&owner.project()->tracks.empty(),"Late result entered another project");owner.separationWindow.reset();
 }
 } // namespace ui

@@ -59,6 +59,8 @@ void lifecycle(){
     desktop::Application reopened;reopened.open_project(moved);auto loaded=reopened.services().projects->state().project->separation_results.front();
     reopened.place_separation(loaded,prepare(reopened,loaded));check(reopened.services().projects->state().project->clips.back().start==12345,"Save As/moved source alignment");
     reopened.remove_separation(loaded.id);check(reopened.services().projects->state().project->separation_results.empty(),"Remove hidden record");check(reopened.undo()&&reopened.services().projects->state().project->separation_results.size()==1,"Undo cleanup");
+    for(int i=0;i<1000&&!reopened.waveform(loaded.stems.front().source);++i){reopened.poll();std::this_thread::sleep_for(std::chrono::milliseconds(1));}
+    reopened.disconnect();
     const auto missing=reopened.source_file(loaded.stems.front().source);
     std::ifstream before(missing,std::ios::binary);std::string pristine{std::istreambuf_iterator<char>(before),{}};before.close();auto damaged=pristine;damaged.back()^=1;write(missing,damaged);rejects([&]{reopened.save_project(moved);});write(missing,pristine);fs::remove(missing);
     rejects([&]{(void)prepare(reopened,loaded);});rejects([&]{reopened.save_project(moved);});
