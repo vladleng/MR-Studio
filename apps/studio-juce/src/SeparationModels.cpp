@@ -84,7 +84,7 @@ void fetchHttps(const DownloadArtifact& artifact,const juce::File& target,const 
         if(juce::SystemStats::getEnvironmentVariable("MR_SEPARATION_DIAGNOSTICS",{})=="1")
             std::fprintf(stderr,"model download host: %s (redirect %d)\n",host.toRawUTF8(),redirects);
         need(parts.nScheme==INTERNET_SCHEME_HTTPS && parts.nPort==443 && parts.dwUserNameLength==0 && parts.dwPasswordLength==0 &&
-             (host=="www.python.org"||host=="raw.githubusercontent.com"||host=="github.com"||host=="release-assets.githubusercontent.com"||host=="objects.githubusercontent.com"||host=="dl.fbaipublicfiles.com"||host=="huggingface.co"||host=="cdn-lfs.huggingface.co"||host=="cdn-lfs-us-1.hf.co"||host=="cas-bridge.xethub.hf.co"),"download_url");
+             (host=="www.python.org"||host=="raw.githubusercontent.com"||host=="github.com"||host=="release-assets.githubusercontent.com"||host=="objects.githubusercontent.com"||host=="dl.fbaipublicfiles.com"||host=="huggingface.co"||host=="cdn-lfs.huggingface.co"||host=="cdn-lfs-us-1.hf.co"||host=="cas-bridge.xethub.hf.co"||host=="us.aws.cdn.hf.co"),"download_url");
         const auto path=juce::String(parts.lpszUrlPath,static_cast<int>(parts.dwUrlPathLength))+juce::String(parts.lpszExtraInfo,static_cast<int>(parts.dwExtraInfoLength));
         Internet session{WinHttpOpen(L"MR-Studio-Separation/0.9.3",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0)};
         need(session.h!=nullptr,"network_error");WinHttpSetTimeouts(session.h,10000,10000,10000,10000);
@@ -171,10 +171,10 @@ void ModelManager::cancel()noexcept{std::lock_guard lock(mutex_);if(status_.canc
 ManagerStatus ModelManager::status()const{std::lock_guard lock(mutex_);return status_;}
 juce::String ModelManager::diagnostics()const{std::lock_guard lock(mutex_);return log_;}
 void ModelManager::phase(juce::String phaseName,juce::String detail){std::lock_guard lock(mutex_);status_.phase=std::move(phaseName);status_.detail=std::move(detail);status_.completedBytes=status_.totalBytes=0;}
-bool ModelManager::start(juce::String operation,std::function<void()> task) {
-    {std::lock_guard lock(mutex_);if(status_.busy)return false;}
+bool ModelManager::start(juce::String operation,std::function<void()> task,bool onlyIfUnscanned) {
+    {std::lock_guard lock(mutex_);if(status_.busy||(onlyIfUnscanned&&scanned_))return false;}
     if(thread_.joinable())thread_.join();cancelled_.store(false);
-    {std::lock_guard lock(mutex_);status_.busy=true;status_.cancellable=true;status_.operation=operation;status_.phase="Starting";status_.error.clear();log_.clear();}
+    {std::lock_guard lock(mutex_);scanned_=false;status_.busy=true;status_.cancellable=true;status_.operation=operation;status_.phase="Starting";status_.error.clear();log_.clear();}
     try {thread_=std::thread([this,task=std::move(task)]{
         juce::String error;
         {juce::InterProcessLock lock("MRStudio.Separation."+textHash(root_.getFullPathName().toLowerCase()).substring(0,24));
@@ -209,9 +209,10 @@ void ModelManager::scan() {
                 bool found{};for(const auto& entry:*m["files"].getArray())if(entry["path"].toString()==name){found=true;need(plain(runtimePath().getChildFile(name))&&sha(runtimePath().getChildFile(name))==entry["sha256"].toString(),"integrity_failure");}need(found,"integrity_failure");}
         }catch(const Error& e){if(e.code=="cancelled")throw;runtime=InstallationState::corrupt;}
     }
-    std::lock_guard lock(mutex_);status_.models=std::move(models);status_.runtime=runtime;
+    std::lock_guard lock(mutex_);status_.models=std::move(models);status_.runtime=runtime;scanned_=true;
 }
 bool ModelManager::refresh(){return start("refresh",[this]{scan();});}
+bool ModelManager::refreshIfNeeded(){return start("refresh",[this]{scan();},true);}
 void ModelManager::install(const ModelRecord& r) {
     need(r.unsupportedReason.isEmpty()&&!r.files.empty(),"unsupported_model");ensureRoot();auto use=lease(r.id,true);
     const auto destination=modelsPath().getChildFile(r.id);need(!destination.exists(),"already_installed");

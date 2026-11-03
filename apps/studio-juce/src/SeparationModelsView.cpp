@@ -53,8 +53,8 @@ public:
         cancel_.onClick=[this]{manager_->cancel();};cache_.onClick=[this]{manager_->root().revealToUser();};
         detailsButton_.onClick=[this]{details_.setVisible(!details_.isVisible());detailsButton_.setButtonText(details_.isVisible()?"Hide details":"Details");update();};
         details_.setMultiLine(true);details_.setReadOnly(true);details_.setCaretVisible(false);details_.setScrollbarsShown(true);details_.setTitle("Model source, capabilities, integrity and local diagnostics");addChildComponent(details_);
-        addAndMakeVisible(progress_);progress_.setTitle("Download and installation progress");
-        setSize(840,560);manager_->refresh();startTimerHz(8);update();
+        addAndMakeVisible(progress_);progress_.setColour(juce::ProgressBar::foregroundColourId,theme_.role(ColourRole::focus,accent));progress_.setTitle("Download and installation progress");
+        setSize(840,560);manager_->refreshIfNeeded();startTimerHz(8);update();
     }
     ~ModelsPanel()override{stopTimer();manager_->cancel();}
     void paint(juce::Graphics& g)override {
@@ -145,7 +145,7 @@ void separationModelsSmoke(){
     Desktop desktop(true);const auto projectBefore=desktop.project();if(desktop.getMenuForIndex(1,{}).getNumItems()<4)throw std::runtime_error("Model Manager Options entry");showSeparationModels(desktop,manager);
     auto* panelView=dynamic_cast<ModelsPanel*>(desktop.separationModelsWindow->getContentComponent());if(!panelView)throw std::runtime_error("Model Manager window content");
     for(int i=0;i<100&&manager->status().busy;++i)std::this_thread::sleep_for(std::chrono::milliseconds(5));panelView->smoke();desktop.separationModelsWindow.reset();
-    showSeparationModels(desktop,manager);desktop.separationModelsWindow.reset();
+    showSeparationModels(desktop,manager);if(manager->status().busy)throw std::runtime_error("Reopening Model Manager started another scan");desktop.separationModelsWindow.reset();
     if(desktop.project()!=projectBefore)throw std::runtime_error("Model Manager changed project state");
 }
 } // namespace ui

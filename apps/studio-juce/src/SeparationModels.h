@@ -47,6 +47,7 @@ public:
     ModelManager& operator=(const ModelManager&) = delete;
     static juce::File defaultRoot();
     bool refresh(); // offline; no Python/network
+    bool refreshIfNeeded(); // panels share the first successful scan for this service lifetime
     bool installModel(const juce::String&);
     bool removeModel(const juce::String&);
     bool installRuntime(); // explicit network action, managed embedded Python, no system Python
@@ -59,7 +60,7 @@ public:
     ManagedInstallation acquire(const juce::String& modelId, Device = Device::cpu) const;
     juce::File root() const { return root_; }
 private:
-    bool start(juce::String operation, std::function<void()>);
+    bool start(juce::String operation, std::function<void()>, bool onlyIfUnscanned = false);
     void scan();
     void install(const ModelRecord&);
     void uninstall(const juce::File&, const juce::String& identity);
@@ -76,6 +77,7 @@ private:
     std::vector<ModelRecord> catalogue_;
     mutable std::mutex mutex_;
     ManagerStatus status_;
+    bool scanned_{}; // protected by mutex_; explicit refresh still verifies files
     juce::String log_;
     std::atomic<bool> cancelled_{};
     std::thread thread_;

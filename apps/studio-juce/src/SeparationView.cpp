@@ -46,7 +46,7 @@ public:
         remove_.onClick=[this]{invoke([&]{const auto result=selectedResult();ensure(result.has_value(),"Select a result");owner_.app.remove_separation(result->id);owner_.refresh();message_="Result removed. Placed clips and Undo media were preserved.";});};
         details_.setMultiLine(true);details_.setReadOnly(true);details_.setCaretVisible(false);details_.setScrollbarsShown(true);details_.setTitle("Result provenance and file references");addAndMakeVisible(details_);
         addAndMakeVisible(progress_);progress_.setColour(juce::ProgressBar::foregroundColourId,owner_.theme.role(ColourRole::focus,accent));progress_.setTitle("Completed processing chunks");
-        setSize(960,920);manager_->refresh();startTimerHz(8);tick();
+        setSize(960,920);manager_->refreshIfNeeded();startTimerHz(8);tick();
     }
     ~SeparationPanel()override{stopTimer();job_->cancel();}
     void setSource(std::optional<mrs::Id> clip){if(job_->status().state!=State::running){source_=std::move(clip);message_.clear();update();}}

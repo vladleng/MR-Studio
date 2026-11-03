@@ -167,9 +167,11 @@ void managerTests(const juce::File& requirements) {
         check(target.replaceWithText(corrupt?"bad":content),"fixture write");progress(artifact.bytes,artifact.bytes);if(cancel)active->cancel();
     };
     ModelManager manager(root,{},requirements,fetch,{record});active=&manager;
-    check(manager.refresh(),"offline refresh");check(waitManager(manager).models.front().state==InstallationState::downloadable,"missing cache state");
+    check(manager.refreshIfNeeded(),"initial offline refresh");check(waitManager(manager).models.front().state==InstallationState::downloadable,"missing cache state");
+    check(!manager.refreshIfNeeded()&&!manager.status().busy,"reuse initial scan when opening another panel");
     corrupt=true;check(manager.installModel(record.id),"corrupt download");check(waitManager(manager).error=="integrity_failure","download integrity rejection");
     check(!root.getChildFile("models/fixture-model").exists(),"partial install never published");
+    check(manager.refreshIfNeeded(),"failed operation allows a fresh panel scan");check(waitManager(manager).models.front().state==InstallationState::downloadable,"failed install scan remains downloadable");
     corrupt=false;cancel=true;check(manager.installModel(record.id),"cancel install");check(waitManager(manager).error=="cancelled","cancel state");
     check(root.getChildFile("models").findChildFiles(juce::File::findDirectories,false,".part-*").isEmpty(),"cancel staging cleanup");
     cancel=false;check(manager.installModel(record.id),"retry install");check(waitManager(manager).models.front().state==InstallationState::installed,"installed state");
@@ -179,7 +181,9 @@ void managerTests(const juce::File& requirements) {
     check(manager.refresh(),"verify corrupt cache");check(waitManager(manager).models.front().state==InstallationState::corrupt,"corrupt cache state");
     check(manager.removeModel(record.id),"remove managed corruption");check(waitManager(manager).error.isEmpty()&&!directory.exists(),"remove only managed files");
     check(manager.installModel(record.id),"reinstall");check(waitManager(manager).error.isEmpty(),"reinstall after safe removal");
-    check(directory.getChildFile("weights.bin").deleteFile(),"fixture missing file");check(manager.refresh(),"missing local file");check(waitManager(manager).models.front().state==InstallationState::corrupt,"missing file marks corrupt");
+    check(directory.getChildFile("weights.bin").deleteFile(),"fixture missing file");
+    check(!manager.refreshIfNeeded()&&!manager.status().busy&&manager.status().models.front().state==InstallationState::installed,"cached panel status must not rescan disk");
+    check(manager.refresh(),"explicit refresh detects missing local file");check(waitManager(manager).models.front().state==InstallationState::corrupt,"missing file marks corrupt");
     check(manager.removeModel(record.id),"remove incomplete cache");check(waitManager(manager).error.isEmpty(),"incomplete cache recoverable");
     auto oversized=record;oversized.id="too-large";oversized.files.front().bytes=root.getBytesFreeOnVolume()+64*1024*1024;
     ModelManager large(root,{},requirements,fetch,{oversized});check(large.installModel(oversized.id),"large install");check(waitManager(large).error=="disk_space","disk preflight");
