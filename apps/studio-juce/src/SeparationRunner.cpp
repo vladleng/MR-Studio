@@ -348,14 +348,14 @@ void Runner::run(Request request, juce::String jobId) noexcept {
                     const auto phase = event["phase"].toString();
                     require(phase == "validating" || phase == "import_numpy" || phase == "import_soundfile" || phase == "import_scipy" ||
                             phase == "preparing" || phase == "loading" || phase == "inference" || phase == "verifying", "protocol_error");
-                    juce::int64 completed{},total{},currentPass{},passes{};
+                    juce::int64 chunkCompleted{},chunkTotal{},chunkPass{},chunkPasses{};
                     if(event.hasProperty("completed")){
-                        completed=number(event["completed"]);total=number(event["total"]);currentPass=number(event["current_pass"]);passes=number(event["passes"]);
-                        require(phase=="inference"&&total>0&&total<=1000000&&completed<=total&&currentPass>0&&currentPass<=passes&&passes<=8,"protocol_error");
+                        chunkCompleted=number(event["completed"]);chunkTotal=number(event["total"]);chunkPass=number(event["current_pass"]);chunkPasses=number(event["passes"]);
+                        require(phase=="inference"&&chunkTotal>0&&chunkTotal<=1000000&&chunkCompleted<=chunkTotal&&chunkPass>0&&chunkPass<=chunkPasses&&chunkPasses<=8,"protocol_error");
                     }
                     std::lock_guard lock(mutex_);
-                    if(total&&status_.total&&status_.currentPass==currentPass)require(total==status_.total&&completed>=status_.completed,"protocol_error");
-                    status_.completed=completed;status_.total=total;status_.currentPass=currentPass;status_.passes=passes;status_.phase = phase;
+                    if(chunkTotal&&status_.total&&status_.currentPass==chunkPass)require(chunkTotal==status_.total&&chunkCompleted>=status_.completed,"protocol_error");
+                    status_.completed=chunkCompleted;status_.total=chunkTotal;status_.currentPass=chunkPass;status_.passes=chunkPasses;status_.phase = phase;
                     if(event.hasProperty("device"))status_.effectiveDevice = event["device"].toString();
                 }
             }
