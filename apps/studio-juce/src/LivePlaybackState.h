@@ -526,8 +526,13 @@ inline std::vector<PlaybackLane> playbackLanes(const juce::var &state) {
             result.push_back({id,id==primary,false});
             if(!playbackExpanded(state))continue;
             if(id==primary && primarySource)result.push_back({primary,false,true});
-            for(const auto &child:children[id])
-                if(!roots.contains(child))result.push_back({child,false,true});
+            // Preserve show channel order, not lexicographic UUID order:
+            // the existing Playback UI and saved stem ordering depend on it.
+            for(const auto &child:*channels) {
+                const auto childId=child["id"].toString();
+                if(children[id].contains(childId) && !roots.contains(childId))
+                    result.push_back({childId,false,true});
+            }
         }
     return result;
 }
