@@ -334,7 +334,7 @@ class LiveTimeline final : public juce::Component {
                 safe->livePlaybackSelectedChannel=added;
                 safe->livePlaybackStem.clear();
             }
-            }); });
+            });
         });
     }
     class ZoomGlyph final:public juce::Button {
