@@ -1,4 +1,5 @@
 #include "SeparationRunner.h"
+#include "SeparationModels.h"
 #include <juce_cryptography/juce_cryptography.h>
 #include <mrs/audio.hpp>
 #include <algorithm>
@@ -150,24 +151,25 @@ void verify(const juce::var& manifest, const Request& request, const juce::Strin
             manifest["source_revision"].toString() == request.sourceRevision &&
             manifest["source_sha256"].toString() == sourceHash &&
             manifest["backend_version"].toString() == "0.48.0" &&
-            manifest["model"].toString() == "official-htdemucs-derived-2-v1", "invalid_output");
+            manifest["model"].toString() == request.modelId, "invalid_output");
     require(number(manifest["timeline_start"]) == request.timelineStart &&
             number(manifest["source_start"]) == request.sourceStart &&
             number(manifest["source_frames"]) == request.sourceFrames &&
             number(manifest["project_rate"]) == request.projectRate, "invalid_output");
     const auto sourceRate = number(manifest["source_rate"]);
     const auto sourceInfo = mrs::audio::inspect_wav(std::filesystem::path(request.source.getFullPathName().toWideCharPointer()));
-    require(sourceRate == sourceInfo.sample_rate && sourceInfo.channels == 2 &&
+    require(sourceRate == sourceInfo.sample_rate && (sourceInfo.channels == 1 || sourceInfo.channels == 2) &&
             request.sourceStart <= sourceInfo.frame_count && request.sourceFrames <= sourceInfo.frame_count - request.sourceStart,
             "invalid_output");
     const auto expected = (request.sourceFrames * request.projectRate + sourceRate / 2) / sourceRate;
     const auto* outputs = manifest["outputs"].getArray();
-    require(outputs && outputs->size() == 2 && result.isDirectory() && plainFile(result), "invalid_output");
-    int seen{};
+    require(outputs && outputs->size() == modelProfile(request.modelId).stems.size() && result.isDirectory() && plainFile(result), "invalid_output");
+    juce::StringArray seen;
+    const auto& profile=modelProfile(request.modelId);
     for (const auto& output : *outputs) {
         const auto stem = output["stem"].toString();
-        const int bit = stem == "vocals" ? 1 : stem == "instrumental" ? 2 : 0;
-        require(bit && !(seen & bit), "invalid_output"); seen |= bit;
+        bool allowed{};for(const auto& role:profile.stems)if(role.toLowerCase()==stem)allowed=true;
+        require(allowed&&!seen.contains(stem),"invalid_output");seen.add(stem);
         require(output["path"].toString() == stem + ".wav" && output["format"].toString() == "WAV_FLOAT32" &&
                 number(output["frames"]) == expected && number(output["rate"]) == request.projectRate &&
                 number(output["origin"]) == 0 && static_cast<int>(output["channels"]) == 2, "invalid_output");
@@ -267,6 +269,11 @@ void Runner::run(Request request, juce::String jobId) noexcept {
                 CreateDirectoryW(work.getFullPathName().toWideCharPointer(), nullptr) != FALSE, "io_error");
         ownsWork = true;
         require(plainFile(work), "io_error");
+        require(modelProfile(request.modelId).chunks.contains(request.chunk),"invalid_input");
+        if(config_.workerScript.getFileName()=="worker.py"||config_.workerScript.getFileName()=="mr_separation_worker.py"){
+            const auto profiles=config_.workerScript.getSiblingFile("mr_separation_profiles.json");
+            require(profiles.existsAsFile()&&plainFile(profiles)&&profiles.getSize()<65536&&profiles.loadFileAsString().replace("\r\n","\n")==profileCatalogueJson(),"profiles_integrity");
+        }
         const auto sourceHash = hash(request.source);
         require(!cancelled_.load(), "cancelled");
         Child child;
@@ -278,6 +285,7 @@ void Runner::run(Request request, juce::String jobId) noexcept {
         put(message, "source_start", juce::String(request.sourceStart)); put(message, "source_frames", juce::String(request.sourceFrames));
         put(message, "timeline_start", juce::String(request.timelineStart)); put(message, "project_rate", juce::String(request.projectRate));
         put(message, "model_dir", request.modelDirectory.getFullPathName());
+        put(message,"model",request.modelId);put(message,"chunk",request.chunk);
         put(message, "device", request.device == Device::cpu ? "cpu" : request.device == Device::cuda ? "cuda" : "auto");
         put(message, "memory_bytes", juce::String(request.memoryBytes)); put(message, "timeout_ms", juce::String(request.timeout.count()));
         put(message, "threads", juce::String(std::max(1, std::min(4, static_cast<int>(std::thread::hardware_concurrency()) - 2))));

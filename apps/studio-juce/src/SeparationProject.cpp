@@ -51,7 +51,7 @@ std::shared_ptr<ProjectResult> deliver(const ProjectInput& input,Result raw,std:
     need(manifest["model"].toString()==input.model&&manifest["source_start"].toString().getLargeIntValue()==input.clip.source_offset&&manifest["source_frames"].toString().getLargeIntValue()==input.clip.length&&manifest["project_rate"].toString().getLargeIntValue()==input.rate,"Separation source geometry mismatch");
     auto prepared=std::make_shared<ProjectResult>();prepared->expected=input.clip;
     auto& r=prepared->record;r.id={raw.jobId.toStdString()};r.source_clip=input.clip.id;r.source=input.clip.source;
-    r.source_sha256=manifest["source_sha256"].toString().toStdString();r.model=input.model.toStdString();r.model_version=modelCatalogue().front().version.toStdString();
+    r.source_sha256=manifest["source_sha256"].toString().toStdString();r.model=input.model.toStdString();r.model_version=modelProfile(input.model).version.toStdString();
     r.source_offset=input.clip.source_offset;r.source_frames=input.clip.length;r.start=input.clip.start;r.frames=input.clip.length;r.fade_in=input.clip.fade_in;r.fade_out=input.clip.fade_out;
     r.source_rate=static_cast<std::uint32_t>(manifest["source_rate"].toString().getLargeIntValue());r.sample_rate=input.rate;
     const auto manifestSource=raw.directory.getChildFile("manifest.json");r.provenance=manifestSource.loadFileAsString().toStdString();
@@ -67,16 +67,17 @@ std::shared_ptr<ProjectResult> deliver(const ProjectInput& input,Result raw,std:
     const auto key=[&](const fs::path& p){return utf8(persistent?p.lexically_relative(input.projectFile.parent_path()):p);};
     const auto manifestPath=fs::path(manifestSource.getFullPathName().toWideCharPointer());
     r.manifest={"manifest",key(destination/"manifest.json"),mrs::sha256_file(manifestPath,stop),static_cast<std::uint64_t>(manifestSource.getSize())};
-    const auto* outputs=manifest["outputs"].getArray();need(outputs&&outputs->size()==2,"Invalid separation outputs");
-    for(const auto* role:{"vocals","instrumental"}){
+    const auto* outputs=manifest["outputs"].getArray();need(outputs&&outputs->size()==modelProfile(input.model).stems.size(),"Invalid separation outputs");
+    for(const auto& label:modelProfile(input.model).stems){
+        const auto role=label.toLowerCase();
         bool found{};for(const auto& out:*outputs)if(out["stem"].toString()==role){
             need(!found&&out["path"].toString()==juce::String(role)+".wav"&&out["frames"].toString().getLargeIntValue()==r.frames,"Invalid separation stem");found=true;
-            r.stems.push_back({juce::String(role)=="vocals"?"Vocals":"Instrumental",key(destination/(std::string(role)+".wav")),out["sha256"].toString().toStdString(),static_cast<std::uint64_t>(out["bytes"].toString().getLargeIntValue())});}
+            r.stems.push_back({label.toStdString(),key(destination/(role.toStdString()+".wav")),out["sha256"].toString().toStdString(),static_cast<std::uint64_t>(out["bytes"].toString().getLargeIntValue())});}
         need(found,"Missing separation stem");
     }
     std::uint64_t bytes=r.manifest.bytes;for(const auto& stem:r.stems)bytes+=stem.bytes;need(fs::space(parent).available>bytes+16*1024*1024,"Not enough disk space for separation assets");
     copyVerified(manifestPath,stage/"manifest.json",r.manifest.sha256,r.manifest.bytes,stop);
-    for(const auto& stem:r.stems){const auto name=stem.role=="Vocals"?"vocals.wav":"instrumental.wav";copyVerified(fs::path(raw.directory.getChildFile(name).getFullPathName().toWideCharPointer()),stage/name,stem.sha256,stem.bytes,stop);}
+    for(const auto& stem:r.stems){const auto name=juce::String::fromUTF8(stem.role.c_str()).toLowerCase()+".wav";copyVerified(fs::path(raw.directory.getChildFile(name).getFullPathName().toWideCharPointer()),stage/name.toStdString(),stem.sha256,stem.bytes,stop);}
     check(stop);need(!fs::exists(destination)&&media->directory.moveFileTo(file(destination)),"Cannot publish separation assets");media->directory=file(destination);
     prepared->media=std::move(media);return prepared;
 }
@@ -102,13 +103,13 @@ Result ProjectJob::process(const ProjectInput& input,std::stop_token stop){
     need(manager_!=nullptr,"Open Model Manager and install the CPU runtime and HTDemucs");
     phase("Checking source and installed model");check(stop);need(!input.clip.midi&&!input.clip.stretch,"Reset Time / Pitch before separating");plainChain(file(input.source));
     const auto info=mrs::audio::inspect_wav(input.source);
-    need(info.channels==2&&info.sample_rate==input.rate,"Separation requires a stereo WAV at the project sample rate");
+    need((info.channels==1||info.channels==2)&&info.sample_rate==input.rate,"Separation requires a mono/stereo WAV at the project sample rate");
     need(input.rate==44100||input.rate==48000||input.rate==88200||input.rate==96000,"Separation supports 44.1, 48, 88.2 or 96 kHz projects");
     need(input.clip.length<=static_cast<mrs::Sample>(input.rate)*600,"Select a range of up to 10 minutes");
     need(input.clip.source_offset>=0&&input.clip.length>0&&input.clip.source_offset<=info.frame_count&&input.clip.length<=info.frame_count-input.clip.source_offset,"Source range is missing or changed");
     auto installation=manager_->acquire(input.model,Device::cpu);
     Runner runner(installation.runner);Request request;request.source=file(input.source);request.modelDirectory=installation.modelDirectory;
-    request.sessionId=input.session;request.sourceRevision=input.revision;request.sourceStart=input.clip.source_offset;request.sourceFrames=input.clip.length;request.timelineStart=input.clip.start;request.projectRate=static_cast<int>(input.rate);
+    request.modelId=input.model;request.chunk=input.chunk;request.sessionId=input.session;request.sourceRevision=input.revision;request.sourceStart=input.clip.source_offset;request.sourceFrames=input.clip.length;request.timelineStart=input.clip.start;request.projectRate=static_cast<int>(input.rate);
     need(runner.start(std::move(request)),"Separation service is busy");
     for(;;){const auto s=runner.status();phase(s.phase);if(s.state!=State::running){if(s.state==State::ready){auto result=runner.take();need(result.has_value(),"Missing separation result");return std::move(*result);}throw std::runtime_error(s.error.toStdString());}
         if(stop.stop_requested())runner.cancel();std::this_thread::sleep_for(std::chrono::milliseconds(20));}

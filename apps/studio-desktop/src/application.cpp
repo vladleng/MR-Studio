@@ -9,6 +9,7 @@
 #include <mrs/read_ahead.hpp>
 #endif
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <exception>
@@ -577,7 +578,7 @@ void Application::save_project(const std::filesystem::path& requested) {
         if (!std::filesystem::exists(source)&&(!current.contains(key)||ara_source)) continue; // preserve missing ARA/Undo references
         if(const auto retained=separation_files_.find(key);retained!=separation_files_.end()){
             const auto& item=retained->second;
-            const auto name=item.file.role=="manifest"?"manifest.json":item.file.role=="Vocals"?"vocals.wav":"instrumental.wav";
+            const auto name=item.file.role=="manifest"?std::string("manifest.json"):[&]{auto name=item.file.role;std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});return name+".wav";}();
             auto folder=path.stem();folder+=".assets";
             owned[key]=copies.verified(source,folder/"separation"/item.result.value/name,item.file.sha256);
         }else owned[key] = copies.media(source);

@@ -71,6 +71,36 @@ class WorkerTests(unittest.TestCase):
         self.assertFalse((self.root / "job/result.part").exists())
         self.assertEqual(json.loads((self.root / "job/result/manifest.json").read_text()), manifest)
 
+    def test_profiles_mono_rates_and_exact_outputs(self):
+        for model, profile in worker.PROFILES.items():
+            for rate, channels in ((44100, 1), (96000, 2)):
+                with self.subTest(model=model, rate=rate, channels=channels):
+                    sf.write(str(self.source), np.ones((rate // 2, channels), dtype=np.float32) * 2, rate, subtype="FLOAT")
+                    req = dict(self.req, model=model, source_start="0", source_frames=str(rate // 10), source_sha256=worker.digest(self.source), project_rate="48000")
+                    def engine(snapshot, out, *_args):
+                        audio, sr = sf.read(str(snapshot), dtype="float32", always_2d=True)
+                        self.assertEqual(audio.shape, (4410, 2))
+                        for label in profile["native_stems"]:
+                            sf.write(str(out / (label.lower() + ".wav")), audio, sr, subtype="FLOAT")
+                        return "cpu"
+                    work = self.root / (model + str(rate)); work.mkdir()
+                    result = worker.execute(req, work, lambda *_a, **_k: None, lambda: None, engine)
+                    self.assertEqual([o["stem"] for o in result["outputs"]], [s.lower() for s in profile["stems"]])
+                    for output in result["outputs"]:
+                        info = sf.info(str(work / "result" / output["path"]))
+                        self.assertEqual((info.frames, info.samplerate, info.channels), (4800, 48000, 2))
+                    self.assertEqual(result["source_channels"], channels)
+
+    def test_unsupported_model_and_settings_fail_before_output(self):
+        for settings, code in (({"model": "invented-6-stems"}, "unsupported_model"),
+                               ({"model": "mdx-kara2-2-v1", "chunk": "small"}, "invalid_input"),
+                               ({"chunk": "unbounded"}, "invalid_input")):
+            req = dict(self.req, **settings)
+            with self.assertRaises(worker.Failure) as error:
+                worker.execute(req, self.root / "absent", lambda *_a, **_k: None, lambda: None, self.fake)
+            self.assertEqual(error.exception.code, code)
+            self.assertFalse((self.root / "absent").exists())
+
     def test_source_revision_hash_and_bounds(self):
         self.req["source_sha256"] = "0" * 64
         with self.assertRaisesRegex(worker.Failure, "") as error:

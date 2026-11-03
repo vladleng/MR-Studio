@@ -1,4 +1,5 @@
 #include "SeparationModels.h"
+#include "separation_profiles.h"
 #include <juce_cryptography/juce_cryptography.h>
 #include <algorithm>
 #include <array>
@@ -115,14 +116,29 @@ struct Staging { juce::File dir; bool owned{}; ~Staging(){if(owned&&dir!=juce::F
 }
 
 const std::vector<ModelRecord>& modelCatalogue() {
-    static const std::vector<ModelRecord> records{
-        {"official-htdemucs-derived-2-v1","955717e8","HTDemucs","python-audio-separator 0.48.0","Vocals / Instrumental (derived)","Drums / Bass / Other / Vocals","Windows x64; local CPU. GPU runtime not installed.","Demucs and audio-separator: MIT","Checkpoint-specific review deferred; not bundled with Studio.","Official Meta Demucs; catalogue pinned by full SHA256.",{},
-         {{"htdemucs.yaml","https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/htdemucs.yaml","239c445d0b14454d541ad8bd9bb271c9e536d267e8a4625208744cbb2e7bb66c",21},
-          {"955717e8-8726e21a.th","https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th","8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4",84141911}}},
-        {"htdemucs-6s","5c90dfd2","HTDemucs 6 sources","python-audio-separator","Not available","Bass / Drums / Other / Vocals / Guitar / Piano","Not validated in this version","MIT","Review deferred","Official Meta Demucs","Extended outputs are not supported by this version.",{}},
-
-    };return records;
+    static const auto records=[]{
+        const auto json=juce::JSON::parse(juce::String::fromUTF8(separationProfilesJson));
+        need(json.isArray(),"invalid_catalogue");std::vector<ModelRecord> result;
+        for(const auto& entry:*json.getArray()){
+            ModelRecord r;r.id=entry["id"].toString();r.version=entry["version"].toString();r.title=entry["title"].toString();
+            r.backend="python-audio-separator 0.48.0";r.modelFile=entry["model_file"].toString();r.architecture=entry["architecture"].toString();
+            for(const auto& stem:*entry["stems"].getArray())r.stems.add(stem.toString());
+            for(const auto& stem:*entry["native_stems"].getArray())r.nativeStems.add(stem.toString());
+            for(const auto& chunk:*entry["chunks"].getArray())r.chunks.add(chunk.toString());
+            r.outputs=r.stems.joinIntoString(" / ");r.nativeOutputs=r.nativeStems.joinIntoString(" / ");
+            r.hardware="Windows x64; local CPU. GPU runtime not installed. CPU processing can be slow.";
+            r.codeLicense="Demucs/audio-separator: MIT";r.weightsLicense="Checkpoint-specific review deferred; not bundled with Studio.";r.provenance=entry["provenance"].toString();
+            for(const auto& f:*entry["files"].getArray())r.files.push_back({f["name"].toString(),f["url"].toString(),f["sha256"].toString(),static_cast<juce::int64>(f["bytes"])});
+            result.push_back(std::move(r));
+        }return result;
+    }();return records;
 }
+const ModelRecord& modelProfile(const juce::String& id){
+    for(const auto& r:modelCatalogue())if(r.id==id)return r;
+    throw Error{"unsupported_model"};
+}
+juce::String profileCatalogueJson(){return juce::String::fromUTF8(separationProfilesJson).replace("\r\n","\n");}
+
 juce::File ModelManager::defaultRoot() {
     PWSTR value{};need(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&value)),"io_error");
     const juce::File root{juce::String(value)};CoTaskMemFree(value);return root.getChildFile("MoonRiverStudio/Separation");

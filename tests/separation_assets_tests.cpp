@@ -1,6 +1,8 @@
 #include <mrs/desktop.hpp>
 #include <mrs/sha256.hpp>
 #include <bit>
+#include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <iostream>
 
@@ -18,12 +20,14 @@ void wav(const fs::path& path,std::uint32_t frames,std::uint32_t rate=48000){
 }
 struct Temp{fs::path root=fs::temp_directory_path()/("mrs-separation-assets-"+new_id().value);Temp(){fs::create_directory(root);}~Temp(){std::error_code ec;fs::remove_all(root,ec);}};
 struct EditClip final:ICommand{Clip clip;explicit EditClip(Clip c):clip(std::move(c)){}std::string_view name()const override{return "Fixture clip range";}void apply(Project& p)const override{p.clips.front()=clip;}};
-SeparationResult result(const fs::path& root,const Clip& clip){
+SeparationResult result(const fs::path& root,const Clip& clip,int stems=2){
     fs::create_directories(root);wav(root/"vocals.wav",4800);wav(root/"instrumental.wav",4800);write(root/"manifest.json","{\"fixture\":true}");
     SeparationResult r;r.id=new_id();r.source_clip=clip.id;r.source=clip.source;r.source_sha256=sha256_file(fs::path(std::u8string(clip.source.begin(),clip.source.end())));r.model="official-htdemucs-derived-2-v1";r.model_version="955717e8";r.provenance="{\"fixture\":true}";
     r.source_offset=clip.source_offset;r.source_frames=clip.length;r.start=clip.start;r.frames=clip.length;r.fade_in=clip.fade_in;r.fade_out=clip.fade_out;r.source_rate=r.sample_rate=48000;
     const auto f=[&](const char* role,const char* name){const auto path=root/name;return SeparationFile{role,text(path),sha256_file(path),fs::file_size(path)};};
-    r.manifest=f("manifest","manifest.json");r.stems={f("Vocals","vocals.wav"),f("Instrumental","instrumental.wav")};return r;
+    r.manifest=f("manifest","manifest.json");r.stems={f("Vocals","vocals.wav"),f("Instrumental","instrumental.wav")};
+    if(stems>2){r.stems.clear();for(const auto* label:{"Vocals","Drums","Bass","Other","Guitar","Piano"}){if(stems==4&&(std::string(label)=="Guitar"||std::string(label)=="Piano"))continue;auto name=std::string(label);std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});name+=".wav";wav(root/name,4800);r.stems.push_back(f(label,name.c_str()));}}
+    return r;
 }
 std::vector<std::shared_ptr<const audio::AudioData>> prepare(desktop::Application& app,const SeparationResult& r){std::vector<std::shared_ptr<const audio::AudioData>> out;for(const auto& f:r.stems)out.push_back(std::make_shared<const audio::AudioData>(audio::open_wav(app.source_file(f.source),0)));return out;}
 void hashes(){
@@ -31,10 +35,10 @@ void hashes(){
     check(sha256("abc")=="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","ABC SHA256");
     check(sha256(std::string(1000000,'a'))=="cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0","Multiblock SHA256");
 }
-void lifecycle(){
+void lifecycle(int stems){
     Temp temp;const auto original=temp.root/"original.wav";wav(original,9600);const auto originalHash=sha256_file(original);
     desktop::Application app;app.import_wav(original);auto clip=app.services().projects->state().project->clips.front();clip.start=12345;clip.source_offset=1200;clip.length=4800;clip.fade_in=48;clip.fade_out=96;app.services().projects->execute(EditClip{clip});
-    const auto r=result(temp.root/"job",clip);app.rename_track(clip.track,"Unrelated track edit while processing");const auto initial=*app.services().projects->state().project;
+    const auto r=result(temp.root/"job",clip,stems);app.rename_track(clip.track,"Unrelated track edit while processing");const auto initial=*app.services().projects->state().project;
     auto changed=clip;changed.start++;rejects([&]{RegisterSeparation{changed,r}.apply(*std::make_shared<Project>(initial));});
     auto rate=initial;rate.sample_rate=44100;rejects([&]{RegisterSeparation{clip,r}.apply(rate);});
     app.keep_separation(clip,r,{});check(app.services().projects->state().project->clips==initial.clips&&app.services().projects->state().project->tracks==initial.tracks,"Hidden result created audible tracks");
@@ -46,7 +50,7 @@ void lifecycle(){
     auto round=deserialize(serialize(*app.services().projects->state().project));check(round==*app.services().projects->state().project,"Core separation roundtrip");
     auto legacy=serialize(initial);const auto header=legacy.find('\n');legacy.replace(0,header,"MRS_CORE_SNAPSHOT 32");check(deserialize(legacy).separation_results.empty(),"Old schema migration");
     app.place_separation(r,prepare(app,r));const auto placed=*app.services().projects->state().project;
-    check(placed.tracks.size()==initial.tracks.size()+2&&placed.clips.size()==initial.clips.size()+2,"Place two stems");
+    check(placed.tracks.size()==initial.tracks.size()+static_cast<std::size_t>(stems)&&placed.clips.size()==initial.clips.size()+static_cast<std::size_t>(stems),"Place requested stems");
     for(std::size_t i=1;i<placed.clips.size();++i)check(placed.clips[i].start==clip.start&&placed.clips[i].length==clip.length&&placed.clips[i].source_offset==0&&placed.clips[i].fade_in==48&&placed.clips[i].fade_out==96,"Stem alignment/fades");
     check(placed.clips.front()==clip,"Source clip modified");check(app.undo()&&app.services().projects->state().project->clips==initial.clips,"Placement is one Undo");
     check(app.redo()&&app.services().projects->state().project->clips==placed.clips,"Placement Redo stable IDs");
@@ -84,4 +88,4 @@ void hidden_history_saveas(){
     rejects([&]{app.save_project(destination/"collision.mrsproject");});std::ifstream input(destination/"collision.assets"/"separation"/r.id.value/"vocals.wav");std::string s;input>>s;check(s=="foreign","Foreign file overwritten");
 }
 }
-int main(){try{hashes();lifecycle();source_guard();hidden_history_saveas();std::cout<<"PASS separation assets: SHA256 vectors, stale guard, hidden/placement Undo/Redo, schema migration, Save/Open/Save As/moved project, missing media, foreign-file preservation\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{hashes();lifecycle(2);lifecycle(4);lifecycle(6);source_guard();hidden_history_saveas();std::cout<<"PASS separation assets: SHA256 vectors, stale guard, hidden/placement Undo/Redo, schema migration, Save/Open/Save As/moved project, missing media, foreign-file preservation\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

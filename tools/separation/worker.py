@@ -30,10 +30,9 @@ else:
 
 VERSION = 1
 BACKEND_VERSION = "0.48.0"
-MODEL_FILES = {
-    "htdemucs.yaml": "239c445d0b14454d541ad8bd9bb271c9e536d267e8a4625208744cbb2e7bb66c",
-    "955717e8-8726e21a.th": "8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4",
-}
+PROFILES = {p["id"]: p for p in json.loads(Path(__file__).with_name("mr_separation_profiles.json").read_text(encoding="utf-8"))}
+DEFAULT_MODEL = "official-htdemucs-derived-2-v1"
+MODEL_FILES = {f["name"]: f["sha256"] for f in PROFILES[DEFAULT_MODEL]["files"]}
 MAX_FRAME = 65536
 
 
@@ -160,13 +159,22 @@ def validate_request(req):
     return source, start, frames, origin, rate, threads
 
 
-def infer_htdemucs(snapshot, output_dir, model_dir, requested_device, threads, emit, check):
-    """The only admitted technical profile; exact weights verified before unpickling."""
-    for name, expected in MODEL_FILES.items():
-        path = model_dir / name
+def profile_for(req):
+    model = req.get("model", DEFAULT_MODEL)
+    if not isinstance(model, str) or model not in PROFILES:
+        raise Failure("unsupported_model")
+    if req.get("chunk", "default") not in PROFILES[model]["chunks"]:
+        raise Failure("invalid_input")
+    return PROFILES[model]
+
+
+def infer_profile(snapshot, output_dir, model_dir, requested_device, threads, emit, check, profile, chunk):
+    """Fixed, hash-verified closure; no backend catalogue or metadata downloads."""
+    for artifact in profile["files"]:
+        path = model_dir / artifact["name"]
         if not path.is_file():
             raise Failure("model_missing")
-        if path.is_symlink() or digest(path) != expected:
+        if path.is_symlink() or path.stat().st_size != artifact["bytes"] or digest(path) != artifact["sha256"]:
             raise Failure("integrity_failure")
     if importlib.metadata.version("audio-separator") != BACKEND_VERSION:
         raise Failure("unsupported_runtime")
@@ -179,10 +187,12 @@ def infer_htdemucs(snapshot, output_dir, model_dir, requested_device, threads, e
     effective = "cpu"
     if requested_device != "cpu":
         try:
-            if torch.cuda.is_available():
-                # Probe actual allocation and an operation, not just device presence.
+            if torch.cuda.is_available() and profile["architecture"] != "MDX":
                 probe = torch.ones(1, device="cuda") + 1
                 probe.cpu()
+                free, _total = torch.cuda.mem_get_info()
+                if free < profile["min_cuda_bytes"]:
+                    raise Failure("resource_limit")
                 effective = "cuda"
         except (RuntimeError, MemoryError):
             effective = "cpu"
@@ -190,13 +200,11 @@ def infer_htdemucs(snapshot, output_dir, model_dir, requested_device, threads, e
             raise Failure("unsupported_device")
     check()
     emit("loading", device=effective)
-    # Separator imports ORT even for Demucs; opt out of its native telemetry.
     import onnxruntime as ort
     ort.disable_telemetry_events()
-    # No model catalogue/UVR metadata requests: this fixed adapter resolves the
-    # complete official Demucs closure itself, avoiding upstream discovery fetches.
     from audio_separator.separator import Separator
     from audio_separator.separator.common_separator import CommonSeparator
+    from audio_separator.separator.uvr_lib_v5 import spec_utils
 
     class OfflineSeparator(Separator):
         def setup_accelerated_inferencing_device(self):
@@ -206,34 +214,47 @@ def infer_htdemucs(snapshot, output_dir, model_dir, requested_device, threads, e
             self.onnx_execution_provider = ["CPUExecutionProvider"]
 
         def download_model_files(self, filename):
-            if filename != "htdemucs.yaml":
+            if filename != profile["model_file"]:
                 raise Failure("unsupported_model")
             path = str(model_dir / filename)
-            return filename, "Demucs", "official-htdemucs", path, path
+            config = next((str(model_dir / f["name"]) for f in profile["files"] if f["name"].endswith(".yaml")), None)
+            return filename, profile["architecture"], profile["id"], path, config
+
+        def load_model_data_using_hash(self, _path):
+            if profile["architecture"] != "MDX":
+                raise Failure("unsupported_model")
+            return dict(profile["model_data"])
 
     def write_float(self, stem_path, stem_source):
-        # Bypass CommonSeparator's independent per-stem normalisation/clipping.
         data = np.asarray(stem_source, dtype=np.float32)
         if data.ndim != 2 or data.shape[1] != 2 or not np.isfinite(data).all():
             raise Failure("invalid_output")
-        path = output_dir / Path(stem_path).name
-        sf.write(str(path), data, 44100, format="WAV", subtype="FLOAT")
+        sf.write(str(output_dir / Path(stem_path).name), data, 44100, format="WAV", subtype="FLOAT")
 
     CommonSeparator.write_audio = write_float
+    # All sources share the snapshot gain; do not independently normalize stems.
+    spec_utils.normalize = lambda wave, **_kwargs: wave
     os.environ.pop("AUDIO_SEPARATOR_MODEL_DIR", None)
     separator = OfflineSeparator(
         model_file_dir=str(model_dir), output_dir=str(output_dir), output_format="WAV",
         sample_rate=44100, use_soundfile=True, log_level=40,
-        demucs_params={"segment_size": "Default", "shifts": 0, "overlap": 0.25, "segments_enabled": True},
+        demucs_params={"segment_size": 4 if chunk == "small" else "Default", "shifts": 0, "overlap": 0.25, "segments_enabled": True},
+        mdxc_params={"segment_size": 128 if chunk == "small" else 256, "override_model_segment_size": True, "batch_size": 1, "overlap": 2, "pitch_shift": 0},
+        mdx_params={"hop_length": 1024, "segment_size": 256, "overlap": 0.25, "batch_size": 1, "enable_denoise": False},
     )
-    separator.load_model("htdemucs.yaml")
+    separator.load_model(profile["model_file"])
     check()
     emit("inference", device=effective)
-    separator.separate(str(snapshot), {"Vocals": "vocals", "Bass": "bass", "Drums": "drums", "Other": "other"})
+    separator.separate(str(snapshot), {stem: stem.lower() for stem in profile["native_stems"]})
     return effective
 
 
-def execute(req, work, emit, check, engine=infer_htdemucs):
+def infer_htdemucs(snapshot, output_dir, model_dir, requested_device, threads, emit, check):
+    return infer_profile(snapshot, output_dir, model_dir, requested_device, threads, emit, check, PROFILES[DEFAULT_MODEL], "default")
+
+
+def execute(req, work, emit, check, engine=None):
+    profile = profile_for(req)
     emit("validating")
     source, start, frames, origin, target_rate, threads = validate_request(req)
     check()
@@ -250,7 +271,7 @@ def execute(req, work, emit, check, engine=infer_htdemucs):
     from scipy.signal import resample_poly
     emit("preparing")
     info = sf.info(str(source))
-    if info.channels != 2 or info.samplerate not in (44100, 48000, 88200, 96000):
+    if info.channels not in (1, 2) or info.samplerate not in (44100, 48000, 88200, 96000):
         raise Failure("unsupported_input")
     if start + frames > info.frames or frames > info.samplerate * 600:
         raise Failure("invalid_input")
@@ -272,6 +293,8 @@ def execute(req, work, emit, check, engine=infer_htdemucs):
         if len(data) < length:
             raise Failure("invalid_output")
         return np.ascontiguousarray(data[:length], dtype=np.float32)
+    if info.channels == 1:
+        data = np.repeat(data, 2, axis=1)
     model_frames = (frames * 44100 + info.samplerate // 2) // info.samplerate
     data = resample(data, info.samplerate, 44100, model_frames)
     snapshot = work / "snapshot.wav"
@@ -280,11 +303,14 @@ def execute(req, work, emit, check, engine=infer_htdemucs):
     check()
     native = work / "native"
     native.mkdir()
-    effective = engine(snapshot, native, Path(req["model_dir"]).resolve(), req["device"], threads, emit, check)
+    if engine is None:
+        effective = infer_profile(snapshot, native, Path(req["model_dir"]).resolve(), req["device"], threads, emit, check, profile, req.get("chunk", "default"))
+    else:
+        effective = engine(snapshot, native, Path(req["model_dir"]).resolve(), req["device"], threads, emit, check)
     check()
     emit("verifying", device=effective)
     stems = {}
-    for name in ("vocals", "bass", "drums", "other"):
+    for name in (stem.lower() for stem in profile["native_stems"]):
         path = native / (name + ".wav")
         if path.is_symlink():
             raise Failure("invalid_output")
@@ -292,11 +318,16 @@ def execute(req, work, emit, check, engine=infer_htdemucs):
         if rate != 44100 or audio.shape != (model_frames, 2) or not np.isfinite(audio).all():
             raise Failure("invalid_output")
         stems[name] = audio
-    instrument = stems["bass"] + stems["drums"] + stems["other"]
+    if profile["id"] == DEFAULT_MODEL:
+        stems["instrumental"] = stems["bass"] + stems["drums"] + stems["other"]
+    if profile["id"] == "mel-roformer-kim-2-v1":
+        stems["instrumental"] = stems.pop("other")
     outputs = []
     pending = work / "result.part"
     pending.mkdir()
-    for name, audio in (("vocals", stems["vocals"]), ("instrumental", instrument)):
+    for label in profile["stems"]:
+        name = label.lower()
+        audio = stems[name]
         check()
         audio = resample(audio, 44100, target_rate, target_frames)
         if not np.isfinite(audio).all():
@@ -310,10 +341,11 @@ def execute(req, work, emit, check, engine=infer_htdemucs):
                 "source_revision": req["source_revision"], "source_sha256": req["source_sha256"],
                 "source_start": str(start), "source_frames": str(frames), "source_rate": str(info.samplerate),
                 "timeline_start": str(origin), "project_rate": str(target_rate),
-                "snapshot_sha256": digest(snapshot), "model": "official-htdemucs-derived-2-v1",
-                "weights": MODEL_FILES, "backend": "python-audio-separator", "backend_version": BACKEND_VERSION,
+                "snapshot_sha256": digest(snapshot), "model": profile["id"],
+                "weights": {f["name"]: f["sha256"] for f in profile["files"]}, "backend": "python-audio-separator", "backend_version": BACKEND_VERSION,
                 "requested_device": req["device"], "effective_device": effective, "precision": "fp32",
-                "gain_policy": "unnormalized_float", "derivation": "instrumental=bass+drums+other",
+                "gain_policy": "unnormalized_float", "derivation": "instrumental=bass+drums+other" if profile["id"] == DEFAULT_MODEL else "model-native/complement",
+                "chunk": req.get("chunk", "default"), "source_channels": info.channels, "mono_policy": "duplicate_to_stereo", "model_rate": 44100,
                 "shifts": 0, "seed": 0, "overlap": 0.25, "outputs": outputs}
     (pending / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=True, allow_nan=False), encoding="utf-8")
     check()

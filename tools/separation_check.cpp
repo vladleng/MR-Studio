@@ -182,7 +182,8 @@ void managerTests(const juce::File& requirements) {
     check(manager.removeModel(record.id),"remove incomplete cache");check(waitManager(manager).error.isEmpty(),"incomplete cache recoverable");
     auto oversized=record;oversized.id="too-large";oversized.files.front().bytes=root.getBytesFreeOnVolume()+64*1024*1024;
     ModelManager large(root,{},requirements,fetch,{oversized});check(large.installModel(oversized.id),"large install");check(waitManager(large).error=="disk_space","disk preflight");
-    const auto before=modelCatalogue().size();check(before>=2&&modelCatalogue()[1].unsupportedReason.isNotEmpty(),"unsupported capabilities explicit");
+    const auto before=modelCatalogue().size();check(before==6&&modelProfile("htdemucs-6s").stems.size()==6&&modelProfile("official-htdemucs-4-v1").stems.size()==4,"model-specific capabilities");
+    bool rejected{};try{modelProfile("unknown-model");}catch(...){rejected=true;}check(rejected,"unknown capabilities excluded");
     std::cout<<"PASS model manager: integrity, atomic install, cancel/retry, corruption/missing file, safe removal, disk quota, unsupported catalogue\n";
 }
 void managed(const juce::File& cache,const juce::File& worker,const juce::File& requirements,const juce::File& evidence) {
@@ -190,6 +191,7 @@ void managed(const juce::File& cache,const juce::File& worker,const juce::File& 
     auto requireManager=[&]{const auto state=waitManager(manager);if(state.error.isNotEmpty()){std::cerr<<manager.diagnostics().toStdString()<<'\n';throw std::runtime_error("manager failed: "+state.error.toStdString());}};
     check(manager.installRuntime(),"explicit managed runtime install");requireManager();check(manager.status().runtime==InstallationState::installed,"runtime installed");
     check(manager.installModel(modelCatalogue().front().id),"explicit managed model install");requireManager();
+    for(const auto& profile:modelCatalogue())if(profile.id!=modelCatalogue().front().id){check(manager.installModel(profile.id),"explicit extended model install");requireManager();}
     check(manager.verifyRuntime(),"offline full runtime verification");requireManager();
     ModelManager reopened(cache,worker,requirements,[](const auto&,const auto&,const auto&,auto){throw std::runtime_error("offline refresh must not fetch");});
     check(reopened.refresh(),"reopen cache");check(waitManager(reopened).runtime==InstallationState::installed,"offline reopened runtime");

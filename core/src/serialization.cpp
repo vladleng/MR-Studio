@@ -353,7 +353,7 @@ Project deserialize(std::string_view bytes) {
         const auto total=count(in);if(total>64)throw std::invalid_argument("Too many separation results");
         const auto file=[&]{SeparationFile f;f.role=quoted(in);f.source=quoted(in);f.sha256=quoted(in);in>>f.bytes;check_stream(in);return f;};
         for(std::size_t i=0;i<total;++i){SeparationResult r;r.id={quoted(in)};r.source_clip={quoted(in)};r.source=quoted(in);r.source_sha256=quoted(in);r.model=quoted(in);r.model_version=quoted(in);r.provenance=quoted(in);
-            in>>r.source_offset>>r.source_frames>>r.start>>r.frames>>r.fade_in>>r.fade_out>>r.source_rate>>r.sample_rate;const auto stems=count(in);if(stems!=2)throw std::invalid_argument("Unsupported separation stems");
+            in>>r.source_offset>>r.source_frames>>r.start>>r.frames>>r.fade_in>>r.fade_out>>r.source_rate>>r.sample_rate;const auto stems=count(in);if(stems!=2&&stems!=4&&stems!=6)throw std::invalid_argument("Unsupported separation stems");
             r.manifest=file();for(std::size_t j=0;j<stems;++j)r.stems.push_back(file());p.separation_results.push_back(std::move(r));}
         in>>ending;check_stream(in);
     }

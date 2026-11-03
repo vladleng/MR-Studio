@@ -193,11 +193,13 @@ void Project::validate() const {
         require(!r.model.empty()&&text(r.model,128)&&!r.model_version.empty()&&text(r.model_version,128)&&!r.provenance.empty()&&text(r.provenance,65536),"Invalid separation provenance");
         require(r.source_rate>=8000&&r.source_rate<=96000&&r.sample_rate>=8000&&r.sample_rate<=96000&&r.source_offset>=0&&r.source_offset<=max_sample&&r.source_frames>0&&r.source_frames<=max_sample-r.source_offset,"Invalid separation source range");
         require(r.start>=0&&r.start<=max_sample&&r.frames>0&&r.frames<=max_sample-r.start&&r.fade_in>=0&&r.fade_out>=0&&r.fade_in<=r.frames&&r.fade_out<=r.frames,"Invalid separation placement");
-        require(r.manifest.role=="manifest"&&r.stems.size()==2,"Unsupported separation outputs");
+        require(r.manifest.role=="manifest"&&(r.stems.size()==2||r.stems.size()==4||r.stems.size()==6),"Unsupported separation outputs");
         std::set<std::string> roles,files;
         const auto file=[&](const SeparationFile& f){require(!f.source.empty()&&text(f.source,32768)&&digest(f.sha256)&&f.bytes>0&&f.bytes<=512*1024*1024&&files.insert(f.source).second,"Invalid separation file");};
         file(r.manifest);
-        for(const auto& f:r.stems){file(f);require((f.role=="Vocals"||f.role=="Instrumental")&&roles.insert(f.role).second,"Invalid separation stem");}
+        for(const auto& f:r.stems){file(f);require((f.role=="Vocals"||f.role=="Instrumental"||f.role=="Drums"||f.role=="Bass"||f.role=="Other"||f.role=="Guitar"||f.role=="Piano")&&roles.insert(f.role).second,"Invalid separation stem");}
+        const auto expected=r.stems.size()==2?std::set<std::string>{"Vocals","Instrumental"}:r.stems.size()==4?std::set<std::string>{"Vocals","Drums","Bass","Other"}:std::set<std::string>{"Vocals","Drums","Bass","Guitar","Piano","Other"};
+        require(roles==expected,"Unsupported separation role combination");
     }
     add_id(id);
     std::unordered_map<std::string, const Folder*> folder_by_id;

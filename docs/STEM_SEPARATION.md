@@ -396,6 +396,47 @@ software scale snapshots. Отдельный Windows CPU project check прох�
 job → hidden assets → placement → Undo/Redo → relocated Save/Open; fixtures synthetic,
 без пользовательской музыки. Физические DPI/ASIO/GPU и слуховая приёмка отдельно.
 
+## Расширенные capabilities #337 (0.9.5)
+
+Единый pinned catalogue `tools/separation/mr_separation_profiles.json` компилируется
+в native host и поставляется рядом с worker. Старый ID derived-2 сохранён.
+HTDemucs: derived Vocals/Instrumental или native Vocals/Drums/Bass/Other;
+HTDemucs 6s: Vocals/Drums/Bass/Guitar/Piano/Other (piano experimental).
+BS-RoFormer Viperx ep317 и Mel-Band RoFormer Kimberley Jensen дают два выхода,
+а не 4/6: Vocals и Instrumental (в Mel config `other` — complementary source).
+MDX KARA2 имеет primary **Instrumental**, complementary Vocals; это не native
+6-source модель. Его точные MDX параметры взяты из pinned upstream metadata,
+проверенного по tail-MD5 **1d64a6d2c30f709b8c9b4ce1366d96ee**, при этом admission
+самих весов требует **полный SHA256**, не MD5. Источник metadata:
+`TRvlvr/application_data@3826b05b570dbd4fbedbc807758803b35348ba1b`.
+
+Worker проверяет полный config/weights closure до model load и не вызывает
+upstream discovery/download. Model Manager выполняет явные загрузки. В каталоге
+фиксированы имена, размеры и SHA256 всех файлов; лицензии checkpoint остаются
+review deferred по указанию пользователя, веса не входят в runtime ZIP.
+
+Mono WAV дублируется в stereo, исходник не меняется. Поддержаны входные
+44.1/48/88.2/96 kHz; worker resample_poly приводит snapshot к 44.1 kHz модели,
+выходы — к project rate с точным округлённым frame count и общим origin=0.
+DAW сохраняет прежнее условие input rate = project rate, импорт других rates
+переиспользует существующую конвертацию. Не вводится pitch/time обработка.
+
+Все модели используют float32, без независимой нормализации/clipping источников.
+Chunk default: Demucs model default, RoFormer 256 STFT frames; small: Demucs 4 s,
+RoFormer 128 STFT frames. RoFormer batch=1/overlap=2, MDX фиксирован на 256 frames
+для ONNX CPU и не допускает small. Chunk и mono-policy записываются в manifest.
+CPU UI предупреждает о длительной обработке. Managed CUDA/DirectML runtime
+отсутствует; UI не предлагает неработающий GPU. Для отдельного sidecar CUDA probe
+проверяет allocation/operation и консервативный free-VRAM guard (оценка, не замер
+минимума). MDX CUDA исключён в этом CPU runtime, OOM не запускает скрытый retry.
+Фактические GPU/VRAM/слуховые проверки отдельно, CI их не доказывает.
+
+Project records допускают проверенные наборы 2/4/6 roles. Формат schema 33 уже
+хранит variable count; layout/meaning полей не меняются. Старый 0.9.4 открывает
+2-stem records и явно отклоняет неизвестные 4/6, plain проекты остаются schema 32.
+Placement/Undo/Save As используют один существующий путь и копируют каждый stem
+по своему безопасному имени. Оригинал остаётся без изменений.
+
 ## Источники аудита
 
 - **S1** [audio-separator v0.48.0 release](https://github.com/nomadkaraoke/python-audio-separator/releases/tag/v0.48.0), [pinned README: CLI, devices, outputs](https://github.com/nomadkaraoke/python-audio-separator/blob/4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e/README.md).

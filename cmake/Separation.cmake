@@ -9,6 +9,10 @@ if(NOT TARGET juce::juce_core)
   add_subdirectory("${MRS_JUCE_SDK_ROOT}" "${CMAKE_BINARY_DIR}/juce-sdk" EXCLUDE_FROM_ALL)
 endif()
 add_library(mrs_separation STATIC apps/studio-juce/src/SeparationRunner.cpp apps/studio-juce/src/SeparationModels.cpp apps/studio-juce/src/SeparationProject.cpp)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/tools/separation/mr_separation_profiles.json")
+file(READ "${PROJECT_SOURCE_DIR}/tools/separation/mr_separation_profiles.json" mrs_separation_profiles)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/separation_profiles.h" "static constexpr const char* separationProfilesJson = R\"MRPROFILES(${mrs_separation_profiles})MRPROFILES\";\n")
+target_include_directories(mrs_separation PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_include_directories(mrs_separation PUBLIC apps/studio-juce/src)
 target_compile_features(mrs_separation PUBLIC cxx_std_20)
 target_compile_definitions(mrs_separation PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
@@ -26,6 +30,7 @@ if(TARGET MoonRiverStudioJuce)
     set_source_files_properties(apps/studio-juce/src/SeparationView.cpp PROPERTIES COMPILE_OPTIONS "/WX")
   endif()
   add_custom_command(TARGET MoonRiverStudioJuce POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/tools/separation/mr_separation_profiles.json" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/mr_separation_profiles.json"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/tools/separation/worker.py" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/mr_separation_worker.py"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/tools/separation/requirements-cpu.txt" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/mr_separation_requirements.txt")
   if(BUILD_TESTING)

@@ -9,6 +9,7 @@ $application=if($LiveOnly){'MR Live'}else{'MR Studio + MR Live'}
 $gui=if($LiveOnly){Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe'}else{Join-Path $Build 'MoonRiverStudioJuce_artefacts/Release/Moon River Studio JUCE.exe'}
 Copy-Item -LiteralPath $gui -Destination $Output
 if(!$LiveOnly){Copy-Item -LiteralPath (Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe') -Destination $Output}
+if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/mr_separation_profiles.json' -Destination (Join-Path $Output 'mr_separation_profiles.json')}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/worker.py' -Destination (Join-Path $Output 'mr_separation_worker.py')}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/requirements-cpu.txt' -Destination (Join-Path $Output 'mr_separation_requirements.txt')}
 foreach($name in @('mrs_vst3_scan.exe','mrs_crash_reporter.exe')){Copy-Item -LiteralPath "$Build/Release/$name" -Destination $Output}

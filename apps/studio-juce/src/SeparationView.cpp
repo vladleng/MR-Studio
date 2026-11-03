@@ -16,7 +16,7 @@ juce::String jobError(const juce::String& error){
     if(error=="python_missing"||error=="installation_missing")return "Processing runtime is missing. Open Model Manager.";
     if(error=="stale_source")return "The source file changed. Start separation again.";
     if(error=="invalid_output"||error=="integrity_failure")return "Result verification failed; no stems were added.";
-    if(error=="invalid_input"||error=="unsupported_input")return "Use a stereo WAV at the project rate, up to 10 minutes.";
+    if(error=="invalid_input"||error=="unsupported_input")return "Use a mono/stereo WAV at the project rate, up to 10 minutes.";
     if(error=="timeout")return "Processing timed out. Try a shorter clip.";
     if(error=="resource_limit")return "Processing reached its resource limit. Try a shorter clip.";
     if(error=="worker_crash"||error=="backend_failure")return "The processing worker stopped unexpectedly. You can retry.";
@@ -27,13 +27,14 @@ public:
     SeparationPanel(Desktop& owner,std::optional<mrs::Id> clip,std::shared_ptr<ModelManager> manager,std::shared_ptr<ProjectJob> job)
         :owner_(owner),source_(std::move(clip)),manager_(std::move(manager)),job_(std::move(job)),progress_(progressValue_){
         title_.setText("Separate into Stems",juce::dontSendNotification);
-        mode_.setText("Local CPU - Vocals / Instrumental (derived from HTDemucs)",juce::dontSendNotification);
-        help_.setText("Uses the original stereo WAV range. Track processing is not rendered.\nReset Time / Pitch and detach ARA before separating this clip.",juce::dontSendNotification);
+        mode_.setText("Local CPU - outputs depend on the selected model",juce::dontSendNotification);
+        help_.setText("Uses the original mono/stereo WAV range. Track processing is not rendered.\nReset Time / Pitch and detach ARA before separating this clip.",juce::dontSendNotification);
         resultsTitle_.setText("Hidden results in this project - tracks are optional",juce::dontSendNotification);
         footer_.setText("Save the project to persist results. Undo/Redo keeps the same files.",juce::dontSendNotification);
         for(auto* label:{&title_,&sourceInfo_,&mode_,&help_,&status_,&resultsTitle_,&resultInfo_,&footer_}){addAndMakeVisible(label);label->setColour(juce::Label::textColourId,owner_.theme.role(ColourRole::text,primaryText));label->setMinimumHorizontalScale(1.0f);}
         for(auto* label:{&help_,&footer_})label->setColour(juce::Label::textColourId,owner_.theme.role(ColourRole::muted,secondaryText));
         for(const auto& model:manager_->status().models)models_.addItem(model.record.title,models_.getNumItems()+1);
+        addAndMakeVisible(chunks_);chunks_.addItem("Default chunk",1);chunks_.addItem("Smaller chunk (less memory)",2);chunks_.setSelectedId(1,juce::dontSendNotification);chunks_.setTitle("Processing chunk size");
         addAndMakeVisible(models_);models_.setSelectedId(1,juce::dontSendNotification);models_.setTitle("Installed separation model");models_.onChange=[this]{message_.clear();update();};
         addAndMakeVisible(results_);results_.setTitle("Hidden separation result");results_.onChange=[this]{update();};
         struct Action{juce::TextButton* button;const char* name;};int focus=1;
@@ -50,7 +51,7 @@ public:
     void paint(juce::Graphics& g)override{g.fillAll(owner_.theme.role(ColourRole::window,panel));g.setColour(owner_.theme.role(ColourRole::panel,contentSurface));g.fillRoundedRectangle(16.0f,92.0f,static_cast<float>(getWidth()-32),112.0f,6.0f);}
     void resized()override{
         const auto w=getWidth();title_.setBounds(24,12,w-48,28);sourceInfo_.setBounds(24,48,w-48,40);mode_.setBounds(24,96,w-48,24);
-        models_.setBounds(24,128,w-280,28);managerButton_.setBounds(w-240,128,216,28);help_.setBounds(24,160,w-48,40);
+        models_.setBounds(24,128,w-280,28);managerButton_.setBounds(w-240,128,216,28);help_.setBounds(24,160,w-328,40);chunks_.setBounds(w-288,164,264,28);
         start_.setBounds(24,216,192,32);cancel_.setBounds(228,216,160,32);progress_.setBounds(408,220,w-432,24);status_.setBounds(24,256,w-48,40);
         resultsTitle_.setBounds(24,304,w-48,24);results_.setBounds(24,336,w-48,28);resultInfo_.setBounds(24,372,w-48,40);
         place_.setBounds(24,424,248,32);verify_.setBounds(284,424,136,32);remove_.setBounds(432,424,160,32);
@@ -70,7 +71,7 @@ private:
         ensure(std::none_of(owner_.project()->ara_bindings.begin(),owner_.project()->ara_bindings.end(),[&](const auto& b){return b.source==clip->source;}),"Detach ARA before separating this source");
         const auto models=manager_->status();const auto index=models_.getSelectedId()-1;ensure(index>=0&&static_cast<std::size_t>(index)<models.models.size(),"Select a supported model");
         ProjectInput input;input.clip=*clip;input.source=owner_.app.source_file(clip->source);input.projectFile=owner_.app.path();input.rate=owner_.project()->sample_rate;
-        input.session=juce::Uuid().toString();input.revision=juce::String(owner_.app.services().projects->state().revision);input.model=models.models[static_cast<std::size_t>(index)].record.id;input.sourceLifetime=owner_.app.source_lifetime(clip->source);input.sourceGuard=owner_.app.separation_media_guard();
+        input.session=juce::Uuid().toString();input.revision=juce::String(owner_.app.services().projects->state().revision);input.model=models.models[static_cast<std::size_t>(index)].record.id;input.chunk=chunks_.getSelectedId()==2?"small":"default";if(models.models[static_cast<std::size_t>(index)].record.architecture=="MDX")input.chunk="default";input.sourceLifetime=owner_.app.source_lifetime(clip->source);input.sourceGuard=owner_.app.separation_media_guard();
         context();expected_=*clip;placeWhenReady_=false;ensure(job_->separate(std::move(input)),"Separation service is busy");message_="Separating the selected clip...";
     }
     void beginResult(bool place){
@@ -91,7 +92,7 @@ private:
                     if(out->result){auto result=out->result;try{owner_.app.keep_separation(result->expected,result->record,result->media);result->media->accepted=true;}
                         catch(...){for(const auto& r:owner_.project()->separation_results)if(r.id==result->record.id)result->media->accepted=true;throw;}
                         message_="Stems kept as hidden project assets. Save the project to persist them.";resultIds_.clear();preferredResult_=result->record.id;owner_.refresh();}
-                    else if(out->placement){if(placeWhenReady_){owner_.app.place_separation(out->placement->expected,std::move(out->placement->audio));message_="Two stem tracks created. The original clip is unchanged.";owner_.refresh();}else message_="Both stem files and the manifest passed verification.";}
+                    else if(out->placement){if(placeWhenReady_){owner_.app.place_separation(out->placement->expected,std::move(out->placement->audio));message_="Stem tracks created. The original clip is unchanged.";owner_.refresh();}else message_="All stem files and the manifest passed verification.";}
                 }activeStore_.reset();expected_.reset();
             }else if(state.state==State::failed&&activeStore_){message_="Separation failed: "+jobError(state.error);activeStore_.reset();expected_.reset();}
             else if(state.state==State::cancelled&&activeStore_){message_="Operation cancelled. No result was added.";activeStore_.reset();expected_.reset();}
@@ -103,6 +104,10 @@ private:
         const auto clip=sourceClip();sourceInfo_.setText(clip?"Source: "+js(clip->name)+"\nSelected range: "+juce::String(clip->length)+" frames; offset "+juce::String(clip->source_offset):"Select an audio clip in Arrange, then choose Separate into Stems.",juce::dontSendNotification);
         const auto installed=manager_->status();const int index=models_.getSelectedId()-1;
         const bool modelReady=index>=0&&static_cast<std::size_t>(index)<installed.models.size()&&installed.models[static_cast<std::size_t>(index)].state==InstallationState::installed;
+        const bool validModel=index>=0&&static_cast<std::size_t>(index)<installed.models.size();
+        chunks_.setEnabled(!busy&&validModel&&installed.models[static_cast<std::size_t>(index)].record.chunks.contains("small"));
+        if(validModel&&!installed.models[static_cast<std::size_t>(index)].record.chunks.contains("small"))chunks_.setSelectedId(1,juce::dontSendNotification);
+        mode_.setText(validModel?"Local CPU - "+installed.models[static_cast<std::size_t>(index)].record.outputs:"Local CPU",juce::dontSendNotification);
         const bool inputReady=clip&&clip->source!="mrs:demo-tone"&&!clip->stretch&&std::none_of(project->ara_bindings.begin(),project->ara_bindings.end(),[&](const auto& b){return b.source==clip->source;});
         start_.setEnabled(!busy&&!owner_.app.recording()&&!installed.busy&&inputReady&&modelReady&&installed.runtime==InstallationState::installed);cancel_.setEnabled(busy);models_.setEnabled(!busy);managerButton_.setEnabled(!busy);progress_.setVisible(busy);
         juce::String instruction;
@@ -111,22 +116,23 @@ private:
         else if(!inputReady)instruction="Reset Time / Pitch and detach ARA before separating this source.";
         else if(owner_.app.recording())instruction="Stop recording before starting or keeping a result.";
         else if(index>=0&&static_cast<std::size_t>(index)<installed.models.size()&&installed.models[static_cast<std::size_t>(index)].state==InstallationState::unsupported)instruction=installed.models[static_cast<std::size_t>(index)].reason;
-        else if(!modelReady||installed.runtime!=InstallationState::installed)instruction="Install or repair the CPU runtime and HTDemucs in Model Manager.";
-        else instruction="Ready. Results will be kept as hidden assets; tracks are optional.";
+        else if(!modelReady||installed.runtime!=InstallationState::installed)instruction="Install or repair the CPU runtime and selected model in Model Manager.";
+        else instruction="Ready. CPU processing may take a long time. GPU runtime is not installed.";
         status_.setText(busy?"Processing: "+state.phase:message_.isNotEmpty()?message_:instruction,juce::dontSendNotification);
         std::vector<mrs::Id> ids;for(const auto& r:project->separation_results)ids.push_back(r.id);
         if(ids!=resultIds_){const auto old=selectedResult();results_.clear(juce::dontSendNotification);resultIds_=ids;int selected=0;for(std::size_t i=0;i<ids.size();++i){const auto& r=project->separation_results[i];juce::String name="Source removed";for(const auto& c:project->clips)if(c.id==r.source_clip)name=js(c.name);results_.addItem(name+" - "+js(r.model)+" - "+js(r.id.value.substr(0,8)),static_cast<int>(i)+1);if((preferredResult_&&r.id==*preferredResult_)||(old&&r.id==old->id))selected=static_cast<int>(i)+1;}
             if(!selected&&!ids.empty())selected=static_cast<int>(ids.size());results_.setSelectedId(selected,juce::dontSendNotification);preferredResult_.reset();}
         const auto record=selectedResult();results_.setEnabled(!busy&&!resultIds_.empty());
         place_.setEnabled(record.has_value()&&!busy&&!owner_.app.recording()&&owner_.displayState().playback!=mrs::PlaybackState::playing);verify_.setEnabled(record.has_value()&&!busy&&!owner_.app.recording());remove_.setEnabled(record.has_value()&&!busy&&!owner_.app.recording());
-        resultInfo_.setText(record?"Vocals / Instrumental - "+juce::String(record->frames)+" frames at "+juce::String(record->sample_rate)+" Hz\nTimeline start: "+juce::String(record->start)+"; stored independently of Arrange tracks.":"No hidden separation results in this project.",juce::dontSendNotification);
+        juce::StringArray resultRoles;if(record)for(const auto& stem:record->stems)resultRoles.add(js(stem.role));
+        resultInfo_.setText(record?resultRoles.joinIntoString(" / ")+" - "+juce::String(record->frames)+" frames at "+juce::String(record->sample_rate)+" Hz\nTimeline start: "+juce::String(record->start)+"; stored independently of Arrange tracks.":"No hidden separation results in this project.",juce::dontSendNotification);
         juce::String details;if(record){details="Model: "+js(record->model)+" / "+js(record->model_version)+"\nSource SHA256: "+js(record->source_sha256)+"\n";for(const auto& f:record->stems)details+="\n"+js(f.role)+": "+js(f.source)+"\nSHA256: "+js(f.sha256)+"\n";details+="\nManifest: "+js(record->manifest.source)+"\n\n"+js(record->provenance);}
         if(details_.getText()!=details)details_.setText(details,false);
     }
     Desktop& owner_;std::optional<mrs::Id> source_,preferredResult_;std::shared_ptr<ModelManager> manager_;std::shared_ptr<ProjectJob> job_;
     std::shared_ptr<mrs::IProjectStore> activeStore_;std::filesystem::path activePath_;std::optional<mrs::Clip> expected_;bool placeWhenReady_{};
     std::vector<mrs::Id> resultIds_;juce::String message_;
-    juce::Label title_,sourceInfo_,mode_,help_,status_,resultsTitle_,resultInfo_,footer_;juce::ComboBox models_,results_;
+    juce::Label title_,sourceInfo_,mode_,help_,status_,resultsTitle_,resultInfo_,footer_;juce::ComboBox models_,results_,chunks_;
     juce::TextButton managerButton_,start_,cancel_,place_,verify_,remove_;juce::TextEditor details_;double progressValue_{-1};juce::ProgressBar progress_;
 };
 class SeparationWindow final:public juce::DocumentWindow {
@@ -157,10 +163,10 @@ void separationProjectSmoke(){
     auto processor=[root,wav,slow,calls](const ProjectInput& in,std::stop_token stop){
         ++*calls;while(slow->load()&&!stop.stop_requested())std::this_thread::sleep_for(std::chrono::milliseconds(2));
         if(stop.stop_requested())throw std::runtime_error("Fixture cancelled");
-        const auto id=juce::Uuid().toString().removeCharacters("-");const auto dir=root.getChildFile("mrs-separation-"+id).getChildFile("result");ensure(dir.createDirectory().wasOk(),"Create fixture result");wav(dir.getChildFile("vocals.wav"),4800);wav(dir.getChildFile("instrumental.wav"),4800);
+        const auto id=juce::Uuid().toString().removeCharacters("-");const auto dir=root.getChildFile("mrs-separation-"+id).getChildFile("result");ensure(dir.createDirectory().wasOk(),"Create fixture result");for(const auto& role:modelProfile(in.model).stems)wav(dir.getChildFile(role.toLowerCase()+".wav"),static_cast<int>(in.clip.length));
         auto json=juce::var(new juce::DynamicObject);const auto set=[&](const char* key,juce::var value){json.getDynamicObject()->setProperty(key,std::move(value));};
         set("model",in.model);set("source_start",juce::String(in.clip.source_offset));set("source_frames",juce::String(in.clip.length));set("project_rate",48000);set("source_rate",48000);set("source_sha256",js(mrs::sha256_file(in.source)));
-        juce::Array<juce::var> outputs;for(const auto* role:{"vocals","instrumental"}){const auto file=dir.getChildFile(juce::String(role)+".wav");auto item=juce::var(new juce::DynamicObject);item.getDynamicObject()->setProperty("stem",role);item.getDynamicObject()->setProperty("path",juce::String(role)+".wav");item.getDynamicObject()->setProperty("frames",juce::String(in.clip.length));item.getDynamicObject()->setProperty("bytes",juce::String(file.getSize()));item.getDynamicObject()->setProperty("sha256",js(mrs::sha256_file(std::filesystem::path(file.getFullPathName().toWideCharPointer()))));outputs.add(item);}set("outputs",juce::var(outputs));ensure(dir.getChildFile("manifest.json").replaceWithText(juce::JSON::toString(json)),"Write fixture manifest");return Result{id,in.session,in.revision,dir,json};
+        juce::Array<juce::var> outputs;for(const auto& label:modelProfile(in.model).stems){const auto role=label.toLowerCase();const auto file=dir.getChildFile(role+".wav");auto item=juce::var(new juce::DynamicObject);item.getDynamicObject()->setProperty("stem",role);item.getDynamicObject()->setProperty("path",juce::String(role)+".wav");item.getDynamicObject()->setProperty("frames",juce::String(in.clip.length));item.getDynamicObject()->setProperty("bytes",juce::String(file.getSize()));item.getDynamicObject()->setProperty("sha256",js(mrs::sha256_file(std::filesystem::path(file.getFullPathName().toWideCharPointer()))));outputs.add(item);}set("outputs",juce::var(outputs));ensure(dir.getChildFile("manifest.json").replaceWithText(juce::JSON::toString(json)),"Write fixture manifest");return Result{id,in.session,in.revision,dir,json};
     };
     auto job=std::make_shared<ProjectJob>(manager,processor);showSeparation(owner,clip.id,manager,job);auto* panelView=dynamic_cast<SeparationPanel*>(owner.separationWindow->getContentComponent());ensure(panelView!=nullptr,"Separation window");
     const auto finish=[&]{for(int i=0;i<4000;++i){panelView->tick();if(job->status().state!=State::running&&job->status().state!=State::ready)break;std::this_thread::sleep_for(std::chrono::milliseconds(2));}panelView->tick();ensure(job->status().state!=State::running,"GUI job deadline");};
@@ -179,5 +185,16 @@ void separationProjectSmoke(){
     owner.run([&]{owner.openFile(savedFile);});ensure(owner.project()->separation_results.size()==1&&owner.message.isNotEmpty(),"Missing media must leave project inspectable with an error");
     panelView->tick();panelView->verify_.onClick();finish();ensure(job->status().state==State::failed&&owner.project()->separation_results.size()==1,"Missing stem verification must fail without removing result");
     slow->store(true);panelView->start_.onClick();owner.app.new_project(48000,"New project");panelView->tick();finish();slow->store(false);ensure(owner.project()->separation_results.empty()&&owner.project()->tracks.empty(),"Late result entered another project");owner.separationWindow.reset();
+    for(const auto& model:modelCatalogue())if(model.stems.size()>2){
+        owner.app.import_wav(std::filesystem::path(input.getFullPathName().toWideCharPointer()));
+        const auto source=owner.project()->clips.front();showSeparation(owner,source.id,manager,job);panelView=dynamic_cast<SeparationPanel*>(owner.separationWindow->getContentComponent());
+        int index=1;for(const auto& candidate:modelCatalogue()){if(candidate.id==model.id)break;++index;}
+        panelView->models_.setSelectedId(index,juce::dontSendNotification);panelView->start_.onClick();finish();
+        ensure(owner.project()->separation_results.size()==1&&owner.project()->separation_results.front().stems.size()==static_cast<std::size_t>(model.stems.size())&&owner.project()->clips.size()==1,"Extended hidden outputs");
+        panelView->place_.onClick();finish();ensure(owner.project()->clips.size()==static_cast<std::size_t>(model.stems.size()+1),"Extended Place binding");
+        ensure(owner.app.undo()&&owner.project()->clips.size()==1,"Extended placement Undo");ensure(owner.app.redo(),"Extended placement Redo");
+        panelView->setSize(880,700);const auto image=panelView->createComponentSnapshot(panelView->getLocalBounds());auto out=juce::File::getCurrentWorkingDirectory().getChildFile("separation-project-"+juce::String(model.stems.size())+"-stems.png").createOutputStream();ensure(out&&juce::PNGImageFormat().writeImageToStream(image,*out),"Extended GUI snapshot");
+        owner.separationWindow.reset();
+    }
 }
 } // namespace ui

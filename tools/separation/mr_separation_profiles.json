@@ -1,0 +1,234 @@
+[
+  {
+    "id": "official-htdemucs-derived-2-v1",
+    "title": "HTDemucs - 2 stems",
+    "architecture": "Demucs",
+    "version": "955717e8",
+    "model_file": "htdemucs.yaml",
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "native_stems": [
+      "Vocals",
+      "Drums",
+      "Bass",
+      "Other"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 3221225472,
+    "files": [
+      {
+        "name": "htdemucs.yaml",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/htdemucs.yaml",
+        "sha256": "239c445d0b14454d541ad8bd9bb271c9e536d267e8a4625208744cbb2e7bb66c",
+        "bytes": 21
+      },
+      {
+        "name": "955717e8-8726e21a.th",
+        "url": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th",
+        "sha256": "8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4",
+        "bytes": 84141911
+      }
+    ],
+    "provenance": "audio-separator 0.48.0 / 4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e; full SHA256 pinned; checkpoint license review deferred",
+    "chunks": [
+      "default",
+      "small"
+    ]
+  },
+  {
+    "id": "official-htdemucs-4-v1",
+    "title": "HTDemucs - 4 stems",
+    "architecture": "Demucs",
+    "version": "955717e8",
+    "model_file": "htdemucs.yaml",
+    "stems": [
+      "Vocals",
+      "Drums",
+      "Bass",
+      "Other"
+    ],
+    "native_stems": [
+      "Vocals",
+      "Drums",
+      "Bass",
+      "Other"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 3221225472,
+    "files": [
+      {
+        "name": "htdemucs.yaml",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/htdemucs.yaml",
+        "sha256": "239c445d0b14454d541ad8bd9bb271c9e536d267e8a4625208744cbb2e7bb66c",
+        "bytes": 21
+      },
+      {
+        "name": "955717e8-8726e21a.th",
+        "url": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th",
+        "sha256": "8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4",
+        "bytes": 84141911
+      }
+    ],
+    "provenance": "audio-separator 0.48.0 / 4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e; full SHA256 pinned; checkpoint license review deferred",
+    "chunks": [
+      "default",
+      "small"
+    ]
+  },
+  {
+    "id": "htdemucs-6s",
+    "title": "HTDemucs - 6 stems (piano experimental)",
+    "architecture": "Demucs",
+    "version": "5c90dfd2",
+    "model_file": "htdemucs_6s.yaml",
+    "stems": [
+      "Vocals",
+      "Drums",
+      "Bass",
+      "Guitar",
+      "Piano",
+      "Other"
+    ],
+    "native_stems": [
+      "Vocals",
+      "Drums",
+      "Bass",
+      "Guitar",
+      "Piano",
+      "Other"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 3221225472,
+    "files": [
+      {
+        "name": "htdemucs_6s.yaml",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/htdemucs_6s.yaml",
+        "sha256": "207405151270af8fd81c2373c25d27950916682ac91dca7884a11ce13dad6f58",
+        "bytes": 21
+      },
+      {
+        "name": "5c90dfd2-34c22ccb.th",
+        "url": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/5c90dfd2-34c22ccb.th",
+        "sha256": "34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd",
+        "bytes": 54996327
+      }
+    ],
+    "provenance": "audio-separator 0.48.0 / 4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e; full SHA256 pinned; checkpoint license review deferred",
+    "chunks": [
+      "default",
+      "small"
+    ]
+  },
+  {
+    "id": "bs-roformer-viperx-2-v1",
+    "title": "BS-RoFormer Viperx - 2 stems",
+    "architecture": "MDXC",
+    "version": "ep317-12.9755",
+    "model_file": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "native_stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 6442450944,
+    "files": [
+      {
+        "name": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+        "sha256": "5b84f37e8d444c8cb30c79d77f613a41c05868ff9c9ac6c7049c00aefae115aa",
+        "bytes": 639331213
+      },
+      {
+        "name": "model_bs_roformer_ep_317_sdr_12.9755.yaml",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/model_bs_roformer_ep_317_sdr_12.9755.yaml",
+        "sha256": "2bfdd16c656bd9519aba757cc4f8834b7ede675eb1e00ec4772d74ae1c41af7f",
+        "bytes": 2273
+      }
+    ],
+    "provenance": "audio-separator 0.48.0 / 4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e; full SHA256 pinned; checkpoint license review deferred",
+    "chunks": [
+      "default",
+      "small"
+    ]
+  },
+  {
+    "id": "mel-roformer-kim-2-v1",
+    "title": "Mel-Band RoFormer - 2 stems",
+    "architecture": "MDXC",
+    "version": "87201f4d",
+    "model_file": "vocals_mel_band_roformer.ckpt",
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "native_stems": [
+      "Vocals",
+      "Other"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 6442450944,
+    "files": [
+      {
+        "name": "vocals_mel_band_roformer.ckpt",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/vocals_mel_band_roformer.ckpt",
+        "sha256": "87201f4d31afb5bc79993230fc49446918425574db48c01c405e44f365c7559e",
+        "bytes": 913106900
+      },
+      {
+        "name": "vocals_mel_band_roformer.yaml",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/vocals_mel_band_roformer.yaml",
+        "sha256": "b958b29c8f7195f0d86bee6759a33980db675c4ecaf2fcaa80fa125828e6cd38",
+        "bytes": 944
+      }
+    ],
+    "provenance": "audio-separator 0.48.0 / 4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e; full SHA256 pinned; checkpoint license review deferred",
+    "chunks": [
+      "default",
+      "small"
+    ]
+  },
+  {
+    "id": "mdx-kara2-2-v1",
+    "title": "MDX KARA 2 - 2 stems",
+    "architecture": "MDX",
+    "version": "bf32e151",
+    "model_file": "UVR_MDXNET_KARA_2.onnx",
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "native_stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 3221225472,
+    "files": [
+      {
+        "name": "UVR_MDXNET_KARA_2.onnx",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/UVR_MDXNET_KARA_2.onnx",
+        "sha256": "bf32e15105a09c0f7dddd2b67346146334d6f3ecb399ed7638eba2ab07cbf5f4",
+        "bytes": 52786726
+      }
+    ],
+    "provenance": "audio-separator 0.48.0 / 4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e; full SHA256 pinned; checkpoint license review deferred",
+    "model_data": {
+      "compensate": 1.065,
+      "mdx_dim_f_set": 2048,
+      "mdx_dim_t_set": 8,
+      "mdx_n_fft_scale_set": 5120,
+      "primary_stem": "Instrumental",
+      "is_karaoke": true
+    },
+    "metadata_source": "TRvlvr/application_data@3826b05b570dbd4fbedbc807758803b35348ba1b/mdx_model_data/model_data_new.json; tail-MD5 1d64a6d2c30f709b8c9b4ce1366d96ee",
+    "chunks": [
+      "default"
+    ]
+  }
+]

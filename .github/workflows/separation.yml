@@ -1,5 +1,5 @@
 name: Separation CPU contracts
-run-name: MR Studio 0.9.4 — Windows separation CPU smoke
+run-name: MR Studio 0.9.5 — Windows separation CPU smoke
 on:
   push:
     branches: ['codex/74-separation-contract']
@@ -15,7 +15,7 @@ jobs:
     # UI-only correction reuses the already verified runtime/model profile.
     if: ${{ !contains(github.event.head_commit.message, '[ci separation-ui]') }}
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -66,7 +66,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-0.9.4-Separation-CPU-${{ github.sha }}
+          name: MR-Studio-0.9.5-Separation-CPU-${{ github.sha }}
           path: |
             build/separation-evidence/
             build/separation/Testing/Temporary/LastTest.log
