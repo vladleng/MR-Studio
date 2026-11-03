@@ -1,6 +1,6 @@
 name: Windows Studio Release
 # Single source: the Actions run title is also aliased into the release environment.
-run-name: &release_banner 'MR Studio 0.9.3 / MR Live 0.8.13 — Windows Release'
+run-name: &release_banner 'MR Studio 0.9.3-fix1 / MR Live 0.8.13 — Windows Release'
 on:
   push:
     branches: [main, 'codex/cloud-cicd-migration']
@@ -15,7 +15,7 @@ on:
       checks:
         description: Targeted Live/separation checks or normal profile
         type: choice
-        options: [profile, live, separation]
+        options: [profile, live, separation, separation-ui]
         default: profile
       ara:
         description: Include ARA2 for Studio profile (Live-only always excludes ARA2)
@@ -66,6 +66,7 @@ jobs:
             if($LASTEXITCODE){throw 'Cannot read PR head check scope'}
             if($subject -match '\[ci live\]'){$scope='live'}
             if($subject -match '\[ci separation\]'){$scope='separation'}
+            if($subject -match '\[ci separation-ui\]'){$scope='separation-ui'}
           }
           if($env:INTEGRATION -eq 'true'){$scope='integration'}
           # 0.8.10 acceptance: verify exact saved snapshots and Save/Undo state.
@@ -118,6 +119,7 @@ jobs:
         run: |
           $args=@('--build','build/windows','--config','Release','--parallel','2')
           if($env:CHECK_SCOPE -eq 'separation'){$args+=@('--target','mrs_separation_check')}
+          elseif($env:CHECK_SCOPE -eq 'separation-ui'){$args+=@('--target','MoonRiverStudioJuce')}
           elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('--target','MRLiveJuce','mrs_audio_tests','mrs_live_preload_tests','mrs_parallel_tests')}
           elseif($env:INTEGRATION -ne 'true'){
             $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_track_stretch_mode_tests','mrs_clip_response_tests','mr_timestretch_drums_tests','mr_timestretch_drums_example','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
@@ -132,6 +134,7 @@ jobs:
         run: |
           $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
           if($env:CHECK_SCOPE -eq 'separation'){$args+=@('-R','^separation_(host|models)$')}
+          elseif($env:CHECK_SCOPE -eq 'separation-ui'){$args+=@('-R','^juce_separation_models$')}
           elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('-R','^(juce_live_(entry_smoke|application)|audio_(metronome|performance|parallel_(equivalence|ownership|profiling))|desktop_live_preload)$')}
           elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(stretch_contract|model|transport|commands|serialization|track_folders)|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|ara_.*|juce_(separation_models|live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(wav_import|track_folders|clip_response))$')}
           & ctest @args
@@ -142,12 +145,12 @@ jobs:
             if(Test-Path 'build/windows/library261-failure.txt'){Get-Content 'build/windows/library261-failure.txt'}
             throw "CTest failed ($env:CHECK_SCOPE)"
           }
-          if($env:CHECK_SCOPE -notin @('live','separation')){
+          if($env:CHECK_SCOPE -notin @('live','separation','separation-ui')){
             & ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^separation_(host|models)$'
             if($LASTEXITCODE){throw 'Separation host contract failed'}
           }
       - name: Stretch foundation evidence (synthetic, not ASIO)
-        if: success() && env.CHECK_SCOPE != 'live' && env.CHECK_SCOPE != 'separation'
+        if: success() && env.CHECK_SCOPE != 'live' && env.CHECK_SCOPE != 'separation' && env.CHECK_SCOPE != 'separation-ui'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build/stretch-evidence | Out-Null
@@ -165,7 +168,7 @@ jobs:
           @("MR Studio $env:MR_STUDIO_VERSION stretch foundation. Synthetic evidence, not ASIO or user listening acceptance.", 'mrs_stretch_bench.exe --seconds 300 --warmup 30 --repeats 3 --voices 8 --ratio 1.25', 'Experimental manual clip controls/cache playback are integrated; final realtime/quality acceptance remains in #59/#62.') | Set-Content build/stretch-evidence/README.txt
           Get-ChildItem build/stretch-evidence -File | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String -Width 240 | Set-Content build/stretch-evidence/SHA256.txt
       - name: Upload stretch evidence
-        if: success() && env.CHECK_SCOPE != 'live' && env.CHECK_SCOPE != 'separation'
+        if: success() && env.CHECK_SCOPE != 'live' && env.CHECK_SCOPE != 'separation' && env.CHECK_SCOPE != 'separation-ui'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ env.RELEASE_ARTIFACT_VERSION }}-Stretch-Evidence-${{ github.sha }}

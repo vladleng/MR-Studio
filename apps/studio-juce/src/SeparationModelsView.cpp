@@ -8,7 +8,7 @@ namespace ui {
 namespace {
 using namespace mr::separation;
 juce::String stateName(InstallationState state) {
-    switch(state){case InstallationState::installed:return "Installed · verified files";case InstallationState::corrupt:return "Damaged or incomplete · remove and reinstall";case InstallationState::unsupported:return "Not available in this version";default:return "Not installed";}
+    switch(state){case InstallationState::installed:return "Installed - verified files";case InstallationState::corrupt:return "Damaged or incomplete - remove and reinstall";case InstallationState::unsupported:return "Not available in this version";default:return "Not installed";}
 }
 juce::String errorText(const juce::String& error) {
     if(error.isEmpty())return {};
@@ -35,8 +35,8 @@ public:
     explicit ModelsPanel(std::shared_ptr<ModelManager> manager,Theme& theme):manager_(std::move(manager)),theme_(theme),progress_(progressValue_) {
         title_.setText("Separation Models",juce::dontSendNotification);
         lead_.setText("Install the processing runtime and a model once, then work offline.",juce::dontSendNotification);
-        runtimeTitle_.setText("Processing runtime · CPU",juce::dontSendNotification);
-        runtimeInfo_.setText("Python 3.11.9 · audio-separator 0.48.0\nSeparate download; several GB of disk space required.",juce::dontSendNotification);
+        runtimeTitle_.setText("Processing runtime - CPU",juce::dontSendNotification);
+        runtimeInfo_.setText("Python 3.11.9 - audio-separator 0.48.0\nSeparate download; several GB of disk space required.",juce::dontSendNotification);
         for(auto* label:{&title_,&lead_,&runtimeTitle_,&runtimeInfo_,&runtimeState_,&modelInfo_,&modelState_,&phase_,&error_}) {
             addAndMakeVisible(label);label->setColour(juce::Label::textColourId,theme_.role(ColourRole::text,primaryText));label->setMinimumHorizontalScale(1.0f);
         }
@@ -101,7 +101,7 @@ private:
         if(at>=0){const auto& model=state.models[static_cast<std::size_t>(at)];const bool installed=model.state==InstallationState::installed||model.state==InstallationState::corrupt;
             modelInfo_.setText("Outputs: "+model.record.outputs+"\n"+model.record.hardware,juce::dontSendNotification);modelState_.setText(stateName(model.state),juce::dontSendNotification);
             juce::int64 size{};for(const auto& file:model.record.files)size+=file.bytes;
-            download_.setButtonText("Download model"+(size>0?" · "+juce::File::descriptionOfSizeInBytes(size):juce::String{}));download_.setEnabled(!state.busy&&model.state==InstallationState::downloadable);remove_.setEnabled(!state.busy&&installed);
+            download_.setButtonText("Download model"+(size>0?" - "+juce::File::descriptionOfSizeInBytes(size):juce::String{}));download_.setEnabled(!state.busy&&model.state==InstallationState::downloadable);remove_.setEnabled(!state.busy&&installed);
             if(details_.isVisible()){
                 juce::String text="Model ID: "+model.record.id+"\nVersion: "+model.record.version+"\nSource: "+model.record.provenance+"\nBackend: "+model.record.backend+"\nNative sources: "+model.record.nativeOutputs+"\nRuntime: CPython 3.11.9 (PSF-2.0); package notices in the managed cache\nCode license: "+model.record.codeLicense+"\nWeights license: "+model.record.weightsLicense+"\n"+model.record.unsupportedReason+"\n";
                 for(const auto& file:model.record.files)text+="\n"+file.url+"\nSHA256: "+file.sha256+"\n";
