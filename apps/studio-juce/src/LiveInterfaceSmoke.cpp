@@ -2838,9 +2838,14 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         {
             Desktop direct(true,false,true);
             direct.importLiveShow(fixture);
-            juce::String mainChannel,secondChannel;
-            direct.editLiveInterface("Create independent Playback lanes",[&](auto &state) {
-                mainChannel=live::addChannel(state,"Playback","Backing");
+            // The imported fixture already has a Backing Playback lane.
+            // Adding a *second* Backing silently changes neither the default
+            // root channel nor the user's selected target; use the actual root.
+            const auto mainChannel=live::playbackContainer(direct.liveDocument->interfaceState);
+            liveCheck(live::find(direct.liveDocument->interfaceState,"channels",mainChannel)["type"].toString()=="Playback",
+                      "Independent Playback fixture has an existing primary channel");
+            juce::String secondChannel;
+            direct.editLiveInterface("Create independent Playback lane",[&](auto &state) {
                 secondChannel=live::addChannel(state,"Playback","Other Playback");
                 auto second=live::find(state,"channels",secondChannel);
                 live::put(second,"playbackIndependent",true);
