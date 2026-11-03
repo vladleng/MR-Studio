@@ -207,10 +207,13 @@ void separationProjectSmoke(){
     panelView->tick();panelView->verify_.onClick();finish();ensure(job->status().state==State::failed&&owner.project()->separation_results.size()==1,"Missing stem verification must fail without removing result");
     slow->store(true);panelView->start_.onClick();owner.app.new_project(48000,"New project");panelView->tick();finish();slow->store(false);ensure(owner.project()->separation_results.empty()&&owner.project()->tracks.empty(),"Late result entered another project");owner.separationWindow.reset();
     for(const auto& model:modelCatalogue())if(model.stems.size()>2){
+        owner.app.new_project(48000,"Model selection fixture");
         owner.app.import_wav(std::filesystem::path(input.getFullPathName().toWideCharPointer()));
         const auto source=owner.project()->clips.front();showSeparation(owner,source.id,manager,job);panelView=dynamic_cast<SeparationPanel*>(owner.separationWindow->getContentComponent());
         int index=1;for(const auto& candidate:modelCatalogue()){if(candidate.id==model.id)break;++index;}
-        panelView->models_.setSelectedId(index,juce::dontSendNotification);panelView->start_.onClick();finish();
+        panelView->models_.setSelectedId(index,juce::sendNotificationSync);
+        ensure(panelView->stemSelection()==model.defaultStems,"Model change updates output checkboxes");
+        panelView->start_.onClick();finish();
         ensure(owner.project()->separation_results.size()==1&&owner.project()->separation_results.front().stems.size()==static_cast<std::size_t>(model.defaultStems.size())&&owner.project()->clips.size()==1,"Extended hidden outputs");
         panelView->place_.onClick();finish();ensure(owner.project()->clips.size()==static_cast<std::size_t>(model.defaultStems.size()+1),"Extended Place binding");
         ensure(owner.app.undo()&&owner.project()->clips.size()==1,"Extended placement Undo");ensure(owner.app.redo(),"Extended placement Redo");
