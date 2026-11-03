@@ -2,6 +2,7 @@
 #include "LiveShowState.h"
 #include "LivePerformanceState.h"
 #include <cmath>
+#include <map>
 #include <mrs/metronome.hpp>
 
 namespace ui::live {
@@ -322,9 +323,9 @@ inline void bindPlaybackSource(juce::var &state,const juce::String &item,
         throw std::runtime_error("Playback channel already contains WAV");
     juce::var row=isRoot?root:(stemAt>=0?stems[stemAt]:object());
     if(!isRoot && stemAt<0) {
+        if(channel!=primary)put(row,"id",channel);
         put(row,"gain",importedStemGain(state,item,row));
         put(row,"mute",false);put(row,"solo",false);
-        if(channel!=primary)put(row,"id",channel);
     }
     // A second lane may have been populated first. Promote the first/default
     // channel to the legacy root only when its own WAV is subsequently loaded.
@@ -424,6 +425,16 @@ inline void validatePlaybackRow(const juce::var &row) {
 inline void validatePlayback(const juce::var &state) {
     validatePerformance(state);
     validateLiveAudio(state);
+    if(const auto *channels=state["channels"].getArray())
+        for(const auto &channel:*channels) {
+            const auto independent=channel["playbackIndependent"];
+            const auto parent=channel["playbackParent"];
+            if((!independent.isVoid() && !independent.isBool()) ||
+               (!parent.isVoid() && (!parent.isString() || parent.toString().isEmpty() ||
+                  parent==channel["id"] ||
+                  find(state,"channels",parent.toString())["type"].toString()!="Playback")))
+                throw std::runtime_error("Invalid Playback group reference");
+        }
     const auto bindings = state["performance"]["nativePlayback"];
     if (bindings.isVoid())
         return;
