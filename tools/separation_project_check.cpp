@@ -17,7 +17,7 @@ void wait(ProjectJob& job){const auto deadline=std::chrono::steady_clock::now()+
     const auto s=job.status();if(s.state!=State::ready)throw std::runtime_error("Project job failed: "+s.error.toStdString());}
 void run(const fs::path& cache,const fs::path& worker,const fs::path& requirements,const fs::path& evidence,const ModelRecord& profile){
     check(!fs::exists(evidence),"Choose a new project evidence directory");fs::create_directories(evidence);const auto original=evidence/fs::path(u8"source [\u0410\u0443\u0434\u0438\u043e].wav");wav(original,profile.stems.size()==4?1:2);const auto hash=mrs::sha256_file(original);
-    mrs::desktop::Application app;app.import_wav(original,profile.stems.size()==4?1:2);auto clip=app.services().projects->state().project->clips.front();clip.start=123456;clip.source_offset=12000;clip.length=48000;clip.fade_in=100;clip.fade_out=200;
+    mrs::desktop::Application app;app.import_wav(original);auto clip=app.services().projects->state().project->clips.front();clip.start=123456;clip.source_offset=12000;clip.length=48000;clip.fade_in=100;clip.fade_out=200;
     struct Range final:mrs::ICommand{mrs::Clip clip;explicit Range(mrs::Clip c):clip(std::move(c)){}std::string_view name()const override{return "Fixture trimmed source";}void apply(mrs::Project& p)const override{p.clips.front()=clip;}};
     app.services().projects->execute(Range{clip});app.save_project(evidence/"first"/"song.mrsproject");
     auto manager=std::make_shared<ModelManager>(file(cache),file(worker),file(requirements),[](const auto&,const auto&,const auto&,auto){throw std::runtime_error("Project processing must never download");});
