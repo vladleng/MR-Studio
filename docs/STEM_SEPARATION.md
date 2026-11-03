@@ -457,10 +457,10 @@ Manual cancel и отдельные host/worker deadlines сохраняются
 
 `stems` в local request — непустое уникальное подмножество точных capabilities
 модели; отсутствие поля означает default outputs профиля. Обычные модели по
-умолчанию сохраняют все источники; Mega53 — только bass. UI All/None не запускает
+умолчанию сохраняют все источники. UI All/None не запускает
 задачу с пустым набором. Возвращаются/сохраняются только выбранные WAV, manifest
 содержит available_stems/selected_stems и additive_outputs. Общее inference может
-вычислять больше источников; ускорение не обещается. SW/Mega independent mask
+вычислять больше источников; ускорение не обещается. SW independent mask
 heads ограничиваются выбранными indices после загрузки точных pinned weights;
 это технический adapter к pinned MDXC, а не выдуманные residual instruments.
 
@@ -470,7 +470,7 @@ wire33; selected/new-category sets — wire34, который старые ве�
 Typed manifest/file refs, Undo/Redo и Save As используют существующий путь.
 Действующий32-streamed-voice budget engine не увеличивается:53hidden categories
 могут храниться, но превышение бюджета при Place отклоняется до публикации Core.
-Mega53 категории перекрываются и не обязаны суммироваться в исходник.
+Mega 53 отложена по решению пользователя и отсутствует в активном каталоге.
 
 SCNet XL IHF: exact v1.0.15 config/checkpoint и узкий MIT SCNet adapter из
 MSST@f0b527736e7da24eae5b561a2bb1efd0569ec757. Source notice хранится в
@@ -478,6 +478,14 @@ SCNet-MIT-LICENSE.txt; adapter canonical-LF SHA256 закреплён в общ�
 Новых runtime dependencies для SCNet не требуется; checkpoint loading только
 после проверки полного closure SHA256. Реальная Windows admission проверяется
 отдельно, до объявления READY. GPU/объективное качество отдельно.
+
+HTDemucs FT добавлена вместо Mega 53: official `htdemucs_ft.yaml` и четыре
+специализированных .th checkpoints, суммарно 336565233 B. Полный closure закреплён
+URL/размерами/SHA256. Native order: Drums/Bass/Other/Vocals. Выбор outputs сохраняет
+только отмеченные WAV, но текущий Demucs adapter вычисляет все четыре прохода;
+прогресс считает четыре прохода независимо от selection. Target-specific запуск
+не заявляется. FT обычно медленнее обычного HTDemucs; качество требует A/B.
+Реальный inference FT на Windows/CPU/GPU пока NOT TESTED.
 
 Studio-only scope `[ci studio]`/`checks=studio` конфигурирует MRS_BUILD_LIVE=OFF,
 не создаёт Live executable/Live tests и не включает Live в package. Совместная

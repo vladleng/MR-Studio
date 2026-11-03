@@ -206,6 +206,16 @@ class ChunkProgress:
         return tracked
 
 
+def inference_passes(profile):
+    """Demucs bags execute every pinned expert, even for one kept output."""
+    if profile["architecture"] == "Demucs":
+        passes = sum(artifact["name"].endswith(".th") for artifact in profile["files"])
+        if not 1 <= passes <= 8:
+            raise Failure("unsupported_model")
+        return passes
+    return 2 if profile["architecture"] == "MDX" else 1
+
+
 def infer_profile(snapshot, output_dir, model_dir, requested_device, threads, emit, check, profile, chunk, selection=None):
     """Fixed, hash-verified closure; no backend catalogue or metadata downloads."""
     for artifact in profile["files"]:
@@ -304,7 +314,7 @@ def infer_profile(snapshot, output_dir, model_dir, requested_device, threads, em
     else:
         module = importlib.import_module("audio_separator.separator.architectures." + ("mdx_separator" if profile["architecture"] == "MDX" else "mdxc_separator"))
     original = module.tqdm
-    reporter = ChunkProgress(emit, check, 2 if profile["architecture"] == "MDX" else 1)
+    reporter = ChunkProgress(emit, check, inference_passes(profile))
     module.tqdm = types.SimpleNamespace(tqdm=reporter.wrap(original.tqdm)) if profile["architecture"] == "Demucs" else reporter.wrap(original)
     try:
         if profile.get("independent_heads"):

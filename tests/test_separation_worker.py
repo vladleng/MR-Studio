@@ -113,6 +113,29 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(events[-1][1]["current_pass"], "2")
         self.assertEqual(events[-1][1]["completed"], "1")
 
+    def test_ft_progress_covers_all_four_experts_for_one_kept_stem(self):
+        profile = worker.PROFILES["official-htdemucs-ft-4-v1"]
+        self.assertEqual(worker.inference_passes(profile), 4)
+        events = []
+        reporter = worker.ChunkProgress(lambda phase, **kw: events.append(kw), lambda: None,
+                                        worker.inference_passes(profile))
+        for _ in range(4):
+            self.assertEqual(list(reporter.wrap(lambda values: values)([1, 2])), [1, 2])
+        self.assertEqual(events[-1], {"completed": "2", "total": "2", "current_pass": "4", "passes": "4"})
+        with self.assertRaises(worker.Failure):
+            list(reporter.wrap(lambda values: values)([1]))
+        for model in ("official-htdemucs-4-v1", "htdemucs-6s"):
+            self.assertEqual(worker.inference_passes(worker.PROFILES[model]), 1)
+        self.assertNotIn("mvsep-mega-53-v1", worker.PROFILES)
+
+    def test_ft_bass_selection_publishes_only_bass(self):
+        self.req.update(model="official-htdemucs-ft-4-v1", stems=["Bass"])
+        result = self.run_job()
+        self.assertEqual(result["selected_stems"], ["Bass"])
+        self.assertEqual([o["stem"] for o in result["outputs"]], ["bass"])
+        self.assertEqual(sorted(p.name for p in (self.root / "job/result").iterdir()),
+                         ["bass.wav", "manifest.json"])
+
     def test_progress_cancellation_never_counts_unfinished_chunk(self):
         calls = 0
         def check():
