@@ -41,13 +41,14 @@ class LivePlaybackPanel final : public juce::Component {
         chooseFile.onClick = [this] {
             if (!owner.liveDocument)
                 return;
-            const auto id = owner.liveDocument->interfaceState["currentItem"].toString(), stem = owner.livePlaybackStem;
+            const auto id = owner.liveDocument->interfaceState["currentItem"].toString(),
+                       stem = owner.livePlaybackStem, channel = owner.livePlaybackSelectedChannel;
             juce::Component::SafePointer<Desktop> safe(&owner);
             owner.choose(
                 juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                [safe, id, stem](const auto &file) {
+                [safe, id, stem, channel](const auto &file) {
                     if (safe)
-                        safe->run([&] { safe->attachLivePlayback(id, file, stem); });
+                        safe->run([&] { safe->attachLivePlayback(id, file, stem, channel); });
                 },
                 "*.wav");
         };
@@ -58,13 +59,14 @@ class LivePlaybackPanel final : public juce::Component {
             if (!owner.liveDocument)
                 return;
             const auto id = owner.liveDocument->interfaceState["currentItem"].toString();
+            const auto channel = owner.livePlaybackSelectedChannel;
             stemChooser = std::make_unique<juce::FileChooser>("Add WAV stems", juce::File(), "*.wav", true);
             juce::Component::SafePointer<Desktop> safe(&owner);
             stemChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles |
                                          juce::FileBrowserComponent::canSelectMultipleItems,
-                                     [safe, id](const auto &result) {
+                                     [safe, id, channel](const auto &result) {
                                          if (safe)
-                                             safe->run([&] { safe->addLivePlaybackStems(id, result.getResults()); });
+                                             safe->run([&] { safe->addLivePlaybackStems(id, result.getResults(), channel); });
                                      });
         };
         removeStem.onClick = [this] { owner.run([&] { owner.removeLivePlaybackStem(); }); };
@@ -95,7 +97,18 @@ class LivePlaybackPanel final : public juce::Component {
     int stemCount() const { return static_cast<int>(stemRows.size()); }
     void showStemDetails(const juce::String &stem) {
         if (inspecting()) browserStem = stem;
-        else owner.livePlaybackStem = stem;
+        else {
+            owner.livePlaybackStem=stem;
+            if(owner.liveDocument) {
+                const auto id=owner.liveDocument->interfaceState["currentItem"].toString();
+                const auto row=live::playbackStem(owner.liveDocument->interfaceState,id,stem);
+                if(row.isObject()) {
+                    owner.livePlaybackSelectedChannel=
+                        live::playbackChannelId(owner.liveDocument->interfaceState,row);
+                    currentPlaybackChannel=owner.livePlaybackSelectedChannel;
+                }
+            }
+        }
         detailsVisible = true;
         requestLayout();
         sync();
@@ -105,6 +118,7 @@ class LivePlaybackPanel final : public juce::Component {
         auto header = area.removeFromTop(24);
         addStem.setBounds(header.removeFromRight(26).reduced(1));
         audition.setBounds(header.removeFromRight(70).reduced(1));
+        chooseFile.setBounds(header.removeFromRight(116).reduced(1));
         auto group = area.removeFromTop(28);
         groupLabel.setBounds(group.removeFromLeft(82));
         groupGain.setBounds(group);
@@ -114,7 +128,6 @@ class LivePlaybackPanel final : public juce::Component {
             auto row = details.removeFromTop(26);
             detailsClose.setBounds(row.removeFromRight(24));
             removeStem.setBounds(row.removeFromRight(24));
-            chooseFile.setBounds(row.removeFromRight(110));
             fileName.setBounds(row);
             row = details.removeFromTop(28);
             cue.setBounds(row.removeFromLeft(44).reduced(1));
@@ -124,7 +137,7 @@ class LivePlaybackPanel final : public juce::Component {
             auto start = row.removeFromLeft(row.getWidth() / 2);
             startLabel.setBounds(start.removeFromLeft(20)); trimStart.setBounds(start.reduced(1));
             endLabel.setBounds(row.removeFromLeft(26)); trimEnd.setBounds(row.reduced(1));
-        } else if (stemRows.empty()) chooseFile.setBounds(area.removeFromTop(28));
+        }
         stemsViewport.setBounds(area);
         const int width = juce::jmax(1, stemsViewport.getMaximumVisibleWidth());
         int y = 0;
@@ -140,7 +153,13 @@ class LivePlaybackPanel final : public juce::Component {
             caption += " - Browser: " + item["name"].toString() + " | " +
                        item["tempo"].toString() + " BPM | " + item["meter"].toString();
         }
-        g.drawFittedText(caption, 8, 4, juce::jmax(0, getWidth() - 112), 22,
+        if (!inspecting() && owner.liveDocument) {
+            const auto selected=live::find(owner.liveDocument->interfaceState,"channels",
+                                           owner.livePlaybackSelectedChannel);
+            if(selected["type"].toString()=="Playback")
+                caption+=" - "+selected["name"].toString();
+        }
+        g.drawFittedText(caption, 8, 4, juce::jmax(0, getWidth() - 232), 22,
                          juce::Justification::left, 1);
         if (stemRows.empty()) {
             const auto message = inspecting() ? juce::String("No WAV or stems attached to this Browser item") :
@@ -158,6 +177,16 @@ class LivePlaybackPanel final : public juce::Component {
         if (id != currentItem || preview != previousInspecting) {
             currentItem = id; previousInspecting = preview; detailsVisible = false;
             browserStem.clear(); previewFile.clear(); requestLayout();
+        }
+        const auto state=owner.liveDocument?owner.liveDocument->interfaceState:juce::var();
+        const auto selected=live::find(state,"channels",owner.livePlaybackSelectedChannel);
+        const auto target=!preview && selected["type"].toString()=="Playback"
+            ? owner.livePlaybackSelectedChannel : live::playbackChannelId(state,juce::var());
+        if(!preview && target!=currentPlaybackChannel) {
+            currentPlaybackChannel=target;
+            owner.livePlaybackStem=live::playbackStemForChannel(state,id,target);
+            detailsVisible=false;
+            requestLayout();
         }
         groupLabel.setText(preview ? "Browser WAV" : "Item Playback", juce::dontSendNotification);
         groupGain.setEnabled(id.isNotEmpty() && !preview);
@@ -190,8 +219,9 @@ class LivePlaybackPanel final : public juce::Component {
         audition.setButtonText(preview && owner.app.library_preview_state().playing ? "Stop" : "Listen");
         for (auto *c : std::array<juce::Component *, 12>{&chooseFile, &fileName, &trimStart, &trimEnd, &trimApply,
                           &startLabel, &endLabel, &removeStem, &outputChoice, &cue, &detailsClose, &stemsViewport})
-            c->setVisible(c == &stemsViewport || (c == &chooseFile && rows.empty()) || detailsVisible);
-        chooseFile.setButtonText(rows.empty() ? "Choose WAV..." : "Replace WAV...");
+            c->setVisible(c==&stemsViewport || c==&chooseFile && !preview || detailsVisible && c!=&chooseFile);
+        chooseFile.setButtonText(live::playbackChannelHasSource(state,id,target)
+            ? "Replace WAV..." : "Choose WAV...");
         addStem.setEnabled(id.isNotEmpty() && !preview && rows.size() < 32 && !owner.app.recording());
         removeStem.setEnabled(!preview && owner.livePlaybackIndex() > 0 && !owner.app.recording());
         const auto active = owner.app.active_outputs();
@@ -420,7 +450,7 @@ class LivePlaybackPanel final : public juce::Component {
     std::uint64_t groupGestureGeneration{};
     juce::Label groupLabel;
     bool detailsVisible{}, previousInspecting{};
-    juce::String currentItem, previewFile, browserStem;
+    juce::String currentItem, currentPlaybackChannel, previewFile, browserStem;
     juce::TextEditor trimStart, trimEnd;
     juce::TextButton trimApply{"Trim"};
     juce::Label startLabel{{}, "In"}, endLabel{{}, "Out"};

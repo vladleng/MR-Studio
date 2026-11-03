@@ -259,14 +259,30 @@ class LiveTimeline final : public juce::Component {
                 g.drawHorizontalLine(y + 20, 12.f, 19.f);
             }
             line(g, {0, y, channelWidth, rowHeight});
+            if (channel["type"].toString()=="Playback" &&
+                owner.livePlaybackSelectedChannel==lane.channel) {
+                g.setColour(tokens.colour(ColourRole::focus));
+                g.fillRect(0,y+2,3,rowHeight-4);
+            }
             y += rowHeight;
         }
     }
 
     void mouseDown(const juce::MouseEvent &event) override {
-        if (!event.mods.isPopupMenu() || event.x >= channelWidth) return;
-        const int y = event.y + viewport.getViewPositionY();
-        if (const auto *lane = laneAt(y)) channelMenu(lane->channel);
+        if(event.x>=channelWidth)return;
+        const int y=event.y+viewport.getViewPositionY();
+        const auto *lane=laneAt(y);
+        if(event.mods.isPopupMenu()) {
+            if(lane)channelMenu(lane->channel);
+            return;
+        }
+        if(!lane || !event.mods.isLeftButtonDown() || !owner.liveDocument)return;
+        const auto channel=live::find(state,"channels",lane->channel);
+        if(channel["type"].toString()!="Playback")return;
+        owner.livePlaybackSelectedChannel=lane->channel;
+        owner.livePlaybackStem=live::playbackStemForChannel(
+            state,state["currentItem"].toString(),lane->channel);
+        repaint();
     }
 
   private:
@@ -282,6 +298,9 @@ class LiveTimeline final : public juce::Component {
             if (owner.liveDocument) for (const auto &item : *state["items"].getArray())
                 for (const auto &row : live::playbackRows(state, item["id"].toString()))
                     used = used || live::playbackChannelId(state, row) == id;
+            if (const auto *channels=state["channels"].getArray())
+                for(const auto &channel:*channels)
+                    used=used || channel["playbackParent"].toString()==id;
             menu.addItem(11, "Remove empty channel", !used);
         }
         juce::Component::SafePointer<Desktop> safe(&owner);
@@ -293,13 +312,24 @@ class LiveTimeline final : public juce::Component {
                     if (safe && name.trim().isNotEmpty()) safe->run([&] { safe->renameLiveObject("channels",id,name); });
                 }); return;
             }
-            safe->run([&] { safe->editLiveInterface(result == 11 ? "Remove channel" : "Add channel", [&](auto &state) {
-                if (result >= 1 && result <= types.size()) { live::addChannel(state, types[result - 1], types[result - 1]); return; }
+            safe->run([&] { juce::String added;
+                safe->editLiveInterface(result == 11 ? "Remove channel" : "Add channel", [&](auto &state) {
+                if (result >= 1 && result <= types.size()) {
+                    added=live::addChannel(state,types[result-1],types[result-1]);
+                    if(types[result-1]=="Playback")
+                        live::put(live::find(state,"channels",added),"playbackIndependent",true);
+                    return;
+                }
                 if (result != 11) return;
                 auto *channels = live::property(state, "channels").getArray();
                 for (int i = channels->size(); --i >= 0;) if ((*channels)[i]["id"].toString() == id) channels->remove(i);
                 for (auto &item : *live::property(state, "items").getArray()) if (auto *tracks = live::property(item, "tracks").getArray())
                     for (int i = tracks->size(); --i >= 0;) if ((*tracks)[i]["channelId"].toString() == id) tracks->remove(i);
+            });
+            if(added.isNotEmpty() && types[result-1]=="Playback") {
+                safe->livePlaybackSelectedChannel=added;
+                safe->livePlaybackStem.clear();
+            }
             }); });
         });
     }
@@ -1144,12 +1174,9 @@ class LiveTimeline final : public juce::Component {
         const auto rows = live::playbackRows(state, item);
         if (rows.empty())
             return -1;
-        for (std::size_t i = 1; i < rows.size(); ++i)
-            if (rows[i]["id"].toString() == channelId)
+        for (std::size_t i=0;i<rows.size();++i)
+            if(live::playbackChannelId(state,rows[i])==channelId)
                 return static_cast<int>(i);
-        for (const auto &channel : *state["channels"].getArray())
-            if (channel["type"].toString() == "Playback")
-                return channel["id"].toString() == channelId ? 0 : -1;
         return -1;
     }
     int playbackLaneY() const {

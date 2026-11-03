@@ -2833,6 +2833,66 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                 }
             }
         }
+        // #31 / 0.8.13-fix1: manually added Playback is a real import target.
+        // Root promotion must not discard the independent lane or old show media.
+        {
+            Desktop direct(true,false,true);
+            direct.importLiveShow(fixture);
+            juce::String mainChannel,secondChannel;
+            direct.editLiveInterface("Create independent Playback lanes",[&](auto &state) {
+                mainChannel=live::addChannel(state,"Playback","Backing");
+                secondChannel=live::addChannel(state,"Playback","Other Playback");
+                live::put(live::find(state,"channels",secondChannel),"playbackIndependent",true);
+            });
+            direct.attachLivePlayback(id,positive,{},secondChannel);
+            auto independent=live::playbackRows(direct.liveDocument->interfaceState,id);
+            liveCheck(independent.size()==1 &&
+                      live::playbackChannelId(direct.liveDocument->interfaceState,independent[0])==secondChannel,
+                      "Second Playback lane can receive first WAV without stealing the primary channel");
+            direct.attachLivePlayback(id,negative,{},mainChannel);
+            independent=live::playbackRows(direct.liveDocument->interfaceState,id);
+            liveCheck(independent.size()==2 &&
+                      live::playbackChannelId(direct.liveDocument->interfaceState,independent[0])==mainChannel &&
+                      live::playbackChannelId(direct.liveDocument->interfaceState,independent[1])==secondChannel &&
+                      independent[1]["file"].toString()==positive.getFullPathName(),
+                      "Loading default Playback promotes root and preserves already attached second lane");
+            direct.attachLivePlayback(id,positive,{},secondChannel);
+            independent=live::playbackRows(direct.liveDocument->interfaceState,id);
+            liveCheck(independent.size()==2 &&
+                      independent[0]["file"].toString()==negative.getFullPathName() &&
+                      independent[1]["file"].toString()==positive.getFullPathName(),
+                      "Replacing second Playback WAV never replaces the primary source");
+            direct.addLivePlaybackStems(id,{negative},secondChannel);
+            independent=live::playbackRows(direct.liveDocument->interfaceState,id);
+            liveCheck(independent.size()==3 &&
+                      live::find(direct.liveDocument->interfaceState,"channels",
+                                 independent[2]["id"].toString())["playbackParent"].toString()==secondChannel,
+                      "Add Stems allocates child stems under the selected Playback channel");
+            const auto lanes=live::playbackLanes(direct.liveDocument->interfaceState);
+            const auto secondLane=std::find_if(lanes.begin(),lanes.end(),
+                [&](const auto &lane){return lane.channel==secondChannel && !lane.child;});
+            liveCheck(secondLane!=lanes.end(),"Independent Playback remains visible as a main Timeline lane");
+            const auto source=live::playbackStem(direct.liveDocument->interfaceState,id,secondChannel);
+            direct.setLiveChannelMix(mainChannel,0.,0.,true,false);
+            liveCheck(!live::playbackMix(direct.liveDocument->interfaceState,id,source).mute,
+                      "Muting primary Playback does not mute an independent Playback channel");
+            direct.undoLiveInterface();
+            direct.undoLiveInterface(); // Undo channel mute and stem addition.
+            liveCheck(live::playbackRows(direct.liveDocument->interfaceState,id).size()==2,
+                      "Undo removes only added stems, retaining both independent WAV channels");
+            direct.undoLiveInterface(true);
+            liveCheck(live::playbackRows(direct.liveDocument->interfaceState,id).size()==3,
+                      "Redo restores selected Playback stem assignments");
+            const auto independentShow=folder.getChildFile("independent-playback.mrlive");
+            direct.liveDocument->write(independentShow);
+            const auto restored=LiveDocument::read(independentShow);
+            const auto restoredRows=live::playbackRows(restored.interfaceState,id);
+            liveCheck(restoredRows.size()==3 &&
+                      live::playbackChannelId(restored.interfaceState,restoredRows[1])==secondChannel &&
+                      live::find(restored.interfaceState,"channels",restoredRows[2]["id"].toString())
+                        ["playbackParent"].toString()==secondChannel,
+                      "Save/Reopen keeps manual Playback channels, sources and stem-group ownership");
+        }
         Desktop multi(true, false, true);
         multi.importLiveShow(fixture);
         multi.selectLiveItem(id);
