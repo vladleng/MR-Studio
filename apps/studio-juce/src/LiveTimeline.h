@@ -317,7 +317,8 @@ class LiveTimeline final : public juce::Component {
                 if (result >= 1 && result <= types.size()) {
                     added=live::addChannel(state,types[result-1],types[result-1]);
                     if(types[result-1]=="Playback")
-                        live::put(live::find(state,"channels",added),"playbackIndependent",true);
+                        { auto created=live::find(state,"channels",added);
+                          live::put(created,"playbackIndependent",true); }
                     return;
                 }
                 if (result != 11) return;
