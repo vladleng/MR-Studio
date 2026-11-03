@@ -1198,17 +1198,22 @@ class LiveTimeline final : public juce::Component {
     void paintPlaybackContainer(juce::Graphics &g, const Item &item, int y) const {
         const auto id = item.value["id"].toString();
         const auto rows = live::playbackRows(state, id);
-        if (rows.empty()) {
+        const auto primary=live::playbackContainer(state);
+        std::vector<std::size_t> own;
+        for(std::size_t i=0;i<rows.size();++i)
+            if(live::playbackGroupForRow(state,id,rows[i])==primary)
+                own.push_back(i);
+        if(own.empty()) {
             if (const auto *tracks = item.value["tracks"].getArray()) for (const auto &track : *tracks)
-                if (track["channelId"].toString() == live::playbackContainer(state)) {
+                if (track["channelId"].toString() == primary) {
                     paintTrack(g, item, primaryChannel(), track, y); break;
                 }
             return;
         }
-        if(rows.size()==1){paintAudio(g,item,y,0);return;}
+        if(own.size()==1){paintAudio(g,item,y,own.front());return;}
         std::vector<live::PlaybackWaveformSource> sources;
         double end = 0.; int ready = 0, unavailable = 0;
-        for (std::size_t i = 0; i < rows.size(); ++i) {
+        for (const auto i : own) {
             const auto source = live::playbackWaveform(owner, waveforms, state, id, i);
             sources.push_back(source);
             end = (std::max)(end, source.start + source.length);
@@ -1224,8 +1229,8 @@ class LiveTimeline final : public juce::Component {
         const float right = static_cast<float>(x + static_cast<double>(clock.to_ticks(static_cast<mrs::Sample>(std::llround(end * 48000)))) / ticksPerBar * item.scale);
         const juce::Rectangle<float> area{x, static_cast<float>(y + 8), (std::max)(1.f, right - x), static_cast<float>(rowHeight - 16)};
         if (ready) block(g, area.getSmallestIntegerContainer(), {}, "blue");
-        text(g, "Playback · " + juce::String(static_cast<int>(rows.size())) + " stems" +
-                     (unavailable ? " · file unavailable" : ready < static_cast<int>(rows.size()) ? " · preparing waveforms" : ""),
+        text(g, "Playback · " + juce::String(static_cast<int>(own.size())) + " stems" +
+                     (unavailable ? " · file unavailable" : ready < static_cast<int>(own.size()) ? " · preparing waveforms" : ""),
              {item.bounds.getX() + 8, y + 10, item.bounds.getWidth() - 16, 24});
         if (ready && end > 0.) {
             const auto waveArea = area.withTrimmedTop(28).reduced(1.f, 4.f);
