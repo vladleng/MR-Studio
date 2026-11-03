@@ -19,6 +19,7 @@
 #include <mutex>
 #include <thread>
 
+namespace mr::separation {class ProjectJob;}
 namespace ui {
 struct LivePreflightJob;
 namespace kit { class MRNativeParameterHost; }
@@ -353,6 +354,8 @@ public:
     mrs::desktop::Application app;
     Theme theme;
     std::unique_ptr<juce::DocumentWindow> separationModelsWindow; // Studio-only utility, no project state
+    std::unique_ptr<juce::DocumentWindow> separationWindow;
+    std::shared_ptr<mr::separation::ProjectJob> separationJob;
     std::optional<TrackHeaderLayout> trackHeaderLayout; // UI-only, never project state.
     juce::File trackHeaderLayoutSource;
     juce::Time trackHeaderObservedStamp, trackHeaderPendingStamp;

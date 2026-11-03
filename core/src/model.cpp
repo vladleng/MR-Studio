@@ -183,6 +183,22 @@ void Project::validate() const {
         (t.kind==TrackKind::audio||t.stretch_backend==stretch::Backend::signalsmith),"Invalid channel stretch mode");
     for(const auto& c:clips)if(c.stretch)for(const auto& t:tracks)if(t.id==c.track)
         require(stretch::supports(t.stretch_backend,c.stretch->parameters),"MR Timestretch Drums supports time ratios 0.25–4 without pitch/formants; select Signalsmith");
+    require(separation_results.size()<=64,"Too many separation results (64)");
+    const auto digest=[](const std::string& s){return s.size()==64&&s.find_first_not_of("0123456789abcdef")==std::string::npos;};
+    const auto text=[](const std::string& s,std::size_t limit){return s.size()<=limit&&s.find('\0')==std::string::npos;};
+    for(const auto& r:separation_results){
+        add_id(r.id);
+        require(r.id.value.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")==std::string::npos,"Unsafe separation identity");
+        require(!r.source_clip.value.empty()&&text(r.source_clip.value,128)&&!r.source.empty()&&text(r.source,32768)&&digest(r.source_sha256),"Invalid separation source");
+        require(!r.model.empty()&&text(r.model,128)&&!r.model_version.empty()&&text(r.model_version,128)&&!r.provenance.empty()&&text(r.provenance,65536),"Invalid separation provenance");
+        require(r.source_rate>=8000&&r.source_rate<=96000&&r.sample_rate>=8000&&r.sample_rate<=96000&&r.source_offset>=0&&r.source_offset<=max_sample&&r.source_frames>0&&r.source_frames<=max_sample-r.source_offset,"Invalid separation source range");
+        require(r.start>=0&&r.start<=max_sample&&r.frames>0&&r.frames<=max_sample-r.start&&r.fade_in>=0&&r.fade_out>=0&&r.fade_in<=r.frames&&r.fade_out<=r.frames,"Invalid separation placement");
+        require(r.manifest.role=="manifest"&&r.stems.size()==2,"Unsupported separation outputs");
+        std::set<std::string> roles,files;
+        const auto file=[&](const SeparationFile& f){require(!f.source.empty()&&text(f.source,32768)&&digest(f.sha256)&&f.bytes>0&&f.bytes<=512*1024*1024&&files.insert(f.source).second,"Invalid separation file");};
+        file(r.manifest);
+        for(const auto& f:r.stems){file(f);require((f.role=="Vocals"||f.role=="Instrumental")&&roles.insert(f.role).second,"Invalid separation stem");}
+    }
     add_id(id);
     std::unordered_map<std::string, const Folder*> folder_by_id;
     for (const auto& folder : folders) {

@@ -11,6 +11,7 @@
 #include "ToneBrowser.h"
 #include "RigPanel.h"
 #include "SeparationModelsView.h"
+#include "SeparationView.h"
 #include <mrs/version.hpp> // Shared application/package version (compact note editor update).
 #include <mrs/diagnostics.hpp>
 #include <stdexcept>
@@ -46,6 +47,7 @@ public:
     const juce::String getApplicationName() override {return "Moon River Studio JUCE";}
     const juce::String getApplicationVersion() override {return juce::String(mrs::desktop::application_version.data());}
     void initialise(const juce::String& args) override {
+        if(args.contains("--separation-project-smoke")){try{ui::separationProjectSmoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("separation-project-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--separation-models-smoke")){try{ui::separationModelsSmoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("separation-models-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--piano214-smoke")){try{ui::pianoRoll214Smoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("piano214-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--channel213-smoke")){try{ui::channel213Smoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("channel213-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}

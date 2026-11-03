@@ -1,4 +1,5 @@
 #include <mrs/project_folders.hpp>
+#include <mrs/sha256.hpp>
 #include <stdexcept>
 #ifdef _WIN32
 #define NOMINMAX
@@ -82,6 +83,20 @@ fs::path MediaCopy::media(const fs::path& source) {
         destinations_[actual] = destination; return destination;
     }
     return copy(actual,fs::path("Media")/source.filename());
+}
+fs::path MediaCopy::verified(const fs::path& source,const fs::path& relative,std::string_view digest) {
+    if(relative.empty()||relative.is_absolute()||relative.has_root_name())throw std::invalid_argument("Unsafe separation asset path");
+    for(const auto& part:relative)if(part==".."||part==".")throw std::invalid_argument("Unsafe separation asset path");
+    if(sha256_file(source)!=digest)throw std::runtime_error("Separation asset is missing or changed; restore or remove the result");
+    const auto expected=root_/relative;
+    if(fs::exists(expected)){
+        if(fs::is_symlink(expected)||!inside(fs::canonical(expected),fs::canonical(root_))||sha256_file(expected)!=digest)
+            throw std::runtime_error("Existing separation asset differs; files were preserved");
+        return expected;
+    }
+    const auto result=copy(source,relative);
+    if(result!=expected||sha256_file(result)!=digest)throw std::runtime_error("Separation copy integrity failed");
+    return result;
 }
 fs::path MediaCopy::adopt_import(const fs::path& staged,const fs::path& name) {
     const auto actual=fs::canonical(staged);

@@ -3,6 +3,7 @@
 #include "Desktop.h"
 #if defined(MRS_SEPARATION_UI)
 #include "SeparationModelsView.h"
+#include "SeparationView.h"
 #endif
 #include "LibraryFoundationPanel.h"
 #include <MRTrackHeaderAssets.h>
@@ -133,6 +134,7 @@ Desktop::Desktop(bool test,bool startAtHome,bool liveApplication):standaloneLive
     home=std::make_unique<ProjectHome>(*this);addChildComponent(*home);if(!standaloneLive&&(!testing||startAtHome)){showProjectHome(true);if(!testing)home->rescan();}if(standaloneLive){liveDocument.emplace();prepareLiveInterface(true);showProjectHome(false);liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};}startTimerHz(30);
 }
 Desktop::~Desktop(){
+    separationWindow.reset();separationJob.reset();
     separationModelsWindow.reset();
     araDockResizeFrame={};pendingAraDockHeight.reset();resizingAraDock=nullptr;
 #ifdef MRS_HAS_ARA
@@ -300,6 +302,7 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
         m.addItem(712,"Restore Default Track Header",trackHeaderLayoutSource!=juce::File() && !app.recording());
 #if defined(MRS_SEPARATION_UI)
         m.addSeparator();m.addItem(715,"Separation models...",!standaloneLive);
+        m.addItem(716,"Separation results...",!standaloneLive);
 #endif
         return m;
     }
@@ -391,6 +394,7 @@ void Desktop::menuItemSelected(int n,int){action(n);}
 void Desktop::action(int n){if(busyGesture()){if(n==3||n==4){reportSaveError("Finish the active edit before saving the show");return;}if(n==34||n==35||n==48||n==49||n==50||n==51){message="Finish editing before navigating";repaint();}return;}mrs::diagnostics::event("ui_action="+std::to_string(n));run([&]{if(standaloneLive&&n==1){action(701);return;}if(standaloneLive&&(n==6||n==8))return;if(standaloneLive&&n==2){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){openFile(file);},"*.mrlive");});return;}
 #if defined(MRS_SEPARATION_UI)
     if(n==715){if(!standaloneLive)showSeparationModels(*this);return;}
+    if(n==716){if(!standaloneLive)showSeparation(*this);return;}
 #endif
     if(n==710){
         if(app.recording())return;
@@ -682,6 +686,9 @@ bool Desktop::keyPressed(const juce::KeyPress& k){if(workspaceShortcut(k))return
     if(k.getKeyCode()==juce::KeyPress::escapeKey&&livePendingItem.isNotEmpty()){cancelLiveSwitch();return true;}
     if(k.getKeyCode()==juce::KeyPress::escapeKey&&app.stretch_status().busy){app.cancel_stretch();return true;}
     if(k.getKeyCode()==juce::KeyPress::escapeKey&&app.wav_import_status().busy){app.cancel_wav_import();return true;}
+#if defined(MRS_SEPARATION_UI)
+    if(k.getKeyCode()==juce::KeyPress::escapeKey&&separationJob&&(separationJob->status().state==mr::separation::State::running||separationJob->status().state==mr::separation::State::ready)){separationJob->cancel();return true;}
+#endif
     if(homeVisible){if(k.getModifiers().isCtrlDown()&&k.getKeyCode()=='O'){action(2);return true;}if(k.getModifiers().isCtrlDown()&&k.getKeyCode()=='N'){action(1);return true;}return false;}
     auto c=k.getKeyCode();if(k.getModifiers().isAltDown())return false;if(k.getModifiers().isCtrlDown()){if(c=='D'&&(arrangement->sections->hasSelection()||arrangement->chords->hasSelection()||arrangement->markers->hasSelection())){action(45);return true;}if(c=='Z'){action(10);return true;}if(c=='Y'){action(11);return true;}if(c=='S'){action(3);return true;}if(c=='O'){action(2);return true;}if(c=='N'){action(1);return true;}return false;}
     if(k.getModifiers().isShiftDown())return false;
@@ -1496,6 +1503,9 @@ void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
     if(!c->midi)owner.addAraMenus(menu,id);
 #endif
     if(!c->midi)menu.addItem(20,"Time / Pitch...",enabled&&owner.displayState().playback!=mrs::PlaybackState::playing);
+#if defined(MRS_SEPARATION_UI)
+    if(!c->midi&&!owner.standaloneLive){menu.addItem(21,"Separate into Stems...",enabled);menu.addItem(22,"Separation results...",enabled);}
+#endif
     menu.addItem(1,"Split selected clips (S)",enabled);menu.addItem(2,"Duplicate (D)",enabled);menu.addItem(3,"Merge MIDI clips (G)",enabled&&ids.size()>1);menu.addItem(4,"Delete selected clips",enabled);menu.addItem(5,"Default color",enabled);menu.addItem(6,"Rename selected clips...",enabled);menu.addSeparator();auto palette=std::make_unique<MenuColourPalette>(owner.theme,*color,color,true,owner.assetSkin()!=nullptr);palette->setEnabled(enabled);menu.addCustomItem(10,std::move(palette),nullptr,"Clip colors");
     const auto cut=sampleAt(static_cast<float>(getLocalPoint(nullptr,point).x));juce::Component::SafePointer<Arrangement> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({point.x,point.y,1,1}),[safe,store,ids,color,cut,id](int result){if(!safe||!result)return;safe->owner.run([&]{if(store!=safe->owner.app.services().projects)throw std::runtime_error("Project changed; reopen clip menu");
@@ -1503,6 +1513,9 @@ void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
         if(result>=300){safe->owner.araChoice(id,result);return;}
 #endif
         if(result==20){safe->owner.editClipStretch(id);return;}
+#if defined(MRS_SEPARATION_UI)
+        if(result==21||result==22){showSeparation(safe->owner,id);return;}
+#endif
         if(result==6){safe->owner.renameClips(ids);return;}if(result==10||result==5)safe->owner.app.set_clip_colors(ids,result==5?std::nullopt:std::optional<std::uint32_t>{*color});else if(result==1)safe->owner.app.split_clips(ids,cut);else if(result==2)safe->owner.app.duplicate_clip(ids.front());else if(result==3)safe->owner.activateClip(safe->owner.app.merge_midi_clips(ids));else if(result==4)safe->owner.app.remove_clips(ids);});});
 }
 void Arrangement::mouseDown(const juce::MouseEvent& e){
@@ -1553,7 +1566,11 @@ void Arrangement::mouseUp(const juce::MouseEvent& e){
     else if(std::abs(e.x-dragX)>=2||trackDelta!=0)owner.run([&]{if(copy){const auto p=owner.project();for(const auto& original:baseline){const auto current=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& item){return item.id==original.id;});if(current==p->clips.end()||*current!=original)throw std::runtime_error("Source clip changed; retry copy drag");}const auto copied=owner.app.copy_clips(std::move(group),delta,trackDelta);owner.activateClip(copied.front());owner.selectedClips.clear();for(const auto& id:copied)owner.selectedClips.insert(id.value);}else owner.app.move_clips(std::move(group),delta,trackDelta);});
     repaint();
 }
-bool Arrangement::keyPressed(const juce::KeyPress& key){if(key.getKeyCode()!=juce::KeyPress::escapeKey)return false;if(owner.app.wav_import_status().busy)owner.app.cancel_wav_import();if(owner.app.stretch_status().busy)owner.app.cancel_stretch();cancelGesture();return true;}
+bool Arrangement::keyPressed(const juce::KeyPress& key){if(key.getKeyCode()!=juce::KeyPress::escapeKey)return false;if(owner.app.wav_import_status().busy)owner.app.cancel_wav_import();if(owner.app.stretch_status().busy)owner.app.cancel_stretch();
+#if defined(MRS_SEPARATION_UI)
+if(owner.separationJob)owner.separationJob->cancel();
+#endif
+cancelGesture();return true;}
 void Arrangement::cancelGesture(){rulerSeeking=false;fadeOriginal.reset();fadeStore.reset();shiftRemove=false;setMouseCursor(juce::MouseCursor::NormalCursor);drag.reset();dragTrack.reset();dragGroup.clear();copyDrag=false;dragMoved=false;selecting=false;selectionBox={};repaint();}
 void Arrangement::focusLost(FocusChangeType){cancelGesture();}
 void Arrangement::wheel(float delta,juce::ModifierKeys mods,float x){if(mods.isCtrlDown()){if(mods.isShiftDown()){const auto before=static_cast<mrs::Sample>(std::clamp((x-left+horizontal)/pixelsPerSecond*owner.project()->sample_rate,0.,static_cast<double>(mrs::max_sample)));pixelsPerSecond=juce::jlimit(.1,2400.,pixelsPerSecond*std::pow(1.25,delta*4));horizontal=juce::jmax(0.,static_cast<double>(before)/owner.project()->sample_rate*pixelsPerSecond-(x-left));}

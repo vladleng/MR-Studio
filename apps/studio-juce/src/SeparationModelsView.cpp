@@ -132,6 +132,7 @@ public:
 private:Desktop& owner_;
 };
 }
+std::shared_ptr<ModelManager> separationModelManager(){return productionManager();}
 void showSeparationModels(Desktop& owner,std::shared_ptr<ModelManager> manager){
     if(owner.separationModelsWindow){owner.separationModelsWindow->toFront(true);return;}
     owner.separationModelsWindow=std::make_unique<ModelsWindow>(owner,manager?std::move(manager):productionManager());

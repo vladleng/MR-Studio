@@ -22,7 +22,7 @@ namespace mrs::desktop {
 namespace {
 void require(bool ok, const char* message) { if (!ok) throw std::invalid_argument(message); }
 bool same_except_clips(const Project& a,const Project& b){
-    const auto fields=[](const Project& p){return std::tie(p.version,p.id,p.title,p.artist,p.sample_rate,p.time,p.folders,p.tracks,p.markers,p.chords,p.sections,p.master_gain,p.master_outputs,p.master_inserts,p.ara_bindings);};
+    const auto fields=[](const Project& p){return std::tie(p.version,p.id,p.title,p.artist,p.sample_rate,p.time,p.folders,p.tracks,p.markers,p.chords,p.sections,p.master_gain,p.master_outputs,p.master_inserts,p.ara_bindings,p.separation_results);};
     return fields(a)==fields(b);
 }
 bool same_midi_clips(const Project& a,const Project& b){
@@ -43,7 +43,7 @@ bool same_metadata(const Project& a,const Project& b){
     return true;
 }
 bool same_mix_only(const Project& a,const Project& b){
-    const auto base=[](const Project& p){return std::tie(p.version,p.id,p.title,p.artist,p.sample_rate,p.time,p.folders,p.clips,p.markers,p.chords,p.sections,p.master_outputs,p.master_inserts,p.ara_bindings);};
+    const auto base=[](const Project& p){return std::tie(p.version,p.id,p.title,p.artist,p.sample_rate,p.time,p.folders,p.clips,p.markers,p.chords,p.sections,p.master_outputs,p.master_inserts,p.ara_bindings,p.separation_results);};
     if(base(a)!=base(b)||a.tracks.size()!=b.tracks.size())return false;
     const auto track=[](const Track& t){return std::tie(t.id,t.name,t.kind,t.folder,t.output,t.sends,t.input,t.input_stereo,t.input_monitor,t.hardware_outputs,t.inserts,t.midi_input,t.midi_channel,t.midi_monitor,t.midi_output,t.midi_output_channel,t.stretch_backend,t.fx_channel,t.color);};
     for(std::size_t i=0;i<a.tracks.size();++i)if(track(a.tracks[i])!=track(b.tracks[i]))return false;
@@ -257,7 +257,7 @@ void Application::replace(persistence::ProjectDocument next) {
     auto transport = std::make_shared<audio::EngineTransport>(engine_,Timeline(next.project.time,next.project.sample_rate));
     auto musical = std::make_unique<MusicalTimeline>(Services{projects,transport},[this]{require_not_recording();require(!engine_->state().count_remaining,"End count-in before navigating");});
     for (auto& [key,value] : assets_) { (void)key; *value.cancel = true; }
-    assets_.clear(); import_staging_.clear(); owned_media_.clear(); waveform_error_.clear();
+    assets_.clear(); import_staging_.clear(); separation_media_.clear(); separation_files_.clear(); owned_media_.clear(); waveform_error_.clear();
 #ifdef MRS_HAS_ARA
     ara_.reset();ara_cycle_.reset();
 #endif
@@ -295,6 +295,7 @@ void Application::open_project(const std::filesystem::path& path) {
     require_not_recording();
     auto next = persistence::load_project(path); replace(std::move(next));
     path_ = std::filesystem::absolute(path).lexically_normal(); asset_root_ = path_.parent_path(); unsaved_ = false;
+    for(const auto& result:services_.projects->state().project->separation_results)retain_separation_files(result);
 }
 void Application::import_wav(const std::filesystem::path& path) {
     require_not_recording();
@@ -329,6 +330,10 @@ persistence::ProjectDocument Application::snapshot() const {
             if (source.is_absolute() && !relative.empty() && !relative.is_absolute() && *relative.begin() != "..")
                 clip.source = media_ref(std::filesystem::path("Media")/relative);
         }
+    }
+    for(auto& record:result.project.separation_results){
+        const auto reference=[&](std::string& key){if(const auto owned=owned_media_.find(key);owned!=owned_media_.end())key=media_ref(owned->second.lexically_relative(asset_root_));};
+        reference(record.source);reference(record.manifest.source);for(auto& file:record.stems)reference(file.source);
     }
     for(auto& binding:result.project.ara_bindings){
         const auto original=std::find_if(p.project->clips.begin(),p.project->clips.end(),[&](const auto& c){return !c.midi&&c.source==binding.source;});
@@ -546,6 +551,12 @@ void Application::save_project(const std::filesystem::path& requested) {
     for (const auto& clip : services_.projects->state().project->clips) if (!clip.midi && clip.source != "mrs:demo-tone") { keys.insert(clip.source); current.insert(clip.source); }
     for(const auto& b:services_.projects->state().project->ara_bindings)if(b.source!="mrs:demo-tone")keys.insert(b.source);
     for (const auto& [key,value] : assets_) { (void)value; if (key != "mrs:demo-tone") keys.insert(key); }
+    for(const auto& result:services_.projects->state().project->separation_results){
+        keys.insert(result.source);keys.insert(result.manifest.source);current.insert(result.manifest.source);
+        for(const auto& file:result.stems){keys.insert(file.source);current.insert(file.source);}
+    }
+    for(const auto& [key,value]:separation_files_){(void)value;keys.insert(key);}
+
     const auto resolve = [&](const std::string& key) {
         if (const auto found = owned_media_.find(key); found != owned_media_.end()) return found->second;
         auto source = std::filesystem::path(std::u8string(key.begin(),key.end()));
@@ -554,7 +565,7 @@ void Application::save_project(const std::filesystem::path& requested) {
     bool needs_copy = relocating;
     for (const auto& key : keys) {
         const auto relative = resolve(key).lexically_normal().lexically_relative(root/"Media");
-        if (relative.empty() || relative.is_absolute() || *relative.begin() == "..") needs_copy = true;
+        if (!separation_files_.contains(key)&&(relative.empty() || relative.is_absolute() || *relative.begin() == "..")) needs_copy = true;
     }
     if (needs_copy) require_not_playing(); // media/Save As rebuilds need quiescent callbacks
     MediaCopy copies(root);
@@ -564,13 +575,24 @@ void Application::save_project(const std::filesystem::path& requested) {
         const auto source = resolve(key);
         const bool ara_source=std::any_of(services_.projects->state().project->ara_bindings.begin(),services_.projects->state().project->ara_bindings.end(),[&](const auto& b){return b.source==key;});
         if (!std::filesystem::exists(source)&&(!current.contains(key)||ara_source)) continue; // preserve missing ARA/Undo references
-        owned[key] = copies.media(source);
+        if(const auto retained=separation_files_.find(key);retained!=separation_files_.end()){
+            const auto& item=retained->second;
+            const auto name=item.file.role=="manifest"?"manifest.json":item.file.role=="Vocals"?"vocals.wav":"instrumental.wav";
+            auto folder=path.stem();folder+=".assets";
+            owned[key]=copies.verified(source,folder/"separation"/item.result.value/name,item.file.sha256);
+        }else owned[key] = copies.media(source);
     }
     for (std::size_t i=0; i<document.project.clips.size(); ++i) {
         const auto& original = services_.projects->state().project->clips[i].source;
         if (!document.project.clips[i].midi && original != "mrs:demo-tone") {
             const auto at=owned.find(original);document.project.clips[i].source=at!=owned.end()?media_ref(at->second.lexically_relative(root)):utf8(resolve(original));
         }
+    }
+    for(std::size_t i=0;i<document.project.separation_results.size();++i){
+        auto& saved=document.project.separation_results[i];const auto& live=services_.projects->state().project->separation_results[i];
+        const auto reference=[&](std::string& target,const std::string& key){const auto at=owned.find(key);target=at==owned.end()?utf8(resolve(key)):media_ref(at->second.lexically_relative(root));};
+        reference(saved.source,live.source);reference(saved.manifest.source,live.manifest.source);
+        for(std::size_t j=0;j<saved.stems.size();++j)reference(saved.stems[j].source,live.stems[j].source);
     }
     for(auto& b:document.project.ara_bindings){const auto& bindings=services_.projects->state().project->ara_bindings;const auto original=std::find_if(bindings.begin(),bindings.end(),[&](const auto& item){return item.persistent_id==b.persistent_id;});
         if(original!=bindings.end()){if(original->source=="mrs:demo-tone"){b.source=original->source;continue;}const auto at=owned.find(original->source);b.source=at!=owned.end()?media_ref(at->second.lexically_relative(root)):utf8(resolve(original->source));}}

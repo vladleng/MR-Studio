@@ -1,9 +1,9 @@
 name: Separation CPU contracts
-run-name: MR Studio 0.9.3-fix1 — Windows separation CPU smoke
+run-name: MR Studio 0.9.4 — Windows separation CPU smoke
 on:
   push:
     branches: ['codex/74-separation-contract']
-    paths: ['tools/separation/**', 'tools/separation_check.cpp', 'tests/*separation*', 'apps/studio-juce/src/SeparationRunner*', 'apps/studio-juce/src/SeparationModels.cpp', 'apps/studio-juce/src/SeparationModels.h', 'cmake/Separation.cmake', '.github/workflows/separation.yml']
+    paths: ['tools/separation/**', 'tools/separation_check.cpp', 'tools/separation_project_check.cpp', 'apps/studio-juce/src/SeparationProject*', 'core/src/separation.cpp', 'core/src/sha256.cpp', 'core/src/serialization.cpp', 'core/include/mrs/core.hpp', 'apps/studio-desktop/src/separation_assets.cpp', 'tests/*separation*', 'apps/studio-juce/src/SeparationRunner*', 'apps/studio-juce/src/SeparationModels.cpp', 'apps/studio-juce/src/SeparationModels.h', 'cmake/Separation.cmake', '.github/workflows/separation.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -39,7 +39,7 @@ jobs:
       - name: Build and test Windows host
         shell: pwsh
         run: |
-          cmake --build build/separation --config Release --target mrs_separation_check --parallel 2
+          cmake --build build/separation --config Release --target mrs_separation_check mrs_separation_project_check --parallel 2
           if($LASTEXITCODE){throw 'Runner build failed'}
           ctest --test-dir build/separation -C Release --output-on-failure --no-tests=error -R '^separation_(host|models)$'
           if($LASTEXITCODE){throw 'Host contracts failed'}
@@ -52,6 +52,11 @@ jobs:
           & build/separation/Release/mrs_separation_check.exe --managed "$((Get-Location).Path)/build/separation-cache" "$((Resolve-Path tools/separation/worker.py).Path)" "$((Resolve-Path tools/separation/requirements-cpu.txt).Path)" "$((Resolve-Path build/separation-evidence).Path)/audio"
           if($LASTEXITCODE){throw 'Managed runtime/model bootstrap or offline inference failed'}
           Copy-Item build/separation-cache/runtimes/cpu-py3119-audiosep048-v1/resolved-packages.txt build/separation-evidence/runtime-freeze.txt
+      - name: Real clip to project assets, Undo and relocated Save As
+        shell: pwsh
+        run: |
+          & build/separation/Release/mrs_separation_project_check.exe "$((Get-Location).Path)/build/separation-cache" "$((Resolve-Path tools/separation/worker.py).Path)" "$((Resolve-Path tools/separation/requirements-cpu.txt).Path)" "$((Resolve-Path build/separation-evidence).Path)/project"
+          if($LASTEXITCODE){throw 'Real project separation integration failed'}
       - name: Python offline contracts on the managed runtime
         shell: pwsh
         run: |
@@ -61,7 +66,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-0.9.3-fix1-Separation-CPU-${{ github.sha }}
+          name: MR-Studio-0.9.4-Separation-CPU-${{ github.sha }}
           path: |
             build/separation-evidence/
             build/separation/Testing/Temporary/LastTest.log

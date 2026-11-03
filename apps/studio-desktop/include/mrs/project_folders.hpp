@@ -20,6 +20,8 @@ public:
     ~MediaCopy();
     MediaCopy(const MediaCopy&) = delete;
     std::filesystem::path media(const std::filesystem::path& source);
+    std::filesystem::path verified(const std::filesystem::path& source,
+        const std::filesystem::path& relative,std::string_view sha256);
     // Consume only files in our exclusive .mrs-import-* staging directory.
     // Same-volume publication avoids copying a large WAV on the GUI thread.
     std::filesystem::path adopt_import(const std::filesystem::path& staged,

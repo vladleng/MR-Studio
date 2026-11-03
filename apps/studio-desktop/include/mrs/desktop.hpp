@@ -238,6 +238,14 @@ public:
     bool dirty() const;
     const std::filesystem::path& path() const { return path_; }
     persistence::ProjectDocument snapshot() const;
+    // NON-RT: workers use immutable copies of these file paths. No graph access.
+    std::filesystem::path source_file(const std::string&) const;
+    std::shared_ptr<const audio::AudioData> source_lifetime(const std::string&) const;
+    std::shared_ptr<void> separation_media_guard() const;
+    void keep_separation(const Clip& expected,SeparationResult,std::shared_ptr<void> media);
+    void remove_separation(const Id&);
+    void place_separation(const SeparationResult& expected,
+        std::vector<std::shared_ptr<const audio::AudioData>> prepared);
     // AI foundation: application thread only, shared by all workspaces.
     ai::ContextResult ai_context(ai::Selection = {}) const;
     const ai::PermissionPolicy& ai_permissions() const {require_ai_owner();return ai_permissions_;}
@@ -428,6 +436,10 @@ private:
     void sync_arm();
     void require_not_recording() const;
     std::filesystem::path path_, asset_root_;
+    struct RetainedSeparation {Id result;SeparationFile file;};
+    std::map<std::string,RetainedSeparation> separation_files_;
+    std::vector<std::shared_ptr<void>> separation_media_;
+    void retain_separation_files(const SeparationResult&);
     std::string audio_name_{"Offline clock (no sound)"};
     std::string waveform_error_;
     std::uint64_t saved_project_revision_{}, saved_graph_revision_{};

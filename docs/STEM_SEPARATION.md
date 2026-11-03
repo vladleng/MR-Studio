@@ -341,6 +341,61 @@ model, проверяет реальные download/remove bindings, Details, cl
 100/125/150/200%. Физические DPI/ASIO/GPU и пользовательская приёмка — NOT TESTED.
 Clip action/hidden assets/Undo/persistence остаются исключительно в #336.
 
+## Workflow клипа и project assets #336 (0.9.4)
+
+Studio-only: контекст audio clip → Separate into Stems; Options → Separation
+results открывает общий список скрытых результатов. Единственный ProjectJob
+принадлежит Desktop, окно только читает coalesced status и передаёт команды.
+Local CPU / установленный HTDemucs → Vocals / Instrumental; никаких сетевых
+загрузок из job. Новый backend/4–6 outputs остаются #337, remote — #339.
+
+Вход — исходный stereo WAV в project rate, выбранный source_offset/length;
+track processing не рендерится. Clip Time/Pitch нужно Reset, ARA — detach;
+не выдавать dry результат за обработанный/растянутый клип. Фейды сохраняются
+как параметры размещаемых clips, без повторной нормализации WAV. Исходник
+и исходная дорожка не меняются и не заглушаются автоматически.
+
+Project.separation_results хранит ID, source clip/hash/range/timebase, model/version,
+inline provenance и ссылки/SHA256/размеры двух FLOAT WAV и manifest. RegisterSeparation
+повторно проверяет полный clip snapshot и sample rate; unrelated track edits
+разрешены. Подготовка/копирование/проверка/Runner destruction происходят на service
+thread. Смена ProjectStore или Save As path отменяет текущую job; поздний результат
+не применяется. Cancel и публикация outcome сериализованы, закрытие utility window
+только отменяет job, обычное закрытие не ждёт Python в GUI callback.
+
+Saved project: verified sibling .part directory → atomic publish в
+`<project-stem>.assets/separation/<result-id>/`; ownership подтверждается после
+успешной команды, отклонённый/отменённый результат удаляется background cleanup.
+Unsaved project: приватное session storage до Save As. Media leases удерживаются
+проектом и prepared audio. Saved project assets не удаляются автоматически.
+
+По умолчанию добавляется только hidden record, без аудиографа/дорожек. Verify result
+проверяет manifest и оба файла; Place on separate tracks асинхронно проверяет SHA256
+и геометрию, затем одна команда создаёт две обычные tracks/clips с исходным start,
+frames и fades. Используется существующая безопасная Application::edit при
+остановленном playback. Remove result снимает hidden record; уже размещённые clips,
+исходник и Undo/Redo media сохраняются. Повторный Separate создаёт новый ID/manifest,
+не перезаписывает предыдущий результат. Идентификаторы Redo стабильны, inference
+не повторяется. Максимум 64 текущих records и 128 retained job groups за сессию;
+неиспользуемые durable files не удаляются без отдельного GC, так как backups/Undo
+могут сохранять ссылки.
+
+Save/Open/Save As используют ProjectDocument и MediaCopy: stable runtime/Undo keys
+разрешаются через owned_media_, serialized refs становятся relative; все текущие
+и retained separation files копируются с SHA256, чужой destination не перезаписывается.
+Missing/corrupt current result даёт явную ошибку; failed save не заменяет старый
+archive. Metadata-only результат можно удалить и повторить из доступного source.
+Core reader принимает старые schemas; wire schema 33 применяется только при
+непустых separation_results, проекты без них сохраняют schema 32 (включая MR Live).
+В MR Live нет нового меню/job/UI и не меняется его show workflow.
+
+Адресные проверки: portable SHA256 vectors, register/placement/cleanup Undo/Redo,
+legacy/roundtrip, Save As и удаление старой папки, missing/corrupt media/foreign files;
+GUI fixture с реальными handlers/commands, отмена, смена проекта, close/reopen и
+software scale snapshots. Отдельный Windows CPU project check проходит реальную
+job → hidden assets → placement → Undo/Redo → relocated Save/Open; fixtures synthetic,
+без пользовательской музыки. Физические DPI/ASIO/GPU и слуховая приёмка отдельно.
+
 ## Источники аудита
 
 - **S1** [audio-separator v0.48.0 release](https://github.com/nomadkaraoke/python-audio-separator/releases/tag/v0.48.0), [pinned README: CLI, devices, outputs](https://github.com/nomadkaraoke/python-audio-separator/blob/4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e/README.md).
