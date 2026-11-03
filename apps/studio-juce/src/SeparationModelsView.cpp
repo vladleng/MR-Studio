@@ -69,12 +69,12 @@ public:
         models_.setBounds(28,220,width-56,28);modelInfo_.setBounds(28,260,width-320,44);modelState_.setBounds(28,310,width-320,28);
         download_.setBounds(width-268,260,236,28);remove_.setBounds(width-268,300,112,28);detailsButton_.setBounds(width-148,300,116,28);
         phase_.setBounds(24,360,width-256,24);progress_.setBounds(24,390,width-48,16);cancel_.setBounds(width-216,356,192,28);
-        details_.setBounds(24,416,width-48,std::max(24,getHeight()-492));error_.setBounds(24,getHeight()-72,width-48,28);cache_.setBounds(24,getHeight()-40,136,28);
+        details_.setBounds(24,416,width-48,juce::jmax(24,getHeight()-492));error_.setBounds(24,getHeight()-72,width-48,28);cache_.setBounds(24,getHeight()-40,136,28);
     }
     void smoke() {
         update();if(!installRuntime_.isEnabled()||!download_.isEnabled()||remove_.isEnabled())throw std::runtime_error("Model Manager initial controls");
         download_.onClick();
-        for(int i=0;i<300&&manager_->status().busy;++i){juce::MessageManager::getInstance()->runDispatchLoopUntil(5);std::this_thread::sleep_for(std::chrono::milliseconds(5));}
+        for(int i=0;i<300&&manager_->status().busy;++i){std::this_thread::sleep_for(std::chrono::milliseconds(5));}
         update();if(manager_->status().error.isNotEmpty()||download_.isEnabled()||!remove_.isEnabled())throw std::runtime_error("Model Manager download binding/status");
         detailsButton_.onClick();if(!details_.isVisible()||!details_.getText().contains("Source")||!details_.getText().contains("Weights license"))throw std::runtime_error("Model Manager details");
         for(const auto size:{juce::Point<int>{800,540},juce::Point<int>{840,560},juce::Point<int>{1280,900}}){
@@ -87,7 +87,7 @@ public:
             }
         }
         setSize(840,560);
-        remove_.onClick();for(int i=0;i<300&&manager_->status().busy;++i){juce::MessageManager::getInstance()->runDispatchLoopUntil(5);std::this_thread::sleep_for(std::chrono::milliseconds(5));}update();
+        remove_.onClick();for(int i=0;i<300&&manager_->status().busy;++i){std::this_thread::sleep_for(std::chrono::milliseconds(5));}update();
         if(manager_->status().error.isNotEmpty()||!download_.isEnabled())throw std::runtime_error("Model Manager remove binding");
     }
 private:
