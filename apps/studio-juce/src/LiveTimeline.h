@@ -276,16 +276,19 @@ class LiveTimeline final : public juce::Component {
             if(lane)channelMenu(lane->channel);
             return;
         }
-        if(!lane || !event.mods.isLeftButtonDown() || !owner.liveDocument)return;
-        const auto channel=live::find(state,"channels",lane->channel);
-        if(channel["type"].toString()!="Playback")return;
-        owner.livePlaybackSelectedChannel=lane->channel;
-        owner.livePlaybackStem=live::playbackStemForChannel(
-            state,state["currentItem"].toString(),lane->channel);
-        repaint();
+        if(lane && event.mods.isLeftButtonDown())selectPlaybackChannel(lane->channel);
     }
 
   private:
+    void selectPlaybackChannel(const juce::String &id) {
+        if(!owner.liveDocument)return;
+        const auto channel=live::find(state,"channels",id);
+        if(channel["type"].toString()!="Playback")return;
+        owner.livePlaybackSelectedChannel=id;
+        owner.livePlaybackStem=live::playbackStemForChannel(
+            state,state["currentItem"].toString(),id);
+        repaint();
+    }
     void channelMenu(const juce::String &id) {
         juce::PopupMenu menu;
         menu.setLookAndFeel(&getLookAndFeel());
@@ -414,6 +417,9 @@ class LiveTimeline final : public juce::Component {
                     commit();
             };
         }
+        void mouseDown(const juce::MouseEvent &event) override {
+            if(event.mods.isLeftButtonDown())parent.selectPlaybackChannel(key);
+        }
         void resized() override {
             inputs.setBounds(2,0,juce::jmax(0,getWidth()-4),44);
             // Timeline Instrument channels use only the first row of input
@@ -517,7 +523,12 @@ class LiveTimeline final : public juce::Component {
             }
         }
         void mouseDown(const juce::MouseEvent &event) override {
-            if(event.mods.isLeftButtonDown())++parent.owner.liveSelectionRevision;
+            if(event.mods.isLeftButtonDown()) {
+                ++parent.owner.liveSelectionRevision;
+                if(event.y>=lanesTop)
+                    if(const auto *lane=parent.laneAt(event.y))
+                        parent.selectPlaybackChannel(lane->channel);
+            }
             if (beginClipEdit(event)) return;
             if (beginEdit(event)) return;
             if (!event.mods.isLeftButtonDown())
