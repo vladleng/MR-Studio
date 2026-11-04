@@ -1,0 +1,54 @@
+name: Native separation CPU spike
+run-name: MR Studio 0.9.7 — native CPU spike (no Studio package)
+on:
+  push:
+    branches: ['codex/351-native-separation']
+    paths: ['tools/separation/native/**', '.github/workflows/separation-native.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-separation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows-cpu:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Explicit verified native SDK and GGUF baseline download
+        shell: pwsh
+        run: |
+          python tools/separation/native/fetch_baseline.py build/native-cache
+          if($LASTEXITCODE){throw 'Native baseline integrity failed'}
+      - name: Compile C++ C API probe (no JUCE or Live)
+        shell: pwsh
+        run: |
+          cmake -S tools/separation/native -B build/native -DMRS_AUDIOCPP_SDK_ROOT="$((Resolve-Path build/native-cache/sdk).Path)"
+          if($LASTEXITCODE){throw 'Native C API configure failed'}
+          cmake --build build/native --config Release --parallel 2
+          if($LASTEXITCODE){throw 'Native C API compile failed'}
+      - name: Real native HTDemucs6 CPU, exact FLOAT geometry and cold/warm calls
+        shell: pwsh
+        run: |
+          foreach($duration in @(1,60)){
+            python tools/separation/native/make_fixture.py "build/source-$duration.wav" --seconds $duration
+            if($LASTEXITCODE){throw 'Native fixture failed'}
+            & build/native/Release/mrs_native_separation_probe.exe "$((Resolve-Path build/native-cache/htdemucs-6stems-f16.gguf).Path)" "$((Resolve-Path "build/source-$duration.wav").Path)" "$((Get-Location).Path)/build/native-evidence/$duration" 4 2
+            if($LASTEXITCODE){throw "Native HTDemucs6 $duration s failed"}
+          }
+      - name: Upload synthetic reports and short samples only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MR-Studio-0.9.7-native-CPU-spike-${{ github.sha }}
+          retention-days: 7
+          path: |
+            build/native-evidence/**/report.json
+            build/native-evidence/1/**/*.wav
+            tools/separation/native/baseline-lock.json

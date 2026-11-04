@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "baseline_source": "22b183a6d1dbc60ab8a106f643b34495f5752776",
+  "upstream": {
+    "repository": "https://github.com/0xShug0/audio.cpp",
+    "release": "v0.9.3",
+    "commit": "41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48",
+    "tag_object": "94bfb23043a88f03645e645313853debdfdbd7f8"
+  },
+  "artifacts": [
+    {
+      "name": "audio-v0.9.3-bin-windows-x64-cpu.zip",
+      "url": "https://github.com/0xShug0/audio.cpp/releases/download/v0.9.3/audio-v0.9.3-bin-windows-x64-cpu.zip",
+      "bytes": 30547092,
+      "sha256": "3ac66f46395b4e92e4f3bb68b200f0032310bd9922f12d97f10ccdadb02dee4b"
+    },
+    {
+      "name": "audio-v0.9.3-lib-windows-x64-cpu.zip",
+      "url": "https://github.com/0xShug0/audio.cpp/releases/download/v0.9.3/audio-v0.9.3-lib-windows-x64-cpu.zip",
+      "bytes": 12712481,
+      "sha256": "c7092b7cc4a82cf4625cadfdb31eff9d16d1d456bf6cc0b61588cfc14d505a6b"
+    },
+    {
+      "name": "audio-v0.9.3-bin-ubuntu-x64-cpu.tar.gz",
+      "url": "https://github.com/0xShug0/audio.cpp/releases/download/v0.9.3/audio-v0.9.3-bin-ubuntu-x64-cpu.tar.gz",
+      "bytes": 57691455,
+      "sha256": "98d06ba2a5e522f06aec7397c926691c4698137e7649c2436f16f3232320d79b"
+    },
+    {
+      "name": "audio-v0.9.3-lib-ubuntu-x64-cpu.tar.gz",
+      "url": "https://github.com/0xShug0/audio.cpp/releases/download/v0.9.3/audio-v0.9.3-lib-ubuntu-x64-cpu.tar.gz",
+      "bytes": 19928884,
+      "sha256": "c21204a8839d596500b2338acd1c69e73a5e1737720e54b77f039c3239588fa8"
+    }
+  ],
+  "model": {
+    "id": "htdemucs-6s",
+    "checkpoint": "5c90dfd2",
+    "precision": "f16",
+    "repository": "audio-cpp/audio.cpp-gguf",
+    "revision": "9251401acab7d95b43e089e6304c5f58cb96d9a6",
+    "path": "HTDemucs-6stems-GGUF/htdemucs-6stems-f16.gguf",
+    "url": "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/9251401acab7d95b43e089e6304c5f58cb96d9a6/HTDemucs-6stems-GGUF/htdemucs-6stems-f16.gguf",
+    "bytes": 54919200,
+    "sha256": "1db9bd58af6995d8caab209c99f5a284212e5bd0654fbfd7e50ce1d5ac140ba9",
+    "native_order": [
+      "drums",
+      "bass",
+      "other",
+      "vocals",
+      "guitar",
+      "piano"
+    ],
+    "status": "candidate_not_yet_admitted"
+  }
+}
