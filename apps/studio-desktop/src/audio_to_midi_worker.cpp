@@ -189,6 +189,7 @@ void verify_midi(const std::vector<MidiPart>& parts,const std::vector<Transcribe
     for(const auto& part:parts){
         need(!part.midi.notes.empty()&&part.midi.events.size()==1,"invalid_midi");
         const auto& e=part.midi.events.front();need(e.kind==3&&e.start==0&&e.channel==part.channel,"invalid_midi");
+        need(part.channel!=9||e.data1==0,"invalid_midi"); // pinned drums writer uses GM program 0
         const int program=part.channel==9?128:e.data1;
         for(const auto& n:part.midi.notes){need(n.channel==part.channel&&n.velocity==100,"invalid_midi");actual.emplace_back(program,n.pitch,n.start,n.length);}
     }

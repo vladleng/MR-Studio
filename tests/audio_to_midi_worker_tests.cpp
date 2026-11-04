@@ -39,8 +39,9 @@ int main(int argc,char** argv){try{
     check(good.project_id==request.project_id&&good.clip_id==request.clip_id&&good.project_revision==17&&good.source_sha256==source);
     check(good.midi_sha256.size()==64&&sha256_file(request.source)==source&&fs::is_empty(jobs));
     check(!progress.empty()&&progress.back()==1);
+    prepare(15);const auto drums=run(request);check(drums.state==State::ready&&drums.notes.size()==1&&drums.notes[0].instrument=="drums");
     for(const int mode:{5,6}){prepare(mode);const auto result=run(request);check(result.state==State::empty&&result.notes.empty()&&fs::is_empty(jobs));}
-    for(const int mode:{2,3,4,7,8,9,10,11,12,13}){prepare(mode);const auto result=run(request);check(result.state==State::failed&&!result.error.empty()&&result.notes.empty()&&result.diagnostics.size()<=65536&&fs::is_empty(jobs));}
+    for(const int mode:{2,3,4,7,8,9,10,11,12,13,14}){prepare(mode);const auto result=run(request);if(result.state!=State::failed)throw std::runtime_error("Invalid native fixture accepted, mode "+std::to_string(mode));check(!result.error.empty()&&result.notes.empty()&&result.diagnostics.size()<=65536&&fs::is_empty(jobs));}
     prepare(1);request.timeout=std::chrono::milliseconds(200);check(run(request).state==State::timeout&&fs::is_empty(jobs));request.timeout=std::chrono::seconds(5);
     std::stop_source cancel;std::jthread canceller([&]{std::this_thread::sleep_for(std::chrono::milliseconds(150));cancel.request_stop();});
     check(run(request,cancel.get_token()).state==State::cancelled&&fs::is_empty(jobs));canceller.join();
