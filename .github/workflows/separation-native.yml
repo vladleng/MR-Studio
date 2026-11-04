@@ -3,7 +3,7 @@ run-name: MR Studio 0.9.7 — native CPU spike (no Studio package)
 on:
   push:
     branches: ['codex/351-native-separation']
-    paths: ['tools/separation/native/**', '.github/workflows/separation-native.yml']
+    paths: ['tools/separation/native/**', '.github/workflows/separation-native.yml', 'cmake/NativeSeparation.cmake', 'CMakeLists.txt', 'apps/studio-juce/src/SeparationRunner*', 'tools/separation_check.cpp', 'tests/native_separation_worker_check.py']
   workflow_dispatch:
 permissions:
   contents: read
@@ -74,11 +74,13 @@ jobs:
           if($LASTEXITCODE){throw 'Upstream line-ending configuration failed'}
           git -C build/audio.cpp checkout --detach 41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48
           if($LASTEXITCODE){throw 'Upstream pin failed'}
-          $patch = (Resolve-Path tools/separation/native/patches/audio-cpp-sw-heads.patch).Path
-          git -C build/audio.cpp apply --check $patch
-          if($LASTEXITCODE){throw 'Native patch check failed'}
-          git -C build/audio.cpp apply $patch
-          if($LASTEXITCODE){throw 'Native patch failed'}
+          foreach($name in @('audio-cpp-sw-heads.patch','audio-cpp-demucs-progress.patch')){
+            $patch = (Resolve-Path "tools/separation/native/patches/$name").Path
+            git -C build/audio.cpp apply --check $patch
+            if($LASTEXITCODE){throw 'Native patch check failed'}
+            git -C build/audio.cpp apply $patch
+            if($LASTEXITCODE){throw 'Native patch failed'}
+          }
           cmake -S build/audio.cpp -B build/audio-native -DAUDIOCPP_BUILD_C_API=ON -DAUDIOCPP_MODEL_SET=custom "-DAUDIOCPP_MODELS=demucs,roformer" -DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=OFF -DAUDIOCPP_DEPLOYMENT_BUILD=ON -DAUDIOCPP_VERSION=v0.9.3-mrs1 -DENGINE_ENABLE_NATIVE_CPU=OFF -DENGINE_ENABLE_CUDA=OFF -DENGINE_ENABLE_VULKAN=OFF -DENGINE_ENABLE_METAL=OFF -DENGINE_ENABLE_HIP=OFF -DENGINE_BUILD_TESTS=OFF -DENGINE_BUILD_MODEL_TESTS=OFF
           if($LASTEXITCODE){throw 'Custom native configure failed'}
           cmake --build build/audio-native --config Release --target audiocpp audiocpp_gguf --parallel 2
@@ -92,6 +94,8 @@ jobs:
           if($LASTEXITCODE){throw 'Dev conversion dependencies failed'}
           python tools/separation/native/fetch_sw_original.py build/sw-original
           if($LASTEXITCODE){throw 'Original SW source integrity failed'}
+          python tools/separation/native/fetch_baseline.py build/native-custom-cache --model-only
+          if($LASTEXITCODE){throw 'HT6 progress fixture integrity failed'}
           python tools/separation/native/convert_sw_fixed.py build/sw-original build/sw-f32
           if($LASTEXITCODE){throw 'SW Float32 conversion failed'}
           & build/audio-native/bin/Release/audiocpp_gguf.exe --input "weights=$((Resolve-Path build/sw-f32/model.safetensors).Path)" --root "$((Resolve-Path build/sw-f32).Path)" --output "$((Get-Location).Path)/build/sw-fixed-f32.gguf" --type orig --family bs_roformer --model-spec "$((Resolve-Path build/audio.cpp/model_specs/bs_roformer.json).Path)"
@@ -100,13 +104,13 @@ jobs:
         shell: pwsh
         run: |
           $root = (Get-Location).Path
-          cmake -S tools/separation/native -B build/sw-probe -DAUDIOCPP_INCLUDE="$root/build/audio.cpp/include" -DAUDIOCPP_LIBRARY="$root/build/audio-native/bin/Release/audiocpp.lib"
+          cmake -S tools/separation/native -B build/sw-probe -DAUDIOCPP_INCLUDE="$root/build/audio.cpp/include" -DAUDIOCPP_LIBRARY="$root/build/audio-native/bin/Release/audiocpp.lib" -DMRS_AUDIOCPP_PROGRESS_TESTS=ON -DMRS_AUDIOCPP_PROGRESS_MODEL="$root/build/native-custom-cache/htdemucs-6stems-f16.gguf"
           if($LASTEXITCODE){throw 'SW probe configure failed'}
           cmake --build build/sw-probe --config Release --parallel 2
           if($LASTEXITCODE){throw 'SW probe build failed'}
-          ctest --test-dir build/sw-probe -C Release --output-on-failure
-          if($LASTEXITCODE){throw 'SW frontend reference test failed'}
           Copy-Item build/audio-native/bin/Release/*.dll build/sw-probe/Release/
+          ctest --test-dir build/sw-probe -C Release --output-on-failure
+          if($LASTEXITCODE){throw 'SW frontend or real Demucs progress/cancel test failed'}
           python tools/separation/native/make_fixture.py build/sw-source.wav --seconds 1
           if($LASTEXITCODE){throw 'SW fixture failed'}
           foreach($role in @('bass','guitar')){
@@ -117,6 +121,32 @@ jobs:
           if($LASTEXITCODE){throw 'SW overlap fixture failed'}
           & build/sw-probe/Release/mrs_native_separation_probe.exe "$root/build/sw-fixed-f32.gguf" "$root/build/sw-source-4s.wav" "$root/build/sw-evidence/bass-mdxc" 4 2 bass mdxc
           if($LASTEXITCODE){throw 'SW overlapping native chunks failed'}
+      - name: Build native worker and existing Windows Runner only
+        shell: pwsh
+        run: |
+          $root=(Get-Location).Path
+          $swPackageSha=(Get-FileHash build/sw-fixed-f32.gguf -Algorithm SHA256).Hash.ToLowerInvariant()
+          $lock=Get-Content tools/ci/sdk-lock.json -Raw | ConvertFrom-Json
+          git clone --no-checkout --filter=blob:none $lock.juce.url build/juce
+          if($LASTEXITCODE){throw 'JUCE core clone failed'}
+          git -C build/juce fetch --depth 1 origin $lock.juce.commit
+          if($LASTEXITCODE){throw 'JUCE core pin failed'}
+          git -C build/juce checkout --detach $lock.juce.commit
+          if($LASTEXITCODE){throw 'JUCE core checkout failed'}
+          cmake -S . -B build/native-worker -DMRS_BUILD_DESKTOP=OFF -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_VST3=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=OFF -DMRS_BUILD_LIVE=OFF -DMRS_BUILD_NATIVE_SEPARATION_WORKER=ON -DMRS_BUILD_SEPARATION_CHECK=ON -DMRS_JUCE_SDK_ROOT="$root/build/juce" -DMRS_AUDIOCPP_SOURCE_ROOT="$root/build/audio.cpp" -DMRS_AUDIOCPP_NATIVE_LIBRARY="$root/build/audio-native/bin/Release/audiocpp.lib" -DMRS_NATIVE_SW_PACKAGE_SHA256="$swPackageSha" -DPython3_EXECUTABLE="$((Get-Command python).Source)"
+          if($LASTEXITCODE){throw 'Native worker/Runner configure failed'}
+          cmake --build build/native-worker --config Release --target mrs_native_separation_worker mrs_native_ipc_test mrs_separation_check --parallel 2
+          if($LASTEXITCODE){throw 'Native worker/Runner build failed'}
+          ctest --test-dir build/native-worker -C Release -R '^(native_worker_ipc|separation_host)$' --output-on-failure
+          if($LASTEXITCODE){throw 'Native wire or existing Runner regression failed'}
+      - name: Real native worker IPC and Windows Job Object integration
+        shell: pwsh
+        run: |
+          $root=(Get-Location).Path
+          python -I -B tests/native_separation_worker_check.py "$root/build/native-worker/Release/mrs_native_separation_worker.exe" "$root/build/native-custom-cache" "$root/build" "$root/build/native-wire-evidence"
+          if($LASTEXITCODE){throw 'Real native worker IPC regression failed'}
+          & build/native-worker/Release/mrs_separation_check.exe --native "$root/build/native-worker/Release/mrs_native_separation_worker.exe" "$root/build/native-custom-cache" "$root/build/native-host-evidence"
+          if($LASTEXITCODE){throw 'Real native Windows Runner integration failed'}
       - name: Upload custom-port synthetic evidence (no weights or SDK)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -128,3 +158,9 @@ jobs:
             build/sw-evidence/**/*.wav
             build/sw-f32/conversion.json
             tools/separation/native/patches/audio-cpp-sw-heads.patch
+            tools/separation/native/patches/audio-cpp-demucs-progress.patch
+            build/sw-probe/Testing/Temporary/LastTest.log
+            build/native-worker/Testing/Temporary/LastTest.log
+            build/native-wire-evidence/report.json
+            build/native-wire-evidence/**/wire.json
+            build/native-host-evidence/native-manifest.json

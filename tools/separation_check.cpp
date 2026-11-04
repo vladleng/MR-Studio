@@ -147,6 +147,36 @@ void real(const juce::File& python, const juce::File& worker, const juce::File& 
     std::cout << juce::JSON::toString(result->manifest).toStdString() << '\n';
     std::cout << "PASS real separation: 2 FLOAT stereo WAV, 48000 exact frames, original offset/start, host-verified hashes and finite samples\n";
 }
+void nativeReal(const juce::File& worker,const juce::File& models,const juce::File& root){
+    check(root.createDirectory().wasOk(),"native evidence root");
+    const auto source=root.getChildFile("native-synthetic-source.wav");check(!source.exists(),"preserve existing evidence");fixture(source,44100,88200);
+    Configuration config;config.temporaryRoot=root;config.nativeWorker=worker;
+    Runner runner(config);Request req;req.source=source;req.modelDirectory=models;
+    req.sessionId="native-host-regression";req.sourceRevision="native-source-1";req.sourceStart=11025;req.sourceFrames=44100;
+    req.timelineStart=123456;req.projectRate=44100;req.modelId="htdemucs-6s";req.selectedStems={"Vocals","Bass"};req.timeout=std::chrono::minutes(3);
+    check(runner.start(req),"native submit without Python");
+    PlaybackProbe playback(root.getChildFile("native-raw-recording.wav"));
+    auto status=wait(runner);playback.verify();auto result=runner.take();
+    if(!result){std::cerr<<runner.diagnostics().toStdString()<<'\n';throw std::runtime_error("native host failed: "+status.error.toStdString());}
+    check(status.effectiveDevice=="cpu"&&result->manifest["backend"].toString()=="audio.cpp","native backend provenance");
+    check(result->manifest["outputs"].getArray()&&result->manifest["outputs"].getArray()->size()==2,"native selected outputs");
+    check(!result->directory.getParentDirectory().getChildFile("snapshot.wav").exists(),"native transient cleanup");
+    check(root.getChildFile("native-manifest.json").replaceWithText(juce::JSON::toString(result->manifest,true)),"native evidence manifest");
+    check(runner.start(req),"native runner reuse");
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
+    while(runner.status().state==State::running&&runner.status().phase!="inference"&&std::chrono::steady_clock::now()<deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    check(runner.status().state==State::running&&runner.status().phase=="inference","native cancellation reaches inference");runner.cancel();
+    status=wait(runner);check(status.state==State::cancelled&&!runner.take(),"native host cancel never publishes");
+    const auto cleanupDeadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+    while(root.findChildFiles(juce::File::findDirectories,false,"mrs-separation-*").size()!=1&&std::chrono::steady_clock::now()<cleanupDeadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    check(root.findChildFiles(juce::File::findDirectories,false,"mrs-separation-*").size()==1,"cancelled native work cleaned, accepted result retained");
+    req.selectedStems={"Bass"};req.sourceFrames=22050;check(runner.start(req),"native retry after cancellation");
+    status=wait(runner);const auto retry=runner.take();
+    check(status.state==State::ready&&retry&&retry->manifest["outputs"].getArray()&&retry->manifest["outputs"].getArray()->size()==1,"native retry selected output");
+    std::cout<<"PASS native Windows Runner: no Python, real HT6 selected outputs, range/timeline/hashes, fake playback/raw record, cancel/retry/cleanup\n";
+}
 ManagerStatus waitManager(ModelManager& manager) {
     const auto deadline=std::chrono::steady_clock::now()+std::chrono::minutes(30);juce::String phase;
     while(manager.status().busy && std::chrono::steady_clock::now()<deadline){
@@ -214,7 +244,8 @@ int main(int argc, char** argv) {
         else if (argc == 6 && std::string(argv[1]) == "--real") real(juce::File(juce::String::fromUTF8(argv[2])), juce::File(juce::String::fromUTF8(argv[3])), juce::File(juce::String::fromUTF8(argv[4])), juce::File(juce::String::fromUTF8(argv[5])));
         else if(argc==3&&std::string(argv[1])=="--manager-self-test")managerTests(juce::File(juce::String::fromUTF8(argv[2])));
         else if(argc==6&&std::string(argv[1])=="--managed")managed(juce::File(juce::String::fromUTF8(argv[2])),juce::File(juce::String::fromUTF8(argv[3])),juce::File(juce::String::fromUTF8(argv[4])),juce::File(juce::String::fromUTF8(argv[5])));
-        else throw std::runtime_error("Usage: --self-test PYTHON FAKE_WORKER | --real PYTHON WORKER MODELS EVIDENCE | --manager-self-test REQUIREMENTS | --managed CACHE WORKER REQUIREMENTS EVIDENCE");
+        else if(argc==5&&std::string(argv[1])=="--native")nativeReal(juce::File(juce::String::fromUTF8(argv[2])),juce::File(juce::String::fromUTF8(argv[3])),juce::File(juce::String::fromUTF8(argv[4])));
+        else throw std::runtime_error("Usage: --self-test PYTHON FAKE_WORKER | --real PYTHON WORKER MODELS EVIDENCE | --manager-self-test REQUIREMENTS | --managed CACHE WORKER REQUIREMENTS EVIDENCE | --native NATIVE_WORKER MODELS EVIDENCE");
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

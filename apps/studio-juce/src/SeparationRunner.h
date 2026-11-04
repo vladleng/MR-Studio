@@ -7,7 +7,7 @@
 #include <thread>
 
 // NON-RT only. Owner/control thread starts/drains; a private thread owns all
-// filesystem, Python and IPC work. No audio engine/model/GUI pointers captured.
+// filesystem, worker and IPC work. No audio engine/model/GUI pointers captured.
 namespace mr::separation {
 struct ProcessResult { bool success{}; juce::int64 exitCode{-1}; juce::String error, log; };
 // Installer/probe utility: fixed argv, bounded logs and process tree; NON-RT.
@@ -29,6 +29,9 @@ struct Request {
 };
 struct Configuration {
     juce::File python, workerScript, temporaryRoot;
+    // Explicit migration/test executable; no fallback. Production ModelManager
+    // keeps the accepted worker until native catalogue/SRC parity is admitted.
+    juce::File nativeWorker{};
 };
 struct Status {
     State state{State::idle};

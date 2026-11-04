@@ -138,7 +138,11 @@ pending. Do not switch the production worker based on a development probe.
 
 Official-SDK Windows baseline: [run 41762034298](https://github.com/vladleng/MR-Studio/actions/runs/41762034298),
 source `3c408ee1b72ac2b2cb0957aaf0bb108289066a76`; 1s/60s repeats PASS.
-This run does not exercise the custom SW patch. Native Studio integration,
+This run does not exercise the custom SW patch. The custom SW Windows port passed
+[run41765773225](https://github.com/vladleng/MR-Studio/actions/runs/41765773225)
+at source `5c5f3be3ded33aba1c158e56c1e5bb541aa5c85f`: raw Bass/Guitar1s repeats,
+Bass4s overlapping chunks/repeats, and frontend unit test.
+Native Studio integration,
 quality acceptance and any speed claim remain pending.
 
 `spike-evidence.json` records the Linux reports, package/patch hashes and reference
@@ -191,8 +195,89 @@ not the accepted Windows embedded3.11.9 runtime.
 | Native C API, normalization included | 113.73s | 108.77s |
 | PyTorch model plus chunking, input normalization excluded | 34.32s | 32.71s |
 
+The Linux environment has a cgroup quota of two CPUs while both runtimes request
+four threads; these results describe that constrained configuration. A matched
+two-thread check is needed before attributing the entire gap to the framework.
 Timings exclude imports, model load, source/model hashing and project work;
 normalization accounts for a small scope difference. These measurements show
 **no CPU speedup** from this pinned native implementation. They are not a user
 Ryzen benchmark. CPU optimization and matched complete-worker/music tests remain
 required; do not claim migration is ready or faster from these results.
+
+A matched two-thread 1s check still shows a gap: native9.58/9.17s versus
+PyTorch3.78/2.78s. The cgroup/thread mismatch alone does not explain it. AVX2 is
+enabled in the custom build. BLAS is disabled; simply enabling the standalone
+GGML BLAS backend is insufficient because this model path uses CPU host graph
+plans without a BLAS scheduler. No BLAS acceleration is implemented or claimed.
+
+The native180s input also passed:7938000 stereo frames for each of six roles,
+finite samples, unchanged source,289.50s inference; detailed RSS/hashes in evidence.
+This longer geometry/resource check has no matched Python/music acceptance yet.
+
+## Isolated worker development slice
+
+`MRS_BUILD_NATIVE_SEPARATION_WORKER=ON` explicitly builds a separate
+`mrs_native_separation_worker` executable. It uses the existing Core WAV decoder,
+the pinned C API and the existing uint32-LE/64KiB JSON job/manifest contract. It
+does not create another DAW audio engine. There is no Studio install/copy rule.
+Production Model Manager continues to select the accepted worker until migration
+acceptance. `Configuration::nativeWorker` is an explicit migration/test override,
+with no automatic fallback; it is not a permanent user-facing backend switch.
+
+Apply **both** `audio-cpp-sw-heads.patch` and `audio-cpp-demucs-progress.patch` to
+the pinned upstream checkout before building its C API. The second patch adds
+MR extension v1 `mrs_audiocpp_request_set_chunk_progress`: synchronous real Demucs
+chunk counts, returning zero to cancel between chunks. It is a custom extension,
+not an upstream ABI0.2 feature. The C API regression uses a real HT6 model to
+check start/end cancellation, resetting the callback and reusing the same session
+without changing its output. Linux PASS; the new Windows extension/host run is
+pending. SW progress comes from actual completed outer frontend chunks.
+
+Example developer build (SQLite is required by the existing root configure):
+
+```sh
+cmake -S . -B build/native-worker -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+  -DMRS_BUILD_DESKTOP=OFF -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_VST3=OFF \
+  -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=OFF -DMRS_BUILD_LIVE=OFF \
+  -DMRS_BUILD_NATIVE_SEPARATION_WORKER=ON \
+  -DMRS_AUDIOCPP_SOURCE_ROOT=<patched-audio.cpp> \
+  -DMRS_AUDIOCPP_NATIVE_LIBRARY=<custom-C-API-library>
+cmake --build build/native-worker --config Release \
+  --target mrs_native_separation_worker mrs_native_ipc_test --parallel 2
+```
+
+The worker verifies the package's full SHA before loading, runs inference off the
+DAW process, sends heartbeats and real chunk progress, checks cancellation/deadline,
+and publishes only selected unclipped Float32 outputs through an atomic
+`result.part`→`result` rename. It records original source hashes/range, timeline
+offset, legacy checkpoint provenance and the actual native package hash. Work
+files are owned by the existing Runner/Job Object; no original/model deletion.
+JSON checks cover duplicate keys, UTF-8/NUL, finite numbers, decimal counter
+precision, depth/node/frame bounds. No library stdout is allowed onto the wire.
+
+Local real-model IPC regression passed8 cases: partial PCM16 mono clip with
+timeline offset and two HT6 outputs; two SW heads in the same loaded model;
+stale source, unsupported rate/model, duplicate stems, corrupt model, fragmented
+cancel. Input unchanged; only requested WAV files published. Test harness
+`tests/native_separation_worker_check.py` uses standard-library Python as a
+client, **not** for inference. Windows CI also checks the actual existing Runner
+and its Job Object without configuring a Python runtime, plus the previous fake
+worker regressions. No Studio GUI, MR Live or physical ASIO tests are invoked.
+
+Current admission limits are explicit: only exact HT6 and SW Fixed6 candidates,
+source/project44.1kHz, mono/stereo Core-supported PCM16/24/32 or Float32 WAV;
+HT6 default segment only; SW default/small and inputs over1024 model frames.
+Other rates/profiles are rejected; no silent conversion or replacement. Native
+SRC and the remaining accepted catalogue are still required before activation.
+Multiple SW selections currently run independent head sessions sequentially;
+shared-encoder optimization and matched quality/performance tests remain pending.
+
+GGUF container metadata may differ between producer platforms. Conversion writes
+JSON sidecars with explicit LF; this does not promise byte-identical containers
+across compilers. The canonical Linux development SW package has the documented
+SHA. For an explicitly verified local conversion, the builder can bake its exact
+hash through `MRS_NATIVE_SW_PACKAGE_SHA256`; the runtime request cannot override
+it. CI converts only after checking the accepted original hashes and bakes that
+produced package hash into the worker. This is not an unverified runtime fallback
+or a replacement checkpoint. Production distribution still needs a canonical
+published package/catalogue pin.

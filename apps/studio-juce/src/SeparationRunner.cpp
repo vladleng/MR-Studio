@@ -45,7 +45,8 @@ struct Child {
         if (process.value) WaitForSingleObject(process.value, 5000); // release file handles before cleanup
     }
     void launch(const Configuration& config, const juce::File& work, juce::uint64 memory) {
-        launch(config.python, {"-I", "-B", "-u", config.workerScript.getFullPathName()}, work, memory, 1);
+        if(config.nativeWorker.getFullPathName().isNotEmpty())launch(config.nativeWorker,{},work,memory,1);
+        else launch(config.python, {"-I", "-B", "-u", config.workerScript.getFullPathName()}, work, memory, 1);
     }
     void launch(const juce::File& executable, const juce::StringArray& arguments,
                 const juce::File& work, juce::uint64 memory, unsigned processLimit) {
@@ -145,12 +146,13 @@ juce::int64 number(const juce::var& value) {
     return s.getLargeIntValue();
 }
 void verify(const juce::var& manifest, const Request& request, const juce::String& jobId,
-            const juce::String& sourceHash, const juce::File& result, const std::atomic<bool>& stop) {
+            const juce::String& sourceHash, const juce::File& result, const std::atomic<bool>& stop,bool nativeBackend) {
     require(manifest.isObject() && static_cast<int>(manifest["version"]) == 1 &&
             manifest["job_id"].toString() == jobId && manifest["session_id"].toString() == request.sessionId &&
             manifest["source_revision"].toString() == request.sourceRevision &&
             manifest["source_sha256"].toString() == sourceHash &&
-            manifest["backend_version"].toString() == "0.48.0" &&
+            manifest["backend_version"].toString() == (nativeBackend?"v0.9.3-mrs1":"0.48.0") &&
+            (!nativeBackend||manifest["backend"].toString()=="audio.cpp") &&
             manifest["model"].toString() == request.modelId, "invalid_output");
     require(number(manifest["timeline_start"]) == request.timelineStart &&
             number(manifest["source_start"]) == request.sourceStart &&
@@ -255,9 +257,13 @@ void Runner::run(Request request, juce::String jobId) noexcept {
     bool ownsWork{};
     std::optional<Result> completed;
     const auto began = Clock::now();
+    const bool nativeBackend=config_.nativeWorker.getFullPathName().isNotEmpty();
     try {
-        require(config_.python.existsAsFile(), "python_missing");
-        require(config_.workerScript.existsAsFile(), "worker_missing");
+        if(nativeBackend)require(config_.nativeWorker.existsAsFile()&&plainFile(config_.nativeWorker),"worker_missing");
+        else{
+            require(config_.python.existsAsFile(), "python_missing");
+            require(config_.workerScript.existsAsFile(), "worker_missing");
+        }
         require(request.source.existsAsFile() && request.source.getSize() <= 512LL * 1024 * 1024 &&
                 request.sourceFrames > 0 && request.sourceFrames <= 96000LL * 600 && request.sourceStart >= 0 &&
                 request.timelineStart >= 0 && request.projectRate >= 8000 && request.projectRate <= 96000 &&
@@ -270,7 +276,7 @@ void Runner::run(Request request, juce::String jobId) noexcept {
         ownsWork = true;
         require(plainFile(work), "io_error");
         require(modelProfile(request.modelId).chunks.contains(request.chunk),"invalid_input");
-        if(config_.workerScript.getFileName()=="worker.py"||config_.workerScript.getFileName()=="mr_separation_worker.py"){
+        if(!nativeBackend&&(config_.workerScript.getFileName()=="worker.py"||config_.workerScript.getFileName()=="mr_separation_worker.py")){
             const auto profiles=config_.workerScript.getSiblingFile("mr_separation_profiles.json");
             require(profiles.existsAsFile()&&plainFile(profiles)&&profiles.getSize()<65536&&profiles.loadFileAsString().replace("\r\n","\n")==profileCatalogueJson(),"profiles_integrity");
         }
@@ -330,7 +336,7 @@ void Runner::run(Request request, juce::String jobId) noexcept {
                     require(!cancelled_.load(), "cancelled");
                     const auto resultDirectory = work.getChildFile("result");
                     auto manifest = event["manifest"];
-                    verify(manifest, request, jobId, sourceHash, resultDirectory, cancelled_);
+                    verify(manifest, request, jobId, sourceHash, resultDirectory, cancelled_,nativeBackend);
                     require(hash(request.source) == sourceHash, "stale_source");
                     require(!cancelled_.load() && Clock::now() - began <= request.timeout, "cancelled");
                     const auto manifestFile = resultDirectory.getChildFile("manifest.json");

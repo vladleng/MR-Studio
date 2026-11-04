@@ -312,7 +312,7 @@
     "Synthetic source only; no listening-quality acceptance or matched full-worker benchmark.",
     "Raw short ISTFT lengths differ; MDXC adapter now counts only valid reference extent. 4s overlap/add exact length verified; full-worker/quality parity pending.",
     "Python reference uses development Python3.12, not accepted Windows CPython3.11.9.",
-    "No speed claim; custom SW patch Windows CI pending.",
+    "No speed claim; custom SW patch Windows CI passed; production integration pending.",
     "HT6 native CPU 60s synthetic run is slower than the matched dev PyTorch reference (108.8-113.7s vs32.7-34.3s); no speed improvement established."
   ],
   "linux_sw_mdxc_bass_4s": {
@@ -521,5 +521,398 @@
     ],
     "input_unchanged": true,
     "limitations": "Synthetic input, dev Python3.12; no subjective quality or user Ryzen benchmark"
+  },
+  "linux_execution_environment": {
+    "cgroup_cpu_max": "200000 100000",
+    "cpu_quota": 2,
+    "note": "Default measurements request4threads; separate2thread check included."
+  },
+  "linux_ht6_native_180s": {
+    "upstream": "41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48",
+    "abi": 512,
+    "threads": 4,
+    "input_sha256": "4da70668e1a22930423018d7e95497ffe112341178aaff5327b58e91c57840ca",
+    "model_sha256": "1db9bd58af6995d8caab209c99f5a284212e5bd0654fbfd7e50ce1d5ac140ba9",
+    "frames": 7938000,
+    "load_ms": 9.008155,
+    "session_ms": 210.153455,
+    "runs": [
+      {
+        "inference_ms": 289495.442823,
+        "outputs": [
+          {
+            "stem": "drums",
+            "frames": 7938000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.0113358944654,
+            "sha256": "1150797fa8295f9a10c8c57c611db620bdfb7dc216c1376b97d827894877d5fe"
+          },
+          {
+            "stem": "bass",
+            "frames": 7938000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.209290891886,
+            "sha256": "1413a59d679c6ba3ebc25d563f72c98499dc5bcbc081fd2aa928db7676864c49"
+          },
+          {
+            "stem": "other",
+            "frames": 7938000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00617709150538,
+            "sha256": "aa18974c9dcba69dd2652ac977d885811e67fe53aae9b401feebe40db3983e1b"
+          },
+          {
+            "stem": "vocals",
+            "frames": 7938000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00133975525387,
+            "sha256": "919bbabf3e90c6bce1871de56c3283e4caf4c8dad1a12714510cb3fc19b35de9"
+          },
+          {
+            "stem": "guitar",
+            "frames": 7938000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.0012055367697,
+            "sha256": "c8e6ae35fa13be772dc0d69074c7d308d497c9bf0454b9e2698495fb300a7486"
+          },
+          {
+            "stem": "piano",
+            "frames": 7938000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00133605464362,
+            "sha256": "f0c82a55b7e4a441cc6f3b47bab6d7caec75527eab15e599957cf5ea9e657570"
+          }
+        ]
+      }
+    ],
+    "frontend": "native_session",
+    "total_ms": 293104.834937,
+    "peak_rss_bytes": 1928544256,
+    "input_unchanged": true,
+    "gain_policy": "unclipped_float32"
+  },
+  "linux_ht6_native_2threads_1s": {
+    "upstream": "41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48",
+    "abi": 512,
+    "threads": 2,
+    "input_sha256": "2897b8377bc914cd7dfc05b6b6d7c0d8cc02520d4d3ce70869d2bdb786a0181f",
+    "model_sha256": "1db9bd58af6995d8caab209c99f5a284212e5bd0654fbfd7e50ce1d5ac140ba9",
+    "frames": 44100,
+    "load_ms": 16.778288,
+    "session_ms": 916.469595,
+    "runs": [
+      {
+        "inference_ms": 9582.826145,
+        "outputs": [
+          {
+            "stem": "drums",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00260429270566,
+            "sha256": "3801b59e7873dd17c93ee178e50f40ac09a6d395466774e25f285b0f3ec9426d"
+          },
+          {
+            "stem": "bass",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.235819354653,
+            "sha256": "88be3bb8bf5500b0caf12de18d177ba6318c227b9040c651e9ebcc2981026a6c"
+          },
+          {
+            "stem": "other",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00437893159688,
+            "sha256": "e90cfe06834e2d4747992584fd9404a4b16e0a44d4ac39f998affe1d5dad9907"
+          },
+          {
+            "stem": "vocals",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00632944423705,
+            "sha256": "ac599d367fec85504b8c579d65fa18716035474dd9a4ed2d57115f4f74b637e0"
+          },
+          {
+            "stem": "guitar",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00220324704424,
+            "sha256": "14a9ce71a6ef563b068ecab9a9150824e25c0f807490c8dc39e4c247142b7cf6"
+          },
+          {
+            "stem": "piano",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00285977008753,
+            "sha256": "46606976682110704e0b7076dfff3b130d8626e9f6d9a7a66bde32c359220404"
+          }
+        ]
+      },
+      {
+        "inference_ms": 9171.722635,
+        "outputs": [
+          {
+            "stem": "drums",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00260429270566,
+            "sha256": "3801b59e7873dd17c93ee178e50f40ac09a6d395466774e25f285b0f3ec9426d"
+          },
+          {
+            "stem": "bass",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.235819354653,
+            "sha256": "88be3bb8bf5500b0caf12de18d177ba6318c227b9040c651e9ebcc2981026a6c"
+          },
+          {
+            "stem": "other",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00437893159688,
+            "sha256": "e90cfe06834e2d4747992584fd9404a4b16e0a44d4ac39f998affe1d5dad9907"
+          },
+          {
+            "stem": "vocals",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00632944423705,
+            "sha256": "ac599d367fec85504b8c579d65fa18716035474dd9a4ed2d57115f4f74b637e0"
+          },
+          {
+            "stem": "guitar",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00220324704424,
+            "sha256": "14a9ce71a6ef563b068ecab9a9150824e25c0f807490c8dc39e4c247142b7cf6"
+          },
+          {
+            "stem": "piano",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00285977008753,
+            "sha256": "46606976682110704e0b7076dfff3b130d8626e9f6d9a7a66bde32c359220404"
+          }
+        ]
+      }
+    ],
+    "frontend": "native_session",
+    "total_ms": 19989.450993,
+    "peak_rss_bytes": 944361472,
+    "input_unchanged": true,
+    "gain_policy": "unclipped_float32"
+  },
+  "linux_ht6_reference_2threads_1s": {
+    "scope": "same-checkpoint model plus Demucs frontend, not complete Windows worker",
+    "reference_revision": "4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e",
+    "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+    "torch": "2.8.0+cpu",
+    "threads": 2,
+    "shifts": 0,
+    "overlap": 0.25,
+    "seed": 0,
+    "input_sha256": "2897b8377bc914cd7dfc05b6b6d7c0d8cc02520d4d3ce70869d2bdb786a0181f",
+    "original_sha256": "34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd",
+    "native_package_sha256": "1db9bd58af6995d8caab209c99f5a284212e5bd0654fbfd7e50ce1d5ac140ba9",
+    "frames": 44100,
+    "model_load_ms": 225.75523300110945,
+    "runs": [
+      {
+        "model_and_chunking_ms": 3780.5148620027467,
+        "outputs": [
+          {
+            "role": "drums",
+            "frames": 44100,
+            "waveform_cosine": 0.9999999996408531,
+            "mae": 7.957698343862313e-09,
+            "max_error": 1.1478550732135773e-07,
+            "reference_peak": 0.0026042109820991755
+          },
+          {
+            "role": "bass",
+            "frames": 44100,
+            "waveform_cosine": 0.9999999999995022,
+            "mae": 9.987676349075727e-07,
+            "max_error": 6.690621376037598e-06,
+            "reference_peak": 0.235812708735466
+          },
+          {
+            "role": "other",
+            "frames": 44100,
+            "waveform_cosine": 0.9999999999707161,
+            "mae": 1.4460617634140445e-09,
+            "max_error": 1.4761462807655334e-07,
+            "reference_peak": 0.004378839861601591
+          },
+          {
+            "role": "vocals",
+            "frames": 44100,
+            "waveform_cosine": 0.9999999999375484,
+            "mae": 2.590544488019143e-09,
+            "max_error": 1.825392246246338e-07,
+            "reference_peak": 0.00632926169782877
+          },
+          {
+            "role": "guitar",
+            "frames": 44100,
+            "waveform_cosine": 0.9999999999905593,
+            "mae": 1.4565163740757304e-09,
+            "max_error": 5.51808625459671e-08,
+            "reference_peak": 0.002203191863372922
+          },
+          {
+            "role": "piano",
+            "frames": 44100,
+            "waveform_cosine": 0.9999999999694249,
+            "mae": 3.492420387735206e-09,
+            "max_error": 6.449408829212189e-08,
+            "reference_peak": 0.0028597055934369564
+          }
+        ]
+      },
+      {
+        "model_and_chunking_ms": 2783.937029998924,
+        "outputs": [
+          {
+            "role": "drums",
+            "frames": 44100,
+            "waveform_cosine": 0.9999999996408531,
+            "mae": 7.957698343862313e-09,
+            "max_error": 1.1478550732135773e-07,
+            "reference_peak": 0.0026042109820991755
+          },
+          {
+            "role": "bass",
+            "frames": 44100,
+            "waveform_cosine": 0.9999999999995022,
+            "mae": 9.987676349075727e-07,
+            "max_error": 6.690621376037598e-06,
+            "reference_peak": 0.235812708735466
+          },
+          {
+            "role": "other",
+            "frames": 44100,
+            "waveform_cosine": 0.9999999999707161,
+            "mae": 1.4460617634140445e-09,
+            "max_error": 1.4761462807655334e-07,
+            "reference_peak": 0.004378839861601591
+          },
+          {
+            "role": "vocals",
+            "frames": 44100,
+            "waveform_cosine": 0.9999999999375484,
+            "mae": 2.590544488019143e-09,
+            "max_error": 1.825392246246338e-07,
+            "reference_peak": 0.00632926169782877
+          },
+          {
+            "role": "guitar",
+            "frames": 44100,
+            "waveform_cosine": 0.9999999999905593,
+            "mae": 1.4565163740757304e-09,
+            "max_error": 5.51808625459671e-08,
+            "reference_peak": 0.002203191863372922
+          },
+          {
+            "role": "piano",
+            "frames": 44100,
+            "waveform_cosine": 0.9999999999694249,
+            "mae": 3.492420387735206e-09,
+            "max_error": 6.449408829212189e-08,
+            "reference_peak": 0.0028597055934369564
+          }
+        ]
+      }
+    ],
+    "input_unchanged": true,
+    "limitations": "Synthetic input, dev Python3.12; no subjective quality or user Ryzen benchmark"
+  },
+  "windows_sw_port": {
+    "status": "PASS",
+    "source": "5c5f3be3ded33aba1c158e56c1e5bb541aa5c85f",
+    "run": "https://github.com/vladleng/MR-Studio/actions/runs/41765773225",
+    "artifact": "13292918341",
+    "scope": "Bass/Guitar raw1s repeat2; Bass4s MDXC overlap repeat2; frontend unit test; no Studio package"
+  },
+  "linux_worker_ipc": {
+    "scope": "real native worker IPC, development slice",
+    "cases": [
+      {
+        "case": "ht6-partial-mono",
+        "status": "PASS",
+        "terminal": "result",
+        "events": 20
+      },
+      {
+        "case": "sw-two-heads",
+        "status": "PASS",
+        "terminal": "result",
+        "events": 24
+      },
+      {
+        "case": "stale-source",
+        "status": "PASS",
+        "terminal": "error",
+        "events": 2
+      },
+      {
+        "case": "unsupported-rate",
+        "status": "PASS",
+        "terminal": "error",
+        "events": 2
+      },
+      {
+        "case": "unsupported-model",
+        "status": "PASS",
+        "terminal": "error",
+        "events": 2
+      },
+      {
+        "case": "duplicate-stems",
+        "status": "PASS",
+        "terminal": "error",
+        "events": 2
+      },
+      {
+        "case": "model-integrity",
+        "status": "PASS",
+        "terminal": "error",
+        "events": 2
+      },
+      {
+        "case": "cancel-inference",
+        "status": "PASS",
+        "terminal": "error",
+        "events": 6
+      }
+    ],
+    "source_unchanged": true
+  },
+  "linux_capi_chunk_progress": {
+    "status": "PASS",
+    "scope": "real HT6 start/end cancellation, callback clear and session reuse, unchanged output",
+    "seconds": 28.39
+  },
+  "linux_worker_json": {
+    "status": "PASS",
+    "scope": "UTF8/Unicode/counters/duplicate keys/depth/frame and node limits"
   }
 }

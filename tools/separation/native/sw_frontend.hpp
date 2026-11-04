@@ -39,7 +39,7 @@ class SwOverlapAdd {
 public:
     SwOverlapAdd(std::size_t frames, int channels, std::size_t chunk)
         : frames_(frames), channels_(channels), window_(swHammingWindow(chunk)) {
-        if (!frames || frames > 44100u * 300u || (channels != 1 && channels != 2))
+        if (!frames || frames > 44100u * 600u || (channels != 1 && channels != 2))
             throw std::invalid_argument("SW accumulator bounds");
         samples_.resize(frames * static_cast<std::size_t>(channels));
         counters_.resize(frames);

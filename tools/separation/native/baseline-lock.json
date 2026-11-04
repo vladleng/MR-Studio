@@ -52,5 +52,20 @@
       "piano"
     ],
     "status": "candidate_not_yet_admitted"
+  },
+  "custom_sdk": {
+    "build_version": "v0.9.3-mrs1",
+    "upstream_abi": "0.2",
+    "mr_chunk_progress_extension": 1,
+    "patches": [
+      {
+        "path": "patches/audio-cpp-sw-heads.patch",
+        "sha256": "95bedb04841cdf872b0b31f5d0cc785218fbd5f156701f5e4979b133e4d59c89"
+      },
+      {
+        "path": "patches/audio-cpp-demucs-progress.patch",
+        "sha256": "85029b30174b3eb5eecd0133da6a5be1553cbeece1978823bc9333c121ba0a7b"
+      }
+    ]
   }
 }

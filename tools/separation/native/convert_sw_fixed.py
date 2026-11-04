@@ -68,12 +68,12 @@ def main():
     exported["mlp_expansion_factor"] = model.get("mlp_expansion_factor", 4)
     args.output.mkdir(parents=True)
     save_file(tensors, str(args.output / "model.safetensors"))
-    (args.output / "config.json").write_text(json.dumps(exported, indent=2) + "\n")
+    (args.output / "config.json").write_text(json.dumps(exported, indent=2) + "\n", newline="\n")
     provenance = {"profile": profile["id"], "sources": profile["files"],
                   "precision": "f32", "segment_size": 256, "overlap": 2,
                   "output_sha256": digest(args.output / "model.safetensors"),
                   "torch": torch.__version__, "admission": "NOT TESTED"}
-    (args.output / "conversion.json").write_text(json.dumps(provenance, indent=2) + "\n")
+    (args.output / "conversion.json").write_text(json.dumps(provenance, indent=2) + "\n", newline="\n")
     print(f"Converted {len(tensors)} Float32 tensors; native parity NOT TESTED")
 
 

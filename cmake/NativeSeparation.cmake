@@ -1,0 +1,52 @@
+# Explicit developer build only: pinned source/SDK are supplied locally, no fetch.
+set(MRS_AUDIOCPP_SOURCE_ROOT "" CACHE PATH "Pinned audio.cpp source with both MR patches")
+set(MRS_AUDIOCPP_NATIVE_LIBRARY "" CACHE FILEPATH "Custom audio.cpp C API library/import library")
+set(MRS_NATIVE_SW_PACKAGE_SHA256 "dd6b665785c823dce9566e0de97730bc13728b954e3515bd88c2fcec1c3487a4" CACHE STRING
+  "Full hash of the explicitly converted verified SW package, baked into the developer worker; no runtime override")
+string(LENGTH "${MRS_NATIVE_SW_PACKAGE_SHA256}" mrs_native_sw_sha_length)
+if(NOT mrs_native_sw_sha_length EQUAL 64 OR NOT MRS_NATIVE_SW_PACKAGE_SHA256 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Native SW package hash must be exactly 64 lowercase hexadecimal characters")
+endif()
+if(NOT EXISTS "${MRS_AUDIOCPP_SOURCE_ROOT}/include/audiocpp.h" OR
+   NOT EXISTS "${MRS_AUDIOCPP_SOURCE_ROOT}/external/cJSON/cJSON.c" OR
+   NOT EXISTS "${MRS_AUDIOCPP_NATIVE_LIBRARY}")
+  message(FATAL_ERROR "Native worker requires the explicitly prepared pinned audio.cpp source and custom library")
+endif()
+execute_process(COMMAND git -C "${MRS_AUDIOCPP_SOURCE_ROOT}" rev-parse HEAD
+  OUTPUT_VARIABLE mrs_native_revision OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+if(NOT mrs_native_revision STREQUAL "41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48")
+  message(FATAL_ERROR "Native worker source must match the pinned audio.cpp revision")
+endif()
+file(READ "${MRS_AUDIOCPP_SOURCE_ROOT}/include/audiocpp.h" mrs_native_header)
+if(NOT mrs_native_header MATCHES "AUDIOCPP_MRS_CHUNK_PROGRESS_VERSION 1")
+  message(FATAL_ERROR "Native worker requires the MR chunk-progress extension v1")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/tools/separation/mr_separation_profiles.json")
+file(READ "${PROJECT_SOURCE_DIR}/tools/separation/mr_separation_profiles.json" mrs_native_profiles)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/native_profiles.h" "static constexpr const char* nativeProfilesJson = R\"MRNATIVE(${mrs_native_profiles})MRNATIVE\";\nstatic constexpr const char* nativeSwPackageSha = \"${MRS_NATIVE_SW_PACKAGE_SHA256}\";\n")
+add_library(mrs_native_cjson STATIC "${MRS_AUDIOCPP_SOURCE_ROOT}/external/cJSON/cJSON.c")
+target_compile_definitions(mrs_native_cjson PUBLIC CJSON_HIDE_SYMBOLS=1 PRIVATE CJSON_NESTING_LIMIT=32)
+add_executable(mrs_native_separation_worker tools/separation/native/worker.cpp)
+target_include_directories(mrs_native_separation_worker SYSTEM PRIVATE
+  "${MRS_AUDIOCPP_SOURCE_ROOT}/include" "${MRS_AUDIOCPP_SOURCE_ROOT}/external/cJSON")
+target_include_directories(mrs_native_separation_worker PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(mrs_native_separation_worker PRIVATE mrs_audio mrs_native_cjson "${MRS_AUDIOCPP_NATIVE_LIBRARY}")
+target_compile_features(mrs_native_separation_worker PRIVATE cxx_std_20)
+add_executable(mrs_native_ipc_test tools/separation/native/native_ipc_test.cpp)
+target_include_directories(mrs_native_ipc_test SYSTEM PRIVATE "${MRS_AUDIOCPP_SOURCE_ROOT}/external/cJSON")
+target_link_libraries(mrs_native_ipc_test PRIVATE mrs_core mrs_native_cjson Threads::Threads)
+if(BUILD_TESTING)
+  add_test(NAME native_worker_ipc COMMAND mrs_native_ipc_test)
+endif()
+if(MSVC)
+  target_compile_definitions(mrs_native_ipc_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+  target_compile_definitions(mrs_native_separation_worker PRIVATE AUDIOCPP_USE_DLL NOMINMAX WIN32_LEAN_AND_MEAN)
+  get_filename_component(mrs_native_dll_dir "${MRS_AUDIOCPP_NATIVE_LIBRARY}" DIRECTORY)
+  file(GLOB mrs_native_dlls "${mrs_native_dll_dir}/*.dll")
+  foreach(dll IN LISTS mrs_native_dlls)
+    add_custom_command(TARGET mrs_native_separation_worker POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${dll}" "$<TARGET_FILE_DIR:mrs_native_separation_worker>")
+  endforeach()
+endif()
+# No install rule or Studio post-build copy until the complete native catalogue,
+# sample-rate conversion, host integration and acceptance gates pass.

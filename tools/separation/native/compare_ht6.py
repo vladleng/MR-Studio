@@ -24,6 +24,7 @@ def main():
     parser.add_argument("native_evidence", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--repeats", type=int, choices=[1, 2], default=2)
+    parser.add_argument("--threads", type=int, choices=range(1, 17), default=4)
     args = parser.parse_args()
     revision = "4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e"
     actual = subprocess.check_output(["git", "-C", str(args.reference_root), "rev-parse", "HEAD"], text=True).strip()
@@ -36,7 +37,7 @@ def main():
     if digest(args.original) != source["sha256"]:
         raise ValueError("Original checkpoint SHA256 mismatch")
     native_report = json.loads((args.native_evidence / "report.json").read_text())
-    if native_report["input_sha256"] != digest(args.input) or native_report["threads"] != 4:
+    if native_report["input_sha256"] != digest(args.input) or native_report["threads"] != args.threads:
         raise ValueError("Input/native benchmark settings mismatch")
     lock = json.loads(Path(__file__).with_name("baseline-lock.json").read_text())
     if native_report["model_sha256"] != lock["model"]["sha256"]:
@@ -58,7 +59,7 @@ def main():
     sys.modules["demucs"] = module
     HTDemucs = importlib.import_module("demucs.htdemucs").HTDemucs
     apply_model = importlib.import_module("demucs.apply").apply_model
-    torch.set_num_threads(4)
+    torch.set_num_threads(args.threads)
     torch.set_num_interop_threads(1)
     torch.manual_seed(0)
     loaded = time.perf_counter()
@@ -100,7 +101,7 @@ def main():
         raise ValueError("Source changed during comparison")
     report = {"scope": "same-checkpoint model plus Demucs frontend, not complete Windows worker",
               "reference_revision": revision, "python": sys.version, "torch": torch.__version__,
-              "threads": 4, "shifts": 0, "overlap": 0.25, "seed": 0,
+              "threads": args.threads, "shifts": 0, "overlap": 0.25, "seed": 0,
               "input_sha256": native_report["input_sha256"], "original_sha256": source["sha256"],
               "native_package_sha256": native_report["model_sha256"], "frames": len(audio),
               "model_load_ms": load_ms, "runs": runs, "input_unchanged": True,

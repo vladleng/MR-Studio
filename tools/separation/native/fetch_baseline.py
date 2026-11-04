@@ -49,12 +49,15 @@ def fetch(root, item):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("root", type=Path)
+    parser.add_argument("--model-only", action="store_true", help="Fetch only the verified HTDemucs6 GGUF for a custom SDK build")
     args = parser.parse_args()
     args.root.mkdir(parents=True, exist_ok=True)
     lock = json.loads(Path(__file__).with_name("baseline-lock.json").read_text())
     target = "windows" if platform.system() == "Windows" else "ubuntu"
     sdk = None
     for item in lock["artifacts"]:
+        if args.model_only:
+            break
         if "-" + target + "-" not in item["name"]:
             continue
         archive = fetch(args.root, item)
@@ -73,7 +76,7 @@ def main():
         if "-lib-" in item["name"]:
             sdk = folder
     model = fetch(args.root, lock["model"])
-    print(json.dumps({"sdk_root": str(sdk), "model": str(model),
+    print(json.dumps({"sdk_root": str(sdk) if sdk else None, "model": str(model),
                       "upstream_commit": lock["upstream"]["commit"]}), flush=True)
 
 
