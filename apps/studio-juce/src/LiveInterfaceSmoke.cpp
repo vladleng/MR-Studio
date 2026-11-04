@@ -2854,11 +2854,11 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             liveCheck(live::find(direct.liveDocument->interfaceState,"channels",secondChannel)
                           ["playbackIndependent"].isVoid(),
                       "Regression begins with a pre-existing unmarked Playback lane");
-            auto* timeline=dynamic_cast<LiveTimeline*>(
+            auto* selectionTimeline=dynamic_cast<LiveTimeline*>(
                 liveComponent(direct,"live-show-timeline"));
-            liveCheck(timeline!=nullptr,"Playback Timeline exists for channel selection smoke");
-            timeline->refresh();
-            timeline->selectPlaybackChannel(secondChannel);
+            liveCheck(selectionTimeline!=nullptr,"Playback Timeline exists for channel selection smoke");
+            selectionTimeline->refresh();
+            selectionTimeline->selectPlaybackChannel(secondChannel);
             liveCheck(direct.livePlaybackSelectedChannel==secondChannel,
                       "Selecting empty second Playback must not silently fall back to Backing");
             direct.attachLivePlayback(id,positive,{},secondChannel);
@@ -2870,13 +2870,13 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             auto* playbackPanel=dynamic_cast<LivePlaybackPanel*>(
                 liveComponent(direct,"live-playback-panel"));
             liveCheck(playbackPanel!=nullptr,"Playback panel exists for channel selection smoke");
-            timeline->refresh();
-            timeline->selectPlaybackChannel(mainChannel);
+            selectionTimeline->refresh();
+            selectionTimeline->selectPlaybackChannel(mainChannel);
             playbackPanel->sync();
             liveCheck(direct.livePlaybackSelectedChannel==mainChannel && playbackPanel->stemCount()==0 &&
                       live::playbackGroupRows(direct.liveDocument->interfaceState,id,mainChannel).empty(),
                       "Empty Backing displays no WAV from the other group");
-            timeline->selectPlaybackChannel(secondChannel);
+            selectionTimeline->selectPlaybackChannel(secondChannel);
             playbackPanel->sync();
             liveCheck(direct.livePlaybackSelectedChannel==secondChannel && playbackPanel->stemCount()==1 &&
                       live::playbackGroupRows(direct.liveDocument->interfaceState,id,secondChannel)[0]["file"].toString()==positive.getFullPathName(),
