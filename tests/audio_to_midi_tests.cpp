@@ -78,6 +78,9 @@ void invalid(){
     changed=p;changed.time.tempos[0].bpm=100;ProjectStore tempo(changed);
     rejects([&]{tempo.execute(command);});
     changed=p;changed.clips[0].stretch=ClipStretch{};
+    changed.clips[0].stretch->source_frames=changed.clips[0].length;
+    changed.clips[0].stretch->window_end=static_cast<double>(changed.clips[0].length);
+    changed.validate();
     // Unsupported processing must never silently use full-file time mapping.
     rejects([&]{PlaceTranscription processed(std::make_shared<const Project>(changed),p.clips[0].id,std::span(&note,1));});
     check(*store.state().project==p);
