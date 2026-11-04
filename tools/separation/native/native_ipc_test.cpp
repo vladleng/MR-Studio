@@ -13,7 +13,7 @@ int main(){
         auto roundtrip=ipc::parse(ipc::dump(value.get()));ipc::require(ipc::field(roundtrip.get(),"path")=="C:\\u0000\\audio.wav","Escaped path altered");
         for(const auto* bytes:{"{} trailing","[]","null","{\"a\":1,\"a\":2}","{\"a\":1,\"\\u0061\":2}","{\"a\":\"\\u0000\"}","{\"a\":\"\\ud800\"}","{\"a\":1e999}","{\"a\":NaN}"})
             rejects([&]{(void)ipc::parse(bytes);});
-        rejects([]{(void)ipc::parse(std::string("{\"a\":\"")+char(0xc0)+char(0x80)+"\"}");});
+        rejects([]{(void)ipc::parse("{\"a\":\"\xc0\x80\"}");});
         rejects([]{(void)ipc::parse("{\"a\":\"raw\nnewline\"}");});
         rejects([]{(void)ipc::parse(std::string(65537,' '));});
         std::string deep="{}";for(int i=0;i<40;++i)deep="{\"a\":"+deep+"}";rejects([&]{(void)ipc::parse(deep);});
