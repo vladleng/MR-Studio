@@ -10,9 +10,11 @@ This document describes a developer spike, not a released Studio 0.9.7 runtime.
 `41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48`, the published Windows/Linux C API
 and CLI archives (sizes and full SHA256), and a revision-pinned F16 HTDemucs6 GGUF.
 The converted package identifies checkpoint `5c90dfd2`, the same checkpoint used
-by the accepted Python catalogue. Conversion provenance and numerical parity
-still require comparison against the original checkpoint; package naming alone
-does not prove parity.
+by the accepted Python catalogue. `verify_ht6_weights.py` verifies both full source
+hashes and proves all 525 Float16 tensor byte sequences, complete tensor set,
+model args/kwargs and canonical roles match the original checkpoint exactly.
+The original checkpoint already uses Float16; this package adds no rounding.
+This proves weight/config identity, not full-worker inference or subjective quality.
 
 Run the explicit developer fetch, then compile the independent C++ probe:
 
@@ -43,7 +45,7 @@ comparison at matched settings remains a separate migration gate.
 | Accepted profile | Source-backed finding | Admission status |
 | --- | --- | --- |
 | HTDemucs derived2 / native4 (`955717e8`) | Single-model Demucs family exists; derived Instrumental needs the existing Bass+Drums+Other rule. Exact GGUF conversion and output comparison pending. | NOT TESTED |
-| HTDemucs6 (`5c90dfd2`) | C API Windows/Linux CPU: 1s and 60s, two calls per session, six canonical outputs with exact geometry. Original-checkpoint A/B and 3–5min tests remain pending. | SPIKE ONLY |
+| HTDemucs6 (`5c90dfd2`) | C API Windows/Linux CPU: 1s and 60s, two calls per session, six canonical outputs with exact geometry. Original tensors/config identical; synthetic60s reference comparison below. Full worker and 3–5min tests pending. | SPIKE ONLY |
 | HTDemucs FT4 | `src/models/demucs/session.cpp` explicitly rejects manifests with more than one submodel. The accepted FT bag contains four specialized checkpoints. | REQUIRES NATIVE ORCHESTRATION |
 | BS-RoFormer Viperx ep317 | Single-output RoFormer exists; published ep368 packages are not substitutes for ep317. Exact ep317 conversion/config/parity pending. | NOT TESTED |
 | BS-RoFormer SW Fixed6 | `src/models/roformer/runtime.cpp` rejects `num_stems != 1`, binds only `mask_estimators.0`; session publishes vocals plus a derived residual. | REQUIRES NATIVE PORT |
@@ -162,3 +164,35 @@ rotary-embedding-torch 0.6.5 and packaging 26.3 in the developer environment.
 The custom Windows CI job builds the patched source, converts the exact original
 checkpoint and probes Bass/Guitar independently. Its artifacts contain synthetic
 examples/reports only; weights and development Python are not shipped.
+
+## Original HTDemucs6 comparison
+
+`verify_ht6_weights.py <original.th> <pinned.gguf> <new-report.json>` requires
+developer torch 2.8.0 CPU/numpy 2.2.6. It uses `weights_only=True`, two explicitly
+allowed class symbols and an inert class marker; no Demucs architecture is
+constructed for this weight/config check. Both source hashes are checked first.
+
+`compare_ht6.py <clean-reference-root> <original.th> <input.wav> <native-evidence>
+<new-output-directory>` loads the unchanged pinned audio-separator Demucs model
+and `apply_model` with real dependencies (julius 0.2.8, diffq-fixed 0.2.4,
+tqdm 4.70.1 in addition to the reference dependencies above). No inference stubs
+are used. Two calls share one model; CPU threads4, shifts0, seed0, overlap0.25,
+original segment7.8s, unnormalized Float32 output. The comparison covers model,
+normalization and chunking; host IPC/resampling/project operations are excluded.
+
+On the identical synthetic60s input, all six native outputs have exactly2646000
+stereo frames, source hash unchanged, waveform cosine >=0.99999999998;
+largest absolute difference is2.36e-6. This is strong numerical evidence on this
+fixture, not musical/listening acceptance. Development reference Python is3.12.14,
+not the accepted Windows embedded3.11.9 runtime.
+
+| Linux CPU4 threads, same checkpoint/input | Cold call | Warm call |
+| --- | ---: | ---: |
+| Native C API, normalization included | 113.73s | 108.77s |
+| PyTorch model plus chunking, input normalization excluded | 34.32s | 32.71s |
+
+Timings exclude imports, model load, source/model hashing and project work;
+normalization accounts for a small scope difference. These measurements show
+**no CPU speedup** from this pinned native implementation. They are not a user
+Ryzen benchmark. CPU optimization and matched complete-worker/music tests remain
+required; do not claim migration is ready or faster from these results.
