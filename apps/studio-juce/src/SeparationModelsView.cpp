@@ -150,7 +150,13 @@ private:Desktop& owner_;
 }
 std::shared_ptr<ModelManager> separationModelManager(Backend backend){return backend==Backend::native?nativeManager():productionManager();}
 void showSeparationModels(Desktop& owner,std::shared_ptr<ModelManager> manager){
-    if(owner.separationModelsWindow){const auto* panel=dynamic_cast<ModelsPanel*>(owner.separationModelsWindow->getContentComponent());if(panel&&panel->manager()==(manager?manager:productionManager())){owner.separationModelsWindow->toFront(true);return;}owner.separationModelsWindow.reset();}
+    if(owner.separationModelsWindow){
+        const auto* modelsPanel=dynamic_cast<ModelsPanel*>(owner.separationModelsWindow->getContentComponent());
+        if(modelsPanel&&modelsPanel->manager()==(manager?manager:productionManager())){
+            owner.separationModelsWindow->toFront(true);return;
+        }
+        owner.separationModelsWindow.reset();
+    }
     owner.separationModelsWindow=std::make_unique<ModelsWindow>(owner,manager?std::move(manager):productionManager());
 }
 void separationModelsSmoke(){
