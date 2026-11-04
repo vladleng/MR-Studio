@@ -1021,6 +1021,7 @@ void Desktop::addLivePlaybackStems(const juce::String &id,const juce::Array<juce
         const auto primary=live::playbackChannelId(state,juce::var());
         selected=live::find(state,"channels",preferredChannel)["type"].toString()=="Playback"?
             preferredChannel:primary;
+        live::ensureIndependentPlaybackTarget(state,id,selected);
         const auto existing=live::playbackRows(state,id);
         if(existing.size()+static_cast<std::size_t>(files.size())>32)
             throw std::runtime_error("Playback supports up to 32 stems");
@@ -1070,6 +1071,7 @@ void Desktop::attachLivePlayback(const juce::String &id,const juce::File &file,
            live::find(state,"channels",requested)["type"].toString()!="Playback")
             throw std::runtime_error("Playback channel was removed");
         selected=requested.isNotEmpty()?requested:primary;
+        live::ensureIndependentPlaybackTarget(state,id,selected);
         live::bindPlaybackSource(state,id,selected,file.getFullPathName(),true);
     });
     livePlaybackSelectedChannel=selected;

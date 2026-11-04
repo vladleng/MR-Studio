@@ -196,6 +196,17 @@ class LiveTimeline final : public juce::Component {
         body.repaint();
         repaint();
     }
+    // Shared selection entrypoint for Timeline hits and UI regression tests.
+    // PB selection is transient; it must not mutate show history.
+    void selectPlaybackChannel(const juce::String &id) {
+        if(!owner.liveDocument)return;
+        const auto channel=live::find(state,"channels",id);
+        if(channel["type"].toString()!="Playback")return;
+        const auto item=state["currentItem"].toString();
+        owner.livePlaybackSelectedChannel=live::playbackGroupForChannel(state,item,id);
+        owner.livePlaybackStem=live::playbackStemForChannel(state,item,id);
+        repaint();
+    }
     int itemCount() const { return static_cast<int>(items.size()); }
     int channelCount() const { return state["channels"].size(); }
     juce::Rectangle<int> itemBounds(int index) const {
@@ -280,15 +291,6 @@ class LiveTimeline final : public juce::Component {
     }
 
   private:
-    void selectPlaybackChannel(const juce::String &id) {
-        if(!owner.liveDocument)return;
-        const auto channel=live::find(state,"channels",id);
-        if(channel["type"].toString()!="Playback")return;
-        const auto item=state["currentItem"].toString();
-        owner.livePlaybackSelectedChannel=live::playbackGroupForChannel(state,item,id);
-        owner.livePlaybackStem=live::playbackStemForChannel(state,item,id);
-        repaint();
-    }
     void channelMenu(const juce::String &id) {
         juce::PopupMenu menu;
         menu.setLookAndFeel(&getLookAndFeel());

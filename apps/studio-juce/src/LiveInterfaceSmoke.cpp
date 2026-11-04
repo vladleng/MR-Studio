@@ -2845,25 +2845,40 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             liveCheck(live::find(direct.liveDocument->interfaceState,"channels",mainChannel)["type"].toString()=="Playback",
                       "Independent Playback fixture has an existing primary channel");
             juce::String secondChannel;
-            direct.editLiveInterface("Create independent Playback lane",[&](auto &state) {
+            // Reproduce a second Backing created by an older build: it has
+            // neither source nor playbackIndependent metadata. This was the
+            // missing case in the previous smoke (which pre-marked the lane).
+            direct.editLiveInterface("Create legacy empty Playback lane",[&](auto &state) {
                 secondChannel=live::addChannel(state,"Playback","Other Playback");
-                auto second=live::find(state,"channels",secondChannel);
-                live::put(second,"playbackIndependent",true);
             });
+            liveCheck(live::find(direct.liveDocument->interfaceState,"channels",secondChannel)
+                          ["playbackIndependent"].isVoid(),
+                      "Regression begins with a pre-existing unmarked Playback lane");
+            auto* timeline=dynamic_cast<LiveTimeline*>(
+                liveComponent(direct,"live-show-timeline"));
+            liveCheck(timeline!=nullptr,"Playback Timeline exists for channel selection smoke");
+            timeline->refresh();
+            timeline->selectPlaybackChannel(secondChannel);
+            liveCheck(direct.livePlaybackSelectedChannel==secondChannel,
+                      "Selecting empty second Playback must not silently fall back to Backing");
             direct.attachLivePlayback(id,positive,{},secondChannel);
+            liveCheck(static_cast<bool>(live::find(direct.liveDocument->interfaceState,"channels",secondChannel)
+                                          ["playbackIndependent"]),
+                      "First WAV binding promotes legacy empty Playback to an independent group");
             auto independent=live::playbackRows(direct.liveDocument->interfaceState,id);
             direct.liveBrowserItem.clear();
             auto* playbackPanel=dynamic_cast<LivePlaybackPanel*>(
                 liveComponent(direct,"live-playback-panel"));
             liveCheck(playbackPanel!=nullptr,"Playback panel exists for channel selection smoke");
-            direct.livePlaybackSelectedChannel=mainChannel;
+            timeline->refresh();
+            timeline->selectPlaybackChannel(mainChannel);
             playbackPanel->sync();
-            liveCheck(playbackPanel->stemCount()==0 &&
+            liveCheck(direct.livePlaybackSelectedChannel==mainChannel && playbackPanel->stemCount()==0 &&
                       live::playbackGroupRows(direct.liveDocument->interfaceState,id,mainChannel).empty(),
                       "Empty Backing displays no WAV from the other group");
-            direct.livePlaybackSelectedChannel=secondChannel;
+            timeline->selectPlaybackChannel(secondChannel);
             playbackPanel->sync();
-            liveCheck(playbackPanel->stemCount()==1 &&
+            liveCheck(direct.livePlaybackSelectedChannel==secondChannel && playbackPanel->stemCount()==1 &&
                       live::playbackGroupRows(direct.liveDocument->interfaceState,id,secondChannel)[0]["file"].toString()==positive.getFullPathName(),
                       "Second Backing displays its own WAV");
             liveCheck(independent.size()==1 &&

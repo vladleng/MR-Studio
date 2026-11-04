@@ -321,8 +321,35 @@ inline juce::String playbackGroupForChannel(const juce::var &state,const juce::S
     const auto parent=target["playbackParent"].toString();
     if(find(state,"channels",parent)["type"].toString()=="Playback" && parent!=channel)
         return parent;
-    return !static_cast<bool>(target["playbackIndependent"]) && channel!=primary
-        ? primary : channel;
+    // A pre-existing *empty* second Playback channel has no
+    // playbackIndependent marker yet. Treat it as its own selectable lane,
+    // not as a child of the first Backing. Preserve legacy populated stems
+    // that were actually used as children in other items.
+    if(!static_cast<bool>(target["playbackIndependent"])) {
+        if(const auto* items=state["items"].getArray())
+            for(const auto& other:*items) {
+                const auto otherId=other["id"].toString();
+                for(const auto& row:playbackRows(state,otherId))
+                    if(playbackChannelId(state,row)==channel) {
+                        const auto group=playbackGroupForRow(state,otherId,row);
+                        if(group!=channel)return group;
+                    }
+            }
+    }
+    return channel;
+}
+// An empty old Playback channel becomes an independent group on first WAV
+// attachment. This is a targeted metadata repair and does not relabel old
+// child stems already in use; no new persistence format is required.
+inline void ensureIndependentPlaybackTarget(juce::var &state,const juce::String &item,
+                                            const juce::String &channel) {
+    const auto primary=playbackChannelId(state,juce::var());
+    if(channel.isEmpty() || channel==primary ||
+       playbackGroupForChannel(state,item,channel)!=channel)return;
+    auto target=find(state,"channels",channel);
+    if(target["type"].toString()=="Playback" && target["playbackParent"].isVoid() &&
+       !static_cast<bool>(target["playbackIndependent"]))
+        put(target,"playbackIndependent",true);
 }
 // Only the UI is filtered: Core continues preparing the whole item in one batch.
 inline std::vector<juce::var> playbackGroupRows(const juce::var &state,const juce::String &item,
