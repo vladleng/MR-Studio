@@ -41,8 +41,14 @@ class LivePlaybackPanel final : public juce::Component {
         chooseFile.onClick = [this] {
             if (!owner.liveDocument)
                 return;
-            const auto id = owner.liveDocument->interfaceState["currentItem"].toString(),
-                       stem = owner.livePlaybackStem, channel = owner.livePlaybackSelectedChannel;
+            const auto &state=owner.liveDocument->interfaceState;
+            const auto id=state["currentItem"].toString(), stem=owner.livePlaybackStem;
+            const auto selected=live::playbackStem(state,id,stem);
+            // Header loads the group WAV, or the explicitly opened stem details.
+            const auto channel=detailsVisible && selected.isObject() &&
+                live::playbackGroupForRow(state,id,selected)==owner.livePlaybackSelectedChannel
+                    ? live::playbackChannelId(state,selected)
+                    : owner.livePlaybackSelectedChannel;
             juce::Component::SafePointer<Desktop> safe(&owner);
             owner.choose(
                 juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
@@ -103,8 +109,8 @@ class LivePlaybackPanel final : public juce::Component {
                 const auto id=owner.liveDocument->interfaceState["currentItem"].toString();
                 const auto row=live::playbackStem(owner.liveDocument->interfaceState,id,stem);
                 if(row.isObject()) {
-                    owner.livePlaybackSelectedChannel=
-                        live::playbackChannelId(owner.liveDocument->interfaceState,row);
+                    owner.livePlaybackSelectedChannel=live::playbackGroupForRow(
+                        owner.liveDocument->interfaceState,id,row);
                     currentPlaybackChannel=owner.livePlaybackSelectedChannel;
                 }
             }
@@ -182,10 +188,14 @@ class LivePlaybackPanel final : public juce::Component {
         const auto selected=live::find(state,"channels",owner.livePlaybackSelectedChannel);
         const auto target=!owner.liveDocument?juce::String():
             !preview && selected["type"].toString()=="Playback"
-                ? owner.livePlaybackSelectedChannel : live::playbackChannelId(state,juce::var());
+                ? live::playbackGroupForChannel(state,id,owner.livePlaybackSelectedChannel)
+                : live::playbackChannelId(state,juce::var());
+        if(!preview && target.isNotEmpty())owner.livePlaybackSelectedChannel=target;
         if(!preview && target!=currentPlaybackChannel) {
             currentPlaybackChannel=target;
-            owner.livePlaybackStem=live::playbackStemForChannel(state,id,target);
+            const auto prior=live::playbackStem(state,id,owner.livePlaybackStem);
+            if(!prior.isObject() || live::playbackGroupForRow(state,id,prior)!=target)
+                owner.livePlaybackStem=live::playbackStemForChannel(state,id,target);
             detailsVisible=false;
             requestLayout();
         }
@@ -193,24 +203,45 @@ class LivePlaybackPanel final : public juce::Component {
         groupGain.setEnabled(id.isNotEmpty() && !preview);
         if (!groupGain.isMouseButtonDown() && owner.liveDocument)
             groupGain.setValue(live::itemPlaybackGain(owner.liveDocument->interfaceState, id), juce::dontSendNotification);
-        const auto rows = owner.liveDocument ? live::playbackRows(owner.liveDocument->interfaceState, id) : std::vector<juce::var>();
-        const auto row = owner.liveDocument ? live::playbackStem(owner.liveDocument->interfaceState, id,
-            preview ? browserStem : owner.livePlaybackStem) : juce::var();
-        juce::String nextStems = id;
-        for (const auto &entry : rows) nextStems += "|" + entry["id"].toString();
-        if (nextStems != stemSignature) {
-            stemSignature = nextStems;
+        const auto allRows=owner.liveDocument?live::playbackRows(state,id):std::vector<juce::var>();
+        std::vector<juce::var> rows;
+        std::vector<std::size_t> rowIndices;
+        for(std::size_t i=0;i<allRows.size();++i)
+            if(preview || live::playbackGroupForRow(state,id,allRows[i])==target) {
+                rows.push_back(allRows[i]);
+                rowIndices.push_back(i);
+            }
+        auto row=owner.liveDocument?live::playbackStem(state,id,
+            preview?browserStem:owner.livePlaybackStem):juce::var();
+        if(!preview && (!row.isObject() || live::playbackGroupForRow(state,id,row)!=target)) {
+            row=rows.empty()?juce::var():rows.front();
+            owner.livePlaybackStem=row.isObject()
+                ? live::playbackStemForChannel(state,id,live::playbackChannelId(state,row))
+                : juce::String();
+        }
+        // Selecting a group must rebuild its visible rows, not just the caption.
+        juce::String nextStems=id+"|"+(preview?juce::String("browser"):target);
+        for(std::size_t i=0;i<rows.size();++i)
+            nextStems+="|"+juce::String(static_cast<int>(rowIndices[i]))+":"+rows[i]["id"].toString();
+        if(nextStems!=stemSignature) {
+            stemSignature=nextStems;
             stemRows.clear();
-            for (std::size_t i = 0; i < rows.size(); ++i) {
-                auto stemRow = std::make_unique<StemRow>(*this, id, i == 0 ? juce::String() : rows[i]["id"].toString());
-                stemsBody.addAndMakeVisible(*stemRow); stemRows.push_back(std::move(stemRow));
+            for(std::size_t i=0;i<rows.size();++i) {
+                auto stemRow=std::make_unique<StemRow>(*this,id,
+                    rowIndices[i]==0?juce::String():rows[i]["id"].toString());
+                stemsBody.addAndMakeVisible(*stemRow);
+                stemRows.push_back(std::move(stemRow));
             }
             resized();
         }
         std::vector<juce::String> files;
-        for (std::size_t i = 0; i < rows.size(); ++i)
-            if (preview || !owner.livePlaybackReady() || owner.livePlaybackItem != id || i >= owner.app.playback_sources().size() || !owner.app.clip_waveform(owner.app.playback_sources()[i]))
+        for(std::size_t i=0;i<rows.size();++i) {
+            const auto sourceIndex=rowIndices[i];
+            if(preview || !owner.livePlaybackReady() || owner.livePlaybackItem!=id ||
+               sourceIndex>=owner.app.playback_sources().size() ||
+               !owner.app.clip_waveform(owner.app.playback_sources()[sourceIndex]))
                 files.push_back(rows[i]["file"].toString());
+        }
         waveforms.sync(files);
         for (auto &stemRow : stemRows) stemRow->sync();
         audition.setVisible(preview);
@@ -221,9 +252,11 @@ class LivePlaybackPanel final : public juce::Component {
         for (auto *c : std::array<juce::Component *, 12>{&chooseFile, &fileName, &trimStart, &trimEnd, &trimApply,
                           &startLabel, &endLabel, &removeStem, &outputChoice, &cue, &detailsClose, &stemsViewport})
             c->setVisible(c==&stemsViewport || c==&chooseFile && !preview || detailsVisible && c!=&chooseFile);
-        chooseFile.setButtonText(live::playbackChannelHasSource(state,id,target)
+        const auto fileTarget=detailsVisible && !preview && row.isObject()
+            ? live::playbackChannelId(state,row) : target;
+        chooseFile.setButtonText(live::playbackChannelHasSource(state,id,fileTarget)
             ? "Replace WAV..." : "Choose WAV...");
-        addStem.setEnabled(id.isNotEmpty() && !preview && rows.size() < 32 && !owner.app.recording());
+        addStem.setEnabled(id.isNotEmpty() && !preview && allRows.size() < 32 && !owner.app.recording());
         removeStem.setEnabled(!preview && owner.livePlaybackIndex() > 0 && !owner.app.recording());
         const auto active = owner.app.active_outputs();
         juce::String routeKey;

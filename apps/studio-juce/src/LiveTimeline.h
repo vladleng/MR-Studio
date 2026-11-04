@@ -284,9 +284,9 @@ class LiveTimeline final : public juce::Component {
         if(!owner.liveDocument)return;
         const auto channel=live::find(state,"channels",id);
         if(channel["type"].toString()!="Playback")return;
-        owner.livePlaybackSelectedChannel=id;
-        owner.livePlaybackStem=live::playbackStemForChannel(
-            state,state["currentItem"].toString(),id);
+        const auto item=state["currentItem"].toString();
+        owner.livePlaybackSelectedChannel=live::playbackGroupForChannel(state,item,id);
+        owner.livePlaybackStem=live::playbackStemForChannel(state,item,id);
         repaint();
     }
     void channelMenu(const juce::String &id) {

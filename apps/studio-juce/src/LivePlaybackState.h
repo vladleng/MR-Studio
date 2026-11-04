@@ -309,6 +309,30 @@ inline juce::String playbackGroupForRow(const juce::var &state,const juce::Strin
     const auto parent=channel["playbackParent"].toString();
     return find(state,"channels",parent)["type"].toString()=="Playback"?parent:primary;
 }
+// Map a selected stem back to its owning group. Legacy stems inherit Backing.
+inline juce::String playbackGroupForChannel(const juce::var &state,const juce::String &item,
+                                            const juce::String &channel) {
+    const auto primary=playbackChannelId(state,juce::var());
+    if(channel.isEmpty())return primary;
+    for(const auto &row:playbackRows(state,item))
+        if(playbackChannelId(state,row)==channel)
+            return playbackGroupForRow(state,item,row);
+    const auto target=find(state,"channels",channel);
+    const auto parent=target["playbackParent"].toString();
+    if(find(state,"channels",parent)["type"].toString()=="Playback" && parent!=channel)
+        return parent;
+    return !static_cast<bool>(target["playbackIndependent"]) && channel!=primary
+        ? primary : channel;
+}
+// Only the UI is filtered: Core continues preparing the whole item in one batch.
+inline std::vector<juce::var> playbackGroupRows(const juce::var &state,const juce::String &item,
+                                                const juce::String &group) {
+    std::vector<juce::var> result;
+    for(const auto &row:playbackRows(state,item))
+        if(playbackGroupForRow(state,item,row)==group)
+            result.push_back(row);
+    return result;
+}
 inline juce::String playbackStemForChannel(const juce::var &state,const juce::String &item,
                                           const juce::String &channel) {
     if (channel.isEmpty()) return {};

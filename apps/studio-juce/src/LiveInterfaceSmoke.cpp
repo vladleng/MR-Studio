@@ -2852,11 +2852,34 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             });
             direct.attachLivePlayback(id,positive,{},secondChannel);
             auto independent=live::playbackRows(direct.liveDocument->interfaceState,id);
+            direct.liveBrowserItem.clear();
+            auto* playbackPanel=dynamic_cast<LivePlaybackPanel*>(
+                liveComponent(direct,"live-playback-panel"));
+            liveCheck(playbackPanel!=nullptr,"Playback panel exists for channel selection smoke");
+            direct.livePlaybackSelectedChannel=mainChannel;
+            playbackPanel->sync();
+            liveCheck(playbackPanel->stemCount()==0 &&
+                      live::playbackGroupRows(direct.liveDocument->interfaceState,id,mainChannel).empty(),
+                      "Empty Backing displays no WAV from the other group");
+            direct.livePlaybackSelectedChannel=secondChannel;
+            playbackPanel->sync();
+            liveCheck(playbackPanel->stemCount()==1 &&
+                      live::playbackGroupRows(direct.liveDocument->interfaceState,id,secondChannel)[0]["file"].toString()==positive.getFullPathName(),
+                      "Second Backing displays its own WAV");
             liveCheck(independent.size()==1 &&
                       live::playbackChannelId(direct.liveDocument->interfaceState,independent[0])==secondChannel,
                       "Second Playback lane can receive first WAV without stealing the primary channel");
             direct.attachLivePlayback(id,negative,{},mainChannel);
             independent=live::playbackRows(direct.liveDocument->interfaceState,id);
+            direct.livePlaybackSelectedChannel=mainChannel;
+            playbackPanel->sync();
+            liveCheck(playbackPanel->stemCount()==1 &&
+                      live::playbackGroupRows(direct.liveDocument->interfaceState,id,mainChannel)[0]["file"].toString()==negative.getFullPathName(),
+                      "First Backing displays only its own WAV");
+            direct.livePlaybackSelectedChannel=secondChannel;
+            playbackPanel->sync();
+            liveCheck(playbackPanel->stemCount()==1,
+                      "Second Backing retains only its own WAV after channel switch");
             liveCheck(independent.size()==2 &&
                       live::playbackChannelId(direct.liveDocument->interfaceState,independent[0])==mainChannel &&
                       live::playbackChannelId(direct.liveDocument->interfaceState,independent[1])==secondChannel &&
@@ -2870,6 +2893,16 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                       "Replacing second Playback WAV never replaces the primary source");
             direct.addLivePlaybackStems(id,{negative},secondChannel);
             independent=live::playbackRows(direct.liveDocument->interfaceState,id);
+            direct.livePlaybackSelectedChannel=secondChannel;
+            playbackPanel->sync();
+            liveCheck(playbackPanel->stemCount()==2 &&
+                      live::playbackGroupRows(direct.liveDocument->interfaceState,id,secondChannel).size()==2,
+                      "Second Backing displays its WAV and added stems");
+            direct.livePlaybackSelectedChannel=mainChannel;
+            playbackPanel->sync();
+            liveCheck(playbackPanel->stemCount()==1 &&
+                      live::playbackGroupRows(direct.liveDocument->interfaceState,id,mainChannel).size()==1,
+                      "First Backing does not inherit second channel stems");
             liveCheck(independent.size()==3 &&
                       live::find(direct.liveDocument->interfaceState,"channels",
                                  independent[2]["id"].toString())["playbackParent"].toString()==secondChannel,
