@@ -8,10 +8,11 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: native-separation-${{ github.ref }}
+  group: native-separation-${{ github.ref }}-${{ contains(github.event.head_commit.message, '[ci native-port]') && 'port' || 'baseline' }}
   cancel-in-progress: true
 jobs:
   windows-cpu:
+    if: ${{ !contains(github.event.head_commit.message, '[ci native-port]') }}
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
@@ -69,6 +70,8 @@ jobs:
         run: |
           git clone --filter=blob:none --no-checkout https://github.com/0xShug0/audio.cpp build/audio.cpp
           if($LASTEXITCODE){throw 'Upstream clone failed'}
+          git -C build/audio.cpp config core.autocrlf false
+          if($LASTEXITCODE){throw 'Upstream line-ending configuration failed'}
           git -C build/audio.cpp checkout --detach 41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48
           if($LASTEXITCODE){throw 'Upstream pin failed'}
           $patch = (Resolve-Path tools/separation/native/patches/audio-cpp-sw-heads.patch).Path
@@ -76,7 +79,7 @@ jobs:
           if($LASTEXITCODE){throw 'Native patch check failed'}
           git -C build/audio.cpp apply $patch
           if($LASTEXITCODE){throw 'Native patch failed'}
-          cmake -S build/audio.cpp -B build/audio-native -DAUDIOCPP_BUILD_C_API=ON -DAUDIOCPP_MODEL_SET=custom -DAUDIOCPP_MODELS=demucs,roformer -DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=OFF -DAUDIOCPP_DEPLOYMENT_BUILD=ON -DAUDIOCPP_VERSION=v0.9.3-mrs1 -DENGINE_ENABLE_NATIVE_CPU=OFF -DENGINE_ENABLE_CUDA=OFF -DENGINE_ENABLE_VULKAN=OFF -DENGINE_ENABLE_METAL=OFF -DENGINE_ENABLE_HIP=OFF -DENGINE_BUILD_TESTS=OFF -DENGINE_BUILD_MODEL_TESTS=OFF
+          cmake -S build/audio.cpp -B build/audio-native -DAUDIOCPP_BUILD_C_API=ON -DAUDIOCPP_MODEL_SET=custom "-DAUDIOCPP_MODELS=demucs,roformer" -DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=OFF -DAUDIOCPP_DEPLOYMENT_BUILD=ON -DAUDIOCPP_VERSION=v0.9.3-mrs1 -DENGINE_ENABLE_NATIVE_CPU=OFF -DENGINE_ENABLE_CUDA=OFF -DENGINE_ENABLE_VULKAN=OFF -DENGINE_ENABLE_METAL=OFF -DENGINE_ENABLE_HIP=OFF -DENGINE_BUILD_TESTS=OFF -DENGINE_BUILD_MODEL_TESTS=OFF
           if($LASTEXITCODE){throw 'Custom native configure failed'}
           cmake --build build/audio-native --config Release --target audiocpp audiocpp_gguf --parallel 2
           if($LASTEXITCODE){throw 'Custom native build failed'}

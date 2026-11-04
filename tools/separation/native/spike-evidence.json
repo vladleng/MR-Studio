@@ -310,8 +310,70 @@
   },
   "limitations": [
     "Synthetic source only; no listening-quality acceptance or matched full-worker benchmark.",
-    "SW raw-head comparison has a short-ISTFT length mismatch (44032 vs 44100); frontend parity pending.",
+    "Raw short ISTFT lengths differ; MDXC adapter now counts only valid reference extent. 4s overlap/add exact length verified; full-worker/quality parity pending.",
     "Python reference uses development Python3.12, not accepted Windows CPython3.11.9.",
     "No speed claim; custom SW patch Windows CI pending."
-  ]
+  ],
+  "linux_sw_mdxc_bass_4s": {
+    "upstream": "41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48",
+    "abi": 512,
+    "threads": 4,
+    "input_sha256": "964acba648e65b8cfea58fa5085e4ceb76b8ab239f84eb73f3c403fe72f7079d",
+    "model_sha256": "dd6b665785c823dce9566e0de97730bc13728b954e3515bd88c2fcec1c3487a4",
+    "frames": 176400,
+    "load_ms": 96.067596,
+    "session_ms": 97.5719,
+    "runs": [
+      {
+        "inference_ms": 31728.223605,
+        "outputs": [
+          {
+            "stem": "bass",
+            "frames": 176400,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 9.62290050666e-06,
+            "sha256": "2c4b7aa39e40a350afdb39568360aa928c58935db74facafdb0747fe86c86975"
+          }
+        ]
+      },
+      {
+        "inference_ms": 30326.518829,
+        "outputs": [
+          {
+            "stem": "bass",
+            "frames": 176400,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 9.62290050666e-06,
+            "sha256": "2c4b7aa39e40a350afdb39568360aa928c58935db74facafdb0747fe86c86975"
+          }
+        ]
+      }
+    ],
+    "frontend": "mdxc_hamming_tail_aligned",
+    "total_ms": 100041.279246,
+    "peak_rss_bytes": 587624448,
+    "input_unchanged": true,
+    "gain_policy": "unclipped_float32"
+  },
+  "linux_sw_mdxc_reference_4s": {
+    "scope": "selected model plus reference frontend",
+    "reference_revision": "4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e",
+    "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+    "torch": "2.8.0+cpu",
+    "threads": 4,
+    "role": "bass",
+    "input_sha256": "964acba648e65b8cfea58fa5085e4ceb76b8ab239f84eb73f3c403fe72f7079d",
+    "native_model_sha256": "dd6b665785c823dce9566e0de97730bc13728b954e3515bd88c2fcec1c3487a4",
+    "frames_reference": 176400,
+    "frames_native": 176400,
+    "compared_frames": 176400,
+    "reference_inference_ms": 22745.268352000494,
+    "waveform_cosine": 0.9788310461964325,
+    "mae": 8.239245252391076e-08,
+    "max_error": 2.635067176015582e-06,
+    "reference_peak": 1.2257967682671733e-05,
+    "admission": "NOT ACCEPTED"
+  }
 }

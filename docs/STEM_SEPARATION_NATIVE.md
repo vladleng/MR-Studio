@@ -147,6 +147,12 @@ the native API returns 44100 frames. The near-silent synthetic Bass peak is only
 the reference's valid ISTFT extent before overlap/add. No native admission or
 speed improvement is established by these measurements.
 
+The 4s SW model-plus-frontend run exercises two overlapping full chunks and two
+calls on the same session: both return exactly 176400 stereo frames and identical
+WAV hashes. The independent PyTorch model plus reference scheduling also returns
+176400 frames; waveform cosine is 0.97883 on this near-silent synthetic Bass
+(reference peak 1.23e-5). This remains a development comparison, not quality parity.
+
 `compare_sw_chunk.py <clean-reference-root> <original-directory> <input.wav>
 <native-evidence> <new-comparison-directory> [--role bass] [--mdxc]` reproduces
 the raw-head or model-plus-frontend comparison. It requires pinned audio-separator source
