@@ -24,6 +24,12 @@ int main(){try{
     }
     AceMidiProtocol empty(1);empty.feed(initial+progress+"{\"type\":\"done\",\"notes\":0,\"midi_bytes\":33}\n");empty.finish();check(empty.notes().empty());
     auto after=start;after.replace(after.find("0.25"),4,"2.25");auto late=end;late.replace(late.find("1.5"),3,"2.5");
+    // Pinned resampler truncates 240001 frames @48k to 80000 @16k:
+    // one chunk, even though the full-source duration is slightly above 5s.
+    AceMidiProtocol edge(240001./48000);edge.feed(initial+start+end+progress+done);edge.finish();check(edge.total()==1);
+    AceMidiProtocol exact(240001./48000,80000);exact.feed(initial+start+end+progress+done);exact.finish();check(exact.total()==1);
+    check(AceMidiProtocol(80001./16000,80001).total()==2);
+    rejects([]{AceMidiProtocol p(1,0);});rejects([]{AceMidiProtocol p(1,80000);});
     AceMidiProtocol padded(1);padded.feed(initial+after+late+progress+done);padded.finish();check(padded.notes().empty()&&padded.raw_count()==1);
     rejects([]{AceMidiProtocol p(0);});rejects([]{AceMidiProtocol p(std::numeric_limits<double>::infinity());});
     invalid("");invalid(initial);invalid(start+end+progress+done);invalid(initial+start+progress+done);

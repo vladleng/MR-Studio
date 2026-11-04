@@ -77,6 +77,9 @@ schema, including CRLF and arbitrarily fragmented reads. Unknown/duplicate field
 coerced numbers, unpaired/repeated indices, incomplete EOF, missing/out-of-order
 progress, missing/duplicate done or trailing traffic fail the whole job. Escaped
 strings and JSON extensions are deliberately outside this native schema.
+Expected chunks use the pinned resampler's truncated 16 kHz frame count, not
+ceil(full-source seconds / 5): a fraction of one resampled sample past a chunk
+boundary does not create another chunk. Clipping still uses full-source seconds.
 Limits: 4 KiB per line, 16 MiB stdout, 100000 messages, 32768 raw notes,
 4 hours of source audio. Done counts must match paired notes; note times must
 fit the padded 5-second chunk envelope. A final note_end after final progress

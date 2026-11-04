@@ -9,7 +9,9 @@ namespace mrs {
 // per read; a caller must reject any exception and discard the entire job.
 class AceMidiProtocol {
 public:
-    explicit AceMidiProtocol(double source_seconds);
+    // Frame count is after pinned 16 kHz resampling (which truncates). The
+    // full-source duration remains independent for clipping/placement.
+    explicit AceMidiProtocol(double source_seconds, Sample frames_16k = -1);
     void feed(std::string_view bytes);
     void finish(); // EOF, requires final newline, paired notes/progress/done
     int completed() const { return completed_; }

@@ -12,9 +12,9 @@ using namespace mrs;
 using namespace mrs::transcription;
 void check(bool b){if(!b)throw std::runtime_error("transcription worker assertion");}
 void write(const fs::path& p,std::string_view s){std::ofstream f(p,std::ios::binary);f.write(s.data(),static_cast<std::streamsize>(s.size()));check(f.good());}
-void wav(const fs::path& p,int mode){
+void wav(const fs::path& p,int mode,unsigned rate=16000,unsigned frames=16000){
     std::string b="RIFF";const auto le=[&](unsigned n,int count){for(int i=0;i<count;++i)b+=static_cast<char>((n>>(8*i))&255);};
-    le(32036,4);b+="WAVEfmt ";le(16,4);le(1,2);le(1,2);le(16000,4);le(32000,4);le(2,2);le(16,2);b+="data";le(32000,4);b.resize(32044,0);b[44]=static_cast<char>(mode);write(p,b);
+    le(36+frames*2,4);b+="WAVEfmt ";le(16,4);le(1,2);le(1,2);le(rate,4);le(rate*2,4);le(2,2);le(16,2);b+="data";le(frames*2,4);b.resize(44+frames*2,0);b[44]=static_cast<char>(mode);write(p,b);
 }
 void environment(const char* k,const char* v){
 #ifdef _WIN32
@@ -39,6 +39,7 @@ int main(int argc,char** argv){try{
     check(good.project_id==request.project_id&&good.clip_id==request.clip_id&&good.project_revision==17&&good.source_sha256==source);
     check(good.midi_sha256.size()==64&&sha256_file(request.source)==source&&fs::is_empty(jobs));
     check(!progress.empty()&&progress.back()==1);
+    prepare(0);wav(request.source,0,48000,240001);check(run(request).state==State::ready&&fs::is_empty(jobs));
     prepare(15);const auto drums=run(request);check(drums.state==State::ready&&drums.notes.size()==1&&drums.notes[0].instrument=="drums");
     for(const int mode:{5,6}){prepare(mode);const auto result=run(request);check(result.state==State::empty&&result.notes.empty()&&fs::is_empty(jobs));}
     for(const int mode:{2,3,4,7,8,9,10,11,12,13,14}){prepare(mode);const auto result=run(request);if(result.state!=State::failed)throw std::runtime_error("Invalid native fixture accepted, mode "+std::to_string(mode));check(!result.error.empty()&&result.notes.empty()&&result.diagnostics.size()<=65536&&fs::is_empty(jobs));}

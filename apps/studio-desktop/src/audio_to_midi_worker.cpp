@@ -221,7 +221,10 @@ Result run(const Request& r,std::stop_token external,const std::function<void(in
         need(sha256_file(r.source,token)==input_hash,"stale_source");
         const auto wav=audio::inspect_wav(work.path/"source.wav");
         need(wav.sample_rate>0&&wav.frame_count>0&&(wav.channels==1||wav.channels==2),"invalid_audio");
-        AceMidiProtocol protocol(static_cast<double>(wav.frame_count)/wav.sample_rate);
+        const auto frames_16k=wav.sample_rate==16000?wav.frame_count:
+            static_cast<Sample>(static_cast<double>(wav.frame_count)*(16000./wav.sample_rate));
+        need(frames_16k>0,"invalid_audio");
+        AceMidiProtocol protocol(static_cast<double>(wav.frame_count)/wav.sample_rate,frames_16k);
         {
             Child child;child.launch(r,work.path);int completed=-1;std::size_t error_bytes{};
             for(;;){

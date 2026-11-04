@@ -64,9 +64,11 @@ public:
     }
 };
 }
-AceMidiProtocol::AceMidiProtocol(double seconds):seconds_(seconds){
+AceMidiProtocol::AceMidiProtocol(double seconds,Sample frames):seconds_(seconds){
     need(std::isfinite(seconds)&&seconds>0&&seconds<=4*60*60);
-    total_=static_cast<int>(std::ceil(seconds/5));
+    if(frames==-1)frames=static_cast<Sample>(seconds*16000);
+    need(frames>0&&frames<=4*60*60*16000&&std::abs(static_cast<double>(frames)-seconds*16000)<=1.01);
+    total_=static_cast<int>((frames+79999)/80000);
 }
 void AceMidiProtocol::feed(std::string_view bytes){
     need(!finished_&&bytes.size()<=16*1024*1024-bytes_);bytes_+=bytes.size();
