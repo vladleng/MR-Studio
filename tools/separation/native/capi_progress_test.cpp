@@ -41,6 +41,9 @@ std::vector<float> validate(audiocpp_result* result){
     return output;
 }
 int run(const std::filesystem::path& path){
+    const auto* version=audiocpp_build_version();
+    std::cout<<"Native SDK ABI="<<audiocpp_abi_version()<<" build='"<<(version?version:"<null>")<<"'\n"<<std::flush;
+    require(version&&std::string(version)=="v0.9.3-mrs1","Custom SDK build version does not match the pinned worker");
     audiocpp_registry* rawRegistry{};check(audiocpp_registry_create(nullptr,&rawRegistry));
     std::unique_ptr<audiocpp_registry,decltype(&audiocpp_registry_free)> registry(rawRegistry,audiocpp_registry_free);
     const auto utf8=path.u8string();const std::string modelPath(utf8.begin(),utf8.end());

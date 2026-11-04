@@ -175,8 +175,11 @@ Json process(const cJSON* req,ipc::Wire& wire){
     Control control{wire,job,Clock::now()+std::chrono::milliseconds(timeout)};
     std::jthread monitor([&](std::stop_token stop){control.monitor(stop);});
     control.phase("validating");
-    const auto abi=audiocpp_abi_version();require((abi>>16)==AUDIOCPP_ABI_VERSION_MAJOR&&((abi>>8)&255)>=AUDIOCPP_ABI_VERSION_MINOR,"unsupported_backend");
-    require(std::string_view(audiocpp_build_version())==backendVersion,"unsupported_backend");
+    const auto abi=audiocpp_abi_version();const auto* runtimeVersion=audiocpp_build_version();
+    const bool compatibleAbi=(abi>>16)==AUDIOCPP_ABI_VERSION_MAJOR&&((abi>>8)&255)>=AUDIOCPP_ABI_VERSION_MINOR;
+    const bool compatibleVersion=runtimeVersion&&std::string_view(runtimeVersion)==backendVersion;
+    if(!compatibleAbi||!compatibleVersion)std::cerr<<"Native SDK mismatch: ABI="<<abi<<" build='"<<(runtimeVersion?runtimeVersion:"<null>")<<"' expected='"<<backendVersion<<"'\n";
+    require(compatibleAbi&&compatibleVersion,"unsupported_backend");
     const auto id=ipc::field(req,"model");const auto descriptor=std::find_if(std::begin(models),std::end(models),[&](const auto& item){return id==item.id;});
     require(descriptor!=std::end(models),"unsupported_model");
     const auto device=ipc::field(req,"device");require(device=="cpu"||device=="auto","unsupported_device");

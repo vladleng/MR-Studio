@@ -81,8 +81,11 @@ jobs:
             git -C build/audio.cpp apply $patch
             if($LASTEXITCODE){throw 'Native patch failed'}
           }
-          cmake -S build/audio.cpp -B build/audio-native -DAUDIOCPP_BUILD_C_API=ON -DAUDIOCPP_MODEL_SET=custom "-DAUDIOCPP_MODELS=demucs,roformer" -DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=OFF -DAUDIOCPP_DEPLOYMENT_BUILD=ON -DAUDIOCPP_VERSION=v0.9.3-mrs1 -DENGINE_ENABLE_NATIVE_CPU=OFF -DENGINE_ENABLE_CUDA=OFF -DENGINE_ENABLE_VULKAN=OFF -DENGINE_ENABLE_METAL=OFF -DENGINE_ENABLE_HIP=OFF -DENGINE_BUILD_TESTS=OFF -DENGINE_BUILD_MODEL_TESTS=OFF
+          cmake -S build/audio.cpp -B build/audio-native -DAUDIOCPP_BUILD_C_API=ON -DAUDIOCPP_MODEL_SET=custom "-DAUDIOCPP_MODELS=demucs,roformer" -DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=OFF -DAUDIOCPP_DEPLOYMENT_BUILD=ON "-DAUDIOCPP_VERSION=v0.9.3-mrs1" -DENGINE_ENABLE_NATIVE_CPU=OFF -DENGINE_ENABLE_CUDA=OFF -DENGINE_ENABLE_VULKAN=OFF -DENGINE_ENABLE_METAL=OFF -DENGINE_ENABLE_HIP=OFF -DENGINE_BUILD_TESTS=OFF -DENGINE_BUILD_MODEL_TESTS=OFF
           if($LASTEXITCODE){throw 'Custom native configure failed'}
+          $versionLine=Select-String -Path build/audio-native/CMakeCache.txt -Pattern '^AUDIOCPP_VERSION:STRING='
+          Write-Host $versionLine.Line
+          if($versionLine.Line -ne 'AUDIOCPP_VERSION:STRING=v0.9.3-mrs1'){throw 'Custom SDK cache version mismatch'}
           cmake --build build/audio-native --config Release --target audiocpp audiocpp_gguf --parallel 2
           if($LASTEXITCODE){throw 'Custom native build failed'}
       - name: Explicit developer conversion, exact original SW checkpoint
