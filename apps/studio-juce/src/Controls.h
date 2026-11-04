@@ -10,15 +10,15 @@
 #include "ConceptSkin.h"
 #include "ObjectPalette.h"
 namespace ui {
-constexpr auto background = 0xff212830;
-constexpr auto panel = 0xff212830;
-constexpr auto surface = 0xff212830;
-constexpr auto arrangementCanvas = 0xff262e37;
-constexpr auto outline = 0xff3d444d;
-constexpr auto separatorColour = 0xff343c45;
-constexpr auto contentSurface = 0xff2d353e;
+constexpr auto background = 0xff242629;
+constexpr auto panel = 0xff242629;
+constexpr auto surface = 0xff242629;
+constexpr auto arrangementCanvas = 0xff292b2e;
+constexpr auto outline = 0xff45484d;
+constexpr auto separatorColour = 0xff383b3f;
+constexpr auto contentSurface = 0xff303237;
 // Neutral button RGB components are 5% lighter than the upd9 fill.
-constexpr auto raised = 0xff2f3841;
+constexpr auto raised = 0xff35383c;
 constexpr auto primaryText = 0xffdce3ea;
 constexpr auto secondaryText = 0xff9daabc;
 constexpr float cornerRadius = 6.f;

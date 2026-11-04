@@ -12,8 +12,8 @@ class ConceptSkin final {
     std::map<juce::String,std::unique_ptr<juce::Drawable>> art;
     std::map<juce::String,std::unique_ptr<juce::Drawable>> selectedArt;
 public:
-    static constexpr juce::uint32 channel=0xff2f3841, channelButton=0xff39434e, selection=0xff91bbee;
-    static constexpr juce::uint32 canvas=0xff111720, panel=0xff192333,
+    static constexpr juce::uint32 channel=0xff35383c, channelButton=0xff3c4044, selection=0xff91bbee;
+    static constexpr juce::uint32 canvas=0xff1d1f22, panel=0xff242629,
         border=0xff4b5f7b, text=0xffdae5f4, cyan=0xff00b8ef,
         muted=0xff7188ab, red=0xfff04459, amber=0xffe2b44a, green=0xff24d67c;
     ConceptSkin(){
