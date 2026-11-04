@@ -87,8 +87,10 @@ public:
     void addLiveProject(const juce::File&);
     void importLiveShow(const juce::File&);
     void selectLiveItem(const juce::String&, const juce::String &entry = {});
-    void attachLivePlayback(const juce::String&,const juce::File&, const juce::String &stem = {});
-    void addLivePlaybackStems(const juce::String&, const juce::Array<juce::File>&);
+    void attachLivePlayback(const juce::String&,const juce::File&, const juce::String &stem = {},
+                            const juce::String &channel = {});
+    void addLivePlaybackStems(const juce::String&, const juce::Array<juce::File>&,
+                              const juce::String &channel = {});
     void removeLivePlaybackStem();
     void setLivePlaybackOutputs(const std::vector<int>&);
     void repairLivePlaybackOutputs(const juce::String&,const juce::String&);
@@ -100,7 +102,7 @@ public:
     void setLiveAudio(double gain, mrs::audio::ClickSettings);
     juce::String liveAudioKey;
     std::size_t livePlaybackIndex() const;
-    juce::String livePlaybackStem, livePlaybackMediaKey, livePlaybackDeviceKey;
+    juce::String livePlaybackStem, livePlaybackSelectedChannel, livePlaybackMediaKey, livePlaybackDeviceKey;
     void setLivePlaybackMix(double,bool,bool);
     void setLivePlaybackStemMix(const juce::String&, const juce::String&, double, bool, bool);
     void previewLivePlaybackStemMix(const juce::String&, const juce::String&, double, bool, bool);

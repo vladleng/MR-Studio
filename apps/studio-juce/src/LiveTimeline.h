@@ -196,6 +196,17 @@ class LiveTimeline final : public juce::Component {
         body.repaint();
         repaint();
     }
+    // Shared selection entrypoint for Timeline hits and UI regression tests.
+    // PB selection is transient; it must not mutate show history.
+    void selectPlaybackChannel(const juce::String &id) {
+        if(!owner.liveDocument)return;
+        const auto channel=live::find(state,"channels",id);
+        if(channel["type"].toString()!="Playback")return;
+        const auto item=state["currentItem"].toString();
+        owner.livePlaybackSelectedChannel=live::playbackGroupForChannel(state,item,id);
+        owner.livePlaybackStem=live::playbackStemForChannel(state,item,id);
+        repaint();
+    }
     int itemCount() const { return static_cast<int>(items.size()); }
     int channelCount() const { return state["channels"].size(); }
     juce::Rectangle<int> itemBounds(int index) const {
@@ -259,14 +270,24 @@ class LiveTimeline final : public juce::Component {
                 g.drawHorizontalLine(y + 20, 12.f, 19.f);
             }
             line(g, {0, y, channelWidth, rowHeight});
+            if (channel["type"].toString()=="Playback" &&
+                owner.livePlaybackSelectedChannel==lane.channel) {
+                g.setColour(tokens.colour(ColourRole::focus));
+                g.fillRect(0,y+2,3,rowHeight-4);
+            }
             y += rowHeight;
         }
     }
 
     void mouseDown(const juce::MouseEvent &event) override {
-        if (!event.mods.isPopupMenu() || event.x >= channelWidth) return;
-        const int y = event.y + viewport.getViewPositionY();
-        if (const auto *lane = laneAt(y)) channelMenu(lane->channel);
+        if(event.x>=channelWidth)return;
+        const int y=event.y+viewport.getViewPositionY();
+        const auto *lane=laneAt(y);
+        if(event.mods.isPopupMenu()) {
+            if(lane)channelMenu(lane->channel);
+            return;
+        }
+        if(lane && event.mods.isLeftButtonDown())selectPlaybackChannel(lane->channel);
     }
 
   private:
@@ -282,6 +303,9 @@ class LiveTimeline final : public juce::Component {
             if (owner.liveDocument) for (const auto &item : *state["items"].getArray())
                 for (const auto &row : live::playbackRows(state, item["id"].toString()))
                     used = used || live::playbackChannelId(state, row) == id;
+            if (const auto *channels=state["channels"].getArray())
+                for(const auto &channel:*channels)
+                    used=used || channel["playbackParent"].toString()==id;
             menu.addItem(11, "Remove empty channel", !used);
         }
         juce::Component::SafePointer<Desktop> safe(&owner);
@@ -293,14 +317,26 @@ class LiveTimeline final : public juce::Component {
                     if (safe && name.trim().isNotEmpty()) safe->run([&] { safe->renameLiveObject("channels",id,name); });
                 }); return;
             }
-            safe->run([&] { safe->editLiveInterface(result == 11 ? "Remove channel" : "Add channel", [&](auto &state) {
-                if (result >= 1 && result <= types.size()) { live::addChannel(state, types[result - 1], types[result - 1]); return; }
+            safe->run([&] { juce::String added;
+                safe->editLiveInterface(result == 11 ? "Remove channel" : "Add channel", [&](auto &state) {
+                if (result >= 1 && result <= types.size()) {
+                    added=live::addChannel(state,types[result-1],types[result-1]);
+                    if(types[result-1]=="Playback")
+                        { auto created=live::find(state,"channels",added);
+                          live::put(created,"playbackIndependent",true); }
+                    return;
+                }
                 if (result != 11) return;
                 auto *channels = live::property(state, "channels").getArray();
                 for (int i = channels->size(); --i >= 0;) if ((*channels)[i]["id"].toString() == id) channels->remove(i);
                 for (auto &item : *live::property(state, "items").getArray()) if (auto *tracks = live::property(item, "tracks").getArray())
                     for (int i = tracks->size(); --i >= 0;) if ((*tracks)[i]["channelId"].toString() == id) tracks->remove(i);
-            }); });
+            });
+            if(added.isNotEmpty() && types[result-1]=="Playback") {
+                safe->livePlaybackSelectedChannel=added;
+                safe->livePlaybackStem.clear();
+            }
+            });
         });
     }
     class ZoomGlyph final:public juce::Button {
@@ -382,6 +418,9 @@ class LiveTimeline final : public juce::Component {
                 if (!gain.isMouseButtonDown())
                     commit();
             };
+        }
+        void mouseDown(const juce::MouseEvent &event) override {
+            if(event.mods.isLeftButtonDown())parent.selectPlaybackChannel(key);
         }
         void resized() override {
             inputs.setBounds(2,0,juce::jmax(0,getWidth()-4),44);
@@ -486,7 +525,12 @@ class LiveTimeline final : public juce::Component {
             }
         }
         void mouseDown(const juce::MouseEvent &event) override {
-            if(event.mods.isLeftButtonDown())++parent.owner.liveSelectionRevision;
+            if(event.mods.isLeftButtonDown()) {
+                ++parent.owner.liveSelectionRevision;
+                if(event.y>=lanesTop)
+                    if(const auto *lane=parent.laneAt(event.y))
+                        parent.selectPlaybackChannel(lane->channel);
+            }
             if (beginClipEdit(event)) return;
             if (beginEdit(event)) return;
             if (!event.mods.isLeftButtonDown())
@@ -1144,12 +1188,9 @@ class LiveTimeline final : public juce::Component {
         const auto rows = live::playbackRows(state, item);
         if (rows.empty())
             return -1;
-        for (std::size_t i = 1; i < rows.size(); ++i)
-            if (rows[i]["id"].toString() == channelId)
+        for (std::size_t i=0;i<rows.size();++i)
+            if(live::playbackChannelId(state,rows[i])==channelId)
                 return static_cast<int>(i);
-        for (const auto &channel : *state["channels"].getArray())
-            if (channel["type"].toString() == "Playback")
-                return channel["id"].toString() == channelId ? 0 : -1;
         return -1;
     }
     int playbackLaneY() const {
@@ -1170,17 +1211,22 @@ class LiveTimeline final : public juce::Component {
     void paintPlaybackContainer(juce::Graphics &g, const Item &item, int y) const {
         const auto id = item.value["id"].toString();
         const auto rows = live::playbackRows(state, id);
-        if (rows.empty()) {
+        const auto primary=live::playbackContainer(state);
+        std::vector<std::size_t> own;
+        for(std::size_t i=0;i<rows.size();++i)
+            if(live::playbackGroupForRow(state,id,rows[i])==primary)
+                own.push_back(i);
+        if(own.empty()) {
             if (const auto *tracks = item.value["tracks"].getArray()) for (const auto &track : *tracks)
-                if (track["channelId"].toString() == live::playbackContainer(state)) {
+                if (track["channelId"].toString() == primary) {
                     paintTrack(g, item, primaryChannel(), track, y); break;
                 }
             return;
         }
-        if(rows.size()==1){paintAudio(g,item,y,0);return;}
+        if(own.size()==1){paintAudio(g,item,y,own.front());return;}
         std::vector<live::PlaybackWaveformSource> sources;
         double end = 0.; int ready = 0, unavailable = 0;
-        for (std::size_t i = 0; i < rows.size(); ++i) {
+        for (const auto i : own) {
             const auto source = live::playbackWaveform(owner, waveforms, state, id, i);
             sources.push_back(source);
             end = (std::max)(end, source.start + source.length);
@@ -1196,8 +1242,8 @@ class LiveTimeline final : public juce::Component {
         const float right = static_cast<float>(x + static_cast<double>(clock.to_ticks(static_cast<mrs::Sample>(std::llround(end * 48000)))) / ticksPerBar * item.scale);
         const juce::Rectangle<float> area{x, static_cast<float>(y + 8), (std::max)(1.f, right - x), static_cast<float>(rowHeight - 16)};
         if (ready) block(g, area.getSmallestIntegerContainer(), {}, "blue");
-        text(g, "Playback · " + juce::String(static_cast<int>(rows.size())) + " stems" +
-                     (unavailable ? " · file unavailable" : ready < static_cast<int>(rows.size()) ? " · preparing waveforms" : ""),
+        text(g, "Playback · " + juce::String(static_cast<int>(own.size())) + " stems" +
+                     (unavailable ? " · file unavailable" : ready < static_cast<int>(own.size()) ? " · preparing waveforms" : ""),
              {item.bounds.getX() + 8, y + 10, item.bounds.getWidth() - 16, 24});
         if (ready && end > 0.) {
             const auto waveArea = area.withTrimmedTop(28).reduced(1.f, 4.f);

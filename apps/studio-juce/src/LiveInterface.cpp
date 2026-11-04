@@ -1006,93 +1006,76 @@ void ensurePlaybackChannel(juce::var &state) {
     addPlaybackChannel(state, "Backing");
 }
 } // namespace
-void Desktop::addLivePlaybackStems(const juce::String &id, const juce::Array<juce::File> &files) {
-    if (!liveDocument || !live::find(liveDocument->interfaceState, "items", id).isObject())
+void Desktop::addLivePlaybackStems(const juce::String &id,const juce::Array<juce::File> &files,
+                                    const juce::String &preferredChannel) {
+    if (!liveDocument || !live::find(liveDocument->interfaceState,"items",id).isObject())
         throw std::runtime_error("Select a Live item first");
-    if (app.recording())
-        throw std::runtime_error("Stop recording before changing stems");
-    if (files.isEmpty())
-        return;
-    for (const auto &file : files)
-        if (!file.existsAsFile() || !file.hasFileExtension("wav"))
+    if (app.recording())throw std::runtime_error("Stop recording before changing stems");
+    if(files.isEmpty())return;
+    for(const auto &file:files)
+        if(!file.existsAsFile() || !file.hasFileExtension("wav"))
             throw std::runtime_error("Select existing WAV files");
-    editLiveInterface("Add Playback stems", [&](auto &state) {
+    juce::String selected;
+    editLiveInterface("Add Playback stems",[&](auto &state) {
         ensurePlaybackChannel(state);
-        auto root = live::playback(state, id);
-        if (!root.isObject())
-            root = live::object();
+        const auto primary=live::playbackChannelId(state,juce::var());
+        selected=live::find(state,"channels",preferredChannel)["type"].toString()=="Playback"?
+            preferredChannel:primary;
+        live::ensureIndependentPlaybackTarget(state,id,selected);
+        const auto existing=live::playbackRows(state,id);
+        if(existing.size()+static_cast<std::size_t>(files.size())>32)
+            throw std::runtime_error("Playback supports up to 32 stems");
         std::set<juce::String> used;
-        for (const auto &channel : *state["channels"].getArray())
-            if (channel["type"].toString() == "Playback") {
-                used.insert(channel["id"].toString());
-                break;
-            }
-        for (const auto &stem : live::playbackRows(state, id))
-            if (stem["id"].isString())
-                used.insert(stem["id"].toString());
-        for (const auto &file : files) {
-            auto stem = live::object();
-            live::put(stem, "file", file.getFullPathName());
-            live::put(stem, "gain", 0.);
-            live::put(stem, "mute", false);
-            live::put(stem, "solo", false);
-            if (!root["file"].isString()) {
-                live::put(stem, "gain", live::importedStemGain(state, id, stem));
-                live::resetPlaybackRegions(state,id,stem);
-                root = stem;
-                continue;
-            }
-            auto values = root["stems"];
-            if (!values.isArray()) {
-                values = juce::Array<juce::var>();
-                live::put(root, "stems", values);
-            }
-            if (values.size() >= 31)
-                throw std::runtime_error("Playback supports up to 32 stems");
-            juce::String channelId;
-            for (const auto &channel : *state["channels"].getArray())
-                if (channel["type"].toString() == "Playback" && !used.contains(channel["id"].toString())) {
-                    channelId = channel["id"].toString();
-                    break;
+        for(const auto &row:existing)used.insert(live::playbackChannelId(state,row));
+        for(const auto &file:files) {
+            juce::String target;
+            if(!used.contains(selected))target=selected;
+            if(target.isEmpty())
+                for(const auto &channel:*state["channels"].getArray()) {
+                    if(channel["type"].toString()!="Playback" ||
+                       used.contains(channel["id"].toString()) ||
+                       static_cast<bool>(channel["playbackIndependent"]))continue;
+                    const auto parent=channel["playbackParent"].toString();
+                    if(parent.isNotEmpty() && parent!=selected)continue;
+                    if(parent.isEmpty() && selected!=primary)continue;
+                    target=channel["id"].toString();break;
                 }
-            if (channelId.isEmpty())
-                channelId = addPlaybackChannel(state, file.getFileNameWithoutExtension());
-            used.insert(channelId);
-            live::put(stem, "id", channelId);
-            live::put(stem, "gain", live::importedStemGain(state, id, stem));
-            live::resetPlaybackRegions(state,id,stem);
-            values.getArray()->add(stem);
+            if(target.isEmpty()) {
+                target=addPlaybackChannel(state,file.getFileNameWithoutExtension());
+                auto created=live::find(state,"channels",target);
+                live::put(created,"playbackParent",selected);
+            }
+            // A primary lane cannot become a child of a separate Playback group.
+            if(target==primary && selected!=primary && used.contains(selected))
+                throw std::runtime_error("Invalid Playback group channel");
+            live::bindPlaybackSource(state,id,target,file.getFullPathName(),false);
+            used.insert(target);
         }
-        live::put(live::map(live::performance(state), "nativePlayback"), id, root);
     });
+    if(selected.isNotEmpty())livePlaybackSelectedChannel=selected;
     syncLivePlayback();
 }
-void Desktop::attachLivePlayback(const juce::String &id, const juce::File &file, const juce::String &stem) {
-    if (!liveDocument || !live::find(liveDocument->interfaceState, "items", id).isObject())
+void Desktop::attachLivePlayback(const juce::String &id,const juce::File &file,
+                                 const juce::String &stem,const juce::String &preferredChannel) {
+    if (!liveDocument || !live::find(liveDocument->interfaceState,"items",id).isObject())
         throw std::runtime_error("Select a Live item first");
-    if (app.recording())
-        throw std::runtime_error("Stop recording before changing Playback");
-    if (!file.existsAsFile() || !file.hasFileExtension("wav"))
+    if(app.recording())throw std::runtime_error("Stop recording before changing Playback");
+    if(!file.existsAsFile() || !file.hasFileExtension("wav"))
         throw std::runtime_error("Select an existing WAV file");
-    editLiveInterface("Attach Playback WAV", [&](auto &state) {
+    juce::String selected;
+    editLiveInterface("Attach Playback WAV",[&](auto &state) {
         ensurePlaybackChannel(state);
-        auto row = live::playbackStem(state, id, stem);
-        if (stem.isNotEmpty() && !row.isObject())
-            throw std::runtime_error("Playback stem was removed");
-        if (!row.isObject()) {
-            row = live::object();
-            live::put(row, "gain", live::importedStemGain(state, id, row));
-            live::put(row, "mute", false);
-            live::put(row, "solo", false);
-        }
-        // A replacement source starts with its complete extent, retaining the item mix.
-        row.getDynamicObject()->removeProperty("trimStart");
-        row.getDynamicObject()->removeProperty("trimEnd");
-        live::put(row, "file", file.getFullPathName());
-        live::resetPlaybackRegions(state,id,row);
-        if (stem.isEmpty())
-            live::put(live::map(live::performance(state), "nativePlayback"), id, row);
+        const auto requested=preferredChannel.isNotEmpty()?preferredChannel:stem;
+        const auto primary=live::playbackChannelId(state,juce::var());
+        if(requested.isNotEmpty() &&
+           live::find(state,"channels",requested)["type"].toString()!="Playback")
+            throw std::runtime_error("Playback channel was removed");
+        selected=requested.isNotEmpty()?requested:primary;
+        live::ensureIndependentPlaybackTarget(state,id,selected);
+        live::bindPlaybackSource(state,id,selected,file.getFullPathName(),true);
     });
+    livePlaybackSelectedChannel=selected;
+    livePlaybackStem=live::playbackStemForChannel(liveDocument->interfaceState,id,selected);
     invalidateLivePlayback(id);syncLivePlayback();
 }
 void Desktop::invalidateLivePlayback(const juce::String& id){
