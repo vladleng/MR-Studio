@@ -106,6 +106,14 @@ void trackFolderSmoke(){
     toggle->onClick();check(d.mixerFolders.empty()&&!d.mixer[0]->isVisible()&&d.mixer[busIndex]->isVisible(),"parent collapse hides nested folder channel and keeps its own Bus");
     toggle->onClick();check(d.mixerFolders.size()==1&&!d.mixer[1]->isVisible()&&d.mixer[0]->isVisible(),"parent expand preserves nested collapsed state");
     d.app.remove_track_folder(nested.id);d.app.remove_track_folder(id);d.refresh();check(view.folderRows.empty()&&view.rows[0]->getY()==0&&d.project()->tracks.size()==4&&d.mixerFolders.empty()&&d.mixerColumnCount==4&&!d.mixer[busIndex]->folder&&d.mixer[busIndex]->findChildWithID("mixer-add-insert")->isVisible(),"dissolve restores ordinary channels without losing Bus or tracks");
+    const auto beforeDelete=*d.project();
+    d.selectTrack(a,{});d.selectTrack(b,juce::ModifierKeys(juce::ModifierKeys::ctrlModifier));
+    d.action(23);check(d.project()->tracks.size()==2&&d.selectedTracks.empty()&&!d.selectedTrack,"Delete action removes all Ctrl-selected channels");
+    d.action(10);check(*d.project()==beforeDelete,"One Undo restores the complete track selection and routing");
+    d.action(11);check(d.project()->tracks.size()==2,"One Redo deletes the same channels");d.action(10);
+    d.selectTrack(a,{});d.selectTrack(bus,juce::ModifierKeys(juce::ModifierKeys::shiftModifier));
+    d.action(23);check(d.project()->tracks.empty()&&d.project()->clips.empty(),"Shift range deletion includes MIDI clips and buses");
+    d.action(10);check(*d.project()==beforeDelete,"Undo all-channel deletion restores stable clip and channel IDs");
 }
 void arrangeAudioSmoke(){
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
@@ -306,13 +314,25 @@ void wavDrop263Smoke(){
     referencePreview(d,"library261-wav-drop");
     const auto start=a.sampleAt(static_cast<float>(x));
     a.filesDropped(files,x,y);check(a.wavDropRects().empty()&&cursor->isVisible(),"WAV drop clears preview and restores transport cursor");
+    check(a.pendingWavDropRects()==ghosts&&d.project()->clips.empty(),"Drop immediately replaces drag ghosts with pending import clips without publishing a fake project edit");
+    a.fileDragExit(files);d.refresh(true);check(a.pendingWavDropRects()==ghosts,"Drag exit and UI refresh cannot hide queued import clips");
+    referencePreview(d,"library261-wav-import-pending");
     for(int i=0;i<1000&&d.app.wav_import_status().busy;++i){d.app.poll();juce::Thread::sleep(2);}
     check(!d.app.wav_import_status().busy&&d.project()->clips.size()==2,"WAV drop imports asynchronously");
+    check(a.pendingWavDropRects().empty(),"Pending import hands over to real project clips");
     check(d.project()->clips.front().start==start&&d.project()->clips.front().length==d.project()->sample_rate,"WAV ghost matches imported start and SRC length");
     d.refresh(true);a.fileDragMove(files,x,y);waitGhost();ghosts=a.wavDropRects();
     check(ghosts[0].getY()==ghosts[1].getY()&&std::abs(ghosts[1].getX()-ghosts[0].getRight())<.01f,"Existing audio track previews sequential WAVs");
     a.fileDragExit(files);check(a.wavDropRects().empty(),"Drag exit clears WAV ghosts");
     a.fileDragMove(files,x,a.headerHeight()-1);check(a.wavDropRects().empty(),"No WAV ghost above ruler");a.fileDragExit(files);
+    const auto beforeCancel=*d.project();a.filesDropped(files,x,y);
+    check(a.pendingWavDropRects().size()==2,"Quick drop without metadata still shows loading clips");
+    d.app.cancel_wav_import();check(a.pendingWavDropRects().empty()&&*d.project()==beforeCancel,"Escape cancellation clears pending clips without a project edit");
+    a.filesDropped({root.getChildFile("missing.wav").getFullPathName()},x,y);
+    for(int i=0;i<1000&&d.app.wav_import_status().busy;++i){d.app.poll();juce::Thread::sleep(2);}
+    check(a.pendingWavDropRects().empty()&&*d.project()==beforeCancel&&d.app.wav_import_status().message.starts_with("WAV import failed:"),"Failed import removes loading clips and preserves the project");
+    a.filesDropped(files,x,y);d.app.new_project();
+    check(a.pendingWavDropRects().empty()&&d.project()->clips.empty(),"Pending import cannot enter another project");
 }
 
 void midiImport149Smoke(){

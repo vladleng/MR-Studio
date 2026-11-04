@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <cmath>
+#include <set>
 namespace mrs {
 namespace {
 Sample mapped_frame(double source,double ratio) {
@@ -56,6 +57,18 @@ void RemoveTrack::apply(Project& p) const {
     for(auto& folder:p.folders)if(folder.bus==id_)folder.bus.reset();
     p.tracks.erase(it);
     std::erase_if(p.clips,[&](const auto& c) { return c.track == id_; });
+}
+void RemoveTracks::apply(Project& p) const {
+    if(ids_.empty())throw std::invalid_argument("empty track selection");
+    std::set<std::string> seen;
+    for(const auto& id:ids_){
+        if(!seen.insert(id.value).second)throw std::invalid_argument("duplicate track");
+        if(std::none_of(p.tracks.begin(),p.tracks.end(),[&](const auto& t){return t.id==id;}))
+            throw std::invalid_argument("unknown track");
+    }
+    // One project transaction / graph rebuild / Undo entry for the entire set.
+    // Existing routing rewrites also resolve chains of buses removed together.
+    for(const auto& id:ids_)RemoveTrack{id}.apply(p);
 }
 void ReorderTrack::apply(Project& p) const {
     const auto it = std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t) { return t.id == id_; });

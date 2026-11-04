@@ -2,6 +2,7 @@
 #include "LiveShowState.h"
 #include "LivePerformanceState.h"
 #include <cmath>
+#include <map>
 #include <mrs/metronome.hpp>
 
 namespace ui::live {
@@ -136,7 +137,15 @@ inline mrs::Track::Mix playbackMix(const juce::var &state, const juce::String &i
     auto channel = find(state, "channels", playbackChannelId(state, row));
     const auto primary = find(state, "channels", playbackChannelId(state, juce::var()));
     const bool cue = static_cast<bool>(row["cue"]);
-    const bool groupChild = !cue && channel["id"] != primary["id"];
+    // User-created Playback lanes are independent of the default Backing group.
+    // Old stem channels without an explicit parent still inherit that group.
+    const auto selectedParent = find(state, "channels", channel["playbackParent"].toString());
+    const auto parent = selectedParent.isObject() && selectedParent["type"].toString() == "Playback"
+        ? selectedParent : primary;
+    const bool rootOnOtherChannel = row["id"].isString() &&
+        row["id"] == playback(state, id)["id"];
+    const bool groupChild = !cue && !static_cast<bool>(channel["playbackIndependent"]) &&
+        !rootOnOtherChannel && channel["id"] != parent["id"];
     // A Cue promoted to the primary source is independent of the group.
     if (cue && channel["id"] == primary["id"]) channel = juce::var();
     const auto gainFor=[&](const juce::var& value)->double {
@@ -155,7 +164,7 @@ inline mrs::Track::Mix playbackMix(const juce::var &state, const juce::String &i
         return preview && value["id"].toString()==preview->channel ?
             preview->solo : static_cast<bool>(value["solo"]);
     };
-    const double parentGain=groupChild?gainFor(primary):0.;
+    const double parentGain=groupChild?gainFor(parent):0.;
     mrs::Track::Mix mix;
     const double itemLevel=levelOverride&&levelOverride->group?
         levelOverride->gain:itemPlaybackGain(state,id);
@@ -168,9 +177,9 @@ inline mrs::Track::Mix playbackMix(const juce::var &state, const juce::String &i
     const double group=cue?0.:playbackGain(state)+itemLevel;
     mix.gain=static_cast<float>(std::pow(10.,(stemLevel+group+
                                               gainFor(channel)+parentGain)/20.));
-    mix.pan=static_cast<float>(juce::jlimit(-1.,1.,panFor(channel)+(groupChild?panFor(primary):0.)));
-    mix.mute=stemMute||muteFor(channel)||(groupChild&&muteFor(primary));
-    mix.solo=stemSolo||soloFor(channel)||(groupChild&&soloFor(primary));
+    mix.pan=static_cast<float>(juce::jlimit(-1.,1.,panFor(channel)+(groupChild?panFor(parent):0.)));
+    mix.mute=stemMute||muteFor(channel)||(groupChild&&muteFor(parent));
+    mix.solo=stemSolo||soloFor(channel)||(groupChild&&soloFor(parent));
     return mix;
 }
 // The show channel may contain multi-megabyte Base64 VST3 component/controller
@@ -276,6 +285,144 @@ inline void resetPlaybackRegions(juce::var &state,const juce::String &item,juce:
     if(track.isNotEmpty())map(performance(state),"clips").getDynamicObject()->removeProperty(juce::Identifier(track));
     row.getDynamicObject()->removeProperty("regions");
 }
+// One WAV/stem source is bound to one persistent show Playback channel.
+// The legacy root (without an id) remains bound to the first Playback channel.
+// User-created channels can own their own source without reallocating old stems.
+inline bool playbackChannelHasSource(const juce::var &state, const juce::String &item,
+                                    const juce::String &channel) {
+    if (channel.isEmpty()) return false;
+    for (const auto &row : playbackRows(state,item))
+        if (playbackChannelId(state,row)==channel) return true;
+    return false;
+}
+// Which mixer Playback group owns this WAV/stem. Old stems inherit the first
+// group; manually created Playback channels remain independent.
+inline juce::String playbackGroupForRow(const juce::var &state,const juce::String &item,
+                                        const juce::var &row) {
+    const auto id=playbackChannelId(state,row);
+    const auto primary=playbackChannelId(state,juce::var());
+    if(id==primary)return primary;
+    const auto channel=find(state,"channels",id);
+    if(static_cast<bool>(channel["playbackIndependent"]) ||
+       (row["id"].isString() && row["id"]==playback(state,item)["id"]))
+        return id;
+    const auto parent=channel["playbackParent"].toString();
+    return find(state,"channels",parent)["type"].toString()=="Playback"?parent:primary;
+}
+// Map a selected stem back to its owning group. Legacy stems inherit Backing.
+inline juce::String playbackGroupForChannel(const juce::var &state,const juce::String &item,
+                                            const juce::String &channel) {
+    const auto primary=playbackChannelId(state,juce::var());
+    if(channel.isEmpty())return primary;
+    for(const auto &row:playbackRows(state,item))
+        if(playbackChannelId(state,row)==channel)
+            return playbackGroupForRow(state,item,row);
+    const auto target=find(state,"channels",channel);
+    const auto parent=target["playbackParent"].toString();
+    if(find(state,"channels",parent)["type"].toString()=="Playback" && parent!=channel)
+        return parent;
+    // A pre-existing *empty* second Playback channel has no
+    // playbackIndependent marker yet. Treat it as its own selectable lane,
+    // not as a child of the first Backing. Preserve legacy populated stems
+    // that were actually used as children in other items.
+    if(!static_cast<bool>(target["playbackIndependent"])) {
+        if(const auto* items=state["items"].getArray())
+            for(const auto& other:*items) {
+                const auto otherId=other["id"].toString();
+                for(const auto& row:playbackRows(state,otherId))
+                    if(playbackChannelId(state,row)==channel) {
+                        const auto group=playbackGroupForRow(state,otherId,row);
+                        if(group!=channel)return group;
+                    }
+            }
+    }
+    return channel;
+}
+// An empty old Playback channel becomes an independent group on first WAV
+// attachment. This is a targeted metadata repair and does not relabel old
+// child stems already in use; no new persistence format is required.
+inline void ensureIndependentPlaybackTarget(juce::var &state,const juce::String &item,
+                                            const juce::String &channel) {
+    const auto primary=playbackChannelId(state,juce::var());
+    if(channel.isEmpty() || channel==primary ||
+       playbackGroupForChannel(state,item,channel)!=channel)return;
+    auto target=find(state,"channels",channel);
+    if(target["type"].toString()=="Playback" && target["playbackParent"].isVoid() &&
+       !static_cast<bool>(target["playbackIndependent"]))
+        put(target,"playbackIndependent",true);
+}
+// Only the UI is filtered: Core continues preparing the whole item in one batch.
+inline std::vector<juce::var> playbackGroupRows(const juce::var &state,const juce::String &item,
+                                                const juce::String &group) {
+    std::vector<juce::var> result;
+    for(const auto &row:playbackRows(state,item))
+        if(playbackGroupForRow(state,item,row)==group)
+            result.push_back(row);
+    return result;
+}
+inline juce::String playbackStemForChannel(const juce::var &state,const juce::String &item,
+                                          const juce::String &channel) {
+    if (channel.isEmpty()) return {};
+    const auto rows=playbackRows(state,item);
+    for (std::size_t i=0;i<rows.size();++i)
+        if (playbackChannelId(state,rows[i])==channel)
+            return i==0?juce::String():rows[i]["id"].toString();
+    return {};
+}
+inline void bindPlaybackSource(juce::var &state,const juce::String &item,
+                               const juce::String &channel,const juce::String &file,
+                               bool replaceExisting) {
+    if (find(state,"channels",channel)["type"].toString()!="Playback")
+        throw std::runtime_error("Choose a Playback channel");
+    const auto primary=playbackChannelId(state,juce::var());
+    auto root=playback(state,item);
+    const bool hasRoot=root.isObject() && root["file"].isString();
+    const auto oldRootChannel=hasRoot?playbackChannelId(state,root):juce::String();
+    auto stems=hasRoot?root["stems"].clone():juce::var();
+    if(!stems.isArray())stems=juce::Array<juce::var>();
+    bool isRoot=hasRoot && oldRootChannel==channel;
+    int stemAt=-1;
+    if(!isRoot)for(int i=0;i<stems.size();++i)
+        if(stems[i]["id"].toString()==channel){stemAt=i;break;}
+    if ((isRoot || stemAt>=0) && !replaceExisting)
+        throw std::runtime_error("Playback channel already contains WAV");
+    juce::var row=isRoot?root:(stemAt>=0?stems[stemAt]:object());
+    if(!isRoot && stemAt<0) {
+        if(channel!=primary)put(row,"id",channel);
+        put(row,"gain",importedStemGain(state,item,row));
+        put(row,"mute",false);put(row,"solo",false);
+    }
+    // A second lane may have been populated first. Promote the first/default
+    // channel to the legacy root only when its own WAV is subsequently loaded.
+    // Keep the former root, regions, mix and file as an ordinary stem.
+    if(hasRoot && channel==primary && oldRootChannel!=primary) {
+        auto previous=root.clone();
+        previous.getDynamicObject()->removeProperty("stems");
+        if(stemAt>=0)stems.getArray()->remove(stemAt);
+        if(stems.size()>=31)throw std::runtime_error("Playback supports up to 32 stems");
+        stems.getArray()->insert(0,previous);
+        isRoot=true;
+        row.getDynamicObject()->removeProperty("id");
+    } else if(!hasRoot) {
+        isRoot=true;
+    } else if(!isRoot && stemAt<0 && stems.size()>=31) {
+        throw std::runtime_error("Playback supports up to 32 stems");
+    }
+    row.getDynamicObject()->removeProperty("trimStart");
+    row.getDynamicObject()->removeProperty("trimEnd");
+    put(row,"file",file);
+    resetPlaybackRegions(state,item,row);
+    if(isRoot) {
+        if(stems.size()>0)put(row,"stems",stems);
+        else row.getDynamicObject()->removeProperty("stems");
+        put(map(performance(state),"nativePlayback"),item,row);
+    } else {
+        if(stemAt>=0)stems.getArray()->set(stemAt,row);
+        else stems.getArray()->add(row);
+        put(root,"stems",stems);
+        put(map(performance(state),"nativePlayback"),item,root);
+    }
+}
 inline juce::var defaultPlaybackRegions(const juce::var &row,double sourceBars,double secondsPerBar) {
     const double start=static_cast<double>(row["trimStart"])/secondsPerBar;
     const double end=row["trimEnd"].isVoid()?sourceBars:static_cast<double>(row["trimEnd"])/secondsPerBar;
@@ -343,6 +490,16 @@ inline void validatePlaybackRow(const juce::var &row) {
 inline void validatePlayback(const juce::var &state) {
     validatePerformance(state);
     validateLiveAudio(state);
+    if(const auto *channels=state["channels"].getArray())
+        for(const auto &channel:*channels) {
+            const auto independent=channel["playbackIndependent"];
+            const auto parent=channel["playbackParent"];
+            if((!independent.isVoid() && !independent.isBool()) ||
+               (!parent.isVoid() && (!parent.isString() || parent.toString().isEmpty() ||
+                  parent==channel["id"] ||
+                  find(state,"channels",parent.toString())["type"].toString()!="Playback")))
+                throw std::runtime_error("Invalid Playback group reference");
+        }
     const auto bindings = state["performance"]["nativePlayback"];
     if (bindings.isVoid())
         return;
@@ -352,6 +509,9 @@ inline void validatePlayback(const juce::var &state) {
         if (!find(state, "items", pair.name.toString()).isObject())
             throw std::runtime_error("Missing Playback item");
         validatePlaybackRow(pair.value);
+        if (pair.value["id"].isString() &&
+            find(state,"channels",pair.value["id"].toString())["type"].toString()!="Playback")
+            throw std::runtime_error("Invalid primary Playback channel");
         for (const auto &row : playbackRows(state, pair.name.toString())) { playbackMix(state, pair.name.toString(), row).validate(); validatePlaybackRegions(playbackRegions(state,pair.name.toString(),row)); }
         const auto stems = pair.value["stems"];
         if (!stems.isVoid()) {
@@ -383,24 +543,47 @@ inline bool playbackExpanded(const juce::var &state) {
 }
 inline std::vector<PlaybackLane> playbackLanes(const juce::var &state) {
     std::vector<PlaybackLane> result;
-    const auto primary = playbackContainer(state);
-    std::set<juce::String> children;
-    bool primarySource = false;
-    if (const auto *items = state["items"].getArray())
-        for (const auto &item : *items) {
-            const auto rows = playbackRows(state, item["id"].toString());
-            primarySource = primarySource || !rows.empty();
-            for (std::size_t i = 1; i < rows.size(); ++i) children.insert(rows[i]["id"].toString());
+    const auto primary=playbackContainer(state);
+    std::map<juce::String,std::set<juce::String>> children;
+    std::set<juce::String> roots;
+    bool primarySource=false;
+    if(const auto *items=state["items"].getArray())
+        for(const auto &item:*items) {
+            const auto rows=playbackRows(state,item["id"].toString());
+            if(rows.empty())continue;
+            const auto rootChannel=playbackChannelId(state,rows[0]);
+            roots.insert(rootChannel);
+            primarySource=primarySource || rootChannel==primary;
+            for(std::size_t i=1;i<rows.size();++i){
+                const auto channelId=rows[i]["id"].toString();
+                const auto channel=find(state,"channels",channelId);
+                if(static_cast<bool>(channel["playbackIndependent"])) {
+                    roots.insert(channelId);
+                    continue;
+                }
+                auto parent=channel["playbackParent"].toString();
+                if(find(state,"channels",parent)["type"].toString()!="Playback" ||
+                   parent==channelId)parent=primary;
+                children[parent].insert(channelId);
+            }
         }
-    if (const auto *channels = state["channels"].getArray())
-        for (const auto &channel : *channels) {
-            const auto id = channel["id"].toString();
-            if (children.contains(id)) continue;
-            result.push_back({id, id == primary, false});
-            if (id != primary || !playbackExpanded(state)) continue;
-            if (primarySource) result.push_back({primary, false, true});
-            for (const auto &child : *channels)
-                if (children.contains(child["id"].toString())) result.push_back({child["id"].toString(), false, true});
+    if(const auto *channels=state["channels"].getArray())
+        for(const auto &channel:*channels) {
+            const auto id=channel["id"].toString();
+            bool nested=false;
+            for(const auto &group:children)
+                nested=nested || (group.second.contains(id) && !roots.contains(id));
+            if(nested)continue;
+            result.push_back({id,id==primary,false});
+            if(!playbackExpanded(state))continue;
+            if(id==primary && primarySource)result.push_back({primary,false,true});
+            // Preserve show channel order, not lexicographic UUID order:
+            // the existing Playback UI and saved stem ordering depend on it.
+            for(const auto &child:*channels) {
+                const auto childId=child["id"].toString();
+                if(children[id].contains(childId) && !roots.contains(childId))
+                    result.push_back({childId,false,true});
+            }
         }
     return result;
 }

@@ -1,6 +1,10 @@
 #include "MusicalGrid.h"
 #include "MeterTrack.h"
 #include "Desktop.h"
+#if defined(MRS_SEPARATION_UI)
+#include "SeparationModelsView.h"
+#include "SeparationView.h"
+#endif
 #include "LibraryFoundationPanel.h"
 #include <MRTrackHeaderAssets.h>
 #include "MRControlBinding.h"
@@ -130,13 +134,15 @@ Desktop::Desktop(bool test,bool startAtHome,bool liveApplication):standaloneLive
     home=std::make_unique<ProjectHome>(*this);addChildComponent(*home);if(!standaloneLive&&(!testing||startAtHome)){showProjectHome(true);if(!testing)home->rescan();}if(standaloneLive){liveDocument.emplace();prepareLiveInterface(true);showProjectHome(false);liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};}startTimerHz(30);
 }
 Desktop::~Desktop(){
+    separationWindow.reset();separationJob.reset();
+    separationModelsWindow.reset();
     araDockResizeFrame={};pendingAraDockHeight.reset();resizingAraDock=nullptr;
 #ifdef MRS_HAS_ARA
     *araScanCancel=true;
 #endif
 setAssetDesign(false);setShellDesign(false);juce::PopupMenu::dismissAllActiveMenus();try{saveSettings();}catch(...){}stopTimer();*scanCancel=true;chooser.reset();closeEditors();dockedEditor.reset();home.reset();liveWorkspace.reset();
     if(scanner.valid())scanner.wait();setLookAndFeel(nullptr);mixerViewport.setViewedComponent(nullptr,false);}
-void Desktop::run(std::function<void()> f){try{performAraOperation(*this,f);message.clear();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}else if(recordingPreview.empty()&&audioRecordingPreview.empty())updateRecordingPreview();refresh();}catch(const std::exception& e){mrs::diagnostics::event(std::string("ui_error ")+e.what());refresh();message=label(e.what());repaint();}}
+void Desktop::run(std::function<void()> f){try{message.clear();performAraOperation(*this,f);if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}else if(recordingPreview.empty()&&audioRecordingPreview.empty())updateRecordingPreview();refresh();}catch(const std::exception& e){mrs::diagnostics::event(std::string("ui_error ")+e.what());refresh();message=label(e.what());repaint();}}
 void Desktop::resetDevice(){visualTransport.reset();lastDisplayState={};lastVisualSample=0;app.connect(mrs::audio::make_offline_device(),{0,project()->sample_rate,128,{}, {0,1}});}
 mrs::audio::RealtimeState Desktop::displayState() const noexcept{app.engine()->try_state(lastDisplayState);return lastDisplayState;}
 double Desktop::visualSample(){const auto* engine=app.engine().get();if(liveDocument&&liveDocument->projects.empty()&&liveRuntimeToken&&engine->performance_status().token!=liveRuntimeToken){visualTransport.reset();return lastVisualSample=0;}if(engine!=visualEngine){visualEngine=engine;visualTransport.reset();}mrs::audio::RealtimeState state;if(!engine->try_state(state))return lastVisualSample;return lastVisualSample=visualTransport.sample(state,project()->sample_rate,juce::Time::getMillisecondCounterHiRes());}
@@ -294,6 +300,10 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
         m.addItem(711,"Hot Reload Track Header JSON",trackHeaderLayoutSource!=juce::File() && !app.recording(),
                   trackHeaderHotReload);
         m.addItem(712,"Restore Default Track Header",trackHeaderLayoutSource!=juce::File() && !app.recording());
+#if defined(MRS_SEPARATION_UI)
+        m.addSeparator();m.addItem(715,"Separation models...",!standaloneLive);
+        m.addItem(716,"Separation results...",!standaloneLive);
+#endif
         return m;
     }
     // Existing menus retain their action IDs after inserting Options next to File.
@@ -301,7 +311,7 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
     if(originalIndex==0){m.addItem(6,"Project home");m.addItem(8,"Close project",projectSessionStarted);m.addItem(1,"New project");m.addItem(2,"Open project...");m.addItem(3,"Save");m.addItem(4,"Save as...");m.addItem(5,"Import WAV...");
         juce::PopupMenu recent;for(std::size_t i=0;i<prefs.recent_projects.size();++i)recent.addItem(1000+static_cast<int>(i),label(prefs.recent_projects[i]));m.addSubMenu("Open recent project",recent);m.addSeparator();m.addItem(7,"Open diagnostics folder");}
     if(originalIndex==1){m.addItem(10,"Undo",app.services().projects->state().can_undo);m.addItem(11,"Redo",app.services().projects->state().can_redo);m.addItem(24,"Split selected clip (S)");m.addItem(25,"Delete selected clip (Backspace)");m.addItem(43,"Create MIDI clip at cursor",selectedTrack.has_value());m.addItem(44,"Edit MIDI clip notes",selectedClip.has_value());m.addItem(45,"Duplicate selected clip (D)",selectedClip.has_value());m.addItem(52,"Merge MIDI clips (G)",selectedClips.size()>=2);m.addItem(46,"Loop selected clip",selectedClip.has_value());}
-    if(originalIndex==2){m.addItem(20,"Add audio track");m.addItem(28,"Add instrument track");m.addItem(21,"Add bus");m.addItem(22,"Rename track");m.addItem(23,"Delete track");m.addItem(26,"Move track up");m.addItem(27,"Move track down");}
+    if(originalIndex==2){m.addItem(20,"Add audio track");m.addItem(28,"Add instrument track");m.addItem(21,"Add bus");m.addItem(22,"Rename track");m.addItem(23,folderSelection(selectedTrack).size()>1?"Delete selected tracks":"Delete track",selectedTrack.has_value()&&!app.recording());m.addItem(26,"Move track up");m.addItem(27,"Move track down");}
     if(originalIndex==3){m.addItem(30,"Play");m.addItem(31,"Pause");m.addItem(32,"Stop");m.addItem(33,"Record");m.addItem(34,"Previous section");m.addItem(35,"Next section");m.addItem(36,"Loop section");m.addItem(48,"Previous marker",!app.recording());m.addItem(49,"Next marker",!app.recording());m.addItem(50,"Go to section...",!app.recording());m.addItem(51,"Go to marker...",!app.recording());m.addItem(40,"Audio settings...");m.addItem(41,"Engine profiling...");m.addItem(42,"MIDI panic / all notes off");m.addItem(47,"Project tempo...");
         const auto c=app.click_settings();juce::PopupMenu click,count,level;const bool enabled=!app.recording();
         click.addItem(500,"During playback",enabled,c.playback);click.addItem(501,"During recording",enabled,c.recording);click.addItem(502,"Accent first beat",enabled,c.accent);
@@ -349,7 +359,7 @@ void Desktop::showFolderMenu(mrs::Id id,juce::Point<int> position){
 juce::PopupMenu Desktop::channelMenu(std::optional<mrs::Id> target){
     juce::PopupMenu channelPopup;channelPopup.setLookAndFeel(&theme);const bool enabled=!app.recording()&&!busyGesture();
     channelPopup.addItem(20,"Add audio channel",enabled);channelPopup.addItem(29,"Add FX channel",enabled);channelPopup.addItem(21,"Add Bus channel",enabled);
-    if(target){for(const auto& t:project()->tracks)if(t.id==*target){channelPopup.addSeparator();channelPopup.addItem(23,t.fx_channel?"Del FX channel":t.kind==mrs::TrackKind::bus?"Del Bus channel":"Del channel",enabled);break;}}
+    if(target){for(const auto& t:project()->tracks)if(t.id==*target){channelPopup.addSeparator();channelPopup.addItem(23,folderSelection(target).size()>1?"Delete selected channels":t.fx_channel?"Del FX channel":t.kind==mrs::TrackKind::bus?"Del Bus channel":"Del channel",enabled);break;}}
     channelPopup.addSeparator();channelPopup.addItem(70,"Group selected tracks in folder...",enabled&&!folderSelection(target?target:selectedTrack).empty());
     if(target){channelPopup.addItem(71,"Move selected tracks out of folder",enabled);juce::PopupMenu folders;int n=0;for(const auto& f:project()->folders)folders.addItem(2000+n++,label(f.name));channelPopup.addSubMenu("Move selected tracks into folder",folders,enabled&&n>0);}
     if(target)for(const auto& t:project()->tracks)if(t.id==*target&&t.kind==mrs::TrackKind::audio){
@@ -382,6 +392,10 @@ void Desktop::navigationMenu(bool sections){
 }
 void Desktop::menuItemSelected(int n,int){action(n);}
 void Desktop::action(int n){if(busyGesture()){if(n==3||n==4){reportSaveError("Finish the active edit before saving the show");return;}if(n==34||n==35||n==48||n==49||n==50||n==51){message="Finish editing before navigating";repaint();}return;}mrs::diagnostics::event("ui_action="+std::to_string(n));run([&]{if(standaloneLive&&n==1){action(701);return;}if(standaloneLive&&(n==6||n==8))return;if(standaloneLive&&n==2){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){openFile(file);},"*.mrlive");});return;}
+#if defined(MRS_SEPARATION_UI)
+    if(n==715){if(!standaloneLive)showSeparationModels(*this);return;}
+    if(n==716){if(!standaloneLive)showSeparation(*this);return;}
+#endif
     if(n==710){
         if(app.recording())return;
         choose(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
@@ -433,7 +447,7 @@ void Desktop::action(int n){if(busyGesture()){if(n==3||n==4){reportSaveError("Fi
     else if(n==29)selectedTrack=app.add_fx_channel("FX "+std::to_string(project()->tracks.size()+1));
     else if(n==21)selectedTrack=app.add_bus("Bus "+std::to_string(project()->tracks.size()+1));
     else if(n==22 && selectedTrack)renameTrack(*selectedTrack);
-    else if(n==23 && selectedTrack){closeEditors();app.remove_track(*selectedTrack);selectedTrack.reset();selectedClip.reset();}
+    else if(n==23 && selectedTrack){const auto tracks=folderSelection(selectedTrack);closeEditors();app.remove_tracks(tracks);selectedTracks.clear();selectedTrack.reset();selectedClip.reset();}
     else if((n==26 || n==27) && selectedTrack){const auto p=project();for(std::size_t i=0;i<p->tracks.size();++i)if(p->tracks[i].id==selectedTrack && ((n==26&&i>0)||(n==27&&i+1<p->tracks.size())))app.reorder_track(*selectedTrack,n==26?i-1:i+1);}
     else if(n==47){textDialog("Project tempo (BPM at project start)",juce::String(project()->time.tempos.front().bpm),[this](juce::String text){std::size_t used{};const auto value=std::stod(text.toStdString(),&used);if(used!=static_cast<std::size_t>(text.length()))throw std::runtime_error("Enter a valid BPM number");auto time=project()->time;time.tempos.front().bpm=value;app.set_time_map(std::move(time));});}
     else if(n==43 && selectedTrack){const mrs::Timeline t(project()->time,project()->sample_rate);selectedClip=app.create_midi_clip(*selectedTrack,t.to_ticks(app.engine()->state().sample));openMidiClip(*selectedClip);}
@@ -612,7 +626,8 @@ void Desktop::refresh(bool force){
         for(const auto& t:p->tracks)for(const auto& fx:t.inserts)if(fx.kind==mrs::InsertKind::vst3)mrs::diagnostics::event("plugin track="+t.name+" name="+fx.plugin_name+" path="+fx.plugin_path+" class="+fx.class_id);
         for(const auto& fx:p->master_inserts)if(fx.kind==mrs::InsertKind::vst3)mrs::diagnostics::event("plugin master name="+fx.plugin_name+" path="+fx.plugin_path+" class="+fx.class_id);
         std::erase_if(selectedTracks,[&](const auto& id){return std::none_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id.value==id;});});arrangement->rebuildFolderLayout();arrangement->resized();rebuildMixerFolders();
-        app.prepare_waveforms();for(auto& s:mixer)s->sync();for(auto& s:mixerFolders)s->sync();for(auto& s:arrangement->rows)s->sync();if(master)master->sync();refreshPresetLists();revision=state.revision;resized();}
+        try{app.prepare_waveforms();}catch(const std::exception& e){message="Missing or unreadable media: "+juce::String::fromUTF8(e.what());}
+        for(auto& s:mixer)s->sync();for(auto& s:mixerFolders)s->sync();for(auto& s:arrangement->rows)s->sync();if(master)master->sync();refreshPresetLists();revision=state.revision;resized();}
     // Arm is transient host state and may change without a project revision.
     if(assetSkin()){for(auto& s:mixer)s->refreshArmState();for(auto& s:arrangement->rows)s->refreshArmState();}
     navigationMode.setEnabled(!app.recording());previous.setEnabled(!app.recording());next.setEnabled(!app.recording());
@@ -672,6 +687,9 @@ bool Desktop::keyPressed(const juce::KeyPress& k){if(workspaceShortcut(k))return
     if(k.getKeyCode()==juce::KeyPress::escapeKey&&livePendingItem.isNotEmpty()){cancelLiveSwitch();return true;}
     if(k.getKeyCode()==juce::KeyPress::escapeKey&&app.stretch_status().busy){app.cancel_stretch();return true;}
     if(k.getKeyCode()==juce::KeyPress::escapeKey&&app.wav_import_status().busy){app.cancel_wav_import();return true;}
+#if defined(MRS_SEPARATION_UI)
+    if(k.getKeyCode()==juce::KeyPress::escapeKey&&separationJob&&(separationJob->status().state==mr::separation::State::running||separationJob->status().state==mr::separation::State::ready)){separationJob->cancel();return true;}
+#endif
     if(homeVisible){if(k.getModifiers().isCtrlDown()&&k.getKeyCode()=='O'){action(2);return true;}if(k.getModifiers().isCtrlDown()&&k.getKeyCode()=='N'){action(1);return true;}return false;}
     auto c=k.getKeyCode();if(k.getModifiers().isAltDown())return false;if(k.getModifiers().isCtrlDown()){if(c=='D'&&(arrangement->sections->hasSelection()||arrangement->chords->hasSelection()||arrangement->markers->hasSelection())){action(45);return true;}if(c=='Z'){action(10);return true;}if(c=='Y'){action(11);return true;}if(c=='S'){action(3);return true;}if(c=='O'){action(2);return true;}if(c=='N'){action(1);return true;}return false;}
     if(k.getModifiers().isShiftDown())return false;
@@ -1432,6 +1450,13 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
             g.setColour(owner.selectionColour().withAlpha(.8f));g.drawRoundedRectangle(rect.reduced(.5f),cornerRadius,1.f);
             g.drawText(juce::File(dropFiles[static_cast<int>(i)]).getFileName(),rect.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);
         }
+        const auto pending=pendingWavDropRects();
+        for(std::size_t i=0;i<pending.size();++i){const auto& rect=pending[i];
+            g.setColour(owner.selectionColour().withAlpha(.25f));g.fillRoundedRectangle(rect,cornerRadius);
+            g.setColour(owner.selectionColour());g.drawRoundedRectangle(rect.reduced(.5f),cornerRadius,1.f);
+            const auto percent=juce::String(static_cast<int>(owner.app.wav_import_status().progress*100.f));
+            g.drawText("Importing "+percent+"% - "+juce::File(pendingWavDrop_->files[static_cast<int>(i)]).getFileName(),rect.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);
+        }
     }
     {juce::Graphics::ScopedSaveState save(g);g.reduceClipRegion(juce::Rectangle<int>(left,headerHeight(),getWidth()-left,getHeight()-headerHeight()));for(const auto& rect:midiDropRects()){g.setColour(owner.selectionColour().withAlpha(.25f));g.fillRoundedRectangle(rect,cornerRadius);g.setColour(owner.selectionColour().withAlpha(.8f));g.drawRoundedRectangle(rect.reduced(.5f),cornerRadius,1.f);g.drawText("MIDI",rect.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);}}
     for(const auto& c:owner.recordingPreview){auto r=clipRect(c);g.setColour(juce::Colour(0xff683741).withAlpha(.72f));g.fillRoundedRectangle(r,cornerRadius);g.setColour(juce::Colours::salmon);g.drawRoundedRectangle(r.reduced(.5f),cornerRadius,borderWidth);g.drawText("Recording MIDI",r.toNearestInt().withHeight(20).reduced(5,0),juce::Justification::left);g.saveState();g.reduceClipRegion(r.toNearestInt().reduced(1));for(const auto& n:c.midi->notes){const auto begin=std::max(n.start,c.midi->source_offset),end=std::min(n.start+n.length,c.midi->source_offset+c.midi->length);if(begin>=end)continue;const float x=static_cast<float>(left+static_cast<double>(time.to_samples(c.midi->start+begin-c.midi->source_offset))/p->sample_rate*pixelsPerSecond-horizontal);const float width=static_cast<float>(static_cast<double>(time.to_samples(c.midi->start+end-c.midi->source_offset)-time.to_samples(c.midi->start+begin-c.midi->source_offset))/p->sample_rate*pixelsPerSecond);g.fillRect(x,r.getY()+25+(127-n.pitch)/127.f*juce::jmax(1.f,r.getHeight()-32),juce::jmax(2.f,width),3.f);}g.restoreState();}
@@ -1486,6 +1511,9 @@ void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
     if(!c->midi)owner.addAraMenus(menu,id);
 #endif
     if(!c->midi)menu.addItem(20,"Time / Pitch...",enabled&&owner.displayState().playback!=mrs::PlaybackState::playing);
+#if defined(MRS_SEPARATION_UI)
+    if(!c->midi&&!owner.standaloneLive){menu.addItem(21,"Separate into Stems...",enabled);menu.addItem(22,"Separation results...",enabled);}
+#endif
     menu.addItem(1,"Split selected clips (S)",enabled);menu.addItem(2,"Duplicate (D)",enabled);menu.addItem(3,"Merge MIDI clips (G)",enabled&&ids.size()>1);menu.addItem(4,"Delete selected clips",enabled);menu.addItem(5,"Default color",enabled);menu.addItem(6,"Rename selected clips...",enabled);menu.addSeparator();auto palette=std::make_unique<MenuColourPalette>(owner.theme,*color,color,true,owner.assetSkin()!=nullptr);palette->setEnabled(enabled);menu.addCustomItem(10,std::move(palette),nullptr,"Clip colors");
     const auto cut=sampleAt(static_cast<float>(getLocalPoint(nullptr,point).x));juce::Component::SafePointer<Arrangement> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({point.x,point.y,1,1}),[safe,store,ids,color,cut,id](int result){if(!safe||!result)return;safe->owner.run([&]{if(store!=safe->owner.app.services().projects)throw std::runtime_error("Project changed; reopen clip menu");
@@ -1493,6 +1521,9 @@ void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
         if(result>=300){safe->owner.araChoice(id,result);return;}
 #endif
         if(result==20){safe->owner.editClipStretch(id);return;}
+#if defined(MRS_SEPARATION_UI)
+        if(result==21||result==22){showSeparation(safe->owner,id);return;}
+#endif
         if(result==6){safe->owner.renameClips(ids);return;}if(result==10||result==5)safe->owner.app.set_clip_colors(ids,result==5?std::nullopt:std::optional<std::uint32_t>{*color});else if(result==1)safe->owner.app.split_clips(ids,cut);else if(result==2)safe->owner.app.duplicate_clip(ids.front());else if(result==3)safe->owner.activateClip(safe->owner.app.merge_midi_clips(ids));else if(result==4)safe->owner.app.remove_clips(ids);});});
 }
 void Arrangement::mouseDown(const juce::MouseEvent& e){
@@ -1543,7 +1574,11 @@ void Arrangement::mouseUp(const juce::MouseEvent& e){
     else if(std::abs(e.x-dragX)>=2||trackDelta!=0)owner.run([&]{if(copy){const auto p=owner.project();for(const auto& original:baseline){const auto current=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& item){return item.id==original.id;});if(current==p->clips.end()||*current!=original)throw std::runtime_error("Source clip changed; retry copy drag");}const auto copied=owner.app.copy_clips(std::move(group),delta,trackDelta);owner.activateClip(copied.front());owner.selectedClips.clear();for(const auto& id:copied)owner.selectedClips.insert(id.value);}else owner.app.move_clips(std::move(group),delta,trackDelta);});
     repaint();
 }
-bool Arrangement::keyPressed(const juce::KeyPress& key){if(key.getKeyCode()!=juce::KeyPress::escapeKey)return false;if(owner.app.wav_import_status().busy)owner.app.cancel_wav_import();if(owner.app.stretch_status().busy)owner.app.cancel_stretch();cancelGesture();return true;}
+bool Arrangement::keyPressed(const juce::KeyPress& key){if(key.getKeyCode()!=juce::KeyPress::escapeKey)return false;if(owner.app.wav_import_status().busy)owner.app.cancel_wav_import();if(owner.app.stretch_status().busy)owner.app.cancel_stretch();
+#if defined(MRS_SEPARATION_UI)
+if(owner.separationJob)owner.separationJob->cancel();
+#endif
+cancelGesture();return true;}
 void Arrangement::cancelGesture(){rulerSeeking=false;fadeOriginal.reset();fadeStore.reset();shiftRemove=false;setMouseCursor(juce::MouseCursor::NormalCursor);drag.reset();dragTrack.reset();dragGroup.clear();copyDrag=false;dragMoved=false;selecting=false;selectionBox={};repaint();}
 void Arrangement::focusLost(FocusChangeType){cancelGesture();}
 void Arrangement::wheel(float delta,juce::ModifierKeys mods,float x){if(mods.isCtrlDown()){if(mods.isShiftDown()){const auto before=static_cast<mrs::Sample>(std::clamp((x-left+horizontal)/pixelsPerSecond*owner.project()->sample_rate,0.,static_cast<double>(mrs::max_sample)));pixelsPerSecond=juce::jlimit(.1,2400.,pixelsPerSecond*std::pow(1.25,delta*4));horizontal=juce::jmax(0.,static_cast<double>(before)/owner.project()->sample_rate*pixelsPerSecond-(x-left));}
@@ -1612,11 +1647,36 @@ std::vector<juce::Rectangle<float>> Arrangement::wavDropRects() const {
     }
     return result;
 }
-void Arrangement::filesDropped(const juce::StringArray& files,int x,int y){fileDragExit(files);owner.run([&]{
+std::vector<juce::Rectangle<float>> Arrangement::pendingWavDropRects() const {
+    std::vector<juce::Rectangle<float>> result;
+    const auto status=owner.app.wav_import_status();
+    if(!pendingWavDrop_||!status.busy||status.revision!=pendingWavDrop_->importRevision||pendingWavDrop_->store.lock()!=owner.app.services().projects)return result;
+    const auto& drop=*pendingWavDrop_;const auto p=owner.project();
+    int row=static_cast<int>(p->tracks.size());
+    if(drop.target){const auto at=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==*drop.target;});
+        if(at==p->tracks.end())return result;row=static_cast<int>(std::distance(p->tracks.begin(),at));}
+    double x=left+static_cast<double>(drop.start)/p->sample_rate*pixelsPerSecond-horizontal;
+    for(int i=0;i<drop.files.size();++i){
+        // Metadata is reused from the drag worker. A quick drop with no metadata
+        // still shows a labelled placeholder; paint never opens the WAV file.
+        float width=120.f;
+        if(static_cast<std::size_t>(i)<drop.waves.size()){const auto& wave=drop.waves[static_cast<std::size_t>(i)];
+            if(wave.rate&&wave.frames){const auto frames=(wave.frames*p->sample_rate+wave.rate-1)/wave.rate;
+                width=std::max(2.f,static_cast<float>(static_cast<double>(frames)/p->sample_rate*pixelsPerSecond));}}
+        result.push_back({static_cast<float>(x),static_cast<float>(headerHeight()+trackY(row)-vertical+1),width,static_cast<float>(trackHeight-2)});
+        if(drop.target)x+=width;else ++row;
+    }
+    return result;
+}
+void Arrangement::filesDropped(const juce::StringArray& files,int x,int y){
+    std::vector<DropWave> waves;{std::lock_guard lock(dropMutex);if(files==dropFiles)waves=dropWaves;}
+    fileDragExit(files);owner.run([&]{
     if(!isInterestedInFileDrag(files)||y<headerHeight())throw std::runtime_error("Drop WAV or MIDI files below the ruler");
     std::vector<std::filesystem::path> paths;for(const auto& file:files)paths.push_back(path(juce::File(file)));
     if(juce::File(files[0]).hasFileExtension("mid;midi")){const auto tick=midiDropTick(x);owner.closeEditors();const auto clips=owner.app.import_midi(paths,midiDropTarget(y),tick);owner.activateClip(clips.front());}
-    else {std::optional<mrs::Id> target;const int at=trackAt(static_cast<float>(y));if(at>=0&&at<static_cast<int>(owner.project()->tracks.size()))target=owner.project()->tracks[static_cast<std::size_t>(at)].id;owner.closeEditors();owner.app.queue_wav_import(paths,target,x<left?0:sampleAt(static_cast<float>(x)));}
+    else {std::optional<mrs::Id> target;const int at=trackAt(static_cast<float>(y));if(at>=0&&at<static_cast<int>(owner.project()->tracks.size()))target=owner.project()->tracks[static_cast<std::size_t>(at)].id;
+        const auto start=x<left?0:sampleAt(static_cast<float>(x));owner.closeEditors();owner.app.queue_wav_import(paths,target,start);
+        pendingWavDrop_=PendingWavDrop{owner.app.services().projects,owner.app.wav_import_status().revision,target,start,files,std::move(waves)};}
     owner.refresh(true);
 });}
 bool Arrangement::isInterestedInDragSource(const SourceDetails& details){

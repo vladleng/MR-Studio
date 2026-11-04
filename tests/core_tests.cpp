@@ -58,7 +58,7 @@ void inserts() {
     NativeInsert reverb;reverb.id=new_id();reverb.kind=InsertKind::reverb;
     CHECK(reverb.reverb.mix==.25f);store.execute(SetInserts{track,{reverb}});
     CHECK(deserialize(serialize(*store.state().project))==*store.state().project);
-    auto legacyReverb=without_fx_roles(serialize(*store.state().project));legacyReverb.replace(0,(std::string("MRS_CORE_SNAPSHOT ")+std::to_string(schema_version)).size(),"MRS_CORE_SNAPSHOT 16");
+    auto legacyReverb=without_fx_roles(serialize(*store.state().project));legacyReverb.replace(0,legacyReverb.find('\n'),"MRS_CORE_SNAPSHOT 16");
     const auto stateAt=legacyReverb.find("REVERB 2 "),lineEnd=legacyReverb.find('\n',stateAt);legacyReverb.erase(lineEnd-6,6); // default " 0 -90"
     legacyReverb.replace(stateAt,std::string("REVERB 2").size(),"REVERB 1");
     CHECK(deserialize(legacyReverb)==*store.state().project); // legacy gate disabled, default threshold
@@ -151,7 +151,7 @@ void sends() {
     store.execute(RemoveTrack{Id{"r1"}});
     CHECK(store.state().project->tracks.front().sends.size() == 1);
     CHECK(store.undo() && store.state().project->tracks.front().sends.size() == 2);
-    auto bytes = serialize(saved); const auto head = bytes.find("MRS_CORE_SNAPSHOT "+std::to_string(schema_version)); CHECK(head == 0);
+    auto bytes = serialize(saved); CHECK(bytes.starts_with("MRS_CORE_SNAPSHOT 32\n")); // no separation records: preserve existing wire compatibility
     const std::string old = "MRS_CORE_SNAPSHOT 4\nPROJECT \"old\" \"Old\" \"\" 48000\nTEMPOS 1\n0 120\nMETERS 1\n1 4 4\nFOLDERS 0\nTRACKS 1\n\"a\" \"Audio\" 0 \"\"\n1 0 0 0\n\"\"\nCLIPS 0\nMARKERS 0\nCHORDS 0\nSECTIONS 0\nMASTER 1\nEND\n";
     const auto migrated = deserialize(old); CHECK(migrated.tracks.front().sends.empty() && migrated.tracks.front().input == -2);
 }
@@ -340,6 +340,31 @@ struct ReentrantCommand final : mrs::ICommand {
     std::string_view name() const override { return "Reentrant"; }
     void apply(mrs::Project&) const override { (void)store.undo(); }
 };
+void remove_tracks() {
+    using namespace mrs;
+    auto p=demo_project();p.tracks.resize(1);p.clips.resize(1);const auto kept=p.tracks.front().id;
+    p.tracks.push_back({{"sub"},"Sub",TrackKind::bus,{}});
+    p.tracks.push_back({{"sum"},"Sum",TrackKind::bus,{}});
+    p.tracks.push_back({{"discard"},"Discard",TrackKind::audio,{}});
+    p.tracks.front().output=Id{"sub"};p.tracks.front().hardware_outputs.clear();
+    p.tracks[1].output=Id{"sum"};p.tracks[1].hardware_outputs.clear();p.tracks[2].hardware_outputs={4,5};
+    p.tracks.front().sends={{{"sub"},.5f,false},{{"sum"},.25f,false}};
+    auto clip=p.clips.front();clip.id={"discard-clip"};clip.track={"discard"};p.clips.push_back(clip);p.validate();
+    ProjectStore store{p};const auto revision=store.state().revision;
+    store.execute(RemoveTracks{{Id{"sub"},Id{"sum"},Id{"discard"}}});
+    const auto removed=*store.state().project;
+    CHECK(store.state().revision==revision+1&&removed.tracks.size()==1&&removed.tracks.front().id==kept);
+    CHECK(!removed.tracks.front().output&&removed.tracks.front().hardware_outputs==std::vector<int>({4,5})&&removed.tracks.front().sends.empty());
+    CHECK(removed.clips.size()==p.clips.size()-1&&deserialize(serialize(removed))==removed);
+    CHECK(store.undo()&&*store.state().project==p);CHECK(store.redo()&&*store.state().project==removed);
+    auto reverse=p;RemoveTracks{{Id{"discard"},Id{"sum"},Id{"sub"}}}.apply(reverse);CHECK(reverse==removed);
+    for(const auto& ids:std::vector<std::vector<Id>>{{},{kept,kept},{kept,Id{"missing"}}}){
+        const auto before=store.state();rejects([&]{store.execute(RemoveTracks{ids});});CHECK(store.state().revision==before.revision&&store.state().project==before.project);
+        auto direct=removed;rejects([&]{RemoveTracks{ids}.apply(direct);});CHECK(direct==removed);
+    }
+    store.execute(RemoveTracks{{kept}});CHECK(store.state().project->tracks.empty()&&store.state().project->clips.empty());
+    CHECK(store.undo()&&*store.state().project==removed);
+}
 void commands() {
     mrs::ProjectStore store{mrs::demo_project()};
     std::vector<mrs::ProjectState> events;
@@ -498,6 +523,7 @@ int main(int argc, char** argv) {
         else if (suite == "timeline") timeline();
         else if (suite == "transport") transport();
         else if (suite == "commands") commands();
+        else if (suite == "remove_tracks") remove_tracks();
         else if (suite == "serialization") serialization();
         else if (suite == "integration") integration();
         else throw std::runtime_error("unknown suite");

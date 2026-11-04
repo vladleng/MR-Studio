@@ -39,6 +39,22 @@ void track_folders(){
     CHECK(app.undo());app.pause();eventually([&]{return app.engine()->state().playback!=PlaybackState::playing;});
     app.remove_track(bus);CHECK(!app.services().projects->state().project->folders.back().bus);CHECK(app.undo());
 }
+void remove_tracks(){
+    Directory dir;Application app;app.disconnect();app.new_project();
+    const auto a=app.add_audio_track("Keep"),b=app.add_audio_track("Remove"),c=app.add_instrument_track("Keys");
+    const auto midi=app.create_midi_clip(c,0);(void)midi;
+    const auto folder=app.create_track_folder("Group",{a,b});app.link_folder_bus(folder,{},true);
+    const auto before=*app.services().projects->state().project;const auto bus=*before.folders.back().bus;
+    const auto revision=app.services().projects->state().revision;
+    app.remove_tracks({b,c,bus});const auto after=*app.services().projects->state().project;
+    CHECK(app.services().projects->state().revision==revision+1&&after.tracks.size()==1&&after.tracks.front().id==a);
+    CHECK(after.clips.empty()&&!after.tracks.front().output&&!after.folders.back().bus);
+    CHECK(app.undo()&&*app.services().projects->state().project==before);
+    CHECK(app.redo()&&*app.services().projects->state().project==after);
+    const auto stable=app.services().projects->state();rejects([&]{app.remove_tracks({a,Id{"missing"}});});
+    CHECK(app.services().projects->state().revision==stable.revision&&app.services().projects->state().project==stable.project);
+    app.save_project(dir.path/"Removed.mrsproject");app.open_project(app.path());CHECK(*app.services().projects->state().project==after);
+}
 void workspaces() {
     Application app; auto services = app.services(); auto graph = app.graphs(); auto engine = app.engine();
     for (auto w : {Workspace::arrange,Workspace::mix,Workspace::edit,Workspace::live}) {
@@ -1213,6 +1229,7 @@ int main(int argc, char** argv) {
         if (argc != 2) throw std::runtime_error("expected suite");
         std::string name = argv[1];
         if(name=="track_folders"){track_folders();std::cout<<"PASS desktop track_folders\n";return 0;}
+        if(name=="remove_tracks"){remove_tracks();std::cout<<"PASS desktop remove_tracks\n";return 0;}
         if(name=="meter"){meter();std::cout<<"PASS desktop meter\n";return 0;}
         if(name=="tempo"){tempo();std::cout<<"PASS desktop tempo\n";return 0;}
         if(name=="sections"){sections();std::cout<<"PASS desktop sections\n";return 0;}

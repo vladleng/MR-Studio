@@ -91,7 +91,9 @@ std::string serialize(const Project& p) {
     std::ostringstream out;
     out.imbue(std::locale::classic());
     out << std::setprecision(std::numeric_limits<double>::max_digits10);
-    out << "MRS_CORE_SNAPSHOT " << p.version << '\n';
+    // Unaffected Studio/Live projects retain the previous wire format. Schema 33
+    // is required only when there are actual separation records to preserve.
+    out << "MRS_CORE_SNAPSHOT " << (p.separation_results.empty()?32:std::all_of(p.separation_results.begin(),p.separation_results.end(),legacy_separation)?33:p.version) << '\n';
     out << "PROJECT " << std::quoted(p.id.value) << ' ' << std::quoted(p.title) << ' '
         << std::quoted(p.artist) << ' ' << p.sample_rate << '\n';
     section(out, "TEMPOS", p.time.tempos);
@@ -157,6 +159,15 @@ std::string serialize(const Project& p) {
     const auto stretched=std::count_if(p.clips.begin(),p.clips.end(),[](const auto& c){return c.stretch.has_value();});
     if(stretched){out<<"STRETCH_CLIPS "<<stretched<<'\n';for(const auto& c:p.clips)if(c.stretch){const auto& s=*c.stretch;
         out<<std::quoted(c.id.value)<<' '<<std::quoted(stretch::serialize(s.parameters))<<' '<<s.source_frames<<' '<<s.window_begin<<' '<<s.window_end<<'\n';}}
+    if(!p.separation_results.empty()){
+        out<<"SEPARATION_RESULTS "<<p.separation_results.size()<<'\n';
+        const auto file=[&](const SeparationFile& f){out<<std::quoted(f.role)<<' '<<std::quoted(f.source)<<' '<<std::quoted(f.sha256)<<' '<<f.bytes<<'\n';};
+        for(const auto& r:p.separation_results){
+            out<<std::quoted(r.id.value)<<' '<<std::quoted(r.source_clip.value)<<' '<<std::quoted(r.source)<<' '<<std::quoted(r.source_sha256)<<' '<<std::quoted(r.model)<<' '<<std::quoted(r.model_version)<<' '<<std::quoted(r.provenance)<<'\n';
+            out<<r.source_offset<<' '<<r.source_frames<<' '<<r.start<<' '<<r.frames<<' '<<r.fade_in<<' '<<r.fade_out<<' '<<r.source_rate<<' '<<r.sample_rate<<' '<<r.stems.size()<<'\n';
+            file(r.manifest);for(const auto& f:r.stems)file(f);
+        }
+    }
     out << "END\n";
     auto result = out.str();
     if (result.size() > max_bytes) throw std::invalid_argument("snapshot byte limit exceeded");
@@ -336,6 +347,14 @@ Project deserialize(std::string_view bytes) {
         for(std::size_t i=0;i<total;++i){const Id id{quoted(in)};const auto found=std::find_if(p.clips.begin(),p.clips.end(),[&](const auto& c){return c.id==id;});
             if(found==p.clips.end()||found->midi||found->stretch)throw std::invalid_argument("Invalid stretch clip identity");
             ClipStretch s;s.parameters=stretch::deserialize(quoted(in));in>>s.source_frames>>s.window_begin>>s.window_end;check_stream(in);found->stretch=s;}
+        in>>ending;check_stream(in);
+    }
+    if(input_version>=33&&ending=="SEPARATION_RESULTS"){
+        const auto total=count(in);if(total>64)throw std::invalid_argument("Too many separation results");
+        const auto file=[&]{SeparationFile f;f.role=quoted(in);f.source=quoted(in);f.sha256=quoted(in);in>>f.bytes;check_stream(in);return f;};
+        for(std::size_t i=0;i<total;++i){SeparationResult r;r.id={quoted(in)};r.source_clip={quoted(in)};r.source=quoted(in);r.source_sha256=quoted(in);r.model=quoted(in);r.model_version=quoted(in);r.provenance=quoted(in);
+            in>>r.source_offset>>r.source_frames>>r.start>>r.frames>>r.fade_in>>r.fade_out>>r.source_rate>>r.sample_rate;const auto stems=count(in);if(stems==0||stems>53||(input_version<=33&&stems!=2&&stems!=4&&stems!=6))throw std::invalid_argument("Unsupported separation stems");
+            r.manifest=file();for(std::size_t j=0;j<stems;++j)r.stems.push_back(file());if(input_version<=33&&!legacy_separation(r))throw std::invalid_argument("Unsupported legacy separation roles");p.separation_results.push_back(std::move(r));}
         in>>ending;check_stream(in);
     }
     if(ending!="END")throw std::invalid_argument("invalid snapshot ending");

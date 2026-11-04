@@ -1,0 +1,380 @@
+[
+  {
+    "id": "official-htdemucs-derived-2-v1",
+    "title": "HTDemucs - 2 stems",
+    "architecture": "Demucs",
+    "version": "955717e8",
+    "model_file": "htdemucs.yaml",
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "native_stems": [
+      "Vocals",
+      "Drums",
+      "Bass",
+      "Other"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 3221225472,
+    "files": [
+      {
+        "name": "htdemucs.yaml",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/htdemucs.yaml",
+        "sha256": "239c445d0b14454d541ad8bd9bb271c9e536d267e8a4625208744cbb2e7bb66c",
+        "bytes": 21
+      },
+      {
+        "name": "955717e8-8726e21a.th",
+        "url": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th",
+        "sha256": "8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4",
+        "bytes": 84141911
+      }
+    ],
+    "provenance": "audio-separator 0.48.0 / 4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e; full SHA256 pinned; checkpoint license review deferred",
+    "chunks": [
+      "default",
+      "small"
+    ]
+  },
+  {
+    "id": "official-htdemucs-4-v1",
+    "title": "HTDemucs - 4 stems",
+    "architecture": "Demucs",
+    "version": "955717e8",
+    "model_file": "htdemucs.yaml",
+    "stems": [
+      "Vocals",
+      "Drums",
+      "Bass",
+      "Other"
+    ],
+    "native_stems": [
+      "Vocals",
+      "Drums",
+      "Bass",
+      "Other"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 3221225472,
+    "files": [
+      {
+        "name": "htdemucs.yaml",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/htdemucs.yaml",
+        "sha256": "239c445d0b14454d541ad8bd9bb271c9e536d267e8a4625208744cbb2e7bb66c",
+        "bytes": 21
+      },
+      {
+        "name": "955717e8-8726e21a.th",
+        "url": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th",
+        "sha256": "8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4",
+        "bytes": 84141911
+      }
+    ],
+    "provenance": "audio-separator 0.48.0 / 4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e; full SHA256 pinned; checkpoint license review deferred",
+    "chunks": [
+      "default",
+      "small"
+    ]
+  },
+  {
+    "id": "htdemucs-6s",
+    "title": "HTDemucs - 6 stems (piano experimental)",
+    "architecture": "Demucs",
+    "version": "5c90dfd2",
+    "model_file": "htdemucs_6s.yaml",
+    "stems": [
+      "Vocals",
+      "Drums",
+      "Bass",
+      "Guitar",
+      "Piano",
+      "Other"
+    ],
+    "native_stems": [
+      "Vocals",
+      "Drums",
+      "Bass",
+      "Guitar",
+      "Piano",
+      "Other"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 3221225472,
+    "files": [
+      {
+        "name": "htdemucs_6s.yaml",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/htdemucs_6s.yaml",
+        "sha256": "207405151270af8fd81c2373c25d27950916682ac91dca7884a11ce13dad6f58",
+        "bytes": 21
+      },
+      {
+        "name": "5c90dfd2-34c22ccb.th",
+        "url": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/5c90dfd2-34c22ccb.th",
+        "sha256": "34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd",
+        "bytes": 54996327
+      }
+    ],
+    "provenance": "audio-separator 0.48.0 / 4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e; full SHA256 pinned; checkpoint license review deferred",
+    "chunks": [
+      "default",
+      "small"
+    ]
+  },
+  {
+    "id": "bs-roformer-viperx-2-v1",
+    "title": "BS-RoFormer Viperx - 2 stems",
+    "architecture": "MDXC",
+    "version": "ep317-12.9755",
+    "model_file": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "native_stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 6442450944,
+    "files": [
+      {
+        "name": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+        "sha256": "5b84f37e8d444c8cb30c79d77f613a41c05868ff9c9ac6c7049c00aefae115aa",
+        "bytes": 639331213
+      },
+      {
+        "name": "model_bs_roformer_ep_317_sdr_12.9755.yaml",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/model_bs_roformer_ep_317_sdr_12.9755.yaml",
+        "sha256": "2bfdd16c656bd9519aba757cc4f8834b7ede675eb1e00ec4772d74ae1c41af7f",
+        "bytes": 2273
+      }
+    ],
+    "provenance": "audio-separator 0.48.0 / 4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e; full SHA256 pinned; checkpoint license review deferred",
+    "chunks": [
+      "default",
+      "small"
+    ]
+  },
+  {
+    "id": "mel-roformer-kim-2-v1",
+    "title": "Mel-Band RoFormer - 2 stems",
+    "architecture": "MDXC",
+    "version": "87201f4d",
+    "model_file": "vocals_mel_band_roformer.ckpt",
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "native_stems": [
+      "Vocals",
+      "Other"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 6442450944,
+    "files": [
+      {
+        "name": "vocals_mel_band_roformer.ckpt",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/vocals_mel_band_roformer.ckpt",
+        "sha256": "87201f4d31afb5bc79993230fc49446918425574db48c01c405e44f365c7559e",
+        "bytes": 913106900
+      },
+      {
+        "name": "vocals_mel_band_roformer.yaml",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/vocals_mel_band_roformer.yaml",
+        "sha256": "b958b29c8f7195f0d86bee6759a33980db675c4ecaf2fcaa80fa125828e6cd38",
+        "bytes": 944
+      }
+    ],
+    "provenance": "audio-separator 0.48.0 / 4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e; full SHA256 pinned; checkpoint license review deferred",
+    "chunks": [
+      "default",
+      "small"
+    ]
+  },
+  {
+    "id": "mdx-kara2-2-v1",
+    "title": "MDX KARA 2 - 2 stems",
+    "architecture": "MDX",
+    "version": "bf32e151",
+    "model_file": "UVR_MDXNET_KARA_2.onnx",
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "native_stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 3221225472,
+    "files": [
+      {
+        "name": "UVR_MDXNET_KARA_2.onnx",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/UVR_MDXNET_KARA_2.onnx",
+        "sha256": "bf32e15105a09c0f7dddd2b67346146334d6f3ecb399ed7638eba2ab07cbf5f4",
+        "bytes": 52786726
+      }
+    ],
+    "provenance": "audio-separator 0.48.0 / 4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e; full SHA256 pinned; checkpoint license review deferred",
+    "model_data": {
+      "compensate": 1.065,
+      "mdx_dim_f_set": 2048,
+      "mdx_dim_t_set": 8,
+      "mdx_n_fft_scale_set": 5120,
+      "primary_stem": "Instrumental",
+      "is_karaoke": true
+    },
+    "metadata_source": "TRvlvr/application_data@3826b05b570dbd4fbedbc807758803b35348ba1b/mdx_model_data/model_data_new.json; tail-MD5 1d64a6d2c30f709b8c9b4ce1366d96ee",
+    "chunks": [
+      "default"
+    ]
+  },
+  {
+    "id": "bs-roformer-sw-6-v1",
+    "version": "24e7d35e",
+    "title": "BS-RoFormer SW Fixed - 6 stems",
+    "architecture": "MDXC",
+    "model_file": "BS-Rofo-SW-Fixed.ckpt",
+    "stems": [
+      "Bass",
+      "Drums",
+      "Other",
+      "Vocals",
+      "Guitar",
+      "Piano"
+    ],
+    "native_stems": [
+      "Bass",
+      "Drums",
+      "Other",
+      "Vocals",
+      "Guitar",
+      "Piano"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 6442450944,
+    "independent_heads": true,
+    "additive": true,
+    "chunks": [
+      "default",
+      "small"
+    ],
+    "provenance": "FractalSurfer/BS-RoFormer-SW-6stem@2b98254b19bdab07ce225d884ec4aa9dd8aafce1; original weights license unknown/review deferred",
+    "files": [
+      {
+        "name": "BS-Rofo-SW-Fixed.ckpt",
+        "url": "https://huggingface.co/FractalSurfer/BS-RoFormer-SW-6stem/resolve/2b98254b19bdab07ce225d884ec4aa9dd8aafce1/BS-Rofo-SW-Fixed.ckpt",
+        "bytes": 699412152,
+        "sha256": "24e7d35ee9c64415673d3fd33e06a67cac2c103c5df6267ba1576459c775916e"
+      },
+      {
+        "name": "BS-Rofo-SW-Fixed.yaml",
+        "url": "https://huggingface.co/FractalSurfer/BS-RoFormer-SW-6stem/resolve/2b98254b19bdab07ce225d884ec4aa9dd8aafce1/BS-Rofo-SW-Fixed.yaml",
+        "bytes": 4613,
+        "sha256": "f9fada9f94e5ba2d2e4600196299459294bc5f532b314c209cc156ac63e4329b"
+      }
+    ]
+  },
+  {
+    "id": "scnet-xl-ihf-4-v1",
+    "version": "ac25975f",
+    "title": "SCNet XL IHF - 4 stems",
+    "architecture": "SCNet",
+    "model_file": "model_scnet_ep_36_sdr_10.0891.ckpt",
+    "stems": [
+      "Drums",
+      "Bass",
+      "Other",
+      "Vocals"
+    ],
+    "native_stems": [
+      "Drums",
+      "Bass",
+      "Other",
+      "Vocals"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 4294967296,
+    "additive": true,
+    "chunks": [
+      "default",
+      "small"
+    ],
+    "provenance": "MSST release v1.0.15 SCNet XL IHF; narrow MIT adapter@f0b527736e7da24eae5b561a2bb1efd0569ec757; checkpoint rights review deferred",
+    "adapter_sha256": "fc88774236c442430e05707346a8d61789d31aadc190789dd268a7914447d8ac",
+    "files": [
+      {
+        "name": "model_scnet_ep_36_sdr_10.0891.ckpt",
+        "url": "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.15/model_scnet_ep_36_sdr_10.0891.ckpt",
+        "bytes": 214063778,
+        "sha256": "ac25975f0f5704f3d1a3c3c251505b7a0f417a22eafe82773440ee4f7e14b74f"
+      },
+      {
+        "name": "config_musdb18_scnet_xl_more_wide_v5.yaml",
+        "url": "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.15/config_musdb18_scnet_xl_more_wide_v5.yaml",
+        "bytes": 5906,
+        "sha256": "54ddcb8aeeae85c8d0e148741e7d87b0fbd38bd21cffa5d59ba124fe1e672f40"
+      }
+    ]
+  },
+  {
+    "id": "official-htdemucs-ft-4-v1",
+    "title": "HTDemucs FT - 4 stems (4 passes)",
+    "architecture": "Demucs",
+    "version": "69470b8c",
+    "model_file": "htdemucs_ft.yaml",
+    "stems": [
+      "Drums",
+      "Bass",
+      "Other",
+      "Vocals"
+    ],
+    "native_stems": [
+      "Drums",
+      "Bass",
+      "Other",
+      "Vocals"
+    ],
+    "rate": 44100,
+    "min_cuda_bytes": 3221225472,
+    "files": [
+      {
+        "name": "htdemucs_ft.yaml",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/htdemucs_ft.yaml",
+        "sha256": "69470b8c1bbd674437b51bc9fb491327a10ab0396b702c93389b9cf750016346",
+        "bytes": 149
+      },
+      {
+        "name": "f7e0c4bc-ba3fe64a.th",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/f7e0c4bc-ba3fe64a.th",
+        "sha256": "ba3fe64ae8ef66ac9a4857222ce48efbdc5eb3ad375cb79dd13debee5aaa4066",
+        "bytes": 84141271
+      },
+      {
+        "name": "d12395a8-e57c48e6.th",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/d12395a8-e57c48e6.th",
+        "sha256": "e57c48e6b0e38af4f7118d7bd08c49f0a0c0edf7d09143bdd902ea0d237303e6",
+        "bytes": 84141271
+      },
+      {
+        "name": "92cfc3b6-ef3bcb9c.th",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/92cfc3b6-ef3bcb9c.th",
+        "sha256": "ef3bcb9c8b40d14ae5d51b6db2587339cc12c6b77c0be151ce6d69002e087bf2",
+        "bytes": 84141271
+      },
+      {
+        "name": "04573f0d-f3cf25b2.th",
+        "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/04573f0d-f3cf25b2.th",
+        "sha256": "f3cf25b222c4eed7cd49dd8b2c9597d50c18bd154090f7b919cfa5f93cf22c49",
+        "bytes": 84141271
+      }
+    ],
+    "provenance": "Demucs@e976d93ecc3865e5757426930257e200846a520a htdemucs_ft: four specialized checkpoints; audio-separator 0.48.0 published full SHA256; checkpoint license review deferred",
+    "chunks": [
+      "default",
+      "small"
+    ]
+  }
+]

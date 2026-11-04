@@ -22,9 +22,14 @@ foreach($file in (Get-ChildItem -LiteralPath $root -Recurse -File)){
  if($file.DirectoryName -ne $root -or ($file.Name -ne 'SHA256.json' -and !$names.Contains($file.Name))){throw 'Unmanifested artifact content'}
  if($file.Extension -in @('.pdb','.vst3','.wav','.nam','.zip','.lib','.h','.cpp')){throw 'Non-runtime content in artifact'}
 }
-if($manifest.application -notin @('MR Live','MR Studio + MR Live')){throw 'Unknown package application'}
+if($manifest.application -notin @('MR Live','MR Studio','MR Studio + MR Live')){throw 'Unknown package application'}
+foreach($resource in @('mr_separation_worker.py','mr_separation_requirements.txt','mr_separation_profiles.json','mr_separation_scnet.py','SCNet-MIT-LICENSE.txt')){
+ if($manifest.application -ne 'MR Live' -and !$names.Contains($resource)){throw "Separation setup resource missing: $resource"}
+ if($manifest.application -eq 'MR Live' -and $names.Contains($resource)){throw "Studio-only separation resource in Live package: $resource"}
+}
 if($manifest.application -eq 'MR Live' -and $manifest.ara){throw 'MR Live-only package must be ARA-free'}
-[string[]]$applications=if($manifest.application -eq 'MR Live'){@('MR Live.exe')}else{@('Moon River Studio JUCE.exe','MR Live.exe')}
+[string[]]$applications=if($manifest.application -eq 'MR Live'){@('MR Live.exe')}elseif($manifest.application -eq 'MR Studio'){@('Moon River Studio JUCE.exe')}else{@('Moon River Studio JUCE.exe','MR Live.exe')}
+if($manifest.application -eq 'MR Studio' -and $names.Contains('MR Live.exe')){throw 'Live executable forbidden in Studio-only package'}
 if($manifest.application -eq 'MR Live' -and $names.Contains('Moon River Studio JUCE.exe')){throw 'Studio executable is not part of a Live-only package'}
 foreach($required in ($applications + @('mrs_vst3_scan.exe','mrs_crash_reporter.exe','ASIO-SDK-LICENSE.txt','JUCE-LICENSE.md','CI-TEST-RESULT.txt','Signalsmith-Stretch-LICENSE.txt','Signalsmith-Linear-LICENSE.txt'))){if(!$names.Contains($required)){throw "Required package entry missing: $required"}}
 $araFiles=@('mrs_ara_scan.exe','ARA-API-LICENSE.txt','ARA-Library-LICENSE.txt')

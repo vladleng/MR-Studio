@@ -19,6 +19,7 @@
 #include <mutex>
 #include <thread>
 
+namespace mr::separation {class ProjectJob;}
 namespace ui {
 struct LivePreflightJob;
 namespace kit { class MRNativeParameterHost; }
@@ -86,8 +87,10 @@ public:
     void addLiveProject(const juce::File&);
     void importLiveShow(const juce::File&);
     void selectLiveItem(const juce::String&, const juce::String &entry = {});
-    void attachLivePlayback(const juce::String&,const juce::File&, const juce::String &stem = {});
-    void addLivePlaybackStems(const juce::String&, const juce::Array<juce::File>&);
+    void attachLivePlayback(const juce::String&,const juce::File&, const juce::String &stem = {},
+                            const juce::String &channel = {});
+    void addLivePlaybackStems(const juce::String&, const juce::Array<juce::File>&,
+                              const juce::String &channel = {});
     void removeLivePlaybackStem();
     void setLivePlaybackOutputs(const std::vector<int>&);
     void repairLivePlaybackOutputs(const juce::String&,const juce::String&);
@@ -99,7 +102,7 @@ public:
     void setLiveAudio(double gain, mrs::audio::ClickSettings);
     juce::String liveAudioKey;
     std::size_t livePlaybackIndex() const;
-    juce::String livePlaybackStem, livePlaybackMediaKey, livePlaybackDeviceKey;
+    juce::String livePlaybackStem, livePlaybackSelectedChannel, livePlaybackMediaKey, livePlaybackDeviceKey;
     void setLivePlaybackMix(double,bool,bool);
     void setLivePlaybackStemMix(const juce::String&, const juce::String&, double, bool, bool);
     void previewLivePlaybackStemMix(const juce::String&, const juce::String&, double, bool, bool);
@@ -352,6 +355,9 @@ public:
     void finishPreview();
     mrs::desktop::Application app;
     Theme theme;
+    std::unique_ptr<juce::DocumentWindow> separationModelsWindow; // Studio-only utility, no project state
+    std::unique_ptr<juce::DocumentWindow> separationWindow;
+    std::shared_ptr<mr::separation::ProjectJob> separationJob;
     std::optional<TrackHeaderLayout> trackHeaderLayout; // UI-only, never project state.
     juce::File trackHeaderLayoutSource;
     juce::Time trackHeaderObservedStamp, trackHeaderPendingStamp;
@@ -542,6 +548,7 @@ public:
     void itemDragExit(const SourceDetails&) override;
     std::vector<juce::Rectangle<float>> midiDropRects() const;
     std::vector<juce::Rectangle<float>> wavDropRects() const;
+    std::vector<juce::Rectangle<float>> pendingWavDropRects() const;
     bool isInterestedInDragSource(const SourceDetails&) override;
     void itemDropped(const SourceDetails&) override;
     void zoom(double);void fit();
@@ -582,6 +589,15 @@ private:
     Desktop& owner;
     // One bounded latest-request worker; no WAV I/O in drag/paint callbacks.
     struct DropWave {std::uint64_t frames{};std::uint32_t rate{};};
+    struct PendingWavDrop {
+        std::weak_ptr<mrs::IProjectStore> store;
+        std::uint64_t importRevision{};
+        std::optional<mrs::Id> target;
+        mrs::Sample start{};
+        juce::StringArray files;
+        std::vector<DropWave> waves;
+    };
+    std::optional<PendingWavDrop> pendingWavDrop_;
     mutable std::mutex dropMutex;
     std::condition_variable_any dropWake;
     std::jthread dropWorker;
@@ -662,6 +678,7 @@ private:
     std::unique_ptr<juce::TreeViewItem> root;
 };
 void trackFolderSmoke();
+void wavDrop263Smoke();
 void j2Smoke(Desktop&,const juce::File& fixture={});
 void j2PluginSmoke(Desktop&,const juce::File&);
 void j3Smoke(Desktop&);

@@ -67,12 +67,12 @@ class LiveMixer final : public juce::Component {
         if (owner.livePlaybackReady()) {
             const auto item=state["currentItem"].toString();
             const auto rows=live::playbackRows(state,item);
-            const auto container=live::playbackContainer(state);
             for(std::size_t i=0;i<rows.size() && i<owner.peaks.size();++i) {
                 const auto channel=live::playbackChannelId(state,rows[i]);
+                const auto group=live::playbackGroupForRow(state,item,rows[i]);
                 live::includeLiveMeterPeak(meters[channel],owner.peaks[i]);
-                if(!static_cast<bool>(rows[i]["cue"]))
-                    live::includeLiveMeterPeak(meters[container],owner.peaks[i]);
+                if(!static_cast<bool>(rows[i]["cue"]) && group!=channel)
+                    live::includeLiveMeterPeak(meters[group],owner.peaks[i]);
             }
         }
         std::map<std::string,juce::String> coreChannels;

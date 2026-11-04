@@ -1,6 +1,6 @@
 name: Windows Studio Release
-# Single source: the Actions run title is also aliased into the release environment.
-run-name: &release_banner 'MR Studio 0.8.10-fix2 / MR Live 0.8.13 — Windows Release'
+# Product versions are validated against the source header before building.
+run-name: ${{ (github.head_ref == 'codex/74-separation-contract' || github.ref_name == 'codex/74-separation-contract') && inputs.checks != 'live' && !inputs.integration && 'MR Studio 0.9.6-Upd1 — Windows Release' || 'MR Studio 0.9.6-Upd1 / MR Live 0.8.13-fix1 — Windows Release' }}
 on:
   push:
     branches: [main, 'codex/cloud-cicd-migration']
@@ -13,9 +13,9 @@ on:
         type: boolean
         default: false
       checks:
-        description: Targeted Live checks or normal profile
+        description: Targeted Live/separation checks or normal profile
         type: choice
-        options: [profile, live]
+        options: [profile, studio, studio-live, live, separation, separation-ui]
         default: profile
       ara:
         description: Include ARA2 for Studio profile (Live-only always excludes ARA2)
@@ -24,7 +24,7 @@ on:
 permissions:
   contents: read
 env:
-  RELEASE_BANNER: *release_banner
+  RELEASE_BANNER: 'MR Studio 0.9.6-Upd1 / MR Live 0.8.13-fix1 — Windows Release'
 concurrency:
   group: windows-${{ github.ref }}
   cancel-in-progress: true
@@ -59,13 +59,19 @@ jobs:
         shell: pwsh
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.head_ref }}
         run: |
           $scope=$env:CHECK_SCOPE
           if($env:GITHUB_EVENT_NAME -eq 'pull_request'){
             $subject=& git log -1 --format=%s $env:PR_HEAD_SHA
             if($LASTEXITCODE){throw 'Cannot read PR head check scope'}
+            if($subject -match '\[ci studio\]'){$scope='studio'}
+            if($subject -match '\[ci studio-live\]'){$scope='studio-live'}
             if($subject -match '\[ci live\]'){$scope='live'}
+            if($subject -match '\[ci separation\]'){$scope='separation'}
+            if($subject -match '\[ci separation-(ui|progress)\]'){$scope='separation-ui'}
           }
+          if($scope -eq 'profile' -and ($env:PR_HEAD_REF -eq 'codex/74-separation-contract' -or $env:GITHUB_REF_NAME -eq 'codex/74-separation-contract')){$scope='studio'}
           if($env:INTEGRATION -eq 'true'){$scope='integration'}
           # 0.8.10 acceptance: verify exact saved snapshots and Save/Undo state.
           # The Live-only executable is intentionally ARA-free. Keep ARA ON
@@ -87,7 +93,9 @@ jobs:
           if(!$sourceLive.Success -or $sourceLive.Groups[1].Value -cne $liveVersion){
             throw "Live application version differs from release banner $liveVersion"
           }
-          $artifactVersion=if($scope -eq 'live'){"MR-Live-$liveVersion"}else{"MR-Studio-$studioVersion-MR-Live-$liveVersion"}
+          $studioOnly=$scope -in @('studio','separation-ui','separation')
+          "STUDIO_ONLY=$($studioOnly.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $artifactVersion=if($scope -eq 'live'){"MR-Live-$liveVersion"}elseif($studioOnly){"MR-Studio-$studioVersion"}else{"MR-Studio-$studioVersion-MR-Live-$liveVersion"}
           "MR_STUDIO_VERSION=$studioVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "MR_LIVE_VERSION=$liveVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "RELEASE_ARTIFACT_VERSION=$artifactVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -110,15 +118,20 @@ jobs:
           key: windows-sdk-${{ hashFiles('tools/ci/sdk-lock.json') }}-${{ steps.live_scope.outputs.ara }}
       - name: Configure JUCE VST3 ASIO
         shell: pwsh
-        run: ./tools/ci/Configure-Windows.ps1 -Ara:($env:BUILD_ARA -eq 'true')
+        run: ./tools/ci/Configure-Windows.ps1 -Ara:($env:BUILD_ARA -eq 'true') -StudioOnly:($env:STUDIO_ONLY -eq 'true')
       - name: Build Release
         id: build
         shell: pwsh
         run: |
           $args=@('--build','build/windows','--config','Release','--parallel','2')
-          if($env:CHECK_SCOPE -eq 'live'){$args+=@('--target','MRLiveJuce','mrs_audio_tests','mrs_live_preload_tests','mrs_parallel_tests')}
+          if($env:CHECK_SCOPE -eq 'separation'){$args+=@('--target','mrs_separation_check')}
+          elseif($env:CHECK_SCOPE -eq 'separation-ui'){$args+=@('--target','MoonRiverStudioJuce')}
+          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests')}
+          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
+          elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('--target','MRLiveJuce','mrs_audio_tests','mrs_live_preload_tests','mrs_parallel_tests')}
           elseif($env:INTEGRATION -ne 'true'){
             $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_track_stretch_mode_tests','mrs_clip_response_tests','mr_timestretch_drums_tests','mr_timestretch_drums_example','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
+            $args+=@('mrs_separation_check','mrs_separation_assets_tests','mrs_persistence_tests')
             if($env:BUILD_ARA -eq 'true'){$args+=@('mrs_ara_tests','mrs_ara_clip_tests','mrs_ai_ara_tests')}
           }
           & cmake @args
@@ -128,17 +141,29 @@ jobs:
         shell: pwsh
         run: |
           $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
-          if($env:CHECK_SCOPE -eq 'live'){$args+=@('-R','^(juce_live_(entry_smoke|application)|audio_(metronome|performance|parallel_(equivalence|ownership|profiling))|desktop_live_preload)$')}
-          elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(stretch_contract|model|transport|commands|serialization|track_folders)|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|ara_.*|juce_(live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(wav_import|track_folders|clip_response))$')}
+          if($env:CHECK_SCOPE -eq 'separation'){$args+=@('-R','^separation_(host|models)$')}
+          elseif($env:CHECK_SCOPE -eq 'separation-ui'){$args+=@('-R','^juce_separation_(models|project)$')}
+          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('-R','^(juce_(separation_(models|project)|track_folders|wav_drop)|core_(model|commands|serialization|remove_tracks)|desktop_(separation_assets|remove_tracks|wav_import)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
+          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('-R','^(juce_(separation_(models|project)|track_folders|wav_drop|live_(entry_smoke|application))|core_(model|commands|serialization|remove_tracks)|desktop_(separation_assets|remove_tracks|wav_import)|separation_(host|models)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
+          elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('-R','^(juce_live_(entry_smoke|application)|audio_(metronome|performance|parallel_(equivalence|ownership|profiling))|desktop_live_preload)$')}
+          elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(core_(stretch_contract|model|transport|commands|serialization|track_folders|remove_tracks)|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|ara_.*|juce_(separation_(models|project)|live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(separation_assets|wav_import|track_folders|remove_tracks|clip_response)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
           & ctest @args
           if($LASTEXITCODE){
+            if(Test-Path 'build/windows/separation-project-failure.txt'){Get-Content 'build/windows/separation-project-failure.txt'}
+            if(Test-Path 'build/windows/separation-models-failure.txt'){Get-Content 'build/windows/separation-models-failure.txt'}
+            if(Test-Path 'build/windows/wav-drop-failure.txt'){Get-Content 'build/windows/wav-drop-failure.txt'}
+            if(Test-Path 'build/windows/folders266-failure.txt'){Get-Content 'build/windows/folders266-failure.txt'}
             if(Test-Path 'build/windows/live-application-failure.txt'){Get-Content 'build/windows/live-application-failure.txt'}
             if(Test-Path 'build/windows/live-entry-failure.txt'){Get-Content 'build/windows/live-entry-failure.txt'}
             if(Test-Path 'build/windows/library261-failure.txt'){Get-Content 'build/windows/library261-failure.txt'}
             throw "CTest failed ($env:CHECK_SCOPE)"
           }
+          if($env:CHECK_SCOPE -notin @('live','separation','separation-ui','studio','studio-live')){
+            & ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^separation_(host|models)$'
+            if($LASTEXITCODE){throw 'Separation host contract failed'}
+          }
       - name: Stretch foundation evidence (synthetic, not ASIO)
-        if: success() && env.CHECK_SCOPE != 'live'
+        if: success() && env.CHECK_SCOPE != 'live' && env.CHECK_SCOPE != 'separation' && env.CHECK_SCOPE != 'separation-ui' && env.CHECK_SCOPE != 'studio' && env.CHECK_SCOPE != 'studio-live'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build/stretch-evidence | Out-Null
@@ -156,7 +181,7 @@ jobs:
           @("MR Studio $env:MR_STUDIO_VERSION stretch foundation. Synthetic evidence, not ASIO or user listening acceptance.", 'mrs_stretch_bench.exe --seconds 300 --warmup 30 --repeats 3 --voices 8 --ratio 1.25', 'Experimental manual clip controls/cache playback are integrated; final realtime/quality acceptance remains in #59/#62.') | Set-Content build/stretch-evidence/README.txt
           Get-ChildItem build/stretch-evidence -File | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String -Width 240 | Set-Content build/stretch-evidence/SHA256.txt
       - name: Upload stretch evidence
-        if: success() && env.CHECK_SCOPE != 'live'
+        if: success() && env.CHECK_SCOPE != 'live' && env.CHECK_SCOPE != 'separation' && env.CHECK_SCOPE != 'separation-ui' && env.CHECK_SCOPE != 'studio' && env.CHECK_SCOPE != 'studio-live'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ env.RELEASE_ARTIFACT_VERSION }}-Stretch-Evidence-${{ github.sha }}
@@ -165,12 +190,12 @@ jobs:
           retention-days: 14
       - name: Package development acceptance candidate
         id: package
-        if: always() && steps.build.outcome == 'success'
+        if: always() && steps.build.outcome == 'success' && env.CHECK_SCOPE != 'separation'
         shell: pwsh
         env:
           CI_TEST_RESULT: ${{ steps.test.outcome }}
           CI_CHECK_SCOPE: ${{ env.CHECK_SCOPE }}
-        run: ./tools/ci/Package-Windows.ps1 -Ara:($env:BUILD_ARA -eq 'true') -LiveOnly:($env:CHECK_SCOPE -eq 'live')
+        run: ./tools/ci/Package-Windows.ps1 -Ara:($env:BUILD_ARA -eq 'true') -StudioOnly:($env:STUDIO_ONLY -eq 'true') -LiveOnly:($env:CHECK_SCOPE -eq 'live')
       - name: Upload Windows runtime
         if: always() && steps.package.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -180,7 +205,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Upload symbols
-        if: always() && steps.build.outcome == 'success'
+        if: always() && steps.build.outcome == 'success' && env.CHECK_SCOPE != 'separation'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ env.RELEASE_ARTIFACT_VERSION }}-Windows-symbols-${{ github.sha }}-ara-${{ steps.live_scope.outputs.ara }}
@@ -195,6 +220,8 @@ jobs:
         with:
           name: ${{ env.RELEASE_ARTIFACT_VERSION }}-Windows-test-results-${{ github.sha }}-ara-${{ steps.live_scope.outputs.ara }}
           path: |
+            build/windows/separation-models-*.png
+            build/windows/separation-project-*.png
             build/windows/juce-live-entry-*.png
             build/windows/juce-live-interface-*.png
             build/windows/juce-library261-*.png

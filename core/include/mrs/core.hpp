@@ -22,7 +22,7 @@ inline constexpr Tick ppq = 960;
 inline constexpr std::size_t max_project_midi_notes = 32768;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 32;
+inline constexpr std::uint32_t schema_version = 34;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -284,6 +284,23 @@ struct AraBinding {
     std::string document_id;
     bool operator==(const AraBinding&) const = default;
 };
+// Durable separation records are hidden media, independent of audible clips.
+// File references participate in project Save As and Undo media retention.
+struct SeparationFile {
+    std::string role, source, sha256;
+    std::uint64_t bytes{};
+    bool operator==(const SeparationFile&) const = default;
+};
+struct SeparationResult {
+    Id id, source_clip;
+    std::string source, source_sha256, model, model_version, provenance;
+    Sample source_offset{}, source_frames{}, start{}, frames{}, fade_in{}, fade_out{};
+    std::uint32_t source_rate{}, sample_rate{};
+    SeparationFile manifest;
+    std::vector<SeparationFile> stems;
+    bool operator==(const SeparationResult&) const = default;
+};
+bool legacy_separation(const SeparationResult&);
 struct Project {
     static constexpr float minimum_master_gain=0,maximum_master_gain=16,initial_master_gain=1;
     std::uint32_t version{schema_version};
@@ -302,6 +319,7 @@ struct Project {
     std::vector<int> master_outputs{}; // empty = first selected mono/stereo hardware outputs
     std::vector<NativeInsert> master_inserts{};
     std::vector<AraBinding> ara_bindings;
+    std::vector<SeparationResult> separation_results;
     void validate() const;
     bool operator==(const Project&) const = default;
 };
@@ -439,6 +457,27 @@ public:
     void apply(Project& p) const override{p.ara_bindings=bindings_;}
 private:
     std::vector<AraBinding> bindings_;
+};
+class RegisterSeparation final : public ICommand {
+public:
+    RegisterSeparation(Clip expected, SeparationResult result):expected_(std::move(expected)),result_(std::move(result)){}
+    std::string_view name() const override{return "Keep separated stems";}
+    void apply(Project&) const override;
+private: Clip expected_; SeparationResult result_;
+};
+class RemoveSeparation final : public ICommand {
+public:
+    explicit RemoveSeparation(Id id):id_(std::move(id)){}
+    std::string_view name() const override{return "Remove separation result";}
+    void apply(Project&) const override;
+private: Id id_;
+};
+class PlaceSeparation final : public ICommand {
+public:
+    PlaceSeparation(Id result,std::vector<Id> tracks,std::vector<Id> clips):result_(std::move(result)),tracks_(std::move(tracks)),clips_(std::move(clips)){}
+    std::string_view name() const override{return "Place separated stems";}
+    void apply(Project&) const override;
+private: Id result_; std::vector<Id> tracks_,clips_;
 };
 // Track folders own presentation membership; only LinkFolderBus changes routing.
 class CreateTrackFolder final : public ICommand {
