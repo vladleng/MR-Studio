@@ -14,7 +14,7 @@ struct Reader {
     std::span<const std::byte> take(std::size_t n){need(n<=bytes.size()-pos);const auto result=bytes.subspan(pos,n);pos+=n;return result;}
 };
 }
-std::vector<MidiPart> parse_midi_file(std::span<const std::byte> bytes){
+static std::vector<MidiPart> parse_midi(std::span<const std::byte> bytes,bool allow_empty){
     need(bytes.size()<=16*1024*1024);Reader file{bytes};need(file.be(4)==0x4d546864);const auto size=file.be(4);need(size>=6);Reader header{file.take(size)};
     const auto format=header.be(2),tracks=header.be(2),division=header.be(2);
     need(format<=1&&tracks>0&&tracks<=128&&(format!=0||tracks==1)&&division>0&&!(division&0x8000));
@@ -49,8 +49,10 @@ std::vector<MidiPart> parse_midi_file(std::span<const std::byte> bytes){
             need(result.size()<128);result.push_back(std::move(part));
         }
     }
-    need(file.pos==file.bytes.size());need(!result.empty());return result;
+    need(file.pos==file.bytes.size());need(allow_empty||!result.empty());return result;
 }
+std::vector<MidiPart> parse_midi_file(std::span<const std::byte> bytes){return parse_midi(bytes,false);}
+std::vector<MidiPart> validate_transcription_midi(std::span<const std::byte> bytes){return parse_midi(bytes,true);}
 std::vector<MidiPart> load_midi_file(const std::filesystem::path& path){
     std::ifstream in(path,std::ios::binary|std::ios::ate);if(!in)throw std::invalid_argument("Cannot open MIDI file");
     const auto size=in.tellg();need(size>0&&size<=16*1024*1024);std::vector<std::byte> bytes(static_cast<std::size_t>(size));in.seekg(0);

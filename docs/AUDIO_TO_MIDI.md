@@ -21,7 +21,8 @@ The frontend averages channels to mono and resamples to 16 kHz; inference uses
 is overridden by inherited `GGML_BACKEND`; a future launcher must explicitly
 set the child environment to `CPU`. Default `auto` is not a verified CPU path.
 Exit 0 indicates completion, 1 a model/audio/output error, 2 invalid invocation.
-These are source observations, not runtime validation.
+Linux CPU invocation/exit/progress have been exercised with official Medium
+weights. Windows native inference and musical quality remain separate gates.
 
 JSONL stdout contains:
 
@@ -38,8 +39,9 @@ the isolated process tree and discard partial results.
 
 ## Implemented domain boundary
 
-`mrs/audio_to_midi.hpp` accepts validated, paired note events. It does not yet
-parse JSONL, launch a process, install a model or expose a UI action.
+`mrs/audio_to_midi.hpp` accepts validated, paired note events. The protocol and
+NON-RT process service below feed that boundary; model installation and the UI
+action are not implemented yet.
 
 `PlaceTranscription` is prepared off the audio callback from the immutable
 project snapshot captured when inference starts. Its input times refer to the
@@ -68,14 +70,64 @@ atomically; the future controller must also check captured project ID/revision
 before placement. No project schema migration is introduced. The current
 boundary creates all nonempty parts; selective placement remains unimplemented.
 
+## Bounded protocol and isolated process service
+
+`mrs/ace_midi_protocol.hpp` incrementally accepts the pinned flat ASCII JSONL
+schema, including CRLF and arbitrarily fragmented reads. Unknown/duplicate fields,
+coerced numbers, unpaired/repeated indices, incomplete EOF, missing/out-of-order
+progress, missing/duplicate done or trailing traffic fail the whole job. Escaped
+strings and JSON extensions are deliberately outside this native schema.
+Limits: 4 KiB per line, 16 MiB stdout, 100000 messages, 32768 raw notes,
+4 hours of source audio. Done counts must match paired notes; note times must
+fit the padded 5-second chunk envelope. A final note_end after final progress
+is valid. Output notes are then intersected with the actual source duration;
+this handles hallucinations in a padded final chunk. Zero raw notes or zero
+surviving notes is a successful **empty** result, with no placement Command.
+
+`mrs/audio_to_midi_worker.hpp` provides a **blocking NON-RT service call** for a
+future owner job thread. It never captures the ProjectStore, audio engine or GUI.
+The caller supplies an explicit executable, model directory, WAV, temporary root,
+expected SHA256 digests and model rights/revision metadata. It performs no download
+or trust-on-first-use; publisher trust and license approval belong to Model Manager.
+It snapshots the full WAV, rejects linked/reparse paths, verifies source/model/
+executable integrity before and after inference and checks the snapshot again.
+The result echoes project/clip/revision, digests and model metadata in memory;
+durable project provenance and caller revision checks are still outstanding.
+
+Windows launches suspended, assigns a kill-on-close Job Object with one-process
+and memory limits, then resumes. Only explicit stdin/stdout/stderr handles are
+inherited. The CRT argument vector is quoted without a shell. The child receives
+an environment allowlist with GGML_BACKEND=CPU and bounded CPU threads; no inherited
+HF token, proxy credentials, probe or GPU override. Linux development uses a
+process group, address-space limit and nonblocking pipes. This contains lifecycle
+and resource use; it is not a security sandbox for an untrusted executable/DLL.
+
+Cancellation/deadline cover snapshot/hash/inference/verification. A child must
+exit 0; done alone is insufficient. Bounded stdout/stderr are drained separately,
+stderr is capped at 4 MiB traffic/64 KiB retained. The SMF is structurally parsed,
+its declared bytes checked, and notes compared to raw JSONL by program, channel,
+pitch, velocity and time, accounting for pinned writer minimum durations and
+overlap trimming. SMF's fixed 120 BPM is never used for project placement.
+The process tree is killed/reaped before cleanup on every path. Results are
+published as typed notes only after validation; private input/output files are
+removed on success, empty, failure, cancel and timeout. A cleanup failure is an
+explicit failed result, not silently successful placement.
+
+The developer-only `mrs_audio_to_midi_check` accepts executable/model/source/temp
+paths followed by executable/weights/config SHA256 values. It exercises the full
+service with local Medium weights, without Python or bundling the native worker.
+`mrs_audio_to_midi_worker_tests` uses a C++ fake executable to test failure paths;
+that does not establish Windows MuScriptor inference or musical quality.
+
 ## Remaining integration gates
 
-1. Reproducible native build, executable SHA and transitive license audit;
-   real short WAV inference with officially authorized, pinned/hash-verified
-   weights. Upstream code is MIT, MuScriptor weights CC BY-NC 4.0. Do not use
+1. Windows native executable/build validation and distribution/transitive license
+   audit; real instrument recordings and musical acceptance. Linux CPU native
+   short WAV inference uses official hash-verified Medium weights. Upstream code
+   is MIT, MuScriptor weights CC BY-NC 4.0. Do not use
    ACE-Step Studio's open mirror as a workaround for official gated access.
-2. Bounded JSONL parser and isolated Windows worker/Job Object with environment,
-   path/hash checks, atomic outputs, progress, cancel, timeout, crash and cleanup.
+2. Integrate the blocking service into the Studio owner/job/controller lifecycle,
+   capturing the project revision and discarding late results before placement.
 3. Explicit optional model installation/verification/removal/offline behavior,
    rights metadata and Studio-only UI placement through the existing application
    transaction path. Provenance persistence is not implemented by this checkpoint.
