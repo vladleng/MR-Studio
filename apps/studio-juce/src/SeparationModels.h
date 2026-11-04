@@ -17,6 +17,7 @@ struct ModelRecord {
     juce::StringArray stems, nativeStems, chunks, defaultStems;
 };
 const std::vector<ModelRecord>& modelCatalogue();
+const std::vector<ModelRecord>& nativeModelCatalogue();
 const ModelRecord& modelProfile(const juce::String& id);
 juce::String profileCatalogueJson();
 juce::StringArray selectedOutputs(const ModelRecord&,const juce::StringArray&);
@@ -41,7 +42,7 @@ public:
     using Progress = std::function<void(juce::int64, juce::int64)>;
     using Fetch = std::function<void(const DownloadArtifact&, const juce::File&, const std::atomic<bool>&, Progress)>;
     explicit ModelManager(juce::File root, juce::File workerScript,
-                          juce::File requirements, Fetch = {}, std::vector<ModelRecord> = modelCatalogue());
+                          juce::File requirements, Fetch = {}, std::vector<ModelRecord> = modelCatalogue(), Backend = Backend::python);
     ~ModelManager(); // shutdown/service thread only; normal panel close retains the service
     ModelManager(const ModelManager&) = delete;
     ModelManager& operator=(const ModelManager&) = delete;
@@ -49,6 +50,8 @@ public:
     bool refresh(); // offline; no Python/network
     bool refreshIfNeeded(); // panels share the first successful scan for this service lifetime
     bool installModel(const juce::String&);
+    bool importModel(const juce::String&, juce::File); // verified GGUF copy on service thread
+    Backend backend() const noexcept { return backend_; }
     bool removeModel(const juce::String&);
     bool installRuntime(); // explicit network action, managed embedded Python, no system Python
     bool verifyRuntime(); // offline probe
@@ -75,6 +78,7 @@ private:
     juce::File root_, worker_, requirements_;
     Fetch fetch_;
     std::vector<ModelRecord> catalogue_;
+    const Backend backend_;
     mutable std::mutex mutex_;
     ManagerStatus status_;
     bool scanned_{}; // protected by mutex_; explicit refresh still verifies files

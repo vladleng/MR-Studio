@@ -16,6 +16,7 @@ ProcessResult runLocalProcess(const juce::File& executable, const juce::StringAr
                              std::chrono::milliseconds timeout, unsigned processLimit = 1);
 enum class State { idle, running, ready, failed, cancelled };
 enum class Device { cpu, cuda, automatic };
+enum class Backend { python, native };
 struct Request {
     juce::File source, modelDirectory;
     juce::String sessionId, sourceRevision;

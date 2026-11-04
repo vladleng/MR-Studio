@@ -13,6 +13,7 @@ struct ProjectInput {
     std::uint32_t rate{};
     juce::String session,revision,model;
     juce::String chunk{"default"};
+    Backend backend{Backend::python};
     juce::StringArray selectedStems;
     std::shared_ptr<const mrs::audio::AudioData> sourceLifetime;
     std::shared_ptr<void> sourceGuard;
@@ -41,7 +42,7 @@ struct ProjectOutcome {
 class ProjectJob {
 public:
     using Processor=std::function<Result(const ProjectInput&,std::stop_token)>;
-    explicit ProjectJob(std::shared_ptr<ModelManager>,Processor = {});
+    explicit ProjectJob(std::shared_ptr<ModelManager>,Processor = {},std::shared_ptr<ModelManager> nativeManager = {});
     ~ProjectJob();
     bool separate(ProjectInput);
     bool preparePlacement(mrs::SeparationResult,std::vector<std::filesystem::path>,std::shared_ptr<void> guard);
@@ -52,7 +53,7 @@ private:
     bool begin(std::function<ProjectOutcome(std::stop_token)>);
     Result process(const ProjectInput&,std::stop_token);
     void phase(juce::String);
-    std::shared_ptr<ModelManager> manager_;
+    std::shared_ptr<ModelManager> manager_,nativeManager_;
     Processor processor_;
     mutable std::mutex mutex_;
     Status status_;

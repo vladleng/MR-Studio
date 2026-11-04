@@ -84,7 +84,7 @@ std::shared_ptr<ProjectResult> deliver(const ProjectInput& input,Result raw,std:
 }
 }
 ProjectMedia::~ProjectMedia(){if(directory!=juce::File()&&(!persistent||!accepted.load()))try{retire(directory);}catch(...){} }
-ProjectJob::ProjectJob(std::shared_ptr<ModelManager> manager,Processor processor):manager_(std::move(manager)),processor_(std::move(processor)){}
+ProjectJob::ProjectJob(std::shared_ptr<ModelManager> manager,Processor processor,std::shared_ptr<ModelManager> nativeManager):manager_(std::move(manager)),nativeManager_(std::move(nativeManager)),processor_(std::move(processor)){}
 ProjectJob::~ProjectJob(){cancel();if(thread_.joinable())thread_.join();}
 Status ProjectJob::status() const{std::lock_guard lock(mutex_);return status_;}
 void ProjectJob::phase(juce::String value){std::lock_guard lock(mutex_);status_.phase=std::move(value);}
@@ -101,14 +101,16 @@ bool ProjectJob::begin(std::function<ProjectOutcome(std::stop_token)> action){
 }
 Result ProjectJob::process(const ProjectInput& input,std::stop_token stop){
     if(processor_)return processor_(input,stop);
-    need(manager_!=nullptr,"Open Model Manager and install the CPU runtime and HTDemucs");
+    const auto manager=input.backend==Backend::native?nativeManager_:manager_;
+    need(manager!=nullptr,"The selected processing backend is unavailable");
+    need(manager->backend()==input.backend,"Processing backend mismatch");
     phase("Checking source and installed model");check(stop);need(!input.clip.midi&&!input.clip.stretch,"Reset Time / Pitch before separating");plainChain(file(input.source));
     const auto info=mrs::audio::inspect_wav(input.source);
     need((info.channels==1||info.channels==2)&&info.sample_rate==input.rate,"Separation requires a mono/stereo WAV at the project sample rate");
     need(input.rate==44100||input.rate==48000||input.rate==88200||input.rate==96000,"Separation supports 44.1, 48, 88.2 or 96 kHz projects");
     need(input.clip.length<=static_cast<mrs::Sample>(input.rate)*600,"Select a range of up to 10 minutes");
     need(input.clip.source_offset>=0&&input.clip.length>0&&input.clip.source_offset<=info.frame_count&&input.clip.length<=info.frame_count-input.clip.source_offset,"Source range is missing or changed");
-    auto installation=manager_->acquire(input.model,Device::cpu);
+    auto installation=manager->acquire(input.model,Device::cpu);
     Runner runner(installation.runner);Request request;request.source=file(input.source);request.modelDirectory=installation.modelDirectory;
     request.timeout=std::chrono::seconds(std::clamp<mrs::Sample>(input.clip.length/input.rate*30+600,1800,21600));
     request.selectedStems=input.selectedStems;request.modelId=input.model;request.chunk=input.chunk;request.sessionId=input.session;request.sourceRevision=input.revision;request.sourceStart=input.clip.source_offset;request.sourceFrames=input.clip.length;request.timelineStart=input.clip.start;request.projectRate=static_cast<int>(input.rate);

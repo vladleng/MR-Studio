@@ -95,27 +95,34 @@ class Client:
             self.process.wait(timeout=10)
 
 
-def fixture(path):
+def fixture(path, rate=44100, channels=1, bits=16, floating=False):
     # Mono PCM16 ensures the existing Core WAV decoder, range and mono policy
     # are exercised, rather than only the probe's IEEE Float32 fixture reader.
-    samples = array.array("h")
-    for frame in range(88200):
-        t = frame / 44100
+    samples = bytearray()
+    for frame in range(rate*2):
+        t = frame / rate
         value = 0.2 * math.exp(-8*(t % 0.5)) * math.sin(2*math.pi*110*t)
-        samples.append(round(value*32767))
-    import sys
-    if sys.byteorder != "little":
-        samples.byteswap()
+        for channel in range(channels):
+            sample = value if channel == 0 else value*0.9 + 0.015*math.sin(2*math.pi*440*t)
+            if floating:
+                samples.extend(struct.pack("<f", sample))
+            else:
+                integer = round(sample*((1 << (bits-1))-1))
+                samples.extend(integer.to_bytes(bits//8, "little", signed=True))
+    if floating:
+        path.write_bytes(struct.pack("<4sI4s4sIHHIIHH4sI", b"RIFF", len(samples)+36, b"WAVE", b"fmt ", 16,
+                                     3, channels, rate, rate*channels*4, channels*4, 32, b"data", len(samples))+samples)
+        return
     with wave.open(str(path), "wb") as stream:
-        stream.setparams((1, 2, 44100, 0, "NONE", "not compressed"))
-        stream.writeframes(samples.tobytes())
+        stream.setparams((channels, bits//8, rate, 0, "NONE", "not compressed"))
+        stream.writeframes(samples)
 
 
-def float_wav(path):
+def float_wav(path, rate=44100):
     data = path.read_bytes()
     assert data[:4] == b"RIFF" and data[8:12] == b"WAVE"
     assert struct.unpack_from("<I", data, 4)[0] + 8 == len(data)
-    assert data[12:16] == b"fmt " and struct.unpack_from("<HHI", data, 20) == (3, 2, 44100)
+    assert data[12:16] == b"fmt " and struct.unpack_from("<HHI", data, 20) == (3, 2, rate)
     assert data[36:40] == b"data" and struct.unpack_from("<I", data, 40)[0] == len(data)-44
     samples = array.array("f")
     samples.frombytes(data[44:])
@@ -141,7 +148,7 @@ def main():
     results = []
     base = {"version": 1, "type": "submit", "session_id": "native-regression", "source_revision": "1",
             "source_path": str(source), "source_sha256": original_hash, "source_start": "22050",
-            "source_frames": "44100", "timeline_start": "12345", "project_rate": "44100",
+            "source_frames": "44100", "timeline_start": "12345", "project_rate": "48000",
             "device": "cpu", "memory_bytes": str(4*1024**3), "timeout_ms": "120000", "threads": "2",
             "model": "htdemucs-6s", "model_dir": str(args.ht6_dir.resolve()), "stems": ["Bass"], "chunk": "default"}
 
@@ -151,6 +158,13 @@ def main():
         client = Client(args.worker, work)
         request = dict(base, job_id=str(uuid.uuid4()))
         request.update(changes or {})
+        input_source = Path(request["source_path"])
+        input_hash = sha(input_source)
+        if changes and "source_path" in changes and "source_sha256" not in changes:
+            request["source_sha256"] = input_hash
+        source_format, source_channels, source_rate = struct.unpack_from("<HHI", input_source.read_bytes(), 20)
+        source_bits, = struct.unpack_from("<H", input_source.read_bytes(), 34)
+        expected_frames = (int(request["source_frames"])*int(request["project_rate"]) + source_rate//2)//source_rate
         trace = []
         sent_cancel = False
         try:
@@ -176,16 +190,30 @@ def main():
                 manifest = terminal["manifest"]
                 saved = json.loads((work / "result/manifest.json").read_text())
                 assert saved == manifest and manifest["backend"] == "audio.cpp"
-                assert manifest["source_sha256"] == original_hash and manifest["source_start"] == "22050"
-                assert manifest["source_frames"] == "44100" and manifest["timeline_start"] == "12345"
-                assert manifest["source_channels"] == 1 and manifest["mono_policy"] == "duplicate_to_stereo"
+                assert manifest["source_sha256"] == input_hash and manifest["source_start"] == request["source_start"]
+                assert manifest["source_frames"] == request["source_frames"] and manifest["timeline_start"] == request["timeline_start"]
+                assert manifest["source_channels"] == source_channels and manifest["source_rate"] == str(source_rate)
+                assert manifest["project_rate"] == request["project_rate"] and manifest["mono_policy"] == "duplicate_to_stereo"
+                snapshot = float_wav(work/"snapshot.wav")
+                model_frames = (int(request["source_frames"])*44100 + source_rate//2)//source_rate
+                assert len(snapshot) == model_frames*2 and manifest["snapshot_sha256"] == sha(work/"snapshot.wav")
+                if source_rate == 44100 and source_format == 1 and source_channels == 1 and source_bits == 16:
+                    with wave.open(str(input_source), "rb") as stream:
+                        stream.setpos(int(request["source_start"]))
+                        raw = array.array("h")
+                        raw.frombytes(stream.readframes(int(request["source_frames"])))
+                    import sys
+                    if sys.byteorder != "little":
+                        raw.byteswap()
+                    expected_snapshot = array.array("f", (sample/32768 for sample in raw for _ in range(2)))
+                    assert snapshot == expected_snapshot, "Snapshot must contain only the selected range, duplicated to stereo"
                 assert {item["stem"] for item in manifest["outputs"]} == {role.lower() for role in request["stems"]}
                 assert {p.name for p in (work/"result").iterdir()} == {"manifest.json"} | {role.lower()+".wav" for role in request["stems"]}
                 for entry in manifest["outputs"]:
                     path = work / "result" / entry["path"]
                     assert entry["sha256"] == sha(path) and int(entry["bytes"]) == path.stat().st_size
-                    assert entry["frames"] == "44100" and entry["rate"] == "44100" and entry["origin"] == "0"
-                    assert len(float_wav(path)) == 88200
+                    assert entry["frames"] == str(expected_frames) and entry["rate"] == request["project_rate"] and entry["origin"] == "0"
+                    assert len(float_wav(path, int(request["project_rate"]))) == expected_frames*2
                 progress = [event for event in trace if event.get("completed") is not None]
                 assert progress and any(event["completed"] == event["total"] for event in progress)
                 for current_pass in {event["current_pass"] for event in progress}:
@@ -193,7 +221,7 @@ def main():
                     assert values[0]["completed"] == "0" and values[-1]["completed"] == values[-1]["total"]
                     assert [int(event["completed"]) for event in values] == sorted(int(event["completed"]) for event in values)
             assert not cancel or sent_cancel
-            assert sha(source) == original_hash
+            assert sha(source) == original_hash and sha(input_source) == input_hash
             (work/"wire.json").write_text(json.dumps(trace, indent=2)+"\n")
             results.append({"case": name, "status": "PASS", "terminal": terminal["type"], "events": len(trace)})
         finally:
@@ -201,8 +229,16 @@ def main():
 
     run("ht6-partial-mono", {"stems": ["Bass", "Vocals"]})
     run("sw-two-heads", {"model": "bs-roformer-sw-6-v1", "model_dir": str(args.sw_dir.resolve()), "stems": ["Bass", "Guitar"]})
+    for rate, target, channels, bits, floating, stems in (
+            (48000, 96000, 2, 24, False, ["Vocals", "Drums", "Bass", "Guitar", "Piano", "Other"]),
+            (88200, 48000, 1, 16, False, ["Bass"]),
+            (96000, 44100, 2, 32, True, ["Bass"])):
+        candidate = (args.output / f"source-{rate}.wav").resolve()
+        fixture(candidate, rate, channels, bits, floating)
+        run(f"rate-{rate}-to-{target}", {"source_path": str(candidate), "source_start": str(rate//4+5),
+                                       "source_frames": str(rate+17), "project_rate": str(target), "stems": stems})
     run("stale-source", {"source_sha256": "0"*64}, "stale_source")
-    run("unsupported-rate", {"project_rate": "48000"}, "unsupported_input")
+    run("unsupported-rate", {"project_rate": "12345"}, "unsupported_input")
     run("unsupported-model", {"model": "not-installed"}, "unsupported_model")
     run("duplicate-stems", {"stems": ["Bass", "Bass"]}, "invalid_stems")
     wrong = args.output / "wrong-model"

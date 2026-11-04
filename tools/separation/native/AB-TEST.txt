@@ -1,0 +1,17 @@
+MR Studio 0.9.7 — temporary backend A/B
+
+Separate into Stems: choose Python / PyTorch or audio.cpp / GGML at the top right.
+Python is the default and uses the existing runtime and model cache.
+Native uses a separate native-cpu model cache and the included C++ worker.
+
+Native models in this build:
+- HTDemucs 6: Model Manager -> Download model.
+- SW Fixed 6: download and extract the matching Native-SW-GGUF artifact from
+  this same Actions run, then Model Manager -> Import GGUF -> sw-fixed-f32.gguf.
+Other models still require Python. There is no automatic fallback.
+
+Compare the same clip, range, model, selected stems and chunk setting.
+Results show the backend and worker/verification wall time (includes model load).
+The native CPU backend can be slower; this build is for your quality/speed tests.
+Keep this runtime separate from your accepted 0.9.6-Upd1 installation.
+The existing Python cache and projects are preserved. No main merge or MR Live.

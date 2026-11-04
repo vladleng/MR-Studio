@@ -1,4 +1,4 @@
-param([string]$Build='build/windows',[string]$Output='build/package',[switch]$Ara,[switch]$LiveOnly,[switch]$StudioOnly)
+param([string]$Build='build/windows',[string]$Output='build/package',[switch]$Ara,[switch]$LiveOnly,[switch]$StudioOnly,[switch]$NativeSeparation)
 $ErrorActionPreference='Stop'
 if($LiveOnly -and $StudioOnly){throw 'Choose one application package scope'}
 # Live-only packages never include ARA even when a Studio build elsewhere uses it.
@@ -14,7 +14,18 @@ if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/mr_separation_scnet.py' 
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/mr_separation_profiles.json' -Destination (Join-Path $Output 'mr_separation_profiles.json')}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/worker.py' -Destination (Join-Path $Output 'mr_separation_worker.py')}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/requirements-cpu.txt' -Destination (Join-Path $Output 'mr_separation_requirements.txt')}
-foreach($name in @('mrs_vst3_scan.exe','mrs_crash_reporter.exe')){Copy-Item -LiteralPath "$Build/Release/$name" -Destination $Output}
+if($NativeSeparation){
+ if(!$StudioOnly -or $LiveOnly){throw 'Native A/B package is Studio-only'}
+ $nativeRoot=Split-Path -Parent $gui
+ Copy-Item -LiteralPath (Join-Path $nativeRoot 'mrs_native_separation_worker.exe') -Destination $Output
+ $nativeDlls=@(Get-ChildItem -LiteralPath 'build/audio-native/bin/Release' -File -Filter '*.dll')
+ if(!$nativeDlls.Count){throw 'Native runtime DLLs missing'}
+ foreach($dll in $nativeDlls){Copy-Item -LiteralPath (Join-Path $nativeRoot $dll.Name) -Destination $Output}
+ Copy-Item -LiteralPath 'tools/separation/native/AB-TEST.txt' -Destination (Join-Path $Output 'AB-TEST.txt')
+ Copy-Item -LiteralPath 'build/audio.cpp/LICENSE' -Destination (Join-Path $Output 'audio.cpp-LICENSE.txt')
+ Copy-Item -LiteralPath 'build/audio.cpp/external/ggml/LICENSE' -Destination (Join-Path $Output 'GGML-LICENSE.txt')
+}
+foreach($name in @('mrs_vst3_scan.exe' ,'mrs_crash_reporter.exe')){Copy-Item -LiteralPath "$Build/Release/$name" -Destination $Output}
 if($packageAra){Copy-Item -LiteralPath "$Build/Release/mrs_ara_scan.exe" -Destination $Output}
 $licenses=@{'build/sdk/juce/LICENSE.md'='JUCE-LICENSE.md';'build/sdk/portaudio/LICENSE.txt'='PortAudio-LICENSE.txt';'build/sdk/vst3/LICENSE.txt'='VST3-LICENSE.txt';'build/sdk/vst3/base/LICENSE.txt'='VST3-base-LICENSE.txt';'build/sdk/vst3/pluginterfaces/LICENSE.txt'='VST3-pluginterfaces-LICENSE.txt';'build/sdk/vst3/public.sdk/LICENSE.txt'='VST3-public-sdk-LICENSE.txt';'apps/studio-juce/assets/OFL.txt'='OFL.txt';'third_party/signalsmith-stretch/LICENSE.txt'='Signalsmith-Stretch-LICENSE.txt';'third_party/signalsmith-linear/LICENSE.txt'='Signalsmith-Linear-LICENSE.txt'}
 if($packageAra){$licenses['build/sdk/ara/ARA_API/LICENSE.txt']='ARA-API-LICENSE.txt';$licenses['build/sdk/ara/ARA_Library/LICENSE.txt']='ARA-Library-LICENSE.txt'}

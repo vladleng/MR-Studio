@@ -30,13 +30,19 @@ std::shared_ptr<ModelManager> productionManager() {
         return std::make_shared<ModelManager>(ModelManager::defaultRoot(),app.getChildFile("mr_separation_worker.py"),app.getChildFile("mr_separation_requirements.txt"));
     }();return manager;
 }
+std::shared_ptr<ModelManager> nativeManager(){
+    static auto manager=[] {
+        const auto app=juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory();
+        return std::make_shared<ModelManager>(ModelManager::defaultRoot().getChildFile("native-cpu"),app.getChildFile("mrs_native_separation_worker.exe"),juce::File{},ModelManager::Fetch{},nativeModelCatalogue(),Backend::native);
+    }();return manager;
+}
 class ModelsPanel final : public juce::Component,private juce::Timer {
 public:
     explicit ModelsPanel(std::shared_ptr<ModelManager> manager,Theme& theme):manager_(std::move(manager)),theme_(theme),progress_(progressValue_) {
-        title_.setText("Separation Models",juce::dontSendNotification);
+        title_.setText(manager_->backend()==Backend::native?"Separation Models - audio.cpp / GGML":"Separation Models - Python / PyTorch",juce::dontSendNotification);
         lead_.setText("Install the processing runtime and a model once, then work offline.",juce::dontSendNotification);
         runtimeTitle_.setText("Processing runtime - CPU",juce::dontSendNotification);
-        runtimeInfo_.setText("Python 3.11.9 - audio-separator 0.48.0\nSeparate download; several GB of disk space required.",juce::dontSendNotification);
+        runtimeInfo_.setText(manager_->backend()==Backend::native?"audio.cpp v0.9.3-mrs1 - CPU\nIncluded in this test build. Separate GGUF model cache.":"Python 3.11.9 - audio-separator 0.48.0\nSeparate download; several GB of disk space required.",juce::dontSendNotification);
         for(auto* label:{&title_,&lead_,&runtimeTitle_,&runtimeInfo_,&runtimeState_,&modelInfo_,&modelState_,&phase_,&error_}) {
             addAndMakeVisible(label);label->setColour(juce::Label::textColourId,theme_.role(ColourRole::text,primaryText));label->setMinimumHorizontalScale(1.0f);
         }
@@ -48,7 +54,13 @@ public:
         int focus=1;for(const auto& action:std::initializer_list<Action>{{&installRuntime_,"Install runtime"},{&verifyRuntime_,"Verify runtime"},{&removeRuntime_,"Remove runtime"},{&download_,"Download model"},{&remove_,"Remove model"},{&detailsButton_,"Details"},{&cache_,"Open cache"},{&cancel_,"Cancel operation"}}){addAndMakeVisible(*action.button);action.button->setButtonText(action.text);action.button->setTitle(action.text);action.button->setExplicitFocusOrder(focus++);}
         installRuntime_.setTooltip("Explicit download of embedded Python and CPU processing libraries. System Python is unchanged.");
         installRuntime_.onClick=[this]{manager_->installRuntime();update();};verifyRuntime_.onClick=[this]{manager_->verifyRuntime();update();};removeRuntime_.onClick=[this]{manager_->removeRuntime();update();};
-        download_.onClick=[this]{const auto s=manager_->status();const auto i=selected(s);if(i>=0)manager_->installModel(s.models[static_cast<std::size_t>(i)].record.id);update();};
+        download_.onClick=[this]{const auto s=manager_->status();const auto i=selected(s);if(i>=0){const auto& record=s.models[static_cast<std::size_t>(i)].record;
+            if(!record.files.empty()&&record.files.front().url.isEmpty()){
+                chooser_=std::make_unique<juce::FileChooser>("Import matching SW GGUF from the Native-SW-GGUF build artifact",juce::File{},"*.gguf");
+                const auto id=record.id;juce::Component::SafePointer<ModelsPanel> self(this);
+                chooser_->launchAsync(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[self,id](const juce::FileChooser& chooser){if(self&&chooser.getResult().existsAsFile()){self->manager_->importModel(id,chooser.getResult());self->update();}});
+            }else manager_->installModel(record.id);
+        }update();};
         remove_.onClick=[this]{const auto s=manager_->status();const auto i=selected(s);if(i>=0)manager_->removeModel(s.models[static_cast<std::size_t>(i)].record.id);update();};
         cancel_.onClick=[this]{manager_->cancel();};cache_.onClick=[this]{manager_->root().revealToUser();};
         detailsButton_.onClick=[this]{details_.setVisible(!details_.isVisible());detailsButton_.setButtonText(details_.isVisible()?"Hide details":"Details");update();};
@@ -71,6 +83,7 @@ public:
         phase_.setBounds(24,360,width-256,24);progress_.setBounds(24,390,width-48,16);cancel_.setBounds(width-216,356,192,28);
         details_.setBounds(24,416,width-48,juce::jmax(24,getHeight()-492));error_.setBounds(24,getHeight()-72,width-48,28);cache_.setBounds(24,getHeight()-40,136,28);
     }
+    const std::shared_ptr<ModelManager>& manager()const{return manager_;}
     void smoke() {
         update();if(!installRuntime_.isEnabled()||!download_.isEnabled()||remove_.isEnabled())throw std::runtime_error("Model Manager initial controls");
         download_.onClick();
@@ -96,14 +109,16 @@ private:
     void update() {
         const auto state=manager_->status();const auto at=selected(state);const bool runtimeExists=state.runtime==InstallationState::installed||state.runtime==InstallationState::corrupt;
         runtimeState_.setText(stateName(state.runtime),juce::dontSendNotification);
-        installRuntime_.setEnabled(!state.busy&&!runtimeExists);verifyRuntime_.setEnabled(!state.busy&&runtimeExists);removeRuntime_.setEnabled(!state.busy&&runtimeExists);
+        const bool native=manager_->backend()==Backend::native;
+        installRuntime_.setEnabled(!native&&!state.busy&&!runtimeExists);verifyRuntime_.setEnabled(!native&&!state.busy&&runtimeExists);removeRuntime_.setEnabled(!native&&!state.busy&&runtimeExists);
         models_.setEnabled(!state.busy);download_.setEnabled(false);remove_.setEnabled(false);
         if(at>=0){const auto& model=state.models[static_cast<std::size_t>(at)];const bool installed=model.state==InstallationState::installed||model.state==InstallationState::corrupt;
             modelInfo_.setText("Outputs: "+model.record.outputs+"\n"+model.record.hardware,juce::dontSendNotification);modelState_.setText(stateName(model.state),juce::dontSendNotification);
             juce::int64 size{};for(const auto& file:model.record.files)size+=file.bytes;
-            download_.setButtonText("Download model"+(size>0?" - "+juce::File::descriptionOfSizeInBytes(size):juce::String{}));download_.setEnabled(!state.busy&&model.state==InstallationState::downloadable);remove_.setEnabled(!state.busy&&installed);
+            const bool imported=!model.record.files.empty()&&model.record.files.front().url.isEmpty();
+            download_.setButtonText(juce::String(imported?"Import GGUF":"Download model")+(size>0?" - "+juce::File::descriptionOfSizeInBytes(size):juce::String{}));download_.setEnabled(!state.busy&&model.state==InstallationState::downloadable);remove_.setEnabled(!state.busy&&installed);
             if(details_.isVisible()){
-                juce::String text="Model ID: "+model.record.id+"\nVersion: "+model.record.version+"\nSource: "+model.record.provenance+"\nBackend: "+model.record.backend+"\nNative sources: "+model.record.nativeOutputs+"\nRuntime: CPython 3.11.9 (PSF-2.0); package notices in the managed cache\nCode license: "+model.record.codeLicense+"\nWeights license: "+model.record.weightsLicense+"\n"+model.record.unsupportedReason+"\n";
+                juce::String text="Model ID: "+model.record.id+"\nVersion: "+model.record.version+"\nSource: "+model.record.provenance+"\nBackend: "+model.record.backend+"\nNative sources: "+model.record.nativeOutputs+(native?"\nRuntime: bundled audio.cpp / GGML CPU\nCode license: ":"\nRuntime: CPython 3.11.9 (PSF-2.0); package notices in the managed cache\nCode license: ")+model.record.codeLicense+"\nWeights license: "+model.record.weightsLicense+"\n"+model.record.unsupportedReason+"\n";
                 for(const auto& file:model.record.files)text+="\n"+file.url+"\nSHA256: "+file.sha256+"\n";
                 const auto log=manager_->diagnostics();if(log.isNotEmpty())text+="\nLocal diagnostics (may contain cache paths):\n"+log;
                 if(details_.getText()!=text)details_.setText(text,false);
@@ -115,6 +130,7 @@ private:
         progressValue_=state.totalBytes>0?static_cast<double>(state.completedBytes)/static_cast<double>(state.totalBytes):-1.0;progress_.setVisible(state.busy);
     }
     std::shared_ptr<ModelManager> manager_;
+    std::unique_ptr<juce::FileChooser> chooser_;
     Theme& theme_;
     juce::Label title_,lead_,runtimeTitle_,runtimeInfo_,runtimeState_,modelInfo_,modelState_,phase_,error_;
     juce::ComboBox models_;
@@ -132,9 +148,9 @@ public:
 private:Desktop& owner_;
 };
 }
-std::shared_ptr<ModelManager> separationModelManager(){return productionManager();}
+std::shared_ptr<ModelManager> separationModelManager(Backend backend){return backend==Backend::native?nativeManager():productionManager();}
 void showSeparationModels(Desktop& owner,std::shared_ptr<ModelManager> manager){
-    if(owner.separationModelsWindow){owner.separationModelsWindow->toFront(true);return;}
+    if(owner.separationModelsWindow){const auto* panel=dynamic_cast<ModelsPanel*>(owner.separationModelsWindow->getContentComponent());if(panel&&panel->manager()==(manager?manager:productionManager())){owner.separationModelsWindow->toFront(true);return;}owner.separationModelsWindow.reset();}
     owner.separationModelsWindow=std::make_unique<ModelsWindow>(owner,manager?std::move(manager):productionManager());
 }
 void separationModelsSmoke(){

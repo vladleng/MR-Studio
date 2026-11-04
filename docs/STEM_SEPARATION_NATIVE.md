@@ -1,8 +1,32 @@
 # Native separation migration (#351)
 
 Accepted baseline: Studio 0.9.6-Upd1, source `22b183a6d1dbc60ab8a106f643b34495f5752776`.
-The production Python worker and model cache remain intact until native parity is accepted.
-This document describes a developer spike, not a released Studio 0.9.7 runtime.
+The accepted Python worker and model cache remain intact. The user requested a temporary
+Studio 0.9.7 A/B build with an explicit Python/PyTorch or audio.cpp/GGML choice.
+The final backend and removal of the other implementation follow user tests; native
+replacement is no longer predetermined. This source is not a released runtime until CI passes.
+
+## Temporary Studio A/B
+
+The backend selector in Separate into Stems defaults to Python and is locked during
+a job. Each ProjectInput captures the backend; the existing ProjectJob/Runner/asset
+commands remain shared. There is no automatic fallback or second DAW engine.
+Native model files live below the existing Separation root in `native-cpu/models`,
+with independent locks and managed inventories. Python installations remain intact.
+Native runtime is bundled in this test build, not installed with pip. Native HTDemucs6
+can be downloaded through Model Manager; SW Fixed6 imports the exact GGUF from the
+separate matching build artifact. Expected package hash and size are compiled into
+the app/worker during CI. Wrong packages are rejected before publication.
+Other native catalogue entries are visibly unsupported; Python retains them.
+Results retain backend, weight precision and host wall time in their provenance;
+wall time includes startup/model loading and output verification, excluding later
+project asset copy. Compare identical clip ranges, roles and chunk settings.
+Native CPU may be slower; user quality/performance acceptance is pending.
+
+`[ci native-studio]` on the task branch runs the native checks, then Studio-only
+ARA2/ASIO build, targeted separation/model/project/persistence checks and the
+canonical Windows package verifier. The separate weights artifact is optional
+and never bundled into the base runtime. MR Live is OFF; main merge is separate.
 
 ## Reproducible CPU baseline
 
@@ -265,10 +289,11 @@ and its Job Object without configuring a Python runtime, plus the previous fake
 worker regressions. No Studio GUI, MR Live or physical ASIO tests are invoked.
 
 Current admission limits are explicit: only exact HT6 and SW Fixed6 candidates,
-source/project44.1kHz, mono/stereo Core-supported PCM16/24/32 or Float32 WAV;
-HT6 default segment only; SW default/small and inputs over1024 model frames.
-Other rates/profiles are rejected; no silent conversion or replacement. Native
-SRC and the remaining accepted catalogue are still required before activation.
+source44.1/48/88.2/96kHz and the existing eight project rates8–96kHz,
+mono/stereo Core-supported PCM16/24/32 or Float32 WAV; HT6 default segment only;
+SW default/small and inputs over1024 model frames. Other rates/profiles are
+rejected; no silent conversion or replacement. The remaining accepted catalogue
+and full quality/performance acceptance are still required before activation.
 Multiple SW selections currently run independent head sessions sequentially;
 shared-encoder optimization and matched quality/performance tests remain pending.
 
@@ -281,3 +306,27 @@ it. CI converts only after checking the accepted original hashes and bakes that
 produced package hash into the worker. This is not an unverified runtime fallback
 or a replacement checkpoint. Production distribution still needs a canonical
 published package/catalogue pin.
+
+## Native source/project rate conversion
+
+`native_resample.hpp` ports the accepted Float32 `scipy.signal.resample_poly`
+policy: reduced rational ratio, symmetric Kaiser5 low-pass FIR, constant-zero
+exterior, centered phase, Float32 coefficient scaling/accumulation and the same
+nearest-frame trim. The existing DAW import resampler has a different filter and
+is intentionally unchanged. Cancellation is checked during filter preparation
+and output blocks. No Python/NumPy/SciPy is needed in the native worker.
+
+Nineteen synthetic goldens from numpy2.2.6/scipy1.15.3 cover supported ratio
+shapes, mono/stereo, gain above1, silence, centered/edge impulses, identity bit
+preservation and frame rounding. Linux max absolute error is0 on these vectors;
+the portable test tolerance is2e-6. Bounds/non-finite input and cancellation are
+also checked. `tests/generate_native_resample_fixture.py` is a developer-only
+generator; checked-in vectors contain no recorded/user audio. Windows SRC
+validation is still pending the next source build.
+
+The complete Linux worker now passes11 real-model IPC cases, adding partial
+48kHz PCM24 stereo→96kHz all-six outputs, 88.2kHz mono→48kHz and96kHz Float32
+stereo→44.1kHz to the earlier subset/error/cancel cases. Tests verify snapshot
+frames/hash, exact source-range samples for identity conversion, project output
+frames/rate, unchanged sources and selected-file publication. The actual Windows
+Runner test also uses its standard48kHz project rate once this step is built.

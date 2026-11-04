@@ -1,4 +1,4 @@
-param([string]$Build='build/windows',[switch]$Ara,[switch]$StudioOnly)
+param([string]$Build='build/windows',[switch]$Ara,[switch]$StudioOnly,[switch]$NativeSeparation)
 $ErrorActionPreference='Stop'
 $sdk=(Resolve-Path -LiteralPath 'build/sdk').Path
 $asio=(Resolve-Path -LiteralPath 'build/private-sdk/asio.zip').Path
@@ -12,5 +12,12 @@ if($Ara){
  $fixture=(Resolve-Path -LiteralPath 'build/ara-render/Release/MRSAraRenderFixture.vst3').Path
  # The shared render fixture applies a 0.5 gain at the default tempo: both suites must expect it.
  $args+=@("-DMRS_ARA_SDK_ROOT=$sdk/ara","-DMRS_ARA_RENDER_TEST_PLUGIN=$fixture","-DMRS_ARA_TEST_PLUGIN=$fixture","-DMRS_ARA_TEST_PLUGIN_GAIN=0.5")
+}
+if($NativeSeparation){
+ $nativeSource=(Resolve-Path -LiteralPath 'build/audio.cpp').Path
+ $nativeLibrary=(Resolve-Path -LiteralPath 'build/audio-native/bin/Release/audiocpp.lib').Path
+ $sw=Get-Item -LiteralPath 'build/sw-fixed-f32.gguf'
+ $swSha=(Get-FileHash -LiteralPath $sw.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+ $args+=@('-DMRS_BUILD_NATIVE_SEPARATION_WORKER=ON',"-DMRS_AUDIOCPP_SOURCE_ROOT=$nativeSource","-DMRS_AUDIOCPP_NATIVE_LIBRARY=$nativeLibrary","-DMRS_NATIVE_SW_PACKAGE_SHA256=$swSha","-DMRS_NATIVE_SW_PACKAGE_BYTES=$($sw.Length)")
 }
 & cmake @args;if($LASTEXITCODE){throw 'Windows configure failed'}

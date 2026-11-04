@@ -914,5 +914,87 @@
   "linux_worker_json": {
     "status": "PASS",
     "scope": "UTF8/Unicode/counters/duplicate keys/depth/frame and node limits"
+  },
+  "linux_worker_src_ipc": {
+    "scope": "real native worker IPC, development slice",
+    "cases": [
+      {
+        "case": "ht6-partial-mono",
+        "status": "PASS",
+        "terminal": "result",
+        "events": 18
+      },
+      {
+        "case": "sw-two-heads",
+        "status": "PASS",
+        "terminal": "result",
+        "events": 24
+      },
+      {
+        "case": "rate-48000-to-96000",
+        "status": "PASS",
+        "terminal": "result",
+        "events": 17
+      },
+      {
+        "case": "rate-88200-to-48000",
+        "status": "PASS",
+        "terminal": "result",
+        "events": 17
+      },
+      {
+        "case": "rate-96000-to-44100",
+        "status": "PASS",
+        "terminal": "result",
+        "events": 18
+      },
+      {
+        "case": "stale-source",
+        "status": "PASS",
+        "terminal": "error",
+        "events": 2
+      },
+      {
+        "case": "unsupported-rate",
+        "status": "PASS",
+        "terminal": "error",
+        "events": 2
+      },
+      {
+        "case": "unsupported-model",
+        "status": "PASS",
+        "terminal": "error",
+        "events": 2
+      },
+      {
+        "case": "duplicate-stems",
+        "status": "PASS",
+        "terminal": "error",
+        "events": 2
+      },
+      {
+        "case": "model-integrity",
+        "status": "PASS",
+        "terminal": "error",
+        "events": 2
+      },
+      {
+        "case": "cancel-inference",
+        "status": "PASS",
+        "terminal": "error",
+        "events": 6
+      }
+    ],
+    "source_unchanged": true
+  },
+  "linux_src_reference": {
+    "status": "PASS",
+    "cases": 19,
+    "numpy": "2.2.6",
+    "scipy": "1.15.3",
+    "precision": "float32",
+    "max_absolute_error": 0,
+    "windows_status": "PENDING",
+    "fixture_sha256": "01188c3a5360fd64e758d0acc29eb7fda772872007c92e623c588385d9b67d34"
   }
 }

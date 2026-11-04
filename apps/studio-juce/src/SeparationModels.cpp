@@ -1,5 +1,6 @@
 #include "SeparationModels.h"
 #include "separation_profiles.h"
+#include "native_package_config.h"
 #include <juce_cryptography/juce_cryptography.h>
 #include <algorithm>
 #include <array>
@@ -154,12 +155,33 @@ juce::StringArray selectedOutputs(const ModelRecord& profile,const juce::StringA
 }
 juce::String profileCatalogueJson(){return juce::String::fromUTF8(separationProfilesJson).replace("\r\n","\n");}
 
+const std::vector<ModelRecord>& nativeModelCatalogue(){
+    static const auto catalogue=[] {
+        auto records=modelCatalogue();
+        for(auto& r:records){
+            r.backend="audio.cpp v0.9.3-mrs1 / GGML";
+            r.codeLicense="audio.cpp: Apache-2.0; GGML: MIT";
+            r.hardware="Windows x64; local CPU. Experimental native backend; compare quality and processing time.";
+            r.files.clear();r.unsupportedReason="Not ported to audio.cpp in this test build. Select Python / PyTorch to use this model.";
+            if(r.id=="htdemucs-6s"){
+                r.modelFile="htdemucs-6stems-f16.gguf";r.chunks={"default"};r.unsupportedReason.clear();
+                r.files={{r.modelFile,"https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/9251401acab7d95b43e089e6304c5f58cb96d9a6/HTDemucs-6stems-GGUF/htdemucs-6stems-f16.gguf","1db9bd58af6995d8caab209c99f5a284212e5bd0654fbfd7e50ce1d5ac140ba9",54919200}};
+                r.provenance+="; native GGUF: original Float16 tensors, no additional quantization";
+            }else if(r.id=="bs-roformer-sw-6-v1"&&juce::String(nativePackageSwSha).length()==64){
+                r.modelFile="sw-fixed-f32.gguf";r.unsupportedReason.clear();
+                r.files={{r.modelFile,{},nativePackageSwSha,nativePackageSwBytes}};
+                r.provenance+="; native GGUF: original Float32 tensors. Import the separate matching Native-SW-GGUF artifact from this build.";
+            }
+        }return records;
+    }();return catalogue;
+}
+
 juce::File ModelManager::defaultRoot() {
     PWSTR value{};need(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&value)),"io_error");
     const juce::File root{juce::String(value)};CoTaskMemFree(value);return root.getChildFile("MoonRiverStudio/Separation");
 }
-ModelManager::ModelManager(juce::File root,juce::File worker,juce::File requirements,Fetch fetch,std::vector<ModelRecord> catalogue)
-    :root_(std::move(root)),worker_(std::move(worker)),requirements_(std::move(requirements)),fetch_(fetch?std::move(fetch):Fetch(fetchHttps)),catalogue_(std::move(catalogue)) {
+ModelManager::ModelManager(juce::File root,juce::File worker,juce::File requirements,Fetch fetch,std::vector<ModelRecord> catalogue,Backend backend)
+    :root_(std::move(root)),worker_(std::move(worker)),requirements_(std::move(requirements)),fetch_(fetch?std::move(fetch):Fetch(fetchHttps)),catalogue_(std::move(catalogue)),backend_(backend) {
     for(const auto& r:catalogue_) {need(leaf(r.id)&&leaf(r.version),"invalid_catalogue");for(const auto& f:r.files)need(leaf(f.name)&&f.bytes>0&&f.sha256.length()==64,"invalid_catalogue");status_.models.push_back({r,r.unsupportedReason.isEmpty()?InstallationState::downloadable:InstallationState::unsupported,r.unsupportedReason});}
 }
 ModelManager::~ModelManager(){cancel();if(thread_.joinable())thread_.join();}
@@ -202,7 +224,8 @@ void ModelManager::scan() {
         }}models.push_back(std::move(item));
     }
     auto runtime=InstallationState::downloadable;
-    if(runtimePath().exists()) {
+    if(backend_==Backend::native){runtime=worker_.existsAsFile()&&plain(worker_)?InstallationState::installed:InstallationState::unsupported;}
+    else if(runtimePath().exists()) {
         runtime=InstallationState::installed;
         try{const auto m=manifest(runtimePath(),runtimeProfile);need(m["provenance"]["requirements_sha256"].toString()==requirementsHash,"integrity_failure");
             for(const auto* name:{"python.exe","python311.dll","python311._pth"}){
@@ -214,7 +237,7 @@ void ModelManager::scan() {
 bool ModelManager::refresh(){return start("refresh",[this]{scan();});}
 bool ModelManager::refreshIfNeeded(){return start("refresh",[this]{scan();},true);}
 void ModelManager::install(const ModelRecord& r) {
-    need(r.unsupportedReason.isEmpty()&&!r.files.empty(),"unsupported_model");ensureRoot();auto use=lease(r.id,true);
+    need(r.unsupportedReason.isEmpty()&&!r.files.empty(),"unsupported_model");for(const auto& f:r.files)need(f.url.isNotEmpty(),"import_required");ensureRoot();auto use=lease(r.id,true);
     const auto destination=modelsPath().getChildFile(r.id);need(!destination.exists(),"already_installed");
     juce::int64 bytes{};for(const auto& f:r.files)bytes+=f.bytes;need(root_.getBytesFreeOnVolume()>bytes+16*1024*1024,"disk_space");
     Staging stage{modelsPath().getChildFile(".part-"+juce::Uuid().toString())};need(CreateDirectoryW(stage.dir.getFullPathName().toWideCharPointer(),nullptr)!=FALSE,"io_error");
@@ -229,6 +252,22 @@ void ModelManager::install(const ModelRecord& r) {
     juce::Array<juce::var> artifacts;for(const auto& file:r.files){auto item=object();put(item,"url",file.url);put(item,"sha256",file.sha256);put(item,"bytes",file.bytes);artifacts.add(item);}put(provenance,"artifacts",juce::var(artifacts));
     inventory(stage.dir,r.id,provenance,cancelled_);check(cancelled_);need(stage.dir.moveFileTo(destination),"io_error");stage.dir=juce::File();scan();
 }
+bool ModelManager::importModel(const juce::String& id,juce::File source){
+    return start("import_model",[this,id,source]{
+        const auto& r=record(id);need(backend_==Backend::native&&r.unsupportedReason.isEmpty()&&r.files.size()==1,"unsupported_model");
+        ensureRoot();auto use=lease(id,true);const auto destination=modelsPath().getChildFile(id);need(!destination.exists(),"already_installed");
+        const auto& f=r.files.front();phase("Verifying imported GGUF",r.title);
+        need(source.existsAsFile()&&plain(source)&&source.getSize()==f.bytes,"integrity_failure");check(cancelled_);need(sha(source)==f.sha256,"integrity_failure");check(cancelled_);
+        need(root_.getBytesFreeOnVolume()>f.bytes+16*1024*1024,"disk_space");
+        Staging stage{modelsPath().getChildFile(".part-"+juce::Uuid().toString())};need(CreateDirectoryW(stage.dir.getFullPathName().toWideCharPointer(),nullptr)!=FALSE,"io_error");stage.owned=true;
+        const auto target=stage.dir.getChildFile(f.name);auto input=source.createInputStream();auto output=target.createOutputStream();need(input&&output,"io_error");
+        phase("Importing verified GGUF",r.title);std::array<char,65536> buffer{};juce::int64 copied{};
+        while(copied<f.bytes){check(cancelled_);const auto count=input->read(buffer.data(),static_cast<int>(std::min<juce::int64>(static_cast<juce::int64>(buffer.size()),f.bytes-copied)));need(count>0&&output->write(buffer.data(),static_cast<std::size_t>(count)),"io_error");copied+=count;std::lock_guard lock(mutex_);status_.completedBytes=copied;status_.totalBytes=f.bytes;}
+        output.reset();input.reset();check(cancelled_);need(sha(target)==f.sha256,"integrity_failure");
+        auto provenance=object();put(provenance,"model_version",r.version);put(provenance,"source",r.provenance);put(provenance,"backend","audio.cpp");put(provenance,"sha256",f.sha256);
+        inventory(stage.dir,r.id,provenance,cancelled_);check(cancelled_);need(stage.dir.moveFileTo(destination),"io_error");stage.dir=juce::File();scan();
+    });
+}
 bool ModelManager::installModel(const juce::String& id){return start("install_model",[this,id]{install(record(id));});}
 void ModelManager::uninstall(const juce::File& dir,const juce::String& id) {
     ensureRoot();auto use=lease(id,true);verifyInventory(dir,id,cancelled_,false);check(cancelled_);
@@ -237,7 +276,7 @@ void ModelManager::uninstall(const juce::File& dir,const juce::String& id) {
     need(dir.deleteRecursively(),"io_error");
 }
 bool ModelManager::removeModel(const juce::String& id){return start("remove_model",[this,id]{const auto& r=record(id);phase("Removing model",r.title);uninstall(modelsPath().getChildFile(id),id);scan();});}
-bool ModelManager::removeRuntime(){return start("remove_runtime",[this]{phase("Removing processing runtime");uninstall(runtimePath(),runtimeProfile);scan();});}
+bool ModelManager::removeRuntime(){if(backend_==Backend::native)return false;return start("remove_runtime",[this]{phase("Removing processing runtime");uninstall(runtimePath(),runtimeProfile);scan();});}
 void ModelManager::probeRuntime(const juce::File& dir) {
     phase("Checking processing runtime");
     const juce::String code="import sys,struct,importlib.metadata as m; import numpy,scipy,soundfile,torch,torchvision,onnxruntime; onnxruntime.disable_telemetry_events(); from audio_separator.separator import Separator; assert sys.version_info[:3]==(3,11,9) and struct.calcsize('P')==8; assert all(m.version(k).split('+')[0]==v for k,v in [('audio-separator','0.48.0'),('numpy','2.2.6'),('scipy','1.15.3'),('soundfile','0.13.1'),('librosa','0.11.0'),('audioread','3.0.1'),('onnxruntime','1.22.1'),('torch','2.8.0'),('torchvision','0.23.0')]); assert torch.version.cuda is None; assert torch.ones(2).sum().item()==2; print('MR_RUNTIME_CPU_READY')";
@@ -245,7 +284,7 @@ void ModelManager::probeRuntime(const juce::File& dir) {
     {std::lock_guard lock(mutex_);log_=result.log;}
     need(result.success&&result.log.contains("MR_RUNTIME_CPU_READY"),result.error=="cancelled"?"cancelled":"runtime_probe_failed");
 }
-bool ModelManager::verifyRuntime(){return start("verify_runtime",[this]{verifyInventory(runtimePath(),runtimeProfile,cancelled_,true);probeRuntime(runtimePath());scan();});}
+bool ModelManager::verifyRuntime(){if(backend_==Backend::native)return refresh();return start("verify_runtime",[this]{verifyInventory(runtimePath(),runtimeProfile,cancelled_,true);probeRuntime(runtimePath());scan();});}
 void ModelManager::setupRuntime() {
     ensureRoot();auto use=lease(runtimeProfile,true);need(!runtimePath().exists(),"already_installed");
     need(requirements_.existsAsFile()&&textHash(requirements_.loadFileAsString().replace("\r\n","\n"))==requirementsHash,"requirements_integrity");
@@ -272,9 +311,15 @@ void ModelManager::setupRuntime() {
     phase("Verifying processing runtime");auto provenance=object();put(provenance,"requirements_sha256",requirementsHash);put(provenance,"python_url",pythonZip.url);put(provenance,"python_sha256",pythonZip.sha256);put(provenance,"bootstrap_url",getPip.url);put(provenance,"bootstrap_sha256",getPip.sha256);put(provenance,"resolved_packages_sha256",sha(stage.dir.getChildFile("resolved-packages.txt")));put(provenance,"device","cpu");put(provenance,"python_license","PSF-2.0 (LICENSE.txt)");
     inventory(stage.dir,runtimeProfile,provenance,cancelled_);check(cancelled_);need(stage.dir.moveFileTo(runtimePath()),"io_error");stage.dir=juce::File();scan();
 }
-bool ModelManager::installRuntime(){return start("install_runtime",[this]{setupRuntime();});}
+bool ModelManager::installRuntime(){if(backend_==Backend::native)return false;return start("install_runtime",[this]{setupRuntime();});}
 ManagedInstallation ModelManager::acquire(const juce::String& id,Device device)const {
     need(device!=Device::cuda,"unsupported_device");const auto& r=record(id);need(r.unsupportedReason.isEmpty(),"unsupported_model");
+    if(backend_==Backend::native){
+        need(worker_.existsAsFile()&&plain(worker_),"native_runtime_missing");need(plain(root_)&&plain(modelsPath()),"unsafe_path");
+        ManagedInstallation result;result.runtimeLease=lease("native-cpu-runtime",false);result.modelLease=lease(id,false);
+        result.modelDirectory=modelsPath().getChildFile(id);manifest(result.modelDirectory,id);
+        result.runner={juce::File{},juce::File{},root_.getChildFile("jobs"),worker_};return result;
+    }
     need(plain(root_)&&plain(modelsPath())&&plain(runtimePath().getParentDirectory()),"unsafe_path");
     ManagedInstallation result;result.runtimeLease=lease(runtimeProfile,false);result.modelLease=lease(id,false);
     manifest(runtimePath(),runtimeProfile);manifest(modelsPath().getChildFile(id),id);

@@ -153,7 +153,7 @@ void nativeReal(const juce::File& worker,const juce::File& models,const juce::Fi
     Configuration config;config.temporaryRoot=root;config.nativeWorker=worker;
     Runner runner(config);Request req;req.source=source;req.modelDirectory=models;
     req.sessionId="native-host-regression";req.sourceRevision="native-source-1";req.sourceStart=11025;req.sourceFrames=44100;
-    req.timelineStart=123456;req.projectRate=44100;req.modelId="htdemucs-6s";req.selectedStems={"Vocals","Bass"};req.timeout=std::chrono::minutes(3);
+    req.timelineStart=123456;req.projectRate=48000;req.modelId="htdemucs-6s";req.selectedStems={"Vocals","Bass"};req.timeout=std::chrono::minutes(3);
     check(runner.start(req),"native submit without Python");
     PlaybackProbe playback(root.getChildFile("native-raw-recording.wav"));
     auto status=wait(runner);playback.verify();auto result=runner.take();
@@ -217,6 +217,24 @@ void managerTests(const juce::File& requirements) {
     check(manager.removeModel(record.id),"remove incomplete cache");check(waitManager(manager).error.isEmpty(),"incomplete cache recoverable");
     auto oversized=record;oversized.id="too-large";oversized.files.front().bytes=root.getBytesFreeOnVolume()+64*1024*1024;
     ModelManager large(root,{},requirements,fetch,{oversized});check(large.installModel(oversized.id),"large install");check(waitManager(large).error=="disk_space","disk preflight");
+    check(manager.installModel(record.id),"restore legacy cache for native isolation test");check(waitManager(manager).error.isEmpty(),"legacy cache restored");
+    // Native installation is independent of Python and cannot acquire a legacy profile by fallback.
+    auto nativeRecord=record;nativeRecord.files.front().url.clear();
+    const auto imported=root.getChildFile("original.gguf");check(imported.replaceWithText(content),"native source fixture");
+    const auto nativeWorker=root.getChildFile("native-worker.exe");check(nativeWorker.replaceWithText("fixture executable"),"native runtime fixture");
+    auto unsupported=record;unsupported.id="not-ported";unsupported.unsupportedReason="not ported";unsupported.files.clear();
+    const auto nativeRoot=root.getChildFile("native-cpu");
+    ModelManager nativeManager(nativeRoot,nativeWorker,{},fetch,{nativeRecord,unsupported},Backend::native);
+    check(nativeManager.refreshIfNeeded(),"native first scan");check(waitManager(nativeManager).runtime==InstallationState::installed,"native runtime needs no Python");
+    check(!nativeManager.installRuntime()&&!nativeManager.removeRuntime(),"bundled native runtime cannot be pip-installed or removed as Python");
+    check(nativeManager.importModel(record.id,imported),"explicit native GGUF import");check(waitManager(nativeManager).models.front().state==InstallationState::installed,"verified native imported state");
+    check(imported.loadFileAsString()==content,"import preserves source GGUF");
+    {auto installation=nativeManager.acquire(record.id);check(installation.runner.python==juce::File{}&&installation.runner.nativeWorker==nativeWorker&&installation.modelDirectory.isAChildOf(nativeRoot),"native acquire cannot fall back to Python");
+     check(nativeManager.removeModel(record.id),"native leased removal");check(waitManager(nativeManager).error=="in_use","native model lease protects job");}
+    bool nativeRejected{};try{nativeManager.acquire(unsupported.id);}catch(...){nativeRejected=true;}check(nativeRejected,"unsupported native profile cannot fall back");
+    check(nativeManager.removeModel(record.id),"native remove");check(waitManager(nativeManager).error.isEmpty()&&directory.exists(),"native removal preserves Python cache");
+    check(imported.replaceWithText("wrong model"),"bad native GGUF fixture");check(nativeManager.importModel(record.id,imported),"wrong native import");check(waitManager(nativeManager).error=="integrity_failure"&&!nativeRoot.getChildFile("models/fixture-model").exists(),"wrong GGUF never installed");
+    check(nativeModelCatalogue().size()==modelCatalogue().size(),"both backend catalogues retain all accepted profiles");
     const auto before=modelCatalogue().size();check(before>=6&&modelProfile("htdemucs-6s").stems.size()==6&&modelProfile("official-htdemucs-4-v1").stems.size()==4,"model-specific capabilities");
     bool rejected{};try{modelProfile("unknown-model");}catch(...){rejected=true;}check(rejected,"unknown capabilities excluded");
     std::cout<<"PASS model manager: integrity, atomic install, cancel/retry, corruption/missing file, safe removal, disk quota, unsupported catalogue\n";

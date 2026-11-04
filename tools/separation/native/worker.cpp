@@ -1,6 +1,7 @@
 // Experimental isolated native worker. Never linked into the DAW/ASIO process.
 #include "native_ipc.hpp"
 #include "sw_frontend.hpp"
+#include "native_resample.hpp"
 #include "native_profiles.h"
 #include <audiocpp.h>
 #include <mrs/audio.hpp>
@@ -38,13 +39,13 @@ bool plain(const fs::path& path){
     return !fs::is_symlink(status)&&(fs::is_directory(status)||fs::is_regular_file(status));
 }
 void native(audiocpp_status status){if(status!=AUDIOCPP_OK){std::cerr<<audiocpp_last_error()<<'\n';throw Failure("process_failed");}}
-void writeWav(const fs::path& path,std::span<const float> samples){
+void writeWav(const fs::path& path,std::span<const float> samples,unsigned rate=44100){
     static_assert(std::endian::native==std::endian::little);
-    require(!fs::exists(path)&&samples.size()%2==0&&samples.size()<=44100u*600u*2u,"invalid_output");
+    require(rate>=8000&&rate<=96000&&!fs::exists(path)&&samples.size()%2==0&&samples.size()<=static_cast<std::size_t>(rate)*600*2,"invalid_output");
     require(std::all_of(samples.begin(),samples.end(),[](float value){return std::isfinite(value);}),"invalid_output");
     std::ofstream stream(path,std::ios::binary);const auto bytes=static_cast<std::uint32_t>(samples.size()*4);
     const auto put=[&](std::uint32_t value,unsigned width){for(unsigned i=0;i<width;++i)stream.put(static_cast<char>((value>>(i*8))&255u));};
-    stream.write("RIFF",4);put(bytes+36,4);stream.write("WAVEfmt ",8);put(16,4);put(3,2);put(2,2);put(44100,4);put(44100*8,4);put(8,2);put(32,2);
+    stream.write("RIFF",4);put(bytes+36,4);stream.write("WAVEfmt ",8);put(16,4);put(3,2);put(2,2);put(rate,4);put(rate*8,4);put(8,2);put(32,2);
     stream.write("data",4);put(bytes,4);stream.write(reinterpret_cast<const char*>(samples.data()),static_cast<std::streamsize>(bytes));stream.close();require(bool(stream),"io_error");
 }
 struct Model {
@@ -107,13 +108,13 @@ std::vector<std::string> labels(const cJSON* values){
 }
 std::string lower(std::string text){for(auto& value:text){require((value>='A'&&value<='Z')||(value>='a'&&value<='z'),"invalid_stems");if(value>='A'&&value<='Z')value=static_cast<char>(value-'A'+'a');}return text;}
 using NativeOutputs=std::map<std::string,std::vector<float>>;
-void copyOutputs(audiocpp_result* result,NativeOutputs& outputs,std::size_t frames,const std::vector<std::string>& selected){
-    const auto count=audiocpp_result_named_audio_count(result);require(count>0&&count<=6,"invalid_output");
+void copyOutputs(audiocpp_result* result,NativeOutputs& outputs,std::size_t frames,const std::vector<std::string>& selected,const std::vector<std::string>& roles){
+    const auto count=audiocpp_result_named_audio_count(result);require(count==roles.size()&&count>0&&count<=6,"invalid_output");
     std::set<std::string> seen;
     for(std::size_t i=0;i<count;++i){
         const char* name{};const float* pcm{};std::size_t length{};int rate{},channels{};
         native(audiocpp_result_named_audio(result,i,&name,&pcm,&length,&rate,&channels));
-        require(name&&pcm&&length==frames&&rate==44100&&channels==2&&seen.insert(name).second,"invalid_output");
+        require(name&&pcm&&length==frames&&rate==44100&&channels==2&&std::find(roles.begin(),roles.end(),name)!=roles.end()&&seen.insert(name).second,"invalid_output");
         require(std::all_of(pcm,pcm+length*2,[](float value){return std::isfinite(value);}),"invalid_output");
         if(std::find(selected.begin(),selected.end(),name)!=selected.end())require(outputs.emplace(name,std::vector<float>(pcm,pcm+length*2)).second,"invalid_output");
     }
@@ -161,12 +162,15 @@ NativeOutputs infer(const Model& descriptor,const fs::path& file,std::span<const
             native(audiocpp_request_set_audio(request.get(),input.data(),frames,44100,2));
             native(mrs_audiocpp_request_set_chunk_progress(request.get(),Control::callback,&control));
             audiocpp_result* raw{};const auto status=audiocpp_session_run(session.get(),request.get(),&raw);
-            std::unique_ptr<audiocpp_result,decltype(&audiocpp_result_free)> result(raw,audiocpp_result_free);control.check();native(status);copyOutputs(result.get(),outputs,frames,selected);
+            std::unique_ptr<audiocpp_result,decltype(&audiocpp_result_free)> result(raw,audiocpp_result_free);control.check();native(status);copyOutputs(result.get(),outputs,frames,selected,roles);
         }
     }
     require(outputs.size()==selected.size(),"invalid_output");return outputs;
 }
 Json process(const cJSON* req,ipc::Wire& wire){
+    // cJSON's parse-error state is global. Parse the trusted static catalogue
+    // before the cancel-reader thread can parse a command concurrently.
+    auto catalogue=ipc::own(cJSON_Parse(nativeProfilesJson));
     const auto* version=ipc::member(req,"version");require(cJSON_IsNumber(version)&&version->valuedouble==1&&ipc::field(req,"type")=="submit","protocol_error");
     const auto job=ipc::field(req,"job_id");require(shortId(job),"invalid_input");wire.job(job);
     const auto session=ipc::field(req,"session_id"),revision=ipc::field(req,"source_revision");
@@ -184,20 +188,24 @@ Json process(const cJSON* req,ipc::Wire& wire){
     require(descriptor!=std::end(models),"unsupported_model");
     const auto device=ipc::field(req,"device");require(device=="cpu"||device=="auto","unsupported_device");
     const auto chunk=ipc::field(req,"chunk");require(chunk=="default"||(descriptor->sw&&chunk=="small"),"unsupported_input");
-    // Vertical migration slice: explicit rejection until native SRC parity is
-    // verified. It is not selected by the production Model Manager/runner.
-    const auto projectRate=ipc::counter(req,"project_rate",8000,96000);require(projectRate==44100,"unsupported_input");
+    const auto projectRate=ipc::counter(req,"project_rate",8000,96000);
+    constexpr std::uint64_t projectRates[]{8000,16000,22050,32000,44100,48000,88200,96000};
+    require(std::find(std::begin(projectRates),std::end(projectRates),projectRate)!=std::end(projectRates),"unsupported_input");
     const auto threads=ipc::counter(req,"threads",1,4),start=ipc::counter(req,"source_start"),frames=ipc::counter(req,"source_frames",1,96000ULL*600);
     const auto timeline=ipc::counter(req,"timeline_start");
     const auto source=fs::absolute(pathFrom(ipc::field(req,"source_path")));
     require(fs::is_regular_file(source)&&plain(source)&&fs::file_size(source)<=512ULL*1024*1024,"invalid_input");
     const auto sourceHash=ipc::field(req,"source_sha256");require(sourceHash==mrs::sha256_file(source),"stale_source");
-    const auto info=mrs::audio::inspect_wav(source);require(info.sample_rate==44100&&(info.channels==1||info.channels==2),"unsupported_input");
-    require(start<=static_cast<std::uint64_t>(info.frame_count)&&frames<=static_cast<std::uint64_t>(info.frame_count)-start&&frames<=44100ULL*600,"invalid_input");
-    require(!descriptor->sw||frames>1024,"unsupported_input");
+    const auto info=mrs::audio::inspect_wav(source);
+    require((info.sample_rate==44100||info.sample_rate==48000||info.sample_rate==88200||info.sample_rate==96000)&&(info.channels==1||info.channels==2),"unsupported_input");
+    require(start<=static_cast<std::uint64_t>(info.frame_count)&&frames<=static_cast<std::uint64_t>(info.frame_count)-start&&frames<=static_cast<std::uint64_t>(info.sample_rate)*600,"invalid_input");
+    const auto modelFrames=ipc::separationFrameCount(frames,info.sample_rate,44100);
+    const auto targetFrames=ipc::separationFrameCount(frames,info.sample_rate,static_cast<unsigned>(projectRate));
+    require(modelFrames>0&&targetFrames>0&&(!descriptor->sw||modelFrames>1024),"unsupported_input");
+    require(targetFrames<=(modelFrames*projectRate+44100-1)/44100,"invalid_output");
     const std::uint64_t reserve=descriptor->sw?512ULL*1024*1024:1024ULL*1024*1024;
-    require(frames*2*4*32+reserve<=memory,"resource_limit");
-    auto catalogue=ipc::own(cJSON_Parse(nativeProfilesJson));const cJSON* profile{};
+    require(frames*2*4*32<=memory&&modelFrames*2*4*32+reserve<=memory,"resource_limit");
+    const cJSON* profile{};
     for(auto* item=catalogue->child;item;item=item->next)if(ipc::field(item,"id")==id){profile=item;break;}
     require(profile!=nullptr,"unsupported_model");const auto available=labels(ipc::member(profile,"stems")),requested=labels(ipc::member(req,"stems"));
     std::vector<std::string> selected,selectedLabels,roles;
@@ -217,6 +225,7 @@ Json process(const cJSON* req,ipc::Wire& wire){
     }
     require(std::all_of(input.begin(),input.end(),[](float value){return std::isfinite(value);}),"invalid_input");
     require(mrs::sha256_file(source)==sourceHash,"stale_source");control.check();
+    if(info.sample_rate!=44100)input=ipc::separationResample(input,2,info.sample_rate,44100,static_cast<std::size_t>(modelFrames),[&]{control.check();});
     writeWav(work/"snapshot.wav",input);const auto snapshotHash=mrs::sha256_file(work/"snapshot.wav");
     auto outputs=infer(*descriptor,model,input,static_cast<int>(threads),selected,roles,chunk,control);input.clear();input.shrink_to_fit();
     control.phase("verifying");require(fs::create_directory(pending),"io_error");bool owned=true;
@@ -225,16 +234,18 @@ Json process(const cJSON* req,ipc::Wire& wire){
         for(const auto& label:selectedLabels)ipc::append(selection.get(),ipc::own(cJSON_CreateString(label.c_str())));
         for(auto* file=ipc::member(profile,"files")->child;file;file=file->next)ipc::put(weights.get(),ipc::field(file,"name").c_str(),ipc::field(file,"sha256"));
         for(const auto& role:selected){
-            control.check();const auto& audio=outputs.at(role);require(audio.size()==frames*2,"invalid_output");
-            const auto file=pending/(role+".wav");writeWav(file,audio);auto entry=ipc::object();
+            control.check();auto& audio=outputs.at(role);require(audio.size()==modelFrames*2,"invalid_output");
+            if(projectRate!=44100)audio=ipc::separationResample(audio,2,44100,static_cast<unsigned>(projectRate),static_cast<std::size_t>(targetFrames),[&]{control.check();});
+            require(audio.size()==targetFrames*2,"invalid_output");
+            const auto file=pending/(role+".wav");writeWav(file,audio,static_cast<unsigned>(projectRate));auto entry=ipc::object();
             ipc::put(entry.get(),"stem",role);ipc::put(entry.get(),"path",role+".wav");ipc::put(entry.get(),"sha256",mrs::sha256_file(file));
-            ipc::put(entry.get(),"bytes",std::to_string(fs::file_size(file)));ipc::put(entry.get(),"frames",std::to_string(frames));
-            ipc::put(entry.get(),"rate","44100");ipc::put(entry.get(),"channels",2);ipc::put(entry.get(),"format","WAV_FLOAT32");ipc::put(entry.get(),"origin","0");ipc::append(entries.get(),std::move(entry));
+            ipc::put(entry.get(),"bytes",std::to_string(fs::file_size(file)));ipc::put(entry.get(),"frames",std::to_string(targetFrames));
+            ipc::put(entry.get(),"rate",std::to_string(projectRate));ipc::put(entry.get(),"channels",2);ipc::put(entry.get(),"format","WAV_FLOAT32");ipc::put(entry.get(),"origin","0");ipc::append(entries.get(),std::move(entry));
         }
         ipc::put(manifest.get(),"version",1);ipc::put(manifest.get(),"job_id",job);ipc::put(manifest.get(),"session_id",session);
         ipc::put(manifest.get(),"source_revision",revision);ipc::put(manifest.get(),"source_sha256",sourceHash);
         ipc::put(manifest.get(),"source_start",std::to_string(start));ipc::put(manifest.get(),"source_frames",std::to_string(frames));
-        ipc::put(manifest.get(),"source_rate","44100");ipc::put(manifest.get(),"timeline_start",std::to_string(timeline));ipc::put(manifest.get(),"project_rate","44100");
+        ipc::put(manifest.get(),"source_rate",std::to_string(info.sample_rate));ipc::put(manifest.get(),"timeline_start",std::to_string(timeline));ipc::put(manifest.get(),"project_rate",std::to_string(projectRate));
         ipc::put(manifest.get(),"snapshot_sha256",snapshotHash);ipc::put(manifest.get(),"model",id);
         ipc::attach(manifest.get(),"available_stems",ipc::duplicate(ipc::member(profile,"stems")));ipc::attach(manifest.get(),"selected_stems",std::move(selection));
         ipc::attach(manifest.get(),"weights",std::move(weights));ipc::attach(manifest.get(),"outputs",std::move(entries));

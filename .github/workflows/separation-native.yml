@@ -1,10 +1,15 @@
 name: Native separation CPU spike
-run-name: MR Studio 0.9.7 — native CPU spike (no Studio package)
+run-name: MR Studio 0.9.7 — native CPU / A-B
 on:
   push:
     branches: ['codex/351-native-separation']
-    paths: ['tools/separation/native/**', '.github/workflows/separation-native.yml', 'cmake/NativeSeparation.cmake', 'CMakeLists.txt', 'apps/studio-juce/src/SeparationRunner*', 'tools/separation_check.cpp', 'tests/native_separation_worker_check.py']
+    paths: ['tools/separation/native/**', '.github/workflows/separation-native.yml', 'cmake/NativeSeparation.cmake', 'CMakeLists.txt', 'apps/studio-juce/src/SeparationRunner*', 'tools/separation_check.cpp', 'tests/native_separation_worker_check.py', 'tests/native_resample_poly_reference.json', 'apps/studio-juce/src/Separation*', 'tools/ci/Configure-Windows.ps1', 'tools/ci/Package-Windows.ps1', 'cmake/Separation.cmake']
   workflow_dispatch:
+    inputs:
+      package_studio:
+        description: Build Studio-only A/B runtime after native checks
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -12,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   windows-cpu:
-    if: ${{ !contains(github.event.head_commit.message, '[ci native-port]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[ci native-port]') && !contains(github.event.head_commit.message, '[ci native-studio]') }}
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
@@ -57,7 +62,7 @@ jobs:
             tools/separation/native/baseline-lock.json
   windows-sw-port:
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -136,11 +141,11 @@ jobs:
           if($LASTEXITCODE){throw 'JUCE core pin failed'}
           git -C build/juce checkout --detach $lock.juce.commit
           if($LASTEXITCODE){throw 'JUCE core checkout failed'}
-          cmake -S . -B build/native-worker -DMRS_BUILD_DESKTOP=OFF -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_VST3=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=OFF -DMRS_BUILD_LIVE=OFF -DMRS_BUILD_NATIVE_SEPARATION_WORKER=ON -DMRS_BUILD_SEPARATION_CHECK=ON -DMRS_JUCE_SDK_ROOT="$root/build/juce" -DMRS_AUDIOCPP_SOURCE_ROOT="$root/build/audio.cpp" -DMRS_AUDIOCPP_NATIVE_LIBRARY="$root/build/audio-native/bin/Release/audiocpp.lib" -DMRS_NATIVE_SW_PACKAGE_SHA256="$swPackageSha" -DPython3_EXECUTABLE="$((Get-Command python).Source)"
+          cmake -S . -B build/native-worker -DMRS_BUILD_DESKTOP=OFF -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_VST3=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=OFF -DMRS_BUILD_LIVE=OFF -DMRS_BUILD_NATIVE_SEPARATION_WORKER=ON -DMRS_BUILD_SEPARATION_CHECK=ON -DMRS_JUCE_SDK_ROOT="$root/build/juce" -DMRS_AUDIOCPP_SOURCE_ROOT="$root/build/audio.cpp" -DMRS_AUDIOCPP_NATIVE_LIBRARY="$root/build/audio-native/bin/Release/audiocpp.lib" -DMRS_NATIVE_SW_PACKAGE_SHA256="$swPackageSha" -DMRS_NATIVE_SW_PACKAGE_BYTES="$((Get-Item build/sw-fixed-f32.gguf).Length)" -DPython3_EXECUTABLE="$((Get-Command python).Source)"
           if($LASTEXITCODE){throw 'Native worker/Runner configure failed'}
-          cmake --build build/native-worker --config Release --target mrs_native_separation_worker mrs_native_ipc_test mrs_separation_check --parallel 2
+          cmake --build build/native-worker --config Release --target mrs_native_separation_worker mrs_native_ipc_test mrs_native_resample_test mrs_separation_check --parallel 2
           if($LASTEXITCODE){throw 'Native worker/Runner build failed'}
-          ctest --test-dir build/native-worker -C Release -R '^(native_worker_ipc|separation_host)$' --output-on-failure
+          ctest --test-dir build/native-worker -C Release -R '^(native_worker_ipc|native_worker_resample|separation_host|separation_models)$' --output-on-failure
           if($LASTEXITCODE){throw 'Native wire or existing Runner regression failed'}
       - name: Real native worker IPC and Windows Job Object integration
         shell: pwsh
@@ -150,6 +155,71 @@ jobs:
           if($LASTEXITCODE){throw 'Real native worker IPC regression failed'}
           & build/native-worker/Release/mrs_separation_check.exe --native "$root/build/native-worker/Release/mrs_native_separation_worker.exe" "$root/build/native-custom-cache" "$root/build/native-host-evidence"
           if($LASTEXITCODE){throw 'Real native Windows Runner integration failed'}
+      - name: Prepare Studio SDKs (ARA ON, no Live)
+        if: ${{ contains(github.event.head_commit.message, '[ci native-studio]') || inputs.package_studio == true }}
+        shell: pwsh
+        run: ./tools/ci/Prepare-Sdks.ps1 -Ara
+      - name: Configure and build Studio A/B runtime
+        if: ${{ contains(github.event.head_commit.message, '[ci native-studio]') || inputs.package_studio == true }}
+        shell: pwsh
+        run: |
+          ./tools/ci/Configure-Windows.ps1 -Ara -StudioOnly -NativeSeparation
+          if($LASTEXITCODE){throw 'Studio A/B configure failed'}
+          cmake --build build/windows --config Release --target MoonRiverStudioJuce mrs_separation_check mrs_separation_project_check mrs_separation_assets_tests mrs_persistence_tests --parallel 2
+          if($LASTEXITCODE){throw 'Studio A/B build failed'}
+      - name: Studio A/B UI, model manager and project regressions
+        if: ${{ contains(github.event.head_commit.message, '[ci native-studio]') || inputs.package_studio == true }}
+        shell: pwsh
+        run: |
+          ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^(juce_separation_(models|project)|separation_(host|models)|desktop_separation_assets|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$'
+          if($LASTEXITCODE){
+            foreach($name in @('separation-project-failure.txt','separation-models-failure.txt')){if(Test-Path "build/windows/$name"){Get-Content "build/windows/$name"}}
+            throw 'Studio A/B regression failed'
+          }
+      - name: Package verified Studio-only A/B (models are separate)
+        if: ${{ contains(github.event.head_commit.message, '[ci native-studio]') || inputs.package_studio == true }}
+        shell: pwsh
+        env:
+          MR_STUDIO_VERSION: '0.9.7'
+          MR_LIVE_VERSION: '0.8.13'
+          CI_TEST_RESULT: success
+          CI_CHECK_SCOPE: studio-native-ab
+        run: |
+          ./tools/ci/Package-Windows.ps1 -Ara -StudioOnly -NativeSeparation
+          if($LASTEXITCODE){throw 'Studio A/B package failed'}
+          New-Item -ItemType Directory -Force build/native-sw-download | Out-Null
+          Copy-Item build/sw-fixed-f32.gguf build/native-sw-download/
+          Copy-Item tools/separation/native/AB-TEST.txt build/native-sw-download/README.txt
+          Get-FileHash build/native-sw-download/sw-fixed-f32.gguf -Algorithm SHA256 | Format-List | Out-String | Set-Content build/native-sw-download/SHA256.txt
+      - name: Upload Studio 0.9.7 A/B runtime
+        if: ${{ success() && (contains(github.event.head_commit.message, '[ci native-studio]') || inputs.package_studio == true) }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MR-Studio-0.9.7-Windows-native-AB-${{ github.sha }}
+          path: build/package/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload separate verified SW weights for explicit import
+        if: ${{ success() && (contains(github.event.head_commit.message, '[ci native-studio]') || inputs.package_studio == true) }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MR-Studio-0.9.7-Native-SW-GGUF-${{ github.sha }}
+          path: build/native-sw-download/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Upload Studio symbols and targeted diagnostics
+        if: ${{ always() && (contains(github.event.head_commit.message, '[ci native-studio]') || inputs.package_studio == true) }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MR-Studio-0.9.7-native-AB-diagnostics-${{ github.sha }}
+          retention-days: 7
+          path: |
+            build/windows/MoonRiverStudioJuce_artefacts/Release/*.pdb
+            build/windows/Testing/Temporary/LastTest.log
+            build/windows/separation-*-failure.txt
+            build/windows/separation-models-*.png
+            build/windows/separation-project-*.png
       - name: Upload custom-port synthetic evidence (no weights or SDK)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

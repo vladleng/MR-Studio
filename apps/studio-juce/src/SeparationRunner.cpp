@@ -342,6 +342,9 @@ void Runner::run(Request request, juce::String jobId) noexcept {
                     const auto manifestFile = resultDirectory.getChildFile("manifest.json");
                     require(manifestFile.existsAsFile() && manifestFile.getSize() <= 49152 && plainFile(manifestFile) &&
                             juce::JSON::toString(juce::JSON::parse(manifestFile), true) == juce::JSON::toString(manifest, true), "invalid_output");
+                    // Record comparable end-to-end worker/verification wall time for both backends.
+                    put(manifest,"host_wall_seconds",std::chrono::duration<double>(Clock::now()-began).count());
+                    require(manifestFile.replaceWithText(juce::JSON::toString(manifest,true)),"io_error");
                     // Only verified outputs survive. All transient input/native files are discarded.
                     work.getChildFile("snapshot.wav").deleteFile();
                     work.getChildFile("native").deleteRecursively();
