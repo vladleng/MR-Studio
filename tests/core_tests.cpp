@@ -340,6 +340,31 @@ struct ReentrantCommand final : mrs::ICommand {
     std::string_view name() const override { return "Reentrant"; }
     void apply(mrs::Project&) const override { (void)store.undo(); }
 };
+void remove_tracks() {
+    using namespace mrs;
+    auto p=demo_project();p.tracks.resize(1);p.clips.resize(1);const auto kept=p.tracks.front().id;
+    p.tracks.push_back({{"sub"},"Sub",TrackKind::bus,{}});
+    p.tracks.push_back({{"sum"},"Sum",TrackKind::bus,{}});
+    p.tracks.push_back({{"discard"},"Discard",TrackKind::audio,{}});
+    p.tracks.front().output=Id{"sub"};p.tracks.front().hardware_outputs.clear();
+    p.tracks[1].output=Id{"sum"};p.tracks[1].hardware_outputs.clear();p.tracks[2].hardware_outputs={4,5};
+    p.tracks.front().sends={{{"sub"},.5f,false},{{"sum"},.25f,false}};
+    auto clip=p.clips.front();clip.id={"discard-clip"};clip.track={"discard"};p.clips.push_back(clip);p.validate();
+    ProjectStore store{p};const auto revision=store.state().revision;
+    store.execute(RemoveTracks{{Id{"sub"},Id{"sum"},Id{"discard"}}});
+    const auto removed=*store.state().project;
+    CHECK(store.state().revision==revision+1&&removed.tracks.size()==1&&removed.tracks.front().id==kept);
+    CHECK(!removed.tracks.front().output&&removed.tracks.front().hardware_outputs==std::vector<int>({4,5})&&removed.tracks.front().sends.empty());
+    CHECK(removed.clips.size()==p.clips.size()-1&&deserialize(serialize(removed))==removed);
+    CHECK(store.undo()&&*store.state().project==p);CHECK(store.redo()&&*store.state().project==removed);
+    auto reverse=p;RemoveTracks{{Id{"discard"},Id{"sum"},Id{"sub"}}}.apply(reverse);CHECK(reverse==removed);
+    for(const auto& ids:std::vector<std::vector<Id>>{{},{kept,kept},{kept,Id{"missing"}}}){
+        const auto before=store.state();rejects([&]{store.execute(RemoveTracks{ids});});CHECK(store.state().revision==before.revision&&store.state().project==before.project);
+        auto direct=removed;rejects([&]{RemoveTracks{ids}.apply(direct);});CHECK(direct==removed);
+    }
+    store.execute(RemoveTracks{{kept}});CHECK(store.state().project->tracks.empty()&&store.state().project->clips.empty());
+    CHECK(store.undo()&&*store.state().project==removed);
+}
 void commands() {
     mrs::ProjectStore store{mrs::demo_project()};
     std::vector<mrs::ProjectState> events;
@@ -498,6 +523,7 @@ int main(int argc, char** argv) {
         else if (suite == "timeline") timeline();
         else if (suite == "transport") transport();
         else if (suite == "commands") commands();
+        else if (suite == "remove_tracks") remove_tracks();
         else if (suite == "serialization") serialization();
         else if (suite == "integration") integration();
         else throw std::runtime_error("unknown suite");

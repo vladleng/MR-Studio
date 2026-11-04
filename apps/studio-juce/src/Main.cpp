@@ -128,6 +128,12 @@ public:
             catch(const std::exception& e){failure.replaceWithText(e.what());setApplicationReturnValue(1);}
             quit();return;
         }
+        if(args.contains("--wav-drop-smoke")){
+            const auto failure=juce::File::getCurrentWorkingDirectory().getChildFile("wav-drop-failure.txt");failure.deleteFile();
+            try{ui::wavDrop263Smoke();setApplicationReturnValue(0);}
+            catch(const std::exception& e){failure.replaceWithText(e.what());setApplicationReturnValue(1);}
+            quit();return;
+        }
         if(args.contains("--track-folders-smoke")){
             const auto failure=juce::File::getCurrentWorkingDirectory().getChildFile("folders266-failure.txt");failure.deleteFile();
             try{ui::trackFolderSmoke();setApplicationReturnValue(0);}

@@ -1653,6 +1653,7 @@ void Application::link_folder_bus(const Id& id,std::optional<Id> bus,bool create
     edit_track_folders(LinkFolderBus{id,std::move(bus),std::move(channel)});
 }
 void Application::remove_track(const Id& id) { edit(RemoveTrack{id}); }
+void Application::remove_tracks(std::vector<Id> ids) { edit(RemoveTracks{std::move(ids)}); }
 void Application::reorder_track(const Id& id, std::size_t index) {
     require_not_recording();auto candidate=*services_.projects->state().project;
     ReorderTrack{id,index}.apply(candidate);if(candidate==*services_.projects->state().project)return;

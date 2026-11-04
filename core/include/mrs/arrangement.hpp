@@ -29,6 +29,13 @@ public:
     void apply(Project&) const override;
 private: Id id_;
 };
+class RemoveTracks final : public ICommand {
+public:
+    explicit RemoveTracks(std::vector<Id> ids) : ids_(std::move(ids)) {}
+    std::string_view name() const override { return "Remove tracks"; }
+    void apply(Project&) const override;
+private: std::vector<Id> ids_;
+};
 class ReorderTrack final : public ICommand {
 public:
     ReorderTrack(Id id, std::size_t index) : id_(std::move(id)), index_(index) {}
