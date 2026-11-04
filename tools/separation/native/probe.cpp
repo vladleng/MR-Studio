@@ -1,5 +1,6 @@
 // Developer/CI CPU baseline only. No DAW integration and no Python inference.
 #include <audiocpp.h>
+#include "sw_frontend.hpp"
 #include <mrs/sha256.hpp>
 #include <algorithm>
 #include <array>
@@ -71,8 +72,32 @@ std::uint64_t peakRss(){
     rusage usage{};return getrusage(RUSAGE_SELF,&usage)==0?static_cast<std::uint64_t>(usage.ru_maxrss)*1024:0;
 #endif
 }
+Audio runSwFrontend(audiocpp_session* session,audiocpp_request* request,const Audio& input,const std::string& role){
+    constexpr std::size_t chunk=130560;
+    const auto starts=mrs::separation::native::swChunkStarts(input.frames(),chunk,chunk/2);
+    mrs::separation::native::SwOverlapAdd output(input.frames(),input.channels,chunk);
+    for(std::size_t i=0;i<starts.size();++i){
+        const auto begin=starts[i],length=std::min(chunk,input.frames()-begin);
+        check(audiocpp_request_set_audio(request,input.samples.data()+begin*static_cast<std::size_t>(input.channels),length,input.rate,input.channels));
+        audiocpp_result* raw{};check(audiocpp_session_run(session,request,&raw));
+        std::unique_ptr<audiocpp_result,decltype(&audiocpp_result_free)> result(raw,audiocpp_result_free);
+        need(audiocpp_result_named_audio_count(result.get())==1,"SW head returned extra outputs");
+        const char* name{};const float* pcm{};std::size_t frames{};int rate{},channels{};
+        check(audiocpp_result_named_audio(result.get(),0,&name,&pcm,&frames,&rate,&channels));
+        need(name&&role==name&&pcm&&frames==length&&rate==input.rate&&channels==input.channels,"SW chunk geometry or role mismatch");
+        output.add(begin,pcm,length,length/512*512);
+        std::cout<<"Completed SW chunk "<<i+1<<'/'<<starts.size()<<'\n'<<std::flush;
+    }
+    return {output.finish(),input.rate,input.channels};
+}
 int run(const std::vector<fs::path>& args){
-    need(args.size()==6,"Usage: probe MODEL INPUT OUTPUT THREADS REPEATS");
+    need(args.size()>=6&&args.size()<=8,"Usage: probe MODEL INPUT OUTPUT THREADS REPEATS [SW_ROLE [mdxc]]");
+    const bool mdxc=args.size()==8;
+    need(!mdxc||text(args[7])=="mdxc","Unknown frontend mode");
+    const std::string selectedRole=args.size()>=7?text(args[6]):"";
+    const std::vector<std::string> swRoles{"bass","drums","other","vocals","guitar","piano"};
+    const auto role=std::find(swRoles.begin(),swRoles.end(),selectedRole);
+    need(selectedRole.empty()||role!=swRoles.end(),"Invalid SW role");
     const auto modelFile=fs::absolute(args[1]),input=fs::absolute(args[2]),output=fs::absolute(args[3]);
     const int threads=std::stoi(text(args[4])),repeats=std::stoi(text(args[5]));need(threads>=1&&threads<=16&&repeats>=1&&repeats<=3,"Invalid baseline limits");
     need(!fs::exists(output),"Evidence directory already exists");fs::create_directories(output);
@@ -84,23 +109,34 @@ int run(const std::vector<fs::path>& args){
     check(audiocpp_model_load(registry.get(),modelPath.c_str(),nullptr,nullptr,&rawModel));
     std::unique_ptr<audiocpp_model,decltype(&audiocpp_model_free)> model(rawModel,audiocpp_model_free);const auto loadMs=elapsed(at);
     need(audiocpp_model_supports(model.get(),"sep","offline")!=0,"Native model lacks sep/offline capability");
+    std::unique_ptr<audiocpp_options,decltype(&audiocpp_options_free)> options(audiocpp_options_create(),audiocpp_options_free);
+    need(bool(options),"Option allocation failed");
+    if(!selectedRole.empty()){
+        need(audio.frames()>1024&&(mdxc||audio.frames()<=130560),"SW raw-head probe requires one exact input chunk");
+        check(audiocpp_options_set(options.get(),"bs_roformer.stem_index",std::to_string(role-swRoles.begin()+1).c_str()));
+        check(audiocpp_options_set(options.get(),"bs_roformer.chunk_size",std::to_string(std::min(audio.frames(),std::size_t{130560})).c_str()));
+        check(audiocpp_options_set(options.get(),"bs_roformer.num_overlap","1"));
+    }
     const audiocpp_backend_config backend{"cpu",0,threads};audiocpp_session* rawSession{};at=Clock::now();
-    check(audiocpp_session_create(model.get(),"sep","offline",&backend,nullptr,&rawSession));
+    check(audiocpp_session_create(model.get(),"sep","offline",&backend,options.get(),&rawSession));
     std::unique_ptr<audiocpp_session,decltype(&audiocpp_session_free)> session(rawSession,audiocpp_session_free);const auto sessionMs=elapsed(at);
     std::unique_ptr<audiocpp_request,decltype(&audiocpp_request_free)> request(audiocpp_request_create(),audiocpp_request_free);need(bool(request),"Request allocation failed");
     check(audiocpp_request_set_audio(request.get(),audio.samples.data(),audio.frames(),audio.rate,audio.channels));
     std::ofstream report(output/"report.json");report<<std::setprecision(12)<<"{\"upstream\":\"41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48\",\"abi\":"<<abi<<",\"threads\":"<<threads<<",\"input_sha256\":"<<std::quoted(sourceHash)<<",\"model_sha256\":"<<std::quoted(mrs::sha256_file(modelFile))<<",\"frames\":"<<audio.frames()<<",\"load_ms\":"<<loadMs<<",\"session_ms\":"<<sessionMs<<",\"runs\":[";
-    const std::set<std::string> expected{"drums","bass","other","vocals","guitar","piano"};
+    const std::set<std::string> expected=selectedRole.empty()?std::set<std::string>{"drums","bass","other","vocals","guitar","piano"}:std::set<std::string>{selectedRole};
     for(int iteration=0;iteration<repeats;++iteration){
-        at=Clock::now();audiocpp_result* rawResult{};check(audiocpp_session_run(session.get(),request.get(),&rawResult));
+        at=Clock::now();audiocpp_result* rawResult{};Audio assembled;
+        if(mdxc)assembled=runSwFrontend(session.get(),request.get(),audio,selectedRole);
+        else check(audiocpp_session_run(session.get(),request.get(),&rawResult));
         std::unique_ptr<audiocpp_result,decltype(&audiocpp_result_free)> result(rawResult,audiocpp_result_free);const auto inferenceMs=elapsed(at);
-        need(audiocpp_result_named_audio_count(result.get())==6,"HTDemucs6 must return six native outputs");
+        need(mdxc||audiocpp_result_named_audio_count(result.get())==expected.size(),"Unexpected native output count");
         const auto folder=output/("run"+std::to_string(iteration));fs::create_directory(folder);
         if(iteration){report<<',';}
         report<<"{\"inference_ms\":"<<inferenceMs<<",\"outputs\":[";std::set<std::string> seen;
-        for(std::size_t i=0;i<6;++i){
+        for(std::size_t i=0;i<expected.size();++i){
             const char* name{};const float* samples{};std::size_t frames{};int rate{},channels{};
-            check(audiocpp_result_named_audio(result.get(),i,&name,&samples,&frames,&rate,&channels));
+            if(mdxc){name=selectedRole.c_str();samples=assembled.samples.data();frames=assembled.frames();rate=assembled.rate;channels=assembled.channels;}
+            else check(audiocpp_result_named_audio(result.get(),i,&name,&samples,&frames,&rate,&channels));
             need(name&&expected.contains(name)&&seen.insert(name).second&&samples,"Invalid native stem role");
             need(frames==audio.frames()&&rate==audio.rate&&channels==audio.channels,"Native result geometry changed");
             float peak{};for(std::size_t j=0;j<frames*static_cast<std::size_t>(channels);++j){need(std::isfinite(samples[j]),"Non-finite native output");peak=std::max(peak,std::abs(samples[j]));}
@@ -108,10 +144,10 @@ int run(const std::vector<fs::path>& args){
             if(i){report<<',';}
             report<<"{\"stem\":"<<std::quoted(name)<<",\"frames\":"<<frames<<",\"rate\":"<<rate<<",\"channels\":"<<channels<<",\"peak\":"<<peak<<",\"sha256\":"<<std::quoted(mrs::sha256_file(file))<<'}';
         }
-        report<<"]}";report.flush();std::cout<<"PASS native HTDemucs6 run "<<iteration<<" inference_ms="<<inferenceMs<<"\n"<<std::flush;
+        report<<"]}";report.flush();std::cout<<"PASS native probe run "<<iteration<<" inference_ms="<<inferenceMs<<"\n"<<std::flush;
     }
     need(mrs::sha256_file(input)==sourceHash,"Input modified during native baseline");
-    report<<"],\"total_ms\":"<<elapsed(started)<<",\"peak_rss_bytes\":"<<peakRss()<<",\"input_unchanged\":true,\"gain_policy\":\"unclipped_float32\"}\n";report.close();need(bool(report),"Report write failed");return 0;
+    report<<"],\"frontend\":"<<std::quoted(mdxc?"mdxc_hamming_tail_aligned":"native_session")<<",\"total_ms\":"<<elapsed(started)<<",\"peak_rss_bytes\":"<<peakRss()<<",\"input_unchanged\":true,\"gain_policy\":\"unclipped_float32\"}\n";report.close();need(bool(report),"Report write failed");return 0;
 }
 }
 #ifdef _WIN32

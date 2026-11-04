@@ -1,0 +1,219 @@
+diff --git a/include/engine/models/roformer/runtime.h b/include/engine/models/roformer/runtime.h
+index 7e024f3..8d9bc5e 100644
+--- a/include/engine/models/roformer/runtime.h
++++ b/include/engine/models/roformer/runtime.h
+@@ -15,7 +15,7 @@ public:
+     RoformerRuntime(
+         std::shared_ptr<const RoformerAssets> assets,
+         core::ExecutionContext & execution_context,
+-        assets::TensorStorageType weight_storage_type);
++        assets::TensorStorageType weight_storage_type, int source_index = 0);
+     ~RoformerRuntime();
+ 
+     const RoformerArchitectureConfig & config() const noexcept;
+diff --git a/include/engine/models/roformer/session.h b/include/engine/models/roformer/session.h
+index 43feee1..3622d33 100644
+--- a/include/engine/models/roformer/session.h
++++ b/include/engine/models/roformer/session.h
+@@ -36,6 +36,7 @@ private:
+     std::shared_ptr<const engine::model_spec::ModelContract> contract_;
+     assets::TensorStorageType weight_storage_type_ = assets::TensorStorageType::Native;
+     std::unique_ptr<RoformerRuntime> runtime_;
++    int source_index_ = 0;
+     int64_t chunk_size_ = 0;
+     int64_t step_ = 0;
+     int64_t fade_size_ = 0;
+diff --git a/model_specs/bs_roformer.json b/model_specs/bs_roformer.json
+index 2afb167..503d529 100644
+--- a/model_specs/bs_roformer.json
++++ b/model_specs/bs_roformer.json
+@@ -22,6 +22,21 @@
+   "options": {
+     "request": [],
+     "session": [
++      {
++        "name": "stem_index",
++        "type": "int",
++        "description": "One-based independent output head for multi-source checkpoints.",
++        "required": false,
++        "min": 1,
++        "max": 6
++      },
++      {
++        "name": "chunk_size",
++        "type": "int",
++        "description": "Exact input-frame graph size for host-owned overlap/add; cannot exceed package chunk size.",
++        "required": false,
++        "min": 1025
++      },
+       {
+         "name": "weight_type",
+         "type": "enum",
+diff --git a/src/models/roformer/assets.cpp b/src/models/roformer/assets.cpp
+index 051274d..85cee6c 100644
+--- a/src/models/roformer/assets.cpp
++++ b/src/models/roformer/assets.cpp
+@@ -195,7 +195,18 @@ RoformerArchitectureConfig parse_config(
+     }
+     config.stft_freq_bins = config.n_fft / 2 + 1;
+     config.chunk_frames = 1 + config.chunk_size / config.hop_length;
+-    config.instruments = {"vocals"};
++    config.instruments = json::optional_string_array(parsed, "instruments");
++    if (config.instruments.empty() && config.num_stems == 1) config.instruments = {"vocals"};
++    if (config.num_stems < 1 || config.num_stems > 6 || config.instruments.size() != static_cast<size_t>(config.num_stems)) {
++        throw std::runtime_error("RoFormer instrument count does not match model heads");
++    }
++    for (const auto & name : config.instruments) {
++        if (name.empty() || name.size() > 64 || name == "manifest" ||
++            name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != std::string::npos ||
++            std::count(config.instruments.begin(), config.instruments.end(), name) != 1) {
++            throw std::runtime_error("Invalid RoFormer instrument role");
++        }
++    }
+     config.target_instrument = std::string("vocals");
+     if (family == kBsRoformerFamily) {
+         config.fused_qkv = true;
+diff --git a/src/models/roformer/runtime.cpp b/src/models/roformer/runtime.cpp
+index 55799bd..9022302 100644
+--- a/src/models/roformer/runtime.cpp
++++ b/src/models/roformer/runtime.cpp
+@@ -107,13 +107,14 @@ MelBandWeights load_mel_band_weights(
+     const RoformerAssets & assets,
+     ggml_backend_t backend,
+     core::BackendType backend_type,
+-    assets_ns::TensorStorageType storage_type) {
++    assets_ns::TensorStorageType storage_type, int source_index) {
+     validate_roformer_weight_storage_type(storage_type);
+     const auto & config = assets.config;
+-    if (config.num_stems != 1) {
+-        throw std::runtime_error(
+-            config.family + " native runtime currently supports only single-stem checkpoints");
++    if (source_index < 0 || source_index >= config.num_stems || config.num_stems > 6 ||
++        (config.num_stems != 1 && config.family != kBsRoformerFamily)) {
++        throw std::runtime_error("Unsupported RoFormer stem selection");
+     }
++    const std::string mask_prefix = "mask_estimators." + std::to_string(source_index) + ".to_freqs.";
+     const auto & source = *assets.tensor_source;
+ 
+     MelBandWeights weights;
+@@ -239,7 +240,7 @@ MelBandWeights load_mel_band_weights(
+         std::string group_dtype;
+         int64_t previous_dim = -1;
+         for (size_t band = 0; band < config.band_input_dims.size(); ++band) {
+-            const std::string prefix = "mask_estimators.0.to_freqs." + std::to_string(band) + ".0.";
++            const std::string prefix = mask_prefix + std::to_string(band) + ".0.";
+             const auto first = source.require_metadata(prefix + "0.weight").dtype;
+             if (band == 0) first_dtype = first;
+             if (first != first_dtype) batch_mask_first = false;
+@@ -255,7 +256,7 @@ MelBandWeights load_mel_band_weights(
+         std::vector<float> packed_bias;
+         ggml_type weight_type = GGML_TYPE_F32;
+         for (size_t band = 0; band < config.band_input_dims.size(); ++band) {
+-            const std::string prefix = "mask_estimators.0.to_freqs." + std::to_string(band) + ".0.0";
++            const std::string prefix = mask_prefix + std::to_string(band) + ".0.0";
+             auto tensor = source.require_tensor(
+                 prefix + ".weight", storage_type, {hidden_dim, config.dim});
+             if (band == 0) {
+@@ -287,7 +288,7 @@ MelBandWeights load_mel_band_weights(
+             std::vector<float> group_bias;
+             ggml_type group_type = GGML_TYPE_F32;
+             for (size_t band = start; band < end; ++band) {
+-                const std::string prefix = "mask_estimators.0.to_freqs." +
++                const std::string prefix = mask_prefix +
+                     std::to_string(band) + ".0.2";
+                 auto tensor = source.require_tensor(
+                     prefix + ".weight", storage_type, {output_dim, hidden_dim});
+@@ -316,7 +317,7 @@ MelBandWeights load_mel_band_weights(
+     }
+     weights.mask_bands.reserve(static_cast<size_t>(config.band_input_dims.size()));
+     for (size_t band = 0; !batch_mask_first && band < config.band_input_dims.size(); ++band) {
+-        const std::string prefix = "mask_estimators.0.to_freqs." + std::to_string(band) + ".0";
++        const std::string prefix = mask_prefix + std::to_string(band) + ".0";
+         MaskBandWeights band_weights;
+         band_weights.layers.reserve(static_cast<size_t>(config.mask_estimator_linear_layers));
+         for (int layer = 0; layer < config.mask_estimator_linear_layers; ++layer) {
+@@ -834,7 +835,7 @@ public:
+     MelBandGraph(
+         std::shared_ptr<const RoformerAssets> assets,
+         core::ExecutionContext & execution_context,
+-        assets_ns::TensorStorageType weight_storage_type)
++        assets_ns::TensorStorageType weight_storage_type, int source_index)
+         : FixedShapeGraph(
+               execution_context.backend(),
+               std::max(1, execution_context.config().threads),
+@@ -844,7 +845,7 @@ public:
+         }
+         const auto build_start = Clock::now();
+         const auto & config = assets->config;
+-        weights_ = load_mel_band_weights(*assets, execution_context.backend(), execution_context.backend_type(), weight_storage_type);
++        weights_ = load_mel_band_weights(*assets, execution_context.backend(), execution_context.backend_type(), weight_storage_type, source_index);
+ 
+         init_context(256ull * 1024ull * 1024ull);
+         constants_ = std::make_unique<core::ConstantTensorCache>(
+@@ -1294,7 +1295,7 @@ public:
+ RoformerRuntime::RoformerRuntime(
+     std::shared_ptr<const RoformerAssets> assets,
+     core::ExecutionContext & execution_context,
+-    assets::TensorStorageType weight_storage_type)
++    assets::TensorStorageType weight_storage_type, int source_index)
+     : assets_(std::move(assets)),
+       impl_(std::make_unique<Impl>()) {
+     if (assets_ == nullptr) {
+@@ -1303,7 +1304,7 @@ RoformerRuntime::RoformerRuntime(
+     validate_roformer_weight_storage_type(weight_storage_type);
+     fft_threads_ = std::max<size_t>(1, static_cast<size_t>(execution_context.config().threads));
+     impl_->pipeline = execution_context.backend_type() == core::BackendType::Cuda;
+-    impl_->mel_graph = std::make_unique<MelBandGraph>(assets_, execution_context, weight_storage_type);
++    impl_->mel_graph = std::make_unique<MelBandGraph>(assets_, execution_context, weight_storage_type, source_index);
+ }
+ 
+ RoformerRuntime::~RoformerRuntime() = default;
+diff --git a/src/models/roformer/session.cpp b/src/models/roformer/session.cpp
+index 19c6097..34e5fce 100644
+--- a/src/models/roformer/session.cpp
++++ b/src/models/roformer/session.cpp
+@@ -133,7 +133,25 @@ RoformerSession::RoformerSession(
+         RuntimeSessionBase::options(),
+         assets_->config.family + ".weight_type",
+         default_weight_storage);
+-    runtime_ = std::make_unique<RoformerRuntime>(assets_, execution_context(), weight_storage_type_);
++    const auto source = runtime::parse_positive_i64_option(RuntimeSessionBase::options().options,
++        {assets_->config.family + ".stem_index"}, 1);
++    if (source > assets_->config.num_stems) throw std::runtime_error("RoFormer stem index exceeds model heads");
++    source_index_ = static_cast<int>(source - 1);
++    // The host owns reference-compatible overlap/add; exact-size requests use
++    // num_overlap=1 so this session performs one unpadded model invocation.
++    const auto chunk_size = runtime::parse_positive_i64_option(RuntimeSessionBase::options().options,
++        {assets_->config.family + ".chunk_size"}, assets_->config.chunk_size);
++    if (chunk_size != assets_->config.chunk_size) {
++        if (assets_->config.family != "bs_roformer" || chunk_size <= assets_->config.n_fft / 2 ||
++            chunk_size > assets_->config.chunk_size) {
++            throw std::runtime_error("RoFormer chunk override outside supported model bounds");
++        }
++        auto resized = std::make_shared<RoformerAssets>(*assets_);
++        resized->config.chunk_size = static_cast<int>(chunk_size);
++        resized->config.chunk_frames = 1 + resized->config.chunk_size / resized->config.hop_length;
++        assets_ = std::move(resized);
++    }
++    runtime_ = std::make_unique<RoformerRuntime>(assets_, execution_context(), weight_storage_type_, source_index_);
+     const auto & config = runtime_->config();
+     if (config.chunk_size <= 0) {
+         throw std::runtime_error("RoFormer config chunk_size must be positive");
+@@ -337,6 +355,17 @@ runtime::TaskResult RoformerSession::run(const runtime::TaskRequest & request) {
+     if (static_cast<int64_t>(mixture_audio.samples.size()) != final_frames * audio.channels) {
+         throw std::runtime_error("RoFormer output length does not match the original mixture length");
+     }
++    if (config.num_stems > 1) {
++        if (original_mono) {
++            vocals_audio.samples = engine::audio::extract_interleaved_channel(vocals_audio.samples, vocals_audio.channels, 0);
++            vocals_audio.channels = 1;
++        }
++        runtime::TaskResult selected;
++        selected.named_audio_outputs.push_back({config.instruments.at(static_cast<size_t>(source_index_)), std::move(vocals_audio), {}});
++        engine::debug::timing_log_scalar(log_prefix + "assemble_ms", engine::debug::elapsed_ms(assemble_start));
++        engine::debug::timing_log_scalar("session.wall_ms", engine::debug::elapsed_ms(total_start));
++        return selected;
++    }
+     runtime::AudioBuffer instrumental_audio = derive_instrumental(mixture_audio, vocals_audio);
+ 
+     if (original_mono) {

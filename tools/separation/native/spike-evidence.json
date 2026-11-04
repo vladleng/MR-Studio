@@ -1,0 +1,317 @@
+{
+  "scope": "development spike; no Studio runtime or model admission",
+  "upstream": "41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48",
+  "patch_sha256": "95bedb04841cdf872b0b31f5d0cc785218fbd5f156701f5e4979b133e4d59c89",
+  "windows_official_sdk_run": "https://github.com/vladleng/MR-Studio/actions/runs/41762034298",
+  "linux_ht6_1s": {
+    "upstream": "41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48",
+    "abi": 512,
+    "threads": 4,
+    "input_sha256": "2897b8377bc914cd7dfc05b6b6d7c0d8cc02520d4d3ce70869d2bdb786a0181f",
+    "model_sha256": "1db9bd58af6995d8caab209c99f5a284212e5bd0654fbfd7e50ce1d5ac140ba9",
+    "frames": 44100,
+    "load_ms": 22.595815,
+    "session_ms": 712.820726,
+    "runs": [
+      {
+        "inference_ms": 11347.082428,
+        "outputs": [
+          {
+            "stem": "drums",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00260429270566,
+            "sha256": "3801b59e7873dd17c93ee178e50f40ac09a6d395466774e25f285b0f3ec9426d"
+          },
+          {
+            "stem": "bass",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.235819354653,
+            "sha256": "88be3bb8bf5500b0caf12de18d177ba6318c227b9040c651e9ebcc2981026a6c"
+          },
+          {
+            "stem": "other",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00437893159688,
+            "sha256": "e90cfe06834e2d4747992584fd9404a4b16e0a44d4ac39f998affe1d5dad9907"
+          },
+          {
+            "stem": "vocals",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00632944423705,
+            "sha256": "ac599d367fec85504b8c579d65fa18716035474dd9a4ed2d57115f4f74b637e0"
+          },
+          {
+            "stem": "guitar",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00220324704424,
+            "sha256": "14a9ce71a6ef563b068ecab9a9150824e25c0f807490c8dc39e4c247142b7cf6"
+          },
+          {
+            "stem": "piano",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00285977008753,
+            "sha256": "46606976682110704e0b7076dfff3b130d8626e9f6d9a7a66bde32c359220404"
+          }
+        ]
+      },
+      {
+        "inference_ms": 9913.669534,
+        "outputs": [
+          {
+            "stem": "drums",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00260429270566,
+            "sha256": "3801b59e7873dd17c93ee178e50f40ac09a6d395466774e25f285b0f3ec9426d"
+          },
+          {
+            "stem": "bass",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.235819354653,
+            "sha256": "88be3bb8bf5500b0caf12de18d177ba6318c227b9040c651e9ebcc2981026a6c"
+          },
+          {
+            "stem": "other",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00437893159688,
+            "sha256": "e90cfe06834e2d4747992584fd9404a4b16e0a44d4ac39f998affe1d5dad9907"
+          },
+          {
+            "stem": "vocals",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00632944423705,
+            "sha256": "ac599d367fec85504b8c579d65fa18716035474dd9a4ed2d57115f4f74b637e0"
+          },
+          {
+            "stem": "guitar",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00220324704424,
+            "sha256": "14a9ce71a6ef563b068ecab9a9150824e25c0f807490c8dc39e4c247142b7cf6"
+          },
+          {
+            "stem": "piano",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00285977008753,
+            "sha256": "46606976682110704e0b7076dfff3b130d8626e9f6d9a7a66bde32c359220404"
+          }
+        ]
+      }
+    ],
+    "total_ms": 22315.165332,
+    "peak_rss_bytes": 954871808,
+    "input_unchanged": true,
+    "gain_policy": "unclipped_float32"
+  },
+  "linux_ht6_60s": {
+    "upstream": "41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48",
+    "abi": 512,
+    "threads": 4,
+    "input_sha256": "6395eae7dff437d2e48f43679afe1af6127d5b4151993aab81ab8e5bafcc28e4",
+    "model_sha256": "1db9bd58af6995d8caab209c99f5a284212e5bd0654fbfd7e50ce1d5ac140ba9",
+    "frames": 2646000,
+    "load_ms": 21.382417,
+    "session_ms": 182.043178,
+    "runs": [
+      {
+        "inference_ms": 113725.305479,
+        "outputs": [
+          {
+            "stem": "drums",
+            "frames": 2646000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.0106713371351,
+            "sha256": "07089bc39ac070fe101a953a9cb7909847c48bfa3023eb6553755ad34ea36cd3"
+          },
+          {
+            "stem": "bass",
+            "frames": 2646000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.209290921688,
+            "sha256": "858669ed2a440b82f1cd8efddd1661631cd53c19b9c1d6c4c432516ce0571c59"
+          },
+          {
+            "stem": "other",
+            "frames": 2646000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00617708917707,
+            "sha256": "55254498ed698c9ac693819060f13ce2c214382fc2fed64cb270bc161aa6d02c"
+          },
+          {
+            "stem": "vocals",
+            "frames": 2646000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00133975711651,
+            "sha256": "d9132c0d323577038f2a8e61f1b1dac6165dbfe4c349bd7549b95efc713ed356"
+          },
+          {
+            "stem": "guitar",
+            "frames": 2646000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00120553467423,
+            "sha256": "6fd6c71ba95246df245cb4544e291b0cda88367c34bffe8e0c9e84f75950d9a3"
+          },
+          {
+            "stem": "piano",
+            "frames": 2646000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00133605161682,
+            "sha256": "306e4d67afe4b9174b59fecc8a03c6f487a6518cc99684dd962752a46698d55e"
+          }
+        ]
+      },
+      {
+        "inference_ms": 108771.059614,
+        "outputs": [
+          {
+            "stem": "drums",
+            "frames": 2646000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.0106713371351,
+            "sha256": "07089bc39ac070fe101a953a9cb7909847c48bfa3023eb6553755ad34ea36cd3"
+          },
+          {
+            "stem": "bass",
+            "frames": 2646000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.209290921688,
+            "sha256": "858669ed2a440b82f1cd8efddd1661631cd53c19b9c1d6c4c432516ce0571c59"
+          },
+          {
+            "stem": "other",
+            "frames": 2646000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00617708917707,
+            "sha256": "55254498ed698c9ac693819060f13ce2c214382fc2fed64cb270bc161aa6d02c"
+          },
+          {
+            "stem": "vocals",
+            "frames": 2646000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00133975711651,
+            "sha256": "d9132c0d323577038f2a8e61f1b1dac6165dbfe4c349bd7549b95efc713ed356"
+          },
+          {
+            "stem": "guitar",
+            "frames": 2646000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00120553467423,
+            "sha256": "6fd6c71ba95246df245cb4544e291b0cda88367c34bffe8e0c9e84f75950d9a3"
+          },
+          {
+            "stem": "piano",
+            "frames": 2646000,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 0.00133605161682,
+            "sha256": "306e4d67afe4b9174b59fecc8a03c6f487a6518cc99684dd962752a46698d55e"
+          }
+        ]
+      }
+    ],
+    "total_ms": 225659.650233,
+    "peak_rss_bytes": 1282785280,
+    "input_unchanged": true,
+    "gain_policy": "unclipped_float32"
+  },
+  "linux_sw_raw_bass_1s": {
+    "upstream": "41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48",
+    "abi": 512,
+    "threads": 4,
+    "input_sha256": "2897b8377bc914cd7dfc05b6b6d7c0d8cc02520d4d3ce70869d2bdb786a0181f",
+    "model_sha256": "dd6b665785c823dce9566e0de97730bc13728b954e3515bd88c2fcec1c3487a4",
+    "frames": 44100,
+    "load_ms": 92.037755,
+    "session_ms": 94.933709,
+    "runs": [
+      {
+        "inference_ms": 5145.214054,
+        "outputs": [
+          {
+            "stem": "bass",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 5.24830647919e-06,
+            "sha256": "594430263ddc033f2234e51f0fdc1e93bad56ade3d03a428f7f3aae749ad9e11"
+          }
+        ]
+      },
+      {
+        "inference_ms": 4766.931085,
+        "outputs": [
+          {
+            "stem": "bass",
+            "frames": 44100,
+            "rate": 44100,
+            "channels": 2,
+            "peak": 5.24830647919e-06,
+            "sha256": "594430263ddc033f2234e51f0fdc1e93bad56ade3d03a428f7f3aae749ad9e11"
+          }
+        ]
+      }
+    ],
+    "total_ms": 46797.184476,
+    "peak_rss_bytes": 308858880,
+    "input_unchanged": true,
+    "gain_policy": "unclipped_float32"
+  },
+  "linux_sw_raw_reference": {
+    "scope": "raw selected head; not complete worker or subjective quality",
+    "reference_revision": "4dd3477c0a8f5bfb0fb053c6ed444bb935cb150e",
+    "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+    "torch": "2.8.0+cpu",
+    "threads": 4,
+    "role": "bass",
+    "input_sha256": "2897b8377bc914cd7dfc05b6b6d7c0d8cc02520d4d3ce70869d2bdb786a0181f",
+    "native_model_sha256": "dd6b665785c823dce9566e0de97730bc13728b954e3515bd88c2fcec1c3487a4",
+    "frames_reference": 44032,
+    "frames_native": 44100,
+    "compared_frames": 44032,
+    "reference_inference_ms": 3466.2525699995967,
+    "waveform_cosine": 0.9910936910543706,
+    "mae": 5.212157783302023e-08,
+    "max_error": 5.898341441934463e-07,
+    "reference_peak": 5.581386631092755e-06,
+    "admission": "NOT ACCEPTED"
+  },
+  "limitations": [
+    "Synthetic source only; no listening-quality acceptance or matched full-worker benchmark.",
+    "SW raw-head comparison has a short-ISTFT length mismatch (44032 vs 44100); frontend parity pending.",
+    "Python reference uses development Python3.12, not accepted Windows CPython3.11.9.",
+    "No speed claim; custom SW patch Windows CI pending."
+  ]
+}

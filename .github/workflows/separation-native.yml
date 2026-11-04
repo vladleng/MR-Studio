@@ -33,6 +33,8 @@ jobs:
           if($LASTEXITCODE){throw 'Native C API configure failed'}
           cmake --build build/native --config Release --parallel 2
           if($LASTEXITCODE){throw 'Native C API compile failed'}
+          ctest --test-dir build/native -C Release --output-on-failure
+          if($LASTEXITCODE){throw 'Native SW frontend reference test failed'}
       - name: Real native HTDemucs6 CPU, exact FLOAT geometry and cold/warm calls
         shell: pwsh
         run: |
@@ -52,3 +54,74 @@ jobs:
             build/native-evidence/**/report.json
             build/native-evidence/1/**/*.wav
             tools/separation/native/baseline-lock.json
+  windows-sw-port:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Pin and patch native source (no Studio or Live)
+        shell: pwsh
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/0xShug0/audio.cpp build/audio.cpp
+          if($LASTEXITCODE){throw 'Upstream clone failed'}
+          git -C build/audio.cpp checkout --detach 41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48
+          if($LASTEXITCODE){throw 'Upstream pin failed'}
+          $patch = (Resolve-Path tools/separation/native/patches/audio-cpp-sw-heads.patch).Path
+          git -C build/audio.cpp apply --check $patch
+          if($LASTEXITCODE){throw 'Native patch check failed'}
+          git -C build/audio.cpp apply $patch
+          if($LASTEXITCODE){throw 'Native patch failed'}
+          cmake -S build/audio.cpp -B build/audio-native -DAUDIOCPP_BUILD_C_API=ON -DAUDIOCPP_MODEL_SET=custom -DAUDIOCPP_MODELS=demucs,roformer -DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=OFF -DAUDIOCPP_DEPLOYMENT_BUILD=ON -DAUDIOCPP_VERSION=v0.9.3-mrs1 -DENGINE_ENABLE_NATIVE_CPU=OFF -DENGINE_ENABLE_CUDA=OFF -DENGINE_ENABLE_VULKAN=OFF -DENGINE_ENABLE_METAL=OFF -DENGINE_ENABLE_HIP=OFF -DENGINE_BUILD_TESTS=OFF -DENGINE_BUILD_MODEL_TESTS=OFF
+          if($LASTEXITCODE){throw 'Custom native configure failed'}
+          cmake --build build/audio-native --config Release --target audiocpp audiocpp_gguf --parallel 2
+          if($LASTEXITCODE){throw 'Custom native build failed'}
+      - name: Explicit developer conversion, exact original SW checkpoint
+        shell: pwsh
+        run: |
+          python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+          if($LASTEXITCODE){throw 'Dev CPU torch install failed'}
+          python -m pip install PyYAML==6.0.3 safetensors==0.5.3 numpy==2.2.6
+          if($LASTEXITCODE){throw 'Dev conversion dependencies failed'}
+          python tools/separation/native/fetch_sw_original.py build/sw-original
+          if($LASTEXITCODE){throw 'Original SW source integrity failed'}
+          python tools/separation/native/convert_sw_fixed.py build/sw-original build/sw-f32
+          if($LASTEXITCODE){throw 'SW Float32 conversion failed'}
+          & build/audio-native/bin/Release/audiocpp_gguf.exe --input "weights=$((Resolve-Path build/sw-f32/model.safetensors).Path)" --root "$((Resolve-Path build/sw-f32).Path)" --output "$((Get-Location).Path)/build/sw-fixed-f32.gguf" --type orig --family bs_roformer --model-spec "$((Resolve-Path build/audio.cpp/model_specs/bs_roformer.json).Path)"
+          if($LASTEXITCODE){throw 'SW native packing failed'}
+      - name: Compile probe and verify independent Bass and Guitar heads
+        shell: pwsh
+        run: |
+          $root = (Get-Location).Path
+          cmake -S tools/separation/native -B build/sw-probe -DAUDIOCPP_INCLUDE="$root/build/audio.cpp/include" -DAUDIOCPP_LIBRARY="$root/build/audio-native/bin/Release/audiocpp.lib"
+          if($LASTEXITCODE){throw 'SW probe configure failed'}
+          cmake --build build/sw-probe --config Release --parallel 2
+          if($LASTEXITCODE){throw 'SW probe build failed'}
+          ctest --test-dir build/sw-probe -C Release --output-on-failure
+          if($LASTEXITCODE){throw 'SW frontend reference test failed'}
+          Copy-Item build/audio-native/bin/Release/*.dll build/sw-probe/Release/
+          python tools/separation/native/make_fixture.py build/sw-source.wav --seconds 1
+          if($LASTEXITCODE){throw 'SW fixture failed'}
+          foreach($role in @('bass','guitar')){
+            & build/sw-probe/Release/mrs_native_separation_probe.exe "$root/build/sw-fixed-f32.gguf" "$root/build/sw-source.wav" "$root/build/sw-evidence/$role" 4 2 $role
+            if($LASTEXITCODE){throw "SW native head $role failed"}
+          }
+          python tools/separation/native/make_fixture.py build/sw-source-4s.wav --seconds 4
+          if($LASTEXITCODE){throw 'SW overlap fixture failed'}
+          & build/sw-probe/Release/mrs_native_separation_probe.exe "$root/build/sw-fixed-f32.gguf" "$root/build/sw-source-4s.wav" "$root/build/sw-evidence/bass-mdxc" 4 2 bass mdxc
+          if($LASTEXITCODE){throw 'SW overlapping native chunks failed'}
+      - name: Upload custom-port synthetic evidence (no weights or SDK)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MR-Studio-0.9.7-native-SW-port-${{ github.sha }}
+          retention-days: 7
+          path: |
+            build/sw-evidence/**/report.json
+            build/sw-evidence/**/*.wav
+            build/sw-f32/conversion.json
+            tools/separation/native/patches/audio-cpp-sw-heads.patch
