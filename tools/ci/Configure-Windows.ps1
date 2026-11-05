@@ -1,4 +1,4 @@
-param([string]$Build='build/windows',[switch]$Ara,[switch]$StudioOnly,[switch]$NativeSeparation)
+param([string]$Build='build/windows',[switch]$Ara,[switch]$StudioOnly,[switch]$NativeSeparation,[switch]$SeparationBenchmark)
 $ErrorActionPreference='Stop'
 $sdk=(Resolve-Path -LiteralPath 'build/sdk').Path
 $asio=(Resolve-Path -LiteralPath 'build/private-sdk/asio.zip').Path
@@ -19,5 +19,9 @@ if($NativeSeparation){
  $sw=Get-Item -LiteralPath 'build/sw-fixed-f32.gguf'
  $swSha=(Get-FileHash -LiteralPath $sw.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
  $args+=@('-DMRS_BUILD_NATIVE_SEPARATION_WORKER=ON',"-DMRS_AUDIOCPP_SOURCE_ROOT=$nativeSource","-DMRS_AUDIOCPP_NATIVE_LIBRARY=$nativeLibrary","-DMRS_NATIVE_SW_PACKAGE_SHA256=$swSha","-DMRS_NATIVE_SW_PACKAGE_BYTES=$($sw.Length)")
+}
+if($SeparationBenchmark){
+ if(!$NativeSeparation -or !$StudioOnly){throw 'Benchmark requires the Studio-only native A/B package'}
+ $args+='-DMRS_SEPARATION_BENCHMARK=ON'
 }
 & cmake @args;if($LASTEXITCODE){throw 'Windows configure failed'}

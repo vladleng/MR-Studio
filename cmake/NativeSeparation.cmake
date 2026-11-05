@@ -36,6 +36,7 @@ target_include_directories(mrs_native_separation_worker SYSTEM PRIVATE
 target_include_directories(mrs_native_separation_worker PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(mrs_native_separation_worker PRIVATE mrs_audio mrs_native_cjson "${MRS_AUDIOCPP_NATIVE_LIBRARY}")
 target_compile_features(mrs_native_separation_worker PRIVATE cxx_std_20)
+target_compile_definitions(mrs_native_separation_worker PRIVATE MRS_SEPARATION_BENCHMARK=$<BOOL:${MRS_SEPARATION_BENCHMARK}>)
 add_executable(mrs_native_ipc_test tools/separation/native/native_ipc_test.cpp)
 target_include_directories(mrs_native_ipc_test SYSTEM PRIVATE "${MRS_AUDIOCPP_SOURCE_ROOT}/external/cJSON")
 target_link_libraries(mrs_native_ipc_test PRIVATE mrs_core mrs_native_cjson Threads::Threads)

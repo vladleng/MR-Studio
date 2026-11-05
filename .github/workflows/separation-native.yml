@@ -1,5 +1,5 @@
 name: Native separation CPU spike
-run-name: MR Studio 0.9.7 — native CPU / A-B
+run-name: MR Studio 0.9.7-Upd1 — native CPU / A-B
 on:
   push:
     branches: ['codex/351-native-separation']
@@ -54,7 +54,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-0.9.7-native-CPU-spike-${{ github.sha }}
+          name: MR-Studio-0.9.7-Upd1-native-CPU-spike-${{ github.sha }}
           retention-days: 7
           path: |
             build/native-evidence/**/report.json
@@ -93,6 +93,16 @@ jobs:
           if($versionLine.Line -ne 'AUDIOCPP_VERSION:STRING=v0.9.3-mrs1'){throw 'Custom SDK cache version mismatch'}
           cmake --build build/audio-native --config Release --target audiocpp audiocpp_gguf --parallel 2
           if($LASTEXITCODE){throw 'Custom native build failed'}
+      - name: Python thread contract and benchmark launcher syntax
+        shell: pwsh
+        run: |
+          python -m pip install numpy==2.2.6 scipy==1.15.3 soundfile==0.13.1
+          if($LASTEXITCODE){throw 'Worker test dependencies failed'}
+          python -m unittest discover -s tests -p test_separation_worker.py -q
+          if($LASTEXITCODE){throw 'Python worker contract failed'}
+          $tokens=$null; $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path tools/separation/native/Benchmark-Threads.ps1),[ref]$tokens,[ref]$errors) | Out-Null
+          if($errors.Count){throw ($errors | Out-String)}
       - name: Explicit developer conversion, exact original SW checkpoint
         shell: pwsh
         run: |
@@ -141,7 +151,7 @@ jobs:
           if($LASTEXITCODE){throw 'JUCE core pin failed'}
           git -C build/juce checkout --detach $lock.juce.commit
           if($LASTEXITCODE){throw 'JUCE core checkout failed'}
-          cmake -S . -B build/native-worker -DMRS_BUILD_DESKTOP=OFF -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_VST3=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=OFF -DMRS_BUILD_LIVE=OFF -DMRS_BUILD_NATIVE_SEPARATION_WORKER=ON -DMRS_BUILD_SEPARATION_CHECK=ON -DMRS_JUCE_SDK_ROOT="$root/build/juce" -DMRS_AUDIOCPP_SOURCE_ROOT="$root/build/audio.cpp" -DMRS_AUDIOCPP_NATIVE_LIBRARY="$root/build/audio-native/bin/Release/audiocpp.lib" -DMRS_NATIVE_SW_PACKAGE_SHA256="$swPackageSha" -DMRS_NATIVE_SW_PACKAGE_BYTES="$((Get-Item build/sw-fixed-f32.gguf).Length)" -DPython3_EXECUTABLE="$((Get-Command python).Source)"
+          cmake -S . -B build/native-worker -DMRS_BUILD_DESKTOP=OFF -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_VST3=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=OFF -DMRS_BUILD_LIVE=OFF -DMRS_BUILD_NATIVE_SEPARATION_WORKER=ON -DMRS_SEPARATION_BENCHMARK=ON -DMRS_BUILD_SEPARATION_CHECK=ON -DMRS_JUCE_SDK_ROOT="$root/build/juce" -DMRS_AUDIOCPP_SOURCE_ROOT="$root/build/audio.cpp" -DMRS_AUDIOCPP_NATIVE_LIBRARY="$root/build/audio-native/bin/Release/audiocpp.lib" -DMRS_NATIVE_SW_PACKAGE_SHA256="$swPackageSha" -DMRS_NATIVE_SW_PACKAGE_BYTES="$((Get-Item build/sw-fixed-f32.gguf).Length)" -DPython3_EXECUTABLE="$((Get-Command python).Source)"
           if($LASTEXITCODE){throw 'Native worker/Runner configure failed'}
           cmake --build build/native-worker --config Release --target mrs_native_separation_worker mrs_native_ipc_test mrs_native_resample_test mrs_separation_check --parallel 2
           if($LASTEXITCODE){throw 'Native worker/Runner build failed'}
@@ -163,7 +173,7 @@ jobs:
         if: ${{ contains(github.event.head_commit.message, '[ci native-studio]') || inputs.package_studio == true }}
         shell: pwsh
         run: |
-          ./tools/ci/Configure-Windows.ps1 -Ara -StudioOnly -NativeSeparation
+          ./tools/ci/Configure-Windows.ps1 -Ara -StudioOnly -NativeSeparation -SeparationBenchmark
           if($LASTEXITCODE){throw 'Studio A/B configure failed'}
           cmake --build build/windows --config Release --target MoonRiverStudioJuce mrs_separation_check mrs_separation_project_check mrs_separation_assets_tests mrs_persistence_tests --parallel 2
           if($LASTEXITCODE){throw 'Studio A/B build failed'}
@@ -180,7 +190,7 @@ jobs:
         if: ${{ contains(github.event.head_commit.message, '[ci native-studio]') || inputs.package_studio == true }}
         shell: pwsh
         env:
-          MR_STUDIO_VERSION: '0.9.7'
+          MR_STUDIO_VERSION: '0.9.7-Upd1'
           MR_LIVE_VERSION: '0.8.13'
           CI_TEST_RESULT: success
           CI_CHECK_SCOPE: studio-native-ab
@@ -191,11 +201,11 @@ jobs:
           Copy-Item build/sw-fixed-f32.gguf build/native-sw-download/
           Copy-Item tools/separation/native/AB-TEST.txt build/native-sw-download/README.txt
           Get-FileHash build/native-sw-download/sw-fixed-f32.gguf -Algorithm SHA256 | Format-List | Out-String | Set-Content build/native-sw-download/SHA256.txt
-      - name: Upload Studio 0.9.7 A/B runtime
+      - name: Upload Studio 0.9.7-Upd1 A/B runtime
         if: ${{ success() && (contains(github.event.head_commit.message, '[ci native-studio]') || inputs.package_studio == true) }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-0.9.7-Windows-native-AB-${{ github.sha }}
+          name: MR-Studio-0.9.7-Upd1-Windows-native-AB-${{ github.sha }}
           path: build/package/
           if-no-files-found: error
           retention-days: 7
@@ -203,7 +213,7 @@ jobs:
         if: ${{ success() && (contains(github.event.head_commit.message, '[ci native-studio]') || inputs.package_studio == true) }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-0.9.7-Native-SW-GGUF-${{ github.sha }}
+          name: MR-Studio-0.9.7-Upd1-Native-SW-GGUF-${{ github.sha }}
           path: build/native-sw-download/
           if-no-files-found: error
           compression-level: 0
@@ -212,7 +222,7 @@ jobs:
         if: ${{ always() && (contains(github.event.head_commit.message, '[ci native-studio]') || inputs.package_studio == true) }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-0.9.7-native-AB-diagnostics-${{ github.sha }}
+          name: MR-Studio-0.9.7-Upd1-native-AB-diagnostics-${{ github.sha }}
           retention-days: 7
           path: |
             build/windows/MoonRiverStudioJuce_artefacts/Release/*.pdb
@@ -224,7 +234,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MR-Studio-0.9.7-native-SW-port-${{ github.sha }}
+          name: MR-Studio-0.9.7-Upd1-native-SW-port-${{ github.sha }}
           retention-days: 7
           path: |
             build/sw-evidence/**/report.json

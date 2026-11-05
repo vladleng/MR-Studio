@@ -21,6 +21,8 @@ if($NativeSeparation){
  $nativeDlls=@(Get-ChildItem -LiteralPath 'build/audio-native/bin/Release' -File -Filter '*.dll')
  if(!$nativeDlls.Count){throw 'Native runtime DLLs missing'}
  foreach($dll in $nativeDlls){Copy-Item -LiteralPath (Join-Path $nativeRoot $dll.Name) -Destination $Output}
+ Copy-Item -LiteralPath 'tools/separation/native/Benchmark-Threads.cmd' -Destination $Output
+ Copy-Item -LiteralPath 'tools/separation/native/Benchmark-Threads.ps1' -Destination $Output
  Copy-Item -LiteralPath 'tools/separation/native/AB-TEST.txt' -Destination (Join-Path $Output 'AB-TEST.txt')
  Copy-Item -LiteralPath 'build/audio.cpp/LICENSE' -Destination (Join-Path $Output 'audio.cpp-LICENSE.txt')
  Copy-Item -LiteralPath 'build/audio.cpp/external/ggml/LICENSE' -Destination (Join-Path $Output 'GGML-LICENSE.txt')

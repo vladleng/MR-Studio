@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -191,7 +192,24 @@ Json process(const cJSON* req,ipc::Wire& wire){
     const auto projectRate=ipc::counter(req,"project_rate",8000,96000);
     constexpr std::uint64_t projectRates[]{8000,16000,22050,32000,44100,48000,88200,96000};
     require(std::find(std::begin(projectRates),std::end(projectRates),projectRate)!=std::end(projectRates),"unsupported_input");
-    const auto threads=ipc::counter(req,"threads",1,4),start=ipc::counter(req,"source_start"),frames=ipc::counter(req,"source_frames",1,96000ULL*600);
+    unsigned threadLimit=4;
+    bool benchmarkOverride=false;
+#if MRS_SEPARATION_BENCHMARK
+#ifdef _WIN32
+    char overrideBuffer[32]{};
+    const auto overrideLength=GetEnvironmentVariableA("MRS_SEPARATION_BENCHMARK_THREADS",overrideBuffer,sizeof(overrideBuffer));
+    require(overrideLength<sizeof(overrideBuffer),"invalid_input");
+    const std::string overrideValue=overrideBuffer;
+#else
+    const auto* overrideEnv=std::getenv("MRS_SEPARATION_BENCHMARK_THREADS");
+    const std::string overrideValue=overrideEnv?overrideEnv:"";
+#endif
+    if(!overrideValue.empty()){
+        require((overrideValue=="1"||overrideValue=="2"||overrideValue=="4"||overrideValue=="8"||overrideValue=="16")&&device=="cpu"&&ipc::field(req,"threads")==overrideValue,"invalid_input");
+        threadLimit=16;benchmarkOverride=true;
+    }
+#endif
+    const auto threads=ipc::counter(req,"threads",1,threadLimit),start=ipc::counter(req,"source_start"),frames=ipc::counter(req,"source_frames",1,96000ULL*600);
     const auto timeline=ipc::counter(req,"timeline_start");
     const auto source=fs::absolute(pathFrom(ipc::field(req,"source_path")));
     require(fs::is_regular_file(source)&&plain(source)&&fs::file_size(source)<=512ULL*1024*1024,"invalid_input");
@@ -227,6 +245,7 @@ Json process(const cJSON* req,ipc::Wire& wire){
     require(mrs::sha256_file(source)==sourceHash,"stale_source");control.check();
     if(info.sample_rate!=44100)input=ipc::separationResample(input,2,info.sample_rate,44100,static_cast<std::size_t>(modelFrames),[&]{control.check();});
     writeWav(work/"snapshot.wav",input);const auto snapshotHash=mrs::sha256_file(work/"snapshot.wav");
+    std::cerr<<"audio.cpp configured_threads="<<threads<<" benchmark_override="<<benchmarkOverride<<'\n';
     auto outputs=infer(*descriptor,model,input,static_cast<int>(threads),selected,roles,chunk,control);input.clear();input.shrink_to_fit();
     control.phase("verifying");require(fs::create_directory(pending),"io_error");bool owned=true;
     try{
@@ -249,6 +268,8 @@ Json process(const cJSON* req,ipc::Wire& wire){
         ipc::put(manifest.get(),"snapshot_sha256",snapshotHash);ipc::put(manifest.get(),"model",id);
         ipc::attach(manifest.get(),"available_stems",ipc::duplicate(ipc::member(profile,"stems")));ipc::attach(manifest.get(),"selected_stems",std::move(selection));
         ipc::attach(manifest.get(),"weights",std::move(weights));ipc::attach(manifest.get(),"outputs",std::move(entries));
+        ipc::put(manifest.get(),"configured_threads",static_cast<int>(threads));
+        ipc::put(manifest.get(),"benchmark_override",benchmarkOverride);
         ipc::put(manifest.get(),"backend","audio.cpp");ipc::put(manifest.get(),"backend_version",backendVersion);
         ipc::put(manifest.get(),"requested_device",device);ipc::put(manifest.get(),"effective_device","cpu");ipc::put(manifest.get(),"precision","fp32");
         ipc::put(manifest.get(),"weight_precision",descriptor->sw?"fp32":"fp16");ipc::put(manifest.get(),"native_package_sha256",descriptor->sha);

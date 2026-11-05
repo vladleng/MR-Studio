@@ -295,7 +295,15 @@ void Runner::run(Request request, juce::String jobId) noexcept {
         put(message,"model",request.modelId);put(message,"chunk",request.chunk);
         put(message, "device", request.device == Device::cpu ? "cpu" : request.device == Device::cuda ? "cuda" : "auto");
         put(message, "memory_bytes", juce::String(request.memoryBytes)); put(message, "timeout_ms", juce::String(request.timeout.count()));
-        put(message, "threads", juce::String(std::max(1, std::min(4, static_cast<int>(std::thread::hardware_concurrency()) - 2))));
+        auto threads = std::max(1, std::min(4, static_cast<int>(std::thread::hardware_concurrency()) - 2));
+#if MRS_SEPARATION_BENCHMARK
+        const auto benchmark = juce::SystemStats::getEnvironmentVariable("MRS_SEPARATION_BENCHMARK_THREADS", {});
+        if (benchmark.isNotEmpty()) {
+            require(juce::StringArray{"1", "2", "4", "8", "16"}.contains(benchmark) && request.device == Device::cpu, "invalid_input");
+            threads = benchmark.getIntValue();
+        }
+#endif
+        put(message, "threads", juce::String(threads));
         child.send(message);
         std::vector<unsigned char> bytes;
         bool hello{}, cancelSent{};

@@ -4,6 +4,8 @@ import array
 import hashlib
 import json
 import math
+import os
+from unittest.mock import patch
 from pathlib import Path
 import queue
 import struct
@@ -152,10 +154,11 @@ def main():
             "device": "cpu", "memory_bytes": str(4*1024**3), "timeout_ms": "120000", "threads": "2",
             "model": "htdemucs-6s", "model_dir": str(args.ht6_dir.resolve()), "stems": ["Bass"], "chunk": "default"}
 
-    def run(name, changes=None, expected=None, cancel=False):
+    def run(name, changes=None, expected=None, cancel=False, benchmark=""):
         work = args.output / ("job-" + name)
         work.mkdir()
-        client = Client(args.worker, work)
+        with patch.dict(os.environ, {"MRS_SEPARATION_BENCHMARK_THREADS": benchmark}):
+            client = Client(args.worker, work)
         request = dict(base, job_id=str(uuid.uuid4()))
         request.update(changes or {})
         input_source = Path(request["source_path"])
@@ -190,6 +193,8 @@ def main():
                 manifest = terminal["manifest"]
                 saved = json.loads((work / "result/manifest.json").read_text())
                 assert saved == manifest and manifest["backend"] == "audio.cpp"
+                assert manifest["configured_threads"] == int(request["threads"])
+                assert manifest["benchmark_override"] == bool(benchmark)
                 assert manifest["source_sha256"] == input_hash and manifest["source_start"] == request["source_start"]
                 assert manifest["source_frames"] == request["source_frames"] and manifest["timeline_start"] == request["timeline_start"]
                 assert manifest["source_channels"] == source_channels and manifest["source_rate"] == str(source_rate)
@@ -227,6 +232,12 @@ def main():
         finally:
             client.kill()
 
+    run("threads-default-cap", {"threads": "8"}, "invalid_input")
+    run("threads-invalid-override", {"threads": "3"}, "invalid_input", benchmark="3")
+    run("threads-mismatch", {"threads": "8"}, "invalid_input", benchmark="16")
+    run("threads-cpu-only", {"threads": "16", "device": "auto"}, "invalid_input", benchmark="16")
+    # Functional IPC check only: runner CPU capacity is not a scaling result.
+    run("threads-16-opt-in", {"threads": "16"}, benchmark="16")
     run("ht6-partial-mono", {"stems": ["Bass", "Vocals"]})
     run("sw-two-heads", {"model": "bs-roformer-sw-6-v1", "model_dir": str(args.sw_dir.resolve()), "stems": ["Bass", "Guitar"]})
     for rate, target, channels, bits, floating, stems in (

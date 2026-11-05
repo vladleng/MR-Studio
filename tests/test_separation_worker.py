@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import soundfile as sf
@@ -49,6 +50,24 @@ class WorkerTests(unittest.TestCase):
         work = self.root / "job"
         work.mkdir()
         return worker.execute(self.req, work, lambda *_args, **_kw: None, lambda: None, engine or self.fake)
+
+    def test_thread_override_requires_explicit_matching_cpu_opt_in(self):
+        with patch.dict(os.environ, {}, clear=True):
+            for threads in ("1", "2", "3", "4"):
+                self.assertEqual(worker.requested_threads(dict(self.req, threads=threads)), int(threads))
+            for threads in ("8", "16", "0", "17"):
+                with self.assertRaises(worker.Failure):
+                    worker.requested_threads(dict(self.req, threads=threads))
+        for threads in ("1", "2", "4", "8", "16"):
+            with patch.dict(os.environ, {"MRS_SEPARATION_BENCHMARK_THREADS": threads}):
+                self.assertEqual(worker.requested_threads(dict(self.req, threads=threads)), int(threads))
+                for changes in ({"threads": "3"}, {"device": "auto"}, {"device": "cuda"}):
+                    with self.assertRaises(worker.Failure):
+                        worker.requested_threads(dict(self.req, threads=threads) | changes)
+        for override in ("0", "3", "32", "08", "garbage"):
+            with patch.dict(os.environ, {"MRS_SEPARATION_BENCHMARK_THREADS": override}):
+                with self.assertRaises(worker.Failure):
+                    worker.requested_threads(self.req)
 
     def test_roundtrip_geometry_gain_manifest(self):
         source_hash = worker.digest(self.source)

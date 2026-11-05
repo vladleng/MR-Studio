@@ -136,6 +136,17 @@ def block_network():
     socket.create_connection = deny
 
 
+def requested_threads(req):
+    # Explicit developer launcher opt-in; ordinary requests retain the 1..4 cap.
+    override = os.environ.get("MRS_SEPARATION_BENCHMARK_THREADS", "")
+    if override:
+        if override not in ("1", "2", "4", "8", "16") or req.get("device") != "cpu":
+            raise Failure("invalid_input")
+        if req.get("threads") != override:
+            raise Failure("invalid_input")
+    return counter(req.get("threads"), 1, 16 if override else 4)
+
+
 def validate_request(req):
     if req.get("version") != VERSION or req.get("type") != "submit":
         raise Failure("protocol_error")
@@ -151,7 +162,7 @@ def validate_request(req):
     rate = counter(req.get("project_rate"), 8000, 96000)
     if rate not in (8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000):
         raise Failure("unsupported_input")
-    threads = counter(req.get("threads"), 1, 4)
+    threads = requested_threads(req)
     source = Path(req["source_path"]).resolve(strict=True)
     if not source.is_file() or source.stat().st_size > 512 * 1024**2:
         raise Failure("resource_limit")
@@ -231,6 +242,8 @@ def infer_profile(snapshot, output_dir, model_dir, requested_device, threads, em
     import torch
     torch.set_num_threads(threads)
     torch.set_num_interop_threads(1)
+    print(json.dumps({"configured_threads": threads, "torch_intraop_threads": torch.get_num_threads(),
+                      "torch_interop_threads": torch.get_num_interop_threads(), "torch_version": str(torch.__version__)}), file=sys.stderr)
     torch.manual_seed(0)
     effective = "cpu"
     if requested_device != "cpu":
@@ -444,6 +457,7 @@ def execute(req, work, emit, check, engine=None):
                 "available_stems": profile["stems"], "selected_stems": selection,
                 "weights": {f["name"]: f["sha256"] for f in profile["files"]}, "backend": "python-audio-separator", "backend_version": BACKEND_VERSION,
                 "requested_device": req["device"], "effective_device": effective, "precision": "fp32",
+                "configured_threads": threads, "benchmark_override": bool(os.environ.get("MRS_SEPARATION_BENCHMARK_THREADS")),
                 "gain_policy": "unnormalized_float", "derivation": "instrumental=bass+drums+other" if profile["id"] == DEFAULT_MODEL else "model-native/complement",
                 "chunk": req.get("chunk", "default"), "source_channels": info.channels, "mono_policy": "duplicate_to_stereo", "model_rate": 44100,
                 "shifts": 0, "seed": 0, "overlap": 0.25 if profile["architecture"] in ("Demucs", "MDX") else 2,

@@ -20,6 +20,7 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/native_package_config.h" "static constex
 target_include_directories(mrs_separation PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_include_directories(mrs_separation PUBLIC apps/studio-juce/src)
 target_compile_features(mrs_separation PUBLIC cxx_std_20)
+target_compile_definitions(mrs_separation PRIVATE MRS_SEPARATION_BENCHMARK=$<BOOL:${MRS_SEPARATION_BENCHMARK}>)
 target_compile_definitions(mrs_separation PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(mrs_separation PRIVATE juce::juce_cryptography winhttp shell32 ole32 uuid PUBLIC mrs_audio juce::juce_core)
 if(MSVC)

@@ -1,17 +1,37 @@
-MR Studio 0.9.7 — temporary backend A/B
+MR Studio 0.9.7-Upd1 - development multicore A/B
 
-Separate into Stems: choose Python / PyTorch or audio.cpp / GGML at the top right.
-Python is the default and uses the existing runtime and model cache.
-Native uses a separate native-cpu model cache and the included C++ worker.
+Extract the ENTIRE Windows-native-AB artifact into a NEW folder.
+Keep your accepted Studio installation and this experiment separate.
+Close Studio; double-click Benchmark-Threads.cmd and enter 1, 2, 4, 8 or 16.
+The same requested CPU thread count is used by BOTH Python and audio.cpp.
+Select CPU explicitly (Auto/CUDA are rejected during this benchmark).
+To change threads, close Studio and restart Benchmark-Threads.cmd.
+Launching the EXE normally keeps the previous automatic 1..4 thread policy.
 
-Native models in this build:
-- HTDemucs 6: Model Manager -> Download model.
-- SW Fixed 6: download and extract the matching Native-SW-GGUF artifact from
-  this same Actions run, then Model Manager -> Import GGUF -> sw-fixed-f32.gguf.
-Other models still require Python. There is no automatic fallback.
+Separate into Stems: choose Python / PyTorch or audio.cpp / GGML at top right.
+Python remains the default, with the existing runtime and model cache.
+Native uses the included C++ worker and a separate native-cpu model cache.
+HTDemucs 6: Model Manager -> Download model for each backend as needed.
+SW Fixed 6 is optional: extract the separate Native-SW-GGUF artifact from THIS
+run, then native Model Manager -> Import GGUF -> sw-fixed-f32.gguf.
+Other models still require Python; no automatic backend fallback.
 
-Compare the same clip, range, model, selected stems and chunk setting.
-Results show the backend and worker/verification wall time (includes model load).
-The native CPU backend can be slower; this build is for your quality/speed tests.
-Keep this runtime separate from your accepted 0.9.6-Upd1 installation.
-The existing Python cache and projects are preserved. No main merge or MR Live.
+PRIMARY TEST: HTDemucs 6, same source clip/range, chunk, sample rate and stems.
+For each thread count alternate Python/native and run each at least twice.
+Record backend, configured threads, clip duration, displayed worker wall time,
+peak worker RAM and CPU use. Report power mode / AC power and throttling.
+Use Task Manager Details for the worker, not just the Studio GUI CPU use.
+The host report path is printed by the launcher (LocalAppData/MR Studio/
+SeparationBenchmarks). Worker result manifest includes configured_threads;
+Python diagnostics also report Torch intra/inter-op pool sizes.
+
+Configured threads are NOT proof that all operations use that many threads.
+8 physical / 16 logical CPUs is SMT, not 16 physical cores. Do not infer CPU
+quota from affinity alone; Windows job CPU caps are not measured here.
+Displayed wall includes startup/model load and host verification. Running
+again starts a NEW worker/model session, so it is not warm inference timing.
+Native HT6 weights are F16 / computation F32; Python weights are F32.
+There are no new performance conclusions or promised speedups in this build.
+Inference-only warm runs, profiler/active-thread verification, full CPU budget
+and JSON/CSV scaling analysis remain separate #351 research checkpoints.
+No main merge, no MR Live build, no backend migration.
