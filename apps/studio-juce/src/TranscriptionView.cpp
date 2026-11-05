@@ -116,7 +116,7 @@ public:
         const auto w=getWidth();title_.setBounds(20,12,w-40,28);source_info_.setBounds(20,48,w-40,38);model_info_.setBounds(20,94,w-40,38);help_.setBounds(20,140,w-40,42);
         terms_.setBounds(20,190,w-190,28);terms_link_.setBounds(w-166,190,146,28);token_label_.setBounds(20,230,104,28);token_.setBounds(132,228,w-152,28);
         download_.setBounds(20,266,160,30);local_.setBounds(188,266,160,30);verify_.setBounds(356,266,90,30);remove_.setBounds(454,266,134,30);
-        progress_.setBounds(20,308,w-40,22);status_.setBounds(20,340,w-40,38);parts_label_.setBounds(20,386,w-40,24);parts_.setBounds(20,414,w-40,std::max(70,getHeight()-566));
+        progress_.setBounds(20,308,w-40,22);status_.setBounds(20,340,w-40,38);parts_label_.setBounds(20,386,w-40,24);parts_.setBounds(20,414,w-40,(std::max)(70,getHeight()-566));
         const auto y=getHeight()-142;start_.setBounds(20,y,158,32);cancel_.setBounds(186,y,90,32);discard_.setBounds(284,y,142,32);place_.setBounds(w-218,y,198,32);
         message_.setBounds(20,getHeight()-100,w-40,42);footer_.setBounds(20,getHeight()-50,w-40,40);
     }
@@ -200,7 +200,7 @@ void transcriptionSmoke(const juce::File& fake){
     showTranscription(owner,clip);auto* view=dynamic_cast<TranscriptionPanel*>(owner.transcriptionWindow->getContentComponent());need(view!=nullptr,"Transcription panel missing");
     const auto wait=[&](const std::function<bool()>& pending){const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(10);while(pending()){need(std::chrono::steady_clock::now()<until,"Transcription GUI timeout");view->tick();juce::Thread::sleep(2);}};
     wait([&]{return owner.transcriptionSetup->status().busy;});view->tick();need(!view->start_.isEnabled()&&!view->download_.isEnabled(),"Uninstalled/unchecked state");
-    view->fixture_fetch_=[authorized](const std::string& url,const fs::path& destination,std::uint64_t bytes,std::stop_token stop,const ModelDownloadProgress& progress){need(model_download_target(url).authorize,"Fixture official origin");need(!stop.stop_requested(),"Fixture download cancelled");const auto source_file=path(authorized.getChildFile(juce::String(destination.filename().wstring())));fs::copy_file(source_file,destination);if(progress)progress(bytes,bytes);};
+    view->fixture_fetch_=[authorized](const std::string& url,const fs::path& destination,std::uint64_t bytes,std::stop_token stop,const ModelDownloadProgress& progress){need(model_download_target(url).authorize,"Fixture official origin");need(!stop.stop_requested(),"Fixture download cancelled");const auto source_file=path(authorized.getChildFile(text(destination.filename().string())));fs::copy_file(source_file,destination);if(progress)progress(bytes,bytes);};
     view->terms_.setToggleState(true,juce::dontSendNotification);view->token_.setText("fake_test_token",false);view->update();need(view->download_.isEnabled(),"Explicit model download action disabled");view->download_.onClick();need(view->token_.getText().isEmpty(),"Token editor not cleared");
     wait([&]{return owner.transcriptionSetup->status().busy;});view->tick();need(view->start_.isEnabled(),"Verified engine/model should enable conversion");
     view->start_.onClick();wait([&]{return busy(owner.app.transcription_status().state);});view->tick();need(owner.app.transcription_status().state==JobState::ready&&view->roles_.size()==1&&view->place_.isEnabled(),"Recognition/parts selection missing");
