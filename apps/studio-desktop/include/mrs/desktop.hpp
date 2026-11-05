@@ -24,6 +24,7 @@
 #include <mrs/cab_collection.hpp>
 #include <mrs/tone_library.hpp>
 #include <mrs/rig.hpp>
+#include <mrs/transcription_controller.hpp>
 namespace mrs::desktop {
 enum class Workspace { arrange, edit, mix, live };
 struct AudioRecordingPreview { Clip clip; std::optional<audio::RecordPreview> waveform; };
@@ -156,6 +157,12 @@ public:
     void validate_playback_regions(const std::vector<PlaybackStem>&);
 
     std::vector<Id> import_midi(const std::vector<std::filesystem::path>&,std::optional<Id> target={},Tick start=0);
+    // Control thread only; background processing does not publish a Project edit.
+    void queue_transcription(Id clip,transcription::ModelStore,transcription::Request engine_settings);
+    void cancel_transcription();
+    transcription::JobStatus transcription_status() const;
+    const transcription::Result* transcription_preview() const;
+    std::vector<Id> place_transcription(const std::optional<std::vector<std::string>>& roles = {});
     bool history_preserves_plugins(bool redo) const;
     bool history_changes_only_inputs(bool redo) const; // permits frontend editor retention before Undo/Redo
     bool undo(); bool redo();
@@ -456,6 +463,9 @@ private:
     void commit_wav_import(const std::shared_ptr<PreparedWavImport>&,std::optional<Id>,Sample);
     void validate_wav_import(std::size_t,std::optional<Id>,Sample) const;
     void poll_wav_import();
+    std::unique_ptr<transcription::Controller> transcription_;
+    void poll_transcription();
+    void commit_midi_project(Project,std::string operation);
     std::vector<std::shared_ptr<PlaybackPreparation>> playback_preparations_;
     void configure_playback_regions(const std::vector<PlaybackStem>&,bool publish);
     Id playback_source_project_;

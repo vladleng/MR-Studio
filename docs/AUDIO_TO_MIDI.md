@@ -87,15 +87,16 @@ is valid. Output notes are then intersected with the actual source duration;
 this handles hallucinations in a padded final chunk. Zero raw notes or zero
 surviving notes is a successful **empty** result, with no placement Command.
 
-`mrs/audio_to_midi_worker.hpp` provides a **blocking NON-RT service call** for a
-future owner job thread. It never captures the ProjectStore, audio engine or GUI.
+`mrs/audio_to_midi_worker.hpp` provides a **blocking NON-RT service call** used by
+the controller's owner job thread. It never captures the ProjectStore, audio engine or GUI.
 The caller supplies an explicit executable, model directory, WAV, temporary root,
 expected SHA256 digests and model rights/revision metadata. It performs no download
 or trust-on-first-use; publisher trust and license approval belong to Model Manager.
 It snapshots the full WAV, rejects linked/reparse paths, verifies source/model/
 executable integrity before and after inference and checks the snapshot again.
 The result echoes project/clip/revision, digests and model metadata in memory;
-durable project provenance and caller revision checks are still outstanding.
+durable project provenance is still outstanding. The controller checks caller
+identity/revision again before preparing placement.
 
 Windows launches suspended, assigns a kill-on-close Job Object with one-process
 and memory limits, then resumes. Only explicit stdin/stdout/stderr handles are
@@ -122,6 +123,62 @@ service with local Medium weights, without Python or bundling the native worker.
 `mrs_audio_to_midi_worker_tests` uses a C++ fake executable to test failure paths;
 that does not establish Windows MuScriptor inference or musical quality.
 
+## Controller and local model connection
+
+`mrs/transcription_controller.hpp` owns one background job and at most one pending
+result. The job captures request values, a model lease and immutable media lifetime
+guards; it does not capture Application, ProjectStore, GUI or engine pointers.
+Progress is coalesced through one atomic packed counter; future completion transfers
+the full Result. Control-thread poll/cancel never join an unfinished job. Shutdown
+requests stop and joins during NON-RT teardown. A cancelling job must finish/reap
+before another can start; a ready result must be placed or explicitly discarded.
+
+The controller captures the ProjectStore identity, project ID/revision/content,
+clip ID, document path and source file stamp. Changes invalidate a pending result
+or request cancellation of active work. Undo back to equal Project content still
+changes revision and cannot revive an old result. Replacing/opening/new-project
+requests cancellation; media guards keep staged WAVs alive until cleanup. The
+placement guard runs again immediately before the Command is prepared.
+Before exposing the preview, notes are intersected with the selected clip's
+visible source range, retaining full-file seconds. Notes/roles outside that range
+are omitted; a file recognition with no overlapping clip notes becomes empty.
+
+Application exposes `queue_transcription`, `cancel_transcription`, status/preview
+and `place_transcription`. Results remain a preview until explicitly placed. An
+optional list selects recognized roles; empty/unknown/duplicate selections fail.
+Placement uses one existing PlaceTranscription command and the same stopped,
+quiesced MIDI graph/device publication path as MIDI import, preserving Undo/Redo,
+source audio and earlier conversions. A device-start failure leaves the Project
+unchanged and the preview available for retry. No inference runs in the audio
+callback; these are service APIs, not a Convert to MIDI GUI action yet.
+
+`mrs/transcription_models.hpp` implements an offline local ModelStore. Its default
+catalog is official `MuScriptor/muscriptor-medium` at
+`f32236969308476e01fd3aae67357de5feb05a2d`, with exact config/weights/model-card
+sizes and SHA256. Installation requires explicit acknowledgement of the CC BY-NC
+and HF-specific conditions and a supplied authorized local folder. It verifies
+source files, copies into an exclusive private staging folder with a disk cap and
+cancellation, verifies the copy and source again, then atomically renames the
+complete installation. An acknowledgement receipt is metadata, not commercial
+permission. Existing installations are not overwritten implicitly.
+
+Verification is blocking NON-RT and works offline. Acquiring a lease checks only
+receipt/file geometry; the worker independently checks executable/config/weights
+hashes. A lease blocks install/remove through that ModelStore instance and its
+copies while inference is using it. External filesystem mutations remain subject
+to runtime hash checks. Removal accepts corrupted weights but refuses linked or
+foreign folders/entries. ModelStore does not download, store HF credentials, install
+a native executable, or claim an arbitrary caller-provided executable is trusted.
+Official downloads, native binary/dependency distribution and installation UI
+remain separate gates. Small/Large entries are not advertised as installed.
+
+`mrs_transcription_controller_check` is a developer-only driver for the complete
+offline path: explicit model-terms flag/local installation, queued inference,
+placement, Undo/Redo and project-file Save/Open/Save As. Its work folder must be
+new. Successful checks retain only self-contained test project artifacts; the
+temporary installed model and native job files are removed. It is not packaged
+as the product UI and requires an explicitly hash-trusted native executable.
+
 ## Remaining integration gates
 
 1. Windows native executable/build validation and distribution/transitive license
@@ -129,13 +186,13 @@ that does not establish Windows MuScriptor inference or musical quality.
    short WAV inference uses official hash-verified Medium weights. Upstream code
    is MIT, MuScriptor weights CC BY-NC 4.0. Do not use
    ACE-Step Studio's open mirror as a workaround for official gated access.
-2. Integrate the blocking service into the Studio owner/job/controller lifecycle,
-   capturing the project revision and discarding late results before placement.
-3. Explicit optional model installation/verification/removal/offline behavior,
-   rights metadata and Studio-only UI placement through the existing application
-   transaction path. Provenance persistence is not implemented by this checkpoint.
-4. Windows Studio CI, Save/Open/Save As file integration, musical A/B and
-   user acceptance. Core snapshot round-trip tests do not establish these gates.
+2. Official model download/native engine registration and Studio Convert to MIDI
+   UI, progress/cancel and part selection through the implemented controller APIs.
+3. Durable inference provenance, native executable/dependency distribution and
+   complete Model Manager UX; local install/verify/remove APIs already exist.
+4. Windows native inference and project-file/musical/VSTi acceptance. Developer
+   fake-process file tests and Linux real Medium checks do not establish Windows
+   hardware, GUI or musical usability.
 
 Restricted weights are not part of the installer. Experimental inference does
 not establish permission for commercial weights or output use. No automatic

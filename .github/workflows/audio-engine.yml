@@ -1,6 +1,6 @@
 name: Windows Studio Release
 # Product versions are validated against the source header before building.
-run-name: ${{ (inputs.checks == 'studio' || github.head_ref == 'codex/342-native-audio-midi' || github.ref_name == 'codex/342-native-audio-midi' || github.head_ref == 'codex/74-separation-contract' || github.ref_name == 'codex/74-separation-contract') && inputs.checks != 'live' && !inputs.integration && 'MR Studio 0.10.1-Upd1 — Windows Release' || 'MR Studio 0.10.1-Upd1 / MR Live 0.8.13-fix1 — Windows Release' }}
+run-name: ${{ (inputs.checks == 'studio' || github.head_ref == 'codex/342-native-audio-midi' || github.ref_name == 'codex/342-native-audio-midi' || github.head_ref == 'codex/74-separation-contract' || github.ref_name == 'codex/74-separation-contract') && inputs.checks != 'live' && !inputs.integration && 'MR Studio 0.10.1-Upd2 — Windows Release' || 'MR Studio 0.10.1-Upd2 / MR Live 0.8.13-fix1 — Windows Release' }}
 on:
   push:
     branches: [main, 'codex/cloud-cicd-migration']
@@ -24,7 +24,7 @@ on:
 permissions:
   contents: read
 env:
-  RELEASE_BANNER: 'MR Studio 0.10.1-Upd1 / MR Live 0.8.13-fix1 — Windows Release'
+  RELEASE_BANNER: 'MR Studio 0.10.1-Upd2 / MR Live 0.8.13-fix1 — Windows Release'
 concurrency:
   group: windows-${{ github.ref }}
   cancel-in-progress: true
@@ -126,11 +126,11 @@ jobs:
           $args=@('--build','build/windows','--config','Release','--parallel','2')
           if($env:CHECK_SCOPE -eq 'separation'){$args+=@('--target','mrs_separation_check')}
           elseif($env:CHECK_SCOPE -eq 'separation-ui'){$args+=@('--target','MoonRiverStudioJuce')}
-          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests')}
-          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
+          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests')}
+          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
           elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('--target','MRLiveJuce','mrs_audio_tests','mrs_live_preload_tests','mrs_parallel_tests')}
           elseif($env:INTEGRATION -ne 'true'){
-            $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_midi_import_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_track_stretch_mode_tests','mrs_clip_response_tests','mr_timestretch_drums_tests','mr_timestretch_drums_example','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
+            $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_track_stretch_mode_tests','mrs_clip_response_tests','mr_timestretch_drums_tests','mr_timestretch_drums_example','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
             $args+=@('mrs_separation_check','mrs_separation_assets_tests','mrs_persistence_tests')
             if($env:BUILD_ARA -eq 'true'){$args+=@('mrs_ara_tests','mrs_ara_clip_tests','mrs_ai_ara_tests')}
           }
@@ -143,10 +143,10 @@ jobs:
           $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
           if($env:CHECK_SCOPE -eq 'separation'){$args+=@('-R','^separation_(host|models)$')}
           elseif($env:CHECK_SCOPE -eq 'separation-ui'){$args+=@('-R','^juce_separation_(models|project)$')}
-          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('-R','^(midi_import|juce_(separation_(models|project)|track_folders|wav_drop)|core_(ace_midi_protocol|audio_to_midi|model|commands|serialization|remove_tracks)|desktop_(audio_to_midi_worker|separation_assets|remove_tracks|wav_import)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
-          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('-R','^(midi_import|juce_(separation_(models|project)|track_folders|wav_drop|live_(entry_smoke|application))|core_(ace_midi_protocol|audio_to_midi|model|commands|serialization|remove_tracks)|desktop_(audio_to_midi_worker|separation_assets|remove_tracks|wav_import)|separation_(host|models)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
+          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('-R','^(midi_import|juce_(separation_(models|project)|track_folders|wav_drop)|core_(ace_midi_protocol|audio_to_midi|model|commands|serialization|remove_tracks)|desktop_(transcription_controller|audio_to_midi_worker|separation_assets|remove_tracks|wav_import)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
+          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('-R','^(midi_import|juce_(separation_(models|project)|track_folders|wav_drop|live_(entry_smoke|application))|core_(ace_midi_protocol|audio_to_midi|model|commands|serialization|remove_tracks)|desktop_(transcription_controller|audio_to_midi_worker|separation_assets|remove_tracks|wav_import)|separation_(host|models)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
           elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('-R','^(juce_live_(entry_smoke|application)|audio_(metronome|performance|parallel_(equivalence|ownership|profiling))|desktop_live_preload)$')}
-          elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(midi_import|core_(ace_midi_protocol|audio_to_midi|stretch_contract|model|transport|commands|serialization|track_folders|remove_tracks)|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|ara_.*|juce_(separation_(models|project)|live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(audio_to_midi_worker|separation_assets|wav_import|track_folders|remove_tracks|clip_response)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
+          elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(midi_import|core_(ace_midi_protocol|audio_to_midi|stretch_contract|model|transport|commands|serialization|track_folders|remove_tracks)|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|ara_.*|juce_(separation_(models|project)|live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(transcription_controller|audio_to_midi_worker|separation_assets|wav_import|track_folders|remove_tracks|clip_response)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
           & ctest @args
           if($LASTEXITCODE){
             if(Test-Path 'build/windows/separation-project-failure.txt'){Get-Content 'build/windows/separation-project-failure.txt'}

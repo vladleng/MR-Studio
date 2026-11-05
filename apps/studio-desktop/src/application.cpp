@@ -225,6 +225,7 @@ persistence::ProjectDocument foundation_demo() {
 }
 Application::Application(std::unique_ptr<IMidiOutputBackend> backend) : engine_(std::make_shared<audio::AudioEngine>()),external_midi_(std::make_shared<audio::ExternalMidiQueue>()) {if(backend)midi_outputs_=std::make_unique<MidiOutputs>(external_midi_,std::move(backend));demo();}
 Application::~Application() {
+    if(transcription_)transcription_->shutdown();
     midi_inputs_.reset(); // joins bridge/closes driver callbacks before engine/device retirement
     if (device_) device_->close();
     stop_wav_imports();
@@ -241,6 +242,7 @@ Application::~Application() {
 void Application::workspace(Workspace w) { (void)workspace_name(w); workspace_ = w; }
 void Application::replace(persistence::ProjectDocument next) {
     cancel_wav_import();
+    cancel_transcription();
     require_ai_owner();
     require_not_recording(); next.validate(); armed_.reset(); armed_tracks_.clear();
     // Existing MIXR channels hydrate the shared command model, including legacy archives.
@@ -2151,8 +2153,12 @@ std::vector<Id> Application::import_midi(const std::vector<std::filesystem::path
         require(part.midi.length<=max_tick-start,"MIDI drop exceeds timeline range");part.midi.start=start;
         Clip c;c.id=new_id();c.track=id;c.name=utf8(file.stem())+" — "+part.name;c.midi=std::move(part.midi);clips.push_back(c.id);candidate.clips.push_back(std::move(c));
     }}
-    candidate.validate();
-    class Import final:public ICommand {Project p_;public:explicit Import(Project p):p_(std::move(p)){}std::string_view name()const override{return "Import MIDI";}void apply(Project& p)const override{p=p_;}};
+    commit_midi_project(std::move(candidate),"Import MIDI");return clips;
+}
+void Application::commit_midi_project(Project candidate,std::string operation){
+    require_not_playing();require_not_recording();candidate.validate();
+    const auto current=services_.projects->state().project;
+    class Import final:public ICommand {Project p_;std::string operation_;public:Import(Project p,std::string name):p_(std::move(p)),operation_(std::move(name)){}std::string_view name()const override{return operation_;}void apply(Project& p)const override{p=p_;}};
     require(candidate.clips.size()<=audio::max_voices,"Too many playback clips");
     std::vector<Id> tracks;for(const auto& t:candidate.tracks)if(t.kind!=TrackKind::midi)tracks.push_back(t.id);
     require(tracks.size()<=audio::max_mixer_tracks,"Too many mixer tracks");(void)audio::compile_midi_clips(candidate,tracks);(void)audio::compile_midi_events(candidate,tracks);
@@ -2170,7 +2176,7 @@ std::vector<Id> Application::import_midi(const std::vector<std::filesystem::path
             device_->start();
         }catch(...){const auto error=std::current_exception();preparing_project_=nullptr;device_->stop();for(const auto& key:added)insert_runtime_.erase(key);try{rebuild_audio(true);}catch(...){disconnect();}std::rethrow_exception(error);}
     }
-    services_.projects->execute(Import{std::move(candidate)});unsaved_=true;sync_arm();publish_midi_routes();return clips;
+    services_.projects->execute(Import{std::move(candidate),std::move(operation)});unsaved_=true;sync_arm();publish_midi_routes();
 }
 void Application::prepare_mixer(audio::RenderGraph& result) {
     const auto project = preparing_project_?preparing_project_:services_.projects->state().project.get();
@@ -2425,6 +2431,7 @@ void Application::poll() {
             try { value.peaks = value.pending.get(); } catch (const std::exception& e) { waveform_error_ = e.what(); }
     }
     poll_wav_import();
+    poll_transcription();
     poll_stretch();
 }
 audio::DeviceStatus Application::device_status() { return device_ ? device_->status() : audio::DeviceStatus{}; }
