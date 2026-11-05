@@ -7,6 +7,12 @@
 
 namespace mrs::transcription {
 enum class State { ready, empty, cancelled, timeout, failed };
+// NON-RT CPU selection. Auto reserves one logical CPU and caps inference at 16.
+unsigned available_cpu_threads();
+unsigned choose_cpu_threads(unsigned requested = 0);
+bool avx2_usable(std::uint32_t leaf1_ecx,std::uint32_t leaf7_ebx,std::uint64_t xcr0);
+bool optimized_cpu_available();
+struct SourceRange {Sample offset{},frames{};std::uint32_t rate{};}; // project sample domain
 struct Request {
     std::filesystem::path executable, model_directory, source, temporary_root;
     // Expected digests are mandatory, supplied by the installer/caller's trust
@@ -16,7 +22,9 @@ struct Request {
     Id project_id, clip_id;
     std::uint64_t project_revision{};
     std::chrono::milliseconds timeout{std::chrono::minutes(30)};
-    unsigned cpu_threads{2};
+    unsigned cpu_threads{2}; // 0 = bounded Auto; explicit values capped to available CPUs
+    std::optional<SourceRange> range;
+    std::string stem_instrument; // empty = Auto; canonical native decoder constraint
     std::uint64_t memory_bytes{4ULL*1024*1024*1024};
 };
 struct Result {
@@ -24,9 +32,15 @@ struct Result {
     std::string error, diagnostics;
     Id project_id, clip_id;
     std::uint64_t project_revision{};
+    // source_sha256: full WAV for legacy whole-source requests, selected PCM for range requests.
     std::string source_sha256, executable_sha256, weights_sha256, config_sha256;
     std::string model_id, model_revision, model_license, midi_sha256;
     std::size_t raw_notes{};
+    double analysis_seconds{}, source_offset_seconds{}, elapsed_seconds{};
+    unsigned cpu_threads{};
+    std::uint32_t source_rate{};
+    Sample source_first_frame{}, source_frame_count{};
+    std::string input_sha256; // exact private WAV, distinct from selected PCM hash
     std::vector<TranscribedNote> notes; // full-source seconds, source-bounded
 };
 // Blocking NON-RT service call, to be owned by a job/service thread. The progress

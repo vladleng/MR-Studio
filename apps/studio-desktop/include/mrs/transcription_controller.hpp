@@ -4,7 +4,7 @@
 
 namespace mrs::transcription {
 enum class JobState { idle, running, cancelling, ready, empty, cancelled, timeout, failed, stale, placed };
-struct JobStatus {JobState state{JobState::idle};int completed{},total{};std::string error;};
+struct JobStatus {JobState state{JobState::idle};int completed{},total{};std::string error;double elapsed_seconds{};unsigned cpu_threads{};};
 // Control-thread owner; immutable request/media/lease only cross into its job.
 // poll/cancel never wait for inference. Shutdown joins outside the audio callback.
 class Controller {

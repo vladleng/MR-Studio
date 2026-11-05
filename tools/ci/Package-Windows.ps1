@@ -11,6 +11,7 @@ $gui=if($LiveOnly){Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe'}e
 Copy-Item -LiteralPath $gui -Destination $Output
 if(!$LiveOnly){
  Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $gui) 'ace-midi.exe') -Destination $Output
+ Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $gui) 'ace-midi-avx2.exe') -Destination $Output
  Copy-Item -LiteralPath 'build/native-ace/ace-midi-NOTICES.txt' -Destination $Output
 }
 if(!$LiveOnly -and !$StudioOnly){Copy-Item -LiteralPath (Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe') -Destination $Output}

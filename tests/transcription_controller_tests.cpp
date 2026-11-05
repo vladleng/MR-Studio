@@ -83,8 +83,8 @@ int main(int argc,char** argv){try{
     wait([&]{crop.poll(trim_store,{});},[&]{return crop.status();});check(crop.status().state==JobState::empty&&crop.preview()->notes.empty());crop.cancel();
     trimmed.clips[0].source_offset=8000;trimmed.clips[0].length=8000;trimmed.validate();trim_store=std::make_shared<ProjectStore>(trimmed);
     crop.start(trim_store,{},trimmed.clips[0].id,source,models,settings);wait([&]{crop.poll(trim_store,{});},[&]{return crop.status();});
-    check(crop.status().state==JobState::ready&&crop.preview()->notes.size()==1&&crop.preview()->notes[0].start==.5);
-    auto cropped=crop.prepare(trim_store,{});trim_store->execute(cropped);crop.placed();check(trim_store->state().project->clips[1].midi->notes[0].start==0);
+    check(crop.status().state==JobState::ready&&crop.preview()->notes.size()==1&&crop.preview()->notes[0].start==.75&&crop.preview()->analysis_seconds==.5&&crop.preview()->source_offset_seconds==.5);
+    auto cropped=crop.prepare(trim_store,{});trim_store->execute(cropped);crop.placed();check(trim_store->state().project->clips[1].midi->notes[0].start==ppq/2);
     // ABA: equal Project content after Undo must still reject the captured revision.
     launch();store->execute(RenameTrack{project.tracks[0].id,"Edited"});check(store->undo());wait(poll,status);check(status().state==JobState::stale&&*store->state().project==project);
     rejects([&]{controller.prepare(store,{});});

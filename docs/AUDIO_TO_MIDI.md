@@ -79,8 +79,8 @@ coerced numbers, unpaired/repeated indices, incomplete EOF, missing/out-of-order
 progress, missing/duplicate done or trailing traffic fail the whole job. Escaped
 strings and JSON extensions are deliberately outside this native schema.
 Expected chunks use the pinned resampler's truncated 16 kHz frame count, not
-ceil(full-source seconds / 5): a fraction of one resampled sample past a chunk
-boundary does not create another chunk. Clipping still uses full-source seconds.
+ceil(private-input seconds / 5): a fraction of one resampled sample past a chunk
+boundary does not create another chunk. The protocol clips in private-input seconds; the range offset is restored afterwards.
 Limits: 4 KiB per line, 16 MiB stdout, 100000 messages, 32768 raw notes,
 4 hours of source audio. Done counts must match paired notes; note times must
 fit the padded 5-second chunk envelope. A final note_end after final progress
@@ -93,7 +93,7 @@ the controller's owner job thread. It never captures the ProjectStore, audio eng
 The caller supplies an explicit executable, model directory, WAV, temporary root,
 expected SHA256 digests and model rights/revision metadata. It performs no download
 or trust-on-first-use; publisher trust and license approval belong to Model Manager.
-It snapshots the full WAV, rejects linked/reparse paths, verifies source/model/
+It snapshots the selected clip PCM as a standard private WAV, rejects linked/reparse paths, verifies source/model/
 executable integrity before and after inference and checks the snapshot again.
 The result echoes project/clip/revision, digests and model metadata in memory;
 durable project provenance is still outstanding. The controller checks caller
@@ -140,8 +140,10 @@ or request cancellation of active work. Undo back to equal Project content still
 changes revision and cannot revive an old result. Replacing/opening/new-project
 requests cancellation; media guards keep staged WAVs alive until cleanup. The
 placement guard runs again immediately before the Command is prepared.
-Before exposing the preview, notes are intersected with the selected clip's
-visible source range, retaining full-file seconds. Notes/roles outside that range
+The controller requests only the selected clip's visible source range. The worker
+extracts the intersecting source frames (floor start / ceil end at file rate),
+then restores the extracted offset before exposing notes in full-source seconds.
+Before exposing the preview, notes are intersected again with the exact clip range. Notes/roles outside that range
 are omitted; a file recognition with no overlapping clip notes becomes empty.
 
 Application exposes `queue_transcription`, `cancel_transcription`, status/preview
@@ -202,12 +204,13 @@ choose **Place selected parts** to create normal MIDI tracks through one undoabl
 command. Closing cancels/discards an unplaced result. Changed projects/sources
 invalidate results. Velocity is currently 100; this does not recover dynamics.
 Processed Time/Pitch/ARA clips require rendering to WAV first. Playback must stop
-before placement; recording blocks conversion/placement. Full source analysis
-retains only notes intersecting the selected clip's visible source range.
+before placement; recording blocks conversion/placement. Only the selected trimmed clip is analyzed; no separate internal range selection
+is introduced. Split/cut a smaller clip first if required.
 
 Windows CI builds ace-midi from HOT-Step CPP pin
-`ee7286d14232b48ace3b6eed0fcf3048081ef0d1` and verifies its GGML pin. The generic
-x64 CPU build uses static CRT/ggml with OpenMP/GPU/host-specific AVX options OFF.
+`ee7286d14232b48ace3b6eed0fcf3048081ef0d1` and verifies its GGML pin. Both generic SSE2 and optimized AVX2/FMA/F16C/BMI2 x64 CPU builds use static
+CRT/ggml with OpenMP/GPU/host-specific options OFF. The Studio launcher checks
+CPUID plus OS XMM/YMM state before choosing AVX2, otherwise uses generic.
 It checks CLI exit contracts and system DLL imports. The Studio executable embeds
 the resulting engine SHA256; runtime hashing rejects a replaced engine. The
 package includes ace-midi.exe and its source/license notices, and excludes weights.
@@ -218,6 +221,50 @@ acknowledgement/token clearing, progress, part selection, placement/Undo/Redo,
 stale-result rejection, cancellation, cleanup and close/reopen. Software snapshots
 at 100/125/150/200% exercise this window; they do not establish physical DPI or
 real-model Windows inference.
+
+## Clip range, CPU and stem input (0.10.1-fix1)
+
+The whole **selected audio clip after trimming** is converted. There is no
+inside-clip selection mode; split the desired fragment into its own clip first.
+The worker copies only intersecting source PCM frames to its private WAV. It
+preserves source rate/channels/PCM format, clamps the right edge at source EOF,
+rejects an empty/outside range, bounds private input to 2 GiB/four hours, and
+returns note seconds to full-source coordinates before tempo-aware placement.
+Project sample offsets are converted to file frames with floor/ceil coverage;
+final notes are clipped to the exact project range. Source file geometry/stamp
+and selected PCM SHA256 are checked; there is no full long-file copy or content
+hash for range jobs. Legacy developer requests without a range keep whole-WAV
+semantics. Result.source_sha256 is selected-PCM hash for range jobs, whole-WAV
+hash otherwise; offset, duration and rate context must accompany provenance.
+The private WAV has its own full hash. Original audio remains unchanged.
+
+**CPU threads** offers bounded Auto or manual 1/2/4/8/16/32. Auto reserves one
+logical CPU and caps inference at 16; explicit choices are capped to available
+process-affinity CPUs and 32. The child runs at below-normal priority. This is
+background inference, never audio-callback parallelism. More threads do not
+promise proportional speed; report measured timings/threads/engine per fixture.
+The UI reports trimmed duration, elapsed seconds and actual thread count.
+
+**Stem instrument** offers Auto/full mix or any canonical native category,
+including drums. A ready stem enters recognition directly, without separation.
+The pinned upstream CLI has no instrument argument. The published
+`tools/native/ace-midi-stem.patch` adds `--instrument <canonical role>`: each
+chunk teacher-forces the category's program after the tie prelude, and argmax
+masks incompatible program/drum vocabulary **before** autoregressive decoding.
+This changes decoding context; it is not a post-hoc MIDI rename/GM remap and
+not a learned instrument-group embedding. The same weights are used. There is
+no pitch/octave transform, monophony enforcement or accuracy guarantee. Auto
+preserves the upstream greedy path. The worker rejects any raw role outside
+the requested category. Other parts may be missed if the user gives a wrong
+stem category: select Auto for a mix or uncertain material.
+
+The exact patch and patched source SHA256 are checked by CI against a JSON pin;
+engine notices link its source. `--mrs-self-test` exercises the actual pre-argmax
+constraint for every canonical category without weights. Both engine variants
+use this patch and independent executable hashes. AVX2 dispatch requires AVX,
+OSXSAVE, XCR0 XMM/YMM, SSE4.2, FMA, F16C, AVX2 and BMI2. Missing optimized binary
+falls back to generic; a present selected engine must pass its expected hash.
+Models installed in Upd3 remain valid; only application/native binaries change.
 
 ## Remaining integration gates
 

@@ -78,7 +78,10 @@ namespace {
 std::shared_ptr<TranscriptionSetup> setup(){
     const auto app=juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory();
     const auto root=juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("MoonRiverStudio").getChildFile("transcription");
-    Request settings;settings.executable=path(app.getChildFile("ace-midi.exe"));settings.executable_sha256=mrs::transcription_engine_sha256;
+    Request settings;settings.executable=path(app.getChildFile("ace-midi.exe"));settings.executable_sha256=mrs::transcription_engine_sha256;settings.cpu_threads=0;
+    if(optimized_cpu_available()&&std::string(mrs::transcription_avx2_sha256).size()==64&&app.getChildFile("ace-midi-avx2.exe").existsAsFile()){
+        settings.executable=path(app.getChildFile("ace-midi-avx2.exe"));settings.executable_sha256=mrs::transcription_avx2_sha256;
+    }
     settings.temporary_root=path(root.getChildFile("jobs"));
     // Worker requires a pre-existing trusted temp root; no model download here.
     need(root.getChildFile("jobs").createDirectory().wasOk(),"Cannot create transcription job folder");
@@ -89,9 +92,14 @@ public:
     TranscriptionPanel(Desktop& owner,std::optional<mrs::Id> source,std::shared_ptr<TranscriptionSetup> model_setup)
         :owner_(owner),source_(std::move(source)),setup_(std::move(model_setup)),progress_(progress_value_){
         setLookAndFeel(&owner_.theme);
-        for(auto* label:{&title_,&source_info_,&model_info_,&help_,&token_label_,&parts_label_,&status_,&message_,&footer_}){addAndMakeVisible(*label);label->setJustificationType(juce::Justification::topLeft);label->setMinimumHorizontalScale(1.f);}
+        for(auto* label:{&title_,&source_info_,&model_info_,&help_,&token_label_,&parts_label_,&status_,&message_,&footer_,&cpu_label_,&stem_label_}){addAndMakeVisible(*label);label->setJustificationType(juce::Justification::topLeft);label->setMinimumHorizontalScale(1.f);}
         title_.setText("Convert to MIDI",juce::dontSendNotification);title_.setFont(owner_.theme.font(20.f));
-        help_.setText("Analyzes the source WAV and keeps notes inside this clip. Creates ordinary editable MIDI tracks.\nVelocity is the default 100. Render Time/Pitch or ARA processing to a WAV first.",juce::dontSendNotification);
+        help_.setText("Analyzes only this trimmed clip. Creates ordinary editable MIDI tracks; default velocity 100.\nStem instrument constrains decoding, not accuracy. Render Time/Pitch or ARA to a WAV first.",juce::dontSendNotification);
+        cpu_label_.setText("CPU threads",juce::dontSendNotification);stem_label_.setText("Stem instrument",juce::dontSendNotification);
+        cpu_.addItem("Auto ("+juce::String(choose_cpu_threads())+")",1);for(const auto n:{1,2,4,8,16,32})cpu_.addItem(juce::String(n),n+1);cpu_.setSelectedId(1,juce::dontSendNotification);cpu_.setTitle("CPU threads for background inference");
+        cpu_.setTooltip("Auto reserves one logical CPU, up to 16 threads. Manual choices are capped to available CPUs (maximum 32).");
+        stem_.addItem("Auto / full mix",1);int role_id=2;for(const auto& role:mrs::ace_midi_instruments())stem_.addItem(text(std::string(role.role)).replaceCharacter('_',' '),role_id++);stem_.setSelectedId(1,juce::dontSendNotification);stem_.setTitle("Instrument of the input stem");stem_.setTooltip("For an isolated stem, constrain native decoding to this category. No separation, pitch shift or monophonic forcing; accuracy still needs checking.");
+        addAndMakeVisible(cpu_);addAndMakeVisible(stem_);
         token_label_.setText("HF read token",juce::dontSendNotification);parts_label_.setText("Recognized parts - Ctrl/Shift to select multiple",juce::dontSendNotification);
         footer_.setText("Place parts to keep them. Closing cancels work and discards an unplaced preview. Source audio is preserved.",juce::dontSendNotification);
         terms_.setButtonText("I have authorized access and accept the official MuScriptor model terms.");terms_.setTitle("Accept model terms");terms_.onClick=[this]{update();};addAndMakeVisible(terms_);
@@ -102,12 +110,14 @@ public:
         download_.onClick=[this]{invoke([&]{need(terms_.getToggleState(),"Accept the official model terms first");auto token=token_.getText().trim().toStdString();token_.clear();setup_->download(std::move(token),fixture_fetch_);});};
         local_.onClick=[this]{invoke([&]{need(terms_.getToggleState(),"Accept the official model terms first");chooser_=std::make_unique<juce::FileChooser>("Choose an authorized official Medium folder");juce::Component::SafePointer<TranscriptionPanel> safe(this);chooser_->launchAsync(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectDirectories,[safe](const juce::FileChooser& chooser){if(safe&&chooser.getResult().isDirectory())safe->invoke([&]{need(safe->terms_.getToggleState(),"Accept the official model terms first");safe->setup_->local(path(chooser.getResult()));});});});};
         verify_.onClick=[this]{invoke([&]{setup_->check();});};remove_.onClick=[this]{invoke([&]{setup_->remove();});};
-        start_.onClick=[this]{invoke([&]{need(source_.has_value(),"Select an audio clip");owner_.app.queue_transcription(*source_,setup_->models(),setup_->engine());message_.setText({},juce::dontSendNotification);});};
+        start_.onClick=[this]{invoke([&]{need(source_.has_value(),"Select an audio clip");auto request=setup_->engine();request.cpu_threads=static_cast<unsigned>((std::max)(1,cpu_.getSelectedId())-1);
+            if(stem_.getSelectedId()>1)request.stem_instrument=std::string(mrs::ace_midi_instruments()[static_cast<std::size_t>(stem_.getSelectedId()-2)].role);
+            owner_.app.queue_transcription(*source_,setup_->models(),std::move(request));message_.setText({},juce::dontSendNotification);});};
         cancel_.onClick=[this]{setup_->cancel();owner_.app.cancel_transcription();update();};
         discard_.onClick=[this]{owner_.app.cancel_transcription();update();};
         place_.onClick=[this]{invoke([&]{std::vector<std::string> roles;const auto rows=parts_.getSelectedRows();for(int i=0;i<rows.size();++i)roles.push_back(roles_.at(static_cast<std::size_t>(rows[i])));owner_.app.place_transcription(roles);owner_.refresh();});};
         parts_.setModel(this);parts_.setMultipleSelectionEnabled(true);parts_.setRowHeight(26);parts_.setTitle("Recognized instrument parts");addAndMakeVisible(parts_);
-        addAndMakeVisible(progress_);progress_.setTitle("Model download or transcription progress");setSize(760,680);startTimerHz(8);tick();
+        addAndMakeVisible(progress_);progress_.setTitle("Model download or transcription progress");setSize(760,720);startTimerHz(8);tick();
     }
     ~TranscriptionPanel()override{stopTimer();setup_->cancel();owner_.app.cancel_transcription();parts_.setModel(nullptr);setLookAndFeel(nullptr);}
     void setSource(std::optional<mrs::Id> source){const auto s=owner_.app.transcription_status().state;if(source_!=source&&(busy(s)||preview(s))){message_.setText("Place or discard the current conversion before choosing another clip.",juce::dontSendNotification);return;}source_=std::move(source);update();}
@@ -116,7 +126,8 @@ public:
         const auto w=getWidth();title_.setBounds(20,12,w-40,28);source_info_.setBounds(20,48,w-40,38);model_info_.setBounds(20,94,w-40,38);help_.setBounds(20,140,w-40,42);
         terms_.setBounds(20,190,w-190,28);terms_link_.setBounds(w-166,190,146,28);token_label_.setBounds(20,230,104,28);token_.setBounds(132,228,w-152,28);
         download_.setBounds(20,266,160,30);local_.setBounds(188,266,160,30);verify_.setBounds(356,266,90,30);remove_.setBounds(454,266,134,30);
-        progress_.setBounds(20,308,w-40,22);status_.setBounds(20,340,w-40,38);parts_label_.setBounds(20,386,w-40,24);parts_.setBounds(20,414,w-40,(std::max)(70,getHeight()-566));
+        cpu_label_.setBounds(20,310,100,28);cpu_.setBounds(124,308,142,28);stem_label_.setBounds(282,310,116,28);stem_.setBounds(402,308,w-422,28);
+        progress_.setBounds(20,350,w-40,22);status_.setBounds(20,382,w-40,32);parts_label_.setBounds(20,422,w-40,24);parts_.setBounds(20,450,w-40,(std::max)(70,getHeight()-602));
         const auto y=getHeight()-142;start_.setBounds(20,y,158,32);cancel_.setBounds(186,y,90,32);discard_.setBounds(284,y,142,32);place_.setBounds(w-218,y,198,32);
         message_.setBounds(20,getHeight()-100,w-40,42);footer_.setBounds(20,getHeight()-50,w-40,40);
     }
@@ -135,8 +146,8 @@ private:
     std::optional<mrs::Clip> source()const{if(source_)for(const auto& c:owner_.project()->clips)if(c.id==*source_&&!c.midi)return c;return {};}
     void update(){
         const auto model=setup_->status();const auto job=owner_.app.transcription_status();const auto clip=source();const auto* result=owner_.app.transcription_preview();
-        source_info_.setText(clip?"Source: "+text(clip->name)+"   |   "+juce::String(static_cast<double>(clip->length)/owner_.project()->sample_rate,2)+" s clip":"Select an audio clip in Arrange.",juce::dontSendNotification);
-        model_info_.setText("MuScriptor Medium - CPU - 1.23 GB - CC BY-NC 4.0 (non-commercial)\n"+juce::String(model.model?"Model verified/offline":"Model not installed or not verified")+"   |   "+(model.engine?"Native engine verified":"Native engine unavailable; reinstall this build"),juce::dontSendNotification);
+        source_info_.setText(clip?"Clip to analyze: "+text(clip->name)+"   |   "+juce::String(static_cast<double>(clip->length)/owner_.project()->sample_rate,2)+" s (trimmed clip only)":"Select an audio clip in Arrange.",juce::dontSendNotification);
+        model_info_.setText("MuScriptor Medium - CPU - 1.23 GB - CC BY-NC 4.0 (non-commercial)\n"+juce::String(model.model?"Model verified/offline":"Model not installed or not verified")+"   |   "+(model.engine?(setup_->engine().executable.filename()=="ace-midi-avx2.exe"?"Native CPU AVX2 verified":"Native CPU compatibility verified"):"Native engine unavailable; reinstall this build"),juce::dontSendNotification);
         const auto signature=result?result->midi_sha256+result->clip_id.value:std::string{};
         if(signature!=signature_){signature_=signature;roles_.clear();counts_.clear();if(result)for(const auto& role:mrs::ace_midi_instruments()){const auto count=static_cast<std::size_t>(std::count_if(result->notes.begin(),result->notes.end(),[&](const auto& n){return n.instrument==role.role;}));if(count){roles_.push_back(std::string(role.role));counts_.push_back(count);}}parts_.updateContent();parts_.deselectAllRows();if(!roles_.empty())parts_.selectRangeOfRows(0,getNumRows()-1);}
         juce::String status;
@@ -151,10 +162,12 @@ private:
         case JobState::cancelled:status="Conversion cancelled.";break;
         default:status="Ready when a verified model, engine and audio clip are available.";break;
         }
+        if(busy(job.state)||preview(job.state)||job.state==JobState::placed)status+=" | "+juce::String(static_cast<int>(job.elapsed_seconds))+" s elapsed / "+juce::String(job.cpu_threads)+" threads";
         status_.setText(model.busy?model.message:status,juce::dontSendNotification);
         progress_value_=model.busy?model.progress:job.state==JobState::running?(job.total?static_cast<double>(job.completed)/job.total:-1.):(preview(job.state)||job.state==JobState::placed?1.:0.);
         const bool occupied=busy(job.state),pending=preview(job.state),recording=owner_.app.recording();
         const bool processed=clip&&(clip->stretch||std::any_of(owner_.project()->ara_bindings.begin(),owner_.project()->ara_bindings.end(),[&](const auto& b){return b.source==clip->source;}));
+        cpu_.setEnabled(!model.busy&&!occupied&&!pending);stem_.setEnabled(!model.busy&&!occupied&&!pending);
         terms_.setEnabled(!model.busy&&!occupied);token_.setEnabled(!model.busy&&!occupied);
         download_.setEnabled(!model.busy&&!occupied&&!model.present&&terms_.getToggleState()&&!token_.getText().trim().isEmpty());local_.setEnabled(!model.busy&&!occupied&&!model.present&&terms_.getToggleState());
         verify_.setEnabled(!model.busy&&!occupied);remove_.setEnabled(!model.busy&&!occupied&&model.present);
@@ -163,14 +176,15 @@ private:
         if(!model.busy&&model.message!=last_model_message_){last_model_message_=model.message;message_.setText(model.message,juce::dontSendNotification);}
     }
     Desktop& owner_;std::optional<mrs::Id> source_;std::shared_ptr<TranscriptionSetup> setup_;ModelFetch fixture_fetch_;
-    juce::Label title_,source_info_,model_info_,help_,token_label_,parts_label_,status_,message_,footer_;
+    juce::Label title_,source_info_,model_info_,help_,token_label_,parts_label_,status_,message_,footer_,cpu_label_,stem_label_;
+    juce::ComboBox cpu_,stem_;
     juce::ToggleButton terms_;juce::TextEditor token_;juce::TextButton terms_link_,download_,local_,verify_,remove_,start_,cancel_,discard_,place_;
     juce::ListBox parts_;std::vector<std::string> roles_;std::vector<std::size_t> counts_;std::string signature_;juce::String last_model_message_;
     double progress_value_{};juce::ProgressBar progress_;std::unique_ptr<juce::FileChooser> chooser_;
 };
 class TranscriptionWindow final:public juce::DocumentWindow {
 public:
-    TranscriptionWindow(Desktop& owner,std::optional<mrs::Id> source):DocumentWindow("Convert to MIDI",juce::Colour(panel),closeButton),owner_(owner){setUsingNativeTitleBar(true);setLookAndFeel(&owner.theme);setContentOwned(new TranscriptionPanel(owner,std::move(source),owner.transcriptionSetup),true);setResizable(true,false);setResizeLimits(740,680,1100,900);centreAroundComponent(&owner,760,680);setVisible(true);applyGraphiteWindowCaption(*this);}
+    TranscriptionWindow(Desktop& owner,std::optional<mrs::Id> source):DocumentWindow("Convert to MIDI",juce::Colour(panel),closeButton),owner_(owner){setUsingNativeTitleBar(true);setLookAndFeel(&owner.theme);setContentOwned(new TranscriptionPanel(owner,std::move(source),owner.transcriptionSetup),true);setResizable(true,false);setResizeLimits(740,720,1100,940);centreAroundComponent(&owner,760,720);setVisible(true);applyGraphiteWindowCaption(*this);}
     ~TranscriptionWindow()override{setLookAndFeel(nullptr);}
     void closeButtonPressed()override{owner_.transcriptionWindow.reset();}
 private:Desktop& owner_;
@@ -203,13 +217,14 @@ void transcriptionSmoke(const juce::File& fake){
     view->fixture_fetch_=[authorized](const std::string& url,const fs::path& destination,std::uint64_t bytes,std::stop_token stop,const ModelDownloadProgress& progress){need(model_download_target(url).authorize,"Fixture official origin");need(!stop.stop_requested(),"Fixture download cancelled");const auto source_file=path(authorized.getChildFile(text(destination.filename().string())));fs::copy_file(source_file,destination);if(progress)progress(bytes,bytes);};
     view->terms_.setToggleState(true,juce::dontSendNotification);view->token_.setText("fake_test_token",false);view->update();need(view->download_.isEnabled(),"Explicit model download action disabled");view->download_.onClick();need(view->token_.getText().isEmpty(),"Token editor not cleared");
     wait([&]{return owner.transcriptionSetup->status().busy;});view->tick();need(view->start_.isEnabled(),"Verified engine/model should enable conversion");
-    view->start_.onClick();wait([&]{return busy(owner.app.transcription_status().state);});view->tick();need(owner.app.transcription_status().state==JobState::ready&&view->roles_.size()==1&&view->place_.isEnabled(),"Recognition/parts selection missing");
+    view->cpu_.setSelectedId(2,juce::dontSendNotification);int bass=2;for(const auto& role:mrs::ace_midi_instruments()){if(role.role=="electric_bass")break;++bass;}view->stem_.setSelectedId(bass,juce::dontSendNotification);
+    view->start_.onClick();wait([&]{return busy(owner.app.transcription_status().state);});view->tick();need(owner.app.transcription_preview()&&!owner.app.transcription_preview()->notes.empty()&&owner.app.transcription_preview()->notes.front().instrument=="electric_bass"&&owner.app.transcription_status().cpu_threads==1,"CPU/stem selection not passed to native");need(owner.app.transcription_status().state==JobState::ready&&view->roles_.size()==1&&view->place_.isEnabled(),"Recognition/parts selection missing");
     view->parts_.deselectAllRows();view->update();need(!view->place_.isEnabled(),"Empty selection must not place");view->parts_.selectRow(0);view->update();
     for(const auto scale:{1.,1.25,1.5,2.}){
         auto image=view->createComponentSnapshot(view->getLocalBounds(),true,static_cast<float>(scale));need(image.isValid(),"Transcription software preview");
         juce::PNGImageFormat format;const auto file=juce::File::getCurrentWorkingDirectory().getChildFile("transcription-"+juce::String(static_cast<int>(scale*100))+".png");auto out=file.createOutputStream();need(out&&format.writeImageToStream(image,*out),"Write transcription preview");
     }
-    for(const auto size:{std::pair{740,680},std::pair{760,720},std::pair{1000,820}}){view->setSize(size.first,size.second);for(int i=0;i<view->getNumChildComponents();++i){auto* c=view->getChildComponent(i);need(view->getLocalBounds().contains(c->getBounds()),"Transcription control outside panel");}}
+    for(const auto size:{std::pair{740,720},std::pair{760,760},std::pair{1000,860}}){view->setSize(size.first,size.second);for(int i=0;i<view->getNumChildComponents();++i){auto* c=view->getChildComponent(i);need(view->getLocalBounds().contains(c->getBounds()),"Transcription control outside panel");}}
     view->place_.onClick();need(owner.app.transcription_status().state==JobState::placed&&owner.project()->clips.size()==before.clips.size()+1,"MIDI placement handler failed");const auto after=*owner.project();need(owner.app.undo()&&*owner.project()==before&&owner.app.redo()&&*owner.project()==after,"GUI MIDI Undo/Redo");
     view->start_.onClick();wait([&]{return busy(owner.app.transcription_status().state);});owner.app.add_audio_track("Changed");view->tick();need(owner.app.transcription_status().state==JobState::stale&&!view->place_.isEnabled(),"Stale result should not place");
     wav(source,1);owner.app.new_project(16000);owner.app.import_wavs({path(source)});const auto new_clip=owner.project()->clips.front().id;view->setSource(new_clip);view->tick();view->start_.onClick();view->cancel_.onClick();wait([&]{return busy(owner.app.transcription_status().state);});need(owner.project()->clips.size()==1,"Cancel mutated project");

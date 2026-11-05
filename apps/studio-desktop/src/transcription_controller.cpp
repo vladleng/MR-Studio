@@ -12,6 +12,8 @@ struct Controller::Job {
     std::atomic<std::uint64_t> progress{};
     std::future<Result> result;
     bool obsolete{};
+    std::chrono::steady_clock::time_point began{std::chrono::steady_clock::now()};
+    unsigned cpu_threads{};
 };
 Controller::Controller()=default;
 Controller::~Controller(){shutdown();}
@@ -29,8 +31,8 @@ void Controller::start(const std::shared_ptr<IProjectStore>& store,std::filesyst
     const auto at=std::find_if(capture.project->clips.begin(),capture.project->clips.end(),[&](const auto& c){return c.id==clip;});
     need(at!=capture.project->clips.end()&&!at->midi,"Choose an audio clip");
     need(!at->stretch&&std::none_of(capture.project->ara_bindings.begin(),capture.project->ara_bindings.end(),[&](const auto& b){return b.source==at->source;}),"Render stretched/ARA audio before transcription");
-    const auto source_stamp=stamp(source);request.source=source;request.project_id=capture.project->id;request.clip_id=clip;request.project_revision=capture.revision;
-    auto job=std::make_unique<Job>();
+    const auto source_stamp=stamp(source);request.range=SourceRange{at->source_offset,at->length,capture.project->sample_rate};request.source=source;request.project_id=capture.project->id;request.clip_id=clip;request.project_revision=capture.revision;
+    auto job=std::make_unique<Job>();job->cpu_threads=choose_cpu_threads(request.cpu_threads);request.cpu_threads=job->cpu_threads;
     job->result=std::async(std::launch::async,[models=std::move(models),request=std::move(request),media=std::move(media),
         stop=job->stop.get_token(),progress=&job->progress]()mutable{
         (void)media; // lifetime held through native process termination/cleanup
@@ -64,7 +66,7 @@ void Controller::poll(const std::shared_ptr<IProjectStore>& store,const std::fil
         const double last=static_cast<double>(at->source_offset+at->length)/captured_.project->sample_rate;
         for(auto& note:result.notes){note.start=std::max(note.start,first);note.end=std::min(note.end,last);}
         std::erase_if(result.notes,[](const auto& n){return n.end<=n.start;});result.state=result.notes.empty()?State::empty:State::ready;
-        status_.state=result.state==State::ready?JobState::ready:JobState::empty;status_.error.clear();result_=std::move(result);
+        status_.state=result.state==State::ready?JobState::ready:JobState::empty;status_.error.clear();status_.elapsed_seconds=result.elapsed_seconds;status_.cpu_threads=result.cpu_threads;result_=std::move(result);
     }else{status_.state=result.state==State::timeout?JobState::timeout:JobState::failed;status_.error=std::move(result.error);}
 }
 void Controller::cancel(){
@@ -75,7 +77,7 @@ void Controller::shutdown(){
     if(job_){job_->stop.request_stop();if(job_->result.valid())job_->result.wait();job_.reset();}result_.reset();status_={JobState::cancelled,0,0,{}};
 }
 JobStatus Controller::status()const{
-    auto value=status_;if(job_){const auto n=job_->progress.load(std::memory_order_relaxed);value.completed=static_cast<int>(n&0xffffffffU);value.total=static_cast<int>(n>>32);}return value;
+    auto value=status_;if(job_){value.elapsed_seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-job_->began).count();value.cpu_threads=job_->cpu_threads;const auto n=job_->progress.load(std::memory_order_relaxed);value.completed=static_cast<int>(n&0xffffffffU);value.total=static_cast<int>(n>>32);}return value;
 }
 const Result* Controller::preview()const{return result_?&*result_:nullptr;}
 PlaceTranscription Controller::prepare(const std::shared_ptr<IProjectStore>& store,const std::filesystem::path& path,

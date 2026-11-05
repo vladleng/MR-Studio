@@ -1,5 +1,6 @@
 #include <mrs/sha256.hpp>
 #include <array>
+#include <algorithm>
 #include <bit>
 #include <cstdint>
 #include <fstream>
@@ -47,6 +48,15 @@ public:
 };
 }
 std::string sha256(std::string_view input){Sha256 hash;hash.update(input.data(),input.size());return hash.finish();}
+std::string sha256_file_range(const std::filesystem::path& path,std::uint64_t offset,std::uint64_t bytes,std::stop_token stop){
+    std::ifstream input(path,std::ios::binary);if(!input)throw std::runtime_error("Cannot read asset range");
+    const auto size=std::filesystem::file_size(path);if(offset>size||bytes>size-offset)throw std::invalid_argument("Invalid hash range");
+    input.seekg(static_cast<std::streamoff>(offset));Sha256 hash;std::array<char,65536> block{};
+    while(bytes){if(stop.stop_requested())throw std::runtime_error("Range hash cancelled");const auto n=static_cast<std::streamsize>(std::min<std::uint64_t>(bytes,block.size()));
+        if(!input.read(block.data(),n)){throw std::runtime_error("Cannot hash asset range");}
+        hash.update(block.data(),static_cast<std::size_t>(n));bytes-=static_cast<std::uint64_t>(n);}
+    return hash.finish();
+}
 std::string sha256_file(const std::filesystem::path& path,std::stop_token stop){
     std::ifstream input(path,std::ios::binary);if(!input)throw std::runtime_error("Cannot read separation asset");
     Sha256 hash;std::array<char,65536> block{};

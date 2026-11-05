@@ -40,6 +40,18 @@ int main(int argc,char** argv){try{
     check(good.midi_sha256.size()==64&&sha256_file(request.source)==source&&fs::is_empty(jobs));
     check(!progress.empty()&&progress.back()==1);
     prepare(0);wav(request.source,0,48000,240001);check(run(request).state==State::ready&&fs::is_empty(jobs));
+    // Only the requested one-second region of a ten-second, 48k source reaches native.
+    prepare(0);wav(request.source,0,48000,480000);{std::fstream f(request.source,std::ios::binary|std::ios::in|std::ios::out);f.seekp(44+96000*2);f.put(16);}
+    const auto original=sha256_file(request.source);request.range=SourceRange{64000,32000,32000};request.cpu_threads=1;request.stem_instrument="electric_bass";
+    const auto clipped=run(request);check(clipped.state==State::ready&&clipped.analysis_seconds==1&&clipped.source_offset_seconds==2&&clipped.cpu_threads==1&&clipped.source_rate==48000&&clipped.source_first_frame==96000&&clipped.source_frame_count==48000&&clipped.input_sha256.size()==64);
+    check(clipped.notes.size()==1&&clipped.notes[0].start==2.25&&clipped.notes[0].instrument=="electric_bass"&&sha256_file(request.source)==original&&fs::is_empty(jobs));
+    check(sha256_file_range(request.source,44+96000*2,96000)==clipped.source_sha256);
+    request.range.reset();request.cpu_threads=2;prepare(19);check(run(request).state==State::failed);request.stem_instrument="invalid";check(run(request).state==State::failed);request.stem_instrument.clear();
+    auto invalid_range=request;invalid_range.range=SourceRange{-1,100,16000};check(run(invalid_range).state==State::failed);invalid_range.range=SourceRange{16000,100,16000};check(run(invalid_range).state==State::failed);
+    write(root/"hash-range","prefixpayloadsuffix");check(sha256_file_range(root/"hash-range",6,7)==sha256("payload")&&sha256_file_range(root/"hash-range",0,0)==sha256(""));
+    constexpr std::uint32_t features=(1U<<20)|(1U<<27)|(1U<<28)|(1U<<29)|(1U<<12),extended=(1U<<5)|(1U<<8);
+    check(avx2_usable(features,extended,6));for(const auto bit:{20U,27U,28U,29U,12U})check(!avx2_usable(features&~(1U<<bit),extended,6));check(!avx2_usable(features,extended&~(1U<<5),6)&&!avx2_usable(features,extended&~(1U<<8),6)&&!avx2_usable(features,extended,2)&&!avx2_usable(features,extended,4));
+    check(choose_cpu_threads(1)==1&&choose_cpu_threads(32)<=32&&choose_cpu_threads(0)>=1&&choose_cpu_threads(0)<=16);
     prepare(15);const auto drums=run(request);check(drums.state==State::ready&&drums.notes.size()==1&&drums.notes[0].instrument=="drums");
     for(const int mode:{5,6}){prepare(mode);const auto result=run(request);check(result.state==State::empty&&result.notes.empty()&&fs::is_empty(jobs));}
     for(const int mode:{2,3,4,7,8,9,10,11,12,13,14}){prepare(mode);const auto result=run(request);if(result.state!=State::failed)throw std::runtime_error("Invalid native fixture accepted, mode "+std::to_string(mode));check(!result.error.empty()&&result.notes.empty()&&result.diagnostics.size()<=65536&&fs::is_empty(jobs));}

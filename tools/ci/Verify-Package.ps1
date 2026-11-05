@@ -28,7 +28,7 @@ foreach($resource in @('mr_separation_worker.py','mr_separation_requirements.txt
  if($manifest.application -eq 'MR Live' -and $names.Contains($resource)){throw "Studio-only separation resource in Live package: $resource"}
 }
 if($manifest.application -eq 'MR Live' -and $manifest.ara){throw 'MR Live-only package must be ARA-free'}
-foreach($native in @('ace-midi.exe','ace-midi-NOTICES.txt')){
+foreach($native in @('ace-midi.exe','ace-midi-avx2.exe','ace-midi-NOTICES.txt')){
  if($manifest.application -ne 'MR Live' -and !$names.Contains($native)){throw "Native MIDI runtime missing: $native"}
  if($manifest.application -eq 'MR Live' -and $names.Contains($native)){throw "Studio-only MIDI runtime in Live: $native"}
 }
