@@ -92,7 +92,7 @@ public:
         for(auto* label:{&title_,&source_info_,&model_info_,&help_,&token_label_,&parts_label_,&status_,&message_,&footer_}){addAndMakeVisible(*label);label->setJustificationType(juce::Justification::topLeft);label->setMinimumHorizontalScale(1.f);}
         title_.setText("Convert to MIDI",juce::dontSendNotification);title_.setFont(owner_.theme.font(20.f));
         help_.setText("Analyzes the source WAV and keeps notes inside this clip. Creates ordinary editable MIDI tracks.\nVelocity is the default 100. Render Time/Pitch or ARA processing to a WAV first.",juce::dontSendNotification);
-        token_label_.setText("HF read token",juce::dontSendNotification);parts_label_.setText("Recognized parts — Ctrl/Shift to select multiple",juce::dontSendNotification);
+        token_label_.setText("HF read token",juce::dontSendNotification);parts_label_.setText("Recognized parts - Ctrl/Shift to select multiple",juce::dontSendNotification);
         footer_.setText("Place parts to keep them. Closing cancels work and discards an unplaced preview. Source audio is preserved.",juce::dontSendNotification);
         terms_.setButtonText("I have authorized access and accept the official MuScriptor model terms.");terms_.setTitle("Accept model terms");terms_.onClick=[this]{update();};addAndMakeVisible(terms_);
         token_.setPasswordCharacter('*');token_.setTitle("Hugging Face read token, never saved");token_.setTextToShowWhenEmpty("Used only for this official download; never saved",owner_.theme.role(ColourRole::muted,secondaryText));token_.onTextChange=[this]{update();};addAndMakeVisible(token_);
@@ -126,7 +126,7 @@ private:
     void paintListBoxItem(int row,juce::Graphics& g,int width,int height,bool selected)override{
         if(row<0||row>=getNumRows())return;
         g.fillAll(owner_.theme.role(selected?ColourRole::focus:ColourRole::panel,selected?accent:surface).withAlpha(selected?.25f:1.f));g.setColour(owner_.theme.role(ColourRole::text,primaryText));g.setFont(owner_.theme.font(14.f));
-        const auto i=static_cast<std::size_t>(row);g.drawText(text(roles_[i]).replaceCharacter('_',' ')+"  —  "+juce::String(static_cast<juce::int64>(counts_[i]))+" notes",8,0,width-16,height,juce::Justification::centredLeft);
+        const auto i=static_cast<std::size_t>(row);g.drawText(text(roles_[i]).replaceCharacter('_',' ')+"  -  "+juce::String(static_cast<juce::int64>(counts_[i]))+" notes",8,0,width-16,height,juce::Justification::centredLeft);
     }
     void selectedRowsChanged(int)override{update();}
     template<class F>void invoke(F f){try{f();message_.setText({},juce::dontSendNotification);}catch(const std::exception& e){message_.setText(failure(e.what()),juce::dontSendNotification);}update();}
@@ -136,7 +136,7 @@ private:
     void update(){
         const auto model=setup_->status();const auto job=owner_.app.transcription_status();const auto clip=source();const auto* result=owner_.app.transcription_preview();
         source_info_.setText(clip?"Source: "+text(clip->name)+"   |   "+juce::String(static_cast<double>(clip->length)/owner_.project()->sample_rate,2)+" s clip":"Select an audio clip in Arrange.",juce::dontSendNotification);
-        model_info_.setText("MuScriptor Medium — CPU — 1.23 GB — CC BY-NC 4.0 (non-commercial)\n"+juce::String(model.model?"Model verified/offline":"Model not installed or not verified")+"   |   "+(model.engine?"Native engine verified":"Native engine unavailable; reinstall this build"),juce::dontSendNotification);
+        model_info_.setText("MuScriptor Medium - CPU - 1.23 GB - CC BY-NC 4.0 (non-commercial)\n"+juce::String(model.model?"Model verified/offline":"Model not installed or not verified")+"   |   "+(model.engine?"Native engine verified":"Native engine unavailable; reinstall this build"),juce::dontSendNotification);
         const auto signature=result?result->midi_sha256+result->clip_id.value:std::string{};
         if(signature!=signature_){signature_=signature;roles_.clear();counts_.clear();if(result)for(const auto& role:mrs::ace_midi_instruments()){const auto count=static_cast<std::size_t>(std::count_if(result->notes.begin(),result->notes.end(),[&](const auto& n){return n.instrument==role.role;}));if(count){roles_.push_back(std::string(role.role));counts_.push_back(count);}}parts_.updateContent();parts_.deselectAllRows();if(!roles_.empty())parts_.selectRangeOfRows(0,getNumRows()-1);}
         juce::String status;
