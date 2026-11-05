@@ -3,8 +3,9 @@
 This is an incomplete implementation checkpoint, not a shipped 0.10.1 feature.
 The only backend in scope is HOT-Step CPP `ace-midi`, source commit
 `ee7286d14232b48ace3b6eed0fcf3048081ef0d1`. The current ACE-Step Studio
-`engines/music-midi-source.json` still references this commit. No upstream
-runtime, model weights or new dependencies are bundled with MR Studio.
+`engines/music-midi-source.json` still references this commit. Studio now bundles
+the native CPU engine built from this pin and its license notices. Model weights
+are installed separately; no Python ML runtime is required for this feature.
 
 ## Verified native contract
 
@@ -18,8 +19,8 @@ ace-midi --model <directory> --transcribe <audio.wav> --out <job-private.mid> --
 The model directory contains `config.json` and `model.safetensors`.
 The frontend averages channels to mono and resamples to 16 kHz; inference uses
 5-second chunks. No trim/range CLI flags exist at this pin. `--device cpu`
-is overridden by inherited `GGML_BACKEND`; a future launcher must explicitly
-set the child environment to `CPU`. Default `auto` is not a verified CPU path.
+is overridden by inherited `GGML_BACKEND`; the worker explicitly sets the
+child environment to `CPU`. Default `auto` is not a verified CPU path.
 Exit 0 indicates completion, 1 a model/audio/output error, 2 invalid invocation.
 Linux CPU invocation/exit/progress have been exercised with official Medium
 weights. Windows native inference and musical quality remain separate gates.
@@ -40,8 +41,8 @@ the isolated process tree and discard partial results.
 ## Implemented domain boundary
 
 `mrs/audio_to_midi.hpp` accepts validated, paired note events. The protocol and
-NON-RT process service below feed that boundary; model installation and the UI
-action are not implemented yet.
+NON-RT process service below feed that boundary. The ModelStore and Studio
+Convert to MIDI action described below use the same controller and Commands.
 
 `PlaceTranscription` is prepared off the audio callback from the immutable
 project snapshot captured when inference starts. Its input times refer to the
