@@ -194,10 +194,10 @@ void managerTests(const juce::File& requirements) {
         auto other=record;other.id="fixture-other";
         ModelManager quick(root,{},requirements,fetch,{record,other});
         check(quick.installModel(other.id),"install second inventory fixture");check(waitManager(quick).error.isEmpty(),"second model installation");
-        struct LockFile {HANDLE handle{INVALID_HANDLE_VALUE};~LockFile(){if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle);}};
+        struct FixtureReadLock {HANDLE handle{INVALID_HANDLE_VALUE};~FixtureReadLock(){if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle);}};
         {
             const auto weights=root.getChildFile("models/fixture-model/weights.bin");
-            LockFile lock{CreateFileW(weights.getFullPathName().toWideCharPointer(),GENERIC_READ,0,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr)};
+            FixtureReadLock lock{CreateFileW(weights.getFullPathName().toWideCharPointer(),GENERIC_READ,0,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr)};
             check(lock.handle!=INVALID_HANDLE_VALUE,"hold weight file against content reads");
             ModelManager opened(root,{},requirements,fetch,{record,other});
             check(opened.refreshIfNeeded(),"quick panel inventory");const auto snapshot=waitManager(opened);
@@ -206,7 +206,7 @@ void managerTests(const juce::File& requirements) {
         }
         {
             const auto weights=root.getChildFile("models/fixture-other/weights.bin");
-            LockFile lock{CreateFileW(weights.getFullPathName().toWideCharPointer(),GENERIC_READ,0,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr)};
+            FixtureReadLock lock{CreateFileW(weights.getFullPathName().toWideCharPointer(),GENERIC_READ,0,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr)};
             check(lock.handle!=INVALID_HANDLE_VALUE,"hold unrelated weights against reads");
             check(quick.verifyModel(record.id),"explicit selected model verification");const auto snapshot=waitManager(quick);
             check(snapshot.models[0].state==InstallationState::installed&&snapshot.models[1].state==InstallationState::installed,"Verify must not hash unrelated weights");
