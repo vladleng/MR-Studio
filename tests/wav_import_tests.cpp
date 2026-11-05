@@ -7,6 +7,7 @@
 #include <iostream>
 #include <numbers>
 #include <stop_token>
+#include <string_view>
 #include <thread>
 
 namespace {
@@ -38,7 +39,13 @@ void wav(const fs::path& path,std::uint32_t rate,std::uint32_t frames,double hz=
 std::string bytes(const fs::path& path){std::ifstream in(path,std::ios::binary);return {std::istreambuf_iterator<char>(in),{}};}
 void finish(desktop::Application& app){
     const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(15);
-    while(app.wav_import_status().busy&&std::chrono::steady_clock::now()<until){app.poll();std::this_thread::sleep_for(std::chrono::milliseconds(1));}
+    while(app.wav_import_status().busy&&std::chrono::steady_clock::now()<until){
+        // The control-thread coherent state mailbox may be briefly busy.
+        // Match other async application tests: retry only this documented state.
+        try{app.poll();}
+        catch(const std::runtime_error& e){if(std::string_view(e.what())!="audio state busy; poll again")throw;}
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     CHECK(!app.wav_import_status().busy);
 }
 void no_staging(const fs::path& root){for(const auto& f:fs::directory_iterator(root))CHECK(!f.path().filename().string().starts_with(".mrs-import-"));}
