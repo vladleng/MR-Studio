@@ -151,7 +151,7 @@ def validate_request(req):
     rate = counter(req.get("project_rate"), 8000, 96000)
     if rate not in (8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000):
         raise Failure("unsupported_input")
-    threads = counter(req.get("threads"), 1, 4)
+    threads = counter(req.get("threads"), 1, 32)
     source = Path(req["source_path"]).resolve(strict=True)
     if not source.is_file() or source.stat().st_size > 512 * 1024**2:
         raise Failure("resource_limit")
@@ -216,6 +216,30 @@ def inference_passes(profile):
     return 2 if profile["architecture"] == "MDX" else 1
 
 
+@contextlib.contextmanager
+def onnx_thread_limit(ort, threads):
+    # Pinned audio-separator MDX constructs SessionOptions during load_model.
+    # Bound its independent pool as well as Torch; restore the factory on exit.
+    original = ort.SessionOptions
+    def options(*args, **kwargs):
+        value = original(*args, **kwargs)
+        value.intra_op_num_threads = threads
+        value.inter_op_num_threads = 1
+        return value
+    ort.SessionOptions = options
+    try:
+        yield
+    finally:
+        ort.SessionOptions = original
+
+
+def cpu_runtime_info(torch):
+    return {"torch_cpu_capability": str(torch.backends.cpu.get_cpu_capability()),
+            "torch_intraop_threads": torch.get_num_threads(),
+            "torch_interop_threads": torch.get_num_interop_threads(),
+            "torch_version": str(torch.__version__)}
+
+
 def infer_profile(snapshot, output_dir, model_dir, requested_device, threads, emit, check, profile, chunk, selection=None):
     """Fixed, hash-verified closure; no backend catalogue or metadata downloads."""
     for artifact in profile["files"]:
@@ -248,7 +272,9 @@ def infer_profile(snapshot, output_dir, model_dir, requested_device, threads, em
             raise Failure("unsupported_device")
     selection = selection or profile.get("default_stems", profile["stems"])
     check()
-    emit("loading", device=effective)
+    info = cpu_runtime_info(torch)
+    print(json.dumps(info, sort_keys=True), file=sys.stderr)
+    emit("loading", device=effective, **info)
     if profile["architecture"] == "SCNet":
         adapter = Path(__file__).with_name("mr_separation_scnet.py")
         canonical = adapter.read_bytes().replace(b"\r\n", b"\n")
@@ -305,7 +331,8 @@ def infer_profile(snapshot, output_dir, model_dir, requested_device, threads, em
         mdxc_params={"segment_size": 128 if chunk == "small" else 256, "override_model_segment_size": True, "batch_size": 1, "overlap": 2, "pitch_shift": 0},
         mdx_params={"hop_length": 1024, "segment_size": 256, "overlap": 0.25, "batch_size": 1, "enable_denoise": False},
     )
-    separator.load_model(profile["model_file"])
+    with onnx_thread_limit(ort, threads):
+        separator.load_model(profile["model_file"])
     check()
     emit("inference", device=effective)
     import types
@@ -444,10 +471,14 @@ def execute(req, work, emit, check, engine=None):
                 "available_stems": profile["stems"], "selected_stems": selection,
                 "weights": {f["name"]: f["sha256"] for f in profile["files"]}, "backend": "python-audio-separator", "backend_version": BACKEND_VERSION,
                 "requested_device": req["device"], "effective_device": effective, "precision": "fp32",
+                "configured_threads": threads,
                 "gain_policy": "unnormalized_float", "derivation": "instrumental=bass+drums+other" if profile["id"] == DEFAULT_MODEL else "model-native/complement",
                 "chunk": req.get("chunk", "default"), "source_channels": info.channels, "mono_policy": "duplicate_to_stereo", "model_rate": 44100,
                 "shifts": 0, "seed": 0, "overlap": 0.25 if profile["architecture"] in ("Demucs", "MDX") else 2,
                 "additive_outputs": profile.get("additive", True), "outputs": outputs}
+    if engine is None:
+        import torch
+        manifest.update(cpu_runtime_info(torch))
     (pending / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=True, allow_nan=False), encoding="utf-8")
     check()
     pending.rename(work / "result")

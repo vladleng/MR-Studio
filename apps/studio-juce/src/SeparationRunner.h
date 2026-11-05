@@ -14,6 +14,8 @@ struct ProcessResult { bool success{}; juce::int64 exitCode{-1}; juce::String er
 ProcessResult runLocalProcess(const juce::File& executable, const juce::StringArray& arguments,
                              const juce::File& workingDirectory, const std::atomic<bool>& cancel,
                              std::chrono::milliseconds timeout, unsigned processLimit = 1);
+// NON-RT: Auto keeps the accepted 1..4 policy; manual selection shares MIDI affinity/cap limits.
+unsigned chooseCpuThreads(unsigned requested = 0);
 enum class State { idle, running, ready, failed, cancelled };
 enum class Device { cpu, cuda, automatic };
 struct Request {
@@ -21,6 +23,7 @@ struct Request {
     juce::String sessionId, sourceRevision;
     juce::int64 sourceStart{}, sourceFrames{}, timelineStart{};
     int projectRate{48000};
+    unsigned cpuThreads{}; // 0 = Auto; manual 1..32, bounded to process affinity
     Device device{Device::cpu};
     juce::StringArray selectedStems;
     juce::String modelId{"official-htdemucs-derived-2-v1"}, chunk{"default"};
@@ -34,6 +37,9 @@ struct Status {
     State state{State::idle};
     juce::String jobId, phase, error, effectiveDevice;
     juce::int64 completed{}, total{}, currentPass{}, passes{};
+    unsigned cpuThreads{};
+    double elapsedSeconds{};
+    juce::String cpuCapability{};
 };
 struct Result {
     juce::String jobId, sessionId, sourceRevision;
@@ -56,6 +62,7 @@ private:
     Configuration config_;
     mutable std::mutex mutex_;
     Status status_;
+    std::chrono::steady_clock::time_point began_{};
     juce::String diagnostics_;
     std::optional<Result> result_;
     std::atomic<bool> cancelled_{};

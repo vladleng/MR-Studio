@@ -11,6 +11,7 @@ struct ProjectInput {
     mrs::Clip clip;
     std::filesystem::path source,projectFile;
     std::uint32_t rate{};
+    unsigned cpuThreads{};
     juce::String session,revision,model;
     juce::String chunk{"default"};
     juce::StringArray selectedStems;
@@ -49,13 +50,14 @@ public:
     Status status() const;
     std::optional<ProjectOutcome> take();
 private:
-    bool begin(std::function<ProjectOutcome(std::stop_token)>);
+    bool begin(std::function<ProjectOutcome(std::stop_token)>, unsigned cpuThreads = 0);
     Result process(const ProjectInput&,std::stop_token);
     void phase(juce::String);
     std::shared_ptr<ModelManager> manager_;
     Processor processor_;
     mutable std::mutex mutex_;
     Status status_;
+    std::chrono::steady_clock::time_point began_{};
     std::optional<ProjectOutcome> outcome_;
     std::stop_source stop_;
     std::thread thread_;

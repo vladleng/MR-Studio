@@ -510,3 +510,32 @@ integration и отдельные Live проверки остаются явн�
 - **S7** [official Demucs MIT license](https://github.com/facebookresearch/demucs/blob/e976d93ecc3865e5757426930257e200846a520a/LICENSE). Repo license + linked weights: источник происхождения и кандидатных условий; не отдельное checkpoint-specific разрешение.
 - **S8** [MSST README](https://github.com/ZFTurbo/Music-Source-Separation-Training/blob/9cc76c03ccd4da5ddf3477e93d386a1648a77732/README.md), [MIT license](https://github.com/ZFTurbo/Music-Source-Separation-Training/blob/9cc76c03ccd4da5ddf3477e93d386a1648a77732/LICENSE), [requirements](https://github.com/ZFTurbo/Music-Source-Separation-Training/blob/9cc76c03ccd4da5ddf3477e93d386a1648a77732/requirements.txt).
 - **S9** [MSST pretrained model references](https://github.com/ZFTurbo/Music-Source-Separation-Training/blob/9cc76c03ccd4da5ddf3477e93d386a1648a77732/docs/pretrained_models.md), [Viperx BS-RoFormer config](https://github.com/ZFTurbo/Music-Source-Separation-Training/blob/9cc76c03ccd4da5ddf3477e93d386a1648a77732/configs/viperx/model_bs_roformer_ep_317_sdr_12.9755.yaml).
+
+## CPU selection and timing — 0.10.1-Upd4 (based on 0.10.1-fix1)
+
+Separate into Stems has an explicit **CPU threads** selector: Auto / 1 / 2 / 4 /
+8 / 16 / 32. Auto preserves the earlier maximum of four; manual choices use the
+same process-affinity and maximum-32 limits as Audio to MIDI. These are software
+threads, not a promise of physical cores or a measured CPU quota. The selection
+is captured for each job and disabled while work is pending.
+
+The source summary shows the selected clip duration in seconds, length and
+source offset. The operation timer updates during processing and freezes on
+completion/failure/cancel; it includes startup, checks, model work and keeping
+assets. It also times a later explicitly requested Verify/Place operation. The
+manifest separately records `host_wall_seconds` (worker/startup/verification),
+`configured_threads`, and the real Torch pool sizes, version and reported CPU
+capability. Repeated jobs start fresh workers; these are not warm-session timings.
+
+Separation keeps the official Torch 2.8.0 CPU runtime, which dispatches CPU
+instructions automatically. The dialog displays the runtime's reported ISA
+(e.g. AVX2) during/after inference; that is not a profiler result for every
+operator. Audio to MIDI retains its existing generic and AVX2 native engines and
+CPU/OS-aware automatic selection. No new model or native separation backend is
+introduced by this update. The unfinished instrument-conditioned MIDI repro
+tracked in #346 is not fixed by this change.
+
+MDX also receives the selected intra-op count and inter-op count 1 in its ONNX
+SessionOptions during model loading; Torch settings alone do not limit that pool.
+The developer CPU probe verifies official Torch CPU/AVX2 dispatch and the existing
+ONNX Runtime pool configuration without weights or performance measurements.

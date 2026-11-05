@@ -88,6 +88,17 @@ void selfTest(const juce::File& python, const juce::File& worker) {
     Request req;
     req.source = source; req.modelDirectory = root; req.sourceFrames = 150;
     req.sourceStart = 25; req.timelineStart = 12345; req.sessionId = "session";
+    check(chooseCpuThreads()>=1&&chooseCpuThreads()<=4,"Auto preserves the accepted four-thread maximum");
+    for(const auto choice:{1U,8U,16U,32U}){
+        Runner selected({python,worker,root});req.sourceRevision="ok";req.cpuThreads=choice;
+        check(selected.start(req),"CPU selection submit");const auto configured=wait(selected);auto result=selected.take();
+        check(configured.state==State::ready&&result&&configured.cpuThreads==chooseCpuThreads(choice),"Manual threads capped to affinity");
+        check(static_cast<int>(result->manifest["configured_threads"])==static_cast<int>(configured.cpuThreads),"Worker received the selected CPU count");
+        check(configured.elapsedSeconds>0&&static_cast<double>(result->manifest["host_wall_seconds"])>0,"Completed processing times");
+        result->directory.getParentDirectory().deleteRecursively();
+    }
+    {Runner invalid({python,worker,root});req.cpuThreads=33;check(invalid.start(req),"Invalid thread fixture submit");const auto state=wait(invalid);check(state.state==State::failed&&state.error=="invalid_input","Unbounded CPU selection rejected");}
+    req.cpuThreads=1;
     for (const auto* mode : {"ok", "progress", "bad_progress", "stderr_flood", "crash", "flood", "wrong_job", "missing_model", "bad_hash", "nan", "traversal", "duplicate", "stale", "hang", "cancel"}) {
         {
             Runner runner({python, worker, root});
@@ -102,7 +113,7 @@ void selfTest(const juce::File& python, const juce::File& worker) {
             auto result = runner.take();
             if (std::string(mode) == "ok" || std::string(mode) == "progress" || std::string(mode) == "stderr_flood") {
                 check(status.state == State::ready && result.has_value(), "valid IPC/geometry/float result");
-                if(std::string(mode)=="progress")check(status.completed==1&&status.total==2&&status.currentPass==1&&status.passes==1,"structured chunk progress survives IPC");
+                if(std::string(mode)=="progress")check(status.cpuCapability=="AVX2 (fixture)"&&status.completed==1&&status.total==2&&status.currentPass==1&&status.passes==1,"structured chunk progress survives IPC");
                 check(result->manifest["timeline_start"].toString() == "12345", "original placement");
                 if (std::string(mode) == "stderr_flood")
                     check(runner.diagnostics().getNumBytesAsUTF8() <= 256 * 1024 && runner.diagnostics().isNotEmpty(), "bounded stderr tail");
