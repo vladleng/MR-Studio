@@ -8,6 +8,10 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 
 namespace {
 using namespace mr::separation;
@@ -186,6 +190,34 @@ void managerTests(const juce::File& requirements) {
     corrupt=false;cancel=true;check(manager.installModel(record.id),"cancel install");check(waitManager(manager).error=="cancelled","cancel state");
     check(root.getChildFile("models").findChildFiles(juce::File::findDirectories,false,".part-*").isEmpty(),"cancel staging cleanup");
     cancel=false;check(manager.installModel(record.id),"retry install");check(waitManager(manager).models.front().state==InstallationState::installed,"installed state");
+    {
+        auto other=record;other.id="fixture-other";
+        ModelManager quick(root,{},requirements,fetch,{record,other});
+        check(quick.installModel(other.id),"install second inventory fixture");check(waitManager(quick).error.isEmpty(),"second model installation");
+        struct LockFile {HANDLE handle{INVALID_HANDLE_VALUE};~LockFile(){if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle);}};
+        {
+            const auto weights=root.getChildFile("models/fixture-model/weights.bin");
+            LockFile lock{CreateFileW(weights.getFullPathName().toWideCharPointer(),GENERIC_READ,0,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr)};
+            check(lock.handle!=INVALID_HANDLE_VALUE,"hold weight file against content reads");
+            ModelManager opened(root,{},requirements,fetch,{record,other});
+            check(opened.refreshIfNeeded(),"quick panel inventory");const auto snapshot=waitManager(opened);
+            check(snapshot.models[0].state==InstallationState::installed&&snapshot.models[1].state==InstallationState::installed,"Listing must not read model contents");
+            check(!opened.refreshIfNeeded(),"Reuse quick inventory on panel reopen");
+        }
+        {
+            const auto weights=root.getChildFile("models/fixture-other/weights.bin");
+            LockFile lock{CreateFileW(weights.getFullPathName().toWideCharPointer(),GENERIC_READ,0,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr)};
+            check(lock.handle!=INVALID_HANDLE_VALUE,"hold unrelated weights against reads");
+            check(quick.verifyModel(record.id),"explicit selected model verification");const auto snapshot=waitManager(quick);
+            check(snapshot.models[0].state==InstallationState::installed&&snapshot.models[1].state==InstallationState::installed,"Verify must not hash unrelated weights");
+        }
+        const auto weights=root.getChildFile("models/fixture-model/weights.bin");
+        auto changed=content;changed=changed.replaceSection(0,1,"X");check(weights.replaceWithText(changed),"same-size corruption fixture");
+        check(quick.verifyModel(record.id),"verify same-size corruption");check(waitManager(quick).models[0].state==InstallationState::corrupt,"Full Verify must still detect modified bytes");
+        check(quick.installModel("missing-profile"),"failed operation invalidation fixture");check(waitManager(quick).error.isNotEmpty(),"fixture unsupported profile");
+        check(quick.refreshIfNeeded(),"quick refresh after failed operation");check(waitManager(quick).models[0].state==InstallationState::corrupt,"Metadata refresh must retain known corruption");
+        check(weights.replaceWithText(content),"restore synthetic model");check(quick.verifyModel(record.id),"verify restored model");check(waitManager(quick).models[0].state==InstallationState::installed,"Explicit Verify clears repaired state");
+    }
     const auto directory=root.getChildFile("models/fixture-model");const auto foreign=directory.getChildFile("user-file.txt");check(foreign.replaceWithText("do not delete"),"foreign fixture");
     check(manager.removeModel(record.id),"remove guarded cache");check(waitManager(manager).error=="unmanaged_files"&&foreign.existsAsFile(),"unmanaged files preserved");check(foreign.deleteFile(),"fixture remove own file");
     check(directory.getChildFile("weights.bin").replaceWithText("broken"),"corrupt local cache");

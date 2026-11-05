@@ -539,3 +539,24 @@ MDX also receives the selected intra-op count and inter-op count 1 in its ONNX
 SessionOptions during model loading; Torch settings alone do not limit that pool.
 The developer CPU probe verifies official Torch CPU/AVX2 dispatch and the existing
 ONNX Runtime pool configuration without weights or performance measurements.
+
+## Startup and remembered choices — 0.10.1-Upd5
+
+Opening Separation uses a cached, metadata-only inventory of model ownership,
+presence, safe paths and expected sizes. It does not hash every installed model's
+weights. Critical runtime executable checks remain. Selected weights are still
+fully verified by the worker before loading; the model manager's installed-model
+button becomes **Verify model** for an explicit full check of that model only.
+Explicit full-refresh API checks remain; known corruption is not cleared by a
+metadata-only refresh. Install/remove invalidate the cached inventory.
+
+The selected catalogue **model ID** and requested **CPU threads** save immediately
+through existing ViewSettings and atomic application settings, including before a
+job is started. Reopening/restarting restores them; legacy/invalid fields use
+safe defaults. These choices do not modify the project or Undo history.
+
+The main dialog keeps clip duration and live/final operation time with the actual
+configured CPU count. **Show diagnostics / Hide diagnostics** controls the raw
+provenance/hash/JSON and runtime ISA panel; it starts collapsed and hidden content
+is not reformatted on every timer tick. Processing and cancellation remain usable
+with the panel closed.

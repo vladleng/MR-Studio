@@ -31,6 +31,8 @@ struct ViewSettings {
     struct SectionTemplate{juce::String name;std::uint32_t color{};bool operator==(const SectionTemplate&)const=default;};
     std::vector<SectionTemplate> sectionTemplates;
     bool sidebar{true},snap{},controllersOpen{true},editorAttached{};
+    int separationCpuThreads{}; // 0 Auto; user intent, not an affinity-capped count
+    juce::String separationModel; // Stable catalogue ID; app preference, never project state
     bool noteClipColors{}; // Piano roll view preference; no project mutation.
     int browserWidth{260},trackHeight{128},mixerHeight{365},editorHeight{500};
     bool liveRestoreLastShow{true};
@@ -54,6 +56,7 @@ struct ViewSettings {
         juce::Array<juce::var> templates;for(const auto& item:sectionTemplates){auto* entry=new juce::DynamicObject;entry->setProperty("name",item.name);entry->setProperty("color",static_cast<int>(item.color));templates.add(juce::var(entry));}object->setProperty("sectionTemplates",templates);
         object->setProperty("snap",snap);object->setProperty("browserWidth",browserWidth);
         object->setProperty("noteClipColors",noteClipColors);
+        object->setProperty("separationCpuThreads",separationCpuThreads);object->setProperty("separationModel",separationModel);
         object->setProperty("trackHeight",trackHeight);object->setProperty("pixelsPerSecond",pixelsPerSecond);
         object->setProperty("mixerHeight",mixerHeight);object->setProperty("editorHeight",editorHeight);object->setProperty("controllersOpen",controllersOpen);object->setProperty("editorAttached",editorAttached);
         object->setProperty("windowState",windowState);object->setProperty("inputs",inputs);
@@ -69,6 +72,11 @@ struct ViewSettings {
         if(bytes.length()>32*1024*1024||juce::JSON::parse(bytes,value).failed()||!value.isObject()||static_cast<int>(value["version"])!=1)
             throw std::runtime_error("Invalid JUCE view settings");
         if(value.hasProperty("liveRestoreLastShow")){if(!value["liveRestoreLastShow"].isBool())throw std::runtime_error("Invalid Live startup mode");result.liveRestoreLastShow=static_cast<bool>(value["liveRestoreLastShow"]);}
+        if(value["separationCpuThreads"].isInt()){
+            const auto n=static_cast<int>(value["separationCpuThreads"]);
+            if(n==0||n==1||n==2||n==4||n==8||n==16||n==32)result.separationCpuThreads=n;
+        }
+        if(value["separationModel"].isString())result.separationModel=value["separationModel"].toString().substring(0,128);
         result.lastLiveShow=value["lastLiveShow"].toString().substring(0,32768);
         result.lastStudioOneShow=value["lastStudioOneShow"].toString().substring(0,32768);
         if(value.hasProperty("liveMixerHeight")) {const auto h=value["liveMixerHeight"];

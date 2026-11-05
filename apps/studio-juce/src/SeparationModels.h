@@ -46,9 +46,10 @@ public:
     ModelManager(const ModelManager&) = delete;
     ModelManager& operator=(const ModelManager&) = delete;
     static juce::File defaultRoot();
-    bool refresh(); // offline; no Python/network
-    bool refreshIfNeeded(); // panels share the first successful scan for this service lifetime
+    bool refresh(); // explicit full model hash refresh; offline; no Python/network
+    bool refreshIfNeeded(); // metadata-only model inventory; shared until invalidated
     bool installModel(const juce::String&);
+    bool verifyModel(const juce::String&); // explicit full hash of this model only
     bool removeModel(const juce::String&);
     bool installRuntime(); // explicit network action, managed embedded Python, no system Python
     bool verifyRuntime(); // offline probe
@@ -61,7 +62,7 @@ public:
     juce::File root() const { return root_; }
 private:
     bool start(juce::String operation, std::function<void()>, bool onlyIfUnscanned = false);
-    void scan();
+    void scan(bool fullHashes = false, juce::String verifiedModel = {});
     void install(const ModelRecord&);
     void uninstall(const juce::File&, const juce::String& identity);
     void setupRuntime();

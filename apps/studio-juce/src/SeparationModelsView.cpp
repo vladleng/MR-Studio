@@ -8,7 +8,7 @@ namespace ui {
 namespace {
 using namespace mr::separation;
 juce::String stateName(InstallationState state) {
-    switch(state){case InstallationState::installed:return "Installed - verified files";case InstallationState::corrupt:return "Damaged or incomplete - remove and reinstall";case InstallationState::unsupported:return "Not available in this version";default:return "Not installed";}
+    switch(state){case InstallationState::installed:return "Installed";case InstallationState::corrupt:return "Damaged or incomplete - remove and reinstall";case InstallationState::unsupported:return "Not available in this version";default:return "Not installed";}
 }
 juce::String errorText(const juce::String& error) {
     if(error.isEmpty())return {};
@@ -48,7 +48,7 @@ public:
         int focus=1;for(const auto& action:std::initializer_list<Action>{{&installRuntime_,"Install runtime"},{&verifyRuntime_,"Verify runtime"},{&removeRuntime_,"Remove runtime"},{&download_,"Download model"},{&remove_,"Remove model"},{&detailsButton_,"Details"},{&cache_,"Open cache"},{&cancel_,"Cancel operation"}}){addAndMakeVisible(*action.button);action.button->setButtonText(action.text);action.button->setTitle(action.text);action.button->setExplicitFocusOrder(focus++);}
         installRuntime_.setTooltip("Explicit download of embedded Python and CPU processing libraries. System Python is unchanged.");
         installRuntime_.onClick=[this]{manager_->installRuntime();update();};verifyRuntime_.onClick=[this]{manager_->verifyRuntime();update();};removeRuntime_.onClick=[this]{manager_->removeRuntime();update();};
-        download_.onClick=[this]{const auto s=manager_->status();const auto i=selected(s);if(i>=0)manager_->installModel(s.models[static_cast<std::size_t>(i)].record.id);update();};
+        download_.onClick=[this]{const auto s=manager_->status();const auto i=selected(s);if(i>=0){const auto& m=s.models[static_cast<std::size_t>(i)];if(m.state==InstallationState::installed||m.state==InstallationState::corrupt)manager_->verifyModel(m.record.id);else manager_->installModel(m.record.id);}update();};
         remove_.onClick=[this]{const auto s=manager_->status();const auto i=selected(s);if(i>=0)manager_->removeModel(s.models[static_cast<std::size_t>(i)].record.id);update();};
         cancel_.onClick=[this]{manager_->cancel();};cache_.onClick=[this]{manager_->root().revealToUser();};
         detailsButton_.onClick=[this]{details_.setVisible(!details_.isVisible());detailsButton_.setButtonText(details_.isVisible()?"Hide details":"Details");update();};
@@ -75,7 +75,9 @@ public:
         update();if(!installRuntime_.isEnabled()||!download_.isEnabled()||remove_.isEnabled())throw std::runtime_error("Model Manager initial controls");
         download_.onClick();
         for(int i=0;i<300&&manager_->status().busy;++i){std::this_thread::sleep_for(std::chrono::milliseconds(5));}
-        update();if(manager_->status().error.isNotEmpty()||download_.isEnabled()||!remove_.isEnabled())throw std::runtime_error("Model Manager download binding/status");
+        update();if(manager_->status().error.isNotEmpty()||!download_.isEnabled()||download_.getButtonText()!="Verify model"||!remove_.isEnabled())throw std::runtime_error("Model Manager download/verify action state");
+        download_.onClick();for(int i=0;i<300&&manager_->status().busy;++i)std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        update();if(manager_->status().error.isNotEmpty()||manager_->status().models.front().state!=InstallationState::installed)throw std::runtime_error("Explicit model Verify binding");
         detailsButton_.onClick();if(!details_.isVisible()||!details_.getText().contains("Source")||!details_.getText().contains("Weights license"))throw std::runtime_error("Model Manager details");
         for(const auto size:{juce::Point<int>{800,540},juce::Point<int>{840,560},juce::Point<int>{1280,900}}){
             setSize(size.x,size.y);
@@ -101,7 +103,7 @@ private:
         if(at>=0){const auto& model=state.models[static_cast<std::size_t>(at)];const bool installed=model.state==InstallationState::installed||model.state==InstallationState::corrupt;
             modelInfo_.setText("Outputs: "+model.record.outputs+"\n"+model.record.hardware,juce::dontSendNotification);modelState_.setText(stateName(model.state),juce::dontSendNotification);
             juce::int64 size{};for(const auto& file:model.record.files)size+=file.bytes;
-            download_.setButtonText("Download model"+(size>0?" - "+juce::File::descriptionOfSizeInBytes(size):juce::String{}));download_.setEnabled(!state.busy&&model.state==InstallationState::downloadable);remove_.setEnabled(!state.busy&&installed);
+            download_.setButtonText(installed?"Verify model":"Download model"+(size>0?" - "+juce::File::descriptionOfSizeInBytes(size):juce::String{}));download_.setTitle(download_.getButtonText());download_.setEnabled(!state.busy&&(installed||model.state==InstallationState::downloadable));remove_.setEnabled(!state.busy&&installed);
             if(details_.isVisible()){
                 juce::String text="Model ID: "+model.record.id+"\nVersion: "+model.record.version+"\nSource: "+model.record.provenance+"\nBackend: "+model.record.backend+"\nNative sources: "+model.record.nativeOutputs+"\nRuntime: CPython 3.11.9 (PSF-2.0); package notices in the managed cache\nCode license: "+model.record.codeLicense+"\nWeights license: "+model.record.weightsLicense+"\n"+model.record.unsupportedReason+"\n";
                 for(const auto& file:model.record.files)text+="\n"+file.url+"\nSHA256: "+file.sha256+"\n";

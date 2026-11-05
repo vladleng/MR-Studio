@@ -190,14 +190,16 @@ std::shared_ptr<void> ModelManager::lease(const juce::String& id,bool exclusive)
     result->handle=CreateFileW(file.getFullPathName().toWideCharPointer(),exclusive?GENERIC_READ|GENERIC_WRITE:GENERIC_READ,exclusive?0:FILE_SHARE_READ,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
     need(result->handle!=INVALID_HANDLE_VALUE,"in_use");return result;
 }
-void ModelManager::scan() {
-    phase("Checking local files");std::vector<ModelState> models;
+void ModelManager::scan(bool fullHashes,juce::String verifiedModel) {
+    const auto previous=status();
+    phase(fullHashes||verifiedModel.isNotEmpty()?"Verifying model files":"Checking installed models");std::vector<ModelState> models;
     for(const auto& r:catalogue_) {
         ModelState item{r,InstallationState::downloadable,{}};
         if(r.unsupportedReason.isNotEmpty()){item.state=InstallationState::unsupported;item.reason=r.unsupportedReason;}
         else {const auto dir=modelsPath().getChildFile(r.id);if(dir.exists()){
             item.state=InstallationState::installed;
-            try{manifest(dir,r.id);for(const auto& f:r.files){check(cancelled_);const auto path=dir.getChildFile(f.name);need(path.existsAsFile()&&plain(path)&&path.getSize()==f.bytes&&sha(path)==f.sha256,"integrity_failure");}}
+            try{manifest(dir,r.id);for(const auto& f:r.files){check(cancelled_);const auto path=dir.getChildFile(f.name);need(path.existsAsFile()&&plain(path)&&path.getSize()==f.bytes,"integrity_failure");if(fullHashes||verifiedModel==r.id)need(sha(path)==f.sha256,"integrity_failure");}
+                if(!fullHashes&&verifiedModel!=r.id)for(const auto& old:previous.models)if(old.record.id==r.id&&old.state==InstallationState::corrupt){item.state=old.state;item.reason=old.reason;break;}}
             catch(const Error& e){if(e.code=="cancelled")throw;item.state=InstallationState::corrupt;item.reason=e.code;}
         }}models.push_back(std::move(item));
     }
@@ -211,7 +213,8 @@ void ModelManager::scan() {
     }
     std::lock_guard lock(mutex_);status_.models=std::move(models);status_.runtime=runtime;scanned_=true;
 }
-bool ModelManager::refresh(){return start("refresh",[this]{scan();});}
+bool ModelManager::refresh(){return start("refresh",[this]{scan(true);});}
+bool ModelManager::verifyModel(const juce::String& id){return start("verify_model",[this,id]{(void)record(id);scan(false,id);});}
 bool ModelManager::refreshIfNeeded(){return start("refresh",[this]{scan();},true);}
 void ModelManager::install(const ModelRecord& r) {
     need(r.unsupportedReason.isEmpty()&&!r.files.empty(),"unsupported_model");ensureRoot();auto use=lease(r.id,true);
