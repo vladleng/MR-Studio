@@ -42,7 +42,8 @@ void fetch(const std::string& initial,const std::filesystem::path& target,std::u
             need(bytes>0&&bytes<65536,"Invalid model redirect");std::vector<wchar_t> location(bytes/sizeof(wchar_t)+1);
             need(WinHttpQueryHeaders(request.value,WINHTTP_QUERY_LOCATION,WINHTTP_HEADER_NAME_BY_INDEX,location.data(),&bytes,WINHTTP_NO_HEADER_INDEX)!=FALSE,"Cannot read model redirect");
             const std::wstring_view next(location.data());need(std::all_of(next.begin(),next.end(),[](wchar_t c){return c>32&&c<127;}),"Invalid model redirect");
-            url=model_download_redirect(url,std::string(next.begin(),next.end()));continue;
+            std::string ascii;ascii.reserve(next.size());for(const auto c:next)ascii.push_back(static_cast<char>(c));
+            url=model_download_redirect(url,ascii);continue;
         }
         need(status==200,"Official model server returned an error");need(!std::filesystem::exists(target),"Download target already exists");
         std::ofstream output(target,std::ios::binary);need(output.good(),"Cannot create model download file");
