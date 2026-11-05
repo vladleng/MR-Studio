@@ -52,6 +52,17 @@ int main(int argc,char** argv){try{
     models.install(source_model,true);write(models.directory()/"unrelated.txt","keep");rejects([&]{models.remove();});check(fs::exists(models.directory()/"unrelated.txt"));fs::remove(models.directory()/"unrelated.txt");
     auto bad=spec;bad.id="../unsafe";rejects([&]{ModelStore invalid(root/"bad",bad);});
     bad=spec;bad.files[1].sha256=std::string(64,'0');ModelStore wrong(root/"wrong",bad);rejects([&]{wrong.install(source_model,true);});check(!fs::exists(wrong.directory()));
+    check(model_download_target("https://huggingface.co:443/model").authorize);
+    check(!model_download_target("https://cas-bridge.xethub.hf.co/file?signature=fixture").authorize);
+    check(model_download_redirect("https://huggingface.co/path","/api/config")=="https://huggingface.co/api/config");
+    for(const auto* url:{"http://huggingface.co/file","https://huggingface.co.evil/file","https://user@huggingface.co/file","https://huggingface.co:444/file","https://evil.invalid/file","https://huggingface.co/file#fragment"})rejects([&]{model_download_target(url);});
+    rejects([]{model_download_redirect("https://huggingface.co/file","//evil.invalid/file");});
+    rejects([]{authenticated_model_fetch("hf_token\r\nInjected: header");});
+    ModelStore downloaded(root/"downloaded",spec);const auto downloads=root/"downloads";bool fetched=false;std::uint64_t downloaded_bytes{};
+    const ModelFetch fetch=[&](const std::string& url,const fs::path& target,std::uint64_t bytes,std::stop_token stop,const ModelDownloadProgress& progress){check(!stop.stop_requested()&&model_download_target(url).authorize&&url.find(spec.revision)!=std::string::npos);fetched=true;fs::copy_file(source_model/target.filename(),target);if(progress)progress(bytes,bytes);};
+    rejects([&]{downloaded.download(downloads,false,fetch);});check(!fetched);
+    downloaded.download(downloads,true,fetch,{},[&](auto now,auto total){check(now<=total&&now>=downloaded_bytes);downloaded_bytes=now;});downloaded.verify();check(fetched&&fs::is_empty(downloads));downloaded.remove();
+    rejects([&]{downloaded.download(downloads,true,[&](const auto&,const fs::path& target,auto,std::stop_token,const ModelDownloadProgress&){write(target,"corrupt");});});check(!fs::exists(downloaded.directory())&&fs::is_empty(downloads));
     const auto source=root/"source.wav";wav(source);const auto jobs=root/"jobs";fs::create_directory(jobs);
     Request settings;settings.executable=fs::absolute(argv[1]);settings.executable_sha256=sha256_file(settings.executable);settings.temporary_root=jobs;settings.timeout=std::chrono::seconds(3);
     auto project=fixture(source);std::shared_ptr<IProjectStore> store=std::make_shared<ProjectStore>(project);Controller controller;

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <fstream>
 #include <mutex>
 #include <stdexcept>
@@ -62,6 +63,22 @@ const ModelSpec& official_medium(){
         {"README.md","8ef1a507afdb13355982d2f828f9e21fb403b2f56152eb00fd76d603ea1bcc8c",10198}}};
     return spec;
 }
+ModelDownloadTarget model_download_target(std::string_view url){
+    need(url.size()<=32768&&url.starts_with("https://"),"Model download requires HTTPS");
+    need(std::all_of(url.begin(),url.end(),[](unsigned char c){return c>32&&c<127;})&&url.find('#')==url.npos,"Invalid download URL");
+    const auto at=url.find_first_of("/?",8);auto host=std::string(url.substr(8,at==url.npos?url.size()-8:at-8));
+    if(host.ends_with(":443"))host.resize(host.size()-4);
+    std::transform(host.begin(),host.end(),host.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
+    need(host=="huggingface.co"||host=="cdn-lfs.huggingface.co"||host=="cdn-lfs-us-1.hf.co"||host=="cas-bridge.xethub.hf.co"||host=="us.aws.cdn.hf.co","Unapproved model download host");
+    auto path=at==url.npos?std::string("/"):std::string(url.substr(at));if(path.starts_with('?'))path.insert(path.begin(),'/');
+    return {host,std::move(path),host=="huggingface.co"};
+}
+std::string model_download_redirect(std::string_view current,std::string_view location){
+    const auto target=model_download_target(current);std::string next;
+    if(location.starts_with('/')&&!location.starts_with("//"))next="https://"+target.host+std::string(location);
+    else next=location;
+    (void)model_download_target(next);return next;
+}
 ModelStore::ModelStore(fs::path root,ModelSpec spec):data_(std::make_shared<Data>()){
     need(root.is_absolute()&&!root.empty(),"Model root must be absolute");
     need(!spec.id.empty()&&spec.id.size()<=64&&spec.id.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-")==spec.id.npos,"Invalid model ID");
@@ -98,6 +115,22 @@ ModelLease ModelStore::acquire()const{
     auto guard=std::make_shared<Guard>(data_);metadata(directory(),data_->spec);return {directory(),data_->spec,std::move(guard)};
 }
 void ModelStore::verify(std::stop_token stop)const{const auto lease=acquire();verify_files(lease.directory,lease.spec,stop);}
+void ModelStore::download(const fs::path& root,bool acknowledge,const ModelFetch& fetch,std::stop_token stop,const ModelDownloadProgress& progress)const{
+    need(acknowledge,"Explicit acknowledgement of model terms required");need(static_cast<bool>(fetch),"Missing model download transport");active(stop);
+    plain(root,true);fs::create_directories(root);plain(root);
+    std::uint64_t total{};for(const auto& f:data_->spec.files)total+=f.bytes;
+    need(fs::space(root).available>=2*total+16*1024*1024,"Download/install needs more free disk space");
+    struct Staging{fs::path path;~Staging(){if(!path.empty()){std::error_code ec;fs::remove_all(path,ec);}}} stage;
+    const auto folder=root/(".download-"+new_id().value);need(fs::create_directory(folder),"Cannot stage model download");stage.path=folder;fs::permissions(folder,fs::perms::owner_all,fs::perm_options::replace);
+    std::uint64_t completed{};
+    for(const auto& f:data_->spec.files){
+        active(stop);const auto url="https://huggingface.co/MuScriptor/muscriptor-medium/resolve/"+data_->spec.revision+"/"+f.name;
+        (void)model_download_target(url);
+        fetch(url,folder/f.name,f.bytes,stop,[&](std::uint64_t now,std::uint64_t expected){need(expected==f.bytes&&now<=expected,"Invalid download progress");if(progress)progress(completed+now,total);});
+        active(stop);completed+=f.bytes;
+    }
+    install(folder,true,stop);if(progress)progress(total,total);
+}
 void ModelStore::remove()const{
     std::unique_lock lock(data_->mutex,std::try_to_lock);need(lock.owns_lock()&&data_->leases.load()==0,"Model busy");
     if(!fs::exists(directory()))return;

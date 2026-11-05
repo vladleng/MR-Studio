@@ -20,7 +20,7 @@ foreach($file in $manifest.files){
 }
 foreach($file in (Get-ChildItem -LiteralPath $root -Recurse -File)){
  if($file.DirectoryName -ne $root -or ($file.Name -ne 'SHA256.json' -and !$names.Contains($file.Name))){throw 'Unmanifested artifact content'}
- if($file.Extension -in @('.pdb','.vst3','.wav','.nam','.zip','.lib','.h','.cpp')){throw 'Non-runtime content in artifact'}
+ if($file.Extension -in @('.pdb','.vst3','.wav','.nam','.zip','.lib','.h','.cpp','.safetensors','.gguf','.pt','.pth')){throw 'Non-runtime content in artifact'}
 }
 if($manifest.application -notin @('MR Live','MR Studio','MR Studio + MR Live')){throw 'Unknown package application'}
 foreach($resource in @('mr_separation_worker.py','mr_separation_requirements.txt','mr_separation_profiles.json','mr_separation_scnet.py','SCNet-MIT-LICENSE.txt')){
@@ -28,6 +28,10 @@ foreach($resource in @('mr_separation_worker.py','mr_separation_requirements.txt
  if($manifest.application -eq 'MR Live' -and $names.Contains($resource)){throw "Studio-only separation resource in Live package: $resource"}
 }
 if($manifest.application -eq 'MR Live' -and $manifest.ara){throw 'MR Live-only package must be ARA-free'}
+foreach($native in @('ace-midi.exe','ace-midi-NOTICES.txt')){
+ if($manifest.application -ne 'MR Live' -and !$names.Contains($native)){throw "Native MIDI runtime missing: $native"}
+ if($manifest.application -eq 'MR Live' -and $names.Contains($native)){throw "Studio-only MIDI runtime in Live: $native"}
+}
 [string[]]$applications=if($manifest.application -eq 'MR Live'){@('MR Live.exe')}elseif($manifest.application -eq 'MR Studio'){@('Moon River Studio JUCE.exe')}else{@('Moon River Studio JUCE.exe','MR Live.exe')}
 if($manifest.application -eq 'MR Studio' -and $names.Contains('MR Live.exe')){throw 'Live executable forbidden in Studio-only package'}
 if($manifest.application -eq 'MR Live' -and $names.Contains('Moon River Studio JUCE.exe')){throw 'Studio executable is not part of a Live-only package'}

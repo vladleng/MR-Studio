@@ -1,5 +1,8 @@
 #include "LibraryBrowserView.h"
 #include "Desktop.h"
+#if defined(MRS_TRANSCRIPTION_UI)
+#include "TranscriptionView.h"
+#endif
 #include "Gallery.h"
 #include "BindingCheck.h"
 #include "ReverbKit.h"
@@ -47,6 +50,9 @@ public:
     const juce::String getApplicationName() override {return "Moon River Studio JUCE";}
     const juce::String getApplicationVersion() override {return juce::String(mrs::desktop::application_version.data());}
     void initialise(const juce::String& args) override {
+#if defined(MRS_TRANSCRIPTION_UI)
+        if(args.contains("--transcription-smoke")){try{const auto tokens=juce::StringArray::fromTokens(args,true);const auto at=tokens.indexOf("--transcription-smoke");if(at<0||at+1>=tokens.size())throw std::runtime_error("Missing native fake engine");ui::transcriptionSmoke(juce::File(tokens[at+1].unquoted()));setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("transcription-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
+#endif
         if(args.contains("--separation-project-smoke")){try{ui::separationProjectSmoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("separation-project-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--separation-models-smoke")){try{ui::separationModelsSmoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("separation-models-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--piano214-smoke")){try{ui::pianoRoll214Smoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("piano214-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}

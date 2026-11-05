@@ -21,6 +21,7 @@
 
 namespace mr::separation {class ProjectJob;}
 namespace ui {
+class TranscriptionSetup;
 struct LivePreflightJob;
 namespace kit { class MRNativeParameterHost; }
 class Desktop;
@@ -357,6 +358,8 @@ public:
     Theme theme;
     std::unique_ptr<juce::DocumentWindow> separationModelsWindow; // Studio-only utility, no project state
     std::unique_ptr<juce::DocumentWindow> separationWindow;
+    std::unique_ptr<juce::DocumentWindow> transcriptionWindow;
+    std::shared_ptr<TranscriptionSetup> transcriptionSetup;
     std::shared_ptr<mr::separation::ProjectJob> separationJob;
     std::optional<TrackHeaderLayout> trackHeaderLayout; // UI-only, never project state.
     juce::File trackHeaderLayoutSource;

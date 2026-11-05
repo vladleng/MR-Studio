@@ -224,9 +224,12 @@ target_include_directories(mrs_desktop PUBLIC apps/studio-desktop/include)
 target_link_libraries(mrs_desktop PUBLIC mrs_audio mrs_persistence mrs_ai)
 # Blocking NON-RT native transcription service; no new runtime dependencies.
 add_library(mrs_transcription_worker STATIC apps/studio-desktop/src/audio_to_midi_worker.cpp
-  apps/studio-desktop/src/transcription_models.cpp apps/studio-desktop/src/transcription_controller.cpp)
+  apps/studio-desktop/src/transcription_models.cpp apps/studio-desktop/src/transcription_controller.cpp apps/studio-desktop/src/transcription_network.cpp)
 target_include_directories(mrs_transcription_worker PUBLIC apps/studio-desktop/include)
 target_link_libraries(mrs_transcription_worker PUBLIC mrs_audio)
+if(WIN32)
+  target_link_libraries(mrs_transcription_worker PRIVATE winhttp)
+endif()
 target_sources(mrs_desktop PRIVATE apps/studio-desktop/src/transcription.cpp)
 target_link_libraries(mrs_desktop PUBLIC mrs_transcription_worker)
 add_executable(mrs_audio_to_midi_check tools/audio_to_midi_check.cpp)

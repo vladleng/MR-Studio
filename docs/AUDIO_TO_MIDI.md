@@ -119,7 +119,7 @@ explicit failed result, not silently successful placement.
 
 The developer-only `mrs_audio_to_midi_check` accepts executable/model/source/temp
 paths followed by executable/weights/config SHA256 values. It exercises the full
-service with local Medium weights, without Python or bundling the native worker.
+service with local Medium weights, without Python. The Studio runtime package now includes its native worker.
 `mrs_audio_to_midi_worker_tests` uses a C++ fake executable to test failure paths;
 that does not establish Windows MuScriptor inference or musical quality.
 
@@ -150,9 +150,9 @@ Placement uses one existing PlaceTranscription command and the same stopped,
 quiesced MIDI graph/device publication path as MIDI import, preserving Undo/Redo,
 source audio and earlier conversions. A device-start failure leaves the Project
 unchanged and the preview available for retry. No inference runs in the audio
-callback; these are service APIs, not a Convert to MIDI GUI action yet.
+callback; the Studio Convert to MIDI window uses these service APIs.
 
-`mrs/transcription_models.hpp` implements an offline local ModelStore. Its default
+`mrs/transcription_models.hpp` implements the pinned ModelStore. Its default
 catalog is official `MuScriptor/muscriptor-medium` at
 `f32236969308476e01fd3aae67357de5feb05a2d`, with exact config/weights/model-card
 sizes and SHA256. Installation requires explicit acknowledgement of the CC BY-NC
@@ -167,10 +167,8 @@ receipt/file geometry; the worker independently checks executable/config/weights
 hashes. A lease blocks install/remove through that ModelStore instance and its
 copies while inference is using it. External filesystem mutations remain subject
 to runtime hash checks. Removal accepts corrupted weights but refuses linked or
-foreign folders/entries. ModelStore does not download, store HF credentials, install
-a native executable, or claim an arbitrary caller-provided executable is trusted.
-Official downloads, native binary/dependency distribution and installation UI
-remain separate gates. Small/Large entries are not advertised as installed.
+foreign folders/entries. ModelStore never stores HF credentials or trusts an
+arbitrary caller-provided executable. Small/Large entries are not advertised as installed.
 
 `mrs_transcription_controller_check` is a developer-only driver for the complete
 offline path: explicit model-terms flag/local installation, queued inference,
@@ -179,20 +177,55 @@ new. Successful checks retain only self-contained test project artifacts; the
 temporary installed model and native job files are removed. It is not packaged
 as the product UI and requires an explicitly hash-trusted native executable.
 
+## Studio Convert to MIDI (0.10.1-Upd3)
+
+Right-click an audio clip in Arrange and choose **Convert this clip to MIDI...**.
+The utility window offers the pinned official Medium download or installation
+from an authorized local folder containing config.json, model.safetensors and
+README.md. Explicit terms acknowledgement is required for either installation.
+The masked HF read token is cleared from the editor when downloading starts;
+it exists only in that download operation, never in project files/preferences/logs.
+Accept official gated access at the linked Hugging Face page first.
+
+Windows WinHTTP verifies TLS and handles redirects manually. HTTPS origins are
+limited to huggingface.co and the exact official CDN hosts in
+model_download_target; Authorization is sent only to huggingface.co. Signed CDN
+URLs/headers are not logged. Each file has a pinned size and SHA256; cancellation,
+network errors and hash mismatches clean private staging. A complete verified
+installation is published atomically and works offline. There is no mirror fallback.
+Download requires space for temporary and installed copies (about 2.5 GB).
+
+After files are verified, **Convert to MIDI** runs the native CPU worker in the
+background. Progress and Cancel remain available. Select recognized parts and
+choose **Place selected parts** to create normal MIDI tracks through one undoable
+command. Closing cancels/discards an unplaced result. Changed projects/sources
+invalidate results. Velocity is currently 100; this does not recover dynamics.
+Processed Time/Pitch/ARA clips require rendering to WAV first. Playback must stop
+before placement; recording blocks conversion/placement. Full source analysis
+retains only notes intersecting the selected clip's visible source range.
+
+Windows CI builds ace-midi from HOT-Step CPP pin
+`ee7286d14232b48ace3b6eed0fcf3048081ef0d1` and verifies its GGML pin. The generic
+x64 CPU build uses static CRT/ggml with OpenMP/GPU/host-specific AVX options OFF.
+It checks CLI exit contracts and system DLL imports. The Studio executable embeds
+the resulting engine SHA256; runtime hashing rejects a replaced engine. The
+package includes ace-midi.exe and its source/license notices, and excludes weights.
+MR Live does not expose or package this feature. No Python ML runtime is required.
+
+The GUI smoke uses a synthetic model and native fake process for download
+acknowledgement/token clearing, progress, part selection, placement/Undo/Redo,
+stale-result rejection, cancellation, cleanup and close/reopen. Software snapshots
+at 100/125/150/200% exercise this window; they do not establish physical DPI or
+real-model Windows inference.
+
 ## Remaining integration gates
 
-1. Windows native executable/build validation and distribution/transitive license
-   audit; real instrument recordings and musical acceptance. Linux CPU native
-   short WAV inference uses official hash-verified Medium weights. Upstream code
-   is MIT, MuScriptor weights CC BY-NC 4.0. Do not use
-   ACE-Step Studio's open mirror as a workaround for official gated access.
-2. Official model download/native engine registration and Studio Convert to MIDI
-   UI, progress/cancel and part selection through the implemented controller APIs.
-3. Durable inference provenance, native executable/dependency distribution and
-   complete Model Manager UX; local install/verify/remove APIs already exist.
-4. Windows native inference and project-file/musical/VSTi acceptance. Developer
-   fake-process file tests and Linux real Medium checks do not establish Windows
-   hardware, GUI or musical usability.
+1. Real Windows inference with an authorized local Medium installation and
+   representative instrument recordings; musical/VSTi/user acceptance.
+   Linux CPU native short WAV checks use official hash-verified Medium weights.
+2. Durable inference provenance in project files and broader Model Manager UX.
+3. Physical ASIO/DPI acceptance as applicable. Synthetic GUI/process tests and
+   Linux inference do not establish Windows hardware or musical usability.
 
 Restricted weights are not part of the installer. Experimental inference does
 not establish permission for commercial weights or output use. No automatic
