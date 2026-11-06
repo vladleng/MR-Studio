@@ -108,6 +108,40 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
     }
     void setClipScissors(bool enabled){body.scissors=enabled;body.repaint();}
     bool clipScissors() const{return body.scissors;}
+    // View-only transport aid. Never changes .mrlive, Core or Undo history.
+    void setFollowPlayhead(bool enabled) {
+        followEnabled=enabled;
+        followEngaged=false;
+        followSuspended=false;
+    }
+    bool followsPlayhead() const noexcept {return followEnabled;}
+    bool followPausedByNavigation() const noexcept {return followSuspended;}
+    // The playhead advances freely until it reaches the viewport midpoint;
+    // once there, only positive scroll is needed. Clamp at the timeline end.
+    static int followScrollX(int playheadX,int scrollX,int visibleWidth,int maximumScroll,
+                             bool alreadyCentred=false) {
+        if(visibleWidth<=0 || maximumScroll<=0)return juce::jlimit(0,juce::jmax(0,maximumScroll),scrollX);
+        const int current=juce::jlimit(0,maximumScroll,scrollX);
+        const int centre=visibleWidth/2;
+        const int offset=playheadX-current;
+        if(offset<centre && !alreadyCentred)return current;
+        const int desired=juce::jlimit(0,maximumScroll,playheadX-centre);
+        if(desired<=current)return desired;
+        // A distant initial seek must not snap the viewport hundreds of px.
+        return alreadyCentred?desired:juce::jmin(desired,current+64);
+    }
+    // Extract a single lane rather than JUCE's default full-component drag
+    // snapshot (which previously displayed every channel simultaneously).
+    juce::Rectangle<int> channelDragPreviewBounds(const juce::String& id) const {
+        const int rowY=channelY(id)-viewport.getViewPositionY();
+        return juce::Rectangle<int>(0,rowY,juce::jmax(0,channelWidth),rowHeight)
+            .getIntersection(getLocalBounds());
+    }
+    juce::Image channelDragPreview(const juce::String& id) {
+        const auto r=channelDragPreviewBounds(id);
+        if(r.isEmpty())return {};
+        return createComponentSnapshot(r,true);
+    }
     void refresh() {
         syncChannel();
         std::vector<juce::String> visibleFiles;
@@ -156,9 +190,15 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         const bool started =
             sectionChanged || (playback != observedPlayback &&
                                (playback == mrs::PlaybackState::playing || playback == mrs::PlaybackState::stopped));
+        const bool startingPlay=playback==mrs::PlaybackState::playing &&
+                                observedPlayback!=mrs::PlaybackState::playing;
+        if(startingPlay) {followEngaged=false;followSuspended=false;}
+        else if(playback!=mrs::PlaybackState::playing)followEngaged=false;
         observedPlayback = playback;
         const bool focused = focusRevision != owner.liveTimelineFocusRevision;
         focusRevision = owner.liveTimelineFocusRevision;
+        if(focused && playback==mrs::PlaybackState::playing && followEnabled)
+            followSuspended=true;
         if (key == signature) {
             // Scalar M/S/gain/pan changes do not rebuild the entire Timeline.
             if(observedMixRevision!=owner.liveChannelMixRevision) {
@@ -174,8 +214,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             }
             if (focused)
                 revealSelection();
-            else if (started)
+            else if (started && !followEnabled)
                 revealTransport();
+            updatePlayheadFollow(playback);
             return;
         }
         const auto selectedItem = next["currentItem"].toString();
@@ -188,10 +229,13 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         observedPaintRevision=owner.liveEdits.paint;
         layout();
         syncChannel();
-        if (selectionChanged || focused)
+        if (selectionChanged || focused) {
+            if(followEnabled && playback==mrs::PlaybackState::playing)
+                followSuspended=true;
             revealSelection();
-        else if (started)
+        }else if (started && !followEnabled)
             revealTransport();
+        updatePlayheadFollow(playback);
         playhead.update();
         body.repaint();
         repaint();
@@ -300,7 +344,10 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(auto* container=juce::DragAndDropContainer::findParentDragContainerFor(this))
                 if(!container->isDragAndDropActive()) {
                     auto id=dragChannel;dragChannel.clear();
-                    container->startDragging("mr-live-channel:"+id,this);
+                    const auto image=channelDragPreview(id);
+                    if(!image.isNull())
+                        container->startDragging("mr-live-channel:"+id,this,image,
+                                                 false,nullptr,&e.source);
                 }
     }
     void mouseUp(const juce::MouseEvent&) override {dragChannel.clear();}
@@ -540,13 +587,19 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
     class Viewport final : public juce::Viewport {
       public:
         explicit Viewport(LiveTimeline &host) : parent(host) {}
-        void visibleAreaChanged(const juce::Rectangle<int> &) override {
+        void visibleAreaChanged(const juce::Rectangle<int>& area) override {
+            if(lastX>=0 && lastX!=area.getX() &&
+               parent.followEnabled && !parent.followProgrammaticScroll &&
+               parent.owner.displayState().playback==mrs::PlaybackState::playing)
+                parent.followSuspended=true; // User scrollbar/wheel navigation wins.
+            lastX=area.getX();
             parent.syncChannel();
             parent.repaint();
         }
 
       private:
         LiveTimeline &parent;
+        int lastX{-1};
     };
     class Body final : public juce::Component, public juce::SettableTooltipClient {
       public:
@@ -1051,6 +1104,26 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         g.setColour(liveReferenceTokens().colour(ColourRole::border));
         g.drawRect(area, 1);
     }
+    void updatePlayheadFollow(mrs::PlaybackState playback) {
+        if(!followEnabled || followSuspended ||
+           playback!=mrs::PlaybackState::playing || !owner.liveTransportReady())return;
+        const auto line=playheadBounds();
+        if(line.isEmpty())return;
+        const int width=viewport.getMaximumVisibleWidth();
+        const int current=viewport.getViewPositionX();
+        const int maximum=juce::jmax(0,body.getWidth()-width);
+        const int next=followScrollX(juce::roundToInt(line.getX()),current,width,maximum,
+                                     followEngaged);
+        if(next!=current) {
+            const juce::ScopedValueSetter<bool> guard(followProgrammaticScroll,true);
+            viewport.setViewPosition(next,viewport.getViewPositionY());
+        }
+        if(juce::roundToInt(line.getX())-next>=width/2 &&
+           next==juce::jlimit(0,maximum,juce::roundToInt(line.getX())-width/2))
+            followEngaged=true;
+        else if(juce::roundToInt(line.getX())<next+width/2)
+            followEngaged=false;
+    }
     void revealSelection() {
         for (const auto &item : items)
             if (currentEntry(item)) {
@@ -1502,6 +1575,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
     std::uint64_t observedMixRevision{~std::uint64_t{0}},observedPaintRevision{~std::uint64_t{0}};
     std::vector<Item> items;
     std::string activeSection, activeChord;
+    bool followEnabled{}, followEngaged{}, followSuspended{}, followProgrammaticScroll{};
     std::uint64_t focusRevision{};
     int channelWidth{150};
     int observedWaveform{};
