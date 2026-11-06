@@ -1253,8 +1253,17 @@ void liveChannelReorderSmoke(const juce::File& fixture) {
               "#309 Redo restores both views without reassigning Playback");
     // Exercise the real Timeline drop target (not a direct model-only call).
     const auto bounds=timeline->playbackStemLaneBounds(alternate);
+    // Channel lanes can extend beyond the visible viewport at 1400x850;
+    // scroll the real JUCE viewport before sending a local-position drop.
+    auto* timelineViewport=dynamic_cast<juce::Viewport*>(timeline->getChildComponent(0));
+    liveCheck(timelineViewport!=nullptr,"#309 timeline exposes a scrolling channel viewport");
+    timelineViewport->setViewPosition(timelineViewport->getViewPositionX(),
+        juce::jmax(0,bounds.getY()-timeline->getHeight()/2));
+    const int dropY=bounds.getY()+3-timelineViewport->getViewPositionY();
+    liveCheck(dropY>=0 && dropY<timeline->getHeight(),
+              "#309 synthetic drag target is inside the visible timeline");
     juce::DragAndDropTarget::SourceDetails fromTimeline(
-        juce::var("mr-live-channel:"+root),timeline,{8,bounds.getY()+3});
+        juce::var("mr-live-channel:"+root),timeline,{8,dropY});
     liveCheck(timeline->isInterestedInDragSource(fromTimeline),
               "#309 Timeline accepts channel drag payload");
     timeline->itemDropped(fromTimeline);
