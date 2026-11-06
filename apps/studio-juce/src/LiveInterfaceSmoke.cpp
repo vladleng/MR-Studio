@@ -2212,8 +2212,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                     left>=previousRight && right<=region.getRight();
                 previousRight=right;
             }
-            liveCheck(fits,"#309 toolbar groups fit without overlap at " +
-                std::to_string(windowWidth)+"px");
+            if(!fits)
+                throw std::runtime_error("#309 toolbar groups overflow at " +
+                    std::to_string(windowWidth)+"px");
         }
         desktop.setSize(originalWorkspaceSize.x,originalWorkspaceSize.y);
         livePump();
