@@ -357,6 +357,9 @@ bool Desktop::applyLiveValuePatches(const std::vector<live::ValuePatch>& patches
     liveEdits.publish(impact);
     if(live::affects(impact,live::EditImpact::notes))++liveNotesRevision;
     if(live::affects(impact,live::EditImpact::fold))++livePlaybackFoldRevision;
+    // Keep Mixer/Timeline structural card signatures in step with BOTH the
+    // edit and its Undo/Redo. No Core or plugin graph rebuild is needed.
+    if(live::affects(impact,live::EditImpact::channelOrder))++liveUiRevision;
     if(cached||delta>0)liveEditBudget.remember(liveEditStamp(),bytes+delta);
     ++liveLocalPatchApplications;
     return true;
