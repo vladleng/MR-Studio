@@ -311,6 +311,17 @@ inline void validate(const juce::var &state) {
             if (!channel[key].isVoid() && !channel[key].isBool()) throw std::runtime_error("Invalid channel switch");
     }
 
+    // Optional legacy-compatible stable root ID for reorderable Playback channels.
+    const auto pinnedPlayback=perf["primaryPlaybackChannel"];
+    if(!pinnedPlayback.isVoid()) {
+        bool valid=false;
+        if(pinnedPlayback.isString())
+            for(const auto& channel:*state["channels"].getArray())
+                if(channel["id"]==pinnedPlayback && channel["type"].toString()=="Playback")
+                    valid=true;
+        if(!valid)throw std::runtime_error("Invalid primary Playback channel");
+    }
+
     validateLayout(perf["itemCardLayout"]);
     if (!perf["showOrganizer"].isVoid() && !perf["showOrganizer"].isBool())
         throw std::runtime_error("Invalid organizer visibility");
