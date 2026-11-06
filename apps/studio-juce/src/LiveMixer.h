@@ -59,8 +59,8 @@ class LiveMixer final : public juce::Component {
         body.addAndMakeVisible(divider);
     }
     ~LiveMixer() override { viewport.setViewedComponent(nullptr, false); }
-    static constexpr int minimumTopHeight=132;
-    static constexpr int minimumFaderHeight=184;
+    static constexpr int minimumTopHeight=112;
+    static constexpr int minimumFaderHeight=232;
     int stripHeight() const noexcept {return juce::jmax(360,getHeight()-18);}
     int currentFaderHeight() const noexcept {
         return juce::jlimit(minimumFaderHeight,
@@ -228,16 +228,16 @@ class LiveMixer final : public juce::Component {
         }
         void resized() override {
             const int split=juce::jlimit(0,getHeight(),faderSplitY);
-            // Reserve identical header/selector rows for every type (including
-            // Playback), so FX tops and all bottom controls stay aligned.
+            // Header and FX alone live above the shared divider; the Add
+            // control belongs beside the channel title, not beside "Inserts".
             auto top=getLocalBounds().reduced(6);
             top.setBottom(juce::jmax(top.getY(),split-5));
-            name.setBounds(top.removeFromTop(24));
-            inputs.setBounds(top.removeFromTop(24));
-            instrumentSelector.setBounds(top.removeFromTop(24).reduced(1,0));
-            auto title=top.removeFromTop(22);
-            addInsert.setBounds(title.removeFromRight(24).reduced(1));
-            insertTitle.setBounds(title);
+            auto header=top.removeFromTop(24);
+            if(addInsert.isVisible())
+                addInsert.setBounds(header.removeFromRight(24).reduced(1));
+            else addInsert.setBounds({});
+            name.setBounds(header);
+            insertTitle.setBounds(top.removeFromTop(22));
             insertViewport.setBounds(top);
             const int contentHeight=static_cast<int>(insertButtons.size())*20;
             const int width=juce::jmax(1,insertViewport.getWidth()-
@@ -246,23 +246,28 @@ class LiveMixer final : public juce::Component {
             for(std::size_t i=0;i<insertButtons.size();++i)
                 insertButtons[i]->setBounds(0,static_cast<int>(i)*20,width,18);
 
-            // The lower zone starts at the same split for every strip. It owns
-            // M/S, pan and the entire gain/meter rail; Instruments no longer
-            // steal fader height for their VSTi selector.
+            // The lower part has ONE common layout for every channel type:
+            // 1) Instrument / audio input, 2) physical output,
+            // 3) balance, 4) M/S, 5) identical level fader and peak meter.
+            // Playback reserves the selector rows without claiming audio/MIDI
+            // inputs; its fader remains perfectly aligned with live channels.
             auto lower=getLocalBounds().reduced(6);
             lower.setTop(juce::jmin(lower.getBottom(),split+5));
+            auto selectors=lower.removeFromTop(48);
+            inputs.setBounds(selectors);
+            instrumentSelector.setBounds(selectors.removeFromTop(24).reduced(1,1));
+            pan.setBounds(lower.removeFromTop(36));
             auto buttons=lower.removeFromTop(28);
             mute.setBounds(buttons.removeFromLeft(30).reduced(1));
             solo.setBounds(buttons.removeFromLeft(30).reduced(1));
-            pan.setBounds(lower.removeFromTop(40));
             gain.setBounds(lower.withTrimmedRight(10));
         }
         void paint(juce::Graphics &g) override {
             const auto tokens = liveReferenceTokens();
             g.fillAll(tokens.colour(ColourRole::panel));
             g.setColour(tokens.colour(ColourRole::border)); g.drawRect(getLocalBounds());
-            // MR Studio mixer uses independent L/R peak bars aligned with
-            // the long fader. Keep the MR Live palette, no new meter colours.
+            // Independent L/R peak bars remain aligned with the shared fader
+            // zone, regardless of channel role or number of FX inserts.
             const int baseY=gain.getY()+5,baseX=getWidth()-17;
             const int height=juce::jmax(0,gain.getHeight()-10);
             const auto meterBackground=tokens.colour(ColourRole::panel);
