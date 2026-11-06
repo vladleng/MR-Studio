@@ -124,9 +124,11 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         const int current=juce::jlimit(0,maximumScroll,scrollX);
         const int centre=visibleWidth/2;
         const int offset=playheadX-current;
-        if(offset<centre && !alreadyCentred)return current;
+        // Looping or a backwards seek must not pull the viewport abruptly
+        // to the left; wait until playback reaches its midpoint again.
+        if(offset<centre)return current;
         const int desired=juce::jlimit(0,maximumScroll,playheadX-centre);
-        if(desired<=current)return desired;
+        if(desired<=current)return current;
         // A distant initial seek must not snap the viewport hundreds of px.
         return alreadyCentred?desired:juce::jmin(desired,current+64);
     }
