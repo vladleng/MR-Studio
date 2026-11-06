@@ -103,7 +103,7 @@ class LiveMixer final : public juce::Component, public juce::DragAndDropTarget {
         // Mixer contains only root strips. Stem children belong to their
         // Playback parent and may be reordered inside Timeline, not here.
         for(const auto& lane:live::playbackLanes(owner.liveDocument->interfaceState))
-            if(lane.channel==source && !lane.container)return !lane.child;
+            if(lane.channel==source && !lane.child)return true;
         return false;
     }
     void itemDragMove(const SourceDetails& s) override {
