@@ -110,6 +110,7 @@ public:
     void setLiveItemPlaybackGainFor(const juce::String&, double);
     void previewLiveItemPlaybackGain(const juce::String&, double);
     void setLivePlaybackStemsExpanded(bool);
+    void reorderLiveChannel(const juce::String& source, const juce::String& target, bool after);
     void setLiveChannelMix(const juce::String&, double, double, bool, bool);
     void previewLiveChannelMix(const juce::String&, double, double, bool, bool);
     // #302 A2: show-owned channels project to stable tracks in one shared Core.
