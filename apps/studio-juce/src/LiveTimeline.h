@@ -394,6 +394,10 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 if (result != 11) return;
                 auto *channels = live::property(state, "channels").getArray();
                 for (int i = channels->size(); --i >= 0;) if ((*channels)[i]["id"].toString() == id) channels->remove(i);
+                // An empty primary Playback may be deleted. Clear its pin so
+                // the next existing Playback becomes the legacy fallback.
+                if(state["performance"]["primaryPlaybackChannel"].toString()==id)
+                    live::performance(state).getDynamicObject()->removeProperty("primaryPlaybackChannel");
                 for (auto &item : *live::property(state, "items").getArray()) if (auto *tracks = live::property(item, "tracks").getArray())
                     for (int i = tracks->size(); --i >= 0;) if ((*tracks)[i]["channelId"].toString() == id) tracks->remove(i);
             });
