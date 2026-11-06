@@ -1208,6 +1208,12 @@ void liveChannelReorderSmoke(const juce::File& fixture) {
               dragImage.getWidth()==singleLane.getWidth() &&
               dragImage.getHeight()<previewTimeline->getHeight(),
               "#309 Timeline drag thumbnail shows ONE channel, not the entire Timeline");
+    // Mixer uses JUCE's default 60%-alpha ghost; the manually cropped
+    // Timeline preview must match it so the insertion line is visible below.
+    const int ghostAlpha=dragImage.getPixelAt(dragImage.getWidth()/2,
+                                               dragImage.getHeight()/2).getAlpha();
+    liveCheck(ghostAlpha>=150 && ghostAlpha<=155,
+              "#309 Timeline drag thumbnail matches Mixer 60% translucent ghost");
     juce::String alternate,player;
     host.editLiveInterface("Prepare channel order", [&](auto& state) {
         alternate=live::addChannel(state,"Playback","Alternate Backing");
