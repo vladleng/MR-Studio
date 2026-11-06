@@ -369,6 +369,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     const auto sourceLane=dragLaneIndex;dragLaneIndex=-1;
                     const auto image=channelDragPreview(id,sourceLane);
                     if(!image.isNull())
+                        // JUCE 8 requires a scale-aware image; a 1x cropped
+                        // lane keeps the correct native drag size and target.
                         container->startDragging("mr-live-channel:"+id,this,
                                                  juce::ScaledImage(image,1.0),
                                                  false,nullptr,&e.source);
