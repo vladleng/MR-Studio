@@ -2326,12 +2326,14 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         const auto unchanged=desktop.liveDocument->signature();
         const auto history=desktop.liveUndo.canUndo();
         follow->triggerClick();
+        livePump(); // JUCE Button::triggerClick delivers callbacks asynchronously.
         liveCheck(follow->getToggleState() && timeline->followsPlayhead() &&
                   desktop.app.engine()->state().sample==sample &&
                   desktop.liveDocument->signature()==unchanged &&
                   desktop.liveUndo.canUndo()==history,
                   "#309 enabling Follow changes only viewport policy, never Core, show or Undo");
         follow->triggerClick();
+        livePump();
         liveCheck(!follow->getToggleState() && !timeline->followsPlayhead() &&
                   desktop.app.engine()->state().sample==sample,
                   "#309 disabling Follow restores original transport-independent view");
@@ -2869,6 +2871,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(followTransport && followViewport,"#309 Follow controls real native playback timeline");
         const auto runningSample=playbackDesktop.app.engine()->state().sample;
         followTransport->triggerClick();
+        livePump();
         liveCheck(playbackTimeline->followsPlayhead() &&
                   playbackDesktop.app.engine()->state().sample==runningSample,
                   "#309 follow toggle while playing does not seek or restart audio");
@@ -2882,6 +2885,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         liveCheck(followViewport->getViewPositionX()==manuallyScrolled,
                   "#309 Follow does not undo manual navigation");
         followTransport->triggerClick();
+        livePump();
         liveCheck(!playbackTimeline->followsPlayhead() &&
                   playbackDesktop.app.engine()->state().sample==runningSample,
                   "#309 switch Follow off without altering shared Core transport sample");
