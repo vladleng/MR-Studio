@@ -2189,6 +2189,34 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   toolbarX(undoToolbar)<toolbarX(redoToolbar) &&
                   mixerToolbar->getWidth()==fitToolbar->getWidth(),
                   "#309 toolbar groups windows, pointer/zoom and Undo/Redo with separators");
+        // The toolbar is just 380 design px at 1920 and scales down with
+        // the Setlist. Assert that all actions still fit in smaller real
+        // windows, rather than merely checking their relative X values.
+        const auto originalWorkspaceSize=desktop.getLocalBounds().getSize();
+        const std::array<juce::Component*,12> orderedControls{
+            filesToolbar,optionsToolbar,filesDivider,panelToggle,mixerToolbar,
+            windowsDivider,pointerToolbar,scissorsToolbar,fitToolbar,
+            historyDivider,undoToolbar,redoToolbar
+        };
+        for(const int windowWidth:{1200,1400,1920}) {
+            desktop.setSize(windowWidth,originalWorkspaceSize.y);
+            livePump();
+            const auto region=LiveLayout().bounds("control.toolbar",
+                native->getWidth(),native->getHeight());
+            auto previousRight=region.getX();
+            bool fits=region.getWidth()>0;
+            for(auto* control:orderedControls) {
+                const auto left=toolbarX(control);
+                const auto right=left+control->getWidth();
+                fits=fits && control->getWidth()>0 &&
+                    left>=previousRight && right<=region.getRight();
+                previousRight=right;
+            }
+            liveCheck(fits,"#309 toolbar groups fit without overlap at " +
+                std::to_string(windowWidth)+"px");
+        }
+        desktop.setSize(originalWorkspaceSize.x,originalWorkspaceSize.y);
+        livePump();
         const auto priorMixerState=mixerToolbar->getToggleState();
         mixerToolbar->triggerClick();
         livePump();
