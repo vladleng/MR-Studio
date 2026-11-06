@@ -369,7 +369,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     const auto sourceLane=dragLaneIndex;dragLaneIndex=-1;
                     const auto image=channelDragPreview(id,sourceLane);
                     if(!image.isNull())
-                        container->startDragging("mr-live-channel:"+id,this,image,
+                        container->startDragging("mr-live-channel:"+id,this,
+                                                 juce::ScaledImage(image,1.0),
                                                  false,nullptr,&e.source);
                 }
     }
