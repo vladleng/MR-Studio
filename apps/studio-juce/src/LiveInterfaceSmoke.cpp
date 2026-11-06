@@ -1198,6 +1198,16 @@ void liveChannelReorderSmoke(const juce::File& fixture) {
     host.setSize(1400,850);
     const auto root=live::primaryPlaybackId(host.liveDocument->interfaceState);
     liveCheck(root.isNotEmpty(),"#309 channel reorder fixture has primary Playback");
+    auto* previewTimeline=dynamic_cast<LiveTimeline*>(liveComponent(host,"live-show-timeline"));
+    liveCheck(previewTimeline!=nullptr,"#309 has native Timeline for drag preview");
+    previewTimeline->refresh();
+    const auto singleLane=previewTimeline->channelDragPreviewBounds(root);
+    const auto dragImage=previewTimeline->channelDragPreview(root);
+    liveCheck(!singleLane.isEmpty() && !dragImage.isNull() &&
+              singleLane.getHeight()<=124 && dragImage.getHeight()==singleLane.getHeight() &&
+              dragImage.getWidth()==singleLane.getWidth() &&
+              dragImage.getHeight()<previewTimeline->getHeight(),
+              "#309 Timeline drag thumbnail shows ONE channel, not the entire Timeline");
     juce::String alternate,player;
     host.editLiveInterface("Prepare channel order", [&](auto& state) {
         alternate=live::addChannel(state,"Playback","Alternate Backing");
@@ -1351,6 +1361,15 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::showContextSelection();
     live::test::studioOneShowReader();
     live::test::studioOneImportPlan();
+    // #309 point 5: left-of-centre advances naturally, then centred follow
+    // starts, with a bounded first correction and no backwards/end jumps.
+    liveCheck(LiveTimeline::followScrollX(80,0,400,1600)==0 &&
+              LiveTimeline::followScrollX(199,0,400,1600)==0 &&
+              LiveTimeline::followScrollX(264,0,400,1600)==64 &&
+              LiveTimeline::followScrollX(360,64,400,1600,true)==160 &&
+              LiveTimeline::followScrollX(300,160,400,1600,true)==160 &&
+              LiveTimeline::followScrollX(2500,1450,400,1600,true)==1600,
+              "#309 Follow Playhead waits for centre, follows, clamps end and never jumps backwards");
     liveChannelReorderSmoke(fixture);
     // 0.8.11-Upd3: Live dock preference is independent of Studio mixer,
     // backwards-compatible and never stored inside a .mrlive show.
@@ -2294,6 +2313,29 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     liveCheck(panelToggle && panelSetlistSurface && playbackSurface->isVisible() &&
                   panelToggle->getToggleState() && panelToggle->getButtonText().isEmpty(),
               "#309 Playback/Stems starts visible with an icon-only toggle in the toolbar");
+    // #309 point 5: transport Follow is a real icon toggle, not a fake
+    // playback command or an edit to the saved show/Undo.
+    {
+        auto* follow=dynamic_cast<juce::TextButton*>(
+            liveComponent(desktop,"live-transport-follow-playhead"));
+        liveCheck(follow && follow->isVisible() && follow->getButtonText().isEmpty() &&
+                  follow->getTooltip().isNotEmpty() && !follow->getToggleState() &&
+                  !timeline->followsPlayhead(),
+                  "#309 Follow Playhead starts off as an accessible Transport icon");
+        const auto sample=desktop.app.engine()->state().sample;
+        const auto unchanged=desktop.liveDocument->signature();
+        const auto history=desktop.liveUndo.canUndo();
+        follow->triggerClick();
+        liveCheck(follow->getToggleState() && timeline->followsPlayhead() &&
+                  desktop.app.engine()->state().sample==sample &&
+                  desktop.liveDocument->signature()==unchanged &&
+                  desktop.liveUndo.canUndo()==history,
+                  "#309 enabling Follow changes only viewport policy, never Core, show or Undo");
+        follow->triggerClick();
+        liveCheck(!follow->getToggleState() && !timeline->followsPlayhead() &&
+                  desktop.app.engine()->state().sample==sample,
+                  "#309 disabling Follow restores original transport-independent view");
+    }
     // #309 common improvement 3: icon-only Mixer/Fit, semantic toolbar
     // groups and non-interactive separators. Keep the old command IDs and
     // tooltips: this change is visual only, not a new edit or transport mode.
@@ -2817,6 +2859,32 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   "Timeline playhead advances with rendered Core audio");
         liveCheck(fullLevel > .01f && playbackDesktop.app.engine()->state().sample > 0,
                   "Live transport produces actual PCM through shared AudioEngine");
+        // A human scroll during Play overrides Follow instead of being
+        // dragged back to the centre on the next 15 Hz refresh.
+        auto* followTransport=dynamic_cast<juce::TextButton*>(
+            liveComponent(playbackDesktop,"live-transport-follow-playhead"));
+        juce::Viewport* followViewport=nullptr;
+        for(auto* child:playbackTimeline->getChildren())
+            if(auto* candidate=dynamic_cast<juce::Viewport*>(child))followViewport=candidate;
+        liveCheck(followTransport && followViewport,"#309 Follow controls real native playback timeline");
+        const auto runningSample=playbackDesktop.app.engine()->state().sample;
+        followTransport->triggerClick();
+        liveCheck(playbackTimeline->followsPlayhead() &&
+                  playbackDesktop.app.engine()->state().sample==runningSample,
+                  "#309 follow toggle while playing does not seek or restart audio");
+        const int beforeManual=followViewport->getViewPositionX();
+        followViewport->setViewPosition(beforeManual+90,followViewport->getViewPositionY());
+        liveCheck(followViewport->getViewPositionX()!=beforeManual &&
+                  playbackTimeline->followPausedByNavigation(),
+                  "#309 manual horizontal Timeline scroll suspends Follow during Play");
+        const int manuallyScrolled=followViewport->getViewPositionX();
+        playbackTimeline->refresh();
+        liveCheck(followViewport->getViewPositionX()==manuallyScrolled,
+                  "#309 Follow does not undo manual navigation");
+        followTransport->triggerClick();
+        liveCheck(!playbackTimeline->followsPlayhead() &&
+                  playbackDesktop.app.engine()->state().sample==runningSample,
+                  "#309 switch Follow off without altering shared Core transport sample");
         playbackDesktop.setLivePlaybackMix(-6., false, true);
         render();
         liveCheck(std::abs(audio[200]) < fullLevel * .75f && playbackDesktop.project()->tracks.front().mix.solo,
