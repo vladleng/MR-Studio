@@ -18,22 +18,74 @@ inline void includeLiveMeterPeak(mrs::audio::StereoPeak& destination,
 }
 // Persistent show-channel controls; processing uses the shared Core mix API.
 class LiveMixer final : public juce::Component {
+    // One shared splitter, drawn across every channel. Studio-style resize:
+    // the bottom bank changes height; inserts occupy the remaining space above.
+    class FaderDivider final : public juce::Component {
+    public:
+        explicit FaderDivider(LiveMixer& mixer) : owner(mixer) {
+            setComponentID("live-mixer-fader-divider");
+            setTitle("Drag to resize all channel faders");
+            setMouseCursor(juce::MouseCursor::UpDownResizeCursor);
+        }
+        void mouseDown(const juce::MouseEvent& e) override {
+            dragging=e.mods.isLeftButtonDown();
+            if(dragging) {startY=e.getScreenY();startHeight=owner.currentFaderHeight();}
+        }
+        void mouseDrag(const juce::MouseEvent& e) override {
+            if(dragging)owner.setFaderAreaHeight(startHeight+startY-e.getScreenY());
+        }
+        void mouseUp(const juce::MouseEvent&) override {
+            if(!dragging)return;
+            dragging=false;
+            owner.owner.saveSettings();
+        }
+        void paint(juce::Graphics& g) override {
+            const auto tokens=liveReferenceTokens();
+            g.fillAll(tokens.colour(ColourRole::panel));
+            g.setColour(tokens.colour(ColourRole::border));
+            g.fillRect(0,getHeight()/2,getWidth(),1);
+        }
+    private:
+        LiveMixer& owner;
+        int startY{},startHeight{};
+        bool dragging{};
+    };
   public:
-    explicit LiveMixer(Desktop &desktop) : owner(desktop) {
+    explicit LiveMixer(Desktop &desktop) : owner(desktop), divider(*this) {
         setComponentID("live-mixer");
         addAndMakeVisible(viewport);
         viewport.setViewedComponent(&body, false);
         viewport.setScrollBarsShown(true, true);
+        body.addAndMakeVisible(divider);
     }
     ~LiveMixer() override { viewport.setViewedComponent(nullptr, false); }
+    static constexpr int minimumTopHeight=132;
+    static constexpr int minimumFaderHeight=184;
+    int stripHeight() const noexcept {return juce::jmax(360,getHeight()-18);}
+    int currentFaderHeight() const noexcept {
+        return juce::jlimit(minimumFaderHeight,
+            juce::jmax(minimumFaderHeight,stripHeight()-minimumTopHeight),
+            owner.view.liveMixerFaderHeight);
+    }
+    void setFaderAreaHeight(int height) {
+        const int next=juce::jlimit(minimumFaderHeight,
+            juce::jmax(minimumFaderHeight,stripHeight()-minimumTopHeight),height);
+        if(next==owner.view.liveMixerFaderHeight)return;
+        owner.view.liveMixerFaderHeight=next;
+        resized();
+    }
     void resized() override {
         viewport.setBounds(getLocalBounds());
-        int x = 0;
-        // Match Studio's scrollable insert rack: a short mixer dock may scroll
-        // vertically instead of collapsing inserts or the level fader.
-        const int stripHeight=juce::jmax(340,getHeight()-18);
-        for (auto &strip : strips) { strip->setBounds(x, 0, 118, stripHeight); x += 118; }
-        body.setSize(juce::jmax(x, getWidth()),stripHeight);
+        const int height=stripHeight(),split=height-currentFaderHeight();
+        int x=0;
+        for(auto& strip:strips) {
+            strip->setFaderSplitY(split);
+            strip->setBounds(x,0,118,height);
+            x+=118;
+        }
+        body.setSize(juce::jmax(x,getWidth()),height);
+        divider.setBounds(0,split-4,body.getWidth(),8);
+        divider.toFront(false);
     }
     void paint(juce::Graphics &g) override {
         const auto tokens = liveReferenceTokens();
@@ -130,6 +182,11 @@ class LiveMixer final : public juce::Component {
             insertViewport.setViewedComponent(nullptr,false);
         }
         const juce::String& channelId() const noexcept { return id; }
+        void setFaderSplitY(int y) {
+            if(faderSplitY==y)return;
+            faderSplitY=y;
+            resized();
+        }
         void sync(const std::map<juce::String,mrs::audio::StereoPeak>& meters) {
             const auto state = owner.liveDocument->interfaceState;
             const auto channel = live::find(state, "channels", id);
@@ -170,28 +227,35 @@ class LiveMixer final : public juce::Component {
                        "No valid Audio/MIDI input or processor assigned");
         }
         void resized() override {
-            auto area=getLocalBounds().reduced(6);
-            name.setBounds(area.removeFromTop(24));
-            inputs.setBounds(area.removeFromTop(24));
-            if(insertViewport.isVisible()) {
-                auto title=area.removeFromTop(22);
-                addInsert.setBounds(title.removeFromRight(24).reduced(1));
-                insertTitle.setBounds(title);
-                insertViewport.setBounds(area.removeFromTop(92));
-                const int contentHeight=static_cast<int>(insertButtons.size())*20;
-                const int width=juce::jmax(1,insertViewport.getWidth()-
-                    (contentHeight>insertViewport.getHeight()?insertViewport.getScrollBarThickness():0));
-                insertBody.setSize(width,contentHeight);
-                for(std::size_t i=0;i<insertButtons.size();++i)
-                    insertButtons[i]->setBounds(0,static_cast<int>(i)*20,width,18);
-            }
-            auto buttons=area.removeFromTop(28);
+            const int split=juce::jlimit(0,getHeight(),faderSplitY);
+            // Reserve identical header/selector rows for every type (including
+            // Playback), so FX tops and all bottom controls stay aligned.
+            auto top=getLocalBounds().reduced(6);
+            top.setBottom(juce::jmax(top.getY(),split-5));
+            name.setBounds(top.removeFromTop(24));
+            inputs.setBounds(top.removeFromTop(24));
+            instrumentSelector.setBounds(top.removeFromTop(24).reduced(1,0));
+            auto title=top.removeFromTop(22);
+            addInsert.setBounds(title.removeFromRight(24).reduced(1));
+            insertTitle.setBounds(title);
+            insertViewport.setBounds(top);
+            const int contentHeight=static_cast<int>(insertButtons.size())*20;
+            const int width=juce::jmax(1,insertViewport.getWidth()-
+                (contentHeight>insertViewport.getHeight()?insertViewport.getScrollBarThickness():0));
+            insertBody.setSize(width,contentHeight);
+            for(std::size_t i=0;i<insertButtons.size();++i)
+                insertButtons[i]->setBounds(0,static_cast<int>(i)*20,width,18);
+
+            // The lower zone starts at the same split for every strip. It owns
+            // M/S, pan and the entire gain/meter rail; Instruments no longer
+            // steal fader height for their VSTi selector.
+            auto lower=getLocalBounds().reduced(6);
+            lower.setTop(juce::jmin(lower.getBottom(),split+5));
+            auto buttons=lower.removeFromTop(28);
             mute.setBounds(buttons.removeFromLeft(30).reduced(1));
             solo.setBounds(buttons.removeFromLeft(30).reduced(1));
-            pan.setBounds(area.removeFromTop(40));
-            if(instrumentSelector.isVisible())
-                instrumentSelector.setBounds(area.removeFromTop(22).reduced(1,0));
-            gain.setBounds(area.withTrimmedRight(10));
+            pan.setBounds(lower.removeFromTop(40));
+            gain.setBounds(lower.withTrimmedRight(10));
         }
         void paint(juce::Graphics &g) override {
             const auto tokens = liveReferenceTokens();
@@ -291,6 +355,7 @@ class LiveMixer final : public juce::Component {
         juce::Component insertBody;
         std::vector<std::unique_ptr<MixerInsert>> insertButtons;
         juce::String insertSignature;
+        int faderSplitY{150};
         kit::MRFader gain;
         juce::Slider pan;
         juce::TextButton mute{"M"}, solo{"S"};
@@ -299,6 +364,7 @@ class LiveMixer final : public juce::Component {
     Desktop &owner;
     juce::Viewport viewport;
     juce::Component body;
+    FaderDivider divider;
     juce::String signature;
     std::uint64_t observedGeneration{~std::uint64_t{0}},observedRevision{~std::uint64_t{0}};
     bool lanesInitialized{};
