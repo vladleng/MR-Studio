@@ -1315,6 +1315,13 @@ void liveChannelReorderSmoke(const juce::File& fixture) {
     live::put(source,"stems",juce::Array<juce::var>{stem1,stem2});
     live::put(live::map(live::performance(grouped),"nativePlayback"),
               grouped["currentItem"].toString(),source);
+    // Hidden stem lanes cannot originate a drag. Expand the group before
+    // testing valid per-stem reordering (the native Timeline uses this flag).
+    live::put(live::performance(grouped),"stemsExpanded",false);
+    auto hiddenOrder=grouped["channels"].clone();
+    liveCheck(!live::reorderChannel(hiddenOrder,grouped,nextStem,firstStem,false),
+              "#309 collapsed Playback stems cannot start a hidden-lane reorder");
+    live::put(live::performance(grouped),"stemsExpanded",true);
     auto rootOrder=grouped["channels"].clone();
     liveCheck(live::reorderChannel(rootOrder,grouped,root,alternate,true),
               "#309 primary Backing stays a draggable root even with a visible WAV/stem child");
