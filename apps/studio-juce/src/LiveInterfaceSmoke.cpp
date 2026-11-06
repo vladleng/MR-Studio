@@ -2192,7 +2192,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         // The toolbar is just 380 design px at 1920 and scales down with
         // the Setlist. Assert that all actions still fit in smaller real
         // windows, rather than merely checking their relative X values.
-        const auto originalWorkspaceSize=desktop.getLocalBounds().getSize();
+        const juce::Point<int> originalWorkspaceSize{desktop.getWidth(),desktop.getHeight()};
         const std::array<juce::Component*,12> orderedControls{
             filesToolbar,optionsToolbar,filesDivider,panelToggle,mixerToolbar,
             windowsDivider,pointerToolbar,scissorsToolbar,fitToolbar,
