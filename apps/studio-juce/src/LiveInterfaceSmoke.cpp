@@ -1310,6 +1310,9 @@ void liveChannelReorderSmoke(const juce::File& fixture) {
     live::put(source,"stems",juce::Array<juce::var>{stem1,stem2});
     live::put(live::map(live::performance(grouped),"nativePlayback"),
               grouped["currentItem"].toString(),source);
+    auto rootOrder=grouped["channels"].clone();
+    liveCheck(live::reorderChannel(rootOrder,grouped,root,alternate,true),
+              "#309 primary Backing stays a draggable root even with a visible WAV/stem child");
     auto order=grouped["channels"].clone();
     liveCheck(live::reorderChannel(order,grouped,nextStem,firstStem,false),
               "#309 accepts a stem reorder inside its Playback group");
