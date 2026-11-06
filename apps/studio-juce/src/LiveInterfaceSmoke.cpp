@@ -2189,6 +2189,17 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   toolbarX(undoToolbar)<toolbarX(redoToolbar) &&
                   mixerToolbar->getWidth()==fitToolbar->getWidth(),
                   "#309 toolbar groups windows, pointer/zoom and Undo/Redo with separators");
+        const auto priorMixerState=mixerToolbar->getToggleState();
+        mixerToolbar->triggerClick();
+        livePump();
+        liveCheck(mixerToolbar->getToggleState()!=priorMixerState &&
+                      mixerToolbar->getTooltip().isNotEmpty(),
+                  "#309 icon Mixer still toggles its panel with a useful tooltip");
+        mixerToolbar->triggerClick();
+        livePump();
+        liveCheck(mixerToolbar->getToggleState()==priorMixerState &&
+                      static_cast<bool>(fitToolbar->onClick),
+                  "#309 icon Mixer closes again and Fit retains its existing command");
     }
     const int visibleBottom=panelSetlistSurface->getBottom();
     const auto savedChannel=desktop.livePlaybackSelectedChannel;
