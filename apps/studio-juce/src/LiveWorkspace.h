@@ -303,7 +303,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         // Keep the transport's right edge where it was: the follow icon
         // claims one more 32px slot to the left without covering the clock.
         auto transport = juce::Rectangle<int>(header.getCentreX() - 210, header.getCentreY() - 16, 256, 32);
-        for (auto *button : {&previous, &play, &pause, &stop, &next, &loop, &followPlayhead, &record})
+        for (auto *button : std::array<juce::Button*,8>{&previous, &play, &pause, &stop, &next, &loop, &followPlayhead, &record})
             button->setBounds(transport.removeFromLeft(32).reduced(2));
         const int width = juce::jmin(380, juce::jmax(220, getWidth() - setlist.getRight() - 16));
         browserItems.setBounds(setlist.getRight() + 2, setlist.getY(), width, setlist.getHeight());
