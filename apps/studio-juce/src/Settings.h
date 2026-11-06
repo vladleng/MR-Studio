@@ -38,7 +38,7 @@ struct ViewSettings {
     juce::String lastStudioOneShow; // Last validated .show import source; never part of project data.
     double liveUiZoom{}, liveMenuOpacity{.9}, liveWindowOpacity{1.};
     int liveMixerHeight{340}; // Independent MR Live dock height; MR Studio mixerHeight unchanged.
-    int liveMixerFaderHeight{210}; // Shared bottom fader zone, independent of expandable insert rack.
+    int liveMixerFaderHeight{260}; // Shared bottom routing/balance/M-S/fader zone; never show/DSP state.
     double pixelsPerSecond{30};
     int musicalLanes{31}; // UI only: Markers, Sections, Chords, Tempo, Meter.
     juce::String windowState,inputs,deviceChannels;
