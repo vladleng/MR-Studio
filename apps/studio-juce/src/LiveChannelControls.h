@@ -22,12 +22,38 @@ public:
     void showInstrumentPicker(juce::Component& anchor) {
         owner.run([this,&anchor]{effectsMenu(true,&anchor);});
     }
+    // Mixer insert rows use the exact same validated Live FX commands as the
+    // previous selector; no second rack or direct Core/plugin mutations.
+    void showInsertAddMenu(juce::Component& anchor) {
+        owner.run([this,&anchor]{effectsMenu(false,&anchor,{},true);});
+    }
+    void showInsertSlotMenu(juce::Component& anchor,const mrs::Id& slot) {
+        owner.run([this,&anchor,slot]{effectsMenu(false,&anchor,slot);});
+    }
+    void toggleInsertBypass(const mrs::Id& slot) {
+        owner.run([this,slot]{
+            if(owner.app.recording() || owner.displayState().playback==mrs::PlaybackState::playing)
+                return; // Existing Live FX edit contract: graph changes while stopped.
+            auto saved=live::decodeLiveInputProfile(profile());
+            auto chain=saved.inserts;
+            const auto at=std::find_if(chain.begin(),chain.end(),
+                [&](const auto& effect){return effect.id==slot;});
+            if(at==chain.end() || (saved.instrument && at==chain.begin()))return;
+            at->bypass=!at->bypass;
+            owner.setLiveInputEffects(id,std::move(chain));
+        });
+    }
     void resized() override {
         auto r=getLocalBounds();
-        if(surface==Surface::mixer && !input.isVisible()) {
-            output.setBounds(r.removeFromTop(22).reduced(1,0));
-            effects.setBounds(r.removeFromTop(22).reduced(1,0));
-            return;
+        if(surface==Surface::mixer) {
+            if(!input.isVisible())output.setBounds(r.removeFromTop(22).reduced(1,0));
+            else {
+                auto row=r.removeFromTop(22);
+                input.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(1,0));
+                output.setBounds(row.reduced(1,0));
+            }
+            effects.setBounds({});
+            return; // Mixer has actual insert rows, not a second FX selector.
         }
         auto row=r.removeFromTop(22);
         input.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(1,0));
@@ -51,7 +77,7 @@ public:
         input.setVisible(!mixerInstrument);output.setVisible(true);
         input.setEnabled(stopped);
         output.setEnabled(stopped&&!legacyAudio&&(!timelineInstrument||profile.isObject()));
-        effects.setVisible(!timelineInstrument);
+        effects.setVisible(surface!=Surface::mixer && !timelineInstrument);
         effects.setEnabled(!legacyAudio);
         if(timelineInstrument) {
             const auto midiId=profile["midiInput"].toString();
@@ -198,7 +224,8 @@ private:
             });
         });
     }
-    void effectsMenu(bool instrumentPicker=false,juce::Component* anchor=nullptr) {
+    void effectsMenu(bool instrumentPicker=false,juce::Component* anchor=nullptr,
+                     std::optional<mrs::Id> slotFilter={},bool addOnly=false) {
         if(!profile().isObject())throw std::runtime_error("Choose the channel input first");
         const auto row=live::find(owner.liveDocument->interfaceState,"channels",id);
         const auto kind=row["type"].toString();
@@ -235,25 +262,30 @@ private:
             juce::PopupMenu vsti;appendType(vsti,true);
             menu.addSubMenu(saved.inserts.empty()?"Choose VST3 Instrument":"Replace VST3 Instrument",vsti,stopped);
         }
-        if(!chooseInstrument) {
+        if(!chooseInstrument && !slotFilter) {
             juce::PopupMenu audioFx;appendType(audioFx,false);
             menu.addSubMenu("Add Audio FX",audioFx,stopped&&saved.inserts.size()<8&&(!saved.instrument||!saved.inserts.empty()));
         }
         const auto unknown=static_cast<int>(std::count_if(catalog.begin(),catalog.end(),[](const auto& p){return !p.instrument.has_value();}));
-        if(unknown>0)menu.addItem(0,"Unknown plugin type ("+juce::String(unknown)+") — rescan catalog",false);
+        if(unknown>0 && !slotFilter)
+            menu.addItem(0,"Unknown plugin type ("+juce::String(unknown)+") — rescan catalog",false);
         for(std::size_t i=mixerInstrument?1u:0u;i<saved.inserts.size();++i) {
             if(chooseInstrument && i>0)break;
-            const auto& fx=saved.inserts[i];juce::PopupMenu slot;
+            const auto& fx=saved.inserts[i];
+            if(addOnly || (slotFilter && !(fx.id==*slotFilter)))continue;
+            juce::PopupMenu slot;
+            auto& actions=slotFilter?menu:slot;
             // Editor access remains explicit; an assigned valid input is monitored
             // automatically, without a separate Monitor button.
-            slot.addItem(100+static_cast<int>(i)*10,"Open editor",
+            actions.addItem(100+static_cast<int>(i)*10,"Open editor",
                 owner.liveInputTrack(id).has_value() || stopped);
-            slot.addItem(101+static_cast<int>(i)*10,"Bypass",stopped,fx.bypass);
-            slot.addItem(102+static_cast<int>(i)*10,"Move up",stopped&&i>(saved.instrument?1u:0u));
-            slot.addItem(103+static_cast<int>(i)*10,"Move down",stopped&&i+1<saved.inserts.size()&&(!saved.instrument||i>0));
-            slot.addItem(104+static_cast<int>(i)*10,"Remove",stopped&&(!saved.instrument||i>0||saved.inserts.size()==1));
-            menu.addSubMenu(juce::String(static_cast<int>(i+1))+". "+juce::String::fromUTF8(fx.plugin_name.c_str()),slot);
+            actions.addItem(101+static_cast<int>(i)*10,"Bypass",stopped,fx.bypass);
+            actions.addItem(102+static_cast<int>(i)*10,"Move up",stopped&&i>(saved.instrument?1u:0u));
+            actions.addItem(103+static_cast<int>(i)*10,"Move down",stopped&&i+1<saved.inserts.size()&&(!saved.instrument||i>0));
+            actions.addItem(104+static_cast<int>(i)*10,"Remove",stopped&&(!saved.instrument||i>0||saved.inserts.size()==1));
+            if(!slotFilter)menu.addSubMenu(juce::String(static_cast<int>(i+1))+". "+juce::String::fromUTF8(fx.plugin_name.c_str()),slot);
         }
+        if(slotFilter && menu.getNumItems()==0)throw std::runtime_error("Channel FX slot changed; reopen insert menu");
         const auto signature=profile().clone();const auto generation=owner.liveDocumentGeneration;
         juce::Component::SafePointer<LiveChannelControls> safe(this);
         menu.showMenuAsync(liveMenuOptions(anchor?*anchor:effects),[safe,saved,signature,choices,generation,instrumentPicker](int action){if(!safe||!action)return;safe->owner.run([&]{
