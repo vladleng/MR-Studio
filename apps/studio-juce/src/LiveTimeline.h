@@ -290,7 +290,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         }
         if(lane && event.mods.isLeftButtonDown()) {
             selectPlaybackChannel(lane->channel);
-            if(!owner.app.recording() && event.getNumberOfClicks()==1)
+            if(!owner.app.recording() && event.getNumberOfClicks()==1 &&
+               !(lane->child && lane->channel==live::primaryPlaybackId(state)))
                 dragChannel=lane->channel;
         }
     }
@@ -348,7 +349,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         if(!getLocalBounds().contains(p) || p.y<0)return {};
         const int y=p.y+viewport.getViewPositionY();
         const auto lane=laneAt(y);
-        if(!lane)return {};
+        // The visible primary WAV is a child display of its own root;
+        // drops there must not be mistaken for a separate movable channel.
+        if(!lane || (lane->child && lane->channel==live::primaryPlaybackId(state)))return {};
         const auto after=(y-lanesTop)%rowHeight>=rowHeight/2;
         const auto index=(y-lanesTop)/rowHeight;
         return ChannelDrop{lane->channel,after,lanesTop+(index+(after?1:0))*rowHeight};
