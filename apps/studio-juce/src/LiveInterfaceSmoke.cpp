@@ -1233,6 +1233,11 @@ void liveChannelReorderSmoke(const juce::File& fixture) {
     timeline->refresh();mixer->sync();
     auto* rootStrip=liveComponent(*mixer,"live-mixer-strip-"+root);
     auto* alternateStrip=liveComponent(*mixer,"live-mixer-strip-"+alternate);
+    liveCheck(rootStrip && alternateStrip,"#309 Mixer contains stable root and alternate strips");
+    juce::DragAndDropTarget::SourceDetails primaryDrag(
+        juce::var("mr-live-channel:"+root),mixer,{rootStrip->getX()+6,16});
+    liveCheck(mixer->isInterestedInDragSource(primaryDrag),
+              "#309 primary Playback root remains draggable from Mixer");
     liveCheck(rootStrip && alternateStrip &&
               rootStrip->getX()>alternateStrip->getX() &&
               timeline->playbackStemLaneBounds(root).getY()>
