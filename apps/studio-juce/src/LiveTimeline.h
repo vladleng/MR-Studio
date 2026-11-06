@@ -16,7 +16,7 @@
 namespace ui {
 juce::MouseCursor noteTrimCursor(bool right);
 // Native projection of the editor show. Geometry is metadata, never an audio clock.
-class LiveTimeline final : public juce::Component {
+class LiveTimeline final : public juce::Component, public juce::DragAndDropTarget {
   public:
     explicit LiveTimeline(Desktop &desktop)
         : owner(desktop), body(*this), viewport(*this), playhead([this] { return playheadBounds(); }) {
@@ -280,6 +280,7 @@ class LiveTimeline final : public juce::Component {
     }
 
     void mouseDown(const juce::MouseEvent &event) override {
+        dragChannel.clear();
         if(event.x>=channelWidth)return;
         const int y=event.y+viewport.getViewPositionY();
         const auto *lane=laneAt(y);
@@ -287,10 +288,71 @@ class LiveTimeline final : public juce::Component {
             if(lane)channelMenu(lane->channel);
             return;
         }
-        if(lane && event.mods.isLeftButtonDown())selectPlaybackChannel(lane->channel);
+        if(lane && event.mods.isLeftButtonDown()) {
+            selectPlaybackChannel(lane->channel);
+            if(!owner.app.recording() && event.getNumberOfClicks()==1)
+                dragChannel=lane->channel;
+        }
+    }
+    void mouseDrag(const juce::MouseEvent& e) override {
+        if(dragChannel.isNotEmpty() && e.getDistanceFromDragStart()>5)
+            if(auto* container=juce::DragAndDropContainer::findParentDragContainerFor(this))
+                if(!container->isDragAndDropActive()) {
+                    auto id=dragChannel;dragChannel.clear();
+                    container->startDragging("mr-live-channel:"+id,this);
+                }
+    }
+    void mouseUp(const juce::MouseEvent&) override {dragChannel.clear();}
+    bool isInterestedInDragSource(const SourceDetails& s) override {
+        return owner.liveDocument && !owner.app.recording() &&
+            s.description.toString().startsWith("mr-live-channel:");
+    }
+    void itemDragMove(const SourceDetails& s) override {
+        dragDropY.reset();
+        if(isInterestedInDragSource(s))
+            if(const auto target=dropTarget(s.localPosition))
+                dragDropY=target->boundary;
+        repaint();
+    }
+    void itemDragExit(const SourceDetails&) override {dragDropY.reset();repaint();}
+    void itemDropped(const SourceDetails& s) override {
+        const auto target=isInterestedInDragSource(s)?dropTarget(s.localPosition):std::nullopt;
+        dragDropY.reset();repaint();
+        if(!target || !owner.liveDocument)return;
+        const auto source=s.description.toString().fromFirstOccurrenceOf("mr-live-channel:",false,false);
+        const auto destination=target->id;
+        const auto after=target->after;
+        const auto generation=owner.liveDocumentGeneration,revision=owner.liveEdits.mutation;
+        juce::Component::SafePointer<Desktop> safe(&owner);
+        juce::MessageManager::callAsync([safe,generation,revision,source,destination,after] {
+            if(safe && safe->liveDocument && safe->liveDocumentGeneration==generation &&
+               safe->liveEdits.mutation==revision)
+                safe->run([&]{safe->reorderLiveChannel(source,destination,after);});
+        });
+    }
+    void paintOverChildren(juce::Graphics& g) override {
+        if(!dragDropY)return;
+        const int y=*dragDropY-viewport.getViewPositionY();
+        if(y<lanesTop-viewport.getViewPositionY() || y>=getHeight())return;
+        g.setColour(liveReferenceTokens().colour(ColourRole::focus));
+        g.fillRect(2,y-1,juce::jmax(0,channelWidth-4),3);
     }
 
   private:
+    struct ChannelDrop {
+        juce::String id;
+        bool after{};
+        int boundary{};
+    };
+    std::optional<ChannelDrop> dropTarget(juce::Point<int> p) const {
+        if(!getLocalBounds().contains(p) || p.y<0)return {};
+        const int y=p.y+viewport.getViewPositionY();
+        const auto lane=laneAt(y);
+        if(!lane)return {};
+        const auto after=(y-lanesTop)%rowHeight>=rowHeight/2;
+        const auto index=(y-lanesTop)/rowHeight;
+        return ChannelDrop{lane->channel,after,lanesTop+(index+(after?1:0))*rowHeight};
+    }
     void channelMenu(const juce::String &id) {
         juce::PopupMenu menu;
         menu.setLookAndFeel(&getLookAndFeel());
@@ -1194,11 +1256,7 @@ class LiveTimeline final : public juce::Component {
         return -1;
     }
     int playbackLaneY() const {
-        if (const auto *channels = state["channels"].getArray())
-            for (int i = 0; i < channels->size(); ++i)
-                if ((*channels)[i]["type"].toString() == "Playback")
-                    return channelY((*channels)[i]["id"].toString());
-        return -rowHeight;
+        return channelY(live::primaryPlaybackId(state));
     }
     mrs::Sample sampleAt(const Item &item, double x) const {
         const auto project = owner.project();
@@ -1286,9 +1344,7 @@ class LiveTimeline final : public juce::Component {
         });
     }
     juce::var primaryChannel() const {
-        if (const auto *channels = state["channels"].getArray())
-            for (const auto &channel : *channels) if (channel["type"].toString() == "Playback") return channel;
-        return {};
+        return live::find(state,"channels",live::primaryPlaybackId(state));
     }
     const live::PlaybackLane *laneAt(int y) const {
         if (y < lanesTop) return nullptr;
@@ -1420,6 +1476,8 @@ class LiveTimeline final : public juce::Component {
             }
     }
     Desktop &owner;
+    juce::String dragChannel;
+    std::optional<int> dragDropY;
     LiveWaveformCache waveforms;
     juce::SharedResourcePointer<LivePerformanceArt> performanceArt;
     Body body;
