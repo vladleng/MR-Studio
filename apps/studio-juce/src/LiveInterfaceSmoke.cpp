@@ -2327,6 +2327,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         const auto history=desktop.liveUndo.canUndo();
         follow->triggerClick();
         livePump(); // JUCE Button::triggerClick delivers callbacks asynchronously.
+        // Verify the *delivered* state, not an event still waiting in the queue.
         liveCheck(follow->getToggleState() && timeline->followsPlayhead() &&
                   desktop.app.engine()->state().sample==sample &&
                   desktop.liveDocument->signature()==unchanged &&
