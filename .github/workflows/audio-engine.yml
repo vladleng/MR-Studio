@@ -1,6 +1,6 @@
 name: Windows Studio Release
 # Product versions are validated against the source header before building.
-run-name: ${{ (github.head_ref == 'codex/74-separation-contract' || github.ref_name == 'codex/74-separation-contract') && inputs.checks != 'live' && !inputs.integration && 'MR Studio 0.9.6-Upd1 — Windows Release' || 'MR Studio 0.9.6-Upd1 / MR Live 0.8.13-Upd5 — Windows Release' }}
+run-name: ${{ (github.head_ref == 'codex/74-separation-contract' || github.ref_name == 'codex/74-separation-contract') && inputs.checks != 'live' && !inputs.integration && 'MR Studio 0.9.6-Upd1 — Windows Release' || 'MR Studio 0.9.6-Upd1 / MR Live 0.8.13-Upd6 — Windows Release' }}
 on:
   push:
     branches: [main, 'codex/cloud-cicd-migration']
@@ -24,7 +24,7 @@ on:
 permissions:
   contents: read
 env:
-  RELEASE_BANNER: 'MR Studio 0.9.6-Upd1 / MR Live 0.8.13-Upd5 — Windows Release'
+  RELEASE_BANNER: 'MR Studio 0.9.6-Upd1 / MR Live 0.8.13-Upd6 — Windows Release'
 concurrency:
   group: windows-${{ github.ref }}
   cancel-in-progress: true
