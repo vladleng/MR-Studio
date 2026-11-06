@@ -400,6 +400,23 @@ void Desktop::renameLiveObject(const juce::String& kind,const juce::String& id,
     }else throw std::runtime_error("Unsupported rename target");
     performLiveValuePatch("Rename "+kind,std::move(path),name,live::EditImpact::cards|live::EditImpact::timeline);
 }
+// Only the channels' visual order changes. Reuse the local value-patch
+// protocol rather than copying the entire show, recompiling Core, or
+// reallocating audio/FX instances when a channel is dropped.
+void Desktop::reorderLiveChannel(const juce::String& source,const juce::String& target,bool after) {
+    if(!liveDocument || app.recording())return;
+    const auto& state=liveDocument->interfaceState;
+    auto updated=state["channels"].clone();
+    if(!live::reorderChannel(updated,state,source,target,after))return;
+    std::vector<live::ValuePatch> patches;
+    patches.push_back(live::valuePatch(state,{"channels"},updated));
+    const auto primary=live::primaryPlaybackId(state);
+    if(primary.isNotEmpty() &&
+       state["performance"]["primaryPlaybackChannel"].toString()!=primary)
+        patches.push_back(live::valuePatch(state,{"performance","primaryPlaybackChannel"},primary));
+    performLiveValuePatches("Reorder Live channel",std::move(patches),
+        live::EditImpact::timeline|live::EditImpact::channelOrder);
+}
 void Desktop::setLivePresentation(const juce::Identifier& key,const juce::var& value,const juce::String& entry) {
     if(!liveDocument)throw std::runtime_error("Open a MR Live show first");
     live::EditPath path{"performance",key.toString()};
