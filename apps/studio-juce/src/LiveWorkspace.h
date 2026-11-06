@@ -229,28 +229,28 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         constexpr int preferredWidth=324;
         const auto scale=juce::jmin(1.f,
             static_cast<float>(controls.getWidth())/static_cast<float>(preferredWidth));
-        const auto width=[scale](int preferred) {
+        const auto toolbarWidth=[scale](int preferred) {
             return juce::jmax(1,static_cast<int>(static_cast<float>(preferred)*scale));
         };
-        files.setBounds(controls.removeFromLeft(width(44)).reduced(1));
-        options.setBounds(controls.removeFromLeft(width(52)).reduced(1));
-        const auto separator=[&controls,&width](juce::Component& bar) {
-            const auto zone=controls.removeFromLeft(width(12));
+        files.setBounds(controls.removeFromLeft(toolbarWidth(44)).reduced(1));
+        options.setBounds(controls.removeFromLeft(toolbarWidth(52)).reduced(1));
+        const auto separator=[&controls,&toolbarWidth](juce::Component& bar) {
+            const auto zone=controls.removeFromLeft(toolbarWidth(12));
             bar.setBounds(zone.withSizeKeepingCentre(1,juce::jmax(1,zone.getHeight()-12)));
         };
         separator(filesSeparator);
         // Windows: Playback/Stems and Mixer.
-        playbackPanelToggle.setBounds(controls.removeFromLeft(width(28)).reduced(1));
-        mixerButton.setBounds(controls.removeFromLeft(width(28)).reduced(1));
+        playbackPanelToggle.setBounds(controls.removeFromLeft(toolbarWidth(28)).reduced(1));
+        mixerButton.setBounds(controls.removeFromLeft(toolbarWidth(28)).reduced(1));
         separator(windowsSeparator);
         // Pointer / editing / viewport operations.
-        pointerTool.setBounds(controls.removeFromLeft(width(28)).reduced(1));
-        scissorsTool.setBounds(controls.removeFromLeft(width(28)).reduced(1));
-        zoomFitButton.setBounds(controls.removeFromLeft(width(28)).reduced(1));
+        pointerTool.setBounds(controls.removeFromLeft(toolbarWidth(28)).reduced(1));
+        scissorsTool.setBounds(controls.removeFromLeft(toolbarWidth(28)).reduced(1));
+        zoomFitButton.setBounds(controls.removeFromLeft(toolbarWidth(28)).reduced(1));
         separator(historySeparator);
         // History remains a separate compact group.
-        undoButton.setBounds(controls.removeFromLeft(width(26)));
-        redoButton.setBounds(controls.removeFromLeft(width(26)));
+        undoButton.setBounds(controls.removeFromLeft(toolbarWidth(26)));
+        redoButton.setBounds(controls.removeFromLeft(toolbarWidth(26)));
         auto setlistBounds = reference.bounds("show.setlist", getWidth(), getHeight());
         setlistBounds.setBottom(playbackPanelVisible?
             playbackPanel.getY():playbackRegion.getBottom());
