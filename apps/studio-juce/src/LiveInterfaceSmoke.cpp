@@ -2155,10 +2155,12 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     const auto savedRevision=desktop.app.services().projects->state().revision;
     const auto savedUndo=desktop.liveUndo.canUndo();
     panelToggle->triggerClick();
+    livePump();
     liveCheck(!playbackSurface->isVisible() && !panelToggle->getToggleState() &&
                   setlistSurface->getBottom()>visibleBottom,
               "#309 hiding Playback/Stems releases vertical space for the setlist");
     panelToggle->triggerClick();
+    livePump();
     liveCheck(playbackSurface->isVisible() && panelToggle->getToggleState() &&
                   setlistSurface->getBottom()==visibleBottom &&
                   desktop.livePlaybackSelectedChannel==savedChannel &&
