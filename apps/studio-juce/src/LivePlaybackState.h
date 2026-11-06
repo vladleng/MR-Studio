@@ -604,12 +604,20 @@ inline bool reorderChannel(juce::var& ordered, const juce::var& state,
                            const juce::String& source, const juce::String& target, bool after) {
     if(source.isEmpty() || target.isEmpty() || source==target || !ordered.isArray())return false;
     const auto lanes=playbackLanes(state);
-    const auto sourceLane=std::find_if(lanes.begin(),lanes.end(),[&](const auto& lane) {
-        return lane.channel==source && !lane.container;
-    });
-    const auto targetLane=std::find_if(lanes.begin(),lanes.end(),[&](const auto& lane) {
-        return lane.channel==target && !lane.container;
-    });
+    // A primary Backing with WAV has two visual lanes with the same channel
+    // ID: its container and its stem. Prefer the root when reordering that ID.
+    const auto laneFor=[&](const juce::String& channel) {
+        auto found=std::find_if(lanes.begin(),lanes.end(),[&](const auto& lane) {
+            return lane.channel==channel && !lane.child;
+        });
+        if(found==lanes.end())
+            found=std::find_if(lanes.begin(),lanes.end(),[&](const auto& lane) {
+                return lane.channel==channel;
+            });
+        return found;
+    };
+    const auto sourceLane=laneFor(source);
+    const auto targetLane=laneFor(target);
     if(sourceLane==lanes.end() || targetLane==lanes.end() ||
        sourceLane->child!=targetLane->child)return false;
     if(sourceLane->child) {
