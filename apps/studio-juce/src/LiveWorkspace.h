@@ -32,6 +32,35 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             }
         }
     };
+    // 3-fader vector glyph uses MR UDS line widths and semantic palette.
+    // A dedicated Mixer icon is not present in the bundled SVG assets.
+    class MixerToggle final : public juce::TextButton {
+      public:
+        void paintButton(juce::Graphics& g,bool over,bool down) override {
+            juce::TextButton::paintButton(g,over,down);
+            const auto tokens=liveReferenceTokens();
+            auto colour=tokens.colour(getToggleState()?ColourRole::on:ColourRole::muted);
+            if(over||down)colour=colour.brighter(.12f);
+            if(!isEnabled())colour=colour.withAlpha(.4f);
+            g.setColour(colour);
+            const float cx=getWidth()*.5f,cy=getHeight()*.5f;
+            for(int i=0;i<3;++i) {
+                const float x=cx+(i-1)*6.5f;
+                const float y=cy+(i==0?-3.f:i==1?3.f:-1.f);
+                g.drawLine(x,cy-7.f,x,cy+7.f,1.4f);
+                g.fillRoundedRectangle(x-2.5f,y-2.f,5.f,4.f,.8f);
+            }
+        }
+    };
+    class ToolbarSeparator final : public juce::Component {
+      public:
+        ToolbarSeparator() {setInterceptsMouseClicks(false,false);setAccessible(false);}
+        void paint(juce::Graphics& g) override {
+            g.setColour(liveReferenceTokens().colour(ColourRole::border));
+            const float x=getWidth()*.5f;
+            g.drawLine(x,0.f,x,static_cast<float>(getHeight()),1.f);
+        }
+    };
     // Same top-edge drag contract as the MR Studio mixer divider.
     class MixerDivider final : public juce::Component {
       public:
@@ -94,10 +123,25 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         mixerDivider.commitHeight=[this]{owner.saveSettings();};
         addAndMakeVisible(mixerButton);
         mixerButton.setComponentID("live-mixer-toggle");
+        mixerButton.setTitle("Show or hide Mixer");
+        mixerButton.setButtonText({});
+        mixerButton.setClickingTogglesState(true);
+        mixerButton.setTooltip("Show Mixer");
         for(auto* button:{&pointerTool,&scissorsTool,&zoomFitButton})addAndMakeVisible(button);
         zoomFitButton.setComponentID("live-zoom-fit");
+        zoomFitButton.setButtonText({});
+        zoomFitButton.getProperties().set("mrHostIcon","action_fit");
         zoomFitButton.setTooltip("Fit current item to Timeline");
         zoomFitButton.onClick=[this]{timeline.zoomFit();};
+        for(auto* divider:std::array<juce::Component*,3>{&filesSeparator,&windowsSeparator,&historySeparator})
+            addAndMakeVisible(divider);
+        filesSeparator.setComponentID("live-toolbar-separator-files");
+        windowsSeparator.setComponentID("live-toolbar-separator-windows");
+        historySeparator.setComponentID("live-toolbar-separator-history");
+        files.setComponentID("live-toolbar-files");
+        options.setComponentID("live-toolbar-options");
+        undoButton.setComponentID("live-toolbar-undo");
+        redoButton.setComponentID("live-toolbar-redo");
         pointerTool.setComponentID("live-pointer-tool");scissorsTool.setComponentID("live-scissors-tool");
         pointerTool.getProperties().set("mrHostIcon","tool_pointer");scissorsTool.getProperties().set("mrHostIcon","tool_split");
         pointerTool.onClick=[this]{timeline.setClipScissors(false);};scissorsTool.onClick=[this]{timeline.setClipScissors(true);};
@@ -105,6 +149,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             mixerVisible = !mixerVisible;
             mixer.setVisible(mixerVisible);
             mixerDivider.setVisible(mixerVisible);
+            mixerButton.setToggleState(mixerVisible,juce::dontSendNotification);
+            mixerButton.setTooltip(mixerVisible?"Hide Mixer":"Show Mixer");
             resized();
         };
         playbackPanel.layoutChanged = [this] { resized(); };
@@ -178,12 +224,22 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         auto controls = toolbar.reduced(6).withHeight(32);
         files.setBounds(controls.removeFromLeft(44).reduced(1));
         options.setBounds(controls.removeFromLeft(52).reduced(1));
-        playbackPanelToggle.setBounds(controls.removeFromLeft(30).reduced(2));
+        const auto separator=[&controls](juce::Component& bar) {
+            bar.setBounds(controls.removeFromLeft(12).reduced(5,6));
+        };
+        separator(filesSeparator);
+        // Windows: Playback/Stems and Mixer.
+        playbackPanelToggle.setBounds(controls.removeFromLeft(28).reduced(1));
+        mixerButton.setBounds(controls.removeFromLeft(28).reduced(1));
+        separator(windowsSeparator);
+        // Pointer / editing / viewport operations.
+        pointerTool.setBounds(controls.removeFromLeft(28).reduced(1));
+        scissorsTool.setBounds(controls.removeFromLeft(28).reduced(1));
+        zoomFitButton.setBounds(controls.removeFromLeft(28).reduced(1));
+        separator(historySeparator);
+        // History remains a separate compact group.
         undoButton.setBounds(controls.removeFromLeft(26));
         redoButton.setBounds(controls.removeFromLeft(26));
-        mixerButton.setBounds(controls.removeFromLeft(58));
-        pointerTool.setBounds(controls.removeFromLeft(28));scissorsTool.setBounds(controls.removeFromLeft(28));
-        zoomFitButton.setBounds(controls.removeFromLeft(52).reduced(1));
         auto setlistBounds = reference.bounds("show.setlist", getWidth(), getHeight());
         setlistBounds.setBottom(playbackPanelVisible?
             playbackPanel.getY():playbackRegion.getBottom());
@@ -472,8 +528,10 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     LivePlaybackPanel playbackPanel;
     LiveMixer mixer;
     MixerDivider mixerDivider;
-    juce::TextButton mixerButton{"Mixer"},pointerTool{"Pointer"},scissorsTool{"Scissors"};
+    MixerToggle mixerButton;
+    juce::TextButton pointerTool{"Pointer"},scissorsTool{"Scissors"};
     juce::TextButton zoomFitButton{"Fit"};
+    ToolbarSeparator filesSeparator,windowsSeparator,historySeparator;
     bool mixerVisible{};
     bool showLegacyChannels{};
     std::unique_ptr<juce::Drawable> tunerPlaceholder;
