@@ -1190,6 +1190,118 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     liveCheck(live::find(editing.liveDocument->interfaceState,"items",id)["notes"].toString()==oldNotes && !editing.liveDirty,
               "One Notes Undo restores saved text and clears the show dirty flag");
 }
+// #309 point 4: native Studio-style channel DnD must be ONE show undo
+// operation and must never reinterpret Backing as the next Playback root.
+void liveChannelReorderSmoke(const juce::File& fixture) {
+    Desktop host(true,false,true);
+    host.importLiveShow(fixture);
+    host.setSize(1400,850);
+    const auto root=live::primaryPlaybackId(host.liveDocument->interfaceState);
+    liveCheck(root.isNotEmpty(),"#309 channel reorder fixture has primary Playback");
+    juce::String alternate,player;
+    host.editLiveInterface("Prepare channel order", [&](auto& state) {
+        alternate=live::addChannel(state,"Playback","Alternate Backing");
+        live::put(live::require(state,"channels",alternate),"playbackIndependent",true);
+        player=live::addChannel(state,"Player","Reorder Player");
+    });
+    auto before=host.liveDocument->interfaceState.clone();
+    std::map<juce::String,juce::String> originalChannels;
+    for(const auto& row:*before["channels"].getArray())
+        originalChannels[row["id"].toString()]=live::canonical(row);
+    const auto engine=host.app.engine();
+    const auto revision=host.liveUiRevision;
+    host.reorderLiveChannel(root,alternate,true);
+    const auto& moved=host.liveDocument->interfaceState;
+    liveCheck(moved["channels"][2]["id"]==root &&
+              moved["performance"]["primaryPlaybackChannel"]==root &&
+              live::primaryPlaybackId(moved)==root &&
+              host.liveUiRevision==revision+1 &&
+              host.app.engine()==engine,
+              "#309 moving Backing below another Playback retains original primary identity and Core");
+    for(const auto& row:*moved["channels"].getArray())
+        liveCheck(originalChannels.at(row["id"].toString())==live::canonical(row),
+                  "#309 reorder preserves each channel ID, mix, FX and routing");
+    auto* timeline=dynamic_cast<LiveTimeline*>(liveComponent(host,"live-show-timeline"));
+    auto* mixer=dynamic_cast<LiveMixer*>(liveComponent(host,"live-mixer"));
+    liveCheck(timeline && mixer,"#309 uses real native Timeline and Mixer");
+    timeline->refresh();mixer->sync();
+    auto* rootStrip=liveComponent(*mixer,"live-mixer-strip-"+root);
+    auto* alternateStrip=liveComponent(*mixer,"live-mixer-strip-"+alternate);
+    liveCheck(rootStrip && alternateStrip &&
+              rootStrip->getX()>alternateStrip->getX() &&
+              timeline->playbackStemLaneBounds(root).getY()>
+              timeline->playbackStemLaneBounds(alternate).getY(),
+              "#309 Timeline and Mixer use the same new root channel order");
+    host.undoLiveInterface();
+    timeline->refresh();mixer->sync();
+    liveCheck(live::sameShowValue(host.liveDocument->interfaceState,before) &&
+              live::primaryPlaybackId(host.liveDocument->interfaceState)==root &&
+              timeline->playbackStemLaneBounds(root).getY()<
+              timeline->playbackStemLaneBounds(alternate).getY(),
+              "#309 a single Undo restores all order and primary metadata");
+    host.undoLiveInterface(true);
+    timeline->refresh();mixer->sync();
+    liveCheck(live::primaryPlaybackId(host.liveDocument->interfaceState)==root &&
+              timeline->playbackStemLaneBounds(root).getY()>
+              timeline->playbackStemLaneBounds(alternate).getY(),
+              "#309 Redo restores both views without reassigning Playback");
+    // Exercise the real Timeline drop target (not a direct model-only call).
+    const auto bounds=timeline->playbackStemLaneBounds(alternate);
+    juce::DragAndDropTarget::SourceDetails fromTimeline(
+        juce::var("mr-live-channel:"+root),timeline,{8,bounds.getY()+3});
+    liveCheck(timeline->isInterestedInDragSource(fromTimeline),
+              "#309 Timeline accepts channel drag payload");
+    timeline->itemDropped(fromTimeline);
+    livePump();timeline->refresh();mixer->sync();
+    liveCheck(live::primaryPlaybackId(host.liveDocument->interfaceState)==root &&
+              timeline->playbackStemLaneBounds(root).getY()<
+              timeline->playbackStemLaneBounds(alternate).getY(),
+              "#309 Timeline drop updates the same show order");
+    // And the independent Mixer drop target, with stable channel IDs.
+    auto* playerStrip=liveComponent(*mixer,"live-mixer-strip-"+player);
+    rootStrip=liveComponent(*mixer,"live-mixer-strip-"+root);
+    liveCheck(playerStrip && rootStrip,"#309 mixer keeps stable channel IDs after a drop");
+    juce::DragAndDropTarget::SourceDetails fromMixer(
+        juce::var("mr-live-channel:"+player),mixer,{rootStrip->getX()+6,16});
+    liveCheck(mixer->isInterestedInDragSource(fromMixer),
+              "#309 Mixer accepts the same channel drag payload");
+    mixer->itemDropped(fromMixer);
+    livePump();timeline->refresh();mixer->sync();
+    liveCheck(live::primaryPlaybackId(host.liveDocument->interfaceState)==root &&
+              host.liveDocument->interfaceState["channels"][0]["id"]==player,
+              "#309 Mixer drop reorders visible channels without changing Backing identity");
+    const auto saved=fixture.getSiblingFile("live-channel-reorder-smoke.mrlive");
+    host.saveFile(saved);
+    const auto savedOrder=live::canonical(host.liveDocument->interfaceState["channels"]);
+    host.openFile(saved);
+    liveCheck(live::canonical(host.liveDocument->interfaceState["channels"])==savedOrder &&
+              live::primaryPlaybackId(host.liveDocument->interfaceState)==root,
+              "#309 Save/Reopen persists the order and stable Playback root");
+    saved.deleteFile();
+    // Synthesise Playback parent/stem metadata only in a detached model:
+    // a stem may reorder within its group, but cannot escape its parent.
+    auto grouped=host.liveDocument->interfaceState.clone();
+    const auto firstStem=live::addChannel(grouped,"Playback","Stem 1");
+    const auto nextStem=live::addChannel(grouped,"Playback","Stem 2");
+    live::put(live::require(grouped,"channels",firstStem),"playbackParent",root);
+    live::put(live::require(grouped,"channels",nextStem),"playbackParent",root);
+    auto source=live::object(),stem1=live::object(),stem2=live::object();
+    live::put(source,"file","root.wav");
+    live::put(stem1,"id",firstStem);live::put(stem1,"file","stem1.wav");
+    live::put(stem2,"id",nextStem);live::put(stem2,"file","stem2.wav");
+    live::put(source,"stems",juce::Array<juce::var>{stem1,stem2});
+    live::put(live::map(live::performance(grouped),"nativePlayback"),
+              grouped["currentItem"].toString(),source);
+    auto order=grouped["channels"].clone();
+    liveCheck(live::reorderChannel(order,grouped,nextStem,firstStem,false),
+              "#309 accepts a stem reorder inside its Playback group");
+    live::put(grouped,"channels",order);
+    auto invalid=grouped["channels"].clone();
+    liveCheck(!live::reorderChannel(invalid,grouped,firstStem,player,true) &&
+              live::canonical(invalid)==live::canonical(order) &&
+              live::primaryPlaybackId(grouped)==root,
+              "#309 rejects a stem drop outside its owning Playback group");
+}
 } // namespace
 void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::playbackViews();
@@ -1206,6 +1318,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::showContextSelection();
     live::test::studioOneShowReader();
     live::test::studioOneImportPlan();
+    liveChannelReorderSmoke(fixture);
     // 0.8.11-Upd3: Live dock preference is independent of Studio mixer,
     // backwards-compatible and never stored inside a .mrlive show.
     {
