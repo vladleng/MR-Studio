@@ -29,8 +29,11 @@ class LiveMixer final : public juce::Component {
     void resized() override {
         viewport.setBounds(getLocalBounds());
         int x = 0;
-        for (auto &strip : strips) { strip->setBounds(x, 0, 118, juce::jmax(260, getHeight() - 18)); x += 118; }
-        body.setSize(juce::jmax(x, getWidth()), juce::jmax(260, getHeight() - 18));
+        // Match Studio's scrollable insert rack: a short mixer dock may scroll
+        // vertically instead of collapsing inserts or the level fader.
+        const int stripHeight=juce::jmax(340,getHeight()-18);
+        for (auto &strip : strips) { strip->setBounds(x, 0, 118, stripHeight); x += 118; }
+        body.setSize(juce::jmax(x, getWidth()),stripHeight);
     }
     void paint(juce::Graphics &g) override {
         const auto tokens = liveReferenceTokens();
@@ -90,7 +93,16 @@ class LiveMixer final : public juce::Component {
       public:
         Strip(Desktop &desktop, juce::String channel) : owner(desktop), id(std::move(channel)),
             inputs(owner,id,LiveChannelControls::Surface::mixer), gain(kit::ParameterSpec{"gain", "Level", kit::Unit::db, -60, 12, 0, .1, kit::Mapping::linear, 1}, true) {
-            for (auto *c : std::array<juce::Component *, 7>{&name, &inputs, &gain, &pan, &mute, &solo, &instrumentSelector}) addAndMakeVisible(c);
+            for (auto *c : std::array<juce::Component *, 10>{&name, &inputs, &gain, &pan, &mute, &solo,
+                    &instrumentSelector, &insertTitle, &addInsert, &insertViewport}) addAndMakeVisible(c);
+            insertTitle.setText("Inserts",juce::dontSendNotification);
+            insertTitle.setComponentID("live-mixer-insert-title-"+id);
+            insertViewport.setComponentID("live-mixer-inserts-"+id);
+            insertViewport.setViewedComponent(&insertBody,false);
+            insertViewport.setScrollBarsShown(true,false);
+            addInsert.setComponentID("live-mixer-add-insert-"+id);
+            addInsert.setTooltip("Add audio FX to this Live channel (stopped)");
+            addInsert.onClick=[this]{inputs.showInsertAddMenu(addInsert);};
             instrumentSelector.setComponentID("live-mixer-instrument-"+id);
             instrumentSelector.onClick=[this]{inputs.showInstrumentPicker(instrumentSelector);};
             gain.setComponentID("live-mixer-gain-" + id);
@@ -113,7 +125,10 @@ class LiveMixer final : public juce::Component {
                 button->setClickingTogglesState(true); button->onClick = [this] { commit(); };
             }
         }
-        ~Strip() override { gain.onEvent = {}; owner.app.cancel_mix_preview(); }
+        ~Strip() override {
+            gain.onEvent={};owner.app.cancel_mix_preview();
+            insertViewport.setViewedComponent(nullptr,false);
+        }
         const juce::String& channelId() const noexcept { return id; }
         void sync(const std::map<juce::String,mrs::audio::StereoPeak>& meters) {
             const auto state = owner.liveDocument->interfaceState;
@@ -123,7 +138,10 @@ class LiveMixer final : public juce::Component {
             inputs.setVisible(kind!="Playback");inputs.sync();
             const auto saved=channel["liveInput"];
             const bool instrument=kind=="Instrument" && (!saved.isObject() || static_cast<int>(saved["version"])==2);
+            const bool relayout=instrumentSelector.isVisible()!=instrument ||
+                insertViewport.isVisible()!=(kind!="Playback");
             instrumentSelector.setVisible(instrument);
+            syncInserts(saved,kind,instrument);
             instrumentSelector.setEnabled(instrument && saved.isObject() &&
                 !owner.app.recording() && owner.displayState().playback!=mrs::PlaybackState::playing);
             const auto pluginName=saved.isObject() && saved["inserts"].size()>0 ?
@@ -131,6 +149,7 @@ class LiveMixer final : public juce::Component {
             instrumentSelector.setButtonText(pluginName.isEmpty()?"Choose VSTi":pluginName);
             instrumentSelector.setTooltip(pluginName.isEmpty()?
                 "Choose a VST3 instrument from the scanned catalog":"Replace VST3 instrument: "+pluginName);
+            if(relayout)resized();
             const auto target=owner.liveInputTrack(id);const bool activeInput=target.has_value();
             if (!gain.gesturing() && !gain.hasKeyboardFocus(true)) gain.setValue(static_cast<double>(channel["gain"]));
             if (!pan.isMouseButtonDown() && !pan.hasKeyboardFocus(true)) pan.setValue(live::channelPan(channel), juce::dontSendNotification);
@@ -151,11 +170,24 @@ class LiveMixer final : public juce::Component {
                        "No valid Audio/MIDI input or processor assigned");
         }
         void resized() override {
-            auto area = getLocalBounds().reduced(6);
+            auto area=getLocalBounds().reduced(6);
             name.setBounds(area.removeFromTop(24));
-            inputs.setBounds(area.removeFromTop(44));
-            auto buttons = area.removeFromTop(28);
-            mute.setBounds(buttons.removeFromLeft(30).reduced(1));solo.setBounds(buttons.removeFromLeft(30).reduced(1));
+            inputs.setBounds(area.removeFromTop(24));
+            if(insertViewport.isVisible()) {
+                auto title=area.removeFromTop(22);
+                addInsert.setBounds(title.removeFromRight(24).reduced(1));
+                insertTitle.setBounds(title);
+                insertViewport.setBounds(area.removeFromTop(92));
+                const int contentHeight=static_cast<int>(insertButtons.size())*20;
+                const int width=juce::jmax(1,insertViewport.getWidth()-
+                    (contentHeight>insertViewport.getHeight()?insertViewport.getScrollBarThickness():0));
+                insertBody.setSize(width,contentHeight);
+                for(std::size_t i=0;i<insertButtons.size();++i)
+                    insertButtons[i]->setBounds(0,static_cast<int>(i)*20,width,18);
+            }
+            auto buttons=area.removeFromTop(28);
+            mute.setBounds(buttons.removeFromLeft(30).reduced(1));
+            solo.setBounds(buttons.removeFromLeft(30).reduced(1));
             pan.setBounds(area.removeFromTop(40));
             if(instrumentSelector.isVisible())
                 instrumentSelector.setBounds(area.removeFromTop(22).reduced(1,0));
@@ -167,10 +199,10 @@ class LiveMixer final : public juce::Component {
             g.setColour(tokens.colour(ColourRole::border)); g.drawRect(getLocalBounds());
             // MR Studio mixer uses independent L/R peak bars aligned with
             // the long fader. Keep the MR Live palette, no new meter colours.
-            const int height = juce::jmax(0, getHeight() - 116);
+            const int baseY=gain.getY()+5,baseX=getWidth()-17;
+            const int height=juce::jmax(0,gain.getHeight()-10);
             const auto meterBackground=tokens.colour(ColourRole::panel);
             const auto active=tokens.colour(ColourRole::on);
-            const int baseY=102, baseX=getWidth()-17;
             for (int i=0;i<2;++i) {
                 const int x=baseX+i*6;
                 const float value=juce::jlimit(0.f,1.f,i==0?meterLeft:meterRight);
@@ -184,12 +216,81 @@ class LiveMixer final : public juce::Component {
             }
         }
       private:
+        void syncInserts(const juce::var& saved,const juce::String& kind,bool instrument) {
+            const bool visible=kind!="Playback";
+            insertViewport.setVisible(visible);
+            insertTitle.setVisible(visible);
+            addInsert.setVisible(visible);
+            const auto entries=saved["inserts"];
+            const bool stopped=!owner.app.recording() &&
+                owner.displayState().playback!=mrs::PlaybackState::playing;
+            const bool editable=visible && saved.isObject() &&
+                !(kind=="Instrument" && static_cast<int>(saved["version"])!=2) && stopped;
+            addInsert.setEnabled(editable && entries.size()<8 &&
+                (!instrument || entries.size()>0));
+
+            // Rebuild only when an insert's stable ID, name or power changes;
+            // never recreate plugin row controls on the 15 Hz meter tick.
+            juce::String next=visible?"live:":"playback:";
+            for(int i=instrument?1:0;i<entries.size();++i) {
+                const auto entry=entries[i];
+                next+=entry["id"].toString()+"|"+entry["name"].toString()+"|"+
+                    entry["kind"].toString()+"|"+entry["bypass"].toString()+";";
+            }
+            if(next!=insertSignature) {
+                insertSignature=next;
+                insertButtons.clear();
+                juce::Component::SafePointer<Strip> safe(this);
+                for(int i=instrument?1:0;i<entries.size();++i) {
+                    const auto entry=entries[i];
+                    const auto slotText=entry["id"].toString();
+                    if(slotText.isEmpty())continue;
+                    const mrs::Id slot{slotText.toStdString()};
+                    const auto label=entry["name"].toString().isNotEmpty()?
+                        entry["name"].toString():juce::String("Gain");
+                    auto control=std::make_unique<MixerInsert>(
+                        label,static_cast<bool>(entry["bypass"]));
+                    control->setComponentID("live-mixer-insert:"+slotText);
+                    juce::Component::SafePointer<MixerInsert> row(control.get());
+                    control->editor.onClick=[safe,slot] {
+                        if(safe)safe->owner.run([&]{
+                            safe->owner.openLiveInsertEditor(safe->id,slot);
+                        });
+                    };
+                    control->menu=[safe,row,slot](juce::Point<int>) {
+                        if(safe && row)safe->inputs.showInsertSlotMenu(*row,slot);
+                    };
+                    const auto generation=owner.liveDocumentGeneration;
+                    control->bypass.onClick=[safe,slot,generation] {
+                        // A Live FX chain edit replaces its saved UI projection.
+                        // Defer until JUCE finishes the source button callback.
+                        juce::MessageManager::callAsync([safe,slot,generation] {
+                            if(safe && safe->owner.liveDocumentGeneration==generation)
+                                safe->inputs.toggleInsertBypass(slot);
+                        });
+                    };
+                    insertBody.addAndMakeVisible(*control);
+                    insertButtons.push_back(std::move(control));
+                }
+                resized();
+            }
+            for(auto& button:insertButtons) {
+                button->bypass.setEnabled(editable);
+                button->editor.setEnabled(!owner.app.recording());
+            }
+        }
         void commit() { owner.run([&] { owner.setLiveChannelMix(id, gain.value(), pan.getValue(), mute.getToggleState(), solo.getToggleState()); }); }
         Desktop &owner;
         juce::String id;
         juce::Label name;
         LiveChannelControls inputs;
         juce::TextButton instrumentSelector{"Choose VSTi"};
+        juce::Label insertTitle;
+        juce::TextButton addInsert{"+"};
+        juce::Viewport insertViewport;
+        juce::Component insertBody;
+        std::vector<std::unique_ptr<MixerInsert>> insertButtons;
+        juce::String insertSignature;
         kit::MRFader gain;
         juce::Slider pan;
         juce::TextButton mute{"M"}, solo{"S"};
