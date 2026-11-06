@@ -2148,6 +2148,48 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     liveCheck(panelToggle && panelSetlistSurface && playbackSurface->isVisible() &&
                   panelToggle->getToggleState() && panelToggle->getButtonText().isEmpty(),
               "#309 Playback/Stems starts visible with an icon-only toggle in the toolbar");
+    // #309 common improvement 3: icon-only Mixer/Fit, semantic toolbar
+    // groups and non-interactive separators. Keep the old command IDs and
+    // tooltips: this change is visual only, not a new edit or transport mode.
+    {
+        auto* mixerToolbar=dynamic_cast<juce::TextButton*>(
+            liveComponent(desktop,"live-mixer-toggle"));
+        auto* fitToolbar=dynamic_cast<juce::TextButton*>(
+            liveComponent(desktop,"live-zoom-fit"));
+        auto* filesToolbar=liveComponent(desktop,"live-toolbar-files");
+        auto* optionsToolbar=liveComponent(desktop,"live-toolbar-options");
+        auto* pointerToolbar=liveComponent(desktop,"live-pointer-tool");
+        auto* scissorsToolbar=liveComponent(desktop,"live-scissors-tool");
+        auto* undoToolbar=liveComponent(desktop,"live-toolbar-undo");
+        auto* redoToolbar=liveComponent(desktop,"live-toolbar-redo");
+        auto* filesDivider=liveComponent(desktop,"live-toolbar-separator-files");
+        auto* windowsDivider=liveComponent(desktop,"live-toolbar-separator-windows");
+        auto* historyDivider=liveComponent(desktop,"live-toolbar-separator-history");
+        liveCheck(mixerToolbar && fitToolbar && filesToolbar && optionsToolbar &&
+                  pointerToolbar && scissorsToolbar && undoToolbar && redoToolbar &&
+                  filesDivider && windowsDivider && historyDivider &&
+                  mixerToolbar->getButtonText().isEmpty() &&
+                  fitToolbar->getButtonText().isEmpty() &&
+                  fitToolbar->getProperties()["mrHostIcon"].toString()=="action_fit" &&
+                  mixerToolbar->getTooltip().isNotEmpty() && fitToolbar->getTooltip().isNotEmpty(),
+                  "#309 Mixer and Fit use compact icons with accessible tooltips");
+        const auto toolbarX=[native](juce::Component* component) {
+            return native->getLocalPoint(component,juce::Point<int>{}).getX();
+        };
+        liveCheck(toolbarX(filesToolbar)<toolbarX(optionsToolbar) &&
+                  toolbarX(optionsToolbar)<toolbarX(filesDivider) &&
+                  toolbarX(filesDivider)<toolbarX(panelToggle) &&
+                  toolbarX(panelToggle)<toolbarX(mixerToolbar) &&
+                  toolbarX(mixerToolbar)<toolbarX(windowsDivider) &&
+                  toolbarX(windowsDivider)<toolbarX(pointerToolbar) &&
+                  toolbarX(pointerToolbar)<toolbarX(scissorsToolbar) &&
+                  toolbarX(scissorsToolbar)<toolbarX(fitToolbar) &&
+                  toolbarX(fitToolbar)<toolbarX(historyDivider) &&
+                  toolbarX(historyDivider)<toolbarX(undoToolbar) &&
+                  toolbarX(undoToolbar)<toolbarX(redoToolbar) &&
+                  mixerToolbar->getWidth()==fitToolbar->getWidth(),
+                  "#309 toolbar groups windows, pointer/zoom and Undo/Redo with separators");
+    }
     const int visibleBottom=panelSetlistSurface->getBottom();
     const auto savedChannel=desktop.livePlaybackSelectedChannel;
     const auto savedStem=desktop.livePlaybackStem;
