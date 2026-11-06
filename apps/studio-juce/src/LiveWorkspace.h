@@ -208,7 +208,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             timeline.setFollowPlayhead(on);
             followPlayhead.setTooltip(on?"Follow Playhead: On":"Follow Playhead: Off");
         };
-        for (auto *button : {&play, &pause, &stop, &record, &previous, &next, &loop, &followPlayhead})
+        for (auto *button : std::array<juce::Button*,8>{&play, &pause, &stop, &record, &previous, &next, &loop, &followPlayhead})
             button->getProperties().set("mrLiveTransport", true);
         tunerPlaceholder = LiveLayout::drawable("live_tuner.svg");
         record.onClick = [this] { owner.action(33); };
