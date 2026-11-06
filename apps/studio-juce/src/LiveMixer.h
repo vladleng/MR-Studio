@@ -96,8 +96,15 @@ class LiveMixer final : public juce::Component, public juce::DragAndDropTarget {
     // Strip controls keep their own fader/FX gestures; only the header starts
     // a channel drag, and the drop commits once on mouse release.
     bool isInterestedInDragSource(const SourceDetails& s) override {
-        return owner.liveDocument && !owner.app.recording() &&
-            s.description.toString().startsWith("mr-live-channel:");
+        if(!owner.liveDocument || owner.app.recording())return false;
+        const auto desc=s.description.toString();
+        if(!desc.startsWith("mr-live-channel:"))return false;
+        const auto source=desc.fromFirstOccurrenceOf("mr-live-channel:",false,false);
+        // Mixer contains only root strips. Stem children belong to their
+        // Playback parent and may be reordered inside Timeline, not here.
+        for(const auto& lane:live::playbackLanes(owner.liveDocument->interfaceState))
+            if(lane.channel==source && !lane.container)return !lane.child;
+        return false;
     }
     void itemDragMove(const SourceDetails& s) override {
         dropBoundary.reset();
