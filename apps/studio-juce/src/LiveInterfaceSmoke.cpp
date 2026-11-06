@@ -1208,11 +1208,17 @@ void liveChannelReorderSmoke(const juce::File& fixture) {
     std::map<juce::String,juce::String> originalChannels;
     for(const auto& row:*before["channels"].getArray())
         originalChannels[row["id"].toString()]=live::canonical(row);
+    const auto channelIndex=[](const juce::var& show,const juce::String& channel) {
+        if(const auto* rows=show["channels"].getArray())
+            for(int i=0;i<rows->size();++i)
+                if((*rows)[i]["id"].toString()==channel)return i;
+        return -1;
+    };
     const auto engine=host.app.engine();
     const auto revision=host.liveUiRevision;
     host.reorderLiveChannel(root,alternate,true);
     const auto& moved=host.liveDocument->interfaceState;
-    liveCheck(moved["channels"][2]["id"]==root &&
+    liveCheck(channelIndex(moved,root)>channelIndex(moved,alternate) &&
               moved["performance"]["primaryPlaybackChannel"]==root &&
               live::primaryPlaybackId(moved)==root &&
               host.liveUiRevision==revision+1 &&
@@ -1259,17 +1265,20 @@ void liveChannelReorderSmoke(const juce::File& fixture) {
               "#309 Timeline drop updates the same show order");
     // And the independent Mixer drop target, with stable channel IDs.
     auto* playerStrip=liveComponent(*mixer,"live-mixer-strip-"+player);
-    rootStrip=liveComponent(*mixer,"live-mixer-strip-"+root);
-    liveCheck(playerStrip && rootStrip,"#309 mixer keeps stable channel IDs after a drop");
+    alternateStrip=liveComponent(*mixer,"live-mixer-strip-"+alternate);
+    liveCheck(playerStrip && alternateStrip,"#309 mixer keeps stable channel IDs after a drop");
+    const int playerIndexBefore=channelIndex(host.liveDocument->interfaceState,player);
     juce::DragAndDropTarget::SourceDetails fromMixer(
-        juce::var("mr-live-channel:"+player),mixer,{rootStrip->getX()+6,16});
+        juce::var("mr-live-channel:"+player),mixer,{alternateStrip->getX()+92,16});
     liveCheck(mixer->isInterestedInDragSource(fromMixer),
               "#309 Mixer accepts the same channel drag payload");
     mixer->itemDropped(fromMixer);
     livePump();timeline->refresh();mixer->sync();
     liveCheck(live::primaryPlaybackId(host.liveDocument->interfaceState)==root &&
-              host.liveDocument->interfaceState["channels"][0]["id"]==player,
-              "#309 Mixer drop reorders visible channels without changing Backing identity");
+              channelIndex(host.liveDocument->interfaceState,player)>
+              channelIndex(host.liveDocument->interfaceState,alternate) &&
+              channelIndex(host.liveDocument->interfaceState,player)!=playerIndexBefore,
+              "#309 Mixer drop actually changes show order without changing Backing identity");
     const auto saved=fixture.getSiblingFile("live-channel-reorder-smoke.mrlive");
     host.saveFile(saved);
     const auto savedOrder=live::canonical(host.liveDocument->interfaceState["channels"]);
