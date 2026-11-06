@@ -1512,7 +1512,48 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                 liveComponent(realMixer,"live-mixer-instrument-"+midiChannelId));
             liveCheck(instrumentPick && instrumentPick->isVisible() &&
                       instrumentPick->getButtonText()=="Choose VSTi",
-                      "Instrument VSTi selector is present in Mixer under pan/level");
+                      "Instrument selector remains available in the mixer");
+            // #309 user's layout refinement: routing belongs BELOW the
+            // divider; Input/Instrument, Output, Balance, M/S, level, in that
+            // order for every role. The insert '+' belongs to channel header.
+            auto* playerInput=liveComponent(realMixer,"live-channel-input-"+playerChannelId);
+            auto* playerOutput=liveComponent(realMixer,"live-channel-output-"+playerChannelId);
+            auto* instrumentOutput=liveComponent(realMixer,"live-channel-output-"+midiChannelId);
+            auto* playerPan=liveComponent(realMixer,"live-mixer-pan-"+playerChannelId);
+            auto* instrumentPan=liveComponent(realMixer,"live-mixer-pan-"+midiChannelId);
+            auto* playbackPan=liveComponent(realMixer,"live-mixer-pan-"+playbackId);
+            auto* playerMute=liveComponent(realMixer,"live-mixer-mute-"+playerChannelId);
+            auto* instrumentMute=liveComponent(realMixer,"live-mixer-mute-"+midiChannelId);
+            auto* playbackMute=liveComponent(realMixer,"live-mixer-mute-"+playbackId);
+            auto* insertAdd=liveComponent(realMixer,"live-mixer-add-insert-"+midiChannelId);
+            auto* insertTitle=liveComponent(realMixer,"live-mixer-insert-title-"+midiChannelId);
+            const auto yInMixer=[&](juce::Component* component) {
+                return realMixer.getLocalPoint(component,juce::Point<int>{}).getY();
+            };
+            const auto xInMixer=[&](juce::Component* component) {
+                return realMixer.getLocalPoint(component,juce::Point<int>{}).getX();
+            };
+            liveCheck(playerInput && playerOutput && instrumentOutput && playerPan &&
+                      instrumentPan && playbackPan && playerMute && instrumentMute &&
+                      playbackMute && insertAdd && insertTitle &&
+                      playerInput->isVisible() && playerOutput->isVisible() &&
+                      instrumentOutput->isVisible() &&
+                      yInMixer(playerInput)==yInMixer(instrumentPick) &&
+                      yInMixer(playerOutput)==yInMixer(instrumentOutput) &&
+                      yInMixer(playerInput)>yInMixer(faderDivider) &&
+                      yInMixer(playerInput)<yInMixer(playerOutput) &&
+                      yInMixer(playerOutput)<yInMixer(playerPan) &&
+                      yInMixer(playerPan)<yInMixer(playerMute) &&
+                      yInMixer(playerMute)<yInMixer(playerGain) &&
+                      yInMixer(playerPan)==yInMixer(instrumentPan) &&
+                      yInMixer(playerPan)==yInMixer(playbackPan) &&
+                      yInMixer(playerMute)==yInMixer(instrumentMute) &&
+                      yInMixer(playerMute)==yInMixer(playbackMute),
+                      "#309 mixer lower bank aligns Input/VSTi, Output, Balance, M/S, faders");
+            liveCheck(insertAdd->isVisible() &&
+                      yInMixer(insertAdd)<yInMixer(insertTitle) &&
+                      xInMixer(insertAdd)>xInMixer(insertTitle),
+                      "#309 insert plus resides on channel title, above FX rack");
             LiveTimeline realTimeline(uiPilot);
             realTimeline.setSize(600,540);realTimeline.refresh();
             auto* editorIcon=dynamic_cast<juce::Button*>(
