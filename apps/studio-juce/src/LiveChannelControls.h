@@ -46,14 +46,13 @@ public:
     void resized() override {
         auto r=getLocalBounds();
         if(surface==Surface::mixer) {
-            if(!input.isVisible())output.setBounds(r.removeFromTop(22).reduced(1,0));
-            else {
-                auto row=r.removeFromTop(22);
-                input.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(1,0));
-                output.setBounds(row.reduced(1,0));
-            }
+            // Two fixed-height rows below the shared fader-zone divider.
+            // Instrument's VSTi selector occupies row 1 in the owning Strip;
+            // its physical output remains here on row 2.
+            input.setBounds(r.removeFromTop(24).reduced(1,1));
+            output.setBounds(r.removeFromTop(24).reduced(1,1));
             effects.setBounds({});
-            return; // Mixer has actual insert rows, not a second FX selector.
+            return; // Mixer has real insert rows, not the old FX popup.
         }
         auto row=r.removeFromTop(22);
         input.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(1,0));
