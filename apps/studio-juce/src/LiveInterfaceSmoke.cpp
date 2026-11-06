@@ -1213,7 +1213,7 @@ void liveChannelReorderSmoke(const juce::File& fixture) {
     const int ghostAlpha=dragImage.getPixelAt(dragImage.getWidth()/2,
                                                dragImage.getHeight()/2).getAlpha();
     liveCheck(ghostAlpha>=150 && ghostAlpha<=155,
-              "#309 Timeline drag thumbnail matches Mixer 60% translucent ghost");
+              "#309 Timeline one-channel drag ghost matches Mixer 60% opacity");
     juce::String alternate,player;
     host.editLiveInterface("Prepare channel order", [&](auto& state) {
         alternate=live::addChannel(state,"Playback","Alternate Backing");
