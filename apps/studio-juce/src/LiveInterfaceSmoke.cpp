@@ -2144,11 +2144,11 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     // the panel can be hidden/reopened without deleting show or stem selection.
     auto *panelToggle=dynamic_cast<juce::Button*>(
         liveComponent(desktop,"live-playback-panel-toggle"));
-    auto *setlistSurface=liveComponent(desktop,"live-setlist");
-    liveCheck(panelToggle && setlistSurface && playbackSurface->isVisible() &&
+    auto *panelSetlistSurface=liveComponent(desktop,"live-setlist");
+    liveCheck(panelToggle && panelSetlistSurface && playbackSurface->isVisible() &&
                   panelToggle->getToggleState() && panelToggle->getButtonText().isEmpty(),
               "#309 Playback/Stems starts visible with an icon-only toggle in the toolbar");
-    const int visibleBottom=setlistSurface->getBottom();
+    const int visibleBottom=panelSetlistSurface->getBottom();
     const auto savedChannel=desktop.livePlaybackSelectedChannel;
     const auto savedStem=desktop.livePlaybackStem;
     const auto savedShow=live::canonical(desktop.liveDocument->interfaceState);
@@ -2157,12 +2157,12 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     panelToggle->triggerClick();
     livePump();
     liveCheck(!playbackSurface->isVisible() && !panelToggle->getToggleState() &&
-                  setlistSurface->getBottom()>visibleBottom,
+                  panelSetlistSurface->getBottom()>visibleBottom,
               "#309 hiding Playback/Stems releases vertical space for the setlist");
     panelToggle->triggerClick();
     livePump();
     liveCheck(playbackSurface->isVisible() && panelToggle->getToggleState() &&
-                  setlistSurface->getBottom()==visibleBottom &&
+                  panelSetlistSurface->getBottom()==visibleBottom &&
                   desktop.livePlaybackSelectedChannel==savedChannel &&
                   desktop.livePlaybackStem==savedStem &&
                   live::canonical(desktop.liveDocument->interfaceState)==savedShow &&
