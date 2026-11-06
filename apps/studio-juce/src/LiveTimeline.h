@@ -159,7 +159,12 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
     juce::Image channelDragPreview(const juce::String& id,int draggedLaneIndex=-1) {
         const auto r=channelDragPreviewBounds(id,draggedLaneIndex);
         if(r.isEmpty())return {};
-        return createComponentSnapshot(r,true);
+        // Match JUCE's default Mixer DnD ghost: the default snapshot is
+        // converted to ARGB and shown at 60% opacity. Our cropped Timeline
+        // snapshot bypasses that automatic treatment unless applied here.
+        auto image=createComponentSnapshot(r,true).convertedToFormat(juce::Image::ARGB);
+        image.multiplyAllAlphas(0.6f);
+        return image;
     }
     void refresh() {
         syncChannel();
