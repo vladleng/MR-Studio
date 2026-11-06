@@ -2140,6 +2140,33 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     livePump();
     auto *playbackSurface = liveComponent(desktop, "live-playback-panel");
     liveCheck(playbackSurface != nullptr, "Browser dismissal test has Playback/Stems panel");
+    // #309 common improvement 2 — reproduce the originally missing UI switch:
+    // the panel can be hidden/reopened without deleting show or stem selection.
+    auto *panelToggle=dynamic_cast<juce::Button*>(
+        liveComponent(desktop,"live-playback-panel-toggle"));
+    auto *setlistSurface=liveComponent(desktop,"live-setlist");
+    liveCheck(panelToggle && setlistSurface && playbackSurface->isVisible() &&
+                  panelToggle->getToggleState() && panelToggle->getButtonText().isEmpty(),
+              "#309 Playback/Stems starts visible with an icon-only toggle in the toolbar");
+    const int visibleBottom=setlistSurface->getBottom();
+    const auto savedChannel=desktop.livePlaybackSelectedChannel;
+    const auto savedStem=desktop.livePlaybackStem;
+    const auto savedShow=live::canonical(desktop.liveDocument->interfaceState);
+    const auto savedRevision=desktop.app.services().projects->state().revision;
+    const auto savedUndo=desktop.liveUndo.canUndo();
+    panelToggle->triggerClick();
+    liveCheck(!playbackSurface->isVisible() && !panelToggle->getToggleState() &&
+                  setlistSurface->getBottom()>visibleBottom,
+              "#309 hiding Playback/Stems releases vertical space for the setlist");
+    panelToggle->triggerClick();
+    liveCheck(playbackSurface->isVisible() && panelToggle->getToggleState() &&
+                  setlistSurface->getBottom()==visibleBottom &&
+                  desktop.livePlaybackSelectedChannel==savedChannel &&
+                  desktop.livePlaybackStem==savedStem &&
+                  live::canonical(desktop.liveDocument->interfaceState)==savedShow &&
+                  desktop.app.services().projects->state().revision==savedRevision &&
+                  desktop.liveUndo.canUndo()==savedUndo,
+              "#309 reopening Playback/Stems preserves show, WAV/stems selection, Core and Undo");
     const auto browserClick = [&](juce::Component *origin) {
         const auto when = juce::Time::getCurrentTime();
         const juce::Point<float> where{4.f, 4.f};
