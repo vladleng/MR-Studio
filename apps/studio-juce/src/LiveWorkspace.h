@@ -15,6 +15,23 @@
 
 namespace ui {
 class LiveWorkspace final : public juce::Component, private juce::Timer {
+    // Icon-only, show-scoped visibility control; no document, audio or
+    // Playback/Stems selection state is mutated by this button.
+    class PlaybackPanelToggle final : public juce::TextButton {
+      public:
+        void paintButton(juce::Graphics& g,bool over,bool down) override {
+            juce::TextButton::paintButton(g,over,down);
+            const auto tokens=liveReferenceTokens();
+            auto colour=tokens.colour(getToggleState()?ColourRole::on:ColourRole::muted);
+            if(!isEnabled())colour=colour.withAlpha(.4f);
+            g.setColour(colour);
+            const float x=getWidth()*.5f,y=getHeight()*.5f;
+            for(const float dy:{-5.f,0.f,5.f}) {
+                g.drawLine(x-7.f,y+dy,x+7.f,y+dy,1.3f);
+                g.fillEllipse(x-3.f,y+dy-1.8f,3.6f,3.6f);
+            }
+        }
+    };
     // Same top-edge drag contract as the MR Studio mixer divider.
     class MixerDivider final : public juce::Component {
       public:
@@ -54,8 +71,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         setLookAndFeel(&nativeTheme);
         addMouseListener(this, true);
         for (auto *component :
-             std::array<juce::Component *, 12>{&setlist, &files, &options, &play, &pause, &stop, &record, &previous,
-                                               &next, &loop, &undoButton, &redoButton})
+             std::array<juce::Component *, 13>{&setlist, &files, &options, &playbackPanelToggle, &play, &pause, &stop, &record,
+                                               &previous, &next, &loop, &undoButton, &redoButton})
             addAndMakeVisible(component);
         addChildComponent(browserItems);
         addAndMakeVisible(timeline);
@@ -91,6 +108,20 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
             resized();
         };
         playbackPanel.layoutChanged = [this] { resized(); };
+        playbackPanelToggle.setComponentID("live-playback-panel-toggle");
+        playbackPanelToggle.setTitle("Show or hide Playback / Stems");
+        playbackPanelToggle.setButtonText({});
+        playbackPanelToggle.setClickingTogglesState(true);
+        playbackPanelToggle.setToggleState(true,juce::dontSendNotification);
+        playbackPanelToggle.setTooltip("Hide Playback / Stems");
+        playbackPanelToggle.onClick=[this] {
+            playbackPanelVisible=!playbackPanelVisible;
+            playbackPanel.setVisible(playbackPanelVisible);
+            playbackPanelToggle.setToggleState(playbackPanelVisible,juce::dontSendNotification);
+            playbackPanelToggle.setTooltip(playbackPanelVisible?
+                "Hide Playback / Stems":"Show Playback / Stems");
+            resized(); // When closed, the setlist claims the vacated area.
+        };
         files.onClick = [this] { filesMenu(); };
         options.onClick = [this] { optionsMenu(); };
         play.onClick = [this] { owner.action(30); };
@@ -137,7 +168,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     }
     bool itemsBrowserVisible() const { return browserVisible; }
     void resized() override {
-        auto playbackBounds = reference.bounds("playback.stems", getWidth(), getHeight());
+        const auto playbackRegion=reference.bounds("playback.stems",getWidth(),getHeight());
+        auto playbackBounds = playbackRegion;
         playbackBounds.setY(playbackBounds.getBottom() - playbackPanel.preferredHeight());
         playbackBounds.setHeight(playbackPanel.preferredHeight());
         playbackPanel.setBounds(playbackBounds);
@@ -146,13 +178,15 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         auto controls = toolbar.reduced(6).withHeight(32);
         files.setBounds(controls.removeFromLeft(44).reduced(1));
         options.setBounds(controls.removeFromLeft(52).reduced(1));
+        playbackPanelToggle.setBounds(controls.removeFromLeft(30).reduced(2));
         undoButton.setBounds(controls.removeFromLeft(26));
         redoButton.setBounds(controls.removeFromLeft(26));
         mixerButton.setBounds(controls.removeFromLeft(58));
         pointerTool.setBounds(controls.removeFromLeft(28));scissorsTool.setBounds(controls.removeFromLeft(28));
         zoomFitButton.setBounds(controls.removeFromLeft(52).reduced(1));
         auto setlistBounds = reference.bounds("show.setlist", getWidth(), getHeight());
-        setlistBounds.setBottom(playbackPanel.getY());
+        setlistBounds.setBottom(playbackPanelVisible?
+            playbackPanel.getY():playbackRegion.getBottom());
         setlist.setBounds(setlistBounds);
         const auto channelBounds = reference.bounds("track.channels", getWidth(), getHeight());
         const auto timelineBounds = reference.bounds("song.timeline", getWidth(), getHeight());
@@ -443,6 +477,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     bool mixerVisible{};
     bool showLegacyChannels{};
     std::unique_ptr<juce::Drawable> tunerPlaceholder;
+    PlaybackPanelToggle playbackPanelToggle;
+    bool playbackPanelVisible{true};
     juce::TextButton files{"Files"}, options{"Options"}, play{"Play"}, pause{"Pause"}, stop{"Stop"},
         record{"Record (R)"}, previous{"< Section"}, next{"Section >"}, loop{"Loop section"}, undoButton{"Undo"},
         redoButton{"Redo"};
