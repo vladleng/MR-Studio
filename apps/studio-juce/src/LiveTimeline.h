@@ -136,13 +136,28 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
     // snapshot (which previously displayed every channel simultaneously).
     // Keep the source rectangle in timeline-local screen coordinates, including
     // vertical viewport scrolling; do not capture waveform/item strips.
-    juce::Rectangle<int> channelDragPreviewBounds(const juce::String& id) const {
-        const int rowY=channelY(id)-viewport.getViewPositionY();
+    juce::Rectangle<int> channelDragPreviewBounds(const juce::String& id,
+                                                    int draggedLaneIndex=-1) const {
+        int index=draggedLaneIndex;
+        if(index<0 || index>=static_cast<int>(lanes.size()) ||
+           lanes[static_cast<std::size_t>(index)].channel!=id) {
+            index=-1;
+            // A loaded primary Playback is drawn twice (group + WAV child)
+            // with the same channel ID. Prefer the group for a root drag.
+            for(std::size_t i=0;i<lanes.size();++i)
+                if(lanes[i].channel==id && !lanes[i].child) {
+                    index=static_cast<int>(i);break;
+                }
+            if(index<0)for(std::size_t i=0;i<lanes.size();++i)
+                if(lanes[i].channel==id) {index=static_cast<int>(i);break;}
+        }
+        if(index<0)return {};
+        const int rowY=lanesTop+index*rowHeight-viewport.getViewPositionY();
         return juce::Rectangle<int>(0,rowY,juce::jmax(0,channelWidth),rowHeight)
             .getIntersection(getLocalBounds());
     }
-    juce::Image channelDragPreview(const juce::String& id) {
-        const auto r=channelDragPreviewBounds(id);
+    juce::Image channelDragPreview(const juce::String& id,int draggedLaneIndex=-1) {
+        const auto r=channelDragPreviewBounds(id,draggedLaneIndex);
         if(r.isEmpty())return {};
         return createComponentSnapshot(r,true);
     }
@@ -329,6 +344,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
 
     void mouseDown(const juce::MouseEvent &event) override {
         dragChannel.clear();
+        dragLaneIndex=-1;
         if(event.x>=channelWidth)return;
         const int y=event.y+viewport.getViewPositionY();
         const auto *lane=laneAt(y);
@@ -339,8 +355,10 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         if(lane && event.mods.isLeftButtonDown()) {
             selectPlaybackChannel(lane->channel);
             if(!owner.app.recording() && event.getNumberOfClicks()==1 &&
-               !(lane->child && lane->channel==live::primaryPlaybackId(state)))
+               !(lane->child && lane->channel==live::primaryPlaybackId(state))) {
                 dragChannel=lane->channel;
+                dragLaneIndex=(y-lanesTop)/rowHeight;
+            }
         }
     }
     void mouseDrag(const juce::MouseEvent& e) override {
@@ -348,13 +366,14 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(auto* container=juce::DragAndDropContainer::findParentDragContainerFor(this))
                 if(!container->isDragAndDropActive()) {
                     auto id=dragChannel;dragChannel.clear();
-                    const auto image=channelDragPreview(id);
+                    const auto sourceLane=dragLaneIndex;dragLaneIndex=-1;
+                    const auto image=channelDragPreview(id,sourceLane);
                     if(!image.isNull())
                         container->startDragging("mr-live-channel:"+id,this,image,
                                                  false,nullptr,&e.source);
                 }
     }
-    void mouseUp(const juce::MouseEvent&) override {dragChannel.clear();}
+    void mouseUp(const juce::MouseEvent&) override {dragChannel.clear();dragLaneIndex=-1;}
     bool isInterestedInDragSource(const SourceDetails& s) override {
         return owner.liveDocument && !owner.app.recording() &&
             s.description.toString().startsWith("mr-live-channel:");
@@ -1561,6 +1580,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
     }
     Desktop &owner;
     juce::String dragChannel;
+    int dragLaneIndex{-1};
     std::optional<int> dragDropY;
     LiveWaveformCache waveforms;
     juce::SharedResourcePointer<LivePerformanceArt> performanceArt;
