@@ -134,6 +134,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
     }
     // Extract a single lane rather than JUCE's default full-component drag
     // snapshot (which previously displayed every channel simultaneously).
+    // Keep the source rectangle in timeline-local screen coordinates, including
+    // vertical viewport scrolling; do not capture waveform/item strips.
     juce::Rectangle<int> channelDragPreviewBounds(const juce::String& id) const {
         const int rowY=channelY(id)-viewport.getViewPositionY();
         return juce::Rectangle<int>(0,rowY,juce::jmax(0,channelWidth),rowHeight)
