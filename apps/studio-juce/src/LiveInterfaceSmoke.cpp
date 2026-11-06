@@ -1510,8 +1510,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             liveCheck(midiLoaded.outputs==std::vector<int>{0,1} &&
                       mixerInput && !mixerInput->isVisible() &&
                       mixerOutput && mixerOutput->isVisible() && mixerOutput->getButtonText()=="Out 1" &&
-                      mixerFx && mixerFx->isVisible() && mixerFx->getButtonText()=="Audio FX (0)",
-                      "Instrument Mixer retains assigned physical output and audio FX, without duplicated MIDI/VSTi");
+                      mixerFx && !mixerFx->isVisible() &&
+                      liveComponent(realMixer,"live-mixer-add-insert-"+midiChannelId)!=nullptr,
+                      "Instrument Mixer shows physical output plus dedicated FX insert rack, not the old popup button");
             // The same Mixer selector must display Master for an intentionally
             // empty physical output route (and never overwrite MIDI channel).
             // Regression for Windows #383: the original fixture has Out 1,
@@ -1786,6 +1787,36 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   !live::findPluginClass(mixedCatalog,"unknown.vst3","00000000000000000000000000000004")->instrument.has_value(),
                   "Unknown plugin class stays distinct from a confirmed audio effect");
         inputPilot.setLiveInputEffects(showChannel,{fx});
+        // #309 common enhancement 1: MR Studio MixerInsert parity. The Live
+        // rack must expose the saved FX identity, editor and independent power
+        // button; bypass must remain a normal Undoable .mrlive chain edit.
+        channelMixer.sync();
+        auto* liveFxRow=dynamic_cast<MixerInsert*>(liveComponent(
+            channelMixer,"live-mixer-insert:"+juce::String::fromUTF8(fx.id.value.c_str())));
+        auto* liveFxAdd=dynamic_cast<juce::TextButton*>(liveComponent(
+            channelMixer,"live-mixer-add-insert-"+showChannel));
+        liveCheck(liveFxRow && liveFxRow->editor.getButtonText()=="Same Name" &&
+                  liveFxAdd && liveFxAdd->isEnabled() &&
+                  liveFxRow->bypass.isEnabled() && !liveFxRow->bypass.getToggleState(),
+                  "#309 Live Mixer renders each real FX insert with direct editor, add and bypass");
+        liveFxRow->bypass.triggerClick();
+        livePump();channelMixer.sync();
+        const auto bypassProfile=live::decodeLiveInputProfile(
+            live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"]);
+        liveCheck(bypassProfile.inserts.size()==1 && bypassProfile.inserts.front().id==fx.id &&
+                  bypassProfile.inserts.front().bypass,
+                  "#309 Live insert power changes the saved chain without changing slot identity");
+        inputPilot.undoLiveInterface();
+        auto reverted=live::decodeLiveInputProfile(
+            live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"]);
+        liveCheck(reverted.inserts.size()==1 && !reverted.inserts.front().bypass,
+                  "#309 Live Mixer FX power is Undoable");
+        inputPilot.undoLiveInterface(true);
+        const auto restored=live::decodeLiveInputProfile(
+            live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"]);
+        liveCheck(restored.inserts.size()==1 && restored.inserts.front().bypass,
+                  "#309 Live Mixer FX power supports Redo without losing slot");
+        inputPilot.undoLiveInterface();
         const auto fxBeforeRejected=live::canonical(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"]);
         refused=false;
         try{inputPilot.setLiveInputEffects(showChannel,{vsti});}catch(const std::exception&){refused=true;}
