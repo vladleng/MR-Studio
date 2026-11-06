@@ -1469,13 +1469,45 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         // a second VSTi selector, and must not overwrite the .mrlive MIDI role.
         {
             Desktop uiPilot(true,false,true);uiPilot.importLiveShow(fixture);
-            juce::String midiChannelId;
+            juce::String midiChannelId,playerChannelId;
             uiPilot.editLiveInterface("MIDI channel control UI",[&](auto& state) {
                 midiChannelId=live::addChannel(state,"Instrument","Test MIDI");
+                playerChannelId=live::addChannel(state,"Player","Test Guitar");
                 live::put(live::require(state,"channels",midiChannelId),"liveInput",midiProfile.clone());
             });
             LiveMixer realMixer(uiPilot);
             realMixer.setSize(500,340);realMixer.sync();
+            // #309 FX layout: one shared splitter aligns Playback, Player and
+            // Instrument faders irrespective of VSTi or insert-row content.
+            const auto playbackId=live::playbackContainer(uiPilot.liveDocument->interfaceState);
+            auto* instrumentGain=liveComponent(realMixer,"live-mixer-gain-"+midiChannelId);
+            auto* playerGain=liveComponent(realMixer,"live-mixer-gain-"+playerChannelId);
+            auto* playbackGain=liveComponent(realMixer,"live-mixer-gain-"+playbackId);
+            auto* fxViewport=liveComponent(realMixer,"live-mixer-inserts-"+midiChannelId);
+            auto* faderDivider=liveComponent(realMixer,"live-mixer-fader-divider");
+            liveCheck(instrumentGain && playerGain && playbackGain && fxViewport && faderDivider &&
+                      instrumentGain->getY()==playerGain->getY() &&
+                      instrumentGain->getY()==playbackGain->getY() &&
+                      instrumentGain->getHeight()==playerGain->getHeight() &&
+                      instrumentGain->getHeight()==playbackGain->getHeight(),
+                      "#309 all mixer channel types share identical fader position and length");
+            const int originalFader=instrumentGain->getHeight();
+            const int originalInserts=fxViewport->getHeight();
+            realMixer.setSize(500,540);
+            liveCheck(instrumentGain->getHeight()==originalFader &&
+                      fxViewport->getHeight()>originalInserts &&
+                      instrumentGain->getHeight()==playerGain->getHeight() &&
+                      instrumentGain->getHeight()==playbackGain->getHeight(),
+                      "#309 expanding mixer dock grows inserts, not the lower fader zone");
+            const int expandedInserts=fxViewport->getHeight();
+            const int originalDivider=faderDivider->getY();
+            realMixer.setFaderAreaHeight(realMixer.currentFaderHeight()+40);
+            liveCheck(instrumentGain->getHeight()==originalFader+40 &&
+                      playerGain->getHeight()==instrumentGain->getHeight() &&
+                      playbackGain->getHeight()==instrumentGain->getHeight() &&
+                      fxViewport->getHeight()==expandedInserts-40 &&
+                      faderDivider->getY()==originalDivider-40,
+                      "#309 inner divider independently resizes a single common fader zone");
             auto* instrumentPick=dynamic_cast<juce::TextButton*>(
                 liveComponent(realMixer,"live-mixer-instrument-"+midiChannelId));
             liveCheck(instrumentPick && instrumentPick->isVisible() &&
