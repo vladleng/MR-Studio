@@ -17,7 +17,7 @@ inline void includeLiveMeterPeak(mrs::audio::StereoPeak& destination,
 }
 }
 // Persistent show-channel controls; processing uses the shared Core mix API.
-class LiveMixer final : public juce::Component {
+class LiveMixer final : public juce::Component, public juce::DragAndDropTarget {
     // One shared splitter, drawn across every channel. Studio-style resize:
     // the bottom bank changes height; inserts occupy the remaining space above.
     class FaderDivider final : public juce::Component {
@@ -92,6 +92,44 @@ class LiveMixer final : public juce::Component {
         g.fillAll(tokens.colour(ColourRole::panel));
         g.setColour(tokens.colour(ColourRole::border)); g.drawHorizontalLine(0, 0.f, static_cast<float>(getWidth()));
     }
+    // Studio's channel DnD contract, applied to the shared Live show model.
+    // Strip controls keep their own fader/FX gestures; only the header starts
+    // a channel drag, and the drop commits once on mouse release.
+    bool isInterestedInDragSource(const SourceDetails& s) override {
+        return owner.liveDocument && !owner.app.recording() &&
+            s.description.toString().startsWith("mr-live-channel:");
+    }
+    void itemDragMove(const SourceDetails& s) override {
+        dropBoundary.reset();
+        if(!isInterestedInDragSource(s))return;
+        const auto at=dropTarget(s.localPosition);
+        if(at)dropBoundary=at->boundary;
+        repaint();
+    }
+    void itemDragExit(const SourceDetails&) override {dropBoundary.reset();repaint();}
+    void itemDropped(const SourceDetails& s) override {
+        const auto at=isInterestedInDragSource(s)?dropTarget(s.localPosition):std::nullopt;
+        dropBoundary.reset();repaint();
+        if(!at || !owner.liveDocument)return;
+        const auto source=s.description.toString().fromFirstOccurrenceOf("mr-live-channel:",false,false);
+        const auto destination=at->id;
+        const auto after=at->after;
+        const auto generation=owner.liveDocumentGeneration;
+        const auto revision=owner.liveEdits.mutation;
+        juce::Component::SafePointer<Desktop> safe(&owner);
+        juce::MessageManager::callAsync([safe,generation,revision,source,destination,after] {
+            if(safe && safe->liveDocument && safe->liveDocumentGeneration==generation &&
+               safe->liveEdits.mutation==revision)
+                safe->run([&]{safe->reorderLiveChannel(source,destination,after);});
+        });
+    }
+    void paintOverChildren(juce::Graphics& g) override {
+        if(!dropBoundary)return;
+        const auto x=*dropBoundary-viewport.getViewPositionX()+viewport.getX();
+        if(x<viewport.getX() || x>=viewport.getRight())return;
+        g.setColour(liveReferenceTokens().colour(ColourRole::focus));
+        g.fillRect(x-1,viewport.getY()+2,3,juce::jmax(0,viewport.getHeight()-4));
+    }
     void sync() {
         if (!owner.liveDocument) return;
         const auto state = owner.liveDocument->interfaceState;
@@ -145,6 +183,9 @@ class LiveMixer final : public juce::Component {
       public:
         Strip(Desktop &desktop, juce::String channel) : owner(desktop), id(std::move(channel)),
             inputs(owner,id,LiveChannelControls::Surface::mixer), gain(kit::ParameterSpec{"gain", "Level", kit::Unit::db, -60, 12, 0, .1, kit::Mapping::linear, 1}, true) {
+            setComponentID("live-mixer-strip-"+id);
+            name.setInterceptsMouseClicks(false,false);
+            name.setTooltip("Drag channel name to reorder Timeline and Mixer");
             for (auto *c : std::array<juce::Component *, 10>{&name, &inputs, &gain, &pan, &mute, &solo,
                     &instrumentSelector, &insertTitle, &addInsert, &insertViewport}) addAndMakeVisible(c);
             insertTitle.setText("Inserts",juce::dontSendNotification);
@@ -182,6 +223,19 @@ class LiveMixer final : public juce::Component {
             insertViewport.setViewedComponent(nullptr,false);
         }
         const juce::String& channelId() const noexcept { return id; }
+        void mouseDown(const juce::MouseEvent& e) override {
+            dragChannel=e.mods.isLeftButtonDown() && e.getNumberOfClicks()==1 &&
+                e.y>=0 && e.y<32 && !owner.app.recording();
+        }
+        void mouseDrag(const juce::MouseEvent& e) override {
+            if(dragChannel && e.getDistanceFromDragStart()>5)
+                if(auto* container=juce::DragAndDropContainer::findParentDragContainerFor(this))
+                    if(!container->isDragAndDropActive()) {
+                        dragChannel=false;
+                        container->startDragging("mr-live-channel:"+id,this);
+                    }
+        }
+        void mouseUp(const juce::MouseEvent&) override {dragChannel=false;}
         void setFaderSplitY(int y) {
             if(faderSplitY==y)return;
             faderSplitY=y;
@@ -285,6 +339,7 @@ class LiveMixer final : public juce::Component {
             }
         }
       private:
+        bool dragChannel{};
         void syncInserts(const juce::var& saved,const juce::String& kind,bool instrument) {
             const bool visible=kind!="Playback";
             insertViewport.setVisible(visible);
@@ -366,7 +421,21 @@ class LiveMixer final : public juce::Component {
         juce::TextButton mute{"M"}, solo{"S"};
         float meterLeft{},meterRight{};
     };
+    struct DropTarget {
+        juce::String id;
+        bool after{};
+        int boundary{};
+    };
+    std::optional<DropTarget> dropTarget(juce::Point<int> p) const {
+        if(!viewport.getBounds().contains(p) || strips.empty())return {};
+        const int x=p.x-viewport.getX()+viewport.getViewPositionX();
+        const int position=juce::jlimit(0,static_cast<int>(strips.size())-1,x/118);
+        const bool after=x-position*118>=59;
+        return DropTarget{strips[static_cast<std::size_t>(position)]->channelId(),
+            after,(position+(after?1:0))*118};
+    }
     Desktop &owner;
+    std::optional<int> dropBoundary;
     juce::Viewport viewport;
     juce::Component body;
     FaderDivider divider;
