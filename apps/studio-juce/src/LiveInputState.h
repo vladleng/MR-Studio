@@ -31,6 +31,22 @@ inline constexpr std::size_t maximumLiveVst3Base64Length=((maximumLiveVst3StateB
 // Shared by the Live Input profile and the #289 channel patch snapshots: a
 // descriptor is {id, bypass} plus either native gain fields or a VST3
 // path/class/name with inline component+controller state and parameters.
+inline juce::String liveInputB64(const std::vector<std::byte>& bytes) {
+    if (bytes.size() > maximumLiveVst3StateBytes)
+        throw std::runtime_error("Live VST3 state exceeds 16 MiB");
+    return bytes.empty() ? juce::String() : juce::Base64::toBase64(bytes.data(), bytes.size());
+}
+inline std::vector<std::byte> liveInputBytes(const juce::var& value) {
+    if (!value.isString() || static_cast<std::size_t>(value.toString().length()) > maximumLiveVst3Base64Length)
+        throw std::runtime_error("Invalid Live VST3 state encoding");
+    if (value.toString().isEmpty()) return {};
+    juce::MemoryOutputStream output;
+    if (!juce::Base64::convertFromBase64(output, value.toString()) || output.getDataSize() > maximumLiveVst3StateBytes)
+        throw std::runtime_error("Invalid Live VST3 state data");
+    std::vector<std::byte> result(output.getDataSize());
+    if (!result.empty()) std::memcpy(result.data(), output.getData(), result.size());
+    return result;
+}
 inline std::vector<mrs::NativeInsert> decodeLiveInsertDescriptors(const juce::Array<juce::var>& descriptors) {
     std::vector<mrs::NativeInsert> inserts;
     std::set<std::string> uniqueIds;
@@ -74,22 +90,7 @@ inline std::vector<mrs::NativeInsert> decodeLiveInsertDescriptors(const juce::Ar
     }
     return inserts;
 }
-inline juce::String liveInputB64(const std::vector<std::byte>& bytes) {
-    if (bytes.size() > maximumLiveVst3StateBytes)
-        throw std::runtime_error("Live VST3 state exceeds 16 MiB");
-    return bytes.empty() ? juce::String() : juce::Base64::toBase64(bytes.data(), bytes.size());
-}
-inline std::vector<std::byte> liveInputBytes(const juce::var& value) {
-    if (!value.isString() || static_cast<std::size_t>(value.toString().length()) > maximumLiveVst3Base64Length)
-        throw std::runtime_error("Invalid Live VST3 state encoding");
-    if (value.toString().isEmpty()) return {};
-    juce::MemoryOutputStream output;
-    if (!juce::Base64::convertFromBase64(output, value.toString()) || output.getDataSize() > maximumLiveVst3StateBytes)
-        throw std::runtime_error("Invalid Live VST3 state data");
-    std::vector<std::byte> result(output.getDataSize());
-    if (!result.empty()) std::memcpy(result.data(), output.getData(), result.size());
-    return result;
-}
+
 inline juce::var liveInputProfile(const mrs::Track& track, const juce::String& physicalName,
                                   const juce::String& deviceName, const std::vector<mrs::NativeInsert>& captured) {
     if ((track.kind != mrs::TrackKind::audio && track.kind != mrs::TrackKind::instrument) ||
@@ -346,16 +347,5 @@ inline juce::String addChannelPatch(juce::var& state,juce::var& channel,
     put(patch,"inserts",encodeLivePatchInserts(state,inserts));
     bank.add(patch);
     return id;
-}
-// Applying a patch replaces only the insert chain: input, device, mix and
-// physical output routing stay show-owned and unchanged.
-inline juce::var patchedLiveProfile(const juce::var& profile,const juce::var& patch) {
-    if(!profile.isObject())
-        throw std::runtime_error("Configure the channel input first");
-    if(!patch["inserts"].isArray())
-        throw std::runtime_error("Channel patch has no captured chain");
-    auto result=profile.clone();
-    put(result,"inserts",patch["inserts"].clone());
-    return result;
 }
 } // namespace ui::live

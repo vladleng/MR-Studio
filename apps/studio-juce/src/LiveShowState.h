@@ -232,7 +232,7 @@ inline void validatePatchStates(const juce::var &state) {
     if (!store.isObject())
         throw std::runtime_error("Invalid channel patch state store");
     const auto *values = store.getDynamicObject();
-    if (values->getProperties().size() > maximumPatchStates)
+    if (static_cast<std::size_t>(values->getProperties().size()) > maximumPatchStates)
         throw std::runtime_error("Too many channel patch states");
     for (const auto &pair : values->getProperties()) {
         if (!hexHash(pair.name.toString()) || !pair.value.isObject())
@@ -299,7 +299,8 @@ inline void clearLibraryPatchReferences(juce::var &state, const juce::String &ch
     if (library == nullptr)
         return;
     for (auto &pair : library->getProperties()) {
-        if (!pair.value.isString())
+        // Cheap prefilter: most saved versions do not reference this channel.
+        if (!pair.value.isString() || !pair.value.toString().contains(patchId))
             continue;
         juce::var snapshot;
         if (juce::JSON::parse(pair.value.toString(), snapshot).failed())
@@ -321,7 +322,7 @@ inline void clearLibraryPatchReferences(juce::var &state, const juce::String &ch
 // Drop blobs that no patch references any more; identical chains share one blob.
 inline void prunePatchStates(juce::var &state) {
     std::set<juce::String> used;
-    for (const auto &channel : *array(state, "channels"))
+    for (const auto &channel : array(state, "channels"))
         if (const auto *bank = channel["patches"].getArray())
             for (const auto &patch : *bank)
                 if (const auto *inserts = patch["inserts"].getArray())
@@ -471,13 +472,14 @@ inline void validate(const juce::var &state) {
             std::set<juce::String> patchIds, patchNames;
             for (const auto &patch : *channel["patches"].getArray()) {
                 if (!patch.isObject() || !named(patch["id"]) ||
-                    !patchIds.insert(patch["id"].toString()).second || !named(patch["name"]) ||
-                    !patchNames.insert(patch["name"].toString()).second)
+                    !patchIds.insert(patch["id"].toString()).second || !named(patch["name"]))
                     throw std::runtime_error("Invalid channel patch");
+                if (legacyPatch(patch))
+                    continue; // Legacy demo colours/names stay accepted as-is.
+                if (!patchNames.insert(patch["name"].toString()).second)
+                    throw std::runtime_error("Duplicate channel patch name");
                 if (!patch["color"].isVoid() && !patchColour(patch["color"].toString()))
                     throw std::runtime_error("Invalid channel patch colour");
-                if (legacyPatch(patch))
-                    continue;
                 if (!patch["version"].isInt() || static_cast<int>(patch["version"]) != 1)
                     throw std::runtime_error("Unsupported channel patch version");
                 validatePatchInserts(state, patch);

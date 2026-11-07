@@ -53,6 +53,8 @@ inline void channelPatchLibrary() {
     const auto second=addChannelPatch(state,row,chain,"Clean copy","teal");
     check(state["patchStates"].getDynamicObject()->getProperties().size()==2,
           "Identical chains share one opaque state blob");
+    checkThrows([&]{addChannelPatch(state,row,chain,"Clean","blue");},
+                "A channel patch name must stay unique");
     const auto lead=addChannelPatch(state,row,
         std::vector<mrs::NativeInsert>{makeVst3("fx-3",std::vector<std::byte>(12,std::byte{3}))},"Lead","amber");
     check(state["patchStates"].getDynamicObject()->getProperties().size()==3,
@@ -60,12 +62,15 @@ inline void channelPatchLibrary() {
     mrs::Track track{mrs::Id{"live-input-test"},"Guitar",mrs::TrackKind::audio,{}};
     track.input=0;track.hardware_outputs={};
     const auto profile=liveInputProfile(track,"Input 1","Live PCM test",chain);
-    const auto applied=patchedLiveProfile(profile,find(row,"patches",lead));
-    check(applied["inserts"].size()==1&&applied["input"]==profile["input"]&&
-          applied["deviceName"]==profile["deviceName"]&&
-          applied["mix"]["gain"]==profile["mix"]["gain"]&&
-          canonical(applied["outputs"])==canonical(profile["outputs"]),
-          "Applying a patch never changes channel input, device, mix or routing");
+    // Production apply path: decode the patch chain and rebuild the Live Input
+    // profile from the show-owned input/device/routing with only inserts swapped.
+    const auto leadInserts=decodeLivePatchInserts(state,find(row,"patches",lead));
+    const auto rebuilt=liveInputProfile(track,"Input 1","Live PCM test",leadInserts);
+    check(rebuilt["inserts"].size()==1&&rebuilt["input"]==profile["input"]&&
+          rebuilt["deviceName"]==profile["deviceName"]&&
+          rebuilt["mix"]["gain"]==profile["mix"]["gain"]&&
+          canonical(rebuilt["outputs"])==canonical(profile["outputs"]),
+          "Applying a patch rebuilds only the chain and keeps show-owned input, device, mix and routing");
     put(trackOf(state),"patchId",clean);
     validate(state);
     saveItem(state,item);
@@ -107,8 +112,11 @@ inline void channelPatchLibrary() {
         auto& bank=array(require(legacy,"channels",channel),"patches");
         auto demo=object();
         put(demo,"id","demo-patch");put(demo,"name","Legacy demo");
+        put(demo,"color","green"); // Older editor palettes are not re-validated.
         put(demo,"engine",object());put(demo,"subPatches",juce::Array<juce::var>());
         bank.add(demo);
+        bank.add(demo.clone());
+        bank.getReference(bank.size()-1).getDynamicObject()->setProperty("id","demo-patch-2");
         validate(legacy);
         check(legacyPatch(bank.getReference(bank.size()-1)),"Legacy engine patches are detected");
         checkThrows([&]{decodeLivePatchInserts(legacy,bank.getReference(bank.size()-1));},
