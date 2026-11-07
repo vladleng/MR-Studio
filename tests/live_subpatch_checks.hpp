@@ -20,7 +20,7 @@ inline void subPatchChainVariants() {
     base.plugin_path="C:/VST3/Rig.vst3";
     base.class_id="0123456789abcdef0123456789abcdef";
     base.plugin_name="Rig";
-    base.component_state={std::byte{1},std::byte{2}};
+    base.component_state=std::vector<std::byte>{std::byte{1},std::byte{2}};
     base.parameters={{0,0.5f}};
     base.validate();
     const auto patchId=addChannelPatch(state,require(state,"channels",channel),
@@ -42,7 +42,7 @@ inline void subPatchChainVariants() {
     };
     const auto baseInserts=decodeLivePatchInserts(state,channelPatch(state));
     auto variant=baseInserts;
-    variant[0].component_state={std::byte{9},std::byte{9}};
+    variant[0].component_state=std::vector<std::byte>{std::byte{9},std::byte{9}};
     variant[0].parameters[0].value=0.9f;
     check(!(baseInserts==variant),"The test variant differs from the base chain");
     auto sub=subPatchChain(state,baseInserts,variant);
