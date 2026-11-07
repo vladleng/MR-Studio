@@ -1522,6 +1522,176 @@ void Desktop::setLiveInputEffects(const juce::String& requested,std::vector<mrs:
     editLiveInterface("Channel effect chain",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);},false,true);
     syncAutomaticLiveMonitoring();
 }
+void Desktop::captureLiveChannelPatch(const juce::String& requested,const juce::String& name,const juce::String& colour) {
+    const auto channel=inputChannel(*this,requested);
+    if(!live::patchColour(colour))throw std::runtime_error("Invalid channel patch colour");
+    if(app.recording() || app.engine()->state().playback==mrs::PlaybackState::playing)
+        throw std::runtime_error("Stop playback before capturing a channel patch");
+    if(livePendingItem.isNotEmpty() || livePlaybackLoading)
+        throw std::runtime_error("Finish the item transition before capturing a channel patch");
+    if(!liveInputTrack(channel))
+        throw std::runtime_error("Activate the channel input before capturing its chain");
+    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
+    if(!row["liveInput"].isObject())
+        throw std::runtime_error("Configure the channel input first");
+    editLiveInterface("Capture channel patch",[&](auto& state){
+        auto& target=live::require(state,"channels",channel);
+        if(!target["liveInput"].isObject())
+            throw std::runtime_error("Configure the channel input first");
+        const auto profile=live::decodeLiveInputProfile(target["liveInput"]);
+        live::addChannelPatch(state,target,profile.inserts,name,colour);
+    },false,true);
+}
+void Desktop::applyLiveChannelPatch(const juce::String& requested,const juce::String& patchId) {
+    const auto channel=inputChannel(*this,requested);
+    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
+    const auto patch=live::find(row,"patches",patchId);
+    if(!patch.isObject())throw std::runtime_error("Choose a patch from the channel library");
+    if(!liveInputTrack(channel))
+        throw std::runtime_error("Activate the channel input before applying a patch");
+    if(app.recording() || app.engine()->state().playback==mrs::PlaybackState::playing)
+        throw std::runtime_error("Pause or stop before changing the channel chain");
+    if(livePendingItem.isNotEmpty() || livePlaybackLoading)
+        throw std::runtime_error("Finish the item transition before changing the channel chain");
+    // Decoding validates the captured state against the shared blob store; the
+    // applied profile keeps the show-owned input, device, mix and outputs.
+    const auto inserts=live::decodeLivePatchInserts(liveDocument->interfaceState,patch);
+    auto draft=liveDocument->interfaceState.clone();captureLiveInputs(draft);
+    auto draftChannel=live::find(draft,"channels",channel);
+    if(!draftChannel["liveInput"].isObject())
+        throw std::runtime_error("Configure the channel input first");
+    const auto saved=live::decodeLiveInputProfile(draftChannel["liveInput"]);
+    validateLiveRole(draftChannel,saved);
+    auto forValidation=saved;
+    forValidation.inserts=inserts;
+    validateLivePluginClasses(*this,forValidation);
+    auto track=liveTrack(draft,channel,mrs::Id{"live-input-"+channel.toStdString()});
+    auto updated=live::liveInputProfile(track,saved.name,saved.device,inserts);
+    for(const auto* key:{"inputRightName","outputNames"})
+        if(!draftChannel["liveInput"][key].isVoid())
+            live::put(updated,key,draftChannel["liveInput"][key].clone());
+    const auto itemId=liveDocument->interfaceState["currentItem"].toString();
+    editLiveInterface("Apply channel patch",[&](auto& state){
+        auto& target=live::require(state,"channels",channel);
+        live::put(target,"liveInput",updated.clone());
+        // The applied patch becomes the item default in the same Undo step, so
+        // each song keeps its own sound. A song without a track for this channel
+        // still accepts the chain (the default is simply not recorded).
+        if(itemId.isNotEmpty() && live::find(state,"items",itemId).isObject())
+            for(auto& track2:live::array(live::require(state,"items",itemId),"tracks"))
+                if(track2["channelId"].toString()==channel) {
+                    live::put(track2,"patchId",patchId);break;
+                }
+    },false,true);
+    syncAutomaticLiveMonitoring();
+}
+void Desktop::applyLiveItemDefaultPatches() {
+    // #289 A-Upd1: switching a song while stopped adopts that song's default
+    // channel patches. Only activated channels with a connected device can be
+    // rewritten, and a failure (missing plugin/state) keeps the current chain.
+    if(!liveDocument||!liveDocument->projects.empty())
+        return;
+    if(livePendingItem.isNotEmpty()||livePlaybackLoading)
+        return;
+    if(app.recording()||app.engine()->state().playback!=mrs::PlaybackState::stopped)
+        return;
+    if(!app.audio_running()||app.audio_name()=="Offline clock (no sound)"||app.audio_name()=="Disconnected")
+        return;
+    const auto itemId=liveDocument->interfaceState["currentItem"].toString();
+    if(itemId.isEmpty())
+        return;
+    for(const auto& target:live::itemDefaultPatches(liveDocument->interfaceState,itemId)) {
+        const auto& channel=target.first;
+        const auto& patchId=target.second;
+        if(liveChannelTracks.find(channel)==liveChannelTracks.end())
+            continue;
+        const auto row=live::find(liveDocument->interfaceState,"channels",channel);
+        if(!row["liveInput"].isObject())
+            continue;
+        const auto patch=live::find(row,"patches",patchId);
+        if(!patch.isObject())
+            continue;
+        bool differs=false;
+        try {
+            differs=live::decodeLiveInputProfile(row["liveInput"]).inserts!=
+                    live::decodeLivePatchInserts(liveDocument->interfaceState,patch);
+        } catch(const std::exception&) {
+            continue; // Missing opaque state: report only when applied manually.
+        }
+        if(!differs)
+            continue;
+        try {
+            applyLiveChannelPatch(channel,patchId);
+        } catch(const std::exception& error) {
+            if(livePreloadError.isEmpty())
+                livePreloadError="Patch: "+juce::String::fromUTF8(error.what());
+        }
+    }
+}
+void Desktop::assignLiveItemPatch(const juce::String& requested,const juce::String& patchId) {
+    const auto channel=inputChannel(*this,requested);
+    if(patchId.isNotEmpty() &&
+       !live::find(live::find(liveDocument->interfaceState,"channels",channel),"patches",patchId).isObject())
+        throw std::runtime_error("Choose a patch from the channel library");
+    const auto itemId=liveDocument->interfaceState["currentItem"].toString();
+    if(itemId.isEmpty())throw std::runtime_error("Select a song item first");
+    editLiveInterface("Item default patch",[&](auto& state){
+        auto& item=live::require(state,"items",itemId);
+        for(auto& track:live::array(item,"tracks"))
+            if(track["channelId"].toString()==channel) {
+                if(patchId.isEmpty()) {
+                    if(auto* object=track.getDynamicObject())object->removeProperty("patchId");
+                } else live::put(track,"patchId",patchId);
+                return;
+            }
+        throw std::runtime_error("The current item has no track for this channel");
+    });
+}
+void Desktop::renameLiveChannelPatch(const juce::String& requested,const juce::String& patchId,const juce::String& name) {
+    const auto channel=inputChannel(*this,requested);
+    const auto trimmed=name.trim();
+    if(!live::named(trimmed))throw std::runtime_error("Invalid channel patch name");
+    editLiveInterface("Rename channel patch",[&](auto& state){
+        auto& bank=live::array(live::require(state,"channels",channel),"patches");
+        for(const auto& other:bank)
+            if(other["id"].toString()!=patchId &&
+               other["name"].toString().compareIgnoreCase(trimmed)==0)
+                throw std::runtime_error("A channel patch with this name already exists");
+        for(auto& patch:bank)
+            if(patch["id"].toString()==patchId) {
+                live::put(patch,"name",trimmed);return;
+            }
+        throw std::runtime_error("Channel patch no longer exists");
+    });
+}
+void Desktop::setLiveChannelPatchColour(const juce::String& requested,const juce::String& patchId,const juce::String& colour) {
+    const auto channel=inputChannel(*this,requested);
+    if(!live::patchColour(colour))throw std::runtime_error("Invalid channel patch colour");
+    editLiveInterface("Channel patch colour",[&](auto& state){
+        for(auto& patch:live::array(live::require(state,"channels",channel),"patches"))
+            if(patch["id"].toString()==patchId) {
+                live::put(patch,"color",colour);return;
+            }
+        throw std::runtime_error("Channel patch no longer exists");
+    });
+}
+void Desktop::deleteLiveChannelPatch(const juce::String& requested,const juce::String& patchId) {
+    const auto channel=inputChannel(*this,requested);
+    editLiveInterface("Delete channel patch",[&](auto& state){
+        auto& bank=live::array(live::require(state,"channels",channel),"patches");
+        int index=-1;
+        for(int i=0;i<bank.size();++i)
+            if(bank[i]["id"].toString()==patchId) {index=i;break;}
+        if(index<0)throw std::runtime_error("Channel patch no longer exists");
+        // Item references (including saved Browser versions) are cleared in the
+        // same Undo step and unreferenced opaque state is dropped, so a deleted
+        // patch cannot leave stale data behind.
+        live::clearChannelPatchReferences(state,channel,patchId);
+        live::clearLibraryPatchReferences(state,channel,patchId);
+        bank.remove(index);
+        live::prunePatchStates(state);
+    });
+}
 void Desktop::activateLiveChannel(const juce::String& requested) {
     const auto channel=inputChannel(*this,requested);
     if(liveInputTrack(channel))return;
@@ -1998,6 +2168,9 @@ void Desktop::syncLivePlayback() {
                 liveShowEditing = true;
                 updateLiveDirty();
             }
+            // #289 A-Upd1: the item switch is complete; adopt its default
+            // channel patches. Failures keep the previous chain audible.
+            applyLiveItemDefaultPatches();
             // Completion is the focus boundary, including another occurrence
             // of the same item whose media preparation finished asynchronously.
             ++liveTimelineFocusRevision;

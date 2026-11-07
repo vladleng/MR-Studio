@@ -1,4 +1,6 @@
 #pragma once
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <juce_core/juce_core.h>
 #include <map>
@@ -186,6 +188,206 @@ inline int progress(const juce::var &state, const juce::String &id) {
     return entries.size() ? juce::roundToInt(taskProgress(entries))
                           : juce::roundToInt(static_cast<double>(workflow(state, id)["progress"]));
 }
+// #289 A - channel patch library. A patch is a frozen snapshot of the channel's
+// Live insert chain. Opaque VST3 component/controller state lives once in the
+// show-wide `patchStates` map and is referenced by hash, so identical plugin
+// state is never duplicated across patches or saved Browser versions.
+inline constexpr int maximumChannelPatches = 64;
+inline constexpr int maximumPatchInserts = 8;
+inline constexpr std::size_t maximumPatchStates = 512;
+inline constexpr std::size_t maximumPatchStateBase64 = ((16u * 1024u * 1024u + 2u) / 3u) * 4u;
+inline constexpr std::array<const char *, 6> patchColours{"blue", "violet", "teal", "graphite", "amber", "red"};
+inline bool patchColour(const juce::String &value) {
+    return std::any_of(patchColours.begin(), patchColours.end(),
+                       [&](const auto *colour) { return value == juce::String(colour); });
+}
+inline bool hexHash(const juce::String &value) {
+    if (value.length() != 32)
+        return false;
+    for (int i = 0; i < 32; ++i) {
+        const auto c = value[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+            return false;
+    }
+    return true;
+}
+// Older demo shows stored an engine description instead of a captured chain.
+// Such patches stay visible but cannot be applied until their chain is captured.
+inline bool legacyPatch(const juce::var &patch) {
+    return patch.isObject() && !patch["inserts"].isArray();
+}
+inline juce::var channelItemTrack(const juce::var &state, const juce::String &item,
+                                  const juce::String &channel) {
+    const auto row = find(state, "items", item);
+    if (const auto *tracks = row["tracks"].getArray())
+        for (const auto &track : *tracks)
+            if (track["channelId"].toString() == channel)
+                return track;
+    return {};
+}
+// #289 A-Upd1: channel patches an item asks for when it becomes current.
+// Legacy demo patches have no captured chain and are never auto-applied.
+inline std::vector<std::pair<juce::String, juce::String>> itemDefaultPatches(
+    const juce::var &state, const juce::String &item) {
+    std::vector<std::pair<juce::String, juce::String>> result;
+    const auto row = find(state, "items", item);
+    if (!row.isObject())
+        return result;
+    if (const auto *tracks = row["tracks"].getArray())
+        for (const auto &track : *tracks) {
+            const auto channel = track["channelId"].toString();
+            const auto patchId = track["patchId"].toString();
+            if (channel.isEmpty() || patchId.isEmpty())
+                continue;
+            const auto channelRow = find(state, "channels", channel);
+            if (channelRow["type"].toString() == "Playback")
+                continue;
+            const auto patch = find(channelRow, "patches", patchId);
+            if (!patch.isObject() || legacyPatch(patch))
+                continue;
+            result.emplace_back(channel, patchId);
+        }
+    return result;
+}
+inline void validatePatchStates(const juce::var &state) {
+    const auto store = state["patchStates"];
+    if (store.isVoid())
+        return;
+    if (!store.isObject())
+        throw std::runtime_error("Invalid channel patch state store");
+    const auto *values = store.getDynamicObject();
+    if (static_cast<std::size_t>(values->getProperties().size()) > maximumPatchStates)
+        throw std::runtime_error("Too many channel patch states");
+    for (const auto &pair : values->getProperties()) {
+        if (!hexHash(pair.name.toString()) || !pair.value.isObject())
+            throw std::runtime_error("Invalid channel patch state");
+        for (const auto *key : {"component", "controller"}) {
+            const auto blob = pair.value[key];
+            if (!blob.isString() ||
+                static_cast<std::size_t>(blob.toString().length()) > maximumPatchStateBase64)
+                throw std::runtime_error("Invalid channel patch state encoding");
+        }
+    }
+}
+inline void validatePatchInserts(const juce::var &state, const juce::var &patch) {
+    const auto *inserts = patch["inserts"].getArray();
+    if (!inserts || inserts->size() > maximumPatchInserts)
+        throw std::runtime_error("Invalid channel patch insert chain");
+    std::set<juce::String> insertIds;
+    for (const auto &insert : *inserts) {
+        if (!insert.isObject() || !named(insert["id"], 128) ||
+            !insertIds.insert(insert["id"].toString()).second || !insert["bypass"].isBool())
+            throw std::runtime_error("Invalid channel patch insert");
+        const auto kind = insert["kind"].toString();
+        if (kind == "gain") {
+            if (!number(insert["gain"]))
+                throw std::runtime_error("Invalid channel patch gain insert");
+            continue;
+        }
+        if (kind != "vst3" || !named(insert["path"], 4096) || !named(insert["classId"], 256) ||
+            !insert["name"].isString() || insert["name"].toString().length() > 500 ||
+            !hexHash(insert["state"].toString()))
+            throw std::runtime_error("Invalid channel patch VST3 insert");
+        const auto *store = state["patchStates"].getDynamicObject();
+        if (store == nullptr ||
+            !store->hasProperty(juce::Identifier(insert["state"].toString())))
+            throw std::runtime_error("Invalid or missing channel patch VST3 state");
+        if (!insert["parameters"].isArray() || insert["parameters"].size() > 2048)
+            throw std::runtime_error("Invalid channel patch parameters");
+        for (const auto &parameter : *insert["parameters"].getArray()) {
+            if (!parameter.isObject() || !number(parameter["id"]) || !number(parameter["value"]))
+                throw std::runtime_error("Invalid channel patch parameter");
+            const auto id = static_cast<double>(parameter["id"]);
+            const auto level = static_cast<double>(parameter["value"]);
+            if (!std::isfinite(id) || id < 0 || id > 4294967295. || std::floor(id) != id ||
+                !std::isfinite(level) || level < 0 || level > 1)
+                throw std::runtime_error("Invalid channel patch parameter range");
+        }
+    }
+}
+// Removes every reference to a deleted patch from one item track: the default
+// assignment, the canonical patchOrder entry and the stored span geometry.
+inline bool removeChannelPatchReference(juce::var &track, const juce::String &channel,
+                                        const juce::String &patchId) {
+    if (!track.isObject() || track["channelId"].toString() != channel)
+        return false;
+    bool changed = false;
+    if (track["patchId"].toString() == patchId) {
+        track.getDynamicObject()->removeProperty("patchId");
+        changed = true;
+    }
+    auto spans = track["spans"];
+    if (spans.isObject() && spans.getDynamicObject() != nullptr &&
+        spans.getDynamicObject()->hasProperty(juce::Identifier(patchId))) {
+        spans.getDynamicObject()->removeProperty(juce::Identifier(patchId));
+        track.getDynamicObject()->setProperty("spans", spans);
+        changed = true;
+    }
+    if (auto *order = track["patchOrder"].getArray())
+        for (int i = order->size(); --i >= 0;)
+            if ((*order)[i].toString() == patchId) {
+                order->remove(i);
+                changed = true;
+            }
+    return changed;
+}
+inline void clearChannelPatchReferences(juce::var &state, const juce::String &channel,
+                                        const juce::String &patchId) {
+    for (auto &item : array(state, "items"))
+        if (auto *tracks = item["tracks"].getArray())
+            for (auto &track : *tracks)
+                removeChannelPatchReference(track, channel, patchId);
+}
+// Browser saved item versions are JSON strings; a deleted patch must not be
+// resurrectable from them as a dangling reference either. The property set is
+// read-only during iteration, so updates are applied afterwards.
+inline void clearLibraryPatchReferences(juce::var &state, const juce::String &channel,
+                                        const juce::String &patchId) {
+    auto *library = state["library"].getDynamicObject();
+    if (library == nullptr)
+        return;
+    std::vector<std::pair<juce::String, juce::String>> updates;
+    for (const auto &pair : library->getProperties()) {
+        // Cheap prefilter: most saved versions do not reference this patch.
+        if (!pair.value.isString() || !pair.value.toString().contains(patchId))
+            continue;
+        juce::var snapshot;
+        if (juce::JSON::parse(pair.value.toString(), snapshot).failed())
+            continue;
+        bool changed = false;
+        if (auto *items = snapshot["items"].getArray())
+            for (auto &item : *items)
+                if (auto *tracks = item["tracks"].getArray())
+                    for (auto &track : *tracks)
+                        changed = removeChannelPatchReference(track, channel, patchId) || changed;
+        if (changed)
+            updates.emplace_back(pair.name.toString(), juce::JSON::toString(snapshot, true, 17));
+    }
+    for (const auto &update : updates)
+        library->setProperty(juce::Identifier(update.first), update.second);
+}
+// Drop blobs that no patch references any more; identical chains share one blob.
+inline void prunePatchStates(juce::var &state) {
+    std::set<juce::String> used;
+    for (const auto &channel : array(state, "channels"))
+        if (const auto *bank = channel["patches"].getArray())
+            for (const auto &patch : *bank)
+                if (const auto *inserts = patch["inserts"].getArray())
+                    for (const auto &insert : *inserts)
+                        if (insert["state"].isString())
+                            used.insert(insert["state"].toString());
+    auto &store = map(state, "patchStates");
+    juce::StringArray remove;
+    if (const auto *values = store.getDynamicObject())
+        for (const auto &pair : values->getProperties())
+            if (!used.contains(pair.name.toString()))
+                remove.add(pair.name.toString());
+    for (const auto &name : remove)
+        store.getDynamicObject()->removeProperty(juce::Identifier(name));
+    if (remove.size() && store.getDynamicObject() &&
+        store.getDynamicObject()->getProperties().isEmpty())
+        state.getDynamicObject()->removeProperty("patchStates");
+}
 inline juce::var empty(const juce::var &defaults = {}) {
     auto state = object();
     put(state, "items", juce::Array<juce::var>());
@@ -309,7 +511,49 @@ inline void validate(const juce::var &state) {
         }
         for (const auto *key : {"mute", "solo"})
             if (!channel[key].isVoid() && !channel[key].isBool()) throw std::runtime_error("Invalid channel switch");
+        // #289 A: channel-owned patch library. Captured patches carry a frozen
+        // insert chain; legacy demo patches stay readable but cannot be applied.
+        if (!channel["patches"].isVoid()) {
+            if (!channel["patches"].isArray() || channel["patches"].size() > maximumChannelPatches)
+                throw std::runtime_error("Invalid channel patch library");
+            std::set<juce::String> patchIds, patchNames;
+            for (const auto &patch : *channel["patches"].getArray()) {
+                if (!patch.isObject() || !named(patch["id"]) ||
+                    !patchIds.insert(patch["id"].toString()).second || !named(patch["name"]))
+                    throw std::runtime_error("Invalid channel patch");
+                if (legacyPatch(patch))
+                    continue; // Legacy demo colours/names stay accepted as-is.
+                if (!patchNames.insert(patch["name"].toString()).second)
+                    throw std::runtime_error("Duplicate channel patch name");
+                if (!patch["color"].isVoid() && !patchColour(patch["color"].toString()))
+                    throw std::runtime_error("Invalid channel patch colour");
+                if (!patch["version"].isInt() || static_cast<int>(patch["version"]) != 1)
+                    throw std::runtime_error("Unsupported channel patch version");
+                validatePatchInserts(state, patch);
+            }
+        }
     }
+
+    // #289 A: saved item versions now carry the channel patch assignment, so a
+    // dangling reference must fail explicitly instead of silently rendering a
+    // patch that no longer exists.
+    validatePatchStates(state);
+    for (const auto &item : *state["items"].getArray())
+        if (const auto *tracks = item["tracks"].getArray())
+            for (const auto &track : *tracks) {
+                const auto channelId = track["channelId"].toString();
+                if (channelId.isEmpty() || !channelIds.contains(channelId))
+                    continue;
+                const auto patchId = track["patchId"];
+                if (patchId.isVoid())
+                    continue;
+                // External editors may write "" for "no default patch".
+                if (patchId.isString() && patchId.toString().isEmpty())
+                    continue;
+                if (!named(patchId) ||
+                    !find(find(state, "channels", channelId), "patches", patchId.toString()).isObject())
+                    throw std::runtime_error("Missing item channel patch reference");
+            }
 
     // Optional legacy-compatible stable root ID for reorderable Playback channels.
     const auto pinnedPlayback=perf["primaryPlaybackChannel"];
@@ -386,6 +630,86 @@ inline juce::String addChannel(juce::var &state, const juce::String &type, const
     }
     return id;
 }
+// #289 A: before this slice the item version did not store the channel patch
+// assignment. Older saved Browser versions therefore have no patchId; adopt the
+// current assignment (and the referenced patch descriptor) once so opening a
+// pre-#289 show is not reported as modified. The file itself is not rewritten
+// until the user saves.
+inline void migrateSavedPatchAssignments(juce::var &state) {
+    auto *library = state["library"].getDynamicObject();
+    if (library == nullptr)
+        return;
+    juce::StringArray keys;
+    for (const auto &pair : library->getProperties())
+        if (pair.value.isString())
+            keys.add(pair.name.toString());
+    std::vector<std::pair<juce::String, juce::String>> updates;
+    for (const auto &key : keys) {
+        juce::var snapshot;
+        if (juce::JSON::parse(library->getProperty(juce::Identifier(key)).toString(), snapshot).failed() ||
+            !snapshot["items"].isArray() || snapshot["items"].size() != 1)
+            continue;
+        const auto item = find(state, "items", key);
+        if (!item.isObject())
+            continue;
+        bool changed = false;
+        auto *savedTracks = snapshot["items"][0]["tracks"].getArray();
+        auto *liveTracks = item["tracks"].getArray();
+        if (savedTracks != nullptr && liveTracks != nullptr)
+            for (auto &savedTrack : *savedTracks) {
+                if (!savedTrack.isObject())
+                    continue;
+                const auto channelId = savedTrack["channelId"].toString();
+                for (const auto &liveTrack : *liveTracks) {
+                    if (liveTrack["channelId"].toString() != channelId)
+                        continue;
+                    auto *savedObject = savedTrack.getDynamicObject();
+                    for (const auto *field : {"patchId", "subPatchId"}) {
+                        const auto fieldKey = juce::Identifier(field);
+                        const bool savedHasField = savedObject->hasProperty(fieldKey);
+                        const auto savedValue =
+                            savedHasField ? savedObject->getProperty(fieldKey).toString() : juce::String();
+                        const auto liveValue = liveTrack[field];
+                        if (savedValue.isNotEmpty())
+                            continue;
+                        if (liveValue.toString().isNotEmpty()) {
+                            put(savedTrack, field, liveValue.clone());
+                            changed = true;
+                        } else if (!savedHasField) {
+                            // Old writers always stored the field as null; absent
+                            // and null must compare equal in the saved content.
+                            put(savedTrack, field, {});
+                            changed = true;
+                        }
+                    }
+                    break;
+                }
+            }
+        if (changed && savedTracks != nullptr)
+            if (auto *savedChannels = snapshot["channels"].getArray())
+                for (auto &savedChannel : *savedChannels) {
+                    if (!savedChannel.isObject())
+                        continue;
+                    const auto liveChannel = find(state, "channels", savedChannel["id"].toString());
+                    if (!liveChannel.isObject())
+                        continue;
+                    for (const auto &savedTrack : *savedTracks)
+                        if (savedTrack["channelId"].toString() == savedChannel["id"].toString()) {
+                            const auto patchId = savedTrack["patchId"].toString();
+                            if (patchId.isEmpty() || find(savedChannel, "patches", patchId).isObject())
+                                continue;
+                            const auto patch = find(liveChannel, "patches", patchId);
+                            if (patch.isObject())
+                                array(savedChannel, "patches").add(patch.clone());
+                            break;
+                        }
+                }
+        if (changed)
+            updates.emplace_back(key, juce::JSON::toString(snapshot, true, 17));
+    }
+    for (const auto &update : updates)
+        library->setProperty(juce::Identifier(update.first), update.second);
+}
 inline juce::var importDemo(const juce::String &bytes) {
     if (bytes.getNumBytesAsUTF8() > 1024 * 1024)
         throw std::runtime_error("Editor show exceeds 1 MiB");
@@ -393,6 +717,7 @@ inline juce::var importDemo(const juce::String &bytes) {
     if (juce::JSON::parse(bytes, state).failed() || state["schema"].toString() != "mr-live-demo-show" ||
         static_cast<int>(state["version"]) != 3)
         throw std::runtime_error("Expected editor show v3 JSON");
+    migrateSavedPatchAssignments(state);
     validate(state);
     state.getDynamicObject()->removeProperty("schema");
     state.getDynamicObject()->removeProperty("version");
@@ -416,8 +741,8 @@ inline juce::var itemVersion(const juce::var &state, const juce::String &id) {
             trackIds.insert(track["id"].toString());
             if (track["recordTrack"].isObject())
                 recordIds.insert(track["recordTrack"]["id"].toString());
-            put(track, "patchId", {});
-            put(track, "subPatchId", {});
+            // #289 A: the per-item channel patch assignment is part of the saved
+            // item version (it is not transport/runtime state).
         }
     if (const auto *sections = item["sections"].getArray())
         for (const auto &section : *sections)
@@ -470,10 +795,17 @@ inline juce::var content(const juce::var &snapshot) {
                 for (const auto &candidate : *tracks)
                     if (candidate["channelId"] == channel["id"])
                         track = candidate;
+            const auto defaultPatch = track["patchId"].toString();
             if (const auto *bank = channel["patches"].getArray())
-                for (const auto &patch : *bank)
-                    if (const auto *order = track["patchOrder"].getArray(); order && order->contains(patch["id"]))
+                for (const auto &patch : *bank) {
+                    const auto patchId = patch["id"].toString();
+                    const auto *order = track["patchOrder"].getArray();
+                    // Saved Browser versions include blocks shown on the track and
+                    // the item's default channel patch (#289 A).
+                    if ((order && order->contains(patch["id"])) ||
+                        (defaultPatch.isNotEmpty() && defaultPatch == patchId))
                         patches.add(patch.clone());
+                }
             put(selected, "patches", patches);
             channels.add(selected);
         }

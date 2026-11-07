@@ -132,6 +132,20 @@ public:
     void syncAutomaticLiveMonitoring();
     juce::String liveAutoMonitorError;
     void setLiveInputEffects(const juce::String&, std::vector<mrs::NativeInsert>);
+    // #289 A - channel patch library. Renaming, colouring, deleting and setting
+    // an item default are offline Undoable show edits; capturing the current
+    // chain requires stopped transport and an activated channel, and applying a
+    // captured chain needs a stopped, activated channel as well.
+    void captureLiveChannelPatch(const juce::String&, const juce::String& name,
+                                 const juce::String& colour = "blue");
+    void applyLiveChannelPatch(const juce::String&, const juce::String& patchId);
+    // #289 A-Upd1: after a stopped item switch, adopt the item's default
+    // channel patches for activated channels (errors keep the current chain).
+    void applyLiveItemDefaultPatches();
+    void assignLiveItemPatch(const juce::String&, const juce::String& patchId);
+    void renameLiveChannelPatch(const juce::String&, const juce::String& patchId, const juce::String& name);
+    void setLiveChannelPatchColour(const juce::String&, const juce::String& patchId, const juce::String& colour);
+    void deleteLiveChannelPatch(const juce::String&, const juce::String& patchId);
     void setLivePlaybackTrim(double startSeconds, double endSeconds);
     void syncLivePlayback();
     bool livePlaybackReady() const;

@@ -116,6 +116,9 @@ struct LiveDocument {
             if (!value["interface"].isObject() || !value["itemProjects"].isObject())
                 throw std::runtime_error("Missing MR Live interface metadata");
             result.interfaceState = value["interface"].clone();
+            // #289 A: adopt the current channel patch assignment in pre-#289
+            // saved Browser versions so an old show does not open as modified.
+            live::migrateSavedPatchAssignments(result.interfaceState);
             live::validatePlayback(result.interfaceState);
             live::playbackPaths(result.interfaceState, file, true);
             for (const auto &pair : value["itemProjects"].getDynamicObject()->getProperties()) {
