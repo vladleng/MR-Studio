@@ -58,13 +58,22 @@ if (-not $repoRoot) { throw 'Not inside a git repository.' }
 Push-Location $repoRoot
 $worktree = $null
 
+# Git's shell helpers write scratch files to TEMP; a non-writable TEMP (e.g. C:\Temp without
+# permissions) breaks both credential lookup and worktree creation. Point TEMP into the checkout.
+$scratch = Join-Path $repoRoot 'build\sync-tmp'
+New-Item -ItemType Directory -Force -Path $scratch | Out-Null
+$savedTemp = $env:TEMP
+$savedTmp = $env:TMP
+$env:TEMP = $scratch
+$env:TMP = $scratch
+
 try {
     $paths = @('AGENTS.md', '.agents/skills')
 
     Write-Host "Fetching origin/main..."
     Invoke-Git @('fetch', 'origin', 'main', '--quiet') | Out-Null
 
-    $worktree = Join-Path ([System.IO.Path]::GetTempPath()) ("mrs-agentrules-" + [guid]::NewGuid().ToString('N'))
+    $worktree = Join-Path $repoRoot ("build\.agentrules-sync-" + [guid]::NewGuid().ToString('N'))
     Write-Host "Creating temporary worktree for origin/main..."
     Invoke-Git @('worktree', 'add', '--detach', $worktree, 'origin/main') | Out-Null
 
@@ -112,5 +121,7 @@ finally {
     if ($worktree -and (Test-Path -LiteralPath $worktree)) {
         & git -C $repoRoot worktree remove --force $worktree 2>&1 | Out-Null
     }
+    $env:TEMP = $savedTemp
+    $env:TMP = $savedTmp
     Pop-Location
 }
