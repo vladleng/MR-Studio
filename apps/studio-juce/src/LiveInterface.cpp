@@ -1659,7 +1659,8 @@ void Desktop::applyLiveChannelSubPatch(const juce::String& requested,const juce:
             }
     const auto itemId=liveDocument->interfaceState["currentItem"].toString();
     const auto itemTrack=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
-    const bool selectionChanged=itemTrack["subPatchId"].toString()!=subPatchId;
+    const bool selectionChanged=itemTrack["patchId"].toString()!=patchId||
+                                itemTrack["subPatchId"].toString()!=subPatchId;
     if(parametersEqual&&!selectionChanged)
         return;
     liveShowEditing=true;liveTypingLabel.clear();
@@ -1676,6 +1677,8 @@ void Desktop::applyLiveChannelSubPatch(const juce::String& requested,const juce:
         auto after=before.clone();
         for(auto& track2:live::array(live::require(after,"items",itemId),"tracks"))
             if(track2["channelId"].toString()==channel) {
+                // A sub-patch belongs to its patch, so the item default follows.
+                live::put(track2,"patchId",patchId);
                 if(subPatchId.isEmpty()) {
                     if(auto* object=track2.getDynamicObject())object->removeProperty("subPatchId");
                 } else {
