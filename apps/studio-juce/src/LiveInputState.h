@@ -268,10 +268,15 @@ inline juce::String livePatchStateHash(const std::vector<std::byte>& component,
     };
     const auto high=digest(1469598103934665603ull,component,controller);
     const auto low=digest(1099511628211ull,controller,component);
-    juce::String text;
-    text<<juce::String::toHexString(static_cast<juce::int64>(high)).paddedLeft('0',16)
-        <<juce::String::toHexString(static_cast<juce::int64>(low)).paddedLeft('0',16);
-    return text.toLowerCase();
+    std::string hex;
+    hex.reserve(32);
+    constexpr char digits[]="0123456789abcdef";
+    const auto append=[&](std::uint64_t value) {
+        for(int shift=60;shift>=0;shift-=4)
+            hex.push_back(digits[(value>>static_cast<unsigned>(shift))&0xFu]);
+    };
+    append(high);append(low);
+    return juce::String(hex);
 }
 inline juce::String putLivePatchState(juce::var& state,const mrs::NativeInsert& fx) {
     const auto hash=livePatchStateHash(fx.component_state,fx.controller_state);
