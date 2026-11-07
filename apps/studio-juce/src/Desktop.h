@@ -151,7 +151,6 @@ public:
     void deleteLiveChannelSubPatch(const juce::String&, const juce::String& patchId,
                                    const juce::String& subPatchId);
     std::vector<mrs::NativeInsert> captureLiveChannelInserts(const juce::String& channel);
-    bool setLiveTrackInserts(const mrs::Id&, std::vector<mrs::NativeInsert>);
     // #289 A-Upd1: after a stopped item switch, adopt the item's default
     // channel patches for activated channels (errors keep the current chain).
     void applyLiveItemDefaultPatches();

@@ -1,10 +1,10 @@
 #pragma once
 #include "../apps/studio-juce/src/LiveInputState.h"
 
-// #289 B - sub-patch overrides: effective parameters, capture diff, validation,
-// item persistence and reference cleanup.
+// #289 B - sub-patch state variants of the same chain: effective inserts,
+// capture rules, validation, item persistence and reference cleanup.
 namespace ui::live::test {
-inline void subPatchParameterOverrides() {
+inline void subPatchChainVariants() {
     const auto check=[](bool pass,const char* message){if(!pass)throw std::runtime_error(message);};
     const auto checkThrows=[&](const auto& body,const char* message){
         try{body();}catch(const std::exception&){return;}
@@ -20,24 +20,12 @@ inline void subPatchParameterOverrides() {
     base.plugin_path="C:/VST3/Rig.vst3";
     base.class_id="0123456789abcdef0123456789abcdef";
     base.plugin_name="Rig";
-    base.parameters={{0,0.5f},{1,0.25f}};
+    base.component_state={std::byte{1},std::byte{2}};
+    base.parameters={{0,0.5f}};
     base.validate();
     const auto patchId=addChannelPatch(state,require(state,"channels",channel),
                                        std::vector<mrs::NativeInsert>{base},"Clean","blue");
     auto& patchRow=require(require(state,"channels",channel),"patches",patchId);
-    auto sub=object();
-    put(sub,"id","sub-rhythm");
-    put(sub,"name","Rhythm");
-    put(sub,"color","violet");
-    juce::Array<juce::var> overrides;
-    auto overrideEntry=object();
-    put(overrideEntry,"insert","fx-1");
-    put(overrideEntry,"param",static_cast<juce::int64>(0));
-    put(overrideEntry,"value",0.9);
-    overrides.add(overrideEntry);
-    put(sub,"overrides",overrides);
-    array(patchRow,"subPatches").add(sub);
-    validate(state);
     const auto trackOf=[&](juce::var& target)->juce::var& {
         for(auto& entry:array(target,"items"))
             if(entry["id"].toString()==item)
@@ -46,37 +34,39 @@ inline void subPatchParameterOverrides() {
                         return track;
         throw std::runtime_error("Missing test track");
     };
-    const auto subPatch=[&](const juce::var& show)->juce::var {
-        return find(find(find(show,"channels",channel),"patches",patchId),"subPatches","sub-rhythm");
-    };
     const auto channelPatch=[&](const juce::var& show)->juce::var {
         return find(find(show,"channels",channel),"patches",patchId);
     };
+    const auto subPatchOf=[&](const juce::var& show)->juce::var {
+        return find(channelPatch(show),"subPatches","sub-rhythm");
+    };
     const auto baseInserts=decodeLivePatchInserts(state,channelPatch(state));
-    const auto effective=patchInsertsWithOverrides(state,channelPatch(state),subPatch(state));
-    check(effective.size()==1&&effective[0].parameters.size()==2,
-          "Sub-patch keeps the captured chain and its parameter list");
-    check(std::abs(effective[0].parameters[0].value-0.9f)<1.e-6f&&
-          std::abs(effective[0].parameters[1].value-0.25f)<1.e-6f,
-          "Sub-patch applies only its overrides on top of the base parameters");
-    check(sameInsertStructure(baseInserts,effective),
+    auto variant=baseInserts;
+    variant[0].component_state={std::byte{9},std::byte{9}};
+    variant[0].parameters[0].value=0.9f;
+    check(!(baseInserts==variant),"The test variant differs from the base chain");
+    auto sub=subPatchChain(state,baseInserts,variant);
+    put(sub,"id","sub-rhythm");
+    put(sub,"name","Rhythm");
+    put(sub,"color","violet");
+    array(patchRow,"subPatches").add(sub);
+    validate(state);
+    const auto effective=patchInsertsWithSubPatch(state,channelPatch(state),subPatchOf(state));
+    check(effective.size()==1&&effective[0].component_state==variant[0].component_state&&
+          std::abs(effective[0].parameters[0].value-0.9f)<1.e-6f,
+          "A sub-patch applies its captured same-chain state");
+    check(sameInsertStructure(effective,baseInserts),
           "Sub-patch switching never changes the insert chain structure");
-    const auto baseOnly=patchInsertsWithOverrides(state,channelPatch(state),{});
-    check(std::abs(baseOnly[0].parameters[0].value-0.5f)<1.e-6f,
-          "Base restores the captured patch parameters");
-    auto tweaked=baseInserts;
-    tweaked[0].parameters[1].value=0.7f;
-    const auto captured=subPatchOverrides(baseInserts,tweaked);
-    check(captured.size()==1&&static_cast<int>(captured[0]["param"])==1&&
-          std::abs(static_cast<double>(captured[0]["value"])-0.7)<1.e-5,
-          "Capturing a sub-patch stores only changed parameters");
-    auto same=baseInserts;
-    check(subPatchOverrides(baseInserts,same).size()==0,
-          "An unchanged chain produces no overrides");
+    const auto baseOnly=patchInsertsWithSubPatch(state,channelPatch(state),{});
+    check(baseOnly.size()==1&&baseOnly[0].component_state==base.component_state&&
+          std::abs(baseOnly[0].parameters[0].value-0.5f)<1.e-6f,
+          "Base restores the captured patch state");
+    checkThrows([&]{subPatchChain(state,baseInserts,baseInserts);},
+                "An unchanged chain must not produce a sub-patch");
     auto otherStructure=baseInserts;
     otherStructure[0].id=mrs::Id{"fx-2"};
-    checkThrows([&]{subPatchOverrides(baseInserts,otherStructure);},
-                "Capturing against a different chain must fail explicitly");
+    checkThrows([&]{subPatchChain(state,baseInserts,otherStructure);},
+                "A different chain must not be captured as a sub-patch");
     put(trackOf(state),"patchId",patchId);
     put(trackOf(state),"subPatchId","sub-rhythm");
     validate(state);
@@ -95,25 +85,17 @@ inline void subPatchParameterOverrides() {
     {
         auto broken=state.clone();
         auto& subs=array(require(require(broken,"channels",channel),"patches",patchId),"subPatches");
-        subs.getReference(0)["overrides"].getArray()->add(subs.getReference(0)["overrides"][0]);
-        checkThrows([&]{validate(broken);},"Duplicate overrides for one parameter must be rejected");
+        subs.getReference(0)["inserts"].getArray()->getReference(0)
+            .getDynamicObject()->setProperty("id","fx-9");
+        checkThrows([&]{validate(broken);},"A sub-patch chain with a different insert must be rejected");
     }
     {
         auto broken=state.clone();
         auto& subs=array(require(require(broken,"channels",channel),"patches",patchId),"subPatches");
-        auto entry=object();
-        put(entry,"insert","fx-missing");
-        put(entry,"param",static_cast<juce::int64>(0));
-        put(entry,"value",0.4);
-        subs.getReference(0)["overrides"].getArray()->add(entry);
-        checkThrows([&]{validate(broken);},"An override targeting a missing insert must be rejected");
-    }
-    {
-        auto broken=state.clone();
-        auto& subs=array(require(require(broken,"channels",channel),"patches",patchId),"subPatches");
-        subs.getReference(0)["overrides"].getArray()->getReference(0).getDynamicObject()
-            ->setProperty("value",1.5);
-        checkThrows([&]{validate(broken);},"An out-of-range override value must be rejected");
+        const auto hash=subs.getReference(0)["inserts"][0]["state"].toString();
+        check(broken["patchStates"].isObject(),"Patch state store exists");
+        broken["patchStates"].getDynamicObject()->removeProperty(juce::Identifier(hash));
+        checkThrows([&]{validate(broken);},"A sub-patch with missing opaque state must be rejected");
     }
     {
         auto duplicate=state.clone();
@@ -121,7 +103,7 @@ inline void subPatchParameterOverrides() {
         auto other=object();
         put(other,"id","sub-solo");
         put(other,"name","Rhythm");
-        put(other,"overrides",juce::Array<juce::var>());
+        put(other,"inserts",subs.getReference(0)["inserts"].clone());
         subs.add(other);
         checkThrows([&]{validate(duplicate);},"Duplicate sub-patch names must be rejected");
     }

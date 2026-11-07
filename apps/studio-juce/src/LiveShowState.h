@@ -307,14 +307,18 @@ inline void validatePatchInserts(const juce::var &state, const juce::var &patch)
         }
     }
 }
-// #289 B: sub-patches are named parameter-override sets of the same captured
-// chain. They never carry engine/plugin fields of their own.
-inline void validateSubPatches(const juce::var &patch) {
+// #289 B: sub-patches are state variants of the SAME captured chain. They never
+// carry engine/plugin structure of their own; only the opaque plugin state and
+// native parameters differ from the base patch.
+inline void validateSubPatches(const juce::var &state, const juce::var &patch) {
     const auto subs = patch["subPatches"];
     if (subs.isVoid())
         return;
     if (!subs.isArray() || subs.size() > maximumSubPatches)
         throw std::runtime_error("Invalid channel sub-patch list");
+    const auto *baseInserts = patch["inserts"].getArray();
+    if (baseInserts == nullptr)
+        throw std::runtime_error("Channel sub-patches require a captured patch");
     std::set<juce::String> ids, names;
     for (const auto &sub : *subs.getArray()) {
         if (!sub.isObject() || !named(sub["id"]) || !ids.insert(sub["id"].toString()).second ||
@@ -322,24 +326,15 @@ inline void validateSubPatches(const juce::var &patch) {
             throw std::runtime_error("Invalid channel sub-patch");
         if (!sub["color"].isVoid() && !patchColour(sub["color"].toString()))
             throw std::runtime_error("Invalid channel sub-patch colour");
-        if (!sub["overrides"].isArray() || sub["overrides"].size() > maximumSubPatchOverrides)
-            throw std::runtime_error("Invalid channel sub-patch overrides");
-        std::set<juce::String> pairs;
-        for (const auto &override : *sub["overrides"].getArray()) {
-            if (!override.isObject() || !named(override["insert"], 128) ||
-                !number(override["param"]) || !number(override["value"]))
-                throw std::runtime_error("Invalid channel sub-patch override");
-            const auto param = static_cast<double>(override["param"]);
-            const auto value = static_cast<double>(override["value"]);
-            if (!std::isfinite(param) || param < 0 || param > 4294967295. || std::floor(param) != param ||
-                !std::isfinite(value) || value < 0 || value > 1)
-                throw std::runtime_error("Invalid channel sub-patch override range");
-            const auto key = override["insert"].toString() + "/" +
-                             juce::String(static_cast<juce::int64>(param));
-            if (!pairs.insert(key).second)
-                throw std::runtime_error("Duplicate channel sub-patch override");
-            if (!find(patch, "inserts", override["insert"].toString()).isObject())
-                throw std::runtime_error("Sub-patch override targets a missing insert");
+        if (!sub["inserts"].isArray() || sub["inserts"].size() != baseInserts->size())
+            throw std::runtime_error("Sub-patch chain differs from its base patch");
+        validatePatchInserts(state, sub);
+        for (int i = 0; i < baseInserts->size(); ++i) {
+            const auto &base = (*baseInserts)[i];
+            const auto &variant = sub["inserts"][i];
+            if (variant["id"] != base["id"] || variant["kind"] != base["kind"] ||
+                variant["path"] != base["path"] || variant["classId"] != base["classId"])
+                throw std::runtime_error("Sub-patch chain differs from its base patch");
         }
     }
 }
@@ -612,7 +607,7 @@ inline void validate(const juce::var &state) {
                 if (!patch["version"].isInt() || static_cast<int>(patch["version"]) != 1)
                     throw std::runtime_error("Unsupported channel patch version");
                 validatePatchInserts(state, patch);
-                validateSubPatches(patch);
+                validateSubPatches(state, patch);
             }
         }
     }

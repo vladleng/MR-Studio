@@ -221,23 +221,7 @@ class LiveInterfaceEdit final : public juce::UndoableAction {
     juce::var before, after;
     std::uint64_t generation{};
 };
-// #289 B: sub-patch switching changes only insert parameters and bypass, so the
-// Core apply stays on the parameter-only path (no chain rebuild). The action is
-// part of the live Undo transaction together with the item subPatchId.
-class LiveTrackInsertsEdit final : public juce::UndoableAction {
-  public:
-    LiveTrackInsertsEdit(Desktop& desktop,mrs::Id track,std::vector<mrs::NativeInsert> previous,
-                         std::vector<mrs::NativeInsert> next)
-        : owner(&desktop),trackId(std::move(track)),before(std::move(previous)),after(std::move(next)) {}
-    bool perform() override { return owner && owner->setLiveTrackInserts(trackId,after); }
-    bool undo() override { return owner && owner->setLiveTrackInserts(trackId,before); }
-    int getSizeInUnits() override { return 1024; }
 
-  private:
-    juce::Component::SafePointer<Desktop> owner;
-    mrs::Id trackId;
-    std::vector<mrs::NativeInsert> before, after;
-};
 // #31 P5: Playback / Stems levels are scalar audio controls. Do not clone,
 // JSON-validate or snapshot the entire show (including vendor VST3 states)
 // for an individual M/S click or a fader commit. Preview never calls this.
@@ -1576,8 +1560,8 @@ void Desktop::applyLiveChannelPatch(const juce::String& requested,const juce::St
         throw std::runtime_error("Finish the item transition before changing the channel chain");
     // Decoding validates the captured state against the shared blob store; the
     // applied profile keeps the show-owned input, device, mix and outputs.
-    // #289 B: a selected sub-patch contributes its parameter overrides.
-    const auto inserts=live::patchInsertsWithOverrides(liveDocument->interfaceState,patch,subPatch);
+    // #289 B: a selected sub-patch contributes its same-chain state variant.
+    const auto inserts=live::patchInsertsWithSubPatch(liveDocument->interfaceState,patch,subPatch);
     auto draft=liveDocument->interfaceState.clone();captureLiveInputs(draft);
     auto draftChannel=live::find(draft,"channels",channel);
     if(!draftChannel["liveInput"].isObject())
@@ -1620,79 +1604,11 @@ std::vector<mrs::NativeInsert> Desktop::captureLiveChannelInserts(const juce::St
         throw std::runtime_error("Configure the channel input first");
     return live::decodeLiveInputProfile(row["liveInput"]).inserts;
 }
-bool Desktop::setLiveTrackInserts(const mrs::Id& track,std::vector<mrs::NativeInsert> inserts) {
-    try {
-        app.set_inserts(std::optional<mrs::Id>{track},std::move(inserts));
-        return true;
-    } catch(const std::exception& error) {
-        message="Patch: "+juce::String::fromUTF8(error.what());
-        repaint();
-        return false;
-    }
-}
 void Desktop::applyLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
                                        const juce::String& subPatchId) {
-    const auto channel=inputChannel(*this,requested);
-    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
-    const auto patch=live::find(row,"patches",patchId);
-    if(!patch.isObject()||live::legacyPatch(patch))
-        throw std::runtime_error("Choose a captured patch before switching its sub-patches");
-    const auto subPatch=subPatchId.isEmpty()?juce::var{}:live::find(patch,"subPatches",subPatchId);
-    if(subPatchId.isNotEmpty()&&!subPatch.isObject())
-        throw std::runtime_error("Choose a sub-patch from the channel library");
-    if(!liveInputTrack(channel))
-        throw std::runtime_error("Activate the channel input before applying a sub-patch");
-    if(app.recording()||app.engine()->state().playback==mrs::PlaybackState::playing)
-        throw std::runtime_error("Pause or stop before changing sub-patch parameters");
-    if(livePendingItem.isNotEmpty()||livePlaybackLoading)
-        throw std::runtime_error("Finish the item transition before changing sub-patch parameters");
-    const auto base=live::decodeLivePatchInserts(liveDocument->interfaceState,patch);
-    auto current=captureLiveChannelInserts(channel);
-    if(!live::sameInsertStructure(base,current))
-        throw std::runtime_error("Apply the base patch before switching its sub-patches");
-    auto effective=live::patchInsertsWithOverrides(liveDocument->interfaceState,patch,subPatch);
-    bool parametersEqual=current.size()==effective.size();
-    if(parametersEqual)
-        for(std::size_t i=0;i<current.size();++i)
-            if(current[i].parameters!=effective[i].parameters||current[i].bypass!=effective[i].bypass) {
-                parametersEqual=false;break;
-            }
-    const auto itemId=liveDocument->interfaceState["currentItem"].toString();
-    const auto itemTrack=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
-    const bool selectionChanged=itemTrack["patchId"].toString()!=patchId||
-                                itemTrack["subPatchId"].toString()!=subPatchId;
-    if(parametersEqual&&!selectionChanged)
-        return;
-    liveShowEditing=true;liveTypingLabel.clear();
-    liveUndo.beginNewTransaction("Apply sub-patch");
-    if(!parametersEqual&&liveInputTrack(channel)) {
-        if(!liveUndo.perform(new LiveTrackInsertsEdit(*this,*liveInputTrack(channel),
-            std::move(current),std::move(effective)))) {
-            liveUndo.beginNewTransaction();
-            return;
-        }
-    }
-    if(selectionChanged&&itemId.isNotEmpty()&&live::find(liveDocument->interfaceState,"items",itemId).isObject()) {
-        auto before=liveDocument->interfaceState.clone();
-        auto after=before.clone();
-        for(auto& track2:live::array(live::require(after,"items",itemId),"tracks"))
-            if(track2["channelId"].toString()==channel) {
-                // A sub-patch belongs to its patch, so the item default follows.
-                live::put(track2,"patchId",patchId);
-                if(subPatchId.isEmpty()) {
-                    if(auto* object=track2.getDynamicObject())object->removeProperty("subPatchId");
-                } else {
-                    live::put(track2,"subPatchId",subPatchId);
-                }
-                break;
-            }
-        if(!liveUndo.perform(new LiveInterfaceEdit(*this,before,after))) {
-            liveUndo.beginNewTransaction();
-            return;
-        }
-    }
-    liveUndo.beginNewTransaction();
-    syncAutomaticLiveMonitoring();
+    // #289 B: a sub-patch is a same-chain state variant, so the stopped chain
+    // publication path applies it with one Undo transaction and item selection.
+    applyLiveChannelPatch(requested,patchId,subPatchId);
 }
 void Desktop::captureLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
                                          const juce::String& name,const juce::String& colour) {
@@ -1712,9 +1628,6 @@ void Desktop::captureLiveChannelSubPatch(const juce::String& requested,const juc
     if(!live::named(trimmed))throw std::runtime_error("Invalid sub-patch name");
     const auto base=live::decodeLivePatchInserts(liveDocument->interfaceState,patch);
     const auto current=captureLiveChannelInserts(channel);
-    const auto overrides=live::subPatchOverrides(base,current);
-    if(overrides.size()==0)
-        throw std::runtime_error("No parameter changes to capture; adjust the FX and retry");
     editLiveInterface("Capture sub-patch",[&](auto& state){
         auto& target=live::require(live::require(state,"channels",channel),"patches",patchId);
         auto& subs=live::array(target,"subPatches");
@@ -1723,11 +1636,10 @@ void Desktop::captureLiveChannelSubPatch(const juce::String& requested,const juc
         for(const auto& existing:subs)
             if(existing["name"].toString().compareIgnoreCase(trimmed)==0)
                 throw std::runtime_error("A sub-patch with this name already exists");
-        auto sub=live::object();
+        auto sub=live::subPatchChain(state,base,current); // validates structure and a real change
         live::put(sub,"id",live::freshId());
         live::put(sub,"name",trimmed);
         live::put(sub,"color",colour);
-        live::put(sub,"overrides",overrides.clone());
         subs.add(sub);
     });
 }
@@ -1797,7 +1709,7 @@ void Desktop::applyLiveItemDefaultPatches() {
         bool differs=false;
         try {
             differs=live::decodeLiveInputProfile(row["liveInput"]).inserts!=
-                    live::patchInsertsWithOverrides(liveDocument->interfaceState,patch,subPatch);
+                    live::patchInsertsWithSubPatch(liveDocument->interfaceState,patch,subPatch);
         } catch(const std::exception&) {
             continue; // Missing opaque state: report only when applied manually.
         }
