@@ -249,8 +249,21 @@ private:
                 const auto patch=(*bank)[i];
                 const auto patchId=patch["id"].toString();
                 const bool legacy=live::legacyPatch(patch);
+                const auto currentSub=currentTrack["subPatchId"].toString();
                 juce::PopupMenu entry;
                 entry.addItem(5000+i*8,"Apply now",canApply&&!legacy,defaultPatch==patchId);
+                juce::PopupMenu subs;
+                subs.addItem(20000+i*64,"Base",canApply&&!legacy,
+                             defaultPatch==patchId&&currentSub.isEmpty());
+                if(const auto* subList=patch["subPatches"].getArray())
+                    for(int j=0;j<subList->size()&&j<31;++j) {
+                        const auto sub=(*subList)[j];
+                        subs.addItem(20000+i*64+j+1,sub["name"].toString(),canApply&&!legacy,
+                                     defaultPatch==patchId&&currentSub==sub["id"].toString());
+                    }
+                entry.addSubMenu("Sub-patches",subs);
+                if(!legacy)
+                    entry.addItem(30000+i,"Capture current as sub-patch…",canApply);
                 entry.addItem(5001+i*8,"Set as item default",true,defaultPatch==patchId);
                 if(defaultPatch==patchId)entry.addItem(5002+i*8,"Clear item default");
                 entry.addItem(5003+i*8,"Rename…");
@@ -322,7 +335,7 @@ private:
         menu.showMenuAsync(liveMenuOptions(anchor?*anchor:effects),[safe,saved,signature,choices,generation,instrumentPicker,patchSnapshot,currentItem,stopped](int action){if(!safe||!action)return;safe->owner.run([&]{
             if(safe->owner.liveDocumentGeneration!=generation || !live::sameShowValue(safe->profile(),signature))
                 throw std::runtime_error("Channel changed; reopen effect menu");
-            if(action>=5000&&action<10000) {
+            if(action>=5000&&action<40000) {
                 safe->patchAction(patchSnapshot,currentItem,action,stopped);
                 return;
             }
@@ -378,7 +391,34 @@ private:
             });
             return;
         }
-        if(action>=6000) {
+        if(action>=20000&&action<30000) {
+            // #289 B: Base (slot 0) or a named sub-patch of the same chain.
+            const int index=(action-20000)/64,slot=(action-20000)%64;
+            const auto patch=patchAt(index);
+            if(!patch.isObject()||!stopped)return;
+            const auto patchId=patch["id"].toString();
+            if(slot==0) {
+                owner.applyLiveChannelSubPatch(id,patchId,{});
+            } else {
+                const auto* subList=patch["subPatches"].getArray();
+                if(!subList||slot-1>=subList->size())return;
+                owner.applyLiveChannelSubPatch(id,patchId,(*subList)[slot-1]["id"].toString());
+            }
+            sync();
+            return;
+        }
+        if(action>=30000&&action<31000) {
+            const auto patch=patchAt(action-30000);
+            if(!patch.isObject()||!stopped)return;
+            const auto patchId=patch["id"].toString();
+            juce::Component::SafePointer<Desktop> ownerSafe(&owner);
+            ownerSafe->textDialog("Sub-patch name","Rhythm",[ownerSafe,safe,patchId](auto name){
+                if(!safe||name.trim().isEmpty())return;
+                ownerSafe->run([=]{ownerSafe->captureLiveChannelSubPatch(safe->id,patchId,name,"violet");safe->sync();});
+            });
+            return;
+        }
+        if(action>=6000&&action<7000) {
             const int index=(action-6000)/8,colour=(action-6000)%8;
             const auto patch=patchAt(index);
             if(!patch.isObject()||colour>=static_cast<int>(live::patchColours.size()))return;

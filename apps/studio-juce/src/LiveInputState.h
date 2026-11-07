@@ -371,4 +371,65 @@ inline juce::String addChannelPatch(juce::var& state,juce::var& channel,
     bank.add(patch);
     return id;
 }
+// #289 B: effective chain = captured base patch parameters + sub-patch overrides.
+inline std::vector<mrs::NativeInsert> patchInsertsWithOverrides(
+    const juce::var& state,const juce::var& patch,const juce::var& subPatch) {
+    auto inserts=decodeLivePatchInserts(state,patch);
+    if(subPatch.isVoid())
+        return inserts;
+    if(!subPatch.isObject()||!subPatch["overrides"].isArray())
+        throw std::runtime_error("Invalid channel sub-patch");
+    for(const auto& overrideVar:*subPatch["overrides"].getArray()) {
+        if(!overrideVar.isObject()||!named(overrideVar["insert"],128)||
+           !number(overrideVar["param"])||!number(overrideVar["value"]))
+            throw std::runtime_error("Invalid channel sub-patch override");
+        const auto insertId=overrideVar["insert"].toString();
+        const auto found=std::find_if(inserts.begin(),inserts.end(),[&](const auto& fx){
+            return juce::String::fromUTF8(fx.id.value.c_str())==insertId;});
+        if(found==inserts.end())
+            throw std::runtime_error("Sub-patch insert is missing from the applied chain");
+        const auto paramId=static_cast<std::uint32_t>(static_cast<double>(overrideVar["param"]));
+        const auto value=static_cast<float>(static_cast<double>(overrideVar["value"]));
+        const auto parameter=std::find_if(found->parameters.begin(),found->parameters.end(),
+            [&](const auto& p){return p.id==paramId;});
+        if(parameter==found->parameters.end())
+            found->parameters.push_back({paramId,value});
+        else
+            parameter->value=value;
+    }
+    return inserts;
+}
+inline bool sameInsertStructure(const std::vector<mrs::NativeInsert>& left,
+                                const std::vector<mrs::NativeInsert>& right) {
+    if(left.size()!=right.size())
+        return false;
+    for(std::size_t i=0;i<left.size();++i)
+        if(left[i].id!=right[i].id||left[i].kind!=right[i].kind||
+           left[i].plugin_path!=right[i].plugin_path||left[i].class_id!=right[i].class_id)
+            return false;
+    return true;
+}
+// Parameters the live chain changed relative to the captured base patch.
+inline juce::var subPatchOverrides(const std::vector<mrs::NativeInsert>& base,
+                                   const std::vector<mrs::NativeInsert>& current) {
+    if(!sameInsertStructure(base,current))
+        throw std::runtime_error("Apply the base patch before capturing a sub-patch");
+    juce::Array<juce::var> overrides;
+    for(std::size_t i=0;i<base.size();++i) {
+        const auto& baseFx=base[i];const auto& liveFx=current[i];
+        for(const auto& liveParameter:liveFx.parameters) {
+            const auto baseParameter=std::find_if(baseFx.parameters.begin(),baseFx.parameters.end(),
+                [&](const auto& p){return p.id==liveParameter.id;});
+            if(baseParameter!=baseFx.parameters.end() &&
+               std::abs(baseParameter->value-liveParameter.value)<=1.e-6f)
+                continue;
+            auto entry=object();
+            put(entry,"insert",juce::String::fromUTF8(baseFx.id.value.c_str()));
+            put(entry,"param",static_cast<juce::int64>(liveParameter.id));
+            put(entry,"value",static_cast<double>(liveParameter.value));
+            overrides.add(entry);
+        }
+    }
+    return juce::var(overrides);
+}
 } // namespace ui::live

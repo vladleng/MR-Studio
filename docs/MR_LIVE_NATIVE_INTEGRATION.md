@@ -464,3 +464,23 @@ state или ошибка валидации оставляют текущую �
 срезы B–D; физическая ASIO/vendor приёмка — NOT TESTED до пользовательской
 проверки.
 
+## Sub-patch overrides — #289, срез B (MR Live 0.9.2)
+
+Sub-patch принадлежит захваченному базовому патчу канала и является именованным
+набором overrides параметров **той же** insert-цепочки:
+`{id, name, color, overrides:[{insert, param, value}]}`. Своих engine/plugin
+полей и отдельной цепочки у него нет. Effective-состояние = параметры базового
+патча + overrides; `Base` возвращает параметры захваченного патча. Overrides
+адресуются стабильным `insert id` + VST3 `parameter id`, значения нормализованы
+0..1; неизвестный insert — явная ошибка, а не тихий пропуск.
+
+Переключение Base/Rhythm/Solo выполняется при stopped Playback и активированном
+канале и идёт по parameter-only пути Core (`Application::set_inserts` →
+`enqueue_parameters`), без пересборки цепочки: состав, порядок, plugin state,
+channel mix, routing и outputs не меняются. Выбор сохраняется в
+`item.tracks[].subPatchId` (часть сохраняемой версии item). `Capture current as
+sub-patch…` снимает только реально изменённые параметры относительно базового
+патча; удаление sub-patch очищает ссылки items и сохранённых Browser-версий.
+
+Ограничения среза: блока на Timeline нет (C), автоматического переключения во
+время Play нет (D), ручного редактирования отдельного параметра вне захвата нет.
