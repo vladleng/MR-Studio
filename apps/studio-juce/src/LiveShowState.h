@@ -639,10 +639,22 @@ inline void migrateSavedPatchAssignments(juce::var &state) {
                 for (const auto &liveTrack : *liveTracks) {
                     if (liveTrack["channelId"].toString() != channelId)
                         continue;
+                    auto *savedObject = savedTrack.getDynamicObject();
                     for (const auto *field : {"patchId", "subPatchId"}) {
-                        if (savedTrack[field].toString().isEmpty() &&
-                            liveTrack[field].toString().isNotEmpty()) {
-                            put(savedTrack, field, liveTrack[field].clone());
+                        const auto fieldKey = juce::Identifier(field);
+                        const bool savedHasField = savedObject->hasProperty(fieldKey);
+                        const auto savedValue =
+                            savedHasField ? savedObject->getProperty(fieldKey).toString() : juce::String();
+                        const auto liveValue = liveTrack[field];
+                        if (savedValue.isNotEmpty())
+                            continue;
+                        if (liveValue.toString().isNotEmpty()) {
+                            put(savedTrack, field, liveValue.clone());
+                            changed = true;
+                        } else if (!savedHasField) {
+                            // Old writers always stored the field as null; absent
+                            // and null must compare equal in the saved content.
+                            put(savedTrack, field, {});
                             changed = true;
                         }
                     }
