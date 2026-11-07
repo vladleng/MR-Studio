@@ -15,131 +15,8 @@ inline void subPatchOverrides() {
     const auto item=addItem(state,"Song A");
     put(state,"currentItem",item);
     mrs::NativeInsert base;
-    base.id=mrs::Id{"fx-1"};base.kind=mrs::InsertKind::vst3;
-    base.plugin_path="C:/VST3/Rig.vst3";
-    base.class_id="0123456789abcdef0123456789abcdef";
-    base.plugin_name="Rig";
-    base.parameters={{0,0.5f},{1,0.25f}};
-    base.validate();
-    const auto patchId=addChannelPatch(state,require(state,"channels",channel),
-                                       std::vector<mrs::NativeInsert>{base},"Clean","blue");
-    auto& patch=live::find(require(state,"channels",channel),"patches",patchId);
-```
-Hmm `find` returns var by value; need var& for mutating patch. Use `require(require(state,"channels",channel),"patches",patchId)` returns var&. Note `require` signature (var&, key, id). Good.
-
-Continue building subPatch via require reference:
-```cpp
-    auto& patchRow=require(require(state,"channels",channel),"patches",patchId);
-    auto sub=object();
-    put(sub,"id","sub-rhythm");put(sub,"name","Rhythm");put(sub,"color","violet");
-    juce::Array<juce::var> overrides;
-    auto o1=object();put(o1,"insert","fx-1");put(o1,"param",static_cast<juce::int64>(0));put(o1,"value",0.9);
-    overrides.add(o1);
-    put(sub,"overrides",overrides);
-    array(patchRow,"subPatches").add(sub);
-    validate(state);
-```
-Then checks. Use `find` copies for validation clones.
-
-Note: `addItem(state,...)` before adding subpatches saved library snapshot; fine.
-
-Effective checks: `effective[0].parameters[0].value==0.9f` exact (double 0.9 read back via JSON patchInsertsWithOverrides decodes base inserts from patch (params 0.5/0.25) then sets float(0.9 double)=0.9f? 0.9 double → float 0.9f; compare to 0.9f literal exact (both same conversion) → equal. Base: 0.5f from encode(decode) — encode wrote double(0.5f)=0.5 exact; decode float 0.5f. ok.
-
-current tweak: `current[0].parameters[1].value=0.7f;` diff compares base 0.25 vs 0.7 → override param 1.
-`captured[0]["param"]` var int64 → `static_cast<int>(captured[0]["param"])` works? var int64 → static_cast<int> ok.
-
-Validation rejections: clone state, mutate patchRow/subPatch:
-- duplicate override: add second identical {fx-1,0,0.5} → validate throws.
-- missing insert: override insert "fx-missing" → throws.
-- bad value: value 1.5 → throws.
-- duplicate sub name: add another sub with same name (different id) → throws.
-- legacy: add legacy patch with demo subPatches (engine/parameters) → validate passes (legacy skipped). Use clone.
-- track refs: put track subPatchId valid → validate(state) passes (already after assignment); invalid → throws.
-- delete: clearSubPatchReferences + clearLibrarySubPatchReferences; remove sub from patch; validate; library snapshot check.
-
-Track helper lambda:
-```cpp
-    const auto trackOf=[&](juce::var& target)->juce::var& {
-        for(auto& entry:array(target,"items"))
-            if(entry["id"].toString()==item)
-                for(auto& track:*entry["tracks"].getArray())
-                    if(track["channelId"].toString()==channel) return track;
-        throw std::runtime_error("Missing test track");
-    };
-```
-Then:
-```cpp
-    put(trackOf(state),"patchId",patchId);
-    put(trackOf(state),"subPatchId","sub-rhythm");
-    validate(state);
-    saveItem(state,item);
-    check(!itemDirty(state,item),"Saved item keeps its sub-patch selection");
-    put(trackOf(state),"subPatchId","");
-    check(itemDirty(state,item),"Changing the sub-patch selection dirties the item version");
-    saveItem(state,item);
-    check(!itemDirty(state,item),"Re-saved item with Base selection is clean");
-```
-Hmm empty string subPatchId: validation treats empty as unassigned; content compares "" vs "sub-rhythm" → dirty. Then saveItem stored with "". Later delete cleanup expects refs; fine.
-
-But careful: after `saveItem` with "", library snapshot has subPatchId "" (empty string). delete cleanup should remove. ok.
-
-Then `put(trackOf(state),"subPatchId","sub-rhythm")` again for deletion test, saveItem maybe. Then cleanup:
-```cpp
-    {
-        auto edited=state.clone();
-        put(trackOf(edited),"subPatchId","sub-rhythm");
-        saveItem(edited,item); // library snapshot now references the sub-patch
-        clearSubPatchReferences(edited,channel,patchId,"sub-rhythm");
-        clearLibrarySubPatchReferences(edited,channel,patchId,"sub-rhythm");
-        check(trackOf(edited)["subPatchId"].isVoid(),"...");
-        auto& subs=array(require(require(edited,"channels",channel),"patches",patchId),"subPatches");
-        int index=-1;for(int i=0;i<subs.size();++i)if(subs[i]["id"].toString()=="sub-rhythm"){index=i;break;}
-        check(index>=0,"...");subs.remove(index);
-        validate(edited);
-        const auto saved=libraryItem(edited,item);
-        bool savedReference=false;
-        if(auto* tracks=saved["tracks"].getArray())
-            for(const auto& track:*tracks)
-                if(track["channelId"].toString()==channel) savedReference=!track["subPatchId"].isVoid();
-        check(!savedReference,"Deleting a sub-patch clears its saved Browser reference");
-    }
-```
-`libraryItem(edited,item)` returns item var from snapshot string (parse). Good.
-
-Validation invalid refs:
-```cpp
-    {
-        auto broken=state.clone();
-        put(trackOf(broken),"subPatchId","missing-sub");
-        checkThrows([&]{validate(broken);},"Missing item sub-patch reference must be rejected");
-    }
-```
-But state currently subPatchId may be "" (after resave) → clone then set missing. patchId must be set: after saveItem with "" patchId remains patchId. ok.
-
-Other validation clones use `find`/require on clone.
-
-Let me write the file carefully.<｜end▁of▁thinking｜>
-
-<｜｜DSML｜｜ calls>
-<｜｜DSML｜｜ invoke name="write">
-<｜｜DSML｜｜ parameter name="content" string="true">#pragma once
-#include "../apps/studio-juce/src/LiveInputState.h"
-
-// #289 B - sub-patch overrides: effective parameters, capture diff, validation,
-// item persistence and reference cleanup.
-namespace ui::live::test {
-inline void subPatchOverrides() {
-    const auto check=[](bool pass,const char* message){if(!pass)throw std::runtime_error(message);};
-    const auto checkThrows=[&](const auto& body,const char* message){
-        try{body();}catch(const std::exception&){return;}
-        throw std::runtime_error(message);
-    };
-    auto state=empty();
-    const auto channel=addChannel(state,"Player","Guitar");
-    const auto item=addItem(state,"Song A");
-    put(state,"currentItem",item);
-    mrs::NativeInsert base;
-    base.id=mrs::Id{"fx-1"};base.kind=mrs::InsertKind::vst3;
+    base.id=mrs::Id{"fx-1"};
+    base.kind=mrs::InsertKind::vst3;
     base.plugin_path="C:/VST3/Rig.vst3";
     base.class_id="0123456789abcdef0123456789abcdef";
     base.plugin_name="Rig";
@@ -149,7 +26,9 @@ inline void subPatchOverrides() {
                                        std::vector<mrs::NativeInsert>{base},"Clean","blue");
     auto& patchRow=require(require(state,"channels",channel),"patches",patchId);
     auto sub=object();
-    put(sub,"id","sub-rhythm");put(sub,"name","Rhythm");put(sub,"color","violet");
+    put(sub,"id","sub-rhythm");
+    put(sub,"name","Rhythm");
+    put(sub,"color","violet");
     juce::Array<juce::var> overrides;
     auto overrideEntry=object();
     put(overrideEntry,"insert","fx-1");
@@ -170,10 +49,11 @@ inline void subPatchOverrides() {
     const auto subPatch=[&](const juce::var& show)->juce::var {
         return find(find(find(show,"channels",channel),"patches",patchId),"subPatches","sub-rhythm");
     };
-    // Effective chain = base parameters + overrides; Base restores the capture.
-    const auto baseInserts=decodeLivePatchInserts(state,find(find(state,"channels",channel),"patches",patchId));
-    const auto effective=patchInsertsWithOverrides(state,
-        find(find(state,"channels",channel),"patches",patchId),subPatch(state));
+    const auto channelPatch=[&](const juce::var& show)->juce::var {
+        return find(find(show,"channels",channel),"patches",patchId);
+    };
+    const auto baseInserts=decodeLivePatchInserts(state,channelPatch(state));
+    const auto effective=patchInsertsWithOverrides(state,channelPatch(state),subPatch(state));
     check(effective.size()==1&&effective[0].parameters.size()==2,
           "Sub-patch keeps the captured chain and its parameter list");
     check(std::abs(effective[0].parameters[0].value-0.9f)<1.e-6f&&
@@ -181,11 +61,9 @@ inline void subPatchOverrides() {
           "Sub-patch applies only its overrides on top of the base parameters");
     check(sameInsertStructure(baseInserts,effective),
           "Sub-patch switching never changes the insert chain structure");
-    const auto baseOnly=patchInsertsWithOverrides(state,
-        find(find(state,"channels",channel),"patches",patchId),{});
+    const auto baseOnly=patchInsertsWithOverrides(state,channelPatch(state),{});
     check(std::abs(baseOnly[0].parameters[0].value-0.5f)<1.e-6f,
           "Base restores the captured patch parameters");
-    // Capture diff stores only parameters the live chain actually changed.
     auto tweaked=baseInserts;
     tweaked[0].parameters[1].value=0.7f;
     const auto captured=subPatchOverrides(baseInserts,tweaked);
@@ -199,7 +77,6 @@ inline void subPatchOverrides() {
     otherStructure[0].id=mrs::Id{"fx-2"};
     checkThrows([&]{subPatchOverrides(baseInserts,otherStructure);},
                 "Capturing against a different chain must fail explicitly");
-    // Item persistence: the sub-patch selection belongs to the saved item version.
     put(trackOf(state),"patchId",patchId);
     put(trackOf(state),"subPatchId","sub-rhythm");
     validate(state);
@@ -225,21 +102,25 @@ inline void subPatchOverrides() {
         auto broken=state.clone();
         auto& subs=array(require(require(broken,"channels",channel),"patches",patchId),"subPatches");
         auto entry=object();
-        put(entry,"insert","fx-missing");put(entry,"param",static_cast<juce::int64>(0));put(entry,"value",0.4);
+        put(entry,"insert","fx-missing");
+        put(entry,"param",static_cast<juce::int64>(0));
+        put(entry,"value",0.4);
         subs.getReference(0)["overrides"].getArray()->add(entry);
         checkThrows([&]{validate(broken);},"An override targeting a missing insert must be rejected");
     }
     {
         auto broken=state.clone();
         auto& subs=array(require(require(broken,"channels",channel),"patches",patchId),"subPatches");
-        subs.getReference(0)["overrides"].getArray()->getReference(0).getDynamicObject()->setProperty("value",1.5);
+        subs.getReference(0)["overrides"].getArray()->getReference(0).getDynamicObject()
+            ->setProperty("value",1.5);
         checkThrows([&]{validate(broken);},"An out-of-range override value must be rejected");
     }
     {
         auto duplicate=state.clone();
         auto& subs=array(require(require(duplicate,"channels",channel),"patches",patchId),"subPatches");
         auto other=object();
-        put(other,"id","sub-solo");put(other,"name","Rhythm");
+        put(other,"id","sub-solo");
+        put(other,"name","Rhythm");
         put(other,"overrides",juce::Array<juce::var>());
         subs.add(other);
         checkThrows([&]{validate(duplicate);},"Duplicate sub-patch names must be rejected");
@@ -248,12 +129,15 @@ inline void subPatchOverrides() {
         auto legacy=state.clone();
         auto& channelRow=require(legacy,"channels",channel);
         auto demo=object();
-        put(demo,"id","demo-patch");put(demo,"name","Legacy demo");
+        put(demo,"id","demo-patch");
+        put(demo,"name","Legacy demo");
         put(demo,"engine",object());
         auto demoSub=object();
-        put(demoSub,"id","demo-sub");put(demoSub,"name","Demo Rhythm");
+        put(demoSub,"id","demo-sub");
+        put(demoSub,"name","Demo Rhythm");
         put(demoSub,"color","green");
-        juce::Array<juce::var> demoSubs;demoSubs.add(demoSub);
+        juce::Array<juce::var> demoSubs;
+        demoSubs.add(demoSub);
         put(demo,"subPatches",demoSubs);
         array(channelRow,"patches").add(demo);
         validate(legacy);
