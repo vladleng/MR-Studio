@@ -335,7 +335,7 @@ private:
         menu.showMenuAsync(liveMenuOptions(anchor?*anchor:effects),[safe,saved,signature,choices,generation,instrumentPicker,patchSnapshot,currentItem,stopped](int action){if(!safe||!action)return;safe->owner.run([&]{
             if(safe->owner.liveDocumentGeneration!=generation || !live::sameShowValue(safe->profile(),signature))
                 throw std::runtime_error("Channel changed; reopen effect menu");
-            if(action>=5000&&action<40000) {
+            if((action>=5000&&action<10000)||(action>=20000&&action<31000)) {
                 safe->patchAction(patchSnapshot,currentItem,action,stopped);
                 return;
             }
