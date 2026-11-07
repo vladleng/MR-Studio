@@ -606,6 +606,74 @@ inline juce::String addChannel(juce::var &state, const juce::String &type, const
     }
     return id;
 }
+// #289 A: before this slice the item version did not store the channel patch
+// assignment. Older saved Browser versions therefore have no patchId; adopt the
+// current assignment (and the referenced patch descriptor) once so opening a
+// pre-#289 show is not reported as modified. The file itself is not rewritten
+// until the user saves.
+inline void migrateSavedPatchAssignments(juce::var &state) {
+    auto *library = state["library"].getDynamicObject();
+    if (library == nullptr)
+        return;
+    juce::StringArray keys;
+    for (const auto &pair : library->getProperties())
+        if (pair.value.isString())
+            keys.add(pair.name.toString());
+    std::vector<std::pair<juce::String, juce::String>> updates;
+    for (const auto &key : keys) {
+        juce::var snapshot;
+        if (juce::JSON::parse(library->getProperty(juce::Identifier(key)).toString(), snapshot).failed() ||
+            !snapshot["items"].isArray() || snapshot["items"].size() != 1)
+            continue;
+        const auto item = find(state, "items", key);
+        if (!item.isObject())
+            continue;
+        bool changed = false;
+        auto *savedTracks = snapshot["items"][0]["tracks"].getArray();
+        auto *liveTracks = item["tracks"].getArray();
+        if (savedTracks != nullptr && liveTracks != nullptr)
+            for (auto &savedTrack : *savedTracks) {
+                if (!savedTrack.isObject())
+                    continue;
+                const auto channelId = savedTrack["channelId"].toString();
+                for (const auto &liveTrack : *liveTracks) {
+                    if (liveTrack["channelId"].toString() != channelId)
+                        continue;
+                    for (const auto *field : {"patchId", "subPatchId"}) {
+                        if (savedTrack[field].toString().isEmpty() &&
+                            liveTrack[field].toString().isNotEmpty()) {
+                            put(savedTrack, field, liveTrack[field].clone());
+                            changed = true;
+                        }
+                    }
+                    break;
+                }
+            }
+        if (changed && savedTracks != nullptr)
+            if (auto *savedChannels = snapshot["channels"].getArray())
+                for (auto &savedChannel : *savedChannels) {
+                    if (!savedChannel.isObject())
+                        continue;
+                    const auto liveChannel = find(state, "channels", savedChannel["id"].toString());
+                    if (!liveChannel.isObject())
+                        continue;
+                    for (const auto &savedTrack : *savedTracks)
+                        if (savedTrack["channelId"].toString() == savedChannel["id"].toString()) {
+                            const auto patchId = savedTrack["patchId"].toString();
+                            if (patchId.isEmpty() || find(savedChannel, "patches", patchId).isObject())
+                                continue;
+                            const auto patch = find(liveChannel, "patches", patchId);
+                            if (patch.isObject())
+                                array(savedChannel, "patches").add(patch.clone());
+                            break;
+                        }
+                }
+        if (changed)
+            updates.emplace_back(key, juce::JSON::toString(snapshot, true, 17));
+    }
+    for (const auto &update : updates)
+        library->setProperty(juce::Identifier(update.first), update.second);
+}
 inline juce::var importDemo(const juce::String &bytes) {
     if (bytes.getNumBytesAsUTF8() > 1024 * 1024)
         throw std::runtime_error("Editor show exceeds 1 MiB");
@@ -613,6 +681,7 @@ inline juce::var importDemo(const juce::String &bytes) {
     if (juce::JSON::parse(bytes, state).failed() || state["schema"].toString() != "mr-live-demo-show" ||
         static_cast<int>(state["version"]) != 3)
         throw std::runtime_error("Expected editor show v3 JSON");
+    migrateSavedPatchAssignments(state);
     validate(state);
     state.getDynamicObject()->removeProperty("schema");
     state.getDynamicObject()->removeProperty("version");

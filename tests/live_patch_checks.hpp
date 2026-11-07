@@ -87,6 +87,22 @@ inline void channelPatchLibrary() {
     saveItem(state,item);
     check(!itemDirty(state,item),"A re-saved item with another default patch is clean");
     {
+        // Pre-#289 saved versions carry no assignment; opening such a show must
+        // not report every item as modified.
+        auto legacy=state.clone();
+        auto snapshot=itemVersion(legacy,item);
+        if(auto* tracks=snapshot["items"][0]["tracks"].getArray())
+            for(auto& track:*tracks)
+                if(auto* object=track.getDynamicObject()) {
+                    object->removeProperty("patchId");
+                    object->removeProperty("subPatchId");
+                }
+        put(map(legacy,"library"),item,juce::JSON::toString(snapshot,true,17));
+        check(itemDirty(legacy,item),"Pre-#289 saved version differs before migration");
+        migrateSavedPatchAssignments(legacy);
+        check(!itemDirty(legacy,item),"Legacy saved version adopts the current patch assignment");
+    }
+    {
         auto broken=state.clone();
         put(trackOf(broken),"patchId","missing-patch");
         checkThrows([&]{validate(broken);},"A stale item patch reference must be rejected");
