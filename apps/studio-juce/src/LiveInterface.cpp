@@ -1585,6 +1585,49 @@ void Desktop::applyLiveChannelPatch(const juce::String& requested,const juce::St
     },false,true);
     syncAutomaticLiveMonitoring();
 }
+void Desktop::applyLiveItemDefaultPatches() {
+    // #289 A-Upd1: switching a song while stopped adopts that song's default
+    // channel patches. Only activated channels with a connected device can be
+    // rewritten, and a failure (missing plugin/state) keeps the current chain.
+    if(!liveDocument||!liveDocument->projects.empty())
+        return;
+    if(livePendingItem.isNotEmpty()||livePlaybackLoading)
+        return;
+    if(app.recording()||app.engine()->state().playback!=mrs::PlaybackState::stopped)
+        return;
+    if(!app.audio_running()||app.audio_name()=="Offline clock (no sound)"||app.audio_name()=="Disconnected")
+        return;
+    const auto itemId=liveDocument->interfaceState["currentItem"].toString();
+    if(itemId.isEmpty())
+        return;
+    for(const auto& target:live::itemDefaultPatches(liveDocument->interfaceState,itemId)) {
+        const auto& channel=target.first;
+        const auto& patchId=target.second;
+        if(liveChannelTracks.find(channel)==liveChannelTracks.end())
+            continue;
+        const auto row=live::find(liveDocument->interfaceState,"channels",channel);
+        if(!row["liveInput"].isObject())
+            continue;
+        const auto patch=live::find(row,"patches",patchId);
+        if(!patch.isObject())
+            continue;
+        bool differs=false;
+        try {
+            differs=live::decodeLiveInputProfile(row["liveInput"]).inserts!=
+                    live::decodeLivePatchInserts(liveDocument->interfaceState,patch);
+        } catch(const std::exception&) {
+            continue; // Missing opaque state: report only when applied manually.
+        }
+        if(!differs)
+            continue;
+        try {
+            applyLiveChannelPatch(channel,patchId);
+        } catch(const std::exception& error) {
+            if(livePreloadError.isEmpty())
+                livePreloadError="Patch: "+juce::String::fromUTF8(error.what());
+        }
+    }
+}
 void Desktop::assignLiveItemPatch(const juce::String& requested,const juce::String& patchId) {
     const auto channel=inputChannel(*this,requested);
     if(patchId.isNotEmpty() &&
@@ -2125,6 +2168,9 @@ void Desktop::syncLivePlayback() {
                 liveShowEditing = true;
                 updateLiveDirty();
             }
+            // #289 A-Upd1: the item switch is complete; adopt its default
+            // channel patches. Failures keep the previous chain audible.
+            applyLiveItemDefaultPatches();
             // Completion is the focus boundary, including another occurrence
             // of the same item whose media preparation finished asynchronously.
             ++liveTimelineFocusRevision;

@@ -87,6 +87,23 @@ inline void channelPatchLibrary() {
     saveItem(state,item);
     check(!itemDirty(state,item),"A re-saved item with another default patch is clean");
     {
+        // #289 A-Upd1: the item switch adopts these default patches.
+        const auto targets=itemDefaultPatches(state,item);
+        check(targets.size()==1&&targets[0].first==channel&&targets[0].second==second,
+              "An item exposes its channel default patch for the switch");
+        auto emptyItem=addItem(state,"Song B");
+        check(itemDefaultPatches(state,emptyItem).empty(),
+              "An item without an assignment asks for no patch");
+        auto legacy=state.clone();
+        auto& legacyBank=array(require(legacy,"channels",channel),"patches");
+        auto demo=object();
+        put(demo,"id","demo-patch-local");put(demo,"name","Legacy demo local");
+        put(demo,"engine",object());legacyBank.add(demo);
+        put(trackOf(legacy),"patchId","demo-patch-local");
+        check(itemDefaultPatches(legacy,item).empty(),
+              "Legacy demo patches are never applied automatically on an item switch");
+    }
+    {
         // Pre-#289 saved versions carry no assignment; opening such a show must
         // not report every item as modified.
         auto legacy=state.clone();

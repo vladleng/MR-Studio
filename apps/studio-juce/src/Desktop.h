@@ -139,6 +139,9 @@ public:
     void captureLiveChannelPatch(const juce::String&, const juce::String& name,
                                  const juce::String& colour = "blue");
     void applyLiveChannelPatch(const juce::String&, const juce::String& patchId);
+    // #289 A-Upd1: after a stopped item switch, adopt the item's default
+    // channel patches for activated channels (errors keep the current chain).
+    void applyLiveItemDefaultPatches();
     void assignLiveItemPatch(const juce::String&, const juce::String& patchId);
     void renameLiveChannelPatch(const juce::String&, const juce::String& patchId, const juce::String& name);
     void setLiveChannelPatchColour(const juce::String&, const juce::String& patchId, const juce::String& colour);

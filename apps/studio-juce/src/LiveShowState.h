@@ -225,6 +225,30 @@ inline juce::var channelItemTrack(const juce::var &state, const juce::String &it
                 return track;
     return {};
 }
+// #289 A-Upd1: channel patches an item asks for when it becomes current.
+// Legacy demo patches have no captured chain and are never auto-applied.
+inline std::vector<std::pair<juce::String, juce::String>> itemDefaultPatches(
+    const juce::var &state, const juce::String &item) {
+    std::vector<std::pair<juce::String, juce::String>> result;
+    const auto row = find(state, "items", item);
+    if (!row.isObject())
+        return result;
+    if (const auto *tracks = row["tracks"].getArray())
+        for (const auto &track : *tracks) {
+            const auto channel = track["channelId"].toString();
+            const auto patchId = track["patchId"].toString();
+            if (channel.isEmpty() || patchId.isEmpty())
+                continue;
+            const auto channelRow = find(state, "channels", channel);
+            if (channelRow["type"].toString() == "Playback")
+                continue;
+            const auto patch = find(channelRow, "patches", patchId);
+            if (!patch.isObject() || legacyPatch(patch))
+                continue;
+            result.emplace_back(channel, patchId);
+        }
+    return result;
+}
 inline void validatePatchStates(const juce::var &state) {
     const auto store = state["patchStates"];
     if (store.isVoid())
