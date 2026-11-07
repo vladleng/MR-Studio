@@ -1365,7 +1365,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::performanceModeEditTimings();
     live::test::showValueEquality();
     live::test::channelPatchLibrary();
-    live::test::subPatchOverrides();
+    live::test::subPatchParameterOverrides();
     live::test::editProtocol();
     live::test::notesDirtyRoundTrip();
     live::test::showContextSelection();

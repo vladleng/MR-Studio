@@ -4,7 +4,7 @@
 // #289 B - sub-patch overrides: effective parameters, capture diff, validation,
 // item persistence and reference cleanup.
 namespace ui::live::test {
-inline void subPatchOverrides() {
+inline void subPatchParameterOverrides() {
     const auto check=[](bool pass,const char* message){if(!pass)throw std::runtime_error(message);};
     const auto checkThrows=[&](const auto& body,const char* message){
         try{body();}catch(const std::exception&){return;}
