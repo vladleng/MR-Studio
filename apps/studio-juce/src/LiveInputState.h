@@ -371,4 +371,43 @@ inline juce::String addChannelPatch(juce::var& state,juce::var& channel,
     bank.add(patch);
     return id;
 }
+// #289 B: a sub-patch is a full state snapshot of the SAME chain (structure,
+// order and plugin identity are identical to the base patch). Core treats the
+// opaque VST3 state as authoritative and does not expose individual VST3
+// parameters on capture, so comparing parameter lists alone cannot detect a
+// sound change; the state snapshot reliably does.
+inline bool sameInsertStructure(const std::vector<mrs::NativeInsert>& left,
+                                const std::vector<mrs::NativeInsert>& right) {
+    if(left.size()!=right.size())
+        return false;
+    for(std::size_t i=0;i<left.size();++i)
+        if(left[i].id!=right[i].id||left[i].kind!=right[i].kind||
+           left[i].plugin_path!=right[i].plugin_path||left[i].class_id!=right[i].class_id)
+            return false;
+    return true;
+}
+
+inline std::vector<mrs::NativeInsert> patchInsertsWithSubPatch(
+    const juce::var& state,const juce::var& patch,const juce::var& subPatch) {
+    if(subPatch.isVoid())
+        return decodeLivePatchInserts(state,patch);
+    if(!subPatch.isObject()||!subPatch["inserts"].isArray())
+        throw std::runtime_error("Invalid channel sub-patch");
+    auto inserts=decodeLivePatchInserts(state,subPatch);
+    if(!sameInsertStructure(decodeLivePatchInserts(state,patch),inserts))
+        throw std::runtime_error("Sub-patch chain differs from its base patch");
+    return inserts;
+}
+// Captures the live chain as a sub-patch only when the chain itself is the base
+// one and something actually changed.
+inline juce::var subPatchChain(juce::var& state,const std::vector<mrs::NativeInsert>& base,
+                               const std::vector<mrs::NativeInsert>& current) {
+    if(!sameInsertStructure(base,current))
+        throw std::runtime_error("Apply the base patch before capturing a sub-patch");
+    if(base==current)
+        throw std::runtime_error("No changes to capture; adjust the FX and retry");
+    auto result=object();
+    put(result,"inserts",encodeLivePatchInserts(state,current));
+    return result;
+}
 } // namespace ui::live

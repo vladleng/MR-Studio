@@ -194,6 +194,8 @@ inline int progress(const juce::var &state, const juce::String &id) {
 // state is never duplicated across patches or saved Browser versions.
 inline constexpr int maximumChannelPatches = 64;
 inline constexpr int maximumPatchInserts = 8;
+inline constexpr int maximumSubPatches = 32;
+inline constexpr int maximumSubPatchOverrides = 128;
 inline constexpr std::size_t maximumPatchStates = 512;
 inline constexpr std::size_t maximumPatchStateBase64 = ((16u * 1024u * 1024u + 2u) / 3u) * 4u;
 inline constexpr std::array<const char *, 6> patchColours{"blue", "violet", "teal", "graphite", "amber", "red"};
@@ -305,6 +307,37 @@ inline void validatePatchInserts(const juce::var &state, const juce::var &patch)
         }
     }
 }
+// #289 B: sub-patches are state variants of the SAME captured chain. They never
+// carry engine/plugin structure of their own; only the opaque plugin state and
+// native parameters differ from the base patch.
+inline void validateSubPatches(const juce::var &state, const juce::var &patch) {
+    const auto subs = patch["subPatches"];
+    if (subs.isVoid())
+        return;
+    if (!subs.isArray() || subs.size() > maximumSubPatches)
+        throw std::runtime_error("Invalid channel sub-patch list");
+    const auto *baseInserts = patch["inserts"].getArray();
+    if (baseInserts == nullptr)
+        throw std::runtime_error("Channel sub-patches require a captured patch");
+    std::set<juce::String> ids, names;
+    for (const auto &sub : *subs.getArray()) {
+        if (!sub.isObject() || !named(sub["id"]) || !ids.insert(sub["id"].toString()).second ||
+            !named(sub["name"]) || !names.insert(sub["name"].toString()).second)
+            throw std::runtime_error("Invalid channel sub-patch");
+        if (!sub["color"].isVoid() && !patchColour(sub["color"].toString()))
+            throw std::runtime_error("Invalid channel sub-patch colour");
+        if (!sub["inserts"].isArray() || sub["inserts"].size() != baseInserts->size())
+            throw std::runtime_error("Sub-patch chain differs from its base patch");
+        validatePatchInserts(state, sub);
+        for (int i = 0; i < baseInserts->size(); ++i) {
+            const auto &base = (*baseInserts)[i];
+            const auto &variant = sub["inserts"][i];
+            if (variant["id"] != base["id"] || variant["kind"] != base["kind"] ||
+                variant["path"] != base["path"] || variant["classId"] != base["classId"])
+                throw std::runtime_error("Sub-patch chain differs from its base patch");
+        }
+    }
+}
 // Removes every reference to a deleted patch from one item track: the default
 // assignment, the canonical patchOrder entry and the stored span geometry.
 inline bool removeChannelPatchReference(juce::var &track, const juce::String &channel,
@@ -314,6 +347,7 @@ inline bool removeChannelPatchReference(juce::var &track, const juce::String &ch
     bool changed = false;
     if (track["patchId"].toString() == patchId) {
         track.getDynamicObject()->removeProperty("patchId");
+        track.getDynamicObject()->removeProperty("subPatchId");
         changed = true;
     }
     auto spans = track["spans"];
@@ -360,6 +394,49 @@ inline void clearLibraryPatchReferences(juce::var &state, const juce::String &ch
                 if (auto *tracks = item["tracks"].getArray())
                     for (auto &track : *tracks)
                         changed = removeChannelPatchReference(track, channel, patchId) || changed;
+        if (changed)
+            updates.emplace_back(pair.name.toString(), juce::JSON::toString(snapshot, true, 17));
+    }
+    for (const auto &update : updates)
+        library->setProperty(juce::Identifier(update.first), update.second);
+}
+// #289 B: deleting a sub-patch clears the item selection that pointed at it.
+inline bool removeChannelSubPatchReference(juce::var &track, const juce::String &channel,
+                                           const juce::String &patchId,
+                                           const juce::String &subPatchId) {
+    if (!track.isObject() || track["channelId"].toString() != channel ||
+        track["patchId"].toString() != patchId || track["subPatchId"].toString() != subPatchId)
+        return false;
+    if (auto *object = track.getDynamicObject())
+        object->removeProperty("subPatchId");
+    return true;
+}
+inline void clearSubPatchReferences(juce::var &state, const juce::String &channel,
+                                    const juce::String &patchId, const juce::String &subPatchId) {
+    for (auto &item : array(state, "items"))
+        if (auto *tracks = item["tracks"].getArray())
+            for (auto &track : *tracks)
+                removeChannelSubPatchReference(track, channel, patchId, subPatchId);
+}
+inline void clearLibrarySubPatchReferences(juce::var &state, const juce::String &channel,
+                                           const juce::String &patchId,
+                                           const juce::String &subPatchId) {
+    auto *library = state["library"].getDynamicObject();
+    if (library == nullptr)
+        return;
+    std::vector<std::pair<juce::String, juce::String>> updates;
+    for (const auto &pair : library->getProperties()) {
+        if (!pair.value.isString() || !pair.value.toString().contains(subPatchId))
+            continue;
+        juce::var snapshot;
+        if (juce::JSON::parse(pair.value.toString(), snapshot).failed())
+            continue;
+        bool changed = false;
+        if (auto *items = snapshot["items"].getArray())
+            for (auto &item : *items)
+                if (auto *tracks = item["tracks"].getArray())
+                    for (auto &track : *tracks)
+                        changed = removeChannelSubPatchReference(track, channel, patchId, subPatchId) || changed;
         if (changed)
             updates.emplace_back(pair.name.toString(), juce::JSON::toString(snapshot, true, 17));
     }
@@ -530,6 +607,7 @@ inline void validate(const juce::var &state) {
                 if (!patch["version"].isInt() || static_cast<int>(patch["version"]) != 1)
                     throw std::runtime_error("Unsupported channel patch version");
                 validatePatchInserts(state, patch);
+                validateSubPatches(state, patch);
             }
         }
     }
@@ -553,6 +631,14 @@ inline void validate(const juce::var &state) {
                 if (!named(patchId) ||
                     !find(find(state, "channels", channelId), "patches", patchId.toString()).isObject())
                     throw std::runtime_error("Missing item channel patch reference");
+                const auto subPatchId = track["subPatchId"];
+                if (subPatchId.isVoid() ||
+                    (subPatchId.isString() && subPatchId.toString().isEmpty()))
+                    continue;
+                if (!named(subPatchId) ||
+                    !find(find(find(state, "channels", channelId), "patches", patchId.toString()),
+                          "subPatches", subPatchId.toString()).isObject())
+                    throw std::runtime_error("Missing item channel sub-patch reference");
             }
 
     // Optional legacy-compatible stable root ID for reorderable Playback channels.

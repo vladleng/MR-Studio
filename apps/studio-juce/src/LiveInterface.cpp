@@ -221,6 +221,7 @@ class LiveInterfaceEdit final : public juce::UndoableAction {
     juce::var before, after;
     std::uint64_t generation{};
 };
+
 // #31 P5: Playback / Stems levels are scalar audio controls. Do not clone,
 // JSON-validate or snapshot the entire show (including vendor VST3 states)
 // for an individual M/S click or a fader commit. Preview never calls this.
@@ -1542,11 +1543,15 @@ void Desktop::captureLiveChannelPatch(const juce::String& requested,const juce::
         live::addChannelPatch(state,target,profile.inserts,name,colour);
     },false,true);
 }
-void Desktop::applyLiveChannelPatch(const juce::String& requested,const juce::String& patchId) {
+void Desktop::applyLiveChannelPatch(const juce::String& requested,const juce::String& patchId,
+                                    const juce::String& subPatchId) {
     const auto channel=inputChannel(*this,requested);
     const auto row=live::find(liveDocument->interfaceState,"channels",channel);
     const auto patch=live::find(row,"patches",patchId);
     if(!patch.isObject())throw std::runtime_error("Choose a patch from the channel library");
+    const auto subPatch=subPatchId.isEmpty()?juce::var{}:live::find(patch,"subPatches",subPatchId);
+    if(subPatchId.isNotEmpty()&&!subPatch.isObject())
+        throw std::runtime_error("Choose a sub-patch from the channel library");
     if(!liveInputTrack(channel))
         throw std::runtime_error("Activate the channel input before applying a patch");
     if(app.recording() || app.engine()->state().playback==mrs::PlaybackState::playing)
@@ -1555,7 +1560,8 @@ void Desktop::applyLiveChannelPatch(const juce::String& requested,const juce::St
         throw std::runtime_error("Finish the item transition before changing the channel chain");
     // Decoding validates the captured state against the shared blob store; the
     // applied profile keeps the show-owned input, device, mix and outputs.
-    const auto inserts=live::decodeLivePatchInserts(liveDocument->interfaceState,patch);
+    // #289 B: a selected sub-patch contributes its same-chain state variant.
+    const auto inserts=live::patchInsertsWithSubPatch(liveDocument->interfaceState,patch,subPatch);
     auto draft=liveDocument->interfaceState.clone();captureLiveInputs(draft);
     auto draftChannel=live::find(draft,"channels",channel);
     if(!draftChannel["liveInput"].isObject())
@@ -1580,10 +1586,96 @@ void Desktop::applyLiveChannelPatch(const juce::String& requested,const juce::St
         if(itemId.isNotEmpty() && live::find(state,"items",itemId).isObject())
             for(auto& track2:live::array(live::require(state,"items",itemId),"tracks"))
                 if(track2["channelId"].toString()==channel) {
-                    live::put(track2,"patchId",patchId);break;
+                    live::put(track2,"patchId",patchId);
+                    if(subPatchId.isEmpty()) {
+                        if(auto* object=track2.getDynamicObject())object->removeProperty("subPatchId");
+                    } else {
+                        live::put(track2,"subPatchId",subPatchId);
+                    }
+                    break;
                 }
     },false,true);
     syncAutomaticLiveMonitoring();
+}
+std::vector<mrs::NativeInsert> Desktop::captureLiveChannelInserts(const juce::String& channel) {
+    auto draft=liveDocument->interfaceState.clone();captureLiveInputs(draft);
+    const auto row=live::find(draft,"channels",channel);
+    if(!row["liveInput"].isObject())
+        throw std::runtime_error("Configure the channel input first");
+    return live::decodeLiveInputProfile(row["liveInput"]).inserts;
+}
+void Desktop::applyLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
+                                       const juce::String& subPatchId) {
+    // #289 B: a sub-patch is a same-chain state variant, so the stopped chain
+    // publication path applies it with one Undo transaction and item selection.
+    applyLiveChannelPatch(requested,patchId,subPatchId);
+}
+void Desktop::captureLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
+                                         const juce::String& name,const juce::String& colour) {
+    const auto channel=inputChannel(*this,requested);
+    if(!live::patchColour(colour))throw std::runtime_error("Invalid sub-patch colour");
+    if(app.recording()||app.engine()->state().playback==mrs::PlaybackState::playing)
+        throw std::runtime_error("Stop playback before capturing a sub-patch");
+    if(livePendingItem.isNotEmpty()||livePlaybackLoading)
+        throw std::runtime_error("Finish the item transition before capturing a sub-patch");
+    if(!liveInputTrack(channel))
+        throw std::runtime_error("Activate the channel input before capturing its parameters");
+    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
+    const auto patch=live::find(row,"patches",patchId);
+    if(!patch.isObject()||live::legacyPatch(patch))
+        throw std::runtime_error("Choose a captured patch before capturing a sub-patch");
+    const auto trimmed=name.trim();
+    if(!live::named(trimmed))throw std::runtime_error("Invalid sub-patch name");
+    const auto base=live::decodeLivePatchInserts(liveDocument->interfaceState,patch);
+    const auto current=captureLiveChannelInserts(channel);
+    editLiveInterface("Capture sub-patch",[&](auto& state){
+        auto& target=live::require(live::require(state,"channels",channel),"patches",patchId);
+        auto& subs=live::array(target,"subPatches");
+        if(subs.size()>=live::maximumSubPatches)
+            throw std::runtime_error("Sub-patch limit reached (32)");
+        for(const auto& existing:subs)
+            if(existing["name"].toString().compareIgnoreCase(trimmed)==0)
+                throw std::runtime_error("A sub-patch with this name already exists");
+        auto sub=live::subPatchChain(state,base,current); // validates structure and a real change
+        live::put(sub,"id",live::freshId());
+        live::put(sub,"name",trimmed);
+        live::put(sub,"color",colour);
+        subs.add(sub);
+    });
+}
+void Desktop::renameLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
+                                        const juce::String& subPatchId,const juce::String& name) {
+    const auto channel=inputChannel(*this,requested);
+    const auto trimmed=name.trim();
+    if(!live::named(trimmed))throw std::runtime_error("Invalid sub-patch name");
+    editLiveInterface("Rename sub-patch",[&](auto& state){
+        auto& subs=live::array(live::require(live::require(state,"channels",channel),"patches",patchId),
+                               "subPatches");
+        for(const auto& other:subs)
+            if(other["id"].toString()!=subPatchId &&
+               other["name"].toString().compareIgnoreCase(trimmed)==0)
+                throw std::runtime_error("A sub-patch with this name already exists");
+        for(auto& sub:subs)
+            if(sub["id"].toString()==subPatchId) {
+                live::put(sub,"name",trimmed);return;
+            }
+        throw std::runtime_error("Sub-patch no longer exists");
+    });
+}
+void Desktop::deleteLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
+                                        const juce::String& subPatchId) {
+    const auto channel=inputChannel(*this,requested);
+    editLiveInterface("Delete sub-patch",[&](auto& state){
+        auto& subs=live::array(live::require(live::require(state,"channels",channel),"patches",patchId),
+                               "subPatches");
+        int index=-1;
+        for(int i=0;i<subs.size();++i)
+            if(subs[i]["id"].toString()==subPatchId) {index=i;break;}
+        if(index<0)throw std::runtime_error("Sub-patch no longer exists");
+        live::clearSubPatchReferences(state,channel,patchId,subPatchId);
+        live::clearLibrarySubPatchReferences(state,channel,patchId,subPatchId);
+        subs.remove(index);
+    });
 }
 void Desktop::applyLiveItemDefaultPatches() {
     // #289 A-Upd1: switching a song while stopped adopts that song's default
@@ -1611,17 +1703,20 @@ void Desktop::applyLiveItemDefaultPatches() {
         const auto patch=live::find(row,"patches",patchId);
         if(!patch.isObject())
             continue;
+        // #289 B: an item may also remember a sub-patch of the same chain.
+        const auto subPatchId=live::channelItemTrack(liveDocument->interfaceState,itemId,channel)["subPatchId"].toString();
+        const auto subPatch=subPatchId.isEmpty()?juce::var{}:live::find(patch,"subPatches",subPatchId);
         bool differs=false;
         try {
             differs=live::decodeLiveInputProfile(row["liveInput"]).inserts!=
-                    live::decodeLivePatchInserts(liveDocument->interfaceState,patch);
+                    live::patchInsertsWithSubPatch(liveDocument->interfaceState,patch,subPatch);
         } catch(const std::exception&) {
             continue; // Missing opaque state: report only when applied manually.
         }
         if(!differs)
             continue;
         try {
-            applyLiveChannelPatch(channel,patchId);
+            applyLiveChannelPatch(channel,patchId,subPatch.isObject()?subPatchId:juce::String());
         } catch(const std::exception& error) {
             if(livePreloadError.isEmpty())
                 livePreloadError="Patch: "+juce::String::fromUTF8(error.what());
