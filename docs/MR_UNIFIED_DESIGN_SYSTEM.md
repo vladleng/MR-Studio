@@ -8,7 +8,7 @@
 - [MR UI Kit](MR_UI_KIT.md) / [#189](https://github.com/vladleng/MR-Studio/issues/189) (stages #190–#195) own reusable JUCE controls, theme integration, Gallery, parameter binding, automation and acceptance. **Do not create a parallel implementation/theme.**
 - [MR Rig GUI](MR_RIG_GUI.md), [MR Reverb](MR_REVERB.md), and each plugin spec own screen hierarchy and functional behavior. [Live UI](UI_UX_CONCEPT.md) owns live performance information hierarchy.
 - Local JUCE ui::Theme/Controls.h, [UI_REFERENCE_UPD9](UI_REFERENCE_UPD9.md), user-accepted issues #145/#146 are the **as-built baseline** until a scoped new implementation has been reviewed and accepted. Draft colors in this document MUST NOT silently repaint accepted screens.
-- [AGENTS.md](../AGENTS.md) and [mr-unified-gui skill](../.codex/skills/mr-unified-gui/SKILL.md) govern work; real local code may be ahead of GitHub docs.
+- [AGENTS.md](../AGENTS.md) and [mr-unified-gui skill](../.agents/skills/mr-unified-gui/SKILL.md) govern work; real local code may be ahead of GitHub docs.
 - Inspiration was a screenshot of Synth Anthology 4, **not a license to copy** another product's interface, logo or artwork. All new SVG elements must be original.
 
 **Conflicts:** current explicit user decision > accepted issue scope > this visual language for style > module specifications for behavior > legacy visual samples. Report conflicting design or existing accepted colors instead of guessing.
@@ -111,7 +111,7 @@ assets/ui/mr-uds/
 
 **Placement:** unzip kit, copy the original `svg/` directory with its four child folders, `previews/`, and all four root items (`tokens/`, `build_kit.py`, `manifest.json`, `README.md`) into `assets/ui/mr-uds/`. Keep generator and manifest next to their referenced folders to avoid broken relative paths. `docs/design/MR_UNIFIED_TOKENS.json` remains a **documented draft design reference**, not a replacement for the kit's local `tokens/` source. Do not conflate the two until an audited explicit sync process exists.
 
-**Agent behavior:** first inspect the local path and `manifest.json` (paths such as `svg/controls/knob_arc.svg`), reuse assets, and when adding a new icon update the manifest and generator source if needed; validate whether `build_kit.py` regenerates or overwrites SVGs **before executing**. Running generator is opt-in after audit. Avoid copying generated assets into `.codex/skills/` or `docs/`. The remote GitHub may only contain the documentation, not this local library; do not claim otherwise.
+**Agent behavior:** first inspect the local path and `manifest.json` (paths such as `svg/controls/knob_arc.svg`), reuse assets, and when adding a new icon update the manifest and generator source if needed; validate whether `build_kit.py` regenerates or overwrites SVGs **before executing**. Running generator is opt-in after audit. Avoid copying generated assets into `.agents/skills/` or `docs/`. The remote GitHub may only contain the documentation, not this local library; do not claim otherwise.
 
 
 **Verified source archive (2026-10-15):** `manifest.json` uses `svg/controls/...`, `svg/rig/...`, `svg/reverb/...`, and `svg/icons/...`. `build_kit.py` resolves `ROOT = Path(__file__).resolve().parent` and emits `ROOT / 'svg' / category`. Thus the *extra `svg/` level is REQUIRED* when copying the unmodified kit. If files were previously flattened into `mr-uds/controls` etc., move them back under `mr-uds/svg/` rather than keeping two competing copies. Keep original `previews/`, `tokens/`, `manifest.json`, and script next to `svg/`.

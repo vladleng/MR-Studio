@@ -13,7 +13,7 @@
 2. Найти текущие **локальные** checkout MRS и Smart-Voicing. Документация MRS указывает MRS `C:/Users/Vladislav/Documents/GitHub/MR-Studio`, но путь актуален только если реально существует. Источник Smart-Voicing найти, не придумывать путь. Для обоих: `git status --short`, branch, HEAD, recent commits, untracked work. Не сбрасывать, не checkout main поверх текущего MRS, не делать автоматический pull/merge.
 3. Прочесть source [Smart-Voicing START-HERE](https://github.com/vladleng/Smart-Voicing/blob/main/docs/START-HERE.md), [CONCEPT](https://github.com/vladleng/Smart-Voicing/blob/main/docs/CONCEPT.md), [GUARDRAILS](https://github.com/vladleng/Smart-Voicing/blob/main/docs/MUSICAL-ENGINE-GUARDRAILS.md), [Stage5 acceptance](https://github.com/vladleng/Smart-Voicing/blob/main/docs/STAGE5-CLEAN-ACCEPTANCE.md), [TEST-0.5](https://github.com/vladleng/Smart-Voicing/blob/main/docs/TEST-0.5.md) и actual code/CMake/tests. Не копировать исторические VST3-only instructions в MRS project rules.
 4. Сверить MRS MIDI runtime (tracks/clips, VST3 hosting, MIDI capture, transport/PPQ, project schema) **по локальному коду**, а не считать pending Chord Track #25 готовым. Зафиксировать risk flags: gaps/current next, tempo/meter edits, sample boundaries, note ownership, native processor graph capability.
-5. Прочесть релевантные skills из локальной `.codex/skills`: `mr-feature-implementation`, `mr-realtime-audio-safety`, `mr-studio-build-test`, `mr-studio-ui-design-system` (только когда дойдёт до UI).
+5. Прочесть релевантные skills из локальной `.agents/skills`: `mr-feature-implementation`, `mr-realtime-audio-safety`, `mr-studio-build-test`, `mr-studio-ui-design-system` (только когда дойдёт до UI).
 
 ## Выполни при запросе начать #116: Phase A — audit
 

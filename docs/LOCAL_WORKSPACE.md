@@ -6,7 +6,7 @@
 
 `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio`
 
-Здесь находятся `.git`, `AGENTS.md`, `.codex/skills`, `CMakeLists.txt`, `apps`,
+Здесь находятся `.git`, `AGENTS.md`, `.agents/skills`, `CMakeLists.txt`, `apps`,
 `core`, `tests`, `tools`, `docs`, SVG-библиотека `assets/ui/mr-uds`, `Builds` и `Saves`.
 Прежний `C:/Users/Vladislav/Documents/GitHub/MR-Studio` оставлен для отката.
 Не продолжать разработку или сборку в прежнем checkout.

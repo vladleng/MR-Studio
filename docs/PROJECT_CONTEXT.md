@@ -994,7 +994,7 @@ Source/build/tests локально; docs/issues синхронизируютс�
 | Назначение | Локальный путь |
 |---|---|
 | Единый рабочий каталог: исходники, Git, CMake, docs, assets, Builds, Saves | `C:/Users/Vladislav/Documents/ChatGPT Projects/MR Studio` |
-| Навыки проекта | `.codex/skills/<имя>/SKILL.md` в едином каталоге |
+| Навыки проекта | `.agents/skills/<имя>/SKILL.md` в едином каталоге |
 | Прежний checkout (только резерв для отката) | `C:/Users/Vladislav/Documents/GitHub/MR-Studio`; больше не использовать для разработки/сборки |
 | Активная ветка | `mrs/0.2g-fix1-editor-space-local`; опубликованный main/release v0.2g сохранён |
 | Существующая сборочная папка | Репозиторий: `build/asio-local` |

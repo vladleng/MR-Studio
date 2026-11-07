@@ -174,7 +174,7 @@ PROCESSING_RELIABILITY; не менять callback ради памяти.
    ADR storage+Undo+limits и реализация вертикального slice. Не начинать всё сразу.
 4. Применить mr-feature-implementation; для UI mr-studio-ui-design-system, после кода
    mr-studio-build-test; mr-realtime-audio-safety при касании RT. Skills в рабочей папке
-   .codex/skills. Discover actual CMake presets/targets/tests, старые implement scripts
+   .agents/skills. Discover actual CMake presets/targets/tests, старые implement scripts
    не запускать. Нет paid requests без необходимости пользовательской проверки.
 5. Проверки storage/restart/SaveAs/two projects/corrupt/budget/late cancellation,
    Skill schema/versions/permissions, preview/diff/history/SaveOpen, GUI editing/100–150,

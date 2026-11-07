@@ -5,7 +5,7 @@ GitHub main — документальная и исходная основа п
 Текущий перенесённый baseline: **0.6 upd1**, локальный source `618c3b5`, поверх сборки0.6 `511cd0e`. Включены принятые ARA этапы #177–181, AI Preview/Apply, сохранение смешанного ARA проекта и перенос Update playback в меню клипа. #88 открыта для нового этапа [#240 Render and Restore](https://github.com/vladleng/MR-Studio/issues/240), реализация не начата. Независимый GUI regression — #239.
 
 - [Правила разработки](AGENTS.md), [передача онлайн](docs/ONLINE_DEVELOPMENT_0_6_UPD1.md), [текущие задачи ARA](https://github.com/vladleng/MR-Studio/issues/88).
-- В репозиторий включены код, `.codex/skills`, MR UDS assets, инструменты и тесты. SDK, пользовательские проекты, секреты, EXE/PDB и локальные пакеты не включены.
+- В репозиторий включены код, `.agents/skills`, MR UDS assets, инструменты и тесты. SDK, пользовательские проекты, секреты, EXE/PDB и локальные пакеты не включены.
 - Последние проверки исходной локальной версии: Release GUI build, ARA editor/J1 и packaged J1 PASS. Полный CTest для0.6 upd1 не запускался; физические ASIO/DPI и полная vendor matrix не заявляются.
 - Основная разработка — Codex Cloud; Windows builds/tests/artifacts — GitHub Actions. [Процесс и setup](docs/CLOUD_DEVELOPMENT.md). Миграция #241 в отдельной ветке; merge требует приёмки.
 

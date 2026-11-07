@@ -25,7 +25,7 @@ GitHub — главный источник информации проекта (
 
 ## Единый GUI-стандарт (утверждён 2026-10-15)
 
-[MR Studio Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md) — единый визуальный стиль всей DAW, Live и native plugins; [пример SVG](design/MR_UNIFIED_STYLE_REFERENCE.svg), [палитра JSON](design/MR_UNIFIED_TOKENS.json), [GUI skill для Codex](../.codex/skills/mr-unified-gui/SKILL.md). Общая инфраструктура компонентов остаётся в [#189 MR UI Kit](https://github.com/vladleng/MR-Studio/issues/189), а отдельное внедрение — [#205 DAW/Live](https://github.com/vladleng/MR-Studio/issues/205), [#206 native plugins](https://github.com/vladleng/MR-Studio/issues/206), [#207 Reverb](https://github.com/vladleng/MR-Studio/issues/207), [#208 SVG](https://github.com/vladleng/MR-Studio/issues/208). Стиль утверждён, код GUI ещё не обновлён; принятые экраны сохраняются до отдельных этапов.
+[MR Studio Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md) — единый визуальный стиль всей DAW, Live и native plugins; [пример SVG](design/MR_UNIFIED_STYLE_REFERENCE.svg), [палитра JSON](design/MR_UNIFIED_TOKENS.json), [GUI skill для Codex](../.agents/skills/mr-unified-gui/SKILL.md). Общая инфраструктура компонентов остаётся в [#189 MR UI Kit](https://github.com/vladleng/MR-Studio/issues/189), а отдельное внедрение — [#205 DAW/Live](https://github.com/vladleng/MR-Studio/issues/205), [#206 native plugins](https://github.com/vladleng/MR-Studio/issues/206), [#207 Reverb](https://github.com/vladleng/MR-Studio/issues/207), [#208 SVG](https://github.com/vladleng/MR-Studio/issues/208). Стиль утверждён, код GUI ещё не обновлён; принятые экраны сохраняются до отдельных этапов.
 
 ## Начать здесь
 
@@ -47,7 +47,7 @@ GitHub — главный источник информации проекта (
 
 ### SVG-библиотека MR UDS
 
-**Локальный канонический путь:** `assets/ui/mr-uds/`; внутри `svg/controls/`, `svg/icons/`, `svg/rig/`, `svg/reverb/`, `previews/`, а также **`tokens/`, `build_kit.py`, `manifest.json`, `README.md` непосредственно в корне `mr-uds/`**. Подробные правила: [MR Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md), [Codex GUI skill](../.codex/skills/mr-unified-gui/SKILL.md). Не путать с уже существующим `assets/ui/icons/transport/`; asset ZIP не опубликован в GitHub.
+**Локальный канонический путь:** `assets/ui/mr-uds/`; внутри `svg/controls/`, `svg/icons/`, `svg/rig/`, `svg/reverb/`, `previews/`, а также **`tokens/`, `build_kit.py`, `manifest.json`, `README.md` непосредственно в корне `mr-uds/`**. Подробные правила: [MR Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md), [Codex GUI skill](../.agents/skills/mr-unified-gui/SKILL.md). Не путать с уже существующим `assets/ui/icons/transport/`; asset ZIP не опубликован в GitHub.
 
 ## Движок, плагины, интерфейс
 
