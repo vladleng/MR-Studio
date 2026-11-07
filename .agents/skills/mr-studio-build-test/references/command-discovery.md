@@ -37,8 +37,9 @@ Write down:
 
 If a prior stage used a target or path that no longer exists, trust the current repository.
 
-## 5. Cloud validation
+## 5. Local validation
 
-GitHub main owns documentation; Codex Cloud and Actions use current task commits:
-- validate the affected profile in CI;
-- full integration is explicit, not a default for each small change.
+Development is local (user decision 2026-11-07); GitHub main only owns published documentation and Issues:
+- validate the affected profile locally with the current checkout;
+- full integration is explicit, not a default for each small change;
+- GitHub Actions runs only on a separate explicit request.
