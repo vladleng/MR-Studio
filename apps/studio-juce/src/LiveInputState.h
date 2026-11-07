@@ -28,6 +28,52 @@ inline void retainCapturedPluginState(std::vector<mrs::NativeInsert>& edited,
 // match the bounded Core VST3 state allowance and the whole-show file budget.
 inline constexpr std::size_t maximumLiveVst3StateBytes=16u*1024u*1024u;
 inline constexpr std::size_t maximumLiveVst3Base64Length=((maximumLiveVst3StateBytes+2u)/3u)*4u;
+// Shared by the Live Input profile and the #289 channel patch snapshots: a
+// descriptor is {id, bypass} plus either native gain fields or a VST3
+// path/class/name with inline component+controller state and parameters.
+inline std::vector<mrs::NativeInsert> decodeLiveInsertDescriptors(const juce::Array<juce::var>& descriptors) {
+    std::vector<mrs::NativeInsert> inserts;
+    std::set<std::string> uniqueIds;
+    for(const auto& value : descriptors) {
+        if(value["kind"].toString()=="gain") {
+            if(!value.isObject() || !named(value["id"],128) || !number(value["gain"]) || !value["bypass"].isBool())
+                throw std::runtime_error("Invalid Live native gain descriptor");
+            mrs::NativeInsert fx;fx.id=mrs::Id{value["id"].toString().toStdString()};fx.kind=mrs::InsertKind::gain;
+            if(!uniqueIds.insert(fx.id.value).second)throw std::runtime_error("Duplicate Live insert ID");
+            fx.gain=static_cast<float>(static_cast<double>(value["gain"]));fx.bypass=static_cast<bool>(value["bypass"]);
+            fx.validate();inserts.push_back(std::move(fx));continue;
+        }
+        if (!value.isObject() || !named(value["id"], 128) || !named(value["path"], 4096) ||
+            !named(value["classId"], 256) || !value["name"].isString() ||
+            !value["bypass"].isBool() || !value["parameters"].isArray() ||
+            value["parameters"].size()>2048)
+            throw std::runtime_error("Invalid Live Input VST3 descriptor");
+        mrs::NativeInsert fx;
+        fx.id=mrs::Id{value["id"].toString().toStdString()};
+        if(!uniqueIds.insert(fx.id.value).second)
+            throw std::runtime_error("Duplicate Live Input VST3 insert");
+        fx.kind=mrs::InsertKind::vst3;
+        fx.plugin_path=value["path"].toString().toStdString();
+        fx.class_id=value["classId"].toString().toStdString();
+        fx.plugin_name=value["name"].toString().toStdString();
+        fx.bypass=static_cast<bool>(value["bypass"]);
+        fx.component_state=liveInputBytes(value["component"]);
+        fx.controller_state=liveInputBytes(value["controller"]);
+        for(const auto& parameter : *value["parameters"].getArray()) {
+            if(!parameter.isObject() || !number(parameter["id"]) || !number(parameter["value"]))
+                throw std::runtime_error("Invalid Live Input plugin parameter");
+            const auto id=static_cast<double>(parameter["id"]);
+            const auto level=static_cast<double>(parameter["value"]);
+            if(!std::isfinite(id) || id<0 || id>4294967295. || std::floor(id)!=id ||
+               !std::isfinite(level) || level<0 || level>1)
+                throw std::runtime_error("Invalid Live Input plugin parameter range");
+            fx.parameters.push_back({static_cast<std::uint32_t>(id),static_cast<float>(level)});
+        }
+        fx.validate();
+        inserts.push_back(std::move(fx));
+    }
+    return inserts;
+}
 inline juce::String liveInputB64(const std::vector<std::byte>& bytes) {
     if (bytes.size() > maximumLiveVst3StateBytes)
         throw std::runtime_error("Live VST3 state exceeds 16 MiB");
@@ -181,45 +227,7 @@ inline LiveInputLoaded decodeLiveInputProfile(const juce::var& state) {
             result.outputNames.push_back(name.toString());
         }
     }
-    std::set<std::string> uniqueIds;
-    for(const auto& value : *state["inserts"].getArray()) {
-        if(value["kind"].toString()=="gain") {
-            if(!value.isObject() || !named(value["id"],128) || !number(value["gain"]) || !value["bypass"].isBool())
-                throw std::runtime_error("Invalid Live native gain descriptor");
-            mrs::NativeInsert fx;fx.id=mrs::Id{value["id"].toString().toStdString()};fx.kind=mrs::InsertKind::gain;
-            if(!uniqueIds.insert(fx.id.value).second)throw std::runtime_error("Duplicate Live insert ID");
-            fx.gain=static_cast<float>(static_cast<double>(value["gain"]));fx.bypass=static_cast<bool>(value["bypass"]);
-            fx.validate();result.inserts.push_back(std::move(fx));continue;
-        }
-        if (!value.isObject() || !named(value["id"], 128) || !named(value["path"], 4096) ||
-            !named(value["classId"], 256) || !value["name"].isString() ||
-            !value["bypass"].isBool() || !value["parameters"].isArray() ||
-            value["parameters"].size()>2048)
-            throw std::runtime_error("Invalid Live Input VST3 descriptor");
-        mrs::NativeInsert fx;
-        fx.id=mrs::Id{value["id"].toString().toStdString()};
-        if(!uniqueIds.insert(fx.id.value).second)
-            throw std::runtime_error("Duplicate Live Input VST3 insert");
-        fx.kind=mrs::InsertKind::vst3;
-        fx.plugin_path=value["path"].toString().toStdString();
-        fx.class_id=value["classId"].toString().toStdString();
-        fx.plugin_name=value["name"].toString().toStdString();
-        fx.bypass=static_cast<bool>(value["bypass"]);
-        fx.component_state=liveInputBytes(value["component"]);
-        fx.controller_state=liveInputBytes(value["controller"]);
-        for(const auto& parameter : *value["parameters"].getArray()) {
-            if(!parameter.isObject() || !number(parameter["id"]) || !number(parameter["value"]))
-                throw std::runtime_error("Invalid Live Input plugin parameter");
-            const auto id=static_cast<double>(parameter["id"]);
-            const auto level=static_cast<double>(parameter["value"]);
-            if(!std::isfinite(id) || id<0 || id>4294967295. || std::floor(id)!=id ||
-               !std::isfinite(level) || level<0 || level>1)
-                throw std::runtime_error("Invalid Live Input plugin parameter range");
-            fx.parameters.push_back({static_cast<std::uint32_t>(id),static_cast<float>(level)});
-        }
-        fx.validate();
-        result.inserts.push_back(std::move(fx));
-    }
+    result.inserts=decodeLiveInsertDescriptors(*state["inserts"].getArray());
     return result;
 }
 inline void validateLiveInputProfiles(const juce::var& state) {
@@ -234,5 +242,120 @@ inline void validateLiveInputProfiles(const juce::var& state) {
                     throw std::runtime_error("MIDI / VSTi requires an Instrument show channel");
             }
         }
+}
+// #289 A - channel patch snapshots. The patch itself keeps plugin descriptors
+// (identity, order, bypass, parameters) and a 32-hex hash of its opaque VST3
+// state; the bytes live once in `patchStates`. Identical chains therefore share
+// one blob and saved item versions stay small.
+inline juce::String livePatchStateHash(const std::vector<std::byte>& component,
+                                       const std::vector<std::byte>& controller) {
+    juce::MemoryOutputStream stream;
+    stream.writeInt64(static_cast<juce::int64>(component.size()));
+    if(!component.empty())stream.write(component.data(),component.size());
+    stream.writeInt64(static_cast<juce::int64>(controller.size()));
+    if(!controller.empty())stream.write(controller.data(),controller.size());
+    return juce::MD5(stream.getData(),stream.getDataSize()).toHexString().toLowerCase();
+}
+inline juce::String putLivePatchState(juce::var& state,const mrs::NativeInsert& fx) {
+    const auto hash=livePatchStateHash(fx.component_state,fx.controller_state);
+    auto& store=map(state,"patchStates");
+    auto* values=store.getDynamicObject();
+    if(values==nullptr)throw std::runtime_error("Invalid channel patch state store");
+    if(!values->hasProperty(juce::Identifier(hash))) {
+        auto blob=object();
+        put(blob,"component",liveInputB64(fx.component_state));
+        put(blob,"controller",liveInputB64(fx.controller_state));
+        put(store,juce::Identifier(hash),blob);
+    }
+    return hash;
+}
+inline juce::var encodeLivePatchInserts(juce::var& state,const std::vector<mrs::NativeInsert>& inserts) {
+    if(inserts.size()>static_cast<std::size_t>(maximumPatchInserts))
+        throw std::runtime_error("Live channel supports at most eight inserts");
+    juce::Array<juce::var> encoded;
+    for(const auto& fx:inserts) {
+        auto entry=object();
+        put(entry,"id",juce::String::fromUTF8(fx.id.value.c_str()));
+        put(entry,"bypass",fx.bypass);
+        if(fx.kind==mrs::InsertKind::gain) {
+            put(entry,"kind","gain");
+            put(entry,"gain",static_cast<double>(fx.gain));
+        } else if(fx.kind==mrs::InsertKind::vst3) {
+            put(entry,"kind","vst3");
+            put(entry,"path",juce::String::fromUTF8(fx.plugin_path.c_str()));
+            put(entry,"classId",juce::String::fromUTF8(fx.class_id.c_str()));
+            put(entry,"name",juce::String::fromUTF8(fx.plugin_name.c_str()));
+            put(entry,"state",putLivePatchState(state,fx));
+            juce::Array<juce::var> parameters;
+            for(const auto& parameter:fx.parameters) {
+                auto row=object();
+                put(row,"id",static_cast<juce::int64>(parameter.id));
+                put(row,"value",static_cast<double>(parameter.value));
+                parameters.add(row);
+            }
+            put(entry,"parameters",parameters);
+        } else {
+            throw std::runtime_error("Only gain and VST3 inserts can be captured in a Live channel patch");
+        }
+        encoded.add(entry);
+    }
+    return juce::var(encoded);
+}
+inline std::vector<mrs::NativeInsert> decodeLivePatchInserts(const juce::var& state,const juce::var& patch) {
+    if(legacyPatch(patch))
+        throw std::runtime_error("Legacy patch has no captured chain; capture the current chain");
+    if(!patch["inserts"].isArray())
+        throw std::runtime_error("Channel patch has no captured chain");
+    juce::Array<juce::var> expanded;
+    for(const auto& insert:*patch["inserts"].getArray()) {
+        auto entry=insert.clone();
+        if(entry["kind"].toString()=="vst3") {
+            const auto hash=entry["state"].toString();
+            const auto blob=state["patchStates"][juce::Identifier(hash)];
+            if(!blob.isObject())
+                throw std::runtime_error("Patch state is missing; capture the current chain again");
+            put(entry,"component",blob["component"]);
+            put(entry,"controller",blob["controller"]);
+        }
+        expanded.add(entry);
+    }
+    return decodeLiveInsertDescriptors(expanded);
+}
+// Captures the passed (live, already captured) chain as a named channel patch.
+// `channel` must be the mutable show channel row; blobs go to the show root.
+inline juce::String addChannelPatch(juce::var& state,juce::var& channel,
+                                    const std::vector<mrs::NativeInsert>& inserts,
+                                    const juce::String& name,const juce::String& colour) {
+    const auto trimmed=name.trim();
+    if(!named(trimmed))
+        throw std::runtime_error("Invalid channel patch name");
+    if(!patchColour(colour))
+        throw std::runtime_error("Invalid channel patch colour");
+    auto& bank=array(channel,"patches");
+    if(bank.size()>=maximumChannelPatches)
+        throw std::runtime_error("Channel patch limit reached (64)");
+    for(const auto& patch:bank)
+        if(patch["name"].toString().compareIgnoreCase(trimmed)==0)
+            throw std::runtime_error("A channel patch with this name already exists");
+    auto patch=object();
+    const auto id=freshId();
+    put(patch,"id",id);
+    put(patch,"name",trimmed);
+    put(patch,"color",colour);
+    put(patch,"version",1);
+    put(patch,"inserts",encodeLivePatchInserts(state,inserts));
+    bank.add(patch);
+    return id;
+}
+// Applying a patch replaces only the insert chain: input, device, mix and
+// physical output routing stay show-owned and unchanged.
+inline juce::var patchedLiveProfile(const juce::var& profile,const juce::var& patch) {
+    if(!profile.isObject())
+        throw std::runtime_error("Configure the channel input first");
+    if(!patch["inserts"].isArray())
+        throw std::runtime_error("Channel patch has no captured chain");
+    auto result=profile.clone();
+    put(result,"inserts",patch["inserts"].clone());
+    return result;
 }
 } // namespace ui::live

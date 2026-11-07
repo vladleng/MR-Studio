@@ -7,6 +7,7 @@
 #include "../../../tests/live_performance_checks.hpp"
 #include "../../../tests/live_performance_edit_checks.hpp"
 #include "../../../tests/live_show_value_checks.hpp"
+#include "../../../tests/live_patch_checks.hpp"
 #include "../../../tests/live_edit_protocol_checks.hpp"
 #include "../../../tests/live_show_context_import_checks.hpp"
 #include "../../../tests/live_studio_one_reader_checks.hpp"
@@ -1362,6 +1363,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::performanceModeEdits();
     live::test::performanceModeEditTimings();
     live::test::showValueEquality();
+    live::test::channelPatchLibrary();
     live::test::editProtocol();
     live::test::notesDirtyRoundTrip();
     live::test::showContextSelection();
