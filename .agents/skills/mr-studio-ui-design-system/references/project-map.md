@@ -5,7 +5,7 @@ not a prescribed architecture or proof that every existing value is approved.
 
 ## Workspace discovery
 
-Use the current Codex Cloud task checkout and GitHub main documentation. Windows builds/tests/artifacts run in Actions; local Windows hardware is for user acceptance and device measurements. Do not hardcode the historical local workspace path. See docs/CLOUD_DEVELOPMENT.md.
+Use the current local checkout and GitHub main documentation. Builds/tests/artifacts run locally (user decision 2026-11-07); local Windows hardware serves both building and user acceptance/device measurements. Do not hardcode the historical local workspace path. See `.agents/skills/mr-studio-build-test/SKILL.md`.
 
 ## Implementation owners (paths relative to checkout)
 

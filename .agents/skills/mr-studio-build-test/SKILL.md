@@ -3,9 +3,11 @@ name: mr-studio-build-test
 description: Validate a local MR Studio code change with CMake/JUCE compile, focused CTest, GUI/app smoke checks and release acceptance. Use for build failures or explicit test/build requests; not for a docs-only planning task.
 ---
 
-# MR Studio Cloud Build & Test
+# MR Studio Local Build & Test
 
-**Never invent preset/target/path/test commands.** Discover canonical local scripts, CMake presets and target names from the *actual checkout*. Use Codex Cloud for development and GitHub Actions for supported Windows builds/tests/artifacts. Follow docs/CLOUD_DEVELOPMENT.md; do not merge without separate user acceptance. Protect existing accepted packages/user projects.
+**Never invent preset/target/path/test commands.** Discover canonical local scripts, CMake presets and target names from the *actual checkout*. Development is local (user decision 2026-11-07): source, configure/build, CTest, binaries, GUI screenshots and packages stay on this machine. Do not launch GitHub Actions, push source, open PRs or merge without a separate explicit request. `docs/CLOUD_DEVELOPMENT.md` is the closed online-development stage, not current policy. Protect existing accepted packages/user projects.
+
+Local toolchain baseline: Visual Studio 18 Community with bundled CMake/Ninja at `C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\{CMake\bin\cmake.exe,Ninja\ninja.exe}`; they are **not** on `PATH`, so use the VS developer shell or absolute paths. Git ships portably under the DSH tools directory.
 
 ## Choose proportional validation
 
@@ -19,7 +21,7 @@ description: Validate a local MR Studio code change with CMake/JUCE compile, foc
 
 **Hard anti-overvalidation rule:** A request like “change the background color” defaults to L1a/L1b, not L4. Never start full rebuild, full CTest, all-target Build step, packaging or GUI DPI 100/125/150/200 sweep on such a task without either explicit user direction or a concrete technical reason from changed dependencies / failing target. Record the reason before escalating.
 
-## Build and CI workflow
+## Local build workflow
 
 1. Identify current branch/HEAD/dirty changes; actual Windows MSVC/JUCE/ASIO toolchain and paths; find repository script → CMake preset → documented command (in that order). See [command discovery](references/command-discovery.md) only as needed.
 2. **Choose target-scoped build explicitly.** In the current workspace `tools/Build-Local.ps1 -Step Build` is documented without a target and may build many unrelated projects, while `-Jobs` defaults to 2. Before invoking it, inspect whether the script accepts an explicit target. If not, derive the correct `cmake --build <existing-build-dir> --config Release --target <actual-target> --parallel <safe-jobs>` from the **current local** configuration; do not guess target names or silently increase jobs beyond machine resources. Select tests that exercise the change; reuse build tree when safe. Reconfigure/clean only if build files, SDK, toolchain, dependencies or stale cache demand it. [JUCE/Windows notes](references/windows-juce-validation.md) if toolchain problems occur.
@@ -32,4 +34,4 @@ description: Validate a local MR Studio code change with CMake/JUCE compile, foc
 ## Acceptance rules
 
 - Code is **READY** only if required checks pass; **READY WITH MANUAL CHECK** if only explicit user/hardware checks remain; otherwise **BLOCKED** or **NOT VALIDATED**. Do not close an Issue before user acceptance of that scope; a passed build alone isn't acceptance.
-- Use task branches and configured CI within the assigned scope; no merge without separate user acceptance. Updating GitHub docs/issues as agreed is not code publication. Preserve Studio/Live shared engine invariants rather than presuming separate products and never impose Live low-latency goals on Studio mixing by default.
+- Use task branches within the assigned scope; no merge without separate user acceptance. GitHub Actions, source push, PR and merge only on a separate explicit request; updating GitHub docs/issues as agreed is not code publication. Preserve Studio/Live shared engine invariants rather than presuming separate products and never impose Live low-latency goals on Studio mixing by default.
