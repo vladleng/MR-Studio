@@ -38,12 +38,17 @@ inline void channelPatchLibrary() {
         throw std::runtime_error("Missing test track");
     };
     auto& row=require(state,"channels",channel);
+    const auto blobCount=[&](const juce::var& show) {
+        const auto store=show["patchStates"];
+        return store.isObject()&&store.getDynamicObject()
+            ?store.getDynamicObject()->getProperties().size():0;
+    };
     const auto clean=addChannelPatch(state,row,chain,"Clean","blue");
     check(!clean.isEmpty(),"Captured chain becomes a channel patch");
     const auto patch=find(row,"patches",clean);
-    check(patch["version"]==1&&patch["inserts"].size()==3,
+    check(static_cast<int>(patch["version"])==1&&static_cast<int>(patch["inserts"].size())==3,
           "Patch keeps version and the complete insert chain");
-    check(state["patchStates"].getDynamicObject()->getProperties().size()==2,
+    check(blobCount(state)==2,
           "Opaque VST3 state is stored once per unique chain");
     const auto decoded=decodeLivePatchInserts(state,patch);
     check(decoded.size()==3&&decoded[0].component_state==chain[0].component_state&&
@@ -51,13 +56,13 @@ inline void channelPatchLibrary() {
           std::abs(decoded[2].gain-.8f)<1.e-6f,
           "Patch decode restores VST3 state, parameters and native gain inserts");
     const auto second=addChannelPatch(state,row,chain,"Clean copy","teal");
-    check(state["patchStates"].getDynamicObject()->getProperties().size()==2,
+    check(blobCount(state)==2,
           "Identical chains share one opaque state blob");
     checkThrows([&]{addChannelPatch(state,row,chain,"Clean","blue");},
                 "A channel patch name must stay unique");
     const auto lead=addChannelPatch(state,row,
         std::vector<mrs::NativeInsert>{makeVst3("fx-3",std::vector<std::byte>(12,std::byte{3}))},"Lead","amber");
-    check(state["patchStates"].getDynamicObject()->getProperties().size()==3,
+    check(blobCount(state)==3,
           "A different chain adds exactly one shared state blob");
     mrs::Track track{mrs::Id{"live-input-test"},"Guitar",mrs::TrackKind::audio,{}};
     track.input=0;track.hardware_outputs={};
@@ -87,6 +92,12 @@ inline void channelPatchLibrary() {
         checkThrows([&]{validate(broken);},"A stale item patch reference must be rejected");
     }
     {
+        // External editors may write "" instead of null for "no default patch".
+        auto blank=state.clone();
+        put(trackOf(blank),"patchId","");
+        validate(blank);
+    }
+    {
         auto broken=state.clone();
         auto& bank=array(require(broken,"channels",channel),"patches");
         put(bank.getReference(0),"name",bank.getReference(1)["name"]);
@@ -102,6 +113,7 @@ inline void channelPatchLibrary() {
         auto broken=state.clone();
         auto& bank=array(require(broken,"channels",channel),"patches");
         const auto hash=bank.getReference(0)["inserts"][0]["state"].toString();
+        check(broken["patchStates"].isObject(),"Patch state store exists before the missing-state check");
         broken["patchStates"].getDynamicObject()->removeProperty(juce::Identifier(hash));
         checkThrows([&]{validate(broken);},"Missing opaque patch state must be rejected");
         checkThrows([&]{decodeLivePatchInserts(broken,bank.getReference(0));},
@@ -124,11 +136,15 @@ inline void channelPatchLibrary() {
     }
     {
         auto edited=state.clone();
-        auto& bank=array(require(edited,"channels",channel),"patches");
+        // A track may also list the patch as a block and carry its span geometry.
+        put(trackOf(edited),"patchOrder",juce::Array<juce::var>{second});
+        auto spans=object();put(spans,second,object());put(trackOf(edited),"spans",spans);
         clearChannelPatchReferences(edited,channel,second);
         prunePatchStates(edited);
-        check(trackOf(edited)["patchId"].isVoid(),
-              "Clearing a patch also clears the tracked item default");
+        check(trackOf(edited)["patchId"].isVoid()&&
+              static_cast<int>(trackOf(edited)["patchOrder"].size())==0&&
+              trackOf(edited)["spans"][juce::Identifier(second)].isVoid(),
+              "Removing a patch clears its default, patchOrder entry and span");
         while(array(require(edited,"channels",channel),"patches").size()>0) {
             auto& remaining=array(require(edited,"channels",channel),"patches");
             const auto id=remaining[0]["id"].toString();
@@ -137,8 +153,7 @@ inline void channelPatchLibrary() {
             prunePatchStates(edited);
         }
         validate(edited);
-        check(edited["patchStates"].isVoid()||
-              edited["patchStates"].getDynamicObject()->getProperties().isEmpty(),
+        check(blobCount(edited)==0,
               "Unreferenced opaque patch state is released after every patch is removed");
     }
 }

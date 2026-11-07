@@ -281,25 +281,50 @@ inline void validatePatchInserts(const juce::var &state, const juce::var &patch)
         }
     }
 }
-// Deleting a patch must not leave every item pointing at a stale reference.
+// Removes every reference to a deleted patch from one item track: the default
+// assignment, the canonical patchOrder entry and the stored span geometry.
+inline bool removeChannelPatchReference(juce::var &track, const juce::String &channel,
+                                        const juce::String &patchId) {
+    if (!track.isObject() || track["channelId"].toString() != channel)
+        return false;
+    bool changed = false;
+    if (track["patchId"].toString() == patchId) {
+        track.getDynamicObject()->removeProperty("patchId");
+        changed = true;
+    }
+    auto spans = track["spans"];
+    if (spans.isObject() && spans.getDynamicObject() != nullptr &&
+        spans.getDynamicObject()->hasProperty(juce::Identifier(patchId))) {
+        spans.getDynamicObject()->removeProperty(juce::Identifier(patchId));
+        track.getDynamicObject()->setProperty("spans", spans);
+        changed = true;
+    }
+    if (auto *order = track["patchOrder"].getArray())
+        for (int i = order->size(); --i >= 0;)
+            if ((*order)[i].toString() == patchId) {
+                order->remove(i);
+                changed = true;
+            }
+    return changed;
+}
 inline void clearChannelPatchReferences(juce::var &state, const juce::String &channel,
                                         const juce::String &patchId) {
     for (auto &item : array(state, "items"))
         if (auto *tracks = item["tracks"].getArray())
             for (auto &track : *tracks)
-                if (track["channelId"].toString() == channel &&
-                    track["patchId"].toString() == patchId)
-                    track.getDynamicObject()->removeProperty("patchId");
+                removeChannelPatchReference(track, channel, patchId);
 }
 // Browser saved item versions are JSON strings; a deleted patch must not be
-// resurrectable from them as a dangling reference either.
+// resurrectable from them as a dangling reference either. The property set is
+// read-only during iteration, so updates are applied afterwards.
 inline void clearLibraryPatchReferences(juce::var &state, const juce::String &channel,
                                         const juce::String &patchId) {
     auto *library = state["library"].getDynamicObject();
     if (library == nullptr)
         return;
-    for (auto &pair : library->getProperties()) {
-        // Cheap prefilter: most saved versions do not reference this channel.
+    std::vector<std::pair<juce::String, juce::String>> updates;
+    for (const auto &pair : library->getProperties()) {
+        // Cheap prefilter: most saved versions do not reference this patch.
         if (!pair.value.isString() || !pair.value.toString().contains(patchId))
             continue;
         juce::var snapshot;
@@ -310,14 +335,12 @@ inline void clearLibraryPatchReferences(juce::var &state, const juce::String &ch
             for (auto &item : *items)
                 if (auto *tracks = item["tracks"].getArray())
                     for (auto &track : *tracks)
-                        if (track["channelId"].toString() == channel &&
-                            track["patchId"].toString() == patchId) {
-                            track.getDynamicObject()->removeProperty("patchId");
-                            changed = true;
-                        }
+                        changed = removeChannelPatchReference(track, channel, patchId) || changed;
         if (changed)
-            pair.value = juce::JSON::toString(snapshot, true, 17);
+            updates.emplace_back(pair.name.toString(), juce::JSON::toString(snapshot, true, 17));
     }
+    for (const auto &update : updates)
+        library->setProperty(juce::Identifier(update.first), update.second);
 }
 // Drop blobs that no patch references any more; identical chains share one blob.
 inline void prunePatchStates(juce::var &state) {
@@ -499,6 +522,9 @@ inline void validate(const juce::var &state) {
                     continue;
                 const auto patchId = track["patchId"];
                 if (patchId.isVoid())
+                    continue;
+                // External editors may write "" for "no default patch".
+                if (patchId.isString() && patchId.toString().isEmpty())
                     continue;
                 if (!named(patchId) ||
                     !find(find(state, "channels", channelId), "patches", patchId.toString()).isObject())

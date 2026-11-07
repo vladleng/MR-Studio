@@ -443,7 +443,9 @@ bypass, native gain и VST3-плагины с `component`/`controller` state и
 меняет только insert-цепочку: input, device, mix/gain/pan/M/S и physical outputs
 остаются show-owned; операция требует stopped Playback и активированного канала,
 выполняется одной Undo-транзакцией и записывает патч как default текущего item.
-Назначение default возможно offline отдельной Undo-операцией.
+Назначение default возможно offline отдельной Undo-операцией, а **Capture**
+текущей цепочки требует остановленного транспорта и активированного канала —
+он читает реальное состояние плагинов.
 
 Старые demo-патчи с `engine{instrument,plugins}` и импортированные spans остаются
 читаемыми, но помечаются legacy: они не применяются как DSP до явного Capture

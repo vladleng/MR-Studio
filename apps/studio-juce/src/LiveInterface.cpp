@@ -1575,7 +1575,8 @@ void Desktop::applyLiveChannelPatch(const juce::String& requested,const juce::St
         auto& target=live::require(state,"channels",channel);
         live::put(target,"liveInput",updated.clone());
         // The applied patch becomes the item default in the same Undo step, so
-        // each song keeps its own sound without a second hidden transaction.
+        // each song keeps its own sound. A song without a track for this channel
+        // still accepts the chain (the default is simply not recorded).
         if(itemId.isNotEmpty() && live::find(state,"items",itemId).isObject())
             for(auto& track2:live::array(live::require(state,"items",itemId),"tracks"))
                 if(track2["channelId"].toString()==channel) {
@@ -1595,8 +1596,9 @@ void Desktop::assignLiveItemPatch(const juce::String& requested,const juce::Stri
         auto& item=live::require(state,"items",itemId);
         for(auto& track:live::array(item,"tracks"))
             if(track["channelId"].toString()==channel) {
-                if(patchId.isEmpty())track.getDynamicObject()->removeProperty("patchId");
-                else live::put(track,"patchId",patchId);
+                if(patchId.isEmpty()) {
+                    if(auto* object=track.getDynamicObject())object->removeProperty("patchId");
+                } else live::put(track,"patchId",patchId);
                 return;
             }
         throw std::runtime_error("The current item has no track for this channel");

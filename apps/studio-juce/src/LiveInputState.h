@@ -245,29 +245,47 @@ inline void validateLiveInputProfiles(const juce::var& state) {
         }
 }
 // #289 A - channel patch snapshots. The patch itself keeps plugin descriptors
-// (identity, order, bypass, parameters) and a 32-hex hash of its opaque VST3
+// (identity, order, bypass, parameters) and a 32-hex digest of its opaque VST3
 // state; the bytes live once in `patchStates`. Identical chains therefore share
 // one blob and saved item versions stay small.
+// Dedupe key only: a stable 128-bit FNV-1a digest (two independent streams), not
+// a security hash. A collision would only reuse an identical-looking blob.
 inline juce::String livePatchStateHash(const std::vector<std::byte>& component,
                                        const std::vector<std::byte>& controller) {
-    juce::MemoryOutputStream stream;
-    stream.writeInt64(static_cast<juce::int64>(component.size()));
-    if(!component.empty())stream.write(component.data(),component.size());
-    stream.writeInt64(static_cast<juce::int64>(controller.size()));
-    if(!controller.empty())stream.write(controller.data(),controller.size());
-    return juce::MD5(stream.getData(),stream.getDataSize()).toHexString().toLowerCase();
+    const auto digest=[&](std::uint64_t seed,const std::vector<std::byte>& first,
+                          const std::vector<std::byte>& second) {
+        auto value=seed;
+        const auto feed=[&](const std::vector<std::byte>& bytes) {
+            value^=static_cast<std::uint64_t>(bytes.size());
+            value*=1099511628211ull;
+            for(const auto byte:bytes) {
+                value^=static_cast<std::uint64_t>(static_cast<unsigned>(byte));
+                value*=1099511628211ull;
+            }
+        };
+        feed(first);feed(second);
+        return value;
+    };
+    const auto high=digest(1469598103934665603ull,component,controller);
+    const auto low=digest(1099511628211ull,controller,component);
+    juce::String text;
+    text<<juce::String::toHexString(static_cast<juce::int64>(high)).paddedLeft('0',16)
+        <<juce::String::toHexString(static_cast<juce::int64>(low)).paddedLeft('0',16);
+    return text.toLowerCase();
 }
 inline juce::String putLivePatchState(juce::var& state,const mrs::NativeInsert& fx) {
     const auto hash=livePatchStateHash(fx.component_state,fx.controller_state);
     auto& store=map(state,"patchStates");
     auto* values=store.getDynamicObject();
     if(values==nullptr)throw std::runtime_error("Invalid channel patch state store");
-    if(!values->hasProperty(juce::Identifier(hash))) {
-        auto blob=object();
-        put(blob,"component",liveInputB64(fx.component_state));
-        put(blob,"controller",liveInputB64(fx.controller_state));
-        put(store,juce::Identifier(hash),blob);
-    }
+    if(values->hasProperty(juce::Identifier(hash)))
+        return hash;
+    if(static_cast<std::size_t>(values->getProperties().size())>=maximumPatchStates)
+        throw std::runtime_error("Channel patch state limit reached (512)");
+    auto blob=object();
+    put(blob,"component",liveInputB64(fx.component_state));
+    put(blob,"controller",liveInputB64(fx.controller_state));
+    put(store,juce::Identifier(hash),blob);
     return hash;
 }
 inline juce::var encodeLivePatchInserts(juce::var& state,const std::vector<mrs::NativeInsert>& inserts) {
