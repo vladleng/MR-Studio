@@ -91,9 +91,9 @@ inline void channelPatchLibrary() {
         // not report every item as modified.
         auto legacy=state.clone();
         auto snapshot=itemVersion(legacy,item);
-        if(auto* tracks=snapshot["items"][0]["tracks"].getArray())
-            for(auto& track:*tracks)
-                if(auto* object=track.getDynamicObject()) {
+        if(auto* savedTracks=snapshot["items"][0]["tracks"].getArray())
+            for(auto& savedTrack:*savedTracks)
+                if(auto* object=savedTrack.getDynamicObject()) {
                     object->removeProperty("patchId");
                     object->removeProperty("subPatchId");
                 }
