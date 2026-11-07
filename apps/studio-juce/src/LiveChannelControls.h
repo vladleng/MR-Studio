@@ -236,6 +236,50 @@ private:
         const bool stopped=!owner.app.recording() && owner.displayState().playback!=mrs::PlaybackState::playing;
         juce::PopupMenu menu;menu.setLookAndFeel(&owner.theme);
         const auto catalog=owner.catalog; // Shared scanner catalog, never scan or probe from the menu.
+        // #289 A - channel patch library. A patch is a channel-owned snapshot of
+        // this chain; applying it is a stopped, Undoable chain change. The same
+        // menu assigns the current item's default patch.
+        juce::PopupMenu patchMenu;
+        const auto currentItem=owner.liveDocument->interfaceState["currentItem"].toString();
+        const auto currentTrack=live::channelItemTrack(owner.liveDocument->interfaceState,currentItem,id);
+        const auto defaultPatch=currentTrack["patchId"].toString();
+        const bool canApply=stopped && owner.liveInputTrack(id).has_value() && profile().isObject();
+        if(const auto* bank=row["patches"].getArray())
+            for(int i=0;i<bank->size();++i) {
+                const auto patch=(*bank)[i];
+                const auto patchId=patch["id"].toString();
+                const bool legacy=live::legacyPatch(patch);
+                const auto currentSub=currentTrack["subPatchId"].toString();
+                juce::PopupMenu entry;
+                entry.addItem(5000+i*8,"Apply now",canApply&&!legacy,defaultPatch==patchId);
+                juce::PopupMenu subs;
+                subs.addItem(20000+i*64,"Base",canApply&&!legacy,
+                             defaultPatch==patchId&&currentSub.isEmpty());
+                if(const auto* subList=patch["subPatches"].getArray())
+                    for(int j=0;j<subList->size()&&j<31;++j) {
+                        const auto sub=(*subList)[j];
+                        subs.addItem(20000+i*64+j+1,sub["name"].toString(),canApply&&!legacy,
+                                     defaultPatch==patchId&&currentSub==sub["id"].toString());
+                    }
+                entry.addSubMenu("Sub-patches",subs);
+                if(!legacy)
+                    entry.addItem(30000+i,"Capture current as sub-patch…",canApply);
+                entry.addItem(5001+i*8,"Set as item default",true,defaultPatch==patchId);
+                if(defaultPatch==patchId)entry.addItem(5002+i*8,"Clear item default");
+                entry.addItem(5003+i*8,"Rename…");
+                juce::PopupMenu colours;
+                for(int c=0;c<static_cast<int>(live::patchColours.size());++c) {
+                    auto label=juce::String(live::patchColours[static_cast<std::size_t>(c)]);
+                    colours.addItem(6000+i*8+c,label.substring(0,1).toUpperCase()+label.substring(1),true,
+                                    patch["color"].toString()==label);
+                }
+                entry.addSubMenu("Colour",colours);
+                entry.addItem(5004+i*8,"Delete…");
+                patchMenu.addSubMenu(patch["name"].toString()+(legacy?" (legacy)":""),entry);
+            }
+        if(patchMenu.getNumItems()>0)patchMenu.addSeparator();
+        patchMenu.addItem(7000,"Capture current chain as patch…",canApply);
+        menu.addSubMenu("Patches",patchMenu);
         std::vector<mrs::processing::VstPlugin> choices; // Explicit action -> exact class identity after sorting.
         const auto appendType=[&](juce::PopupMenu& target,bool vsti) {
             const auto indices=live::sortedPluginClasses(catalog,vsti);
@@ -286,10 +330,15 @@ private:
         }
         if(slotFilter && menu.getNumItems()==0)throw std::runtime_error("Channel FX slot changed; reopen insert menu");
         const auto signature=profile().clone();const auto generation=owner.liveDocumentGeneration;
+        const auto patchSnapshot=row["patches"].clone();
         juce::Component::SafePointer<LiveChannelControls> safe(this);
-        menu.showMenuAsync(liveMenuOptions(anchor?*anchor:effects),[safe,saved,signature,choices,generation,instrumentPicker](int action){if(!safe||!action)return;safe->owner.run([&]{
+        menu.showMenuAsync(liveMenuOptions(anchor?*anchor:effects),[safe,saved,signature,choices,generation,instrumentPicker,patchSnapshot,currentItem,stopped](int action){if(!safe||!action)return;safe->owner.run([&]{
             if(safe->owner.liveDocumentGeneration!=generation || !live::sameShowValue(safe->profile(),signature))
                 throw std::runtime_error("Channel changed; reopen effect menu");
+            if((action>=5000&&action<10000)||(action>=20000&&action<31000)) {
+                safe->patchAction(patchSnapshot,currentItem,action,stopped);
+                return;
+            }
             auto chain=saved.inserts;
             if(action>=10000) {
                 const auto index=static_cast<std::size_t>(action-10000);
@@ -325,6 +374,79 @@ private:
             }
             safe->owner.setLiveInputEffects(safe->id,std::move(chain));safe->sync();
         });});
+    }
+    // #289 A menu actions. Patches are addressed by index into the snapshot the
+    // menu opened with; the generation check in effectsMenu rejects stale menus.
+    void patchAction(const juce::var& patches,const juce::String& itemId,int action,bool stopped) {
+        const auto patchAt=[&](int index)->juce::var {
+            if(!patches.isArray()||index<0||index>=patches.size())return {};
+            return patches[index];
+        };
+        juce::Component::SafePointer<LiveChannelControls> safe(this);
+        if(action==7000) {
+            juce::Component::SafePointer<Desktop> ownerSafe(&owner);
+            ownerSafe->textDialog("Patch name","Live patch",[ownerSafe,safe](auto name){
+                if(!safe||name.trim().isEmpty())return;
+                ownerSafe->run([=]{ownerSafe->captureLiveChannelPatch(safe->id,name,"blue");safe->sync();});
+            });
+            return;
+        }
+        if(action>=20000&&action<30000) {
+            // #289 B: Base (slot 0) or a named sub-patch of the same chain.
+            const int index=(action-20000)/64,slot=(action-20000)%64;
+            const auto patch=patchAt(index);
+            if(!patch.isObject()||!stopped)return;
+            const auto patchId=patch["id"].toString();
+            if(slot==0) {
+                owner.applyLiveChannelSubPatch(id,patchId,{});
+            } else {
+                const auto* subList=patch["subPatches"].getArray();
+                if(!subList||slot-1>=subList->size())return;
+                owner.applyLiveChannelSubPatch(id,patchId,(*subList)[slot-1]["id"].toString());
+            }
+            sync();
+            return;
+        }
+        if(action>=30000&&action<31000) {
+            const auto patch=patchAt(action-30000);
+            if(!patch.isObject()||!stopped)return;
+            const auto patchId=patch["id"].toString();
+            juce::Component::SafePointer<Desktop> ownerSafe(&owner);
+            ownerSafe->textDialog("Sub-patch name","Rhythm",[ownerSafe,safe,patchId](auto name){
+                if(!safe||name.trim().isEmpty())return;
+                ownerSafe->run([=]{ownerSafe->captureLiveChannelSubPatch(safe->id,patchId,name,"violet");safe->sync();});
+            });
+            return;
+        }
+        if(action>=6000&&action<7000) {
+            const int index=(action-6000)/8,colour=(action-6000)%8;
+            const auto patch=patchAt(index);
+            if(!patch.isObject()||colour>=static_cast<int>(live::patchColours.size()))return;
+            owner.setLiveChannelPatchColour(id,patch["id"].toString(),
+                juce::String(live::patchColours[static_cast<std::size_t>(colour)]));
+            return;
+        }
+        const int index=(action-5000)/8,operation=(action-5000)%8;
+        const auto patch=patchAt(index);
+        if(!patch.isObject())return;
+        const auto patchId=patch["id"].toString();
+        if(operation==0) {
+            if(stopped)owner.applyLiveChannelPatch(id,patchId);
+        } else if(operation==1) {
+            owner.assignLiveItemPatch(id,patchId);
+        } else if(operation==2&&itemId.isNotEmpty()) {
+            owner.assignLiveItemPatch(id,{});
+        } else if(operation==3) {
+            juce::Component::SafePointer<Desktop> ownerSafe(&owner);
+            ownerSafe->textDialog("Patch name",patch["name"].toString(),[ownerSafe,safe,patchId](auto name){
+                if(!safe||name.trim().isEmpty())return;
+                ownerSafe->run([=]{ownerSafe->renameLiveChannelPatch(safe->id,patchId,name);safe->sync();});
+            });
+            return;
+        } else if(operation==4) {
+            owner.deleteLiveChannelPatch(id,patchId);
+        }
+        sync();
     }
     Desktop& owner;juce::String id;Surface surface;
     juce::String cachedMidiId,cachedMidiName;juce::uint32 lastMidiRefresh{};
