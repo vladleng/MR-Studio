@@ -16,7 +16,7 @@
 namespace ui {
 juce::MouseCursor noteTrimCursor(bool right);
 // Native projection of the editor show. Geometry is metadata, never an audio clock.
-class LiveTimeline final : public juce::Component {
+class LiveTimeline final : public juce::Component, public juce::DragAndDropTarget {
   public:
     explicit LiveTimeline(Desktop &desktop)
         : owner(desktop), body(*this), viewport(*this), playhead([this] { return playheadBounds(); }) {
@@ -108,6 +108,64 @@ class LiveTimeline final : public juce::Component {
     }
     void setClipScissors(bool enabled){body.scissors=enabled;body.repaint();}
     bool clipScissors() const{return body.scissors;}
+    // View-only transport aid. Never changes .mrlive, Core or Undo history.
+    void setFollowPlayhead(bool enabled) {
+        followEnabled=enabled;
+        followEngaged=false;
+        followSuspended=false;
+    }
+    bool followsPlayhead() const noexcept {return followEnabled;}
+    bool followPausedByNavigation() const noexcept {return followSuspended;}
+    // The playhead advances freely until it reaches the viewport midpoint;
+    // once there, only positive scroll is needed. Clamp at the timeline end.
+    static int followScrollX(int playheadX,int scrollX,int visibleWidth,int maximumScroll,
+                             bool alreadyCentred=false) {
+        if(visibleWidth<=0 || maximumScroll<=0)return juce::jlimit(0,juce::jmax(0,maximumScroll),scrollX);
+        const int current=juce::jlimit(0,maximumScroll,scrollX);
+        const int centre=visibleWidth/2;
+        const int offset=playheadX-current;
+        // Looping or a backwards seek must not pull the viewport abruptly
+        // to the left; wait until playback reaches its midpoint again.
+        if(offset<centre)return current;
+        const int desired=juce::jlimit(0,maximumScroll,playheadX-centre);
+        if(desired<=current)return current;
+        // A distant initial seek must not snap the viewport hundreds of px.
+        return alreadyCentred?desired:juce::jmin(desired,current+64);
+    }
+    // Extract a single lane rather than JUCE's default full-component drag
+    // snapshot (which previously displayed every channel simultaneously).
+    // Keep the source rectangle in timeline-local screen coordinates, including
+    // vertical viewport scrolling; do not capture waveform/item strips.
+    juce::Rectangle<int> channelDragPreviewBounds(const juce::String& id,
+                                                    int draggedLaneIndex=-1) const {
+        int index=draggedLaneIndex;
+        if(index<0 || index>=static_cast<int>(lanes.size()) ||
+           lanes[static_cast<std::size_t>(index)].channel!=id) {
+            index=-1;
+            // A loaded primary Playback is drawn twice (group + WAV child)
+            // with the same channel ID. Prefer the group for a root drag.
+            for(std::size_t i=0;i<lanes.size();++i)
+                if(lanes[i].channel==id && !lanes[i].child) {
+                    index=static_cast<int>(i);break;
+                }
+            if(index<0)for(std::size_t i=0;i<lanes.size();++i)
+                if(lanes[i].channel==id) {index=static_cast<int>(i);break;}
+        }
+        if(index<0)return {};
+        const int rowY=lanesTop+index*rowHeight-viewport.getViewPositionY();
+        return juce::Rectangle<int>(0,rowY,juce::jmax(0,channelWidth),rowHeight)
+            .getIntersection(getLocalBounds());
+    }
+    juce::Image channelDragPreview(const juce::String& id,int draggedLaneIndex=-1) {
+        const auto r=channelDragPreviewBounds(id,draggedLaneIndex);
+        if(r.isEmpty())return {};
+        // Match JUCE's default Mixer DnD ghost: the default snapshot is
+        // converted to ARGB and shown at 60% opacity. Our cropped Timeline
+        // snapshot bypasses that automatic treatment unless applied here.
+        auto image=createComponentSnapshot(r,true).convertedToFormat(juce::Image::ARGB);
+        image.multiplyAllAlphas(0.6f);
+        return image;
+    }
     void refresh() {
         syncChannel();
         std::vector<juce::String> visibleFiles;
@@ -156,9 +214,15 @@ class LiveTimeline final : public juce::Component {
         const bool started =
             sectionChanged || (playback != observedPlayback &&
                                (playback == mrs::PlaybackState::playing || playback == mrs::PlaybackState::stopped));
+        const bool startingPlay=playback==mrs::PlaybackState::playing &&
+                                observedPlayback!=mrs::PlaybackState::playing;
+        if(startingPlay) {followEngaged=false;followSuspended=false;}
+        else if(playback!=mrs::PlaybackState::playing)followEngaged=false;
         observedPlayback = playback;
         const bool focused = focusRevision != owner.liveTimelineFocusRevision;
         focusRevision = owner.liveTimelineFocusRevision;
+        if(focused && playback==mrs::PlaybackState::playing && followEnabled)
+            followSuspended=true;
         if (key == signature) {
             // Scalar M/S/gain/pan changes do not rebuild the entire Timeline.
             if(observedMixRevision!=owner.liveChannelMixRevision) {
@@ -174,8 +238,9 @@ class LiveTimeline final : public juce::Component {
             }
             if (focused)
                 revealSelection();
-            else if (started)
+            else if (started && !followEnabled)
                 revealTransport();
+            updatePlayheadFollow(playback);
             return;
         }
         const auto selectedItem = next["currentItem"].toString();
@@ -188,10 +253,13 @@ class LiveTimeline final : public juce::Component {
         observedPaintRevision=owner.liveEdits.paint;
         layout();
         syncChannel();
-        if (selectionChanged || focused)
+        if (selectionChanged || focused) {
+            if(followEnabled && playback==mrs::PlaybackState::playing)
+                followSuspended=true;
             revealSelection();
-        else if (started)
+        }else if (started && !followEnabled)
             revealTransport();
+        updatePlayheadFollow(playback);
         playhead.update();
         body.repaint();
         repaint();
@@ -280,6 +348,8 @@ class LiveTimeline final : public juce::Component {
     }
 
     void mouseDown(const juce::MouseEvent &event) override {
+        dragChannel.clear();
+        dragLaneIndex=-1;
         if(event.x>=channelWidth)return;
         const int y=event.y+viewport.getViewPositionY();
         const auto *lane=laneAt(y);
@@ -287,10 +357,83 @@ class LiveTimeline final : public juce::Component {
             if(lane)channelMenu(lane->channel);
             return;
         }
-        if(lane && event.mods.isLeftButtonDown())selectPlaybackChannel(lane->channel);
+        if(lane && event.mods.isLeftButtonDown()) {
+            selectPlaybackChannel(lane->channel);
+            if(!owner.app.recording() && event.getNumberOfClicks()==1 &&
+               !(lane->child && lane->channel==live::primaryPlaybackId(state))) {
+                dragChannel=lane->channel;
+                dragLaneIndex=(y-lanesTop)/rowHeight;
+            }
+        }
+    }
+    void mouseDrag(const juce::MouseEvent& e) override {
+        if(dragChannel.isNotEmpty() && e.getDistanceFromDragStart()>5)
+            if(auto* container=juce::DragAndDropContainer::findParentDragContainerFor(this))
+                if(!container->isDragAndDropActive()) {
+                    auto id=dragChannel;dragChannel.clear();
+                    const auto sourceLane=dragLaneIndex;dragLaneIndex=-1;
+                    const auto image=channelDragPreview(id,sourceLane);
+                    if(!image.isNull())
+                        // JUCE 8 requires a scale-aware image; a 1x cropped
+                        // lane keeps the correct native drag size and target.
+                        container->startDragging("mr-live-channel:"+id,this,
+                                                 juce::ScaledImage(image,1.0),
+                                                 false,nullptr,&e.source);
+                }
+    }
+    void mouseUp(const juce::MouseEvent&) override {dragChannel.clear();dragLaneIndex=-1;}
+    bool isInterestedInDragSource(const SourceDetails& s) override {
+        return owner.liveDocument && !owner.app.recording() &&
+            s.description.toString().startsWith("mr-live-channel:");
+    }
+    void itemDragMove(const SourceDetails& s) override {
+        dragDropY.reset();
+        if(isInterestedInDragSource(s))
+            if(const auto target=dropTarget(s.localPosition))
+                dragDropY=target->boundary;
+        repaint();
+    }
+    void itemDragExit(const SourceDetails&) override {dragDropY.reset();repaint();}
+    void itemDropped(const SourceDetails& s) override {
+        const auto target=isInterestedInDragSource(s)?dropTarget(s.localPosition):std::nullopt;
+        dragDropY.reset();repaint();
+        if(!target || !owner.liveDocument)return;
+        const auto source=s.description.toString().fromFirstOccurrenceOf("mr-live-channel:",false,false);
+        const auto destination=target->id;
+        const auto after=target->after;
+        const auto generation=owner.liveDocumentGeneration,revision=owner.liveEdits.mutation;
+        juce::Component::SafePointer<Desktop> safe(&owner);
+        juce::MessageManager::callAsync([safe,generation,revision,source,destination,after] {
+            if(safe && safe->liveDocument && safe->liveDocumentGeneration==generation &&
+               safe->liveEdits.mutation==revision)
+                safe->run([&]{safe->reorderLiveChannel(source,destination,after);});
+        });
+    }
+    void paintOverChildren(juce::Graphics& g) override {
+        if(!dragDropY)return;
+        const int y=*dragDropY-viewport.getViewPositionY();
+        if(y<lanesTop-viewport.getViewPositionY() || y>=getHeight())return;
+        g.setColour(liveReferenceTokens().colour(ColourRole::focus));
+        g.fillRect(2,y-1,juce::jmax(0,channelWidth-4),3);
     }
 
   private:
+    struct ChannelDrop {
+        juce::String id;
+        bool after{};
+        int boundary{};
+    };
+    std::optional<ChannelDrop> dropTarget(juce::Point<int> p) const {
+        if(!getLocalBounds().contains(p) || p.y<0)return {};
+        const int y=p.y+viewport.getViewPositionY();
+        const auto lane=laneAt(y);
+        // The visible primary WAV is a child display of its own root;
+        // drops there must not be mistaken for a separate movable channel.
+        if(!lane || (lane->child && lane->channel==live::primaryPlaybackId(state)))return {};
+        const auto after=(y-lanesTop)%rowHeight>=rowHeight/2;
+        const auto index=(y-lanesTop)/rowHeight;
+        return ChannelDrop{lane->channel,after,lanesTop+(index+(after?1:0))*rowHeight};
+    }
     void channelMenu(const juce::String &id) {
         juce::PopupMenu menu;
         menu.setLookAndFeel(&getLookAndFeel());
@@ -329,6 +472,10 @@ class LiveTimeline final : public juce::Component {
                 if (result != 11) return;
                 auto *channels = live::property(state, "channels").getArray();
                 for (int i = channels->size(); --i >= 0;) if ((*channels)[i]["id"].toString() == id) channels->remove(i);
+                // An empty primary Playback may be deleted. Clear its pin so
+                // the next existing Playback becomes the legacy fallback.
+                if(state["performance"]["primaryPlaybackChannel"].toString()==id)
+                    live::performance(state).getDynamicObject()->removeProperty("primaryPlaybackChannel");
                 for (auto &item : *live::property(state, "items").getArray()) if (auto *tracks = live::property(item, "tracks").getArray())
                     for (int i = tracks->size(); --i >= 0;) if ((*tracks)[i]["channelId"].toString() == id) tracks->remove(i);
             });
@@ -471,13 +618,19 @@ class LiveTimeline final : public juce::Component {
     class Viewport final : public juce::Viewport {
       public:
         explicit Viewport(LiveTimeline &host) : parent(host) {}
-        void visibleAreaChanged(const juce::Rectangle<int> &) override {
+        void visibleAreaChanged(const juce::Rectangle<int>& area) override {
+            if(lastX>=0 && lastX!=area.getX() &&
+               parent.followEnabled && !parent.followProgrammaticScroll &&
+               parent.owner.displayState().playback==mrs::PlaybackState::playing)
+                parent.followSuspended=true; // User scrollbar/wheel navigation wins.
+            lastX=area.getX();
             parent.syncChannel();
             parent.repaint();
         }
 
       private:
         LiveTimeline &parent;
+        int lastX{-1};
     };
     class Body final : public juce::Component, public juce::SettableTooltipClient {
       public:
@@ -982,6 +1135,26 @@ class LiveTimeline final : public juce::Component {
         g.setColour(liveReferenceTokens().colour(ColourRole::border));
         g.drawRect(area, 1);
     }
+    void updatePlayheadFollow(mrs::PlaybackState playback) {
+        if(!followEnabled || followSuspended ||
+           playback!=mrs::PlaybackState::playing || !owner.liveTransportReady())return;
+        const auto line=playheadBounds();
+        if(line.isEmpty())return;
+        const int width=viewport.getMaximumVisibleWidth();
+        const int current=viewport.getViewPositionX();
+        const int maximum=juce::jmax(0,body.getWidth()-width);
+        const int next=followScrollX(juce::roundToInt(line.getX()),current,width,maximum,
+                                     followEngaged);
+        if(next!=current) {
+            const juce::ScopedValueSetter<bool> guard(followProgrammaticScroll,true);
+            viewport.setViewPosition(next,viewport.getViewPositionY());
+        }
+        if(juce::roundToInt(line.getX())-next>=width/2 &&
+           next==juce::jlimit(0,maximum,juce::roundToInt(line.getX())-width/2))
+            followEngaged=true;
+        else if(juce::roundToInt(line.getX())<next+width/2)
+            followEngaged=false;
+    }
     void revealSelection() {
         for (const auto &item : items)
             if (currentEntry(item)) {
@@ -1194,11 +1367,7 @@ class LiveTimeline final : public juce::Component {
         return -1;
     }
     int playbackLaneY() const {
-        if (const auto *channels = state["channels"].getArray())
-            for (int i = 0; i < channels->size(); ++i)
-                if ((*channels)[i]["type"].toString() == "Playback")
-                    return channelY((*channels)[i]["id"].toString());
-        return -rowHeight;
+        return channelY(live::primaryPlaybackId(state));
     }
     mrs::Sample sampleAt(const Item &item, double x) const {
         const auto project = owner.project();
@@ -1286,9 +1455,7 @@ class LiveTimeline final : public juce::Component {
         });
     }
     juce::var primaryChannel() const {
-        if (const auto *channels = state["channels"].getArray())
-            for (const auto &channel : *channels) if (channel["type"].toString() == "Playback") return channel;
-        return {};
+        return live::find(state,"channels",live::primaryPlaybackId(state));
     }
     const live::PlaybackLane *laneAt(int y) const {
         if (y < lanesTop) return nullptr;
@@ -1420,6 +1587,9 @@ class LiveTimeline final : public juce::Component {
             }
     }
     Desktop &owner;
+    juce::String dragChannel;
+    int dragLaneIndex{-1};
+    std::optional<int> dragDropY;
     LiveWaveformCache waveforms;
     juce::SharedResourcePointer<LivePerformanceArt> performanceArt;
     Body body;
@@ -1437,6 +1607,7 @@ class LiveTimeline final : public juce::Component {
     std::uint64_t observedMixRevision{~std::uint64_t{0}},observedPaintRevision{~std::uint64_t{0}};
     std::vector<Item> items;
     std::string activeSection, activeChord;
+    bool followEnabled{}, followEngaged{}, followSuspended{}, followProgrammaticScroll{};
     std::uint64_t focusRevision{};
     int channelWidth{150};
     int observedWaveform{};

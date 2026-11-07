@@ -94,12 +94,25 @@ inline std::vector<int> playbackOutputs(const juce::var &row) {
             result.push_back(static_cast<int>(output));
     return result;
 }
+// The first Playback was historically the show-wide root. Once channels
+// become movable, persist that *identity* independently of display order.
+// Old shows still resolve to their first Playback until their first reorder.
+inline juce::String primaryPlaybackId(const juce::var& state) {
+    const auto pinned=state["performance"]["primaryPlaybackChannel"].toString();
+    if(const auto* channels=state["channels"].getArray()) {
+        if(pinned.isNotEmpty())
+            for(const auto& channel:*channels)
+                if(channel["id"].toString()==pinned && channel["type"].toString()=="Playback")
+                    return pinned;
+        for(const auto& channel:*channels)
+            if(channel["type"].toString()=="Playback")return channel["id"].toString();
+    }
+    return {};
+}
 // The native source row owns stem gain; the common channel owns the show mix.
 inline juce::String playbackChannelId(const juce::var &state, const juce::var &row) {
     if (row["id"].isString()) return row["id"].toString();
-    for (const auto &channel : *state["channels"].getArray())
-        if (channel["type"].toString() == "Playback") return channel["id"].toString();
-    return {};
+    return primaryPlaybackId(state);
 }
 inline double importedStemGain(const juce::var &state, const juce::String &item, const juce::var &row) {
     const auto channel = playbackChannelId(state, row);
@@ -533,10 +546,7 @@ struct PlaybackLane {
     bool container{}, child{};
 };
 inline juce::String playbackContainer(const juce::var &state) {
-    if (const auto *channels = state["channels"].getArray())
-        for (const auto &channel : *channels)
-            if (channel["type"].toString() == "Playback") return channel["id"].toString();
-    return {};
+    return primaryPlaybackId(state);
 }
 inline bool playbackExpanded(const juce::var &state) {
     return static_cast<bool>(state["performance"]["stemsExpanded"]);
@@ -586,6 +596,48 @@ inline std::vector<PlaybackLane> playbackLanes(const juce::var &state) {
             }
         }
     return result;
+}
+// Reorder the persisted channels array without editing any channel object,
+// item-channel reference, stem binding, plugin profile or routing. Only roots
+// can cross groups; stem children may move solely inside their own group.
+inline bool reorderChannel(juce::var& ordered, const juce::var& state,
+                           const juce::String& source, const juce::String& target, bool after) {
+    if(source.isEmpty() || target.isEmpty() || source==target || !ordered.isArray())return false;
+    const auto lanes=playbackLanes(state);
+    // A primary Backing with WAV has two visual lanes with the same channel
+    // ID: its container and its stem. Prefer the root when reordering that ID.
+    const auto laneFor=[&](const juce::String& channel) {
+        auto found=std::find_if(lanes.begin(),lanes.end(),[&](const auto& lane) {
+            return lane.channel==channel && !lane.child;
+        });
+        if(found==lanes.end())
+            found=std::find_if(lanes.begin(),lanes.end(),[&](const auto& lane) {
+                return lane.channel==channel;
+            });
+        return found;
+    };
+    const auto sourceLane=laneFor(source);
+    const auto targetLane=laneFor(target);
+    if(sourceLane==lanes.end() || targetLane==lanes.end() ||
+       sourceLane->child!=targetLane->child)return false;
+    if(sourceLane->child) {
+        const auto item=state["currentItem"].toString();
+        if(playbackGroupForChannel(state,item,source)!=playbackGroupForChannel(state,item,target))
+            return false;
+    }
+    auto* rows=ordered.getArray();
+    const auto locate=[rows](const juce::String& id) {
+        for(int i=0;i<rows->size();++i)
+            if((*rows)[i]["id"].toString()==id)return i;
+        return -1;
+    };
+    const int from=locate(source);
+    if(from<0 || locate(target)<0)return false;
+    auto channel=rows->getUnchecked(from);
+    rows->remove(from);
+    const int at=locate(target)+(after?1:0);
+    rows->insert(at,channel);
+    return at!=from;
 }
 inline int entryIndex(const juce::var &state, const juce::String &item, const juce::String &preferred = {}) {
     const auto entries = activeSetlist(state)["entries"];
