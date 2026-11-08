@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <mrs/diagnostics.hpp>
 #include "Desktop.h"
 #include "LiveContext.h"
@@ -1580,7 +1580,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                  item.value["name"].toString(),
                  {x + 10, 4, juce::jmax(0, width - 64), 26});
             text(g,
-                 item.value["tempo"].toString() + " BPM Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· " + item.value["meter"].toString() + " Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· " +
+                 item.value["tempo"].toString() + " BPM · " + item.value["meter"].toString() + " · " +
                      juce::String(item.bars-item.start) + " bars",
                  {x + 10, 30, juce::jmax(0, width - 20), 22}, true);
             performanceArt->draw(g,live::itemPerformanceMode(state,id),{x+width-48,8,18,18});
@@ -1697,8 +1697,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         const float right = static_cast<float>(x + static_cast<double>(clock.to_ticks(static_cast<mrs::Sample>(std::llround(end * 48000)))) / ticksPerBar * item.scale);
         const juce::Rectangle<float> area{x, static_cast<float>(y + 8), (std::max)(1.f, right - x), static_cast<float>(rowHeight - 16)};
         if (ready) block(g, area.getSmallestIntegerContainer(), {}, "blue");
-        text(g, "Playback Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· " + juce::String(static_cast<int>(own.size())) + " stems" +
-                     (unavailable ? " Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· file unavailable" : ready < static_cast<int>(own.size()) ? " Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· preparing waveforms" : ""),
+        text(g, "Playback · " + juce::String(static_cast<int>(own.size())) + " stems" +
+                     (unavailable ? " · file unavailable" : ready < static_cast<int>(own.size()) ? " · preparing waveforms" : ""),
              {item.bounds.getX() + 8, y + 10, item.bounds.getWidth() - 16, 24});
         if (ready && end > 0.) {
             const auto waveArea = area.withTrimmedTop(28).reduced(1.f, 4.f);
@@ -1718,7 +1718,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             const auto* cached=waveforms.find(row["file"].toString());
             text(g,cached && cached->error.isNotEmpty()?cached->error:"Preparing waveform...",{item.bounds.getX()+8,y+42,item.bounds.getWidth()-16,28},true);return;
         }
-        if(regions.size()==0){text(g,"No regions Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· right-click to restore",{item.bounds.getX()+8,y+42,item.bounds.getWidth()-16,28},true);return;}
+        if(regions.size()==0){text(g,"No regions · right-click to restore",{item.bounds.getX()+8,y+42,item.bounds.getWidth()-16,28},true);return;}
         for(const auto& region:*regions.getArray()){
             const double start=region["start"],length=region["length"],offset=region["offset"];
             const juce::Rectangle<float> area{static_cast<float>(item.bounds.getX()+1+(item.lead-item.start+start)*item.scale),static_cast<float>(y+10),

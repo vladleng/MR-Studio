@@ -1,4 +1,4 @@
-﻿#include "Desktop.h"
+#include "Desktop.h"
 #include "LivePluginCatalog.h"
 #include "LiveLayout.h"
 #include "LiveMusicalState.h"
@@ -481,7 +481,7 @@ void Desktop::editLiveOrganizerTasks(const juce::String& itemId,const juce::Stri
     } else if(operation=="template") {
         if(entries.size()>194)throw std::runtime_error("Organizer allows at most 200 tasks");
         for(const auto& name:juce::StringArray::fromTokens(
-                juce::String::fromUTF8("РљРѕРјРїРѕР·РёС†РёСЏ|Р“Р°СЂРјРѕРЅРёСЏ|РРЅСЃС‚СЂСѓРјРµРЅС‚РѕРІРєР°|Р С‹Р±Р°"),"|","")) {
+                juce::String::fromUTF8("Композиция|Гармония|Инструментовка|Рыба"),"|","")) {
             const auto parent=live::addTask(scratch,itemId,{},name);
             if(name==juce::String::fromUTF8("Р С‹Р±Р°")) {
                 live::addTask(scratch,itemId,parent,"Drums");
