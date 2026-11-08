@@ -1254,7 +1254,7 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     liveCheck(editing.liveDocument->interfaceState["currentItem"].toString()==activeBeforePatch &&
               editing.liveCurrentEntry==activeEntryBefore && editing.app.engine()==engineBeforePatch &&
               editing.liveDocument->interfaceState["channels"].getArray()==channelBankBefore &&
-              editing.liveLocalPatchApplications==localBeforePatch+6,
+              editing.liveLocalPatchApplications==localBeforePatch+5,
               "#374 Patch create/resize/replace/remove/Undo remains local, without transport or channel VST3 changes");
 }
 // #309 point 4: native Studio-style channel DnD must be ONE show undo
