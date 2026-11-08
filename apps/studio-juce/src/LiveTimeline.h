@@ -809,6 +809,18 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     }
                     const bool edge=hover.mode==PatchGesture::Mode::left||hover.mode==PatchGesture::Mode::right||
                                     hover.mode==PatchGesture::Mode::subLeft||hover.mode==PatchGesture::Mode::subRight;
+                    if(!edge) {
+                        // Do not advertise a patch drag while the Item's
+                        // independent right-end trim has priority.
+                        for(const auto& item:parent.items)
+                            if(!item.collapsed && item.bounds.contains(event.getPosition()) &&
+                               (event.x>=item.bounds.getRight()-5 ||
+                                std::abs(event.position.x-(item.bounds.getX()+1+item.lead*item.scale))<=5)) {
+                                setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+                                setTooltip("Drag origin or Item end");
+                                return;
+                            }
+                    }
                     setMouseCursor(edge?juce::MouseCursor::LeftRightResizeCursor:juce::MouseCursor::DraggingHandCursor);
                     setTooltip(edge?"Drag upper corner to resize block":"Drag patch block");
                     return;
@@ -872,9 +884,17 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 return;
             }
             if (beginClipEdit(event)) return;
-            // A patch/sub-patch block wins over the Item end/lead trim at the same X.
-            if (beginPatchEdit(event)) return;
+            // Only the explicit upper-corner patch handle beats the Item end trim.
+            // On the remainder of the Item boundary, preserve the existing Item
+            // resize gesture (#31 smoke: right grip at y=180).
+            PatchGesture grip;
+            if(patchHitTest(event.getPosition(),grip) &&
+               (grip.mode==PatchGesture::Mode::left || grip.mode==PatchGesture::Mode::right ||
+                grip.mode==PatchGesture::Mode::subLeft || grip.mode==PatchGesture::Mode::subRight)) {
+                if(beginPatchEdit(event))return;
+            }
             if (beginEdit(event)) return;
+            if (beginPatchEdit(event)) return;
             if (!event.mods.isLeftButtonDown())
                 return;
             for (const auto &item : parent.items) {
@@ -963,7 +983,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                             if(!pair.value.isObject())continue;
                             const auto rect=parent.extent(item,pair.value,y+64,26,live::blockStart(span));
                             if(!rect.contains(position))continue;
-                            const bool upperGrip=position.y<rect.getY()+14;
+                            const bool upperGrip=position.y<rect.getY()+8;
                             out.mode=upperGrip&&position.x<=rect.getX()+8?PatchGesture::Mode::subLeft:
                                      upperGrip&&position.x>=rect.getRight()-8?PatchGesture::Mode::subRight:
                                      PatchGesture::Mode::subBody;
@@ -977,7 +997,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                         }
                     const auto rect=parent.extent(item,span,y+10,rowHeight-20);
                     if(!rect.contains(position))continue;
-                    const bool upperGrip=position.y<rect.getY()+16;
+                    const bool upperGrip=position.y<rect.getY()+8;
                     out.mode=upperGrip&&position.x<=rect.getX()+9?PatchGesture::Mode::left:
                              upperGrip&&position.x>=rect.getRight()-9?PatchGesture::Mode::right:
                              PatchGesture::Mode::body;
