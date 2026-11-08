@@ -1,5 +1,6 @@
 #pragma once
 #include "../apps/studio-juce/src/LiveInputState.h"
+#include "../apps/studio-juce/src/LiveEditProtocol.h"
 
 // #289 C - free patch/sub-patch block geometry on an item track: placement,
 // neighbour rules, parent scaling and validation.
@@ -94,6 +95,24 @@ inline void patchBlockAuthoring() {
     validate(state);
     check(number(track["spans"][juce::Identifier(patchId)]["length"]),
           "Authored patch geometry validates");
+    // Regression for #374: committing geometry through the established local
+    // edit protocol must keep the channel bank and its large VST3 state shared,
+    // rather than cloning the entire show on every gesture.
+    const auto trackId=track["id"].toString();
+    check(trackId.isNotEmpty(),"Patch authoring uses a stable track row ID");
+    const auto originalChannels=state["channels"].getArray();
+    const auto resized=editedPatchSpans(track["spans"],12,patchId,0,5,false);
+    const auto geometryEdit=valuePatch(state,{"items",EditStep::id(item),
+                                              "tracks",EditStep::id(trackId),"spans"},resized);
+    check(geometryEdit.changed(),"Patch resize produces a bounded local edit");
+    const auto afterGeometry=geometryEdit.apply(state,true);
+    check(afterGeometry["channels"].getArray()==originalChannels &&
+          std::abs(blockLength(channelItemTrack(afterGeometry,item,channel)["spans"][juce::Identifier(patchId)])-5.)<1.e-9,
+          "Patch gesture retains untouched channel/VST3 state and updates only spans");
+    const auto undoneGeometry=geometryEdit.apply(afterGeometry,false);
+    check(sameShowValue(channelItemTrack(undoneGeometry,item,channel)["spans"],track["spans"]),
+          "Patch geometry Undo restores the original span map");
+
     {
         auto broken=state.clone();
         auto& brokenTrack=trackOf(broken);
