@@ -8,13 +8,20 @@ if(Test-Path -LiteralPath $Output){throw 'Package output already exists; use a n
 New-Item -ItemType Directory -Path $Output | Out-Null
 $application=if($LiveOnly){'MR Live'}elseif($StudioOnly){'MR Studio'}else{'MR Studio + MR Live'}
 $gui=if($LiveOnly){Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe'}else{Join-Path $Build 'MoonRiverStudioJuce_artefacts/Release/Moon River Studio JUCE.exe'}
-Copy-Item -LiteralPath $gui -Destination $Output
+# The Actions artifact name already contains the version; the actual runtime EXE
+# must carry the same version when unpacked onto the user's Windows PC.
+$liveExeName="MR Live $env:MR_LIVE_VERSION.exe"
+if($LiveOnly){
+ Copy-Item -LiteralPath $gui -Destination (Join-Path $Output $liveExeName)
+}else{
+ Copy-Item -LiteralPath $gui -Destination $Output
+}
 if(!$LiveOnly){
  Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $gui) 'ace-midi.exe') -Destination $Output
  Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $gui) 'ace-midi-avx2.exe') -Destination $Output
  Copy-Item -LiteralPath 'build/native-ace/ace-midi-NOTICES.txt' -Destination $Output
 }
-if(!$LiveOnly -and !$StudioOnly){Copy-Item -LiteralPath (Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe') -Destination $Output}
+if(!$LiveOnly -and !$StudioOnly){Copy-Item -LiteralPath (Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe') -Destination (Join-Path $Output $liveExeName)}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/mr_separation_scnet.py' -Destination (Join-Path $Output 'mr_separation_scnet.py');Copy-Item -LiteralPath 'tools/separation/SCNet-MIT-LICENSE.txt' -Destination (Join-Path $Output 'SCNet-MIT-LICENSE.txt')}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/mr_separation_profiles.json' -Destination (Join-Path $Output 'mr_separation_profiles.json')}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/worker.py' -Destination (Join-Path $Output 'mr_separation_worker.py')}
@@ -44,7 +51,7 @@ if(!$LiveOnly -and !$StudioOnly){
  }
 }
 $sha=& git rev-parse HEAD
-@("$application $releaseLabel; source $sha; Windows Release; ARA=$packageAra; MR Live ARA=OFF",$(if($StudioOnly){'Studio-only package. MR Live is a separate installation. Keep the runtime files together.'}else{'Launch MR Live.exe directly to work in MR Live; MR Studio does not need to be opened first. MR Live restores its last saved show by default (Options: Open last show on startup); --empty-show starts a blank show. To open a show, pass its quoted .mrlive path to MR Live.exe. Keep the runtime files together; SDKs and third-party plugins are not included.'}),"Checks: $env:CI_CHECK_SCOPE",'Development acceptance artifact. See the included license notices; commercial distribution is not certified by CI.','CI results do not certify physical ASIO/MIDI/DPI performance. See run test logs for integration status.') | Set-Content -LiteralPath "$Output/README.txt" -Encoding UTF8
+@("$application $releaseLabel; source $sha; Windows Release; ARA=$packageAra; MR Live ARA=OFF",$(if($StudioOnly){'Studio-only package. MR Live is a separate installation. Keep the runtime files together.'}else{"Launch $liveExeName directly to work in MR Live; MR Studio does not need to be opened first. MR Live restores its last saved show by default (Options: Open last show on startup); --empty-show starts a blank show. To open a show, pass its quoted .mrlive path to $liveExeName. Keep the runtime files together; SDKs and third-party plugins are not included."}),"Checks: $env:CI_CHECK_SCOPE",'Development acceptance artifact. See the included license notices; commercial distribution is not certified by CI.','CI results do not certify physical ASIO/MIDI/DPI performance. See run test logs for integration status.') | Set-Content -LiteralPath "$Output/README.txt" -Encoding UTF8
 $env:CI_TEST_RESULT | Set-Content -LiteralPath "$Output/CI-TEST-RESULT.txt" -Encoding UTF8
 $files=@(Get-ChildItem -LiteralPath $Output -File | Sort-Object Name | ForEach-Object {@{name=$_.Name;bytes=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash}})
 @{application=$application;source=$sha;version=$releaseLabel;binary_version=$version;release_label=$releaseLabel;versions=@{studio=$env:MR_STUDIO_VERSION;live=$env:MR_LIVE_VERSION};ara=$packageAra;run=$env:GITHUB_RUN_ID;tests=$env:CI_TEST_RESULT;checks=$env:CI_CHECK_SCOPE;runner_image=$env:ImageVersion;sdk_lock_sha256=(Get-FileHash -LiteralPath "$PSScriptRoot/sdk-lock.json").Hash;files=$files} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$Output/SHA256.json" -Encoding UTF8
