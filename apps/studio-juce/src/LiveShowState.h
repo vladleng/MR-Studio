@@ -979,15 +979,16 @@ inline void validate(const juce::var &state) {
                 std::set<juce::String> ordered;
                 if (const auto *order = track["patchOrder"].getArray())
                     for (const auto &entry : *order) {
-                        if (!named(entry) || !ordered.insert(entry.toString()).second ||
-                            !find(channelRow, "patches", entry.toString()).isObject())
+                        if (!named(entry) || !ordered.insert(entry.toString()).second)
                             throw std::runtime_error("Invalid item patch order");
                     }
                 const auto spans = track["spans"];
                 std::vector<std::pair<double, double>> ranges;
                 if (const auto *values = spans.getDynamicObject())
                     for (const auto &pair : values->getProperties()) {
-                        if (!ordered.contains(pair.name.toString()) || !pair.value.isObject())
+                        if (!ordered.contains(pair.name.toString()) || !pair.value.isObject() ||
+                            (!pair.value["patchId"].isVoid() && !named(pair.value["patchId"])) ||
+                            !find(channelRow,"patches",patchLibraryId(pair.name.toString(),pair.value)).isObject())
                             throw std::runtime_error("Invalid item patch span");
                         if (!number(pair.value["start"]) || !number(pair.value["length"]))
                             throw std::runtime_error("Invalid item patch span bounds");
@@ -1008,7 +1009,8 @@ inline void validate(const juce::var &state) {
                         throw std::runtime_error("Item patch spans overlap");
                 if (const auto *values = spans.getDynamicObject())
                     for (const auto &pair : values->getProperties()) {
-                        const auto patch = find(channelRow, "patches", pair.name.toString());
+                        const auto patch = find(channelRow, "patches",
+                                                patchLibraryId(pair.name.toString(),pair.value));
                         const auto subs = pair.value["subs"];
                         if (subs.isVoid())
                             continue;
@@ -1018,7 +1020,10 @@ inline void validate(const juce::var &state) {
                         std::vector<std::pair<double, double>> subRanges;
                         if (const auto *subValues = subs.getDynamicObject())
                             for (const auto &sub : subValues->getProperties()) {
-                                if (!find(patch, "subPatches", sub.name.toString()).isObject() ||
+                                if (!sub.value.isObject() ||
+                                    (!sub.value["subPatchId"].isVoid() && !named(sub.value["subPatchId"])) ||
+                                    !find(patch, "subPatches",
+                                          subPatchLibraryId(sub.name.toString(),sub.value)).isObject() ||
                                     !number(sub.value["start"]) || !number(sub.value["length"]))
                                     throw std::runtime_error("Invalid item sub-patch span");
                                 const double start = static_cast<double>(sub.value["start"]);
