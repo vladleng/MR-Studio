@@ -855,6 +855,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         }
         void mouseDown(const juce::MouseEvent &event) override {
             if(event.mods.isLeftButtonDown()) {
+                popupPending=false;
                 ++parent.owner.liveSelectionRevision;
                 if(event.y>=lanesTop)
                     if(const auto *lane=parent.laneAt(event.y))
@@ -863,10 +864,11 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if (event.mods.isPopupMenu()) {
                 if (beginClipEdit(event)) return;
                 if (beginEdit(event)) return;
-                if (patchContextMenu(event.getPosition(),event.getScreenPosition())) return;
-                const auto position=event.getPosition(),screen=event.getScreenPosition();
-                juce::Component::SafePointer<Body> self(this);
-                juce::Timer::callAfterDelay(120,[self,position,screen]{if(self)self->addPatchBlockMenu(position,screen);});
+                // Open at release to avoid the right-button-up dismissing the
+                // popup. The old 120 ms timer made the UI feel unresponsive.
+                popupPosition=event.getPosition();
+                popupScreen=event.getScreenPosition();
+                popupPending=true;
                 return;
             }
             if (beginClipEdit(event)) return;
@@ -928,6 +930,12 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(editing)previewEdit(event);
         }
         void mouseUp(const juce::MouseEvent &) override {
+            if(popupPending) {
+                popupPending=false;
+                if(!patchContextMenu(popupPosition,popupScreen))
+                    addPatchBlockMenu(popupPosition,popupScreen);
+                return;
+            }
             if(patchGesture.mode!=PatchGesture::Mode::none){finishPatchEdit();return;}
             if(editing)finishEdit();
         }
