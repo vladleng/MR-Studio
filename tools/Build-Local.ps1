@@ -12,6 +12,8 @@ param(
     [switch]$NoLive,
     [switch]$PrepareSdk,
     [switch]$NoShortcut,
+    [switch]$NoDeploy,
+    [string]$DeployPath = 'C:\Users\Vladislav\MR Studio App',
     [string]$ShortcutName = 'MR Studio'
 )
 
@@ -138,26 +140,43 @@ if ($Target -and $Target.Count -gt 0) { $buildArgs += @('--target') + $Target }
 Write-Host ("Building {0} with {1} parallel job(s)..." -f $(if ($Target) { "target(s): $($Target -join ', ')" } else { 'all targets' }), $Jobs)
 Invoke-Checked $cmakeExe $buildArgs
 
-# --- Desktop shortcut to the freshly built Studio executable ---
-if (!$NoShortcut) {
-    $studioExe = Join-Path $buildRoot 'MoonRiverStudioJuce_artefacts/Release/Moon River Studio JUCE.exe'
-    if (Test-Path -LiteralPath $studioExe) {
-        $shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) "$ShortcutName.lnk"
-        $version = (Get-Item -LiteralPath $studioExe).VersionInfo.ProductVersion
-        $shell = New-Object -ComObject WScript.Shell
-        try {
-            $shortcut = $shell.CreateShortcut($shortcutPath)
-            $shortcut.TargetPath = $studioExe
-            $shortcut.WorkingDirectory = Split-Path -Parent $studioExe
-            $shortcut.IconLocation = "$studioExe,0"
-            $shortcut.Description = if ($version) { "MR Studio $version (local build)" } else { 'MR Studio (local build)' }
-            $shortcut.Save()
-        }
-        finally {
-            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
-        }
-        Write-Host "Desktop shortcut updated: $shortcutPath -> $studioExe"
-    } else {
-        Write-Host 'Studio executable not found after build; desktop shortcut left unchanged.'
+# --- Deploy + desktop shortcut -------------------------------------------------
+# Tooling on this machine restricts binaries located inside the checkout so that they may only
+# write inside it (a workspace-scoped file policy). An app started from the workspace therefore
+# cannot write project data or diagnostics into Documents. Copying the runtime next to the user
+# profile keeps normal save/diagnostics behaviour, so the shortcut points at the deployed copy.
+$builtExe = Join-Path $buildRoot 'MoonRiverStudioJuce_artefacts/Release/Moon River Studio JUCE.exe'
+$launchExe = $builtExe
+
+if (!$NoDeploy -and (Test-Path -LiteralPath $builtExe)) {
+    New-Item -ItemType Directory -Force -Path $DeployPath | Out-Null
+    $artefacts = Split-Path -Parent $builtExe
+    & robocopy $artefacts $DeployPath /MIR /NFL /NDL /NJH /NJS /NP /XF *.pdb | Out-Null
+    $robocopyExit = $LASTEXITCODE
+    if ($robocopyExit -ge 8) { throw "Deploy to $DeployPath failed (robocopy exit $robocopyExit)" }
+    $launchExe = Join-Path $DeployPath 'Moon River Studio JUCE.exe'
+    Write-Host "Deployed runtime: $DeployPath"
+} elseif (!$NoDeploy) {
+    Write-Host 'Studio executable not found after build; deployment skipped.'
+}
+
+if (!$NoShortcut -and (Test-Path -LiteralPath $launchExe)) {
+    $shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) "$ShortcutName.lnk"
+    $version = (Get-Item -LiteralPath $launchExe).VersionInfo.ProductVersion
+    $shell = New-Object -ComObject WScript.Shell
+    try {
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $launchExe
+        $shortcut.WorkingDirectory = Split-Path -Parent $launchExe
+        $shortcut.IconLocation = "$launchExe,0"
+        $shortcut.Description = if ($version) { "MR Studio $version (local build)" } else { 'MR Studio (local build)' }
+        $shortcut.Save()
     }
+    finally {
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+    }
+    Write-Host "Desktop shortcut updated: $shortcutPath -> $launchExe"
+}
+elseif (!$NoShortcut) {
+    Write-Host 'Studio executable not found after build; desktop shortcut left unchanged.'
 }
