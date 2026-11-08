@@ -36,7 +36,9 @@ inline void patchBlockAuthoring() {
     put(subs,"s",blockSpan(1,2));
     put(a,"subs",subs);
     put(withSub,"a",a);
-    const auto scaled=editedPatchSpans(withSub,12,"a",0,8,false);
+    // Parent resize pushes the touched neighbour, otherwise the sibling boundary would clamp the
+    // requested length and the proportional scaling could not be observed.
+    const auto scaled=editedPatchSpans(withSub,12,"a",0,8,true);
     check(std::abs(blockStart(scaled["a"]["subs"]["s"])-2)<1.e-9 &&
           std::abs(blockLength(scaled["a"]["subs"]["s"])-4)<1.e-9,
           "Parent resize scales nested sub-patch spans proportionally");
@@ -52,6 +54,10 @@ inline void patchBlockAuthoring() {
     const auto channel=addChannel(state,"Player","Guitar");
     const auto item=addItem(state,"Song A");
     put(state,"currentItem",item);
+    // Items carry their bar length; the geometry checks need a known item span.
+    for(auto& entry:array(state,"items"))
+        if(entry["id"].toString()==item)
+            put(entry,"bars",12);
     mrs::NativeInsert fx;
     fx.id=mrs::Id{"fx-1"};
     fx.kind=mrs::InsertKind::vst3;
@@ -90,38 +96,46 @@ inline void patchBlockAuthoring() {
           "Authored patch geometry validates");
     {
         auto broken=state.clone();
+        auto& brokenTrack=trackOf(broken);
         const auto second=addChannelPatch(broken,require(broken,"channels",channel),
                                           std::vector<mrs::NativeInsert>{fx},"Second","teal");
-        auto spansRow=trackOf(broken)["spans"]; // Shares the cloned object with the show state.
+        auto spansRow=brokenTrack["spans"];
         put(spansRow,juce::Identifier(second),blockSpan(2,4));
-        put(trackOf(broken),"patchOrder",juce::Array<juce::var>{patchId,second});
+        put(brokenTrack,"spans",spansRow);
+        put(brokenTrack,"patchOrder",juce::Array<juce::var>{patchId,second});
         checkThrows([&]{validate(broken);},
                     "Overlapping patch blocks must be rejected");
     }
     {
         auto broken=state.clone();
-        auto spansRow=trackOf(broken)["spans"]; // Shares the cloned object with the show state.
-        put(spansRow,juce::Identifier(patchId),blockSpan(0,999));
-        checkThrows([&]{validate(broken);},"A patch block beyond the item must be rejected");
+        auto& brokenTrack=trackOf(broken);
+        auto spansRow=brokenTrack["spans"];
+        put(spansRow,juce::Identifier(patchId),blockSpan(20,2));
+        put(brokenTrack,"spans",spansRow);
+        checkThrows([&]{validate(broken);},"A patch block starting outside the item must be rejected");
     }
     {
         auto broken=state.clone();
-        auto spansRow=trackOf(broken)["spans"]; // Shares the cloned object with the show state.
+        auto& brokenTrack=trackOf(broken);
+        auto spansRow=brokenTrack["spans"];
         auto stretched=blockSpan(0,4);
         auto subSpans=object();
         put(subSpans,"sub-rhythm",blockSpan(3,2));
         put(stretched,"subs",subSpans);
         put(spansRow,juce::Identifier(patchId),stretched);
+        put(brokenTrack,"spans",spansRow);
         checkThrows([&]{validate(broken);},"A sub-patch strip beyond its parent must be rejected");
     }
     {
         auto broken=state.clone();
-        auto spansRow=trackOf(broken)["spans"]; // Shares the cloned object with the show state.
+        auto& brokenTrack=trackOf(broken);
+        auto spansRow=brokenTrack["spans"];
         auto block2=blockSpan(0,4);
         auto ghostSubs=object();
         put(ghostSubs,"ghost",blockSpan(0,1));
         put(block2,"subs",ghostSubs);
         put(spansRow,juce::Identifier(patchId),block2);
+        put(brokenTrack,"spans",spansRow);
         checkThrows([&]{validate(broken);},"A sub-patch strip without a library sub-patch must be rejected");
     }
     {

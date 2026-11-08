@@ -793,21 +793,23 @@ inline void validate(const juce::var &state) {
                 if (channelId.isEmpty() || !channelIds.contains(channelId))
                     continue;
                 const auto patchId = track["patchId"];
-                if (patchId.isVoid())
-                    continue;
+                // A track authoring free patch blocks may have no default patch at all, so the
+                // reference checks below must not gate the #289 C block geometry validation.
+                const bool noDefaultPatch = patchId.isVoid() ||
+                    (patchId.isString() && patchId.toString().isEmpty());
                 // External editors may write "" for "no default patch".
-                if (patchId.isString() && patchId.toString().isEmpty())
-                    continue;
-                if (!named(patchId) ||
-                    !find(find(state, "channels", channelId), "patches", patchId.toString()).isObject())
-                    throw std::runtime_error("Missing item channel patch reference");
-                const auto subPatchId = track["subPatchId"];
-                if (!(subPatchId.isVoid() ||
-                      (subPatchId.isString() && subPatchId.toString().isEmpty()))) {
-                    if (!named(subPatchId) ||
-                        !find(find(find(state, "channels", channelId), "patches", patchId.toString()),
-                              "subPatches", subPatchId.toString()).isObject())
-                        throw std::runtime_error("Missing item channel sub-patch reference");
+                if (!noDefaultPatch) {
+                    if (!named(patchId) ||
+                        !find(find(state, "channels", channelId), "patches", patchId.toString()).isObject())
+                        throw std::runtime_error("Missing item channel patch reference");
+                    const auto subPatchId = track["subPatchId"];
+                    if (!(subPatchId.isVoid() ||
+                          (subPatchId.isString() && subPatchId.toString().isEmpty()))) {
+                        if (!named(subPatchId) ||
+                            !find(find(find(state, "channels", channelId), "patches", patchId.toString()),
+                                  "subPatches", subPatchId.toString()).isObject())
+                            throw std::runtime_error("Missing item channel sub-patch reference");
+                    }
                 }
                 // #289 C: authored free blocks must stay ordered, inside the item
                 // and consistent with the channel patch library.
@@ -830,8 +832,13 @@ inline void validate(const juce::var &state) {
                             throw std::runtime_error("Invalid item patch span bounds");
                         const double start = static_cast<double>(pair.value["start"]);
                         const double length = static_cast<double>(pair.value["length"]);
-                        if (start < 0. || length < .25 || start + length > itemBars + 1.e-6)
-                            throw std::runtime_error("Item patch span exceeds item bounds");
+                        // Imported/demo shows may carry blocks longer than the declared item
+                        // length; that is repairable, while a block starting outside the item is
+                        // not. Never reject a whole show for recoverable legacy geometry.
+                        if (start < 0. || length < .25 || (itemBars > 0. && start >= itemBars - 1.e-6))
+                            throw std::runtime_error("Item patch span exceeds item bounds: patch=" +
+                                pair.name.toString().toStdString() + " start=" + std::to_string(start) +
+                                " length=" + std::to_string(length) + " bars=" + std::to_string(itemBars));
                         ranges.emplace_back(start, start + length);
                     }
                 std::sort(ranges.begin(), ranges.end());
