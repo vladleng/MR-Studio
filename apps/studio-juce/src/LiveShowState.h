@@ -667,26 +667,30 @@ inline void validateSubPatches(const juce::var &state, const juce::var &patch) {
 // assignment, the canonical patchOrder entry and the stored span geometry.
 inline bool removeChannelPatchReference(juce::var &track, const juce::String &channel,
                                         const juce::String &patchId) {
-    if (!track.isObject() || track["channelId"].toString() != channel)
-        return false;
-    bool changed = false;
-    if (track["patchId"].toString() == patchId) {
+    if(!track.isObject() || track["channelId"].toString()!=channel)return false;
+    bool changed=false;
+    if(track["patchId"].toString()==patchId) {
         track.getDynamicObject()->removeProperty("patchId");
         track.getDynamicObject()->removeProperty("subPatchId");
-        changed = true;
+        changed=true;
     }
-    auto spans = track["spans"];
-    if (spans.isObject() && spans.getDynamicObject() != nullptr &&
-        spans.getDynamicObject()->hasProperty(juce::Identifier(patchId))) {
-        spans.getDynamicObject()->removeProperty(juce::Identifier(patchId));
-        track.getDynamicObject()->setProperty("spans", spans);
-        changed = true;
+    auto spans=track["spans"].clone();
+    juce::StringArray removed;
+    if(const auto* values=spans.getDynamicObject())
+        for(const auto& pair:values->getProperties())
+            if(patchLibraryId(pair.name.toString(),pair.value)==patchId)
+                removed.add(pair.name.toString());
+    if(!removed.isEmpty()) {
+        for(const auto& id:removed)
+            spans.getDynamicObject()->removeProperty(juce::Identifier(id));
+        put(track,"spans",spans);
+        changed=true;
     }
-    if (auto *order = track["patchOrder"].getArray())
-        for (int i = order->size(); --i >= 0;)
-            if ((*order)[i].toString() == patchId) {
-                order->remove(i);
-                changed = true;
+    if(auto* order=track["patchOrder"].getArray())
+        for(int i=order->size();--i>=0;)
+            if(removed.contains((*order)[i].toString()) ||
+               (removed.isEmpty() && (*order)[i].toString()==patchId)) {
+                order->remove(i);changed=true;
             }
     return changed;
 }
@@ -729,12 +733,33 @@ inline void clearLibraryPatchReferences(juce::var &state, const juce::String &ch
 inline bool removeChannelSubPatchReference(juce::var &track, const juce::String &channel,
                                            const juce::String &patchId,
                                            const juce::String &subPatchId) {
-    if (!track.isObject() || track["channelId"].toString() != channel ||
-        track["patchId"].toString() != patchId || track["subPatchId"].toString() != subPatchId)
-        return false;
-    if (auto *object = track.getDynamicObject())
-        object->removeProperty("subPatchId");
-    return true;
+    if(!track.isObject() || track["channelId"].toString()!=channel)return false;
+    bool changed=false;
+    if(track["patchId"].toString()==patchId && track["subPatchId"].toString()==subPatchId) {
+        track.getDynamicObject()->removeProperty("subPatchId");
+        changed=true;
+    }
+    auto spans=track["spans"].clone();
+    if(const auto* values=spans.getDynamicObject())
+        for(const auto& pair:values->getProperties()) {
+            if(!pair.value.isObject()||
+               patchLibraryId(pair.name.toString(),pair.value)!=patchId)continue;
+            auto subs=pair.value["subs"].clone();
+            juce::StringArray removed;
+            if(const auto* entries=subs.getDynamicObject())
+                for(const auto& sub:entries->getProperties())
+                    if(subPatchLibraryId(sub.name.toString(),sub.value)==subPatchId)
+                        removed.add(sub.name.toString());
+            if(removed.isEmpty())continue;
+            for(const auto& id:removed)
+                subs.getDynamicObject()->removeProperty(juce::Identifier(id));
+            auto updated=pair.value.clone();
+            put(updated,"subs",subs);
+            put(spans,pair.name,updated);
+            changed=true;
+        }
+    if(changed)put(track,"spans",spans);
+    return changed;
 }
 inline void clearSubPatchReferences(juce::var &state, const juce::String &channel,
                                     const juce::String &patchId, const juce::String &subPatchId) {
