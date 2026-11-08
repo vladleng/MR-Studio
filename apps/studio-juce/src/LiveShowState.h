@@ -545,8 +545,12 @@ inline void validateSubPatches(const juce::var &state, const juce::var &patch) {
                 bool matches=false;
                 for(const auto& insert:*baseInserts)
                     if(insert["id"].toString()==insertId && insert["kind"].toString()=="vst3")
-                        matches=true;
-                if(!matches)throw std::runtime_error("Sub-patch override references a missing VST3 insert");
+                        if(const auto* params=insert["parameters"].getArray())
+                            for(const auto& parameter:*params)
+                                if(static_cast<double>(parameter["id"])==parameterId)
+                                    matches=true;
+                if(!matches)
+                    throw std::runtime_error("Sub-patch override references a missing VST3 parameter");
             }
             continue;
         }
