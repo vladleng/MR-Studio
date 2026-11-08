@@ -704,7 +704,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     if(const auto *lane=parent.laneAt(event.y))
                         parent.selectPlaybackChannel(lane->channel);
             }
-            if (event.mods.isPopupMenu()) { if (patchContextMenu(event)) return; }
+            if (event.mods.isPopupMenu()) { if (patchContextMenu(event)) return; if (addPatchBlockMenu(event)) return; }
             if (beginClipEdit(event)) return;
             if (beginEdit(event)) return;
             if (beginPatchEdit(event)) return;
@@ -928,6 +928,47 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 });
                 if(self)self->repaint();
             });
+            return true;
+        }
+        // Right-click on an empty spot of a live channel lane inserts a patch block from that
+        // channel's patch library; existing blocks keep their own menu.
+        bool addPatchBlockMenu(const juce::MouseEvent &event) {
+            const auto *lane=parent.laneAt(event.y);
+            if(lane==nullptr)return false;
+            const auto channel=live::find(parent.state,"channels",lane->channel);
+            if(!channel.isObject()||channel["type"].toString()=="Playback")return false;
+            const auto *patches=channel["patches"].getDynamicObject();
+            if(patches==nullptr)return false;
+            std::vector<juce::String> ids,names;
+            for(const auto &pair:patches->getProperties()) {
+                if(!pair.value.isObject()||live::legacyPatch(pair.value))continue;
+                ids.push_back(pair.name.toString());
+                names.push_back(pair.value["name"].toString());
+            }
+            juce::PopupMenu menu;menu.setLookAndFeel(&parent.owner.theme);
+            std::vector<std::size_t> order(ids.size());
+            for(std::size_t i=0;i<order.size();++i)order[i]=i;
+            std::sort(order.begin(),order.end(),[&](std::size_t a,std::size_t b){
+                return names[a].compareIgnoreCase(names[b])<0;});
+            if(ids.empty()) {
+                menu.addItem(1,"No captured patches for this channel",false,false);
+            } else {
+                menu.addSectionHeader("Add patch block");
+                for(std::size_t i=0;i<order.size();++i)
+                    menu.addItem(static_cast<int>(i)+1,names[order[i]]);
+            }
+            juce::Component::SafePointer<Desktop> safe(&parent.owner);
+            juce::Component::SafePointer<Body> self(this);
+            const auto channelId=lane->channel;
+            menu.showMenuAsync(liveMenuOptions(*this),
+                [safe,self,channelId,ids,order](int action){
+                    if(!safe||action<=0)return;
+                    const auto index=static_cast<std::size_t>(action-1);
+                    if(index>=order.size())return;
+                    const auto patchId=ids[order[index]];
+                    safe->run([&]{safe->addLivePatchBlock(channelId,patchId);});
+                    if(self)self->repaint();
+                });
             return true;
         }
         bool keyPressed(const juce::KeyPress &key) override {
@@ -1767,14 +1808,23 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     continue;
                 const auto patchBounds = extent(item, span, y + 10, rowHeight - 20);
                 block(g, patchBounds, {}, patch["color"]);
+                // The 5 px edge zones were always editable but invisible; draw the same resize
+                // affordance the other accepted blocks use so blocks are obviously draggable.
+                g.setColour(juce::Colours::white.withAlpha(0.38f));
+                g.fillRect(patchBounds.getX(), patchBounds.getY() + 4, 2, patchBounds.getHeight() - 8);
+                g.fillRect(patchBounds.getRight() - 2, patchBounds.getY() + 4, 2, patchBounds.getHeight() - 8);
                 text(g, patch["name"].toString(), patchBounds.reduced(6).withHeight(30));
                 if (const auto *subs = patch["subPatches"].getArray())
                     for (const auto &sub : *subs) {
                         const auto geometry = span["subs"][juce::Identifier(sub["id"].toString())];
-                        if (geometry.isObject())
-                            block(g, extent(item, geometry, y + 64, 26, numeric(span["start"], 0, 0, 4096)),
-                                  sub["name"].toString(),
+                        if (geometry.isObject()) {
+                            const auto subBounds = extent(item, geometry, y + 64, 26, numeric(span["start"], 0, 0, 4096));
+                            block(g, subBounds, sub["name"].toString(),
                                   sub["color"].toString() == "inherit" ? patch["color"] : sub["color"]);
+                            g.setColour(juce::Colours::white.withAlpha(0.30f));
+                            g.fillRect(subBounds.getX(), subBounds.getY() + 3, 2, subBounds.getHeight() - 6);
+                            g.fillRect(subBounds.getRight() - 2, subBounds.getY() + 3, 2, subBounds.getHeight() - 6);
+                        }
                     }
             }
     }

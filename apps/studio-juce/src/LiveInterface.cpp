@@ -1693,8 +1693,9 @@ void Desktop::addLivePatchBlock(const juce::String& requested,const juce::String
     const auto itemId=liveDocument->interfaceState["currentItem"].toString();
     if(itemId.isEmpty())throw std::runtime_error("Select a song item first");
     const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
-    if(!track.isObject())throw std::runtime_error("The current item has no track for this channel");
-    const auto spans=track["spans"];
+    // Authoring a block for a channel that the item does not use yet is normal: the track is
+    // created below. Only refuse when the channel itself is unknown to the show.
+    const auto spans=track.isObject()?track["spans"]:live::object();
     if(spans[juce::Identifier(patchId)].isObject())
         throw std::runtime_error("This patch block is already on the item");
     const auto nextSpans=live::addedPatchSpan(spans,liveCurrentItemBars(*this),patchId,
@@ -1703,14 +1704,19 @@ void Desktop::addLivePatchBlock(const juce::String& requested,const juce::String
         throw std::runtime_error("No free space for a patch block; move or resize existing blocks");
     editLiveInterface("Add patch block",[&](auto& state){
         auto& item=live::require(state,"items",itemId);
-        for(auto& track2:live::array(item,"tracks"))
-            if(track2["channelId"].toString()==channel) {
-                live::put(track2,"spans",nextSpans.clone());
-                auto& order=live::array(track2,"patchOrder");
-                if(!order.contains(patchId))order.add(patchId);
-                return;
-            }
-        throw std::runtime_error("The current item has no track for this channel");
+        auto& tracks=live::array(item,"tracks");
+        juce::var* target=nullptr;
+        for(auto& candidate:tracks)
+            if(candidate["channelId"].toString()==channel) { target=&candidate; break; }
+        if(target==nullptr) {
+            juce::var fresh=live::object();
+            live::put(fresh,"channelId",channel);
+            tracks.add(fresh);
+            target=&tracks.getReference(tracks.size()-1);
+        }
+        live::put(*target,"spans",nextSpans.clone());
+        auto& order=live::array(*target,"patchOrder");
+        if(!order.contains(patchId))order.add(patchId);
     });
 }
 void Desktop::addLiveSubPatchBlock(const juce::String& requested,const juce::String& patchId,
