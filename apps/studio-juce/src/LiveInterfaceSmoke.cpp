@@ -1200,6 +1200,62 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     }
     liveCheck(live::find(editing.liveDocument->interfaceState,"items",id)["notes"].toString()==oldNotes && !editing.liveDirty,
               "One Notes Undo restores saved text and clears the show dirty flag");
+
+    // #374 RED->GREEN: authoring a patch in a different visible Item must not
+    // select that Item, touch the audio engine or clone the VST3 channel bank.
+    juce::String inactive,patchChannel,patchId,secondPatch;
+    editing.editLiveInterface("Inactive patch authoring fixture",[&](auto& state) {
+        patchChannel=live::addChannel(state,"Player","Offline patch edit");
+        inactive=live::addItem(state,"Other item");
+        live::insertEntry(state,inactive);
+        auto& channel=live::require(state,"channels",patchChannel);
+        patchId=live::addChannelPatch(state,channel,{},"Rhythm","blue");
+        secondPatch=live::addChannelPatch(state,channel,{},"Solo","violet");
+    });
+    const auto activeBeforePatch=editing.liveDocument->interfaceState["currentItem"].toString();
+    const auto activeEntryBefore=editing.liveCurrentEntry;
+    const auto engineBeforePatch=editing.app.engine();
+    const auto channelBankBefore=editing.liveDocument->interfaceState["channels"].getArray();
+    const auto localBeforePatch=editing.liveLocalPatchApplications;
+    editing.addLivePatchBlock(patchChannel,patchId,2.,inactive);
+    const auto inactiveSpan=[&] {
+        return live::channelItemTrack(editing.liveDocument->interfaceState,inactive,patchChannel)
+            ["spans"][juce::Identifier(patchId)];
+    };
+    liveCheck(inactiveSpan().isObject() && std::abs(live::blockStart(inactiveSpan())-2.)<1.e-9 &&
+              !live::channelItemTrack(editing.liveDocument->interfaceState,activeBeforePatch,patchChannel)
+                  ["spans"][juce::Identifier(patchId)].isObject(),
+              "#374 RMB patch insertion edits the targeted inactive Item, not the active one");
+    auto edited=live::editedPatchSpans(
+        live::channelItemTrack(editing.liveDocument->interfaceState,inactive,patchChannel)["spans"],
+        16.,patchId,2.,5.,false);
+    editing.setLivePatchSpans(patchChannel,patchId,edited,"Resize inactive patch",inactive);
+    liveCheck(std::abs(live::blockLength(inactiveSpan())-5.)<1.e-9,
+              "#374 Patch resize commits to inactive Item without switching transport");
+    editing.replaceLivePatchBlock(patchChannel,patchId,secondPatch,inactive);
+    const auto secondSpan=live::channelItemTrack(editing.liveDocument->interfaceState,inactive,patchChannel)
+        ["spans"][juce::Identifier(secondPatch)];
+    liveCheck(secondSpan.isObject() && std::abs(live::blockLength(secondSpan)-5.)<1.e-9,
+              "#374 Patch replacement targets clicked Item instead of show.currentItem");
+    editing.saveFile(file);
+    const auto reopenedInactive=LiveDocument::read(file);
+    file.deleteFile();
+    liveCheck(live::channelItemTrack(reopenedInactive.interfaceState,inactive,patchChannel)
+                  ["spans"][juce::Identifier(secondPatch)].isObject(),
+              "#374 Inactive Item patch geometry persists after Save/Reopen");
+    editing.removeLivePatchBlock(patchChannel,secondPatch,inactive);
+    liveCheck(!live::channelItemTrack(editing.liveDocument->interfaceState,inactive,patchChannel)
+                  ["spans"][juce::Identifier(secondPatch)].isObject(),
+              "#374 Patch deletion operates on inactive Item");
+    editing.undoLiveInterface();
+    liveCheck(live::channelItemTrack(editing.liveDocument->interfaceState,inactive,patchChannel)
+                  ["spans"][juce::Identifier(secondPatch)].isObject(),
+              "#374 One Undo restores the deleted block on the inactive Item");
+    liveCheck(editing.liveDocument->interfaceState["currentItem"].toString()==activeBeforePatch &&
+              editing.liveCurrentEntry==activeEntryBefore && editing.app.engine()==engineBeforePatch &&
+              editing.liveDocument->interfaceState["channels"].getArray()==channelBankBefore &&
+              editing.liveLocalPatchApplications==localBeforePatch+6,
+              "#374 Patch create/resize/replace/remove/Undo remains local, without transport or channel VST3 changes");
 }
 // #309 point 4: native Studio-style channel DnD must be ONE show undo
 // operation and must never reinterpret Backing as the next Playback root.
