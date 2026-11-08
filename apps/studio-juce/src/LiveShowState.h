@@ -459,7 +459,14 @@ inline juce::var editedSubPatchSpan(const juce::var& spans,const juce::String& p
         length=juce::jmin(length,juce::jmax(.25,nextStart-start));
         if(start+length>parentLength)length=parentLength-start;
     }
-    if(index>=0)subValues->setProperty(juce::Identifier(subId),blockSpan(start,length));
+    if(index>=0) {
+        // Keep instance->library metadata after a cut. Replacing this row
+        // with blockSpan() would drop subPatchId on generated UUID instances.
+        auto updated=subValues->getProperty(juce::Identifier(subId)).clone();
+        put(updated,"start",start);
+        put(updated,"length",length);
+        subValues->setProperty(juce::Identifier(subId),updated);
+    }
     return result;
 }
 inline juce::var removedPatchSpan(const juce::var& spans,const juce::String& patchId) {
