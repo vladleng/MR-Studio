@@ -65,6 +65,10 @@ inline void subPatchChainVariants() {
           "Base restores the captured patch state");
     checkThrows([&]{subPatchChain(state,baseInserts,baseInserts);},
                 "An unchanged chain must not produce a sub-patch");
+    auto vendorPresetOnly=baseInserts;
+    vendorPresetOnly[0].component_state=std::vector<std::byte>{std::byte{18},std::byte{19}};
+    checkThrows([&]{subPatchChain(state,baseInserts,vendorPresetOnly);},
+                "Opaque-only preset changes must not be misrepresented as Sub-patch parameters");
     auto otherStructure=baseInserts;
     otherStructure[0].id=mrs::Id{"fx-2"};
     checkThrows([&]{subPatchChain(state,baseInserts,otherStructure);},
@@ -110,6 +114,14 @@ inline void subPatchChainVariants() {
               "Pruning retains the legacy Sub-patch opaque VST3 state");
         broken["patchStates"].getDynamicObject()->removeProperty(juce::Identifier(hash));
         checkThrows([&]{validate(broken);},"Legacy Sub-patch with missing opaque state is rejected");
+    }
+    {
+        auto broken=state.clone();
+        auto& subs=array(require(require(broken,"channels",channel),"patches",patchId),"subPatches");
+        auto& first=*subs.getReference(0)["overrides"].getArray();
+        put(first.getReference(0),"parameterId",static_cast<juce::int64>(123456));
+        checkThrows([&]{validate(broken);},
+                    "Sub-patch override for an unknown base parameter fails validation");
     }
     {
         auto duplicate=state.clone();
