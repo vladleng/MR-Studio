@@ -52,9 +52,11 @@ inline void subPatchChainVariants() {
     array(patchRow,"subPatches").add(sub);
     validate(state);
     const auto effective=patchInsertsWithSubPatch(state,channelPatch(state),subPatchOf(state));
-    check(effective.size()==1&&effective[0].component_state==variant[0].component_state&&
+    check(sub["overrides"].isArray() && sub["overrides"].size()==1 &&
+          sub["inserts"].isVoid(),"New Sub-patch stores only one explicit parameter override");
+    check(effective.size()==1&&effective[0].component_state==base.component_state&&
           std::abs(effective[0].parameters[0].value-0.9f)<1.e-6f,
-          "A sub-patch applies its captured same-chain state");
+          "A sub-patch applies exposed parameters without replacing base VST3 state");
     check(sameInsertStructure(effective,baseInserts),
           "Sub-patch switching never changes the insert chain structure");
     const auto baseOnly=patchInsertsWithSubPatch(state,channelPatch(state),{});
@@ -85,17 +87,29 @@ inline void subPatchChainVariants() {
     {
         auto broken=state.clone();
         auto& subs=array(require(require(broken,"channels",channel),"patches",patchId),"subPatches");
-        subs.getReference(0)["inserts"].getArray()->getReference(0)
-            .getDynamicObject()->setProperty("id","fx-9");
-        checkThrows([&]{validate(broken);},"A sub-patch chain with a different insert must be rejected");
+        auto& overrides=*subs.getReference(0)["overrides"].getArray();
+        put(overrides.getReference(0),"insertId","fx-9");
+        checkThrows([&]{validate(broken);},"A Sub-patch referencing a foreign insert is rejected");
     }
     {
         auto broken=state.clone();
         auto& subs=array(require(require(broken,"channels",channel),"patches",patchId),"subPatches");
-        const auto hash=subs.getReference(0)["inserts"][0]["state"].toString();
-        check(broken["patchStates"].isObject(),"Patch state store exists");
+        // Legacy full-state Sub-patches must remain readable after migration,
+        // including their own opaque state: pruning must not delete those blobs.
+        auto& legacySub=subs.getReference(0);
+        legacySub.getDynamicObject()->removeProperty("overrides");
+        put(legacySub,"inserts",encodeLivePatchInserts(broken,variant));
+        validate(broken);
+        const auto legacyEffective=patchInsertsWithSubPatch(broken,
+            find(find(broken,"channels",channel),"patches",patchId),legacySub);
+        check(legacyEffective[0].component_state==variant[0].component_state,
+              "Old full-state Sub-patch round-trips without losing its preset");
+        const auto hash=legacySub["inserts"][0]["state"].toString();
+        prunePatchStates(broken);
+        check(broken["patchStates"][juce::Identifier(hash)].isObject(),
+              "Pruning retains the legacy Sub-patch opaque VST3 state");
         broken["patchStates"].getDynamicObject()->removeProperty(juce::Identifier(hash));
-        checkThrows([&]{validate(broken);},"A sub-patch with missing opaque state must be rejected");
+        checkThrows([&]{validate(broken);},"Legacy Sub-patch with missing opaque state is rejected");
     }
     {
         auto duplicate=state.clone();
@@ -103,9 +117,39 @@ inline void subPatchChainVariants() {
         auto other=object();
         put(other,"id","sub-solo");
         put(other,"name","Rhythm");
-        put(other,"inserts",subs.getReference(0)["inserts"].clone());
+        put(other,"overrides",subs.getReference(0)["overrides"].clone());
         subs.add(other);
         checkThrows([&]{validate(duplicate);},"Duplicate sub-patch names must be rejected");
+    }
+    {
+        // Updating a shared Patch preserves its library identity and referenced
+        // block IDs; Undo may restore the previous value from one transaction.
+        auto edited=state.clone();
+        auto replacement=baseInserts;
+        replacement[0].component_state={std::byte{4},std::byte{5}};
+        replacement[0].parameters[0].value=.3f;
+        replaceCapturedPatch(edited,channel,patchId,replacement);
+        const auto changedPatch=find(find(edited,"channels",channel),"patches",patchId);
+        check(changedPatch["id"].toString()==patchId &&
+              decodeLivePatchInserts(edited,changedPatch)[0].component_state==replacement[0].component_state &&
+              find(changedPatch,"subPatches","sub-rhythm").isObject(),
+              "Update Patch keeps ID, Sub-patches and stores captured full VST3 state");
+        auto changed=baseInserts;
+        changed[0].parameters[0].value=.7f;
+        replaceCapturedSubPatch(edited,channel,patchId,"sub-rhythm",changed);
+        const auto changedSub=find(find(find(edited,"channels",channel),"patches",patchId),"subPatches","sub-rhythm");
+        check(changedSub["id"].toString()=="sub-rhythm"&&changedSub["inserts"].isVoid() &&
+              changedSub["overrides"].isArray()&&changedSub["overrides"].size()==1,
+              "Update Sub-patch keeps ID and captures parameter deltas only");
+        validate(edited);
+        checkThrows([&]{replaceCapturedSubPatch(edited,channel,patchId,"sub-rhythm",changed);},
+                    "Repeated unchanged Sub-patch Update is rejected");
+        auto invalid=baseInserts;
+        invalid[0].id=mrs::Id{"changed-identity"};
+        checkThrows([&]{replaceCapturedSubPatch(edited,channel,patchId,"sub-rhythm",invalid);},
+                    "Update Sub-patch refuses changed plugin identity");
+        check(find(find(state,"channels",channel),"patches",patchId)["inserts"].isArray(),
+              "Update operations leave the previous snapshot intact for Undo");
     }
     {
         auto legacy=state.clone();
