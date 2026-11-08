@@ -32,9 +32,14 @@ foreach($native in @('ace-midi.exe','ace-midi-avx2.exe','ace-midi-NOTICES.txt'))
  if($manifest.application -ne 'MR Live' -and !$names.Contains($native)){throw "Native MIDI runtime missing: $native"}
  if($manifest.application -eq 'MR Live' -and $names.Contains($native)){throw "Studio-only MIDI runtime in Live: $native"}
 }
-$liveExeName="MR Live $($versions.live).exe"
+$liveExeName='MR Live.exe'
+# The version is in the extracted folder and all release metadata, not in the
+# executable basename: vendor VST3 GUIs may depend on stable host identity.
+if($manifest.application -eq 'MR Live' -and (Split-Path -Leaf $root) -ne "MR Live $($versions.live)"){
+ throw 'Live runtime directory version mismatch'
+}
 [string[]]$applications=if($manifest.application -eq 'MR Live'){@($liveExeName)}elseif($manifest.application -eq 'MR Studio'){@('Moon River Studio JUCE.exe')}else{@('Moon River Studio JUCE.exe',$liveExeName)}
-if($manifest.application -eq 'MR Studio' -and ($names.Contains('MR Live.exe') -or $names.Contains($liveExeName))){throw 'Live executable forbidden in Studio-only package'}
+if($manifest.application -eq 'MR Studio' -and $names.Contains($liveExeName)){throw 'Live executable forbidden in Studio-only package'}
 if($manifest.application -eq 'MR Live' -and $names.Contains('Moon River Studio JUCE.exe')){throw 'Studio executable is not part of a Live-only package'}
 foreach($required in ($applications + @('mrs_vst3_scan.exe','mrs_crash_reporter.exe','ASIO-SDK-LICENSE.txt','JUCE-LICENSE.md','CI-TEST-RESULT.txt','Signalsmith-Stretch-LICENSE.txt','Signalsmith-Linear-LICENSE.txt'))){if(!$names.Contains($required)){throw "Required package entry missing: $required"}}
 $araFiles=@('mrs_ara_scan.exe','ARA-API-LICENSE.txt','ARA-Library-LICENSE.txt')
