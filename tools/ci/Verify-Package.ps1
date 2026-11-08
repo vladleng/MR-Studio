@@ -32,8 +32,9 @@ foreach($native in @('ace-midi.exe','ace-midi-avx2.exe','ace-midi-NOTICES.txt'))
  if($manifest.application -ne 'MR Live' -and !$names.Contains($native)){throw "Native MIDI runtime missing: $native"}
  if($manifest.application -eq 'MR Live' -and $names.Contains($native)){throw "Studio-only MIDI runtime in Live: $native"}
 }
-[string[]]$applications=if($manifest.application -eq 'MR Live'){@('MR Live.exe')}elseif($manifest.application -eq 'MR Studio'){@('Moon River Studio JUCE.exe')}else{@('Moon River Studio JUCE.exe','MR Live.exe')}
-if($manifest.application -eq 'MR Studio' -and $names.Contains('MR Live.exe')){throw 'Live executable forbidden in Studio-only package'}
+$liveExeName="MR Live $($versions.live).exe"
+[string[]]$applications=if($manifest.application -eq 'MR Live'){@($liveExeName)}elseif($manifest.application -eq 'MR Studio'){@('Moon River Studio JUCE.exe')}else{@('Moon River Studio JUCE.exe',$liveExeName)}
+if($manifest.application -eq 'MR Studio' -and ($names.Contains('MR Live.exe') -or $names.Contains($liveExeName))){throw 'Live executable forbidden in Studio-only package'}
 if($manifest.application -eq 'MR Live' -and $names.Contains('Moon River Studio JUCE.exe')){throw 'Studio executable is not part of a Live-only package'}
 foreach($required in ($applications + @('mrs_vst3_scan.exe','mrs_crash_reporter.exe','ASIO-SDK-LICENSE.txt','JUCE-LICENSE.md','CI-TEST-RESULT.txt','Signalsmith-Stretch-LICENSE.txt','Signalsmith-Linear-LICENSE.txt'))){if(!$names.Contains($required)){throw "Required package entry missing: $required"}}
 $araFiles=@('mrs_ara_scan.exe','ARA-API-LICENSE.txt','ARA-Library-LICENSE.txt')
@@ -42,7 +43,7 @@ foreach($name in $araFiles){
  if(!$manifest.ara -and $names.Contains($name)){throw "ARA content forbidden in ARA-free package: $name"}
 }
 foreach($application in $applications){
- $expectedPe=if($application -eq 'MR Live.exe'){($versions.live -split '-')[0]}else{($versions.studio -split '-')[0]}
+ $expectedPe=if($application -eq $liveExeName){($versions.live -split '-')[0]}else{($versions.studio -split '-')[0]}
  if((Get-Item -LiteralPath (Join-Path $root $application)).VersionInfo.FileVersion -ne $expectedPe){throw "PE version mismatch: $application"}
 }
 [pscustomobject]@{source=$manifest.source;version=$manifest.version;files=$names.Count;tests=$manifest.tests;ara=$manifest.ara;run=$manifest.run;integrity='PASS'}
