@@ -73,6 +73,11 @@ inline void patchBlockAuthoring() {
           std::abs(blockLength(subCut.spans["a"]["subs"]["s"])-1.)<1.e-9 &&
           std::abs(blockStart(subCut.spans["a"]["subs"][juce::Identifier(subCut.rightId)])-2.)<1.e-9,
           "Sub-patch Scissors preserve two independently editable strips of one library variant");
+    const auto movedSubFragment=editedSubPatchSpan(subCut.spans,"a",subCut.rightId,2.5,1.,true);
+    check(subPatchLibraryId(subCut.rightId,
+              movedSubFragment["a"]["subs"][juce::Identifier(subCut.rightId)])=="s" &&
+          std::abs(blockStart(movedSubFragment["a"]["subs"][juce::Identifier(subCut.rightId)])-2.5)<1.e-9,
+          "Moving a split Sub-patch fragment preserves its library ID");
 
     auto state=empty();
     const auto channel=addChannel(state,"Player","Guitar");
