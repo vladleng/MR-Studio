@@ -154,29 +154,41 @@ if (!$NoDeploy -and (Test-Path -LiteralPath $builtExe)) {
     & robocopy $artefacts $DeployPath /MIR /NFL /NDL /NJH /NJS /NP /XF *.pdb | Out-Null
     $robocopyExit = $LASTEXITCODE
     if ($robocopyExit -ge 8) { throw "Deploy to $DeployPath failed (robocopy exit $robocopyExit)" }
+    # Debug symbols stay in the build tree; the launch folder only needs the runtime.
+    Get-ChildItem -LiteralPath $DeployPath -Filter *.pdb -File -ErrorAction SilentlyContinue | Remove-Item -Force
     $launchExe = Join-Path $DeployPath 'Moon River Studio JUCE.exe'
     Write-Host "Deployed runtime: $DeployPath"
 } elseif (!$NoDeploy) {
     Write-Host 'Studio executable not found after build; deployment skipped.'
 }
 
-if (!$NoShortcut -and (Test-Path -LiteralPath $launchExe)) {
-    $shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) "$ShortcutName.lnk"
-    $version = (Get-Item -LiteralPath $launchExe).VersionInfo.ProductVersion
-    $shell = New-Object -ComObject WScript.Shell
-    try {
-        $shortcut = $shell.CreateShortcut($shortcutPath)
-        $shortcut.TargetPath = $launchExe
-        $shortcut.WorkingDirectory = Split-Path -Parent $launchExe
-        $shortcut.IconLocation = "$launchExe,0"
-        $shortcut.Description = if ($version) { "MR Studio $version (local build)" } else { 'MR Studio (local build)' }
-        $shortcut.Save()
+if (!$NoShortcut) {
+    # Both products are deployed together; each shortcut follows its own executable so that a
+    # Studio-only build never repoints the MR Live shortcut to a stale copy.
+    $launchRoot = if (!$NoDeploy) { $DeployPath } else { Split-Path -Parent $launchExe }
+    $shortcuts = @(
+        @{ Exe = (Join-Path $launchRoot 'Moon River Studio JUCE.exe'); Name = $ShortcutName; Label = 'MR Studio' },
+        @{ Exe = (Join-Path $launchRoot 'MR Live.exe'); Name = 'MR Live'; Label = 'MR Live' }
+    )
+    foreach ($entry in $shortcuts) {
+        if (!(Test-Path -LiteralPath $entry.Exe)) {
+            Write-Host ("Executable not found for {0} shortcut: {1}" -f $entry.Label, $entry.Exe)
+            continue
+        }
+        $shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) ("{0}.lnk" -f $entry.Name)
+        $version = (Get-Item -LiteralPath $entry.Exe).VersionInfo.ProductVersion
+        $shell = New-Object -ComObject WScript.Shell
+        try {
+            $shortcut = $shell.CreateShortcut($shortcutPath)
+            $shortcut.TargetPath = $entry.Exe
+            $shortcut.WorkingDirectory = Split-Path -Parent $entry.Exe
+            $shortcut.IconLocation = "$($entry.Exe),0"
+            $shortcut.Description = if ($version) { "{0} {1} (local build)" -f $entry.Label, $version } else { "{0} (local build)" -f $entry.Label }
+            $shortcut.Save()
+        }
+        finally {
+            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+        }
+        Write-Host ("Desktop shortcut updated: {0} -> {1}" -f $shortcutPath, $entry.Exe)
     }
-    finally {
-        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
-    }
-    Write-Host "Desktop shortcut updated: $shortcutPath -> $launchExe"
-}
-elseif (!$NoShortcut) {
-    Write-Host 'Studio executable not found after build; desktop shortcut left unchanged.'
 }
