@@ -1237,6 +1237,8 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         ["spans"][juce::Identifier(secondPatch)];
     liveCheck(secondSpan.isObject() && std::abs(live::blockLength(secondSpan)-5.)<1.e-9,
               "#374 Patch replacement targets clicked Item instead of show.currentItem");
+    liveCheck(editing.liveDocument->interfaceState["channels"].getArray()==channelBankBefore,
+              "#374 Local create/resize/replace preserve VST3 channel-bank identity");
     editing.saveFile(file);
     const auto reopenedInactive=LiveDocument::read(file);
     file.deleteFile();
@@ -1253,7 +1255,6 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
               "#374 One Undo restores the deleted block on the inactive Item");
     liveCheck(editing.liveDocument->interfaceState["currentItem"].toString()==activeBeforePatch &&
               editing.liveCurrentEntry==activeEntryBefore && editing.app.engine()==engineBeforePatch &&
-              editing.liveDocument->interfaceState["channels"].getArray()==channelBankBefore &&
               editing.liveLocalPatchApplications==localBeforePatch+5,
               "#374 Patch create/resize/replace/remove/Undo remains local, without transport or channel VST3 changes");
 }
