@@ -371,11 +371,10 @@ inline juce::String addChannelPatch(juce::var& state,juce::var& channel,
     bank.add(patch);
     return id;
 }
-// #289 B: a sub-patch is a full state snapshot of the SAME chain (structure,
-// order and plugin identity are identical to the base patch). Core treats the
-// opaque VST3 state as authoritative and does not expose individual VST3
-// parameters on capture, so comparing parameter lists alone cannot detect a
-// sound change; the state snapshot reliably does.
+// #289 B: a Sub-patch stores *only* VST3 parameter overrides keyed by
+// captured insert ID and real VST3 parameter ID. Plugin state/chain belong to
+// the shared base Patch. Older (0.9.2) Sub-patches holding "inserts" remain
+// readable until explicitly updated, without silently discarding vendor state.
 inline bool sameInsertStructure(const std::vector<mrs::NativeInsert>& left,
                                 const std::vector<mrs::NativeInsert>& right) {
     if(left.size()!=right.size())
@@ -386,28 +385,73 @@ inline bool sameInsertStructure(const std::vector<mrs::NativeInsert>& left,
             return false;
     return true;
 }
-
 inline std::vector<mrs::NativeInsert> patchInsertsWithSubPatch(
     const juce::var& state,const juce::var& patch,const juce::var& subPatch) {
-    if(subPatch.isVoid())
-        return decodeLivePatchInserts(state,patch);
-    if(!subPatch.isObject()||!subPatch["inserts"].isArray())
-        throw std::runtime_error("Invalid channel sub-patch");
-    auto inserts=decodeLivePatchInserts(state,subPatch);
-    if(!sameInsertStructure(decodeLivePatchInserts(state,patch),inserts))
+    auto inserts=decodeLivePatchInserts(state,patch);
+    if(subPatch.isVoid())return inserts;
+    if(!subPatch.isObject())throw std::runtime_error("Invalid channel sub-patch");
+    if(const auto* overrides=subPatch["overrides"].getArray()) {
+        for(const auto& overrideValue:*overrides) {
+            const auto insertId=overrideValue["insertId"].toString().toStdString();
+            const auto parameterId=static_cast<std::uint32_t>(static_cast<juce::int64>(overrideValue["parameterId"]));
+            const float value=static_cast<float>(static_cast<double>(overrideValue["value"]));
+            auto at=std::find_if(inserts.begin(),inserts.end(),[&](const auto& fx){
+                return fx.id.value==insertId && fx.kind==mrs::InsertKind::vst3;});
+            if(at==inserts.end())throw std::runtime_error("Sub-patch override references missing VST3 insert");
+            auto param=std::find_if(at->parameters.begin(),at->parameters.end(),[&](const auto& p){
+                return p.id==parameterId;});
+            if(param==at->parameters.end())at->parameters.push_back({parameterId,value});
+            else param->value=value;
+        }
+        return inserts;
+    }
+    // Backward-compatible legacy 0.9.2 opaque-state variant, retained only
+    // when loading existing shows. Never generate this format for a new Update.
+    if(!subPatch["inserts"].isArray())throw std::runtime_error("Invalid channel sub-patch");
+    auto legacy=decodeLivePatchInserts(state,subPatch);
+    if(!sameInsertStructure(inserts,legacy))
         throw std::runtime_error("Sub-patch chain differs from its base patch");
-    return inserts;
+    return legacy;
 }
-// Captures the live chain as a sub-patch only when the chain itself is the base
-// one and something actually changed.
-inline juce::var subPatchChain(juce::var& state,const std::vector<mrs::NativeInsert>& base,
+// Only explicit, normalized VST3 parameter differences are eligible.
+// Non-exposed preset changes require a separate full Patch, never an opaque
+// Sub-patch clone. Capture/validation happens on the control thread at Stop.
+inline juce::var subPatchChain(juce::var& /*state*/,const std::vector<mrs::NativeInsert>& base,
                                const std::vector<mrs::NativeInsert>& current) {
     if(!sameInsertStructure(base,current))
-        throw std::runtime_error("Apply the base patch before capturing a sub-patch");
-    if(base==current)
-        throw std::runtime_error("No changes to capture; adjust the FX and retry");
+        throw std::runtime_error("Sub-patch cannot change the plugin chain; create a new Patch");
+    juce::Array<juce::var> overrides;
+    for(std::size_t i=0;i<base.size();++i) {
+        const auto& original=base[i];
+        const auto& edited=current[i];
+        if(original.kind!=mrs::InsertKind::vst3) {
+            if(original!=edited)throw std::runtime_error("Sub-patch cannot modify non-VST3 inserts; create a new Patch");
+            continue;
+        }
+        if(original.bypass!=edited.bypass)
+            throw std::runtime_error("Sub-patch bypass changes require a separate Patch");
+        for(const auto& parameter:edited.parameters) {
+            const auto before=std::find_if(original.parameters.begin(),original.parameters.end(),
+                [&](const auto& p){return p.id==parameter.id;});
+            if(before==original.parameters.end())
+                throw std::runtime_error("Sub-patch parameter is not exposed in the base Patch");
+            if(std::abs(static_cast<double>(parameter.value)-static_cast<double>(before->value))<=1.e-6)
+                continue;
+            if(!std::isfinite(parameter.value)||parameter.value<0.f||parameter.value>1.f)
+                throw std::runtime_error("Sub-patch parameter value is outside normalized VST3 range");
+            auto overrideValue=object();
+            put(overrideValue,"insertId",juce::String::fromUTF8(edited.id.value.c_str()));
+            put(overrideValue,"parameterId",static_cast<juce::int64>(parameter.id));
+            put(overrideValue,"value",static_cast<double>(parameter.value));
+            overrides.add(overrideValue);
+        }
+    }
+    if(overrides.isEmpty())
+        throw std::runtime_error("No exposed VST3 parameter changes; use a separate Patch for preset/state changes");
+    if(overrides.size()>maximumSubPatchOverrides)
+        throw std::runtime_error("Sub-patch parameter override limit reached");
     auto result=object();
-    put(result,"inserts",encodeLivePatchInserts(state,current));
+    put(result,"overrides",overrides);
     return result;
 }
 } // namespace ui::live
