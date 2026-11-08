@@ -1273,8 +1273,8 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         live::put(live::map(onDisk.interfaceState,"patchStates"),
                   juce::Identifier("0123456789abcdef0123456789abcdef"),stateBlob);
         onDisk.write(target);
-        const auto reopened=LiveDocument::read(target);
-        liveCheck(reopened.interfaceState["patchStates"]
+        const auto overwrittenShow=LiveDocument::read(target);
+        liveCheck(overwrittenShow.interfaceState["patchStates"]
                       [juce::Identifier("0123456789abcdef0123456789abcdef")]
                       ["component"].toString().length()==1048576,
                   "#374 Save replaces existing show and keeps large VST3 state");
