@@ -242,6 +242,101 @@ inline juce::var blockSpan(double start,double length) {
     put(span,"length",juce::jmax(.25,length));
     return span;
 }
+// Authored timeline blocks have their own IDs. Older shows used the
+// library Patch/Sub-patch ID as the span key; that remains valid. Scissors
+// allocate a NEW block key while retaining a reference to the same library
+// sound, without copying any opaque VST3 state.
+inline juce::String patchLibraryId(const juce::String& blockId,const juce::var& span) {
+    const auto id=span["patchId"].toString();
+    return id.isNotEmpty()?id:blockId;
+}
+inline juce::String subPatchLibraryId(const juce::String& blockId,const juce::var& span) {
+    const auto id=span["subPatchId"].toString();
+    return id.isNotEmpty()?id:blockId;
+}
+struct PatchBlockSplit {
+    juce::var spans,order;
+    juce::String rightId;
+};
+inline PatchBlockSplit splitPatchBlock(const juce::var& spans,const juce::var& order,
+                                       const juce::String& blockId,double cutBar) {
+    const auto original=spans[juce::Identifier(blockId)];
+    if(!original.isObject() || !order.isArray())
+        throw std::runtime_error("Cannot split missing Patch block");
+    const double start=blockStart(original),length=blockLength(original),end=start+length;
+    if(!std::isfinite(cutBar) || cutBar-start<.25-1.e-7 || end-cutBar<.25-1.e-7)
+        throw std::runtime_error("Cut must leave at least one quarter-bar on each side");
+    auto result=spans.clone();
+    auto newOrder=order.clone();
+    auto* ids=newOrder.getArray();
+    int at=-1;
+    for(int i=0;i<ids->size();++i)
+        if((*ids)[i].toString()==blockId){at=i;break;}
+    if(at<0)throw std::runtime_error("Patch block order no longer matches geometry");
+    auto left=original.clone(),right=original.clone();
+    put(left,"length",cutBar-start);
+    put(right,"start",cutBar);
+    put(right,"length",end-cutBar);
+    put(right,"patchId",patchLibraryId(blockId,original));
+    if(const auto* children=original["subs"].getDynamicObject()) {
+        auto leftSubs=object(),rightSubs=object();
+        const double splitOffset=cutBar-start;
+        for(const auto& pair:children->getProperties()) {
+            if(!pair.value.isObject())continue;
+            auto subLeft=pair.value.clone(),subRight=pair.value.clone();
+            const double subStart=blockStart(pair.value);
+            const double subEnd=subStart+blockLength(pair.value);
+            if(subStart<splitOffset-1.e-7) {
+                if(subEnd>splitOffset+1.e-7)
+                    put(subLeft,"length",splitOffset-subStart);
+                put(leftSubs,pair.name,subLeft);
+            }
+            if(subEnd>splitOffset+1.e-7) {
+                put(subRight,"start",juce::jmax(0.,subStart-splitOffset));
+                if(subStart<splitOffset-1.e-7)
+                    put(subRight,"length",subEnd-splitOffset);
+                put(rightSubs,pair.name,subRight);
+            }
+            if((subStart<splitOffset-1.e-7 && subEnd>splitOffset+1.e-7) &&
+               ((splitOffset-subStart)<.25-1.e-7 || (subEnd-splitOffset)<.25-1.e-7))
+                throw std::runtime_error("Move scissors outside the last quarter-bar of a Sub-patch");
+        }
+        put(left,"subs",leftSubs);put(right,"subs",rightSubs);
+    }
+    const auto rightId=freshId();
+    put(result,juce::Identifier(blockId),left);
+    put(result,juce::Identifier(rightId),right);
+    ids->insert(at+1,rightId);
+    return {result,newOrder,rightId};
+}
+struct SubPatchBlockSplit {
+    juce::var spans;
+    juce::String rightId;
+};
+inline SubPatchBlockSplit splitSubPatchBlock(const juce::var& spans,const juce::String& patchBlockId,
+                                             const juce::String& subBlockId,double cutOffset) {
+    const auto span=spans[juce::Identifier(patchBlockId)];
+    const auto original=span["subs"][juce::Identifier(subBlockId)];
+    if(!span.isObject()||!original.isObject())
+        throw std::runtime_error("Cannot split missing Sub-patch strip");
+    const double start=blockStart(original),end=start+blockLength(original);
+    if(!std::isfinite(cutOffset)||cutOffset-start<.25-1.e-7||end-cutOffset<.25-1.e-7)
+        throw std::runtime_error("Cut must leave at least one quarter-bar on each side");
+    auto result=spans.clone();
+    auto parent=result[juce::Identifier(patchBlockId)];
+    auto subs=parent["subs"].clone();
+    auto left=original.clone(),right=original.clone();
+    put(left,"length",cutOffset-start);
+    put(right,"start",cutOffset);
+    put(right,"length",end-cutOffset);
+    put(right,"subPatchId",subPatchLibraryId(subBlockId,original));
+    const auto rightId=freshId();
+    put(subs,juce::Identifier(subBlockId),left);
+    put(subs,juce::Identifier(rightId),right);
+    put(parent,"subs",subs);
+    put(result,juce::Identifier(patchBlockId),parent);
+    return {result,rightId};
+}
 inline std::vector<std::pair<juce::String,juce::var>> orderedSpans(const juce::var& spans) {
     std::vector<std::pair<juce::String,juce::var>> rows;
     if(const auto* values=spans.getDynamicObject())
