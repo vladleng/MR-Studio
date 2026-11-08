@@ -435,6 +435,79 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         const auto index=(y-lanesTop)/rowHeight;
         return ChannelDrop{lane->channel,after,lanesTop+(index+(after?1:0))*rowHeight};
     }
+    // Patch bank commands belong to the track header's right-click menu, not
+    // the FX / VSTi insert menu. This uses the existing channel-owned model.
+    void handleTrackPatchAction(const juce::String& channelId,const juce::var& patches,
+                                const juce::String& itemId,int action) {
+        if(!owner.liveDocument)return;
+        const auto channel=live::find(owner.liveDocument->interfaceState,"channels",channelId);
+        if(!channel.isObject() || channel["type"].toString()=="Playback")return;
+        const bool stopped=!owner.app.recording() &&
+            owner.displayState().playback!=mrs::PlaybackState::playing;
+        const auto patchAt=[&](int index)->juce::var {
+            const auto* bank=patches.getArray();
+            return bank && index>=0 && index<bank->size()?(*bank)[index]:juce::var{};
+        };
+        juce::Component::SafePointer<Desktop> safe(&owner);
+        if(action==7000) {
+            if(!stopped || !channel["liveInput"].isObject())return;
+            safe->textDialog("Patch name","Live patch",[safe,channelId](juce::String name){
+                if(safe && name.trim().isNotEmpty())
+                    safe->run([&]{safe->captureLiveChannelPatch(channelId,name.trim(),"blue");});
+            });
+            return;
+        }
+        if(action>=20000&&action<30000) {
+            const auto patch=patchAt((action-20000)/64);
+            const int slot=(action-20000)%64;
+            if(!stopped || !patch.isObject() || live::legacyPatch(patch))return;
+            const auto patchId=patch["id"].toString();
+            if(slot==0)owner.applyLiveChannelSubPatch(channelId,patchId,{});
+            else if(const auto* subs=patch["subPatches"].getArray()) {
+                if(slot-1<subs->size())
+                    owner.applyLiveChannelSubPatch(channelId,patchId,
+                        (*subs)[slot-1]["id"].toString());
+            }
+            return;
+        }
+        if(action>=30000&&action<31000) {
+            const auto patch=patchAt(action-30000);
+            if(!stopped || !patch.isObject() || live::legacyPatch(patch))return;
+            const auto patchId=patch["id"].toString();
+            safe->textDialog("Sub-patch name","Rhythm",
+                [safe,channelId,patchId](juce::String name){
+                    if(safe && name.trim().isNotEmpty())
+                        safe->run([&]{safe->captureLiveChannelSubPatch(channelId,patchId,name.trim(),"violet");});
+                });
+            return;
+        }
+        if(action>=6000&&action<7000) {
+            const int index=(action-6000)/8,colour=(action-6000)%8;
+            const auto patch=patchAt(index);
+            if(patch.isObject()&&colour<static_cast<int>(live::patchColours.size()))
+                owner.setLiveChannelPatchColour(channelId,patch["id"].toString(),
+                    juce::String(live::patchColours[static_cast<std::size_t>(colour)]));
+            return;
+        }
+        if(action<5000 || action>=6000)return;
+        const int index=(action-5000)/8,operation=(action-5000)%8;
+        const auto patch=patchAt(index);
+        if(!patch.isObject())return;
+        const auto patchId=patch["id"].toString();
+        if(operation==0) {
+            if(stopped && !live::legacyPatch(patch))owner.applyLiveChannelPatch(channelId,patchId);
+        } else if(operation==1)owner.assignLiveItemPatch(channelId,patchId);
+        else if(operation==2 && itemId.isNotEmpty())owner.assignLiveItemPatch(channelId,{});
+        else if(operation==3) {
+            safe->textDialog("Patch name",patch["name"].toString(),
+                [safe,channelId,patchId](juce::String name){
+                    if(safe && name.trim().isNotEmpty())
+                        safe->run([&]{safe->renameLiveChannelPatch(channelId,patchId,name.trim());});
+                });
+        } else if(operation==4)owner.deleteLiveChannelPatch(channelId,patchId);
+        else if(operation==5 && !live::legacyPatch(patch))owner.addLivePatchBlock(channelId,patchId);
+        else if(operation==6 && !live::legacyPatch(patch))owner.removeLivePatchBlock(channelId,patchId);
+    }
     void channelMenu(const juce::String &id) {
         juce::PopupMenu menu;
         menu.setLookAndFeel(&getLookAndFeel());
@@ -452,38 +525,104 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     used=used || channel["playbackParent"].toString()==id;
             menu.addItem(11, "Remove empty channel", !used);
         }
+        const auto channel=live::find(state,"channels",id);
+        const auto patches=channel["patches"]; // no deep copy of VST3 state on menu open
+        const auto currentItem=state["currentItem"].toString();
+        if(channel.isObject() && channel["type"].toString()!="Playback") {
+            const auto track=live::channelItemTrack(state,currentItem,id);
+            const auto defaultPatch=track["patchId"].toString();
+            const auto currentSub=track["subPatchId"].toString();
+            const bool stopped=!owner.app.recording() &&
+                owner.displayState().playback!=mrs::PlaybackState::playing;
+            const bool canApply=stopped && owner.liveInputTrack(id).has_value() &&
+                channel["liveInput"].isObject();
+            juce::PopupMenu bankMenu;
+            if(const auto* bank=patches.getArray())
+                for(int i=0;i<bank->size();++i) {
+                    const auto patch=(*bank)[i];
+                    const auto patchId=patch["id"].toString();
+                    const bool legacy=live::legacyPatch(patch);
+                    juce::PopupMenu entry;
+                    entry.addItem(5000+i*8,"Apply now",canApply&&!legacy,defaultPatch==patchId);
+                    juce::PopupMenu subs;
+                    subs.addItem(20000+i*64,"Base",canApply&&!legacy,
+                                 defaultPatch==patchId&&currentSub.isEmpty());
+                    if(const auto* list=patch["subPatches"].getArray())
+                        for(int j=0;j<list->size()&&j<31;++j) {
+                            const auto sub=(*list)[j];
+                            subs.addItem(20000+i*64+j+1,sub["name"].toString(),canApply&&!legacy,
+                                         defaultPatch==patchId&&currentSub==sub["id"].toString());
+                        }
+                    entry.addSubMenu("Sub-patches",subs);
+                    if(!legacy)entry.addItem(30000+i,"Capture current as sub-patch…",canApply);
+                    entry.addItem(5005+i*8,"Add block to current item",!legacy);
+                    entry.addItem(5006+i*8,"Remove block from current item",!legacy);
+                    entry.addItem(5001+i*8,"Set as item default",true,defaultPatch==patchId);
+                    if(defaultPatch==patchId)entry.addItem(5002+i*8,"Clear item default");
+                    entry.addItem(5003+i*8,"Rename…");
+                    juce::PopupMenu colours;
+                    for(int c=0;c<static_cast<int>(live::patchColours.size());++c) {
+                        const auto colour=juce::String(live::patchColours[static_cast<std::size_t>(c)]);
+                        colours.addItem(6000+i*8+c,
+                            colour.substring(0,1).toUpperCase()+colour.substring(1),true,
+                            patch["color"].toString()==colour);
+                    }
+                    entry.addSubMenu("Colour",colours);
+                    entry.addItem(5004+i*8,"Delete…");
+                    bankMenu.addSubMenu(patch["name"].toString()+(legacy?" (legacy)":""),entry);
+                }
+            if(bankMenu.getNumItems()>0)bankMenu.addSeparator();
+            bankMenu.addItem(7000,"Capture current chain as patch…",canApply);
+            menu.addSeparator();
+            menu.addSubMenu("Patches",bankMenu);
+        }
+        const auto generation=owner.liveDocumentGeneration;
+        const auto mutation=owner.liveEdits.mutation;
         juce::Component::SafePointer<Desktop> safe(&owner);
-        menu.showMenuAsync(liveMenuOptions(*this), [safe, id, types](int result) {
-            if (!safe || !result) return;
+        juce::Component::SafePointer<LiveTimeline> self(this);
+        menu.showMenuAsync(liveMenuOptions(*this),[safe,self,id,types,patches,currentItem,generation,mutation](int result){
+            if(!safe || !result || !safe->liveDocument || safe->liveDocumentGeneration!=generation)return;
+            if(result>=5000) {
+                if(!self || safe->liveEdits.mutation!=mutation ||
+                   safe->liveDocument->interfaceState["currentItem"].toString()!=currentItem)return;
+                safe->run([&]{self->handleTrackPatchAction(id,patches,currentItem,result);});
+                return;
+            }
             if (result == 10) {
                 const auto channel = live::find(safe->liveDocument->interfaceState, "channels", id);
                 safe->textDialog("Channel name", channel["name"].toString(), [safe, id](auto name) {
                     if (safe && name.trim().isNotEmpty()) safe->run([&] { safe->renameLiveObject("channels",id,name); });
                 }); return;
             }
-            safe->run([&] { juce::String added;
-                safe->editLiveInterface(result == 11 ? "Remove channel" : "Add channel", [&](auto &state) {
-                if (result >= 1 && result <= types.size()) {
-                    added=live::addChannel(state,types[result-1],types[result-1]);
-                    if(types[result-1]=="Playback")
-                        { auto created=live::find(state,"channels",added);
-                          live::put(created,"playbackIndependent",true); }
-                    return;
+            safe->run([&] {
+                juce::String added;
+                safe->editLiveInterface(result == 11 ? "Remove channel" : "Add channel", [&](auto &model) {
+                    if (result >= 1 && result <= types.size()) {
+                        added=live::addChannel(model,types[result-1],types[result-1]);
+                        if(types[result-1]=="Playback") {
+                            auto created=live::find(model,"channels",added);
+                            live::put(created,"playbackIndependent",true);
+                        }
+                        return;
+                    }
+                    if (result != 11) return;
+                    auto *channels = live::property(model, "channels").getArray();
+                    for (int i = channels->size(); --i >= 0;)
+                        if ((*channels)[i]["id"].toString() == id) channels->remove(i);
+                    if(model["performance"]["primaryPlaybackChannel"].toString()==id)
+                        live::performance(model).getDynamicObject()->removeProperty("primaryPlaybackChannel");
+                    for (auto &item : *live::property(model, "items").getArray())
+                        if (auto *tracks = live::property(item, "tracks").getArray())
+                            for (int i = tracks->size(); --i >= 0;)
+                                if ((*tracks)[i]["channelId"].toString() == id) tracks->remove(i);
+                });
+                if(added.isNotEmpty()) {
+                    const auto created=live::find(safe->liveDocument->interfaceState,"channels",added);
+                    if(created["type"].toString()=="Playback") {
+                        safe->livePlaybackSelectedChannel=added;
+                        safe->livePlaybackStem.clear();
+                    }
                 }
-                if (result != 11) return;
-                auto *channels = live::property(state, "channels").getArray();
-                for (int i = channels->size(); --i >= 0;) if ((*channels)[i]["id"].toString() == id) channels->remove(i);
-                // An empty primary Playback may be deleted. Clear its pin so
-                // the next existing Playback becomes the legacy fallback.
-                if(state["performance"]["primaryPlaybackChannel"].toString()==id)
-                    live::performance(state).getDynamicObject()->removeProperty("primaryPlaybackChannel");
-                for (auto &item : *live::property(state, "items").getArray()) if (auto *tracks = live::property(item, "tracks").getArray())
-                    for (int i = tracks->size(); --i >= 0;) if ((*tracks)[i]["channelId"].toString() == id) tracks->remove(i);
-            });
-            if(added.isNotEmpty() && types[result-1]=="Playback") {
-                safe->livePlaybackSelectedChannel=added;
-                safe->livePlaybackStem.clear();
-            }
             });
         });
     }
