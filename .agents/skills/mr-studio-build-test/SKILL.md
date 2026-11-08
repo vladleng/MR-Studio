@@ -24,7 +24,17 @@ Local toolchain baseline: Visual Studio 18 Community with bundled CMake/Ninja at
 ## Local build workflow
 
 1. Identify current branch/HEAD/dirty changes; actual Windows MSVC/JUCE/ASIO toolchain and paths; find repository script → CMake preset → documented command (in that order). See [command discovery](references/command-discovery.md) only as needed.
-2. **Choose target-scoped build explicitly.** In the current workspace `tools/Build-Local.ps1 -Step Build` is documented without a target and may build many unrelated projects, while `-Jobs` defaults to 2. Before invoking it, inspect whether the script accepts an explicit target. If not, derive the correct `cmake --build <existing-build-dir> --config Release --target <actual-target> --parallel <safe-jobs>` from the **current local** configuration; do not guess target names or silently increase jobs beyond machine resources. Select tests that exercise the change; reuse build tree when safe. Reconfigure/clean only if build files, SDK, toolchain, dependencies or stale cache demand it. [JUCE/Windows notes](references/windows-juce-validation.md) if toolchain problems occur.
+2. **Use the canonical local script, scoped to the change.** `tools/Build-Local.ps1` now owns the local toolchain: it reads SDK sources from `build/sdk/{juce,vst3,portaudio,ara}` and the licensed ASIO archive from `build/private-sdk/asio.zip`, configures VS 18 into `build/local-windows`, builds the ARA render fixture when ARA is enabled, and accepts these switches:
+   - `-Step Configure|Build|Test|All` (default `Build`), `-BuildDir <dir>` (default `build/local-windows`);
+   - `-Target <name>[,<name>]` — pass the real target; without it the whole tree is built, which is slow and can exhaust memory;
+   - `-Ara` default ON, `-NoAra` for a diagnostic Studio build; `-NoLive` for Studio-only work;
+   - `-Jobs <n>` (default 2) — prefer `-Jobs 1` when MSBuild child nodes die silently;
+   - `-PrepareSdk` downloads the pinned SDKs through `tools/ci/Prepare-Sdks.ps1` when they are missing;
+   - `-Step Test -TestRegex '^(core_|ara_)'` or `-Full` for the acceptance suite.
+
+   If the script cannot express what a task needs, derive `cmake --build <build-dir> --config Release --target <actual-target> --parallel <safe-jobs>` from the current local configuration; never guess target names or raise jobs beyond machine resources. Select tests that exercise the change; reuse the build tree when safe. Reconfigure or clean only when build files, SDK, toolchain, dependencies or a stale cache demand it. [JUCE/Windows notes](references/windows-juce-validation.md) if toolchain problems occur.
+
+   **Known machine limit:** parallel MSBuild on this PC can silently return exit code 1 with "0 errors" when the build exhausts memory. Rerun the same project with `-Jobs 1` before treating it as a code failure. A full cold configure+build of the JUCE GUI target takes roughly 25–40 minutes single-threaded; incremental target builds take seconds to a few minutes.
 3. Before executing any step, state scope (e.g. `L1b / changed app GUI target / one smoke`). For an L1 task, stop after one successful affected build and visual verification; do not continue into packaging, shortcuts or a release gate by default.
 4. On failure capture **first meaningful** configure/compiler/link/runtime error, fix root cause, rerun failing step and downstream invalidated tests; do not chase cascades, delete whole build trees reflexively or mutate unrelated code to make green.
 5. Check startup/editor lifetime and project Save/Open/Undo if affected. Audio device/recording/ASIO checks only when relevant; unavailable hardware → **NOT RUN**, never PASS. GUI software scaling is not proof of physical mixed-DPI focus/window behavior.
