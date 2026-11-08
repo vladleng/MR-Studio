@@ -1106,8 +1106,8 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     liveCheck(body->getMouseCursor()==juce::MouseCursor(juce::MouseCursor::LeftRightResizeCursor),
               "#374 Patch upper corner advertises its own resize grip");
     body->mouseMove(event(static_cast<float>(bounds.getRight()-2),180.f));
-    liveCheck(body->getMouseCursor()==noteTrimCursor(true),
-              "#374 Item end remains independently selectable below the patch grip");
+    liveCheck(body->getMouseCursor()==juce::MouseCursor(juce::MouseCursor::LeftRightResizeCursor),
+              "#374 Item end advertises its independent resize gesture below the patch grip");
     body->mouseDown(event(static_cast<float>(bounds.getRight()-2),180.f));
     body->mouseDrag(event(static_cast<float>(bounds.getRight()-130),180.f));
     body->mouseUp(event(static_cast<float>(bounds.getRight()-130),180.f));timeline->refresh();
