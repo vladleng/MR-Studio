@@ -1710,6 +1710,7 @@ void Desktop::addLivePatchBlock(const juce::String& requested,const juce::String
             if(candidate["channelId"].toString()==channel) { target=&candidate; break; }
         if(target==nullptr) {
             juce::var fresh=live::object();
+            live::put(fresh,"id",juce::Uuid().toString());
             live::put(fresh,"channelId",channel);
             tracks.add(fresh);
             target=&tracks.getReference(tracks.size()-1);
@@ -1821,6 +1822,21 @@ void Desktop::setLivePatchSpans(const juce::String& requested,const juce::String
                                 juce::var spans,const juce::String& label) {
     const auto channel=inputChannel(*this,requested);
     const auto itemId=liveDocument->interfaceState["currentItem"].toString();
+    const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
+    if(!track.isObject() || !track["spans"][juce::Identifier(patchId)].isObject())
+        throw std::runtime_error("Patch block is no longer on this item");
+    const auto trackId=track["id"].toString();
+    if(trackId.isNotEmpty()) {
+        // #31 local edit protocol: only the track's span geometry participates
+        // in Undo. Do not clone/revalidate an entire show with VST3 state at
+        // every patch drag release.
+        performLiveValuePatch(label,{"items",live::EditStep::id(itemId),
+                                    "tracks",live::EditStep::id(trackId),"spans"},
+                              spans,live::EditImpact::timeline);
+        return;
+    }
+    // Legacy imported tracks without a stable row ID keep their supported
+    // structural fallback until the next explicit migration.
     editLiveInterface(label,[&](auto& state){
         auto& item=live::require(state,"items",itemId);
         for(auto& track2:live::array(item,"tracks"))
@@ -1830,7 +1846,6 @@ void Desktop::setLivePatchSpans(const juce::String& requested,const juce::String
             }
         throw std::runtime_error("The current item has no track for this channel");
     },false,false);
-    (void)patchId;
 }
 void Desktop::applyLiveItemDefaultPatches() {
     // #289 A-Upd1: switching a song while stopped adopts that song's default
