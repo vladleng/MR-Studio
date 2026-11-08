@@ -30,7 +30,8 @@ Local toolchain baseline: Visual Studio 18 Community with bundled CMake/Ninja at
    - `-Ara` default ON, `-NoAra` for a diagnostic Studio build; `-NoLive` for Studio-only work;
    - `-Jobs <n>` (default 2) — prefer `-Jobs 1` when MSBuild child nodes die silently;
    - `-PrepareSdk` downloads the pinned SDKs through `tools/ci/Prepare-Sdks.ps1` when they are missing;
-   - `-Step Test -TestRegex '^(core_|ara_)'` or `-Full` for the acceptance suite.
+   - `-Step Test -TestRegex '^(core_|ara_)'` or `-Full` for the acceptance suite;
+   - after a successful `Build`/`All` the script refreshes the desktop shortcut `MR Studio.lnk` to the built exe (working directory = exe folder, icon = exe); `-NoShortcut` skips it, `-ShortcutName` renames it.
 
    If the script cannot express what a task needs, derive `cmake --build <build-dir> --config Release --target <actual-target> --parallel <safe-jobs>` from the current local configuration; never guess target names or raise jobs beyond machine resources. Select tests that exercise the change; reuse the build tree when safe. Reconfigure or clean only when build files, SDK, toolchain, dependencies or a stale cache demand it. [JUCE/Windows notes](references/windows-juce-validation.md) if toolchain problems occur.
 

@@ -10,7 +10,9 @@ param(
     [string[]]$Target,
     [switch]$NoAra,
     [switch]$NoLive,
-    [switch]$PrepareSdk
+    [switch]$PrepareSdk,
+    [switch]$NoShortcut,
+    [string]$ShortcutName = 'MR Studio'
 )
 
 # Local Windows build for MR Studio / MR Live.
@@ -135,3 +137,27 @@ $buildArgs = @('--build', $buildRoot, '--config', 'Release', '--parallel', "$Job
 if ($Target -and $Target.Count -gt 0) { $buildArgs += @('--target') + $Target }
 Write-Host ("Building {0} with {1} parallel job(s)..." -f $(if ($Target) { "target(s): $($Target -join ', ')" } else { 'all targets' }), $Jobs)
 Invoke-Checked $cmakeExe $buildArgs
+
+# --- Desktop shortcut to the freshly built Studio executable ---
+if (!$NoShortcut) {
+    $studioExe = Join-Path $buildRoot 'MoonRiverStudioJuce_artefacts/Release/Moon River Studio JUCE.exe'
+    if (Test-Path -LiteralPath $studioExe) {
+        $shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) "$ShortcutName.lnk"
+        $version = (Get-Item -LiteralPath $studioExe).VersionInfo.ProductVersion
+        $shell = New-Object -ComObject WScript.Shell
+        try {
+            $shortcut = $shell.CreateShortcut($shortcutPath)
+            $shortcut.TargetPath = $studioExe
+            $shortcut.WorkingDirectory = Split-Path -Parent $studioExe
+            $shortcut.IconLocation = "$studioExe,0"
+            $shortcut.Description = if ($version) { "MR Studio $version (local build)" } else { 'MR Studio (local build)' }
+            $shortcut.Save()
+        }
+        finally {
+            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+        }
+        Write-Host "Desktop shortcut updated: $shortcutPath -> $studioExe"
+    } else {
+        Write-Host 'Studio executable not found after build; desktop shortcut left unchanged.'
+    }
+}
