@@ -157,8 +157,12 @@ void Desktop::showProjectHome(bool visible){if(!home||(standaloneLive&&visible))
 void Desktop::saveSettings(){if(testing)return;
     prefs.workspace=app.workspace();view.sidebar=sidebar;view.browserWidth=browserWidth;view.snap=snap;
     if(arrangement){view.trackHeight=arrangement->trackHeight;view.pixelsPerSecond=arrangement->pixelsPerSecond;}
-    publishSettings(juce::File(juce::String(prefsFile.wstring().c_str())),label(mrs::desktop::encode_preferences(prefs)));
-    publishSettings(juce::File(juce::String(viewFile.wstring().c_str())),view.encode());
+    // Preference persistence must never abort the action that triggered it: a protected or
+    // read-only Documents folder used to make project opening look broken.
+    try{
+        publishSettings(juce::File(juce::String(prefsFile.wstring().c_str())),label(mrs::desktop::encode_preferences(prefs)));
+        publishSettings(juce::File(juce::String(viewFile.wstring().c_str())),view.encode());
+    }catch(const std::exception& e){mrs::diagnostics::event(std::string("settings_write_failed ")+e.what());}
 }
 void Desktop::remember(){if(standaloneLive&&liveFile.existsAsFile())view.lastLiveShow=liveFile.getFullPathName();if(testing)return;mrs::desktop::remember_project(prefs,path(documentFile()));saveSettings();}
 void Desktop::reconnectDevice(bool session){if(testing||(!session&&!prefs.reconnect_audio)||prefs.device_name.empty())return;
