@@ -642,9 +642,12 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             juce::String itemId, channelId, patchId, subId;
             juce::var originSpans, previewSpans;
             int startX{}, rowTop{};
-            double originStart{}, originLength{};
+            double originStart{}, originLength{}, lastPreviewStart{}, lastPreviewLength{};
+            bool previewCalculated{};
         };
         PatchGesture patchGesture;
+        juce::String hoveredPatchId, hoveredSubId;
+        PatchGesture::Mode hoveredPatchMode{PatchGesture::Mode::none};
         // Popup menus are opened on mouse-up: showing them from mouse-down let the same click
         // dismiss the menu immediately, so right-click appeared to do nothing.
         bool popupPending{};
@@ -660,12 +663,21 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(patchGesture.mode==PatchGesture::Mode::none&&event.y>=lanesTop) {
                 PatchGesture hover;
                 if(patchHitTest(event.getPosition(),hover)) {
+                    if(hoveredPatchId!=hover.patchId || hoveredSubId!=hover.subId ||
+                       hoveredPatchMode!=hover.mode) {
+                        hoveredPatchId=hover.patchId;hoveredSubId=hover.subId;hoveredPatchMode=hover.mode;
+                        repaint();
+                    }
                     const bool edge=hover.mode==PatchGesture::Mode::left||hover.mode==PatchGesture::Mode::right||
                                     hover.mode==PatchGesture::Mode::subLeft||hover.mode==PatchGesture::Mode::subRight;
                     setMouseCursor(edge?juce::MouseCursor::LeftRightResizeCursor:juce::MouseCursor::DraggingHandCursor);
-                    setTooltip(edge?"Drag block edge":"Drag patch block");
+                    setTooltip(edge?"Drag upper corner to resize block":"Drag patch block");
                     return;
                 }
+            }
+            if(hoveredPatchMode!=PatchGesture::Mode::none) {
+                hoveredPatchId.clear();hoveredSubId.clear();hoveredPatchMode=PatchGesture::Mode::none;
+                repaint();
             }
             if(hoverClip(event)){repaint();return;}
             repaint();
@@ -719,8 +731,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 return;
             }
             if (beginClipEdit(event)) return;
-            if (beginEdit(event)) return;
+            // A patch/sub-patch block wins over the Item end/lead trim at the same X.
             if (beginPatchEdit(event)) return;
+            if (beginEdit(event)) return;
             if (!event.mods.isLeftButtonDown())
                 return;
             for (const auto &item : parent.items) {
@@ -803,12 +816,13 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                             if(!pair.value.isObject())continue;
                             const auto rect=parent.extent(item,pair.value,y+64,26,live::blockStart(span));
                             if(!rect.contains(position))continue;
-                            out.mode=position.x<=rect.getX()+5?PatchGesture::Mode::subLeft:
-                                     position.x>=rect.getRight()-5?PatchGesture::Mode::subRight:
+                            const bool upperGrip=position.y<rect.getY()+14;
+                            out.mode=upperGrip&&position.x<=rect.getX()+8?PatchGesture::Mode::subLeft:
+                                     upperGrip&&position.x>=rect.getRight()-8?PatchGesture::Mode::subRight:
                                      PatchGesture::Mode::subBody;
                             out.itemId=item.value["id"].toString();out.channelId=lane.channel;
                             out.patchId=patchId;out.subId=pair.name.toString();
-                            out.originSpans=track["spans"].clone();
+                            out.originSpans=track["spans"];
                             out.originStart=live::blockStart(pair.value);
                             out.originLength=live::blockLength(pair.value);
                             out.startX=position.x;out.rowTop=y;
@@ -816,12 +830,13 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                         }
                     const auto rect=parent.extent(item,span,y+10,rowHeight-20);
                     if(!rect.contains(position))continue;
-                    out.mode=position.x<=rect.getX()+5?PatchGesture::Mode::left:
-                             position.x>=rect.getRight()-5?PatchGesture::Mode::right:
+                    const bool upperGrip=position.y<rect.getY()+16;
+                    out.mode=upperGrip&&position.x<=rect.getX()+9?PatchGesture::Mode::left:
+                             upperGrip&&position.x>=rect.getRight()-9?PatchGesture::Mode::right:
                              PatchGesture::Mode::body;
                     out.itemId=item.value["id"].toString();out.channelId=lane.channel;
                     out.patchId=patchId;out.subId={};
-                    out.originSpans=track["spans"].clone();
+                    out.originSpans=track["spans"];
                     out.originStart=live::blockStart(span);
                     out.originLength=live::blockLength(span);
                     out.startX=position.x;out.rowTop=y;
@@ -834,7 +849,10 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(!event.mods.isLeftButtonDown())return false;
             PatchGesture hit;
             if(!patchHitTest(event.getPosition(),hit))return false;
-            patchGesture=hit;
+            // Only a real edit needs its own snapshot. Hover must not deep-copy
+            // patch spans (the old path did so on every pointer movement).
+            hit.originSpans=hit.originSpans.clone();
+            patchGesture=std::move(hit);
             repaint();
             return true;
         }
@@ -844,7 +862,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             const auto item=std::find_if(parent.items.begin(),parent.items.end(),
                 [&](const auto &candidate){return candidate.value["id"].toString()==g.itemId;});
             if(item==parent.items.end())return;
-            const double dx=(event.x-g.startX)/juce::jmax(1.e-9,item->scale);
+            const double dx=live::barSnap((event.x-g.startX)/juce::jmax(1.e-9,item->scale));
             double start=g.originStart,length=g.originLength;
             bool move=false,adjust=false;
             switch(g.mode) {
@@ -856,6 +874,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 case PatchGesture::Mode::subRight: length+=dx;break;
                 default: return;
             }
+            if(g.previewCalculated && start==g.lastPreviewStart && length==g.lastPreviewLength)
+                return; // One preview per grid step, not per mouse event.
+            g.previewCalculated=true;g.lastPreviewStart=start;g.lastPreviewLength=length;
             if(g.subId.isEmpty())
                 g.previewSpans=live::editedPatchSpans(g.originSpans,item->bars,g.patchId,start,length,adjust,move);
             else
@@ -865,12 +886,13 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         void finishPatchEdit() {
             if(patchGesture.mode==PatchGesture::Mode::none)return;
             const auto spans=patchGesture.previewSpans;
+            const bool changed=spans.isObject()&&!live::sameShowValue(spans,patchGesture.originSpans);
             const auto channelId=patchGesture.channelId,patchId=patchGesture.patchId;
             const bool sub=patchGesture.subId.isNotEmpty();
             const bool bodyMove=patchGesture.mode==PatchGesture::Mode::body||
                                 patchGesture.mode==PatchGesture::Mode::subBody;
             patchGesture={};
-            if(spans.isObject())
+            if(changed)
                 parent.owner.run([&]{
                     parent.owner.setLivePatchSpans(channelId,patchId,spans,
                         sub?(bodyMove?"Move sub-patch strip":"Resize sub-patch strip")
@@ -1163,7 +1185,10 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 if(action==5){auto row=live::object();safe->commitClips(live::defaultPlaybackRegions(row,safe->clipSourceBars,live::playbackSecondsPerBar(safe->parent.state,sourceItem)),"Restore Playback region");}
             });
         }
-        void mouseExit(const juce::MouseEvent&)override{guideY=-1;repaint();}
+        void mouseExit(const juce::MouseEvent&)override{
+            guideY=-1;hoveredPatchId.clear();hoveredSubId.clear();
+            hoveredPatchMode=PatchGesture::Mode::none;repaint();
+        }
         bool scissors{},clipEditing{};
         juce::String clipItem,clipStem,clipSelection;
         double clipSourceBars{};int clipEdge{},guideY{-1};float guideX{};
@@ -1861,11 +1886,21 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     continue;
                 const auto patchBounds = extent(item, span, y + 10, rowHeight - 20);
                 block(g, patchBounds, {}, patch["color"]);
-                // The 5 px edge zones were always editable but invisible; draw the same resize
-                // affordance the other accepted blocks use so blocks are obviously draggable.
-                g.setColour(juce::Colours::white.withAlpha(0.55f));
-                g.fillRect(patchBounds.getX(), patchBounds.getY() + 3, 4, patchBounds.getHeight() - 8);
-                g.fillRect(patchBounds.getRight() - 4, patchBounds.getY() + 3, 4, patchBounds.getHeight() - 8);
+                // Match Section/Chord grips: brackets appear only when the upper
+                // corner is hovered; Item trim must not steal these gestures.
+                if(body.hoveredPatchId==patchId.toString()&&body.hoveredSubId.isEmpty()) {
+                    const bool left=body.hoveredPatchMode==Body::PatchGesture::Mode::left;
+                    const bool right=body.hoveredPatchMode==Body::PatchGesture::Mode::right;
+                    if(left||right) {
+                        g.setColour(juce::Colours::white.withAlpha(.85f));
+                        const int edge=left?patchBounds.getX()+2:patchBounds.getRight()-3;
+                        const int end=edge+(left?7:-7);
+                        g.drawLine(static_cast<float>(edge),static_cast<float>(patchBounds.getY()+2),
+                                   static_cast<float>(edge),static_cast<float>(patchBounds.getY()+14),2.f);
+                        g.drawLine(static_cast<float>(edge),static_cast<float>(patchBounds.getY()+3),
+                                   static_cast<float>(end),static_cast<float>(patchBounds.getY()+3),2.f);
+                    }
+                }
                 text(g, patch["name"].toString(), patchBounds.reduced(6).withHeight(30));
                 if (const auto *subs = patch["subPatches"].getArray())
                     for (const auto &sub : *subs) {
@@ -1874,9 +1909,20 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                             const auto subBounds = extent(item, geometry, y + 64, 26, numeric(span["start"], 0, 0, 4096));
                             block(g, subBounds, sub["name"].toString(),
                                   sub["color"].toString() == "inherit" ? patch["color"] : sub["color"]);
-                            g.setColour(juce::Colours::white.withAlpha(0.45f));
-                            g.fillRect(subBounds.getX(), subBounds.getY() + 3, 3, subBounds.getHeight() - 6);
-                            g.fillRect(subBounds.getRight() - 3, subBounds.getY() + 3, 3, subBounds.getHeight() - 6);
+                            if(body.hoveredPatchId==patchId.toString() &&
+                               body.hoveredSubId==sub["id"].toString()) {
+                                const bool left=body.hoveredPatchMode==Body::PatchGesture::Mode::subLeft;
+                                const bool right=body.hoveredPatchMode==Body::PatchGesture::Mode::subRight;
+                                if(left||right) {
+                                    g.setColour(juce::Colours::white.withAlpha(.85f));
+                                    const int edge=left?subBounds.getX()+2:subBounds.getRight()-3;
+                                    const int end=edge+(left?6:-6);
+                                    g.drawLine(static_cast<float>(edge),static_cast<float>(subBounds.getY()+2),
+                                               static_cast<float>(edge),static_cast<float>(subBounds.getY()+12),2.f);
+                                    g.drawLine(static_cast<float>(edge),static_cast<float>(subBounds.getY()+3),
+                                               static_cast<float>(end),static_cast<float>(subBounds.getY()+3),2.f);
+                                }
+                            }
                         }
                     }
             }
