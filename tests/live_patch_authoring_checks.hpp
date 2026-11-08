@@ -51,6 +51,29 @@ inline void patchBlockAuthoring() {
           "A sub-patch resize is clamped to the parent length");
     check(!removedPatchSpan(spans,"a")["a"].isObject(),
           "Removing a patch block removes its geometry");
+    // Scissors give each fragment a private timeline ID, but keep the same
+    // shared library reference. Parent splits preserve Sub-patch geometry.
+    const auto cut=splitPatchBlock(withSub,juce::Array<juce::var>{"a","b"},"a",2.);
+    check(cut.rightId!="a"&&cut.order.size()==3 &&
+          cut.order[1].toString()==cut.rightId &&
+          patchLibraryId(cut.rightId,cut.spans[juce::Identifier(cut.rightId)])=="a" &&
+          std::abs(blockLength(cut.spans["a"])-2.)<1.e-9 &&
+          std::abs(blockStart(cut.spans[juce::Identifier(cut.rightId)])-2.)<1.e-9,
+          "Patch Scissors create two independently identified spans referencing one library Patch");
+    check(std::abs(blockLength(cut.spans["a"]["subs"]["s"])-1.)<1.e-9 &&
+          std::abs(blockStart(cut.spans[juce::Identifier(cut.rightId)]["subs"]["s"]))<1.e-9 &&
+          std::abs(blockLength(cut.spans[juce::Identifier(cut.rightId)]["subs"]["s"])-1.)<1.e-9,
+          "Patch cut splits a crossing Sub-patch strip without losing its library reference");
+    checkThrows([&]{splitPatchBlock(withSub,juce::Array<juce::var>{"a","b"},"a",.1);},
+                "Scissors never create a too-short Patch fragment");
+    const auto subCut=splitSubPatchBlock(withSub,"a","s",2.);
+    check(subCut.rightId!="s" &&
+          subPatchLibraryId(subCut.rightId,
+              subCut.spans["a"]["subs"][juce::Identifier(subCut.rightId)])=="s" &&
+          std::abs(blockLength(subCut.spans["a"]["subs"]["s"])-1.)<1.e-9 &&
+          std::abs(blockStart(subCut.spans["a"]["subs"][juce::Identifier(subCut.rightId)])-2.)<1.e-9,
+          "Sub-patch Scissors preserve two independently editable strips of one library variant");
+
     auto state=empty();
     const auto channel=addChannel(state,"Player","Guitar");
     const auto item=addItem(state,"Song A");
@@ -95,6 +118,42 @@ inline void patchBlockAuthoring() {
     validate(state);
     check(number(track["spans"][juce::Identifier(patchId)]["length"]),
           "Authored patch geometry validates");
+    {
+        auto sliced=state.clone();
+        auto& row=trackOf(sliced);
+        const auto originalSpans=row["spans"];
+        const auto oldOrder=row["patchOrder"];
+        const auto pieces=splitPatchBlock(originalSpans,oldOrder,patchId,2.);
+        put(row,"spans",pieces.spans);
+        put(row,"patchOrder",pieces.order);
+        validate(sliced);
+        check(live::sameShowValue(originalSpans,track["spans"]) &&
+              patchLibraryId(pieces.rightId,row["spans"][juce::Identifier(pieces.rightId)])==patchId,
+              "Scissors preserve old Item geometry and reference the captured Patch without cloning VST3");
+        auto splitSub=splitSubPatchBlock(row["spans"],patchId,"sub-rhythm",1.);
+        put(row,"spans",splitSub.spans);
+        validate(sliced);
+        const auto json=juce::JSON::toString(sliced,false,17);
+        juce::var reopened;
+        check(juce::JSON::parse(json,reopened).wasOk(),"Split Patch geometry is valid JSON");
+        validate(reopened);
+        check(sameShowValue(reopened,sliced),
+              "Split Patch/Sub-patch instances survive a complete Show JSON round-trip");
+        const auto undoValue=valuePatch(state,{"items",EditStep::id(item),
+                                          "tracks",EditStep::id(row["id"].toString()),"spans"},
+                                       row["spans"]);
+        const auto advanced=undoValue.apply(state,true);
+        check(advanced["channels"].getArray()==state["channels"].getArray(),
+              "Scissors edit never clones channel-owned opaque VST3 state");
+        const auto restored=undoValue.apply(advanced,false);
+        check(sameShowValue(channelItemTrack(restored,item,channel)["spans"],track["spans"]),
+              "One local Undo can restore pre-cut span geometry");
+        clearSubPatchReferences(sliced,channel,patchId,"sub-rhythm");
+        check(!channelItemTrack(sliced,item,channel)["spans"][juce::Identifier(patchId)]
+                      ["subs"]["sub-rhythm"].isObject(),
+              "Deleting library Sub-patch cleans original and split strip references");
+    }
+
     // Regression for #374: committing geometry through the established local
     // edit protocol must keep the channel bank and its large VST3 state shared,
     // rather than cloning the entire show on every gesture.
