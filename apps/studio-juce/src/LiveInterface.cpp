@@ -1813,33 +1813,42 @@ void Desktop::replaceLivePatchBlock(const juce::String& requested,const juce::St
     const auto spans=track["spans"];
     const auto geometry=spans[juce::Identifier(patchId)];
     if(!geometry.isObject())throw std::runtime_error("This patch block is not on the target Item");
-    if(spans[juce::Identifier(replacementId)].isObject())
-        throw std::runtime_error("The replacement patch already has a block on this Item");
-    auto replacementSpans=live::removedPatchSpan(spans,patchId);
-    live::put(replacementSpans,juce::Identifier(replacementId),geometry);
+    auto replacementSpans=spans.clone();
     auto order=track["patchOrder"].clone();
-    bool changed=false;
-    if(auto* orderEntries=order.getArray())
-        for(auto& entry:*orderEntries)
-            if(entry.toString()==patchId){entry=juce::var(replacementId);changed=true;}
-    if(!changed)throw std::runtime_error("Patch order no longer contains the target block");
+    const bool independentInstance=geometry["patchId"].isString()||
+        spans[juce::Identifier(replacementId)].isObject();
+    auto updated=geometry.clone();
+    // Old sub-strip library IDs belong to the previous sound, never reuse.
+    if(auto* object=updated.getDynamicObject())object->removeProperty("subs");
+    if(independentInstance) {
+        live::put(updated,"patchId",replacementId);
+        live::put(replacementSpans,juce::Identifier(patchId),updated);
+    } else {
+        replacementSpans=live::removedPatchSpan(spans,patchId);
+        live::put(replacementSpans,juce::Identifier(replacementId),updated);
+        bool changed=false;
+        if(auto* orderEntries=order.getArray())
+            for(auto& entry:*orderEntries)
+                if(entry.toString()==patchId){entry=juce::var(replacementId);changed=true;}
+        if(!changed)throw std::runtime_error("Patch order no longer contains the target block");
+    }
     commitLivePatchTrack(*this,itemId,channel,replacementSpans,"Replace patch block",order);
 }
 void Desktop::addLiveSubPatchBlock(const juce::String& requested,const juce::String& patchId,
                                    const juce::String& subPatchId,const juce::String& requestedItem) {
     const auto channel=inputChannel(*this,requested);
     const auto row=live::find(liveDocument->interfaceState,"channels",channel);
-    const auto patch=live::find(row,"patches",patchId);
-    if(!patch.isObject()||live::legacyPatch(patch))
-        throw std::runtime_error("Choose a captured patch first");
-    if(!live::find(patch,"subPatches",subPatchId).isObject())
-        throw std::runtime_error("Choose a sub-patch of this patch");
     const auto itemId=livePatchTargetItem(*this,requestedItem);
     const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
     const auto spans=track["spans"];
     const auto span=spans[juce::Identifier(patchId)];
     if(!span.isObject())
         throw std::runtime_error("Add the patch block before its sub-patch strip");
+    const auto patch=live::find(row,"patches",live::patchLibraryId(patchId,span));
+    if(!patch.isObject()||live::legacyPatch(patch))
+        throw std::runtime_error("Choose a captured Patch first");
+    if(!live::find(patch,"subPatches",subPatchId).isObject())
+        throw std::runtime_error("Choose a Sub-patch from this Patch library");
     const double parentLength=live::blockLength(span);
     const auto subs=live::addedPatchSpan(span["subs"],parentLength,subPatchId,parentLength);
     if(live::sameShowValue(subs,span["subs"]))
