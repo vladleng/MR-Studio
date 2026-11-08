@@ -1661,17 +1661,9 @@ void Desktop::updateLiveChannelPatch(const juce::String& requested,const juce::S
     const auto track=live::channelItemTrack(state,currentItem,channel);
     if(track["patchId"].toString()!=patchId || track["subPatchId"].toString().isNotEmpty())
         throw std::runtime_error("Apply this base Patch on the active Item before Update");
-    const auto previous=live::decodeLivePatchInserts(state,patch);
     const auto captured=captureLiveChannelInserts(channel);
-    if(previous==captured)
-        throw std::runtime_error("No plugin changes to save in this Patch");
-    if(patch["subPatches"].size()>0 && !live::sameInsertStructure(previous,captured))
-        throw std::runtime_error("This Patch has Sub-patches: keep the insert chain unchanged or Save as new Patch");
     editLiveInterface("Update channel patch",[&](auto& model) {
-        auto& target=live::require(live::require(model,"channels",channel),"patches",patchId);
-        if(!target["inserts"].isArray())throw std::runtime_error("Patch no longer exists");
-        live::put(target,"inserts",live::encodeLivePatchInserts(model,captured));
-        live::prunePatchStates(model);
+        live::replaceCapturedPatch(model,channel,patchId,captured);
     });
 }
 void Desktop::updateLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
@@ -1690,20 +1682,9 @@ void Desktop::updateLiveChannelSubPatch(const juce::String& requested,const juce
     const auto track=live::channelItemTrack(state,state["currentItem"].toString(),channel);
     if(track["patchId"].toString()!=patchId || track["subPatchId"].toString()!=subPatchId)
         throw std::runtime_error("Apply this Sub-patch on the active Item before Update");
-    const auto original=live::decodeLivePatchInserts(state,patch);
     const auto captured=captureLiveChannelInserts(channel);
-    auto fresh=live::subPatchChain(liveDocument->interfaceState,original,captured);
-    if(live::sameShowValue(sub["overrides"],fresh["overrides"]))
-        throw std::runtime_error("This Sub-patch already contains these parameter changes");
     editLiveInterface("Update sub-patch",[&](auto& model) {
-        auto& target=live::require(live::require(live::require(model,"channels",channel),
-                                                "patches",patchId),"subPatches",subPatchId);
-        live::put(target,"overrides",fresh["overrides"].clone());
-        // Older (0.9.2) Sub-patches stored an opaque plugin-state snapshot.
-        // Conversion to new parameter-only form is explicit and lossless for
-        // *exposed* parameters; no unrelated vendor blobs are overwritten.
-        if(auto* object=target.getDynamicObject())object->removeProperty("inserts");
-        live::prunePatchStates(model);
+        live::replaceCapturedSubPatch(model,channel,patchId,subPatchId,captured);
     });
 }
 void Desktop::confirmLivePatchUpdate(const juce::String& channelId,const juce::String& patchId,
