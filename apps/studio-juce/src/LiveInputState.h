@@ -454,4 +454,32 @@ inline juce::var subPatchChain(juce::var& /*state*/,const std::vector<mrs::Nativ
     put(result,"overrides",overrides);
     return result;
 }
+// Library state updates preserve IDs/names/colors and every timeline reference.
+// Both helpers operate on a disposable show draft in one Undo transaction.
+inline void replaceCapturedPatch(juce::var& state,const juce::String& channelId,
+                                 const juce::String& patchId,
+                                 const std::vector<mrs::NativeInsert>& captured) {
+    auto& target=require(require(state,"channels",channelId),"patches",patchId);
+    const auto old=decodeLivePatchInserts(state,target);
+    if(old==captured)throw std::runtime_error("No plugin changes to save in this Patch");
+    if(target["subPatches"].size()>0 && !sameInsertStructure(old,captured))
+        throw std::runtime_error("Patch has Sub-patches: changing insert chain requires Save as new Patch");
+    put(target,"inserts",encodeLivePatchInserts(state,captured));
+    prunePatchStates(state);
+}
+inline void replaceCapturedSubPatch(juce::var& state,const juce::String& channelId,
+                                    const juce::String& patchId,const juce::String& subId,
+                                    const std::vector<mrs::NativeInsert>& captured) {
+    auto& patch=require(require(state,"channels",channelId),"patches",patchId);
+    const auto base=decodeLivePatchInserts(state,patch);
+    auto fresh=subPatchChain(state,base,captured);
+    auto& sub=require(patch,"subPatches",subId);
+    if(sameShowValue(sub["overrides"],fresh["overrides"]))
+        throw std::runtime_error("Sub-patch already contains these parameter changes");
+    put(sub,"overrides",fresh["overrides"]);
+    // Explicit Update converts a prior full-state Sub-patch into the new
+    // parameter-only representation, retaining the same shared library ID.
+    if(auto* obj=sub.getDynamicObject())obj->removeProperty("inserts");
+    prunePatchStates(state);
+}
 } // namespace ui::live
