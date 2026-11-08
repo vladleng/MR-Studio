@@ -709,7 +709,15 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     if(const auto *lane=parent.laneAt(event.y))
                         parent.selectPlaybackChannel(lane->channel);
             }
-            if (event.mods.isPopupMenu()) { popupPending=true; popupPosition=event.getPosition(); popupScreen=event.getScreenPosition(); return; }
+            if (event.mods.isPopupMenu()) {
+                if (beginClipEdit(event)) return;
+                if (beginEdit(event)) return;
+                if (patchContextMenu(event.getPosition(),event.getScreenPosition())) return;
+                const auto position=event.getPosition(),screen=event.getScreenPosition();
+                juce::Component::SafePointer<Body> self(this);
+                juce::Timer::callAfterDelay(120,[self,position,screen]{if(self)self->addPatchBlockMenu(position,screen);});
+                return;
+            }
             if (beginClipEdit(event)) return;
             if (beginEdit(event)) return;
             if (beginPatchEdit(event)) return;
@@ -768,13 +776,6 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(editing)previewEdit(event);
         }
         void mouseUp(const juce::MouseEvent &) override {
-            if(popupPending) {
-                popupPending=false;
-                const auto position=popupPosition,screen=popupScreen;
-                if(patchContextMenu(position,screen)){repaint();return;}
-                addPatchBlockMenu(position,screen);
-                return;
-            }
             if(patchGesture.mode!=PatchGesture::Mode::none){finishPatchEdit();return;}
             if(editing)finishEdit();
         }
