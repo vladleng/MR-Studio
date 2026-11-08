@@ -151,16 +151,24 @@ public:
                                    const juce::String& subPatchId, const juce::String& name);
     void deleteLiveChannelSubPatch(const juce::String&, const juce::String& patchId,
                                    const juce::String& subPatchId);
-    // #289 C - free patch/sub-patch block authoring on the current item. These
-    // only change show geometry (one Undo per gesture); DSP is not involved.
-    void addLivePatchBlock(const juce::String&, const juce::String& patchId, double preferredStartBars);
-    void addLivePatchBlock(const juce::String& channel, const juce::String& patchId) { addLivePatchBlock(channel, patchId, -1.); }
-    void addLiveSubPatchBlock(const juce::String&, const juce::String& patchId, const juce::String& subPatchId);
-    void replaceLivePatchBlock(const juce::String& channel, const juce::String& patchId, const juce::String& replacementId);
-    void removeLivePatchBlock(const juce::String&, const juce::String& patchId);
-    void removeLiveSubPatchBlock(const juce::String&, const juce::String& patchId, const juce::String& subPatchId);
+    // #289 C - geometry authoring targets the visible Item explicitly; an
+    // omitted Item id preserves legacy/current-Item callers. Editing another
+    // Item never changes transport, channel DSP or the active Item.
+    void addLivePatchBlock(const juce::String&, const juce::String& patchId, double preferredStartBars,
+                           const juce::String& itemId = {});
+    void addLivePatchBlock(const juce::String& channel, const juce::String& patchId) {
+        addLivePatchBlock(channel, patchId, -1.);
+    }
+    void addLiveSubPatchBlock(const juce::String&, const juce::String& patchId,
+                              const juce::String& subPatchId, const juce::String& itemId = {});
+    void replaceLivePatchBlock(const juce::String& channel, const juce::String& patchId,
+                               const juce::String& replacementId, const juce::String& itemId = {});
+    void removeLivePatchBlock(const juce::String&, const juce::String& patchId,
+                              const juce::String& itemId = {});
+    void removeLiveSubPatchBlock(const juce::String&, const juce::String& patchId,
+                                 const juce::String& subPatchId, const juce::String& itemId = {});
     void setLivePatchSpans(const juce::String&, const juce::String& patchId, juce::var spans,
-                           const juce::String& label);
+                           const juce::String& label, const juce::String& itemId = {});
     std::vector<mrs::NativeInsert> captureLiveChannelInserts(const juce::String& channel);
     // #289 A-Upd1: after a stopped item switch, adopt the item's default
     // channel patches for activated channels (errors keep the current chain).
