@@ -740,6 +740,7 @@ inline bool removeChannelSubPatchReference(juce::var &track, const juce::String 
         changed=true;
     }
     auto spans=track["spans"].clone();
+    std::vector<std::pair<juce::Identifier,juce::var>> updates;
     if(const auto* values=spans.getDynamicObject())
         for(const auto& pair:values->getProperties()) {
             if(!pair.value.isObject()||
@@ -755,9 +756,10 @@ inline bool removeChannelSubPatchReference(juce::var &track, const juce::String 
                 subs.getDynamicObject()->removeProperty(juce::Identifier(id));
             auto updated=pair.value.clone();
             put(updated,"subs",subs);
-            put(spans,pair.name,updated);
-            changed=true;
+            updates.emplace_back(pair.name,updated);
         }
+    for(const auto& update:updates)put(spans,update.first,update.second);
+    if(!updates.empty())changed=true;
     if(changed)put(track,"spans",spans);
     return changed;
 }
