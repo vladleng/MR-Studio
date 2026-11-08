@@ -1643,6 +1643,106 @@ void Desktop::captureLiveChannelSubPatch(const juce::String& requested,const juc
         subs.add(sub);
     });
 }
+// Patch/Sub-patch update is a deliberate library edit, not a DSP switch.
+// Capturing is performed only at Stop on the control thread. The block stays
+// bound to its existing library ID and every reference remains valid.
+void Desktop::updateLiveChannelPatch(const juce::String& requested,const juce::String& patchId) {
+    const auto channel=inputChannel(*this,requested);
+    if(app.recording() || app.engine()->state().playback==mrs::PlaybackState::playing ||
+       livePendingItem.isNotEmpty() || livePlaybackLoading)
+        throw std::runtime_error("Stop Live transport and finish item transition before Update");
+    if(!liveInputTrack(channel))
+        throw std::runtime_error("Activate the channel input before updating the Patch");
+    const auto state=liveDocument->interfaceState;
+    const auto patch=live::find(live::find(state,"channels",channel),"patches",patchId);
+    if(!patch.isObject() || live::legacyPatch(patch))
+        throw std::runtime_error("Patch no longer exists");
+    const auto currentItem=state["currentItem"].toString();
+    const auto track=live::channelItemTrack(state,currentItem,channel);
+    if(track["patchId"].toString()!=patchId || track["subPatchId"].toString().isNotEmpty())
+        throw std::runtime_error("Apply this base Patch on the active Item before Update");
+    const auto previous=live::decodeLivePatchInserts(state,patch);
+    const auto captured=captureLiveChannelInserts(channel);
+    if(previous==captured)
+        throw std::runtime_error("No plugin changes to save in this Patch");
+    if(patch["subPatches"].size()>0 && !live::sameInsertStructure(previous,captured))
+        throw std::runtime_error("This Patch has Sub-patches: keep the insert chain unchanged or Save as new Patch");
+    editLiveInterface("Update channel patch",[&](auto& model) {
+        auto& target=live::require(live::require(model,"channels",channel),"patches",patchId);
+        if(!target["inserts"].isArray())throw std::runtime_error("Patch no longer exists");
+        live::put(target,"inserts",live::encodeLivePatchInserts(model,captured));
+        live::prunePatchStates(model);
+    });
+}
+void Desktop::updateLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
+                                        const juce::String& subPatchId) {
+    const auto channel=inputChannel(*this,requested);
+    if(app.recording() || app.engine()->state().playback==mrs::PlaybackState::playing ||
+       livePendingItem.isNotEmpty() || livePlaybackLoading)
+        throw std::runtime_error("Stop Live transport and finish item transition before Update");
+    if(!liveInputTrack(channel))
+        throw std::runtime_error("Activate the channel input before updating a Sub-patch");
+    const auto state=liveDocument->interfaceState;
+    const auto patch=live::find(live::find(state,"channels",channel),"patches",patchId);
+    const auto sub=live::find(patch,"subPatches",subPatchId);
+    if(!sub.isObject() || live::legacyPatch(patch))
+        throw std::runtime_error("Sub-patch no longer exists");
+    const auto track=live::channelItemTrack(state,state["currentItem"].toString(),channel);
+    if(track["patchId"].toString()!=patchId || track["subPatchId"].toString()!=subPatchId)
+        throw std::runtime_error("Apply this Sub-patch on the active Item before Update");
+    const auto original=live::decodeLivePatchInserts(state,patch);
+    const auto captured=captureLiveChannelInserts(channel);
+    auto fresh=live::subPatchChain(liveDocument->interfaceState,original,captured);
+    if(live::sameShowValue(sub["overrides"],fresh["overrides"]))
+        throw std::runtime_error("This Sub-patch already contains these parameter changes");
+    editLiveInterface("Update sub-patch",[&](auto& model) {
+        auto& target=live::require(live::require(live::require(model,"channels",channel),
+                                                "patches",patchId),"subPatches",subPatchId);
+        live::put(target,"overrides",fresh["overrides"].clone());
+        // Older (0.9.2) Sub-patches stored an opaque plugin-state snapshot.
+        // Conversion to new parameter-only form is explicit and lossless for
+        // *exposed* parameters; no unrelated vendor blobs are overwritten.
+        if(auto* object=target.getDynamicObject())object->removeProperty("inserts");
+        live::prunePatchStates(model);
+    });
+}
+void Desktop::confirmLivePatchUpdate(const juce::String& channelId,const juce::String& patchId,
+                                     const juce::String& subPatchId,const juce::String& itemId) {
+    if(!liveDocument)return;
+    const auto generation=liveDocumentGeneration;
+    const auto state=liveDocument->interfaceState;
+    const auto currentItem=state["currentItem"].toString();
+    if(itemId!=currentItem)
+        throw std::runtime_error("Activate this Item before updating its sound. Other Items stay editable offline.");
+    const auto track=live::channelItemTrack(state,itemId,channelId);
+    if(track["patchId"].toString()!=patchId || track["subPatchId"].toString()!=subPatchId)
+        throw std::runtime_error("Apply the selected Patch/Sub-patch before capturing its changes");
+    if(app.recording() || app.engine()->state().playback==mrs::PlaybackState::playing)
+        throw std::runtime_error("Stop playback before updating a Patch");
+    const auto patch=live::find(live::find(state,"channels",channelId),"patches",patchId);
+    const auto sub=subPatchId.isEmpty()?juce::var{}:live::find(patch,"subPatches",subPatchId);
+    if(!patch.isObject() || (subPatchId.isNotEmpty()&&!sub.isObject()))
+        throw std::runtime_error("Patch/Sub-patch no longer exists");
+    const auto label=subPatchId.isEmpty()?"Patch":"Sub-patch";
+    const auto name=subPatchId.isEmpty()?patch["name"].toString():sub["name"].toString();
+    auto* alert=new StudioAlertWindow(*this,"Update "+label,
+        "Capture the current sound into "+name+"? All blocks using this library entry will change. "+
+        "Choose Save as new Patch for an independent sound.",
+        juce::MessageBoxIconType::QuestionIcon);
+    alert->addButton("Update",1);
+    alert->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<Desktop> safe(this);
+    alert->enterModalState(true,juce::ModalCallbackFunction::create(
+        [safe,generation,channelId,patchId,subPatchId,itemId](int result) {
+            if(result!=1||!safe||!safe->liveDocument||safe->liveDocumentGeneration!=generation)return;
+            safe->run([&]{
+                if(safe->liveDocument->interfaceState["currentItem"].toString()!=itemId)
+                    throw std::runtime_error("Item changed while confirming Update");
+                if(subPatchId.isEmpty())safe->updateLiveChannelPatch(channelId,patchId);
+                else safe->updateLiveChannelSubPatch(channelId,patchId,subPatchId);
+            });
+        }),true);
+}
 void Desktop::renameLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
                                         const juce::String& subPatchId,const juce::String& name) {
     const auto channel=inputChannel(*this,requested);
