@@ -800,6 +800,14 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             guideY=-1;
             setMouseCursor(juce::MouseCursor::NormalCursor);
             if(patchGesture.mode==PatchGesture::Mode::none&&event.y>=lanesTop) {
+                PatchGesture updateTarget;
+                if(patchUpdateHit(event.getPosition(),updateTarget)) {
+                    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+                    setTooltip(updateTarget.subId.isEmpty()?
+                        "Update this Patch from the current channel sound":
+                        "Update this Sub-patch parameter set");
+                    return;
+                }
                 PatchGesture hover;
                 if(patchHitTest(event.getPosition(),hover)) {
                     if(hoveredPatchId!=hover.patchId || hoveredSubId!=hover.subId ||
@@ -884,6 +892,17 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 return;
             }
             if (beginClipEdit(event)) return;
+            if(event.mods.isLeftButtonDown() && !scissors) {
+                PatchGesture updateTarget;
+                if(patchUpdateHit(event.getPosition(),updateTarget)) {
+                    const auto channelId=updateTarget.channelId,patchId=updateTarget.patchId,
+                        subId=updateTarget.subId,itemId=updateTarget.itemId;
+                    parent.owner.run([&]{
+                        parent.owner.confirmLivePatchUpdate(channelId,patchId,subId,itemId);
+                    });
+                    return;
+                }
+            }
             // Only the explicit upper-corner patch handle beats the Item end trim.
             // On the remainder of the Item boundary, preserve the existing Item
             // resize gesture (#31 smoke: right grip at y=180).
@@ -1012,6 +1031,20 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             }
             return false;
         }
+        bool patchUpdateHit(juce::Point<int> position,PatchGesture& out) const {
+            if(!patchHitTest(position,out))return false;
+            const auto item=std::find_if(parent.items.begin(),parent.items.end(),
+                [&](const auto& candidate){return candidate.value["id"].toString()==out.itemId;});
+            if(item==parent.items.end())return false;
+            const auto span=out.originSpans[juce::Identifier(out.patchId)];
+            const auto geometry=out.subId.isEmpty()?span:
+                span["subs"][juce::Identifier(out.subId)];
+            if(!geometry.isObject())return false;
+            const auto bounds=out.subId.isEmpty()?
+                parent.extent(*item,geometry,out.rowTop+10,rowHeight-20):
+                parent.extent(*item,geometry,out.rowTop+64,26,live::blockStart(span));
+            return parent.patchUpdateBounds(bounds).contains(position);
+        }
         bool beginPatchEdit(const juce::MouseEvent &event) {
             if(!event.mods.isLeftButtonDown())return false;
             PatchGesture hit;
@@ -1112,6 +1145,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 }
             if(!replacementIds.empty())menu.addSubMenu("Replace patch with\u2026",replaceMenu);
             menu.addItem(1,"Remove patch block");
+            menu.addItem(3,"Update this Patch from current channel sound...");
+            if(hit.subId.isNotEmpty())
+                menu.addItem(4,"Update this Sub-patch parameters...");
             std::vector<juce::String> subIds;
             if(const auto *list=patch["subPatches"].getArray())
                 for(const auto &sub:*list) {
@@ -1127,10 +1163,15 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             const auto channelId=hit.channelId,patchId=hit.patchId,itemId=hit.itemId;
             const auto generation=parent.owner.liveDocumentGeneration;
             menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(juce::Rectangle<int>(screen.x,screen.y,1,1)),
-                [safe,self,channelId,patchId,itemId,generation,subIds,replacementIds](int action){
+                [safe,self,channelId,patchId,itemId,hitSubId=hit.subId,generation,subIds,replacementIds](int action){
                 if(!safe||!action||!safe->liveDocument||safe->liveDocumentGeneration!=generation)return;
                 safe->run([&]{
                     if(action==1){safe->removeLivePatchBlock(channelId,patchId,itemId);return;}
+                    if(action==3 || action==4) {
+                        safe->confirmLivePatchUpdate(channelId,patchId,
+                            action==4?hitSubId:juce::String(),itemId);
+                        return;
+                    }
                     if(action>=2000&&action<3000){
                         const auto at=static_cast<std::size_t>(action-2000);
                         if(at<replacementIds.size())
@@ -1743,6 +1784,23 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         return {item.bounds.getX() + 1 + juce::roundToInt((item.lead - item.start + start) * item.scale), y,
                 juce::jmax(1, juce::roundToInt(length * item.scale)), height};
     }
+    static juce::Rectangle<int> patchUpdateBounds(juce::Rectangle<int> blockBounds) {
+        if(blockBounds.getWidth()<52)return {};
+        const int top=blockBounds.getY()+
+            juce::jmax(3,juce::jmin(8,(blockBounds.getHeight()-16)/2));
+        return {blockBounds.getRight()-31,top,16,16};
+    }
+    static void paintPatchUpdate(juce::Graphics& g,juce::Rectangle<int> blockBounds) {
+        const auto button=patchUpdateBounds(blockBounds);
+        if(button.isEmpty())return;
+        const auto centre=button.getCentre().toFloat();
+        g.setColour(juce::Colours::white.withAlpha(.83f));
+        juce::Path refresh;
+        refresh.addCentredArc(centre.x,centre.y,5.2f,5.2f,0.f,.5f,5.4f,true);
+        g.strokePath(refresh,juce::PathStrokeType(1.6f));
+        g.drawLine(centre.x+1.7f,centre.y-4.9f,centre.x+5.3f,centre.y-5.9f,1.6f);
+        g.drawLine(centre.x+5.3f,centre.y-5.9f,centre.x+5.3f,centre.y-2.2f,1.6f);
+    }
     void block(juce::Graphics &g, juce::Rectangle<int> area, const juce::String &label, const juce::var &color) const {
         g.setColour(liveBlockColour(color.toString()).withAlpha(.18f));
         g.fillRect(area);
@@ -2070,6 +2128,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     }
                 }
                 text(g, patch["name"].toString(), patchBounds.reduced(6).withHeight(30));
+                paintPatchUpdate(g,patchBounds);
                 if (const auto *subs = patch["subPatches"].getArray())
                     for (const auto &sub : *subs) {
                         const auto geometry = span["subs"][juce::Identifier(sub["id"].toString())];
@@ -2077,6 +2136,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                             const auto subBounds = extent(item, geometry, y + 64, 26, numeric(span["start"], 0, 0, 4096));
                             block(g, subBounds, sub["name"].toString(),
                                   sub["color"].toString() == "inherit" ? patch["color"] : sub["color"]);
+                            paintPatchUpdate(g,subBounds);
                             if(body.hoveredPatchId==patchId.toString() &&
                                body.hoveredSubId==sub["id"].toString()) {
                                 const bool left=body.hoveredPatchMode==Body::PatchGesture::Mode::subLeft;
