@@ -950,13 +950,17 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(lane==nullptr)return false;
             const auto channel=live::find(parent.state,"channels",lane->channel);
             if(!channel.isObject()||channel["type"].toString()=="Playback")return false;
-            const auto *patches=channel["patches"].getDynamicObject();
+            // The channel patch bank is an array (same shape the Audio FX channel menu uses),
+            // not an id-keyed object.
+            const auto *patches=channel["patches"].getArray();
             std::vector<juce::String> ids,names;
             if(patches!=nullptr)
-                for(const auto &pair:patches->getProperties()) {
-                    if(!pair.value.isObject()||live::legacyPatch(pair.value))continue;
-                    ids.push_back(pair.name.toString());
-                    names.push_back(pair.value["name"].toString());
+                for(const auto &patch:*patches) {
+                    if(!patch.isObject()||live::legacyPatch(patch))continue;
+                    const auto id=patch["id"].toString();
+                    if(id.isEmpty())continue;
+                    ids.push_back(id);
+                    names.push_back(patch["name"].toString());
                 }
             juce::PopupMenu menu;menu.setLookAndFeel(&parent.owner.theme);
             std::vector<std::size_t> order(ids.size());
