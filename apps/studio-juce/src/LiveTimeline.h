@@ -2125,17 +2125,18 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 }
             return;
         }
-        if (const auto *order = track["patchOrder"].getArray())
-            for (const auto &patchId : *order) {
-                const auto patch = live::find(channel, "patches", patchId.toString());
-                const auto span = track["spans"][juce::Identifier(patchId.toString())];
-                if (!patch.isObject() || !span.isObject())
-                    continue;
-                const auto patchBounds = extent(item, span, y + 10, rowHeight - 20);
-                block(g, patchBounds, {}, patch["color"]);
-                // Match Section/Chord grips: brackets appear only when the upper
-                // corner is hovered; Item trim must not steal these gestures.
-                if(body.hoveredPatchId==patchId.toString()&&body.hoveredSubId.isEmpty()) {
+        // The order stores *instance* IDs. Old shows use their Patch library
+        // ID as the instance key; Scissors adds UUID keys with patchId refs.
+        if(const auto* order=track["patchOrder"].getArray())
+            for(const auto& blockKey:*order) {
+                const auto blockId=blockKey.toString();
+                const auto span=track["spans"][juce::Identifier(blockId)];
+                if(!span.isObject())continue;
+                const auto patch=live::find(channel,"patches",live::patchLibraryId(blockId,span));
+                if(!patch.isObject())continue;
+                const auto patchBounds=extent(item,span,y+10,rowHeight-20);
+                block(g,patchBounds,{},patch["color"]);
+                if(body.hoveredPatchId==blockId && body.hoveredSubId.isEmpty()) {
                     const bool left=body.hoveredPatchMode==Body::PatchGesture::Mode::left;
                     const bool right=body.hoveredPatchMode==Body::PatchGesture::Mode::right;
                     if(left||right) {
@@ -2148,29 +2149,32 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                                    static_cast<float>(end),static_cast<float>(patchBounds.getY()+3),2.f);
                     }
                 }
-                text(g, patch["name"].toString(), patchBounds.reduced(6).withHeight(30));
+                text(g,patch["name"].toString(),patchBounds.reduced(6).withHeight(30));
                 paintPatchUpdate(g,patchBounds);
-                if (const auto *subs = patch["subPatches"].getArray())
-                    for (const auto &sub : *subs) {
-                        const auto geometry = span["subs"][juce::Identifier(sub["id"].toString())];
-                        if (geometry.isObject()) {
-                            const auto subBounds = extent(item, geometry, y + 64, 26, numeric(span["start"], 0, 0, 4096));
-                            block(g, subBounds, sub["name"].toString(),
-                                  sub["color"].toString() == "inherit" ? patch["color"] : sub["color"]);
-                            paintPatchUpdate(g,subBounds);
-                            if(body.hoveredPatchId==patchId.toString() &&
-                               body.hoveredSubId==sub["id"].toString()) {
-                                const bool left=body.hoveredPatchMode==Body::PatchGesture::Mode::subLeft;
-                                const bool right=body.hoveredPatchMode==Body::PatchGesture::Mode::subRight;
-                                if(left||right) {
-                                    g.setColour(juce::Colours::white.withAlpha(.85f));
-                                    const int edge=left?subBounds.getX()+2:subBounds.getRight()-3;
-                                    const int end=edge+(left?6:-6);
-                                    g.drawLine(static_cast<float>(edge),static_cast<float>(subBounds.getY()+2),
-                                               static_cast<float>(edge),static_cast<float>(subBounds.getY()+12),2.f);
-                                    g.drawLine(static_cast<float>(edge),static_cast<float>(subBounds.getY()+3),
-                                               static_cast<float>(end),static_cast<float>(subBounds.getY()+3),2.f);
-                                }
+                // A single library Sub-patch can be split into several strips;
+                // each strip has its own key, without cloning vendor state.
+                if(const auto* entries=span["subs"].getDynamicObject())
+                    for(const auto& child:entries->getProperties()) {
+                        if(!child.value.isObject())continue;
+                        const auto subId=live::subPatchLibraryId(child.name.toString(),child.value);
+                        const auto sub=live::find(patch,"subPatches",subId);
+                        if(!sub.isObject())continue;
+                        const auto bounds=extent(item,child.value,y+64,26,live::blockStart(span));
+                        block(g,bounds,sub["name"].toString(),
+                              sub["color"].toString()=="inherit"?patch["color"]:sub["color"]);
+                        paintPatchUpdate(g,bounds);
+                        if(body.hoveredPatchId==blockId &&
+                           body.hoveredSubId==child.name.toString()) {
+                            const bool left=body.hoveredPatchMode==Body::PatchGesture::Mode::subLeft;
+                            const bool right=body.hoveredPatchMode==Body::PatchGesture::Mode::subRight;
+                            if(left||right) {
+                                g.setColour(juce::Colours::white.withAlpha(.85f));
+                                const int edge=left?bounds.getX()+2:bounds.getRight()-3;
+                                const int end=edge+(left?6:-6);
+                                g.drawLine(static_cast<float>(edge),static_cast<float>(bounds.getY()+2),
+                                           static_cast<float>(edge),static_cast<float>(bounds.getY()+12),2.f);
+                                g.drawLine(static_cast<float>(edge),static_cast<float>(bounds.getY()+3),
+                                           static_cast<float>(end),static_cast<float>(bounds.getY()+3),2.f);
                             }
                         }
                     }
