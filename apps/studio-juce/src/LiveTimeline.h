@@ -1158,7 +1158,11 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(const auto *list=patch["subPatches"].getArray())
                 for(const auto &sub:*list) {
                     const auto subId=sub["id"].toString();
-                    const bool present=subs[juce::Identifier(subId)].isObject();
+                    bool present=false;
+                    if(const auto* entries=subs.getDynamicObject())
+                        for(const auto& entry:entries->getProperties())
+                            if(live::subPatchLibraryId(entry.name.toString(),entry.value)==subId)
+                                present=true;
                     menu.addItem(100+static_cast<int>(subIds.size()),
                                  juce::String(present?"Remove strip: ":"Add strip: ")+sub["name"].toString(),
                                  true,present);
@@ -1191,8 +1195,17 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     const auto subId=subIds[static_cast<std::size_t>(index)];
                     const auto track=live::channelItemTrack(safe->liveDocument->interfaceState,itemId,channelId);
                     const auto span=track["spans"][juce::Identifier(patchId)];
-                    if(span["subs"][juce::Identifier(subId)].isObject())
-                        safe->removeLiveSubPatchBlock(channelId,patchId,subId,itemId);
+                    juce::String removeKey;
+                    if(const auto* entries=span["subs"].getDynamicObject())
+                        for(const auto& entry:entries->getProperties())
+                            if(live::subPatchLibraryId(entry.name.toString(),entry.value)==subId) {
+                                if(entry.name.toString()==hitSubId) {
+                                    removeKey=hitSubId;break;
+                                }
+                                if(removeKey.isEmpty())removeKey=entry.name.toString();
+                            }
+                    if(removeKey.isNotEmpty())
+                        safe->removeLiveSubPatchBlock(channelId,patchId,removeKey,itemId);
                     else
                         safe->addLiveSubPatchBlock(channelId,patchId,subId,itemId);
                 });
