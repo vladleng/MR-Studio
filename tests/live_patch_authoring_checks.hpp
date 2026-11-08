@@ -127,7 +127,7 @@ inline void patchBlockAuthoring() {
         put(row,"spans",pieces.spans);
         put(row,"patchOrder",pieces.order);
         validate(sliced);
-        check(live::sameShowValue(originalSpans,track["spans"]) &&
+        check(sameShowValue(originalSpans,track["spans"]) &&
               patchLibraryId(pieces.rightId,row["spans"][juce::Identifier(pieces.rightId)])==patchId,
               "Scissors preserve old Item geometry and reference the captured Patch without cloning VST3");
         auto splitSub=splitSubPatchBlock(row["spans"],patchId,"sub-rhythm",1.);
@@ -149,9 +149,16 @@ inline void patchBlockAuthoring() {
         check(sameShowValue(channelItemTrack(restored,item,channel)["spans"],track["spans"]),
               "One local Undo can restore pre-cut span geometry");
         clearSubPatchReferences(sliced,channel,patchId,"sub-rhythm");
-        check(!channelItemTrack(sliced,item,channel)["spans"][juce::Identifier(patchId)]
-                      ["subs"]["sub-rhythm"].isObject(),
-              "Deleting library Sub-patch cleans original and split strip references");
+        const auto afterSubRemoval=channelItemTrack(sliced,item,channel)["spans"];
+        check(!afterSubRemoval[juce::Identifier(patchId)]["subs"]["sub-rhythm"].isObject() &&
+              !afterSubRemoval[juce::Identifier(pieces.rightId)]["subs"]["sub-rhythm"].isObject(),
+              "Deleting one library Sub-patch cleans original and split strip references");
+        clearChannelPatchReferences(sliced,channel,patchId);
+        const auto removedTrack=channelItemTrack(sliced,item,channel);
+        check(removedTrack["patchOrder"].size()==0 &&
+              removedTrack["spans"].getDynamicObject()->getProperties().isEmpty(),
+              "Deleting one library Patch removes all independently split instances");
+        validate(sliced);
     }
 
     // Regression for #374: committing geometry through the established local
