@@ -227,6 +227,176 @@ inline juce::var channelItemTrack(const juce::var &state, const juce::String &it
                 return track;
     return {};
 }
+// #289 C: free patch/sub-patch block geometry on an item track. Times are in
+// bars relative to the item start; sub-patch spans are relative to their parent
+// patch. One gesture produces one new spans object, committed as one Undo.
+inline double blockStart(const juce::var& span,double fallback=0.) {
+    return number(span["start"])?static_cast<double>(span["start"]):fallback;
+}
+inline double blockLength(const juce::var& span,double fallback=.25) {
+    return number(span["length"])?juce::jmax(.25,static_cast<double>(span["length"])):fallback;
+}
+inline juce::var blockSpan(double start,double length) {
+    auto span=object();
+    put(span,"start",juce::jmax(0.,start));
+    put(span,"length",juce::jmax(.25,length));
+    return span;
+}
+inline std::vector<std::pair<juce::String,juce::var>> orderedSpans(const juce::var& spans) {
+    std::vector<std::pair<juce::String,juce::var>> rows;
+    if(const auto* values=spans.getDynamicObject())
+        for(const auto& pair:values->getProperties()) {
+            auto value=pair.value;
+            if(value.isObject())rows.emplace_back(pair.name.toString(),value);
+        }
+    std::sort(rows.begin(),rows.end(),[&](const auto& left,const auto& right){
+        return blockStart(left.second)<blockStart(right.second);});
+    return rows;
+}
+// Moves/resizes one patch block. Siblings keep order: a body move is clamped to
+// the free space between neighbours; resizing with adjustNeighbours pushes the
+// touched neighbour, matching the accepted browser-demo rules. A parent resize
+// scales nested sub-patch spans proportionally. One call produces the complete
+// next spans object for a single Undo commit.
+inline juce::var editedPatchSpans(const juce::var& spans,double itemBars,const juce::String& patchId,
+                                  double start,double length,bool adjustNeighbours,bool moveBody=false) {
+    auto result=spans.isObject()?spans.clone():object();
+    auto* values=result.getDynamicObject();
+    if(values==nullptr||!values->hasProperty(juce::Identifier(patchId)))
+        return result;
+    auto rows=orderedSpans(result);
+    std::size_t index=0;
+    for(;index<rows.size();++index)if(rows[index].first==patchId)break;
+    if(index>=rows.size())return result;
+    auto& current=rows[index].second;
+    const double originalLength=blockLength(current);
+    const double itemEnd=juce::jmax(.25,itemBars);
+    length=juce::jmax(.25,length);
+    if(moveBody) {
+        start=juce::jlimit(0.,juce::jmax(0.,itemEnd-length),start);
+        if(index>0)
+            start=juce::jmax(start,blockStart(rows[index-1].second)+blockLength(rows[index-1].second));
+        if(index+1<rows.size())
+            start=juce::jmin(start,blockStart(rows[index+1].second)-length);
+        if(start<0.)start=0.;
+    } else {
+        start=juce::jlimit(0.,juce::jmax(0.,itemEnd-.25),start);
+        if(start+length>itemEnd)length=itemEnd-start;
+        if(adjustNeighbours) {
+            if(index>0) {
+                auto& previous=rows[index-1].second;
+                const double previousEnd=blockStart(previous)+blockLength(previous);
+                if(start<previousEnd) {
+                    const double newLength=juce::jmax(.25,start-blockStart(previous));
+                    put(previous,"start",juce::jmax(0.,start-newLength));
+                    put(previous,"length",newLength);
+                }
+            }
+            if(index+1<rows.size()) {
+                auto& next=rows[index+1].second;
+                const double nextEnd=blockStart(next)+blockLength(next);
+                if(start+length>blockStart(next)) {
+                    put(next,"start",start+length);
+                    put(next,"length",juce::jmax(.25,nextEnd-(start+length)));
+                }
+            }
+        } else {
+            if(index>0)
+                start=juce::jmax(start,blockStart(rows[index-1].second)+blockLength(rows[index-1].second));
+            if(index+1<rows.size())
+                length=juce::jmin(length,blockStart(rows[index+1].second)-start);
+            if(length<.25)length=.25;
+            if(start+length>itemEnd)length=itemEnd-start;
+        }
+    }
+    put(current,"start",start);
+    put(current,"length",length);
+    auto subs=current["subs"].isObject()?current["subs"].clone():object();
+    if(auto* subValues=subs.getDynamicObject())
+        if(!moveBody&&originalLength>.25&&std::abs(length-originalLength)>1.e-9) {
+            // NamedValueSet iteration is read-only in JUCE, so scale into copies
+            // first and publish them after the traversal.
+            std::vector<std::pair<juce::Identifier,juce::var>> scaled;
+            const double ratio=length/originalLength;
+            for(const auto& pair:subValues->getProperties()) {
+                auto sub=pair.value;
+                if(!sub.isObject())continue;
+                put(sub,"start",juce::jlimit(0.,juce::jmax(0.,length-.25),blockStart(sub)*ratio));
+                put(sub,"length",juce::jlimit(.25,juce::jmax(.25,length),blockLength(sub)*ratio));
+                scaled.emplace_back(pair.name,sub);
+            }
+            for(const auto& entry:scaled)subValues->setProperty(entry.first,entry.second);
+        }
+    put(current,"subs",subs);
+    for(const auto& row:rows)
+        if(row.first!=patchId)values->setProperty(juce::Identifier(row.first),row.second);
+    values->setProperty(juce::Identifier(patchId),current);
+    return result;
+}
+inline juce::var editedSubPatchSpan(const juce::var& spans,const juce::String& patchId,
+                                    const juce::String& subId,double start,double length,
+                                    bool moveBody=false) {
+    auto result=spans.isObject()?spans.clone():object();
+    auto* values=result.getDynamicObject();
+    if(values==nullptr||!values->hasProperty(juce::Identifier(patchId)))return result;
+    auto* patch=values->getProperty(juce::Identifier(patchId)).getDynamicObject();
+    if(patch==nullptr)return result;
+    auto subs=patch->getProperty("subs");
+    if(!subs.isObject()){subs=object();patch->setProperty("subs",subs);}
+    auto* subValues=subs.getDynamicObject();
+    const double parentLength=blockLength(values->getProperty(juce::Identifier(patchId)));
+    auto rows=orderedSpans(subs);
+    int index=-1;
+    for(int i=0;i<static_cast<int>(rows.size());++i)if(rows[i].first==subId){index=i;break;}
+    const double previousEnd=index>0?blockStart(rows[static_cast<std::size_t>(index-1)].second)+
+        blockLength(rows[static_cast<std::size_t>(index-1)].second):0.;
+    const double nextStart=index>=0&&index+1<static_cast<int>(rows.size())?
+        blockStart(rows[static_cast<std::size_t>(index+1)].second):parentLength;
+    if(moveBody) {
+        length=juce::jmax(.25,length);
+        start=juce::jlimit(0.,juce::jmax(0.,parentLength-length),start);
+        start=juce::jmax(start,previousEnd);
+        start=juce::jmin(start,juce::jmax(previousEnd,nextStart-length));
+    } else {
+        start=juce::jlimit(0.,juce::jmax(0.,parentLength-.25),start);
+        length=juce::jlimit(.25,juce::jmax(.25,parentLength-start),length);
+        start=juce::jmax(start,previousEnd);
+        length=juce::jmin(length,juce::jmax(.25,nextStart-start));
+        if(start+length>parentLength)length=parentLength-start;
+    }
+    if(index>=0)subValues->setProperty(juce::Identifier(subId),blockSpan(start,length));
+    return result;
+}
+inline juce::var removedPatchSpan(const juce::var& spans,const juce::String& patchId) {
+    auto result=spans.isObject()?spans.clone():object();
+    if(auto* values=result.getDynamicObject())
+        values->removeProperty(juce::Identifier(patchId));
+    return result;
+}
+inline juce::var addedPatchSpan(const juce::var& spans,double itemBars,const juce::String& patchId,
+                                double preferredLength) {
+    auto result=spans.isObject()?spans.clone():object();
+    auto* values=result.getDynamicObject();
+    if(values==nullptr)return result;
+    const double itemEnd=juce::jmax(.25,itemBars);
+    const double preferred=juce::jmax(.25,preferredLength);
+    double start=0.;
+    // Placement uses the first gap that fits a block; the requested length is
+    // shortened to that gap instead of rejecting the insert.
+    const auto place=[&](double gapLength) {
+        if(gapLength<.25)return false;
+        values->setProperty(juce::Identifier(patchId),
+                            blockSpan(start,juce::jmin(preferred,gapLength)));
+        return true;
+    };
+    for(const auto& row:orderedSpans(result)) {
+        const double rowStart=juce::jmax(0.,blockStart(row.second));
+        if(place(rowStart-start))return result;
+        start=juce::jmax(start,rowStart+blockLength(row.second));
+    }
+    place(itemEnd-start); // no room: explicit no-op, caller reports
+    return result;
+}
 // #289 A-Upd1: channel patches an item asks for when it becomes current.
 // Legacy demo patches have no captured chain and are never auto-applied.
 inline std::vector<std::pair<juce::String, juce::String>> itemDefaultPatches(
@@ -632,13 +802,68 @@ inline void validate(const juce::var &state) {
                     !find(find(state, "channels", channelId), "patches", patchId.toString()).isObject())
                     throw std::runtime_error("Missing item channel patch reference");
                 const auto subPatchId = track["subPatchId"];
-                if (subPatchId.isVoid() ||
-                    (subPatchId.isString() && subPatchId.toString().isEmpty()))
-                    continue;
-                if (!named(subPatchId) ||
-                    !find(find(find(state, "channels", channelId), "patches", patchId.toString()),
-                          "subPatches", subPatchId.toString()).isObject())
-                    throw std::runtime_error("Missing item channel sub-patch reference");
+                if (!(subPatchId.isVoid() ||
+                      (subPatchId.isString() && subPatchId.toString().isEmpty()))) {
+                    if (!named(subPatchId) ||
+                        !find(find(find(state, "channels", channelId), "patches", patchId.toString()),
+                              "subPatches", subPatchId.toString()).isObject())
+                        throw std::runtime_error("Missing item channel sub-patch reference");
+                }
+                // #289 C: authored free blocks must stay ordered, inside the item
+                // and consistent with the channel patch library.
+                const auto channelRow = find(state, "channels", channelId);
+                const double itemBars = number(item["bars"]) ? static_cast<double>(item["bars"]) : 0.;
+                std::set<juce::String> ordered;
+                if (const auto *order = track["patchOrder"].getArray())
+                    for (const auto &entry : *order) {
+                        if (!named(entry) || !ordered.insert(entry.toString()).second ||
+                            !find(channelRow, "patches", entry.toString()).isObject())
+                            throw std::runtime_error("Invalid item patch order");
+                    }
+                const auto spans = track["spans"];
+                std::vector<std::pair<double, double>> ranges;
+                if (const auto *values = spans.getDynamicObject())
+                    for (const auto &pair : values->getProperties()) {
+                        if (!ordered.contains(pair.name.toString()) || !pair.value.isObject())
+                            throw std::runtime_error("Invalid item patch span");
+                        if (!number(pair.value["start"]) || !number(pair.value["length"]))
+                            throw std::runtime_error("Invalid item patch span bounds");
+                        const double start = static_cast<double>(pair.value["start"]);
+                        const double length = static_cast<double>(pair.value["length"]);
+                        if (start < 0. || length < .25 || start + length > itemBars + 1.e-6)
+                            throw std::runtime_error("Item patch span exceeds item bounds");
+                        ranges.emplace_back(start, start + length);
+                    }
+                std::sort(ranges.begin(), ranges.end());
+                for (std::size_t i = 1; i < ranges.size(); ++i)
+                    if (ranges[i].first < ranges[i - 1].second - 1.e-6)
+                        throw std::runtime_error("Item patch spans overlap");
+                if (const auto *values = spans.getDynamicObject())
+                    for (const auto &pair : values->getProperties()) {
+                        const auto patch = find(channelRow, "patches", pair.name.toString());
+                        const auto subs = pair.value["subs"];
+                        if (subs.isVoid())
+                            continue;
+                        if (!subs.isObject())
+                            throw std::runtime_error("Invalid item sub-patch spans");
+                        const double parentLength = static_cast<double>(pair.value["length"]);
+                        std::vector<std::pair<double, double>> subRanges;
+                        if (const auto *subValues = subs.getDynamicObject())
+                            for (const auto &sub : subValues->getProperties()) {
+                                if (!find(patch, "subPatches", sub.name.toString()).isObject() ||
+                                    !number(sub.value["start"]) || !number(sub.value["length"]))
+                                    throw std::runtime_error("Invalid item sub-patch span");
+                                const double start = static_cast<double>(sub.value["start"]);
+                                const double length = static_cast<double>(sub.value["length"]);
+                                if (start < 0. || length < .25 || start + length > parentLength + 1.e-6)
+                                    throw std::runtime_error("Item sub-patch span exceeds its patch");
+                                subRanges.emplace_back(start, start + length);
+                            }
+                        std::sort(subRanges.begin(), subRanges.end());
+                        for (std::size_t i = 1; i < subRanges.size(); ++i)
+                            if (subRanges[i].first < subRanges[i - 1].second - 1.e-6)
+                                throw std::runtime_error("Item sub-patch spans overlap");
+                    }
             }
 
     // Optional legacy-compatible stable root ID for reorderable Playback channels.

@@ -264,6 +264,8 @@ private:
                 entry.addSubMenu("Sub-patches",subs);
                 if(!legacy)
                     entry.addItem(30000+i,"Capture current as sub-patch…",canApply);
+                entry.addItem(5005+i*8,"Add block to current item",!legacy);
+                entry.addItem(5006+i*8,"Remove block from current item",!legacy);
                 entry.addItem(5001+i*8,"Set as item default",true,defaultPatch==patchId);
                 if(defaultPatch==patchId)entry.addItem(5002+i*8,"Clear item default");
                 entry.addItem(5003+i*8,"Rename…");
@@ -445,6 +447,10 @@ private:
             return;
         } else if(operation==4) {
             owner.deleteLiveChannelPatch(id,patchId);
+        } else if(operation==5) {
+            owner.addLivePatchBlock(id,patchId);
+        } else if(operation==6) {
+            owner.removeLivePatchBlock(id,patchId);
         }
         sync();
     }

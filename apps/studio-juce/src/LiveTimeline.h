@@ -635,13 +635,33 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
     class Body final : public juce::Component, public juce::SettableTooltipClient {
       public:
         explicit Body(LiveTimeline &host) : parent(host) { setComponentID("live-timeline-items"); setWantsKeyboardFocus(true); }
+        struct PatchGesture {
+            enum class Mode { none, body, left, right, subBody, subLeft, subRight };
+            Mode mode{Mode::none};
+            juce::String itemId, channelId, patchId, subId;
+            juce::var originSpans, previewSpans;
+            int startX{}, rowTop{};
+            double originStart{}, originLength{};
+        };
+        PatchGesture patchGesture;
         void paint(juce::Graphics &g) override {
             parent.paintItems(g);
+            paintPatchPreview(g);
             if(guideY>=0){g.setColour(liveReferenceTokens().colour(ColourRole::focus));g.drawVerticalLine(juce::roundToInt(guideX),static_cast<float>(guideY+4),static_cast<float>(guideY+rowHeight-4));}
         }
         void mouseMove(const juce::MouseEvent &event) override {
             guideY=-1;
             setMouseCursor(juce::MouseCursor::NormalCursor);
+            if(patchGesture.mode==PatchGesture::Mode::none&&event.y>=lanesTop) {
+                PatchGesture hover;
+                if(patchHitTest(event,hover)) {
+                    const bool edge=hover.mode==PatchGesture::Mode::left||hover.mode==PatchGesture::Mode::right||
+                                    hover.mode==PatchGesture::Mode::subLeft||hover.mode==PatchGesture::Mode::subRight;
+                    setMouseCursor(edge?juce::MouseCursor::LeftRightResizeCursor:juce::MouseCursor::DraggingHandCursor);
+                    setTooltip(edge?"Drag block edge":"Drag patch block");
+                    return;
+                }
+            }
             if(hoverClip(event)){repaint();return;}
             repaint();
             setTooltip("Double-click Sections or Chord Track to add; right-click for properties");
@@ -684,8 +704,10 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     if(const auto *lane=parent.laneAt(event.y))
                         parent.selectPlaybackChannel(lane->channel);
             }
+            if (event.mods.isPopupMenu()) { if (patchContextMenu(event)) return; }
             if (beginClipEdit(event)) return;
             if (beginEdit(event)) return;
+            if (beginPatchEdit(event)) return;
             if (!event.mods.isLeftButtonDown())
                 return;
             for (const auto &item : parent.items) {
@@ -736,10 +758,180 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 }
         }
 
-        void mouseDrag(const juce::MouseEvent &event) override {if(editing)previewEdit(event);}
-        void mouseUp(const juce::MouseEvent &) override {if(editing)finishEdit();}
+        void mouseDrag(const juce::MouseEvent &event) override {
+            if(patchGesture.mode!=PatchGesture::Mode::none){previewPatchEdit(event);return;}
+            if(editing)previewEdit(event);
+        }
+        void mouseUp(const juce::MouseEvent &) override {
+            if(patchGesture.mode!=PatchGesture::Mode::none){finishPatchEdit();return;}
+            if(editing)finishEdit();
+        }
+        bool patchHitTest(const juce::MouseEvent &event, PatchGesture &out) const {
+            if(event.y<lanesTop)return false;
+            for(const auto &item:parent.items) {
+                if(item.collapsed||!item.bounds.contains(event.getPosition()))continue;
+                const int laneIndex=(event.y-lanesTop)/rowHeight;
+                if(laneIndex<0||laneIndex>=static_cast<int>(parent.lanes.size()))continue;
+                const auto &lane=parent.lanes[static_cast<std::size_t>(laneIndex)];
+                if(lane.container)continue;
+                const auto channel=live::find(parent.state,"channels",lane.channel);
+                if(!channel.isObject()||channel["type"].toString()=="Playback")continue;
+                const auto track=live::channelItemTrack(parent.state,item.value["id"].toString(),lane.channel);
+                if(!track.isObject())continue;
+                const auto *order=track["patchOrder"].getArray();
+                if(order==nullptr)continue;
+                const int y=lanesTop+laneIndex*rowHeight;
+                for(const auto &patchIdVar:*order) {
+                    const auto patchId=patchIdVar.toString();
+                    const auto span=track["spans"][juce::Identifier(patchId)];
+                    if(!span.isObject())continue;
+                    if(const auto *subs=span["subs"].getDynamicObject())
+                        for(const auto &pair:subs->getProperties()) {
+                            if(!pair.value.isObject())continue;
+                            const auto rect=parent.extent(item,pair.value,y+64,26,live::blockStart(span));
+                            if(!rect.contains(event.getPosition()))continue;
+                            out.mode=event.x<=rect.getX()+5?PatchGesture::Mode::subLeft:
+                                     event.x>=rect.getRight()-5?PatchGesture::Mode::subRight:
+                                     PatchGesture::Mode::subBody;
+                            out.itemId=item.value["id"].toString();out.channelId=lane.channel;
+                            out.patchId=patchId;out.subId=pair.name.toString();
+                            out.originSpans=track["spans"].clone();
+                            out.originStart=live::blockStart(pair.value);
+                            out.originLength=live::blockLength(pair.value);
+                            out.startX=event.x;out.rowTop=y;
+                            return true;
+                        }
+                    const auto rect=parent.extent(item,span,y+10,rowHeight-20);
+                    if(!rect.contains(event.getPosition()))continue;
+                    out.mode=event.x<=rect.getX()+5?PatchGesture::Mode::left:
+                             event.x>=rect.getRight()-5?PatchGesture::Mode::right:
+                             PatchGesture::Mode::body;
+                    out.itemId=item.value["id"].toString();out.channelId=lane.channel;
+                    out.patchId=patchId;out.subId={};
+                    out.originSpans=track["spans"].clone();
+                    out.originStart=live::blockStart(span);
+                    out.originLength=live::blockLength(span);
+                    out.startX=event.x;out.rowTop=y;
+                    return true;
+                }
+            }
+            return false;
+        }
+        bool beginPatchEdit(const juce::MouseEvent &event) {
+            if(!event.mods.isLeftButtonDown())return false;
+            PatchGesture hit;
+            if(!patchHitTest(event,hit))return false;
+            patchGesture=hit;
+            repaint();
+            return true;
+        }
+        void previewPatchEdit(const juce::MouseEvent &event) {
+            auto &g=patchGesture;
+            if(g.mode==PatchGesture::Mode::none)return;
+            const auto item=std::find_if(parent.items.begin(),parent.items.end(),
+                [&](const auto &candidate){return candidate.value["id"].toString()==g.itemId;});
+            if(item==parent.items.end())return;
+            const double dx=(event.x-g.startX)/juce::jmax(1.e-9,item->scale);
+            double start=g.originStart,length=g.originLength;
+            bool move=false,adjust=false;
+            switch(g.mode) {
+                case PatchGesture::Mode::body: move=true;start+=dx;break;
+                case PatchGesture::Mode::left: start+=dx;length-=dx;adjust=true;break;
+                case PatchGesture::Mode::right: length+=dx;adjust=true;break;
+                case PatchGesture::Mode::subBody: move=true;start+=dx;break;
+                case PatchGesture::Mode::subLeft: start+=dx;length-=dx;break;
+                case PatchGesture::Mode::subRight: length+=dx;break;
+                default: return;
+            }
+            if(g.subId.isEmpty())
+                g.previewSpans=live::editedPatchSpans(g.originSpans,item->bars,g.patchId,start,length,adjust,move);
+            else
+                g.previewSpans=live::editedSubPatchSpan(g.originSpans,g.patchId,g.subId,start,length,move);
+            repaint();
+        }
+        void finishPatchEdit() {
+            if(patchGesture.mode==PatchGesture::Mode::none)return;
+            const auto spans=patchGesture.previewSpans;
+            const auto channelId=patchGesture.channelId,patchId=patchGesture.patchId;
+            const bool sub=patchGesture.subId.isNotEmpty();
+            const bool bodyMove=patchGesture.mode==PatchGesture::Mode::body||
+                                patchGesture.mode==PatchGesture::Mode::subBody;
+            patchGesture={};
+            if(spans.isObject())
+                parent.owner.run([&]{
+                    parent.owner.setLivePatchSpans(channelId,patchId,spans,
+                        sub?(bodyMove?"Move sub-patch strip":"Resize sub-patch strip")
+                           :(bodyMove?"Move patch block":"Resize patch block"));
+                });
+            repaint();
+        }
+        void cancelPatchEdit() {
+            if(patchGesture.mode==PatchGesture::Mode::none)return;
+            patchGesture={};
+            repaint();
+        }
+        void paintPatchPreview(juce::Graphics &g) {
+            if(patchGesture.mode==PatchGesture::Mode::none||!patchGesture.previewSpans.isObject())return;
+            for(const auto &item:parent.items)
+                if(item.value["id"].toString()==patchGesture.itemId) {
+                    const auto span=patchGesture.previewSpans[juce::Identifier(patchGesture.patchId)];
+                    if(!span.isObject())return;
+                    juce::Rectangle<int> rect;
+                    if(patchGesture.subId.isEmpty())
+                        rect=parent.extent(item,span,patchGesture.rowTop+10,rowHeight-20);
+                    else {
+                        const auto sub=span["subs"][juce::Identifier(patchGesture.subId)];
+                        if(!sub.isObject())return;
+                        rect=parent.extent(item,sub,patchGesture.rowTop+64,26,live::blockStart(span));
+                    }
+                    g.setColour(liveReferenceTokens().colour(ColourRole::focus));
+                    g.drawRect(rect,2);
+                    return;
+                }
+        }
+        bool patchContextMenu(const juce::MouseEvent &event) {
+            PatchGesture hit;
+            if(!patchHitTest(event,hit))return false;
+            const auto channel=live::find(parent.state,"channels",hit.channelId);
+            const auto patch=live::find(channel,"patches",hit.patchId);
+            const auto span=hit.originSpans[juce::Identifier(hit.patchId)];
+            const auto subs=span["subs"];
+            juce::PopupMenu menu;menu.setLookAndFeel(&parent.owner.theme);
+            menu.addItem(1,"Remove patch block");
+            std::vector<juce::String> subIds;
+            if(const auto *list=patch["subPatches"].getArray())
+                for(const auto &sub:*list) {
+                    const auto subId=sub["id"].toString();
+                    const bool present=subs[juce::Identifier(subId)].isObject();
+                    menu.addItem(100+static_cast<int>(subIds.size()),
+                                 juce::String(present?"Remove strip: ":"Add strip: ")+sub["name"].toString(),
+                                 true,present);
+                    subIds.push_back(subId);
+                }
+            juce::Component::SafePointer<Desktop> safe(&parent.owner);
+            juce::Component::SafePointer<Body> self(this);
+            const auto channelId=hit.channelId,patchId=hit.patchId;
+            menu.showMenuAsync(liveMenuOptions(*this),[safe,self,channelId,patchId,subIds](int action){
+                if(!safe||!action)return;
+                safe->run([&]{
+                    if(action==1){safe->removeLivePatchBlock(channelId,patchId);return;}
+                    const auto index=action-100;
+                    if(index<0||index>=static_cast<int>(subIds.size()))return;
+                    const auto subId=subIds[static_cast<std::size_t>(index)];
+                    const auto track=live::channelItemTrack(safe->liveDocument->interfaceState,
+                        safe->liveDocument->interfaceState["currentItem"].toString(),channelId);
+                    const auto span=track["spans"][juce::Identifier(patchId)];
+                    if(span["subs"][juce::Identifier(subId)].isObject())
+                        safe->removeLiveSubPatchBlock(channelId,patchId,subId);
+                    else
+                        safe->addLiveSubPatchBlock(channelId,patchId,subId);
+                });
+                if(self)self->repaint();
+            });
+            return true;
+        }
         bool keyPressed(const juce::KeyPress &key) override {
-            if (key == juce::KeyPress::escapeKey) { cancelEdit(); return true; }
+            if (key == juce::KeyPress::escapeKey) { cancelPatchEdit(); cancelEdit(); return true; }
             if (clipSelection.isNotEmpty()) {
                 if(key==juce::KeyPress::deleteKey || key==juce::KeyPress::backspaceKey){removeClip();return true;}
                 if(key==juce::KeyPress::returnKey){clipProperties();return true;}
@@ -749,7 +941,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey) { removeSelected(); return true; }
             return false;
         }
-        void focusLost(FocusChangeType) override { cancelEdit(); }
+        void focusLost(FocusChangeType) override { cancelPatchEdit(); cancelEdit(); }
         void mouseDoubleClick(const juce::MouseEvent &event) override {
             cancelEdit();
             if(event.y>=lanesTop){if(beginClipEdit(event)){cancelEdit();if(!scissors)clipProperties(event.getScreenPosition());}return;}

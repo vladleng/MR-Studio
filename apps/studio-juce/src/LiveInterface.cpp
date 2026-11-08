@@ -1677,6 +1677,125 @@ void Desktop::deleteLiveChannelSubPatch(const juce::String& requested,const juce
         subs.remove(index);
     });
 }
+namespace {
+double liveCurrentItemBars(const Desktop& owner) {
+    const auto itemId=owner.liveDocument->interfaceState["currentItem"].toString();
+    const auto item=live::find(owner.liveDocument->interfaceState,"items",itemId);
+    return live::number(item["bars"])?static_cast<double>(item["bars"]):0.;
+}
+}
+void Desktop::addLivePatchBlock(const juce::String& requested,const juce::String& patchId) {
+    const auto channel=inputChannel(*this,requested);
+    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
+    const auto patch=live::find(row,"patches",patchId);
+    if(!patch.isObject()||live::legacyPatch(patch))
+        throw std::runtime_error("Choose a captured patch before adding its block");
+    const auto itemId=liveDocument->interfaceState["currentItem"].toString();
+    if(itemId.isEmpty())throw std::runtime_error("Select a song item first");
+    const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
+    if(!track.isObject())throw std::runtime_error("The current item has no track for this channel");
+    const auto spans=track["spans"];
+    if(spans[juce::Identifier(patchId)].isObject())
+        throw std::runtime_error("This patch block is already on the item");
+    const auto nextSpans=live::addedPatchSpan(spans,liveCurrentItemBars(*this),patchId,
+                                              liveCurrentItemBars(*this));
+    if(live::sameShowValue(nextSpans,spans))
+        throw std::runtime_error("No free space for a patch block; move or resize existing blocks");
+    editLiveInterface("Add patch block",[&](auto& state){
+        auto& item=live::require(state,"items",itemId);
+        for(auto& track2:live::array(item,"tracks"))
+            if(track2["channelId"].toString()==channel) {
+                live::put(track2,"spans",nextSpans.clone());
+                auto& order=live::array(track2,"patchOrder");
+                if(!order.contains(patchId))order.add(patchId);
+                return;
+            }
+        throw std::runtime_error("The current item has no track for this channel");
+    });
+}
+void Desktop::addLiveSubPatchBlock(const juce::String& requested,const juce::String& patchId,
+                                   const juce::String& subPatchId) {
+    const auto channel=inputChannel(*this,requested);
+    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
+    const auto patch=live::find(row,"patches",patchId);
+    if(!patch.isObject()||live::legacyPatch(patch))
+        throw std::runtime_error("Choose a captured patch first");
+    if(!live::find(patch,"subPatches",subPatchId).isObject())
+        throw std::runtime_error("Choose a sub-patch of this patch");
+    const auto itemId=liveDocument->interfaceState["currentItem"].toString();
+    const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
+    const auto spans=track["spans"];
+    const auto span=spans[juce::Identifier(patchId)];
+    if(!span.isObject())
+        throw std::runtime_error("Add the patch block before its sub-patch strip");
+    const double parentLength=live::blockLength(span);
+    const auto subs=live::addedPatchSpan(span["subs"],parentLength,subPatchId,parentLength);
+    if(live::sameShowValue(subs,span["subs"]))
+        throw std::runtime_error("No free space for a sub-patch strip");
+    auto nextSpans=spans.clone();
+    auto updated=nextSpans[juce::Identifier(patchId)];
+    live::put(updated,"subs",subs.clone());
+    live::put(nextSpans,juce::Identifier(patchId),updated);
+    editLiveInterface("Add sub-patch strip",[&](auto& state){
+        auto& item=live::require(state,"items",itemId);
+        for(auto& track2:live::array(item,"tracks"))
+            if(track2["channelId"].toString()==channel) {
+                live::put(track2,"spans",nextSpans.clone());
+                return;
+            }
+        throw std::runtime_error("The current item has no track for this channel");
+    });
+}
+void Desktop::removeLivePatchBlock(const juce::String& requested,const juce::String& patchId) {
+    const auto channel=inputChannel(*this,requested);
+    const auto itemId=liveDocument->interfaceState["currentItem"].toString();
+    editLiveInterface("Remove patch block",[&](auto& state){
+        auto& item=live::require(state,"items",itemId);
+        for(auto& track2:live::array(item,"tracks"))
+            if(track2["channelId"].toString()==channel) {
+                live::put(track2,"spans",live::removedPatchSpan(track2["spans"],patchId));
+                auto& order=live::array(track2,"patchOrder");
+                for(int i=order.size();--i>=0;)
+                    if(order[i].toString()==patchId)order.remove(i);
+                return;
+            }
+        throw std::runtime_error("The current item has no track for this channel");
+    });
+}
+void Desktop::removeLiveSubPatchBlock(const juce::String& requested,const juce::String& patchId,
+                                      const juce::String& subPatchId) {
+    const auto channel=inputChannel(*this,requested);
+    const auto itemId=liveDocument->interfaceState["currentItem"].toString();
+    editLiveInterface("Remove sub-patch strip",[&](auto& state){
+        auto& item=live::require(state,"items",itemId);
+        for(auto& track2:live::array(item,"tracks"))
+            if(track2["channelId"].toString()==channel) {
+                auto spans=track2["spans"].clone();
+                auto span=spans[juce::Identifier(patchId)];
+                if(!span.isObject())throw std::runtime_error("Patch block is not on this item");
+                live::put(span,"subs",live::removedPatchSpan(span["subs"],subPatchId));
+                live::put(spans,juce::Identifier(patchId),span);
+                live::put(track2,"spans",spans);
+                return;
+            }
+        throw std::runtime_error("The current item has no track for this channel");
+    });
+}
+void Desktop::setLivePatchSpans(const juce::String& requested,const juce::String& patchId,
+                                juce::var spans,const juce::String& label) {
+    const auto channel=inputChannel(*this,requested);
+    const auto itemId=liveDocument->interfaceState["currentItem"].toString();
+    editLiveInterface(label,[&](auto& state){
+        auto& item=live::require(state,"items",itemId);
+        for(auto& track2:live::array(item,"tracks"))
+            if(track2["channelId"].toString()==channel) {
+                live::put(track2,"spans",spans.clone());
+                return;
+            }
+        throw std::runtime_error("The current item has no track for this channel");
+    },false,false);
+    (void)patchId;
+}
 void Desktop::applyLiveItemDefaultPatches() {
     // #289 A-Upd1: switching a song while stopped adopts that song's default
     // channel patches. Only activated channels with a connected device can be
