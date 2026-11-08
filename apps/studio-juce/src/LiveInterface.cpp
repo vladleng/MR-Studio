@@ -1905,8 +1905,8 @@ void Desktop::splitLivePatchBlock(const juce::String& requested,const juce::Stri
     const auto itemId=livePatchTargetItem(*this,requestedItem);
     const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
     if(!track.isObject())throw std::runtime_error("Patch track no longer exists");
-    const auto split=live::splitPatchBlock(track["spans"],track["patchOrder"],blockId,atBar);
-    commitLivePatchTrack(*this,itemId,channel,split.spans,"Split patch block",split.order);
+    const auto splitResult=live::splitPatchBlock(track["spans"],track["patchOrder"],blockId,atBar);
+    commitLivePatchTrack(*this,itemId,channel,splitResult.spans,"Split patch block",splitResult.order);
 }
 void Desktop::splitLiveSubPatchBlock(const juce::String& requested,const juce::String& blockId,
                                      const juce::String& subBlockId,double atBar,
@@ -1915,8 +1915,8 @@ void Desktop::splitLiveSubPatchBlock(const juce::String& requested,const juce::S
     const auto itemId=livePatchTargetItem(*this,requestedItem);
     const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
     if(!track.isObject())throw std::runtime_error("Patch track no longer exists");
-    const auto split=live::splitSubPatchBlock(track["spans"],blockId,subBlockId,atBar);
-    commitLivePatchTrack(*this,itemId,channel,split.spans,"Split sub-patch strip");
+    const auto splitResult=live::splitSubPatchBlock(track["spans"],blockId,subBlockId,atBar);
+    commitLivePatchTrack(*this,itemId,channel,splitResult.spans,"Split sub-patch strip");
 }
 void Desktop::applyLiveItemDefaultPatches() {
     // #289 A-Upd1: switching a song while stopped adopts that song's default
