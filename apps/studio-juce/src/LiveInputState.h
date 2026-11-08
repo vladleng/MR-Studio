@@ -400,8 +400,9 @@ inline std::vector<mrs::NativeInsert> patchInsertsWithSubPatch(
             if(at==inserts.end())throw std::runtime_error("Sub-patch override references missing VST3 insert");
             auto param=std::find_if(at->parameters.begin(),at->parameters.end(),[&](const auto& p){
                 return p.id==parameterId;});
-            if(param==at->parameters.end())at->parameters.push_back({parameterId,value});
-            else param->value=value;
+            if(param==at->parameters.end())
+                throw std::runtime_error("Sub-patch parameter no longer exists on the base Patch");
+            param->value=value;
         }
         return inserts;
     }
@@ -430,6 +431,8 @@ inline juce::var subPatchChain(juce::var& /*state*/,const std::vector<mrs::Nativ
         }
         if(original.bypass!=edited.bypass)
             throw std::runtime_error("Sub-patch bypass changes require a separate Patch");
+        if(original.parameters.size()!=edited.parameters.size())
+            throw std::runtime_error("Sub-patch parameter list differs from its base Patch");
         for(const auto& parameter:edited.parameters) {
             const auto before=std::find_if(original.parameters.begin(),original.parameters.end(),
                 [&](const auto& p){return p.id==parameter.id;});
