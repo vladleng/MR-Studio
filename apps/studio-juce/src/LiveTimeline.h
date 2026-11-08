@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <mrs/diagnostics.hpp>
 #include "Desktop.h"
 #include "LiveContext.h"
@@ -645,6 +645,10 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             double originStart{}, originLength{};
         };
         PatchGesture patchGesture;
+        // Popup menus are opened on mouse-up: showing them from mouse-down let the same click
+        // dismiss the menu immediately, so right-click appeared to do nothing.
+        bool popupPending{};
+        juce::Point<int> popupPosition, popupScreen;
         void paint(juce::Graphics &g) override {
             parent.paintItems(g);
             paintPatchPreview(g);
@@ -655,7 +659,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             setMouseCursor(juce::MouseCursor::NormalCursor);
             if(patchGesture.mode==PatchGesture::Mode::none&&event.y>=lanesTop) {
                 PatchGesture hover;
-                if(patchHitTest(event,hover)) {
+                if(patchHitTest(event.getPosition(),hover)) {
                     const bool edge=hover.mode==PatchGesture::Mode::left||hover.mode==PatchGesture::Mode::right||
                                     hover.mode==PatchGesture::Mode::subLeft||hover.mode==PatchGesture::Mode::subRight;
                     setMouseCursor(edge?juce::MouseCursor::LeftRightResizeCursor:juce::MouseCursor::DraggingHandCursor);
@@ -705,7 +709,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     if(const auto *lane=parent.laneAt(event.y))
                         parent.selectPlaybackChannel(lane->channel);
             }
-            if (event.mods.isPopupMenu()) { if (patchContextMenu(event)) return; if (addPatchBlockMenu(event)) return; }
+            if (event.mods.isPopupMenu()) { popupPending=true; popupPosition=event.getPosition(); popupScreen=event.getScreenPosition(); return; }
             if (beginClipEdit(event)) return;
             if (beginEdit(event)) return;
             if (beginPatchEdit(event)) return;
@@ -764,14 +768,21 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(editing)previewEdit(event);
         }
         void mouseUp(const juce::MouseEvent &) override {
+            if(popupPending) {
+                popupPending=false;
+                const auto position=popupPosition,screen=popupScreen;
+                if(patchContextMenu(position,screen)){repaint();return;}
+                addPatchBlockMenu(position,screen);
+                return;
+            }
             if(patchGesture.mode!=PatchGesture::Mode::none){finishPatchEdit();return;}
             if(editing)finishEdit();
         }
-        bool patchHitTest(const juce::MouseEvent &event, PatchGesture &out) const {
-            if(event.y<lanesTop)return false;
+        bool patchHitTest(juce::Point<int> position, PatchGesture &out) const {
+            if(position.y<lanesTop)return false;
             for(const auto &item:parent.items) {
-                if(item.collapsed||!item.bounds.contains(event.getPosition()))continue;
-                const int laneIndex=(event.y-lanesTop)/rowHeight;
+                if(item.collapsed||!item.bounds.contains(position))continue;
+                const int laneIndex=(position.y-lanesTop)/rowHeight;
                 if(laneIndex<0||laneIndex>=static_cast<int>(parent.lanes.size()))continue;
                 const auto &lane=parent.lanes[static_cast<std::size_t>(laneIndex)];
                 if(lane.container)continue;
@@ -790,29 +801,29 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                         for(const auto &pair:subs->getProperties()) {
                             if(!pair.value.isObject())continue;
                             const auto rect=parent.extent(item,pair.value,y+64,26,live::blockStart(span));
-                            if(!rect.contains(event.getPosition()))continue;
-                            out.mode=event.x<=rect.getX()+5?PatchGesture::Mode::subLeft:
-                                     event.x>=rect.getRight()-5?PatchGesture::Mode::subRight:
+                            if(!rect.contains(position))continue;
+                            out.mode=position.x<=rect.getX()+5?PatchGesture::Mode::subLeft:
+                                     position.x>=rect.getRight()-5?PatchGesture::Mode::subRight:
                                      PatchGesture::Mode::subBody;
                             out.itemId=item.value["id"].toString();out.channelId=lane.channel;
                             out.patchId=patchId;out.subId=pair.name.toString();
                             out.originSpans=track["spans"].clone();
                             out.originStart=live::blockStart(pair.value);
                             out.originLength=live::blockLength(pair.value);
-                            out.startX=event.x;out.rowTop=y;
+                            out.startX=position.x;out.rowTop=y;
                             return true;
                         }
                     const auto rect=parent.extent(item,span,y+10,rowHeight-20);
-                    if(!rect.contains(event.getPosition()))continue;
-                    out.mode=event.x<=rect.getX()+5?PatchGesture::Mode::left:
-                             event.x>=rect.getRight()-5?PatchGesture::Mode::right:
+                    if(!rect.contains(position))continue;
+                    out.mode=position.x<=rect.getX()+5?PatchGesture::Mode::left:
+                             position.x>=rect.getRight()-5?PatchGesture::Mode::right:
                              PatchGesture::Mode::body;
                     out.itemId=item.value["id"].toString();out.channelId=lane.channel;
                     out.patchId=patchId;out.subId={};
                     out.originSpans=track["spans"].clone();
                     out.originStart=live::blockStart(span);
                     out.originLength=live::blockLength(span);
-                    out.startX=event.x;out.rowTop=y;
+                    out.startX=position.x;out.rowTop=y;
                     return true;
                 }
             }
@@ -821,7 +832,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         bool beginPatchEdit(const juce::MouseEvent &event) {
             if(!event.mods.isLeftButtonDown())return false;
             PatchGesture hit;
-            if(!patchHitTest(event,hit))return false;
+            if(!patchHitTest(event.getPosition(),hit))return false;
             patchGesture=hit;
             repaint();
             return true;
@@ -890,9 +901,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     return;
                 }
         }
-        bool patchContextMenu(const juce::MouseEvent &event) {
+        bool patchContextMenu(juce::Point<int> position, juce::Point<int> screen) {
             PatchGesture hit;
-            if(!patchHitTest(event,hit))return false;
+            if(!patchHitTest(position,hit))return false;
             const auto channel=live::find(parent.state,"channels",hit.channelId);
             const auto patch=live::find(channel,"patches",hit.patchId);
             const auto span=hit.originSpans[juce::Identifier(hit.patchId)];
@@ -912,7 +923,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
             juce::Component::SafePointer<Body> self(this);
             const auto channelId=hit.channelId,patchId=hit.patchId;
-            menu.showMenuAsync(liveMenuOptions(*this),[safe,self,channelId,patchId,subIds](int action){
+            menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(juce::Rectangle<int>(screen.x,screen.y,1,1)),[safe,self,channelId,patchId,subIds](int action){
                 if(!safe||!action)return;
                 safe->run([&]{
                     if(action==1){safe->removeLivePatchBlock(channelId,patchId);return;}
@@ -933,16 +944,16 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         }
         // Right-click on an empty spot of a live channel lane inserts a patch block from that
         // channel's patch library; existing blocks keep their own menu.
-        bool addPatchBlockMenu(const juce::MouseEvent &event) {
-            const auto *lane=parent.laneAt(event.y);
+        bool addPatchBlockMenu(juce::Point<int> position, juce::Point<int> screen) {
+            const auto *lane=parent.laneAt(position.y);
             if(lane==nullptr) {
-                mrs::diagnostics::event("live_patch_menu y="+std::to_string(event.y)+" lane=none");
+                mrs::diagnostics::event("live_patch_menu y="+std::to_string(position.y)+" lane=none");
                 return false;
             }
             const auto channel=live::find(parent.state,"channels",lane->channel);
             const auto *patchValues=channel["patches"].getDynamicObject();
             const auto patchCount=patchValues!=nullptr?static_cast<int>(patchValues->getProperties().size()):0;
-            mrs::diagnostics::event("live_patch_menu y="+std::to_string(event.y)+
+            mrs::diagnostics::event("live_patch_menu y="+std::to_string(position.y)+
                 " lane="+lane->channel.toStdString()+" type="+channel["type"].toString().toStdString()+
                 " patches="+std::to_string(patchCount));
             if(!channel.isObject()||channel["type"].toString()=="Playback")return false;
@@ -967,11 +978,11 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     menu.addItem(static_cast<int>(i)+1,names[order[i]]);
             }
             menu.addSeparator();
-            menu.addItem(9000,"Capture current chain as patch…");
+            menu.addItem(9000,"Capture current chain as patchРІР‚В¦");
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
             juce::Component::SafePointer<Body> self(this);
             const auto channelId=lane->channel;
-            menu.showMenuAsync(liveMenuOptions(*this),
+            menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(juce::Rectangle<int>(screen.x,screen.y,1,1)),
                 [safe,self,channelId,ids,order](int action){
                     if(!safe||action<=0)return;
                     if(action==9000) {
@@ -1546,7 +1557,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                  item.value["name"].toString(),
                  {x + 10, 4, juce::jmax(0, width - 64), 26});
             text(g,
-                 item.value["tempo"].toString() + " BPM В· " + item.value["meter"].toString() + " В· " +
+                 item.value["tempo"].toString() + " BPM Р вЂ™Р’В· " + item.value["meter"].toString() + " Р вЂ™Р’В· " +
                      juce::String(item.bars-item.start) + " bars",
                  {x + 10, 30, juce::jmax(0, width - 20), 22}, true);
             performanceArt->draw(g,live::itemPerformanceMode(state,id),{x+width-48,8,18,18});
@@ -1663,8 +1674,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         const float right = static_cast<float>(x + static_cast<double>(clock.to_ticks(static_cast<mrs::Sample>(std::llround(end * 48000)))) / ticksPerBar * item.scale);
         const juce::Rectangle<float> area{x, static_cast<float>(y + 8), (std::max)(1.f, right - x), static_cast<float>(rowHeight - 16)};
         if (ready) block(g, area.getSmallestIntegerContainer(), {}, "blue");
-        text(g, "Playback В· " + juce::String(static_cast<int>(own.size())) + " stems" +
-                     (unavailable ? " В· file unavailable" : ready < static_cast<int>(own.size()) ? " В· preparing waveforms" : ""),
+        text(g, "Playback Р вЂ™Р’В· " + juce::String(static_cast<int>(own.size())) + " stems" +
+                     (unavailable ? " Р вЂ™Р’В· file unavailable" : ready < static_cast<int>(own.size()) ? " Р вЂ™Р’В· preparing waveforms" : ""),
              {item.bounds.getX() + 8, y + 10, item.bounds.getWidth() - 16, 24});
         if (ready && end > 0.) {
             const auto waveArea = area.withTrimmedTop(28).reduced(1.f, 4.f);
@@ -1684,7 +1695,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             const auto* cached=waveforms.find(row["file"].toString());
             text(g,cached && cached->error.isNotEmpty()?cached->error:"Preparing waveform...",{item.bounds.getX()+8,y+42,item.bounds.getWidth()-16,28},true);return;
         }
-        if(regions.size()==0){text(g,"No regions В· right-click to restore",{item.bounds.getX()+8,y+42,item.bounds.getWidth()-16,28},true);return;}
+        if(regions.size()==0){text(g,"No regions Р вЂ™Р’В· right-click to restore",{item.bounds.getX()+8,y+42,item.bounds.getWidth()-16,28},true);return;}
         for(const auto& region:*regions.getArray()){
             const double start=region["start"],length=region["length"],offset=region["offset"];
             const juce::Rectangle<float> area{static_cast<float>(item.bounds.getX()+1+(item.lead-item.start+start)*item.scale),static_cast<float>(y+10),
