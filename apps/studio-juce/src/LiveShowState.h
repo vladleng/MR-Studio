@@ -513,28 +513,53 @@ inline void validatePatchInserts(const juce::var &state, const juce::var &patch)
 // native parameters differ from the base patch.
 inline void validateSubPatches(const juce::var &state, const juce::var &patch) {
     const auto subs = patch["subPatches"];
-    if (subs.isVoid())
-        return;
-    if (!subs.isArray() || subs.size() > maximumSubPatches)
+    if(subs.isVoid())return;
+    if(!subs.isArray() || subs.size()>maximumSubPatches)
         throw std::runtime_error("Invalid channel sub-patch list");
-    const auto *baseInserts = patch["inserts"].getArray();
-    if (baseInserts == nullptr)
-        throw std::runtime_error("Channel sub-patches require a captured patch");
-    std::set<juce::String> ids, names;
-    for (const auto &sub : *subs.getArray()) {
-        if (!sub.isObject() || !named(sub["id"]) || !ids.insert(sub["id"].toString()).second ||
-            !named(sub["name"]) || !names.insert(sub["name"].toString()).second)
+    const auto* baseInserts=patch["inserts"].getArray();
+    if(baseInserts==nullptr)throw std::runtime_error("Channel sub-patches require a captured Patch");
+    std::set<juce::String> ids,names;
+    for(const auto& sub:*subs.getArray()) {
+        if(!sub.isObject() || !named(sub["id"]) || !ids.insert(sub["id"].toString()).second ||
+           !named(sub["name"]) || !names.insert(sub["name"].toString()).second)
             throw std::runtime_error("Invalid channel sub-patch");
-        if (!sub["color"].isVoid() && !patchColour(sub["color"].toString()))
+        if(!sub["color"].isVoid() && !patchColour(sub["color"].toString()))
             throw std::runtime_error("Invalid channel sub-patch colour");
-        if (!sub["inserts"].isArray() || sub["inserts"].size() != baseInserts->size())
+        if(!sub["overrides"].isVoid()) {
+            const auto* overrides=sub["overrides"].getArray();
+            if(!overrides||overrides->isEmpty()||overrides->size()>maximumSubPatchOverrides||
+               sub["inserts"].isArray())
+                throw std::runtime_error("Invalid parameter-only sub-patch");
+            std::set<std::pair<juce::String,juce::int64>> seen;
+            for(const auto& entry:*overrides) {
+                const auto insertId=entry["insertId"].toString();
+                if(!entry.isObject()||!named(entry["insertId"],128)||
+                   !number(entry["parameterId"])||!number(entry["value"]))
+                    throw std::runtime_error("Invalid sub-patch parameter override");
+                const double parameterId=static_cast<double>(entry["parameterId"]);
+                const double value=static_cast<double>(entry["value"]);
+                if(parameterId<0.||parameterId>4294967295.||std::floor(parameterId)!=parameterId||
+                   !std::isfinite(value)||value<0.||value>1. ||
+                   !seen.insert({insertId,static_cast<juce::int64>(parameterId)}).second)
+                    throw std::runtime_error("Invalid sub-patch parameter ID/value");
+                bool matches=false;
+                for(const auto& insert:*baseInserts)
+                    if(insert["id"].toString()==insertId && insert["kind"].toString()=="vst3")
+                        matches=true;
+                if(!matches)throw std::runtime_error("Sub-patch override references a missing VST3 insert");
+            }
+            continue;
+        }
+        // Previous accepted shows may contain full same-chain opaque snapshots.
+        // Validate and preserve them until a user explicitly updates this Sub-patch.
+        if(!sub["inserts"].isArray() || sub["inserts"].size()!=baseInserts->size())
             throw std::runtime_error("Sub-patch chain differs from its base patch");
-        validatePatchInserts(state, sub);
-        for (int i = 0; i < baseInserts->size(); ++i) {
-            const auto &base = (*baseInserts)[i];
-            const auto &variant = sub["inserts"][i];
-            if (variant["id"] != base["id"] || variant["kind"] != base["kind"] ||
-                variant["path"] != base["path"] || variant["classId"] != base["classId"])
+        validatePatchInserts(state,sub);
+        for(int i=0;i<baseInserts->size();++i) {
+            const auto& base=(*baseInserts)[i];
+            const auto& variant=sub["inserts"][i];
+            if(variant["id"]!=base["id"] || variant["kind"]!=base["kind"] ||
+               variant["path"]!=base["path"] || variant["classId"]!=base["classId"])
                 throw std::runtime_error("Sub-patch chain differs from its base patch");
         }
     }
@@ -649,11 +674,17 @@ inline void prunePatchStates(juce::var &state) {
     std::set<juce::String> used;
     for (const auto &channel : array(state, "channels"))
         if (const auto *bank = channel["patches"].getArray())
-            for (const auto &patch : *bank)
-                if (const auto *inserts = patch["inserts"].getArray())
-                    for (const auto &insert : *inserts)
-                        if (insert["state"].isString())
-                            used.insert(insert["state"].toString());
+            for (const auto &patch : *bank) {
+                const auto keepInserts=[&](const juce::var& source) {
+                    if(const auto* inserts=source["inserts"].getArray())
+                        for(const auto& insert:*inserts)
+                            if(insert["state"].isString())
+                                used.insert(insert["state"].toString());
+                };
+                keepInserts(patch);
+                if(const auto* subs=patch["subPatches"].getArray())
+                    for(const auto& sub:*subs)keepInserts(sub); // 0.9.2 legacy variants
+            }
     auto &store = map(state, "patchStates");
     juce::StringArray remove;
     if (const auto *values = store.getDynamicObject())
