@@ -1,4 +1,4 @@
-#include "Desktop.h"
+﻿#include "Desktop.h"
 #include "LivePluginCatalog.h"
 #include "LiveLayout.h"
 #include "LiveMusicalState.h"
@@ -481,9 +481,9 @@ void Desktop::editLiveOrganizerTasks(const juce::String& itemId,const juce::Stri
     } else if(operation=="template") {
         if(entries.size()>194)throw std::runtime_error("Organizer allows at most 200 tasks");
         for(const auto& name:juce::StringArray::fromTokens(
-                juce::String::fromUTF8("Композиция|Гармония|Инструментовка|Рыба"),"|","")) {
+                juce::String::fromUTF8("РљРѕРјРїРѕР·РёС†РёСЏ|Р“Р°СЂРјРѕРЅРёСЏ|РРЅСЃС‚СЂСѓРјРµРЅС‚РѕРІРєР°|Р С‹Р±Р°"),"|","")) {
             const auto parent=live::addTask(scratch,itemId,{},name);
-            if(name==juce::String::fromUTF8("Рыба")) {
+            if(name==juce::String::fromUTF8("Р С‹Р±Р°")) {
                 live::addTask(scratch,itemId,parent,"Drums");
                 live::addTask(scratch,itemId,parent,"Bass");
             }
@@ -1684,7 +1684,7 @@ double liveCurrentItemBars(const Desktop& owner) {
     return live::number(item["bars"])?static_cast<double>(item["bars"]):0.;
 }
 }
-void Desktop::addLivePatchBlock(const juce::String& requested,const juce::String& patchId) {
+void Desktop::addLivePatchBlock(const juce::String& requested,const juce::String& patchId,double preferredStartBars) {
     const auto channel=inputChannel(*this,requested);
     const auto row=live::find(liveDocument->interfaceState,"channels",channel);
     const auto patch=live::find(row,"patches",patchId);
@@ -1698,10 +1698,10 @@ void Desktop::addLivePatchBlock(const juce::String& requested,const juce::String
     const auto spans=track.isObject()?track["spans"]:live::object();
     if(spans[juce::Identifier(patchId)].isObject())
         throw std::runtime_error("This patch block is already on the item");
-    const auto nextSpans=live::addedPatchSpan(spans,liveCurrentItemBars(*this),patchId,
-                                              liveCurrentItemBars(*this));
-    if(live::sameShowValue(nextSpans,spans))
-        throw std::runtime_error("No free space for a patch block; move or resize existing blocks");
+    const auto itemBars=liveCurrentItemBars(*this);
+    const auto nextSpans=preferredStartBars>=0.
+        ? live::addedPatchSpanAt(spans,itemBars,patchId,preferredStartBars,itemBars)
+        : live::addedPatchSpan(spans,itemBars,patchId,itemBars);
     editLiveInterface("Add patch block",[&](auto& state){
         auto& item=live::require(state,"items",itemId);
         auto& tracks=live::array(item,"tracks");
@@ -1719,6 +1719,36 @@ void Desktop::addLivePatchBlock(const juce::String& requested,const juce::String
         if(!order.contains(patchId))order.add(patchId);
     });
 }
+void Desktop::replaceLivePatchBlock(const juce::String& requested,const juce::String& patchId,
+                                        const juce::String& replacementId) {
+    const auto channel=inputChannel(*this,requested);
+    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
+    const auto replacement=live::find(row,"patches",replacementId);
+    if(!replacement.isObject()||live::legacyPatch(replacement))
+        throw std::runtime_error("Choose a captured patch as the replacement");
+    const auto itemId=liveDocument->interfaceState["currentItem"].toString();
+    if(itemId.isEmpty())throw std::runtime_error("Select a song item first");
+    const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
+    const auto spans=track["spans"];
+    const auto geometry=spans[juce::Identifier(patchId)];
+    if(!geometry.isObject())throw std::runtime_error("This patch block is not on the item");
+    if(spans[juce::Identifier(replacementId)].isObject())
+        throw std::runtime_error("The replacement patch already has a block on this item");
+    editLiveInterface("Replace patch block",[&](auto& state){
+        auto& item=live::require(state,"items",itemId);
+        for(auto& track2:live::array(item,"tracks"))
+            if(track2["channelId"].toString()==channel) {
+                auto next=live::removedPatchSpan(track2["spans"],patchId);
+                live::put(next,juce::Identifier(replacementId),geometry);
+                live::put(track2,"spans",next);
+                auto& order=live::array(track2,"patchOrder");
+                for(auto& entry:order) if(entry.toString()==patchId)entry=juce::var(replacementId);
+                if(!order.contains(juce::var(replacementId)))order.add(replacementId);
+                return;
+            }
+    });
+}
+
 void Desktop::addLiveSubPatchBlock(const juce::String& requested,const juce::String& patchId,
                                    const juce::String& subPatchId) {
     const auto channel=inputChannel(*this,requested);
@@ -2220,7 +2250,7 @@ void Desktop::syncLivePreload() {
             return;
         const auto status = app.playback_preparation(found->media);
         const auto name = live::find(state, "items", id)["name"].toString();
-        liveNextStatus = "Next: " + name + " — " +
+        liveNextStatus = "Next: " + name + " вЂ” " +
                          (status.busy ? "preparing " + juce::String(static_cast<int>(status.progress * 100)) + "%"
                           : status.message.empty() ? "media ready"
                                                    : "unavailable: " + juce::String::fromUTF8(status.message.c_str()));
@@ -2233,14 +2263,14 @@ void Desktop::syncLivePreload() {
             app.stage_playback(found->media,performanceLayout(state,id,project()->sample_rate,token),liveRuntimeToken);
             liveAutoToken=token;liveAutoItem=id;liveAutoEntry=nextEntry["id"].toString();liveAutoKey=stageKey;
         }
-        if(app.staged_playback_token())liveNextStatus="Next: "+name+" — audio ready; graph prepared";
+        if(app.staged_playback_token())liveNextStatus="Next: "+name+" вЂ” audio ready; graph prepared";
         const auto boundary=app.engine()->performance_status();
         if((boundary.action==mrs::PerformanceAction::next||boundary.action==mrs::PerformanceAction::next_stopped)&&
            app.engine()->state().playback==mrs::PlaybackState::stopped)
             liveNextStatus+="; waiting at item end";
 
     } catch (const std::exception &error) {
-        liveNextStatus = "Next: unavailable — " + juce::String::fromUTF8(error.what());
+        liveNextStatus = "Next: unavailable вЂ” " + juce::String::fromUTF8(error.what());
     }
 }
 void Desktop::cancelLiveSwitch() {

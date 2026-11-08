@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <mrs/diagnostics.hpp>
 #include "Desktop.h"
 #include "LiveContext.h"
@@ -910,6 +910,17 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             const auto span=hit.originSpans[juce::Identifier(hit.patchId)];
             const auto subs=span["subs"];
             juce::PopupMenu menu;menu.setLookAndFeel(&parent.owner.theme);
+            juce::PopupMenu replaceMenu;
+            std::vector<juce::String> replacementIds;
+            if(const auto *bank=channel["patches"].getArray())
+                for(const auto &candidate:*bank) {
+                    const auto id=candidate["id"].toString();
+                    if(id.isEmpty()||id==hit.patchId||live::legacyPatch(candidate))continue;
+                    replaceMenu.addItem(2000+static_cast<int>(replacementIds.size()),
+                                        candidate["name"].toString());
+                    replacementIds.push_back(id);
+                }
+            if(!replacementIds.empty())menu.addSubMenu("Replace patch with\u2026",replaceMenu);
             menu.addItem(1,"Remove patch block");
             std::vector<juce::String> subIds;
             if(const auto *list=patch["subPatches"].getArray())
@@ -924,10 +935,16 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
             juce::Component::SafePointer<Body> self(this);
             const auto channelId=hit.channelId,patchId=hit.patchId;
-            menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(juce::Rectangle<int>(screen.x,screen.y,1,1)),[safe,self,channelId,patchId,subIds](int action){
+            menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(juce::Rectangle<int>(screen.x,screen.y,1,1)),[safe,self,channelId,patchId,subIds,replacementIds](int action){
                 if(!safe||!action)return;
                 safe->run([&]{
                     if(action==1){safe->removeLivePatchBlock(channelId,patchId);return;}
+                    if(action>=2000&&action<3000){
+                        const auto at=static_cast<std::size_t>(action-2000);
+                        if(at<replacementIds.size())
+                            safe->replaceLivePatchBlock(channelId,patchId,replacementIds[at]);
+                        return;
+                    }
                     const auto index=action-100;
                     if(index<0||index>=static_cast<int>(subIds.size()))return;
                     const auto subId=subIds[static_cast<std::size_t>(index)];
@@ -975,12 +992,21 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     menu.addItem(static_cast<int>(i)+1,names[order[i]]);
             }
             menu.addSeparator();
-            menu.addItem(9000,"Capture current chain as patchР Р†Р вЂљР’В¦");
+            menu.addItem(9000,"Capture current chain as patchР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В РІР‚в„ўР вЂ™Р’В¦");
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
             juce::Component::SafePointer<Body> self(this);
             const auto channelId=lane->channel;
+            // New blocks start at the playhead, not at the first free gap.
+            double preferredBar=-1.;
+            const auto playheadX=static_cast<float>(parent.playhead.getX());
+            for(const auto &item:parent.items)
+                if(!item.collapsed && playheadX>=static_cast<float>(item.bounds.getX()) &&
+                   playheadX<=static_cast<float>(item.bounds.getRight())) {
+                    preferredBar=barAt(item,playheadX);
+                    break;
+                }
             menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(juce::Rectangle<int>(screen.x,screen.y,1,1)),
-                [safe,self,channelId,ids,order](int action){
+                [safe,self,channelId,ids,order,preferredBar](int action){
                     if(!safe||action<=0)return;
                     if(action==9000) {
                         safe->textDialog("Patch name","Patch",
@@ -993,7 +1019,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     const auto index=static_cast<std::size_t>(action-1);
                     if(index>=order.size())return;
                     const auto patchId=ids[order[index]];
-                    safe->run([&]{safe->addLivePatchBlock(channelId,patchId);});
+                    safe->run([&]{safe->addLivePatchBlock(channelId,patchId,preferredBar);});
                     if(self)self->repaint();
                 });
             return true;
@@ -1554,7 +1580,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                  item.value["name"].toString(),
                  {x + 10, 4, juce::jmax(0, width - 64), 26});
             text(g,
-                 item.value["tempo"].toString() + " BPM Р В РІР‚в„ўР вЂ™Р’В· " + item.value["meter"].toString() + " Р В РІР‚в„ўР вЂ™Р’В· " +
+                 item.value["tempo"].toString() + " BPM Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· " + item.value["meter"].toString() + " Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· " +
                      juce::String(item.bars-item.start) + " bars",
                  {x + 10, 30, juce::jmax(0, width - 20), 22}, true);
             performanceArt->draw(g,live::itemPerformanceMode(state,id),{x+width-48,8,18,18});
@@ -1671,8 +1697,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         const float right = static_cast<float>(x + static_cast<double>(clock.to_ticks(static_cast<mrs::Sample>(std::llround(end * 48000)))) / ticksPerBar * item.scale);
         const juce::Rectangle<float> area{x, static_cast<float>(y + 8), (std::max)(1.f, right - x), static_cast<float>(rowHeight - 16)};
         if (ready) block(g, area.getSmallestIntegerContainer(), {}, "blue");
-        text(g, "Playback Р В РІР‚в„ўР вЂ™Р’В· " + juce::String(static_cast<int>(own.size())) + " stems" +
-                     (unavailable ? " Р В РІР‚в„ўР вЂ™Р’В· file unavailable" : ready < static_cast<int>(own.size()) ? " Р В РІР‚в„ўР вЂ™Р’В· preparing waveforms" : ""),
+        text(g, "Playback Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· " + juce::String(static_cast<int>(own.size())) + " stems" +
+                     (unavailable ? " Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· file unavailable" : ready < static_cast<int>(own.size()) ? " Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· preparing waveforms" : ""),
              {item.bounds.getX() + 8, y + 10, item.bounds.getWidth() - 16, 24});
         if (ready && end > 0.) {
             const auto waveArea = area.withTrimmedTop(28).reduced(1.f, 4.f);
@@ -1692,7 +1718,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             const auto* cached=waveforms.find(row["file"].toString());
             text(g,cached && cached->error.isNotEmpty()?cached->error:"Preparing waveform...",{item.bounds.getX()+8,y+42,item.bounds.getWidth()-16,28},true);return;
         }
-        if(regions.size()==0){text(g,"No regions Р В РІР‚в„ўР вЂ™Р’В· right-click to restore",{item.bounds.getX()+8,y+42,item.bounds.getWidth()-16,28},true);return;}
+        if(regions.size()==0){text(g,"No regions Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· right-click to restore",{item.bounds.getX()+8,y+42,item.bounds.getWidth()-16,28},true);return;}
         for(const auto& region:*regions.getArray()){
             const double start=region["start"],length=region["length"],offset=region["offset"];
             const juce::Rectangle<float> area{static_cast<float>(item.bounds.getX()+1+(item.lead-item.start+start)*item.scale),static_cast<float>(y+10),
@@ -1837,9 +1863,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 block(g, patchBounds, {}, patch["color"]);
                 // The 5 px edge zones were always editable but invisible; draw the same resize
                 // affordance the other accepted blocks use so blocks are obviously draggable.
-                g.setColour(juce::Colours::white.withAlpha(0.38f));
-                g.fillRect(patchBounds.getX(), patchBounds.getY() + 4, 2, patchBounds.getHeight() - 8);
-                g.fillRect(patchBounds.getRight() - 2, patchBounds.getY() + 4, 2, patchBounds.getHeight() - 8);
+                g.setColour(juce::Colours::white.withAlpha(0.55f));
+                g.fillRect(patchBounds.getX(), patchBounds.getY() + 3, 4, patchBounds.getHeight() - 8);
+                g.fillRect(patchBounds.getRight() - 4, patchBounds.getY() + 3, 4, patchBounds.getHeight() - 8);
                 text(g, patch["name"].toString(), patchBounds.reduced(6).withHeight(30));
                 if (const auto *subs = patch["subPatches"].getArray())
                     for (const auto &sub : *subs) {
@@ -1848,9 +1874,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                             const auto subBounds = extent(item, geometry, y + 64, 26, numeric(span["start"], 0, 0, 4096));
                             block(g, subBounds, sub["name"].toString(),
                                   sub["color"].toString() == "inherit" ? patch["color"] : sub["color"]);
-                            g.setColour(juce::Colours::white.withAlpha(0.30f));
-                            g.fillRect(subBounds.getX(), subBounds.getY() + 3, 2, subBounds.getHeight() - 6);
-                            g.fillRect(subBounds.getRight() - 2, subBounds.getY() + 3, 2, subBounds.getHeight() - 6);
+                            g.setColour(juce::Colours::white.withAlpha(0.45f));
+                            g.fillRect(subBounds.getX(), subBounds.getY() + 3, 3, subBounds.getHeight() - 6);
+                            g.fillRect(subBounds.getRight() - 3, subBounds.getY() + 3, 3, subBounds.getHeight() - 6);
                         }
                     }
             }

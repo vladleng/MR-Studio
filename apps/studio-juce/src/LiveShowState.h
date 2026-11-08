@@ -397,6 +397,37 @@ inline juce::var addedPatchSpan(const juce::var& spans,double itemBars,const juc
     place(itemEnd-start); // no room: explicit no-op, caller reports
     return result;
 }
+// #289 C follow-up: insert at the playhead instead of the first free gap. Falls back to the
+// first gap that fits when the playhead sits inside an existing block.
+inline juce::var addedPatchSpanAt(const juce::var& spans,double itemBars,const juce::String& patchId,
+                                  double preferredStart,double preferredLength) {
+    auto result=spans.isObject()?spans.clone():object();
+    auto* values=result.getDynamicObject();
+    if(values==nullptr)return result;
+    const double itemEnd=juce::jmax(.25,itemBars);
+    const double want=juce::jmax(.25,preferredLength);
+    std::vector<std::pair<double,double>> gaps;
+    double cursor=0.;
+    for(const auto& row:orderedSpans(result)) {
+        const double rowStart=juce::jmax(0.,blockStart(row.second));
+        if(rowStart-cursor>=.25)gaps.emplace_back(cursor,rowStart);
+        cursor=juce::jmax(cursor,rowStart+blockLength(row.second));
+    }
+    if(itemEnd-cursor>=.25)gaps.emplace_back(cursor,itemEnd);
+    int chosen=-1;
+    for(std::size_t i=0;i<gaps.size();++i)
+        if(preferredStart>=gaps[i].first&&preferredStart<=gaps[i].second){chosen=static_cast<int>(i);break;}
+    if(chosen<0)
+        for(std::size_t i=0;i<gaps.size();++i)
+            if(gaps[i].second-gaps[i].first>=.25){chosen=static_cast<int>(i);break;}
+    if(chosen<0)return result; // no room: explicit no-op, caller reports
+    const auto& gap=gaps[static_cast<std::size_t>(chosen)];
+    double start=juce::jlimit(gap.first,juce::jmax(gap.first,gap.second-.25),preferredStart);
+    double length=juce::jmin(want,juce::jmax(.25,gap.second-start));
+    if(length<.25){start=gap.first;length=juce::jmin(want,gap.second-gap.first);}
+    values->setProperty(juce::Identifier(patchId),blockSpan(start,length));
+    return result;
+}
 // #289 A-Upd1: channel patches an item asks for when it becomes current.
 // Legacy demo patches have no captured chain and are never auto-applied.
 inline std::vector<std::pair<juce::String, juce::String>> itemDefaultPatches(

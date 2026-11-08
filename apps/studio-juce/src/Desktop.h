@@ -153,8 +153,10 @@ public:
                                    const juce::String& subPatchId);
     // #289 C - free patch/sub-patch block authoring on the current item. These
     // only change show geometry (one Undo per gesture); DSP is not involved.
-    void addLivePatchBlock(const juce::String&, const juce::String& patchId);
+    void addLivePatchBlock(const juce::String&, const juce::String& patchId, double preferredStartBars);
+    void addLivePatchBlock(const juce::String& channel, const juce::String& patchId) { addLivePatchBlock(channel, patchId, -1.); }
     void addLiveSubPatchBlock(const juce::String&, const juce::String& patchId, const juce::String& subPatchId);
+    void replaceLivePatchBlock(const juce::String& channel, const juce::String& patchId, const juce::String& replacementId);
     void removeLivePatchBlock(const juce::String&, const juce::String& patchId);
     void removeLiveSubPatchBlock(const juce::String&, const juce::String& patchId, const juce::String& subPatchId);
     void setLivePatchSpans(const juce::String&, const juce::String& patchId, juce::var spans,
