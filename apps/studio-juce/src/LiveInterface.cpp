@@ -483,7 +483,7 @@ void Desktop::editLiveOrganizerTasks(const juce::String& itemId,const juce::Stri
         for(const auto& name:juce::StringArray::fromTokens(
                 juce::String::fromUTF8("Композиция|Гармония|Инструментовка|Рыба"),"|","")) {
             const auto parent=live::addTask(scratch,itemId,{},name);
-            if(name==juce::String::fromUTF8("Р С‹Р±Р°")) {
+            if(name==juce::String::fromUTF8("Рыба")) {
                 live::addTask(scratch,itemId,parent,"Drums");
                 live::addTask(scratch,itemId,parent,"Bass");
             }
