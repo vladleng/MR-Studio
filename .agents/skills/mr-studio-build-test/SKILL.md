@@ -3,9 +3,9 @@ name: mr-studio-build-test
 description: Validate a local MR Studio code change with CMake/JUCE compile, focused CTest, GUI/app smoke checks and release acceptance. Use for build failures or explicit test/build requests; not for a docs-only planning task.
 ---
 
-# MR Studio Local Build & Test
+# MR Studio Cloud Build & Test
 
-**Never invent preset/target/path/test commands.** Discover canonical local scripts, CMake presets and target names from the *actual checkout*. Development is local (user decision 2026-11-07): source, configure/build, CTest, binaries, GUI screenshots and packages stay on this machine. Do not launch GitHub Actions, push source, open PRs or merge without a separate explicit request. `docs/CLOUD_DEVELOPMENT.md` is the closed online-development stage, not current policy. Protect existing accepted packages/user projects.
+**Never invent preset/target/path/test commands.** Discover canonical local scripts, CMake presets and target names from the *actual checkout*. Development is online (user decision 2026-11-08): GitHub `main` owns rules and specs, topic branches hold the working code, and GitHub Actions produces Windows builds, tests and artifacts. The local Windows PC is for user acceptance, real ASIO/MIDI/DPI/vendor checks and running the produced artifacts; local builds are allowed but are not the source of truth. Do not merge into `main` without separate user acceptance. See `docs/CLOUD_DEVELOPMENT.md`. Protect existing accepted packages/user projects.
 
 Local toolchain baseline: Visual Studio 18 Community with bundled CMake/Ninja at `C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\{CMake\bin\cmake.exe,Ninja\ninja.exe}`; they are **not** on `PATH`, so use the VS developer shell or absolute paths. Git ships portably under the DSH tools directory.
 
