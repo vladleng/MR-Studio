@@ -304,12 +304,13 @@ void Desktop::confirmLivePatchUpdate(const juce::String& channelId,const juce::S
     const auto sub=subPatchId.isEmpty()?juce::var{}:live::find(patch,"subPatches",subPatchId);
     if(!patch.isObject() || (subPatchId.isNotEmpty()&&!sub.isObject()))
         throw std::runtime_error("Patch/Sub-patch no longer exists");
-    const auto label=subPatchId.isEmpty()?"Patch":"Sub-patch";
+    const juce::String label=subPatchId.isEmpty()?"Patch":"Sub-patch";
     const auto name=subPatchId.isEmpty()?patch["name"].toString():sub["name"].toString();
-    auto* alert=new StudioAlertWindow(*this,"Update "+label,
-        "Capture the current sound into "+name+"? All blocks using this library entry will change. "+
-        "Choose Save as new Patch for an independent sound.",
-        juce::MessageBoxIconType::QuestionIcon);
+    const auto message=juce::String("Capture the current sound into ")+name+
+        "? All blocks using this library entry will change. "+
+        juce::String("Choose Save as new Patch for an independent sound.");
+    auto* alert=new StudioAlertWindow(*this,juce::String("Update ")+label,
+                                      message,juce::MessageBoxIconType::QuestionIcon);
     alert->addButton("Update",1);
     alert->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
     juce::Component::SafePointer<Desktop> safe(this);
