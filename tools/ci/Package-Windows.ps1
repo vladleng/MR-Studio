@@ -8,14 +8,10 @@ if(Test-Path -LiteralPath $Output){throw 'Package output already exists; use a n
 New-Item -ItemType Directory -Path $Output | Out-Null
 $application=if($LiveOnly){'MR Live'}elseif($StudioOnly){'MR Studio'}else{'MR Studio + MR Live'}
 $gui=if($LiveOnly){Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe'}else{Join-Path $Build 'MoonRiverStudioJuce_artefacts/Release/Moon River Studio JUCE.exe'}
-# The Actions artifact name already contains the version; the actual runtime EXE
-# must carry the same version when unpacked onto the user's Windows PC.
-$liveExeName="MR Live $env:MR_LIVE_VERSION.exe"
-if($LiveOnly){
- Copy-Item -LiteralPath $gui -Destination (Join-Path $Output $liveExeName)
-}else{
- Copy-Item -LiteralPath $gui -Destination $Output
-}
+# Keep the Windows executable name stable for vendor VST3 host compatibility.
+# The release version belongs to the artifact and its extracted directory.
+$liveExeName='MR Live.exe'
+Copy-Item -LiteralPath $gui -Destination $Output
 if(!$LiveOnly){
  Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $gui) 'ace-midi.exe') -Destination $Output
  Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $gui) 'ace-midi-avx2.exe') -Destination $Output
@@ -57,4 +53,12 @@ $files=@(Get-ChildItem -LiteralPath $Output -File | Sort-Object Name | ForEach-O
 @{application=$application;source=$sha;version=$releaseLabel;binary_version=$version;release_label=$releaseLabel;versions=@{studio=$env:MR_STUDIO_VERSION;live=$env:MR_LIVE_VERSION};ara=$packageAra;run=$env:GITHUB_RUN_ID;tests=$env:CI_TEST_RESULT;checks=$env:CI_CHECK_SCOPE;runner_image=$env:ImageVersion;sdk_lock_sha256=(Get-FileHash -LiteralPath "$PSScriptRoot/sdk-lock.json").Hash;files=$files} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$Output/SHA256.json" -Encoding UTF8
 foreach($file in $files){if((Get-FileHash -LiteralPath (Join-Path $Output $file.name)).Hash -ne $file.sha256){throw 'Package integrity failure'}}
 
-& (Join-Path $PSScriptRoot 'Verify-Package.ps1') -Package $Output -ExpectedSource $sha -ExpectedVersion $releaseLabel
+# The GitHub artifact expands to one versioned directory. No executable
+# renaming: vendor VST3 GUI initialization may identify the host by EXE name.
+$packageRoot=$Output
+if($LiveOnly){
+ $packageRoot=Join-Path $Output "$application $releaseLabel"
+ New-Item -ItemType Directory -Path $packageRoot | Out-Null
+ Get-ChildItem -LiteralPath $Output -File | Move-Item -Destination $packageRoot
+}
+& (Join-Path $PSScriptRoot 'Verify-Package.ps1') -Package $packageRoot -ExpectedSource $sha -ExpectedVersion $releaseLabel
