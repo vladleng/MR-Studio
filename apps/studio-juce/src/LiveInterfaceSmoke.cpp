@@ -1257,6 +1257,32 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
               editing.liveCurrentEntry==activeEntryBefore && editing.app.engine()==engineBeforePatch &&
               editing.liveLocalPatchApplications==localBeforePatch+5,
               "#374 Patch create/resize/replace/remove/Undo remains local, without transport or channel VST3 changes");
+    {
+        // #374 Windows Save regression: safely replace an existing show with a
+        // large opaque VST3 blob through ONE sibling temporary file. The file
+        // remains readable after two overwrites and no source show is changed.
+        auto onDisk=editing.liveDocument->clone();
+        const auto target=juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getNonexistentChildFile("live-save-overwrite",".mrlive",false);
+        onDisk.write(target);
+        liveCheck(target.existsAsFile()&&LiveDocument::read(target).interfaceState.isObject(),
+                  "#374 First Save As produces a valid MR Live show");
+        auto stateBlob=live::object();
+        live::put(stateBlob,"component",juce::String::repeatedString("QUJD",262144));
+        live::put(stateBlob,"controller","");
+        live::put(live::map(onDisk.interfaceState,"patchStates"),
+                  juce::Identifier("0123456789abcdef0123456789abcdef"),stateBlob);
+        onDisk.write(target);
+        const auto reopened=LiveDocument::read(target);
+        liveCheck(reopened.interfaceState["patchStates"]
+                      [juce::Identifier("0123456789abcdef0123456789abcdef")]
+                      ["component"].toString().length()==1048576,
+                  "#374 Save replaces existing show and keeps large VST3 state");
+        onDisk.write(target);
+        liveCheck(LiveDocument::read(target).signature()==onDisk.signature(),
+                  "#374 A second Save replaces show without truncation or changed content");
+        liveCheck(target.deleteFile(),"#374 Save test cleans its temporary show");
+    }
 }
 // #309 point 4: native Studio-style channel DnD must be ONE show undo
 // operation and must never reinterpret Backing as the next Playback root.
