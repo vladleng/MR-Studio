@@ -1687,43 +1687,6 @@ void Desktop::updateLiveChannelSubPatch(const juce::String& requested,const juce
         live::replaceCapturedSubPatch(model,channel,patchId,subPatchId,captured);
     });
 }
-void Desktop::confirmLivePatchUpdate(const juce::String& channelId,const juce::String& patchId,
-                                     const juce::String& subPatchId,const juce::String& itemId) {
-    if(!liveDocument)return;
-    const auto generation=liveDocumentGeneration;
-    const auto state=liveDocument->interfaceState;
-    const auto currentItem=state["currentItem"].toString();
-    if(itemId!=currentItem)
-        throw std::runtime_error("Activate this Item before updating its sound. Other Items stay editable offline.");
-    const auto track=live::channelItemTrack(state,itemId,channelId);
-    if(track["patchId"].toString()!=patchId || track["subPatchId"].toString()!=subPatchId)
-        throw std::runtime_error("Apply the selected Patch/Sub-patch before capturing its changes");
-    if(app.recording() || app.engine()->state().playback==mrs::PlaybackState::playing)
-        throw std::runtime_error("Stop playback before updating a Patch");
-    const auto patch=live::find(live::find(state,"channels",channelId),"patches",patchId);
-    const auto sub=subPatchId.isEmpty()?juce::var{}:live::find(patch,"subPatches",subPatchId);
-    if(!patch.isObject() || (subPatchId.isNotEmpty()&&!sub.isObject()))
-        throw std::runtime_error("Patch/Sub-patch no longer exists");
-    const auto label=subPatchId.isEmpty()?"Patch":"Sub-patch";
-    const auto name=subPatchId.isEmpty()?patch["name"].toString():sub["name"].toString();
-    auto* alert=new StudioAlertWindow(*this,"Update "+label,
-        "Capture the current sound into "+name+"? All blocks using this library entry will change. "+
-        "Choose Save as new Patch for an independent sound.",
-        juce::MessageBoxIconType::QuestionIcon);
-    alert->addButton("Update",1);
-    alert->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
-    juce::Component::SafePointer<Desktop> safe(this);
-    alert->enterModalState(true,juce::ModalCallbackFunction::create(
-        [safe,generation,channelId,patchId,subPatchId,itemId](int result) {
-            if(result!=1||!safe||!safe->liveDocument||safe->liveDocumentGeneration!=generation)return;
-            safe->run([&]{
-                if(safe->liveDocument->interfaceState["currentItem"].toString()!=itemId)
-                    throw std::runtime_error("Item changed while confirming Update");
-                if(subPatchId.isEmpty())safe->updateLiveChannelPatch(channelId,patchId);
-                else safe->updateLiveChannelSubPatch(channelId,patchId,subPatchId);
-            });
-        }),true);
-}
 void Desktop::renameLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
                                         const juce::String& subPatchId,const juce::String& name) {
     const auto channel=inputChannel(*this,requested);
