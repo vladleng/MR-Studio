@@ -959,7 +959,6 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 " patches="+std::to_string(patchCount));
             if(!channel.isObject()||channel["type"].toString()=="Playback")return false;
             const auto *patches=channel["patches"].getDynamicObject();
-            if(patches==nullptr)return false;
             std::vector<juce::String> ids,names;
             for(const auto &pair:patches->getProperties()) {
                 if(!pair.value.isObject()||live::legacyPatch(pair.value))continue;
