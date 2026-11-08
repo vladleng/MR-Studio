@@ -1771,15 +1771,15 @@ void Desktop::replaceLivePatchBlock(const juce::String& requested,const juce::St
     if(!geometry.isObject())throw std::runtime_error("This patch block is not on the target Item");
     if(spans[juce::Identifier(replacementId)].isObject())
         throw std::runtime_error("The replacement patch already has a block on this Item");
-    auto next=live::removedPatchSpan(spans,patchId);
-    live::put(next,juce::Identifier(replacementId),geometry);
+    auto replacementSpans=live::removedPatchSpan(spans,patchId);
+    live::put(replacementSpans,juce::Identifier(replacementId),geometry);
     auto order=track["patchOrder"].clone();
     bool changed=false;
-    if(auto* ids=order.getArray())
-        for(auto& entry:*ids)
+    if(auto* orderEntries=order.getArray())
+        for(auto& entry:*orderEntries)
             if(entry.toString()==patchId){entry=juce::var(replacementId);changed=true;}
     if(!changed)throw std::runtime_error("Patch order no longer contains the target block");
-    commitLivePatchTrack(*this,itemId,channel,next,"Replace patch block",order);
+    commitLivePatchTrack(*this,itemId,channel,replacementSpans,"Replace patch block",order);
 }
 void Desktop::addLiveSubPatchBlock(const juce::String& requested,const juce::String& patchId,
                                    const juce::String& subPatchId,const juce::String& requestedItem) {
@@ -1816,9 +1816,9 @@ void Desktop::removeLivePatchBlock(const juce::String& requested,const juce::Str
         throw std::runtime_error("This patch block is not on the target Item");
     const auto nextSpans=live::removedPatchSpan(spans,patchId);
     auto order=track["patchOrder"].clone();
-    if(auto* ids=order.getArray())
-        for(int i=ids->size();--i>=0;)
-            if((*ids)[i].toString()==patchId)ids->remove(i);
+    if(auto* orderEntries=order.getArray())
+        for(int i=orderEntries->size();--i>=0;)
+            if((*orderEntries)[i].toString()==patchId)orderEntries->remove(i);
     commitLivePatchTrack(*this,itemId,channel,nextSpans,"Remove patch block",order);
 }
 void Desktop::removeLiveSubPatchBlock(const juce::String& requested,const juce::String& patchId,
