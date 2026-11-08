@@ -176,6 +176,11 @@ public:
                                  const juce::String& subPatchId, const juce::String& itemId = {});
     void setLivePatchSpans(const juce::String&, const juce::String& patchId, juce::var spans,
                            const juce::String& label, const juce::String& itemId = {});
+    void splitLivePatchBlock(const juce::String& channelId,const juce::String& blockId,
+                             double atBar,const juce::String& itemId);
+    void splitLiveSubPatchBlock(const juce::String& channelId,const juce::String& blockId,
+                                const juce::String& subBlockId,double offsetBar,
+                                const juce::String& itemId);
     std::vector<mrs::NativeInsert> captureLiveChannelInserts(const juce::String& channel);
     // #289 A-Upd1: after a stopped item switch, adopt the item's default
     // channel patches for activated channels (errors keep the current chain).
