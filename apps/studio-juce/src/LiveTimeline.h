@@ -801,6 +801,23 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         void mouseMove(const juce::MouseEvent &event) override {
             guideY=-1;
             setMouseCursor(juce::MouseCursor::NormalCursor);
+            if(scissors && patchGesture.mode==PatchGesture::Mode::none && event.y>=lanesTop) {
+                PatchGesture target;
+                if(patchHitTest(event.getPosition(),target)) {
+                    const auto at=std::find_if(parent.items.begin(),parent.items.end(),
+                        [&](const auto& item){return item.value["id"].toString()==target.itemId;});
+                    if(at!=parent.items.end()) {
+                        const double snapped=live::barSnap(barAt(*at,event.position.x));
+                        guideX=static_cast<float>(at->bounds.getX()+1+
+                            (at->lead-at->start+snapped)*at->scale);
+                        guideY=target.rowTop;
+                        setMouseCursor(juce::MouseCursor::CrosshairCursor);
+                        setTooltip(target.subId.isEmpty()?"Split Patch block":"Split Sub-patch strip");
+                        repaint();
+                        return;
+                    }
+                }
+            }
             if(patchGesture.mode==PatchGesture::Mode::none&&event.y>=lanesTop) {
                 PatchGesture updateTarget;
                 if(patchUpdateHit(event.getPosition(),updateTarget)) {
@@ -894,6 +911,27 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 return;
             }
             if (beginClipEdit(event)) return;
+            if(event.mods.isLeftButtonDown() && scissors && event.y>=lanesTop) {
+                PatchGesture cut;
+                if(patchHitTest(event.getPosition(),cut)) {
+                    const auto it=std::find_if(parent.items.begin(),parent.items.end(),
+                        [&](const auto& item){return item.value["id"].toString()==cut.itemId;});
+                    if(it!=parent.items.end()) {
+                        const double atBar=live::barSnap(barAt(*it,event.position.x));
+                        const auto span=cut.originSpans[juce::Identifier(cut.patchId)];
+                        const double subOffset=atBar-live::blockStart(span);
+                        const auto channel=cut.channelId,block=cut.patchId,
+                            sub=cut.subId,itemId=cut.itemId;
+                        parent.owner.run([&]{
+                            if(sub.isEmpty())
+                                parent.owner.splitLivePatchBlock(channel,block,atBar,itemId);
+                            else
+                                parent.owner.splitLiveSubPatchBlock(channel,block,sub,subOffset,itemId);
+                        });
+                    }
+                    return;
+                }
+            }
             if(event.mods.isLeftButtonDown() && !scissors) {
                 PatchGesture updateTarget;
                 if(patchUpdateHit(event.getPosition(),updateTarget)) {
