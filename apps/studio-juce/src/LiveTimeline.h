@@ -778,7 +778,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         struct PatchGesture {
             enum class Mode { none, body, left, right, subBody, subLeft, subRight };
             Mode mode{Mode::none};
-            juce::String itemId, channelId, patchId, subId;
+            // patchId / subId identify independent timeline block instances.
+            // Library IDs remain stable across Scissors and Update.
+            juce::String itemId, channelId, patchId, subId,libraryPatchId,librarySubId;
             juce::var originSpans, previewSpans;
             int startX{}, rowTop{};
             double originStart{}, originLength{}, lastPreviewStart{}, lastPreviewLength{};
@@ -895,10 +897,11 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(event.mods.isLeftButtonDown() && !scissors) {
                 PatchGesture updateTarget;
                 if(patchUpdateHit(event.getPosition(),updateTarget)) {
-                    const auto channelId=updateTarget.channelId,patchId=updateTarget.patchId,
-                        subId=updateTarget.subId,itemId=updateTarget.itemId;
+                    const auto channelId=updateTarget.channelId,
+                        libraryPatchId=updateTarget.libraryPatchId,
+                        librarySubId=updateTarget.librarySubId,itemId=updateTarget.itemId;
                     parent.owner.run([&]{
-                        parent.owner.confirmLivePatchUpdate(channelId,patchId,subId,itemId);
+                        parent.owner.confirmLivePatchUpdate(channelId,libraryPatchId,librarySubId,itemId);
                     });
                     return;
                 }
@@ -1008,6 +1011,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                                      PatchGesture::Mode::subBody;
                             out.itemId=item.value["id"].toString();out.channelId=lane.channel;
                             out.patchId=patchId;out.subId=pair.name.toString();
+                            out.libraryPatchId=live::patchLibraryId(patchId,span);
+                            out.librarySubId=live::subPatchLibraryId(out.subId,pair.value);
                             out.originSpans=track["spans"];
                             out.originStart=live::blockStart(pair.value);
                             out.originLength=live::blockLength(pair.value);
@@ -1021,7 +1026,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                              upperGrip&&position.x>=rect.getRight()-9?PatchGesture::Mode::right:
                              PatchGesture::Mode::body;
                     out.itemId=item.value["id"].toString();out.channelId=lane.channel;
-                    out.patchId=patchId;out.subId={};
+                    out.patchId=patchId;out.subId={};out.librarySubId.clear();
+                    out.libraryPatchId=live::patchLibraryId(patchId,span);
                     out.originSpans=track["spans"];
                     out.originStart=live::blockStart(span);
                     out.originLength=live::blockLength(span);
@@ -1129,7 +1135,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             PatchGesture hit;
             if(!patchHitTest(position,hit))return false;
             const auto channel=live::find(parent.state,"channels",hit.channelId);
-            const auto patch=live::find(channel,"patches",hit.patchId);
+            const auto patch=live::find(channel,"patches",hit.libraryPatchId);
             const auto span=hit.originSpans[juce::Identifier(hit.patchId)];
             const auto subs=span["subs"];
             juce::PopupMenu menu;menu.setLookAndFeel(&parent.owner.theme);
@@ -1138,7 +1144,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(const auto *bank=channel["patches"].getArray())
                 for(const auto &candidate:*bank) {
                     const auto id=candidate["id"].toString();
-                    if(id.isEmpty()||id==hit.patchId||live::legacyPatch(candidate))continue;
+                    if(id.isEmpty()||id==hit.libraryPatchId||live::legacyPatch(candidate))continue;
                     replaceMenu.addItem(2000+static_cast<int>(replacementIds.size()),
                                         candidate["name"].toString());
                     replacementIds.push_back(id);
@@ -1160,16 +1166,18 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 }
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
             juce::Component::SafePointer<Body> self(this);
-            const auto channelId=hit.channelId,patchId=hit.patchId,itemId=hit.itemId;
+            const auto channelId=hit.channelId,patchId=hit.patchId,itemId=hit.itemId,
+                libraryPatchId=hit.libraryPatchId,librarySubId=hit.librarySubId;
             const auto generation=parent.owner.liveDocumentGeneration;
             menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(juce::Rectangle<int>(screen.x,screen.y,1,1)),
-                [safe,self,channelId,patchId,itemId,hitSubId=hit.subId,generation,subIds,replacementIds](int action){
+                [safe,self,channelId,patchId,itemId,hitSubId=hit.subId,libraryPatchId,librarySubId,
+                 generation,subIds,replacementIds](int action){
                 if(!safe||!action||!safe->liveDocument||safe->liveDocumentGeneration!=generation)return;
                 safe->run([&]{
                     if(action==1){safe->removeLivePatchBlock(channelId,patchId,itemId);return;}
                     if(action==3 || action==4) {
-                        safe->confirmLivePatchUpdate(channelId,patchId,
-                            action==4?hitSubId:juce::String(),itemId);
+                        safe->confirmLivePatchUpdate(channelId,libraryPatchId,
+                            action==4?librarySubId:juce::String(),itemId);
                         return;
                     }
                     if(action>=2000&&action<3000){
