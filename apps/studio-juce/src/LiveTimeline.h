@@ -1055,6 +1055,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             const auto spans=patchGesture.previewSpans;
             const bool changed=spans.isObject()&&!live::sameShowValue(spans,patchGesture.originSpans);
             const auto channelId=patchGesture.channelId,patchId=patchGesture.patchId;
+            const auto itemId=patchGesture.itemId;
             const bool sub=patchGesture.subId.isNotEmpty();
             const bool bodyMove=patchGesture.mode==PatchGesture::Mode::body||
                                 patchGesture.mode==PatchGesture::Mode::subBody;
@@ -1063,7 +1064,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 parent.owner.run([&]{
                     parent.owner.setLivePatchSpans(channelId,patchId,spans,
                         sub?(bodyMove?"Move sub-patch strip":"Resize sub-patch strip")
-                           :(bodyMove?"Move patch block":"Resize patch block"));
+                           :(bodyMove?"Move patch block":"Resize patch block"),itemId);
                 });
             repaint();
         }
@@ -1123,27 +1124,28 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 }
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
             juce::Component::SafePointer<Body> self(this);
-            const auto channelId=hit.channelId,patchId=hit.patchId;
-            menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(juce::Rectangle<int>(screen.x,screen.y,1,1)),[safe,self,channelId,patchId,subIds,replacementIds](int action){
-                if(!safe||!action)return;
+            const auto channelId=hit.channelId,patchId=hit.patchId,itemId=hit.itemId;
+            const auto generation=parent.owner.liveDocumentGeneration;
+            menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(juce::Rectangle<int>(screen.x,screen.y,1,1)),
+                [safe,self,channelId,patchId,itemId,generation,subIds,replacementIds](int action){
+                if(!safe||!action||!safe->liveDocument||safe->liveDocumentGeneration!=generation)return;
                 safe->run([&]{
-                    if(action==1){safe->removeLivePatchBlock(channelId,patchId);return;}
+                    if(action==1){safe->removeLivePatchBlock(channelId,patchId,itemId);return;}
                     if(action>=2000&&action<3000){
                         const auto at=static_cast<std::size_t>(action-2000);
                         if(at<replacementIds.size())
-                            safe->replaceLivePatchBlock(channelId,patchId,replacementIds[at]);
+                            safe->replaceLivePatchBlock(channelId,patchId,replacementIds[at],itemId);
                         return;
                     }
                     const auto index=action-100;
                     if(index<0||index>=static_cast<int>(subIds.size()))return;
                     const auto subId=subIds[static_cast<std::size_t>(index)];
-                    const auto track=live::channelItemTrack(safe->liveDocument->interfaceState,
-                        safe->liveDocument->interfaceState["currentItem"].toString(),channelId);
+                    const auto track=live::channelItemTrack(safe->liveDocument->interfaceState,itemId,channelId);
                     const auto span=track["spans"][juce::Identifier(patchId)];
                     if(span["subs"][juce::Identifier(subId)].isObject())
-                        safe->removeLiveSubPatchBlock(channelId,patchId,subId);
+                        safe->removeLiveSubPatchBlock(channelId,patchId,subId,itemId);
                     else
-                        safe->addLiveSubPatchBlock(channelId,patchId,subId);
+                        safe->addLiveSubPatchBlock(channelId,patchId,subId,itemId);
                 });
                 if(self)self->repaint();
             });
@@ -1156,6 +1158,14 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(lane==nullptr)return false;
             const auto channel=live::find(parent.state,"channels",lane->channel);
             if(!channel.isObject()||channel["type"].toString()=="Playback")return false;
+            // The clicked rectangle, not show.currentItem or the playing
+            // transport, owns the new block. This works on inactive Items.
+            const auto at=std::find_if(parent.items.begin(),parent.items.end(),
+                [&](const auto& item){return !item.collapsed&&item.bounds.contains(position);});
+            if(at==parent.items.end())return false;
+            const auto itemId=at->value["id"].toString();
+            const double preferredBar=barAt(*at,static_cast<float>(position.x));
+            const auto generation=parent.owner.liveDocumentGeneration;
             // The channel patch bank is an array (same shape the Audio FX channel menu uses),
             // not an id-keyed object.
             const auto *patches=channel["patches"].getArray();
@@ -1181,22 +1191,13 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     menu.addItem(static_cast<int>(i)+1,names[order[i]]);
             }
             menu.addSeparator();
-            menu.addItem(9000,"Capture current chain as patchР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В РІР‚в„ўР вЂ™Р’В¦");
+            menu.addItem(9000,"Capture current chain as patch...");
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
             juce::Component::SafePointer<Body> self(this);
             const auto channelId=lane->channel;
-            // New blocks start at the playhead, not at the first free gap.
-            double preferredBar=-1.;
-            const auto playheadX=static_cast<float>(parent.playhead.getX());
-            for(const auto &item:parent.items)
-                if(!item.collapsed && playheadX>=static_cast<float>(item.bounds.getX()) &&
-                   playheadX<=static_cast<float>(item.bounds.getRight())) {
-                    preferredBar=barAt(item,playheadX);
-                    break;
-                }
             menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(juce::Rectangle<int>(screen.x,screen.y,1,1)),
-                [safe,self,channelId,ids,order,preferredBar](int action){
-                    if(!safe||action<=0)return;
+                [safe,self,channelId,itemId,generation,ids,order,preferredBar](int action){
+                    if(!safe||action<=0||!safe->liveDocument||safe->liveDocumentGeneration!=generation)return;
                     if(action==9000) {
                         safe->textDialog("Patch name","Patch",
                             [safe,channelId](juce::String name){
@@ -1208,7 +1209,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     const auto index=static_cast<std::size_t>(action-1);
                     if(index>=order.size())return;
                     const auto patchId=ids[order[index]];
-                    safe->run([&]{safe->addLivePatchBlock(channelId,patchId,preferredBar);});
+                    safe->run([&]{safe->addLivePatchBlock(channelId,patchId,preferredBar,itemId);});
                     if(self)self->repaint();
                 });
             return true;
