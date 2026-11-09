@@ -1939,6 +1939,71 @@ void Desktop::removeLiveSubPatchBlock(const juce::String& requested,const juce::
     live::put(nextSpans,juce::Identifier(patchId),updated);
     commitLivePatchTrack(*this,itemId,channel,nextSpans,"Remove sub-patch strip");
 }
+void Desktop::removeSelectedLivePatchBlocks(const std::vector<LivePatchBlockSelection>& selected) {
+    if(!liveDocument || selected.empty() || selected.size()>256)
+        throw std::runtime_error("Select 1..256 Patch/Sub-patch blocks to delete");
+    const auto& state=liveDocument->interfaceState;
+    struct Target {
+        juce::String itemId,channelId,trackId;
+        juce::var spans,order;
+        std::vector<LivePatchBlockSelection> blocks;
+    };
+    std::vector<Target> targets;
+    for(const auto& choice:selected) {
+        if(!live::find(state,"items",choice.itemId).isObject() ||
+           !live::find(state,"channels",choice.channelId).isObject())
+            throw std::runtime_error("Selected Patch Item/channel no longer exists");
+        auto at=std::find_if(targets.begin(),targets.end(),[&](const Target& t) {
+            return t.itemId==choice.itemId && t.channelId==choice.channelId;});
+        if(at==targets.end()) {
+            const auto track=live::channelItemTrack(state,choice.itemId,choice.channelId);
+            if(!track.isObject() || track["id"].toString().isEmpty() ||
+               !track["spans"].isObject()||!track["patchOrder"].isArray())
+                throw std::runtime_error("Selected Patch track no longer supports local Undo");
+            targets.push_back({choice.itemId,choice.channelId,track["id"].toString(),
+                               track["spans"].clone(),track["patchOrder"].clone(),{}});
+            at=std::prev(targets.end());
+        }
+        if(!at->spans[juce::Identifier(choice.blockId)].isObject())
+            throw std::runtime_error("Selected Patch block no longer exists");
+        if(choice.subId.isNotEmpty() &&
+           !at->spans[juce::Identifier(choice.blockId)]["subs"][juce::Identifier(choice.subId)].isObject())
+            throw std::runtime_error("Selected Sub-patch strip no longer exists");
+        if(std::none_of(at->blocks.begin(),at->blocks.end(),[&](const auto& earlier) {
+            return earlier.blockId==choice.blockId && earlier.subId==choice.subId;}))
+            at->blocks.push_back(choice);
+    }
+    std::vector<live::ValuePatch> edits;
+    for(auto& target:targets) {
+        const auto original=live::channelItemTrack(state,target.itemId,target.channelId);
+        const auto beforeSpans=original["spans"];
+        const auto beforeOrder=original["patchOrder"];
+        for(const auto& choice:target.blocks) {
+            if(choice.subId.isNotEmpty()) {
+                // A selected parent also owns its nested strips. Removing it
+                // once is sufficient, regardless of selection order.
+                if(std::any_of(target.blocks.begin(),target.blocks.end(),[&](const auto& other) {
+                    return other.blockId==choice.blockId && other.subId.isEmpty();}))
+                    continue;
+                auto parent=target.spans[juce::Identifier(choice.blockId)].clone();
+                live::put(parent,"subs",live::removedPatchSpan(parent["subs"],choice.subId));
+                live::put(target.spans,juce::Identifier(choice.blockId),parent);
+            } else {
+                target.spans=live::removedPatchSpan(target.spans,choice.blockId);
+                if(auto* orderEntries=target.order.getArray())
+                    for(int i=orderEntries->size();--i>=0;)
+                        if((*orderEntries)[i].toString()==choice.blockId)orderEntries->remove(i);
+            }
+        }
+        edits.push_back(live::valuePatch(state,
+            {"items",live::EditStep::id(target.itemId),"tracks",
+             live::EditStep::id(target.trackId),"spans"},target.spans));
+        edits.push_back(live::valuePatch(state,
+            {"items",live::EditStep::id(target.itemId),"tracks",
+             live::EditStep::id(target.trackId),"patchOrder"},target.order));
+    }
+    performLiveValuePatches("Remove selected Patch blocks",std::move(edits),live::EditImpact::timeline);
+}
 void Desktop::setLivePatchSpans(const juce::String& requested,const juce::String& patchId,
                                 juce::var spans,const juce::String& label,
                                 const juce::String& requestedItem) {
