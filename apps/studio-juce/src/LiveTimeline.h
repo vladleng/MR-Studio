@@ -788,21 +788,21 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         };
         PatchGesture patchGesture;
         struct PatchSelection {
-            juce::String itemId,channelId,blockId;
+            juce::String itemId,channelId,blockId,subId;
         };
         std::vector<PatchSelection> selectedPatches,marqueeBase;
         juce::Point<int> marqueeStart,marqueeEnd;
         bool marqueeArmed{},marqueeActive{},marqueeAdditive{};
         static bool samePatch(const PatchSelection& left,const PatchSelection& right) {
             return left.itemId==right.itemId&&left.channelId==right.channelId&&
-                   left.blockId==right.blockId;
+                   left.blockId==right.blockId&&left.subId==right.subId;
         }
         bool isSelected(const PatchSelection& choice) const {
             return std::any_of(selectedPatches.begin(),selectedPatches.end(),
                 [&](const auto& selected){return samePatch(selected,choice);});
         }
         static PatchSelection choiceFor(const PatchGesture& gesture) {
-            return {gesture.itemId,gesture.channelId,gesture.patchId};
+            return {gesture.itemId,gesture.channelId,gesture.patchId,gesture.subId};
         }
         juce::Rectangle<int> marqueeBounds() const {
             const int left=juce::jmin(marqueeStart.x,marqueeEnd.x);
@@ -832,7 +832,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                             if(!span.isObject())continue;
                             if(!bounds.intersects(parent.extent(item,span,rowTop+10,rowHeight-20)))
                                 continue;
-                            const PatchSelection chosen{itemId,lane.channel,blockId};
+                            const PatchSelection chosen{itemId,lane.channel,blockId,{}};
                             if(std::none_of(next.begin(),next.end(),
                                    [&](const auto& old){return samePatch(old,chosen);}))
                                 next.push_back(chosen);
@@ -852,7 +852,14 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     if(rowTop<lanesTop)continue;
                     const auto track=live::channelItemTrack(parent.state,choice.itemId,choice.channelId);
                     const auto span=track["spans"][juce::Identifier(choice.blockId)];
-                    if(span.isObject())g.drawRect(parent.extent(item,span,rowTop+10,rowHeight-20),2);
+                    if(span.isObject()) {
+                        const auto sub=choice.subId.isEmpty()?juce::var{}:
+                            span["subs"][juce::Identifier(choice.subId)];
+                        if(choice.subId.isEmpty())
+                            g.drawRect(parent.extent(item,span,rowTop+10,rowHeight-20),2);
+                        else if(sub.isObject())
+                            g.drawRect(parent.extent(item,sub,rowTop+64,26,live::blockStart(span)),2);
+                    }
                 }
             if(marqueeActive) {
                 const auto rect=marqueeBounds();
@@ -1019,6 +1026,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(event.mods.isLeftButtonDown() && !scissors && event.y>=lanesTop) {
                 PatchGesture hitBlock;
                 if(patchHitTest(event.getPosition(),hitBlock)) {
+                    grabKeyboardFocus();
+                    selection.clear();clipSelection.clear();
                     const auto chosen=choiceFor(hitBlock);
                     if(event.mods.isShiftDown()) {
                         if(!isSelected(chosen))selectedPatches.push_back(chosen);
@@ -1042,6 +1051,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                             const bool itemEdge=event.x>=hitItem->bounds.getRight()-5 ||
                                 std::abs(static_cast<float>(event.x)-leadX)<=5.f;
                             if(!itemEdge) {
+                                grabKeyboardFocus();
+                                selection.clear();clipSelection.clear();
                                 marqueeArmed=true;marqueeActive=false;
                                 marqueeAdditive=event.mods.isShiftDown();
                                 marqueeBase=selectedPatches;
@@ -1474,6 +1485,20 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             return true;
         }
         bool keyPressed(const juce::KeyPress &key) override {
+            if((key==juce::KeyPress::backspaceKey || key==juce::KeyPress::deleteKey) &&
+               !selectedPatches.empty() &&
+               !key.getModifiers().isCtrlDown() && !key.getModifiers().isAltDown()) {
+                const auto selected=selectedPatches;
+                parent.owner.run([&]{
+                    std::vector<Desktop::LivePatchBlockSelection> targets;
+                    targets.reserve(selected.size());
+                    for(const auto& choice:selected)
+                        targets.push_back({choice.itemId,choice.channelId,choice.blockId,choice.subId});
+                    parent.owner.removeSelectedLivePatchBlocks(targets);
+                });
+                selectedPatches.clear();repaint();
+                return true;
+            }
             if (key == juce::KeyPress::escapeKey) {
                 marqueeArmed=false;marqueeActive=false;
                 marqueeBase.clear();selectedPatches.clear();
