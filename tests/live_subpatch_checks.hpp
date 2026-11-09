@@ -26,6 +26,11 @@ inline void subPatchChainVariants() {
     const auto patchId=addChannelPatch(state,require(state,"channels",channel),
                                        std::vector<mrs::NativeInsert>{base},"Clean","blue");
     auto& patchRow=require(require(state,"channels",channel),"patches",patchId);
+    // #374 G: Model fixture must match a newly captured Patch. Capture in
+    // LiveInterface stores this reference baseline alongside the opaque VST3
+    // state; Update of a Parameters Sub-patch requires it, by design.
+    put(patchRow,"parameterBaseline",
+        encodeLivePatchParameterBaseline(std::vector<mrs::NativeInsert>{base}));
     const auto trackOf=[&](juce::var& target)->juce::var& {
         for(auto& entry:array(target,"items"))
             if(entry["id"].toString()==item)
