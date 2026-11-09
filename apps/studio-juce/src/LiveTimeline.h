@@ -820,7 +820,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     const auto& lane=parent.lanes[i];
                     if(lane.container)continue;
                     const int rowTop=lanesTop+static_cast<int>(i)*rowHeight;
-                    if(!bounds.intersects({item.bounds.getX(),rowTop,item.bounds.getWidth(),rowHeight}))
+                    if(!bounds.intersects(juce::Rectangle<int>{item.bounds.getX(),rowTop,item.bounds.getWidth(),rowHeight}))
                         continue;
                     const auto channel=live::find(parent.state,"channels",lane.channel);
                     if(!channel.isObject()||channel["type"].toString()=="Playback")continue;
