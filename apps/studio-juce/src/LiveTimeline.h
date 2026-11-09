@@ -1800,11 +1800,20 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         }
         void removeSelected() {
             if(selection.isEmpty())return;
-            parent.owner.run([&]{parent.owner.editLiveInterface("Remove musical event",[&](auto &state){
-                auto values=live::musicalRows(state,selectedItem,selectedLane).clone();
-                for(int i=values.size();--i>=0;)if(values[i]["id"].toString()==selection)values.getArray()->remove(i);
-                live::setMusicalRows(state,selectedItem,selectedLane,values);
-            });});selection.clear();
+            const auto targetItem=selectedItem,targetId=selection;
+            const auto lane=selectedLane;
+            parent.owner.run([&] {
+                if(!parent.owner.liveDocument)return;
+                const auto rows=live::musicalRows(parent.owner.liveDocument->interfaceState,targetItem,lane);
+                if(!live::spanById(rows,targetId).isObject())return;
+                auto updated=rows.clone();
+                for(int i=updated.size();--i>=0;)
+                    if(updated[i]["id"].toString()==targetId)updated.getArray()->remove(i);
+                // #374: reuse the accepted scoped edit path; a full Show clone
+                // and opaque VST3 snapshots must not be retained by Undo.
+                parent.owner.setLiveMusicalRows(targetItem,lane==live::MusicalLane::sections,updated);
+            });
+            selection.clear();repaint();
         }
         void create(Item item,live::MusicalLane lane,double at,const juce::String &name) {
             const auto id=item.value["id"].toString();
