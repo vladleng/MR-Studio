@@ -348,6 +348,43 @@ inline std::vector<std::pair<juce::String,juce::var>> orderedSpans(const juce::v
         return blockStart(left.second)<blockStart(right.second);});
     return rows;
 }
+// Small pixel-based magnetic snap to adjacent block boundaries. The geometry
+// remains a *single* block edit; neighbours never move as a side effect.
+struct PatchMagnet {
+    double start{},length{};
+    bool snapped{};
+};
+inline PatchMagnet magneticPatchEdge(const juce::var& spans,
+                                     const juce::String& id,double start,double length,
+                                     bool moveBody,bool leftEdge,double toleranceBars) {
+    PatchMagnet result{start,length,false};
+    const auto rows=orderedSpans(spans);
+    auto at=std::find_if(rows.begin(),rows.end(),
+        [&](const auto& row){return row.first==id;});
+    if(at==rows.end()||toleranceBars<=0.)return result;
+    const auto index=static_cast<std::size_t>(std::distance(rows.begin(),at));
+    double best=toleranceBars;
+    const auto consider=[&](double delta) {
+        if(std::abs(delta)>best+1.e-9)return;
+        best=std::abs(delta);
+        result.snapped=true;
+        if(moveBody)result.start=start+delta;
+        else if(leftEdge) {
+            result.start=start+delta;
+            result.length=length-delta;
+        } else result.length=length+delta;
+    };
+    if(index>0&&(moveBody||leftEdge)) {
+        const auto& previous=rows[index-1].second;
+        const double end=blockStart(previous)+blockLength(previous);
+        consider(end-start);
+    }
+    if(index+1<rows.size()&&(moveBody||!leftEdge)) {
+        const double nextStart=blockStart(rows[index+1].second);
+        consider(nextStart-(start+length));
+    }
+    return result;
+}
 // Moves/resizes one patch block. Siblings keep order: a body move is clamped to
 // the free space between neighbours; resizing with adjustNeighbours pushes the
 // touched neighbour, matching the accepted browser-demo rules. A parent resize
