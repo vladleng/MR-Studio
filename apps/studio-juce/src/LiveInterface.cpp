@@ -1834,6 +1834,56 @@ void Desktop::replaceLivePatchBlock(const juce::String& requested,const juce::St
     }
     commitLivePatchTrack(*this,itemId,channel,replacementSpans,"Replace patch block",order);
 }
+void Desktop::replaceSelectedLivePatchBlocks(
+    const juce::String& requested,const juce::String& replacementId,
+    const std::vector<std::pair<juce::String,juce::String>>& itemBlockIds) {
+    if(!liveDocument || itemBlockIds.empty() || itemBlockIds.size()>256)
+        throw std::runtime_error("Select 1..256 Patch blocks for group assignment");
+    const auto channel=inputChannel(*this,requested);
+    const auto& state=liveDocument->interfaceState;
+    const auto patch=live::find(live::find(state,"channels",channel),"patches",replacementId);
+    if(!patch.isObject() || live::legacyPatch(patch))
+        throw std::runtime_error("Selected replacement Patch is not captured in this channel");
+    struct Draft {
+        juce::String itemId,trackId;
+        juce::var originSpans;
+        std::vector<juce::String> blocks;
+    };
+    std::vector<Draft> drafts;
+    drafts.reserve(itemBlockIds.size());
+    for(const auto& entry:itemBlockIds) {
+        const auto& itemId=entry.first;
+        const auto& blockId=entry.second;
+        if(!live::find(state,"items",itemId).isObject())
+            throw std::runtime_error("Selected Patch Item no longer exists");
+        auto found=std::find_if(drafts.begin(),drafts.end(),
+            [&](const Draft& draft){return draft.itemId==itemId;});
+        if(found==drafts.end()) {
+            const auto track=live::channelItemTrack(state,itemId,channel);
+            if(!track.isObject() || track["id"].toString().isEmpty())
+                throw std::runtime_error("Selected Item has no stable track ID for group Undo");
+            drafts.push_back({itemId,track["id"].toString(),track["spans"],{}});
+            found=std::prev(drafts.end());
+        }
+        if(std::find(found->blocks.begin(),found->blocks.end(),blockId)!=found->blocks.end())
+            continue;
+        if(!found->originSpans[juce::Identifier(blockId)].isObject())
+            throw std::runtime_error("Selected Patch block belongs to another channel or no longer exists");
+        found->blocks.push_back(blockId);
+    }
+    std::vector<live::ValuePatch> edits;
+    edits.reserve(drafts.size());
+    for(const auto& draft:drafts) {
+        const auto updated=live::assignedPatchBlocks(draft.originSpans,draft.blocks,replacementId);
+        edits.push_back(live::valuePatch(state,
+            {"items",live::EditStep::id(draft.itemId),"tracks",
+             live::EditStep::id(draft.trackId),"spans"},updated));
+    }
+    // All references are prevalidated before the first mutation. One Undo
+    // covers multiple Items but never touches their musical time or Core DSP.
+    performLiveValuePatches("Apply Patch to selected blocks",std::move(edits),
+                            live::EditImpact::timeline);
+}
 void Desktop::addLiveSubPatchBlock(const juce::String& requested,const juce::String& patchId,
                                    const juce::String& subPatchId,const juce::String& requestedItem) {
     const auto channel=inputChannel(*this,requested);
