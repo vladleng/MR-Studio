@@ -170,6 +170,11 @@ public:
                               const juce::String& subPatchId, const juce::String& itemId = {});
     void replaceLivePatchBlock(const juce::String& channel, const juce::String& patchId,
                                const juce::String& replacementId, const juce::String& itemId = {});
+    // Selected blocks must all belong to one channel's patch library; an
+    // atomic local Undo edit updates references without changing time/length.
+    void replaceSelectedLivePatchBlocks(
+        const juce::String& channel,const juce::String& replacementId,
+        const std::vector<std::pair<juce::String,juce::String>>& itemBlockIds);
     void removeLivePatchBlock(const juce::String&, const juce::String& patchId,
                               const juce::String& itemId = {});
     void removeLiveSubPatchBlock(const juce::String&, const juce::String& patchId,
