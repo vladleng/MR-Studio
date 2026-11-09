@@ -1268,6 +1268,51 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
               editing.liveLocalPatchApplications==localBeforePatch+5,
               "#374 Patch create/resize/replace/remove/Undo remains local, without transport or channel VST3 changes");
     {
+        // The #586 test asserted the *removed* corner grip without an actual
+        // Patch edge under the cursor. Build a real block and exercise both
+        // halves of the lane, including the resulting Undo and unchanged Item.
+        editing.addLivePatchBlock(patchChannel,patchId,2.,activeBeforePatch);
+        auto activeSpans=live::channelItemTrack(editing.liveDocument->interfaceState,
+                                                 activeBeforePatch,patchChannel)["spans"];
+        activeSpans=live::editedPatchSpans(activeSpans,16.,patchId,2.,4.,false);
+        editing.setLivePatchSpans(patchChannel,patchId,activeSpans,
+                                 "Prepare two-zone Patch edge",activeBeforePatch);
+        timeline->refresh();
+        const auto laneRect=timeline->playbackStemLaneBounds(patchChannel);
+        liveCheck(!laneRect.isEmpty(),"#374 A: authored Patch has a visible lane for cursor regression");
+        const auto viewState=editing.liveDocument->interfaceState["performance"]["arrangement"]
+            [juce::Identifier(activeBeforePatch)];
+        const double scale=static_cast<double>(viewState["scale"]);
+        const double lead=static_cast<double>(viewState["lead"]);
+        const double start=viewState["start"].isVoid()?0.:static_cast<double>(viewState["start"]);
+        const auto rect=timeline->itemBounds(activeBeforePatch);
+        const float patchRight=static_cast<float>(rect.getX()+1+
+            juce::roundToInt((lead-start+6.)*scale));
+        const auto topY=static_cast<float>(laneRect.getY()+15);
+        const auto bottomY=static_cast<float>(laneRect.getY()+92);
+        body->mouseMove(event(patchRight-3.f,topY));
+        liveCheck(body->getMouseCursor()==juce::MouseCursor(juce::MouseCursor::LeftRightResizeCursor),
+                  "#374 A: top-half edge of an authored Patch shows Patch resize cursor");
+        body->mouseMove(event(patchRight-3.f,bottomY));
+        liveCheck(body->getMouseCursor()!=juce::MouseCursor(juce::MouseCursor::LeftRightResizeCursor),
+                  "#374 A: lower-half Patch body does not capture Patch edge resize");
+        const auto originalView=viewState.clone();
+        body->mouseDown(event(patchRight-3.f,topY));
+        body->mouseDrag(event(patchRight+29.f,topY));
+        body->mouseUp(event(patchRight+29.f,topY));timeline->refresh();
+        const auto resized=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(std::abs(live::blockLength(resized)-5.)<1.e-9 &&
+                  live::sameShowValue(editing.liveDocument->interfaceState["performance"]["arrangement"]
+                                     [juce::Identifier(activeBeforePatch)],originalView),
+                  "#374 A: upper-half drag resizes only Patch, not Item");
+        editing.undoLiveInterface();timeline->refresh();
+        const auto restored=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(std::abs(live::blockLength(restored)-4.)<1.e-9,
+                  "#374 A: one Undo restores a top-half Patch resize");
+    }
+    {
         // #374 Windows Save regression: safely replace an existing show with a
         // large opaque VST3 blob through ONE sibling temporary file. The file
         // remains readable after two overwrites and no source show is changed.
