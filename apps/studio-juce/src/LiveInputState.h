@@ -371,6 +371,30 @@ inline juce::String addChannelPatch(juce::var& state,juce::var& channel,
     bank.add(patch);
     return id;
 }
+// Every newly authored Patch begins with exactly one editable Sub-patch.
+ // It is a real library entry, not a visual Base gap or a second plugin chain.
+inline juce::String createDefaultSubPatch(juce::var& patch,const juce::String& colour) {
+    auto& subs=array(patch,"subPatches");
+    if(!subs.isEmpty())throw std::runtime_error("The Patch already contains Sub-patches");
+    auto row=object();
+    const auto id=freshId();
+    put(row,"id",id);
+    put(row,"name","default");
+    put(row,"color",colour);
+    put(row,"type","parameters");
+    put(row,"formatVersion",2);
+    put(row,"overrides",juce::var(juce::Array<juce::var>{}));
+    subs.add(row);
+    return id;
+}
+inline juce::var fullDefaultSubPatchSpan(juce::var parent,const juce::String& defaultId) {
+    if(!parent.isObject()||defaultId.isEmpty())
+        throw std::runtime_error("Cannot attach default Sub-patch to a missing Patch");
+    auto children=object();
+    put(children,juce::Identifier(defaultId),blockSpan(0.,blockLength(parent)));
+    put(parent,"subs",children);
+    return parent;
+}
 enum class SubPatchCaptureMode { automatic, parameters, snapshot };
 // #289 B: a Sub-patch stores *only* VST3 parameter overrides keyed by
 // captured insert ID and real VST3 parameter ID. Plugin state/chain belong to
@@ -636,16 +660,61 @@ inline juce::var captureSubPatchFromBase(juce::var& state,const juce::var& patch
 // Both helpers operate on a disposable show draft in one Undo transaction.
 inline void replaceCapturedPatch(juce::var& state,const juce::String& channelId,
                                  const juce::String& patchId,
-                                 const std::vector<mrs::NativeInsert>& captured) {
+                                 const std::vector<mrs::NativeInsert>& captured,
+                                 const juce::var& parameterBaseline={}) {
     auto& target=require(require(state,"channels",channelId),"patches",patchId);
-    const auto old=decodeLivePatchInserts(state,target);
-    if(old==captured)throw std::runtime_error("No plugin changes to save in this Patch");
-    // The Base baseline is the reference for every existing Sub-patch.
-    // Re-capturing it would silently rebase Parameters and Snapshot variants.
-    if(target["subPatches"].size()>0)
-        throw std::runtime_error(
-            "Base has Sub-patches. Save as a new Patch instead of silently rebasing its variations");
+    const auto before=decodeLivePatchInserts(state,target);
+    if(before==captured &&
+       (!parameterBaseline.isArray()||
+        sameShowValue(target["parameterBaseline"],parameterBaseline)))
+        throw std::runtime_error("No plugin changes to save in this Patch");
+    // The Patch owns the common chain; Update can add/remove inserts, but every
+    // Sub-patch retains its per-insert state only for the *same* plugin slot.
+    // Newly added inserts inherit their Patch state in every variation.
+    const auto retained=[&](const juce::String& id) {
+        const auto old=std::find_if(before.begin(),before.end(),[&](const auto& fx){
+            return juce::String::fromUTF8(fx.id.value.c_str())==id;});
+        const auto now=std::find_if(captured.begin(),captured.end(),[&](const auto& fx){
+            return juce::String::fromUTF8(fx.id.value.c_str())==id;});
+        return old!=before.end() && now!=captured.end() &&
+            old->kind==now->kind && old->plugin_path==now->plugin_path &&
+            old->class_id==now->class_id;
+    };
+    if(auto* subs=target["subPatches"].getArray())
+        for(auto& sub:*subs) {
+            if(const auto* existing=sub["overrides"].getArray()) {
+                juce::Array<juce::var> filtered;
+                for(const auto& row:*existing) {
+                    const auto id=row["insertId"].toString();
+                    bool known=retained(id);
+                    if(known && parameterBaseline.isArray()) {
+                        known=false;
+                        for(const auto& baseline:*parameterBaseline.getArray())
+                            if(baseline["insertId"].toString()==id)
+                                if(const auto* params=baseline["parameters"].getArray())
+                                    for(const auto& parameter:*params)
+                                        if(parameter["id"]==row["parameterId"])known=true;
+                    }
+                    if(known)filtered.add(row.clone());
+                }
+                put(sub,"overrides",juce::var(filtered));
+            }
+            if(const auto* entries=sub["states"].getArray()) {
+                juce::Array<juce::var> filtered;
+                for(const auto& row:*entries)
+                    if(retained(row["insertId"].toString()))filtered.add(row.clone());
+                if(filtered.isEmpty()) {
+                    // A Snapshot whose last modified insert was removed now
+                    // inherits the updated Patch, like a fresh variation.
+                    if(auto* object=sub.getDynamicObject())object->removeProperty("states");
+                    put(sub,"type","parameters");
+                    put(sub,"overrides",juce::var(juce::Array<juce::var>{}));
+                } else put(sub,"states",juce::var(filtered));
+            }
+        }
     put(target,"inserts",encodeLivePatchInserts(state,captured));
+    if(parameterBaseline.isArray())
+        put(target,"parameterBaseline",parameterBaseline.clone());
     prunePatchStates(state);
 }
 inline void replaceCapturedSubPatch(juce::var& state,const juce::String& channelId,
@@ -653,11 +722,23 @@ inline void replaceCapturedSubPatch(juce::var& state,const juce::String& channel
                                     const std::vector<mrs::NativeInsert>& captured) {
     auto& patch=require(require(state,"channels",channelId),"patches",patchId);
     auto& sub=require(patch,"subPatches",subId);
-    const auto mode=sub["type"].toString()=="snapshot"?
-        SubPatchCaptureMode::snapshot:SubPatchCaptureMode::parameters;
-    auto fresh=captureSubPatchFromBase(state,patch,captured,mode);
+    juce::var fresh;
+    try {
+        fresh=captureSubPatchFromBase(state,patch,captured,
+                                      SubPatchCaptureMode::automatic);
+    } catch(const std::runtime_error& error) {
+        const auto message=juce::String::fromUTF8(error.what());
+        if(!message.startsWith("No exposed VST3 parameter changes") &&
+           !message.startsWith("No VST3 state changes detected"))
+            throw;
+        fresh=object();
+        put(fresh,"type","parameters");
+        put(fresh,"formatVersion",2);
+        put(fresh,"overrides",juce::var(juce::Array<juce::var>{}));
+    }
     if(sameShowValue(sub["overrides"],fresh["overrides"]) &&
-       sameShowValue(sub["states"],fresh["states"]))
+       sameShowValue(sub["states"],fresh["states"]) &&
+       sub["type"].toString()==fresh["type"].toString())
         throw std::runtime_error("Sub-patch already contains these changes");
     if(auto* obj=sub.getDynamicObject()) {
         obj->removeProperty("inserts");obj->removeProperty("overrides");
@@ -667,6 +748,7 @@ inline void replaceCapturedSubPatch(juce::var& state,const juce::String& channel
     if(fresh["states"].isArray())put(sub,"states",fresh["states"]);
     put(sub,"type",fresh["type"]);
     put(sub,"formatVersion",2);
+    put(sub,"parameterMonitor",encodeLivePatchParameterBaseline(captured));
     prunePatchStates(state);
 }
 } // namespace ui::live

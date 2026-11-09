@@ -1043,7 +1043,7 @@ inline void validateSubPatches(const juce::var &state, const juce::var &patch) {
             throw std::runtime_error("Parameter/legacy Sub-patch contains Snapshot data");
         if(!sub["overrides"].isVoid()) {
             const auto* overrides=sub["overrides"].getArray();
-            if(!overrides||overrides->isEmpty()||overrides->size()>maximumSubPatchOverrides||
+            if(!overrides||overrides->size()>maximumSubPatchOverrides||
                sub["inserts"].isArray())
                 throw std::runtime_error("Invalid parameter-only sub-patch");
             std::set<std::pair<juce::String,juce::int64>> seen;

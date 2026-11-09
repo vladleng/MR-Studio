@@ -47,6 +47,24 @@ inline void subPatchChainVariants() {
     };
     const auto baseInserts=decodeLivePatchInserts(state,channelPatch(state));
     {
+        // #374 H: a new Patch contains one real, editable 'default'
+        // Sub-patch covering the whole parent. No implied Base gap.
+        auto show=empty();
+        const auto ch=addChannel(show,"Player","Guitar");
+        const auto id=addChannelPatch(show,require(show,"channels",ch),
+                                     std::vector<mrs::NativeInsert>{base},"New Patch","blue");
+        auto& bank=require(require(show,"channels",ch),"patches",id);
+        const auto initial=createDefaultSubPatch(bank,"blue");
+        const auto parent=fullDefaultSubPatchSpan(blockSpan(0.,8.),initial);
+        check(bank["subPatches"].size()==1 &&
+              bank["subPatches"][0]["name"].toString()=="default" &&
+              parent["subs"].getDynamicObject()->getProperties().size()==1 &&
+              std::abs(blockLength(parent["subs"][juce::Identifier(initial)])-8.)<1.e-9 &&
+              subPatchBaseGaps(parent).empty(),
+              "#374 H: new Patch has one full-length default Sub-patch, no derived Base");
+        validate(show);
+    }
+    {
         // #374 G: loading a sound for editing mutates only the active
         // Live Input, not the Item's saved Patch/Sub-patch choice.
         auto loaded=state.clone();
@@ -277,31 +295,28 @@ inline void subPatchChainVariants() {
         checkThrows([&]{validate(duplicate);},"Duplicate sub-patch names must be rejected");
     }
     {
-        // #374 F: Base is immutable once variants exist. Silently rebasing it
-        // would change both Parameters and Snapshot meanings in existing shows.
+        // #374 H: Patch Update owns the shared insert chain and preserves
+        // Sub-patch overrides for compatible slots. New inserts inherit Base.
         auto edited=state.clone();
         auto replacement=baseInserts;
         replacement[0].component_state={std::byte{4},std::byte{5}};
         replacement[0].parameters[0].value=.3f;
-        checkThrows([&]{replaceCapturedPatch(edited,channel,patchId,replacement);},
-                    "#374 F: Base with Sub-patches refuses silent rebase");
-        const auto preserved=find(find(edited,"channels",channel),"patches",patchId);
-        check(decodeLivePatchInserts(edited,preserved)[0].component_state==
-                  baseInserts[0].component_state &&
-              find(preserved,"subPatches","sub-rhythm").isObject(),
-              "#374 F: rejected rebase preserves original Base and child library");
-        // Updating a Patch *without* any Sub-patches still captures full state.
+        replaceCapturedPatch(edited,channel,patchId,replacement,
+                             encodeLivePatchParameterBaseline(replacement));
+        const auto changedPatch=find(find(edited,"channels",channel),"patches",patchId);
+        check(changedPatch["id"].toString()==patchId &&
+              decodeLivePatchInserts(edited,changedPatch)[0].component_state==
+                  replacement[0].component_state &&
+              find(changedPatch,"subPatches","sub-rhythm").isObject(),
+              "#374 H: Patch Update preserves Sub-patch library and shared parent ID");
         auto withoutSubs=state.clone();
         auto& barePatch=require(require(withoutSubs,"channels",channel),"patches",patchId);
         put(barePatch,"subPatches",juce::var(juce::Array<juce::var>{}));
         replaceCapturedPatch(withoutSubs,channel,patchId,replacement);
-        const auto changedPatch=find(find(withoutSubs,"channels",channel),"patches",patchId);
-        check(changedPatch["id"].toString()==patchId &&
-              decodeLivePatchInserts(withoutSubs,changedPatch)[0].component_state==
-                  replacement[0].component_state &&
-              changedPatch["subPatches"].isArray() &&
-              changedPatch["subPatches"].size()==0,
-              "#374 F: Base without Sub-patches supports full-state Update");
+        check(decodeLivePatchInserts(withoutSubs,
+                  find(find(withoutSubs,"channels",channel),"patches",patchId))[0].component_state==
+                  replacement[0].component_state,
+              "#374 H: standalone Patch still supports full Update");
         auto changed=baseInserts;
         changed[0].parameters[0].value=.7f;
         replaceCapturedSubPatch(edited,channel,patchId,"sub-rhythm",changed);
@@ -318,6 +333,24 @@ inline void subPatchChainVariants() {
                     "Update Sub-patch refuses changed plugin identity");
         check(find(find(state,"channels",channel),"patches",patchId)["inserts"].isArray(),
               "Update operations leave the previous snapshot intact for Undo");
+        // Add a second insert without invalidating the saved first variation.
+        mrs::NativeInsert added;
+        added.id=mrs::Id{"fx-added"};
+        added.kind=mrs::InsertKind::gain;
+        added.gain=.8f;
+        auto expanded=replacement;
+        expanded.push_back(added);
+        replaceCapturedPatch(edited,channel,patchId,expanded,
+                             encodeLivePatchParameterBaseline(expanded));
+        const auto newParent=find(find(edited,"channels",channel),"patches",patchId);
+        const auto newVariant=find(newParent,"subPatches","sub-rhythm");
+        const auto effectiveChain=patchInsertsWithSubPatch(edited,newParent,newVariant);
+        check(effectiveChain.size()==2 && effectiveChain[1].id==added.id &&
+              effectiveChain[0].parameters.size()==1 &&
+              std::abs(effectiveChain[0].parameters[0].value-.7f)<1.e-6f,
+              "#374 H: added insert is inherited by existing Sub-patches");
+        validate(edited);
+
     }
     {
         auto legacy=state.clone();

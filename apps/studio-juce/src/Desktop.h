@@ -138,7 +138,8 @@ public:
     // chain requires stopped transport and an activated channel, and applying a
     // captured chain needs a stopped, activated channel as well.
     void captureLiveChannelPatch(const juce::String&, const juce::String& name,
-                                 const juce::String& colour = "blue");
+                                 const juce::String& colour = "blue",
+                                 const juce::String& itemId={},double preferredBar=-1.);
     // Apply & assign Item default (existing behavior), or load only into the
     // current Live Input for Capture/Update without changing Item defaults.
     void applyLiveChannelPatch(const juce::String&, const juce::String& patchId,
@@ -151,6 +152,9 @@ public:
     std::map<juce::String,LoadedLivePatch> liveLoadedPatches;
     bool livePatchLoadedForEditing(const juce::String& channel,const juce::String& patchId,
                                    const juce::String& subPatchId) const;
+    // Lightweight UI-only VST3 parameter comparison for unsaved-state marker.
+    bool liveSubPatchParametersDirty(const juce::String& channel,const juce::String& patchId,
+                                     const juce::String& subPatchId) const;
     // #289 B - sub-patches: named parameter-override sets of the same captured
     // chain. Switching is stopped-only and uses the parameter-only Core path.
     void applyLiveChannelSubPatch(const juce::String&, const juce::String& patchId,
@@ -159,7 +163,8 @@ public:
                                     const juce::String& name, const juce::String& colour = "violet",
                                     live::SubPatchCaptureMode mode=live::SubPatchCaptureMode::automatic,
                                     const juce::String& itemId={},const juce::String& blockId={},
-                                    double preferredStart=0.);
+                                    double preferredStart=0.,
+                                    const juce::String& replaceSubBlockId={});
     // Explicit Save/Update of the currently applied patch. Shared library IDs
     // remain stable so every block keeps its reference; no runtime switch.
     void updateLiveChannelPatch(const juce::String&, const juce::String& patchId);
