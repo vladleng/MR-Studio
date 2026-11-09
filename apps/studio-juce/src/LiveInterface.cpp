@@ -1975,9 +1975,6 @@ void Desktop::removeSelectedLivePatchBlocks(const std::vector<LivePatchBlockSele
     }
     std::vector<live::ValuePatch> edits;
     for(auto& target:targets) {
-        const auto original=live::channelItemTrack(state,target.itemId,target.channelId);
-        const auto beforeSpans=original["spans"];
-        const auto beforeOrder=original["patchOrder"];
         for(const auto& choice:target.blocks) {
             if(choice.subId.isNotEmpty()) {
                 // A selected parent also owns its nested strips. Removing it
