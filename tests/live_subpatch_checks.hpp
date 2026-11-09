@@ -46,6 +46,23 @@ inline void subPatchChainVariants() {
         return find(channelPatch(show),"subPatches","sub-rhythm");
     };
     const auto baseInserts=decodeLivePatchInserts(state,channelPatch(state));
+    // #374 Stop switching RED: Timeline spans, not legacy item defaults,
+    // must decide the initial sound when a different Item is selected.
+    {
+        auto timeline=state.clone();
+        auto& library=require(require(timeline,"channels",channel),"patches",patchId);
+        const auto firstSub=createDefaultSubPatch(library,"blue");
+        auto spans=object();
+        put(spans,juce::Identifier(patchId),
+            fullDefaultSubPatchSpan(blockSpan(0.,8.),firstSub));
+        auto& assigned=trackOf(timeline);
+        put(assigned,"spans",spans);
+        put(assigned,"patchId","stale-item-default");
+        const auto initial=itemDefaultPatches(timeline,item);
+        check(initial.size()==1 && initial.front().first==channel &&
+              initial.front().second==patchId,
+              "#374 Stop: initial sound must resolve from the Timeline Patch, not Item default");
+    }
     {
         // #374 H: a new Patch contains one real, editable 'default'
         // Sub-patch covering the whole parent. No implied Base gap.
