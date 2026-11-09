@@ -179,6 +179,10 @@ public:
                               const juce::String& itemId = {});
     void removeLiveSubPatchBlock(const juce::String&, const juce::String& patchId,
                                  const juce::String& subPatchId, const juce::String& itemId = {});
+    struct LivePatchBlockSelection {
+        juce::String itemId,channelId,blockId,subId;
+    };
+    void removeSelectedLivePatchBlocks(const std::vector<LivePatchBlockSelection>&);
     void setLivePatchSpans(const juce::String&, const juce::String& patchId, juce::var spans,
                            const juce::String& label, const juce::String& itemId = {});
     void splitLivePatchBlock(const juce::String& channelId,const juce::String& blockId,
