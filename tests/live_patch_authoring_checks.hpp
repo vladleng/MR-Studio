@@ -62,12 +62,39 @@ inline void patchBlockAuthoring() {
     check(std::abs(blockStart(sharedSeam["b"])-4.)<1.e-9 &&
           std::abs(blockLength(sharedSeam["a"])-4.)<1.e-9,
           "A shared edge remains independent and cannot overlap the preceding Patch");
+    // #374 Upd1: upper-half remains independent, lower-half seam changes
+    // BOTH blocks in one model value without touching the library ID.
+    const auto joined=joinedPatchSpans(spans,"a","b",5.);
+    check(std::abs(blockLength(joined["a"])-5.)<1.e-9 &&
+          std::abs(blockStart(joined["b"])-5.)<1.e-9 &&
+          std::abs(blockLength(joined["b"])-3.)<1.e-9 &&
+          std::abs(blockStart(joined["a"])+blockLength(joined["a"])-
+                   blockStart(joined["b"]))<1.e-9,
+          "Joined seam changes both neighbouring Patch lengths without gaps or overlaps");
+    check(std::abs(blockLength(spans["a"])-4.)<1.e-9 &&
+          std::abs(blockStart(spans["b"])-4.)<1.e-9,
+          "Preview of joined seam cannot mutate its source geometry");
+    const auto joinedMax=joinedPatchSpans(spans,"a","b",20.);
+    check(std::abs(blockLength(joinedMax["b"])-.25)<1.e-9,
+          "Joined seam clamps the right Patch to at least a quarter-bar");
+    const auto joinedMin=joinedPatchSpans(spans,"a","b",-20.);
+    check(std::abs(blockLength(joinedMin["a"])-.25)<1.e-9,
+          "Joined seam clamps the left Patch to at least a quarter-bar");
+    checkThrows([&]{joinedPatchSpans(withGap,"a","b",3.5);},
+                "Joined seam is unavailable across a gap");
     auto withSub=spans.clone();
     auto a=withSub["a"];
     auto subs=object();
     put(subs,"s",blockSpan(1,2));
     put(a,"subs",subs);
     put(withSub,"a",a);
+    const auto joinedWithSub=joinedPatchSpans(withSub,"a","b",5.);
+    check(std::abs(blockStart(joinedWithSub["a"]["subs"]["s"])-1.25)<1.e-9 &&
+          std::abs(blockLength(joinedWithSub["a"]["subs"]["s"])-2.5)<1.e-9 &&
+          std::abs(blockLength(joinedWithSub["b"])-3.)<1.e-9,
+          "Joined seam proportionally keeps child strip geometry and the right sibling");
+    checkThrows([&]{joinedPatchSpans(withSub,"b","a",5.);},
+                "Joined seam rejects reversed neighbours");
     // Parent resize pushes the touched neighbour, otherwise the sibling boundary would clamp the
     // requested length and the proportional scaling could not be observed.
     const auto scaled=editedPatchSpans(withSub,12,"a",0,8,true);
