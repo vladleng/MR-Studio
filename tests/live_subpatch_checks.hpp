@@ -120,7 +120,7 @@ inline void subPatchChainVariants() {
               "#374 F: Auto falls back to full-state Snapshot for opaque-only VST3");
         put(snapshot,"id","sub-snapshot");
         put(snapshot,"name","Preset");
-        put(snapshot,"color","orange");
+        put(snapshot,"color","amber");
         auto& bank=require(require(autoState,"channels",channel),"patches",patchId);
         array(bank,"subPatches").add(snapshot);
         validate(autoState);
