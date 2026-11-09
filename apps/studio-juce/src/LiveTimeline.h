@@ -776,11 +776,11 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
       public:
         explicit Body(LiveTimeline &host) : parent(host) { setComponentID("live-timeline-items"); setWantsKeyboardFocus(true); }
         struct PatchGesture {
-            enum class Mode { none, body, left, right, subBody, subLeft, subRight };
+            enum class Mode { none, body, left, right, joined, subBody, subLeft, subRight };
             Mode mode{Mode::none};
             // patchId / subId identify independent timeline block instances.
             // Library IDs remain stable across Scissors and Update.
-            juce::String itemId, channelId, patchId, subId,libraryPatchId,librarySubId;
+            juce::String itemId, channelId, patchId, subId,libraryPatchId,librarySubId,joinedRightId;
             juce::var originSpans, previewSpans;
             int startX{}, rowTop{};
             double originStart{}, originLength{}, lastPreviewStart{}, lastPreviewLength{};
@@ -915,7 +915,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                         hoveredPatchId=hover.patchId;hoveredSubId=hover.subId;hoveredPatchMode=hover.mode;
                         repaint();
                     }
-                    const bool edge=hover.mode==PatchGesture::Mode::left||hover.mode==PatchGesture::Mode::right||
+                    const bool shared=hover.mode==PatchGesture::Mode::joined;
+                    const bool edge=shared||hover.mode==PatchGesture::Mode::left||hover.mode==PatchGesture::Mode::right||
                                     hover.mode==PatchGesture::Mode::subLeft||hover.mode==PatchGesture::Mode::subRight;
                     if(event.y>=hover.rowTop+rowHeight/2) {
                         for(const auto& item:parent.items)
@@ -928,7 +929,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                             }
                     }
                     setMouseCursor(edge?juce::MouseCursor::LeftRightResizeCursor:juce::MouseCursor::DraggingHandCursor);
-                    setTooltip(edge?"Resize Patch boundary (upper half)":"Drag patch block");
+                    setTooltip(shared?"Move shared Patch boundary (lower half)":
+                               edge?"Resize Patch boundary (upper half)":"Drag patch block");
                     return;
                 }
             }
@@ -1072,6 +1074,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             const bool edge=patchHitTest(event.getPosition(),grip) &&
                 (grip.mode==PatchGesture::Mode::left || grip.mode==PatchGesture::Mode::right ||
                  grip.mode==PatchGesture::Mode::subLeft || grip.mode==PatchGesture::Mode::subRight);
+            if(grip.mode==PatchGesture::Mode::joined && beginPatchEdit(event))return;
             if(edge && event.y<grip.rowTop+rowHeight/2 && beginPatchEdit(event))return;
             if(beginEdit(event))return;
             if(beginPatchEdit(event))return;
@@ -1167,6 +1170,30 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 const auto *order=track["patchOrder"].getArray();
                 if(order==nullptr)continue;
                 const int y=lanesTop+laneIndex*rowHeight;
+                // The lower half of an INTERNAL shared seam adjusts two
+                // neighbouring Patch blocks. Check this before individual
+                // strips to keep the seam accessible even with Sub-patches.
+                if(position.y>=y+rowHeight/2 && position.y<y+rowHeight-10) {
+                    const auto rows=live::orderedSpans(track["spans"]);
+                    for(std::size_t i=1;i<rows.size();++i) {
+                        const auto& left=rows[i-1],&right=rows[i];
+                        const double boundary=live::blockStart(left.second)+live::blockLength(left.second);
+                        if(std::abs(boundary-live::blockStart(right.second))>1.e-7)continue;
+                        const auto leftRect=parent.extent(item,left.second,y+10,rowHeight-20);
+                        if(std::abs(position.x-leftRect.getRight())>7)continue;
+                        out.mode=PatchGesture::Mode::joined;
+                        out.itemId=item.value["id"].toString();
+                        out.channelId=lane.channel;
+                        out.patchId=left.first;out.joinedRightId=right.first;
+                        out.subId.clear();out.librarySubId.clear();
+                        out.libraryPatchId=live::patchLibraryId(left.first,left.second);
+                        out.originSpans=track["spans"];
+                        out.originStart=live::blockStart(left.second);
+                        out.originLength=live::blockLength(left.second);
+                        out.startX=position.x;out.rowTop=y;
+                        return true;
+                    }
+                }
                 for(const auto &patchIdVar:*order) {
                     const auto patchId=patchIdVar.toString();
                     const auto span=track["spans"][juce::Identifier(patchId)];
@@ -1248,12 +1275,13 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 case PatchGesture::Mode::body: move=true;start+=dx;break;
                 case PatchGesture::Mode::left: start+=dx;length-=dx;leftResize=true;break;
                 case PatchGesture::Mode::right: length+=dx;break;
+                case PatchGesture::Mode::joined: length+=dx;break;
                 case PatchGesture::Mode::subBody: move=true;start+=dx;break;
                 case PatchGesture::Mode::subLeft: start+=dx;length-=dx;break;
                 case PatchGesture::Mode::subRight: length+=dx;break;
                 default: return;
             }
-            if(g.subId.isEmpty()) {
+            if(g.subId.isEmpty() && g.mode!=PatchGesture::Mode::joined) {
                 const auto magnet=live::magneticPatchEdge(g.originSpans,g.patchId,
                     start,length,move,leftResize,8./juce::jmax(1.,item->scale));
                 start=magnet.start;length=magnet.length;
@@ -1261,7 +1289,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(g.previewCalculated && start==g.lastPreviewStart && length==g.lastPreviewLength)
                 return; // One preview per grid step, not per mouse event.
             g.previewCalculated=true;g.lastPreviewStart=start;g.lastPreviewLength=length;
-            if(g.subId.isEmpty())
+            if(g.mode==PatchGesture::Mode::joined)
+                g.previewSpans=live::joinedPatchSpans(g.originSpans,g.patchId,g.joinedRightId,start+length);
+            else if(g.subId.isEmpty())
                 g.previewSpans=live::editedPatchSpans(g.originSpans,item->bars,g.patchId,start,length,false,move);
             else
                 g.previewSpans=live::editedSubPatchSpan(g.originSpans,g.patchId,g.subId,start,length,move);
@@ -1282,7 +1312,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 parent.owner.run([&]{
                     parent.owner.setLivePatchSpans(channelId,patchId,spans,
                         sub?(bodyMove?"Move sub-patch strip":"Resize sub-patch strip")
-                           :(bodyMove?"Move patch block":"Resize patch block"),itemId);
+                           :(bodyMove?"Move patch block":
+                              patchGesture.mode==PatchGesture::Mode::joined?
+                                "Move shared Patch boundary":"Resize patch block"),itemId);
                 });
             patchGesture={};
             repaint();
