@@ -227,18 +227,31 @@ inline void subPatchChainVariants() {
         checkThrows([&]{validate(duplicate);},"Duplicate sub-patch names must be rejected");
     }
     {
-        // Updating a shared Patch preserves its library identity and referenced
-        // block IDs; Undo may restore the previous value from one transaction.
+        // #374 F: Base is immutable once variants exist. Silently rebasing it
+        // would change both Parameters and Snapshot meanings in existing shows.
         auto edited=state.clone();
         auto replacement=baseInserts;
         replacement[0].component_state={std::byte{4},std::byte{5}};
         replacement[0].parameters[0].value=.3f;
-        replaceCapturedPatch(edited,channel,patchId,replacement);
-        const auto changedPatch=find(find(edited,"channels",channel),"patches",patchId);
+        checkThrows([&]{replaceCapturedPatch(edited,channel,patchId,replacement);},
+                    "#374 F: Base with Sub-patches refuses silent rebase");
+        const auto preserved=find(find(edited,"channels",channel),"patches",patchId);
+        check(decodeLivePatchInserts(edited,preserved)[0].component_state==
+                  baseInserts[0].component_state &&
+              find(preserved,"subPatches","sub-rhythm").isObject(),
+              "#374 F: rejected rebase preserves original Base and child library");
+        // Updating a Patch *without* any Sub-patches still captures full state.
+        auto withoutSubs=state.clone();
+        auto& barePatch=require(require(withoutSubs,"channels",channel),"patches",patchId);
+        put(barePatch,"subPatches",juce::var(juce::Array<juce::var>{}));
+        replaceCapturedPatch(withoutSubs,channel,patchId,replacement);
+        const auto changedPatch=find(find(withoutSubs,"channels",channel),"patches",patchId);
         check(changedPatch["id"].toString()==patchId &&
-              decodeLivePatchInserts(edited,changedPatch)[0].component_state==replacement[0].component_state &&
-              find(changedPatch,"subPatches","sub-rhythm").isObject(),
-              "Update Patch keeps ID, Sub-patches and stores captured full VST3 state");
+              decodeLivePatchInserts(withoutSubs,changedPatch)[0].component_state==
+                  replacement[0].component_state &&
+              changedPatch["subPatches"].isArray() &&
+              changedPatch["subPatches"].size()==0,
+              "#374 F: Base without Sub-patches supports full-state Update");
         auto changed=baseInserts;
         changed[0].parameters[0].value=.7f;
         replaceCapturedSubPatch(edited,channel,patchId,"sub-rhythm",changed);
