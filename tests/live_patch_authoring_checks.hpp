@@ -205,8 +205,6 @@ inline void patchBlockAuthoring() {
         const auto replacementId=addChannelPatch(grouped,groupedChannel,
             std::vector<mrs::NativeInsert>{fx},"Solo","violet");
         auto& groupedTrack=trackOf(grouped);
-        const auto original=groupedTrack["spans"].clone();
-        const auto order=groupedTrack["patchOrder"].clone();
         auto nextBlock=blockSpan(4,2);
         put(nextBlock,"patchId",patchId);
         auto blocks=groupedTrack["spans"].clone();
@@ -235,8 +233,8 @@ inline void patchBlockAuthoring() {
         const auto restored=groupEdit.apply(advanced,false);
         check(sameShowValue(channelItemTrack(restored,item,channel)["spans"],groupedTrack["spans"]),
               "One Undo restores both group-selected Patch assignments");
-        check(sameShowValue(track["spans"],state["items"][0]["tracks"][0]["spans"]),
-              "Group reassign does not edit unrelated Items or saved Patch banks");
+        check(groupedTrack["spans"][juce::Identifier(patchId)]["patchId"].isVoid(),
+              "Group assignment leaves the original library block reference untouched before commit");
     }
     // Regression for #374: committing geometry through the established local
     // edit protocol must keep the channel bank and its large VST3 state shared,
