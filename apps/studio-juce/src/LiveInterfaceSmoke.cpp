@@ -1110,18 +1110,17 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     editing.undoLiveInterface();timeline->refresh();
     const auto musical=live::canonical(live::musicalVersion(editing.liveDocument->interfaceState,id));
     bounds=timeline->itemBounds(id);
-    // #374 A: the upper half of a Patch lane owns the Patch edge; the
-    // lower half preserves independent Item trim. This Item-boundary test
-    // uses a channel with no authored Patch at the pointer position.
-    body->mouseMove(event(static_cast<float>(bounds.getRight()-2),170.f));
+    // #374 A: the earlier upper-corner assertion was tied to the removed
+    // 8px corner grip and did not even target an authored Patch block. Check
+    // the lower-half Item trim here; an actual Patch edge receives its own
+    // two-zone gesture regression below with a known Patch geometry.
+    constexpr float itemTrimLowerY=245.f; // first timeline lane, lower half
+    body->mouseMove(event(static_cast<float>(bounds.getRight()-2),itemTrimLowerY));
     liveCheck(body->getMouseCursor()==juce::MouseCursor(juce::MouseCursor::LeftRightResizeCursor),
-              "#374 Patch upper corner advertises its own resize grip");
-    body->mouseMove(event(static_cast<float>(bounds.getRight()-2),180.f));
-    liveCheck(body->getMouseCursor()==juce::MouseCursor(juce::MouseCursor::LeftRightResizeCursor),
-              "#374 Item end advertises its independent resize gesture below the patch grip");
-    body->mouseDown(event(static_cast<float>(bounds.getRight()-2),180.f));
-    body->mouseDrag(event(static_cast<float>(bounds.getRight()-130),180.f));
-    body->mouseUp(event(static_cast<float>(bounds.getRight()-130),180.f));timeline->refresh();
+              "#374 A: lower-half lane preserves independent Item trim");
+    body->mouseDown(event(static_cast<float>(bounds.getRight()-2),itemTrimLowerY));
+    body->mouseDrag(event(static_cast<float>(bounds.getRight()-130),itemTrimLowerY));
+    body->mouseUp(event(static_cast<float>(bounds.getRight()-130),itemTrimLowerY));timeline->refresh();
     const auto view=editing.liveDocument->interfaceState["performance"]["arrangement"][juce::Identifier(id)];
     liveCheck(static_cast<double>(view["length"])==20. && static_cast<double>(view["scale"])==32.,
               "Right grip changes explicit item end without changing scale");
