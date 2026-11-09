@@ -1435,6 +1435,17 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
                   restoredBlocks["spans"][juce::Identifier(secondPatch)].isObject() &&
                   editing.liveLocalPatchApplications==deletionBase+2,
                   "#374 Upd1: one Undo restores both selected Patch blocks");
+        editing.undoLiveInterface(true);timeline->refresh();
+        liveCheck(live::channelItemTrack(editing.liveDocument->interfaceState,
+                      activeBeforePatch,patchChannel)["patchOrder"].size()==0,
+                  "#374 Upd1: one Redo removes both Patch blocks");
+        editing.undoLiveInterface();timeline->refresh();
+        editing.saveFile(file);
+        const auto savedBlocks=LiveDocument::read(file);
+        file.deleteFile();
+        liveCheck(live::channelItemTrack(savedBlocks.interfaceState,
+                      activeBeforePatch,patchChannel)["patchOrder"].size()==2,
+                  "#374 Upd1: group-deleted and Undo-restored blocks survive Show Save/Reopen");
     }
     {
         // #374 Windows Save regression: safely replace an existing show with a
