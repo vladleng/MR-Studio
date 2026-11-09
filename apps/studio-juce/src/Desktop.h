@@ -146,7 +146,10 @@ public:
     void applyLiveChannelSubPatch(const juce::String&, const juce::String& patchId,
                                   const juce::String& subPatchId);
     void captureLiveChannelSubPatch(const juce::String&, const juce::String& patchId,
-                                    const juce::String& name, const juce::String& colour = "violet");
+                                    const juce::String& name, const juce::String& colour = "violet",
+                                    live::SubPatchCaptureMode mode=live::SubPatchCaptureMode::automatic,
+                                    const juce::String& itemId={},const juce::String& blockId={},
+                                    double preferredStart=0.);
     // Explicit Save/Update of the currently applied patch. Shared library IDs
     // remain stable so every block keeps its reference; no runtime switch.
     void updateLiveChannelPatch(const juce::String&, const juce::String& patchId);

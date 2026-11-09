@@ -1010,6 +1010,37 @@ inline void validateSubPatches(const juce::var &state, const juce::var &patch) {
             throw std::runtime_error("Invalid channel sub-patch");
         if(!sub["color"].isVoid() && !patchColour(sub["color"].toString()))
             throw std::runtime_error("Invalid channel sub-patch colour");
+        const auto type=sub["type"].toString();
+        if(!sub["type"].isVoid() && type!="parameters" && type!="snapshot")
+            throw std::runtime_error("Invalid Sub-patch capture mode");
+        if(!sub["formatVersion"].isVoid() &&
+           (!number(sub["formatVersion"]) || static_cast<int>(sub["formatVersion"])!=2))
+            throw std::runtime_error("Unsupported Sub-patch snapshot version");
+        if(type=="snapshot") {
+            const auto* states=sub["states"].getArray();
+            if(!states||states->isEmpty()||states->size()>maximumPatchInserts||
+               !sub["overrides"].isVoid()||!sub["inserts"].isVoid())
+                throw std::runtime_error("Invalid Snapshot Sub-patch state list");
+            std::set<juce::String> stateInserts;
+            for(const auto& record:*states) {
+                if(!record.isObject()||!named(record["insertId"],128)||
+                   !hexHash(record["state"].toString())||
+                   !stateInserts.insert(record["insertId"].toString()).second)
+                    throw std::runtime_error("Invalid Snapshot Sub-patch insert or state");
+                bool matches=false;
+                for(const auto& insert:*baseInserts)
+                    if(insert["id"]==record["insertId"] && insert["kind"].toString()=="vst3")
+                        matches=true;
+                if(!matches)
+                    throw std::runtime_error("Snapshot references a VST3 insert outside Base");
+                const auto* store=state["patchStates"].getDynamicObject();
+                if(!store||!store->hasProperty(juce::Identifier(record["state"].toString())))
+                    throw std::runtime_error("Snapshot references a missing VST3 state blob");
+            }
+            continue;
+        }
+        if(!sub["states"].isVoid())
+            throw std::runtime_error("Parameter/legacy Sub-patch contains Snapshot data");
         if(!sub["overrides"].isVoid()) {
             const auto* overrides=sub["overrides"].getArray();
             if(!overrides||overrides->isEmpty()||overrides->size()>maximumSubPatchOverrides||
@@ -1206,7 +1237,13 @@ inline void prunePatchStates(juce::var &state) {
                 };
                 keepInserts(patch);
                 if(const auto* subs=patch["subPatches"].getArray())
-                    for(const auto& sub:*subs)keepInserts(sub); // 0.9.2 legacy variants
+                    for(const auto& sub:*subs) {
+                        keepInserts(sub); // 0.9.2 legacy variants
+                        if(const auto* states=sub["states"].getArray())
+                            for(const auto& record:*states)
+                                if(record["state"].isString())
+                                    used.insert(record["state"].toString());
+                    }
             }
     auto &store = map(state, "patchStates");
     juce::StringArray remove;

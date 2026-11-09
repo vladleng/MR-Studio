@@ -1593,7 +1593,11 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     menu.addSubMenu("Add one-bar Sub-patch...",variants);
                 const bool stopped=!parent.owner.app.recording() &&
                     parent.owner.displayState().playback!=mrs::PlaybackState::playing;
-                menu.addItem(3,"Capture current as sub-patch...",stopped);
+                juce::PopupMenu captures;
+                captures.addItem(3,"Auto (detect changes)",stopped);
+                captures.addItem(4,"Parameters (changed controls only)",stopped);
+                captures.addItem(5,"Snapshot (full VST3 state)",stopped);
+                menu.addSubMenu("Capture current as Sub-patch...",captures,stopped);
             }
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
             juce::Component::SafePointer<Body> self(this);
@@ -1608,24 +1612,19 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                  itemId,clickedBar,generation,librarySubIds](int action) {
                     if(!safe||!action||!safe->liveDocument||
                        safe->liveDocumentGeneration!=generation)return;
-                    if(action==3) {
+                    if(action>=3 && action<=5) {
+                        const auto mode=action==4?live::SubPatchCaptureMode::parameters:
+                                        action==5?live::SubPatchCaptureMode::snapshot:
+                                                  live::SubPatchCaptureMode::automatic;
                         safe->textDialog("Sub-patch name","Rhythm",
-                            [safe,channelId,blockId,libraryPatchId,itemId,clickedBar,generation](juce::String name){
+                            [safe,channelId,blockId,libraryPatchId,itemId,clickedBar,generation,mode](juce::String name){
                                 if(!safe||!safe->liveDocument||
                                    safe->liveDocumentGeneration!=generation||name.trim().isEmpty())return;
                                 safe->run([&]{
+                                    // One model transaction creates the library variant
+                                    // and its Timeline strip, so a single Undo removes both.
                                     safe->captureLiveChannelSubPatch(channelId,libraryPatchId,
-                                                                     name.trim(),"violet");
-                                    const auto channel=live::find(safe->liveDocument->interfaceState,
-                                                                   "channels",channelId);
-                                    const auto patch=live::find(channel,"patches",libraryPatchId);
-                                    if(const auto* subs=patch["subPatches"].getArray())
-                                        for(const auto& sub:*subs)
-                                            if(sub["name"].toString().compareIgnoreCase(name.trim())==0) {
-                                                safe->addLiveSubPatchBlock(channelId,blockId,
-                                                    sub["id"].toString(),itemId,clickedBar);
-                                                break;
-                                            }
+                                        name.trim(),"violet",mode,itemId,blockId,clickedBar);
                                 });
                             });
                         return;

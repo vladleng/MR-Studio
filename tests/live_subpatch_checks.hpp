@@ -99,6 +99,69 @@ inline void subPatchChainVariants() {
     vendorPresetOnly[0].component_state=std::vector<std::byte>{std::byte{18},std::byte{19}};
     checkThrows([&]{subPatchChain(state,baseInserts,vendorPresetOnly);},
                 "Opaque-only preset changes must not be misrepresented as Sub-patch parameters");
+    // #374 F: full vendor Snapshot is a same-chain Sub-patch, not an
+    // additional Patch or a duplicate Base. Both formats share library IDs.
+    {
+        auto autoState=state.clone();
+        const auto automatic=captureSubPatchVariant(autoState,baseInserts,variant);
+        check(automatic["type"].toString()=="parameters" &&
+              automatic["overrides"].size()==1 && automatic["states"].isVoid(),
+              "#374 F: Auto chooses sparse Parameters for exposed changes");
+        const auto direct=captureSubPatchVariant(autoState,baseInserts,variant,
+                                                 SubPatchCaptureMode::parameters);
+        check(direct["type"].toString()=="parameters",
+              "#374 F: explicitly selected Parameters remains supported");
+        checkThrows([&]{captureSubPatchVariant(autoState,baseInserts,vendorPresetOnly,
+                                               SubPatchCaptureMode::parameters);},
+                    "#374 F: Parameters refuses opaque-only preset changes");
+        auto snapshot=captureSubPatchVariant(autoState,baseInserts,vendorPresetOnly);
+        check(snapshot["type"].toString()=="snapshot" &&
+              snapshot["states"].size()==1 && snapshot["overrides"].isVoid(),
+              "#374 F: Auto falls back to full-state Snapshot for opaque-only VST3");
+        put(snapshot,"id","sub-snapshot");
+        put(snapshot,"name","Preset");
+        put(snapshot,"color","orange");
+        auto& bank=require(require(autoState,"channels",channel),"patches",patchId);
+        array(bank,"subPatches").add(snapshot);
+        validate(autoState);
+        auto effectiveSnapshot=patchInsertsWithSubPatch(autoState,
+            find(find(autoState,"channels",channel),"patches",patchId),
+            find(find(find(autoState,"channels",channel),"patches",patchId),
+                 "subPatches","sub-snapshot"));
+        check(effectiveSnapshot.size()==1 &&
+              effectiveSnapshot[0].component_state==vendorPresetOnly[0].component_state &&
+              effectiveSnapshot[0].parameters.empty() &&
+              patchInsertsWithSubPatch(autoState,
+                find(find(autoState,"channels",channel),"patches",patchId),{})[0].component_state==
+                    baseInserts[0].component_state,
+              "#374 F: Snapshot changes only selected VST3 state; Base stays intact");
+        const auto hash=snapshot["states"][0]["state"].toString();
+        prunePatchStates(autoState);
+        check(autoState["patchStates"][juce::Identifier(hash)].isObject(),
+              "#374 F: Snapshot blobs survive reference pruning");
+        auto invalid=autoState.clone();
+        auto& snapshots=array(require(require(invalid,"channels",channel),"patches",patchId),"subPatches");
+        for(auto& v:snapshots)
+            if(v["id"].toString()=="sub-snapshot") {
+                auto row=v["states"][0].clone();
+                put(row,"insertId","foreign-insert");
+                auto list=v["states"].clone();
+                list.getArray()->set(0,row);
+                put(v,"states",list);
+            }
+        checkThrows([&]{validate(invalid);},
+                    "#374 F: Snapshot cannot reference foreign VST3 insert ID");
+        auto both=variant;
+        auto forcedSnapshot=captureSubPatchVariant(autoState,baseInserts,both,
+                                                   SubPatchCaptureMode::snapshot);
+        check(forcedSnapshot["type"].toString()=="snapshot" &&
+              forcedSnapshot["states"].size()==1,
+              "#374 F: explicit Snapshot works when parameters and state both change");
+        auto missing=autoState.clone();
+        missing["patchStates"].getDynamicObject()->removeProperty(juce::Identifier(hash));
+        checkThrows([&]{validate(missing);},
+                    "#374 F: missing Snapshot binary data fails validation");
+    }
     auto otherStructure=baseInserts;
     otherStructure[0].id=mrs::Id{"fx-2"};
     checkThrows([&]{subPatchChain(state,baseInserts,otherStructure);},

@@ -1635,7 +1635,10 @@ void Desktop::applyLiveChannelSubPatch(const juce::String& requested,const juce:
     applyLiveChannelPatch(requested,patchId,subPatchId);
 }
 void Desktop::captureLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
-                                         const juce::String& name,const juce::String& colour) {
+                                         const juce::String& name,const juce::String& colour,
+                                         live::SubPatchCaptureMode mode,
+                                         const juce::String& itemId,const juce::String& blockId,
+                                         double preferredStart) {
     const auto channel=inputChannel(*this,requested);
     if(!live::patchColour(colour))throw std::runtime_error("Invalid sub-patch colour");
     if(app.recording()||app.engine()->state().playback==mrs::PlaybackState::playing)
@@ -1661,11 +1664,35 @@ void Desktop::captureLiveChannelSubPatch(const juce::String& requested,const juc
         for(const auto& existing:subs)
             if(existing["name"].toString().compareIgnoreCase(trimmed)==0)
                 throw std::runtime_error("A sub-patch with this name already exists");
-        auto sub=live::subPatchChain(state,base,current); // validates structure and a real change
-        live::put(sub,"id",live::freshId());
+        auto sub=live::captureSubPatchVariant(state,base,current,mode);
+        const auto variantId=live::freshId();
+        live::put(sub,"id",variantId);
         live::put(sub,"name",trimmed);
         live::put(sub,"color",colour);
         subs.add(sub);
+        if(blockId.isNotEmpty()) {
+            if(itemId.isEmpty())
+                throw std::runtime_error("Missing target Item for captured Sub-patch");
+            auto& item=live::require(state,"items",itemId);
+            bool placed=false;
+            for(auto& track:live::array(item,"tracks")) {
+                if(track["channelId"].toString()!=channel)continue;
+                auto spans=track["spans"].clone();
+                auto parent=spans[juce::Identifier(blockId)].clone();
+                if(!parent.isObject()||live::patchLibraryId(blockId,parent)!=patchId)
+                    throw std::runtime_error("Captured Sub-patch target Patch is missing");
+                const auto children=live::addedSubPatchSpanAt(parent["subs"],
+                    live::blockLength(parent),variantId,preferredStart);
+                if(live::sameShowValue(children,parent["subs"]))
+                    throw std::runtime_error("No free Base space for captured Sub-patch");
+                live::put(parent,"subs",children);
+                live::put(spans,juce::Identifier(blockId),parent);
+                live::put(track,"spans",spans);
+                placed=true;
+                break;
+            }
+            if(!placed)throw std::runtime_error("Target channel not found on Item");
+        }
     });
 }
 // Patch/Sub-patch update is a deliberate library edit, not a DSP switch.
