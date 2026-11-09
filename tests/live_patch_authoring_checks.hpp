@@ -31,6 +31,37 @@ inline void patchBlockAuthoring() {
     const auto clamped=editedPatchSpans(spans,12,"a",0,6,false);
     check(std::abs(blockLength(clamped["a"])-4)<1.e-9,
           "A clamped resize keeps the neighbour boundary");
+    // #374 A: dragging an individual Patch edge must never push, overlap or
+    // shrink a sibling. Snap threshold is in lane pixels converted to bars.
+    const auto unpushed=editedPatchSpans(spans,12,"a",0,6,false);
+    check(std::abs(blockStart(unpushed["b"])-4)<1.e-9 &&
+          std::abs(blockLength(unpushed["b"])-4)<1.e-9,
+          "Individual edge resize cannot mutate the neighbouring Patch");
+    auto withGap=object();
+    put(withGap,"a",blockSpan(0,3));
+    put(withGap,"b",blockSpan(4,2));
+    const auto magnetLeft=magneticPatchEdge(withGap,"b",3.13,2.87,false,true,.2);
+    check(magnetLeft.snapped&&std::abs(magnetLeft.start-3.)<1.e-9 &&
+          std::abs(magnetLeft.length-3.)<1.e-9,
+          "The left edge magnetically snaps to the end of its preceding block");
+    const auto snappedLeft=editedPatchSpans(withGap,12,"b",
+        magnetLeft.start,magnetLeft.length,false);
+    check(std::abs(blockStart(snappedLeft["b"])-3.)<1.e-9 &&
+          std::abs(blockLength(snappedLeft["a"])-3.)<1.e-9,
+          "Magnetic snap closes a gap without changing the neighbour");
+    const auto magnetRight=magneticPatchEdge(withGap,"a",0,3.88,false,false,.2);
+    check(magnetRight.snapped&&std::abs(magnetRight.length-4.)<1.e-9,
+          "Right-edge resize snaps to the next Patch boundary");
+    const auto magnetMove=magneticPatchEdge(withGap,"b",3.1,2.,true,false,.2);
+    check(magnetMove.snapped&&std::abs(magnetMove.start-3.)<1.e-9,
+          "Moving a Patch snaps its body to the neighbouring block");
+    const auto noMagnet=magneticPatchEdge(withGap,"b",3.5,2.,true,false,.2);
+    check(!noMagnet.snapped&&std::abs(noMagnet.start-3.5)<1.e-9,
+          "Moving away from a boundary does not snap");
+    const auto sharedSeam=editedPatchSpans(spans,12,"b",3.5,4.5,false);
+    check(std::abs(blockStart(sharedSeam["b"])-4.)<1.e-9 &&
+          std::abs(blockLength(sharedSeam["a"])-4.)<1.e-9,
+          "A shared edge remains independent and cannot overlap the preceding Patch");
     auto withSub=spans.clone();
     auto a=withSub["a"];
     auto subs=object();
