@@ -1046,7 +1046,12 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         const auto now=juce::Time::getCurrentTime(); const juce::Point<float> point{x,y};
         return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,mods,1,0,0,0,0,body,body,now,point,now,clicks,false);
     };
+    const auto beforeSectionCreation=editing.liveLocalPatchApplications;
+    const auto originalSectionChannels=editing.liveDocument->interfaceState["channels"].getArray();
     body->mouseDoubleClick(event(origin+64.f,96.f,2));timeline->refresh();
+    liveCheck(editing.liveLocalPatchApplications==beforeSectionCreation+1 &&
+              editing.liveDocument->interfaceState["channels"].getArray()==originalSectionChannels,
+              "#374 C: Section creation commits one local Undo without cloning VST3 state");
     auto rows=live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::sections);
     liveCheck(rows.size()==1 && rows[0]["name"].toString()=="Verse" && static_cast<double>(rows[0]["start"])==2.,
               "Double-click empty Sections creates native Verse at common origin");
@@ -1091,7 +1096,12 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
               "Native seam drag commits both neighbouring boundaries together");
     editing.undoLiveInterface();editing.undoLiveInterface();timeline->refresh();
     liveCheck(editing.liveDocument->signature()==before,"Seam Undo and fixture Undo preserve original section data");
+    const auto beforeChordCreation=editing.liveLocalPatchApplications;
+    const auto originalChordChannels=editing.liveDocument->interfaceState["channels"].getArray();
     body->mouseDoubleClick(event(origin+32.f,136.f,2));timeline->refresh();
+    liveCheck(editing.liveLocalPatchApplications==beforeChordCreation+1 &&
+              editing.liveDocument->interfaceState["channels"].getArray()==originalChordChannels,
+              "#374 C: Chord creation commits one local Undo without cloning VST3 state");
     rows=live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::chords);
     liveCheck(rows.size()==1 && static_cast<double>(rows[0]["start"])==1.,"Chord creation shares the Sections origin");
     body->mouseDown(event(origin+48.f,136.f));
@@ -1100,8 +1110,9 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     editing.undoLiveInterface();timeline->refresh();
     const auto musical=live::canonical(live::musicalVersion(editing.liveDocument->interfaceState,id));
     bounds=timeline->itemBounds(id);
-    // #374 regression: the tiny upper corner of a Patch has a resize grip,
-    // but the existing Item trim remains available a few pixels below it.
+    // #374 A: the upper half of a Patch lane owns the Patch edge; the
+    // lower half preserves independent Item trim. This Item-boundary test
+    // uses a channel with no authored Patch at the pointer position.
     body->mouseMove(event(static_cast<float>(bounds.getRight()-2),170.f));
     liveCheck(body->getMouseCursor()==juce::MouseCursor(juce::MouseCursor::LeftRightResizeCursor),
               "#374 Patch upper corner advertises its own resize grip");
