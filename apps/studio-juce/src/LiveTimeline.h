@@ -1004,7 +1004,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     return;
                 }
             }
-            if(event.mods.isLeftButtonDown() && !scissors) {
+            if(event.mods.isLeftButtonDown() && !scissors && !event.mods.isShiftDown()) {
                 PatchGesture updateTarget;
                 if(patchUpdateHit(event.getPosition(),updateTarget)) {
                     const auto channelId=updateTarget.channelId,
@@ -1014,6 +1014,45 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                         parent.owner.confirmLivePatchUpdate(channelId,libraryPatchId,librarySubId,itemId);
                     });
                     return;
+                }
+            }
+            if(event.mods.isLeftButtonDown() && !scissors && event.y>=lanesTop) {
+                PatchGesture hitBlock;
+                if(patchHitTest(event.getPosition(),hitBlock)) {
+                    const auto chosen=choiceFor(hitBlock);
+                    if(event.mods.isShiftDown()) {
+                        if(!isSelected(chosen))selectedPatches.push_back(chosen);
+                        repaint();
+                        return; // Shift adds without moving this block
+                    }
+                    if(!isSelected(chosen)) {
+                        selectedPatches={chosen};
+                        repaint();
+                    }
+                } else if(const auto* lane=parent.laneAt(event.y)) {
+                    const auto channel=live::find(parent.state,"channels",lane->channel);
+                    if(!lane->container&&channel.isObject()&&
+                       channel["type"].toString()!="Playback") {
+                        const auto hitItem=std::find_if(parent.items.begin(),parent.items.end(),
+                            [&](const auto& item){return !item.collapsed &&
+                                item.bounds.contains(event.getPosition());});
+                        if(hitItem!=parent.items.end()) {
+                            const auto leadX=hitItem->bounds.getX()+1+
+                                hitItem->lead*hitItem->scale;
+                            const bool itemEdge=event.x>=hitItem->bounds.getRight()-5 ||
+                                std::abs(static_cast<float>(event.x)-leadX)<=5.f;
+                            if(!itemEdge) {
+                                marqueeArmed=true;marqueeActive=false;
+                                marqueeAdditive=event.mods.isShiftDown();
+                                marqueeBase=selectedPatches;
+                                marqueeStart=event.getPosition();
+                                marqueeEnd=marqueeStart;
+                                if(!marqueeAdditive)selectedPatches.clear();
+                                repaint();
+                                return;
+                            }
+                        }
+                    }
                 }
             }
             // At a shared Item/Patch edge, the upper lane half owns Patch
@@ -1076,10 +1115,23 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         }
 
         void mouseDrag(const juce::MouseEvent &event) override {
+            if(marqueeArmed) {
+                marqueeEnd=event.getPosition();
+                if(std::abs(marqueeEnd.x-marqueeStart.x)>=3 ||
+                   std::abs(marqueeEnd.y-marqueeStart.y)>=3) {
+                    marqueeActive=true;
+                    updateMarquee();
+                }
+                return;
+            }
             if(patchGesture.mode!=PatchGesture::Mode::none){previewPatchEdit(event);return;}
             if(editing)previewEdit(event);
         }
         void mouseUp(const juce::MouseEvent &) override {
+            if(marqueeArmed) {
+                marqueeArmed=false;marqueeActive=false;
+                marqueeBase.clear();repaint();return;
+            }
             if(popupPending) {
                 popupPending=false;
                 if(!patchContextMenu(popupPosition,popupScreen))
@@ -1403,7 +1455,11 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             return true;
         }
         bool keyPressed(const juce::KeyPress &key) override {
-            if (key == juce::KeyPress::escapeKey) { cancelPatchEdit(); cancelEdit(); return true; }
+            if (key == juce::KeyPress::escapeKey) {
+                marqueeArmed=false;marqueeActive=false;
+                marqueeBase.clear();selectedPatches.clear();
+                cancelPatchEdit();cancelEdit();repaint();return true;
+            }
             if (clipSelection.isNotEmpty()) {
                 if(key==juce::KeyPress::deleteKey || key==juce::KeyPress::backspaceKey){removeClip();return true;}
                 if(key==juce::KeyPress::returnKey){clipProperties();return true;}
@@ -1413,7 +1469,10 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey) { removeSelected(); return true; }
             return false;
         }
-        void focusLost(FocusChangeType) override { cancelPatchEdit(); cancelEdit(); }
+        void focusLost(FocusChangeType) override {
+            marqueeArmed=false;marqueeActive=false;marqueeBase.clear();
+            cancelPatchEdit();cancelEdit();
+        }
         void mouseDoubleClick(const juce::MouseEvent &event) override {
             cancelEdit();
             if(event.y>=lanesTop){if(beginClipEdit(event)){cancelEdit();if(!scissors)clipProperties(event.getScreenPosition());}return;}
