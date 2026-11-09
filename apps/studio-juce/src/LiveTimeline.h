@@ -1672,6 +1672,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 repaint();
                 if(selection.isEmpty())return true;
                 editRows=live::musicalRows(originalState,id,selectedLane).clone();
+                lastMusicalPreviewDelta.reset();
                 copy=event.mods.isAltDown() && selectedLane==live::MusicalLane::chords && mode==live::SpanGesture::move;
                 editing=true;parent.body.repaint();
                 return true;
@@ -1692,6 +1693,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 parent.layout();parent.playhead.update();repaint();
                 return;
             }
+            const auto snappedMusicalDelta=live::barSnap(delta);
+            if(!clipEditing && lastMusicalPreviewDelta &&
+               *lastMusicalPreviewDelta==snappedMusicalDelta)return;
             try {
                 live::EditPath path;
                 juce::var changedRows;
@@ -1717,6 +1721,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 }
                 const auto patch=live::valuePatch(originalState,std::move(path),changedRows);
                 invalid=false;parent.state=patch.apply(originalState,true);
+                if(!clipEditing)lastMusicalPreviewDelta=snappedMusicalDelta;
                 if(clipEditing)parent.layout();
                 else for(auto& item:parent.items)if(item.value["id"].toString()==selectedItem)
                     item.value=live::find(parent.state,"items",selectedItem);
@@ -1749,10 +1754,16 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 return;
             }
             const auto next=parent.state;
-            restoreModelState();
+            // Chords/Sections must keep the preview geometry until the
+            // local Undo patch is committed. Restoring first flashes the old
+            // position and makes the mouse-up feel delayed.
+            if(clipEditing)restoreModelState();
             if(!parent.owner.liveDocument ||
                parent.owner.liveDocumentGeneration!=editGeneration ||
-               parent.owner.liveUiRevision!=editRevision||parent.owner.liveEdits.mutation!=editMutation)return;
+               parent.owner.liveUiRevision!=editRevision||parent.owner.liveEdits.mutation!=editMutation) {
+                if(!clipEditing)restoreModelState();
+                return;
+            }
             parent.owner.run([&]{
                 if(clipEditing){
                     parent.owner.setLivePlaybackRegions(clipItem,clipStem,
@@ -1760,6 +1771,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 }else parent.owner.setLiveMusicalRows(selectedItem,selectedLane==live::MusicalLane::sections,
                                                       live::musicalRows(next,selectedItem,selectedLane));
             });
+            if(!clipEditing)restoreModelState();
             if (!clipEditing && viewKey.isEmpty() && copy) {
                 const auto committed=live::musicalRows(parent.owner.liveDocument->interfaceState,selectedItem,selectedLane);
                 if (const auto *values=committed.getArray()) for(const auto &row:*values)
@@ -1796,11 +1808,16 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         }
         void create(Item item,live::MusicalLane lane,double at,const juce::String &name) {
             const auto id=item.value["id"].toString();
-            parent.owner.run([&]{parent.owner.editLiveInterface("Add musical event",[&](auto &state){
-                auto next=live::newMusicalSpan(state,id,lane,at,item.bars,name);
-                selection=next[next.size()-1]["id"].toString();selectedItem=id;selectedLane=lane;
-                live::setMusicalRows(state,id,lane,next);
-            });});
+            parent.owner.run([&]{
+                if(!parent.owner.liveDocument)return;
+                // Never clone/validate the entire Show (including opaque VST3
+                // states) for one chord or section. Reuse accepted local Undo.
+                const auto next=live::newMusicalSpan(
+                    parent.owner.liveDocument->interfaceState,id,lane,at,item.bars,name);
+                parent.owner.setLiveMusicalRows(id,lane==live::MusicalLane::sections,next);
+                selection=next[next.size()-1]["id"].toString();
+                selectedItem=id;selectedLane=lane;
+            });
         }
         void context(Item item,double at,juce::Point<int> screen) {
             juce::PopupMenu menu;
@@ -1859,6 +1876,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         juce::String selectedItem,selection,viewKey;
         double previewViewValue{};
         std::uint64_t editGeneration{},editRevision{},editMutation{};
+        std::optional<double> lastMusicalPreviewDelta;
         juce::var originalState,editRows;
 
       private:
