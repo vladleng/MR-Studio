@@ -1302,7 +1302,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 else
                     g.previewSpans=live::editedSubPatchSpan(g.originSpans,g.patchId,g.subId,start,length,move);
             } catch(const std::exception& error) {
-                g.previewSpans={};
+                g.previewSpans=juce::var{};
                 setTooltip(juce::String::fromUTF8(error.what()));
             }
             repaint();
