@@ -787,6 +787,79 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             bool previewCalculated{};
         };
         PatchGesture patchGesture;
+        struct PatchSelection {
+            juce::String itemId,channelId,blockId;
+        };
+        std::vector<PatchSelection> selectedPatches,marqueeBase;
+        juce::Point<int> marqueeStart,marqueeEnd;
+        bool marqueeArmed{},marqueeActive{},marqueeAdditive{};
+        static bool samePatch(const PatchSelection& left,const PatchSelection& right) {
+            return left.itemId==right.itemId&&left.channelId==right.channelId&&
+                   left.blockId==right.blockId;
+        }
+        bool isSelected(const PatchSelection& choice) const {
+            return std::any_of(selectedPatches.begin(),selectedPatches.end(),
+                [&](const auto& selected){return samePatch(selected,choice);});
+        }
+        static PatchSelection choiceFor(const PatchGesture& gesture) {
+            return {gesture.itemId,gesture.channelId,gesture.patchId};
+        }
+        juce::Rectangle<int> marqueeBounds() const {
+            const int left=juce::jmin(marqueeStart.x,marqueeEnd.x);
+            const int top=juce::jmin(marqueeStart.y,marqueeEnd.y);
+            return {left,top,std::abs(marqueeEnd.x-marqueeStart.x)+1,
+                       std::abs(marqueeEnd.y-marqueeStart.y)+1};
+        }
+        void updateMarquee() {
+            auto next=marqueeAdditive?marqueeBase:std::vector<PatchSelection>{};
+            const auto bounds=marqueeBounds();
+            for(const auto& item:parent.items) {
+                if(item.collapsed || !bounds.intersects(item.bounds))continue;
+                const auto itemId=item.value["id"].toString();
+                for(std::size_t i=0;i<parent.lanes.size();++i) {
+                    const auto& lane=parent.lanes[i];
+                    if(lane.container)continue;
+                    const int rowTop=lanesTop+static_cast<int>(i)*rowHeight;
+                    if(!bounds.intersects({item.bounds.getX(),rowTop,item.bounds.getWidth(),rowHeight}))
+                        continue;
+                    const auto channel=live::find(parent.state,"channels",lane.channel);
+                    if(!channel.isObject()||channel["type"].toString()=="Playback")continue;
+                    const auto track=live::channelItemTrack(parent.state,itemId,lane.channel);
+                    if(const auto* order=track["patchOrder"].getArray())
+                        for(const auto& blockKey:*order) {
+                            const auto blockId=blockKey.toString();
+                            const auto span=track["spans"][juce::Identifier(blockId)];
+                            if(!span.isObject())continue;
+                            if(!bounds.intersects(parent.extent(item,span,rowTop+10,rowHeight-20)))
+                                continue;
+                            const PatchSelection chosen{itemId,lane.channel,blockId};
+                            if(std::none_of(next.begin(),next.end(),
+                                   [&](const auto& old){return samePatch(old,chosen);}))
+                                next.push_back(chosen);
+                        }
+                }
+            }
+            selectedPatches=std::move(next);
+            repaint();
+        }
+        void paintPatchSelection(juce::Graphics& g) const {
+            const auto focus=liveReferenceTokens().colour(ColourRole::focus);
+            g.setColour(focus);
+            for(const auto& choice:selectedPatches)
+                for(const auto& item:parent.items) {
+                    if(item.collapsed||item.value["id"].toString()!=choice.itemId)continue;
+                    const int rowTop=parent.channelY(choice.channelId);
+                    if(rowTop<lanesTop)continue;
+                    const auto track=live::channelItemTrack(parent.state,choice.itemId,choice.channelId);
+                    const auto span=track["spans"][juce::Identifier(choice.blockId)];
+                    if(span.isObject())g.drawRect(parent.extent(item,span,rowTop+10,rowHeight-20),2);
+                }
+            if(marqueeActive) {
+                const auto rect=marqueeBounds();
+                g.setColour(focus.withAlpha(.14f));g.fillRect(rect);
+                g.setColour(focus.withAlpha(.8f));g.drawRect(rect);
+            }
+        }
         juce::String hoveredPatchId, hoveredSubId;
         PatchGesture::Mode hoveredPatchMode{PatchGesture::Mode::none};
         // Popup menus are opened on mouse-up: showing them from mouse-down let the same click
@@ -795,6 +868,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         juce::Point<int> popupPosition, popupScreen;
         void paint(juce::Graphics &g) override {
             parent.paintItems(g);
+            paintPatchSelection(g);
             paintPatchPreview(g);
             if(guideY>=0){g.setColour(liveReferenceTokens().colour(ColourRole::focus));g.drawVerticalLine(juce::roundToInt(guideX),static_cast<float>(guideY+4),static_cast<float>(guideY+rowHeight-4));}
         }
