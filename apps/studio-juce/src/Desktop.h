@@ -146,6 +146,9 @@ public:
                                const juce::String& subPatchId = {},bool assignItemDefault=true);
     void loadLiveChannelPatch(const juce::String&,const juce::String& patchId,
                               const juce::String& subPatchId = {});
+    // At Stop, audition the sound assigned by a Patch/Sub-patch Timeline span.
+    void loadStoppedLiveTimelinePatch(const juce::String& channel,
+                                      const juce::String& itemId,double atBar);
     struct LoadedLivePatch {
         juce::String itemId,patchId,subPatchId;
     };

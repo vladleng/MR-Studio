@@ -1092,6 +1092,23 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     chooseSubPatch(hit,event.getScreenPosition());
                     return;
                 }
+                if(patchGesture.mode==PatchGesture::Mode::body && !scissors &&
+                   !event.mods.isShiftDown() &&
+                   event.getDistanceFromDragStart()<=3) {
+                    const auto hit=patchGesture;
+                    patchGesture=PatchGesture{};
+                    const auto item=std::find_if(parent.items.begin(),parent.items.end(),
+                        [&](const auto& candidate){
+                            return candidate.value["id"].toString()==hit.itemId;});
+                    if(item!=parent.items.end()) {
+                        const auto atBar=barAt(*item,static_cast<float>(event.x));
+                        parent.owner.run([&] {
+                            parent.owner.loadStoppedLiveTimelinePatch(
+                                hit.channelId,hit.itemId,atBar);
+                        });
+                    }
+                    return;
+                }
                 finishPatchEdit();return;
             }
             if(editing)finishEdit();
@@ -1613,9 +1630,11 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     safe->run([&] {
                         if(action==3)safe->deleteLiveChannelPatch(channelId,patchId);
                         else if(action==4)safe->updateLiveChannelPatch(channelId,patchId);
-                        else if(action>=100 && action-100<static_cast<int>(patchIds.size()))
+                        else if(action>=100 && action-100<static_cast<int>(patchIds.size())) {
                             safe->replaceLivePatchBlock(channelId,patchBlock,
                                 patchIds[static_cast<std::size_t>(action-100)],itemId);
+                            safe->loadStoppedLiveTimelinePatch(channelId,itemId,atBar);
+                        }
                     });
                 });
             return true;
@@ -1683,9 +1702,16 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                                 });
                         }
                         else if(action>=100 &&
-                                action-100<static_cast<int>(patchIds.size()))
-                            safe->addLivePatchBlock(channelId,
-                                patchIds[static_cast<std::size_t>(action-100)],atBar,itemId);
+                                action-100<static_cast<int>(patchIds.size())) {
+                            const auto selected=patchIds[static_cast<std::size_t>(action-100)];
+                            safe->addLivePatchBlock(channelId,selected,atBar,itemId);
+                            const auto track=live::channelItemTrack(
+                                safe->liveDocument->interfaceState,itemId,channelId);
+                            const auto placed=track["spans"][juce::Identifier(selected)];
+                            if(placed.isObject())
+                                safe->loadStoppedLiveTimelinePatch(
+                                    channelId,itemId,live::blockStart(placed)+.001);
+                        }
                     });
                 });
             return true;

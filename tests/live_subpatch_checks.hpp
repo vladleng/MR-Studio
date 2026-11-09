@@ -64,6 +64,47 @@ inline void subPatchChainVariants() {
               "#374 Stop: initial sound must resolve from the Timeline Patch, not Item default");
     }
     {
+        // Right-edge ownership, nested Sub-patches, and independent fragment
+        // IDs are resolved from library IDs, never legacy Item defaults.
+        auto timeline=state.clone();
+        auto& first=require(require(timeline,"channels",channel),"patches",patchId);
+        const auto defaultId=createDefaultSubPatch(first,"blue");
+        auto solo=object();
+        put(solo,"id","sub-solo");
+        put(solo,"name","Solo");
+        put(solo,"color","violet");
+        put(solo,"type","parameters");
+        put(solo,"formatVersion",2);
+        put(solo,"overrides",juce::var(juce::Array<juce::var>{}));
+        array(first,"subPatches").add(solo);
+        auto firstSpan=fullDefaultSubPatchSpan(blockSpan(0.,4.),defaultId);
+        auto subSpans=object();
+        put(subSpans,juce::Identifier(defaultId),blockSpan(0.,2.));
+        auto soloSpan=blockSpan(2.,2.);
+        put(soloSpan,"subPatchId","sub-solo");
+        put(subSpans,juce::Identifier("split-solo"),soloSpan);
+        put(firstSpan,"subs",subSpans);
+        const auto lead=addChannelPatch(timeline,require(timeline,"channels",channel),
+                                         std::vector<mrs::NativeInsert>{base},"Lead","violet");
+        auto& leadPatch=require(require(timeline,"channels",channel),"patches",lead);
+        const auto leadDefault=createDefaultSubPatch(leadPatch,"violet");
+        auto secondSpan=fullDefaultSubPatchSpan(blockSpan(4.,4.),leadDefault);
+        put(secondSpan,"patchId",lead);
+        auto spans=object();
+        put(spans,juce::Identifier(patchId),firstSpan);
+        put(spans,juce::Identifier("split-lead"),secondSpan);
+        put(trackOf(timeline),"spans",spans);
+        const auto at0=timelinePatchAtBar(timeline,item,channel,0.);
+        const auto at2=timelinePatchAtBar(timeline,item,channel,2.);
+        const auto at4=timelinePatchAtBar(timeline,item,channel,4.);
+        const auto at8=timelinePatchAtBar(timeline,item,channel,8.);
+        check(at0.patchId==patchId && at0.subPatchId==defaultId &&
+              at2.patchId==patchId && at2.subPatchId=="sub-solo" &&
+              at4.patchId==lead && at4.subPatchId==leadDefault &&
+              at8.patchId.isEmpty(),
+              "#374 Stop: Patch/Sub-patch boundary and split ID resolution");
+    }
+    {
         // #374 H: a new Patch contains one real, editable 'default'
         // Sub-patch covering the whole parent. No implied Base gap.
         auto show=empty();

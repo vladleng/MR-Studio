@@ -1550,14 +1550,15 @@ void Desktop::captureLiveChannelPatch(const juce::String& requested,const juce::
         throw std::runtime_error("Configure the channel input first");
     // Baseline values are reference metadata, never inserted into the opaque
     // component/controller state restoration path.
+    // Capture actual Core/host insert states, not a stale persisted Live Input.
+    const auto captured=captureLiveChannelInserts(channel);
     const auto exposed=live::encodeLivePatchParameterBaseline(
         captureLiveChannelInserts(channel,true));
     editLiveInterface("Capture channel patch",[&](auto& state){
         auto& target=live::require(state,"channels",channel);
         if(!target["liveInput"].isObject())
             throw std::runtime_error("Configure the channel input first");
-        const auto profile=live::decodeLiveInputProfile(target["liveInput"]);
-        const auto id=live::addChannelPatch(state,target,profile.inserts,name,colour);
+        const auto id=live::addChannelPatch(state,target,captured,name,colour);
         auto& patch=live::require(target,"patches",id);
         live::put(patch,"parameterBaseline",exposed.clone());
         const auto defaultId=live::createDefaultSubPatch(patch,colour);
@@ -1638,6 +1639,20 @@ void Desktop::applyLiveChannelPatch(const juce::String& requested,const juce::St
 void Desktop::loadLiveChannelPatch(const juce::String& requested,const juce::String& patchId,
                                    const juce::String& subPatchId) {
     applyLiveChannelPatch(requested,patchId,subPatchId,false);
+}
+// At Stop an explicit Timeline selection can load its VST3 sound. Musical
+// scheduling while playing is strictly a separate #375 responsibility.
+void Desktop::loadStoppedLiveTimelinePatch(const juce::String& channel,
+                                           const juce::String& itemId,double atBar) {
+    if(!liveDocument ||
+       liveDocument->interfaceState["currentItem"].toString()!=itemId ||
+       app.recording() ||
+       app.engine()->state().playback!=mrs::PlaybackState::stopped)
+        return;
+    const auto selected=live::timelinePatchAtBar(
+        liveDocument->interfaceState,itemId,channel,atBar);
+    if(selected.patchId.isEmpty())return;
+    loadLiveChannelPatch(channel,selected.patchId,selected.subPatchId);
 }
 bool Desktop::livePatchLoadedForEditing(const juce::String& channel,
                                         const juce::String& patchId,
@@ -2298,7 +2313,8 @@ void Desktop::applyLiveItemDefaultPatches() {
         if(!patch.isObject())
             continue;
         // #289 B: an item may also remember a sub-patch of the same chain.
-        const auto subPatchId=live::channelItemTrack(liveDocument->interfaceState,itemId,channel)["subPatchId"].toString();
+        const auto subPatchId=live::timelinePatchAtBar(
+            liveDocument->interfaceState,itemId,channel,0.).subPatchId;
         const auto subPatch=subPatchId.isEmpty()?juce::var{}:live::find(patch,"subPatches",subPatchId);
         bool differs=false;
         try {
@@ -2310,7 +2326,7 @@ void Desktop::applyLiveItemDefaultPatches() {
         if(!differs)
             continue;
         try {
-            applyLiveChannelPatch(channel,patchId,subPatch.isObject()?subPatchId:juce::String());
+            loadLiveChannelPatch(channel,patchId,subPatch.isObject()?subPatchId:juce::String());
         } catch(const std::exception& error) {
             if(livePreloadError.isEmpty())
                 livePreloadError="Patch: "+juce::String::fromUTF8(error.what());

@@ -887,27 +887,53 @@ inline juce::var addedPatchSpanAt(const juce::var& spans,double itemBars,const j
     values->setProperty(juce::Identifier(patchId),blockSpan(start,length));
     return result;
 }
-// #289 A-Upd1: channel patches an item asks for when it becomes current.
-// Legacy demo patches have no captured chain and are never auto-applied.
+// #374: the Timeline's saved block references determine a channel's sound.
+// Block IDs may differ from library IDs after Scissors.
+struct TimelinePatchChoice {
+    juce::String patchId,subPatchId;
+};
+inline TimelinePatchChoice timelinePatchAtBar(
+    const juce::var& state,const juce::String& itemId,
+    const juce::String& channelId,double atBar) {
+    if(!std::isfinite(atBar)||atBar<0.)return {};
+    const auto track=channelItemTrack(state,itemId,channelId);
+    const auto channel=find(state,"channels",channelId);
+    if(!track.isObject()||!channel.isObject()||
+       channel["type"].toString()=="Playback")return {};
+    for(const auto& block:orderedSpans(track["spans"])) {
+        const auto start=blockStart(block.second);
+        if(atBar<start||atBar>=start+blockLength(block.second))continue;
+        const auto patchId=patchLibraryId(block.first,block.second);
+        const auto patch=find(channel,"patches",patchId);
+        if(!patch.isObject()||legacyPatch(patch))return {};
+        const auto offset=atBar-start;
+        for(const auto& sub:orderedSpans(block.second["subs"])) {
+            const auto subStart=blockStart(sub.second);
+            if(offset<subStart||offset>=subStart+blockLength(sub.second))continue;
+            const auto subPatchId=subPatchLibraryId(sub.first,sub.second);
+            if(!find(patch,"subPatches",subPatchId).isObject())
+                throw std::runtime_error("Timeline references a missing Sub-patch");
+            return {patchId,subPatchId};
+        }
+        // A gap inside a Patch inherits its saved parent VST3 state.
+        return {patchId,{}};
+    }
+    return {};
+}
+// Entering an Item at Stop chooses bar zero from the Timeline, never the
+// obsolete per-Item patchId/subPatchId fields.
 inline std::vector<std::pair<juce::String, juce::String>> itemDefaultPatches(
-    const juce::var &state, const juce::String &item) {
-    std::vector<std::pair<juce::String, juce::String>> result;
-    const auto row = find(state, "items", item);
-    if (!row.isObject())
-        return result;
-    if (const auto *tracks = row["tracks"].getArray())
-        for (const auto &track : *tracks) {
-            const auto channel = track["channelId"].toString();
-            const auto patchId = track["patchId"].toString();
-            if (channel.isEmpty() || patchId.isEmpty())
-                continue;
-            const auto channelRow = find(state, "channels", channel);
-            if (channelRow["type"].toString() == "Playback")
-                continue;
-            const auto patch = find(channelRow, "patches", patchId);
-            if (!patch.isObject() || legacyPatch(patch))
-                continue;
-            result.emplace_back(channel, patchId);
+    const juce::var& state,const juce::String& item) {
+    std::vector<std::pair<juce::String,juce::String>> result;
+    const auto row=find(state,"items",item);
+    if(!row.isObject())return result;
+    if(const auto* tracks=row["tracks"].getArray())
+        for(const auto& track:*tracks) {
+            const auto channel=track["channelId"].toString();
+            if(channel.isEmpty())continue;
+            const auto selected=timelinePatchAtBar(state,item,channel,0.);
+            if(selected.patchId.isNotEmpty())
+                result.emplace_back(channel,selected.patchId);
         }
     return result;
 }
