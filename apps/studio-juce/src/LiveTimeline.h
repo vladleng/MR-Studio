@@ -836,20 +836,18 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     }
                     const bool edge=hover.mode==PatchGesture::Mode::left||hover.mode==PatchGesture::Mode::right||
                                     hover.mode==PatchGesture::Mode::subLeft||hover.mode==PatchGesture::Mode::subRight;
-                    if(!edge) {
-                        // Do not advertise a patch drag while the Item's
-                        // independent right-end trim has priority.
+                    if(event.y>=hover.rowTop+rowHeight/2) {
                         for(const auto& item:parent.items)
                             if(!item.collapsed && item.bounds.contains(event.getPosition()) &&
                                (event.x>=item.bounds.getRight()-5 ||
                                 std::abs(event.position.x-(item.bounds.getX()+1+item.lead*item.scale))<=5)) {
                                 setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
-                                setTooltip("Drag origin or Item end");
+                                setTooltip("Resize Item boundary (lower half)");
                                 return;
                             }
                     }
                     setMouseCursor(edge?juce::MouseCursor::LeftRightResizeCursor:juce::MouseCursor::DraggingHandCursor);
-                    setTooltip(edge?"Drag upper corner to resize block":"Drag patch block");
+                    setTooltip(edge?"Resize Patch boundary (upper half)":"Drag patch block");
                     return;
                 }
             }
@@ -944,17 +942,15 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     return;
                 }
             }
-            // Only the explicit upper-corner patch handle beats the Item end trim.
-            // On the remainder of the Item boundary, preserve the existing Item
-            // resize gesture (#31 smoke: right grip at y=180).
+            // At a shared Item/Patch edge, the upper lane half owns Patch
+            // resizing. Below the lane midpoint the original Item trim wins.
             PatchGesture grip;
-            if(patchHitTest(event.getPosition(),grip) &&
-               (grip.mode==PatchGesture::Mode::left || grip.mode==PatchGesture::Mode::right ||
-                grip.mode==PatchGesture::Mode::subLeft || grip.mode==PatchGesture::Mode::subRight)) {
-                if(beginPatchEdit(event))return;
-            }
-            if (beginEdit(event)) return;
-            if (beginPatchEdit(event)) return;
+            const bool edge=patchHitTest(event.getPosition(),grip) &&
+                (grip.mode==PatchGesture::Mode::left || grip.mode==PatchGesture::Mode::right ||
+                 grip.mode==PatchGesture::Mode::subLeft || grip.mode==PatchGesture::Mode::subRight);
+            if(edge && event.y<grip.rowTop+rowHeight/2 && beginPatchEdit(event))return;
+            if(beginEdit(event))return;
+            if(beginPatchEdit(event))return;
             if (!event.mods.isLeftButtonDown())
                 return;
             for (const auto &item : parent.items) {
@@ -1043,7 +1039,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                             if(!pair.value.isObject())continue;
                             const auto rect=parent.extent(item,pair.value,y+64,26,live::blockStart(span));
                             if(!rect.contains(position))continue;
-                            const bool upperGrip=position.y<rect.getY()+8;
+                            const bool upperGrip=position.y<rect.getCentreY();
                             out.mode=upperGrip&&position.x<=rect.getX()+8?PatchGesture::Mode::subLeft:
                                      upperGrip&&position.x>=rect.getRight()-8?PatchGesture::Mode::subRight:
                                      PatchGesture::Mode::subBody;
@@ -1059,7 +1055,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                         }
                     const auto rect=parent.extent(item,span,y+10,rowHeight-20);
                     if(!rect.contains(position))continue;
-                    const bool upperGrip=position.y<rect.getY()+8;
+                    // Only the upper half of the lane resizes Patch edges.
+                    // The lower half leaves the Item trim available.
+                    const bool upperGrip=position.y<y+rowHeight/2;
                     out.mode=upperGrip&&position.x<=rect.getX()+9?PatchGesture::Mode::left:
                              upperGrip&&position.x>=rect.getRight()-9?PatchGesture::Mode::right:
                              PatchGesture::Mode::body;
@@ -1108,21 +1106,26 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(item==parent.items.end())return;
             const double dx=live::barSnap((event.x-g.startX)/juce::jmax(1.e-9,item->scale));
             double start=g.originStart,length=g.originLength;
-            bool move=false,adjust=false;
+            bool move=false,leftResize=false;
             switch(g.mode) {
                 case PatchGesture::Mode::body: move=true;start+=dx;break;
-                case PatchGesture::Mode::left: start+=dx;length-=dx;adjust=true;break;
-                case PatchGesture::Mode::right: length+=dx;adjust=true;break;
+                case PatchGesture::Mode::left: start+=dx;length-=dx;leftResize=true;break;
+                case PatchGesture::Mode::right: length+=dx;break;
                 case PatchGesture::Mode::subBody: move=true;start+=dx;break;
                 case PatchGesture::Mode::subLeft: start+=dx;length-=dx;break;
                 case PatchGesture::Mode::subRight: length+=dx;break;
                 default: return;
             }
+            if(g.subId.isEmpty()) {
+                const auto magnet=live::magneticPatchEdge(g.originSpans,g.patchId,
+                    start,length,move,leftResize,8./juce::jmax(1.,item->scale));
+                start=magnet.start;length=magnet.length;
+            }
             if(g.previewCalculated && start==g.lastPreviewStart && length==g.lastPreviewLength)
                 return; // One preview per grid step, not per mouse event.
             g.previewCalculated=true;g.lastPreviewStart=start;g.lastPreviewLength=length;
             if(g.subId.isEmpty())
-                g.previewSpans=live::editedPatchSpans(g.originSpans,item->bars,g.patchId,start,length,adjust,move);
+                g.previewSpans=live::editedPatchSpans(g.originSpans,item->bars,g.patchId,start,length,false,move);
             else
                 g.previewSpans=live::editedSubPatchSpan(g.originSpans,g.patchId,g.subId,start,length,move);
             repaint();
@@ -1136,13 +1139,15 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             const bool sub=patchGesture.subId.isNotEmpty();
             const bool bodyMove=patchGesture.mode==PatchGesture::Mode::body||
                                 patchGesture.mode==PatchGesture::Mode::subBody;
-            patchGesture={};
+            // Keep preview visible during commit to avoid an old-position flash
+            // before the local Undo notification publishes the new geometry.
             if(changed)
                 parent.owner.run([&]{
                     parent.owner.setLivePatchSpans(channelId,patchId,spans,
                         sub?(bodyMove?"Move sub-patch strip":"Resize sub-patch strip")
                            :(bodyMove?"Move patch block":"Resize patch block"),itemId);
                 });
+            patchGesture={};
             repaint();
         }
         void cancelPatchEdit() {
@@ -1164,7 +1169,16 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                         if(!sub.isObject())return;
                         rect=parent.extent(item,sub,patchGesture.rowTop+64,26,live::blockStart(span));
                     }
-                    g.setColour(liveReferenceTokens().colour(ColourRole::focus));
+                    const auto channel=live::find(parent.state,"channels",patchGesture.channelId);
+                    const auto base=live::find(channel,"patches",patchGesture.libraryPatchId);
+                    const auto sub=patchGesture.subId.isEmpty()?juce::var{}:
+                        live::find(base,"subPatches",patchGesture.librarySubId);
+                    const auto choice=sub.isObject()&&sub["color"].toString()!="inherit"?
+                        sub["color"]:base["color"];
+                    const auto tint=liveBlockColour(choice.toString());
+                    g.setColour(tint.withAlpha(.22f));
+                    g.fillRect(rect);
+                    g.setColour(tint.withAlpha(.95f));
                     g.drawRect(rect,2);
                     return;
                 }
@@ -2173,22 +2187,15 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 const auto patch=live::find(channel,"patches",live::patchLibraryId(blockId,span));
                 if(!patch.isObject())continue;
                 const auto patchBounds=extent(item,span,y+10,rowHeight-20);
-                block(g,patchBounds,{},patch["color"]);
-                if(body.hoveredPatchId==blockId && body.hoveredSubId.isEmpty()) {
-                    const bool left=body.hoveredPatchMode==Body::PatchGesture::Mode::left;
-                    const bool right=body.hoveredPatchMode==Body::PatchGesture::Mode::right;
-                    if(left||right) {
-                        g.setColour(juce::Colours::white.withAlpha(.85f));
-                        const int edge=left?patchBounds.getX()+2:patchBounds.getRight()-3;
-                        const int end=edge+(left?7:-7);
-                        g.drawLine(static_cast<float>(edge),static_cast<float>(patchBounds.getY()+2),
-                                   static_cast<float>(edge),static_cast<float>(patchBounds.getY()+14),2.f);
-                        g.drawLine(static_cast<float>(edge),static_cast<float>(patchBounds.getY()+3),
-                                   static_cast<float>(end),static_cast<float>(patchBounds.getY()+3),2.f);
-                    }
+                const bool previewBase=body.patchGesture.previewSpans.isObject() &&
+                    body.patchGesture.itemId==item.value["id"].toString() &&
+                    body.patchGesture.patchId==blockId &&
+                    body.patchGesture.subId.isEmpty();
+                if(!previewBase)block(g,patchBounds,{},patch["color"]);
+                if(!previewBase) {
+                    text(g,patch["name"].toString(),patchBounds.reduced(6).withHeight(30));
+                    paintPatchUpdate(g,patchBounds);
                 }
-                text(g,patch["name"].toString(),patchBounds.reduced(6).withHeight(30));
-                paintPatchUpdate(g,patchBounds);
                 // A single library Sub-patch can be split into several strips;
                 // each strip has its own key, without cloning vendor state.
                 if(const auto* entries=span["subs"].getDynamicObject())
@@ -2198,22 +2205,14 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                         const auto sub=live::find(patch,"subPatches",subId);
                         if(!sub.isObject())continue;
                         const auto bounds=extent(item,child.value,y+64,26,live::blockStart(span));
-                        block(g,bounds,sub["name"].toString(),
-                              sub["color"].toString()=="inherit"?patch["color"]:sub["color"]);
-                        paintPatchUpdate(g,bounds);
-                        if(body.hoveredPatchId==blockId &&
-                           body.hoveredSubId==child.name.toString()) {
-                            const bool left=body.hoveredPatchMode==Body::PatchGesture::Mode::subLeft;
-                            const bool right=body.hoveredPatchMode==Body::PatchGesture::Mode::subRight;
-                            if(left||right) {
-                                g.setColour(juce::Colours::white.withAlpha(.85f));
-                                const int edge=left?bounds.getX()+2:bounds.getRight()-3;
-                                const int end=edge+(left?6:-6);
-                                g.drawLine(static_cast<float>(edge),static_cast<float>(bounds.getY()+2),
-                                           static_cast<float>(edge),static_cast<float>(bounds.getY()+12),2.f);
-                                g.drawLine(static_cast<float>(edge),static_cast<float>(bounds.getY()+3),
-                                           static_cast<float>(end),static_cast<float>(bounds.getY()+3),2.f);
-                            }
+                        const bool previewSub=body.patchGesture.previewSpans.isObject() &&
+                            body.patchGesture.itemId==item.value["id"].toString() &&
+                            body.patchGesture.patchId==blockId &&
+                            body.patchGesture.subId==child.name.toString();
+                        if(!previewSub) {
+                            block(g,bounds,sub["name"].toString(),
+                                  sub["color"].toString()=="inherit"?patch["color"]:sub["color"]);
+                            paintPatchUpdate(g,bounds);
                         }
                     }
             }
