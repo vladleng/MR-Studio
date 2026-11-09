@@ -458,6 +458,14 @@ inline void subPatchRailGeometry() {
     const auto check=[](bool condition,const char* message) {
         if(!condition)throw std::runtime_error(message);
     };
+    // #374 J RED: the existing full default must be split, not replaced by
+    // invisible Base gaps or rejected because the rail is already filled.
+    auto initial=object();
+    put(initial,"default",blockSpan(0.,8.));
+    const auto split=addedSubPatchSpanAt(initial,8.,"solo",2.);
+    check(split.getDynamicObject()->getProperties().size()==3 &&
+          !subPatchBaseGaps([&]{auto p=blockSpan(0.,8.);put(p,"subs",split);return p;}()).size(),
+          "#374 J RED: insertion within a full default creates a covered rail");
     // RED before Upd2: a first Sub-patch used to swallow the entire parent.
     auto parent=blockSpan(0.,8.);
     auto gaps=subPatchBaseGaps(parent);
