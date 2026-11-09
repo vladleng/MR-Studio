@@ -1342,6 +1342,101 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
                   "#374 A: one Undo restores a top-half Patch resize");
     }
     {
+        // #374 Upd1: shared lower-half seam must resize BOTH blocks with
+        // one Undo, and Backspace must remove selected timeline objects only.
+        editing.addLivePatchBlock(patchChannel,secondPatch,6.,activeBeforePatch);
+        const auto firstTracks=live::channelItemTrack(editing.liveDocument->interfaceState,activeBeforePatch,patchChannel);
+        const auto secondSpans=live::editedPatchSpans(firstTracks["spans"],16.,secondPatch,6.,4.,false);
+        editing.setLivePatchSpans(patchChannel,secondPatch,secondSpans,"Prepare shared seam",activeBeforePatch);
+        timeline->refresh();
+        const auto laneRect=timeline->playbackStemLaneBounds(patchChannel);
+        const auto viewState=editing.liveDocument->interfaceState["performance"]["arrangement"]
+            [juce::Identifier(activeBeforePatch)];
+        const double scale=static_cast<double>(viewState["scale"]);
+        const double lead=static_cast<double>(viewState["lead"]);
+        const double start=viewState["start"].isVoid()?0.:static_cast<double>(viewState["start"]);
+        const auto rect=timeline->itemBounds(activeBeforePatch);
+        const float seamX=static_cast<float>(rect.getX()+1+
+            juce::roundToInt((lead-start+6.)*scale));
+        const float seamY=static_cast<float>(laneRect.getY()+92);
+        body->mouseMove(event(seamX-2.f,seamY));
+        liveCheck(body->getMouseCursor()==juce::MouseCursor::LeftRightResizeCursor,
+                  "#374 Upd1: shared lower-half Patch seam displays coupled resize cursor");
+        const auto originalView=viewState.clone();
+        body->mouseDown(event(seamX-2.f,seamY));
+        body->mouseDrag(event(seamX+30.f,seamY));
+        body->mouseUp(event(seamX+30.f,seamY));timeline->refresh();
+        const auto joinedTrack=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel);
+        liveCheck(std::abs(live::blockLength(joinedTrack["spans"][juce::Identifier(patchId)])-5.)<1.e-9 &&
+                  std::abs(live::blockStart(joinedTrack["spans"][juce::Identifier(secondPatch)])-7.)<1.e-9 &&
+                  std::abs(live::blockLength(joinedTrack["spans"][juce::Identifier(secondPatch)])-3.)<1.e-9 &&
+                  live::sameShowValue(editing.liveDocument->interfaceState["performance"]
+                     ["arrangement"][juce::Identifier(activeBeforePatch)],originalView),
+                  "#374 Upd1: lower-half seam changes both Patch lengths without touching Item");
+        editing.undoLiveInterface();timeline->refresh();
+        const auto unjoined=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel);
+        liveCheck(std::abs(live::blockLength(unjoined["spans"][juce::Identifier(patchId)])-4.)<1.e-9 &&
+                  std::abs(live::blockStart(unjoined["spans"][juce::Identifier(secondPatch)])-6.)<1.e-9,
+                  "#374 Upd1: single Undo restores both coupled Patch boundaries");
+        // Build a valid legacy Sub-patch fixture and verify that Backspace
+        // removes its STRIP without deleting the shared library variant.
+        editing.editLiveInterface("Sub-patch Backspace fixture",[&](auto& state){
+            auto& base=live::require(live::require(state,"channels",patchChannel),"patches",patchId);
+            auto sub=live::object();
+            live::put(sub,"id","sub-backspace");
+            live::put(sub,"name","Rhythm variation");
+            live::put(sub,"inserts",base["inserts"].clone());
+            live::array(base,"subPatches").add(sub);
+        });
+        editing.addLiveSubPatchBlock(patchChannel,patchId,"sub-backspace",activeBeforePatch);
+        timeline->refresh();
+        const float subY=static_cast<float>(laneRect.getY()+78);
+        body->mouseDown(event(seamX-40.f,subY));
+        body->mouseUp(event(seamX-40.f,subY));
+        liveCheck(body->keyPressed(juce::KeyPress(juce::KeyPress::backspaceKey)),
+                  "#374 Upd1: Backspace handles selected Sub-patch strip");
+        const auto removedSub=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel);
+        liveCheck(!removedSub["spans"][juce::Identifier(patchId)]["subs"]["sub-backspace"].isObject() &&
+                  live::find(live::find(live::find(editing.liveDocument->interfaceState,"channels",patchChannel),
+                    "patches",patchId),"subPatches","sub-backspace").isObject(),
+                  "#374 Upd1: deleting a Sub-patch strip retains the library Sub-patch");
+        editing.undoLiveInterface();timeline->refresh();
+        liveCheck(live::channelItemTrack(editing.liveDocument->interfaceState,
+                   activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)]
+                   ["subs"]["sub-backspace"].isObject(),
+                  "#374 Upd1: one Undo restores deleted Sub-patch strip");
+        const float patchY=static_cast<float>(laneRect.getY()+37);
+        body->mouseDown(event(seamX-40.f,patchY));
+        body->mouseUp(event(seamX-40.f,patchY));
+        const juce::ModifierKeys shiftLeft{
+            juce::ModifierKeys::leftButtonModifier|juce::ModifierKeys::shiftModifier};
+        body->mouseDown(event(seamX+30.f,patchY,1,shiftLeft));
+        body->mouseUp(event(seamX+30.f,patchY,1,shiftLeft));
+        const auto channelBank=editing.liveDocument->interfaceState["channels"].getArray();
+        const auto deletionBase=editing.liveLocalPatchApplications;
+        liveCheck(body->keyPressed(juce::KeyPress(juce::KeyPress::backspaceKey)),
+                  "#374 Upd1: Backspace deletes multi-selected Patch blocks");
+        const auto deleted=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel);
+        liveCheck(deleted["patchOrder"].size()==0 &&
+                  !deleted["spans"][juce::Identifier(patchId)].isObject() &&
+                  !deleted["spans"][juce::Identifier(secondPatch)].isObject() &&
+                  editing.liveDocument->interfaceState["channels"].getArray()==channelBank &&
+                  editing.liveLocalPatchApplications==deletionBase+1,
+                  "#374 Upd1: multi-Backspace uses one local Undo and retains both library Patches");
+        editing.undoLiveInterface();timeline->refresh();
+        const auto restoredBlocks=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel);
+        liveCheck(restoredBlocks["patchOrder"].size()==2 &&
+                  restoredBlocks["spans"][juce::Identifier(patchId)].isObject() &&
+                  restoredBlocks["spans"][juce::Identifier(secondPatch)].isObject() &&
+                  editing.liveLocalPatchApplications==deletionBase+2,
+                  "#374 Upd1: one Undo restores both selected Patch blocks");
+    }
+    {
         // #374 Windows Save regression: safely replace an existing show with a
         // large opaque VST3 blob through ONE sibling temporary file. The file
         // remains readable after two overwrites and no source show is changed.
