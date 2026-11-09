@@ -485,6 +485,45 @@ inline juce::var replaceSubPatchSegment(const juce::var& spans,const juce::Strin
     put(result,juce::Identifier(patchId),parent);
     return result;
 }
+// Same-chain Sub-patches own their shared boundary independently of the
+// parent Patch and its Base intervals. One local spans edit = one Undo.
+inline juce::var joinedSubPatchSpans(const juce::var& spans,const juce::String& patchId,
+                                     const juce::String& leftId,const juce::String& rightId,
+                                     double atOffset) {
+    const auto parent=spans[juce::Identifier(patchId)];
+    if(!parent.isObject()||!std::isfinite(atOffset))
+        throw std::runtime_error("Missing shared Sub-patch boundary");
+    const auto subs=parent["subs"];
+    const auto rows=orderedSpans(subs);
+    const auto left=std::find_if(rows.begin(),rows.end(),
+        [&](const auto& row){return row.first==leftId;});
+    if(left==rows.end()||std::next(left)==rows.end()||
+       std::next(left)->first!=rightId)
+        throw std::runtime_error("Sub-patch strips are not adjacent");
+    const auto& first=left->second;
+    const auto& second=std::next(left)->second;
+    const double start=blockStart(first);
+    const double boundary=start+blockLength(first);
+    const double end=blockStart(second)+blockLength(second);
+    if(std::abs(blockStart(second)-boundary)>1.e-7)
+        throw std::runtime_error("Sub-patch strips do not touch");
+    const double next=juce::jlimit(start+.25,end-.25,
+                                  std::round(atOffset*4.)/4.);
+    if(std::abs(next-boundary)<1.e-7)return spans.clone();
+    auto result=spans.clone();
+    auto updated=result[juce::Identifier(patchId)].clone();
+    auto children=updated["subs"].clone();
+    auto firstNext=children[juce::Identifier(leftId)].clone();
+    auto secondNext=children[juce::Identifier(rightId)].clone();
+    put(firstNext,"length",next-start);
+    put(secondNext,"start",next);
+    put(secondNext,"length",end-next);
+    put(children,juce::Identifier(leftId),firstNext);
+    put(children,juce::Identifier(rightId),secondNext);
+    put(updated,"subs",children);
+    put(result,juce::Identifier(patchId),updated);
+    return result;
+}
 // Place one Sub-patch at the click (1 bar by default); shorten to the free
 // interval. UUID instance keys allow repeated Rhythm/Solo occurrences while
 // keeping one shared library override state.
@@ -932,6 +971,32 @@ inline void validatePatchInserts(const juce::var &state, const juce::var &patch)
 // carry engine/plugin structure of their own; only the opaque plugin state and
 // native parameters differ from the base patch.
 inline void validateSubPatches(const juce::var &state, const juce::var &patch) {
+    // The baseline is read-only metadata used for Sub-patch comparison.
+    // Vendor component state remains authoritative for Base restoration.
+    const auto baseline=patch["parameterBaseline"];
+    if(!baseline.isVoid()) {
+        if(!baseline.isArray()||baseline.size()>maximumPatchInserts)
+            throw std::runtime_error("Invalid Patch parameter baseline");
+        std::set<juce::String> seenInserts;
+        for(const auto& insert:*baseline.getArray()) {
+            const auto id=insert["insertId"].toString();
+            const auto* params=insert["parameters"].getArray();
+            if(!insert.isObject() || !named(insert["insertId"],128) ||
+               !seenInserts.insert(id).second || !params || params->size()>4096)
+                throw std::runtime_error("Invalid Patch VST3 parameter baseline");
+            std::set<juce::int64> paramIds;
+            for(const auto& param:*params) {
+                if(!number(param["id"])||!number(param["value"]))
+                    throw std::runtime_error("Invalid Patch VST3 parameter baseline");
+                const double key=static_cast<double>(param["id"]);
+                const double value=static_cast<double>(param["value"]);
+                if(key<0.||key>4294967295.||std::floor(key)!=key ||
+                   !std::isfinite(value)||value<0.||value>1.||
+                   !paramIds.insert(static_cast<juce::int64>(key)).second)
+                    throw std::runtime_error("Invalid Patch VST3 parameter baseline");
+            }
+        }
+    }
     const auto subs = patch["subPatches"];
     if(subs.isVoid())return;
     if(!subs.isArray() || subs.size()>maximumSubPatches)
@@ -969,6 +1034,13 @@ inline void validateSubPatches(const juce::var &state, const juce::var &patch) {
                             for(const auto& parameter:*params)
                                 if(static_cast<double>(parameter["id"])==parameterId)
                                     matches=true;
+                if(!matches && baseline.isArray())
+                    for(const auto& row:*baseline.getArray())
+                        if(row["insertId"].toString()==insertId)
+                            if(const auto* params=row["parameters"].getArray())
+                                for(const auto& param:*params)
+                                    if(static_cast<double>(param["id"])==parameterId)
+                                        matches=true;
                 if(!matches)
                     throw std::runtime_error("Sub-patch override references a missing VST3 parameter");
             }

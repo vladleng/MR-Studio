@@ -1438,6 +1438,13 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
                   cutBase["baseCuts"].isArray() && cutBase["baseCuts"].size()==1 &&
                   cutBase["subs"]["sub-backspace"].isObject(),
                   "#374 E1: Scissors on Base creates an editorial cut, never cuts parent Patch");
+        editing.saveFile(file);
+        const auto reopenedBase=LiveDocument::read(file);
+        file.deleteFile();
+        liveCheck(live::channelItemTrack(reopenedBase.interfaceState,
+                  activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)]
+                    ["baseCuts"].size()==1,
+                  "#374 E5: Base cut survives Save/Reopen without opaque VST3 duplication");
         editing.undoLiveInterface();timeline->refresh();
         timeline->setClipScissors(false);
         body->mouseDown(event(baseX,subY));
@@ -1448,6 +1455,31 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
             activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
         liveCheck(stillParent.isObject() && stillParent["subs"]["sub-backspace"].isObject(),
                   "#374 E1: deleting selected Base cannot remove parent Patch or Rhythm");
+
+        // #374 E2: a joined Sub-patch seam is independent of the outer Patch
+        // seam and previews/resizes both children as a single Undoable action.
+        editing.addLiveSubPatchBlock(patchChannel,patchId,"sub-backspace",
+                                    activeBeforePatch,1.);
+        timeline->refresh();
+        const float subSeamX=seamX-static_cast<float>(3.*scale);
+        const float subSeamY=static_cast<float>(laneRect.getY()+103);
+        body->mouseMove(event(subSeamX-2.f,subSeamY));
+        liveCheck(body->getMouseCursor()==juce::MouseCursor::LeftRightResizeCursor,
+                  "#374 E2: lower Sub-patch seam displays shared-resize cursor");
+        body->mouseDown(event(subSeamX-2.f,subSeamY));
+        body->mouseDrag(event(subSeamX+static_cast<float>(scale/4)-2.f,subSeamY));
+        body->mouseUp(event(subSeamX+static_cast<float>(scale/4)-2.f,subSeamY));
+        timeline->refresh();
+        const auto joinedSub=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        const auto subRows=live::orderedSpans(joinedSub["subs"]);
+        liveCheck(subRows.size()==2 &&
+                  std::abs(live::blockLength(subRows[0].second)-1.25)<1.e-9 &&
+                  std::abs(live::blockStart(subRows[1].second)-1.25)<1.e-9 &&
+                  std::abs(live::blockLength(joinedSub)-4.)<1.e-9,
+                  "#374 E2: shared Sub seam changes children but preserves parent Patch");
+        editing.undoLiveInterface();
+        editing.undoLiveInterface();timeline->refresh(); // restore original one-child rail
 
         const float patchY=static_cast<float>(laneRect.getY()+37);
         body->mouseDown(event(seamX-40.f,patchY));

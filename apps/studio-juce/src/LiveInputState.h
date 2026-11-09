@@ -400,9 +400,12 @@ inline std::vector<mrs::NativeInsert> patchInsertsWithSubPatch(
             if(at==inserts.end())throw std::runtime_error("Sub-patch override references missing VST3 insert");
             auto param=std::find_if(at->parameters.begin(),at->parameters.end(),[&](const auto& p){
                 return p.id==parameterId;});
+            // Base is restored from opaque VST3 state. A newly captured
+            // Patch stores its full parameter baseline only as metadata,
+            // so apply *sparse* overrides instead of replaying every Base value.
             if(param==at->parameters.end())
-                throw std::runtime_error("Sub-patch parameter no longer exists on the base Patch");
-            param->value=value;
+                at->parameters.push_back({parameterId,value});
+            else param->value=value;
         }
         return inserts;
     }

@@ -71,6 +71,24 @@ inline void subPatchChainVariants() {
           "A sub-patch applies exposed parameters without replacing base VST3 state");
     check(sameInsertStructure(effective,baseInserts),
           "Sub-patch switching never changes the insert chain structure");
+    {
+        // A real newly captured Patch keeps parameter baselines separately:
+        // its native VST3 inserts contain opaque state but NO full parameter list.
+        auto sparse=state.clone();
+        auto& patch=live::require(live::require(sparse,"channels",channel),
+                                  "patches",patchId);
+        put(patch,"parameterBaseline",encodeLivePatchParameterBaseline(baseInserts));
+        auto& savedInserts=*patch["inserts"].getArray();
+        put(savedInserts.getReference(0),"parameters",juce::var(juce::Array<juce::var>{}));
+        validate(sparse);
+        const auto variant=patchInsertsWithSubPatch(sparse,
+            find(find(sparse,"channels",channel),"patches",patchId),
+            find(find(find(sparse,"channels",channel),"patches",patchId),
+                "subPatches","sub-rhythm"));
+        check(variant[0].parameters.size()==1 &&
+              std::abs(variant[0].parameters[0].value-.9f)<1.e-6f,
+              "#374 E3: baseline metadata validates sparse override without replaying full VST3 preset");
+    }
     const auto baseOnly=patchInsertsWithSubPatch(state,channelPatch(state),{});
     check(baseOnly.size()==1&&baseOnly[0].component_state==base.component_state&&
           std::abs(baseOnly[0].parameters[0].value-0.5f)<1.e-6f,
@@ -297,6 +315,11 @@ inline void subPatchAuthoringE() {
           subPatchLibraryId(divided.rightId,
               divided.spans["patch"]["subs"][juce::Identifier(divided.rightId)])=="rhythm",
           "#374 E1: Sub-patch scissors split only the child, sharing library ID");
+    auto seam=joinedSubPatchSpans(divided.spans,"patch","rhythm",divided.rightId,4.75);
+    check(std::abs(blockLength(seam["patch"]["subs"]["rhythm"])-1.25)<1.e-9 &&
+          std::abs(blockStart(seam["patch"]["subs"][juce::Identifier(divided.rightId)])-4.75)<1.e-9 &&
+          std::abs(blockLength(seam["patch"])-8.)<1.e-9,
+          "#374 E2: shared Sub-patch seam resizes both children, never parent Patch");
     auto replaced=replaceSubPatchSegment(divided.spans,"patch","rhythm","solo");
     const auto changed=replaced["patch"]["subs"]["rhythm"];
     check(std::abs(blockStart(changed)-3.5)<1.e-9 &&
