@@ -414,6 +414,64 @@ inline std::vector<mrs::NativeInsert> patchInsertsWithSubPatch(
         throw std::runtime_error("Sub-patch chain differs from its base patch");
     return legacy;
 }
+// Capture a control-thread parameter baseline separately from VST3 opaque
+// component/controller state. These values are comparison references only;
+// never replay the entire baseline as host overrides on preset restoration.
+inline juce::var encodeLivePatchParameterBaseline(const std::vector<mrs::NativeInsert>& inserts) {
+    juce::Array<juce::var> result;
+    for(const auto& insert:inserts) {
+        if(insert.kind!=mrs::InsertKind::vst3)continue;
+        auto row=object();
+        put(row,"insertId",juce::String::fromUTF8(insert.id.value.c_str()));
+        juce::Array<juce::var> values;
+        for(const auto& param:insert.parameters) {
+            auto entry=object();
+            put(entry,"id",static_cast<juce::int64>(param.id));
+            put(entry,"value",static_cast<double>(param.value));
+            values.add(entry);
+        }
+        put(row,"parameters",juce::var(values));
+        result.add(row);
+    }
+    return juce::var(result);
+}
+inline void applyLivePatchParameterBaseline(std::vector<mrs::NativeInsert>& inserts,
+                                            const juce::var& baseline) {
+    if(!baseline.isArray()) {
+        // Old patches with explicit parameters remain usable. Never invent
+        // a "baseline" from the currently modified plugin's state.
+        for(const auto& fx:inserts)
+            if(fx.kind==mrs::InsertKind::vst3 && fx.parameters.empty())
+                throw std::runtime_error(
+                    "This Patch has no VST3 parameter baseline. Re-capture the Base Patch before creating Sub-patches");
+        return;
+    }
+    for(auto& fx:inserts) {
+        if(fx.kind!=mrs::InsertKind::vst3)continue;
+        fx.parameters.clear();
+        bool found=false;
+        for(const auto& row:*baseline.getArray()) {
+            if(row["insertId"].toString()!=juce::String::fromUTF8(fx.id.value.c_str()))
+                continue;
+            found=true;
+            const auto* entries=row["parameters"].getArray();
+            if(!entries)throw std::runtime_error("Invalid Patch VST3 parameter baseline");
+            for(const auto& entry:*entries) {
+                if(!number(entry["id"])||!number(entry["value"]))
+                    throw std::runtime_error("Invalid Patch VST3 parameter baseline");
+                const double id=static_cast<double>(entry["id"]);
+                const double value=static_cast<double>(entry["value"]);
+                if(id<0||id>4294967295.||std::floor(id)!=id||
+                   !std::isfinite(value)||value<0||value>1.)
+                    throw std::runtime_error("Invalid Patch VST3 parameter baseline");
+                fx.parameters.push_back({static_cast<std::uint32_t>(id),
+                                         static_cast<float>(value)});
+            }
+            break;
+        }
+        if(!found)throw std::runtime_error("Patch VST3 parameter baseline is missing an insert");
+    }
+}
 // Only explicit, normalized VST3 parameter differences are eligible.
 // Non-exposed preset changes require a separate full Patch, never an opaque
 // Sub-patch clone. Capture/validation happens on the control thread at Stop.
@@ -449,8 +507,17 @@ inline juce::var subPatchChain(juce::var& /*state*/,const std::vector<mrs::Nativ
             overrides.add(overrideValue);
         }
     }
-    if(overrides.isEmpty())
-        throw std::runtime_error("No exposed VST3 parameter changes; use a separate Patch for preset/state changes");
+    if(overrides.isEmpty()) {
+        bool changedOpaque=false;
+        for(std::size_t i=0;i<base.size();++i)
+            if(base[i].kind==mrs::InsertKind::vst3 &&
+               (base[i].component_state!=current[i].component_state ||
+                base[i].controller_state!=current[i].controller_state))
+                changedOpaque=true;
+        throw std::runtime_error(changedOpaque?
+            "VST3 changed only an internal preset/state, not exposed parameters. Capture a separate Patch":
+            "No exposed VST3 parameter changes. Change an automatable parameter and capture again");
+    }
     if(overrides.size()>maximumSubPatchOverrides)
         throw std::runtime_error("Sub-patch parameter override limit reached");
     auto result=object();
@@ -474,7 +541,8 @@ inline void replaceCapturedSubPatch(juce::var& state,const juce::String& channel
                                     const juce::String& patchId,const juce::String& subId,
                                     const std::vector<mrs::NativeInsert>& captured) {
     auto& patch=require(require(state,"channels",channelId),"patches",patchId);
-    const auto base=decodeLivePatchInserts(state,patch);
+    auto base=decodeLivePatchInserts(state,patch);
+    applyLivePatchParameterBaseline(base,patch["parameterBaseline"]);
     auto fresh=subPatchChain(state,base,captured);
     auto& sub=require(patch,"subPatches",subId);
     if(sameShowValue(sub["overrides"],fresh["overrides"]))

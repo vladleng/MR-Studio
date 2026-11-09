@@ -303,6 +303,17 @@ inline PatchBlockSplit splitPatchBlock(const juce::var& spans,const juce::var& o
         }
         put(left,"subs",leftSubs);put(right,"subs",rightSubs);
     }
+    if(const auto* cuts=original["baseCuts"].getArray()) {
+        juce::Array<juce::var> leftCuts,rightCuts;
+        const double splitOffset=cutBar-start;
+        for(const auto& mark:*cuts) {
+            const auto at=static_cast<double>(mark);
+            if(at<splitOffset-1.e-7)leftCuts.add(at);
+            else if(at>splitOffset+1.e-7)rightCuts.add(at-splitOffset);
+        }
+        put(left,"baseCuts",juce::var(leftCuts));
+        put(right,"baseCuts",juce::var(rightCuts));
+    }
     const auto rightId=freshId();
     put(result,juce::Identifier(blockId),left);
     put(result,juce::Identifier(rightId),right);
@@ -361,6 +372,118 @@ inline std::vector<std::pair<double,double>> subPatchBaseGaps(const juce::var& p
     }
     if(cursor<parentLength-1.e-7)gaps.emplace_back(cursor,parentLength-cursor);
     return gaps;
+}
+// Base is a derived, state-free segment. Optional split markers merely persist
+// editorial divisions; no VST3 state, graph or extra sound is created.
+inline juce::String baseSegmentId(double start) {
+    return "$base:"+juce::String(start,6);
+}
+inline bool isBaseSegmentId(const juce::String& id) {
+    return id.startsWith("$base:");
+}
+struct BaseSegment {
+    double start{},length{};
+    juce::String id;
+};
+inline std::vector<BaseSegment> subPatchBaseSegments(const juce::var& parent) {
+    std::vector<BaseSegment> result;
+    std::vector<double> cuts;
+    if(const auto* entries=parent["baseCuts"].getArray())
+        for(const auto& cut:*entries)
+            if(number(cut))cuts.push_back(static_cast<double>(cut));
+    std::sort(cuts.begin(),cuts.end());
+    for(const auto& gap:subPatchBaseGaps(parent)) {
+        const double end=gap.first+gap.second;
+        double cursor=gap.first;
+        for(const double cut:cuts)
+            if(cut>cursor+1.e-7 && cut<end-1.e-7) {
+                result.push_back({cursor,cut-cursor,baseSegmentId(cursor)});
+                cursor=cut;
+            }
+        if(end>cursor+1.e-7)
+            result.push_back({cursor,end-cursor,baseSegmentId(cursor)});
+    }
+    return result;
+}
+inline juce::var splitBaseSegment(const juce::var& spans,const juce::String& patchId,double offset) {
+    const auto parent=spans[juce::Identifier(patchId)];
+    if(!parent.isObject() || !std::isfinite(offset))
+        throw std::runtime_error("Cannot split missing Base segment");
+    bool found=false;
+    for(const auto& base:subPatchBaseSegments(parent))
+        if(offset-base.start>=.25-1.e-7 &&
+           base.start+base.length-offset>=.25-1.e-7){found=true;break;}
+    if(!found)throw std::runtime_error("Move scissors inside Base; keep 1/4 bar on each side");
+    auto result=spans.clone();
+    auto updated=result[juce::Identifier(patchId)].clone();
+    juce::Array<juce::var> cuts;
+    if(const auto* existing=updated["baseCuts"].getArray())
+        cuts=*existing;
+    cuts.add(offset);
+    put(updated,"baseCuts",juce::var(cuts));
+    put(result,juce::Identifier(patchId),updated);
+    return result;
+}
+inline juce::var movedBaseCut(const juce::var& spans,const juce::String& patchId,
+                              double oldOffset,double newOffset) {
+    auto result=spans.clone();
+    auto parent=result[juce::Identifier(patchId)].clone();
+    const auto* oldCuts=parent["baseCuts"].getArray();
+    if(!oldCuts)throw std::runtime_error("Base cut no longer exists");
+    auto cuts=*oldCuts;
+    int target=-1;
+    for(int i=0;i<cuts.size();++i)
+        if(std::abs(static_cast<double>(cuts[i])-oldOffset)<1.e-7){target=i;break;}
+    if(target<0)throw std::runtime_error("Base cut no longer exists");
+    // Never move through an existing Sub-patch or leave a sliver below 1/4 bar.
+    auto draft=parent.clone();
+    auto without=cuts;
+    without.remove(target);
+    put(draft,"baseCuts",juce::var(without));
+    bool allowed=false;
+    for(const auto& base:subPatchBaseSegments(draft))
+        if(oldOffset>base.start+1.e-7 && oldOffset<base.start+base.length-1.e-7 &&
+           newOffset>=base.start+.25-1.e-7 &&
+           newOffset<=base.start+base.length-.25+1.e-7){allowed=true;break;}
+    if(!allowed)return spans.clone();
+    cuts.set(target,newOffset);
+    put(parent,"baseCuts",juce::var(cuts));
+    put(result,juce::Identifier(patchId),parent);
+    return result;
+}
+inline juce::var replaceBaseSegment(const juce::var& spans,const juce::String& patchId,
+                                    const juce::String& baseId,const juce::String& subLibraryId) {
+    auto result=spans.clone();
+    auto parent=result[juce::Identifier(patchId)].clone();
+    if(!parent.isObject() || subLibraryId.isEmpty())
+        throw std::runtime_error("Missing Base segment or Sub-patch library reference");
+    auto subs=parent["subs"].isObject()?parent["subs"].clone():object();
+    for(const auto& segment:subPatchBaseSegments(parent))
+        if(segment.id==baseId) {
+            const auto key=subs[juce::Identifier(subLibraryId)].isObject()?freshId():subLibraryId;
+            auto child=blockSpan(segment.start,segment.length);
+            if(key!=subLibraryId)put(child,"subPatchId",subLibraryId);
+            put(subs,juce::Identifier(key),child);
+            put(parent,"subs",subs);
+            put(result,juce::Identifier(patchId),parent);
+            return result;
+        }
+    throw std::runtime_error("Selected Base segment no longer exists");
+}
+inline juce::var replaceSubPatchSegment(const juce::var& spans,const juce::String& patchId,
+                                        const juce::String& instanceId,const juce::String& libraryId) {
+    auto result=spans.clone();
+    auto parent=result[juce::Identifier(patchId)].clone();
+    auto subs=parent["subs"].clone();
+    const auto source=subs[juce::Identifier(instanceId)];
+    if(!source.isObject() || libraryId.isEmpty())
+        throw std::runtime_error("Selected Sub-patch strip no longer exists");
+    auto updated=source.clone();
+    put(updated,"subPatchId",libraryId);
+    put(subs,juce::Identifier(instanceId),updated);
+    put(parent,"subs",subs);
+    put(result,juce::Identifier(patchId),parent);
+    return result;
 }
 // Place one Sub-patch at the click (1 bar by default); shorten to the free
 // interval. UUID instance keys allow repeated Rhythm/Solo occurrences while
@@ -543,6 +666,13 @@ inline juce::var editedPatchSpans(const juce::var& spans,double itemBars,const j
             for(const auto& entry:scaled)subValues->setProperty(entry.first,entry.second);
         }
     put(current,"subs",subs);
+    if(!moveBody&&originalLength>.25&&std::abs(length-originalLength)>1.e-9)
+        if(const auto* cuts=current["baseCuts"].getArray()) {
+            juce::Array<juce::var> scaled;
+            for(const auto& mark:*cuts)
+                scaled.add(static_cast<double>(mark)*length/originalLength);
+            put(current,"baseCuts",juce::var(scaled));
+        }
     for(const auto& row:rows)
         if(row.first!=patchId)values->setProperty(juce::Identifier(row.first),row.second);
     values->setProperty(juce::Identifier(patchId),current);
@@ -603,6 +733,12 @@ inline juce::var joinedPatchSpans(const juce::var& spans,const juce::String& lef
                 put(children,child.name,current);
             }
             put(updated,"subs",children);
+        }
+        if(const auto* marks=source["baseCuts"].getArray()) {
+            juce::Array<juce::var> cuts;
+            for(const auto& mark:*marks)
+                cuts.add(static_cast<double>(mark)*ratio);
+            put(updated,"baseCuts",juce::var(cuts));
         }
         return updated;
     };
@@ -1228,11 +1364,29 @@ inline void validate(const juce::var &state) {
                         const auto patch = find(channelRow, "patches",
                                                 patchLibraryId(pair.name.toString(),pair.value));
                         const auto subs = pair.value["subs"];
+                        const double parentLength = static_cast<double>(pair.value["length"]);
+                        const auto markers=pair.value["baseCuts"];
+                        if(!markers.isVoid()) {
+                            if(!markers.isArray())
+                                throw std::runtime_error("Invalid Base split markers");
+                            std::vector<double> cuts;
+                            for(const auto& marker:*markers.getArray()) {
+                                if(!number(marker))
+                                    throw std::runtime_error("Invalid Base split marker");
+                                const auto offset=static_cast<double>(marker);
+                                if(!std::isfinite(offset)||offset<=0.||offset>=parentLength)
+                                    throw std::runtime_error("Base split marker exceeds parent Patch");
+                                cuts.push_back(offset);
+                            }
+                            std::sort(cuts.begin(),cuts.end());
+                            for(std::size_t i=1;i<cuts.size();++i)
+                                if(cuts[i]-cuts[i-1]<1.e-7)
+                                    throw std::runtime_error("Duplicate Base split marker");
+                        }
                         if (subs.isVoid())
                             continue;
                         if (!subs.isObject())
                             throw std::runtime_error("Invalid item sub-patch spans");
-                        const double parentLength = static_cast<double>(pair.value["length"]);
                         std::vector<std::pair<double, double>> subRanges;
                         if (const auto *subValues = subs.getDynamicObject())
                             for (const auto &sub : subValues->getProperties()) {
@@ -1252,6 +1406,7 @@ inline void validate(const juce::var &state) {
                         for (std::size_t i = 1; i < subRanges.size(); ++i)
                             if (subRanges[i].first < subRanges[i - 1].second - 1.e-6)
                                 throw std::runtime_error("Item sub-patch spans overlap");
+
                     }
             }
 

@@ -41,6 +41,18 @@ inline void subPatchChainVariants() {
         return find(channelPatch(show),"subPatches","sub-rhythm");
     };
     const auto baseInserts=decodeLivePatchInserts(state,channelPatch(state));
+    {
+        const auto capturedBaseline=encodeLivePatchParameterBaseline(baseInserts);
+        auto restored=baseInserts;
+        restored[0].parameters.clear();
+        applyLivePatchParameterBaseline(restored,capturedBaseline);
+        check(restored[0].parameters==baseInserts[0].parameters,
+              "#374 E3: separate baseline preserves VST3 parameters without changing opaque state");
+        auto missing=restored;
+        missing[0].parameters.clear();
+        checkThrows([&]{applyLivePatchParameterBaseline(missing,{});},
+                    "#374 E3: older Base Patch without exposed parameters requires recapture");
+    }
     auto variant=baseInserts;
     variant[0].component_state=std::vector<std::byte>{std::byte{9},std::byte{9}};
     variant[0].parameters[0].value=0.9f;
@@ -251,5 +263,49 @@ inline void subPatchRailGeometry() {
     const auto unchanged=addedSubPatchSpanAt(tail,8.,"rhythm",7.75);
     check(sameShowValue(unchanged,tail),
           "A filled rail cannot acquire an overlapping Sub-patch");
+}
+
+inline void subPatchAuthoringE() {
+    const auto check=[](bool condition,const char* message){
+        if(!condition)throw std::runtime_error(message);
+    };
+    auto spans=object();
+    put(spans,"patch",blockSpan(1.,8.));
+    auto cut=splitBaseSegment(spans,"patch",4.);
+    const auto parent=cut["patch"];
+    const auto bases=subPatchBaseSegments(parent);
+    check(std::abs(blockStart(parent)-1.)<1.e-9 &&
+          std::abs(blockLength(parent)-8.)<1.e-9 &&
+          bases.size()==2 && std::abs(bases[1].start-4.)<1.e-9,
+          "#374 E1: Base scissors split rail only, never parent Patch");
+    auto moved=movedBaseCut(cut,"patch",4.,3.5);
+    check(subPatchBaseSegments(moved["patch"]).size()==2 &&
+          std::abs(subPatchBaseSegments(moved["patch"])[1].start-3.5)<1.e-9,
+          "#374 E2: shared Base boundary moves one grid-aligned marker");
+    const auto blocked=movedBaseCut(moved,"patch",3.5,8.);
+    check(sameShowValue(blocked,moved),
+          "#374 E2: Base boundary does not leave sub-quarter slivers");
+    auto assigned=replaceBaseSegment(moved,"patch",baseSegmentId(3.5),"rhythm");
+    const auto source=assigned["patch"]["subs"]["rhythm"];
+    check(source.isObject() && std::abs(blockStart(source)-3.5)<1.e-9 &&
+          std::abs(blockLength(source)-4.5)<1.e-9 &&
+          std::abs(blockLength(assigned["patch"])-8.)<1.e-9,
+          "#374 E2: replace Base with Rhythm retains exact segment length and Patch");
+    auto divided=splitSubPatchBlock(assigned,"patch","rhythm",4.5);
+    check(std::abs(blockLength(divided.spans["patch"])-8.)<1.e-9 &&
+          std::abs(blockLength(divided.spans["patch"]["subs"]["rhythm"])-1.)<1.e-9 &&
+          subPatchLibraryId(divided.rightId,
+              divided.spans["patch"]["subs"][juce::Identifier(divided.rightId)])=="rhythm",
+          "#374 E1: Sub-patch scissors split only the child, sharing library ID");
+    auto replaced=replaceSubPatchSegment(divided.spans,"patch","rhythm","solo");
+    const auto changed=replaced["patch"]["subs"]["rhythm"];
+    check(std::abs(blockStart(changed)-3.5)<1.e-9 &&
+          std::abs(blockLength(changed)-1.)<1.e-9 &&
+          subPatchLibraryId("rhythm",changed)=="solo" &&
+          subPatchLibraryId(divided.rightId,
+             replaced["patch"]["subs"][juce::Identifier(divided.rightId)])=="rhythm",
+          "#374 E2: replace Rhythm with Solo without moving or changing sibling");
+    check(sameShowValue(spans,spans.clone()),
+          "#374 E2: model states remain replayable for local Undo");
 }
 } // namespace ui::live::test

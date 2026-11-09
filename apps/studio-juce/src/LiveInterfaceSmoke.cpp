@@ -1414,6 +1414,41 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
                    activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)]
                    ["subs"]["sub-backspace"].isObject(),
                   "#374 Upd1: one Undo restores deleted Sub-patch strip");
+        // #374 E1: Scissors must dispatch by rail object, not by parent
+        // Patch or the neighbouring Patch's coupled seam.
+        timeline->setClipScissors(true);
+        body->mouseMove(event(firstSubX,subY));
+        liveCheck(body->getMouseCursor()==juce::MouseCursor::CrosshairCursor,
+                  "#374 E1: Sub-patch scissors hover targets the child rail");
+        body->mouseDown(event(firstSubX,subY));
+        body->mouseUp(event(firstSubX,subY));timeline->refresh();
+        const auto cutSub=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(std::abs(live::blockLength(cutSub)-4.)<1.e-9 &&
+                  cutSub["subs"].getDynamicObject() &&
+                  cutSub["subs"].getDynamicObject()->getProperties().size()==2,
+                  "#374 E1: Scissors on Sub-patch splits only child into two instances");
+        editing.undoLiveInterface();timeline->refresh();
+        const float baseX=seamX-static_cast<float>(2.5*scale);
+        body->mouseDown(event(baseX,subY));
+        body->mouseUp(event(baseX,subY));timeline->refresh();
+        const auto cutBase=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(std::abs(live::blockLength(cutBase)-4.)<1.e-9 &&
+                  cutBase["baseCuts"].isArray() && cutBase["baseCuts"].size()==1 &&
+                  cutBase["subs"]["sub-backspace"].isObject(),
+                  "#374 E1: Scissors on Base creates an editorial cut, never cuts parent Patch");
+        editing.undoLiveInterface();timeline->refresh();
+        timeline->setClipScissors(false);
+        body->mouseDown(event(baseX,subY));
+        body->mouseUp(event(baseX,subY));
+        liveCheck(body->keyPressed(juce::KeyPress(juce::KeyPress::backspaceKey)),
+                  "#374 E1: Base receives its own keyboard selection");
+        const auto stillParent=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(stillParent.isObject() && stillParent["subs"]["sub-backspace"].isObject(),
+                  "#374 E1: deleting selected Base cannot remove parent Patch or Rhythm");
+
         const float patchY=static_cast<float>(laneRect.getY()+37);
         body->mouseDown(event(seamX-40.f,patchY));
         body->mouseUp(event(seamX-40.f,patchY));
@@ -1655,6 +1690,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::channelPatchLibrary();
     live::test::subPatchChainVariants();
     live::test::subPatchRailGeometry();
+    live::test::subPatchAuthoringE();
     live::test::patchBlockAuthoring();
     live::test::editProtocol();
     live::test::notesDirtyRoundTrip();

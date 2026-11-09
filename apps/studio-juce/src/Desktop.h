@@ -191,7 +191,8 @@ public:
     void splitLiveSubPatchBlock(const juce::String& channelId,const juce::String& blockId,
                                 const juce::String& subBlockId,double offsetBar,
                                 const juce::String& itemId);
-    std::vector<mrs::NativeInsert> captureLiveChannelInserts(const juce::String& channel);
+    std::vector<mrs::NativeInsert> captureLiveChannelInserts(const juce::String& channel,
+                                                              bool includeExposedParameters=false);
     // #289 A-Upd1: after a stopped item switch, adopt the item's default
     // channel patches for activated channels (errors keep the current chain).
     void applyLiveItemDefaultPatches();
