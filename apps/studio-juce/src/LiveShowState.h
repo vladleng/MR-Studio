@@ -488,6 +488,68 @@ inline juce::var editedPatchSpans(const juce::var& spans,double itemBars,const j
     values->setProperty(juce::Identifier(patchId),current);
     return result;
 }
+// #374 Upd1: the lower-half shared seam between two adjacent Patch blocks
+// is a *single* gesture. It preserves their combined extent and every library
+// reference. Sub-patch strips stay proportional to their parent; the minimum
+// allowed parent length also protects each child from becoming < 1/4 bar.
+inline juce::var joinedPatchSpans(const juce::var& spans,const juce::String& leftId,
+                                  const juce::String& rightId,double atBar) {
+    const auto ordered=orderedSpans(spans);
+    const auto at=std::find_if(ordered.begin(),ordered.end(),[&](const auto& row) {
+        return row.first==leftId;});
+    if(at==ordered.end() || std::next(at)==ordered.end() ||
+       std::next(at)->first!=rightId)
+        throw std::runtime_error("Shared Patch boundary no longer exists");
+    const auto& leftOrig=at->second;
+    const auto& rightOrig=std::next(at)->second;
+    const double start=blockStart(leftOrig);
+    const double originalLeft=blockLength(leftOrig);
+    const double boundary=start+originalLeft;
+    const double oldRight=blockLength(rightOrig);
+    const double end=blockStart(rightOrig)+oldRight;
+    if(std::abs(blockStart(rightOrig)-boundary)>1.e-7)
+        throw std::runtime_error("Patch blocks must touch to edit their shared boundary");
+    const auto minimum=[&](const juce::var& parent) {
+        const double parentLength=blockLength(parent);
+        double required=.25;
+        if(const auto* children=parent["subs"].getDynamicObject())
+            for(const auto& child:children->getProperties()) {
+                if(!child.value.isObject())continue;
+                const auto childLength=blockLength(child.value);
+                if(childLength<=0.)throw std::runtime_error("Invalid Sub-patch strip");
+                required=juce::jmax(required,parentLength*(.25/childLength));
+            }
+        return std::ceil((required-1.e-7)*4.)/4.;
+    };
+    const double lower=start+minimum(leftOrig);
+    const double upper=end-minimum(rightOrig);
+    if(lower>upper+1.e-7)
+        throw std::runtime_error("Sub-patch strips prevent resizing this shared boundary");
+    const double nextBoundary=juce::jlimit(lower,upper,std::round(atBar*4.)/4.);
+    if(std::abs(nextBoundary-boundary)<1.e-7)return spans.clone();
+    auto result=spans.clone();
+    const auto updatedParent=[&](const juce::var& source,double parentStart,double newLength) {
+        auto updated=source.clone();
+        const double ratio=newLength/blockLength(source);
+        put(updated,"start",parentStart);
+        put(updated,"length",newLength);
+        if(auto* sourceChildren=source["subs"].getDynamicObject()) {
+            auto children=object();
+            for(const auto& child:sourceChildren->getProperties()) {
+                if(!child.value.isObject())continue;
+                auto current=child.value.clone();
+                put(current,"start",blockStart(child.value)*ratio);
+                put(current,"length",blockLength(child.value)*ratio);
+                put(children,child.name,current);
+            }
+            put(updated,"subs",children);
+        }
+        return updated;
+    };
+    put(result,juce::Identifier(leftId),updatedParent(leftOrig,start,nextBoundary-start));
+    put(result,juce::Identifier(rightId),updatedParent(rightOrig,nextBoundary,end-nextBoundary));
+    return result;
+}
 inline juce::var editedSubPatchSpan(const juce::var& spans,const juce::String& patchId,
                                     const juce::String& subId,double start,double length,
                                     bool moveBody=false) {
