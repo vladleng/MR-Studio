@@ -1289,12 +1289,17 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(g.previewCalculated && start==g.lastPreviewStart && length==g.lastPreviewLength)
                 return; // One preview per grid step, not per mouse event.
             g.previewCalculated=true;g.lastPreviewStart=start;g.lastPreviewLength=length;
-            if(g.mode==PatchGesture::Mode::joined)
-                g.previewSpans=live::joinedPatchSpans(g.originSpans,g.patchId,g.joinedRightId,start+length);
-            else if(g.subId.isEmpty())
-                g.previewSpans=live::editedPatchSpans(g.originSpans,item->bars,g.patchId,start,length,false,move);
-            else
-                g.previewSpans=live::editedSubPatchSpan(g.originSpans,g.patchId,g.subId,start,length,move);
+            try {
+                if(g.mode==PatchGesture::Mode::joined)
+                    g.previewSpans=live::joinedPatchSpans(g.originSpans,g.patchId,g.joinedRightId,start+length);
+                else if(g.subId.isEmpty())
+                    g.previewSpans=live::editedPatchSpans(g.originSpans,item->bars,g.patchId,start,length,false,move);
+                else
+                    g.previewSpans=live::editedSubPatchSpan(g.originSpans,g.patchId,g.subId,start,length,move);
+            } catch(const std::exception& error) {
+                g.previewSpans={};
+                setTooltip(juce::String::fromUTF8(error.what()));
+            }
             repaint();
         }
         void finishPatchEdit() {
@@ -1339,6 +1344,20 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                         rect=parent.extent(item,sub,patchGesture.rowTop+64,26,live::blockStart(span));
                     }
                     const auto channel=live::find(parent.state,"channels",patchGesture.channelId);
+                    if(patchGesture.mode==PatchGesture::Mode::joined) {
+                        // Both adjacent blocks preview in their own library
+                        // colours; neither old position is repainted below.
+                        for(const auto& blockId:{patchGesture.patchId,patchGesture.joinedRightId}) {
+                            const auto geometry=patchGesture.previewSpans[juce::Identifier(blockId)];
+                            const auto patch=live::find(channel,"patches",live::patchLibraryId(blockId,geometry));
+                            if(!geometry.isObject()||!patch.isObject())continue;
+                            const auto area=parent.extent(item,geometry,patchGesture.rowTop+10,rowHeight-20);
+                            const auto tint=liveBlockColour(patch["color"].toString());
+                            g.setColour(tint.withAlpha(.22f));g.fillRect(area);
+                            g.setColour(tint.withAlpha(.95f));g.drawRect(area,2);
+                        }
+                        return;
+                    }
                     const auto base=live::find(channel,"patches",patchGesture.libraryPatchId);
                     const auto sub=patchGesture.subId.isEmpty()?juce::var{}:
                         live::find(base,"subPatches",patchGesture.librarySubId);
@@ -2425,8 +2444,10 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 const auto patchBounds=extent(item,span,y+10,rowHeight-20);
                 const bool previewBase=body.patchGesture.previewSpans.isObject() &&
                     body.patchGesture.itemId==item.value["id"].toString() &&
-                    body.patchGesture.patchId==blockId &&
-                    body.patchGesture.subId.isEmpty();
+                    body.patchGesture.subId.isEmpty() &&
+                    (body.patchGesture.patchId==blockId ||
+                     (body.patchGesture.mode==Body::PatchGesture::Mode::joined &&
+                      body.patchGesture.joinedRightId==blockId));
                 if(!previewBase)block(g,patchBounds,{},patch["color"]);
                 if(!previewBase) {
                     text(g,patch["name"].toString(),patchBounds.reduced(6).withHeight(30));
@@ -2434,6 +2455,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 }
                 // A single library Sub-patch can be split into several strips;
                 // each strip has its own key, without cloning vendor state.
+                if(previewBase && body.patchGesture.mode==Body::PatchGesture::Mode::joined)
+                    continue; // The joined preview replaces both parents and their strips.
                 if(const auto* entries=span["subs"].getDynamicObject())
                     for(const auto& child:entries->getProperties()) {
                         if(!child.value.isObject())continue;
