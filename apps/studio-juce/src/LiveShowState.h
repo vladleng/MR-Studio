@@ -348,6 +348,29 @@ inline std::vector<std::pair<juce::String,juce::var>> orderedSpans(const juce::v
         return blockStart(left.second)<blockStart(right.second);});
     return rows;
 }
+// Group assignment rebinds each *instance* to a library Patch. Geometry,
+// order and VST3 snapshots never change. The caller commits this object in
+// one local Undo batch, even when selected blocks span several Items.
+inline juce::var assignedPatchBlocks(const juce::var& spans,
+                                     const std::vector<juce::String>& blockIds,
+                                     const juce::String& replacementId) {
+    if(!spans.isObject() || replacementId.isEmpty() || blockIds.empty())
+        throw std::runtime_error("Select one or more Patch blocks and a captured library Patch");
+    auto updatedSpans=spans.clone();
+    for(const auto& blockId:blockIds) {
+        const auto existing=updatedSpans[juce::Identifier(blockId)];
+        if(!existing.isObject())
+            throw std::runtime_error("Selected Patch block no longer exists");
+        if(patchLibraryId(blockId,existing)==replacementId)continue;
+        auto span=existing.clone();
+        // Sub-strips belong to the previous base sound; never silently keep
+        // incompatible Sub-patch overrides after a group re-assignment.
+        if(auto* object=span.getDynamicObject())object->removeProperty("subs");
+        put(span,"patchId",replacementId);
+        put(updatedSpans,juce::Identifier(blockId),span);
+    }
+    return updatedSpans;
+}
 // Small pixel-based magnetic snap to adjacent block boundaries. The geometry
 // remains a *single* block edit; neighbours never move as a side effect.
 struct PatchMagnet {
