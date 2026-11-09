@@ -1358,10 +1358,16 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         const auto rect=timeline->itemBounds(activeBeforePatch);
         const float seamX=static_cast<float>(rect.getX()+1+
             juce::roundToInt((lead-start+6.)*scale));
-        const float seamY=static_cast<float>(laneRect.getY()+92);
+        // The lower half of the *Patch header* owns its shared boundary.
+        // The bottom Sub-patch rail starts at +73px and must never route
+        // child/Base scissors or resize gestures to the parent Patch.
+        const float seamY=static_cast<float>(laneRect.getY()+68);
+        body->mouseMove(event(seamX-2.f,static_cast<float>(laneRect.getY()+92)));
+        liveCheck(body->getMouseCursor()!=juce::MouseCursor::LeftRightResizeCursor,
+                  "#374 E1: Sub-patch rail cannot resize the shared parent Patch seam");
         body->mouseMove(event(seamX-2.f,seamY));
         liveCheck(body->getMouseCursor()==juce::MouseCursor::LeftRightResizeCursor,
-                  "#374 Upd1: shared lower-half Patch seam displays coupled resize cursor");
+                  "#374 E1: shared Patch header seam displays coupled resize cursor");
         const auto originalView=viewState.clone();
         body->mouseDown(event(seamX-2.f,seamY));
         body->mouseDrag(event(seamX+30.f,seamY));
