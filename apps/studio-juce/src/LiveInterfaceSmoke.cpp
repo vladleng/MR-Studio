@@ -1096,6 +1096,25 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
               "Native seam drag commits both neighbouring boundaries together");
     editing.undoLiveInterface();editing.undoLiveInterface();timeline->refresh();
     liveCheck(editing.liveDocument->signature()==before,"Seam Undo and fixture Undo preserve original section data");
+    // #374 Upd1: Section deletion and Undo must use the same local musical
+    // row patch, not clone the whole Show with opaque plugin state.
+    const auto sectionBeforeDelete=editing.liveDocument->signature();
+    const auto sectionChannels=editing.liveDocument->interfaceState["channels"].getArray();
+    const auto localBeforeSectionDelete=editing.liveLocalPatchApplications;
+    body->mouseDown(event(origin+80.f,96.f));
+    body->mouseUp(event(origin+80.f,96.f));
+    liveCheck(body->keyPressed(juce::KeyPress(juce::KeyPress::backspaceKey)),
+              "#374 Upd1: Backspace deletes selected Section");
+    timeline->refresh();
+    liveCheck(live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::sections).size()==0 &&
+              editing.liveLocalPatchApplications==localBeforeSectionDelete+1 &&
+              editing.liveDocument->interfaceState["channels"].getArray()==sectionChannels,
+              "#374 Upd1: Section deletion uses exactly one local patch without VST3 bank copy");
+    editing.undoLiveInterface();timeline->refresh();
+    liveCheck(editing.liveDocument->signature()==sectionBeforeDelete &&
+              editing.liveLocalPatchApplications==localBeforeSectionDelete+2 &&
+              editing.liveDocument->interfaceState["channels"].getArray()==sectionChannels,
+              "#374 Upd1: one Undo restores Section through local patch path");
     const auto beforeChordCreation=editing.liveLocalPatchApplications;
     const auto originalChordChannels=editing.liveDocument->interfaceState["channels"].getArray();
     body->mouseDoubleClick(event(origin+32.f,136.f,2));timeline->refresh();
@@ -1104,10 +1123,20 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
               "#374 C: Chord creation commits one local Undo without cloning VST3 state");
     rows=live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::chords);
     liveCheck(rows.size()==1 && static_cast<double>(rows[0]["start"])==1.,"Chord creation shares the Sections origin");
+    const auto chordBeforeDelete=editing.liveDocument->signature();
+    const auto chordChannels=editing.liveDocument->interfaceState["channels"].getArray();
+    const auto localBeforeChordDelete=editing.liveLocalPatchApplications;
     body->mouseDown(event(origin+48.f,136.f));
+    body->mouseUp(event(origin+48.f,136.f));
     liveCheck(body->keyPressed(juce::KeyPress(juce::KeyPress::deleteKey)),"Delete handles selected chord");timeline->refresh();
-    liveCheck(live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::chords).size()==0,"Delete removes actual chord metadata");
+    liveCheck(live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::chords).size()==0 &&
+              editing.liveLocalPatchApplications==localBeforeChordDelete+1 &&
+              editing.liveDocument->interfaceState["channels"].getArray()==chordChannels,
+              "#374 Upd1: Chord Delete uses one bounded Undo without cloning VST3 state");
     editing.undoLiveInterface();timeline->refresh();
+    liveCheck(editing.liveDocument->signature()==chordBeforeDelete &&
+              editing.liveLocalPatchApplications==localBeforeChordDelete+2,
+              "#374 Upd1: Chord Undo restores state with one local patch");
     const auto musical=live::canonical(live::musicalVersion(editing.liveDocument->interfaceState,id));
     bounds=timeline->itemBounds(id);
     // #374 A: the earlier upper-corner assertion was tied to the removed
