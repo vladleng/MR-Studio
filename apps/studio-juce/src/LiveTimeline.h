@@ -1452,7 +1452,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             }
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
             const auto channelId=hit.channelId,patchId=hit.patchId,libraryPatch=hit.libraryPatchId,
-                       instance=hit.subId,itemId=hit.itemId,gen=parent.owner.liveDocumentGeneration;
+                       instance=hit.subId,itemId=hit.itemId;
+            const auto gen=parent.owner.liveDocumentGeneration;
             menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(
                 juce::Rectangle<int>(screen.x,screen.y,1,1)),
                 [safe,ids,channelId,patchId,libraryPatch,instance,itemId,gen](int action) {
@@ -1578,7 +1579,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             const double atBar=item==parent.items.end()?-1.:
                 barAt(*item,static_cast<float>(position.x));
             const auto channelId=hit.channelId,patchBlock=hit.patchId,patchId=hit.libraryPatchId,
-                       itemId=hit.itemId,gen=parent.owner.liveDocumentGeneration;
+                       itemId=hit.itemId;
+            const auto gen=parent.owner.liveDocumentGeneration;
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
             menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(
                     juce::Rectangle<int>(screen.x,screen.y,1,1)),
@@ -1644,7 +1646,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     menu.addItem(100+static_cast<int>(patchIds.size()-1),
                                  patch["name"].toString());
                 }
-            const auto channelId=lane->channel,gen=parent.owner.liveDocumentGeneration;
+            const auto channelId=lane->channel;
+            const auto gen=parent.owner.liveDocumentGeneration;
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
             menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(
                     juce::Rectangle<int>(screen.x,screen.y,1,1)),
