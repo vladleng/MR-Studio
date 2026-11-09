@@ -295,9 +295,10 @@ void Desktop::confirmLivePatchUpdate(const juce::String& channelId,const juce::S
     const auto currentItem=state["currentItem"].toString();
     if(itemId!=currentItem)
         throw std::runtime_error("Activate this Item before updating its sound. Other Items stay editable offline.");
-    const auto track=live::channelItemTrack(state,itemId,channelId);
-    if(track["patchId"].toString()!=patchId || track["subPatchId"].toString()!=subPatchId)
-        throw std::runtime_error("Apply the selected Patch/Sub-patch before capturing its changes");
+    if(!livePatchLoadedForEditing(channelId,patchId,subPatchId))
+        throw std::runtime_error(
+            "Load this Patch/Sub-patch into Live Input before updating. "
+            "Selection on the Timeline does not load its sound");
     if(app.recording() || app.engine()->state().playback==mrs::PlaybackState::playing)
         throw std::runtime_error("Stop playback before updating a Patch");
     const auto patch=live::find(live::find(state,"channels",channelId),"patches",patchId);

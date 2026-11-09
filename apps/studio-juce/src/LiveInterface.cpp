@@ -751,6 +751,7 @@ void Desktop::prepareLiveInterface(bool saved) {
     livePendingEntry.clear();
     liveBrowserItem.clear();
     liveChannelTracks.clear(); // Previous Core project replaced.
+    liveLoadedPatches.clear(); // Authoring sound identity is not a saved Patch.
     liveAutoMonitorError.clear();
     app.stop_library_preview();
     livePlaybackStore.reset();
@@ -878,6 +879,9 @@ void Desktop::editLiveInterface(const juce::String &label, std::function<void(ju
 }
 void Desktop::undoLiveInterface(bool redoAction) {
     liveTypingLabel.clear();
+    // Undo may restore a different Live Input profile; never keep a stale
+    // "loaded for editing" identity across a structural replay.
+    liveLoadedPatches.clear();
     liveShowEditing = true;
     if (redoAction)
         liveUndo.redo();
@@ -915,6 +919,10 @@ void Desktop::selectLiveItem(const juce::String &id, const juce::String &entry) 
         id != liveDocument->interfaceState["currentItem"].toString() &&
         app.engine()->state().playback==mrs::PlaybackState::playing)
         throw std::runtime_error("Stop Playback before changing items with Live Input; seamless switching awaits #301");
+    // Authoring loads are temporary to the current Item: changing Items
+    // invalidates the loaded-sound identity, never a saved library entry.
+    if(liveDocument && liveDocument->interfaceState["currentItem"].toString()!=id)
+        liveLoadedPatches.clear();
     // Explicit show selection exits Browser inspection and its independent audition.
     liveBrowserItem.clear();
     app.stop_library_preview();
@@ -1482,6 +1490,7 @@ void Desktop::configureLiveInput(const juce::String& requested,int input,bool st
     editLiveInterface("Channel audio input / output",[&](auto& state){
         live::put(live::require(state,"channels",channel),"liveInput",profile);
     },false,true);
+    liveLoadedPatches.erase(channel);
     syncAutomaticLiveMonitoring();
 }
 void Desktop::configureLiveMidi(const juce::String& requested,const juce::String& port,int midiChannel,const std::vector<int>& outputs) {
@@ -1504,6 +1513,7 @@ void Desktop::configureLiveMidi(const juce::String& requested,const juce::String
     auto profile=live::liveInputProfile(track,name,juce::String::fromUTF8(app.audio_name().c_str()),track.inserts);
     stampLivePorts(*this,profile);
     editLiveInterface("Channel MIDI input / output",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);},false,true);
+    liveLoadedPatches.erase(channel);
     syncAutomaticLiveMonitoring();
 }
 void Desktop::setLiveInputEffects(const juce::String& requested,std::vector<mrs::NativeInsert> effects) {
@@ -1521,6 +1531,7 @@ void Desktop::setLiveInputEffects(const juce::String& requested,std::vector<mrs:
     auto profile=live::liveInputProfile(track,saved.name,saved.device,effects);
     for(const auto* key:{"inputRightName","outputNames"})if(!row["liveInput"][key].isVoid())live::put(profile,key,row["liveInput"][key].clone());
     editLiveInterface("Channel effect chain",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);},false,true);
+    liveLoadedPatches.erase(channel);
     syncAutomaticLiveMonitoring();
 }
 void Desktop::captureLiveChannelPatch(const juce::String& requested,const juce::String& name,const juce::String& colour) {
@@ -1550,7 +1561,7 @@ void Desktop::captureLiveChannelPatch(const juce::String& requested,const juce::
     },false,true);
 }
 void Desktop::applyLiveChannelPatch(const juce::String& requested,const juce::String& patchId,
-                                    const juce::String& subPatchId) {
+                                    const juce::String& subPatchId,bool assignItemDefault) {
     const auto channel=inputChannel(*this,requested);
     const auto row=live::find(liveDocument->interfaceState,"channels",channel);
     const auto patch=live::find(row,"patches",patchId);
@@ -1583,25 +1594,26 @@ void Desktop::applyLiveChannelPatch(const juce::String& requested,const juce::St
         if(!draftChannel["liveInput"][key].isVoid())
             live::put(updated,key,draftChannel["liveInput"][key].clone());
     const auto itemId=liveDocument->interfaceState["currentItem"].toString();
-    editLiveInterface("Apply channel patch",[&](auto& state){
-        auto& target=live::require(state,"channels",channel);
-        live::put(target,"liveInput",updated.clone());
-        // The applied patch becomes the item default in the same Undo step, so
-        // each song keeps its own sound. A song without a track for this channel
-        // still accepts the chain (the default is simply not recorded).
-        if(itemId.isNotEmpty() && live::find(state,"items",itemId).isObject())
-            for(auto& track2:live::array(live::require(state,"items",itemId),"tracks"))
-                if(track2["channelId"].toString()==channel) {
-                    live::put(track2,"patchId",patchId);
-                    if(subPatchId.isEmpty()) {
-                        if(auto* object=track2.getDynamicObject())object->removeProperty("subPatchId");
-                    } else {
-                        live::put(track2,"subPatchId",subPatchId);
-                    }
-                    break;
-                }
-    },false,true);
+    editLiveInterface(assignItemDefault?"Apply channel patch":"Load Patch for editing",
+        [&](auto& state){
+            live::commitLoadedPatchToShow(state,channel,updated,itemId,patchId,
+                                          subPatchId,assignItemDefault);
+        },false,true);
+    liveLoadedPatches[channel]={itemId,patchId,subPatchId};
     syncAutomaticLiveMonitoring();
+}
+void Desktop::loadLiveChannelPatch(const juce::String& requested,const juce::String& patchId,
+                                   const juce::String& subPatchId) {
+    applyLiveChannelPatch(requested,patchId,subPatchId,false);
+}
+bool Desktop::livePatchLoadedForEditing(const juce::String& channel,
+                                        const juce::String& patchId,
+                                        const juce::String& subPatchId) const {
+    if(!liveDocument)return false;
+    const auto at=liveLoadedPatches.find(channel);
+    return at!=liveLoadedPatches.end() &&
+           at->second.itemId==liveDocument->interfaceState["currentItem"].toString() &&
+           at->second.patchId==patchId && at->second.subPatchId==subPatchId;
 }
 std::vector<mrs::NativeInsert> Desktop::captureLiveChannelInserts(const juce::String& channel,
                                                                    bool includeExposedParameters) {
@@ -1653,9 +1665,14 @@ void Desktop::captureLiveChannelSubPatch(const juce::String& requested,const juc
         throw std::runtime_error("Choose a captured patch before capturing a sub-patch");
     const auto trimmed=name.trim();
     if(!live::named(trimmed))throw std::runtime_error("Invalid sub-patch name");
-    auto base=live::decodeLivePatchInserts(liveDocument->interfaceState,patch);
-    live::applyLivePatchParameterBaseline(base,patch["parameterBaseline"]);
-    const auto current=captureLiveChannelInserts(channel,true);
+    if(!livePatchLoadedForEditing(channel,patchId,{}))
+        throw std::runtime_error(
+            "Load this Base Patch into Live Input before capturing a Sub-patch");
+    // Snapshot needs only opaque Base state; Parameters uses captured values
+    // from a new Patch. No legacy baseline migration or silent Base rewrite.
+    const bool readParameters=mode!=live::SubPatchCaptureMode::snapshot &&
+                               patch["parameterBaseline"].isArray();
+    const auto current=captureLiveChannelInserts(channel,readParameters);
     editLiveInterface("Capture sub-patch",[&](auto& state){
         auto& target=live::require(live::require(state,"channels",channel),"patches",patchId);
         auto& subs=live::array(target,"subPatches");
@@ -1664,7 +1681,7 @@ void Desktop::captureLiveChannelSubPatch(const juce::String& requested,const juc
         for(const auto& existing:subs)
             if(existing["name"].toString().compareIgnoreCase(trimmed)==0)
                 throw std::runtime_error("A sub-patch with this name already exists");
-        auto sub=live::captureSubPatchVariant(state,base,current,mode);
+        auto sub=live::captureSubPatchFromBase(state,target,current,mode);
         const auto variantId=live::freshId();
         live::put(sub,"id",variantId);
         live::put(sub,"name",trimmed);
@@ -1710,9 +1727,9 @@ void Desktop::updateLiveChannelPatch(const juce::String& requested,const juce::S
     if(!patch.isObject() || live::legacyPatch(patch))
         throw std::runtime_error("Patch no longer exists");
     const auto currentItem=state["currentItem"].toString();
-    const auto track=live::channelItemTrack(state,currentItem,channel);
-    if(track["patchId"].toString()!=patchId || track["subPatchId"].toString().isNotEmpty())
-        throw std::runtime_error("Apply this base Patch on the active Item before Update");
+    if(!livePatchLoadedForEditing(channel,patchId,{}))
+        throw std::runtime_error(
+            "Load this Base Patch into Live Input before updating its sound");
     const auto captured=captureLiveChannelInserts(channel);
     const auto exposed=live::encodeLivePatchParameterBaseline(
         captureLiveChannelInserts(channel,true));
@@ -1735,10 +1752,10 @@ void Desktop::updateLiveChannelSubPatch(const juce::String& requested,const juce
     const auto sub=live::find(patch,"subPatches",subPatchId);
     if(!sub.isObject() || live::legacyPatch(patch))
         throw std::runtime_error("Sub-patch no longer exists");
-    const auto track=live::channelItemTrack(state,state["currentItem"].toString(),channel);
-    if(track["patchId"].toString()!=patchId || track["subPatchId"].toString()!=subPatchId)
-        throw std::runtime_error("Apply this Sub-patch on the active Item before Update");
-    const auto captured=captureLiveChannelInserts(channel,true);
+    if(!livePatchLoadedForEditing(channel,patchId,subPatchId))
+        throw std::runtime_error(
+            "Load this Sub-patch into Live Input before updating its sound");
+    const auto captured=captureLiveChannelInserts(channel,sub["type"].toString()!="snapshot");
     editLiveInterface("Update sub-patch",[&](auto& model) {
         live::replaceCapturedSubPatch(model,channel,patchId,subPatchId,captured);
     });
@@ -2123,6 +2140,11 @@ void Desktop::applyLiveItemDefaultPatches() {
         return;
     for(const auto& target:live::itemDefaultPatches(liveDocument->interfaceState,itemId)) {
         const auto& channel=target.first;
+        if(const auto it=liveLoadedPatches.find(channel);it!=liveLoadedPatches.end()) {
+            if(it->second.itemId==itemId)
+                continue; // An explicit authoring load must not be undone.
+            liveLoadedPatches.erase(it);
+        }
         const auto& patchId=target.second;
         if(liveChannelTracks.find(channel)==liveChannelTracks.end())
             continue;
@@ -2159,6 +2181,7 @@ void Desktop::assignLiveItemPatch(const juce::String& requested,const juce::Stri
         throw std::runtime_error("Choose a patch from the channel library");
     const auto itemId=liveDocument->interfaceState["currentItem"].toString();
     if(itemId.isEmpty())throw std::runtime_error("Select a song item first");
+    liveLoadedPatches.erase(channel);
     editLiveInterface("Item default patch",[&](auto& state){
         auto& item=live::require(state,"items",itemId);
         for(auto& track:live::array(item,"tracks"))
@@ -2288,6 +2311,7 @@ void Desktop::releaseLiveInput(const juce::String& requested) {
     for(const auto& [other,id]:liveChannelTracks)if(other!=channel)
         for(const auto& track:snapshot->tracks)if(track.id==id)tracks.push_back(track);
     closeEditors();app.update_live_channels(liveInputTracks(),std::move(tracks));liveChannelTracks.erase(channel);
+    liveLoadedPatches.erase(channel);
     liveDocument->interfaceState=state;updateLiveDirty();++liveUiRevision;
 }
 void Desktop::setLiveChannelMix(const juce::String &id, double gain, double pan, bool mute, bool solo) {
@@ -2501,7 +2525,9 @@ void Desktop::syncLivePreload() {
         // Keep the current shared Engine and input graph alive, never stage the next WAV.
         app.cancel_staged_playback();
         liveAutoKey.clear(); liveAutoToken = 0;
-        liveNextStatus = "Live Input active: Stop before manual item switch; automatic next is not ready";
+        // This is a next-Item scheduling status, not an error from
+        // Patch/Sub-patch Capture or VST3 authoring.
+        liveNextStatus = "Next Item: automatic transition unavailable with active Live Input; stop before changing Items";
         return;
     }
     const auto &state = liveDocument->interfaceState;

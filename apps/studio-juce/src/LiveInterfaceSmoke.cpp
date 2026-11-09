@@ -1252,6 +1252,18 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         secondPatch=live::addChannelPatch(state,channel,{},"Solo","violet");
     });
     const auto activeBeforePatch=editing.liveDocument->interfaceState["currentItem"].toString();
+    {
+        // #374 G: Update needs the explicitly loaded sound, not the Patch
+        // that happens to be assigned to the current Item.
+        const auto itemTrack=live::channelItemTrack(
+            editing.liveDocument->interfaceState,activeBeforePatch,patchChannel);
+        editing.liveLoadedPatches[patchChannel]={activeBeforePatch,patchId,{}};
+        liveCheck(editing.livePatchLoadedForEditing(patchChannel,patchId,{}) &&
+                  !editing.livePatchLoadedForEditing(patchChannel,secondPatch,{}) &&
+                  itemTrack["patchId"].toString()!=patchId,
+                  "#374 G: authoring load identity is separate from Item default");
+        editing.liveLoadedPatches.clear();
+    }
     const auto activeEntryBefore=editing.liveCurrentEntry;
     const auto engineBeforePatch=editing.app.engine();
     const auto channelBankBefore=editing.liveDocument->interfaceState["channels"].getArray();

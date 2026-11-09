@@ -386,6 +386,25 @@ inline bool sameInsertStructure(const std::vector<mrs::NativeInsert>& left,
             return false;
     return true;
 }
+// Loading an authoring sound into an active Live Input is distinct from
+// assigning an Item default. A single model edit may update the channel's
+// current insert profile without rewriting the Item's Patch/Sub-patch choice.
+inline void commitLoadedPatchToShow(juce::var& state,const juce::String& channel,
+                                    const juce::var& profile,const juce::String& itemId,
+                                    const juce::String& patchId,const juce::String& subPatchId,
+                                    bool assignItemDefault) {
+    put(require(state,"channels",channel),"liveInput",profile.clone());
+    if(!assignItemDefault || itemId.isEmpty() || !find(state,"items",itemId).isObject())
+        return;
+    for(auto& track:array(require(state,"items",itemId),"tracks"))
+        if(track["channelId"].toString()==channel) {
+            put(track,"patchId",patchId);
+            if(subPatchId.isEmpty()) {
+                if(auto* obj=track.getDynamicObject())obj->removeProperty("subPatchId");
+            } else put(track,"subPatchId",subPatchId);
+            return;
+        }
+}
 inline std::vector<mrs::NativeInsert> patchInsertsWithSubPatch(
     const juce::var& state,const juce::var& patch,const juce::var& subPatch) {
     auto inserts=decodeLivePatchInserts(state,patch);
@@ -595,6 +614,24 @@ inline juce::var captureSubPatchVariant(juce::var& state,
     put(result,"states",juce::var(states));
     return result;
 }
+// Create an authoring variation from a captured Patch, not from a currently
+// modified plugin. Parameters need the Base parameter metadata; Snapshot only
+// needs the authoritative opaque Base state. No legacy-baseline migration.
+inline juce::var captureSubPatchFromBase(juce::var& state,const juce::var& patch,
+    const std::vector<mrs::NativeInsert>& captured,
+    SubPatchCaptureMode mode=SubPatchCaptureMode::automatic) {
+    auto base=decodeLivePatchInserts(state,patch);
+    if(mode!=SubPatchCaptureMode::snapshot) {
+        if(patch["parameterBaseline"].isArray())
+            applyLivePatchParameterBaseline(base,patch["parameterBaseline"]);
+        else if(mode==SubPatchCaptureMode::parameters)
+            throw std::runtime_error(
+                "Parameters requires a new Patch with VST3 baseline. Use Snapshot or capture a new Patch");
+        else
+            mode=SubPatchCaptureMode::snapshot;
+    }
+    return captureSubPatchVariant(state,base,captured,mode);
+}
 // Library state updates preserve IDs/names/colors and every timeline reference.
 // Both helpers operate on a disposable show draft in one Undo transaction.
 inline void replaceCapturedPatch(juce::var& state,const juce::String& channelId,
@@ -615,12 +652,10 @@ inline void replaceCapturedSubPatch(juce::var& state,const juce::String& channel
                                     const juce::String& patchId,const juce::String& subId,
                                     const std::vector<mrs::NativeInsert>& captured) {
     auto& patch=require(require(state,"channels",channelId),"patches",patchId);
-    auto base=decodeLivePatchInserts(state,patch);
-    applyLivePatchParameterBaseline(base,patch["parameterBaseline"]);
     auto& sub=require(patch,"subPatches",subId);
     const auto mode=sub["type"].toString()=="snapshot"?
         SubPatchCaptureMode::snapshot:SubPatchCaptureMode::parameters;
-    auto fresh=captureSubPatchVariant(state,base,captured,mode);
+    auto fresh=captureSubPatchFromBase(state,patch,captured,mode);
     if(sameShowValue(sub["overrides"],fresh["overrides"]) &&
        sameShowValue(sub["states"],fresh["states"]))
         throw std::runtime_error("Sub-patch already contains these changes");

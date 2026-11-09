@@ -42,6 +42,22 @@ inline void subPatchChainVariants() {
     };
     const auto baseInserts=decodeLivePatchInserts(state,channelPatch(state));
     {
+        // #374 G: loading a sound for editing mutates only the active
+        // Live Input, not the Item's saved Patch/Sub-patch choice.
+        auto loaded=state.clone();
+        const auto itemBefore=trackOf(loaded).clone();
+        auto profile=object();
+        put(profile,"authoringFixture",true);
+        commitLoadedPatchToShow(loaded,channel,profile,item,patchId,{},false);
+        check(sameShowValue(trackOf(loaded),itemBefore) &&
+              find(loaded,"channels",channel)["liveInput"]["authoringFixture"].isBool(),
+              "#374 G: Load for editing preserves Item default and updates Live Input only");
+        commitLoadedPatchToShow(loaded,channel,profile,item,patchId,{},true);
+        check(trackOf(loaded)["patchId"].toString()==patchId &&
+              trackOf(loaded)["subPatchId"].isVoid(),
+              "#374 G: explicit Apply & set Item default still assigns the Patch");
+    }
+    {
         const auto capturedBaseline=encodeLivePatchParameterBaseline(baseInserts);
         auto restored=baseInserts;
         restored[0].parameters.clear();
@@ -99,6 +115,35 @@ inline void subPatchChainVariants() {
     vendorPresetOnly[0].component_state=std::vector<std::byte>{std::byte{18},std::byte{19}};
     checkThrows([&]{subPatchChain(state,baseInserts,vendorPresetOnly);},
                 "Opaque-only preset changes must not be misrepresented as Sub-patch parameters");
+    {
+        // #374 G: Snapshot does NOT need a parameter baseline and does
+        // NOT create/rewrite one. No migration of old user Patch libraries.
+        auto noBaseline=state.clone();
+        auto& noBase= require(require(noBaseline,"channels",channel),"patches",patchId);
+        if(auto* obj=noBase.getDynamicObject())obj->removeProperty("parameterBaseline");
+        auto snapshotSource=vendorPresetOnly;
+        snapshotSource[0].parameters.clear();
+        const auto snapshot=captureSubPatchFromBase(noBaseline,noBase,snapshotSource,
+                                                    SubPatchCaptureMode::snapshot);
+        check(snapshot["type"].toString()=="snapshot" &&
+              snapshot["states"].size()==1 &&
+              noBase["parameterBaseline"].isVoid(),
+              "#374 G: Snapshot Capture works without parameterBaseline and does not rewrite Base");
+        const auto automatic=captureSubPatchFromBase(noBaseline,noBase,snapshotSource);
+        check(automatic["type"].toString()=="snapshot" && automatic["states"].size()==1,
+              "#374 G: Auto chooses Snapshot when a reliable Parameter baseline is unavailable");
+        checkThrows([&]{captureSubPatchFromBase(noBaseline,noBase,snapshotSource,
+                                                 SubPatchCaptureMode::parameters);},
+                    "#374 G: Parameters does not silently invent missing Base parameter values");
+        auto newBase=state.clone();
+        auto& fresh=require(require(newBase,"channels",channel),"patches",patchId);
+        put(fresh,"parameterBaseline",encodeLivePatchParameterBaseline(baseInserts));
+        auto paramVariant=captureSubPatchFromBase(newBase,fresh,variant,
+                                                  SubPatchCaptureMode::parameters);
+        check(paramVariant["type"].toString()=="parameters" &&
+              paramVariant["overrides"].size()==1,
+              "#374 G: new Patch with baseline captures changed VST3 parameters");
+    }
     // #374 F: full vendor Snapshot is a same-chain Sub-patch, not an
     // additional Patch or a duplicate Base. Both formats share library IDs.
     {

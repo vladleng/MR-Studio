@@ -139,8 +139,18 @@ public:
     // captured chain needs a stopped, activated channel as well.
     void captureLiveChannelPatch(const juce::String&, const juce::String& name,
                                  const juce::String& colour = "blue");
+    // Apply & assign Item default (existing behavior), or load only into the
+    // current Live Input for Capture/Update without changing Item defaults.
     void applyLiveChannelPatch(const juce::String&, const juce::String& patchId,
-                               const juce::String& subPatchId = {});
+                               const juce::String& subPatchId = {},bool assignItemDefault=true);
+    void loadLiveChannelPatch(const juce::String&,const juce::String& patchId,
+                              const juce::String& subPatchId = {});
+    struct LoadedLivePatch {
+        juce::String itemId,patchId,subPatchId;
+    };
+    std::map<juce::String,LoadedLivePatch> liveLoadedPatches;
+    bool livePatchLoadedForEditing(const juce::String& channel,const juce::String& patchId,
+                                   const juce::String& subPatchId) const;
     // #289 B - sub-patches: named parameter-override sets of the same captured
     // chain. Switching is stopped-only and uses the parameter-only Core path.
     void applyLiveChannelSubPatch(const juce::String&, const juce::String& patchId,

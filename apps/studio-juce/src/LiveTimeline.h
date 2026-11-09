@@ -470,6 +470,18 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             }
             return;
         }
+        if(action>=40000&&action<50000) {
+            const auto patch=patchAt((action-40000)/64);
+            const int slot=(action-40000)%64;
+            if(!stopped || !patch.isObject() || live::legacyPatch(patch))return;
+            const auto patchId=patch["id"].toString();
+            if(slot==0)owner.loadLiveChannelPatch(channelId,patchId);
+            else if(const auto* subs=patch["subPatches"].getArray())
+                if(slot-1<subs->size())
+                    owner.loadLiveChannelPatch(channelId,patchId,
+                        (*subs)[slot-1]["id"].toString());
+            return;
+        }
         if(action>=30000&&action<31000) {
             const auto patch=patchAt(action-30000);
             if(!stopped || !patch.isObject() || live::legacyPatch(patch))return;
@@ -507,6 +519,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         } else if(operation==4)owner.deleteLiveChannelPatch(channelId,patchId);
         else if(operation==5 && !live::legacyPatch(patch))owner.addLivePatchBlock(channelId,patchId);
         else if(operation==6 && !live::legacyPatch(patch))owner.removeLivePatchBlock(channelId,patchId);
+        else if(operation==7 && stopped && !live::legacyPatch(patch))
+            owner.loadLiveChannelPatch(channelId,patchId);
     }
     void channelMenu(const juce::String &id) {
         juce::PopupMenu menu;
@@ -543,7 +557,11 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     const auto patchId=patch["id"].toString();
                     const bool legacy=live::legacyPatch(patch);
                     juce::PopupMenu entry;
-                    entry.addItem(5000+i*8,"Apply now",canApply&&!legacy,defaultPatch==patchId);
+                    entry.addItem(5000+i*8,"Apply & set Item default",canApply&&!legacy,
+                                  defaultPatch==patchId);
+                    entry.addItem(5007+i*8,"Load Base for editing (keep Item default)",canApply&&!legacy);
+                    juce::PopupMenu loadSubs;
+                    loadSubs.addItem(40000+i*64,"Base",canApply&&!legacy);
                     juce::PopupMenu subs;
                     subs.addItem(20000+i*64,"Base",canApply&&!legacy,
                                  defaultPatch==patchId&&currentSub.isEmpty());
@@ -552,8 +570,10 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                             const auto sub=(*list)[j];
                             subs.addItem(20000+i*64+j+1,sub["name"].toString(),canApply&&!legacy,
                                          defaultPatch==patchId&&currentSub==sub["id"].toString());
+                            loadSubs.addItem(40000+i*64+j+1,sub["name"].toString(),canApply&&!legacy);
                         }
-                    entry.addSubMenu("Sub-patches",subs);
+                    entry.addSubMenu("Load for editing (keep Item default)",loadSubs);
+                    entry.addSubMenu("Apply & set Item default: Sub-patches",subs);
                     if(!legacy)entry.addItem(30000+i,"Capture current as sub-patch…",canApply);
                     entry.addItem(5005+i*8,"Add block to current item",!legacy);
                     entry.addItem(5006+i*8,"Remove block from current item",!legacy);
@@ -1579,9 +1599,15 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 if(replacements.getNumItems()>0)
                     menu.addSubMenu("Replace with...",replacements);
                 menu.addItem(1,"Remove Sub-patch strip");
-                menu.addItem(2,"Update this Sub-patch parameters...");
+                menu.addItem(2,"Update this Sub-patch from current sound...");
+                menu.addItem(6,"Load this Sub-patch into Live Input (editing)",
+                    !parent.owner.app.recording() &&
+                    parent.owner.displayState().playback!=mrs::PlaybackState::playing);
             } else {
-                menu.addSectionHeader("Base · original Patch parameters");
+                menu.addSectionHeader("Base · original Patch");
+                menu.addItem(6,"Load Base into Live Input (editing)",
+                    !parent.owner.app.recording() &&
+                    parent.owner.displayState().playback!=mrs::PlaybackState::playing);
                 if(replacements.getNumItems()>0)
                     menu.addSubMenu("Replace Base with...",replacements);
                 juce::PopupMenu variants;
@@ -1634,6 +1660,13 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                             safe->removeLiveSubPatchBlock(channelId,blockId,subBlockId,itemId);
                         else if(action==2 && subBlockId.isNotEmpty())
                             safe->confirmLivePatchUpdate(channelId,libraryPatchId,librarySubId,itemId);
+                        else if(action==6) {
+                            if(safe->liveDocument->interfaceState["currentItem"].toString()!=itemId)
+                                throw std::runtime_error(
+                                    "Activate this Item before loading its Patch for editing");
+                            safe->loadLiveChannelPatch(channelId,libraryPatchId,
+                                live::isBaseSegmentId(subBlockId)?juce::String():librarySubId);
+                        }
                         else if(action>=1000 && action-1000<static_cast<int>(librarySubIds.size())) {
                             const auto chosen=librarySubIds[static_cast<std::size_t>(action-1000)];
                             const auto track=live::channelItemTrack(
@@ -1684,6 +1717,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(!replacementIds.empty())
                 menu.addSubMenu(bulk?"Assign Patch to selected blocks...":"Replace patch with...",replaceMenu);
             menu.addItem(1,"Remove patch block");
+            menu.addItem(4,"Load Patch into Live Input (editing)",
+                !parent.owner.app.recording() &&
+                parent.owner.displayState().playback!=mrs::PlaybackState::playing);
             menu.addItem(3,"Update this Patch from current channel sound...");
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
             juce::Component::SafePointer<Body> self(this);
@@ -1696,6 +1732,13 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 if(!safe||!action||!safe->liveDocument||safe->liveDocumentGeneration!=generation)return;
                 safe->run([&]{
                     if(action==1){safe->removeLivePatchBlock(channelId,patchId,itemId);return;}
+                    if(action==4) {
+                        if(safe->liveDocument->interfaceState["currentItem"].toString()!=itemId)
+                            throw std::runtime_error(
+                                "Activate this Item before loading its Patch for editing");
+                        safe->loadLiveChannelPatch(channelId,libraryPatchId);
+                        return;
+                    }
                     if(action==3) {
                         safe->confirmLivePatchUpdate(channelId,libraryPatchId,{},itemId);
                         return;
