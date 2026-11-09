@@ -975,6 +975,11 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         }
         void mouseDown(const juce::MouseEvent &event) override {
             if(event.mods.isLeftButtonDown()) {
+                // A musical-lane click transfers keyboard deletion ownership
+                // from Patch selections to Chords/Sections.
+                if(event.y<lanesTop && !selectedPatches.empty()) {
+                    selectedPatches.clear();repaint();
+                }
                 popupPending=false;
                 ++parent.owner.liveSelectionRevision;
                 if(event.y>=lanesTop)
