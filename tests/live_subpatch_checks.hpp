@@ -458,102 +458,118 @@ inline void subPatchRailGeometry() {
     const auto check=[](bool condition,const char* message) {
         if(!condition)throw std::runtime_error(message);
     };
-    // #374 J RED: the existing full default must be split, not replaced by
-    // invisible Base gaps or rejected because the rail is already filled.
+    const auto throws=[](const auto& f,const char* message) {
+        try {f();}catch(const std::exception&){return;}
+        throw std::runtime_error(message);
+    };
+    // #374 J: the single real default covers the complete parent. A new
+    // library variation splits the clicked segment instead of finding a gap.
     auto initial=object();
     put(initial,"default",blockSpan(0.,8.));
-    const auto split=addedSubPatchSpanAt(initial,8.,"solo",2.);
-    check(split.getDynamicObject()->getProperties().size()==3 &&
-          !subPatchBaseGaps([&]{auto p=blockSpan(0.,8.);put(p,"subs",split);return p;}()).size(),
-          "#374 J RED: insertion within a full default creates a covered rail");
-    // RED before Upd2: a first Sub-patch used to swallow the entire parent.
-    auto parent=blockSpan(0.,8.);
-    auto gaps=subPatchBaseGaps(parent);
-    check(gaps.size()==1 && std::abs(gaps.front().first)<1.e-9 &&
-          std::abs(gaps.front().second-8.)<1.e-9,
-          "Empty Sub-patch rail is entirely Base");
-    auto strips=addedSubPatchSpanAt(parent["subs"],8.,"rhythm",2.13);
-    check(strips["rhythm"].isObject() &&
-          std::abs(blockStart(strips["rhythm"])-2.25)<1.e-9 &&
-          std::abs(blockLength(strips["rhythm"])-1.)<1.e-9,
-          "Click inserts a one-bar Sub-patch snapped to a quarter-bar");
+    check(subPatchRailCovered(initial,8.),"Default covers the parent Patch exactly");
+    const auto strips=addedSubPatchSpanAt(initial,8.,"rhythm",2.13);
+    const auto rows=orderedSpans(strips);
+    check(rows.size()==3 && subPatchRailCovered(strips,8.) &&
+          std::abs(blockLength(rows[0].second)-2.25)<1.e-9 &&
+          std::abs(blockStart(rows[1].second)-2.25)<1.e-9 &&
+          std::abs(blockLength(rows[1].second)-1.)<1.e-9 &&
+          subPatchLibraryId(rows[1].first,rows[1].second)=="rhythm" &&
+          std::abs(blockStart(rows[2].second)-3.25)<1.e-9 &&
+          subPatchLibraryId(rows[2].first,rows[2].second)=="default",
+          "#374 J: capture/insert splices a one-bar child and preserves both adjacent default sounds");
+    auto parent=blockSpan(1.,8.);
     put(parent,"subs",strips);
-    gaps=subPatchBaseGaps(parent);
-    check(gaps.size()==2 && std::abs(gaps[0].second-2.25)<1.e-9 &&
-          std::abs(gaps[1].first-3.25)<1.e-9,
-          "Free intervals remain Base before and after a Sub-patch");
-    strips=addedSubPatchSpanAt(strips,8.,"solo",3.5);
-    check(std::abs(blockStart(strips["solo"])-3.5)<1.e-9 &&
-          std::abs(blockLength(strips["solo"])-1.)<1.e-9,
-          "Second strip inserts at the clicked free interval");
-    strips=addedSubPatchSpanAt(strips,8.,"rhythm",6.);
-    check(strips.getDynamicObject()->getProperties().size()==3 &&
-          strips["rhythm"].isObject(),
-          "Repeated library Sub-patch uses an independent block instance");
-    bool hasRepeatedLibraryReference=false;
-    for(const auto& entry:strips.getDynamicObject()->getProperties())
-        if(entry.name.toString()!="rhythm" &&
-           subPatchLibraryId(entry.name.toString(),entry.value)=="rhythm")
-            hasRepeatedLibraryReference=true;
-    check(hasRepeatedLibraryReference,
-          "Repeated instance references one shared library Sub-patch");
-    auto nearlyFull=object();
-    put(nearlyFull,"used",blockSpan(0.,7.75));
-    auto tail=addedSubPatchSpanAt(nearlyFull,8.,"solo",7.75);
-    check(std::abs(blockStart(tail["solo"])-7.75)<1.e-9 &&
-          std::abs(blockLength(tail["solo"])-.25)<1.e-9,
-          "Insertion shortens to the last available quarter-bar");
-    const auto unchanged=addedSubPatchSpanAt(tail,8.,"rhythm",7.75);
-    check(sameShowValue(unchanged,tail),
-          "A filled rail cannot acquire an overlapping Sub-patch");
+    check(subPatchBaseGaps(parent).empty() && parent["baseCuts"].isVoid(),
+          "#374 J: no Base gap or editorial cuts after adding a Sub-patch");
+    const auto twice=addedSubPatchSpanAt(strips,8.,"rhythm",6.);
+    check(subPatchRailCovered(twice,8.) && orderedSpans(twice).size()==5,
+          "The same library Sub-patch can appear in two independent instances");
+    const auto seam=joinedSubPatchSpans([&]{
+        auto spans=object();
+        put(spans,"patch",parent);
+        return spans;
+    }(),"patch",rows[0].first,rows[1].first,2.5);
+    check(subPatchRailCovered(seam["patch"]["subs"],8.) &&
+          std::abs(blockLength(seam["patch"]["subs"]
+              [juce::Identifier(rows[0].first)])-2.5)<1.e-9,
+          "A shared seam edits neighbouring lengths without creating gaps");
+    const auto divided=splitSubPatchBlock([&]{
+        auto spans=object();
+        put(spans,"patch",parent);
+        return spans;
+    }(),"patch",rows[1].first,2.75);
+    check(subPatchRailCovered(divided.spans["patch"]["subs"],8.) &&
+          subPatchLibraryId(divided.rightId,divided.spans["patch"]["subs"]
+              [juce::Identifier(divided.rightId)])=="rhythm" &&
+          orderedSpans(divided.spans["patch"]["subs"]).size()==4,
+          "Scissors splits the Sub-patch into two full-coverage fragments of one library sound");
+    const auto reassigned=replaceSubPatchSegment(divided.spans,"patch",divided.rightId,"solo");
+    check(subPatchRailCovered(reassigned["patch"]["subs"],8.) &&
+          subPatchLibraryId(divided.rightId,reassigned["patch"]["subs"]
+              [juce::Identifier(divided.rightId)])=="solo" &&
+          subPatchLibraryId(rows[1].first,reassigned["patch"]["subs"]
+              [juce::Identifier(rows[1].first)])=="rhythm",
+          "LMB reassigns only the clicked split fragment");
+    const auto removed=removedSubPatchSpan(strips,8.,rows[1].first);
+    check(subPatchRailCovered(removed,8.) &&
+          orderedSpans(removed).size()==2 &&
+          std::abs(blockLength(orderedSpans(removed)[0].second)-3.25)<1.e-9,
+          "Backspace expands the preceding Sub-patch instead of leaving Base");
+    const auto leftmost=removedSubPatchSpan(strips,8.,rows[0].first);
+    check(subPatchRailCovered(leftmost,8.) &&
+          std::abs(blockStart(orderedSpans(leftmost)[0].second))<1.e-9,
+          "Deleting the first segment extends the right neighbour to the left edge");
+    throws([&]{removedSubPatchSpan(initial,8.,"default");},
+           "The final Sub-patch cannot be deleted");
+    throws([&]{addedSubPatchSpanAt(initial,8.,"solo",8.);},
+           "Insertion beyond the Patch edge is not silently relocated");
+    auto invalid=object();
+    put(invalid,"default",blockSpan(.25,7.75));
+    check(!subPatchRailCovered(invalid,8.),
+          "A rail missing its left edge is rejected, not represented as Base");
+    throws([&]{addedSubPatchSpanAt(invalid,8.,"solo",2.);},
+           "An incomplete rail cannot be edited as if it were valid");
 }
 
 inline void subPatchAuthoringE() {
-    const auto check=[](bool condition,const char* message){
+    const auto check=[](bool condition,const char* message) {
         if(!condition)throw std::runtime_error(message);
     };
+    auto original=object();
+    put(original,"default",blockSpan(0.,8.));
     auto spans=object();
-    put(spans,"patch",blockSpan(1.,8.));
-    auto cut=splitBaseSegment(spans,"patch",4.);
-    const auto parent=cut["patch"];
-    const auto bases=subPatchBaseSegments(parent);
-    check(std::abs(blockStart(parent)-1.)<1.e-9 &&
-          std::abs(blockLength(parent)-8.)<1.e-9 &&
-          bases.size()==2 && std::abs(bases[1].start-4.)<1.e-9,
-          "#374 E1: Base scissors split rail only, never parent Patch");
-    auto moved=movedBaseCut(cut,"patch",4.,3.5);
-    check(subPatchBaseSegments(moved["patch"]).size()==2 &&
-          std::abs(subPatchBaseSegments(moved["patch"])[1].start-3.5)<1.e-9,
-          "#374 E2: shared Base boundary moves one grid-aligned marker");
-    const auto blocked=movedBaseCut(moved,"patch",3.5,8.);
-    check(sameShowValue(blocked,moved),
-          "#374 E2: Base boundary does not leave sub-quarter slivers");
-    auto assigned=replaceBaseSegment(moved,"patch",baseSegmentId(3.5),"rhythm");
-    const auto source=assigned["patch"]["subs"]["rhythm"];
-    check(source.isObject() && std::abs(blockStart(source)-3.5)<1.e-9 &&
-          std::abs(blockLength(source)-4.5)<1.e-9 &&
+    auto parent=blockSpan(1.,8.);
+    put(parent,"subs",original);
+    put(spans,"patch",parent);
+    // The single child cannot detach from the edge by body drag or trim.
+    const auto detached=editedSubPatchSpan(spans,"patch","default",2.,4.,true);
+    check(sameShowValue(detached,spans),
+          "#374 J: dragging a Sub-patch cannot detach it from the parent edge");
+    const auto trimmed=editedSubPatchSpan(spans,"patch","default",1.,3.,false);
+    check(sameShowValue(trimmed,spans),
+          "#374 J: individual trim cannot create an empty Base interval");
+    const auto split=splitSubPatchBlock(spans,"patch","default",4.);
+    check(subPatchRailCovered(split.spans["patch"]["subs"],8.) &&
+          orderedSpans(split.spans["patch"]["subs"]).size()==2,
+          "#374 J: scissors preserves the full rail");
+    const auto moved=joinedSubPatchSpans(split.spans,"patch","default",split.rightId,4.5);
+    check(subPatchRailCovered(moved["patch"]["subs"],8.) &&
+          std::abs(blockLength(moved["patch"]["subs"]["default"])-4.5)<1.e-9,
+          "#374 J: joined seam changes both adjacent children, not parent length");
+    const auto assigned=replaceSubPatchSegment(moved,"patch",split.rightId,"solo");
+    check(subPatchRailCovered(assigned["patch"]["subs"],8.) &&
           std::abs(blockLength(assigned["patch"])-8.)<1.e-9,
-          "#374 E2: replace Base with Rhythm retains exact segment length and Patch");
-    auto divided=splitSubPatchBlock(assigned,"patch","rhythm",4.5);
-    check(std::abs(blockLength(divided.spans["patch"])-8.)<1.e-9 &&
-          std::abs(blockLength(divided.spans["patch"]["subs"]["rhythm"])-1.)<1.e-9 &&
-          subPatchLibraryId(divided.rightId,
-              divided.spans["patch"]["subs"][juce::Identifier(divided.rightId)])=="rhythm",
-          "#374 E1: Sub-patch scissors split only the child, sharing library ID");
-    auto seam=joinedSubPatchSpans(divided.spans,"patch","rhythm",divided.rightId,4.75);
-    check(std::abs(blockLength(seam["patch"]["subs"]["rhythm"])-1.25)<1.e-9 &&
-          std::abs(blockStart(seam["patch"]["subs"][juce::Identifier(divided.rightId)])-4.75)<1.e-9 &&
-          std::abs(blockLength(seam["patch"])-8.)<1.e-9,
-          "#374 E2: shared Sub-patch seam resizes both children, never parent Patch");
-    auto replaced=replaceSubPatchSegment(divided.spans,"patch","rhythm","solo");
-    const auto changed=replaced["patch"]["subs"]["rhythm"];
-    check(std::abs(blockStart(changed)-3.5)<1.e-9 &&
-          std::abs(blockLength(changed)-1.)<1.e-9 &&
-          subPatchLibraryId("rhythm",changed)=="solo" &&
-          subPatchLibraryId(divided.rightId,
-             replaced["patch"]["subs"][juce::Identifier(divided.rightId)])=="rhythm",
-          "#374 E2: replace Rhythm with Solo without moving or changing sibling");
+          "#374 J: choosing Solo changes only the right sound");
+    const auto enlarged=editedPatchSpans(assigned,16.,"patch",1.,10.,false);
+    check(subPatchRailCovered(enlarged["patch"]["subs"],10.) &&
+          std::abs(blockLength(enlarged["patch"])-10.)<1.e-9,
+          "#374 J: changing Patch length scales every child without an end gap");
+    bool shrinkRejected=false;
+    try { (void)editedPatchSpans(assigned,16.,"patch",1.,.25,false); }
+    catch(const std::runtime_error&) {shrinkRejected=true;}
+    check(shrinkRejected,
+          "#374 J: a parent cannot shrink below the minimum size of its child rail");
     check(sameShowValue(spans,spans.clone()),
-          "#374 E2: model states remain replayable for local Undo");
+          "#374 J: all edits preserve the original Undo source");
 }
 } // namespace ui::live::test

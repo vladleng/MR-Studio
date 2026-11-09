@@ -162,6 +162,13 @@ public:
     // chain. Switching is stopped-only and uses the parameter-only Core path.
     void applyLiveChannelSubPatch(const juce::String&, const juce::String& patchId,
                                   const juce::String& subPatchId);
+    // Insert a saved variation inside an existing full-length Sub-patch.
+    void insertExistingLiveSubPatch(const juce::String& channel,
+                                    const juce::String& patchId,
+                                    const juce::String& subPatchId,
+                                    const juce::String& itemId,
+                                    const juce::String& patchBlockId,
+                                    double clickOffset);
     void captureLiveChannelSubPatch(const juce::String&, const juce::String& patchId,
                                     const juce::String& name, const juce::String& colour = "violet",
                                     live::SubPatchCaptureMode mode=live::SubPatchCaptureMode::automatic,

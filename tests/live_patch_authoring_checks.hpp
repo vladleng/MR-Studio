@@ -102,8 +102,9 @@ inline void patchBlockAuthoring() {
           std::abs(blockLength(scaled["a"]["subs"]["s"])-4)<1.e-9,
           "Parent resize scales nested sub-patch spans proportionally");
     const auto subMoved=editedSubPatchSpan(withSub,"a","s",3,2,true);
-    check(std::abs(blockStart(subMoved["a"]["subs"]["s"])-2)<1.e-9,
-          "A sub-patch body move stays inside its parent");
+    check(std::abs(blockStart(subMoved["a"]["subs"]["s"])-1)<1.e-9 &&
+          sameShowValue(subMoved,withSub),
+          "#374 J: Sub-patch body drag cannot detach a segment");
     const auto subResized=editedSubPatchSpan(withSub,"a","s",1,9,false);
     check(std::abs(blockLength(subResized["a"]["subs"]["s"])-3)<1.e-9,
           "A sub-patch resize is clamped to the parent length");
@@ -134,8 +135,8 @@ inline void patchBlockAuthoring() {
     const auto movedSubFragment=editedSubPatchSpan(subCut.spans,"a",subCut.rightId,2.5,1.,true);
     check(subPatchLibraryId(subCut.rightId,
               movedSubFragment["a"]["subs"][juce::Identifier(subCut.rightId)])=="s" &&
-          std::abs(blockStart(movedSubFragment["a"]["subs"][juce::Identifier(subCut.rightId)])-2.5)<1.e-9,
-          "Moving a split Sub-patch fragment preserves its library ID");
+          std::abs(blockStart(movedSubFragment["a"]["subs"][juce::Identifier(subCut.rightId)])-2.)<1.e-9,
+          "#374 J: split Sub-patch stays in place when dragged, preserving its library ID");
 
     auto state=empty();
     const auto channel=addChannel(state,"Player","Guitar");

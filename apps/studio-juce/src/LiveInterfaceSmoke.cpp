@@ -1398,106 +1398,108 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         liveCheck(std::abs(live::blockLength(unjoined["spans"][juce::Identifier(patchId)])-4.)<1.e-9 &&
                   std::abs(live::blockStart(unjoined["spans"][juce::Identifier(secondPatch)])-6.)<1.e-9,
                   "#374 Upd1: single Undo restores both coupled Patch boundaries");
-        // Build a valid legacy Sub-patch fixture and verify that Backspace
-        // removes its STRIP without deleting the shared library variant.
-        editing.editLiveInterface("Sub-patch Backspace fixture",[&](auto& state){
-            auto& base=live::require(live::require(state,"channels",patchChannel),"patches",patchId);
+        // #374 J: every visible Sub-patch interval has a library sound.
+        // A real default fills the parent before adding one Rhythm strip.
+        editing.editLiveInterface("Full Sub-patch rail fixture",[&](auto& state){
+            auto& patch=live::require(live::require(state,"channels",patchChannel),"patches",patchId);
+            const auto defaultId=live::createDefaultSubPatch(patch,"blue");
             auto sub=live::object();
             live::put(sub,"id","sub-backspace");
             live::put(sub,"name","Rhythm variation");
-            live::put(sub,"inserts",base["inserts"].clone());
-            live::array(base,"subPatches").add(sub);
+            live::put(sub,"inserts",patch["inserts"].clone());
+            live::array(patch,"subPatches").add(sub);
+            auto& item=live::require(state,"items",activeBeforePatch);
+            for(auto& track:live::array(item,"tracks")) {
+                if(track["channelId"].toString()!=patchChannel)continue;
+                auto spans=track["spans"].clone();
+                auto parent=spans[juce::Identifier(patchId)].clone();
+                live::put(spans,juce::Identifier(patchId),
+                    live::fullDefaultSubPatchSpan(parent,defaultId));
+                live::put(track,"spans",spans);
+                break;
+            }
         });
-        editing.addLiveSubPatchBlock(patchChannel,patchId,"sub-backspace",activeBeforePatch);
+        editing.addLiveSubPatchBlock(patchChannel,patchId,"sub-backspace",
+                                    activeBeforePatch,0.);
         timeline->refresh();
-        const auto initialSub=live::channelItemTrack(editing.liveDocument->interfaceState,
+        const auto first=live::channelItemTrack(editing.liveDocument->interfaceState,
             activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
-        liveCheck(std::abs(live::blockLength(initialSub["subs"]["sub-backspace"])-1.)<1.e-9 &&
-                  !live::subPatchBaseGaps(initialSub).empty(),
-                  "#374 Upd2: the first Sub-patch occupies one bar, remainder stays Base");
+        liveCheck(live::subPatchRailCovered(first["subs"],4.) &&
+                  live::orderedSpans(first["subs"]).size()==2 &&
+                  live::subPatchBaseGaps(first).empty() && first["baseCuts"].isVoid(),
+                  "#374 J: first Sub-patch splits default and preserves full coverage without Base");
         const float subY=static_cast<float>(laneRect.getY()+94);
         const float firstSubX=seamX-static_cast<float>(3.5*scale);
         body->mouseDown(event(firstSubX,subY));
         body->mouseUp(event(firstSubX,subY));
         liveCheck(body->keyPressed(juce::KeyPress(juce::KeyPress::backspaceKey)),
-                  "#374 Upd1: Backspace handles selected Sub-patch strip");
-        const auto removedSub=live::channelItemTrack(editing.liveDocument->interfaceState,
-            activeBeforePatch,patchChannel);
-        liveCheck(!removedSub["spans"][juce::Identifier(patchId)]["subs"]["sub-backspace"].isObject() &&
-                  live::find(live::find(live::find(editing.liveDocument->interfaceState,"channels",patchChannel),
-                    "patches",patchId),"subPatches","sub-backspace").isObject(),
-                  "#374 Upd1: deleting a Sub-patch strip retains the library Sub-patch");
+                  "#374 J: Backspace handles selected Sub-patch strip");
+        const auto removed=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(live::subPatchRailCovered(removed["subs"],4.) &&
+                  live::orderedSpans(removed["subs"]).size()==1 &&
+                  !removed["subs"]["sub-backspace"].isObject() &&
+                  live::find(live::find(live::find(editing.liveDocument->interfaceState,
+                    "channels",patchChannel),"patches",patchId),"subPatches",
+                    "sub-backspace").isObject(),
+                  "#374 J: deleting a strip extends its neighbour and retains its library sound");
         editing.undoLiveInterface();timeline->refresh();
-        liveCheck(live::channelItemTrack(editing.liveDocument->interfaceState,
-                   activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)]
-                   ["subs"]["sub-backspace"].isObject(),
-                  "#374 Upd1: one Undo restores deleted Sub-patch strip");
-        // #374 E1: Scissors must dispatch by rail object, not by parent
-        // Patch or the neighbouring Patch's coupled seam.
+        const auto restored=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(live::subPatchRailCovered(restored["subs"],4.) &&
+                  restored["subs"]["sub-backspace"].isObject(),
+                  "#374 J: one Undo restores the exact split and full coverage");
         timeline->setClipScissors(true);
         body->mouseMove(event(firstSubX,subY));
         liveCheck(body->getMouseCursor()==juce::MouseCursor::CrosshairCursor,
-                  "#374 E1: Sub-patch scissors hover targets the child rail");
+                  "#374 J: Sub-patch Scissors hover targets its strip");
         body->mouseDown(event(firstSubX,subY));
         body->mouseUp(event(firstSubX,subY));timeline->refresh();
         const auto cutSub=live::channelItemTrack(editing.liveDocument->interfaceState,
             activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
-        liveCheck(std::abs(live::blockLength(cutSub)-4.)<1.e-9 &&
-                  cutSub["subs"].getDynamicObject() &&
-                  cutSub["subs"].getDynamicObject()->getProperties().size()==2,
-                  "#374 E1: Scissors on Sub-patch splits only child into two instances");
+        liveCheck(live::subPatchRailCovered(cutSub["subs"],4.) &&
+                  live::orderedSpans(cutSub["subs"]).size()==3,
+                  "#374 J: Scissors produces two child instances without a Base gap");
         editing.undoLiveInterface();timeline->refresh();
-        const float baseX=seamX-static_cast<float>(2.5*scale);
-        body->mouseDown(event(baseX,subY));
-        body->mouseUp(event(baseX,subY));timeline->refresh();
-        const auto cutBase=live::channelItemTrack(editing.liveDocument->interfaceState,
+        const float defaultX=seamX-static_cast<float>(2.5*scale);
+        body->mouseDown(event(defaultX,subY));
+        body->mouseUp(event(defaultX,subY));timeline->refresh();
+        const auto cutDefault=live::channelItemTrack(editing.liveDocument->interfaceState,
             activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
-        liveCheck(std::abs(live::blockLength(cutBase)-4.)<1.e-9 &&
-                  cutBase["baseCuts"].isArray() && cutBase["baseCuts"].size()==1 &&
-                  cutBase["subs"]["sub-backspace"].isObject(),
-                  "#374 E1: Scissors on Base creates an editorial cut, never cuts parent Patch");
+        liveCheck(live::subPatchRailCovered(cutDefault["subs"],4.) &&
+                  live::orderedSpans(cutDefault["subs"]).size()==3 &&
+                  cutDefault["baseCuts"].isVoid(),
+                  "#374 J: Scissors cuts the actual default Sub-patch, never synthetic Base");
         editing.saveFile(file);
-        const auto reopenedBase=LiveDocument::read(file);
+        const auto reopened=LiveDocument::read(file);
         file.deleteFile();
-        liveCheck(live::channelItemTrack(reopenedBase.interfaceState,
-                  activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)]
-                    ["baseCuts"].size()==1,
-                  "#374 E5: Base cut survives Save/Reopen without opaque VST3 duplication");
+        const auto reopenedSpan=live::channelItemTrack(reopened.interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(live::subPatchRailCovered(reopenedSpan["subs"],4.) &&
+                  reopenedSpan["baseCuts"].isVoid(),
+                  "#374 J: Scissors coverage survives Save/Reopen without Base");
         editing.undoLiveInterface();timeline->refresh();
         timeline->setClipScissors(false);
-        body->mouseDown(event(baseX,subY));
-        body->mouseUp(event(baseX,subY));
-        liveCheck(body->keyPressed(juce::KeyPress(juce::KeyPress::backspaceKey)),
-                  "#374 E1: Base receives its own keyboard selection");
-        const auto stillParent=live::channelItemTrack(editing.liveDocument->interfaceState,
-            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
-        liveCheck(stillParent.isObject() && stillParent["subs"]["sub-backspace"].isObject(),
-                  "#374 E1: deleting selected Base cannot remove parent Patch or Rhythm");
 
-        // #374 E2: a joined Sub-patch seam is independent of the outer Patch
-        // seam and previews/resizes both children as a single Undoable action.
-        editing.addLiveSubPatchBlock(patchChannel,patchId,"sub-backspace",
-                                    activeBeforePatch,1.);
-        timeline->refresh();
+        // #374 J: shared seam is the ONLY resize gesture for Sub-patches.
         const float subSeamX=seamX-static_cast<float>(3.*scale);
         const float subSeamY=static_cast<float>(laneRect.getY()+103);
         body->mouseMove(event(subSeamX-2.f,subSeamY));
         liveCheck(body->getMouseCursor()==juce::MouseCursor::LeftRightResizeCursor,
-                  "#374 E2: lower Sub-patch seam displays shared-resize cursor");
+                  "#374 J: shared Sub-patch boundary displays resize cursor");
         body->mouseDown(event(subSeamX-2.f,subSeamY));
         body->mouseDrag(event(subSeamX+static_cast<float>(scale/4)-2.f,subSeamY));
         body->mouseUp(event(subSeamX+static_cast<float>(scale/4)-2.f,subSeamY));
         timeline->refresh();
-        const auto joinedSub=live::channelItemTrack(editing.liveDocument->interfaceState,
+        const auto resized=live::channelItemTrack(editing.liveDocument->interfaceState,
             activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
-        const auto subRows=live::orderedSpans(joinedSub["subs"]);
+        const auto subRows=live::orderedSpans(resized["subs"]);
         liveCheck(subRows.size()==2 &&
                   std::abs(live::blockLength(subRows[0].second)-1.25)<1.e-9 &&
                   std::abs(live::blockStart(subRows[1].second)-1.25)<1.e-9 &&
-                  std::abs(live::blockLength(joinedSub)-4.)<1.e-9,
-                  "#374 E2: shared Sub seam changes children but preserves parent Patch");
-        editing.undoLiveInterface();
-        editing.undoLiveInterface();timeline->refresh(); // restore original one-child rail
+                  live::subPatchRailCovered(resized["subs"],4.),
+                  "#374 J: joined Sub-patch resize keeps both endpoints attached");
+        editing.undoLiveInterface();timeline->refresh();
 
         const float patchY=static_cast<float>(laneRect.getY()+37);
         body->mouseDown(event(seamX-40.f,patchY));

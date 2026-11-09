@@ -1749,7 +1749,7 @@ void Desktop::captureLiveChannelSubPatch(const juce::String& requested,const juc
                                          const juce::String& name,const juce::String& colour,
                                          live::SubPatchCaptureMode mode,
                                          const juce::String& itemId,const juce::String& blockId,
-                                         double preferredStart,const juce::String& replaceSubBlockId) {
+                                         double preferredStart,const juce::String& /*replaceSubBlockId*/) {
     const auto channel=inputChannel(*this,requested);
     if(!live::patchColour(colour))throw std::runtime_error("Invalid sub-patch colour");
     if(app.recording()||app.engine()->state().playback==mrs::PlaybackState::playing)
@@ -1812,22 +1812,12 @@ void Desktop::captureLiveChannelSubPatch(const juce::String& requested,const juc
                 auto parent=spans[juce::Identifier(blockId)].clone();
                 if(!parent.isObject()||live::patchLibraryId(blockId,parent)!=patchId)
                     throw std::runtime_error("Captured Sub-patch target Patch is missing");
-                if(replaceSubBlockId.isNotEmpty()) {
-                    const auto instance=parent["subs"][juce::Identifier(replaceSubBlockId)];
-                    if(!instance.isObject())
-                        throw std::runtime_error("Selected Sub-patch strip is missing");
-                    auto children=parent["subs"].clone();
-                    auto edited=instance.clone();
-                    live::put(edited,"subPatchId",variantId);
-                    live::put(children,juce::Identifier(replaceSubBlockId),edited);
-                    live::put(parent,"subs",children);
-                } else {
-                    const auto children=live::addedSubPatchSpanAt(parent["subs"],
-                        live::blockLength(parent),variantId,preferredStart);
-                    if(live::sameShowValue(children,parent["subs"]))
-                        throw std::runtime_error("No free space for captured Sub-patch");
-                    live::put(parent,"subs",children);
-                }
+                // Always splice at the click. The selected original segment
+                // survives on both sides; a new library variant never silently
+                // replaces the whole old region or creates a Base gap.
+                const auto children=live::addedSubPatchSpanAt(parent["subs"],
+                    live::blockLength(parent),variantId,preferredStart);
+                live::put(parent,"subs",children);
                 live::put(spans,juce::Identifier(blockId),parent);
                 live::put(track,"spans",spans);
                 placed=true;
@@ -1998,6 +1988,36 @@ void commitLivePatchTrack(Desktop& owner,const juce::String& itemId,
     owner.performLiveValuePatch(label,{"items",live::EditStep::id(itemId),"tracks"},
                                next,live::EditImpact::timeline);
 }
+}
+// Sub-patch menu can reuse an existing library variation without capturing
+// the VST3 editor. This commits only the clicked Item's lightweight geometry.
+void Desktop::insertExistingLiveSubPatch(const juce::String& requested,
+                                          const juce::String& patchId,
+                                          const juce::String& subPatchId,
+                                          const juce::String& requestedItem,
+                                          const juce::String& patchBlockId,
+                                          double clickOffset) {
+    const auto channel=inputChannel(*this,requested);
+    if(app.recording() ||
+       app.engine()->state().playback!=mrs::PlaybackState::stopped)
+        throw std::runtime_error("Stop Live transport before inserting a Sub-patch");
+    const auto patch=live::find(live::find(liveDocument->interfaceState,
+                                         "channels",channel),"patches",patchId);
+    if(!patch.isObject() || !live::find(patch,"subPatches",subPatchId).isObject())
+        throw std::runtime_error("Choose an existing Sub-patch of this Patch");
+    const auto itemId=livePatchTargetItem(*this,requestedItem);
+    const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
+    auto spans=track["spans"].isObject()?track["spans"].clone():live::object();
+    auto parent=spans[juce::Identifier(patchBlockId)].clone();
+    if(!parent.isObject() ||
+       live::patchLibraryId(patchBlockId,parent)!=patchId)
+        throw std::runtime_error("Clicked Patch block no longer exists");
+    live::put(parent,"subs",live::addedSubPatchSpanAt(parent["subs"],
+        live::blockLength(parent),subPatchId,clickOffset));
+    live::put(spans,juce::Identifier(patchBlockId),parent);
+    commitLivePatchTrack(*this,itemId,channel,spans,"Insert existing Sub-patch");
+    if(liveDocument->interfaceState["currentItem"].toString()==itemId)
+        loadLiveChannelPatch(channel,patchId,subPatchId);
 }
 void Desktop::addLivePatchBlock(const juce::String& requested,const juce::String& patchId,
                                 double preferredStartBars,const juce::String& requestedItem) {
@@ -2198,16 +2218,10 @@ void Desktop::removeSelectedLivePatchBlocks(const std::vector<LivePatchBlockSele
         }
         if(!at->spans[juce::Identifier(choice.blockId)].isObject())
             throw std::runtime_error("Selected Patch block no longer exists");
-        if(choice.subId.isNotEmpty()) {
-            const auto parent=at->spans[juce::Identifier(choice.blockId)];
-            if(live::isBaseSegmentId(choice.subId)) {
-                bool found=false;
-                for(const auto& base:live::subPatchBaseSegments(parent))
-                    found=found || base.id==choice.subId;
-                if(!found)throw std::runtime_error("Selected Base segment no longer exists");
-            } else if(!parent["subs"][juce::Identifier(choice.subId)].isObject())
-                throw std::runtime_error("Selected Sub-patch strip no longer exists");
-        }
+        if(choice.subId.isNotEmpty() &&
+           !at->spans[juce::Identifier(choice.blockId)]["subs"]
+               [juce::Identifier(choice.subId)].isObject())
+            throw std::runtime_error("Selected Sub-patch strip no longer exists");
         if(std::none_of(at->blocks.begin(),at->blocks.end(),[&](const auto& earlier) {
             return earlier.blockId==choice.blockId && earlier.subId==choice.subId;}))
             at->blocks.push_back(choice);
@@ -2222,19 +2236,9 @@ void Desktop::removeSelectedLivePatchBlocks(const std::vector<LivePatchBlockSele
                     return other.blockId==choice.blockId && other.subId.isEmpty();}))
                     continue;
                 auto parent=target.spans[juce::Identifier(choice.blockId)].clone();
-                if(live::isBaseSegmentId(choice.subId)) {
-                    // Base is the absence of an override. Deleting its selected
-                    // cut rejoins neighbouring Base sections; the Base sound
-                    // itself and all library patches stay unchanged.
-                    const auto start=choice.subId.fromFirstOccurrenceOf(":",false,false).getDoubleValue();
-                    if(const auto* original=parent["baseCuts"].getArray()) {
-                        auto cuts=*original;
-                        for(int i=cuts.size();--i>=0;)
-                            if(std::abs(static_cast<double>(cuts[i])-start)<1.e-7)cuts.remove(i);
-                        live::put(parent,"baseCuts",juce::var(cuts));
-                    }
-                } else
-                    live::put(parent,"subs",live::removedPatchSpan(parent["subs"],choice.subId));
+                const auto next=live::removedSubPatchSpan(parent["subs"],
+                                    live::blockLength(parent),choice.subId);
+                live::put(parent,"subs",next);
                 live::put(target.spans,juce::Identifier(choice.blockId),parent);
             } else {
                 target.spans=live::removedPatchSpan(target.spans,choice.blockId);
