@@ -1726,7 +1726,6 @@ void Desktop::updateLiveChannelPatch(const juce::String& requested,const juce::S
     const auto patch=live::find(live::find(state,"channels",channel),"patches",patchId);
     if(!patch.isObject() || live::legacyPatch(patch))
         throw std::runtime_error("Patch no longer exists");
-    const auto currentItem=state["currentItem"].toString();
     if(!livePatchLoadedForEditing(channel,patchId,{}))
         throw std::runtime_error(
             "Load this Base Patch into Live Input before updating its sound");
