@@ -1316,18 +1316,26 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             const auto patch=live::find(channel,"patches",hit.libraryPatchId);
             const auto span=hit.originSpans[juce::Identifier(hit.patchId)];
             const auto subs=span["subs"];
+            const auto clicked=choiceFor(hit);
+            const auto chosen=isSelected(clicked)?selectedPatches:
+                std::vector<PatchSelection>{clicked};
+            const bool bulk=chosen.size()>1;
             juce::PopupMenu menu;menu.setLookAndFeel(&parent.owner.theme);
+            if(bulk)
+                menu.addSectionHeader(juce::String("Selected Patch blocks: ")+
+                                      juce::String(static_cast<int>(chosen.size())));
             juce::PopupMenu replaceMenu;
             std::vector<juce::String> replacementIds;
             if(const auto *bank=channel["patches"].getArray())
                 for(const auto &candidate:*bank) {
                     const auto id=candidate["id"].toString();
-                    if(id.isEmpty()||id==hit.libraryPatchId||live::legacyPatch(candidate))continue;
+                    if(id.isEmpty()||(!bulk&&id==hit.libraryPatchId)||live::legacyPatch(candidate))continue;
                     replaceMenu.addItem(2000+static_cast<int>(replacementIds.size()),
                                         candidate["name"].toString());
                     replacementIds.push_back(id);
                 }
-            if(!replacementIds.empty())menu.addSubMenu("Replace patch with\u2026",replaceMenu);
+            if(!replacementIds.empty())
+                menu.addSubMenu(bulk?"Assign Patch to selected blocks...":"Replace patch with...",replaceMenu);
             menu.addItem(1,"Remove patch block");
             menu.addItem(3,"Update this Patch from current channel sound...");
             if(hit.subId.isNotEmpty())
@@ -1353,7 +1361,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             const auto generation=parent.owner.liveDocumentGeneration;
             menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(juce::Rectangle<int>(screen.x,screen.y,1,1)),
                 [safe,self,channelId,patchId,itemId,hitSubId=hit.subId,libraryPatchId,librarySubId,
-                 generation,subIds,replacementIds](int action){
+                 generation,subIds,replacementIds,chosen,bulk](int action){
                 if(!safe||!action||!safe->liveDocument||safe->liveDocumentGeneration!=generation)return;
                 safe->run([&]{
                     if(action==1){safe->removeLivePatchBlock(channelId,patchId,itemId);return;}
@@ -1364,8 +1372,19 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     }
                     if(action>=2000&&action<3000){
                         const auto at=static_cast<std::size_t>(action-2000);
-                        if(at<replacementIds.size())
-                            safe->replaceLivePatchBlock(channelId,patchId,replacementIds[at],itemId);
+                        if(at<replacementIds.size()) {
+                            if(bulk) {
+                                std::vector<std::pair<juce::String,juce::String>> targets;
+                                targets.reserve(chosen.size());
+                                for(const auto& selected:chosen) {
+                                    if(selected.channelId!=channelId)
+                                        throw std::runtime_error(
+                                            "Selected blocks span different channel libraries; select blocks from one channel");
+                                    targets.emplace_back(selected.itemId,selected.blockId);
+                                }
+                                safe->replaceSelectedLivePatchBlocks(channelId,replacementIds[at],targets);
+                            } else safe->replaceLivePatchBlock(channelId,patchId,replacementIds[at],itemId);
+                        }
                         return;
                     }
                     const auto index=action-100;
