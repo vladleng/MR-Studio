@@ -197,6 +197,47 @@ inline void patchBlockAuthoring() {
         validate(sliced);
     }
 
+    {
+        // #374 B: two independent references to the same library sound can be
+        // assigned another captured Patch without changing time or track order.
+        auto grouped=state.clone();
+        auto& groupedChannel=require(grouped,"channels",channel);
+        const auto replacementId=addChannelPatch(grouped,groupedChannel,
+            std::vector<mrs::NativeInsert>{fx},"Solo","violet");
+        auto& groupedTrack=trackOf(grouped);
+        const auto original=groupedTrack["spans"].clone();
+        const auto order=groupedTrack["patchOrder"].clone();
+        auto nextBlock=blockSpan(4,2);
+        put(nextBlock,"patchId",patchId);
+        auto blocks=groupedTrack["spans"].clone();
+        put(blocks,"second-instance",nextBlock);
+        put(groupedTrack,"spans",blocks);
+        put(groupedTrack,"patchOrder",juce::Array<juce::var>{patchId,"second-instance"});
+        validate(grouped);
+        const auto reassigned=assignedPatchBlocks(groupedTrack["spans"],
+            std::vector<juce::String>{patchId,"second-instance"},replacementId);
+        check(reassigned[juce::Identifier(patchId)]["patchId"].toString()==replacementId &&
+              reassigned["second-instance"]["patchId"].toString()==replacementId &&
+              std::abs(blockStart(reassigned["second-instance"])-4.)<1.e-9 &&
+              std::abs(blockLength(reassigned["second-instance"])-2.)<1.e-9 &&
+              reassigned[juce::Identifier(patchId)]["subs"].isVoid(),
+              "Reassignment switches two library references while retaining their timeline geometry");
+        check(groupedTrack["spans"]["second-instance"]["patchId"].toString()==patchId,
+              "Group assignment cannot mutate the original model before Undo commit");
+        const auto groupEdit=valuePatch(grouped,
+            {"items",EditStep::id(item),"tracks",EditStep::id(groupedTrack["id"].toString()),"spans"},
+            reassigned);
+        const auto advanced=groupEdit.apply(grouped,true);
+        validate(advanced);
+        check(sameShowValue(channelItemTrack(advanced,item,channel)["patchOrder"],
+                            groupedTrack["patchOrder"]),
+              "Group assignment preserves the order of selected blocks");
+        const auto restored=groupEdit.apply(advanced,false);
+        check(sameShowValue(channelItemTrack(restored,item,channel)["spans"],groupedTrack["spans"]),
+              "One Undo restores both group-selected Patch assignments");
+        check(sameShowValue(track["spans"],state["items"][0]["tracks"][0]["spans"]),
+              "Group reassign does not edit unrelated Items or saved Patch banks");
+    }
     // Regression for #374: committing geometry through the established local
     // edit protocol must keep the channel bank and its large VST3 state shared,
     // rather than cloning the entire show on every gesture.
