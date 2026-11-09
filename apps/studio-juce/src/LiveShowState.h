@@ -348,6 +348,66 @@ inline std::vector<std::pair<juce::String,juce::var>> orderedSpans(const juce::v
         return blockStart(left.second)<blockStart(right.second);});
     return rows;
 }
+// The unoccupied part of the embedded Sub-patch rail always uses the
+// parent Patch's Base parameters. It is derived, never stored in the Show.
+inline std::vector<std::pair<double,double>> subPatchBaseGaps(const juce::var& patchSpan) {
+    std::vector<std::pair<double,double>> gaps;
+    const double parentLength=blockLength(patchSpan);
+    double cursor=0.;
+    for(const auto& child:orderedSpans(patchSpan["subs"])) {
+        const double start=juce::jlimit(0.,parentLength,blockStart(child.second));
+        if(start>cursor+1.e-7)gaps.emplace_back(cursor,start-cursor);
+        cursor=juce::jmax(cursor,juce::jmin(parentLength,start+blockLength(child.second)));
+    }
+    if(cursor<parentLength-1.e-7)gaps.emplace_back(cursor,parentLength-cursor);
+    return gaps;
+}
+// Place one Sub-patch at the click (1 bar by default); shorten to the free
+// interval. UUID instance keys allow repeated Rhythm/Solo occurrences while
+// keeping one shared library override state.
+inline juce::var addedSubPatchSpanAt(const juce::var& subs,double parentLength,
+                                     const juce::String& libraryId,double preferredStart,
+                                     double preferredLength=1.) {
+    if(libraryId.isEmpty() || !std::isfinite(preferredStart) ||
+       !std::isfinite(parentLength) || parentLength<.25 ||
+       !std::isfinite(preferredLength) || preferredLength<.25)
+        throw std::runtime_error("Invalid Sub-patch insertion");
+    auto next=subs.isObject()?subs.clone():object();
+    auto parent=blockSpan(0.,parentLength);
+    put(parent,"subs",next);
+    const auto gaps=subPatchBaseGaps(parent);
+    const double snapped=std::round(preferredStart*4.)/4.;
+    struct Slot { double start{},length{}; bool atClick{}; };
+    std::vector<Slot> slots;
+    for(const auto& gap:gaps) {
+        const double begin=std::ceil((gap.first-1.e-7)*4.)/4.;
+        const double end=std::floor((gap.first+gap.second-.25+1.e-7)*4.)/4.;
+        if(end<begin-1.e-7)continue;
+        slots.push_back({begin,end, snapped>=begin-1.e-7&&snapped<=gap.first+gap.second-.25+1.e-7});
+    }
+    if(slots.empty())return next;
+    const Slot* selected=nullptr;
+    for(const auto& slot:slots)
+        if(slot.atClick){selected=&slot;break;}
+    if(selected==nullptr)
+        for(const auto& slot:slots)
+            if(slot.start>=snapped-1.e-7){selected=&slot;break;}
+    if(selected==nullptr)selected=&slots.front();
+    const double start=juce::jlimit(selected->start,selected->length,snapped);
+    const double gapEnd=[&]{
+        for(const auto& gap:gaps)
+            if(start>=gap.first-1.e-7&&start<gap.first+gap.second-1.e-7)
+                return gap.first+gap.second;
+        return start;
+    }();
+    const double length=juce::jmin(preferredLength,gapEnd-start);
+    if(length<.25-1.e-7)return next;
+    const auto instance=next[juce::Identifier(libraryId)].isObject()?freshId():libraryId;
+    auto span=blockSpan(start,length);
+    if(instance!=libraryId)put(span,"subPatchId",libraryId);
+    put(next,juce::Identifier(instance),span);
+    return next;
+}
 // Group assignment rebinds each *instance* to a library Patch. Geometry,
 // order and VST3 snapshots never change. The caller commits this object in
 // one local Undo batch, even when selected blocks span several Items.

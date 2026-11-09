@@ -206,4 +206,50 @@ inline void subPatchChainVariants() {
         check(!savedReference,"Deleting a sub-patch clears its saved Browser reference");
     }
 }
+
+inline void subPatchRailGeometry() {
+    const auto check=[](bool condition,const char* message) {
+        if(!condition)throw std::runtime_error(message);
+    };
+    // RED before Upd2: a first Sub-patch used to swallow the entire parent.
+    auto parent=blockSpan(0.,8.);
+    auto gaps=subPatchBaseGaps(parent);
+    check(gaps.size()==1 && std::abs(gaps.front().first)<1.e-9 &&
+          std::abs(gaps.front().second-8.)<1.e-9,
+          "Empty Sub-patch rail is entirely Base");
+    auto strips=addedSubPatchSpanAt(parent["subs"],8.,"rhythm",2.13);
+    check(strips["rhythm"].isObject() &&
+          std::abs(blockStart(strips["rhythm"])-2.25)<1.e-9 &&
+          std::abs(blockLength(strips["rhythm"])-1.)<1.e-9,
+          "Click inserts a one-bar Sub-patch snapped to a quarter-bar");
+    put(parent,"subs",strips);
+    gaps=subPatchBaseGaps(parent);
+    check(gaps.size()==2 && std::abs(gaps[0].second-2.25)<1.e-9 &&
+          std::abs(gaps[1].first-3.25)<1.e-9,
+          "Free intervals remain Base before and after a Sub-patch");
+    strips=addedSubPatchSpanAt(strips,8.,"solo",3.5);
+    check(std::abs(blockStart(strips["solo"])-3.5)<1.e-9 &&
+          std::abs(blockLength(strips["solo"])-1.)<1.e-9,
+          "Second strip inserts at the clicked free interval");
+    strips=addedSubPatchSpanAt(strips,8.,"rhythm",6.);
+    check(strips.getDynamicObject()->getProperties().size()==3 &&
+          strips["rhythm"].isObject(),
+          "Repeated library Sub-patch uses an independent block instance");
+    bool hasRepeatedLibraryReference=false;
+    for(const auto& entry:strips.getDynamicObject()->getProperties())
+        if(entry.name.toString()!="rhythm" &&
+           subPatchLibraryId(entry.name.toString(),entry.value)=="rhythm")
+            hasRepeatedLibraryReference=true;
+    check(hasRepeatedLibraryReference,
+          "Repeated instance references one shared library Sub-patch");
+    auto nearlyFull=object();
+    put(nearlyFull,"used",blockSpan(0.,7.75));
+    auto tail=addedSubPatchSpanAt(nearlyFull,8.,"solo",7.75);
+    check(std::abs(blockStart(tail["solo"])-7.75)<1.e-9 &&
+          std::abs(blockLength(tail["solo"])-.25)<1.e-9,
+          "Insertion shortens to the last available quarter-bar");
+    const auto unchanged=addedSubPatchSpanAt(tail,8.,"rhythm",7.75);
+    check(sameShowValue(unchanged,tail),
+          "A filled rail cannot acquire an overlapping Sub-patch");
+}
 } // namespace ui::live::test

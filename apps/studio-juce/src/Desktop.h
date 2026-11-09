@@ -167,7 +167,8 @@ public:
         addLivePatchBlock(channel, patchId, -1.);
     }
     void addLiveSubPatchBlock(const juce::String&, const juce::String& patchId,
-                              const juce::String& subPatchId, const juce::String& itemId = {});
+                               const juce::String& subPatchId, const juce::String& itemId = {},
+                               double preferredStart = 0.);
     void replaceLivePatchBlock(const juce::String& channel, const juce::String& patchId,
                                const juce::String& replacementId, const juce::String& itemId = {});
     // Selected blocks must all belong to one channel's patch library; an

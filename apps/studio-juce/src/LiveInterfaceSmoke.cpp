@@ -1392,9 +1392,15 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         });
         editing.addLiveSubPatchBlock(patchChannel,patchId,"sub-backspace",activeBeforePatch);
         timeline->refresh();
-        const float subY=static_cast<float>(laneRect.getY()+78);
-        body->mouseDown(event(seamX-40.f,subY));
-        body->mouseUp(event(seamX-40.f,subY));
+        const auto initialSub=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(std::abs(live::blockLength(initialSub["subs"]["sub-backspace"])-1.)<1.e-9 &&
+                  !live::subPatchBaseGaps(initialSub).empty(),
+                  "#374 Upd2: the first Sub-patch occupies one bar, remainder stays Base");
+        const float subY=static_cast<float>(laneRect.getY()+94);
+        const float firstSubX=seamX-static_cast<float>(3.5*scale);
+        body->mouseDown(event(firstSubX,subY));
+        body->mouseUp(event(firstSubX,subY));
         liveCheck(body->keyPressed(juce::KeyPress(juce::KeyPress::backspaceKey)),
                   "#374 Upd1: Backspace handles selected Sub-patch strip");
         const auto removedSub=live::channelItemTrack(editing.liveDocument->interfaceState,
@@ -1648,6 +1654,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::showValueEquality();
     live::test::channelPatchLibrary();
     live::test::subPatchChainVariants();
+    live::test::subPatchRailGeometry();
     live::test::patchBlockAuthoring();
     live::test::editProtocol();
     live::test::notesDirtyRoundTrip();

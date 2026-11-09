@@ -1885,7 +1885,8 @@ void Desktop::replaceSelectedLivePatchBlocks(
                             live::EditImpact::timeline);
 }
 void Desktop::addLiveSubPatchBlock(const juce::String& requested,const juce::String& patchId,
-                                   const juce::String& subPatchId,const juce::String& requestedItem) {
+                                   const juce::String& subPatchId,const juce::String& requestedItem,
+                                   double preferredStart) {
     const auto channel=inputChannel(*this,requested);
     const auto row=live::find(liveDocument->interfaceState,"channels",channel);
     const auto itemId=livePatchTargetItem(*this,requestedItem);
@@ -1900,7 +1901,7 @@ void Desktop::addLiveSubPatchBlock(const juce::String& requested,const juce::Str
     if(!live::find(patch,"subPatches",subPatchId).isObject())
         throw std::runtime_error("Choose a Sub-patch from this Patch library");
     const double parentLength=live::blockLength(span);
-    const auto subs=live::addedPatchSpan(span["subs"],parentLength,subPatchId,parentLength);
+    const auto subs=live::addedSubPatchSpanAt(span["subs"],parentLength,subPatchId,preferredStart);
     if(live::sameShowValue(subs,span["subs"]))
         throw std::runtime_error("No free space for a sub-patch strip");
     auto nextSpans=spans.clone();
