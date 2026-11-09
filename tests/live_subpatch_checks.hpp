@@ -81,12 +81,12 @@ inline void subPatchChainVariants() {
         auto& savedInserts=*patch["inserts"].getArray();
         put(savedInserts.getReference(0),"parameters",juce::var(juce::Array<juce::var>{}));
         validate(sparse);
-        const auto variant=patchInsertsWithSubPatch(sparse,
+        const auto sparseVariant=patchInsertsWithSubPatch(sparse,
             find(find(sparse,"channels",channel),"patches",patchId),
             find(find(find(sparse,"channels",channel),"patches",patchId),
                 "subPatches","sub-rhythm"));
-        check(variant[0].parameters.size()==1 &&
-              std::abs(variant[0].parameters[0].value-.9f)<1.e-6f,
+        check(sparseVariant[0].parameters.size()==1 &&
+              std::abs(sparseVariant[0].parameters[0].value-.9f)<1.e-6f,
               "#374 E3: baseline metadata validates sparse override without replaying full VST3 preset");
     }
     const auto baseOnly=patchInsertsWithSubPatch(state,channelPatch(state),{});

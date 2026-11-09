@@ -307,9 +307,9 @@ inline PatchBlockSplit splitPatchBlock(const juce::var& spans,const juce::var& o
         juce::Array<juce::var> leftCuts,rightCuts;
         const double splitOffset=cutBar-start;
         for(const auto& mark:*cuts) {
-            const auto at=static_cast<double>(mark);
-            if(at<splitOffset-1.e-7)leftCuts.add(at);
-            else if(at>splitOffset+1.e-7)rightCuts.add(at-splitOffset);
+            const auto cutAt=static_cast<double>(mark);
+            if(cutAt<splitOffset-1.e-7)leftCuts.add(cutAt);
+            else if(cutAt>splitOffset+1.e-7)rightCuts.add(cutAt-splitOffset);
         }
         put(left,"baseCuts",juce::var(leftCuts));
         put(right,"baseCuts",juce::var(rightCuts));
