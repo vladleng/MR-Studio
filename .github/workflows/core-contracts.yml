@@ -14,6 +14,11 @@ on:
         default: profile
 permissions:
   contents: read
+# Cancel obsolete runs of this workflow on the same PR or branch.
+# Keep manual checks with distinct selections independent.
+concurrency:
+  group: fast-core-${{ github.event.pull_request.number || github.ref }}-${{ inputs.checks || 'profile' }}
+  cancel-in-progress: true
 jobs:
   contracts:
     runs-on: ubuntu-24.04
