@@ -249,7 +249,12 @@ if(BUILD_TESTING)
     # setup-python's Windows python3.exe is a symlink to python.exe. The
     # worker deliberately rejects linked paths; pass the actual interpreter
     # to this process fixture rather than relaxing the worker's path checks.
-    file(REAL_PATH "${Python3_EXECUTABLE}" mrs_python_test_executable)
+    # CMake REAL_PATH leaves this Windows alias unresolved. Python's realpath
+    # resolves Windows symlinks/junctions as well as POSIX links.
+    execute_process(COMMAND "${Python3_EXECUTABLE}" -I -c
+      "import os, sys; print(os.path.realpath(sys.executable))"
+      OUTPUT_VARIABLE mrs_python_test_executable
+      OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
     add_executable(mrs_python_transcription_tests tests/python_transcription_tests.cpp)
     target_link_libraries(mrs_python_transcription_tests PRIVATE mrs_desktop)
     add_test(NAME desktop_python_transcription COMMAND mrs_python_transcription_tests "${mrs_python_test_executable}" "${PROJECT_SOURCE_DIR}/tests/python_midi_fake.py")

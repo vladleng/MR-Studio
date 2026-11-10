@@ -91,4 +91,10 @@ void hidden_history_saveas(){
     rejects([&]{app.save_project(destination/"collision.mrsproject");});std::ifstream input(destination/"collision.assets"/"separation"/r.id.value/"vocals.wav");std::string s;input>>s;check(s=="foreign","Foreign file overwritten");
 }
 }
-int main(){try{hashes();lifecycle(1);lifecycle(2);lifecycle(3);lifecycle(4);lifecycle(6);lifecycle(53);source_guard();hidden_history_saveas();std::cout<<"PASS separation assets: SHA256 vectors, stale guard, hidden/placement Undo/Redo, schema migration, Save/Open/Save As/moved project, missing media, foreign-file preservation\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{
+    hashes();
+    for(const int stems:{1,2,3,4,6,53}){std::cerr<<"lifecycle stems="<<stems<<'\n';lifecycle(stems);}
+    std::cerr<<"source_guard\n";source_guard();
+    std::cerr<<"hidden_history_saveas\n";hidden_history_saveas();
+    std::cout<<"PASS separation assets: SHA256 vectors, stale guard, hidden/placement Undo/Redo, schema migration, Save/Open/Save As/moved project, missing media, foreign-file preservation\n";return 0;
+}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
