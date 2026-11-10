@@ -23,7 +23,7 @@ TimeMap imported_map(const Project& project,const Clip& clip,const Result& resul
     ticks+=(result.analysis_seconds-previous_seconds)*previous_bpm*ppq/60.;const auto end=static_cast<Tick>(std::llround(ticks));
     if(end>anchor)append(end,tempo_at(project.time,old_end));
     for(const auto& p:project.time.tempos)if(p.tick>old_end)map.tempos.push_back({p.tick+(end-old_end),p.bpm});
-    if(result.detected_meter){const auto pos=Timeline(map,project.sample_rate).musical_position(anchor);need(pos.beat==1&&pos.tick==0,"Align clip start with a bar boundary before importing meter");
+    if(result.detected_meter){const auto pos=Timeline(map,project.sample_rate).musical_position(Timeline(map,project.sample_rate).to_ticks(clip.start+static_cast<Sample>(std::llround(result.first_downbeat*project.sample_rate))));need(pos.beat==1&&pos.tick==0,"Align the first downbeat with a project bar boundary before importing meter");
         std::erase_if(map.meters,[&](const auto& p){return p.bar==pos.bar;});map.meters.push_back({pos.bar,static_cast<int>(result.detected_meter),4});std::sort(map.meters.begin(),map.meters.end(),[](const auto& a,const auto& b){return a.bar<b.bar;});}
     map.validate();return map;
 }
@@ -115,7 +115,7 @@ PlaceTranscription Controller::prepare(const std::shared_ptr<IProjectStore>& sto
     std::optional<TimeMap> time;if(result_->musical.import_tempo)time=imported_map(*captured_.project,*clip,*result_);
     std::vector<TranscribedNote> reference;
     if(!original_timing&&(result_->musical.quantize||result_->musical.fill_gaps>0||result_->musical.trim_leading_bars))for(const auto& n:result_->original_notes)if(!roles||std::find(roles->begin(),roles->end(),n.instrument)!=roles->end())reference.push_back(n);
-    std::ostringstream provenance;provenance<<"Audio-to-MIDI "<<(result_->backend==Backend::python_medium?"Python MuScriptor":"HOT-Step experimental")<<"; model="<<result_->model_id<<"@"<<result_->model_revision<<"; source_pcm_sha256="<<result_->source_sha256<<"; frames="<<result_->source_first_frame<<"+"<<result_->source_frame_count<<"; rate="<<result_->source_rate<<"; worker_sha256="<<result_->executable_sha256;
+    std::ostringstream provenance;provenance<<"Audio-to-MIDI "<<(result_->backend==Backend::python_medium?"Python MuScriptor":"HOT-Step experimental")<<"; model="<<result_->model_id<<"@"<<result_->model_revision<<"; source_pcm_sha256="<<result_->source_sha256<<"; frames="<<result_->source_first_frame<<"+"<<result_->source_frame_count<<"; rate="<<result_->source_rate<<"; code="<<(result_->backend==Backend::python_medium?python_source_commit:ace_midi_source_commit)<<"; executable_sha256="<<result_->executable_sha256<<"; adapter_sha256="<<result_->worker_sha256<<"; weights_sha256="<<result_->weights_sha256;
     return PlaceTranscription(captured_.project,clip_,notes,std::move(time),reference,provenance.str());
 }
 void Controller::placed(){need(status_.state==JobState::ready&&result_.has_value(),"No placed transcription result");result_.reset();status_.state=JobState::placed;}

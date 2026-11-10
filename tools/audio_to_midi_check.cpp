@@ -15,6 +15,8 @@ int main(int argc,char** argv){
     if(argc>=10){r.cpu_threads=static_cast<unsigned>(std::stoul(argv[8]));if(std::string(argv[9])!="auto")r.stem_instrument=argv[9];}
     if(argc==13)r.range=mrs::transcription::SourceRange{std::stoll(argv[10]),std::stoll(argv[11]),static_cast<std::uint32_t>(std::stoul(argv[12]))};
     if(const auto* python=std::getenv("MR_TRANSCRIPTION_PYTHON_WORKER")){r.backend=mrs::transcription::Backend::python_medium;r.worker_script=std::filesystem::absolute(python);r.worker_sha256=mrs::sha256_file(r.worker_script);r.memory_bytes=8ULL*1024*1024*1024;if(!r.stem_instrument.empty())r.instruments.push_back(std::exchange(r.stem_instrument,{}));}
+    if(const auto* compatibility=std::getenv("MR_TRANSCRIPTION_COMPATIBILITY_CPU"))r.compatibility_cpu=std::string(compatibility)=="1";
+    if(std::getenv("MR_TRANSCRIPTION_MUSICAL_CHECK")){r.musical.bpm=120;r.musical.quantize=true;r.musical.subdivision=3;r.musical.strength=.5;r.musical.fill_gaps=.5;}
     const auto result=mrs::transcription::run(r,{},[](int completed,int total){std::cout<<"progress "<<completed<<'/'<<total<<'\n'<<std::flush;});
     if(result.state!=mrs::transcription::State::ready&&result.state!=mrs::transcription::State::empty){std::cerr<<"failed: "<<result.error<<'\n'<<result.diagnostics;return 1;}
     std::cout<<(result.state==mrs::transcription::State::empty?"empty":"ready")<<" raw_notes="<<result.raw_notes<<" source_bounded_notes="<<result.notes.size()<<" midi_sha256="<<result.midi_sha256<<'\n';

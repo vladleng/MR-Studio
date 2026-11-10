@@ -6,6 +6,7 @@
 #endif
 #include <windows.h>
 #include <stdexcept>
+#include <algorithm>
 namespace ui {
 namespace {
 constexpr auto identity="muscriptor-medium-python-8a1ef886-v1";
@@ -35,9 +36,9 @@ void TranscriptionRuntime::verify(std::stop_token token)const{
 }
 void TranscriptionRuntime::remove()const{
     auto guard=lock(true);if(!present())return;std::atomic<bool> stop{};
-    // Verify ownership before recursive deletion. Corrupt installations require
-    // explicit repair rather than deleting an arbitrary user folder.
-    mr::separation::verifyRuntimeInventory(directory(),identity,stop);need(directory().deleteRecursively(),"runtime_remove_failed");
+    // Verify ownership/file allowlist before deletion; damaged known files
+    // remain removable, while foreign files and linked paths are refused.
+    mr::separation::verifyRuntimeInventory(directory(),identity,stop,false);need(directory().deleteRecursively(),"runtime_remove_failed");
 }
 void TranscriptionRuntime::install(std::stop_token token)const{
     auto guard=lock(true);need(!present(),"runtime_already_installed");
@@ -51,7 +52,7 @@ void TranscriptionRuntime::install(std::stop_token token)const{
     need(zip.deleteFile(),"runtime_io");
     need(stage.dir.getChildFile("python311._pth").replaceWithText("python311.zip\n.\nLib/site-packages\nimport site\n",false,false,"\n"),"runtime_io");
     const auto pip=fetch({"get-pip.py","https://raw.githubusercontent.com/pypa/get-pip/37ae3c4daaf63a0c203176251fb99c0e238562b5/public/get-pip.py","f4448a01e3ab2914c65f4ca59d4cacba6b2dbde19a483fbac46587f8bbaff424",2234489});
-    const auto run=[&](juce::StringArray args){const auto result=mr::separation::runLocalProcess(stage.dir.getChildFile("python.exe"),args,stage.dir,stop,std::chrono::minutes(20),8);need(result.success,stop?"cancelled":"muscriptor_runtime_install_failed");};
+    const auto run=[&](juce::StringArray args){const auto result=mr::separation::runLocalProcess(stage.dir.getChildFile("python.exe"),args,stage.dir,stop,std::chrono::minutes(20),8);root_.getChildFile("runtime-last-operation.log").replaceWithText(result.log.substring((std::max)(0,result.log.length()-32768)));need(result.success,stop?"cancelled":"muscriptor_runtime_install_failed");};
     run({"-I","-B","-u",pip.getFullPathName(),"--isolated","--no-input","--no-cache-dir","--disable-pip-version-check","pip==25.0.1"});
     run({"-I","-B","-u","-m","pip","--isolated","install","--no-input","--no-compile","--no-cache-dir","--disable-pip-version-check","--only-binary=:all:","--index-url","https://download.pytorch.org/whl/cpu","torch==2.8.0","torchaudio==2.8.0"});
     const auto requirements=stage.dir.getChildFile("requirements.txt");need(requirements_.copyFileTo(requirements),"runtime_io");
@@ -72,6 +73,6 @@ void TranscriptionRuntime::install(std::stop_token token)const{
     const auto freeze=mr::separation::runLocalProcess(stage.dir.getChildFile("python.exe"),{"-I","-B","-m","pip","freeze"},stage.dir,stop,std::chrono::minutes(1));
     need(freeze.success&&stage.dir.getChildFile("resolved-packages.txt").replaceWithText(freeze.log),"runtime_probe_failed");
     auto* provenance=new juce::DynamicObject;provenance->setProperty("source_commit","8a1ef88672cc23c26619adaff37ec48d82c0b906");provenance->setProperty("requirements_sha256",hash(requirements));
-    mr::separation::publishRuntimeInventory(stage.dir,identity,juce::var(provenance),stop);need(!stop&&stage.dir.moveFileTo(directory()),"runtime_publish_failed");stage.dir={};
+    mr::separation::publishRuntimeInventory(stage.dir,identity,juce::var(provenance),stop);need(!stop&&stage.dir.moveFileTo(directory()),"runtime_publish_failed");stage.dir=juce::File();
 }
 }

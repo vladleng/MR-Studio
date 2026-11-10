@@ -7,6 +7,7 @@
 #include <memory>
 
 namespace mrs::transcription {
+inline constexpr std::string_view python_source_commit="8a1ef88672cc23c26619adaff37ec48d82c0b906";
 enum class Backend { native_experimental, python_medium };
 struct MusicalOptions {
     bool import_tempo{};
@@ -48,7 +49,7 @@ struct Result {
     MusicalOptions musical;
     std::string cpu_capability;
     std::uint64_t peak_memory_bytes{}; // process peak working set (Windows) / RSS (Linux)
-    double model_load_seconds{}, inference_seconds{}, detected_bpm{};
+    double model_load_seconds{}, inference_seconds{}, detected_bpm{}, first_downbeat{};
     unsigned detected_meter{};
     std::vector<double> beats;
     std::vector<TranscribedNote> original_notes; // immutable unquantized reference
@@ -58,7 +59,7 @@ struct Result {
     std::uint64_t project_revision{};
     // source_sha256: full WAV for legacy whole-source requests, selected PCM for range requests.
     std::string source_sha256, executable_sha256, weights_sha256, config_sha256;
-    std::string model_id, model_revision, model_license, midi_sha256;
+    std::string model_id, model_revision, model_license, midi_sha256, worker_sha256;
     std::size_t raw_notes{};
     double analysis_seconds{}, source_offset_seconds{}, elapsed_seconds{};
     unsigned cpu_threads{};

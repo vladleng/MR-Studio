@@ -45,7 +45,7 @@ fetch or silent 120 BPM substitution. Physical channels do not identify tracks.
 Preview can place original timing. When processing is enabled, placement also
 keeps muted original-timing reference tracks, through the same atomic command.
 An optional explicit tempo/meter import changes the clip range and restores the
-previous tempo afterwards; meter import requires the clip to start on a bar line.
+previous tempo afterwards; meter import requires the first downbeat to align with a project bar line.
 Source audio samples remain unchanged. Existing project MIDI follows its normal
 tick-based tempo-map semantics. A project marker preserves model/source/crop
 provenance without a new project format. Undo/Redo and Save/Open preserve all of it.

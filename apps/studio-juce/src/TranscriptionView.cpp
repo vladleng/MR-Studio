@@ -22,6 +22,10 @@ juce::String failure(const std::string& e){
     if(e=="integrity_failure"||e=="invalid_hash")return "Verification failed. Verify the model or reinstall this MR Studio build.";
     if(e=="process_exit"||e=="process_start")return "The native engine could not finish. Check available memory or try a shorter source WAV.";
     if(e=="invalid_output"||e=="invalid_midi")return "The engine returned an invalid result. No MIDI was placed.";
+    if(e=="runtime_verification_failed"||e=="muscriptor_runtime_probe_failed")return "Python runtime verification failed. Verify or reinstall the Python runtime.";
+    if(e=="muscriptor_runtime_install_failed")return "Python runtime installation failed. Check connection, free disk space and runtime-last-operation.log.";
+    if(e=="runtime_requirements_changed")return "Runtime setup files do not match this MR Studio build. Reinstall the application.";
+    if(e=="invalid_music_options")return "Check BPM, meter, strength (0..1), fill gaps and beat scale values.";
     if(e=="timeout")return "Conversion timed out. Try a shorter source WAV.";
     return text(e);
 }
@@ -125,7 +129,7 @@ public:
         for(auto* edit:{&bpm_,&meter_,&strength_,&gaps_,&downbeat_,&scale_}){addAndMakeVisible(*edit);edit->setInputRestrictions(10,"-0123456789.");}
         bpm_.setText("0");bpm_.setTitle("BPM: 0 keeps detected or project tempo");meter_.setText("0");meter_.setTitle("Beats per bar: 0 keeps detected meter");strength_.setText("1");strength_.setTitle("Quantize strength: 0 to 1");gaps_.setText("0");gaps_.setTitle("Fill gaps: maximum beats, 0 disables");downbeat_.setText("-1");downbeat_.setTitle("First downbeat in clip seconds: -1 keeps detected");scale_.setText("1");scale_.setTitle("Beat scale: 0.25, 0.5, 1, 2 or 4");
         for(const auto n:{1,2,3,4,6,8,12,16,24})grid_.addItem(juce::String(n)+" steps/beat",n);grid_.setSelectedId(4,juce::dontSendNotification);grid_.setTitle("Quantize grid (3/6/12 are triplets)");addAndMakeVisible(grid_);
-        import_tempo_.setButtonText("Import project tempo / meter");import_tempo_.setTooltip("Explicitly replaces tempo inside this clip range and restores the previous tempo afterwards. Align clip start with a bar boundary to import meter. Undo restores the previous map.");
+        import_tempo_.setButtonText("Import project tempo / meter");import_tempo_.setTooltip("Explicitly replaces tempo inside this clip range and restores the previous tempo afterwards. Align the first downbeat with a project bar boundary to import meter. Undo restores the previous map.");
         music_label_.setText("BPM (0=auto)     Meter    Strength     Fill gaps     Downbeat (s)     Beat scale",juce::dontSendNotification);addAndMakeVisible(music_label_);
 
         token_label_.setText("HF read token",juce::dontSendNotification);parts_label_.setText("Recognized parts - Ctrl/Shift to select multiple",juce::dontSendNotification);
@@ -144,7 +148,7 @@ public:
             if(stem_.getSelectedId()>1)request.stem_instrument=std::string(mrs::ace_midi_instruments()[static_cast<std::size_t>(stem_.getSelectedId()-2)].role);
             if(request.backend==Backend::python_medium){request.instruments=instruments_selected_;if(request.instruments.empty()&&!request.stem_instrument.empty())request.instruments.push_back(request.stem_instrument);request.stem_instrument.clear();
                 request.musical.import_tempo=import_tempo_.getToggleState();request.musical.detect_tempo=detect_.getToggleState();request.musical.quantize=quantize_.getToggleState();request.musical.tempo_map=follow_.getToggleState();request.musical.trim_leading_bars=trim_.getToggleState();request.musical.bpm=bpm_.getText().getDoubleValue();request.musical.meter=static_cast<unsigned>(meter_.getText().getIntValue());request.musical.strength=strength_.getText().getDoubleValue();request.musical.fill_gaps=gaps_.getText().getDoubleValue();request.musical.first_downbeat=downbeat_.getText().getDoubleValue();request.musical.beat_scale=scale_.getText().getDoubleValue();request.musical.subdivision=static_cast<unsigned>(grid_.getSelectedId());
-                if(request.musical.bpm==0&&!request.musical.detect_tempo){const auto current=source();need(current.has_value(),"Choose an audio clip");const auto tick=mrs::Timeline(owner_.project()->time,owner_.project()->sample_rate).to_ticks(current->start);for(const auto& tempo:owner_.project()->time.tempos){if(tempo.tick>tick)break;request.musical.bpm=tempo.bpm;}}}
+                if(request.musical.bpm==0&&!request.musical.detect_tempo){const auto current=this->source();need(current.has_value(),"Choose an audio clip");const auto tick=mrs::Timeline(owner_.project()->time,owner_.project()->sample_rate).to_ticks(current->start);for(const auto& tempo:owner_.project()->time.tempos){if(tempo.tick>tick)break;request.musical.bpm=tempo.bpm;}}}
             owner_.app.queue_transcription(*source_,setup_->models(),std::move(request));message_.setText({},juce::dontSendNotification);});};
         cancel_.onClick=[this]{setup_->cancel();owner_.app.cancel_transcription();update();};
         discard_.onClick=[this]{owner_.app.cancel_transcription();update();};
@@ -174,7 +178,7 @@ private:
     void chooseInstruments(){
         juce::PopupMenu menu;menu.addItem(1,"Auto (all instruments)",true,instruments_selected_.empty());int id=2;
         for(const auto& role:mrs::ace_midi_instruments()){const auto name=std::string(role.role);menu.addItem(id++,text(name).replaceCharacter('_',' '),true,std::find(instruments_selected_.begin(),instruments_selected_.end(),name)!=instruments_selected_.end());}
-        juce::Component::SafePointer<TranscriptionPanel> safe(this);menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(instruments_),[safe](int selected){if(!safe||!selected)return;
+        juce::Component::SafePointer<TranscriptionPanel> safe(this);menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&instruments_),[safe](int selected){if(!safe||!selected)return;
             if(selected==1){safe->instruments_selected_.clear();safe->stem_.setSelectedId(1,juce::dontSendNotification);}else{const auto name=std::string(mrs::ace_midi_instruments()[static_cast<std::size_t>(selected-2)].role);auto& list=safe->instruments_selected_;const auto at=std::find(list.begin(),list.end(),name);if(at==list.end())list.push_back(name);else list.erase(at);}
             juce::StringArray names;for(const auto& name:safe->instruments_selected_)names.add(text(name));safe->instruments_.setButtonText("Multiple instruments: "+(names.isEmpty()?juce::String("Auto"):names.joinIntoString(", ")));safe->update();});
     }
@@ -199,7 +203,7 @@ private:
         if(signature!=signature_){signature_=signature;roles_.clear();counts_.clear();if(result)for(const auto& role:mrs::ace_midi_instruments()){const auto count=static_cast<std::size_t>(std::count_if((original_.getToggleState()?result->original_notes:result->notes).begin(),(original_.getToggleState()?result->original_notes:result->notes).end(),[&](const auto& n){return n.instrument==role.role;}));if(count){roles_.push_back(std::string(role.role));counts_.push_back(count);}}parts_.updateContent();parts_.deselectAllRows();if(!roles_.empty())parts_.selectRangeOfRows(0,getNumRows()-1);}
         juce::String status;
         switch(job.state){
-        case JobState::running:status=job.total?"Recognizing chunk "+juce::String(job.completed)+" / "+juce::String(job.total):"Preparing source and verifying files...";break;
+        case JobState::running:status=job.total&&job.completed==job.total?"Finalizing MIDI and musical timing...":job.total?"Recognizing chunk "+juce::String(job.completed)+" / "+juce::String(job.total):"Preparing source and verifying files...";break;
         case JobState::cancelling:status="Stopping conversion...";break;
         case JobState::ready:status="Recognition ready. Select parts to place on new MIDI tracks.";break;
         case JobState::empty:status="No notes found inside this clip range.";break;
@@ -210,7 +214,7 @@ private:
         default:status="Ready when a verified model, engine and audio clip are available.";break;
         }
         if(busy(job.state)||preview(job.state)||job.state==JobState::placed)status+=" | "+juce::String(static_cast<int>(job.elapsed_seconds))+" s elapsed / "+juce::String(job.cpu_threads)+" threads";
-        if(result&&python)status+=" | "+text(result->cpu_capability)+" | load "+juce::String(result->model_load_seconds,1)+" s / inference "+juce::String(result->inference_seconds,1)+" s";
+        if(result&&python)status+=" | "+text(result->cpu_capability)+" | load "+juce::String(result->model_load_seconds,1)+" s / inference "+juce::String(result->inference_seconds,1)+" s | RAM "+juce::String(static_cast<double>(result->peak_memory_bytes)/(1024*1024),0)+" MiB";
         status_.setText(model.busy?model.message:status,juce::dontSendNotification);
         progress_value_=model.busy?model.progress:job.state==JobState::running?(job.total?static_cast<double>(job.completed)/job.total:-1.):(preview(job.state)||job.state==JobState::placed?1.:0.);
         const bool occupied=busy(job.state),pending=preview(job.state),recording=owner_.app.recording();
@@ -239,9 +243,21 @@ private:
     juce::ListBox parts_;std::vector<std::string> roles_;std::vector<std::size_t> counts_;std::string signature_;juce::String last_model_message_;
     double progress_value_{};juce::ProgressBar progress_;std::unique_ptr<juce::FileChooser> chooser_;
 };
+class TranscriptionHost final:public juce::Component {
+public:
+    TranscriptionHost(Desktop& owner,std::optional<mrs::Id> source):panel_(std::make_unique<TranscriptionPanel>(owner,std::move(source),owner.transcriptionSetup)){
+        addAndMakeVisible(viewport_);viewport_.setViewedComponent(panel_.get(),false);viewport_.setScrollBarsShown(true,true);setSize(800,800);
+    }
+    ~TranscriptionHost()override{viewport_.setViewedComponent(nullptr,false);}
+    TranscriptionPanel& panel(){return *panel_;}
+    bool canScroll()const{return panel_->getHeight()>viewport_.getHeight();}
+    void resized()override{viewport_.setBounds(getLocalBounds());panel_->setSize((std::max)(800,getWidth()-viewport_.getScrollBarThickness()),960);}
+private:
+    std::unique_ptr<TranscriptionPanel> panel_;juce::Viewport viewport_;
+};
 class TranscriptionWindow final:public juce::DocumentWindow {
 public:
-    TranscriptionWindow(Desktop& owner,std::optional<mrs::Id> source):DocumentWindow("Convert to MIDI",juce::Colour(panel),closeButton),owner_(owner){setUsingNativeTitleBar(true);setLookAndFeel(&owner.theme);setContentOwned(new TranscriptionPanel(owner,std::move(source),owner.transcriptionSetup),true);setResizable(true,false);setResizeLimits(800,930,1200,1200);centreAroundComponent(&owner,800,960);setVisible(true);applyGraphiteWindowCaption(*this);}
+    TranscriptionWindow(Desktop& owner,std::optional<mrs::Id> source):DocumentWindow("Convert to MIDI",juce::Colour(panel),closeButton),owner_(owner){setUsingNativeTitleBar(true);setLookAndFeel(&owner.theme);setContentOwned(new TranscriptionHost(owner,std::move(source)),true);setResizable(true,false);setResizeLimits(640,480,1200,1200);centreAroundComponent(&owner,820,800);setVisible(true);applyGraphiteWindowCaption(*this);}
     ~TranscriptionWindow()override{setLookAndFeel(nullptr);}
     void closeButtonPressed()override{owner_.transcriptionWindow.reset();}
 private:Desktop& owner_;
@@ -250,7 +266,7 @@ private:Desktop& owner_;
 void showTranscription(Desktop& owner,std::optional<mrs::Id> source){
     if(owner.standaloneLive)return;
     if(!source)for(const auto& c:owner.project()->clips)if(!c.midi&&owner.selectedClips.contains(c.id.value)){source=c.id;break;}
-    if(owner.transcriptionWindow){if(auto* view=dynamic_cast<TranscriptionPanel*>(owner.transcriptionWindow->getContentComponent()))view->setSource(source);owner.transcriptionWindow->toFront(true);return;}
+    if(owner.transcriptionWindow){if(auto* host=dynamic_cast<TranscriptionHost*>(owner.transcriptionWindow->getContentComponent()))host->panel().setSource(source);owner.transcriptionWindow->toFront(true);return;}
     if(!owner.transcriptionSetup)owner.transcriptionSetup=setup();owner.transcriptionWindow=std::make_unique<TranscriptionWindow>(owner,std::move(source));
 }
 void closeTranscription(Desktop& owner){owner.transcriptionWindow.reset();if(owner.transcriptionSetup)owner.transcriptionSetup->shutdown();owner.transcriptionSetup.reset();}
@@ -268,7 +284,7 @@ void transcriptionSmoke(const juce::File& fake){
     Desktop owner(true);owner.view.transcriptionBackend=2;owner.app.new_project(16000);owner.app.import_wavs({path(source)});owner.refresh();
     const auto clip=owner.project()->clips.front().id;const auto before=*owner.project();
     owner.transcriptionSetup=std::make_shared<TranscriptionSetup>(ModelStore(path(root.getChildFile("models")),spec),engine);
-    showTranscription(owner,clip);auto* view=dynamic_cast<TranscriptionPanel*>(owner.transcriptionWindow->getContentComponent());need(view!=nullptr,"Transcription panel missing");
+    showTranscription(owner,clip);auto* host=dynamic_cast<TranscriptionHost*>(owner.transcriptionWindow->getContentComponent());need(host!=nullptr,"Transcription panel missing");auto* view=&host->panel();host->setSize(640,480);need(host->canScroll(),"Small/DPI-constrained window must scroll to all controls");host->setSize(820,800);
     view->cpu_.setSelectedId(8,juce::sendNotificationSync);view->compatibility_.setToggleState(true,juce::sendNotificationSync);view->compatibility_.onClick();
     need(owner.view.transcriptionCpuThreads==7&&owner.view.transcriptionBackend==2&&owner.view.transcriptionCompatibility,"Persist transcription choices before inference");
     const auto preferences=root.getChildFile("transcription-view.json");publishSettings(preferences,owner.view.encode());const auto restored=ViewSettings::decode(preferences.loadFileAsString());

@@ -1,5 +1,6 @@
 #include <mrs/audio_to_midi_worker.hpp>
 #include <mrs/sha256.hpp>
+#include <mrs/transcription_controller.hpp>
 #include <fstream>
 #include <iostream>
 #include <thread>
@@ -22,5 +23,19 @@ int main(int argc,char** argv){try{
     wav(r.source,1);r.timeout=std::chrono::milliseconds(150);check(run(r).state==State::timeout&&fs::is_empty(r.temporary_root));r.timeout=std::chrono::seconds(5);
     std::stop_source stop;std::jthread cancel([&]{std::this_thread::sleep_for(std::chrono::milliseconds(150));stop.request_stop();});check(run(r,stop.get_token()).state==State::cancelled&&fs::is_empty(r.temporary_root));cancel.join();
     wav(r.source,0);auto bad=r;bad.instruments={"electric_bass","electric_bass"};check(run(bad).state==State::failed);bad=r;bad.worker_sha256=std::string(64,'0');check(run(bad).state==State::failed);bad=r;bad.musical.strength=2;check(run(bad).state==State::failed);
+    bad=r;bad.verify_runtime=[](std::stop_token){throw std::runtime_error("corrupt managed runtime");};const auto broken_runtime=run(bad);check(broken_runtime.state==State::failed&&broken_runtime.error=="runtime_verification_failed"&&broken_runtime.notes.empty()&&fs::is_empty(r.temporary_root));
+    // The Python result enters the existing project command, including an
+    // explicit tempo import and durable muted originals/provenance.
+    text(r.model_directory/"README.md","self-generated fixture");ModelSpec spec{"fixture",std::string(40,'a'),"self-generated",{}};
+    for(const auto* name:{"config.json","model.safetensors","README.md"})spec.files.push_back({name,sha256_file(r.model_directory/name),fs::file_size(r.model_directory/name)});
+    ModelStore models(root/"installed",spec);models.install(r.model_directory,true);
+    Project project;project.id=new_id();project.sample_rate=16000;project.time.tempos={{0,90}};Track track;track.id=new_id();project.tracks.push_back(track);Clip clip;clip.id=new_id();clip.track=track.id;clip.source="fixture.wav";clip.length=16000;project.clips.push_back(clip);project.validate();
+    auto store=std::make_shared<ProjectStore>(project);Controller controller;r.musical.import_tempo=true;r.musical.quantize=true;
+    controller.start(store,root/"fixture.mrs",clip.id,r.source,models,r);
+    const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(controller.status().state==JobState::running){check(std::chrono::steady_clock::now()<until);controller.poll(store,root/"fixture.mrs");std::this_thread::sleep_for(std::chrono::milliseconds(2));}
+    check(controller.status().state==JobState::ready);store->execute(controller.prepare(store,root/"fixture.mrs"));const auto placed=*store->state().project;
+    check(placed.tracks.size()==3&&placed.tracks.back().mix.mute&&placed.time.tempos.front().bpm==120&&placed.time.tempos.back().bpm==90&&placed.markers.size()==1&&placed.clips.front()==clip);
+    check(deserialize(serialize(placed))==placed);check(store->undo()&&*store->state().project==project);check(store->redo()&&*store->state().project==placed);controller.placed();
     std::cout<<"PASS isolated Python contract / original vs processed / multi-instrument / cleanup\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

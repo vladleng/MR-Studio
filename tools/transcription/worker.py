@@ -7,7 +7,6 @@ import argparse
 import contextlib
 import io
 import json
-import math
 import os
 from pathlib import Path
 import sys
@@ -214,7 +213,7 @@ def main():
         # Numeric, bounded, locale-independent metadata. No local paths/tokens.
         beats = [] if grid is None or grid.steady or grid.beats is None else list(grid.beats)
         with (args.out.parent / "music.txt").open("w", encoding="ascii", newline="\n") as meta:
-            meta.write(f"MR-MUSCRIPTOR-1 {capability} {args.threads} {loaded:.9f} {inference:.9f} {grid.bpm if grid else 0:.9f} {grid.beats_per_bar or 0 if grid else 0} {len(beats)}\n")
+            meta.write(f"MR-MUSCRIPTOR-2 {capability} {args.threads} {loaded:.9f} {inference:.9f} {grid.bpm if grid else 0:.9f} {grid.beats_per_bar or 0 if grid else 0} {grid.first_downbeat if grid else 0:.9f} {len(beats)}\n")
             for beat in beats:
                 meta.write(f"{beat:.9f}\n")
     emit(type="done", notes=len(notes), midi_bytes=len(raw))

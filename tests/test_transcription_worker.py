@@ -43,4 +43,26 @@ class InterchangeTests(unittest.TestCase):
         self.assertEqual({n[3] for n in decoded},{'drums','electric_bass'})
         self.assertAlmostEqual(next(n for n in decoded if n[3]=='electric_bass')[1],.333,delta=.001)
 
+
+class OfficialMusicalExportTests(unittest.TestCase):
+    @unittest.skipUnless(importlib.util.find_spec('muscriptor'), 'original reference runtime not installed')
+    def test_triplet_strength_and_original(self):
+        import torch
+        from muscriptor.transcription_model import TranscriptionModel
+        from muscriptor.tokenizer.mt3 import MT3Tokenizer
+        from muscriptor.events import NoteStartEvent, NoteEndEvent
+        from muscriptor.utils.midi import ExportOptions
+        from muscriptor.utils.beats import BeatGrid
+        model=TranscriptionModel(None,MT3Tokenizer(instrument_vocabulary='MT3_FULL_PLUS',max_shift_steps=1001),torch.device('cpu'))
+        start=NoteStartEvent(40,.37,0,'electric_bass');events=[start,NoteEndEvent(.6,start)]
+        grid=BeatGrid(120,4,0,onset_delay=0)
+        outputs=[]
+        for strength in (0,1):
+            data=model.events_to_midi_bytes(iter(events),grid,ExportOptions(quantize=True,subdivision=3,strength=strength))
+            outputs.append(w.processed_notes(data)[0])
+        self.assertAlmostEqual(outputs[0][1],.37,delta=.001)
+        self.assertAlmostEqual(outputs[1][1],1/3)
+        self.assertAlmostEqual(outputs[1][2],2/3)
+        self.assertEqual(start.start_time,.37)
+
 if __name__=='__main__':unittest.main()

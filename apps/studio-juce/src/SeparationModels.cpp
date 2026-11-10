@@ -125,7 +125,7 @@ struct Staging { juce::File dir; bool owned{}; ~Staging(){if(owned&&dir!=juce::F
 
 void fetchRuntimeArtifact(const DownloadArtifact& artifact,const juce::File& target,const std::atomic<bool>& stop){fetchHttps(artifact,target,stop,[](auto,auto){});need(sha(target)==artifact.sha256,"integrity_failure");}
 void publishRuntimeInventory(const juce::File& dir,const juce::String& identity,const juce::var& provenance,const std::atomic<bool>& stop){inventory(dir,identity,provenance,stop);}
-void verifyRuntimeInventory(const juce::File& dir,const juce::String& identity,const std::atomic<bool>& stop){verifyInventory(dir,identity,stop,true);}
+void verifyRuntimeInventory(const juce::File& dir,const juce::String& identity,const std::atomic<bool>& stop,bool hashes){verifyInventory(dir,identity,stop,hashes);}
 
 const std::vector<ModelRecord>& modelCatalogue() {
     static const auto records=[]{
