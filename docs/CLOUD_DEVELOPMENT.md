@@ -1,6 +1,6 @@
 # Облачная разработка и Windows CI/CD
 
-Задача миграции: [#241](https://github.com/vladleng/MR-Studio/issues/241). Baseline0.6 upd1; тематическая ветка `codex/cloud-cicd-migration`, merge после отдельной приёмки.
+Историческая миграция облачной разработки: [#241](https://github.com/vladleng/MR-Studio/issues/241) (закрыта 2026-10-20). Ниже описан **действующий** процесс на `main`; старые триггеры миграционного этапа не определяют текущую политику сборок.
 
 ## Источники и среда
 GitHub main — основа исходников, документации и Issues. Codex Cloud работает в тематической ветке с текущим AGENTS.md и проектными skills. Локальная Windows-машина нужна преимущественно для пользовательской приёмки, физических ASIO/MIDI/DPI и licensed vendor проверок. Исторические local-only записи в LOCAL_BUILD_POLICY/LOCAL_WORKSPACE не являются действующим запретом CI/source push.
@@ -14,20 +14,35 @@ GitHub main — основа исходников, документации и I
 `Prepare-Sdks.ps1` получает SDK только из указанных официальных origins, проверяет commit/dirty state/submodules. Public-source cache keyed lock hash + ARA profile; без restore-prefix fallback. Fork PR не записывает общий cache. ASIO ZIP скачивается с официального HTTPS endpoint и проверяется существующим SHA256; изменение архива — ошибка с явным review версии/лицензии, не автоматическая смена pin.
 ASIO ZIP и извлечённые ASIO sources находятся вне кэшируемого `build/sdk`, не попадают в Git/artifacts. В package включается license notice, не SDK. Не вносить токены/плагины/пользовательские WAV/NAM в caches. Публичный source cache — оптимизация, а не доказательство корректности: pin checks обязательны на hit.
 
-## Профили проверки
-- Fast Core: Ubuntu Release, без ASIO/VST3/ARA/GUI; Core/AI contracts. Это не Windows product gate.
-- Windows Studio: windows-2022, Visual Studio2022 x64, JUCE9.0.3/VST3/ASIO/**ARA2 ON по умолчанию**, Release. Обычный быстрый CTest включает Core/AI, GUI startup/AI и адресные ARA model/render/editor checks; для тестов ARA применяется собранная публичная fixture, а не установленные коммерческие плагины.
-- Full integration: `workflow_dispatch` с integration=true либо commit marker `[ci full]` в migration branch. Полный CTest без исключения #239/J2/J3. Не применять после каждой мелкой правки.
-- Для `codex/cloud-cicd-migration` с открытым PR обычный commit автоматически проверяется **одним** Windows quick Release через `pull_request`. Дополнительный `push` Windows job пропускается, чтобы не компилировать тот же commit дважды. Маркер `[ci full]` запускает **дополнительный** Windows `push` job с полным CTest; обычный PR quick c ARA2 при этом остаётся отдельной обязательной проверкой. Для `main` push Release сохраняется. J2/J3 из #239 выполняются и остаются видимыми в полном CTest, но по решению пользователя не блокируют приёмку облачной инфраструктуры #241.
-- ARA2: в стандартном Windows `push`/`pull_request` и после merge в `main` всегда включена (`MRS_BUILD_ARA=ON`); `mrs_ara_scan.exe` входит в runtime ZIP. В ручном `workflow_dispatch` флажок `ara` по умолчанию `true`; снимите его только для диагностической сборки **ARA OFF**. Для проверки полного профиля используйте `integration=true` или `[ci full]` — J2/J3 остаются в отдельном full CTest, но не блокируют quick Release. В отчёте указывать, какие plugin/render fixtures реально созданы.
-  В CI одна и та же обработанная ARA render-fixture применяется для `ara_clip_model` и `ara_clip_processed`. Её штатный коэффициент при 120 BPM составляет 0.5; `MRS_ARA_TEST_PLUGIN_GAIN` передаёт это значение в generic model suite (по умолчанию 1 для нейтральных внешних fixtures). Оба теста сохраняются; недопустимо маскировать ошибку удалением теста.
+## Профили проверки и запуск Actions
 
-Новый workflow в ещё не принятой ветке впервые запускается push trigger; dispatch API требует доступности workflow на default branch. Не merge ради dispatch. Для этой миграции пользователь прямо разрешил контрольные runs.
+**Источник технического поведения — актуальные `.github/workflows/*.yml` текущей ветки.** `AGENTS.md` и `.agents/skills/mr-studio-build-test/SKILL.md` задают последовательность и условия проверки. Документация не заменяет анализ workflow перед запуском, особенно в тематической ветке, где YAML может отличаться от `main`.
+
+- **Fast Core contracts** — `.github/workflows/core-contracts.yml`: Ubuntu Release, без ASIO/VST3/ARA/GUI; Core/AI и другие доступные контрактные тесты. Автоматически на подходящих изменениях в PR и push по настроенным веткам/paths, плюс ручной запуск. `concurrency.cancel-in-progress: true` отменяет устаревший незавершённый запуск того же профиля на той же ветке/PR. **PASS Fast Core не подтверждает Windows/JUCE/ASIO/ARA/VST3.**
+- **Separation CPU contracts** — `.github/workflows/separation.yml`: специализированная Windows CPU-проверка separation; автоматический push ограничен предусмотренной в YAML веткой и путями, доступен ручной `workflow_dispatch`. Это **не** общий Windows Release.
+- **Windows Studio Release** — `.github/workflows/audio-engine.yml`: Windows 2022 / MSVC / JUCE / VST3 / ASIO, Studio ARA2 **ON по умолчанию**. Текущий workflow запускается **только вручную через `workflow_dispatch`**: нет автоматических `push`/`pull_request` триггеров. Предназначен для обоснованных Windows-специфичных проверок, интеграционного этапа либо готового пакета пользовательской приёмки, **не после каждого commit или bugfix**.
+- **Адресные профили Windows**: перед ручным запуском выбрать минимальный реально поддерживаемый `checks` (`studio`, `studio-live`, `live`, `separation`, `separation-ui` или `profile`). Live-only исключает ARA2; для Studio флаг `ara=true` по умолчанию, `false` — только явно запрошенная диагностическая Studio-сборка. Windows workflow может включать компиляцию, CTest и упаковку даже в адресном профиле — запускать его только с основанием.
+- **Full integration (L4)**: только ручной `workflow_dispatch` Windows workflow с `integration=true` для согласованного интеграционного/релизного кандидата либо документированного технического риска. Маркеры коммитов `[ci studio]`, `[ci live]`, `[ci full]` **сами по себе больше не запускают Windows Studio Release**. Полный CTest не требуется для мелких исправлений; его нельзя подменять успешным коротким профилем, когда он действительно обязателен.
+
+### Порядок и ограничения повторных проверок
+
+1. Для задачи определить область изменения и уровень L0–L4; сначала адресный RED → GREEN при багфиксе, затем затронутые контрактные тесты и применимый Fast Core. Docs-only и чисто визуальные исключения сохраняются.
+2. Если быстрые **обязательные** проверки упали, изучить их логи и устранить причину до тяжёлого Windows Release. При Windows-специфичном изменении нельзя считать задачу проверенной одним Linux CI; Windows gate выполнить перед завершением соответствующего этапа или подготовкой приёмочного пакета.
+3. Не запускать одинаковые Windows-проверки параллельно и не инициировать Release ради проверки статуса предыдущей. После FAIL выяснить первую существенную ошибку, выполнить адресную диагностику и повторить только затронутые проверки; повторный Windows Release — при новой гипотезе/исправлении или подтверждённом инфраструктурном сбое.
+4. Опрос GitHub Actions — **не чаще раза в 60 секунд**, после трёх безрезультатных попыток одного сбоя прекратить слепые повторы и зафиксировать диагностику в Issue. Эти правила для Codex закреплены в `AGENTS.md`; автоматические триггеры и отмена устаревших запусков определяются YAML.
+5. Версии в run-name, заголовке приложения и артефактах должны совпадать для каждого компонента; их нужно проверить по текущему workflow и source header **до ручного запуска**, чтобы не тратить Windows CI на заведомый mismatch.
+
+### ARA2 и совместимость
+
+По умолчанию Studio включает ARA2 (и ARA scanner в соответствующем runtime ZIP); Live-only — без ARA2. Для ручного Windows workflow `ara=true` по умолчанию, `false` допускается только для диагностической Studio-сборки. В отчёте указывать реальные результаты plugin/render fixtures; нельзя маскировать ошибку отключением тестов.
+
+В CI одна и та же обработанная ARA render-fixture применяется для `ara_clip_model` и `ara_clip_processed`. Её штатный коэффициент при 120 BPM составляет 0.5; `MRS_ARA_TEST_PLUGIN_GAIN` передаёт это значение в generic model suite (по умолчанию 1 для нейтральных внешних fixtures). Оба теста сохраняются.
 
 ## Artifacts
 Runtime artifact: EXE, VST3-сканер, **ARA2-сканер при обычной сборке**, crash reporter, лицензии, README, source/run provenance, CI-TEST-RESULT.txt и SHA256.json. Символы — отдельным artifact, тестовые logs/JUnit — отдельным. SDK/fixtures/user settings не включаются. Artifact загружается и при test failure после успешной сборки для диагностики, но manifest содержит результат и job остаётся FAIL: такой пакет нельзя объявлять интеграционно принятым.
 Скачать runtime artifact, сверить все SHA256/размеры/Windows version/source, проверить отсутствие SDK/secrets/fixtures/PDB. Затем выполнить user acceptance/hardware проверки. Срок хранения runtime14 дней, symbols7 дней; это Actions Artifact, не автоматический публичный GitHub Release и не подтверждение коммерческой лицензии продукта.
 
 ## Риски и приёмка
-Исторический #239 (`reorder synchronizes both views`) не маскировать. Никаких continue-on-error/необоснованного отключения warnings/тестов ради green. Устранять первую содержательную ошибку; повторять затронутый контур, полный — при изменении интеграционного кандидата.
-No alloc/free/locks/I/O/UI в callback; Commands/Undo/project/media сохранены. CI PASS не подтверждает физическую ASIO latency/xruns, слух, native mixed-DPI или совместимость всех vendors. Фактические результаты и ссылка на контрольный artifact ведутся в #241. Merge в main запрещён до отдельной приёмки.
+Не маскировать исторические регрессии (включая #239), не отключать тесты, warnings и обязательные проверки ради зелёного CI. Устранять первую содержательную ошибку и повторять затронутый контур; полный — только когда это требуется для кандидата или области риска.
+
+No alloc/free/locks/I/O/UI в callback; Commands/Undo/project/media сохраняются. CI PASS не подтверждает физическую ASIO latency/xruns, слух, native mixed-DPI или совместимость всех vendors. Результаты, ссылки на запуск/артефакт и ограничения фиксируются в **актуальной** Issue/Sub-issue; #241 — архив миграции. Merge в `main` и закрытие задачи — только после соответствующей пользовательской приёмки.
