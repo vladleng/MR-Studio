@@ -163,7 +163,7 @@ def main():
         began = time.monotonic()
         model = TranscriptionModel.load_model(args.model / "model.safetensors", device="cpu", dtype="float32")
         loaded = time.monotonic() - began
-    capability = torch.backends.cpu.get_cpu_capability()
+    capability = torch.backends.cpu.get_cpu_capability().replace(" ", "_")
     print(f"Python MuScriptor {PIN}; torch={torch.__version__}; CPU={capability}; threads={torch.get_num_threads()}; model_load={loaded:.3f}s; strict_eos=True; prelude_forcing=True", file=sys.stderr, flush=True)
     events, notes, open_notes = [], [], {}
     began = time.monotonic()

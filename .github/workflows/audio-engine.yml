@@ -150,16 +150,22 @@ jobs:
           $args=@('--build','build/windows','--config','Release','--parallel','2')
           if($env:CHECK_SCOPE -eq 'separation'){$args+=@('--target','mrs_separation_check')}
           elseif($env:CHECK_SCOPE -eq 'separation-ui'){$args+=@('--target','MoonRiverStudioJuce')}
-          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
-          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
+          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('--target','mrs_transcription_runtime_check','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_python_transcription_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
+          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_python_transcription_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
           elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('--target','MRLiveJuce','mrs_audio_tests','mrs_live_preload_tests','mrs_parallel_tests')}
           elseif($env:INTEGRATION -ne 'true'){
-            $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_track_stretch_mode_tests','mrs_clip_response_tests','mr_timestretch_drums_tests','mr_timestretch_drums_example','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
+            $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_python_transcription_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_track_stretch_mode_tests','mrs_clip_response_tests','mr_timestretch_drums_tests','mr_timestretch_drums_example','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
             $args+=@('mrs_separation_check','mrs_separation_assets_tests','mrs_persistence_tests')
             if($env:BUILD_ARA -eq 'true'){$args+=@('mrs_ara_tests','mrs_ara_clip_tests','mrs_ai_ara_tests')}
           }
           & cmake @args
           if($LASTEXITCODE){throw 'Release build failed'}
+      - name: Verify isolated MuScriptor runtime installation
+        if: success() && env.CHECK_SCOPE == 'studio'
+        shell: pwsh
+        run: |
+          & build/windows/Release/mrs_transcription_runtime_check.exe "$pwd/tools/transcription/requirements-cpu.txt"
+          if($LASTEXITCODE){throw 'Isolated MuScriptor runtime install/verify/remove failed'}
       - name: Test profile
         id: test
         shell: pwsh

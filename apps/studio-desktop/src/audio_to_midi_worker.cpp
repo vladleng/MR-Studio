@@ -153,7 +153,7 @@ struct Child {
         const std::wstring root(system.data());
         // Explicit allowlist: no inherited HF_TOKEN, proxy credentials, probe
         // variables, GPU overrides or Python paths reach the native child.
-        std::vector<std::wstring> vars{L"GGML_BACKEND=CPU",L"GGML_N_THREADS="+std::to_wstring(r.cpu_threads),L"OMP_NUM_THREADS="+std::to_wstring(r.cpu_threads),L"PATH="+root+L"\\System32",L"SystemRoot="+root,L"TEMP="+work.wstring(),L"TMP="+work.wstring(),L"WINDIR="+root,L"ATEN_CPU_CAPABILITY="+std::wstring(r.compatibility_cpu||!optimized_cpu_available()?L"default":L"avx2"),L"HF_HUB_OFFLINE=1",L"HF_HUB_DISABLE_TELEMETRY=1",L"TORCH_HOME="+(r.executable.parent_path()/"torch-cache").wstring(),L"MKL_NUM_THREADS="+std::to_wstring(r.cpu_threads),L"OPENBLAS_NUM_THREADS="+std::to_wstring(r.cpu_threads)};
+        std::vector<std::wstring> vars{L"GGML_BACKEND=CPU",L"GGML_N_THREADS="+std::to_wstring(r.cpu_threads),L"OMP_NUM_THREADS="+std::to_wstring(r.cpu_threads),L"PATH="+root+L"\\System32",L"SystemRoot="+root,L"TEMP="+work.wstring(),L"TMP="+work.wstring(),L"WINDIR="+root,L"ATEN_CPU_CAPABILITY="+std::wstring(r.compatibility_cpu||!optimized_cpu_available()?L"default":L"avx2"),L"ONEDNN_MAX_CPU_ISA="+std::wstring(r.compatibility_cpu?L"SSE41":L"AVX2"),L"MKL_ENABLE_INSTRUCTIONS="+std::wstring(r.compatibility_cpu?L"SSE4_2":L"AVX2"),L"HF_HUB_OFFLINE=1",L"HF_HUB_DISABLE_TELEMETRY=1",L"TORCH_HOME="+(r.executable.parent_path()/"torch-cache").wstring(),L"MKL_NUM_THREADS="+std::to_wstring(r.cpu_threads),L"OPENBLAS_NUM_THREADS="+std::to_wstring(r.cpu_threads)};
         std::vector<wchar_t> env;for(const auto& v:vars){env.insert(env.end(),v.begin(),v.end());env.push_back(0);}env.push_back(0);
         PROCESS_INFORMATION info{};
         need(CreateProcessW(r.executable.c_str(),command.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW|BELOW_NORMAL_PRIORITY_CLASS|CREATE_SUSPENDED|CREATE_UNICODE_ENVIRONMENT|EXTENDED_STARTUPINFO_PRESENT,env.data(),work.c_str(),&start.StartupInfo,&info)!=FALSE,"process_start");
@@ -186,7 +186,7 @@ struct Child {
         need(fcntl(output.value,F_SETFL,O_NONBLOCK)==0&&fcntl(error.value,F_SETFL,O_NONBLOCK)==0,"process_start");
         auto args=arguments(r,work);args.insert(args.begin(),r.executable.string());
         std::vector<char*> argv;for(auto& arg:args)argv.push_back(arg.data());argv.push_back(nullptr);
-        std::vector<std::string> vars{"GGML_BACKEND=CPU","GGML_N_THREADS="+std::to_string(r.cpu_threads),"OMP_NUM_THREADS="+std::to_string(r.cpu_threads),"PATH=/usr/bin:/bin","TMPDIR="+work.string(),std::string("ATEN_CPU_CAPABILITY=")+(r.compatibility_cpu||!optimized_cpu_available()?"default":"avx2"),"HF_HUB_OFFLINE=1","TORCH_HOME="+(r.executable.parent_path()/"torch-cache").string(),"MKL_NUM_THREADS="+std::to_string(r.cpu_threads),"OPENBLAS_NUM_THREADS="+std::to_string(r.cpu_threads)};
+        std::vector<std::string> vars{"GGML_BACKEND=CPU","GGML_N_THREADS="+std::to_string(r.cpu_threads),"OMP_NUM_THREADS="+std::to_string(r.cpu_threads),"PATH=/usr/bin:/bin","TMPDIR="+work.string(),std::string("ATEN_CPU_CAPABILITY=")+(r.compatibility_cpu||!optimized_cpu_available()?"default":"avx2"),std::string("ONEDNN_MAX_CPU_ISA=")+(r.compatibility_cpu?"SSE41":"AVX2"),std::string("MKL_ENABLE_INSTRUCTIONS=")+(r.compatibility_cpu?"SSE4_2":"AVX2"),"HF_HUB_OFFLINE=1","TORCH_HOME="+(r.executable.parent_path()/"torch-cache").string(),"MKL_NUM_THREADS="+std::to_string(r.cpu_threads),"OPENBLAS_NUM_THREADS="+std::to_string(r.cpu_threads)};
         std::vector<char*> env;for(auto& v:vars)env.push_back(v.data());env.push_back(nullptr);
         const auto exe=r.executable.string(),cwd=work.string();const rlimit limit{static_cast<rlim_t>(r.memory_bytes),static_cast<rlim_t>(r.memory_bytes)};
         pid=fork();need(pid>=0,"process_start");
@@ -331,7 +331,8 @@ Result run(const Request& r,std::stop_token external,const std::function<void(in
             const auto processed=work.path/"processed.jsonl";plain(processed);need(fs::file_size(processed)<=16*1024*1024,"invalid_output");
             AceMidiProtocol post(static_cast<double>(wav.frame_count)/wav.sample_rate,frames_16k,true);
             std::ifstream stream(processed,std::ios::binary);std::array<char,4096> data{};
-            while(stream){stopped(token);stream.read(data.data(),data.size());if(stream.gcount())post.feed({data.data(),static_cast<std::size_t>(stream.gcount())});}need(stream.eof(),"io_error");post.finish();result.notes=post.notes();
+            while(stream){stopped(token);stream.read(data.data(),data.size());if(stream.gcount())post.feed({data.data(),static_cast<std::size_t>(stream.gcount())});}need(stream.eof(),"io_error");post.finish();need(post.raw_count()<=protocol.raw_count(),"invalid_output");result.notes=post.notes();
+            need(std::all_of(result.notes.begin(),result.notes.end(),[&](const auto& n){return std::any_of(protocol.raw_notes().begin(),protocol.raw_notes().end(),[&](const auto& raw){return raw.instrument==n.instrument;});}),"instrument_mismatch");
             const auto meta=work.path/"music.txt";plain(meta);need(fs::file_size(meta)<=1024*1024,"invalid_output");
             std::ifstream music(meta);music.imbue(std::locale::classic());std::string magic;unsigned threads{};std::size_t count{};
             need(static_cast<bool>(music>>magic>>result.cpu_capability>>threads>>result.model_load_seconds>>result.inference_seconds>>result.detected_bpm>>result.detected_meter>>count),"invalid_output");
