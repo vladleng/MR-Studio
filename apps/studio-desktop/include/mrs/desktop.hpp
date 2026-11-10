@@ -162,7 +162,7 @@ public:
     void cancel_transcription();
     transcription::JobStatus transcription_status() const;
     const transcription::Result* transcription_preview() const;
-    std::vector<Id> place_transcription(const std::optional<std::vector<std::string>>& roles = {});
+    std::vector<Id> place_transcription(const std::optional<std::vector<std::string>>& roles = {},bool original_timing = false);
     bool history_preserves_plugins(bool redo) const;
     bool history_changes_only_inputs(bool redo) const; // permits frontend editor retention before Undo/Redo
     bool undo(); bool redo();

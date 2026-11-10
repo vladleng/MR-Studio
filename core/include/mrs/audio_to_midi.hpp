@@ -28,11 +28,14 @@ std::vector<std::string> ace_midi_arguments(std::string model, std::string wav, 
 class PlaceTranscription final : public ICommand {
 public:
     PlaceTranscription(std::shared_ptr<const Project> source, Id audio_clip,
-                       std::span<const TranscribedNote> notes);
+                       std::span<const TranscribedNote> notes, std::optional<TimeMap> time = {},
+                       std::span<const TranscribedNote> original = {}, std::string provenance = {});
     std::string_view name() const override { return "Convert audio to MIDI"; }
     void apply(Project&) const override;
 private:
     std::shared_ptr<const Project> source_;
+    std::optional<TimeMap> time_;
+    std::optional<Marker> provenance_;
     std::vector<Track> tracks_;
     std::vector<Clip> clips_;
 };

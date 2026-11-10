@@ -64,7 +64,7 @@ public:
     }
 };
 }
-AceMidiProtocol::AceMidiProtocol(double seconds,Sample frames):seconds_(seconds){
+AceMidiProtocol::AceMidiProtocol(double seconds,Sample frames,bool allow_zero_duration):seconds_(seconds),allow_zero_duration_(allow_zero_duration){
     need(std::isfinite(seconds)&&seconds>0&&seconds<=4*60*60);
     if(frames==-1)frames=static_cast<Sample>(seconds*16000);
     need(frames>0&&frames<=4*60*60*16000&&std::abs(static_cast<double>(frames)-seconds*16000)<=1.01);
@@ -93,7 +93,7 @@ void AceMidiProtocol::line(std::string_view input){
     }else if(type=="note_end"){
         o.size(3);need(completed_>=0);const auto index=static_cast<std::size_t>(o.integer("index",max_project_midi_notes));
         need(index<notes_.size());auto& n=notes_[index];need(n.end<0);
-        n.end=o.seconds("time",total_*5.+.01);need(n.end>n.start);++ended_;
+        n.end=o.seconds("time",total_*5.+.01);need(n.end>n.start||(allow_zero_duration_&&n.end==n.start));++ended_;
     }else{
         need(type=="done");o.size(3);need(completed_==total_&&ended_==notes_.size());
         need(static_cast<std::size_t>(o.integer("notes",max_project_midi_notes))==notes_.size());

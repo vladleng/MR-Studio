@@ -9,6 +9,9 @@
 #include <cmath>
 #include <fstream>
 #include <mutex>
+#include <iomanip>
+#include <locale>
+#include <sstream>
 #include <thread>
 #include <tuple>
 #ifdef _WIN32
@@ -19,6 +22,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <psapi.h>
 #else
 #include <cerrno>
 #include <csignal>
@@ -75,6 +79,23 @@ void snapshot_range(const audio::WavFile& wav,Sample first,Sample frames,const f
     if(bytes&1){out.put(0);}
     out.close();need(out.good(),"io_error");
 }
+[[maybe_unused]] std::vector<std::string> arguments(const Request& r,const fs::path& work){
+    if(r.backend==Backend::native_experimental){
+        auto args=ace_midi_arguments(r.model_directory.string(),(work/"source.wav").string(),(work/"output.mid").string());
+        if(!r.stem_instrument.empty()){args.push_back("--instrument");args.push_back(r.stem_instrument);}return args;
+    }
+    auto args=std::vector<std::string>{"-I","-B","-u",r.worker_script.string(),"--model",r.model_directory.string(),"--transcribe",(work/"source.wav").string(),"--out",(work/"output.mid").string(),"--threads",std::to_string(r.cpu_threads),"--options",(work/"options.json").string()};
+    if(!r.instruments.empty()){args.push_back("--instruments");for(const auto& instrument:r.instruments)args.push_back(instrument);}return args;
+}
+void options_file(const Request& r,const fs::path& work){
+    const auto& m=r.musical;
+    need(std::isfinite(m.bpm)&&m.bpm>=0&&m.bpm<=999&&std::isfinite(m.strength)&&m.strength>=0&&m.strength<=1&&std::isfinite(m.first_downbeat)&&m.first_downbeat>=-1&&m.first_downbeat<=14400&&std::isfinite(m.fill_gaps)&&m.fill_gaps>=0&&m.fill_gaps<=16&&m.meter<=32&&m.subdivision>=1&&m.subdivision<=64&&(m.beat_scale==.25||m.beat_scale==.5||m.beat_scale==1||m.beat_scale==2||m.beat_scale==4),"invalid_music_options");
+    std::ofstream out(work/"options.json");out.imbue(std::locale::classic());out<<std::setprecision(17)<<std::boolalpha;
+    out<<"{\"detect_tempo\":"<<m.detect_tempo<<",\"bpm\":";
+    if(m.bpm>0)out<<m.bpm;else out<<"null";
+    out<<",\"beats_per_bar\":";if(m.meter)out<<m.meter;else out<<"null";out<<",\"first_downbeat\":";if(m.first_downbeat>=0)out<<m.first_downbeat;else out<<"null";out<<",\"tempo_map\":"<<m.tempo_map<<",\"beat_scale\":"<<m.beat_scale<<",\"quantize\":"<<m.quantize<<",\"subdivision\":"<<m.subdivision<<",\"strength\":"<<m.strength<<",\"fill_gaps\":"<<m.fill_gaps<<",\"trim_leading_bars\":"<<m.trim_leading_bars<<"}";
+    out.close();need(out.good(),"io_error");
+}
 #ifdef _WIN32
 struct Handle {
     HANDLE value{};
@@ -118,15 +139,21 @@ struct Child {
         STARTUPINFOEXW start{};start.StartupInfo.cb=sizeof(start);start.StartupInfo.dwFlags=STARTF_USESTDHANDLES;
         start.StartupInfo.hStdInput=input.value;start.StartupInfo.hStdOutput=childOut.value;start.StartupInfo.hStdError=childError.value;start.lpAttributeList=attrs;
         std::wstring command=quote(r.executable.wstring());
-        auto args=std::vector<std::wstring>{L"--model",r.model_directory.wstring(),L"--transcribe",(work/"source.wav").wstring(),L"--out",(work/"output.mid").wstring(),L"--jsonl",L"--device",L"cpu"};
-        if(!r.stem_instrument.empty()){args.push_back(L"--instrument");args.emplace_back(r.stem_instrument.begin(),r.stem_instrument.end());}
+        std::vector<std::wstring> args;
+        if(r.backend==Backend::python_medium){
+            args={L"-I",L"-B",L"-u",r.worker_script.wstring(),L"--model",r.model_directory.wstring(),L"--transcribe",(work/"source.wav").wstring(),L"--out",(work/"output.mid").wstring(),L"--threads",std::to_wstring(r.cpu_threads),L"--options",(work/"options.json").wstring()};
+            if(!r.instruments.empty()){args.push_back(L"--instruments");for(const auto& instrument:r.instruments)args.emplace_back(instrument.begin(),instrument.end());}
+        }else{
+            args={L"--model",r.model_directory.wstring(),L"--transcribe",(work/"source.wav").wstring(),L"--out",(work/"output.mid").wstring(),L"--jsonl",L"--device",L"cpu"};
+            if(!r.stem_instrument.empty()){args.push_back(L"--instrument");args.emplace_back(r.stem_instrument.begin(),r.stem_instrument.end());}
+        }
         for(const auto& arg:args)command+=L" "+quote(arg);
         std::array<wchar_t,32768> system{};const auto n=GetEnvironmentVariableW(L"SystemRoot",system.data(),static_cast<DWORD>(system.size()));
         need(n>0&&n<system.size(),"process_environment");
         const std::wstring root(system.data());
         // Explicit allowlist: no inherited HF_TOKEN, proxy credentials, probe
         // variables, GPU overrides or Python paths reach the native child.
-        std::vector<std::wstring> vars{L"GGML_BACKEND=CPU",L"GGML_N_THREADS="+std::to_wstring(r.cpu_threads),L"OMP_NUM_THREADS="+std::to_wstring(r.cpu_threads),L"PATH="+root+L"\\System32",L"SystemRoot="+root,L"TEMP="+work.wstring(),L"TMP="+work.wstring(),L"WINDIR="+root};
+        std::vector<std::wstring> vars{L"GGML_BACKEND=CPU",L"GGML_N_THREADS="+std::to_wstring(r.cpu_threads),L"OMP_NUM_THREADS="+std::to_wstring(r.cpu_threads),L"PATH="+root+L"\\System32",L"SystemRoot="+root,L"TEMP="+work.wstring(),L"TMP="+work.wstring(),L"WINDIR="+root,L"ATEN_CPU_CAPABILITY="+std::wstring(r.compatibility_cpu||!optimized_cpu_available()?L"default":L"avx2"),L"HF_HUB_OFFLINE=1",L"HF_HUB_DISABLE_TELEMETRY=1",L"TORCH_HOME="+(r.executable.parent_path()/"torch-cache").wstring(),L"MKL_NUM_THREADS="+std::to_wstring(r.cpu_threads),L"OPENBLAS_NUM_THREADS="+std::to_wstring(r.cpu_threads)};
         std::vector<wchar_t> env;for(const auto& v:vars){env.insert(env.end(),v.begin(),v.end());env.push_back(0);}env.push_back(0);
         PROCESS_INFORMATION info{};
         need(CreateProcessW(r.executable.c_str(),command.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW|BELOW_NORMAL_PRIORITY_CLASS|CREATE_SUSPENDED|CREATE_UNICODE_ENVIRONMENT|EXTENDED_STARTUPINFO_PRESENT,env.data(),work.c_str(),&start.StartupInfo,&info)!=FALSE,"process_start");
@@ -140,6 +167,7 @@ struct Child {
         if(available)need(ReadFile(h,buffer.data(),std::min(available,static_cast<DWORD>(buffer.size())),&got,nullptr)!=FALSE,"process_read");
         return {buffer.data(),got};
     }
+    std::uint64_t memory()const{PROCESS_MEMORY_COUNTERS counters{};return GetProcessMemoryInfo(process.value,&counters,sizeof(counters))?static_cast<std::uint64_t>(counters.PeakWorkingSetSize):0;}
     std::int64_t exit_code(){
         const auto wait=WaitForSingleObject(process.value,0);if(wait==WAIT_TIMEOUT)return -1;
         need(wait==WAIT_OBJECT_0,"process_wait");DWORD code{};
@@ -149,16 +177,16 @@ struct Child {
 #else
 struct Fd {int value{-1};~Fd(){if(value>=0)::close(value);}void close(){if(value>=0)::close(value);value=-1;}};
 struct Child {
-    Fd output,error;pid_t pid{-1};int code{-1};bool reaped{};
+    Fd output,error;pid_t pid{-1};int code{-1};bool reaped{};std::uint64_t peak{};
     ~Child(){if(pid>0){::kill(-pid,SIGKILL);if(!reaped){int status{};while(waitpid(pid,&status,0)<0&&errno==EINTR){}}}}
     void launch(const Request& r,const fs::path& work){
         int a[2],b[2];need(pipe(a)==0,"process_start");output.value=a[0];Fd childOut{a[1]};
         need(pipe(b)==0,"process_start");error.value=b[0];Fd childError{b[1]};
         for(const auto fd:{output.value,error.value,childOut.value,childError.value})need(fcntl(fd,F_SETFD,FD_CLOEXEC)==0,"process_start");
         need(fcntl(output.value,F_SETFL,O_NONBLOCK)==0&&fcntl(error.value,F_SETFL,O_NONBLOCK)==0,"process_start");
-        auto args=ace_midi_arguments(r.model_directory.string(),(work/"source.wav").string(),(work/"output.mid").string());if(!r.stem_instrument.empty()){args.push_back("--instrument");args.push_back(r.stem_instrument);}args.insert(args.begin(),r.executable.string());
+        auto args=arguments(r,work);args.insert(args.begin(),r.executable.string());
         std::vector<char*> argv;for(auto& arg:args)argv.push_back(arg.data());argv.push_back(nullptr);
-        std::vector<std::string> vars{"GGML_BACKEND=CPU","GGML_N_THREADS="+std::to_string(r.cpu_threads),"OMP_NUM_THREADS="+std::to_string(r.cpu_threads),"PATH=/usr/bin:/bin","TMPDIR="+work.string()};
+        std::vector<std::string> vars{"GGML_BACKEND=CPU","GGML_N_THREADS="+std::to_string(r.cpu_threads),"OMP_NUM_THREADS="+std::to_string(r.cpu_threads),"PATH=/usr/bin:/bin","TMPDIR="+work.string(),std::string("ATEN_CPU_CAPABILITY=")+(r.compatibility_cpu||!optimized_cpu_available()?"default":"avx2"),"HF_HUB_OFFLINE=1","TORCH_HOME="+(r.executable.parent_path()/"torch-cache").string(),"MKL_NUM_THREADS="+std::to_string(r.cpu_threads),"OPENBLAS_NUM_THREADS="+std::to_string(r.cpu_threads)};
         std::vector<char*> env;for(auto& v:vars)env.push_back(v.data());env.push_back(nullptr);
         const auto exe=r.executable.string(),cwd=work.string();const rlimit limit{static_cast<rlim_t>(r.memory_bytes),static_cast<rlim_t>(r.memory_bytes)};
         pid=fork();need(pid>=0,"process_start");
@@ -181,9 +209,10 @@ struct Child {
         if(n<0){need(errno==EAGAIN||errno==EWOULDBLOCK||errno==EINTR,"process_read");return {};}
         return {data.data(),static_cast<std::size_t>(n)};
     }
+    std::uint64_t memory()const{return peak;}
     int exit_code(){
-        if(!reaped){int status{};const auto result=waitpid(pid,&status,WNOHANG);need(result>=0||errno==EINTR,"process_wait");
-            if(result==pid){reaped=true;code=WIFEXITED(status)?WEXITSTATUS(status):128+WTERMSIG(status);}}
+        if(!reaped){int status{};rusage usage{};const auto result=wait4(pid,&status,WNOHANG,&usage);need(result>=0||errno==EINTR,"process_wait");
+            if(result==pid){peak=static_cast<std::uint64_t>(usage.ru_maxrss)*1024;reaped=true;code=WIFEXITED(status)?WEXITSTATUS(status):128+WTERMSIG(status);}}
         return reaped?code:-1;
     }
 };
@@ -214,7 +243,7 @@ void verify_midi(const std::vector<MidiPart>& parts,const std::vector<Transcribe
 }
 
 Result run(const Request& r,std::stop_token external,const std::function<void(int,int)>& progress){
-    Result result;result.project_id=r.project_id;result.clip_id=r.clip_id;result.project_revision=r.project_revision;
+    Result result;result.backend=r.backend;result.musical=r.musical;result.project_id=r.project_id;result.clip_id=r.clip_id;result.project_revision=r.project_revision;
     std::stop_source stop;std::stop_callback forward(external,[&]{stop.request_stop();});
     const auto budget=r.timeout>std::chrono::milliseconds(0)&&r.timeout<=std::chrono::hours(4)?r.timeout:std::chrono::milliseconds(std::chrono::hours(4));
     const auto deadline=std::chrono::steady_clock::now()+budget;
@@ -227,6 +256,13 @@ Result run(const Request& r,std::stop_token external,const std::function<void(in
         need(!r.model_id.empty()&&r.model_id.size()<=128&&!r.model_revision.empty()&&r.model_revision.size()<=128&&!r.model_license.empty()&&r.model_license.size()<=256,"invalid_request");
         stopped(token);plain(r.temporary_root,true);plain(r.model_directory,true);plain(r.source);
         need(r.stem_instrument.empty()||std::any_of(ace_midi_instruments().begin(),ace_midi_instruments().end(),[&](const auto& i){return i.role==r.stem_instrument;}),"invalid_instrument");
+        need(r.backend==Backend::native_experimental||r.backend==Backend::python_medium,"invalid_backend");
+        if(r.backend==Backend::python_medium){
+            if(r.verify_runtime)r.verify_runtime(token);
+            verify_hash(r.worker_script,r.worker_sha256,token);need(r.instruments.size()<=35,"invalid_instrument");
+            auto instruments=r.instruments;std::sort(instruments.begin(),instruments.end());need(std::adjacent_find(instruments.begin(),instruments.end())==instruments.end(),"invalid_instrument");
+            for(const auto& instrument:instruments)need(std::any_of(ace_midi_instruments().begin(),ace_midi_instruments().end(),[&](const auto& i){return i.role==instrument;}),"invalid_instrument");
+        }
         const auto source_size=fs::file_size(r.source);const auto source_modified=fs::last_write_time(r.source);
         need(r.range.has_value()||source_size<=2ULL*1024*1024*1024,"source_too_large");
         auto resolved=r;resolved.cpu_threads=choose_cpu_threads(r.cpu_threads);result.cpu_threads=resolved.cpu_threads;
@@ -236,6 +272,7 @@ Result run(const Request& r,std::stop_token external,const std::function<void(in
         Work work;work.cleanup_failed=&cleanup_failed;const auto candidate=r.temporary_root/("mrs-midi-"+new_id().value);
         need(fs::create_directory(candidate),"io_error");work.path=candidate;
         fs::permissions(work.path,fs::perms::owner_all,fs::perm_options::replace);
+        if(r.backend==Backend::python_medium)options_file(r,work.path);
         Sample first{},frames{};std::uint64_t source_byte_offset{},source_byte_count{};std::string source_hash;
         if(r.range){
             const auto original=audio::inspect_wav(r.source);const auto range=*r.range;
@@ -259,7 +296,7 @@ Result run(const Request& r,std::stop_token external,const std::function<void(in
         const auto frames_16k=wav.sample_rate==16000?wav.frame_count:
             static_cast<Sample>(static_cast<double>(wav.frame_count)*(16000./wav.sample_rate));
         need(frames_16k>0,"invalid_audio");
-        AceMidiProtocol protocol(static_cast<double>(wav.frame_count)/wav.sample_rate,frames_16k);
+        AceMidiProtocol protocol(static_cast<double>(wav.frame_count)/wav.sample_rate,frames_16k,r.backend==Backend::python_medium);
         {
             Child child;child.launch(resolved,work.path);int completed=-1;std::size_t error_bytes{};
             for(;;){
@@ -269,7 +306,7 @@ Result run(const Request& r,std::stop_token external,const std::function<void(in
                 if(!out.empty())protocol.feed(out);
                 if(protocol.completed()!=completed){completed=protocol.completed();if(progress)progress(completed,protocol.total());}
                 const auto exit=child.exit_code();
-                if(exit!=-1&&out.empty()&&error.empty()){need(exit==0,"process_exit");break;}
+                if(exit!=-1&&out.empty()&&error.empty()){result.peak_memory_bytes=child.memory();need(exit==0,"process_exit");break;}
                 if(out.empty()&&error.empty())std::this_thread::sleep_for(std::chrono::milliseconds(5));
             }
         } // child tree is terminated/reaped before touching/deleting outputs
@@ -287,7 +324,22 @@ Result run(const Request& r,std::stop_token external,const std::function<void(in
         verify_hash(r.model_directory/"config.json",r.config_sha256,token);verify_hash(r.model_directory/"model.safetensors",r.weights_sha256,token);
         result.notes=protocol.notes();
         need(r.stem_instrument.empty()||std::all_of(protocol.raw_notes().begin(),protocol.raw_notes().end(),[&](const auto& n){return n.instrument==r.stem_instrument;}),"instrument_mismatch");
-        for(auto& note:result.notes){note.start+=result.source_offset_seconds;note.end+=result.source_offset_seconds;}
+        result.original_notes=result.notes;
+        if(r.backend==Backend::python_medium){
+            verify_hash(r.worker_script,r.worker_sha256,token);
+            need(r.instruments.empty()||std::all_of(protocol.raw_notes().begin(),protocol.raw_notes().end(),[&](const auto& n){return std::find(r.instruments.begin(),r.instruments.end(),n.instrument)!=r.instruments.end();}),"instrument_mismatch");
+            const auto processed=work.path/"processed.jsonl";plain(processed);need(fs::file_size(processed)<=16*1024*1024,"invalid_output");
+            AceMidiProtocol post(static_cast<double>(wav.frame_count)/wav.sample_rate,frames_16k,true);
+            std::ifstream stream(processed,std::ios::binary);std::array<char,4096> data{};
+            while(stream){stopped(token);stream.read(data.data(),data.size());if(stream.gcount())post.feed({data.data(),static_cast<std::size_t>(stream.gcount())});}need(stream.eof(),"io_error");post.finish();result.notes=post.notes();
+            const auto meta=work.path/"music.txt";plain(meta);need(fs::file_size(meta)<=1024*1024,"invalid_output");
+            std::ifstream music(meta);music.imbue(std::locale::classic());std::string magic;unsigned threads{};std::size_t count{};
+            need(static_cast<bool>(music>>magic>>result.cpu_capability>>threads>>result.model_load_seconds>>result.inference_seconds>>result.detected_bpm>>result.detected_meter>>count),"invalid_output");
+            need(magic=="MR-MUSCRIPTOR-1"&&threads==resolved.cpu_threads&&result.cpu_capability.size()<=32&&std::isfinite(result.model_load_seconds)&&result.model_load_seconds>=0&&std::isfinite(result.inference_seconds)&&result.inference_seconds>=0&&std::isfinite(result.detected_bpm)&&result.detected_bpm>=0&&result.detected_bpm<=999&&result.detected_meter<=32&&count<=100000,"invalid_output");
+            double previous=-1;for(std::size_t i=0;i<count;++i){double beat{};need(static_cast<bool>(music>>beat)&&std::isfinite(beat)&&beat>previous&&beat<=static_cast<double>(wav.frame_count)/wav.sample_rate+5,"invalid_output");result.beats.push_back(beat);previous=beat;}
+            music>>std::ws;need(music.eof(),"invalid_output");
+        }
+        for(auto* notes:{&result.notes,&result.original_notes})for(auto& note:*notes){note.start+=result.source_offset_seconds;note.end+=result.source_offset_seconds;}
         result.analysis_seconds=static_cast<double>(wav.frame_count)/wav.sample_rate;result.source_rate=wav.sample_rate;result.source_first_frame=first;result.source_frame_count=wav.frame_count;result.input_sha256=input_hash;
         result.raw_notes=protocol.raw_count();result.midi_sha256=sha256_file(midi,token);
         result.source_sha256=source_hash;result.executable_sha256=r.executable_sha256;result.weights_sha256=r.weights_sha256;result.config_sha256=r.config_sha256;
@@ -301,7 +353,7 @@ Result run(const Request& r,std::stop_token external,const std::function<void(in
     }
     if(cleanup_failed){result.state=State::failed;result.error="cleanup_failed";}
     result.elapsed_seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-began).count();
-    if(result.state!=State::ready&&result.state!=State::empty)result.notes.clear();
+    if(result.state!=State::ready&&result.state!=State::empty){result.notes.clear();result.original_notes.clear();result.beats.clear();}
     return result;
 }
 }

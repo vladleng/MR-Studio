@@ -1,3 +1,66 @@
+# MR Audio-to-MIDI — Python Medium (#368 / 0.10.2)
+
+Python/PyTorch MuScriptor Medium is the main backend; preserved HOT-Step C++ is
+experimental A/B. Only Medium is supported. Source pin:
+`muscriptor/muscriptor@8a1ef88672cc23c26619adaff37ec48d82c0b906`;
+weights remain the existing official hash-pinned Medium installation.
+This is an implementation checkpoint, not user acceptance.
+
+## Python runtime and controls
+
+Convert to MIDI offers explicit installation/verification/removal of a separate
+Python 3.11.9 CPU runtime. Its pinned inference and beat packages, MIT source and
+BeatThis final0 checkpoint are independent of Separation. Runtime acquisition
+holds a cross-process shared lease; install/remove require an exclusive lease.
+Managed inventories, source archive, Python/bootstrap and beat weights are checked.
+No hidden inference downloads: the child strips HF credentials and blocks network
+connections. Medium weights require the existing explicit HF terms/install flow
+and are never packaged with Studio. CC BY-NC 4.0 rights are not commercial clearance.
+
+CPU Auto reserves a logical CPU and caps at 16. Manual 1..32 is affinity-capped;
+selection, backend and compatibility mode persist immediately in app preferences.
+Python AVX2 dispatch is selected only after CPU/OS capability checks. Compatibility
+requests baseline ATen dispatch; this is not proof that every third-party wheel
+works on every pre-AVX CPU. Native retains its validated generic/AVX2 selection.
+Diagnostics report actual threads/ISA, load, inference, end-to-end and peak process
+memory. Python processes are fresh per run: warm means warm OS cache, not a resident
+model. Additional threads do not promise speedup.
+
+Single-category and multiple-category choices use official Python `instruments`;
+Auto leaves decoding unrestricted. This is not separation or GM remapping.
+Reference prelude forcing, sequential five-second chunks and strict EOS are used;
+a missing EOS/token-limit error fails the job rather than publishing partial MIDI.
+Original Python can emit paired zero-duration retriggers before its cleanup pass;
+only its protocol opts into accepting them. They are omitted from editable notes;
+legacy native protocol remains strict.
+
+Raw seconds remain unchanged by default. Optional detection uses the installed
+BeatThis checkpoint; manual BPM/meter, beat scale, first downbeat, tempo-map export,
+quantize subdivisions (including triplets), strength, fill gaps and leading-bar trim
+use official Python musical export. BPM=0 retains detected tempo, or uses the
+project tempo at the clip when detection is off; meter=0 and downbeat=-1 retain
+detection. An unusable requested detection returns an error, without a hidden model
+fetch or silent 120 BPM substitution. Physical channels do not identify tracks.
+
+Preview can place original timing. When processing is enabled, placement also
+keeps muted original-timing reference tracks, through the same atomic command.
+An optional explicit tempo/meter import changes the clip range and restores the
+previous tempo afterwards; meter import requires the clip to start on a bar line.
+Source audio samples remain unchanged. Existing project MIDI follows its normal
+tick-based tempo-map semantics. A project marker preserves model/source/crop
+provenance without a new project format. Undo/Redo and Save/Open preserve all of it.
+
+Windows Studio-only/ARA ON validation, full installer checks, representative real
+music, the user's private bass repro, physical ASIO/DPI and comparable native/Python
+benchmarks remain acceptance gates. Linux/synthetic checks do not establish them.
+
+---
+
+## Historical native implementation contract (0.10.1)
+
+The following describes the preserved experimental implementation. Historical
+statements below that call native the only/main backend are superseded above.
+
 # MR Audio-to-MIDI native adapter (#342 / #346)
 
 This is an incomplete implementation checkpoint, not a shipped 0.10.1 feature.

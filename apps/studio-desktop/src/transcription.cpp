@@ -18,10 +18,10 @@ void Application::cancel_transcription(){if(transcription_)transcription_->cance
 void Application::poll_transcription(){if(transcription_)transcription_->poll(services_.projects,path_);}
 transcription::JobStatus Application::transcription_status()const{return transcription_?transcription_->status():transcription::JobStatus{};}
 const transcription::Result* Application::transcription_preview()const{return transcription_?transcription_->preview():nullptr;}
-std::vector<Id> Application::place_transcription(const std::optional<std::vector<std::string>>& roles){
+std::vector<Id> Application::place_transcription(const std::optional<std::vector<std::string>>& roles,bool original_timing){
     require_not_playing();require_not_recording();
     if(!transcription_)throw std::invalid_argument("No transcription result");
-    auto command=transcription_->prepare(services_.projects,path_,roles);
+    auto command=transcription_->prepare(services_.projects,path_,roles,original_timing);
     const auto project=services_.projects->state().project;auto candidate=*project;command.apply(candidate);
     std::vector<Id> placed;for(std::size_t i=project->clips.size();i<candidate.clips.size();++i)placed.push_back(candidate.clips[i].id);
     commit_midi_project(std::move(candidate),std::string(command.name()));transcription_->placed();return placed;

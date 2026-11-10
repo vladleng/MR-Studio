@@ -11,7 +11,7 @@ class AceMidiProtocol {
 public:
     // Frame count is after pinned 16 kHz resampling (which truncates). The
     // full-source duration remains independent for clipping/placement.
-    explicit AceMidiProtocol(double source_seconds, Sample frames_16k = -1);
+    explicit AceMidiProtocol(double source_seconds, Sample frames_16k = -1, bool allow_zero_duration = false);
     void feed(std::string_view bytes);
     void finish(); // EOF, requires final newline, paired notes/progress/done
     int completed() const { return completed_; }
@@ -26,7 +26,7 @@ private:
     double seconds_{};
     std::size_t bytes_{}, lines_{}, ended_{}, midi_bytes_{};
     int completed_{-1}, total_{};
-    bool done_{}, finished_{};
+    bool done_{}, finished_{}, allow_zero_duration_{};
     std::string pending_;
     std::vector<TranscribedNote> notes_;
 };

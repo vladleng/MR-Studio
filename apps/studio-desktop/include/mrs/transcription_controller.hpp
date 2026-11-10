@@ -22,7 +22,7 @@ public:
     JobStatus status() const;
     const Result* preview() const;
     PlaceTranscription prepare(const std::shared_ptr<IProjectStore>&,const std::filesystem::path&,
-                               const std::optional<std::vector<std::string>>& roles = {});
+                               const std::optional<std::vector<std::string>>& roles = {},bool original_timing = false);
     void placed();
 private:
     struct Job;

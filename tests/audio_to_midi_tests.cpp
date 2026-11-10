@@ -43,6 +43,17 @@ void mapping(){
     check(store.undo()&&*store.state().project==p);
     store.execute(command);check(*store.state().project==result);
 }
+void musical_reference(){
+    const auto p=fixture();ProjectStore store(p);const auto snapshot=store.state().project;
+    const std::vector<TranscribedNote> processed{{40,2.25,3.0,"electric_bass"}},raw{{40,2.237,2.93,"electric_bass"}};
+    TimeMap time;time.tempos={{0,90},{4*ppq,110}};time.meters={{1,3,4}};
+    store.execute(PlaceTranscription(snapshot,p.clips[0].id,processed,time,raw,"fixture: source hash / model revision"));const auto result=*store.state().project;
+    check(result.time==time&&result.tracks.size()==3&&result.clips.size()==3&&result.markers.size()==1&&result.tracks.back().mix.mute);
+    check(result.clips[0]==p.clips[0]&&result.tracks.back().name.find("original timing")!=std::string::npos);
+    const Timeline timeline(time,p.sample_rate);const auto& original=*result.clips.back().midi;
+    check(std::abs(timeline.to_samples(original.start+original.notes[0].start)-(48000+static_cast<Sample>(std::llround(.237*48000))))<=32);
+    check(deserialize(serialize(result))==result);check(store.undo()&&*store.state().project==p);check(store.redo()&&*store.state().project==result);
+}
 void categories(){
     auto p=fixture();ProjectStore store(p);std::vector<TranscribedNote> notes;
     for(const auto& role:ace_midi_instruments())notes.push_back({60,2.137,2.463,std::string(role.role)});
@@ -93,5 +104,5 @@ void arguments(){
     rejects([]{ace_midi_arguments("model",std::string("a\0b",3),"a.mid");});
 }
 }
-int main(){try{mapping();categories();invalid();arguments();std::cout<<"PASS audio-to-MIDI mapping\n";return 0;}
+int main(){try{mapping();musical_reference();categories();invalid();arguments();std::cout<<"PASS audio-to-MIDI mapping\n";return 0;}
 catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

@@ -57,6 +57,15 @@ file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/transcription_engine.h" "namespace mrs 
 target_include_directories(MoonRiverStudioJuce PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_sources(MoonRiverStudioJuce PRIVATE apps/studio-juce/src/TranscriptionView.cpp)
 target_compile_definitions(MoonRiverStudioJuce PRIVATE MRS_TRANSCRIPTION_UI=1)
+file(SHA256 "${PROJECT_SOURCE_DIR}/tools/transcription/worker.py" mrs_python_worker_sha)
+file(SHA256 "${PROJECT_SOURCE_DIR}/tools/transcription/requirements-cpu.txt" mrs_python_requirements_sha)
+file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/transcription_engine.h" "namespace mrs { inline constexpr const char* transcription_worker_sha256 = \"${mrs_python_worker_sha}\"; }\n")
+file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/transcription_engine.h" "namespace mrs { inline constexpr const char* transcription_requirements_sha256 = \"${mrs_python_requirements_sha}\"; }\n")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/tools/transcription/worker.py" "${PROJECT_SOURCE_DIR}/tools/transcription/requirements-cpu.txt")
+add_custom_command(TARGET MoonRiverStudioJuce POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/tools/transcription/worker.py" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/mr_transcription_worker.py"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/tools/transcription/requirements-cpu.txt" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/mr_transcription_requirements.txt")
+
 if(BUILD_TESTING)
   add_dependencies(MoonRiverStudioJuce mrs_ace_midi_fake)
   add_test(NAME juce_transcription COMMAND MoonRiverStudioJuce --transcription-smoke $<TARGET_FILE:mrs_ace_midi_fake>)

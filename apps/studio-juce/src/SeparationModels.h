@@ -9,6 +9,10 @@ struct DownloadArtifact {
     juce::String name, url, sha256;
     juce::int64 bytes{};
 };
+// Generic installation primitives; callers keep their own roots/identities.
+void fetchRuntimeArtifact(const DownloadArtifact&,const juce::File&,const std::atomic<bool>&);
+void publishRuntimeInventory(const juce::File&,const juce::String&,const juce::var&,const std::atomic<bool>&);
+void verifyRuntimeInventory(const juce::File&,const juce::String&,const std::atomic<bool>&);
 struct ModelRecord {
     juce::String id, version, title, backend, outputs, nativeOutputs, hardware;
     juce::String codeLicense, weightsLicense, provenance, unsupportedReason;

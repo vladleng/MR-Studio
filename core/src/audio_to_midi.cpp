@@ -30,7 +30,8 @@ std::vector<std::string> ace_midi_arguments(std::string model,std::string wav,st
             "--out",std::move(output),"--jsonl","--device","cpu"};
 }
 PlaceTranscription::PlaceTranscription(std::shared_ptr<const Project> source,Id audio_clip,
-                                     std::span<const TranscribedNote> notes):source_(std::move(source)){
+                                     std::span<const TranscribedNote> notes,std::optional<TimeMap> time,
+                                     std::span<const TranscribedNote> original,std::string provenance):source_(std::move(source)),time_(std::move(time)){
     if(!source_)throw std::invalid_argument("missing transcription source snapshot");
     source_->validate();
     const auto at=std::find_if(source_->clips.begin(),source_->clips.end(),[&](const auto& c){return c.id==audio_clip;});
@@ -40,7 +41,8 @@ PlaceTranscription::PlaceTranscription(std::shared_ptr<const Project> source,Id 
         throw std::invalid_argument("render stretched/ARA audio before transcription");
     if(notes.size()>maximum_notes)throw std::invalid_argument("too many transcribed notes");
     const auto& audio=*at;
-    const Timeline timeline(source_->time,source_->sample_rate);
+    if(time_)time_->validate();
+    const Timeline timeline(time_?*time_:source_->time,source_->sample_rate);
     const auto first=timeline.to_ticks(audio.start),last=timeline.to_ticks(audio.start+audio.length);
     if(last<=first)throw std::invalid_argument("audio range shorter than one MIDI tick");
     const double visible_start=static_cast<double>(audio.source_offset)/source_->sample_rate;
@@ -75,9 +77,17 @@ PlaceTranscription::PlaceTranscription(std::shared_ptr<const Project> source,Id 
         tracks_.push_back(std::move(track));clips_.push_back(std::move(clip));
     }
     if(tracks_.empty())throw std::invalid_argument("no transcribed notes inside audio clip");
+    if(!original.empty()){
+        PlaceTranscription reference(source_,audio_clip,original,time_);
+        for(auto& track:reference.tracks_){track.name+=" (original timing)";track.mix.mute=true;tracks_.push_back(std::move(track));}
+        for(auto& clip:reference.clips_){clip.name+=" (original timing)";clips_.push_back(std::move(clip));}
+    }
+    if(!provenance.empty())provenance_=Marker{new_id(),std::move(provenance),first,MarkerKind::generic,{}};
 }
 void PlaceTranscription::apply(Project& project) const{
     if(project!=*source_)throw std::invalid_argument("project changed since transcription started; run again");
+    if(time_)project.time=*time_;
+    if(provenance_)project.markers.push_back(*provenance_);
     project.tracks.insert(project.tracks.end(),tracks_.begin(),tracks_.end());
     project.clips.insert(project.clips.end(),clips_.begin(),clips_.end());
 }

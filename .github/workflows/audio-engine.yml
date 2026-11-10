@@ -1,6 +1,6 @@
 name: Windows Studio Release
 # Product versions are validated against the source header before building.
-run-name: ${{ (inputs.checks == 'studio' || github.head_ref == 'codex/342-native-audio-midi' || github.ref_name == 'codex/342-native-audio-midi' || github.head_ref == 'codex/74-separation-contract' || github.ref_name == 'codex/74-separation-contract') && inputs.checks != 'live' && !inputs.integration && 'MR Studio 0.10.1-Upd5 — Windows Release' || 'MR Studio 0.10.1-Upd5 / MR Live 0.8.13-fix1 — Windows Release' }}
+run-name: ${{ (inputs.checks == 'studio' || github.head_ref == 'codex/368-python-muscriptor' || github.head_ref == 'codex/342-native-audio-midi' || github.ref_name == 'codex/368-python-muscriptor' || github.ref_name == 'codex/342-native-audio-midi' || github.head_ref == 'codex/74-separation-contract' || github.ref_name == 'codex/74-separation-contract') && inputs.checks != 'live' && !inputs.integration && 'MR Studio 0.10.2 — Windows Release' || 'MR Studio 0.10.2 / MR Live 0.8.13-fix1 — Windows Release' }}
 on:
   push:
     branches: [main, 'codex/cloud-cicd-migration']
@@ -24,7 +24,7 @@ on:
 permissions:
   contents: read
 env:
-  RELEASE_BANNER: 'MR Studio 0.10.1-Upd5 / MR Live 0.8.13-fix1 — Windows Release'
+  RELEASE_BANNER: 'MR Studio 0.10.2 / MR Live 0.8.13-fix1 — Windows Release'
 concurrency:
   group: windows-${{ github.ref }}
   cancel-in-progress: true
@@ -130,6 +130,10 @@ jobs:
           if($LASTEXITCODE){throw 'Separation CPU contract failed'}
           python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
           if($LASTEXITCODE){throw 'Official Torch CPU test runtime install failed'}
+          python -m pip install mido==1.3.3
+          if($LASTEXITCODE){throw 'MIDI interchange test dependency failed'}
+          python -m unittest discover -s tests -p test_transcription_worker.py -q
+          if($LASTEXITCODE){throw 'Python MIDI interchange tests failed'}
           python tools/separation/probe_cpu.py --output build/separation-cpu-runtime.json
           if($LASTEXITCODE){throw 'Torch CPU dispatch probe failed'}
       - name: Build pinned native ace-midi CPU
@@ -163,10 +167,10 @@ jobs:
           $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
           if($env:CHECK_SCOPE -eq 'separation'){$args+=@('-R','^separation_(host|models)$')}
           elseif($env:CHECK_SCOPE -eq 'separation-ui'){$args+=@('-R','^juce_separation_(models|project)$')}
-          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('-R','^(separation_(host|models)|midi_import|juce_(transcription|separation_(models|project)|track_folders|wav_drop)|core_(ace_midi_protocol|audio_to_midi|model|commands|serialization|remove_tracks)|desktop_(transcription_controller|audio_to_midi_worker|separation_assets|remove_tracks|wav_import)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
-          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('-R','^(midi_import|juce_(transcription|separation_(models|project)|track_folders|wav_drop|live_(entry_smoke|application))|core_(ace_midi_protocol|audio_to_midi|model|commands|serialization|remove_tracks)|desktop_(transcription_controller|audio_to_midi_worker|separation_assets|remove_tracks|wav_import)|separation_(host|models)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
+          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('-R','^(separation_(host|models)|midi_import|juce_(transcription|separation_(models|project)|track_folders|wav_drop)|core_(ace_midi_protocol|audio_to_midi|model|commands|serialization|remove_tracks)|desktop_(python_transcription|transcription_controller|audio_to_midi_worker|separation_assets|remove_tracks|wav_import)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
+          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('-R','^(midi_import|juce_(transcription|separation_(models|project)|track_folders|wav_drop|live_(entry_smoke|application))|core_(ace_midi_protocol|audio_to_midi|model|commands|serialization|remove_tracks)|desktop_(python_transcription|transcription_controller|audio_to_midi_worker|separation_assets|remove_tracks|wav_import)|separation_(host|models)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
           elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('-R','^(juce_live_(entry_smoke|application)|audio_(metronome|performance|parallel_(equivalence|ownership|profiling))|desktop_live_preload)$')}
-          elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(midi_import|core_(ace_midi_protocol|audio_to_midi|stretch_contract|model|transport|commands|serialization|track_folders|remove_tracks)|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|ara_.*|juce_(transcription|separation_(models|project)|live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(transcription_controller|audio_to_midi_worker|separation_assets|wav_import|track_folders|remove_tracks|clip_response)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
+          elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(midi_import|core_(ace_midi_protocol|audio_to_midi|stretch_contract|model|transport|commands|serialization|track_folders|remove_tracks)|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|ara_.*|juce_(transcription|separation_(models|project)|live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(python_transcription|transcription_controller|audio_to_midi_worker|separation_assets|wav_import|track_folders|remove_tracks|clip_response)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
           & ctest @args
           if($LASTEXITCODE){
             if(Test-Path 'build/windows/separation-project-failure.txt'){Get-Content 'build/windows/separation-project-failure.txt'}

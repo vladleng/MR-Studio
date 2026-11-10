@@ -4,8 +4,16 @@
 #include <filesystem>
 #include <functional>
 #include <stop_token>
+#include <memory>
 
 namespace mrs::transcription {
+enum class Backend { native_experimental, python_medium };
+struct MusicalOptions {
+    bool import_tempo{};
+    bool detect_tempo{}, quantize{}, tempo_map{true}, trim_leading_bars{};
+    double bpm{}, strength{1.}, first_downbeat{-1.}, beat_scale{1.}, fill_gaps{};
+    unsigned meter{}, subdivision{4};
+};
 enum class State { ready, empty, cancelled, timeout, failed };
 // NON-RT CPU selection. Auto reserves one logical CPU and caps inference at 16.
 unsigned available_cpu_threads();
@@ -14,6 +22,14 @@ bool avx2_usable(std::uint32_t leaf1_ecx,std::uint32_t leaf7_ebx,std::uint64_t x
 bool optimized_cpu_available();
 struct SourceRange {Sample offset{},frames{};std::uint32_t rate{};}; // project sample domain
 struct Request {
+    Backend backend{Backend::native_experimental};
+    std::filesystem::path worker_script;
+    std::string worker_sha256;
+    std::vector<std::string> instruments; // Python official vocabulary; empty = Auto
+    MusicalOptions musical;
+    bool compatibility_cpu{}; // restrict Python dispatch / select native generic
+    std::shared_ptr<const void> runtime_lifetime;
+    std::function<void(std::stop_token)> verify_runtime; // NON-RT inventory/probe
     std::filesystem::path executable, model_directory, source, temporary_root;
     // Expected digests are mandatory, supplied by the installer/caller's trust
     // boundary. This API does not establish publisher identity or model rights.
@@ -28,6 +44,14 @@ struct Request {
     std::uint64_t memory_bytes{4ULL*1024*1024*1024};
 };
 struct Result {
+    Backend backend{Backend::native_experimental};
+    MusicalOptions musical;
+    std::string cpu_capability;
+    std::uint64_t peak_memory_bytes{}; // process peak working set (Windows) / RSS (Linux)
+    double model_load_seconds{}, inference_seconds{}, detected_bpm{};
+    unsigned detected_meter{};
+    std::vector<double> beats;
+    std::vector<TranscribedNote> original_notes; // immutable unquantized reference
     State state{State::failed};
     std::string error, diagnostics;
     Id project_id, clip_id;

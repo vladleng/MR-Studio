@@ -84,7 +84,7 @@ void fetchHttps(const DownloadArtifact& artifact,const juce::File& target,const 
         if(juce::SystemStats::getEnvironmentVariable("MR_SEPARATION_DIAGNOSTICS",{})=="1")
             std::fprintf(stderr,"model download host: %s (redirect %d)\n",host.toRawUTF8(),redirects);
         need(parts.nScheme==INTERNET_SCHEME_HTTPS && parts.nPort==443 && parts.dwUserNameLength==0 && parts.dwPasswordLength==0 &&
-             (host=="www.python.org"||host=="raw.githubusercontent.com"||host=="github.com"||host=="release-assets.githubusercontent.com"||host=="objects.githubusercontent.com"||host=="dl.fbaipublicfiles.com"||host=="huggingface.co"||host=="cdn-lfs.huggingface.co"||host=="cdn-lfs-us-1.hf.co"||host=="cas-bridge.xethub.hf.co"||host=="us.aws.cdn.hf.co"),"download_url");
+             (host=="codeload.github.com"||host=="cloud.cp.jku.at"||host=="www.python.org"||host=="raw.githubusercontent.com"||host=="github.com"||host=="release-assets.githubusercontent.com"||host=="objects.githubusercontent.com"||host=="dl.fbaipublicfiles.com"||host=="huggingface.co"||host=="cdn-lfs.huggingface.co"||host=="cdn-lfs-us-1.hf.co"||host=="cas-bridge.xethub.hf.co"||host=="us.aws.cdn.hf.co"),"download_url");
         const auto path=juce::String(parts.lpszUrlPath,static_cast<int>(parts.dwUrlPathLength))+juce::String(parts.lpszExtraInfo,static_cast<int>(parts.dwExtraInfoLength));
         Internet session{WinHttpOpen(L"MR-Studio-Separation/0.9.3",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0)};
         need(session.h!=nullptr,"network_error");WinHttpSetTimeouts(session.h,10000,10000,10000,10000);
@@ -122,6 +122,10 @@ constexpr auto requirementsHash="0184624b3268c94f6e98fa0ccefa3fcdef614a719911f72
 struct UseLease { HANDLE handle{INVALID_HANDLE_VALUE}; ~UseLease(){if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle);} };
 struct Staging { juce::File dir; bool owned{}; ~Staging(){if(owned&&dir!=juce::File())dir.deleteRecursively();} };
 }
+
+void fetchRuntimeArtifact(const DownloadArtifact& artifact,const juce::File& target,const std::atomic<bool>& stop){fetchHttps(artifact,target,stop,[](auto,auto){});need(sha(target)==artifact.sha256,"integrity_failure");}
+void publishRuntimeInventory(const juce::File& dir,const juce::String& identity,const juce::var& provenance,const std::atomic<bool>& stop){inventory(dir,identity,provenance,stop);}
+void verifyRuntimeInventory(const juce::File& dir,const juce::String& identity,const std::atomic<bool>& stop){verifyInventory(dir,identity,stop,true);}
 
 const std::vector<ModelRecord>& modelCatalogue() {
     static const auto records=[]{

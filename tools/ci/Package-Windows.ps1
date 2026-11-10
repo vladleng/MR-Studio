@@ -19,6 +19,7 @@ if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/mr_separation_scnet.py' 
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/mr_separation_profiles.json' -Destination (Join-Path $Output 'mr_separation_profiles.json')}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/worker.py' -Destination (Join-Path $Output 'mr_separation_worker.py')}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/requirements-cpu.txt' -Destination (Join-Path $Output 'mr_separation_requirements.txt')}
+if(!$LiveOnly){Copy-Item -LiteralPath 'tools/transcription/worker.py' -Destination (Join-Path $Output 'mr_transcription_worker.py');Copy-Item -LiteralPath 'tools/transcription/requirements-cpu.txt' -Destination (Join-Path $Output 'mr_transcription_requirements.txt')}
 foreach($name in @('mrs_vst3_scan.exe','mrs_crash_reporter.exe')){Copy-Item -LiteralPath "$Build/Release/$name" -Destination $Output}
 if($packageAra){Copy-Item -LiteralPath "$Build/Release/mrs_ara_scan.exe" -Destination $Output}
 $licenses=@{'build/sdk/juce/LICENSE.md'='JUCE-LICENSE.md';'build/sdk/portaudio/LICENSE.txt'='PortAudio-LICENSE.txt';'build/sdk/vst3/LICENSE.txt'='VST3-LICENSE.txt';'build/sdk/vst3/base/LICENSE.txt'='VST3-base-LICENSE.txt';'build/sdk/vst3/pluginterfaces/LICENSE.txt'='VST3-pluginterfaces-LICENSE.txt';'build/sdk/vst3/public.sdk/LICENSE.txt'='VST3-public-sdk-LICENSE.txt';'apps/studio-juce/assets/OFL.txt'='OFL.txt';'third_party/signalsmith-stretch/LICENSE.txt'='Signalsmith-Stretch-LICENSE.txt';'third_party/signalsmith-linear/LICENSE.txt'='Signalsmith-Linear-LICENSE.txt'}
