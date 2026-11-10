@@ -37,7 +37,7 @@ juce::String failure(const std::string& e){
 // captures values/shared progress, never a Component or Application pointer.
 class TranscriptionSetup {
 public:
-    struct Status {bool busy{},model{},engine{},present{},runtime{},runtime_present{};double progress{};juce::String message;};
+    struct Status {bool failed{},busy{},model{},engine{},present{},runtime{},runtime_present{};double progress{};juce::String message;};
     TranscriptionSetup(ModelStore models,Request engine,std::shared_ptr<TranscriptionRuntime> runtime={}):models_(std::move(models)),engine_(std::move(engine)),runtime_(std::move(runtime)){check();}
     ~TranscriptionSetup(){shutdown();}
     ModelStore models()const{return models_;}
@@ -54,7 +54,7 @@ public:
     Status status()const{auto s=status_;if(job_){const auto total=job_->total.load();s.progress=total?static_cast<double>(job_->completed.load())/static_cast<double>(total):-1.;}return s;}
     void poll(){
         if(!job_||job_->future.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
-        auto job=std::move(job_);try{status_=job->future.get();}catch(...){status_={};status_.message="Model operation failed.";}
+        auto job=std::move(job_);try{status_=job->future.get();}catch(...){status_={};status_.failed=true;status_.message="Model operation failed.";}
     }
     void cancel(){if(job_){job_->stop.request_stop();status_.message="Cancelling model operation...";}}
     void shutdown(){if(job_){job_->stop.request_stop();job_->future.wait();job_.reset();}}
@@ -76,10 +76,10 @@ private:
         job->future=std::async(std::launch::async,[models,engine,runtime,operation=std::move(operation),progress,stop]()mutable{
             Status out;
             try{operation(models,stop,[progress](auto completed,auto total){progress->total.store(total);progress->completed.store(completed);});}
-            catch(const std::exception& e){out.message=stop.stop_requested()?"Model operation cancelled.":failure(e.what());}
+            catch(const std::exception& e){out.failed=true;out.message=stop.stop_requested()?"Model operation cancelled.":failure(e.what());}
             if(stop.stop_requested()){out.message="Model operation cancelled.";return out;}
             try{out.present=fs::exists(models.directory());if(out.present){models.verify(stop);out.model=true;}}
-            catch(const std::exception& e){out.message=failure(e.what());}
+            catch(const std::exception& e){out.failed=true;out.message=failure(e.what());}
             try{out.engine=!engine.executable_sha256.empty()&&fs::is_regular_file(engine.executable)&&fs::file_size(engine.executable)<32*1024*1024&&mrs::sha256_file(engine.executable,stop)==engine.executable_sha256;}
             catch(...){out.engine=false;}
             if(out.message.isEmpty())out.message=out.model?"Model verified and available offline.":"Download Medium or choose an authorized local folder.";
@@ -226,7 +226,7 @@ private:
         }
         if(busy(job.state)||preview(job.state)||job.state==JobState::placed)status+=" | "+juce::String(static_cast<int>(job.elapsed_seconds))+" s elapsed / "+juce::String(job.cpu_threads)+" threads";
         if(result&&python)status+=" | "+text(result->cpu_capability)+" | load "+juce::String(result->model_load_seconds,1)+" s / inference "+juce::String(result->inference_seconds,1)+" s | RAM "+juce::String(static_cast<double>(result->peak_memory_bytes)/(1024*1024),0)+" MiB";
-        status_.setText(model.busy?model.message:status,juce::dontSendNotification);
+        status_.setText(model.busy||model.failed?model.message:status,juce::dontSendNotification);
         progress_value_=model.busy?model.progress:job.state==JobState::running?(job.total?static_cast<double>(job.completed)/job.total:-1.):(preview(job.state)||job.state==JobState::placed?1.:0.);
         const bool occupied=busy(job.state),pending=preview(job.state),recording=owner_.app.recording();
         const bool processed=clip&&(clip->stretch||std::any_of(owner_.project()->ara_bindings.begin(),owner_.project()->ara_bindings.end(),[&](const auto& b){return b.source==clip->source;}));
