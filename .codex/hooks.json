@@ -1,0 +1,20 @@
+{
+  "description": "Load concise MR Studio context at session start, reset, or compaction",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "^(startup|clear|compact)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/session_start.py\"",
+            "commandWindows": "powershell -NoProfile -NonInteractive -Command \"python (Join-Path (git rev-parse --show-toplevel) '.codex/hooks/session_start.py'); exit $LASTEXITCODE\"",
+            "timeout": 5,
+            "additionalContextLimit": 1200,
+            "statusMessage": "Loading MR Studio context"
+          }
+        ]
+      }
+    ]
+  }
+}
