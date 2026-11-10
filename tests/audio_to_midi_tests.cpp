@@ -48,7 +48,13 @@ void musical_reference(){
     const std::vector<TranscribedNote> processed{{40,2.25,3.0,"electric_bass"}},raw{{40,2.237,2.93,"electric_bass"}};
     TimeMap time;time.tempos={{0,90},{4*ppq,110}};time.meters={{1,3,4}};
     store.execute(PlaceTranscription(snapshot,p.clips[0].id,processed,time,raw,"fixture: source hash / model revision"));const auto result=*store.state().project;
-    check(result.time==time&&result.tracks.size()==3&&result.clips.size()==3&&result.markers.size()==1&&result.tracks.back().mix.mute);
+    check(result.time==time&&result.tracks.size()==3&&result.clips.size()==3&&result.markers.empty()&&result.tracks.back().mix.mute);
+    check(result.transcription_results.size()==1&&result.transcription_results.front().source_clip==p.clips[0].id&&result.transcription_results.front().midi_clips.size()==2);
+    auto duplicate=result;duplicate.transcription_results.push_back(duplicate.transcription_results.front());rejects([&]{duplicate.validate();});
+    auto malformed=result;malformed.transcription_results.front().midi_clips.push_back(malformed.transcription_results.front().midi_clips.front());rejects([&]{malformed.validate();});
+    malformed=result;malformed.transcription_results.front().provenance.clear();rejects([&]{malformed.validate();});
+    auto wrong_version=serialize(result);wrong_version.replace(wrong_version.find("35"),2,"34");rejects([&]{(void)deserialize(wrong_version);});
+    check(serialize(result).starts_with("MRS_CORE_SNAPSHOT 35\n")&&serialize(p).starts_with("MRS_CORE_SNAPSHOT 32\n"));
     check(result.clips[0]==p.clips[0]&&result.tracks.back().name.find("original timing")!=std::string::npos);
     const Timeline timeline(time,p.sample_rate);const auto& original=*result.clips.back().midi;
     check(std::abs(timeline.to_samples(original.start+original.notes[0].start)-(48000+static_cast<Sample>(std::llround(.237*48000))))<=32);

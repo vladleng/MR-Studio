@@ -4,6 +4,7 @@
 #include "TranscriptionRuntime.h"
 #include <mrs/sha256.hpp>
 #include <transcription_engine.h>
+#include <transcription_profile.h>
 #include <algorithm>
 #include <atomic>
 #include <fstream>

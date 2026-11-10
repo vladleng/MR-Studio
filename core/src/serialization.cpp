@@ -91,9 +91,9 @@ std::string serialize(const Project& p) {
     std::ostringstream out;
     out.imbue(std::locale::classic());
     out << std::setprecision(std::numeric_limits<double>::max_digits10);
-    // Unaffected Studio/Live projects retain the previous wire format. Schema 33
-    // is required only when there are actual separation records to preserve.
-    out << "MRS_CORE_SNAPSHOT " << (p.separation_results.empty()?32:std::all_of(p.separation_results.begin(),p.separation_results.end(),legacy_separation)?33:p.version) << '\n';
+    // Unaffected projects retain schema32/33/34. Schema35 is emitted only
+    // for durable transcription records; earlier projects still migrate in memory.
+    out << "MRS_CORE_SNAPSHOT " << (!p.transcription_results.empty()?35:p.separation_results.empty()?32:std::all_of(p.separation_results.begin(),p.separation_results.end(),legacy_separation)?33:34) << '\n';
     out << "PROJECT " << std::quoted(p.id.value) << ' ' << std::quoted(p.title) << ' '
         << std::quoted(p.artist) << ' ' << p.sample_rate << '\n';
     section(out, "TEMPOS", p.time.tempos);
@@ -167,6 +167,10 @@ std::string serialize(const Project& p) {
             out<<r.source_offset<<' '<<r.source_frames<<' '<<r.start<<' '<<r.frames<<' '<<r.fade_in<<' '<<r.fade_out<<' '<<r.source_rate<<' '<<r.sample_rate<<' '<<r.stems.size()<<'\n';
             file(r.manifest);for(const auto& f:r.stems)file(f);
         }
+    }
+    if(!p.transcription_results.empty()){
+        out<<"TRANSCRIPTION_RESULTS "<<p.transcription_results.size()<<'\n';
+        for(const auto& r:p.transcription_results){out<<std::quoted(r.id.value)<<' '<<std::quoted(r.source_clip.value)<<' '<<std::quoted(r.provenance)<<' '<<r.midi_clips.size();for(const auto& clip:r.midi_clips)out<<' '<<std::quoted(clip.value);out<<'\n';}
     }
     out << "END\n";
     auto result = out.str();
@@ -355,6 +359,11 @@ Project deserialize(std::string_view bytes) {
         for(std::size_t i=0;i<total;++i){SeparationResult r;r.id={quoted(in)};r.source_clip={quoted(in)};r.source=quoted(in);r.source_sha256=quoted(in);r.model=quoted(in);r.model_version=quoted(in);r.provenance=quoted(in);
             in>>r.source_offset>>r.source_frames>>r.start>>r.frames>>r.fade_in>>r.fade_out>>r.source_rate>>r.sample_rate;const auto stems=count(in);if(stems==0||stems>53||(input_version<=33&&stems!=2&&stems!=4&&stems!=6))throw std::invalid_argument("Unsupported separation stems");
             r.manifest=file();for(std::size_t j=0;j<stems;++j)r.stems.push_back(file());if(input_version<=33&&!legacy_separation(r))throw std::invalid_argument("Unsupported legacy separation roles");p.separation_results.push_back(std::move(r));}
+        in>>ending;check_stream(in);
+    }
+    if(input_version>=35&&ending=="TRANSCRIPTION_RESULTS"){
+        const auto total=count(in);if(total>64)throw std::invalid_argument("Too many transcription records");
+        for(std::size_t i=0;i<total;++i){TranscriptionRecord record;record.id={quoted(in)};record.source_clip={quoted(in)};record.provenance=quoted(in);const auto clips=count(in);if(clips==0||clips>128)throw std::invalid_argument("Invalid transcription clip count");for(std::size_t j=0;j<clips;++j)record.midi_clips.push_back(Id{quoted(in)});p.transcription_results.push_back(std::move(record));}
         in>>ending;check_stream(in);
     }
     if(ending!="END")throw std::invalid_argument("invalid snapshot ending");

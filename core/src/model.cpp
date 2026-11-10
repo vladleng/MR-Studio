@@ -200,6 +200,13 @@ void Project::validate() const {
         for(const auto& f:r.stems){file(f);require((!f.role.empty()&&f.role!="manifest"&&f.role.size()<=64&&f.role.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")==std::string::npos)&&roles.insert(f.role).second,"Invalid separation stem");}
 
     }
+    require(transcription_results.size()<=64,"Too many transcription records (64)");
+    for(const auto& record:transcription_results){
+        add_id(record.id);require(!record.source_clip.value.empty()&&text(record.source_clip.value,128),"Invalid transcription source identity");
+        require(!record.provenance.empty()&&text(record.provenance,8192),"Invalid transcription provenance");
+        require(!record.midi_clips.empty()&&record.midi_clips.size()<=128,"Invalid transcription clip count");
+        std::set<std::string> references;for(const auto& clip:record.midi_clips)require(!clip.value.empty()&&text(clip.value,128)&&references.insert(clip.value).second,"Invalid transcription clip reference");
+    }
     add_id(id);
     std::unordered_map<std::string, const Folder*> folder_by_id;
     for (const auto& folder : folders) {

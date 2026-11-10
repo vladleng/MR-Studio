@@ -1,6 +1,7 @@
 #include <mrs/audio_to_midi_worker.hpp>
 #include <mrs/sha256.hpp>
 #include <mrs/transcription_controller.hpp>
+#include <mrs/persistence.hpp>
 #include <fstream>
 #include <iostream>
 #include <thread>
@@ -35,7 +36,9 @@ int main(int argc,char** argv){try{
     const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(5);
     while(controller.status().state==JobState::running){check(std::chrono::steady_clock::now()<until);controller.poll(store,root/"fixture.mrs");std::this_thread::sleep_for(std::chrono::milliseconds(2));}
     check(controller.status().state==JobState::ready);store->execute(controller.prepare(store,root/"fixture.mrs"));const auto placed=*store->state().project;
-    check(placed.tracks.size()==3&&placed.tracks.back().mix.mute&&placed.time.tempos.front().bpm==120&&placed.time.tempos.back().bpm==90&&placed.markers.size()==1&&placed.clips.front()==clip);
+    check(placed.tracks.size()==3&&placed.tracks.back().mix.mute&&placed.time.tempos.front().bpm==120&&placed.time.tempos.back().bpm==90&&placed.markers.empty()&&placed.transcription_results.size()==1&&placed.clips.front()==clip);
+    persistence::ProjectDocument document;document.project=placed;document.graph.id=new_id();
+    const auto saved=root/"Python provenance.mrsproject",saved_as=root/"Python provenance Save As.mrsproject";persistence::save_project(saved,document);check(persistence::load_project(saved)==document);persistence::save_project(saved_as,persistence::load_project(saved));check(persistence::load_project(saved_as)==document);
     check(deserialize(serialize(placed))==placed);check(store->undo()&&*store->state().project==project);check(store->redo()&&*store->state().project==placed);controller.placed();
     wav(r.source,6);controller.start(store,root/"fixture.mrs",clip.id,r.source,models,r);
     while(controller.status().state==JobState::running){check(std::chrono::steady_clock::now()<until);controller.poll(store,root/"fixture.mrs");std::this_thread::sleep_for(std::chrono::milliseconds(2));}

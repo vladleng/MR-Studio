@@ -47,8 +47,10 @@ keeps muted original-timing reference tracks, through the same atomic command.
 An optional explicit tempo/meter import changes the clip range and restores the
 previous tempo afterwards; meter import requires the first downbeat to align with a project bar line.
 Source audio samples remain unchanged. Existing project MIDI follows its normal
-tick-based tempo-map semantics. A project marker preserves model/source/crop
-provenance without a new project format. Undo/Redo and Save/Open preserve all of it.
+tick-based tempo-map semantics. A hidden transcription record preserves model/source/crop provenance and created
+clip IDs. Projects with these records use snapshot schema35; unrelated projects
+retain their existing schema32/33/34 wire format. Older projects still open.
+No technical markers are inserted into the musical timeline. Undo/Redo and Save/Open preserve all of it.
 
 Windows Studio-only/ARA ON validation, full installer checks, representative real
 music, the user's private bass repro, physical ASIO/DPI and comparable native/Python

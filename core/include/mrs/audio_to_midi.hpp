@@ -35,7 +35,7 @@ public:
 private:
     std::shared_ptr<const Project> source_;
     std::optional<TimeMap> time_;
-    std::optional<Marker> provenance_;
+    std::optional<TranscriptionRecord> provenance_;
     std::vector<Track> tracks_;
     std::vector<Clip> clips_;
 };

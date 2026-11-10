@@ -36,11 +36,13 @@ bool relativeName(const juce::String& name) {
     return true;
 }
 bool leaf(const juce::String& name) { return relativeName(name) && !name.containsAnyOf("/\\") && name.length()<=128; }
-void walk(const juce::File& root, const juce::File& dir, std::vector<juce::File>& files, int depth=0) {
+void walk(const juce::File& root, const juce::File& dir, std::vector<juce::File>& files, int depth=0,bool diagnostics=false) {
+    if(diagnostics&&!(depth<40&&plain(dir)))std::fprintf(stderr,"Runtime inventory directory rejected: %s depth=%d attrs=%lu\n",dir.getFullPathName().toRawUTF8(),depth,static_cast<unsigned long>(GetFileAttributesW(dir.getFullPathName().toWideCharPointer())));
     need(depth<40 && plain(dir),"unsafe_path");
     for(const auto& child:dir.findChildFiles(juce::File::findFilesAndDirectories,false)) {
+        if(diagnostics&&!(plain(child)&&child.isAChildOf(root)))std::fprintf(stderr,"Runtime inventory child rejected: %s child=%d attrs=%lu\n",child.getFullPathName().toRawUTF8(),child.isAChildOf(root)?1:0,static_cast<unsigned long>(GetFileAttributesW(child.getFullPathName().toWideCharPointer())));
         need(plain(child) && child.isAChildOf(root),"unsafe_path");
-        if(child.isDirectory())walk(root,child,files,depth+1);else files.push_back(child);
+        if(child.isDirectory())walk(root,child,files,depth+1,diagnostics);else files.push_back(child);
         need(files.size()<=100000,"resource_limit");
     }
 }
@@ -52,8 +54,8 @@ juce::var manifest(const juce::File& dir,const juce::String& identity) {
     need(value.isObject() && static_cast<int>(value["schema"])==1 && value["identity"].toString()==identity && value["files"].isArray(),"unmanaged_installation");
     return value;
 }
-void inventory(const juce::File& dir,const juce::String& identity,const juce::var& provenance,const std::atomic<bool>& stop) {
-    std::vector<juce::File> files; walk(dir,dir,files);
+void inventory(const juce::File& dir,const juce::String& identity,const juce::var& provenance,const std::atomic<bool>& stop,bool diagnostics=false) {
+    std::vector<juce::File> files; walk(dir,dir,files,0,diagnostics);
     juce::Array<juce::var> entries;
     for(const auto& f:files) {
         check(stop); need(f.getFileName()!="managed.json","invalid_inventory");
@@ -62,15 +64,15 @@ void inventory(const juce::File& dir,const juce::String& identity,const juce::va
     auto value=object();put(value,"schema",1);put(value,"identity",identity);put(value,"provenance",provenance);put(value,"files",juce::var(entries));
     need(dir.getChildFile("managed.json").replaceWithText(juce::JSON::toString(value,true)),"io_error");
 }
-void verifyInventory(const juce::File& dir,const juce::String& id,const std::atomic<bool>& stop,bool hashes) {
+void verifyInventory(const juce::File& dir,const juce::String& id,const std::atomic<bool>& stop,bool hashes,bool diagnostics=false) {
     const auto value=manifest(dir,id); std::set<juce::String> expected{"managed.json"};
     for(const auto& entry:*value["files"].getArray()) {
-        check(stop);const auto path=entry["path"].toString();need(relativeName(path)&&expected.insert(path).second,"unsafe_path");
+        check(stop);const auto path=entry["path"].toString();const bool safe=relativeName(path)&&expected.insert(path).second;if(diagnostics&&!safe)std::fprintf(stderr,"Runtime inventory invalid/duplicate relative entry: %s\n",path.toRawUTF8());need(safe,"unsafe_path");
         const auto f=dir.getChildFile(path);
         if(f.exists()){need(f.existsAsFile()&&plain(f),"integrity_failure");if(hashes)need(sha(f)==entry["sha256"].toString(),"integrity_failure");}
         else need(!hashes,"integrity_failure");
     }
-    std::vector<juce::File> files;walk(dir,dir,files);
+    std::vector<juce::File> files;walk(dir,dir,files,0,diagnostics);
     for(const auto& f:files)need(expected.count(f.getRelativePathFrom(dir).replaceCharacter('\\','/'))!=0,"unmanaged_files");
 }
 struct Internet { HINTERNET h{}; ~Internet(){if(h)WinHttpCloseHandle(h);} };
@@ -124,8 +126,8 @@ struct Staging { juce::File dir; bool owned{}; ~Staging(){if(owned&&dir!=juce::F
 }
 
 void fetchRuntimeArtifact(const DownloadArtifact& artifact,const juce::File& target,const std::atomic<bool>& stop){fetchHttps(artifact,target,stop,[](auto,auto){});need(sha(target)==artifact.sha256,"integrity_failure");}
-void publishRuntimeInventory(const juce::File& dir,const juce::String& identity,const juce::var& provenance,const std::atomic<bool>& stop){inventory(dir,identity,provenance,stop);}
-void verifyRuntimeInventory(const juce::File& dir,const juce::String& identity,const std::atomic<bool>& stop,bool hashes){verifyInventory(dir,identity,stop,hashes);}
+void publishRuntimeInventory(const juce::File& dir,const juce::String& identity,const juce::var& provenance,const std::atomic<bool>& stop){inventory(dir,identity,provenance,stop,true);}
+void verifyRuntimeInventory(const juce::File& dir,const juce::String& identity,const std::atomic<bool>& stop,bool hashes){verifyInventory(dir,identity,stop,hashes,true);}
 
 const std::vector<ModelRecord>& modelCatalogue() {
     static const auto records=[]{

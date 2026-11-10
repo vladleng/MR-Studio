@@ -82,12 +82,15 @@ PlaceTranscription::PlaceTranscription(std::shared_ptr<const Project> source,Id 
         for(auto& track:reference.tracks_){track.name+=" (original timing)";track.mix.mute=true;tracks_.push_back(std::move(track));}
         for(auto& clip:reference.clips_){clip.name+=" (original timing)";clips_.push_back(std::move(clip));}
     }
-    if(!provenance.empty())provenance_=Marker{new_id(),std::move(provenance),first,MarkerKind::generic,{}};
+    if(!provenance.empty()){
+        provenance_=TranscriptionRecord{new_id(),audio_clip,{},std::move(provenance)};
+        for(const auto& clip:clips_)provenance_->midi_clips.push_back(clip.id);
+    }
 }
 void PlaceTranscription::apply(Project& project) const{
     if(project!=*source_)throw std::invalid_argument("project changed since transcription started; run again");
     if(time_)project.time=*time_;
-    if(provenance_)project.markers.push_back(*provenance_);
+    if(provenance_)project.transcription_results.push_back(*provenance_);
     project.tracks.insert(project.tracks.end(),tracks_.begin(),tracks_.end());
     project.clips.insert(project.clips.end(),clips_.begin(),clips_.end());
 }
