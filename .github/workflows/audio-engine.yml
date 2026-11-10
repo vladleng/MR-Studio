@@ -1,11 +1,9 @@
 name: Windows Studio Release
 # Product versions are validated against the source header before building.
 run-name: ${{ (inputs.checks == 'studio' || github.head_ref == 'codex/368-python-muscriptor' || github.head_ref == 'codex/342-native-audio-midi' || github.ref_name == 'codex/368-python-muscriptor' || github.ref_name == 'codex/342-native-audio-midi' || github.head_ref == 'codex/74-separation-contract' || github.ref_name == 'codex/74-separation-contract') && inputs.checks != 'live' && !inputs.integration && 'MR Studio 0.10.2 — Windows Release' || 'MR Studio 0.10.2 / MR Live 0.8.13-fix1 — Windows Release' }}
+# Heavy Windows acceptance packages are opt-in. Fast Core contracts and
+# component-specific CI continue running automatically on relevant changes.
 on:
-  push:
-    branches: [main, 'codex/cloud-cicd-migration']
-  pull_request:
-    paths: ['apps/**', 'core/**', 'assets/**', 'cmake/**', 'third_party/**', 'tests/**', 'tools/ci/**', 'CMakeLists.txt', '.github/workflows/**']
   workflow_dispatch:
     inputs:
       integration:
