@@ -10,6 +10,7 @@ struct DownloadArtifact {
     juce::int64 bytes{};
 };
 // Generic installation primitives; callers keep their own roots/identities.
+juce::File nativeRuntimeFile(const juce::File&); // extended Win32 spelling, same file
 void fetchRuntimeArtifact(const DownloadArtifact&,const juce::File&,const std::atomic<bool>&);
 void publishRuntimeInventory(const juce::File&,const juce::String&,const juce::var&,const std::atomic<bool>&);
 void verifyRuntimeInventory(const juce::File&,const juce::String&,const std::atomic<bool>&,bool hashes = true);

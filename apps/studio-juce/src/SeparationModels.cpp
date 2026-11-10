@@ -28,7 +28,7 @@ juce::String sha(const juce::File& file) {
     return juce::SHA256(*input).toHexString();
 }
 juce::String textHash(const juce::String& text) { const auto bytes = text.toUTF8(); return juce::SHA256(bytes.getAddress(), text.getNumBytesAsUTF8()).toHexString(); }
-bool plain(const juce::File& f) {
+juce::File extendedFile(const juce::File& f) {
     // Python wheels contain headers/test data beyond MAX_PATH, particularly
     // under a private installation stage. Keep the reparse-point guard while
     // using the extended Win32 spelling supported by JUCE's own file I/O.
@@ -37,7 +37,10 @@ bool plain(const juce::File& f) {
         if(native.starts_with(L"\\\\"))native=L"\\\\?\\UNC\\"+native.substr(2);
         else native=L"\\\\?\\"+native;
     }
-    const auto a=GetFileAttributesW(native.c_str());
+    return juce::File(juce::String(native.c_str()));
+}
+bool plain(const juce::File& f) {
+    const auto a=GetFileAttributesW(extendedFile(f).getFullPathName().toWideCharPointer());
     return a!=INVALID_FILE_ATTRIBUTES && !(a&FILE_ATTRIBUTE_REPARSE_POINT);
 }
 bool relativeName(const juce::String& name) {
@@ -137,8 +140,9 @@ struct Staging { juce::File dir; bool owned{}; ~Staging(){if(owned&&dir!=juce::F
 }
 
 void fetchRuntimeArtifact(const DownloadArtifact& artifact,const juce::File& target,const std::atomic<bool>& stop){fetchHttps(artifact,target,stop,[](auto,auto){});need(sha(target)==artifact.sha256,"integrity_failure");}
-void publishRuntimeInventory(const juce::File& dir,const juce::String& identity,const juce::var& provenance,const std::atomic<bool>& stop){inventory(dir,identity,provenance,stop,true);}
-void verifyRuntimeInventory(const juce::File& dir,const juce::String& identity,const std::atomic<bool>& stop,bool hashes){verifyInventory(dir,identity,stop,hashes,true);}
+juce::File nativeRuntimeFile(const juce::File& file){return extendedFile(file);}
+void publishRuntimeInventory(const juce::File& dir,const juce::String& identity,const juce::var& provenance,const std::atomic<bool>& stop){inventory(extendedFile(dir),identity,provenance,stop,true);}
+void verifyRuntimeInventory(const juce::File& dir,const juce::String& identity,const std::atomic<bool>& stop,bool hashes){verifyInventory(extendedFile(dir),identity,stop,hashes,true);}
 
 const std::vector<ModelRecord>& modelCatalogue() {
     static const auto records=[]{

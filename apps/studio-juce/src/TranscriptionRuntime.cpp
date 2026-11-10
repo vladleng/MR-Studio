@@ -13,7 +13,7 @@ constexpr auto identity="muscriptor-medium-python-8a1ef886-v1";
 void need(bool b,const char* message){if(!b)throw std::runtime_error(message);}
 juce::String hash(const juce::File& file){auto in=file.createInputStream();need(in&&in->openedOk(),"runtime_io");return juce::SHA256(*in).toHexString();}
 struct Lock{HANDLE h{INVALID_HANDLE_VALUE};~Lock(){if(h!=INVALID_HANDLE_VALUE)CloseHandle(h);}};
-struct Stage{juce::File dir;~Stage(){if(dir!=juce::File())dir.deleteRecursively();}};
+struct Stage{juce::File dir;~Stage(){if(dir!=juce::File())mr::separation::nativeRuntimeFile(dir).deleteRecursively();}};
 void probe(const juce::File& dir,const std::atomic<bool>& stop){
     // Single quotes keep this fixed -c program compatible with the existing
     // shell-free installer process helper.
@@ -38,7 +38,7 @@ void TranscriptionRuntime::remove()const{
     auto guard=lock(true);if(!present())return;std::atomic<bool> stop{};
     // Verify ownership/file allowlist before deletion; damaged known files
     // remain removable, while foreign files and linked paths are refused.
-    mr::separation::verifyRuntimeInventory(directory(),identity,stop,false);need(directory().deleteRecursively(),"runtime_remove_failed");
+    mr::separation::verifyRuntimeInventory(directory(),identity,stop,false);need(mr::separation::nativeRuntimeFile(directory()).deleteRecursively(),"runtime_remove_failed");
 }
 void TranscriptionRuntime::install(std::stop_token token)const{
     auto guard=lock(true);need(!present(),"runtime_already_installed");

@@ -4,10 +4,10 @@
 int main(int argc,char** argv){try{
     if(argc!=2)return 2;
     const auto root=juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("mrs-python-install-check-"+juce::Uuid().toString());
-    struct Cleanup{juce::File root;~Cleanup(){root.deleteRecursively();}} cleanup{root};
+    struct Cleanup{juce::File root;~Cleanup(){mr::separation::nativeRuntimeFile(root).deleteRecursively();}} cleanup{root};
     // Regression: JUCE/Python can create paths longer than MAX_PATH even when
     // this console executable has no longPathAware application manifest.
-    const auto inventoryRoot=root.getChildFile("long-path-inventory");
+    const auto inventoryRoot=mr::separation::nativeRuntimeFile(root.getChildFile("long-path-inventory"));
     auto nested=inventoryRoot;
     for(int i=0;i<12;++i)nested=nested.getChildFile("nested-package-directory");
     const auto payload=nested.getChildFile("dependency_links.txt");
