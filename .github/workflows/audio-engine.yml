@@ -21,13 +21,28 @@ on:
         default: true
 permissions:
   contents: read
+  actions: read  # Preflight queries CI results for the dispatched SHA.
 env:
   RELEASE_BANNER: 'MR Studio 0.10.2 / MR Live 0.8.13-fix1 — Windows Release'
 concurrency:
   group: windows-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  preflight:
+    name: Verify prerequisite CI for release SHA
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check required fast/targeted CI results
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_CHECKS: ${{ inputs.checks }}
+        run: python3 tools/ci/verify_release_gate.py
   studio:
+    needs: preflight
     # Migration branch with an open PR would otherwise launch two identical
     # Windows builds on each ordinary commit. Live-only PR acceptance runs
     # without ARA2; Studio profile and main releases retain ARA2 by default.
