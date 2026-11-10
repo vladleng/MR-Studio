@@ -68,9 +68,18 @@ class VerifyReleaseGateTest(unittest.TestCase):
         with self.assertRaises(GateError):
             verify(SHA, "studio", runs, lambda _: core_jobs())
 
-    def test_unknown_workflows_do_not_block(self):
+    def test_release_workflow_does_not_block_on_itself(self):
         runs = [run("core-contracts.yml"), run("audio-engine.yml", conclusion="failure")]
         self.assertEqual(len(verify(SHA, "studio", runs, lambda _: core_jobs())), 1)
+
+    def test_new_component_contract_blocks_if_failed(self):
+        runs = [run("core-contracts.yml"), run("transcription-contracts.yml", conclusion="failure")]
+        with self.assertRaisesRegex(GateError, "transcription-contracts.yml"):
+            verify(SHA, "studio", runs, lambda _: core_jobs())
+
+    def test_new_component_contract_pass_required(self):
+        runs = [run("core-contracts.yml"), run("transcription-contracts.yml")]
+        self.assertEqual(len(verify(SHA, "studio", runs, lambda _: core_jobs())), 2)
 
     def test_bad_sha_blocks(self):
         with self.assertRaisesRegex(GateError, "Invalid commit SHA"):
