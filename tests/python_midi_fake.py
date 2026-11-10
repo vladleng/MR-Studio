@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import struct
+import sys
 import time
 
 p=argparse.ArgumentParser()
@@ -16,6 +17,9 @@ assert os.environ['ATEN_CPU_CAPABILITY'] in ('default','avx2')
 mode=Path(a.transcribe).read_bytes()[44]
 if mode==1: time.sleep(20)
 if mode==2: raise SystemExit(1)
+if mode==6:
+    print("MuScriptor failed: missing_EOS_within_2000_tokens",file=sys.stderr,flush=True)
+    raise SystemExit(1)
 role='electric_bass' if a.instruments else 'acoustic_piano'
 assert not a.instruments or a.instruments==['electric_bass','acoustic_bass']
 program=33 if a.instruments else 0

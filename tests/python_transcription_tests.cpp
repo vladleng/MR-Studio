@@ -37,5 +37,8 @@ int main(int argc,char** argv){try{
     check(controller.status().state==JobState::ready);store->execute(controller.prepare(store,root/"fixture.mrs"));const auto placed=*store->state().project;
     check(placed.tracks.size()==3&&placed.tracks.back().mix.mute&&placed.time.tempos.front().bpm==120&&placed.time.tempos.back().bpm==90&&placed.markers.size()==1&&placed.clips.front()==clip);
     check(deserialize(serialize(placed))==placed);check(store->undo()&&*store->state().project==project);check(store->redo()&&*store->state().project==placed);controller.placed();
+    wav(r.source,6);controller.start(store,root/"fixture.mrs",clip.id,r.source,models,r);
+    while(controller.status().state==JobState::running){check(std::chrono::steady_clock::now()<until);controller.poll(store,root/"fixture.mrs");std::this_thread::sleep_for(std::chrono::milliseconds(2));}
+    check(controller.status().state==JobState::failed&&controller.status().error=="missing_eos"&&!controller.status().diagnostics.empty()&&*store->state().project==placed);
     std::cout<<"PASS isolated Python contract / original vs processed / multi-instrument / cleanup\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

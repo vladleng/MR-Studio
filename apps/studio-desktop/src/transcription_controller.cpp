@@ -80,6 +80,7 @@ void Controller::poll(const std::shared_ptr<IProjectStore>& store,const std::fil
     if(job->obsolete){status_={JobState::stale,0,0,"Project/source changed; run transcription again"};return;}
     if(job->stop.stop_requested()||result.state==State::cancelled){status_={JobState::cancelled,0,0,{}};return;}
     if(!current(store,path)){status_={JobState::stale,0,0,"Project/source changed; run transcription again"};return;}
+    status_.diagnostics=result.diagnostics;
     if(result.state==State::ready||result.state==State::empty){
         need(result.project_id==captured_.project->id&&result.clip_id==clip_&&result.project_revision==captured_.revision,"Worker identity mismatch");
         const auto& clips=captured_.project->clips;const auto at=std::find_if(clips.begin(),clips.end(),[&](const auto& c){return c.id==clip_;});
@@ -89,7 +90,7 @@ void Controller::poll(const std::shared_ptr<IProjectStore>& store,const std::fil
         for(auto* notes:{&result.notes,&result.original_notes}){for(auto& note:*notes){note.start=std::max(note.start,first);note.end=std::min(note.end,last);}std::erase_if(*notes,[](const auto& n){return n.end<=n.start;});}
         result.state=result.notes.empty()&&result.original_notes.empty()?State::empty:State::ready;
         status_.state=result.state==State::ready?JobState::ready:JobState::empty;status_.error.clear();status_.elapsed_seconds=result.elapsed_seconds;status_.cpu_threads=result.cpu_threads;result_=std::move(result);
-    }else{status_.state=result.state==State::timeout?JobState::timeout:JobState::failed;status_.error=std::move(result.error);}
+    }else{status_.state=result.state==State::timeout?JobState::timeout:JobState::failed;status_.error=result.error=="process_exit"&&result.diagnostics.find("missing_EOS_within_2000_tokens")!=std::string::npos?"missing_eos":std::move(result.error);}
 }
 void Controller::cancel(){
     result_.reset();if(job_){job_->stop.request_stop();status_.state=JobState::cancelling;status_.error.clear();}

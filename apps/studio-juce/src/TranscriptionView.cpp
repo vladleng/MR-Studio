@@ -20,12 +20,13 @@ bool busy(JobState s){return s==JobState::running||s==JobState::cancelling;}
 bool preview(JobState s){return s==JobState::ready||s==JobState::empty;}
 juce::String failure(const std::string& e){
     if(e=="integrity_failure"||e=="invalid_hash")return "Verification failed. Verify the model or reinstall this MR Studio build.";
-    if(e=="process_exit"||e=="process_start")return "The native engine could not finish. Check available memory or try a shorter source WAV.";
+    if(e=="process_exit"||e=="process_start")return "The recognition worker could not finish. Check Diagnostics, the runtime and available memory, or try a shorter clip.";
     if(e=="invalid_output"||e=="invalid_midi")return "The engine returned an invalid result. No MIDI was placed.";
     if(e=="runtime_verification_failed"||e=="muscriptor_runtime_probe_failed")return "Python runtime verification failed. Verify or reinstall the Python runtime.";
     if(e=="muscriptor_runtime_install_failed")return "Python runtime installation failed. Check connection, free disk space and runtime-last-operation.log.";
     if(e=="runtime_requirements_changed")return "Runtime setup files do not match this MR Studio build. Reinstall the application.";
     if(e=="invalid_music_options")return "Check BPM, meter, strength (0..1), fill gaps and beat scale values.";
+    if(e=="missing_eos")return "The model reached the token limit before EOS. No partial MIDI was placed. Try a shorter clip or Auto.";
     if(e=="timeout")return "Conversion timed out. Try a shorter source WAV.";
     return text(e);
 }
@@ -123,7 +124,13 @@ public:
         runtime_install_.setButtonText("Install Python runtime");runtime_verify_.setButtonText("Verify runtime");runtime_remove_.setButtonText("Remove runtime");
         for(auto* b:{&runtime_install_,&runtime_verify_,&runtime_remove_})addAndMakeVisible(*b);
         runtime_install_.onClick=[this]{invoke([&]{setup_->runtimeOperation(0);});};runtime_verify_.onClick=[this]{invoke([&]{setup_->runtimeOperation(1);});};runtime_remove_.onClick=[this]{invoke([&]{setup_->runtimeOperation(2);});};
-        instruments_.setButtonText("Multiple instruments: Auto");instruments_.setTitle("Choose one or more recognized instruments");addAndMakeVisible(instruments_);instruments_.onClick=[this]{chooseInstruments();};
+        diagnostics_button_.setButtonText("Diagnostics");addAndMakeVisible(diagnostics_button_);diagnostics_button_.onClick=[this]{
+            auto editor=std::make_unique<juce::TextEditor>();editor->setMultiLine(true);editor->setReadOnly(true);editor->setScrollbarsShown(true);editor->setSize(700,420);editor->setText(text(owner_.app.transcription_status().diagnostics));
+            editor->setColour(juce::TextEditor::backgroundColourId,owner_.theme.role(ColourRole::panel,surface));editor->setColour(juce::TextEditor::textColourId,owner_.theme.role(ColourRole::text,primaryText));
+            juce::DialogWindow::LaunchOptions options;options.content.setOwned(editor.release());options.dialogTitle="Audio-to-MIDI diagnostics";options.dialogBackgroundColour=owner_.theme.role(ColourRole::window,panel);options.componentToCentreAround=this;options.useNativeTitleBar=true;options.resizable=true;options.launchAsync();
+        };
+        stem_.onChange=[this]{instruments_selected_.clear();if(stem_.getSelectedId()>1)instruments_selected_.push_back(std::string(mrs::ace_midi_instruments()[static_cast<std::size_t>(stem_.getSelectedId()-2)].role));juce::StringArray names;for(const auto& name:instruments_selected_)names.add(text(name));instruments_.setButtonText("Instruments: "+(names.isEmpty()?juce::String("Auto"):names.joinIntoString(", ")));};
+        instruments_.setButtonText("Instruments: Auto");instruments_.setTitle("Choose one or more recognized instruments");addAndMakeVisible(instruments_);instruments_.onClick=[this]{chooseInstruments();};
         for(auto* toggle:{&detect_,&quantize_,&follow_,&trim_,&original_,&import_tempo_})addAndMakeVisible(*toggle);
         detect_.setButtonText("Detect BPM / meter");quantize_.setButtonText("Quantize");follow_.setButtonText("Follow tempo map");follow_.setToggleState(true,juce::dontSendNotification);trim_.setButtonText("Trim leading bars");original_.setButtonText("Place original timing");original_.onClick=[this]{update();};
         for(auto* edit:{&bpm_,&meter_,&strength_,&gaps_,&downbeat_,&scale_}){addAndMakeVisible(*edit);edit->setInputRestrictions(10,"-0123456789.");}
@@ -166,7 +173,7 @@ public:
         backend_.setBounds(20,306,350,28);compatibility_.setBounds(384,306,w-404,28);
         cpu_label_.setBounds(20,346,100,28);cpu_.setBounds(124,344,110,28);stem_label_.setBounds(248,346,116,28);stem_.setBounds(370,344,w-390,28);
         instruments_.setBounds(20,382,w-40,28);
-        runtime_install_.setBounds(20,420,200,28);runtime_verify_.setBounds(232,420,150,28);runtime_remove_.setBounds(394,420,150,28);
+        runtime_install_.setBounds(20,420,200,28);runtime_verify_.setBounds(232,420,150,28);runtime_remove_.setBounds(394,420,150,28);diagnostics_button_.setBounds(558,420,w-578,28);
         detect_.setBounds(20,458,180,28);follow_.setBounds(208,458,180,28);quantize_.setBounds(394,458,100,28);grid_.setBounds(504,458,w-524,28);
         music_label_.setBounds(20,498,w-40,22);int x=20;for(auto* edit:{&bpm_,&meter_,&strength_,&gaps_,&downbeat_,&scale_}){edit->setBounds(x,522,100,28);x+=116;}
         trim_.setBounds(20,560,180,28);original_.setBounds(210,560,200,28);import_tempo_.setBounds(420,560,w-440,28);
@@ -180,7 +187,10 @@ private:
         for(const auto& role:mrs::ace_midi_instruments()){const auto name=std::string(role.role);menu.addItem(id++,text(name).replaceCharacter('_',' '),true,std::find(instruments_selected_.begin(),instruments_selected_.end(),name)!=instruments_selected_.end());}
         juce::Component::SafePointer<TranscriptionPanel> safe(this);menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&instruments_),[safe](int selected){if(!safe||!selected)return;
             if(selected==1){safe->instruments_selected_.clear();safe->stem_.setSelectedId(1,juce::dontSendNotification);}else{const auto name=std::string(mrs::ace_midi_instruments()[static_cast<std::size_t>(selected-2)].role);auto& list=safe->instruments_selected_;const auto at=std::find(list.begin(),list.end(),name);if(at==list.end())list.push_back(name);else list.erase(at);}
-            juce::StringArray names;for(const auto& name:safe->instruments_selected_)names.add(text(name));safe->instruments_.setButtonText("Multiple instruments: "+(names.isEmpty()?juce::String("Auto"):names.joinIntoString(", ")));safe->update();});
+            if(safe->instruments_selected_.size()>1)safe->stem_.setText("Multiple instruments",juce::dontSendNotification);
+            else if(safe->instruments_selected_.size()==1){int id=2;for(const auto& role:mrs::ace_midi_instruments()){if(role.role==safe->instruments_selected_.front())break;++id;}safe->stem_.setSelectedId(id,juce::dontSendNotification);}
+            else safe->stem_.setSelectedId(1,juce::dontSendNotification);
+            juce::StringArray names;for(const auto& name:safe->instruments_selected_)names.add(text(name));safe->instruments_.setButtonText("Instruments: "+(names.isEmpty()?juce::String("Auto"):names.joinIntoString(", ")));safe->update();});
     }
     friend void ::ui::transcriptionSmoke(const juce::File&);
     int getNumRows()override{return static_cast<int>(roles_.size());}
@@ -219,6 +229,8 @@ private:
         progress_value_=model.busy?model.progress:job.state==JobState::running?(job.total?static_cast<double>(job.completed)/job.total:-1.):(preview(job.state)||job.state==JobState::placed?1.:0.);
         const bool occupied=busy(job.state),pending=preview(job.state),recording=owner_.app.recording();
         const bool processed=clip&&(clip->stretch||std::any_of(owner_.project()->ara_bindings.begin(),owner_.project()->ara_bindings.end(),[&](const auto& b){return b.source==clip->source;}));
+        diagnostics_button_.setEnabled(!job.diagnostics.empty());
+        if(!python&&stem_.getSelectedId()==0)stem_.setSelectedId(1,juce::dontSendNotification);
         backend_.setEnabled(!model.busy&&!occupied&&!pending);compatibility_.setEnabled(!model.busy&&!occupied&&!pending);instruments_.setEnabled(python&&!model.busy&&!occupied&&!pending);
         runtime_install_.setEnabled(python&&!model.busy&&!occupied&&!pending&&!model.runtime_present);runtime_verify_.setEnabled(python&&!model.busy&&!occupied&&!pending&&model.runtime_present);runtime_remove_.setEnabled(python&&!model.busy&&!occupied&&!pending&&model.runtime_present);
         for(auto* c:std::initializer_list<juce::Component*>{&detect_,&quantize_,&follow_,&trim_,&bpm_,&meter_,&strength_,&gaps_,&downbeat_,&scale_,&grid_,&import_tempo_})c->setEnabled(python&&!model.busy&&!occupied&&!pending);
@@ -237,7 +249,7 @@ private:
     juce::ToggleButton compatibility_,detect_,quantize_,follow_,trim_,original_,import_tempo_;
     juce::TextEditor bpm_,meter_,strength_,gaps_,downbeat_,scale_;
     juce::Label music_label_;
-    juce::TextButton runtime_install_,runtime_verify_,runtime_remove_,instruments_;
+    juce::TextButton runtime_install_,runtime_verify_,runtime_remove_,instruments_,diagnostics_button_;
     std::vector<std::string> instruments_selected_;
     juce::ToggleButton terms_;juce::TextEditor token_;juce::TextButton terms_link_,download_,local_,verify_,remove_,start_,cancel_,discard_,place_;
     juce::ListBox parts_;std::vector<std::string> roles_;std::vector<std::size_t> counts_;std::string signature_;juce::String last_model_message_;
