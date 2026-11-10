@@ -8,7 +8,7 @@
           {
             "type": "command",
             "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/session_start.py\"",
-            "commandWindows": "powershell -NoProfile -NonInteractive -Command \"python (Join-Path (git rev-parse --show-toplevel) '.codex/hooks/session_start.py'); exit $LASTEXITCODE\"",
+            "commandWindows": "python -c \"from pathlib import Path; import runpy; p=next((d / '.codex/hooks/session_start.py' for d in (Path.cwd(), *Path.cwd().parents) if (d / '.codex/hooks/session_start.py').is_file()), None); p and runpy.run_path(str(p), run_name='__main__')\"",
             "timeout": 5,
             "additionalContextLimit": 1200,
             "statusMessage": "Loading MR Studio context"
