@@ -28,6 +28,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
+      - name: Release preflight gate unit tests
+        run: python3 -m unittest discover -s tools/ci -p 'test_verify_release_gate.py' -v
       - name: Select explicitly requested check scope
         id: scope
         env:
