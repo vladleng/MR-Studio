@@ -2236,9 +2236,9 @@ void Desktop::removeSelectedLivePatchBlocks(const std::vector<LivePatchBlockSele
                     return other.blockId==choice.blockId && other.subId.isEmpty();}))
                     continue;
                 auto parent=target.spans[juce::Identifier(choice.blockId)].clone();
-                const auto next=live::removedSubPatchSpan(parent["subs"],
+                const auto remainingSubs=live::removedSubPatchSpan(parent["subs"],
                                     live::blockLength(parent),choice.subId);
-                live::put(parent,"subs",next);
+                live::put(parent,"subs",remainingSubs);
                 live::put(target.spans,juce::Identifier(choice.blockId),parent);
             } else {
                 target.spans=live::removedPatchSpan(target.spans,choice.blockId);

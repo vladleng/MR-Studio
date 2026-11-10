@@ -1446,9 +1446,14 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         editing.undoLiveInterface();timeline->refresh();
         const auto restored=live::channelItemTrack(editing.liveDocument->interfaceState,
             activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        const auto restoredSegments=live::orderedSpans(restored["subs"]);
+        const bool restoredRhythm=std::any_of(restoredSegments.begin(),restoredSegments.end(),
+            [](const auto& entry) {
+                return live::subPatchLibraryId(entry.first,entry.second)=="sub-backspace";
+            });
         liveCheck(live::subPatchRailCovered(restored["subs"],4.) &&
-                  restored["subs"]["sub-backspace"].isObject(),
-                  "#374 J: one Undo restores the exact split and full coverage");
+                  restoredSegments.size()==2 && restoredRhythm,
+                  "#374 J: one Undo restores a Sub-patch library reference and full coverage");
         timeline->setClipScissors(true);
         body->mouseMove(event(firstSubX,subY));
         liveCheck(body->getMouseCursor()==juce::MouseCursor::CrosshairCursor,
@@ -1471,9 +1476,9 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
                   cutDefault["baseCuts"].isVoid(),
                   "#374 J: Scissors cuts the actual default Sub-patch, never synthetic Base");
         editing.saveFile(file);
-        const auto reopened=LiveDocument::read(file);
+        const auto reopenedSubPatchShow=LiveDocument::read(file);
         file.deleteFile();
-        const auto reopenedSpan=live::channelItemTrack(reopened.interfaceState,
+        const auto reopenedSpan=live::channelItemTrack(reopenedSubPatchShow.interfaceState,
             activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
         liveCheck(live::subPatchRailCovered(reopenedSpan["subs"],4.) &&
                   reopenedSpan["baseCuts"].isVoid(),
