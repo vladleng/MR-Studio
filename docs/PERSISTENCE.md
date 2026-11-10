@@ -53,8 +53,15 @@ u32 IEEE CRC32 of all preceding bytes. Each chunk has a four-byte ASCII tag,
 u64 payload length, payload. Checksums detect accidental corruption, not tampering.
 
 Project requires exactly one PROJ, GRPH, MIXR, MIDI and LIVE chunk. Show requires
-one SHOW. PROJ embeds the current schema 15 core snapshot (schema 2 at the original
-SHARED Stage 4 implementation). Known binary payloads
+one SHOW. PROJ embeds the core snapshot (schema 2 at the original SHARED Stage 4
+implementation). Unaffected projects retain schema32; separation records select
+schema33/34 according to their existing contract. Audio-to-MIDI provenance selects
+schema35 only when hidden `TranscriptionRecord` entries are present. Each entry
+holds its stable ID, source clip ID, created MIDI clip IDs and bounded provenance
+text; it never creates a musical timeline marker. The archive envelope is unchanged.
+Older core snapshots still migrate with an empty transcription-record collection;
+apps predating schema35 cannot open a project that contains those new records.
+Known binary payloads
 use little-endian u32 counts, length-prefixed UTF-8 strings and opaque blobs,
 u32 booleans, IEEE float32 and signed int32 MIDI route settings. IDs are strings.
 The implementation in archive.cpp is authoritative for field order.

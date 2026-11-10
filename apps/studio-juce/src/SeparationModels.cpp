@@ -28,7 +28,18 @@ juce::String sha(const juce::File& file) {
     return juce::SHA256(*input).toHexString();
 }
 juce::String textHash(const juce::String& text) { const auto bytes = text.toUTF8(); return juce::SHA256(bytes.getAddress(), text.getNumBytesAsUTF8()).toHexString(); }
-bool plain(const juce::File& f) { const auto a=GetFileAttributesW(f.getFullPathName().toWideCharPointer()); return a!=INVALID_FILE_ATTRIBUTES && !(a&FILE_ATTRIBUTE_REPARSE_POINT); }
+bool plain(const juce::File& f) {
+    // Python wheels contain headers/test data beyond MAX_PATH, particularly
+    // under a private installation stage. Keep the reparse-point guard while
+    // using the extended Win32 spelling supported by JUCE's own file I/O.
+    std::wstring native(f.getFullPathName().toWideCharPointer());
+    if(!native.starts_with(L"\\\\?\\")){
+        if(native.starts_with(L"\\\\"))native=L"\\\\?\\UNC\\"+native.substr(2);
+        else native=L"\\\\?\\"+native;
+    }
+    const auto a=GetFileAttributesW(native.c_str());
+    return a!=INVALID_FILE_ATTRIBUTES && !(a&FILE_ATTRIBUTE_REPARSE_POINT);
+}
 bool relativeName(const juce::String& name) {
     if(name.isEmpty() || name.containsChar(':') || name.startsWithChar('/') || name.startsWithChar('\\'))return false;
     const auto parts=juce::StringArray::fromTokens(name.replaceCharacter('\\','/'),"/","");
