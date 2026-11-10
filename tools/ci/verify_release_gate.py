@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 
 CORE_WORKFLOW = "core-contracts.yml"
 SEPARATION_WORKFLOW = "separation.yml"
-OPTIONAL_WORKFLOWS = {"transcription-runtime.yml", SEPARATION_WORKFLOW}
+RELEASE_WORKFLOW = "audio-engine.yml"
 CORE_TEST_STEP = "Core contract test suite"
 
 
@@ -19,7 +19,8 @@ class GateError(Exception):
 
 
 def workflow_name(run):
-    return run.get("path", "").split("@", 1)[0].rsplit("/", 1)[-1]
+    path = run.get("path", "").split("@", 1)[0]
+    return path.rsplit("/", 1)[-1] if path.startswith(".github/workflows/") else ""
 
 
 def latest_runs_by_workflow(runs, sha):
@@ -28,7 +29,7 @@ def latest_runs_by_workflow(runs, sha):
         if run.get("head_sha") != sha:
             continue
         name = workflow_name(run)
-        if name not in {CORE_WORKFLOW, *OPTIONAL_WORKFLOWS}:
+        if not name or name == RELEASE_WORKFLOW:
             continue
         previous = latest.get(name)
         if previous is None or (run.get("run_number", 0), run.get("run_attempt", 1)) > (
@@ -47,7 +48,7 @@ def verify(sha, scope, runs, jobs_for_run):
         required.add(SEPARATION_WORKFLOW)
     latest = latest_runs_by_workflow(runs, sha)
     evidence = []
-    for name in sorted(required | (set(latest) & OPTIONAL_WORKFLOWS)):
+    for name in sorted(required | set(latest)):
         run = latest.get(name)
         if run is None:
             raise GateError(f"Missing {name} for {sha}; run the required contract workflow first")
