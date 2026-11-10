@@ -246,9 +246,13 @@ if(BUILD_TESTING)
   target_compile_definitions(mrs_ace_midi_fake PRIVATE _CRT_SECURE_NO_WARNINGS)
   find_package(Python3 COMPONENTS Interpreter)
   if(Python3_Interpreter_FOUND)
+    # setup-python's Windows python3.exe is a symlink to python.exe. The
+    # worker deliberately rejects linked paths; pass the actual interpreter
+    # to this process fixture rather than relaxing the worker's path checks.
+    file(REAL_PATH "${Python3_EXECUTABLE}" mrs_python_test_executable)
     add_executable(mrs_python_transcription_tests tests/python_transcription_tests.cpp)
     target_link_libraries(mrs_python_transcription_tests PRIVATE mrs_desktop)
-    add_test(NAME desktop_python_transcription COMMAND mrs_python_transcription_tests "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/python_midi_fake.py")
+    add_test(NAME desktop_python_transcription COMMAND mrs_python_transcription_tests "${mrs_python_test_executable}" "${PROJECT_SOURCE_DIR}/tests/python_midi_fake.py")
     set_tests_properties(desktop_python_transcription PROPERTIES TIMEOUT 30)
   endif()
   add_executable(mrs_audio_to_midi_worker_tests tests/audio_to_midi_worker_tests.cpp)
