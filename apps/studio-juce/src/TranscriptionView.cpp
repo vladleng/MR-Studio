@@ -112,9 +112,9 @@ public:
         label(model_,*this,"MuScriptor Medium");model_.setFont(owner.theme.font(20));label(context_,*this,{});label(chunks_,*this,{});label(operation_,*this,{});label(stages_,*this,{});
         addAndMakeVisible(bar_);bar_.setTitle("Прогресс обработки");bar_.setPercentageDisplay(false);
     }
-    void update(const JobStatus& job,bool stem){
+    void update(const JobStatus& job,bool stem,const juce::String& source){
         value_=busy(job.state)?-1.:job.state==JobState::ready||job.state==JobState::placed?1.:0.;
-        context_.setText(stem?"Stem → MIDI":"Full Mix → MIDI",juce::dontSendNotification);
+        context_.setText((stem?juce::String("Stem → MIDI"):juce::String("Full Mix → MIDI"))+" · "+source,juce::dontSendNotification);
         chunks_.setText("CHUNKS   "+(job.total?juce::String(job.completed)+" / "+juce::String(job.total):juce::String("—")),juce::dontSendNotification);
         juce::String operation;
         switch(job.phase){
@@ -233,8 +233,9 @@ private:
         bool hasSource=false;for(const auto& c:owner_.project()->clips)if(source_&&c.id==*source_&&!c.midi){hasSource=true;const auto rate=owner_.project()->sample_rate;source_info_.setText(text(c.name)+" · "+elapsed(static_cast<double>(placement_.range_offset)/rate)+"–"+elapsed(static_cast<double>(placement_.range_offset+placement_.range_length.value_or(c.length-placement_.range_offset))/rate),juce::dontSendNotification);}
         for(auto* c:std::initializer_list<juce::Component*>{&source_label_,&source_info_,&model_label_,&model_,&hint_})c->setVisible(!running&&!results);
         stem_label_.setVisible(!running&&!results&&placement_.target_track.has_value());stem_.setVisible(stem_label_.isVisible());
-        progress_.setVisible(running);progress_.update(job,placement_.target_track.has_value());selection_count_.setVisible(results);parts_.setVisible(results);all_.setVisible(results);none_.setVisible(results);place_.setVisible(results);start_.setVisible(!running&&!results);cancel_.setVisible(true);preferences_.setVisible(!running&&!results);diagnostics_.setVisible(!job.diagnostics.empty()&&(job.state==JobState::failed||job.state==JobState::timeout));
+        progress_.setVisible(running);progress_.update(job,placement_.target_track.has_value(),source_info_.getText());selection_count_.setVisible(results);parts_.setVisible(results);all_.setVisible(results);none_.setVisible(results);place_.setVisible(results);start_.setVisible(!running&&!results);cancel_.setVisible(true);preferences_.setVisible(!running&&!results);diagnostics_.setVisible(!job.diagnostics.empty()&&(job.state==JobState::failed||job.state==JobState::timeout));
         const auto count=static_cast<int>(std::count(selected_.begin(),selected_.end(),true));selection_count_.setText("Отметьте партии для создания дорожек   ·   "+juce::String(count)+" из "+juce::String(static_cast<int>(roles_.size())),juce::dontSendNotification);place_.setButtonText("Создать MIDI-дорожки: "+juce::String(count));place_.setEnabled(count>0&&!owner_.app.recording()&&owner_.displayState().playback!=mrs::PlaybackState::playing);
+        if(!hasSource)source_info_.setText("Выберите аудиоклип в Arrange",juce::dontSendNotification);
         start_.setEnabled(hasSource&&!model.busy&&model.model&&model.runtime&&!preview(job.state)&&!running&&!owner_.app.recording());
         if(model.model&&model.runtime&&message_.getText()=="Требуется установка → Preferences → Управление моделями")message_.setText({},juce::dontSendNotification);
         if(!running&&!results&&message_.getText().isEmpty()&&(!model.model||!model.runtime))message_.setText("Требуется установка → Preferences → Управление моделями",juce::dontSendNotification);
