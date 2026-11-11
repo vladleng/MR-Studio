@@ -34,18 +34,30 @@ Original Python can emit paired zero-duration retriggers before its cleanup pass
 only its protocol opts into accepting them. They are omitted from editable notes;
 legacy native protocol remains strict.
 
-Raw seconds remain unchanged by default. Optional detection uses the installed
-BeatThis checkpoint; manual BPM/meter, beat scale, first downbeat, tempo-map export,
-quantize subdivisions (including triplets), strength, fill gaps and leading-bar trim
-use official Python musical export. BPM=0 retains detected tempo, or uses the
-project tempo at the clip when detection is off; meter=0 and downbeat=-1 retain
-detection. An unusable requested detection returns an error, without a hidden model
-fetch or silent 120 BPM substitution. Physical channels do not identify tracks.
+**User decision 2026-11-11:** product conversion in both backends emits original
+note timing only. The converter no longer offers BPM/meter detection, tempo-map
+following/import, quantization, fill gaps or leading-bar trim. These musical
+editing operations are deferred to the DAW. Stale musical options are cleared at
+Application::queue_transcription for both backends. Conversion does not change
+the project's tempo/meter map or create muted processed/original reference pairs.
+Notes are mapped from their original seconds into the existing project timeline;
+this coordinate conversion is not grid quantization or tempo detection. Legacy
+lower-level musical import/export helpers remain covered for existing callers.
 
-Preview can place original timing. When processing is enabled, placement also
-keeps muted original-timing reference tracks, through the same atomic command.
-An optional explicit tempo/meter import changes the clip range and restores the
-previous tempo afterwards; meter import requires the first downbeat to align with a project bar line.
+Opening the converter reads installation metadata rather than hashing the model.
+Full model verification remains the explicit Verify action. Python runtime
+inventory verification/probe is likewise explicit through Verify runtime, and is
+not repeated automatically before each conversion. Installation validation,
+lease/lifetime ownership, worker/model/source integrity and cancellation guards
+remain. This does not eliminate normal Python startup or model loading cost.
+
+Velocity is **not** recognized by this pinned MuScriptor model. Its official
+[token vocabulary](https://github.com/muscriptor/muscriptor/blob/8a1ef88672cc23c26619adaff37ec48d82c0b906/muscriptor/tokenizer/notes.py)
+uses velocity only as 0/1 note-off/note-on; public NoteStartEvent has no velocity,
+and official notes_to_midi defaults to a shared velocity 100. Both Studio backends
+therefore retain default 100. Audio-amplitude-based velocity estimation would be
+a separate feature, not recovered MuScriptor model output.
+
 Source audio samples remain unchanged. Existing project MIDI follows its normal
 tick-based tempo-map semantics. A hidden transcription record preserves model/source/crop provenance and created
 clip IDs. Projects with these records use snapshot schema35; unrelated projects

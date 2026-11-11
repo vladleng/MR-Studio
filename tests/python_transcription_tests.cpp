@@ -2,6 +2,7 @@
 #include <mrs/sha256.hpp>
 #include <mrs/transcription_controller.hpp>
 #include <mrs/persistence.hpp>
+#include <mrs/desktop.hpp>
 #include <fstream>
 #include <algorithm>
 #include <iostream>
@@ -47,5 +48,18 @@ int main(int argc,char** argv){try{
     wav(r.source,6);controller.start(store,root/"fixture.mrs",clip.id,r.source,models,r);
     while(controller.status().state==JobState::running){check(std::chrono::steady_clock::now()<until);controller.poll(store,root/"fixture.mrs");std::this_thread::sleep_for(std::chrono::milliseconds(2));}
     check(controller.status().state==JobState::failed&&controller.status().error=="missing_eos"&&!controller.status().diagnostics.empty()&&*store->state().project==placed);
+    // Product conversion is raw timing only; stale musical options and runtime
+    // probes must not run automatically at the application boundary.
+    wav(r.source,7);desktop::Application app;app.new_project(16000);app.import_wavs({r.source},{},16000);
+    const auto app_before=*app.services().projects->state().project;
+    unsigned runtime_probes{};r.verify_runtime=[&](std::stop_token){++runtime_probes;throw std::runtime_error("unexpected automatic runtime probe");};
+    r.musical.import_tempo=true;r.musical.tempo_map=true;r.musical.detect_tempo=true;r.musical.quantize=true;r.musical.bpm=90;r.musical.fill_gaps=1;r.musical.trim_leading_bars=true;
+    app.queue_transcription(app_before.clips.front().id,models,r);
+    const auto app_until=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(app.transcription_status().state==JobState::running){check(std::chrono::steady_clock::now()<app_until);app.poll();std::this_thread::sleep_for(std::chrono::milliseconds(2));}
+    check(app.transcription_status().state==JobState::ready&&runtime_probes==0);
+    const auto* app_result=app.transcription_preview();check(app_result&&!app_result->musical.quantize&&!app_result->musical.import_tempo&&!app_result->musical.tempo_map&&!app_result->musical.detect_tempo&&app_result->musical.bpm==0&&app_result->notes.size()==1&&app_result->original_notes.size()==1&&app_result->notes.front().start==app_result->original_notes.front().start&&app_result->notes.front().end==app_result->original_notes.front().end);
+    app.place_transcription();const auto app_after=*app.services().projects->state().project;check(app_after.time==app_before.time&&app_after.clips.size()==app_before.clips.size()+1);
+    check(app.undo()&&*app.services().projects->state().project==app_before&&app.redo()&&*app.services().projects->state().project==app_after);
     std::cout<<"PASS isolated Python contract / original vs processed / multi-instrument / cleanup\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

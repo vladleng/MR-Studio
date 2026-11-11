@@ -5,6 +5,10 @@
 namespace mrs::desktop {
 void Application::queue_transcription(Id clip,transcription::ModelStore models,transcription::Request settings){
     require_not_recording();
+    // Product conversion emits raw note timing only. Musical editing belongs
+    // to the DAW; ignore stale backend/UI options and automatic runtime probes.
+    settings.musical={};settings.musical.tempo_map=false;
+    settings.verify_runtime={};
     const auto p=services_.projects->state().project;
     const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==clip;});
     if(at==p->clips.end()||at->midi)throw std::invalid_argument("Choose a file-backed audio clip");

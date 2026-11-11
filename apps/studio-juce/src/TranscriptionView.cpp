@@ -38,14 +38,14 @@ juce::String failure(const std::string& e){
 class TranscriptionSetup {
 public:
     struct Status {bool failed{},busy{},model{},engine{},present{},runtime{},runtime_present{};double progress{};juce::String message;};
-    TranscriptionSetup(ModelStore models,Request engine,std::shared_ptr<TranscriptionRuntime> runtime={}):models_(std::move(models)),engine_(std::move(engine)),runtime_(std::move(runtime)){check();}
+    TranscriptionSetup(ModelStore models,Request engine,std::shared_ptr<TranscriptionRuntime> runtime={}):models_(std::move(models)),engine_(std::move(engine)),runtime_(std::move(runtime)){refresh();}
     ~TranscriptionSetup(){shutdown();}
     ModelStore models()const{return models_;}
     Request engine()const{return engine_;}
     Request pythonEngine()const{
         need(runtime_!=nullptr,"Python runtime unavailable");auto r=engine_;r.backend=Backend::python_medium;
         r.executable=path(runtime_->python());r.executable_sha256=mrs::sha256_file(r.executable);r.memory_bytes=8ULL*1024*1024*1024;
-        r.runtime_lifetime=runtime_->acquire();auto runtime=runtime_;r.verify_runtime=[runtime](std::stop_token stop){runtime->verify(stop);};return r;
+        r.runtime_lifetime=runtime_->acquire();return r;
     }
     void runtimeOperation(int operation){
         need(runtime_!=nullptr,"Python runtime unavailable");auto runtime=runtime_;
@@ -58,7 +58,8 @@ public:
     }
     void cancel(){if(job_){job_->stop.request_stop();status_.message="Cancelling model operation...";}}
     void shutdown(){if(job_){job_->stop.request_stop();job_->future.wait();job_.reset();}}
-    void check(){begin("Checking installed files...",[](ModelStore,std::stop_token,const ModelDownloadProgress&){});}
+    void refresh(){begin("Reading installed files...",[](ModelStore,std::stop_token,const ModelDownloadProgress&){});}
+    void check(){begin("Verifying model files...",[](ModelStore store,std::stop_token stop,const ModelDownloadProgress&){store.verify(stop);});}
     void local(fs::path source){begin("Installing authorized local model...",[source=std::move(source)](ModelStore store,std::stop_token stop,const ModelDownloadProgress&){store.install(source,true,stop);});}
     void remove(){begin("Removing model...",[](ModelStore store,std::stop_token,const ModelDownloadProgress&){store.remove();});}
     void download(std::string token,ModelFetch fixture={}){
@@ -78,11 +79,11 @@ private:
             try{operation(models,stop,[progress](auto completed,auto total){progress->total.store(total);progress->completed.store(completed);});}
             catch(const std::exception& e){out.failed=true;out.message=stop.stop_requested()?"Model operation cancelled.":failure(e.what());}
             if(stop.stop_requested()){out.message="Model operation cancelled.";return out;}
-            try{out.present=fs::exists(models.directory());if(out.present){models.verify(stop);out.model=true;}}
+            try{out.present=fs::exists(models.directory());if(out.present){const auto lease=models.acquire();(void)lease;out.model=true;}}
             catch(const std::exception& e){out.failed=true;out.message=failure(e.what());}
             try{out.engine=!engine.executable_sha256.empty()&&fs::is_regular_file(engine.executable)&&fs::file_size(engine.executable)<32*1024*1024&&mrs::sha256_file(engine.executable,stop)==engine.executable_sha256;}
             catch(...){out.engine=false;}
-            if(out.message.isEmpty())out.message=out.model?"Model verified and available offline.":"Download Medium or choose an authorized local folder.";
+            if(out.message.isEmpty())out.message=out.model?"Model installed and available offline.":"Download Medium or choose an authorized local folder.";
             if(runtime){out.runtime_present=runtime->present();out.runtime=runtime->python().existsAsFile()&&runtime->directory().getChildFile("managed.json").existsAsFile();}
             out.progress=1;return out;
         });
@@ -132,16 +133,10 @@ public:
         };
         stem_.onChange=[this]{instruments_selected_.clear();if(stem_.getSelectedId()>1)instruments_selected_.push_back(std::string(mrs::ace_midi_instruments()[static_cast<std::size_t>(stem_.getSelectedId()-2)].role));juce::StringArray names;for(const auto& name:instruments_selected_)names.add(text(name));instruments_.setButtonText("Instruments: "+(names.isEmpty()?juce::String("Auto"):names.joinIntoString(", ")));};
         instruments_.setButtonText("Instruments: Auto");instruments_.setTitle("Choose one or more recognized instruments");addAndMakeVisible(instruments_);instruments_.onClick=[this]{chooseInstruments();};
-        for(auto* toggle:{&detect_,&quantize_,&follow_,&trim_,&original_,&import_tempo_})addAndMakeVisible(*toggle);
-        detect_.setButtonText("Detect BPM / meter");quantize_.setButtonText("Quantize");follow_.setButtonText("Follow tempo map");follow_.setToggleState(true,juce::dontSendNotification);trim_.setButtonText("Trim leading bars");original_.setButtonText("Place original timing");original_.onClick=[this]{update();};
-        for(auto* edit:{&bpm_,&meter_,&strength_,&gaps_,&downbeat_,&scale_}){addAndMakeVisible(*edit);edit->setInputRestrictions(10,"-0123456789.");}
-        bpm_.setText("0");bpm_.setTitle("BPM: 0 keeps detected or project tempo");meter_.setText("0");meter_.setTitle("Beats per bar: 0 keeps detected meter");strength_.setText("1");strength_.setTitle("Quantize strength: 0 to 1");gaps_.setText("0");gaps_.setTitle("Fill gaps: maximum beats, 0 disables");downbeat_.setText("-1");downbeat_.setTitle("First downbeat in clip seconds: -1 keeps detected");scale_.setText("1");scale_.setTitle("Beat scale: 0.25, 0.5, 1, 2 or 4");
-        for(const auto n:{1,2,3,4,6,8,12,16,24})grid_.addItem(juce::String(n)+" steps/beat",n);grid_.setSelectedId(4,juce::dontSendNotification);grid_.setTitle("Quantize grid (3/6/12 are triplets)");addAndMakeVisible(grid_);
-        import_tempo_.setButtonText("Import project tempo / meter");import_tempo_.setTooltip("Explicitly replaces tempo inside this clip range and restores the previous tempo afterwards. Align the first downbeat with a project bar boundary to import meter. Undo restores the previous map.");
-        music_label_.setText("BPM (0=auto)     Meter    Strength     Fill gaps     Downbeat (s)     Beat scale",juce::dontSendNotification);addAndMakeVisible(music_label_);
+        music_label_.setText("Original note timing. Quantization and tempo editing are handled in the DAW.",juce::dontSendNotification);addAndMakeVisible(music_label_);
 
         token_label_.setText("HF read token",juce::dontSendNotification);parts_label_.setText("Recognized parts - Ctrl/Shift to select multiple",juce::dontSendNotification);
-        footer_.setText("Processed results keep muted original-timing reference tracks. Closing cancels work and discards an unplaced preview. Source audio is preserved.",juce::dontSendNotification);
+        footer_.setText("Conversion preserves note timing and the project tempo map. Source audio is preserved.",juce::dontSendNotification);
         terms_.setButtonText("I have authorized access and accept the official MuScriptor model terms.");terms_.setTitle("Accept model terms");terms_.onClick=[this]{update();};addAndMakeVisible(terms_);
         token_.setPasswordCharacter('*');token_.setTitle("Hugging Face read token, never saved");token_.setTextToShowWhenEmpty("Used only for this official download; never saved",owner_.theme.role(ColourRole::muted,secondaryText));token_.onTextChange=[this]{update();};addAndMakeVisible(token_);
         struct Action{juce::TextButton* button;const char* text;};int focus=1;
@@ -154,15 +149,13 @@ public:
             if(request.backend==Backend::native_experimental&&request.compatibility_cpu){const auto app=juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory();request.executable=path(app.getChildFile("ace-midi.exe"));request.executable_sha256=mrs::transcription_engine_sha256;}
             request.cpu_threads=static_cast<unsigned>((std::max)(1,cpu_.getSelectedId())-1);
             if(stem_.getSelectedId()>1)request.stem_instrument=std::string(mrs::ace_midi_instruments()[static_cast<std::size_t>(stem_.getSelectedId()-2)].role);
-            if(request.backend==Backend::python_medium){request.instruments=instruments_selected_;if(request.instruments.empty()&&!request.stem_instrument.empty())request.instruments.push_back(request.stem_instrument);request.stem_instrument.clear();
-                request.musical.import_tempo=import_tempo_.getToggleState();request.musical.detect_tempo=detect_.getToggleState();request.musical.quantize=quantize_.getToggleState();request.musical.tempo_map=follow_.getToggleState();request.musical.trim_leading_bars=trim_.getToggleState();request.musical.bpm=bpm_.getText().getDoubleValue();request.musical.meter=static_cast<unsigned>(meter_.getText().getIntValue());request.musical.strength=strength_.getText().getDoubleValue();request.musical.fill_gaps=gaps_.getText().getDoubleValue();request.musical.first_downbeat=downbeat_.getText().getDoubleValue();request.musical.beat_scale=scale_.getText().getDoubleValue();request.musical.subdivision=static_cast<unsigned>(grid_.getSelectedId());
-                if(request.musical.bpm==0&&!request.musical.detect_tempo){const auto current=this->source();need(current.has_value(),"Choose an audio clip");const auto tick=mrs::Timeline(owner_.project()->time,owner_.project()->sample_rate).to_ticks(current->start);for(const auto& tempo:owner_.project()->time.tempos){if(tempo.tick>tick)break;request.musical.bpm=tempo.bpm;}}}
+            if(request.backend==Backend::python_medium){request.instruments=instruments_selected_;if(request.instruments.empty()&&!request.stem_instrument.empty())request.instruments.push_back(request.stem_instrument);request.stem_instrument.clear();}
             owner_.app.queue_transcription(*source_,setup_->models(),std::move(request));message_.setText({},juce::dontSendNotification);});};
         cancel_.onClick=[this]{setup_->cancel();owner_.app.cancel_transcription();update();};
         discard_.onClick=[this]{owner_.app.cancel_transcription();update();};
-        place_.onClick=[this]{invoke([&]{std::vector<std::string> roles;const auto rows=parts_.getSelectedRows();for(int i=0;i<rows.size();++i)roles.push_back(roles_.at(static_cast<std::size_t>(rows[i])));owner_.app.place_transcription(roles,original_.getToggleState());owner_.refresh();});};
+        place_.onClick=[this]{invoke([&]{std::vector<std::string> roles;const auto rows=parts_.getSelectedRows();for(int i=0;i<rows.size();++i)roles.push_back(roles_.at(static_cast<std::size_t>(rows[i])));owner_.app.place_transcription(roles);owner_.refresh();});};
         parts_.setModel(this);parts_.setMultipleSelectionEnabled(true);parts_.setRowHeight(26);parts_.setTitle("Recognized instrument parts");addAndMakeVisible(parts_);
-        addAndMakeVisible(progress_);progress_.setTitle("Model download or transcription progress");setSize(800,960);startTimerHz(8);tick();
+        addAndMakeVisible(progress_);progress_.setTitle("Model download or transcription progress");setSize(800,820);startTimerHz(8);tick();
     }
     ~TranscriptionPanel()override{stopTimer();setup_->cancel();owner_.app.cancel_transcription();parts_.setModel(nullptr);setLookAndFeel(nullptr);}
     void setSource(std::optional<mrs::Id> source){const auto s=owner_.app.transcription_status().state;if(source_!=source&&(busy(s)||preview(s))){message_.setText("Place or discard the current conversion before choosing another clip.",juce::dontSendNotification);return;}source_=std::move(source);update();}
@@ -175,10 +168,8 @@ public:
         cpu_label_.setBounds(20,346,100,28);cpu_.setBounds(124,344,110,28);stem_label_.setBounds(248,346,116,28);stem_.setBounds(370,344,w-390,28);
         instruments_.setBounds(20,382,w-40,28);
         runtime_install_.setBounds(20,420,200,28);runtime_verify_.setBounds(232,420,150,28);runtime_remove_.setBounds(394,420,150,28);diagnostics_button_.setBounds(558,420,w-578,28);
-        detect_.setBounds(20,458,180,28);follow_.setBounds(208,458,180,28);quantize_.setBounds(394,458,100,28);grid_.setBounds(504,458,w-524,28);
-        music_label_.setBounds(20,498,w-40,22);int x=20;for(auto* edit:{&bpm_,&meter_,&strength_,&gaps_,&downbeat_,&scale_}){edit->setBounds(x,522,100,28);x+=116;}
-        trim_.setBounds(20,560,180,28);original_.setBounds(210,560,200,28);import_tempo_.setBounds(420,560,w-440,28);
-        progress_.setBounds(20,600,w-40,22);status_.setBounds(20,632,w-40,38);parts_label_.setBounds(20,680,w-40,24);parts_.setBounds(20,708,w-40,(std::max)(70,getHeight()-860));
+        music_label_.setBounds(20,458,w-40,32);
+        progress_.setBounds(20,502,w-40,22);status_.setBounds(20,532,w-40,34);parts_label_.setBounds(20,574,w-40,24);parts_.setBounds(20,602,w-40,(std::max)(60,getHeight()-764));
         const auto y=getHeight()-142;start_.setBounds(20,y,158,32);cancel_.setBounds(186,y,90,32);discard_.setBounds(284,y,142,32);place_.setBounds(w-218,y,198,32);
         message_.setBounds(20,getHeight()-100,w-40,42);footer_.setBounds(20,getHeight()-50,w-40,40);
     }
@@ -209,9 +200,9 @@ private:
         const auto model=setup_->status();const auto job=owner_.app.transcription_status();const auto clip=source();const auto* result=owner_.app.transcription_preview();
         source_info_.setText(clip?"Clip to analyze: "+text(clip->name)+"   |   "+juce::String(static_cast<double>(clip->length)/owner_.project()->sample_rate,2)+" s (trimmed clip only)":"Select an audio clip in Arrange.",juce::dontSendNotification);
         const bool python=backend_.getSelectedId()==1;
-        model_info_.setText("MuScriptor Medium - CPU - 1.23 GB - CC BY-NC 4.0 (non-commercial)\n"+juce::String(model.model?"Model verified/offline":"Model not installed or not verified")+"   |   "+(model.engine?(setup_->engine().executable.filename()=="ace-midi-avx2.exe"?"Native CPU AVX2 verified":"Native CPU compatibility verified"):"Native engine unavailable; reinstall this build")+juce::String(python?(model.runtime?" | Python runtime installed":" | Install Python runtime"):" | Experimental A/B"),juce::dontSendNotification);
-        const auto signature=result?result->midi_sha256+result->clip_id.value+(original_.getToggleState()?"raw":"processed"):std::string{};
-        if(signature!=signature_){signature_=signature;roles_.clear();counts_.clear();if(result)for(const auto& role:mrs::ace_midi_instruments()){const auto count=static_cast<std::size_t>(std::count_if((original_.getToggleState()?result->original_notes:result->notes).begin(),(original_.getToggleState()?result->original_notes:result->notes).end(),[&](const auto& n){return n.instrument==role.role;}));if(count){roles_.push_back(std::string(role.role));counts_.push_back(count);}}parts_.updateContent();parts_.deselectAllRows();if(!roles_.empty())parts_.selectRangeOfRows(0,getNumRows()-1);}
+        model_info_.setText("MuScriptor Medium - CPU - 1.23 GB - CC BY-NC 4.0 (non-commercial)\n"+juce::String(model.model?"Model installed/offline":"Model not installed or not verified")+"   |   "+(model.engine?(setup_->engine().executable.filename()=="ace-midi-avx2.exe"?"Native CPU AVX2 verified":"Native CPU compatibility verified"):"Native engine unavailable; reinstall this build")+juce::String(python?(model.runtime?" | Python runtime installed":" | Install Python runtime"):" | Experimental A/B"),juce::dontSendNotification);
+        const auto signature=result?result->midi_sha256+result->clip_id.value:std::string{};
+        if(signature!=signature_){signature_=signature;roles_.clear();counts_.clear();if(result)for(const auto& role:mrs::ace_midi_instruments()){const auto count=static_cast<std::size_t>(std::count_if(result->notes.begin(),result->notes.end(),[&](const auto& n){return n.instrument==role.role;}));if(count){roles_.push_back(std::string(role.role));counts_.push_back(count);}}parts_.updateContent();parts_.deselectAllRows();if(!roles_.empty())parts_.selectRangeOfRows(0,getNumRows()-1);}
         juce::String status;
         switch(job.state){
         case JobState::running:status=text(std::string(phase_label(job.phase)));if(job.total&&job.phase==Phase::recognizing)status+=" Chunk "+juce::String(job.completed)+" / "+juce::String(job.total);break;
@@ -234,8 +225,6 @@ private:
         if(!python&&stem_.getSelectedId()==0)stem_.setSelectedId(1,juce::dontSendNotification);
         backend_.setEnabled(!model.busy&&!occupied&&!pending);compatibility_.setEnabled(!model.busy&&!occupied&&!pending);instruments_.setEnabled(python&&!model.busy&&!occupied&&!pending);
         runtime_install_.setEnabled(python&&!model.busy&&!occupied&&!pending&&!model.runtime_present);runtime_verify_.setEnabled(python&&!model.busy&&!occupied&&!pending&&model.runtime_present);runtime_remove_.setEnabled(python&&!model.busy&&!occupied&&!pending&&model.runtime_present);
-        for(auto* c:std::initializer_list<juce::Component*>{&detect_,&quantize_,&follow_,&trim_,&bpm_,&meter_,&strength_,&gaps_,&downbeat_,&scale_,&grid_,&import_tempo_})c->setEnabled(python&&!model.busy&&!occupied&&!pending);
-        original_.setEnabled(python&&job.state==JobState::ready);
         cpu_.setEnabled(!model.busy&&!occupied&&!pending);stem_.setEnabled(!model.busy&&!occupied&&!pending);
         terms_.setEnabled(!model.busy&&!occupied);token_.setEnabled(!model.busy&&!occupied);
         download_.setEnabled(!model.busy&&!occupied&&!model.present&&terms_.getToggleState()&&!token_.getText().trim().isEmpty());local_.setEnabled(!model.busy&&!occupied&&!model.present&&terms_.getToggleState());
@@ -246,9 +235,9 @@ private:
     }
     Desktop& owner_;std::optional<mrs::Id> source_;std::shared_ptr<TranscriptionSetup> setup_;ModelFetch fixture_fetch_;
     juce::Label title_,source_info_,model_info_,help_,token_label_,parts_label_,status_,message_,footer_,cpu_label_,stem_label_;
-    juce::ComboBox cpu_,stem_,backend_,grid_;
-    juce::ToggleButton compatibility_,detect_,quantize_,follow_,trim_,original_,import_tempo_;
-    juce::TextEditor bpm_,meter_,strength_,gaps_,downbeat_,scale_;
+    juce::ComboBox cpu_,stem_,backend_;
+    juce::ToggleButton compatibility_;
+
     juce::Label music_label_;
     juce::TextButton runtime_install_,runtime_verify_,runtime_remove_,instruments_,diagnostics_button_;
     std::vector<std::string> instruments_selected_;
@@ -294,6 +283,14 @@ void transcriptionSmoke(const juce::File& fake){
     for(const auto* name:{"config.json","model.safetensors","README.md"}){const auto file=path(authorized.getChildFile(name));spec.files.push_back({name,mrs::sha256_file(file),fs::file_size(file)});}
     const auto jobs=root.getChildFile("jobs");need(jobs.createDirectory().wasOk(),"Fixture job folder");
     Request engine;engine.executable=path(fake);engine.executable_sha256=mrs::sha256_file(engine.executable);engine.temporary_root=path(jobs);engine.timeout=std::chrono::seconds(5);
+    // A metadata-only runtime fixture cannot pass an inventory/probe. Opening
+    // the converter and preparing a request must nevertheless avoid either.
+    auto runtime=std::make_shared<TranscriptionRuntime>(root.getChildFile("runtime-fixture"),root.getChildFile("unused-requirements.txt"));
+    need(runtime->directory().createDirectory().wasOk()&&fake.copyFileTo(runtime->python())&&runtime->directory().getChildFile("managed.json").replaceWithText("fixture"),"Create runtime metadata fixture");
+    auto quick=std::make_shared<TranscriptionSetup>(ModelStore(path(root.getChildFile("startup-models")),spec),engine,runtime);
+    const auto quick_deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(quick->status().busy){need(std::chrono::steady_clock::now()<quick_deadline,"Metadata refresh timeout");quick->poll();juce::Thread::sleep(2);}
+    need(!quick->status().failed&&quick->status().runtime&&!quick->pythonEngine().verify_runtime,"Opening converter/request must not verify runtime automatically");quick.reset();
     Desktop owner(true);owner.view.transcriptionBackend=2;owner.app.new_project(16000);owner.app.import_wavs({path(source)});owner.refresh();
     const auto clip=owner.project()->clips.front().id;const auto before=*owner.project();
     owner.transcriptionSetup=std::make_shared<TranscriptionSetup>(ModelStore(path(root.getChildFile("models")),spec),engine);
@@ -310,6 +307,12 @@ void transcriptionSmoke(const juce::File& fake){
     view->fixture_fetch_=[authorized](const std::string& url,const fs::path& destination,std::uint64_t bytes,std::stop_token stop,const ModelDownloadProgress& progress){need(model_download_target(url).authorize,"Fixture official origin");need(!stop.stop_requested(),"Fixture download cancelled");const auto source_file=path(authorized.getChildFile(text(destination.filename().string())));fs::copy_file(source_file,destination);if(progress)progress(bytes,bytes);};
     view->terms_.setToggleState(true,juce::dontSendNotification);view->token_.setText("fake_test_token",false);view->update();need(view->download_.isEnabled(),"Explicit model download action disabled");view->download_.onClick();need(view->token_.getText().isEmpty(),"Token editor not cleared");
     wait([&]{return owner.transcriptionSetup->status().busy;});view->tick();need(view->start_.isEnabled(),"Verified engine/model should enable conversion");
+    for(int i=0;i<view->getNumChildComponents();++i)if(auto* button=dynamic_cast<juce::Button*>(view->getChildComponent(i)))need(button->getButtonText()!="Quantize"&&button->getButtonText()!="Follow tempo map"&&button->getButtonText()!="Import project tempo / meter","Converter exposes deferred musical editing");
+    const auto installed=juce::File(juce::String(owner.transcriptionSetup->models().directory().wstring().c_str()));
+    need(installed.getChildFile("model.safetensors").replaceWithText("invalid"),"Corrupt same-size model fixture");
+    owner.transcriptionSetup->refresh();wait([&]{return owner.transcriptionSetup->status().busy;});need(owner.transcriptionSetup->status().model,"Startup refresh must read metadata without full model hash");
+    owner.transcriptionSetup->check();wait([&]{return owner.transcriptionSetup->status().busy;});need(owner.transcriptionSetup->status().failed,"Manual model Verify must still detect corruption");
+    need(installed.getChildFile("model.safetensors").replaceWithText("fixture"),"Restore model fixture");owner.transcriptionSetup->check();wait([&]{return owner.transcriptionSetup->status().busy;});view->tick();need(!owner.transcriptionSetup->status().failed,"Manual model Verify after repair");
     view->cpu_.setSelectedId(2,juce::dontSendNotification);int bass=2;for(const auto& role:mrs::ace_midi_instruments()){if(role.role=="electric_bass")break;++bass;}view->stem_.setSelectedId(bass,juce::dontSendNotification);
     view->start_.onClick();wait([&]{return busy(owner.app.transcription_status().state);});view->tick();need(owner.app.transcription_preview()&&!owner.app.transcription_preview()->notes.empty()&&owner.app.transcription_preview()->notes.front().instrument=="electric_bass"&&owner.app.transcription_status().cpu_threads==1,"CPU/stem selection not passed to native");need(owner.app.transcription_status().state==JobState::ready&&view->roles_.size()==1&&view->place_.isEnabled(),"Recognition/parts selection missing");
     view->parts_.deselectAllRows();view->update();need(!view->place_.isEnabled(),"Empty selection must not place");view->parts_.selectRow(0);view->update();

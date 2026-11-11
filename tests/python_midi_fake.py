@@ -40,6 +40,11 @@ if mode==5:
     events[3]['index']=1;events[4]['index']=1;events[-1]['notes']=2
 post=[dict(v) for v in events];
 if mode!=5: post[1]['time']=.3;post[2]['time']=.6
+if mode==7:
+    options=json.loads(Path(a.options).read_text())
+    assert not any(options[key] for key in ('detect_tempo','quantize','tempo_map','trim_leading_bars','fill_gaps'))
+    assert options['bpm'] is None
+    post=[dict(v) for v in events]
 Path(a.out).with_name('processed.jsonl').write_text(''.join(json.dumps(e)+'\n' for e in post),encoding='ascii')
 Path(a.out).with_name('music.txt').write_text(f'MR-MUSCRIPTOR-2 DEFAULT {a.threads} 0.1 0.2 120 4 0 2\n0.1\n0.6\n',encoding='ascii')
 if mode==3: Path(a.out).with_name('processed.jsonl').write_text('broken\n')

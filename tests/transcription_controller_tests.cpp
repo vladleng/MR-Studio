@@ -107,10 +107,12 @@ int main(int argc,char** argv){try{
     auto device=std::make_unique<Manual>();auto* device_ptr=device.get();app.connect(std::move(device),{0,16000,128,{}, {0,1}});
     const auto clip=app.services().projects->state().project->clips[0].id;
     const auto before=*app.services().projects->state().project;const auto revision=app.services().projects->state().revision;
+    settings.musical.import_tempo=true;settings.musical.tempo_map=true;settings.musical.quantize=true;settings.musical.bpm=90;
     app.queue_transcription(clip,models,settings);wait([&]{app.poll();},[&]{return app.transcription_status();});check(app.transcription_status().state==JobState::ready);
+    check(!app.transcription_preview()->musical.quantize&&!app.transcription_preview()->musical.import_tempo&&!app.transcription_preview()->musical.tempo_map&&app.transcription_preview()->musical.bpm==0);
     device_ptr->fail=true;rejects([&]{app.place_transcription();});check(app.services().projects->state().revision==revision&&*app.services().projects->state().project==before&&app.audio_running());
     const auto placed=app.place_transcription();check(placed.size()==1&&app.transcription_status().state==JobState::placed);
-    const auto after=*app.services().projects->state().project;check(after.clips[0]==before.clips[0]&&after.clips.size()==before.clips.size()+1);
+    const auto after=*app.services().projects->state().project;check(after.clips[0]==before.clips[0]&&after.clips.size()==before.clips.size()+1&&after.time==before.time);
     check(app.undo()&&*app.services().projects->state().project==before);check(app.redo()&&*app.services().projects->state().project==after);
     // Archives canonicalize audio aliases to Media/...; compare the full persisted snapshot.
     rejects([&]{app.place_transcription();});const auto file=root/"saved.mrsproject";app.save_project(file);const auto saved=app.snapshot().project;app.open_project(file);check(*app.services().projects->state().project==saved);
