@@ -90,13 +90,13 @@ class VerifyReleaseGateTest(unittest.TestCase):
     def test_gui_path_detection(self):
         for path in (
             "apps/studio-juce/src/TranscriptionView.cpp", "apps/studio-juce/src/Desktop.h",
-            "apps/studio-desktop/include/mrs/desktop.hpp", "assets/ui/mr-uds/icons/guitar.svg",
+            "apps/studio-desktop/include/mrs/desktop.hpp",
             "cmake/Juce.cmake", "CMakeLists.txt", "tools/ci/sdk-lock.json",
             ".github/workflows/windows-juce-gui-compile.yml",
         ):
             with self.subTest(path=path):
                 self.assertTrue(gui_affecting_path(path))
-        for path in ("docs/README.md", "core/src/ai.cpp", "tools/transcription/worker.py"):
+        for path in ("docs/README.md", "core/src/ai.cpp", "tools/transcription/worker.py", "assets/ui/mr-uds/icons/guitar.svg"):
             with self.subTest(path=path):
                 self.assertFalse(gui_affecting_path(path))
 
