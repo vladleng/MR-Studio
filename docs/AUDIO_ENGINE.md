@@ -259,7 +259,7 @@ Live Mode может заранее подготовить следующий pr
 - preload следующего state;
 - predictable disk access.
 
-Live Mode может использовать упрощённый UI/workflow, но не отдельный playback backend.
+MR Live использует самостоятельный performance UI, но переиспользует общий playback backend; отдельный аудиодвижок не создаётся.
 
 ---
 
