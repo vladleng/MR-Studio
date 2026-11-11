@@ -42,3 +42,13 @@ jobs:
         run: |
           & build/runtime/Release/mrs_transcription_runtime_check.exe "$pwd/tools/transcription/requirements-cpu.txt"
           if($LASTEXITCODE){throw 'MuScriptor runtime contract failed'}
+      - name: Record successful source and profile evidence
+        run: python tools/ci/ci_evidence.py transcription-runtime.yml runtime
+      - name: Upload check evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-evidence-runtime-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ci-evidence.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 14

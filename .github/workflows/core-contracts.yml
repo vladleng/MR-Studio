@@ -48,3 +48,13 @@ jobs:
       - name: Live preload contract test suite
         if: inputs.checks == 'live'
         run: ctest --test-dir build/core --output-on-failure --no-tests=error -R '^desktop_live_preload$'
+      - name: Record successful source and profile evidence
+        run: python tools/ci/ci_evidence.py core-contracts.yml ${{ inputs.checks == 'live' && 'core-live' || 'core' }}
+      - name: Upload check evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-evidence-core-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ci-evidence.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 14

@@ -40,3 +40,13 @@ jobs:
         run: cmake --build build/contracts --config Release --target mrs_python_transcription_tests mrs_audio_to_midi_worker_tests mrs_transcription_controller_tests mrs_separation_assets_tests --parallel 2
       - name: Verify Python alias resolution and adjacent contracts
         run: ctest --test-dir build/contracts -C Release --output-on-failure --no-tests=error -R '^desktop_(python_transcription|audio_to_midi_worker|transcription_controller|separation_assets)$'
+      - name: Record successful source and profile evidence
+        run: python tools/ci/ci_evidence.py transcription-contracts.yml contracts
+      - name: Upload check evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-evidence-contracts-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ci-evidence.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 14

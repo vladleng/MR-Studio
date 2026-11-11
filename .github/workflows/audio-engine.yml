@@ -21,35 +21,15 @@ on:
         default: true
 permissions:
   contents: read
+  actions: read
 env:
   RELEASE_BANNER: 'MR Studio 0.10.2-fix5 / MR Live 0.9.2 — Windows Release'
 concurrency:
   group: windows-${{ github.ref }}-${{ inputs.checks }}-${{ inputs.integration }}-${{ inputs.ara }}
   cancel-in-progress: true
 jobs:
-  core:
-    uses: ./.github/workflows/core-contracts.yml
-  gui:
-    needs: core
-    if: inputs.checks != 'separation' || inputs.integration
-    uses: ./.github/workflows/windows-juce-gui-compile.yml
-    with:
-      live: ${{ inputs.integration || inputs.checks == 'live' || inputs.checks == 'studio-live' || inputs.checks == 'profile' }}
-  contracts:
-    needs: core
-    if: inputs.checks != 'live' || inputs.integration
-    uses: ./.github/workflows/transcription-contracts.yml
-  runtime:
-    needs: core
-    if: inputs.checks != 'live' || inputs.integration
-    uses: ./.github/workflows/transcription-runtime.yml
-  separation:
-    needs: core
-    if: inputs.checks == 'separation' || inputs.checks == 'separation-ui'
-    uses: ./.github/workflows/separation.yml
   preflight:
-    needs: [core, gui, contracts, runtime, separation]
-    if: always()
+    timeout-minutes: 5
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -58,14 +38,10 @@ jobs:
           ref: ${{ github.sha }}
       - name: Require completed candidate checks
         env:
-          CORE: ${{ needs.core.result }}
-          GUI: ${{ needs.gui.result }}
-          CONTRACTS: ${{ needs.contracts.result }}
-          RUNTIME: ${{ needs.runtime.result }}
-          SEPARATION: ${{ needs.separation.result }}
+          GITHUB_TOKEN: ${{ github.token }}
           RELEASE_CHECKS: ${{ inputs.checks }}
           INTEGRATION: ${{ inputs.integration }}
-        run: python3 tools/ci/verify_candidate_gate.py
+        run: python3 tools/ci/verify_ci_evidence.py
 
   studio:
     needs: preflight

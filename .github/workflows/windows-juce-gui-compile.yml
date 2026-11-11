@@ -39,6 +39,11 @@ on:
       - 'tools/ci/sdk-lock.json'
       - '.github/workflows/windows-juce-gui-compile.yml'
   workflow_dispatch:
+    inputs:
+      live:
+        description: Also compile standalone Live sources
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -79,3 +84,13 @@ jobs:
             & $msbuild build/gui-compile/MRLiveJuce.vcxproj /t:ClCompile /p:Configuration=Release /p:Platform=x64 /p:BuildProjectReferences=false /m:2 /verbosity:minimal
             if($LASTEXITCODE){throw 'Live GUI MSVC compilation failed'}
           }
+      - name: Record successful source and profile evidence
+        run: python tools/ci/ci_evidence.py windows-juce-gui-compile.yml gui ${{ inputs.live && 'gui-live' || '' }}
+      - name: Upload check evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-evidence-gui-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ci-evidence.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 14

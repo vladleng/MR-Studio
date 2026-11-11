@@ -80,3 +80,13 @@ jobs:
           path: |
             build/separation-evidence/
             build/separation/Testing/Temporary/LastTest.log
+      - name: Record successful source and profile evidence
+        run: python tools/ci/ci_evidence.py separation.yml separation
+      - name: Upload check evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-evidence-separation-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ci-evidence.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 14
