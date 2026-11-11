@@ -245,7 +245,7 @@ private:
         if(job.state==JobState::stale)message_.setText("Проект или источник изменён. Запустите конвертацию снова.",juce::dontSendNotification);
         if(started_&&job.state==JobState::placed)message_.setText("MIDI создан · Undo / Redo доступны",juce::dontSendNotification);
         const int height=running?480:results?560:placement_.target_track?520:400;
-        if(getHeight()!=height){if(auto* window=findParentComponentOfClass<juce::DocumentWindow>()){window->setContentComponentSize(640,height);if(auto* display=juce::Desktop::getInstance().getDisplays().getDisplayForRect(window->getBounds()))window->setBounds(window->getBounds().constrainedWithin(display->userArea));}else setSize(640,height);}
+        if(getHeight()!=height){if(auto* window=findParentComponentOfClass<juce::DocumentWindow>()){window->setContentComponentSize(640,height);if(auto* display=juce::Desktop::getInstance().getDisplays().getDisplayForRect(window->getBounds()))window->setBounds(window->getBounds().constrainedWithin(display->userBounds.toNearestInt()));}else setSize(640,height);}
 
     }
     int getNumRows()override{return static_cast<int>(roles_.size());}
@@ -259,7 +259,7 @@ private:
 };
 class TranscriptionWindow final:public juce::DocumentWindow {
 public:
-    TranscriptionWindow(Desktop& owner,juce::Component* content,const juce::String& title,std::unique_ptr<juce::DocumentWindow>& slot,bool atCursor=false):DocumentWindow(title,owner.theme.role(ColourRole::window,panel),closeButton),slot_(slot){setUsingNativeTitleBar(true);setLookAndFeel(&owner.theme);setContentOwned(content,true);setResizable(false,false);centreAroundComponent(&owner,getWidth(),getHeight());if(atCursor){const auto p=juce::Desktop::getMousePosition();if(auto* display=juce::Desktop::getInstance().getDisplays().getDisplayForPoint(p))setBounds(getBounds().withPosition(p).constrainedWithin(display->userArea));}setVisible(true);applyGraphiteWindowCaption(*this);}
+    TranscriptionWindow(Desktop& owner,juce::Component* content,const juce::String& title,std::unique_ptr<juce::DocumentWindow>& slot,bool atCursor=false):DocumentWindow(title,owner.theme.role(ColourRole::window,panel),closeButton),slot_(slot){setUsingNativeTitleBar(true);setLookAndFeel(&owner.theme);setContentOwned(content,true);setResizable(false,false);centreAroundComponent(&owner,getWidth(),getHeight());if(atCursor){const auto p=juce::Desktop::getMousePosition();if(auto* display=juce::Desktop::getInstance().getDisplays().getDisplayForPoint(p.toFloat()))setBounds(getBounds().withPosition(p).constrainedWithin(display->userBounds.toNearestInt()));}setVisible(true);applyGraphiteWindowCaption(*this);}
     ~TranscriptionWindow()override{clearContentComponent();setLookAndFeel(nullptr);}
     void closeButtonPressed()override{slot_.reset();}
 private:std::unique_ptr<juce::DocumentWindow>& slot_;
