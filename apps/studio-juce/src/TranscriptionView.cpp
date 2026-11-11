@@ -15,6 +15,7 @@ namespace fs=std::filesystem;
 using namespace mrs::transcription;
 fs::path path(const juce::File& f){return fs::path(f.getFullPathName().toWideCharPointer());}
 juce::String text(const std::string& s){return juce::String::fromUTF8(s.c_str());}
+juce::String utf8(const char* value){return juce::String::fromUTF8(value);}
 void need(bool b,const char* error){if(!b)throw std::runtime_error(error);}
 bool busy(JobState s){return s==JobState::running||s==JobState::cancelling;}
 bool preview(JobState s){return s==JobState::ready||s==JobState::empty;}
@@ -103,32 +104,35 @@ std::shared_ptr<TranscriptionSetup> setup(){
 namespace {
 juce::String instrumentName(std::string_view role){auto name=text(std::string(role)).replaceCharacter('_',' ');return name.substring(0,1).toUpperCase()+name.substring(1);}
 juce::String elapsed(double seconds){const auto s=static_cast<int>(seconds);return (s>=3600?juce::String(s/3600)+":":juce::String{})+juce::String((s/60)%60).paddedLeft('0',2)+":"+juce::String(s%60).paddedLeft('0',2);}
-void label(juce::Label& l,juce::Component& parent,const juce::String& value){l.setText(value,juce::dontSendNotification);l.setMinimumHorizontalScale(1.f);l.setJustificationType(juce::Justification::topLeft);parent.addAndMakeVisible(l);}
+juce::String rangeTime(mrs::Sample frames,std::uint32_t rate){return elapsed(static_cast<double>(frames/rate))+"."+juce::String(static_cast<int>((frames%rate)*1000/rate)).paddedLeft('0',3);}
+void label(juce::Label& l,juce::Component& parent,const juce::String& value){l.getProperties().set("mrExplicitLabelFont",true);l.setFont(Theme::browserFont());l.setText(value,juce::dontSendNotification);l.setMinimumHorizontalScale(1.f);l.setJustificationType(juce::Justification::topLeft);parent.addAndMakeVisible(l);}
 // One worker-driven progress view for stem and full mix. Chunk completion is
 // deliberately not advertised as an end-to-end percentage.
 class TranscriptionProgress final:public juce::Component {
 public:
     explicit TranscriptionProgress(Desktop& owner):owner_(owner),bar_(value_){
         label(model_,*this,"MuScriptor Medium");model_.setFont(owner.theme.font(20));label(context_,*this,{});label(chunks_,*this,{});label(operation_,*this,{});label(stages_,*this,{});
-        addAndMakeVisible(bar_);bar_.setTitle("Прогресс обработки");bar_.setPercentageDisplay(false);
+        context_.setColour(juce::Label::textColourId,owner.theme.role(ColourRole::muted,secondaryText));operation_.setColour(juce::Label::textColourId,owner.theme.role(ColourRole::focus,accent));
+        bar_.setColour(juce::ProgressBar::foregroundColourId,owner.theme.role(ColourRole::focus,accent));bar_.setColour(juce::ProgressBar::backgroundColourId,owner.theme.role(ColourRole::deep,surface));
+        addAndMakeVisible(bar_);bar_.setTitle(utf8("Прогресс обработки"));bar_.setPercentageDisplay(false);
     }
     void update(const JobStatus& job,bool stem,const juce::String& source){
         value_=busy(job.state)?-1.:job.state==JobState::ready||job.state==JobState::placed?1.:0.;
-        context_.setText((stem?juce::String("Stem → MIDI"):juce::String("Full Mix → MIDI"))+" · "+source,juce::dontSendNotification);
-        chunks_.setText("CHUNKS   "+(job.total?juce::String(job.completed)+" / "+juce::String(job.total):juce::String("—")),juce::dontSendNotification);
+        context_.setText((stem?juce::String(utf8("Stem → MIDI")):juce::String(utf8("Full Mix → MIDI")))+utf8(" · ")+source,juce::dontSendNotification);
+        chunks_.setText("CHUNKS   "+(job.total?juce::String(job.completed)+" / "+juce::String(job.total):juce::String(utf8("—"))),juce::dontSendNotification);
         juce::String operation;
         switch(job.phase){
-        case Phase::checking_files:case Phase::checking_runtime:operation="Проверка файлов";break;
-        case Phase::preparing_audio:case Phase::reading_audio:operation="Подготовка аудио";break;
-        case Phase::starting_worker:case Phase::importing_runtime:case Phase::loading_model:operation="Загрузка модели";break;
-        case Phase::recognizing:operation="Декодирование нот";if(job.total)operation+=" · Chunk "+juce::String((std::min)(job.completed+1,job.total));break;
-        case Phase::processing_midi:case Phase::exporting_midi:case Phase::validating_result:operation="Формирование MIDI";break;
-        case Phase::complete:operation="Распознавание завершено";break;
+        case Phase::checking_files:case Phase::checking_runtime:operation=utf8("Проверка файлов");break;
+        case Phase::preparing_audio:case Phase::reading_audio:operation=utf8("Подготовка аудио");break;
+        case Phase::starting_worker:case Phase::importing_runtime:case Phase::loading_model:operation=utf8("Загрузка модели");break;
+        case Phase::recognizing:operation=utf8("Декодирование нот");if(job.total)operation+=utf8(" · Chunk ")+juce::String((std::min)(job.completed+1,job.total));break;
+        case Phase::processing_midi:case Phase::exporting_midi:case Phase::validating_result:operation=utf8("Формирование MIDI");break;
+        case Phase::complete:operation=utf8("Распознавание завершено");break;
         }
-        if(job.state==JobState::cancelling)operation="Отмена обработки…";
-        operation_.setText(elapsed(job.elapsed_seconds)+"   ·   "+operation,juce::dontSendNotification);
-        const auto mark=[&](Phase phase){return job.phase>phase?juce::String("✓  "):job.phase==phase?juce::String("●  "):juce::String("○  ");};
-        stages_.setText(mark(Phase::loading_model)+"Загрузка модели        "+mark(Phase::recognizing)+"Декодирование нот\n"+mark(Phase::preparing_audio)+"Подготовка аудио       "+mark(Phase::processing_midi)+"Формирование MIDI",juce::dontSendNotification);
+        if(job.state==JobState::cancelling)operation=utf8("Отмена обработки…");
+        operation_.setText(elapsed(job.elapsed_seconds)+utf8("   ·   ")+operation,juce::dontSendNotification);
+        const auto mark=[&](Phase phase){return job.phase>phase?juce::String(utf8("✓  ")):job.phase==phase?juce::String(utf8("●  ")):juce::String(utf8("○  "));};
+        stages_.setText(mark(Phase::loading_model)+utf8("Загрузка модели        ")+mark(Phase::recognizing)+utf8("Декодирование нот\n")+mark(Phase::preparing_audio)+utf8("Подготовка аудио       ")+mark(Phase::processing_midi)+utf8("Формирование MIDI"),juce::dontSendNotification);
     }
     void resized()override{const int w=getWidth();model_.setBounds(0,0,w,32);context_.setBounds(0,38,w,24);bar_.setBounds(0,92,w,12);chunks_.setBounds(12,136,140,52);operation_.setBounds(160,136,w-172,52);stages_.setBounds(0,220,w,52);}
     void paint(juce::Graphics& g)override{g.setColour(owner_.theme.role(ColourRole::panel,surface));g.fillRoundedRectangle(0,128,static_cast<float>(getWidth()),64,6);}
@@ -139,12 +143,12 @@ class ModelManagerPanel final:public juce::Component,private juce::Timer {
 public:
     ModelManagerPanel(Desktop& owner):owner_(owner),setup_(owner.transcriptionSetup),bar_(progress_){
         label(title_,*this,"MuScriptor Medium");title_.setFont(owner.theme.font(20));
-        label(info_,*this,"CPU · Medium 307M · CC BY-NC 4.0\nВеса устанавливаются отдельно, с официального источника.");
-        label(status_,*this,{});terms_.setButtonText("У меня есть доступ; принимаю условия модели");addAndMakeVisible(terms_);
-        token_.setPasswordCharacter('*');token_.setTitle("HF read token — не сохраняется");token_.setTextToShowWhenEmpty("HF read token",owner.theme.role(ColourRole::muted,secondaryText));addAndMakeVisible(token_);
+        label(info_,*this,utf8("CPU · Medium 307M · CC BY-NC 4.0\nВеса устанавливаются отдельно, с официального источника."));
+        label(status_,*this,{});terms_.setButtonText(utf8("У меня есть доступ; принимаю условия модели"));addAndMakeVisible(terms_);
+        token_.setPasswordCharacter('*');token_.setTitle(utf8("HF read token — не сохраняется"));token_.setTextToShowWhenEmpty("HF read token",owner.theme.role(ColourRole::muted,secondaryText));addAndMakeVisible(token_);
         int id=0;for(auto* b:{&terms_link_,&download_,&local_,&verify_,&remove_,&runtime_install_,&runtime_verify_,&runtime_remove_}){addAndMakeVisible(b);b->setExplicitFocusOrder(++id);}
-        terms_link_.setButtonText("Условия модели ↗");download_.setButtonText("Установить Medium");local_.setButtonText("Из папки…");verify_.setButtonText("Проверить");remove_.setButtonText("Удалить модель");
-        runtime_install_.setButtonText("Установить Python runtime");runtime_verify_.setButtonText("Проверить runtime");runtime_remove_.setButtonText("Удалить runtime");
+        terms_link_.setButtonText(utf8("Условия модели ↗"));download_.setButtonText(utf8("Установить Medium"));local_.setButtonText(utf8("Из папки…"));verify_.setButtonText(utf8("Проверить"));remove_.setButtonText(utf8("Удалить модель"));
+        runtime_install_.setButtonText(utf8("Установить Python runtime"));runtime_verify_.setButtonText(utf8("Проверить runtime"));runtime_remove_.setButtonText(utf8("Удалить runtime"));
         terms_link_.onClick=[]{juce::URL("https://huggingface.co/MuScriptor/muscriptor-medium").launchInDefaultBrowser();};
         download_.onClick=[this]{invoke([&]{need(terms_.getToggleState(),"Accept the official model terms first");auto token=token_.getText().trim().toStdString();token_.clear();setup_->download(std::move(token),fixture_fetch_);});};
         local_.onClick=[this]{need(terms_.getToggleState(),"Accept the official model terms first");chooser_=std::make_unique<juce::FileChooser>("Choose authorized Medium folder");juce::Component::SafePointer<ModelManagerPanel> safe(this);chooser_->launchAsync(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectDirectories,[safe](const juce::FileChooser& f){if(safe&&f.getResult().isDirectory())safe->invoke([&]{safe->setup_->local(path(f.getResult()));});});};
@@ -158,7 +162,7 @@ public:
 private:
     friend void ::ui::transcriptionSmoke(const juce::File&);
     template<class F>void invoke(F f){try{f();error_.clear();}catch(const std::exception& e){error_=failure(e.what());}timerCallback();}
-    void timerCallback()override{setup_->poll();const auto s=setup_->status();const auto job=owner_.app.transcription_status();const bool available=!s.busy&&!busy(job.state)&&!preview(job.state);progress_=s.busy?s.progress:0.;status_.setText(error_.isNotEmpty()?error_:s.message+(s.runtime?"\nPython runtime установлен":"\nPython runtime не установлен"),juce::dontSendNotification);terms_.setEnabled(available);token_.setEnabled(available);download_.setEnabled(available&&!s.present&&terms_.getToggleState()&&token_.getText().trim().isNotEmpty());local_.setEnabled(available&&!s.present&&terms_.getToggleState());verify_.setEnabled(available&&s.present);remove_.setEnabled(available&&s.present);runtime_install_.setEnabled(available&&!s.runtime_present);runtime_verify_.setEnabled(available&&s.runtime_present);runtime_remove_.setEnabled(available&&s.runtime_present);}
+    void timerCallback()override{setup_->poll();const auto s=setup_->status();const auto job=owner_.app.transcription_status();const bool available=!s.busy&&!busy(job.state)&&!preview(job.state);progress_=s.busy?s.progress:0.;status_.setText(error_.isNotEmpty()?error_:s.message+(s.runtime?utf8("\nPython runtime установлен"):utf8("\nPython runtime не установлен")),juce::dontSendNotification);terms_.setEnabled(available);token_.setEnabled(available);download_.setEnabled(available&&!s.present&&terms_.getToggleState()&&token_.getText().trim().isNotEmpty());local_.setEnabled(available&&!s.present&&terms_.getToggleState());verify_.setEnabled(available&&s.present);remove_.setEnabled(available&&s.present);runtime_install_.setEnabled(available&&!s.runtime_present);runtime_verify_.setEnabled(available&&s.runtime_present);runtime_remove_.setEnabled(available&&s.runtime_present);}
     Desktop& owner_;std::shared_ptr<TranscriptionSetup> setup_;juce::Label title_,info_,status_;juce::ToggleButton terms_;juce::TextEditor token_;juce::TextButton terms_link_,download_,local_,verify_,remove_,runtime_install_,runtime_verify_,runtime_remove_;double progress_{};juce::ProgressBar bar_;juce::String error_;std::unique_ptr<juce::FileChooser> chooser_;ModelFetch fixture_fetch_;
 };
 
@@ -167,10 +171,10 @@ public:
     explicit TranscriptionPreferences(Desktop& owner):owner_(owner){
         label(nav_,*this,"Audio\n\nMIDI\n\nAudio-to-MIDI\n\nPlugins\n\nModels & Data");
         label(title_,*this,"Audio-to-MIDI");title_.setFont(owner.theme.font(22));
-        label(performance_,*this,"ПРОИЗВОДИТЕЛЬНОСТЬ");label(midi_,*this,"ПОВЕДЕНИЕ MIDI");
-        label(cpu_label_,*this,"CPU Threads");label(device_label_,*this,"Устройство вычислений");label(quantize_label_,*this,"Квантизация после импорта");label(grid_label_,*this,"Сетка / сила квантизации");label(velocity_label_,*this,"Velocity по умолчанию");label(hint_,*this,"Исходное время нот сохраняется при Quantization Off.\nVelocity — fallback, модель не распознаёт динамику.");
+        label(performance_,*this,utf8("ПРОИЗВОДИТЕЛЬНОСТЬ"));label(midi_,*this,utf8("ПОВЕДЕНИЕ MIDI"));
+        label(cpu_label_,*this,"CPU Threads");label(device_label_,*this,utf8("Устройство вычислений"));label(quantize_label_,*this,utf8("Квантизация после импорта"));label(grid_label_,*this,utf8("Сетка / сила квантизации"));label(velocity_label_,*this,utf8("Velocity по умолчанию"));label(models_label_,*this,utf8("Управление моделями"));models_label_.setFont(owner.theme.font(14));label(hint_,*this,utf8("Исходное время нот сохраняется при Quantization Off.\nVelocity — fallback, модель не распознаёт динамику."));
         cpu_.addItem("Auto",1);for(unsigned n=1;n<=(std::min)(32U,available_cpu_threads());++n)cpu_.addItem(juce::String(n),static_cast<int>(n+1));cpu_.setSelectedId((std::min)(owner.view.transcriptionCpuThreads,static_cast<int>((std::min)(32U,available_cpu_threads())))+1);
-        device_.addItem("CPU",1);device_.setSelectedId(1);device_.setTooltip("Установленный runtime поддерживает CPU");
+        device_.addItem("CPU",1);device_.setSelectedId(1);device_.setTooltip(utf8("Установленный runtime поддерживает CPU"));
         quantize_.addItem("Off",1);quantize_.addItem("On",2);quantize_.setSelectedId(owner.view.transcriptionQuantize?2:1);
         const juce::StringArray names{"1/4","1/8","1/16","1/32","1/8 T","1/16 T"};for(int i=0;i<names.size();++i)grid_.addItem(names[i],i+1);grid_.setSelectedId(owner.view.transcriptionGrid);
         strength_.setRange(0,100,1);strength_.setValue(owner.view.transcriptionStrength);strength_.setTextValueSuffix("%");strength_.setSliderStyle(juce::Slider::IncDecButtons);strength_.setTextBoxStyle(juce::Slider::TextBoxLeft,false,64,28);
@@ -180,11 +184,11 @@ public:
         compatibility_.setButtonText("Compatibility CPU (disable AVX2)");compatibility_.setToggleState(owner.view.transcriptionCompatibility,juce::dontSendNotification);addAndMakeVisible(compatibility_);
         const auto save=[this]{owner_.view.transcriptionCpuThreads=cpu_.getSelectedId()-1;owner_.view.transcriptionCompatibility=compatibility_.getToggleState();owner_.view.transcriptionQuantize=quantize_.getSelectedId()==2;owner_.view.transcriptionGrid=grid_.getSelectedId();owner_.view.transcriptionStrength=static_cast<int>(strength_.getValue());owner_.view.transcriptionVelocity=static_cast<int>(velocity_.getValue());grid_.setEnabled(owner_.view.transcriptionQuantize);strength_.setEnabled(owner_.view.transcriptionQuantize);owner_.saveSettings();};
         cpu_.onChange=save;quantize_.onChange=save;grid_.onChange=save;strength_.onValueChange=save;velocity_.onValueChange=save;compatibility_.onClick=save;grid_.setEnabled(owner.view.transcriptionQuantize);strength_.setEnabled(owner.view.transcriptionQuantize);
-        models_.setButtonText("Управление моделями   →");models_.onClick=[this]{showTranscriptionModels(owner_);};addAndMakeVisible(models_);setSize(800,580);
+        models_.setButtonText(utf8("Открыть →"));models_.onClick=[this]{showTranscriptionModels(owner_);};addAndMakeVisible(models_);setSize(800,580);
     }
-    void resized()override{const int x=208,w=getWidth()-x-28,r=getWidth()-220;nav_.setBounds(24,72,164,400);title_.setBounds(x,24,w,36);performance_.setBounds(x,84,w,24);cpu_label_.setBounds(x,124,w-200,32);cpu_.setBounds(r,124,192,32);device_label_.setBounds(x,172,w-200,32);device_.setBounds(r,172,192,32);compatibility_.setBounds(x,216,w,32);midi_.setBounds(x,272,w,24);quantize_label_.setBounds(x,312,w-200,32);quantize_.setBounds(r,312,192,32);grid_label_.setBounds(x,360,w-200,32);grid_.setBounds(r,360,88,32);strength_.setBounds(r+96,360,96,32);velocity_label_.setBounds(x,408,w-200,32);velocity_.setBounds(r,408,192,32);hint_.setBounds(x,452,w,48);models_.setBounds(x,520,w,36);}
-    void paint(juce::Graphics& g)override{g.fillAll(owner_.theme.role(ColourRole::window,panel));g.setColour(owner_.theme.role(ColourRole::panel,surface));g.fillRoundedRectangle(12,12,180,static_cast<float>(getHeight()-24),6);}
-private:Desktop& owner_;juce::Label nav_,title_,performance_,midi_,cpu_label_,device_label_,quantize_label_,grid_label_,velocity_label_,hint_;juce::ComboBox cpu_,device_,quantize_,grid_;juce::Slider strength_,velocity_;juce::ToggleButton compatibility_;juce::TextButton models_;
+    void resized()override{const int x=208,w=getWidth()-x-28,r=getWidth()-220;nav_.setBounds(24,72,164,400);title_.setBounds(x,24,w,36);performance_.setBounds(x,84,w,24);cpu_label_.setBounds(x,124,w-200,32);cpu_.setBounds(r,124,192,32);device_label_.setBounds(x,172,w-200,32);device_.setBounds(r,172,192,32);compatibility_.setBounds(x,216,w,32);midi_.setBounds(x,272,w,24);quantize_label_.setBounds(x,312,w-200,32);quantize_.setBounds(r,312,192,32);grid_label_.setBounds(x,360,w-200,32);grid_.setBounds(r,360,88,32);strength_.setBounds(r+96,360,96,32);velocity_label_.setBounds(x,408,w-200,32);velocity_.setBounds(r,408,192,32);hint_.setBounds(x,452,w,48);models_label_.setBounds(x,520,w-200,36);models_.setBounds(r,520,192,36);}
+    void paint(juce::Graphics& g)override{g.fillAll(owner_.theme.role(ColourRole::window,panel));g.setColour(owner_.theme.role(ColourRole::panel,surface));g.fillRoundedRectangle(12,12,180,static_cast<float>(getHeight()-24),6);g.setColour(owner_.theme.role(ColourRole::focus,accent).withAlpha(.18f));g.fillRoundedRectangle(20,122,164,28,4);g.setColour(owner_.theme.role(ColourRole::border,outline));for(int y:{68,260,508})g.drawHorizontalLine(y,208.f,static_cast<float>(getWidth()-28));}
+private:Desktop& owner_;juce::Label nav_,title_,performance_,midi_,cpu_label_,device_label_,quantize_label_,grid_label_,velocity_label_,hint_,models_label_;juce::ComboBox cpu_,device_,quantize_,grid_;juce::Slider strength_,velocity_;juce::ToggleButton compatibility_;juce::TextButton models_;
 };
 
 class TranscriptionPartsList final:public juce::ListBox {
@@ -197,15 +201,17 @@ public:
     TranscriptionPanel(Desktop& owner,std::optional<mrs::Id> source,mrs::TranscriptionPlacement placement)
         :owner_(owner),source_(std::move(source)),placement_(std::move(placement)),progress_(owner){
         capture_=owner_.app.services().projects->state();store_=owner_.app.services().projects;
-        label(title_,*this,"Convert to MIDI");title_.setFont(owner.theme.font(22));label(source_label_,*this,"Источник");label(source_info_,*this,{});label(model_label_,*this,"Модель распознавания");label(stem_label_,*this,"Инструмент партии · один вариант");label(hint_,*this,placement_.target_track?"Инструмент ограничивает MIDI-декодирование":"Распознанные партии появятся после обработки");label(message_,*this,{});label(selection_count_,*this,{});
-        model_.addItem("MuScriptor Medium",1);model_.setSelectedId(1);model_.setTitle("Модель распознавания");addAndMakeVisible(model_);
-        int id=1;for(const auto& role:mrs::ace_midi_instruments())stem_.addItem(instrumentName(role.role),id++);stem_.setSelectedId(1);stem_.setTitle("Инструмент партии");addAndMakeVisible(stem_);
+        label(title_,*this,"Convert to MIDI");title_.setFont(owner.theme.font(22));label(source_label_,*this,utf8("Источник"));label(source_info_,*this,{});label(model_label_,*this,utf8("Модель распознавания"));label(stem_label_,*this,utf8("Инструмент партии · один вариант"));label(hint_,*this,placement_.target_track?utf8("Инструмент ограничивает MIDI-декодирование"):utf8("Распознанные партии появятся после обработки"));label(message_,*this,{});label(selection_count_,*this,{});
+        model_.addItem("MuScriptor Medium",1);model_.setSelectedId(1);model_.setTitle(utf8("Модель распознавания"));addAndMakeVisible(model_);
+        for(auto* secondary:{&source_label_,&model_label_,&stem_label_,&hint_})secondary->setColour(juce::Label::textColourId,owner.theme.role(ColourRole::muted,secondaryText));source_info_.setFont(owner.theme.font(13));
+        int id=1;for(const auto& role:mrs::ace_midi_instruments())stem_.addItem(instrumentName(role.role),id++);stem_.setSelectedId(1);stem_.setTitle(utf8("Инструмент партии"));addAndMakeVisible(stem_);
         // Only exact canonical separation metadata is a safe preselection.
         if(source_)for(const auto& c:owner.project()->clips)if(c.id==*source_)
             for(const auto& record:owner.project()->separation_results)for(const auto& file:record.stems)if(file.source==c.source){int n=1;for(const auto& role:mrs::ace_midi_instruments()){if(role.role==file.role)stem_.setSelectedId(n);++n;}}
         for(auto* b:{&start_,&cancel_,&all_,&none_,&place_,&preferences_,&diagnostics_})addAndMakeVisible(b);
-        start_.setButtonText(placement_.target_track?"Конвертировать":"Распознать партии");cancel_.setButtonText("Отмена");all_.setButtonText("Выбрать все");none_.setButtonText("Снять все");preferences_.setButtonText("Preferences → Audio-to-MIDI");diagnostics_.setButtonText("Diagnostics");
-        start_.onClick=[this]{invoke([&]{need(source_.has_value(),"Select an audio clip");need(store_==owner_.app.services().projects&&capture_.revision==store_->state().revision,"Project changed; reopen Convert to MIDI");auto request=owner_.transcriptionSetup->pythonEngine();request.cpu_threads=static_cast<unsigned>(owner_.view.transcriptionCpuThreads);request.compatibility_cpu=owner_.view.transcriptionCompatibility;request.placement=placement_;request.placement.velocity=owner_.view.transcriptionVelocity;static constexpr mrs::Tick grids[]{mrs::ppq,mrs::ppq/2,mrs::ppq/4,mrs::ppq/8,mrs::ppq/3,mrs::ppq/6};request.placement.quantize_grid=owner_.view.transcriptionQuantize?grids[owner_.view.transcriptionGrid-1]:0;request.placement.quantize_strength=owner_.view.transcriptionStrength/100.;
+        start_.setButtonText(placement_.target_track?utf8("Конвертировать"):utf8("Распознать партии"));cancel_.setButtonText(utf8("Отмена"));all_.setButtonText(utf8("Выбрать все"));none_.setButtonText(utf8("Снять все"));preferences_.setButtonText(utf8("Preferences → Audio-to-MIDI"));diagnostics_.setButtonText("Diagnostics");
+        for(auto* primary:{&start_,&place_})primary->setColour(juce::TextButton::buttonColourId,owner.theme.role(ColourRole::window,panel).interpolatedWith(owner.theme.role(ColourRole::focus,accent),.24f));
+        start_.onClick=[this]{started_=false;invoke([&]{need(source_.has_value(),"Select an audio clip");need(store_==owner_.app.services().projects&&capture_.revision==store_->state().revision,"Project changed; reopen Convert to MIDI");auto request=owner_.transcriptionSetup->pythonEngine();request.cpu_threads=static_cast<unsigned>(owner_.view.transcriptionCpuThreads);request.compatibility_cpu=owner_.view.transcriptionCompatibility;request.placement=placement_;request.placement.velocity=owner_.view.transcriptionVelocity;static constexpr mrs::Tick grids[]{mrs::ppq,mrs::ppq/2,mrs::ppq/4,mrs::ppq/8,mrs::ppq/3,mrs::ppq/6};request.placement.quantize_grid=owner_.view.transcriptionQuantize?grids[owner_.view.transcriptionGrid-1]:0;request.placement.quantize_strength=owner_.view.transcriptionStrength/100.;
             if(placement_.target_track){need(stem_.getSelectedId()>0,"Choose one instrument");request.instruments={std::string(mrs::ace_midi_instruments()[static_cast<std::size_t>(stem_.getSelectedId()-1)].role)};}
             owner_.app.queue_transcription(*source_,owner_.transcriptionSetup->models(),std::move(request));started_=true;});};
         cancel_.onClick=[this]{if(!busy(owner_.app.transcription_status().state)){owner_.transcriptionWindow.reset();return;}owner_.app.cancel_transcription();started_=false;update();};
@@ -213,14 +219,14 @@ public:
         place_.onClick=[this]{invoke([&]{std::vector<std::string> roles;for(std::size_t i=0;i<roles_.size();++i)if(selected_[i])roles.push_back(roles_[i]);owner_.app.place_transcription(roles);capture_=owner_.app.services().projects->state();owner_.refresh();});};
         preferences_.onClick=[this]{showTranscriptionPreferences(owner_);};
         diagnostics_.onClick=[this]{auto editor=std::make_unique<juce::TextEditor>();editor->setMultiLine(true);editor->setReadOnly(true);editor->setSize(700,420);editor->setText(text(owner_.app.transcription_status().diagnostics));juce::DialogWindow::LaunchOptions o;o.content.setOwned(editor.release());o.dialogTitle="Audio-to-MIDI diagnostics";o.dialogBackgroundColour=owner_.theme.role(ColourRole::window,panel);o.componentToCentreAround=this;o.useNativeTitleBar=true;o.resizable=true;o.launchAsync();};
-        parts_.toggle=[this](int row){toggle(row);};parts_.setModel(this);parts_.setRowHeight(48);parts_.setTitle("Извлечённые MIDI-партии — пробел переключает выбор");addAndMakeVisible(parts_);addAndMakeVisible(progress_);setSize(640,520);startTimerHz(8);update();
+        parts_.toggle=[this](int row){toggle(row);};parts_.setModel(this);parts_.setRowHeight(48);parts_.setTitle(utf8("Извлечённые MIDI-партии — пробел переключает выбор"));addAndMakeVisible(parts_);addAndMakeVisible(progress_);setSize(640,520);startTimerHz(8);update();
     }
     ~TranscriptionPanel()override{stopTimer();owner_.app.cancel_transcription();parts_.setModel(nullptr);}
     void resized()override{
-        const int w=getWidth(),h=getHeight();title_.setBounds(24,16,w-48,40);source_label_.setBounds(24,76,w-48,24);source_info_.setBounds(24,104,w-48,40);model_label_.setBounds(24,160,w-48,24);model_.setBounds(24,192,w-48,36);stem_label_.setBounds(24,244,w-48,24);stem_.setBounds(24,276,w-48,36);hint_.setBounds(24,placement_.target_track?324:244,w-48,32);
+        const int w=getWidth(),h=getHeight();title_.setBounds(24,16,w-48,40);const int sourceX=placement_.target_track?24:36,sourceY=placement_.target_track?76:80;source_label_.setBounds(sourceX,sourceY,w-2*sourceX,24);source_info_.setBounds(sourceX,sourceY+28,w-2*sourceX,40);model_label_.setBounds(24,160,w-48,24);model_.setBounds(24,192,w-48,36);stem_label_.setBounds(24,244,w-48,24);stem_.setBounds(24,276,w-48,36);hint_.setBounds(24,placement_.target_track?324:244,w-48,32);
         progress_.setBounds(24,84,w-48,280);selection_count_.setBounds(24,72,w-48,24);parts_.setBounds(24,104,w-48,h-280);all_.setBounds(24,h-160,144,32);none_.setBounds(176,h-160,144,32);place_.setBounds(w-280,h-76,256,36);start_.setBounds(w-248,h-76,224,36);cancel_.setBounds(w-384,h-76,128,36);preferences_.setBounds(24,h-36,w-48,28);message_.setBounds(24,h-124,w-48,36);diagnostics_.setBounds(24,h-76,128,36);
     }
-    void paint(juce::Graphics& g)override{g.fillAll(owner_.theme.role(ColourRole::window,panel));g.setColour(owner_.theme.role(ColourRole::border,outline));g.drawHorizontalLine(64,24.f,static_cast<float>(getWidth()-24));}
+    void paint(juce::Graphics& g)override{g.fillAll(owner_.theme.role(ColourRole::window,panel));if(!placement_.target_track&&!progress_.isVisible()&&!parts_.isVisible()){g.setColour(owner_.theme.role(ColourRole::panel,surface));g.fillRoundedRectangle(24,72,static_cast<float>(getWidth()-48),80,6);}g.setColour(owner_.theme.role(ColourRole::border,outline));g.drawHorizontalLine(64,24.f,static_cast<float>(getWidth()-24));}
 private:
     friend void ::ui::transcriptionSmoke(const juce::File&);
     template<class F>void invoke(F f){try{message_.setText({},juce::dontSendNotification);f();}catch(const std::exception& e){message_.setText(failure(e.what()),juce::dontSendNotification);}update();}
@@ -228,24 +234,24 @@ private:
     void update(){
         const auto job=owner_.app.transcription_status();const auto model=owner_.transcriptionSetup->status();const bool running=busy(job.state),results=started_&&job.state==JobState::ready&&!placement_.target_track;
         const auto* result=owner_.app.transcription_preview();
-        if(started_&&job.state==JobState::ready&&placement_.target_track&&!placing_){placing_=true;try{owner_.app.place_transcription();capture_=owner_.app.services().projects->state();owner_.refresh();message_.setText("MIDI-клип создан на выбранной дорожке",juce::dontSendNotification);}catch(const std::exception& e){message_.setText(failure(e.what()),juce::dontSendNotification);owner_.app.cancel_transcription();}placing_=false;update();return;}
+        if(started_&&job.state==JobState::ready&&placement_.target_track&&!placing_){placing_=true;try{owner_.app.place_transcription();capture_=owner_.app.services().projects->state();owner_.refresh();message_.setText(utf8("MIDI-клип создан на выбранной дорожке"),juce::dontSendNotification);}catch(const std::exception& e){message_.setText(failure(e.what()),juce::dontSendNotification);owner_.app.cancel_transcription();}placing_=false;update();return;}
         if(results&&result&&signature_!=result->midi_sha256+result->clip_id.value){signature_=result->midi_sha256+result->clip_id.value;roles_.clear();for(const auto& note:result->notes)if(std::find(roles_.begin(),roles_.end(),note.instrument)==roles_.end())roles_.push_back(note.instrument);selected_.assign(roles_.size(),true);parts_.updateContent();}
-        title_.setText(running?"Audio-to-MIDI · Обработка":results?"Извлечённые MIDI-партии":"Convert to MIDI",juce::dontSendNotification);
-        bool hasSource=false;for(const auto& c:owner_.project()->clips)if(source_&&c.id==*source_&&!c.midi){hasSource=true;const auto rate=owner_.project()->sample_rate;source_info_.setText(text(c.name)+" · "+elapsed(static_cast<double>(placement_.range_offset)/rate)+"–"+elapsed(static_cast<double>(placement_.range_offset+placement_.range_length.value_or(c.length-placement_.range_offset))/rate),juce::dontSendNotification);}
+        title_.setText(running?utf8("Audio-to-MIDI · Обработка"):results?utf8("Извлечённые MIDI-партии"):"Convert to MIDI",juce::dontSendNotification);
+        bool hasSource=false;for(const auto& c:owner_.project()->clips)if(source_&&c.id==*source_&&!c.midi){hasSource=true;const auto rate=owner_.project()->sample_rate;source_info_.setText(text(c.name)+utf8(" · ")+rangeTime(placement_.range_offset,rate)+utf8("–")+rangeTime(placement_.range_offset+placement_.range_length.value_or(c.length-placement_.range_offset),rate),juce::dontSendNotification);}
         for(auto* c:std::initializer_list<juce::Component*>{&source_label_,&source_info_,&model_label_,&model_,&hint_})c->setVisible(!running&&!results);
         stem_label_.setVisible(!running&&!results&&placement_.target_track.has_value());stem_.setVisible(stem_label_.isVisible());
-        progress_.setVisible(running);progress_.update(job,placement_.target_track.has_value(),source_info_.getText());selection_count_.setVisible(results);parts_.setVisible(results);all_.setVisible(results);none_.setVisible(results);place_.setVisible(results);start_.setVisible(!running&&!results);cancel_.setVisible(true);preferences_.setVisible(!running&&!results&&(!model.model||!model.runtime));diagnostics_.setVisible(!job.diagnostics.empty()&&(job.state==JobState::failed||job.state==JobState::timeout));
-        const auto count=static_cast<int>(std::count(selected_.begin(),selected_.end(),true));selection_count_.setText("Отметьте партии для создания дорожек   ·   "+juce::String(count)+" из "+juce::String(static_cast<int>(roles_.size())),juce::dontSendNotification);place_.setButtonText("Создать MIDI-дорожки: "+juce::String(count));place_.setEnabled(job.state==JobState::ready&&count>0&&!owner_.app.recording()&&owner_.displayState().playback!=mrs::PlaybackState::playing);
-        if(!hasSource)source_info_.setText("Выберите аудиоклип в Arrange",juce::dontSendNotification);
+        progress_.setVisible(running);progress_.update(job,placement_.target_track.has_value(),source_info_.getText());selection_count_.setVisible(results);parts_.setVisible(results);all_.setVisible(results);none_.setVisible(results);place_.setVisible(results);start_.setVisible(!running&&!results);cancel_.setVisible(!results);preferences_.setVisible(!running&&!results&&(!model.model||!model.runtime));diagnostics_.setVisible(!job.diagnostics.empty()&&(job.state==JobState::failed||job.state==JobState::timeout));
+        const auto count=static_cast<int>(std::count(selected_.begin(),selected_.end(),true));selection_count_.setText(utf8("Отметьте партии для создания дорожек   ·   ")+juce::String(count)+utf8(" из ")+juce::String(static_cast<int>(roles_.size())),juce::dontSendNotification);place_.setButtonText(utf8("Создать MIDI-дорожки: ")+juce::String(count));place_.setEnabled(job.state==JobState::ready&&count>0&&!owner_.app.recording()&&owner_.displayState().playback!=mrs::PlaybackState::playing);
+        if(!hasSource)source_info_.setText(utf8("Выберите аудиоклип в Arrange"),juce::dontSendNotification);
         start_.setEnabled(hasSource&&!model.busy&&model.model&&model.runtime&&!preview(job.state)&&!running&&!owner_.app.recording());
-        if(model.model&&model.runtime&&message_.getText()=="Требуется установка → Preferences → Управление моделями")message_.setText({},juce::dontSendNotification);
-        if(!running&&!results&&message_.getText().isEmpty()&&(!model.model||!model.runtime))message_.setText("Требуется установка → Preferences → Управление моделями",juce::dontSendNotification);
-        if(job.state==JobState::empty)message_.setText("Нот не обнаружено",juce::dontSendNotification);
+        if(model.model&&model.runtime&&message_.getText()==utf8("Требуется установка → Preferences → Управление моделями"))message_.setText({},juce::dontSendNotification);
+        if(!running&&!results&&message_.getText().isEmpty()&&(!model.model||!model.runtime))message_.setText(utf8("Требуется установка → Preferences → Управление моделями"),juce::dontSendNotification);
+        if(job.state==JobState::empty)message_.setText(utf8("Нот не обнаружено"),juce::dontSendNotification);
         if(job.state==JobState::failed||job.state==JobState::timeout)message_.setText(failure(job.error),juce::dontSendNotification);
-        if(job.state==JobState::stale)message_.setText("Проект или источник изменён. Запустите конвертацию снова.",juce::dontSendNotification);
-        if(started_&&job.state==JobState::placed)message_.setText("MIDI создан · Undo / Redo доступны",juce::dontSendNotification);
+        if(job.state==JobState::stale)message_.setText(utf8("Проект или источник изменён. Запустите конвертацию снова."),juce::dontSendNotification);
+        if(started_&&job.state==JobState::placed)message_.setText(utf8("MIDI создан · Undo / Redo доступны"),juce::dontSendNotification);
         const int height=running?480:results?560:placement_.target_track?520:400;
-        if(getHeight()!=height){if(auto* window=findParentComponentOfClass<juce::DocumentWindow>()){window->setContentComponentSize(640,height);if(auto* display=juce::Desktop::getInstance().getDisplays().getDisplayForRect(window->getBounds()))window->setBounds(window->getBounds().constrainedWithin(display->userBounds.toNearestInt()));}else setSize(640,height);}
+        if(requested_height_!=height){requested_height_=height;if(auto* window=findParentComponentOfClass<juce::DocumentWindow>()){window->setContentComponentSize(640,height);if(auto* display=juce::Desktop::getInstance().getDisplays().getDisplayForRect(window->getBounds()))window->setBounds(window->getBounds().constrainedWithin(display->userBounds.toNearestInt()));}else setSize(640,height);}
 
     }
     int getNumRows()override{return static_cast<int>(roles_.size());}
@@ -254,7 +260,7 @@ private:
     void listBoxItemDoubleClicked(int,const juce::MouseEvent&)override{}
     void returnKeyPressed(int row)override{toggle(row);}
     void toggle(int row){if(row>=0&&row<getNumRows()){selected_[static_cast<std::size_t>(row)]=!selected_[static_cast<std::size_t>(row)];parts_.repaint();update();}}
-    Desktop& owner_;std::optional<mrs::Id> source_;mrs::TranscriptionPlacement placement_;mrs::ProjectState capture_;std::shared_ptr<mrs::IProjectStore> store_;bool started_{},placing_{};
+    Desktop& owner_;std::optional<mrs::Id> source_;mrs::TranscriptionPlacement placement_;mrs::ProjectState capture_;std::shared_ptr<mrs::IProjectStore> store_;bool started_{},placing_{};int requested_height_{};
     juce::Label title_,source_label_,source_info_,model_label_,stem_label_,hint_,message_,selection_count_;juce::ComboBox model_,stem_;juce::TextButton start_,cancel_,all_,none_,place_,preferences_,diagnostics_;TranscriptionProgress progress_;TranscriptionPartsList parts_;std::vector<std::string> roles_;std::vector<bool> selected_;std::string signature_;
 };
 class TranscriptionWindow final:public juce::DocumentWindow {
@@ -272,8 +278,8 @@ void showTranscription(Desktop& owner,std::optional<mrs::Id> source,mrs::Transcr
     if(!owner.transcriptionSetup)owner.transcriptionSetup=setup();
     owner.transcriptionWindow=std::make_unique<TranscriptionWindow>(owner,new TranscriptionPanel(owner,std::move(source),placement),"Audio-to-MIDI",owner.transcriptionWindow,placement.target_track.has_value());
 }
-void showTranscriptionPreferences(Desktop& owner){if(owner.standaloneLive)return;if(!owner.transcriptionSetup)owner.transcriptionSetup=setup();if(owner.transcriptionPreferencesWindow){owner.transcriptionPreferencesWindow->toFront(true);return;}owner.transcriptionPreferencesWindow=std::make_unique<TranscriptionWindow>(owner,new TranscriptionPreferences(owner),"Preferences → Audio-to-MIDI",owner.transcriptionPreferencesWindow);}
-void showTranscriptionModels(Desktop& owner){if(owner.standaloneLive)return;if(!owner.transcriptionSetup)owner.transcriptionSetup=setup();if(owner.transcriptionModelsWindow){owner.transcriptionModelsWindow->toFront(true);return;}owner.transcriptionModelsWindow=std::make_unique<TranscriptionWindow>(owner,new ModelManagerPanel(owner),"Audio-to-MIDI · Управление моделями",owner.transcriptionModelsWindow);}
+void showTranscriptionPreferences(Desktop& owner){if(owner.standaloneLive)return;if(!owner.transcriptionSetup)owner.transcriptionSetup=setup();if(owner.transcriptionPreferencesWindow){owner.transcriptionPreferencesWindow->toFront(true);return;}owner.transcriptionPreferencesWindow=std::make_unique<TranscriptionWindow>(owner,new TranscriptionPreferences(owner),utf8("Preferences → Audio-to-MIDI"),owner.transcriptionPreferencesWindow);}
+void showTranscriptionModels(Desktop& owner){if(owner.standaloneLive)return;if(!owner.transcriptionSetup)owner.transcriptionSetup=setup();if(owner.transcriptionModelsWindow){owner.transcriptionModelsWindow->toFront(true);return;}owner.transcriptionModelsWindow=std::make_unique<TranscriptionWindow>(owner,new ModelManagerPanel(owner),utf8("Audio-to-MIDI · Управление моделями"),owner.transcriptionModelsWindow);}
 void closeTranscription(Desktop& owner){owner.transcriptionWindow.reset();owner.transcriptionPreferencesWindow.reset();owner.transcriptionModelsWindow.reset();if(owner.transcriptionSetup)owner.transcriptionSetup->shutdown();owner.transcriptionSetup.reset();}
 
 void transcriptionSmoke(const juce::File& fake){
@@ -299,7 +305,7 @@ void transcriptionSmoke(const juce::File& fake){
     Desktop owner(true);owner.view.transcriptionBackend=2;owner.app.new_project(16000);owner.app.import_wavs({path(source)});owner.refresh();
     const auto clip=owner.project()->clips.front().id;const auto before=*owner.project();
     owner.transcriptionSetup=std::make_shared<TranscriptionSetup>(ModelStore(path(root.getChildFile("models")),spec),engine,runtime);
-    ModelManagerPanel manager(owner);manager.setLookAndFeel(&owner.theme);
+    ModelManagerPanel manager(owner);manager.setLookAndFeel(&owner.theme);need(manager.terms_.getButtonText()[0]==0x0423,"Model Manager caption UTF-8");
     const auto wait=[&](const std::function<bool()>& pending){const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(10);while(pending()){need(std::chrono::steady_clock::now()<until,"Transcription GUI timeout");manager.timerCallback();owner.app.poll();juce::Thread::sleep(2);}};
     wait([&]{return owner.transcriptionSetup->status().busy;});manager.timerCallback();need(!manager.download_.isEnabled(),"Uninstalled/unchecked state");
     manager.fixture_fetch_=[authorized](const std::string& url,const fs::path& destination,std::uint64_t bytes,std::stop_token stop,const ModelDownloadProgress& progress){need(model_download_target(url).authorize,"Fixture official origin");need(!stop.stop_requested(),"Fixture download cancelled");fs::copy_file(path(authorized.getChildFile(text(destination.filename().string()))),destination);if(progress)progress(bytes,bytes);};
@@ -319,8 +325,10 @@ void transcriptionSmoke(const juce::File& fake){
     const auto targetY=static_cast<float>(arrangement.headerHeight()+arrangement.trackY(1)+arrangement.trackHeight/2);const juce::Point<float> dropPoint{arrangement.left+180.f,targetY};arrangement.mouseDown(mouse(begin,juce::ModifierKeys::leftButtonModifier));arrangement.mouseDrag(mouse(dropPoint,juce::ModifierKeys::leftButtonModifier));need(*owner.project()==gestureBefore&&!owner.transcriptionWindow,"MIDI drop preview mutated project");snapshot(arrangement,"timeline-drop");
     arrangement.mouseUp(mouse(dropPoint,0));need(owner.transcriptionWindow&&*owner.project()==gestureBefore,"Instrument drop should open converter without audio placement");owner.transcriptionWindow.reset();arrangement.selectedAudioRange.reset();need(owner.app.undo(),"Remove gesture fixture target");owner.refresh();need(*owner.project()==before,"Gesture fixture restores baseline");
     showTranscription(owner,clip);auto* view=dynamic_cast<TranscriptionPanel*>(owner.transcriptionWindow->getContentComponent());need(view&&view->model_.getNumItems()==1&&view->start_.isEnabled()&&!view->stem_.isVisible(),"Compact full-mix start");
+    need(view->source_label_.getText()[0]==0x0418&&view->start_.getButtonText()[0]==0x0420,"Converter captions must decode UTF-8");
+    need(owner.theme.getLabelFont(view->title_).getHeight()>owner.theme.getLabelFont(view->source_label_).getHeight(),"Title font hierarchy must be honored by the shared Theme");
     snapshot(*view,"mix-start");TranscriptionPreferences prefs(owner);prefs.setLookAndFeel(&owner.theme);snapshot(prefs,"preferences");prefs.setLookAndFeel(nullptr);snapshot(manager,"models");
-    view->start_.onClick();owner.view.transcriptionVelocity=77;wait([&]{return busy(owner.app.transcription_status().state);});view->timerCallback();need(owner.app.transcription_status().state==JobState::ready&&view->roles_.size()==1&&view->place_.isEnabled(),"Real result list");view->none_.onClick();need(!view->place_.isEnabled(),"Zero selected disables create");view->all_.onClick();need(view->place_.isEnabled(),"Select all");snapshot(*view,"parts");
+    view->start_.onClick();owner.view.transcriptionVelocity=77;wait([&]{return busy(owner.app.transcription_status().state);});view->timerCallback();need(owner.app.transcription_status().state==JobState::ready&&view->roles_.size()==1&&view->place_.isEnabled(),"Real result list");view->none_.onClick();need(!view->place_.isEnabled(),"Zero selected disables create");view->all_.onClick();need(view->place_.isEnabled(),"Select all");need(!view->cancel_.isVisible()||!view->cancel_.getBounds().intersects(view->place_.getBounds()),"Result actions overlap");snapshot(*view,"parts");
     view->place_.onClick();need(owner.app.transcription_status().state==JobState::placed&&owner.project()->clips.size()==before.clips.size()+1&&owner.project()->clips.back().midi->notes.front().velocity==100,"Atomic mix placement and captured Preferences");const auto after=*owner.project();need(owner.app.undo()&&*owner.project()==before&&owner.app.redo()&&*owner.project()==after,"Mix Undo/Redo");
     // Undo/Redo changes the revision even when content returns to the same
     // value. An old launch dialog must not silently capture this newer state.
@@ -328,7 +336,7 @@ void transcriptionSmoke(const juce::File& fake){
     showTranscription(owner,clip);view=dynamic_cast<TranscriptionPanel*>(owner.transcriptionWindow->getContentComponent());need(view!=nullptr,"Reopen launch dialog with fresh revision");
     view->start_.onClick();wait([&]{return busy(owner.app.transcription_status().state);});view->timerCallback();need(view->place_.isEnabled(),"Fresh result must be selectable before revision change");owner.app.add_audio_track("Changed");view->timerCallback();need(owner.app.transcription_status().state==JobState::stale&&!view->place_.isEnabled(),"Stale result blocked");owner.transcriptionWindow.reset();
     const auto target=owner.app.add_instrument_track("Existing VSTi");owner.refresh();const auto stem_before=*owner.project();mrs::TranscriptionPlacement drop;drop.target_track=target;drop.position=8000;drop.range_offset=4000;drop.range_length=8000;
-    showTranscription(owner,clip,drop);view=dynamic_cast<TranscriptionPanel*>(owner.transcriptionWindow->getContentComponent());need(view&&view->stem_.isVisible(),"Stem has one instrument selector");int bass=1;for(const auto& role:mrs::ace_midi_instruments()){if(role.role=="electric_bass")break;++bass;}view->stem_.setSelectedId(bass,juce::dontSendNotification);snapshot(*view,"stem-start");view->start_.onClick();wait([&]{return busy(owner.app.transcription_status().state);});view->timerCallback();need(owner.app.transcription_status().state==JobState::placed&&owner.project()->tracks==stem_before.tracks&&owner.project()->clips.size()==stem_before.clips.size()+1&&owner.project()->clips.back().track==target,"Stem auto placement without result picker");const auto stem_after=*owner.project();need(owner.app.undo()&&*owner.project()==stem_before&&owner.app.redo()&&*owner.project()==stem_after,"Stem Undo/Redo");owner.transcriptionWindow.reset();
+    showTranscription(owner,clip,drop);view=dynamic_cast<TranscriptionPanel*>(owner.transcriptionWindow->getContentComponent());need(view&&view->stem_.isVisible(),"Stem has one instrument selector");need(view->stem_label_.getText()[0]==0x0418&&view->stem_label_.getText().indexOfChar(0x00b7)>=0&&view->source_info_.getText().contains("00:00.250"),"Stem caption UTF-8");int bass=1;for(const auto& role:mrs::ace_midi_instruments()){if(role.role=="electric_bass")break;++bass;}view->stem_.setSelectedId(bass,juce::dontSendNotification);snapshot(*view,"stem-start");view->start_.onClick();wait([&]{return busy(owner.app.transcription_status().state);});view->timerCallback();need(owner.app.transcription_status().state==JobState::placed&&owner.project()->tracks==stem_before.tracks&&owner.project()->clips.size()==stem_before.clips.size()+1&&owner.project()->clips.back().track==target,"Stem auto placement without result picker");const auto stem_after=*owner.project();need(owner.app.undo()&&*owner.project()==stem_before&&owner.app.redo()&&*owner.project()==stem_after,"Stem Undo/Redo");owner.transcriptionWindow.reset();
     wav(source,1);owner.app.new_project(16000);owner.app.import_wavs({path(source)});const auto new_clip=owner.project()->clips.front().id;showTranscription(owner,new_clip);view=dynamic_cast<TranscriptionPanel*>(owner.transcriptionWindow->getContentComponent());view->start_.onClick();view->timerCallback();snapshot(*view,"progress");view->cancel_.onClick();wait([&]{return busy(owner.app.transcription_status().state);});need(owner.project()->clips.size()==1,"Cancel mutated project");owner.transcriptionWindow.reset();showTranscription(owner,new_clip);need(owner.transcriptionWindow!=nullptr,"Reopen converter");closeTranscription(owner);need(fs::is_empty(path(jobs)),"GUI worker cleanup");
 }
 }
