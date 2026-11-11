@@ -1,50 +1,15 @@
-# SHARED Stage 4 — persistence/state/recovery
+# Shared Persistence — Project/Show documents and recovery
 
-**Stage5/#25 завершён2026-10-13 — 9/9**, #87 accepted/closed completed.
-Пользователь: «#87 пройдено, все сохраняется, undo/redo работает.». Все редакторы и #80 приняты ранее.
-Последняя принятая сборка0.3h upd2/source803774d, schema21/archive1; package/manifest/
-shortcut/source прежние. Использованы прежние full130/finalfocused3/persistence/GUI
-результаты; новых build/tests/аппаратных измерений не заявляем. [Контекст](PROJECT_CONTEXT.md).
-Следующий этап — только по выбору пользователя; AI Foundation пока backlog.
+**Canonical boundary (2026-11-11):** MR Studio owns a `.mrsproject` DAW document; MR Live is a **standalone app** with its own `.mrlive` show/item document. Both reuse Core serialization/storage infrastructure where applicable but **do not share a single open Studio ProjectDocument**. Source field order and schema/migrations are determined by the code, not an old milestone banner.
 
-0.3h upd2/#80: Chord.color optional24-bit RGB, schema21 добавляет presence/RGB
-в CHORDS records. Legacy1–20 defaults unset, прежнее оформление; archive1 и unknown
-chunks/plugin state сохраняются. Старые builds schema21 не читают.
-[Регрессии/контракт](MUSICAL_LANE_GESTURES_UPD2.md).
-
-## Актуализация 2026-10-12
-
-Текущая core Project schema — **21**, поддерживаемые readers — **1–21**;
-binary archive envelope остаётся **1**. Исторический Stage 4 scope ниже не является
-перечнем уже реализованных production-функций. Для редакторов Stage 5 действует
-[STAGE_5_PLAN.md](STAGE_5_PLAN.md): stable IDs, Undo/Redo/save в каждом slice,
-отказ до mutation при удалении связанных section/marker и сохранение unknown
-chunks/plugin state/preset names. Полный .mrlive/show UI остаётся будущим workflow.
-
-0.3e upd2: Marker.color — optional24-bit RGB, сериализация20 добавляет presence
-и RGB после kind в MARKERS. Readers1–19 оставляют цвет unset, сохраняя IDs,
-имена/позиции/kind/порядок/связи; UI использует legacy kind fallback. Новые
-сохранения используют20, старые приложения <20 их не читают. Цвет/rename/move
-имеют shared metadata commands/history; chunks/extensions/envelope1 прежние.
-
-One ProjectDocument is used by Arrange, Edit, Mix and Live. There is no export to
-a separate Live project. A ShowDocument stores a setlist of project ID/path
-references; two entries may refer to the same song. Relative paths are interpreted
-by the future shell relative to the show location. ID must be checked against the
-opened project before selecting its patch; show loading does not resolve files.
+The original Stage 4/Stage 5 implementations and version-21 notes in the previous introduction are historical; the schema has since advanced (notably snapshot schema35 for projects with Audio-to-MIDI provenance, as described below). No current-build version or user acceptance is inferred here. For current architecture see [ARCHITECTURE.md](ARCHITECTURE.md); for show state [MR_LIVE_NATIVE_INTEGRATION.md](MR_LIVE_NATIVE_INTEGRATION.md); for CI/acceptance see [AGENTS.md](../AGENTS.md) and Issues.
 
 ## Ownership
-Project-owned: core structure, timeline/chords/sections/cues, shared GraphState,
-opaque component/controller plugin state, parameter/bypass settings, mixer channel
-gain/pan/mute/solo state, logical-to-physical MIDI bindings, Live patch presets for
-the same graph, section-to-patch assignments, authored MIDI actions and notes.
-Show-owned: ordering, per-entry notes, optional patch reference, selected entry.
-Selected entry is a UI hint, never an instruction to start playback.
+Studio project-owned: DAW tracks/clips, timeline/chords/sections, GraphState, plugin/controller state, mixer/routing/automation, MIDI state and project-specific metadata.
 
-Mixer/Live/MIDI fields are persistence contracts. This stage does not implement
-mixer DSP, automatic patch switching, MIDI action execution, hardware MIDI or a
-VST3 host. An unavailable device or plugin reference loads without opening it.
-LivePatch is a graph preset, not a second engine. Plugin bytes are opaque.
+MR Live show-owned: setlist/order, items, own Playback/stems/channel and patch/sub-patch state, performance/cue settings and related stable references. The historical stage-4 `LIVE` chunk in Studio archives may remain for backward compatibility; it is **not** a claim that Live operates inside the Studio document. The exact persisted schema and migrations must be checked against current Store/Archive implementation.
+
+Stage-4 descriptions of unimplemented mixer DSP, MIDI and VST3 hosting refer only to that **historical implementation slice**, not today's feature status. Unavailable plugin/device references should be restored without attempting realtime activation; VST3 state remains opaque where required.
 
 ## Archive contract
 Binary envelope: ASCII MRSARCH1 (8 bytes), little-endian u32 archive version 1,
@@ -112,7 +77,7 @@ against the first valid candidate. It does not modify any files. If none validat
 it reports failure. Recovery currently covers project documents; show files have
 backup and explicit load, without an automatic show recovery worker.
 
-SharedSession injects one ProjectStore/Transport/GraphStore into all workspaces.
+Within a Studio application session, SharedSession injects ProjectStore/Transport/GraphStore into Studio workspaces; this does not merge MR Live's show document or application runtime with Studio.
 Capture reflects current core and graph edits and retains added metadata/unknown
 chunks. Loading starts stopped at sample zero, clears Undo, and never recreates
 audio-device handles, pending MIDI/parameter events, sounding notes or running
@@ -132,8 +97,7 @@ Existing core/audio/musical/processing suites run unchanged on Windows/Linux,
 Debug/Release; ASIO builds run the same contracts without hardware interaction.
 
 ## Document extensions — 2026-10-03 user decision
-Production documents use .mrsproject; Live show documents use .mrlive.
-The existing ShowDocument reference-based archive is the foundation for .mrlive;
+Studio projects use `.mrsproject`; standalone MR Live shows use `.mrlive`. Original reference-based `ShowDocument` is a historical serialization foundation, **not** a statement that today's Live items open Studio songs directly;
 no archive schema change or duplicate audio engine is required by the extension.
 The current production Files menu opens/saves projects and WAVs. Live show file
 commands and the separate show screen remain LIVE stage work.
