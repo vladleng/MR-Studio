@@ -10,6 +10,7 @@ on:
       - 'cmake/**'
       - 'CMakeLists.txt'
       - 'tools/ci/Prepare-Sdks.ps1'
+      - 'tools/ci/sdk-lock.json'
       - '.github/workflows/windows-juce-gui-compile.yml'
   push:
     branches: [main]
@@ -20,6 +21,7 @@ on:
       - 'cmake/**'
       - 'CMakeLists.txt'
       - 'tools/ci/Prepare-Sdks.ps1'
+      - 'tools/ci/sdk-lock.json'
       - '.github/workflows/windows-juce-gui-compile.yml'
 permissions:
   contents: read
