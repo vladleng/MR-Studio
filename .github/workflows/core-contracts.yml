@@ -1,10 +1,15 @@
 name: Fast Core contracts
 on:
+  workflow_call:
+    inputs:
+      checks:
+        type: string
+        default: profile
   push:
     branches: [main, 'codex/cloud-cicd-migration']
-    paths: ['core/**', 'cmake/**', 'third_party/**', 'apps/studio-desktop/**', 'tests/**', 'CMakeLists.txt', 'tools/ci/verify_release_gate.py', 'tools/ci/test_verify_release_gate.py', '.github/workflows/core-contracts.yml']
+    paths: ['core/**', 'cmake/**', 'third_party/**', 'apps/studio-desktop/**', 'tests/**', 'CMakeLists.txt', 'tools/ci/**', 'apps/studio-juce/**', 'sdk/**', '.github/workflows/core-contracts.yml']
   pull_request:
-    paths: ['core/**', 'cmake/**', 'third_party/**', 'apps/studio-desktop/**', 'tests/**', 'CMakeLists.txt', 'tools/ci/verify_release_gate.py', 'tools/ci/test_verify_release_gate.py', '.github/workflows/core-contracts.yml']
+    paths: ['core/**', 'cmake/**', 'third_party/**', 'apps/studio-desktop/**', 'tests/**', 'CMakeLists.txt', 'tools/ci/**', 'apps/studio-juce/**', 'sdk/**', '.github/workflows/core-contracts.yml']
   workflow_dispatch:
     inputs:
       checks:
@@ -17,7 +22,7 @@ permissions:
 # Cancel obsolete runs of this workflow on the same PR or branch.
 # Keep manual checks with distinct selections independent.
 concurrency:
-  group: fast-core-${{ github.event.pull_request.number || github.ref }}-${{ inputs.checks || 'profile' }}
+  group: ${{ github.workflow }}-fast-core-${{ github.event.pull_request.number || github.ref }}-${{ inputs.checks || 'profile' }}
   cancel-in-progress: true
 jobs:
   contracts:
@@ -27,27 +32,17 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 2
       - name: Release preflight gate unit tests
-        run: python3 -m unittest discover -s tools/ci -p 'test_verify_release_gate.py' -v
-      - name: Select explicitly requested check scope
-        id: scope
-        env:
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          skip=false
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
-            subject=$(git log -1 --format=%s "$PR_HEAD_SHA")
-            if [[ "$subject" == *"[ci live]"* ]]; then skip=true; fi
-          fi
-          echo "skip=$skip" >> "$GITHUB_OUTPUT"
-      - if: steps.scope.outputs.skip != 'true'
+        run: python3 -m unittest discover -s tools/ci -p 'test_*gate.py' -v
+      - name: Configure Core
         run: cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_VST3=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=OFF
-      - if: steps.scope.outputs.skip != 'true' && inputs.checks != 'live'
-        run: cmake --build build/core --target mrs_core_tests mrs_audio_to_midi_tests mrs_ace_midi_protocol_tests mrs_audio_to_midi_worker_tests mrs_python_transcription_tests mrs_transcription_controller_tests mrs_midi_import_tests mrs_core_check mrs_rig_tests mrs_ai_tests mrs_ai_query_tests mrs_ai_tool_tests mrs_sample_library_tests mrs_wav_import_tests mrs_desktop_tests mrs_clip_stretch_tests mrs_track_stretch_mode_tests mrs_clip_response_tests mrs_separation_assets_tests mrs_persistence_tests mr_timestretch_drums_tests mr_timestretch_drums_example mrs_stretch_contract_tests mrs_stretch_tests mrs_stretch_bench --parallel 2 -- -k
+      - if: inputs.checks != 'live'
+        run: cmake --build build/core --target mrs_audio_tests mrs_parallel_tests mrs_live_preload_tests mrs_core_tests mrs_audio_to_midi_tests mrs_ace_midi_protocol_tests mrs_audio_to_midi_worker_tests mrs_python_transcription_tests mrs_transcription_controller_tests mrs_midi_import_tests mrs_core_check mrs_rig_tests mrs_ai_tests mrs_ai_query_tests mrs_ai_tool_tests mrs_sample_library_tests mrs_wav_import_tests mrs_desktop_tests mrs_clip_stretch_tests mrs_track_stretch_mode_tests mrs_clip_response_tests mrs_separation_assets_tests mrs_persistence_tests mr_timestretch_drums_tests mr_timestretch_drums_example mrs_stretch_contract_tests mrs_stretch_tests mrs_stretch_bench --parallel 2 -- -k
       - name: Core contract test suite
-        if: steps.scope.outputs.skip != 'true' && inputs.checks != 'live'
-        run: ctest --test-dir build/core --output-on-failure --no-tests=error -R '^(core_.*|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|audio_sample_library|desktop_transcription_controller|desktop_audio_to_midi_worker|desktop_python_transcription|midi_import|desktop_wav_import|desktop_remove_tracks|desktop_clip_response|desktop_separation_assets|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$'
+        if: inputs.checks != 'live'
+        run: ctest --test-dir build/core --output-on-failure --no-tests=error -R '^(audio_(state_snapshot|transport|streaming|recording|pdc|callback_blocks|parallel_.*)|desktop_live_preload|core_.*|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|audio_sample_library|desktop_transcription_controller|desktop_audio_to_midi_worker|desktop_python_transcription|midi_import|desktop_wav_import|desktop_remove_tracks|desktop_clip_response|desktop_separation_assets|persistence_(show|roundtrip|migrations|compatibility|atomic|recovery))$'
       - if: inputs.checks == 'live'
         run: cmake --build build/core --target mrs_live_preload_tests --parallel 2
       - name: Live preload contract test suite

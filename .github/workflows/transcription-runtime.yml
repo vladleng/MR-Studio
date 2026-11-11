@@ -1,11 +1,16 @@
 name: MuScriptor Windows runtime contract
 on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['CMakeLists.txt', 'tools/ci/sdk-lock.json', 'apps/studio-desktop/src/*transcription*', 'apps/studio-desktop/include/mrs/*transcription*', 'apps/studio-juce/src/TranscriptionRuntime*', 'apps/studio-juce/src/SeparationModels*', 'tools/transcription/**', 'tools/transcription_runtime_check.cpp', 'cmake/TranscriptionProfile.cmake', 'cmake/Separation.cmake', '.github/workflows/transcription-runtime.yml']
   pull_request:
-    paths: ['apps/studio-juce/src/TranscriptionRuntime*', 'apps/studio-juce/src/SeparationModels*', 'tools/transcription/**', 'tools/transcription_runtime_check.cpp', 'cmake/TranscriptionProfile.cmake', 'cmake/Separation.cmake', '.github/workflows/transcription-runtime.yml']
+    paths: ['CMakeLists.txt', 'tools/ci/sdk-lock.json', 'apps/studio-desktop/src/*transcription*', 'apps/studio-desktop/include/mrs/*transcription*', 'apps/studio-juce/src/TranscriptionRuntime*', 'apps/studio-juce/src/SeparationModels*', 'tools/transcription/**', 'tools/transcription_runtime_check.cpp', 'cmake/TranscriptionProfile.cmake', 'cmake/Separation.cmake', '.github/workflows/transcription-runtime.yml']
 permissions:
   contents: read
 concurrency:
-  group: transcription-runtime-${{ github.ref }}
+  group: ${{ github.workflow }}-transcription-runtime-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   runtime:
@@ -15,6 +20,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Prepare pinned public JUCE core only
         shell: pwsh
         run: |
