@@ -4,9 +4,8 @@ name: Windows JUCE GUI compile
 on:
   pull_request:
     paths:
-      - 'apps/studio-juce/**'
+      - 'apps/studio-juce/src/**'
       - 'apps/studio-desktop/include/**'
-      - 'assets/ui/**'
       - 'cmake/**'
       - 'CMakeLists.txt'
       - 'tools/ci/Prepare-Sdks.ps1'
@@ -15,14 +14,14 @@ on:
   push:
     branches: [main]
     paths:
-      - 'apps/studio-juce/**'
+      - 'apps/studio-juce/src/**'
       - 'apps/studio-desktop/include/**'
-      - 'assets/ui/**'
       - 'cmake/**'
       - 'CMakeLists.txt'
       - 'tools/ci/Prepare-Sdks.ps1'
       - 'tools/ci/sdk-lock.json'
       - '.github/workflows/windows-juce-gui-compile.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -53,5 +52,8 @@ jobs:
       - name: Compile JUCE GUI sources using actual MSVC /WX flags
         shell: pwsh
         run: |
-          & msbuild build/gui-compile/MoonRiverStudioJuce.vcxproj /t:ClCompile /p:Configuration=Release /p:Platform=x64 /p:BuildProjectReferences=false /m:2 /verbosity:minimal
+          $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $msbuild=& $vswhere -latest -products '*' -requires Microsoft.Component.MSBuild -find 'MSBuild\\**\\Bin\\MSBuild.exe' | Select-Object -First 1
+          if(-not $msbuild){throw 'MSBuild.exe not found in installed Visual Studio'}
+          & $msbuild build/gui-compile/MoonRiverStudioJuce.vcxproj /t:ClCompile /p:Configuration=Release /p:Platform=x64 /p:BuildProjectReferences=false /m:2 /verbosity:minimal
           if($LASTEXITCODE){throw 'JUCE GUI MSVC compilation failed'}
