@@ -4,7 +4,7 @@ import subprocess
 
 SCOPES = {'profile', 'studio', 'studio-live', 'live', 'separation', 'separation-ui'}
 
-def verify_candidate(scope, integration, results):
+def required_checks(scope, integration):
     if scope not in SCOPES:
         raise ValueError(f'Unknown release scope: {scope}')
     required = {'core'}
@@ -14,7 +14,11 @@ def verify_candidate(scope, integration, results):
         required.add('separation')
     if scope != 'live' or integration:
         required.update({'contracts', 'runtime'})
-    for name in sorted(required):
+    return required
+
+
+def verify_candidate(scope, integration, results):
+    for name in sorted(required_checks(scope, integration)):
         if results.get(name) != 'success':
             raise ValueError(f'Required candidate check {name}: {results.get(name, "missing")}')
 
