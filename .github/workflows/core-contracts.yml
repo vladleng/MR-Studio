@@ -2,9 +2,9 @@ name: Fast Core contracts
 on:
   push:
     branches: [main, 'codex/cloud-cicd-migration']
-    paths: ['core/**', 'cmake/**', 'third_party/**', 'apps/studio-desktop/**', 'tests/**', 'CMakeLists.txt', '.github/workflows/core-contracts.yml']
+    paths: ['core/**', 'cmake/**', 'third_party/**', 'apps/studio-desktop/**', 'tests/**', 'CMakeLists.txt', 'tools/ci/verify_release_gate.py', 'tools/ci/test_verify_release_gate.py', '.github/workflows/core-contracts.yml']
   pull_request:
-    paths: ['core/**', 'cmake/**', 'third_party/**', 'apps/studio-desktop/**', 'tests/**', 'CMakeLists.txt', '.github/workflows/core-contracts.yml']
+    paths: ['core/**', 'cmake/**', 'third_party/**', 'apps/studio-desktop/**', 'tests/**', 'CMakeLists.txt', 'tools/ci/verify_release_gate.py', 'tools/ci/test_verify_release_gate.py', '.github/workflows/core-contracts.yml']
   workflow_dispatch:
     inputs:
       checks:

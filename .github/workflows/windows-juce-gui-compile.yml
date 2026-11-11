@@ -1,0 +1,59 @@
+name: Windows JUCE GUI compile
+# Compile JUCE GUI translation units with the real MSVC project flags before
+# the heavyweight, manually dispatched Windows Release. No app link or package.
+on:
+  pull_request:
+    paths:
+      - 'apps/studio-juce/src/**'
+      - 'apps/studio-desktop/include/**'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'tools/ci/Prepare-Sdks.ps1'
+      - 'tools/ci/sdk-lock.json'
+      - '.github/workflows/windows-juce-gui-compile.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/studio-juce/src/**'
+      - 'apps/studio-desktop/include/**'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'tools/ci/Prepare-Sdks.ps1'
+      - 'tools/ci/sdk-lock.json'
+      - '.github/workflows/windows-juce-gui-compile.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-juce-gui-compile-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  compile:
+    name: Compile JUCE GUI with MSVC (no link/package)
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify pinned public JUCE/VST3 SDKs (no ASIO)
+        shell: pwsh
+        run: ./tools/ci/Prepare-Sdks.ps1 -Root build/sdk -PublicGuiOnly
+      - name: Configure JUCE GUI without ASIO, ARA, Live or tests
+        shell: pwsh
+        run: |
+          cmake -S . -B build/gui-compile -G 'Visual Studio 17 2022' -A x64 -DBUILD_TESTING=OFF -DMRS_BUILD_DESKTOP=OFF -DMRS_BUILD_LIVE=OFF -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=ON -DMRS_BUILD_VST3=ON "-DMRS_JUCE_SDK_ROOT=$pwd/build/sdk/juce" "-DMRS_VST3_SDK_ROOT=$pwd/build/sdk/vst3"
+          if($LASTEXITCODE){throw 'GUI compile configure failed'}
+      - name: Generate and compile binary-data headers
+        shell: pwsh
+        run: |
+          cmake --build build/gui-compile --config Release --parallel 2 --target mrs_juce_assets mrs_concept_assets mrs_track_header_layout mrs_live_layout mrs_reverb_art mrs_control_assets
+          if($LASTEXITCODE){throw 'GUI generated assets failed'}
+      - name: Compile JUCE GUI sources using actual MSVC /WX flags
+        shell: pwsh
+        run: |
+          $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $msbuild=& $vswhere -latest -products '*' -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          if(-not $msbuild){throw 'MSBuild.exe not found in installed Visual Studio'}
+          & $msbuild build/gui-compile/MoonRiverStudioJuce.vcxproj /t:ClCompile /p:Configuration=Release /p:Platform=x64 /p:BuildProjectReferences=false /m:2 /verbosity:minimal
+          if($LASTEXITCODE){throw 'JUCE GUI MSVC compilation failed'}
