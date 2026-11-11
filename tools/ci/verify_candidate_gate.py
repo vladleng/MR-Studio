@@ -7,7 +7,11 @@ SCOPES = {'profile', 'studio', 'studio-live', 'live', 'separation', 'separation-
 def verify_candidate(scope, integration, results):
     if scope not in SCOPES:
         raise ValueError(f'Unknown release scope: {scope}')
-    required = {'core', 'gui'}
+    required = {'core'}
+    if scope != 'separation' or integration:
+        required.add('gui')
+    if scope in {'separation', 'separation-ui'}:
+        required.add('separation')
     if scope != 'live' or integration:
         required.update({'contracts', 'runtime'})
     for name in sorted(required):
@@ -19,5 +23,5 @@ if __name__ == '__main__':
     if sha != os.environ['GITHUB_SHA']:
         raise SystemExit('Candidate checkout SHA mismatch')
     verify_candidate(os.environ['RELEASE_CHECKS'], os.environ['INTEGRATION'] == 'true',
-                     {name: os.environ.get(name.upper()) for name in ('core','gui','contracts','runtime')})
+                     {name: os.environ.get(name.upper()) for name in ('core','gui','contracts','runtime','separation')})
     print(f'Candidate dependencies PASS at {sha}')

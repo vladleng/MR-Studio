@@ -31,6 +31,7 @@ jobs:
     uses: ./.github/workflows/core-contracts.yml
   gui:
     needs: core
+    if: inputs.checks != 'separation' || inputs.integration
     uses: ./.github/workflows/windows-juce-gui-compile.yml
     with:
       live: ${{ inputs.integration || inputs.checks == 'live' || inputs.checks == 'studio-live' || inputs.checks == 'profile' }}
@@ -42,8 +43,12 @@ jobs:
     needs: core
     if: inputs.checks != 'live' || inputs.integration
     uses: ./.github/workflows/transcription-runtime.yml
+  separation:
+    needs: core
+    if: inputs.checks == 'separation' || inputs.checks == 'separation-ui'
+    uses: ./.github/workflows/separation.yml
   preflight:
-    needs: [core, gui, contracts, runtime]
+    needs: [core, gui, contracts, runtime, separation]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -57,6 +62,7 @@ jobs:
           GUI: ${{ needs.gui.result }}
           CONTRACTS: ${{ needs.contracts.result }}
           RUNTIME: ${{ needs.runtime.result }}
+          SEPARATION: ${{ needs.separation.result }}
           RELEASE_CHECKS: ${{ inputs.checks }}
           INTEGRATION: ${{ inputs.integration }}
         run: python3 tools/ci/verify_candidate_gate.py
