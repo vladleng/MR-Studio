@@ -90,11 +90,45 @@ void hidden_history_saveas(){
     const auto destination=t.root/"collision";fs::create_directories(destination/"collision.assets"/"separation"/r.id.value);write(destination/"collision.assets"/"separation"/r.id.value/"vocals.wav","foreign");
     rejects([&]{app.save_project(destination/"collision.mrsproject");});std::ifstream input(destination/"collision.assets"/"separation"/r.id.value/"vocals.wav");std::string s;input>>s;check(s=="foreign","Foreign file overwritten");
 }
+void missing_result_save(bool save_as,bool missing_manifest){
+    Temp t;wav(t.root/"source.wav",9600);desktop::Application app;app.import_wav(t.root/"source.wav");const auto clip=app.services().projects->state().project->clips.front();
+    const auto lost=result(t.root/"lost",clip),kept=result(t.root/"kept",clip);
+    app.keep_separation(clip,lost,{});app.keep_separation(clip,kept,{});
+    const auto original=t.root/"one"/"project.mrsproject";app.save_project(original);
+    const auto missing=app.source_file(missing_manifest?lost.manifest.source:lost.stems.front().source);fs::remove(missing);
+    const auto before=*app.services().projects->state().project;const auto original_hash=sha256_file(original);
+    // A failed destination must not remove menu entries or change the saved file.
+    write(t.root/"blocked","file, not directory");rejects([&]{app.save_project(t.root/"blocked"/"project.mrsproject");});
+    check(*app.services().projects->state().project==before&&sha256_file(original)==original_hash,"Failed save pruned results or modified archive");
+    const auto destination=save_as?t.root/"two"/"project.mrsproject":original;
+    app.save_project(destination);const auto after=*app.services().projects->state().project;
+    check(after.separation_results.size()==1&&after.separation_results.front().id==kept.id,"Missing separation result was not pruned from menu");
+    check(after.clips==before.clips&&after.tracks==before.tracks&&!app.dirty(),"Pruning changed tracks/clips or left a successful save dirty");
+    const auto saved=persistence::load_project(destination);check(saved.project.separation_results.size()==1&&saved.project.separation_results.front().id==kept.id,"Missing result persisted in archive");
+    check(app.undo()&&*app.services().projects->state().project==before&&app.redo()&&*app.services().projects->state().project==after,"Pruning is not one reversible command");
+    const auto revision=app.services().projects->state().revision;app.save_project(destination);check(app.services().projects->state().revision==revision,"Repeated save created another cleanup edit");
+    desktop::Application reopened;reopened.open_project(destination);check(reopened.services().projects->state().project->separation_results.size()==1,"Pruned result returned on reopen");
+}
+void deleted_tracks_and_files_save(){
+    Temp t;wav(t.root/"source.wav",9600);desktop::Application app;app.import_wav(t.root/"source.wav");
+    auto clip=app.services().projects->state().project->clips.front();clip.length=4800;app.services().projects->execute(EditClip{clip});
+    const auto record=result(t.root/"job",clip);app.keep_separation(clip,record,{});app.place_separation(record,prepare(app,record));
+    const auto file=t.root/"saved"/"project.mrsproject";app.save_project(file);
+    std::vector<Id> tracks;for(const auto& track:app.services().projects->state().project->tracks)if(track.id!=clip.track)tracks.push_back(track.id);
+    app.remove_tracks(tracks);
+    fs::remove(app.source_file(record.manifest.source));for(const auto& stem:record.stems)fs::remove(app.source_file(stem.source));
+    const auto before=*app.services().projects->state().project;
+    app.save_project(file);check(app.services().projects->state().project->separation_results.empty(),"Deleted tracks/files left a result in menu");
+    check(app.services().projects->state().project->tracks==before.tracks&&app.services().projects->state().project->clips==before.clips,"Cleanup removed remaining audio");
+    check(persistence::load_project(file).project.separation_results.empty(),"Deleted result persisted after normal Save");
+}
 }
 int main(){try{
     hashes();
     for(const int stems:{1,2,3,4,6,53}){std::cerr<<"lifecycle stems="<<stems<<'\n';lifecycle(stems);}
     std::cerr<<"source_guard\n";source_guard();
     std::cerr<<"hidden_history_saveas\n";hidden_history_saveas();
+    for(const bool save_as:{false,true})for(const bool manifest:{false,true})missing_result_save(save_as,manifest);
+    deleted_tracks_and_files_save();
     std::cout<<"PASS separation assets: SHA256 vectors, stale guard, hidden/placement Undo/Redo, schema migration, Save/Open/Save As/moved project, missing media, foreign-file preservation\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

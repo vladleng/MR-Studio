@@ -22,6 +22,11 @@
 namespace mrs::desktop {
 namespace {
 void require(bool ok, const char* message) { if (!ok) throw std::invalid_argument(message); }
+struct PruneMissingSeparation final:ICommand {
+    std::vector<Id> ids;
+    std::string_view name()const override{return "Remove missing separation results";}
+    void apply(Project& project)const override{for(const auto& id:ids)RemoveSeparation{id}.apply(project);}
+};
 bool same_except_clips(const Project& a,const Project& b){
     const auto fields=[](const Project& p){return std::tie(p.version,p.id,p.title,p.artist,p.sample_rate,p.time,p.folders,p.tracks,p.markers,p.chords,p.sections,p.master_gain,p.master_outputs,p.master_inserts,p.ara_bindings,p.separation_results);};
     return fields(a)==fields(b);
@@ -550,21 +555,42 @@ void Application::save_project(const std::filesystem::path& requested) {
     }
     const auto root = path.parent_path();
     const bool relocating = !asset_root_.empty() && root != asset_root_;
-    std::set<std::string> keys, current;
-    for (const auto& clip : services_.projects->state().project->clips) if (!clip.midi && clip.source != "mrs:demo-tone") { keys.insert(clip.source); current.insert(clip.source); }
-    for(const auto& b:services_.projects->state().project->ara_bindings)if(b.source!="mrs:demo-tone")keys.insert(b.source);
-    for (const auto& [key,value] : assets_) { (void)value; if (key != "mrs:demo-tone") keys.insert(key); }
-    for(const auto& result:services_.projects->state().project->separation_results){
-        keys.insert(result.source);keys.insert(result.manifest.source);current.insert(result.manifest.source);
-        for(const auto& file:result.stems){keys.insert(file.source);current.insert(file.source);}
-    }
-    for(const auto& [key,value]:separation_files_){(void)value;keys.insert(key);}
-
     const auto resolve = [&](const std::string& key) {
         if (const auto found = owned_media_.find(key); found != owned_media_.end()) return found->second;
         auto source = std::filesystem::path(std::u8string(key.begin(),key.end()));
         return source.is_absolute() ? source : asset_root_/source;
     };
+    auto source_project=services_.projects->state().project;
+    PruneMissingSeparation cleanup;
+    const auto absent=[&](const SeparationFile& file){
+        const auto source=resolve(file.source);std::error_code error;
+        const bool exists=std::filesystem::exists(source,error);
+        if(error)throw std::filesystem::filesystem_error("Cannot inspect separation asset",source,error);
+        return !exists;
+    };
+    for(const auto& result:source_project->separation_results)
+        if(absent(result.manifest)||std::any_of(result.stems.begin(),result.stems.end(),absent))cleanup.ids.push_back(result.id);
+    std::unique_ptr<IProjectTransaction> cleanup_transaction;
+    if(!cleanup.ids.empty()){
+        auto candidate=*source_project;cleanup.apply(candidate);candidate.validate();
+        source_project=std::make_shared<const Project>(std::move(candidate));
+        cleanup.apply(document.project);
+        require(document.generation<std::numeric_limits<std::uint64_t>::max(),"generation overflow");++document.generation;
+        // Allocate the complete Undo transaction now; publish only after the
+        // archive has been saved successfully. Failure leaves the menu intact.
+        cleanup_transaction=services_.projects->prepare_transaction(&cleanup);
+        require(cleanup_transaction!=nullptr,"Project store cannot stage missing-result cleanup");
+    }
+    std::set<std::string> keys, current;
+    for (const auto& clip : source_project->clips) if (!clip.midi && clip.source != "mrs:demo-tone") { keys.insert(clip.source); current.insert(clip.source); }
+    for(const auto& b:source_project->ara_bindings)if(b.source!="mrs:demo-tone")keys.insert(b.source);
+    for (const auto& [key,value] : assets_) { (void)value; if (key != "mrs:demo-tone") keys.insert(key); }
+    for(const auto& result:source_project->separation_results){
+        keys.insert(result.source);keys.insert(result.manifest.source);current.insert(result.manifest.source);
+        for(const auto& file:result.stems){keys.insert(file.source);current.insert(file.source);}
+    }
+    for(const auto& [key,value]:separation_files_){(void)value;keys.insert(key);}
+
     bool needs_copy = relocating;
     for (const auto& key : keys) {
         const auto relative = resolve(key).lexically_normal().lexically_relative(root/"Media");
@@ -576,7 +602,7 @@ void Application::save_project(const std::filesystem::path& requested) {
     std::map<std::string,std::filesystem::path> owned;
     for (const auto& key : keys) {
         const auto source = resolve(key);
-        const bool ara_source=std::any_of(services_.projects->state().project->ara_bindings.begin(),services_.projects->state().project->ara_bindings.end(),[&](const auto& b){return b.source==key;});
+        const bool ara_source=std::any_of(source_project->ara_bindings.begin(),source_project->ara_bindings.end(),[&](const auto& b){return b.source==key;});
         if (!std::filesystem::exists(source)&&(!current.contains(key)||ara_source)) continue; // preserve missing ARA/Undo references
         if(const auto retained=separation_files_.find(key);retained!=separation_files_.end()){
             const auto& item=retained->second;
@@ -586,18 +612,18 @@ void Application::save_project(const std::filesystem::path& requested) {
         }else owned[key] = copies.media(source);
     }
     for (std::size_t i=0; i<document.project.clips.size(); ++i) {
-        const auto& original = services_.projects->state().project->clips[i].source;
+        const auto& original = source_project->clips[i].source;
         if (!document.project.clips[i].midi && original != "mrs:demo-tone") {
             const auto at=owned.find(original);document.project.clips[i].source=at!=owned.end()?media_ref(at->second.lexically_relative(root)):utf8(resolve(original));
         }
     }
     for(std::size_t i=0;i<document.project.separation_results.size();++i){
-        auto& saved=document.project.separation_results[i];const auto& live=services_.projects->state().project->separation_results[i];
+        auto& saved=document.project.separation_results[i];const auto& live=source_project->separation_results[i];
         const auto reference=[&](std::string& target,const std::string& key){const auto at=owned.find(key);target=at==owned.end()?utf8(resolve(key)):media_ref(at->second.lexically_relative(root));};
         reference(saved.source,live.source);reference(saved.manifest.source,live.manifest.source);
         for(std::size_t j=0;j<saved.stems.size();++j)reference(saved.stems[j].source,live.stems[j].source);
     }
-    for(auto& b:document.project.ara_bindings){const auto& bindings=services_.projects->state().project->ara_bindings;const auto original=std::find_if(bindings.begin(),bindings.end(),[&](const auto& item){return item.persistent_id==b.persistent_id;});
+    for(auto& b:document.project.ara_bindings){const auto& bindings=source_project->ara_bindings;const auto original=std::find_if(bindings.begin(),bindings.end(),[&](const auto& item){return item.persistent_id==b.persistent_id;});
         if(original!=bindings.end()){if(original->source=="mrs:demo-tone"){b.source=original->source;continue;}const auto at=owned.find(original->source);b.source=at!=owned.end()?media_ref(at->second.lexically_relative(root)):utf8(resolve(original->source));}}
     document.validate();
     if (copies.copied()) require_not_playing();
@@ -619,6 +645,7 @@ void Application::save_project(const std::filesystem::path& requested) {
         const bool retain=insert_runtime_.contains(std::string{})&&std::all_of(document.project.tracks.begin(),document.project.tracks.end(),[&](const auto& t){return t.kind==TrackKind::midi||insert_runtime_.contains(t.id.value);});
         rebuild_audio(retain); // retain prepared processors; bootstrap an empty offline graph if needed
     }
+    if(cleanup_transaction){cleanup_transaction->commit();cleanup_transaction->finish();}
     saved_project_revision_ = services_.projects->state().revision;
     saved_graph_revision_ = graphs_->state().revision; unsaved_ = false;
 }
